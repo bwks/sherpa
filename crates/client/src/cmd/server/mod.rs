@@ -12,7 +12,7 @@ mod user;
 
 use backup::backup;
 use clean::clean;
-pub use image::ImageKindFlags;
+pub use image::{ImageKindFlags, list_images, show_image};
 use image::{ServerImageCommands, image_commands};
 pub use rpc::{rpc_call, rpc_call_streaming};
 use status::status;

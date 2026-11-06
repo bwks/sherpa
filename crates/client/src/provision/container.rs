@@ -13,6 +13,7 @@ use topology::{Manifest, Node, Provisioner};
 use super::client_files::existing_client_file;
 
 /// The secret files of every container node with a container provisioner, by node name.
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn container_secrets(
     manifest: &Manifest,
     manifest_dir: &Path,
@@ -41,6 +42,7 @@ pub fn container_results(secrets: &BTreeMap<String, Vec<SecretFile>>) -> Vec<Pro
 }
 
 /// A node's secret files from its container provisioners, read from the client.
+#[tracing::instrument(level = "debug", skip_all, fields(node = %node.name))]
 pub fn node_secrets(node: &Node, manifest_dir: &Path) -> Result<Vec<SecretFile>> {
     let mut secrets = Vec::new();
     for provisioner in node.provisioners.as_deref().unwrap_or_default() {
@@ -143,15 +145,13 @@ model = "nats_bus"
     fn a_node_without_container_provisioners_has_no_secrets() {
         let dir = tempdir().unwrap();
         let manifest = manifest();
-        assert!(
-            node_secrets(&manifest.nodes[1], dir.path())
-                .unwrap()
-                .is_empty()
+        assert_eq!(
+            node_secrets(&manifest.nodes[1], dir.path()).unwrap(),
+            [] as [shared::data::SecretFile; 0]
         );
-        assert!(
-            node_secrets(&manifest.nodes[2], dir.path())
-                .unwrap()
-                .is_empty()
+        assert_eq!(
+            node_secrets(&manifest.nodes[2], dir.path()).unwrap(),
+            [] as [shared::data::SecretFile; 0]
         );
     }
 

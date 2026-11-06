@@ -1,20 +1,18 @@
 use anyhow::{Context, Result, bail, ensure};
 use clap::{Args, Subcommand};
 
-use shared::data::{
-    self, NodeConfig, NodeKind, NodeModel, ServerConnection, StatusKind, StatusMessage,
-};
+use shared::data::{self, NodeConfig, NodeKind, NodeModel, ServerConnection, StatusMessage};
 use shared::konst::{
     CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO, CONTAINER_HASHICORP_VAULT_REPO,
     CONTAINER_KEYCLOAK_REPO, CONTAINER_MONGO_DB_REPO, CONTAINER_NOKIA_SRLINUX_REPO,
 };
 use shared::util::{
-    Emoji, emoji_success, render_image_detail_table, render_images_table,
-    render_scanned_images_table,
+    emoji_success, render_image_detail_table, render_images_table, render_scanned_images_table,
 };
 
 use super::OutputFormat;
 use super::{rpc_call, rpc_call_streaming};
+use crate::cmd::progress::status_emoji;
 
 /// Which kind of image an image command works on: at most one may be given, and none means
 /// every kind.
@@ -231,7 +229,7 @@ pub async fn image_commands(
     }
 }
 
-async fn list_images(
+pub async fn list_images(
     model: Option<NodeModel>,
     kind: Option<NodeKind>,
     server_url: &str,
@@ -261,7 +259,7 @@ async fn list_images(
     Ok(())
 }
 
-async fn show_image(
+pub async fn show_image(
     model: NodeModel,
     version: Option<String>,
     server_url: &str,
@@ -492,12 +490,11 @@ async fn pull_container_image(
 
         if let Some(repo) = known_repo {
             let tag = version
-                .ok_or_else(|| anyhow::anyhow!("--version is required for model '{}'", model))?;
+                .ok_or_else(|| anyhow::anyhow!("--version is required for model '{model}'"))?;
             (repo.to_string(), tag.to_string())
         } else {
             bail!(
-                "--repo is required for model '{}'. Provide the full image reference (e.g., registry.io/account/image:version)",
-                model
+                "--repo is required for model '{model}'. Provide the full image reference (e.g., registry.io/account/image:version)"
             )
         }
     };
@@ -559,7 +556,7 @@ async fn download_vm_image(
     let request = data::DownloadImageRequest {
         model: *model,
         version: version.to_string(),
-        url: url.map(|u| u.to_string()),
+        url: url.map(std::string::ToString::to_string),
         default,
     };
 
@@ -624,13 +621,7 @@ fn print_status(msg_text: &str) {
     if let Ok(status_msg) = serde_json::from_str::<StatusMessage>(msg_text)
         && status_msg.r#type == "status"
     {
-        let emoji = match status_msg.kind {
-            StatusKind::Progress => Emoji::Progress,
-            StatusKind::Done => Emoji::Success,
-            StatusKind::Info => Emoji::Info,
-            StatusKind::Waiting => Emoji::Hourglass,
-        };
-        eprintln!("{} {}", emoji, status_msg.message);
+        eprintln!("{} {}", status_emoji(status_msg.kind), status_msg.message);
     }
 }
 

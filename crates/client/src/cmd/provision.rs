@@ -18,6 +18,7 @@ use crate::ws_client::{RpcRequest, WebSocketClient};
 
 /// Run the lab's node provisioners again, from the lab folder: the server rewrites container
 /// nodes' secret files, and the CLI runs ssh provisioners.
+#[tracing::instrument(skip_all, fields(?node))]
 pub async fn provision(node: Option<&str>, server_url: &str, config: &ClientConfig) -> Result<()> {
     let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
     let lab_id = manifest_lab_identity(&manifest)?.id;
@@ -59,25 +60,20 @@ pub async fn provision(node: Option<&str>, server_url: &str, config: &ClientConf
                     "token": token,
                 }),
             );
-            let result = match rpc_client.call(request).await {
-                Ok(response) => match (response.error, response.result) {
-                    (Some(error), _) => failed(&node_name, error.message),
-                    (None, Some(value)) => {
-                        match serde_json::from_value::<NodeSecretsResponse>(value) {
-                            Ok(written) => ProvisionResult {
-                                node: node_name,
-                                status: ProvisionStatus::Provisioned,
-                                detail: format!(
-                                    "{} secret files in {CONTAINER_SECRETS_DIR}",
-                                    written.files_written
-                                ),
-                            },
-                            Err(error) => {
-                                failed(&node_name, format!("Invalid server response: {error}"))
-                            }
-                        }
-                    }
-                    (None, None) => failed(&node_name, "Empty server response".to_string()),
+            let written = match rpc_client.call(request).await {
+                Ok(response) => {
+                    response.into_result::<NodeSecretsResponse>("Writing secret files failed")
+                }
+                Err(error) => Err(error),
+            };
+            let result = match written {
+                Ok(written) => ProvisionResult {
+                    node: node_name,
+                    status: ProvisionStatus::Provisioned,
+                    detail: format!(
+                        "{} secret files in {CONTAINER_SECRETS_DIR}",
+                        written.files_written
+                    ),
                 },
                 Err(error) => failed(&node_name, format!("{error:#}")),
             };

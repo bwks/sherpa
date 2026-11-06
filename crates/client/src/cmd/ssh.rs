@@ -1,7 +1,7 @@
+use std::fmt;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
-use std::process;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
@@ -24,11 +24,11 @@ use crate::ssh_client::{self, HostKeyRefresh, PromptScope};
 /// If the user provides just the node name (e.g. `dev01`), this appends
 /// the lab suffix so it becomes `dev01.a10736e8`.
 fn qualify_device_name(name: &str, lab_id: &str) -> String {
-    let suffix = format!(".{}", lab_id);
+    let suffix = format!(".{lab_id}");
     if name.ends_with(&suffix) || name.ends_with(&format!("{suffix}.{SHERPA_DOMAIN_NAME}")) {
         name.to_string()
     } else {
-        format!("{}{}", name, suffix)
+        format!("{name}{suffix}")
     }
 }
 
@@ -42,8 +42,20 @@ fn node_name<'a>(name: &'a str, lab_id: &str) -> &'a str {
     }
 }
 
+/// The node's shell ended with this non-zero exit code; `sherpa ssh` exits with it too.
+#[derive(Debug)]
+pub struct ShellExit(pub u8);
+
+impl fmt::Display for ShellExit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "The node's shell exited with code {}", self.0)
+    }
+}
+
+impl std::error::Error for ShellExit {}
+
 /// Open an interactive shell on a lab node, through the Sherpa server as the lab's SSH
-/// configuration says. A non-zero exit code from the node's shell ends the process with it.
+/// configuration says. A non-zero exit code from the node's shell is returned as a `ShellExit` error.
 #[tracing::instrument(skip(client_config), fields(%name, %lab_id))]
 pub async fn ssh(
     name: &str,
@@ -81,7 +93,7 @@ pub async fn ssh(
     }
     eprintln!("Connection to {qualified_name} closed.");
     if code != 0 {
-        process::exit(code);
+        return Err(ShellExit(u8::try_from(code).unwrap_or(1)).into());
     }
     Ok(())
 }
@@ -93,7 +105,7 @@ fn load_ssh_connection(name: &str, lab_id: &str, lab_dir: &Path) -> Result<Strin
         Ok(contents) => {
             let manifest: Manifest =
                 toml::from_str(&contents).context("Failed to parse lab manifest")?;
-            let node_name = unqualified_device_name(name, lab_id);
+            let node_name = node_name(name, lab_id);
             ensure!(
                 manifest.nodes.iter().any(|node| node.name == node_name),
                 "Node '{name}' not found in {SHERPA_MANIFEST_FILE}"
@@ -127,12 +139,6 @@ fn read_lab_connection_file(path: &Path, lab_id: &str) -> Result<String> {
     }
 }
 
-fn unqualified_device_name<'a>(name: &'a str, lab_id: &str) -> &'a str {
-    name.strip_suffix(&format!(".{lab_id}.{SHERPA_DOMAIN_NAME}"))
-        .or_else(|| name.strip_suffix(&format!(".{lab_id}")))
-        .unwrap_or(name)
-}
-
 fn prepare_ssh_connection(
     name: &str,
     lab_id: &str,
@@ -162,7 +168,7 @@ fn secure_legacy_key(name: &str, lab_id: &str, lab_info: &LabInfo, key_path: &Pa
         lab_info.id == lab_id,
         "Saved SSH metadata belongs to a different lab"
     );
-    let node_name = unqualified_device_name(name, lab_id);
+    let node_name = node_name(name, lab_id);
     if lab_info.ssh_username(node_name).is_none() {
         restrict_secret_permissions(key_path, SSH_PRIVATE_KEY_ERROR_LABEL)
             .context("Failed to secure SSH private key before connecting")?;

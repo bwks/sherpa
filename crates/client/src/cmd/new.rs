@@ -6,20 +6,14 @@ use topology::Manifest;
 
 pub fn new(force: bool) -> Result<()> {
     if file_exists(SHERPA_MANIFEST_FILE) && !force {
-        println!(
-            "{} already exists. Use --force to overwrite.",
-            SHERPA_MANIFEST_FILE
-        );
+        println!("{SHERPA_MANIFEST_FILE} already exists. Use --force to overwrite.");
         return Ok(());
     }
 
     let manifest = Manifest::example()?;
     manifest.write_file(SHERPA_MANIFEST_FILE)?;
 
-    println!(
-        "Created {} with example lab manifest.",
-        SHERPA_MANIFEST_FILE
-    );
+    println!("Created {SHERPA_MANIFEST_FILE} with example lab manifest.");
 
     Ok(())
 }

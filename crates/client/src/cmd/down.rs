@@ -1,8 +1,7 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use std::time::Duration;
 
 use shared::data::{ClientConfig, LabNodeActionResponse};
-use shared::error::RpcErrorCode;
 use shared::util::{Emoji, term_msg_surround};
 
 use crate::cmd::outcome::ensure_nodes_succeeded;
@@ -10,6 +9,7 @@ use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
 /// Shutdown lab nodes via WebSocket RPC to sherpad server
+#[tracing::instrument(skip_all, fields(%lab_name, %lab_id, ?node_name))]
 pub async fn down(
     lab_name: &str,
     lab_id: &str,
@@ -23,16 +23,7 @@ pub async fn down(
     };
     term_msg_surround(&action_msg);
 
-    // Load authentication token
-    let token = match load_token() {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("\n{} Authentication required", Emoji::Error);
-            eprintln!("   Please run: sherpa login");
-            eprintln!("   Error: {}", e);
-            bail!("Authentication token not found");
-        }
-    };
+    let token = load_token()?;
 
     // Create WebSocket client
     let timeout = Duration::from_secs(config.server_connection.timeout_secs);
@@ -62,7 +53,7 @@ pub async fn down(
 
     // Send request and wait for response
     let status_msg = match node_name {
-        Some(name) => format!("Stopping node {}...", name),
+        Some(name) => format!("Stopping node {name}..."),
         None => "Stopping lab nodes...".to_string(),
     };
     println!("{}", status_msg);
@@ -72,29 +63,7 @@ pub async fn down(
     rpc_client.close().await.ok();
 
     // Handle response
-    if let Some(error) = response.error {
-        eprintln!("\n{} Server Error:", Emoji::Error);
-        eprintln!("   Message: {}", error.message);
-        eprintln!("   Code: {}", error.code);
-        if let Some(context) = error.context {
-            eprintln!("   Context:\n{}", context);
-        }
-
-        if error.code == RpcErrorCode::AuthRequired {
-            eprintln!(
-                "\n{} Your authentication token has expired or is invalid",
-                Emoji::Error
-            );
-            eprintln!("   Please run: sherpa login");
-        }
-
-        bail!("Down operation failed");
-    }
-
-    let result = response.result.context("No result in response")?;
-
-    let action_response: LabNodeActionResponse =
-        serde_json::from_value(result).context("Failed to parse down response")?;
+    let action_response: LabNodeActionResponse = response.into_result("Down operation failed")?;
 
     for node_result in &action_response.results {
         if node_result.success {

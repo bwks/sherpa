@@ -15,9 +15,9 @@ use topology::{Manifest, process_manifest_bridges, process_manifest_links};
 
 pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     // Load manifest
-    util::term_msg_underline(&format!("Loading Manifest: {}", manifest_path));
+    util::term_msg_underline(&format!("Loading Manifest: {manifest_path}"));
     let manifest = Manifest::load_file(manifest_path)
-        .context(format!("Failed to load manifest from '{}'", manifest_path))?;
+        .context(format!("Failed to load manifest from '{manifest_path}'"))?;
 
     validate_tailscale(&manifest)?;
     println!("✓ Manifest loaded successfully");
@@ -64,7 +64,7 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     // Per-node validators
     println!("→ Checking interface configurations...");
     for node in &nodes_expanded {
-        let node_image = get_node_image(&node.model, &node_images)?;
+        let node_image = get_node_image(node.model, &node_images)?;
 
         // Management interface check
         if !node_image.dedicated_management_interface {
@@ -89,7 +89,7 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
 
     println!("→ Checking performance tuning...");
     for node in &nodes_expanded {
-        let node_image = get_node_image(&node.model, &node_images)?;
+        let node_image = get_node_image(node.model, &node_images)?;
         check_performance_tuning(node, &node_image)?;
         check_watchdog(node, &node_image)?;
         check_ptx_platform(node, &node_image)?;

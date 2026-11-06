@@ -1,20 +1,21 @@
 use std::fs;
-use std::io::{self, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result, ensure};
 use base64::{Engine as _, engine::general_purpose};
 use clap::Subcommand;
 
+use shared::auth::jwt::Claims;
 use shared::data::{self, ServerConnection};
 use shared::konst::SSH_KEYS_DOCS_URL;
 use shared::util::{
-    emoji_success, emoji_warning, expand_path, normalize_username, render_ssh_keys_table,
+    confirm, emoji_success, emoji_warning, expand_path, normalize_username, render_ssh_keys_table,
 };
 use shared::validators::validate_username;
 
 use super::OutputFormat;
 use super::rpc_call;
+use crate::token::load_token;
 
 #[derive(Debug, Subcommand)]
 pub enum UserCommands {
@@ -75,7 +76,7 @@ pub enum SshKeyCommands {
 
     /// Add an SSH public key
     Add {
-        /// The public key, or the path to a public key file such as ~/.ssh/id_ed25519.pub
+        /// The public key, or the path to a public key file such as ~/.`ssh/id_ed25519.pub`
         key: String,
 
         /// User to add the key to (defaults to current user; admins may name any user)
@@ -219,7 +220,7 @@ async fn ssh_key_commands(
 fn target_user(user: Option<&str>) -> Result<String> {
     match user {
         Some(name) => Ok(name.to_string()),
-        None => extract_username_from_token(),
+        None => username_from_token(&load_token()?),
     }
 }
 
@@ -349,9 +350,11 @@ async fn list_users(
                     );
                     let created = jiff::Timestamp::from_second(user.created_at)
                         .ok()
-                        .map(|ts| ts.strftime("%Y-%m-%d %H:%M:%S UTC").to_string())
-                        .unwrap_or_else(|| "Unknown".to_string());
-                    println!("    Created: {}", created);
+                        .map_or_else(
+                            || "Unknown".to_string(),
+                            |ts| ts.strftime("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                        );
+                    println!("    Created: {created}");
                     println!();
                 }
             }
@@ -369,22 +372,13 @@ async fn delete_user(
     output_format: &OutputFormat,
 ) -> Result<()> {
     // Confirm deletion unless --force flag is set
-    if !force {
-        print!(
-            "Are you sure you want to delete user '{}'? This action cannot be undone. [y/N]: ",
-            username
-        );
-        io::stdout().flush()?;
-
-        let mut response = String::new();
-        io::stdin()
-            .read_line(&mut response)
-            .context("Failed to read confirmation")?;
-
-        if !matches!(response.trim().to_lowercase().as_str(), "y" | "yes") {
-            println!("Deletion cancelled");
-            return Ok(());
-        }
+    if !force
+        && !confirm(&format!(
+            "Are you sure you want to delete user '{username}'? This action cannot be undone."
+        ))?
+    {
+        println!("Deletion cancelled");
+        return Ok(());
     }
 
     let request = data::DeleteUserRequest {
@@ -503,14 +497,18 @@ async fn get_user_info(
             }
             let created = jiff::Timestamp::from_second(user.created_at)
                 .ok()
-                .map(|ts| ts.strftime("%Y-%m-%d %H:%M:%S UTC").to_string())
-                .unwrap_or_else(|| "Unknown".to_string());
+                .map_or_else(
+                    || "Unknown".to_string(),
+                    |ts| ts.strftime("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                );
             let updated = jiff::Timestamp::from_second(user.updated_at)
                 .ok()
-                .map(|ts| ts.strftime("%Y-%m-%d %H:%M:%S UTC").to_string())
-                .unwrap_or_else(|| "Unknown".to_string());
-            println!("  Created: {}", created);
-            println!("  Updated: {}", updated);
+                .map_or_else(
+                    || "Unknown".to_string(),
+                    |ts| ts.strftime("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                );
+            println!("  Created: {created}");
+            println!("  Updated: {updated}");
             println!();
         }
     }
@@ -518,24 +516,19 @@ async fn get_user_info(
     Ok(())
 }
 
-/// Parse JWT to extract the current username from the "sub" claim.
-fn extract_username_from_token() -> Result<String> {
-    let token = crate::token::load_token().context("Not authenticated. Please login first.")?;
-
-    let parts: Vec<&str> = token.split('.').collect();
-    if parts.len() != 3 {
-        anyhow::bail!("Invalid token format");
-    }
-    let payload = general_purpose::STANDARD_NO_PAD
-        .decode(parts[1])
-        .context("Failed to decode token")?;
-    let payload_str = String::from_utf8(payload).context("Invalid token payload")?;
-    let payload_json: serde_json::Value =
-        serde_json::from_str(&payload_str).context("Failed to parse token payload")?;
-    payload_json["sub"]
-        .as_str()
-        .context("No username in token")
-        .map(|s| s.to_string())
+/// The username a login `token` is for: its `sub` claim. The signature is not checked: this only
+/// picks the default user, and the server checks the token on every call.
+fn username_from_token(token: &str) -> Result<String> {
+    let payload = token
+        .split('.')
+        .nth(1)
+        .context("The login token is not a JWT; run: sherpa login")?;
+    let payload = general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .context("Failed to decode the login token")?;
+    let claims: Claims =
+        serde_json::from_slice(&payload).context("Failed to parse the login token")?;
+    Ok(claims.sub)
 }
 
 /// Ask for a new password with `prompt`, then again to confirm it. It is always typed, never
@@ -559,6 +552,20 @@ mod tests {
     use clap::Parser;
 
     use super::*;
+
+    #[test]
+    fn the_username_is_read_from_a_base64url_token() {
+        let claims = br#"{"sub":"dev","exp":1,"iat":1,"is_admin":false,"x":"??>>~~"}"#;
+        let payload = general_purpose::URL_SAFE_NO_PAD.encode(claims);
+        assert!(payload.contains(['-', '_']), "{payload}");
+        let token = format!("header.{payload}.signature");
+        assert_eq!(username_from_token(&token).unwrap(), "dev");
+    }
+
+    #[test]
+    fn a_token_that_is_not_a_jwt_is_refused() {
+        assert!(username_from_token("not-a-jwt").is_err());
+    }
 
     #[test]
     fn a_new_password_must_be_typed_the_same_twice() {

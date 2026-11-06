@@ -1,3 +1,7 @@
+use std::fmt::Write as _;
+
+use anyhow::{Context, Result, anyhow};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use shared::error::RpcErrorCode;
 use uuid::Uuid;
@@ -36,5 +40,38 @@ impl RpcRequest {
             method: method.into(),
             params,
         }
+    }
+}
+
+impl RpcResponse {
+    /// The result of the call, parsed as `R`. `failure` says what failed, such as "Lab creation
+    /// failed", and starts the error when the server returned one.
+    ///
+    /// # Errors
+    ///
+    /// Fails with the server's error, when there is no result, or when it does not parse.
+    pub fn into_result<R: DeserializeOwned>(self, failure: &str) -> Result<R> {
+        if let Some(error) = self.error {
+            return Err(error.into_error(failure));
+        }
+        let result = self
+            .result
+            .with_context(|| format!("{failure}: the server sent no result"))?;
+        serde_json::from_value(result)
+            .with_context(|| format!("{failure}: the server's response does not parse"))
+    }
+}
+
+impl RpcError {
+    /// This error after `failure`, with how to log in again when the token was refused.
+    pub fn into_error(self, failure: &str) -> anyhow::Error {
+        let mut message = format!("{failure}: {} (code: {})", self.message, self.code);
+        if let Some(context) = self.context {
+            let _ = write!(message, "\n  Context: {context}");
+        }
+        if self.code == RpcErrorCode::AuthRequired {
+            message.push_str("\n  Your login has expired or is invalid; run: sherpa login");
+        }
+        anyhow!(message)
     }
 }

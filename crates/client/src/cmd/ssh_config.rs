@@ -36,6 +36,7 @@ impl ServerValidation {
     }
 }
 
+#[tracing::instrument(level = "debug", skip_all)]
 async fn fetch_active_lab_ids(server_url: &str, config: &ClientConfig) -> ServerValidation {
     let token = match load_token() {
         Ok(token) => token,
@@ -113,11 +114,11 @@ fn print_server_validation_warning(validation: &ServerValidation) {
 
 fn count_entries_with_status(
     entries: &[SshConfigInspectionEntry],
-    status: SshConfigEntryStatus,
+    status: &SshConfigEntryStatus,
 ) -> usize {
     entries
         .iter()
-        .filter(|entry| entry.status == status)
+        .filter(|entry| entry.status == *status)
         .count()
 }
 
@@ -142,8 +143,8 @@ pub async fn ssh_config_inspect(server_url: &str, config: &ClientConfig) -> Resu
 
     println!("\n{}", render_ssh_config_inspection_table(&report.entries));
 
-    let stale_count = count_entries_with_status(&report.entries, SshConfigEntryStatus::Stale);
-    let broken_count = count_entries_with_status(&report.entries, SshConfigEntryStatus::Broken);
+    let stale_count = count_entries_with_status(&report.entries, &SshConfigEntryStatus::Stale);
+    let broken_count = count_entries_with_status(&report.entries, &SshConfigEntryStatus::Broken);
     let stale_or_broken_count = stale_count + broken_count;
 
     if stale_or_broken_count > 0 {

@@ -73,6 +73,7 @@ fn resolve_server_url(cli_url: Option<String>, config: &ClientConfig) -> String 
 }
 
 /// Resolve lab info: try lab-info.toml first, fall back to inspect RPC.
+#[tracing::instrument(level = "debug", skip_all, fields(%lab_id))]
 async fn resolve_lab_info(
     lab_id: &str,
     server_url: &str,
@@ -80,7 +81,7 @@ async fn resolve_lab_info(
 ) -> Result<LabInfo> {
     // Fast path: try local lab-info.toml
     if let Ok(cwd) = get_cwd() {
-        let lab_info_path = format!("{}/{}", cwd, LAB_FILE_NAME);
+        let lab_info_path = format!("{cwd}/{LAB_FILE_NAME}");
         if file_exists(&lab_info_path)
             && let Ok(content) = load_file(&lab_info_path)
             && let Ok(lab_info) = LabInfo::from_str(&content)
@@ -119,22 +120,18 @@ async fn resolve_lab_info(
         .context("RPC inspect call failed")?;
     rpc_client.close().await.ok();
 
-    if let Some(error) = response.error {
-        bail!("Failed to fetch lab info from server: {}", error.message);
-    }
-
-    let result = response.result.context("No result in inspect response")?;
     let inspect_data: InspectResponse =
-        serde_json::from_value(result).context("Failed to parse inspect response")?;
+        response.into_result("Failed to fetch lab info from server")?;
 
     Ok(inspect_data.lab_info)
 }
 
 /// Resolve the Sherpa client base directory (~/.sherpa)
 fn sherpa_client_base_dir() -> String {
-    dirs::home_dir()
-        .map(|h| h.join(".sherpa").to_string_lossy().to_string())
-        .unwrap_or_else(|| ".sherpa".to_string())
+    dirs::home_dir().map_or_else(
+        || ".sherpa".to_string(),
+        |h| h.join(".sherpa").to_string_lossy().to_string(),
+    )
 }
 
 #[derive(Default, Debug, Parser)]
@@ -143,7 +140,7 @@ fn sherpa_client_base_dir() -> String {
 #[command(version = env!("CARGO_PKG_VERSION"))]
 #[command(about = "Sherpa - Network Lab Management", long_about = None)]
 pub struct Cli {
-    /// Remote server URL for WebSocket RPC (e.g., ws://localhost:3030/ws)
+    /// Remote server URL for WebSocket RPC (e.g., <ws://localhost:3030/ws>)
     #[arg(long, global = true, env = "SHERPA_SERVER_URL")]
     server_url: Option<String>,
 
@@ -284,206 +281,123 @@ enum CertCommands {
     List,
     /// Show detailed certificate information
     Show {
-        /// Server URL (e.g., wss://10.100.58.10:3030/ws)
+        /// Server URL (e.g., <wss://10.100.58.10:3030/ws>)
         server_url: String,
     },
     /// Trust a certificate without connecting
     Trust {
-        /// Server URL (e.g., wss://10.100.58.10:3030/ws)
+        /// Server URL (e.g., <wss://10.100.58.10:3030/ws>)
         server_url: String,
     },
     /// Delete a trusted certificate
     Delete {
-        /// Server URL (e.g., wss://10.100.58.10:3030/ws)
+        /// Server URL (e.g., <wss://10.100.58.10:3030/ws>)
         server_url: String,
     },
 }
 
 impl Cli {
+    /// Run the command line's command.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the command fails, with a non-zero exit from `main`.
     pub async fn run() -> Result<()> {
         let cli = Cli::parse();
         let sherpa = Sherpa::from_base_dir(sherpa_client_base_dir());
         match &cli.commands {
-            Commands::Login => {
-                let config = load_client_config_or_default(&sherpa.config_file_path)?;
-
-                let server_url = cli
-                    .server_url
-                    .or_else(get_server_url)
-                    .unwrap_or_else(|| build_client_websocket_url(&config));
-
-                login(&server_url, cli.insecure, &config).await?;
-            }
-            Commands::Logout => {
-                logout()?;
-            }
-            Commands::Whoami => {
-                let config = load_client_config_or_default(&sherpa.config_file_path)?;
-
-                let server_url = cli
-                    .server_url
-                    .or_else(get_server_url)
-                    .unwrap_or_else(|| build_client_websocket_url(&config));
-
-                whoami(&server_url, cli.insecure, &config).await?;
-            }
-            Commands::New { force } => {
-                new(*force)?;
-            }
-            Commands::Init { force } => {
-                init(&sherpa, *force)?;
-            }
-
-            Commands::Up => {
-                let manifest_obj = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-                let lab_id = manifest_lab_identity(&manifest_obj)?.id;
-                let lab_name = manifest_obj.name.clone();
+            Commands::Logout => logout(),
+            Commands::New { force } => new(*force),
+            Commands::Init { force } => init(&sherpa, *force),
+            Commands::Validate => validate_manifest(SHERPA_MANIFEST_FILE),
+            Commands::Cert { commands } => run_cert(commands).await,
+            command => {
                 let config =
                     load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
-
-                let server_url = resolve_server_url(cli.server_url, &config);
-                up(
-                    &lab_name,
-                    &lab_id,
-                    SHERPA_MANIFEST_FILE,
-                    &server_url,
-                    &config,
-                )
-                .await?;
-            }
-            Commands::Down { node } => {
-                let lab = resolve_lab_identity()?;
-                let config =
-                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
-
-                let server_url = resolve_server_url(cli.server_url, &config);
-                down(&lab.name, &lab.id, node.as_deref(), &server_url, &config).await?;
-            }
-            Commands::Resume { node } => {
-                let lab = resolve_lab_identity()?;
-                let config =
-                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
-
-                let server_url = resolve_server_url(cli.server_url, &config);
-                resume(&lab.name, &lab.id, node.as_deref(), &server_url, &config).await?;
-            }
-            Commands::Redeploy { node } => {
-                let manifest_obj = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-                let lab_id = manifest_lab_identity(&manifest_obj)?.id;
-                let lab_name = manifest_obj.name.clone();
-                let config =
-                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
-
-                let server_url = resolve_server_url(cli.server_url, &config);
-                redeploy(
-                    &lab_name,
-                    &lab_id,
-                    node,
-                    SHERPA_MANIFEST_FILE,
-                    &server_url,
-                    &config,
-                )
-                .await?;
-            }
-            Commands::Provision { node } => {
-                let config =
-                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
-
-                let server_url = resolve_server_url(cli.server_url, &config);
-                provision(node.as_deref(), &server_url, &config).await?;
-            }
-            Commands::Destroy { yes } => {
-                let lab = resolve_lab_identity()?;
-                let config =
-                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
-
-                let server_url = resolve_server_url(cli.server_url, &config);
-                destroy(&lab.name, &lab.id, &server_url, &config, *yes).await?;
-            }
-            Commands::Inspect => {
-                let lab = resolve_lab_identity()?;
-                let config =
-                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
-
-                let server_url = resolve_server_url(cli.server_url, &config);
-                inspect(&lab.name, &lab.id, &server_url, &config).await?;
-            }
-            Commands::Download { lab_id, force } => {
-                let config =
-                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
-
-                let server_url = resolve_server_url(cli.server_url, &config);
-                download(lab_id, *force, &server_url, &config).await?;
-            }
-            Commands::Validate => {
-                validate_manifest(SHERPA_MANIFEST_FILE)?;
-            }
-            Commands::Console { name } => {
-                let manifest_obj = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-                let lab_id = manifest_lab_identity(&manifest_obj)?.id;
-                let config =
-                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
-
-                let server_url = resolve_server_url(cli.server_url, &config);
-                let lab_info = resolve_lab_info(&lab_id, &server_url, &config).await?;
-                console(name, &manifest_obj, &lab_info)?;
-            }
-            Commands::Ssh { name } => {
-                let lab = resolve_lab_identity()?;
-                let config =
-                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
-                let server_url = resolve_server_url(cli.server_url, &config);
-                ssh(name, &lab.id, &server_url, &config).await?;
-            }
-            Commands::SshConfig { command } => match command {
-                SshConfigCommands::Inspect => {
-                    let config =
-                        load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
-
-                    let server_url = resolve_server_url(cli.server_url, &config);
-                    ssh_config_inspect(&server_url, &config).await?;
-                }
-                SshConfigCommands::Clean => {
-                    let config =
-                        load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
-
-                    let server_url = resolve_server_url(cli.server_url, &config);
-                    ssh_config_clean(&server_url, &config).await?;
-                }
-            },
-            Commands::Link { commands } => {
-                let config =
-                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
-
-                let server_url = resolve_server_url(cli.server_url, &config);
-                parse_link_commands(commands, &config, &server_url).await?;
-            }
-            Commands::Image { commands } => {
-                let config =
-                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
-
-                let server_url = resolve_server_url(cli.server_url, &config);
-                parse_image_commands(commands, &config, &server_url).await?;
-            }
-            Commands::Cert { commands } => match commands {
-                CertCommands::List => cert_list().await?,
-                CertCommands::Show { server_url } => cert_show(server_url).await?,
-                CertCommands::Trust { server_url } => cert_trust(server_url).await?,
-                CertCommands::Delete { server_url } => cert_delete(server_url).await?,
-            },
-            Commands::Server {
-                verbose,
-                output,
-                commands,
-            } => {
-                let config =
-                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
-
-                let server_url = resolve_server_url(cli.server_url, &config);
-                run_server(commands, *verbose, output, &server_url, &config).await?;
+                let server_url = resolve_server_url(cli.server_url.clone(), &config);
+                run_remote(command, &server_url, &config).await
             }
         }
-        Ok(())
+    }
+}
+
+/// Run a trusted certificate command; these only read and change the local trust store.
+async fn run_cert(command: &CertCommands) -> Result<()> {
+    match command {
+        CertCommands::List => cert_list(),
+        CertCommands::Show { server_url } => cert_show(server_url),
+        CertCommands::Trust { server_url } => cert_trust(server_url).await,
+        CertCommands::Delete { server_url } => cert_delete(server_url),
+    }
+}
+
+/// Run a command that talks to the Sherpa server at `server_url`.
+async fn run_remote(command: &Commands, server_url: &str, config: &ClientConfig) -> Result<()> {
+    match command {
+        Commands::Login => login(server_url, config).await,
+        Commands::Whoami => whoami(server_url, config).await,
+        Commands::Up => {
+            let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+            let lab = manifest_lab_identity(&manifest)?;
+            up(&lab.name, &lab.id, SHERPA_MANIFEST_FILE, server_url, config).await
+        }
+        Commands::Down { node } => {
+            let lab = resolve_lab_identity()?;
+            down(&lab.name, &lab.id, node.as_deref(), server_url, config).await
+        }
+        Commands::Resume { node } => {
+            let lab = resolve_lab_identity()?;
+            resume(&lab.name, &lab.id, node.as_deref(), server_url, config).await
+        }
+        Commands::Redeploy { node } => {
+            let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+            let lab = manifest_lab_identity(&manifest)?;
+            redeploy(
+                &lab.name,
+                &lab.id,
+                node,
+                SHERPA_MANIFEST_FILE,
+                server_url,
+                config,
+            )
+            .await
+        }
+        Commands::Provision { node } => provision(node.as_deref(), server_url, config).await,
+        Commands::Destroy { yes } => {
+            let lab = resolve_lab_identity()?;
+            destroy(&lab.name, &lab.id, server_url, config, *yes).await
+        }
+        Commands::Inspect => {
+            let lab = resolve_lab_identity()?;
+            inspect(&lab.name, &lab.id, server_url, config).await
+        }
+        Commands::Download { lab_id, force } => download(lab_id, *force, server_url, config).await,
+        Commands::Console { name } => {
+            let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+            let lab_id = manifest_lab_identity(&manifest)?.id;
+            let lab_info = resolve_lab_info(&lab_id, server_url, config).await?;
+            console(name, &manifest, &lab_info)
+        }
+        Commands::Ssh { name } => {
+            let lab = resolve_lab_identity()?;
+            ssh(name, &lab.id, server_url, config).await
+        }
+        Commands::SshConfig { command } => match command {
+            SshConfigCommands::Inspect => ssh_config_inspect(server_url, config).await,
+            SshConfigCommands::Clean => ssh_config_clean(server_url, config).await,
+        },
+        Commands::Link { commands } => parse_link_commands(commands, config, server_url).await,
+        Commands::Image { commands } => parse_image_commands(commands, config, server_url).await,
+        Commands::Server {
+            verbose,
+            output,
+            commands,
+        } => run_server(commands, *verbose, output, server_url, config).await,
+        Commands::Logout
+        | Commands::New { .. }
+        | Commands::Init { .. }
+        | Commands::Validate
+        | Commands::Cert { .. } => bail!("{command:?} runs without the server"),
     }
 }
 

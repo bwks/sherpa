@@ -54,7 +54,7 @@ pub use ip::{
 pub use ip::{get_free_subnet, get_interface_networks, get_interface_networks_v6};
 pub use mac::{clean_mac, random_mac};
 pub use output::{
-    display_destroy_results, term_msg_highlight, term_msg_surround, term_msg_underline,
+    confirm, display_destroy_results, term_msg_highlight, term_msg_surround, term_msg_underline,
 };
 pub use random::{generate_lab_name, get_id, get_id_for_user};
 pub use sanitizers::dasher;

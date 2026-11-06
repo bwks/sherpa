@@ -191,7 +191,7 @@ mod tests {
             StoppableOperation::Redeploy,
             StoppableOperation::Resume,
         ] {
-            assert!(!operation.description().is_empty());
+            assert_ne!(operation.description(), "");
             assert!(operation.stop_effect().ends_with('.'));
         }
         assert!(StoppableOperation::Up.stop_effect().contains("removes"));

@@ -3,14 +3,14 @@ use rustls::ClientConfig;
 use rustls::RootCertStore;
 use rustls::pki_types::{CertificateDer, ServerName};
 use std::fs::File;
-use std::io::{self, BufReader, IsTerminal, Write};
+use std::io::{self, BufReader, IsTerminal};
 use std::path::Path;
 use std::sync::Arc;
 
 use crate::data::ServerConnection;
 use crate::tls::cert_fetch::fetch_server_certificate;
 use crate::tls::trust_store::{CertificateInfo, TrustStore, extract_cert_info};
-use crate::util::{term_msg_surround, term_msg_underline};
+use crate::util::{Emoji, confirm, term_msg_surround, term_msg_underline};
 
 /// Builds TLS configuration for WebSocket client
 pub struct TlsConfigBuilder {
@@ -113,8 +113,15 @@ impl TlsConfigBuilder {
                 let cert_info = extract_cert_info(server_url, &fetched_cert)
                     .context("Failed to parse certificate information")?;
 
-                // Display certificate information
-                display_certificate_info(&cert_info)?;
+                println!();
+                print_certificate_info(&cert_info);
+                println!(
+                    "{} WARNING: This is the first time connecting to this server.",
+                    Emoji::Warning
+                );
+                println!("   Verify the fingerprint matches what you expect to prevent");
+                println!("   man-in-the-middle attacks.");
+                println!();
 
                 // Prompt user to trust the certificate
                 if !prompt_trust_certificate()? {
@@ -130,7 +137,7 @@ impl TlsConfigBuilder {
                     .save_cert(server_url, &fetched_cert)
                     .context("Failed to save certificate to trust store")?;
 
-                println!("✅ Certificate saved to trust store");
+                println!("{} Certificate saved to trust store", Emoji::Success);
                 println!();
 
                 fetched_cert
@@ -242,40 +249,27 @@ impl rustls::client::danger::ServerCertVerifier for NoCertificateVerification {
     }
 }
 
-/// Display certificate information to the user in a formatted way
-fn display_certificate_info(cert_info: &CertificateInfo) -> Result<()> {
-    println!();
+/// Show a certificate's server, subject, issuer, validity and SHA-256 fingerprint.
+pub fn print_certificate_info(cert_info: &CertificateInfo) {
     term_msg_surround("Certificate Information");
     println!();
     println!("  Server:      {}", cert_info.server_url);
     println!("  Subject:     {}", cert_info.subject);
-
-    // Show if self-signed
-    if cert_info.subject == cert_info.issuer {
+    if cert_info.subject == cert_info.issuer || cert_info.issuer.contains("self-signed") {
         println!("  Issuer:      {} (self-signed)", cert_info.issuer);
     } else {
         println!("  Issuer:      {}", cert_info.issuer);
     }
-
     println!("  Valid From:  {}", cert_info.valid_from);
     println!("  Valid To:    {}", cert_info.valid_to);
     println!();
     term_msg_underline("Certificate Fingerprint (SHA-256)");
     println!("  {}", cert_info.fingerprint);
     println!();
-    println!("⚠️  WARNING: This is the first time connecting to this server.");
-    println!("   Verify the fingerprint matches what you expect to prevent");
-    println!("   man-in-the-middle attacks.");
-    println!();
-
-    Ok(())
 }
 
-/// Prompt the user to trust a certificate
-///
-/// Returns true if the user confirms trust, false otherwise.
+/// Ask the user whether to trust a server's certificate on first connection.
 fn prompt_trust_certificate() -> Result<bool> {
-    // Check if running in interactive mode
     if !is_interactive() {
         anyhow::bail!(
             "Cannot prompt for certificate trust in non-interactive mode.\n\n\
@@ -286,17 +280,7 @@ fn prompt_trust_certificate() -> Result<bool> {
              2. Use --insecure flag to skip validation (NOT RECOMMENDED for production)"
         );
     }
-
-    print!("Do you trust this certificate? (yes/no): ");
-    io::stdout().flush().context("Failed to flush stdout")?;
-
-    let mut response = String::new();
-    io::stdin()
-        .read_line(&mut response)
-        .context("Failed to read user input")?;
-
-    let response = response.trim().to_lowercase();
-    Ok(response == "yes" || response == "y")
+    confirm("Do you trust this certificate?")
 }
 
 /// Check if running in an interactive terminal

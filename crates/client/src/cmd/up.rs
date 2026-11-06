@@ -5,28 +5,24 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
-use shared::data::{ClientConfig, NodeInfo, StatusKind, StatusMessage, UpResponse};
-use shared::error::RpcErrorCode;
-use shared::konst::{LAB_FILE_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
+use shared::data::{ClientConfig, NodeInfo, StatusMessage, UpResponse};
 use shared::util::{
-    Emoji, add_lab_ssh_include, base64_encode, get_cwd, get_username, load_file,
-    render_lab_info_table, render_nodes_table, render_tailnet_table, term_msg_surround,
-    term_msg_underline,
+    Emoji, base64_encode, get_cwd, load_file, render_lab_info_table, render_nodes_table,
+    render_tailnet_table, term_msg_surround, term_msg_underline,
 };
 use topology::StartupScript;
 
-use crate::cluster_credentials::{print_cluster_files, write_cluster_credentials};
+use super::progress::status_emoji;
 use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
 };
 use crate::cmd::tailscale_key::resolve_tailscale_key;
-use crate::keycloak_credentials::{print_keycloak_files, write_keycloak_credentials};
-use crate::lab_files::{rewrite_ssh_config_for_client, write_known_hosts, write_lab_ca};
-use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, write_secret_file};
-use crate::provision::{container_results, container_secrets, provision_lab, resolve_client_path};
+use crate::lab_files::{LabFiles, register_ssh_config, save_lab_files};
+use crate::provision::{
+    client_variable, container_results, container_secrets, provision_lab, resolve_client_path,
+};
 use crate::ssh_client::HostKeyRefresh;
 use crate::token::load_token;
-use crate::vault_credentials::{print_vault_files, write_vault_credentials};
 use crate::ws_client::{RpcRequest, WebSocketClient};
 use topology::validate::{check_text_file_modes, validate_provisioners};
 
@@ -45,6 +41,7 @@ struct LogMessage {
 /// 3. Connect to server with extended timeout (15 minutes for long-running operation)
 /// 4. Send RPC request and stream progress updates
 /// 5. Display final results
+#[tracing::instrument(skip_all, fields(%lab_name, %lab_id))]
 pub async fn up(
     lab_name: &str,
     lab_id: &str,
@@ -54,22 +51,13 @@ pub async fn up(
 ) -> Result<()> {
     term_msg_surround(&format!("Start Lab - {lab_name}-{lab_id}"));
 
-    // Load authentication token
-    let token = match load_token() {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("\n{} Authentication required", Emoji::Error);
-            eprintln!("   Please run: sherpa login");
-            eprintln!("   Error: {}", e);
-            bail!("Authentication token not found");
-        }
-    };
+    let token = load_token()?;
 
     // Load and parse manifest
     println!("\nLoading manifest from: {}\n", manifest_path);
 
     let mut manifest = topology::Manifest::load_file(manifest_path)
-        .with_context(|| format!("Failed to parse manifest: {}", manifest_path))?;
+        .with_context(|| format!("Failed to parse manifest: {manifest_path}"))?;
     validate_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
     check_text_file_modes(&manifest.nodes).context("Manifest validation failed: text files")?;
 
@@ -105,9 +93,6 @@ pub async fn up(
         .await
         .context("Failed to connect to sherpad server")?;
 
-    // Get current username (for display only - server uses token)
-    let _username = get_username()?;
-
     // Create RPC request with authentication token
     let up_request = RpcRequest::new(
         "up",
@@ -132,280 +117,32 @@ pub async fn up(
         server_url,
         server_connection: &config.server_connection,
     };
-    let up_response = match call_streaming_or_interrupt(
-        &mut rpc_client,
-        up_request,
-        |msg_text| {
-            // Parse and display progress messages
-            if let Ok(status_msg) = serde_json::from_str::<StatusMessage>(msg_text) {
-                if status_msg.r#type == "status" {
-                    // Display phase header if available
-                    if let Some(phase) = &status_msg.phase {
-                        println!(); // Blank line before phase header
-                        term_msg_underline(phase);
-                    }
-                    // Display the message with kind-appropriate emoji
-                    let emoji = match status_msg.kind {
-                        StatusKind::Progress => Emoji::Progress,
-                        StatusKind::Done => Emoji::Success,
-                        StatusKind::Info => Emoji::Info,
-                        StatusKind::Waiting => Emoji::Hourglass,
-                    };
-                    println!("{} {}", emoji, status_msg.message);
-                }
-            } else if let Ok(log_msg) = serde_json::from_str::<LogMessage>(msg_text)
-                && log_msg.r#type == "log"
-            {
-                // Display log messages (for debugging)
-                println!("[LOG] {}", log_msg.message);
-            }
-        },
-        &target,
-    )
-    .await
-    .context("Up RPC call failed")?
-    {
-        Waited::Response(response) => response,
-        Waited::Interrupted => bail!("Lab creation interrupted"),
-    };
+    let up_response =
+        match call_streaming_or_interrupt(&mut rpc_client, up_request, print_up_progress, &target)
+            .await
+            .context("Up RPC call failed")?
+        {
+            Waited::Response(response) => response,
+            Waited::Interrupted => bail!("Lab creation interrupted"),
+        };
 
     // Close connection
     rpc_client.close().await.ok();
 
     // Handle errors
-    if let Some(error) = up_response.error {
-        eprintln!("\n{} Server Error:", Emoji::Error);
-        eprintln!("   Message: {}", error.message);
-        eprintln!("   Code: {}", error.code);
-        if let Some(context) = error.context {
-            eprintln!("   Context:\n{}", context);
-        }
+    let up_data: UpResponse = up_response.into_result("Lab creation failed")?;
 
-        // Check for authentication errors
-        if error.code == RpcErrorCode::AuthRequired {
-            eprintln!(
-                "\n{} Your authentication token has expired or is invalid",
-                Emoji::Error
-            );
-            eprintln!("   Please run: sherpa login");
-        }
-
-        bail!("Lab creation failed");
-    }
-
-    let up_result = up_response.result.context("No result in up response")?;
-    let up_data: UpResponse =
-        serde_json::from_value(up_result).context("Failed to parse up response")?;
-
-    // Write SSH config to local directory with absolute IdentityFile path
-    match get_cwd() {
-        Ok(cwd) => {
-            let ssh_config_with_abs_path = rewrite_ssh_config_for_client(&up_data.ssh_config, &cwd);
-
-            let local_ssh_config_path = Path::new(&cwd)
-                .join(SHERPA_SSH_CONFIG_FILE)
-                .to_string_lossy()
-                .to_string();
-            match fs::write(&local_ssh_config_path, &ssh_config_with_abs_path) {
-                Ok(_) => {
-                    println!(
-                        "\n{} SSH config created: {}",
-                        Emoji::Success,
-                        local_ssh_config_path
-                    );
-                    // Register this lab's SSH config in ~/.ssh/sherpa_lab_hosts
-                    match add_lab_ssh_include(&local_ssh_config_path) {
-                        Ok(_) => {
-                            println!(
-                                "{} SSH config registered in ~/.ssh/sherpa_lab_hosts",
-                                Emoji::Success,
-                            );
-                        }
-                        Err(e) => {
-                            println!(
-                                "\n{} Warning: Failed to register SSH config in ~/.ssh/sherpa_lab_hosts: {}",
-                                Emoji::Warning,
-                                e
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
-                    println!(
-                        "\n{} Warning: Failed to create local SSH config: {}",
-                        Emoji::Warning,
-                        e
-                    );
-                }
-            }
-        }
-        Err(e) => {
-            println!(
-                "\n{} Warning: Could not determine working directory: {}",
-                Emoji::Warning,
-                e
-            );
-        }
-    }
-
-    match get_cwd() {
-        Ok(cwd) => match write_known_hosts(&cwd, &up_data.known_hosts) {
-            Ok(Some(known_hosts_path)) => {
-                println!(
-                    "{} Node host keys saved: {}",
-                    Emoji::Success,
-                    known_hosts_path.display()
-                );
-            }
-            Ok(None) => {
-                tracing::debug!("No node host keys to save");
-            }
-            Err(e) => {
-                println!(
-                    "\n{} Warning: Failed to save node host keys: {:#}",
-                    Emoji::Warning,
-                    e
-                );
-            }
-        },
-        Err(e) => {
-            println!(
-                "\n{} Warning: Could not determine working directory: {}",
-                Emoji::Warning,
-                e
-            );
-        }
-    }
-
-    if !up_data.ssh_private_key.is_empty() {
-        // Write SSH private key to local directory with 0600 permissions
-        match get_cwd() {
-            Ok(cwd) => {
-                let local_ssh_key_path = Path::new(&cwd).join(SHERPA_SSH_PRIVATE_KEY_FILE);
-                match write_secret_file(
-                    &local_ssh_key_path,
-                    &up_data.ssh_private_key,
-                    SSH_PRIVATE_KEY_ERROR_LABEL,
-                ) {
-                    Ok(_) => {
-                        println!(
-                            "{} SSH private key created: {}",
-                            Emoji::Success,
-                            local_ssh_key_path.display()
-                        );
-                    }
-                    Err(e) => {
-                        println!(
-                            "\n{} Warning: Failed to create local SSH private key: {}",
-                            Emoji::Warning,
-                            e
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                println!(
-                    "\n{} Warning: Could not determine working directory: {}",
-                    Emoji::Warning,
-                    e
-                );
-            }
-        }
-    }
-
-    // Write lab-info.toml to local directory
-    match get_cwd() {
-        Ok(cwd) => {
-            let local_lab_info_path = format!("{}/{}", cwd, LAB_FILE_NAME);
-            match fs::write(&local_lab_info_path, up_data.lab_info.to_string()) {
-                Ok(_) => {
-                    println!(
-                        "{} Lab info created: {}",
-                        Emoji::Success,
-                        local_lab_info_path
-                    );
-                }
-                Err(e) => {
-                    println!(
-                        "\n{} Warning: Failed to create local lab info: {}",
-                        Emoji::Warning,
-                        e
-                    );
-                }
-            }
-        }
-        Err(e) => {
-            println!(
-                "\n{} Warning: Could not determine working directory: {}",
-                Emoji::Warning,
-                e
-            );
-        }
-    }
-
-    // Write the lab CA, Vault credentials and Keycloak users to the local directory
-    match get_cwd() {
-        Ok(cwd) => {
-            let lab_ca = match write_lab_ca(&cwd, &up_data.lab_ca) {
-                Ok(Some(path)) => {
-                    println!("{} Lab CA certificate: {}", Emoji::Success, path.display());
-                    Some(path)
-                }
-                Ok(None) => None,
-                Err(e) => {
-                    println!(
-                        "\n{} Warning: Failed to write the lab CA certificate: {:#}",
-                        Emoji::Warning,
-                        e
-                    );
-                    None
-                }
-            };
-            match write_vault_credentials(Path::new(&cwd), &up_data.vaults) {
-                Ok(files) => print_vault_files(&files, lab_ca.as_deref()),
-                Err(e) => println!(
-                    "\n{} Warning: Failed to write Vault credentials: {:#}",
-                    Emoji::Warning,
-                    e
-                ),
-            }
-            match write_keycloak_credentials(Path::new(&cwd), &up_data.keycloaks) {
-                Ok(files) => print_keycloak_files(&files),
-                Err(e) => println!(
-                    "\n{} Warning: Failed to write Keycloak users: {:#}",
-                    Emoji::Warning,
-                    e
-                ),
-            }
-        }
+    // The lab exists now, so a file that cannot be saved is only a warning.
+    match save_lab_files(&client_folder, &LabFiles::from(&up_data)) {
+        Ok(ssh_config) => register_ssh_config(&ssh_config),
         Err(e) => println!(
-            "\n{} Warning: Could not determine working directory: {}",
-            Emoji::Warning,
-            e
+            "\n{} Warning: Not all lab files were saved: {e:#}\n   Run: sherpa download {lab_id} --force",
+            Emoji::Warning
         ),
     }
 
-    // Write Kubernetes cluster credentials to the local directory
-    if !up_data.clusters.is_empty() {
-        match get_cwd() {
-            Ok(cwd) => match write_cluster_credentials(Path::new(&cwd), &up_data.clusters) {
-                Ok(files) => print_cluster_files(&files),
-                Err(e) => println!(
-                    "\n{} Warning: Failed to write cluster credentials: {:#}",
-                    Emoji::Warning,
-                    e
-                ),
-            },
-            Err(e) => println!(
-                "\n{} Warning: Could not determine working directory: {}",
-                Emoji::Warning,
-                e
-            ),
-        }
-    }
-
     // Display results
-    display_up_results(&up_data)?;
+    display_up_results(&up_data);
 
     // ssh provisioners run from the client, so their files never pass through the server.
     let ready_nodes = ssh_ready_nodes(&up_data.nodes);
@@ -561,10 +298,10 @@ pub(crate) fn resolve_manifest_files(
     resolve_ztp_configs(manifest, manifest_path)?;
     resolve_text_files(manifest, manifest_path)?;
     resolve_scripts(manifest, manifest_path)?;
-    resolve_environment_variables(manifest)
+    resolve_environment_variables(manifest, client_variable)
 }
 
-/// Resolve text_files file paths relative to the manifest directory.
+/// Resolve `text_files` file paths relative to the manifest directory.
 /// Reads each file, base64-encodes the contents, and populates
 /// `text_files_data` for transmission to the server.
 pub(crate) fn resolve_text_files(
@@ -604,9 +341,12 @@ pub(crate) fn resolve_text_files(
 /// Resolve `$ENV_VAR` references in environment variable values.
 ///
 /// For each node's `environment_variables`, entries of the form `KEY=$VAR`
-/// have the `$VAR` portion resolved from the user's shell environment.
+/// have the `$VAR` portion resolved with `lookup`, from the user's shell environment.
 /// Only exact `$VAR` values are expanded (not partial references like `prefix$VAR`).
-pub(crate) fn resolve_environment_variables(manifest: &mut topology::Manifest) -> Result<()> {
+pub(crate) fn resolve_environment_variables(
+    manifest: &mut topology::Manifest,
+    lookup: fn(&str) -> Option<String>,
+) -> Result<()> {
     for node in &mut manifest.nodes {
         let env_vars = match &mut node.environment_variables {
             Some(vars) if !vars.is_empty() => vars,
@@ -623,13 +363,13 @@ pub(crate) fn resolve_environment_variables(manifest: &mut topology::Manifest) -
             };
 
             if let Some(var_name) = value.strip_prefix('$') {
-                let resolved = std::env::var(var_name).with_context(|| {
+                let resolved = lookup(var_name).with_context(|| {
                     format!(
                         "Environment variable '{}' referenced in node '{}' is not set",
                         var_name, node.name
                     )
                 })?;
-                *entry = format!("{}={}", key, resolved);
+                *entry = format!("{key}={resolved}");
             }
         }
     }
@@ -637,14 +377,32 @@ pub(crate) fn resolve_environment_variables(manifest: &mut topology::Manifest) -
     Ok(())
 }
 
+/// Show a progress message `up` streams: a status line, under its phase's heading when it
+/// starts one, or a server log line.
+fn print_up_progress(msg_text: &str) {
+    if let Ok(status_msg) = serde_json::from_str::<StatusMessage>(msg_text) {
+        if status_msg.r#type == "status" {
+            if let Some(phase) = &status_msg.phase {
+                println!();
+                term_msg_underline(phase);
+            }
+            println!("{} {}", status_emoji(status_msg.kind), status_msg.message);
+        }
+    } else if let Ok(log_msg) = serde_json::from_str::<LogMessage>(msg_text)
+        && log_msg.r#type == "log"
+    {
+        println!("[LOG] {}", log_msg.message);
+    }
+}
+
 /// Display lab creation results
-fn display_up_results(response: &UpResponse) -> Result<()> {
+fn display_up_results(response: &UpResponse) {
     println!();
     term_msg_surround("Lab Creation Results");
 
     // Lab Info
     let lab_info_table = render_lab_info_table(&response.lab_info);
-    println!("{}", lab_info_table);
+    println!("{lab_info_table}");
 
     if let Some(tailscale) = &response.tailscale {
         println!("{}", render_tailnet_table(tailscale));
@@ -683,8 +441,6 @@ fn display_up_results(response: &UpResponse) -> Result<()> {
             Emoji::Warning
         );
     }
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -843,6 +599,16 @@ mod tests {
         assert!(result.is_err());
     }
 
+    /// A client environment with only `SHERPA_TEST_TOKEN` set.
+    fn test_token_lookup(name: &str) -> Option<String> {
+        (name == "SHERPA_TEST_TOKEN").then(|| "secret123".to_owned())
+    }
+
+    /// A client environment with no variables set.
+    fn no_variables(_name: &str) -> Option<String> {
+        None
+    }
+
     #[test]
     fn test_resolve_environment_variables_literal_values() {
         let mut manifest = test_manifest(vec![topology::Node {
@@ -855,7 +621,7 @@ mod tests {
             ..Default::default()
         }]);
 
-        resolve_environment_variables(&mut manifest).expect("should succeed");
+        resolve_environment_variables(&mut manifest, no_variables).expect("should succeed");
 
         let env_vars = manifest.nodes[0]
             .environment_variables
@@ -867,9 +633,6 @@ mod tests {
 
     #[test]
     fn test_resolve_environment_variables_env_ref() {
-        // SAFETY: test-only, run with --test-threads=1
-        unsafe { std::env::set_var("SHERPA_TEST_TOKEN", "secret123") };
-
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
             model: NodeModel::UbuntuLinux,
@@ -877,23 +640,17 @@ mod tests {
             ..Default::default()
         }]);
 
-        resolve_environment_variables(&mut manifest).expect("should succeed");
+        resolve_environment_variables(&mut manifest, test_token_lookup).expect("should succeed");
 
         let env_vars = manifest.nodes[0]
             .environment_variables
             .as_ref()
             .expect("should have env vars");
         assert_eq!(env_vars[0], "MY_TOKEN=secret123");
-
-        // SAFETY: test-only cleanup
-        unsafe { std::env::remove_var("SHERPA_TEST_TOKEN") };
     }
 
     #[test]
     fn test_resolve_environment_variables_missing_env_var() {
-        // SAFETY: test-only, ensuring var is not set
-        unsafe { std::env::remove_var("SHERPA_NONEXISTENT_VAR_12345") };
-
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
             model: NodeModel::UbuntuLinux,
@@ -901,7 +658,7 @@ mod tests {
             ..Default::default()
         }]);
 
-        let result = resolve_environment_variables(&mut manifest);
+        let result = resolve_environment_variables(&mut manifest, no_variables);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
         assert!(err_msg.contains("SHERPA_NONEXISTENT_VAR_12345"));
@@ -916,7 +673,8 @@ mod tests {
             ..Default::default()
         }]);
 
-        resolve_environment_variables(&mut manifest).expect("should succeed with no env vars");
+        resolve_environment_variables(&mut manifest, no_variables)
+            .expect("should succeed with no env vars");
     }
 
     #[test]
@@ -1080,7 +838,7 @@ mod tests {
             ..Default::default()
         }]);
 
-        let result = resolve_environment_variables(&mut manifest);
+        let result = resolve_environment_variables(&mut manifest, no_variables);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
         assert!(err_msg.contains("KEY=VALUE"));

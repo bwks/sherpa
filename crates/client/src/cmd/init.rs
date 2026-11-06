@@ -60,7 +60,7 @@ pub fn init(sherpa: &Sherpa, force: bool) -> Result<()> {
 }
 
 fn prompt_with_default(prompt: &str, default: &str) -> Result<String> {
-    print!("{} [{}]: ", prompt, default);
+    print!("{prompt} [{default}]: ");
     io::stdout().flush().context("Failed to flush stdout")?;
 
     let mut input = String::new();

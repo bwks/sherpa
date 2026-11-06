@@ -53,7 +53,7 @@ impl CurrentUserSid {
         // SAFETY: `token_handle` points to writable storage and the process
         // pseudo-handle is valid for the duration of this call.
         let opened =
-            unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token_handle) };
+            unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw mut token_handle) };
         if opened == 0 {
             return Err(io::Error::last_os_error()).context("Failed to open current process token");
         }
@@ -63,7 +63,7 @@ impl CurrentUserSid {
         // SAFETY: A null buffer with length zero is the documented size-query
         // form of `GetTokenInformation`.
         unsafe {
-            let _ = GetTokenInformation(token.0, TokenUser, null_mut(), 0, &mut required_bytes);
+            let _ = GetTokenInformation(token.0, TokenUser, null_mut(), 0, &raw mut required_bytes);
         }
         if required_bytes == 0 {
             return Err(io::Error::last_os_error())
@@ -83,7 +83,7 @@ impl CurrentUserSid {
                 TokenUser,
                 storage.as_mut_ptr().cast(),
                 required_bytes,
-                &mut required_bytes,
+                &raw mut required_bytes,
             )
         };
         if loaded == 0 {
@@ -130,9 +130,9 @@ pub(crate) fn restrict_file_to_current_user(path: &Path) -> Result<()> {
     // SAFETY: `entry` and the SID it references remain valid for this call;
     // `acl` points to writable output storage and starts null as required when
     // creating a new ACL.
-    let acl_status = unsafe { SetEntriesInAclW(1, &entry, null(), &mut acl) };
+    let acl_status = unsafe { SetEntriesInAclW(1, &raw const entry, null(), &raw mut acl) };
     if acl_status != 0 {
-        return Err(io::Error::from_raw_os_error(acl_status as i32))
+        return Err(io::Error::from_raw_os_error(acl_status.cast_signed()))
             .context("Failed to create protected SSH private key ACL");
     }
     let acl = LocalAcl(acl);
@@ -158,7 +158,7 @@ pub(crate) fn restrict_file_to_current_user(path: &Path) -> Result<()> {
         )
     };
     if set_status != 0 {
-        return Err(io::Error::from_raw_os_error(set_status as i32))
+        return Err(io::Error::from_raw_os_error(set_status.cast_signed()))
             .context("Failed to apply protected SSH private key ACL");
     }
 
@@ -213,13 +213,13 @@ pub(crate) mod acl_inspection {
                 DACL_SECURITY_INFORMATION,
                 null_mut(),
                 null_mut(),
-                &mut dacl,
+                &raw mut dacl,
                 null_mut(),
-                &mut descriptor,
+                &raw mut descriptor,
             )
         };
         if status != 0 {
-            return Err(io::Error::from_raw_os_error(status as i32))
+            return Err(io::Error::from_raw_os_error(status.cast_signed()))
                 .context("Failed to inspect SSH private key ACL");
         }
         let descriptor = LocalSecurityDescriptor(descriptor);
@@ -231,8 +231,9 @@ pub(crate) mod acl_inspection {
         let mut revision = 0u32;
         // SAFETY: `descriptor.0` is a valid security descriptor returned by
         // `GetNamedSecurityInfoW`; the output pointers are writable.
-        let control_loaded =
-            unsafe { GetSecurityDescriptorControl(descriptor.0, &mut control, &mut revision) };
+        let control_loaded = unsafe {
+            GetSecurityDescriptorControl(descriptor.0, &raw mut control, &raw mut revision)
+        };
         if control_loaded == 0 {
             return Err(io::Error::last_os_error())
                 .context("Failed to inspect SSH private key ACL protection");
@@ -242,13 +243,15 @@ pub(crate) mod acl_inspection {
         }
 
         let mut acl_info = ACL_SIZE_INFORMATION::default();
+        let acl_info_size = u32::try_from(size_of::<ACL_SIZE_INFORMATION>())
+            .context("The ACL size information does not fit a u32")?;
         // SAFETY: `dacl` is valid while `descriptor` is alive and `acl_info`
         // provides correctly sized writable output storage.
         let acl_loaded = unsafe {
             GetAclInformation(
                 dacl,
-                (&mut acl_info as *mut ACL_SIZE_INFORMATION).cast(),
-                size_of::<ACL_SIZE_INFORMATION>() as u32,
+                (&raw mut acl_info).cast(),
+                acl_info_size,
                 AclSizeInformation,
             )
         };
@@ -263,8 +266,8 @@ pub(crate) mod acl_inspection {
         let mut ace: *mut c_void = null_mut();
         // SAFETY: `dacl` contains one ACE and `ace` points to writable output
         // storage for the borrowed ACE pointer.
-        let ace_loaded = unsafe { GetAce(dacl, 0, &mut ace) };
-        if ace_loaded == 0 || ace.is_null() {
+        let found_ace = unsafe { GetAce(dacl, 0, &raw mut ace) };
+        if found_ace == 0 || ace.is_null() {
             return Err(io::Error::last_os_error())
                 .context("Failed to inspect SSH private key ACE");
         }

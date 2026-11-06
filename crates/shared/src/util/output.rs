@@ -1,4 +1,6 @@
-use anyhow::Result;
+use std::io::{self, Write};
+
+use anyhow::{Context, Result};
 
 use crate::data::DestroyResponse;
 use crate::util::emoji::Emoji;
@@ -225,4 +227,42 @@ pub fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Ask `question` and read the answer from stdin: `y` or `yes`, in any case, is yes; anything
+/// else, or no answer, is no.
+///
+/// # Errors
+///
+/// Fails when the question cannot be shown or stdin cannot be read.
+pub fn confirm(question: &str) -> Result<bool> {
+    print!("{question} [y/N]: ");
+    io::stdout()
+        .flush()
+        .context("Failed to show the question")?;
+    let mut answer = String::new();
+    io::stdin()
+        .read_line(&mut answer)
+        .context("Failed to read the answer")?;
+    Ok(is_yes(&answer))
+}
+
+/// Whether `answer` is `y` or `yes`, in any case.
+fn is_yes(answer: &str) -> bool {
+    matches!(answer.trim().to_lowercase().as_str(), "y" | "yes")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_y_or_yes_is_yes() {
+        for answer in ["y\n", "Y", " yes ", "YES\r\n"] {
+            assert!(is_yes(answer), "{answer:?}");
+        }
+        for answer in ["", "\n", "n", "no", "yep", "y es"] {
+            assert!(!is_yes(answer), "{answer:?}");
+        }
+    }
 }

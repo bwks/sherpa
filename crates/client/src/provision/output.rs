@@ -24,21 +24,21 @@ impl NodeOutput {
     pub fn status(&self, text: &str) {
         let mut line = Vec::new();
         end_line(&self.prefix, &mut text.as_bytes().to_vec(), &mut line);
-        write_whole(&mut io::stdout().lock(), &line)
+        write_whole(&mut io::stdout().lock(), &line);
     }
 
     /// Show the complete lines in `bytes`, from a command's stdout.
     pub fn stdout(&mut self, bytes: &[u8]) {
         let mut lines = Vec::new();
         prefix_lines(&self.prefix, &mut self.stdout, bytes, &mut lines);
-        write_whole(&mut io::stdout().lock(), &lines)
+        write_whole(&mut io::stdout().lock(), &lines);
     }
 
     /// Show the complete lines in `bytes`, from a command's stderr.
     pub fn stderr(&mut self, bytes: &[u8]) {
         let mut lines = Vec::new();
         prefix_lines(&self.prefix, &mut self.stderr, bytes, &mut lines);
-        write_whole(&mut io::stderr().lock(), &lines)
+        write_whole(&mut io::stderr().lock(), &lines);
     }
 
     /// Show the last line of a command that ended without a newline.
@@ -48,7 +48,7 @@ impl NodeOutput {
         write_whole(&mut io::stdout().lock(), &line);
         line.clear();
         end_line(&self.prefix, &mut self.stderr, &mut line);
-        write_whole(&mut io::stderr().lock(), &line)
+        write_whole(&mut io::stderr().lock(), &line);
     }
 }
 
@@ -132,7 +132,7 @@ mod tests {
             prefixed(&mut pending, "one\ntwo\n"),
             "web | one\nweb | two\n"
         );
-        assert!(pending.is_empty());
+        assert_eq!(pending, [] as [u8; 0]);
     }
 
     #[test]
@@ -153,10 +153,10 @@ mod tests {
         let mut out = Vec::new();
         end_line("web | ", &mut pending, &mut out);
         assert_eq!(String::from_utf8(out).unwrap(), "web | done\n");
-        assert!(pending.is_empty());
+        assert_eq!(pending, [] as [u8; 0]);
 
         let mut out = Vec::new();
         end_line("web | ", &mut pending, &mut out);
-        assert!(out.is_empty());
+        assert_eq!(out, [] as [u8; 0]);
     }
 }

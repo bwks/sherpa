@@ -38,6 +38,7 @@ struct LabRun<'a> {
 /// `results` holds nodes already provisioned another way, such as container nodes, whose
 /// provisioners the server applies. Prints a table of all results and fails if any node was not
 /// provisioned. Returns how many nodes were provisioned.
+#[tracing::instrument(skip_all, fields(%lab_id, ?only_node))]
 pub async fn provision_lab(
     manifest: &Manifest,
     manifest_dir: &Path,

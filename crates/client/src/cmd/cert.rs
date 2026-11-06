@@ -3,18 +3,17 @@
 //! Provides CLI commands to list, show, trust, and delete trusted server certificates.
 
 use anyhow::{Context, Result};
-use std::io::{self, Write};
 use url::Url;
 
 use shared::konst::SHERPA_SERVER_WS_PORT;
 
-use shared::tls::{CertificateInfo, TrustStore, extract_cert_info, fetch_server_certificate};
-use shared::util::{
-    CertificateTableInfo, render_certificates_table, term_msg_surround, term_msg_underline,
+use shared::tls::{
+    TrustStore, extract_cert_info, fetch_server_certificate, print_certificate_info,
 };
+use shared::util::{CertificateTableInfo, Emoji, confirm, render_certificates_table};
 
 /// List all trusted certificates
-pub async fn cert_list() -> Result<()> {
+pub fn cert_list() -> Result<()> {
     let trust_store = TrustStore::new().context("Failed to initialize trust store")?;
     let certs = trust_store
         .list_all()
@@ -58,7 +57,7 @@ pub async fn cert_list() -> Result<()> {
                     CertificateTableInfo {
                         server: server_display,
                         subject: "<parse error>".to_string(),
-                        valid_until: "".to_string(),
+                        valid_until: String::new(),
                     }
                 }
             }
@@ -67,7 +66,7 @@ pub async fn cert_list() -> Result<()> {
 
     let table = render_certificates_table(&cert_info);
 
-    println!("{}", table);
+    println!("{table}");
     println!();
     println!(
         "Total: {} trusted certificate{}",
@@ -84,7 +83,7 @@ pub async fn cert_list() -> Result<()> {
 }
 
 /// Show detailed information about a specific certificate
-pub async fn cert_show(server_url: &str) -> Result<()> {
+pub fn cert_show(server_url: &str) -> Result<()> {
     let trust_store = TrustStore::new().context("Failed to initialize trust store")?;
 
     // Normalize the input to a full URL
@@ -93,25 +92,14 @@ pub async fn cert_show(server_url: &str) -> Result<()> {
     // Get certificate from trust store
     let cert_pem = trust_store
         .get_cert(&normalized_url)?
-        .with_context(|| format!("No trusted certificate found for: {}", server_url))?;
+        .with_context(|| format!("No trusted certificate found for: {server_url}"))?;
 
     // Extract certificate info
     let cert_info = extract_cert_info(&normalized_url, &cert_pem)
         .context("Failed to parse certificate information")?;
 
-    // Display certificate information
     println!();
-    term_msg_surround("Certificate Details");
-    println!();
-    println!("  Server:      {}", extract_server_display(&normalized_url));
-    println!("  Subject:     {}", cert_info.subject);
-    println!("  Issuer:      {}", cert_info.issuer);
-    println!("  Valid From:  {}", cert_info.valid_from);
-    println!("  Valid Until: {}", cert_info.valid_to);
-    println!();
-    term_msg_underline("Certificate Fingerprint (SHA-256)");
-    println!("  {}", cert_info.fingerprint);
-    println!();
+    print_certificate_info(&cert_info);
 
     // Show file location
     println!("Certificate store: {}", trust_store.store_dir().display());
@@ -128,21 +116,17 @@ pub async fn cert_trust(server_url: &str) -> Result<()> {
 
     // Check if already trusted
     if trust_store.get_cert(&normalized_url)?.is_some() {
-        println!("⚠️  Certificate already trusted for: {}", server_url);
-        print!("Do you want to re-fetch and update? (yes/no): ");
-        io::stdout().flush()?;
-
-        let mut response = String::new();
-        io::stdin().read_line(&mut response)?;
-        let response = response.trim().to_lowercase();
-
-        if response != "yes" && response != "y" {
+        println!(
+            "{} Certificate already trusted for: {server_url}",
+            Emoji::Warning
+        );
+        if !confirm("Do you want to re-fetch and update it?")? {
             println!("Operation cancelled.");
             return Ok(());
         }
     }
 
-    println!("Fetching certificate from {}...", normalized_url);
+    println!("Fetching certificate from {normalized_url}...");
     println!();
 
     // Fetch certificate from server
@@ -154,17 +138,14 @@ pub async fn cert_trust(server_url: &str) -> Result<()> {
     let cert_info = extract_cert_info(&normalized_url, &cert_pem)
         .context("Failed to parse certificate information")?;
 
-    display_certificate_info(&cert_info)?;
-
-    // Prompt for trust
-    print!("Do you trust this certificate? (yes/no): ");
-    io::stdout().flush()?;
-
-    let mut response = String::new();
-    io::stdin().read_line(&mut response)?;
-    let response = response.trim().to_lowercase();
-
-    if response != "yes" && response != "y" {
+    print_certificate_info(&cert_info);
+    println!(
+        "{} WARNING: Verify the fingerprint matches what you expect to prevent",
+        Emoji::Warning
+    );
+    println!("   man-in-the-middle attacks.");
+    println!();
+    if !confirm("Do you trust this certificate?")? {
         println!("Certificate not trusted. Operation cancelled.");
         return Ok(());
     }
@@ -174,26 +155,23 @@ pub async fn cert_trust(server_url: &str) -> Result<()> {
         .save_cert(&normalized_url, &cert_pem)
         .context("Failed to save certificate to trust store")?;
 
-    println!("✅ Certificate saved to trust store");
+    println!("{} Certificate saved to trust store", Emoji::Success);
     println!();
 
     Ok(())
 }
 
 /// Delete a trusted certificate
-pub async fn cert_delete(server_url: &str) -> Result<()> {
+pub fn cert_delete(server_url: &str) -> Result<()> {
     let trust_store = TrustStore::new().context("Failed to initialize trust store")?;
 
     // Normalize the input to a full URL
     let normalized_url = normalize_server_url(server_url)?;
 
     // Check if certificate exists
-    let cert_pem = match trust_store.get_cert(&normalized_url)? {
-        Some(pem) => pem,
-        None => {
-            println!("No trusted certificate found for: {}", server_url);
-            return Ok(());
-        }
+    let Some(cert_pem) = trust_store.get_cert(&normalized_url)? else {
+        println!("No trusted certificate found for: {server_url}");
+        return Ok(());
     };
 
     // Show certificate info before deletion
@@ -209,15 +187,7 @@ pub async fn cert_delete(server_url: &str) -> Result<()> {
         println!();
     }
 
-    // Confirm deletion
-    print!("Are you sure you want to delete this certificate? (yes/no): ");
-    io::stdout().flush()?;
-
-    let mut response = String::new();
-    io::stdin().read_line(&mut response)?;
-    let response = response.trim().to_lowercase();
-
-    if response != "yes" && response != "y" {
+    if !confirm("Are you sure you want to delete this certificate?")? {
         println!("Operation cancelled.");
         return Ok(());
     }
@@ -227,7 +197,7 @@ pub async fn cert_delete(server_url: &str) -> Result<()> {
         .remove_cert(&normalized_url)
         .context("Failed to remove certificate from trust store")?;
 
-    println!("✅ Certificate deleted from trust store");
+    println!("{} Certificate deleted from trust store", Emoji::Success);
     println!();
     println!("Note: You will be prompted to trust the certificate again on next connection.");
 
@@ -261,13 +231,11 @@ fn extract_server_display(server_url: &str) -> String {
             };
 
             if port != standard_port {
-                return format!("{}:{}", host, port);
-            } else {
-                return host.to_string();
+                return format!("{host}:{port}");
             }
-        } else {
             return host.to_string();
         }
+        return host.to_string();
     }
 
     // Fallback: return as-is
@@ -296,33 +264,6 @@ fn normalize_server_url(input: &str) -> Result<String> {
         .with_context(|| format!("Server '{input}' names no host"))?;
     let port = address.port().unwrap_or(SHERPA_SERVER_WS_PORT);
     Ok(format!("wss://{host}:{port}/ws"))
-}
-
-/// Helper function to display certificate information
-fn display_certificate_info(cert_info: &CertificateInfo) -> Result<()> {
-    term_msg_surround("Certificate Information");
-    println!();
-    println!("  Server:      {}", cert_info.server_url);
-    println!("  Subject:     {}", cert_info.subject);
-
-    // Show if self-signed
-    if cert_info.subject == cert_info.issuer || cert_info.issuer.contains("self-signed") {
-        println!("  Issuer:      {} (self-signed)", cert_info.subject);
-    } else {
-        println!("  Issuer:      {}", cert_info.issuer);
-    }
-
-    println!("  Valid From:  {}", cert_info.valid_from);
-    println!("  Valid To:    {}", cert_info.valid_to);
-    println!();
-    term_msg_underline("Certificate Fingerprint (SHA-256)");
-    println!("  {}", cert_info.fingerprint);
-    println!();
-    println!("⚠️  WARNING: Verify the fingerprint matches what you expect to prevent");
-    println!("   man-in-the-middle attacks.");
-    println!();
-
-    Ok(())
 }
 
 #[cfg(test)]

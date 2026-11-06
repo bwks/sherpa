@@ -1,5 +1,5 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
-#![cfg_attr(not(test), deny(unsafe_code))]
+#![deny(unsafe_code)]
 
 mod cluster_credentials;
 mod cmd;
@@ -13,7 +13,10 @@ mod vault_credentials;
 mod ws_client;
 
 #[cfg(windows)]
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "the Win32 security API has no safe Rust wrapper; every call has a SAFETY comment"
+)]
 mod windows_acl;
 
 use std::process::ExitCode;
@@ -27,8 +30,12 @@ async fn main() -> ExitCode {
     match cmd::Cli::run().await {
         Ok(()) => ExitCode::from(0),
         Err(e) => {
-            eprintln!("{:?}", e);
-            ExitCode::from(1)
+            if let Some(exit) = e.downcast_ref::<cmd::ShellExit>() {
+                ExitCode::from(exit.0)
+            } else {
+                eprintln!("{e:?}");
+                ExitCode::from(1)
+            }
         }
     }
 }

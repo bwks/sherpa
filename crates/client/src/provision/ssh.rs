@@ -41,6 +41,7 @@ struct Script {
 /// first-boot work. sshd can answer before cloud-init has created the user, so failures at the
 /// node are retried until `timeout`; a failure at the Sherpa server, such as a refused login
 /// or host key, is not.
+#[tracing::instrument(level = "debug", skip_all, fields(host = %target.host()))]
 pub async fn wait_for_node(target: &SshTarget, timeout: Duration) -> Result<NodeSession> {
     let deadline = Instant::now() + timeout;
     let session = loop {
@@ -69,6 +70,7 @@ pub async fn wait_for_node(target: &SshTarget, timeout: Duration) -> Result<Node
 
 /// Run one SSH provisioner on a node: files, then env files, then scripts, showing progress
 /// and script output in `output`.
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn provision(
     session: &NodeSession,
     provisioner: &SshProvisioner,

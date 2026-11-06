@@ -1,173 +1,139 @@
 //! Token storage and management for the Sherpa CLI client.
 //!
-//! This module handles reading and writing JWT tokens to ~/.sherpa/token
-//! with appropriate file permissions (0600).
+//! The login token is kept in `~/.sherpa/token`, readable only by the current user.
 
-use anyhow::{Context, Result};
 use std::fs;
 use std::path::PathBuf;
 
+use anyhow::{Context, Result, bail};
+
 use crate::private_key::write_secret_file;
 
-/// Get the path to the token file
-///
-/// Returns `~/.sherpa/token`
-fn get_token_path() -> Result<PathBuf> {
-    let home = dirs::home_dir().context("Could not determine home directory")?;
-    let sherpa_dir = home.join(".sherpa");
-    Ok(sherpa_dir.join("token"))
+/// The file that holds the login token.
+struct TokenFile {
+    path: PathBuf,
 }
 
-/// Save a JWT token to ~/.sherpa/token, readable only by the current user.
-///
-/// Creates the ~/.sherpa directory if it doesn't exist.
+impl TokenFile {
+    /// The token file in the current user's home folder, `~/.sherpa/token`.
+    fn in_home() -> Result<Self> {
+        let home = dirs::home_dir().context("Could not determine home directory")?;
+        Ok(Self {
+            path: home.join(".sherpa").join("token"),
+        })
+    }
+
+    /// Save `token`, readable only by the current user, creating the folder if needed.
+    fn save(&self, token: &str) -> Result<()> {
+        if let Some(parent) = self.path.parent()
+            && !parent.exists()
+        {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create {}", parent.display()))?;
+        }
+        write_secret_file(&self.path, token, "auth token")
+    }
+
+    /// The saved token.
+    fn load(&self) -> Result<String> {
+        if !self.path.exists() {
+            bail!("No token found. Please run: sherpa login");
+        }
+        let token = fs::read_to_string(&self.path).context("Failed to read token file")?;
+        Ok(token.trim().to_string())
+    }
+
+    /// Remove the saved token, if there is one.
+    fn delete(&self) -> Result<()> {
+        if self.path.exists() {
+            fs::remove_file(&self.path).context("Failed to delete token file")?;
+        }
+        Ok(())
+    }
+}
+
+/// Save a JWT token to `~/.sherpa/token`, readable only by the current user.
 ///
 /// # Errors
-/// Returns an error if the home directory is unknown, or the directory or the token file
-/// cannot be written.
+///
+/// Fails when the home directory is unknown, or the folder or the token file cannot be written.
 pub fn save_token(token: &str) -> Result<()> {
-    let token_path = get_token_path()?;
-
-    // Create ~/.sherpa directory if it doesn't exist
-    if let Some(parent) = token_path.parent()
-        && !parent.exists()
-    {
-        fs::create_dir_all(parent).context("Failed to create ~/.sherpa directory")?;
-    }
-
-    write_secret_file(&token_path, token, "auth token")
+    TokenFile::in_home()?.save(token)
 }
 
-/// Load a JWT token from ~/.sherpa/token
-///
-/// # Returns
-/// The token string if the file exists and is readable
+/// Load the JWT token saved in `~/.sherpa/token`.
 ///
 /// # Errors
-/// Returns an error if:
-/// - HOME environment variable is not set
-/// - Token file doesn't exist
-/// - File read fails
+///
+/// Fails when the home directory is unknown, there is no saved token (the error says to run
+/// `sherpa login`), or the file cannot be read.
 pub fn load_token() -> Result<String> {
-    let token_path = get_token_path()?;
-
-    if !token_path.exists() {
-        anyhow::bail!("No token found. Please run: sherpa login");
-    }
-
-    let token = fs::read_to_string(&token_path).context("Failed to read token file")?;
-
-    Ok(token.trim().to_string())
+    TokenFile::in_home()?.load()
 }
 
-/// Delete the token file
+/// Delete the saved token.
 ///
 /// # Errors
-/// Returns an error if:
-/// - HOME environment variable is not set  
-/// - File deletion fails (if file exists)
+///
+/// Fails when the home directory is unknown or the file cannot be removed.
 pub fn delete_token() -> Result<()> {
-    let token_path = get_token_path()?;
-
-    if token_path.exists() {
-        fs::remove_file(&token_path).context("Failed to delete token file")?;
-    }
-
-    Ok(())
+    TokenFile::in_home()?.delete()
 }
 
-/// Check if a token file exists
+/// Whether a token is saved.
 pub fn token_exists() -> bool {
-    get_token_path().map(|path| path.exists()).unwrap_or(false)
+    TokenFile::in_home().is_ok_and(|file| file.path.exists())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::env;
     use std::path::Path;
 
+    use super::*;
+
+    fn token_file(dir: &Path) -> TokenFile {
+        TokenFile {
+            path: dir.join(".sherpa").join("token"),
+        }
+    }
+
     #[test]
-    fn test_get_token_path() {
-        let path = get_token_path().expect("Failed to get token path");
+    fn the_token_file_is_in_the_home_folder() {
+        let file = TokenFile::in_home().unwrap();
         assert!(
-            path.ends_with(Path::new(".sherpa").join("token")),
+            file.path.ends_with(Path::new(".sherpa").join("token")),
             "{}",
-            path.display()
+            file.path.display()
         );
     }
 
     #[test]
-    #[ignore = "changes HOME for the whole process with unsafe set_var and writes files"]
-    fn test_save_and_load_token() {
-        // Save original HOME for cleanup
-        let original_home = env::var("HOME").ok();
+    fn a_saved_token_loads_and_deletes() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = token_file(dir.path());
+        let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.token";
 
-        // Use a temp directory for testing
-        let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
-        // SAFETY: This test is single-threaded and restores the original value
-        unsafe {
-            env::set_var("HOME", temp_dir.path());
-        }
-
-        let test_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.token";
-
-        // Save token
-        save_token(test_token).expect("Failed to save token");
-
-        // Verify file exists
-        assert!(token_exists());
-
-        // Load token
-        let loaded = load_token().expect("Failed to load token");
-        assert_eq!(loaded, test_token);
-
-        // Verify file permissions on Unix
+        file.save(token).unwrap();
+        assert_eq!(file.load().unwrap(), token);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let token_path = get_token_path().expect("Failed to get token path");
-            let metadata = fs::metadata(&token_path).expect("Failed to read metadata");
-            let mode = metadata.permissions().mode();
+            let mode = fs::metadata(&file.path).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600);
         }
 
-        // Delete token
-        delete_token().expect("Failed to delete token");
-        assert!(!token_exists());
-
-        // Restore original HOME
-        // SAFETY: Restoring the original value
-        if let Some(home) = original_home {
-            unsafe {
-                env::set_var("HOME", home);
-            }
-        }
+        file.delete().unwrap();
+        assert!(!file.path.exists());
+        file.delete().unwrap();
     }
 
     #[test]
-    #[ignore = "changes HOME for the whole process with unsafe set_var"]
-    fn test_load_token_not_found() {
-        // Save original HOME
-        let original_home = env::var("HOME").ok();
-
-        // Use a temp directory that doesn't have a token
-        let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
-        // SAFETY: This test is single-threaded and restores the original value
-        unsafe {
-            env::set_var("HOME", temp_dir.path());
-        }
-
-        let result = load_token();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("No token found"));
-
-        // Restore original HOME
-        // SAFETY: Restoring the original value
-        if let Some(home) = original_home {
-            unsafe {
-                env::set_var("HOME", home);
-            }
-        }
+    fn a_missing_token_says_to_log_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let error = token_file(dir.path()).load().unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "No token found. Please run: sherpa login"
+        );
     }
 }
