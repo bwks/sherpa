@@ -10,7 +10,7 @@ use shared::konst::SHERPA_SERVER_WS_PORT;
 use shared::tls::{
     TrustStore, extract_cert_info, fetch_server_certificate, print_certificate_info,
 };
-use shared::util::{CertificateTableInfo, confirm, render_certificates_table};
+use shared::util::{CertificateTableInfo, Emoji, confirm, render_certificates_table};
 
 /// List all trusted certificates
 pub fn cert_list() -> Result<()> {
@@ -116,7 +116,10 @@ pub async fn cert_trust(server_url: &str) -> Result<()> {
 
     // Check if already trusted
     if trust_store.get_cert(&normalized_url)?.is_some() {
-        println!("⚠️  Certificate already trusted for: {server_url}");
+        println!(
+            "{} Certificate already trusted for: {server_url}",
+            Emoji::Warning
+        );
         if !confirm("Do you want to re-fetch and update it?")? {
             println!("Operation cancelled.");
             return Ok(());
@@ -136,7 +139,10 @@ pub async fn cert_trust(server_url: &str) -> Result<()> {
         .context("Failed to parse certificate information")?;
 
     print_certificate_info(&cert_info);
-    println!("⚠️  WARNING: Verify the fingerprint matches what you expect to prevent");
+    println!(
+        "{} WARNING: Verify the fingerprint matches what you expect to prevent",
+        Emoji::Warning
+    );
     println!("   man-in-the-middle attacks.");
     println!();
     if !confirm("Do you trust this certificate?")? {
@@ -149,7 +155,7 @@ pub async fn cert_trust(server_url: &str) -> Result<()> {
         .save_cert(&normalized_url, &cert_pem)
         .context("Failed to save certificate to trust store")?;
 
-    println!("✅ Certificate saved to trust store");
+    println!("{} Certificate saved to trust store", Emoji::Success);
     println!();
 
     Ok(())
@@ -191,7 +197,7 @@ pub fn cert_delete(server_url: &str) -> Result<()> {
         .remove_cert(&normalized_url)
         .context("Failed to remove certificate from trust store")?;
 
-    println!("✅ Certificate deleted from trust store");
+    println!("{} Certificate deleted from trust store", Emoji::Success);
     println!();
     println!("Note: You will be prompted to trust the certificate again on next connection.");
 

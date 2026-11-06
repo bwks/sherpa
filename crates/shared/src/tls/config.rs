@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::data::ServerConnection;
 use crate::tls::cert_fetch::fetch_server_certificate;
 use crate::tls::trust_store::{CertificateInfo, TrustStore, extract_cert_info};
-use crate::util::{confirm, term_msg_surround, term_msg_underline};
+use crate::util::{Emoji, confirm, term_msg_surround, term_msg_underline};
 
 /// Builds TLS configuration for WebSocket client
 pub struct TlsConfigBuilder {
@@ -115,7 +115,10 @@ impl TlsConfigBuilder {
 
                 println!();
                 print_certificate_info(&cert_info);
-                println!("⚠️  WARNING: This is the first time connecting to this server.");
+                println!(
+                    "{} WARNING: This is the first time connecting to this server.",
+                    Emoji::Warning
+                );
                 println!("   Verify the fingerprint matches what you expect to prevent");
                 println!("   man-in-the-middle attacks.");
                 println!();
@@ -134,7 +137,7 @@ impl TlsConfigBuilder {
                     .save_cert(server_url, &fetched_cert)
                     .context("Failed to save certificate to trust store")?;
 
-                println!("✅ Certificate saved to trust store");
+                println!("{} Certificate saved to trust store", Emoji::Success);
                 println!();
 
                 fetched_cert
