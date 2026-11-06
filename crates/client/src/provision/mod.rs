@@ -15,4 +15,5 @@ mod transport;
 
 pub use client_files::resolve_client_path;
 pub use container::{container_results, container_secrets, node_secrets};
+pub use env_file::client_variable;
 pub use run::provision_lab;

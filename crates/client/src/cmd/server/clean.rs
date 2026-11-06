@@ -6,13 +6,19 @@ use shared::util::{Emoji, display_destroy_results, term_msg_surround};
 use super::rpc_call;
 use crate::cmd::outcome::ensure_lab_destroyed;
 
+/// The parameters of the `clean` call.
+#[derive(serde::Serialize)]
+struct CleanParams {
+    lab_id: String,
+}
+
 /// Clean all resources for a lab (admin-only)
 ///
 /// Unlike `destroy`, this command:
 /// - Does not require the lab to exist in the database
 /// - Skips ownership validation (admin-only)
 /// - Tolerates missing resources
-/// - Cleans everything matching the lab_id
+/// - Cleans everything matching the `lab_id`
 pub async fn clean(
     lab_id: &str,
     server_url: &str,
@@ -25,11 +31,6 @@ pub async fn clean(
         Emoji::Warning,
         lab_id
     );
-
-    #[derive(serde::Serialize)]
-    struct CleanParams {
-        lab_id: String,
-    }
 
     let clean_data: DestroyResponse = rpc_call(
         "clean",

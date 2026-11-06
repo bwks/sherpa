@@ -6,7 +6,6 @@ use clap::{ArgGroup, Subcommand};
 use shared::data::{
     ClientConfig, ImpairmentDirection, UpdateImpairmentRequest, UpdateImpairmentResponse,
 };
-use shared::error::RpcErrorCode;
 use shared::konst::SHERPA_MANIFEST_FILE;
 use shared::util::Emoji;
 use topology::{Link2, Manifest};
@@ -107,15 +106,7 @@ async fn update_impairment_rpc(
     config: &ClientConfig,
     server_url: &str,
 ) -> Result<()> {
-    let token = match load_token() {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("\n{} Authentication required", Emoji::Error);
-            eprintln!("   Please run: sherpa login");
-            eprintln!("   Error: {}", e);
-            bail!("Authentication token not found");
-        }
-    };
+    let token = load_token()?;
 
     let timeout = Duration::from_secs(config.server_connection.timeout_secs);
     let ws_client = WebSocketClient::new(
@@ -137,26 +128,8 @@ async fn update_impairment_rpc(
         .context("RPC call failed")?;
     rpc_client.close().await.ok();
 
-    if let Some(error) = response.error {
-        eprintln!("\n{} Server Error:", Emoji::Error);
-        eprintln!("   Message: {}", error.message);
-        eprintln!("   Code: {}", error.code);
-        if let Some(context) = error.context {
-            eprintln!("   Context:\n{}", context);
-        }
-        if error.code == RpcErrorCode::AuthRequired {
-            eprintln!(
-                "\n{} Your authentication token has expired or is invalid",
-                Emoji::Error
-            );
-            eprintln!("   Please run: sherpa login");
-        }
-        bail!("Link impairment update failed");
-    }
-
-    let result = response.result.context("No result in response")?;
     let response: UpdateImpairmentResponse =
-        serde_json::from_value(result).context("Failed to parse impairment response")?;
+        response.into_result("Link impairment update failed")?;
     println!("{} {}", Emoji::Success, response.message);
     Ok(())
 }

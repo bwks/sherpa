@@ -1,23 +1,17 @@
-use std::fs;
-use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
 use shared::data::{ClientConfig, DownloadLabResponse};
-use shared::error::RpcErrorCode;
-use shared::konst::{LAB_FILE_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
-use shared::util::{Emoji, add_lab_ssh_include, file_exists, get_cwd, term_msg_surround};
+use shared::konst::LAB_FILE_NAME;
+use shared::util::{Emoji, file_exists, get_cwd, term_msg_surround};
 
-use crate::cluster_credentials::{print_cluster_files, write_cluster_credentials};
-use crate::keycloak_credentials::{print_keycloak_files, write_keycloak_credentials};
-use crate::lab_files::{rewrite_ssh_config_for_client, write_known_hosts, write_lab_ca};
-use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, write_secret_file};
+use crate::lab_files::{LabFiles, register_ssh_config, save_lab_files};
 use crate::token::load_token;
-use crate::vault_credentials::{print_vault_files, write_vault_credentials};
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
 /// Download lab files from server and write to the current directory.
+#[tracing::instrument(skip_all, fields(%lab_id, force))]
 pub async fn download(
     lab_id: &str,
     force: bool,
@@ -28,23 +22,14 @@ pub async fn download(
 
     // Check for existing lab files before connecting to server
     let cwd = get_cwd().context("Failed to determine working directory")?;
-    let lab_info_path = format!("{}/{}", cwd, LAB_FILE_NAME);
+    let lab_info_path = format!("{cwd}/{LAB_FILE_NAME}");
     if file_exists(&lab_info_path) && !force {
         bail!(
-            "Lab files already exist in this directory ({}).\nUse --force to overwrite.",
-            LAB_FILE_NAME
+            "Lab files already exist in this directory ({LAB_FILE_NAME}).\nUse --force to overwrite."
         );
     }
 
-    let token = match load_token() {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("\n{} Authentication required", Emoji::Error);
-            eprintln!("   Please run: sherpa login");
-            eprintln!("   Error: {}", e);
-            bail!("Authentication token not found");
-        }
-    };
+    let token = load_token()?;
 
     let timeout = Duration::from_secs(config.server_connection.timeout_secs);
     let ws_client = WebSocketClient::new(
@@ -71,97 +56,10 @@ pub async fn download(
     let response = rpc_client.call(request).await.context("RPC call failed")?;
     rpc_client.close().await.ok();
 
-    if let Some(error) = response.error {
-        eprintln!("\n{} Server Error:", Emoji::Error);
-        eprintln!("   Message: {}", error.message);
-        if let Some(context) = error.context {
-            eprintln!("   Context:\n{}", context);
-        }
-        if error.code == RpcErrorCode::AuthRequired {
-            eprintln!(
-                "\n{} Your authentication token has expired or is invalid",
-                Emoji::Error
-            );
-            eprintln!("   Please run: sherpa login");
-        }
-        bail!("Download failed");
-    }
+    let data: DownloadLabResponse = response.into_result("Download failed")?;
 
-    let result = response.result.context("No result in response")?;
-    let data: DownloadLabResponse =
-        serde_json::from_value(result).context("Failed to parse download response")?;
-
-    // Write SSH config with absolute IdentityFile path
-    let ssh_config = rewrite_ssh_config_for_client(&data.ssh_config, &cwd);
-    let ssh_config_path = Path::new(&cwd)
-        .join(SHERPA_SSH_CONFIG_FILE)
-        .to_string_lossy()
-        .to_string();
-    fs::write(&ssh_config_path, &ssh_config).context("Failed to write SSH config")?;
-    println!("{} SSH config created: {}", Emoji::Success, ssh_config_path);
-
-    match add_lab_ssh_include(&ssh_config_path) {
-        Ok(_) => {
-            println!(
-                "{} SSH config registered in ~/.ssh/sherpa_lab_hosts",
-                Emoji::Success,
-            );
-        }
-        Err(e) => {
-            println!(
-                "\n{} Warning: Failed to register SSH config: {}",
-                Emoji::Warning,
-                e
-            );
-        }
-    }
-
-    if let Some(known_hosts_path) = write_known_hosts(&cwd, &data.known_hosts)? {
-        println!(
-            "{} Node host keys saved: {}",
-            Emoji::Success,
-            known_hosts_path.display()
-        );
-    }
-
-    if !data.ssh_private_key.is_empty() {
-        // Write SSH private key with 0600 permissions
-        let ssh_key_path = Path::new(&cwd).join(SHERPA_SSH_PRIVATE_KEY_FILE);
-        write_secret_file(
-            &ssh_key_path,
-            &data.ssh_private_key,
-            SSH_PRIVATE_KEY_ERROR_LABEL,
-        )
-        .context("Failed to write SSH key")?;
-        println!(
-            "{} SSH private key created: {}",
-            Emoji::Success,
-            ssh_key_path.display()
-        );
-    }
-
-    // Write lab-info.toml
-    fs::write(&lab_info_path, data.lab_info.to_string())
-        .context("Failed to write lab-info.toml")?;
-    println!("{} Lab info created: {}", Emoji::Success, lab_info_path);
-
-    // Write the lab CA, Vault credentials and Keycloak users
-    let lab_ca =
-        write_lab_ca(&cwd, &data.lab_ca).context("Failed to write the lab CA certificate")?;
-    if let Some(path) = &lab_ca {
-        println!("{} Lab CA certificate: {}", Emoji::Success, path.display());
-    }
-    let vault_files = write_vault_credentials(Path::new(&cwd), &data.vaults)
-        .context("Failed to write Vault credentials")?;
-    print_vault_files(&vault_files, lab_ca.as_deref());
-    let keycloak_files = write_keycloak_credentials(Path::new(&cwd), &data.keycloaks)
-        .context("Failed to write Keycloak users")?;
-    print_keycloak_files(&keycloak_files);
-
-    // Write Kubernetes cluster credentials
-    let cluster_files = write_cluster_credentials(Path::new(&cwd), &data.clusters)
-        .context("Failed to write cluster credentials")?;
-    print_cluster_files(&cluster_files);
+    let ssh_config = save_lab_files(&cwd, &LabFiles::from(&data))?;
+    register_ssh_config(&ssh_config);
 
     println!("\n{} Lab files downloaded successfully", Emoji::Success);
 

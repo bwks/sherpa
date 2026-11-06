@@ -7,7 +7,6 @@ use shared::util::emoji_success;
 use std::env;
 use std::io::{self, Write};
 use std::time::Duration;
-use uuid::Uuid;
 
 use crate::token;
 use crate::ws_client::{WebSocketClient, messages::RpcRequest};
@@ -16,7 +15,8 @@ use crate::ws_client::{WebSocketClient, messages::RpcRequest};
 ///
 /// Takes the username and password from `SHERPA_USER_NAME` and `SHERPA_USER_PASSWORD`, or
 /// prompts for them, authenticates with server, and saves the JWT token to ~/.sherpa/token
-pub async fn login(server_url: &str, insecure: bool, config: &ClientConfig) -> Result<()> {
+#[tracing::instrument(skip_all, fields(%server_url))]
+pub async fn login(server_url: &str, config: &ClientConfig) -> Result<()> {
     let username = match env::var(SHERPA_USER_NAME_ENV) {
         Ok(username) => username.trim().to_string(),
         Err(_) => prompt_username()?,
@@ -38,17 +38,11 @@ pub async fn login(server_url: &str, insecure: bool, config: &ClientConfig) -> R
 
     println!("Authenticating...");
 
-    let mut server_connection = config.server_connection.clone();
-    if insecure {
-        server_connection.insecure = true;
-        eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
-    }
-
     // Connect to server
     let ws_client = WebSocketClient::new(
         server_url.to_string(),
         Duration::from_secs(10),
-        server_connection,
+        config.server_connection.clone(),
     );
     let mut rpc_client = ws_client
         .connect()
@@ -59,12 +53,7 @@ pub async fn login(server_url: &str, insecure: bool, config: &ClientConfig) -> R
     let request = LoginRequest { username, password };
     let params = serde_json::to_value(&request).context("Failed to serialize login request")?;
 
-    let rpc_request = RpcRequest {
-        r#type: "rpc_request".to_string(),
-        id: Uuid::new_v4().to_string(),
-        method: "auth.login".to_string(),
-        params,
-    };
+    let rpc_request = RpcRequest::new("auth.login", params);
 
     // Send request and wait for response
     let response = rpc_client
@@ -72,15 +61,7 @@ pub async fn login(server_url: &str, insecure: bool, config: &ClientConfig) -> R
         .await
         .context("Login request failed")?;
 
-    // Check for error
-    if let Some(error) = response.error {
-        bail!("Login failed: {}", error.message);
-    }
-
-    // Parse successful response
-    let result = response.result.context("No result in response")?;
-    let login_response: LoginResponse =
-        serde_json::from_value(result).context("Failed to parse login response")?;
+    let login_response: LoginResponse = response.into_result("Login failed")?;
 
     // Save token
     token::save_token(&login_response.token).context("Failed to save authentication token")?;
@@ -121,21 +102,16 @@ pub fn logout() -> Result<()> {
 /// Execute the whoami command
 ///
 /// Validates the current token and displays user information
-pub async fn whoami(server_url: &str, insecure: bool, config: &ClientConfig) -> Result<()> {
+#[tracing::instrument(skip_all, fields(%server_url))]
+pub async fn whoami(server_url: &str, config: &ClientConfig) -> Result<()> {
     // Load token
     let token_str = token::load_token().context("Not logged in")?;
-
-    let mut server_connection = config.server_connection.clone();
-    if insecure {
-        server_connection.insecure = true;
-        eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
-    }
 
     // Connect to server
     let ws_client = WebSocketClient::new(
         server_url.to_string(),
         Duration::from_secs(10),
-        server_connection,
+        config.server_connection.clone(),
     );
     let mut rpc_client = ws_client
         .connect()
@@ -147,12 +123,7 @@ pub async fn whoami(server_url: &str, insecure: bool, config: &ClientConfig) -> 
         "token": token_str
     });
 
-    let rpc_request = RpcRequest {
-        r#type: "rpc_request".to_string(),
-        id: Uuid::new_v4().to_string(),
-        method: "auth.validate".to_string(),
-        params,
-    };
+    let rpc_request = RpcRequest::new("auth.validate", params);
 
     // Send request and wait for response
     let response = rpc_client
@@ -160,15 +131,7 @@ pub async fn whoami(server_url: &str, insecure: bool, config: &ClientConfig) -> 
         .await
         .context("Token validation failed")?;
 
-    // Check for error
-    if let Some(error) = response.error {
-        bail!("Validation failed: {}", error.message);
-    }
-
-    // Parse response
-    let result = response.result.context("No result in response")?;
-    let validate_response: ValidateResponse =
-        serde_json::from_value(result).context("Failed to parse validation response")?;
+    let validate_response: ValidateResponse = response.into_result("Validation failed")?;
 
     if !validate_response.valid {
         bail!("Token is invalid or expired; run: sherpa login");
@@ -176,7 +139,7 @@ pub async fn whoami(server_url: &str, insecure: bool, config: &ClientConfig) -> 
 
     println!("{}", emoji_success("Authenticated"));
     if let Some(username) = validate_response.username {
-        println!("   Username: {}", username);
+        println!("   Username: {username}");
     }
     if let Some(is_admin) = validate_response.is_admin {
         println!("   Admin: {}", if is_admin { "Yes" } else { "No" });
@@ -186,7 +149,7 @@ pub async fn whoami(server_url: &str, insecure: bool, config: &ClientConfig) -> 
         let expires_in_seconds = expires_at - now;
         if expires_in_seconds > 0 {
             let expires_in_days = expires_in_seconds / 86400;
-            println!("   Token expires in: {} days", expires_in_days);
+            println!("   Token expires in: {expires_in_days} days");
         } else {
             println!("   Token has expired");
         }

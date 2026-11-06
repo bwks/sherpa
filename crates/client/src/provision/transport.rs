@@ -105,12 +105,14 @@ impl NodeSession {
     }
 
     /// Run `command` on the node, keeping its error output to report a failure.
+    #[tracing::instrument(level = "debug", skip_all, fields(host = %self.host))]
     pub async fn run(&self, command: &str) -> Result<()> {
         self.execute(command, None).await
     }
 
     /// Run `command` on the node with `input` on its stdin, showing its output in `output` as
     /// it runs.
+    #[tracing::instrument(level = "debug", skip_all, fields(host = %self.host))]
     pub async fn run_with_input(
         &self,
         command: &str,
@@ -141,6 +143,7 @@ impl NodeSession {
     }
 
     /// Tell the node and the server the session is ending.
+    #[tracing::instrument(level = "debug", skip_all, fields(host = %self.host))]
     pub async fn close(self) {
         if let Err(error) = self.session.close().await {
             tracing::debug!(host = %self.host, %error, "Failed to close the SSH session cleanly");
@@ -177,10 +180,13 @@ impl NodeSession {
             .with_context(|| format!("Lost the command on {}", self.host))?
         {
             match event {
-                Event::Stdout(bytes) => match output.as_deref_mut() {
-                    Some(output) => output.stdout(&bytes),
-                    None => tracing::debug!(host = %self.host, "Command stdout not shown"),
-                },
+                Event::Stdout(bytes) => {
+                    if let Some(output) = output.as_deref_mut() {
+                        output.stdout(&bytes);
+                    } else {
+                        tracing::debug!(host = %self.host, "Command stdout not shown");
+                    }
+                }
                 Event::Stderr(bytes) => match output.as_deref_mut() {
                     Some(output) => output.stderr(&bytes),
                     None => errors.extend(bytes),

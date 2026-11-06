@@ -8,14 +8,14 @@ use shared::konst::{BOOT_SERVER_NAME, TELNET_PORT};
 use shared::util::{get_ip, term_msg_surround};
 use topology::Manifest;
 
+#[tracing::instrument(skip_all, fields(%name))]
 pub fn console(name: &str, manifest: &Manifest, lab_info: &LabInfo) -> Result<()> {
     term_msg_surround(&format!("Connecting to: {name}"));
 
-    let dev_id_map: HashMap<String, u8> = manifest
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(idx, device)| (device.name.clone(), idx as u8 + 1))
+    // Node indexes start from 1, as they do for addresses; a lab holds far fewer than 255 nodes.
+    let dev_id_map: HashMap<String, u8> = (1..=u8::MAX)
+        .zip(&manifest.nodes)
+        .map(|(index, device)| (device.name.clone(), index))
         .collect();
 
     // Find the device in the manifest
@@ -27,7 +27,7 @@ pub fn console(name: &str, manifest: &Manifest, lab_info: &LabInfo) -> Result<()
                 .nodes
                 .iter()
                 .find(|d| d.name == *name)
-                .ok_or_else(|| anyhow::anyhow!("Device not found: {}", name))?;
+                .ok_or_else(|| anyhow::anyhow!("Device not found: {name}"))?;
             let device_id = dev_id_map
                 .get(&device.name)
                 .ok_or_else(|| anyhow::anyhow!("Device ID not found for: {}", device.name))?

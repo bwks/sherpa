@@ -2,12 +2,12 @@ use anyhow::{Context, Result, bail};
 use shared::util::render_tailnet_table;
 use std::time::Duration;
 
-use shared::data::{ClientConfig, LabNodeActionResponse, StatusKind, StatusMessage};
-use shared::error::RpcErrorCode;
+use shared::data::{ClientConfig, LabNodeActionResponse};
 use shared::konst::SHERPA_MANIFEST_FILE;
 use shared::util::{Emoji, file_exists, term_msg_surround};
 use topology::Manifest;
 
+use super::progress::print_status;
 use crate::cmd::download::download;
 use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
@@ -17,22 +17,8 @@ use crate::cmd::tailscale_key::resolve_resume_tailscale_key;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
-/// Print a streamed status message from the server.
-fn print_status(text: &str) {
-    if let Ok(status) = serde_json::from_str::<StatusMessage>(text)
-        && status.r#type == "status"
-    {
-        let emoji = match status.kind {
-            StatusKind::Progress => Emoji::Progress,
-            StatusKind::Done => Emoji::Success,
-            StatusKind::Info => Emoji::Info,
-            StatusKind::Waiting => Emoji::Hourglass,
-        };
-        println!("{} {}", emoji, status.message);
-    }
-}
-
 /// Start/poweron lab nodes via WebSocket RPC to sherpad server
+#[tracing::instrument(skip_all, fields(%lab_name, %lab_id, ?node_name))]
 pub async fn resume(
     lab_name: &str,
     lab_id: &str,
@@ -55,16 +41,7 @@ pub async fn resume(
     let tailscale_auth_key =
         resolve_resume_tailscale_key(node_name, manifest.as_ref(), server_url, config)?;
 
-    // Load authentication token
-    let token = match load_token() {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("\n{} Authentication required", Emoji::Error);
-            eprintln!("   Please run: sherpa login");
-            eprintln!("   Error: {}", e);
-            bail!("Authentication token not found");
-        }
-    };
+    let token = load_token()?;
 
     // Create WebSocket client
     let timeout = Duration::from_secs(config.server_connection.timeout_secs);
@@ -97,7 +74,7 @@ pub async fn resume(
 
     // Send request and wait for response
     let status_msg = match node_name {
-        Some(name) => format!("Starting node {}...", name),
+        Some(name) => format!("Starting node {name}..."),
         None => "Starting lab nodes...".to_string(),
     };
     println!("{}", status_msg);
@@ -122,29 +99,7 @@ pub async fn resume(
     rpc_client.close().await.ok();
 
     // Handle response
-    if let Some(error) = response.error {
-        eprintln!("\n{} Server Error:", Emoji::Error);
-        eprintln!("   Message: {}", error.message);
-        eprintln!("   Code: {}", error.code);
-        if let Some(context) = error.context {
-            eprintln!("   Context:\n{}", context);
-        }
-
-        if error.code == RpcErrorCode::AuthRequired {
-            eprintln!(
-                "\n{} Your authentication token has expired or is invalid",
-                Emoji::Error
-            );
-            eprintln!("   Please run: sherpa login");
-        }
-
-        bail!("Resume operation failed");
-    }
-
-    let result = response.result.context("No result in response")?;
-
-    let action_response: LabNodeActionResponse =
-        serde_json::from_value(result).context("Failed to parse resume response")?;
+    let action_response: LabNodeActionResponse = response.into_result("Resume operation failed")?;
 
     if let Some(status) = &action_response.tailscale {
         println!("{}", render_tailnet_table(status));

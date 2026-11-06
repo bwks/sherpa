@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use tokio::sync::Mutex;
 
 use shared::data::{ClientConfig, NodeHostKeysResponse, ServerConnection};
@@ -62,18 +62,8 @@ impl HostKeyRefresh {
         );
         let response = rpc_client.call(request).await;
         rpc_client.close().await.ok();
-        let response = response.context("RPC call failed")?;
-        if let Some(error) = response.error {
-            bail!(
-                "The Sherpa server could not read the host key: {}",
-                error.message
-            );
-        }
-        let result = response
-            .result
-            .context("Empty response from the Sherpa server")?;
         let keys: NodeHostKeysResponse =
-            serde_json::from_value(result).context("Invalid host key response")?;
+            response?.into_result("The Sherpa server could not read the host key")?;
         let lab_dir = self.lab_dir.to_string_lossy();
         write_known_hosts(&lab_dir, &keys.known_hosts)?;
         Ok(keys)

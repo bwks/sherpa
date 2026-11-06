@@ -14,6 +14,7 @@ mod login;
 mod manifest_processing;
 mod new;
 mod outcome;
+mod progress;
 mod provision;
 mod redeploy;
 mod resume;
@@ -25,3 +26,4 @@ mod up;
 mod validate;
 
 pub use cli::Cli;
+pub use ssh::ShellExit;

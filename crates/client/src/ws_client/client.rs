@@ -14,7 +14,7 @@ type WsStream = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// How long `RpcClient::call` waits for its response once the request is sent, so a server
 /// that stops answering does not hang the command.
-const RPC_RESPONSE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+const RPC_RESPONSE_TIMEOUT: Duration = Duration::from_mins(15);
 
 /// WebSocket client for connecting to sherpad server
 pub struct WebSocketClient {
@@ -100,14 +100,17 @@ impl WebSocketClient {
 /// Check client/server version compatibility and warn on mismatch.
 fn check_version_compatibility(server_version: &str) {
     let client_version = env!("CARGO_PKG_VERSION");
-    if server_version != client_version {
-        eprintln!(
-            "WARNING: Version mismatch - client: {}, server: {}",
-            client_version, server_version
-        );
-    } else {
+    if server_version == client_version {
         tracing::debug!("Client and server versions match: {}", client_version);
+    } else {
+        eprintln!("WARNING: Version mismatch - client: {client_version}, server: {server_version}");
     }
+}
+
+/// Log a message that is not the response being waited for, by size only: messages can carry
+/// tokens and credentials.
+fn log_other_message(text: &str) {
+    tracing::debug!(bytes = text.len(), "Non-RPC message received");
 }
 
 /// RPC client for making RPC calls over WebSocket
@@ -117,77 +120,21 @@ pub struct RpcClient {
 }
 
 impl RpcClient {
-    /// Send an RPC request and wait for the response
+    /// Send an RPC request and wait up to `RPC_RESPONSE_TIMEOUT` for its response. Other
+    /// messages the server sends meanwhile are only logged.
     pub async fn call(&mut self, request: RpcRequest) -> Result<RpcResponse> {
-        let request_id = request.id.clone();
-
-        // Serialize and send request
-        let request_json =
-            serde_json::to_string(&request).context("Failed to serialize request")?;
-        tracing::debug!(method = %request.method, id = %request.id, "Sending RPC request");
-
-        self.write
-            .send(Message::Text(request_json.into()))
-            .await
-            .context("Failed to send RPC request")?;
-
-        tokio::time::timeout(RPC_RESPONSE_TIMEOUT, self.read_response(&request_id))
-            .await
-            .with_context(|| {
-                format!(
-                    "No response from the server to '{}' within {} minutes",
-                    request.method,
-                    RPC_RESPONSE_TIMEOUT.as_secs() / 60
-                )
-            })?
-    }
-
-    /// Read messages until the RPC response to `request_id`.
-    async fn read_response(&mut self, request_id: &str) -> Result<RpcResponse> {
-        while let Some(msg) = self.read.next().await {
-            let msg = msg.context("Error reading WebSocket message")?;
-
-            match msg {
-                Message::Text(text) => {
-                    // Only the size: responses carry tokens, passwords and kubeconfigs.
-                    tracing::debug!(bytes = text.len(), "Received message");
-
-                    // Try to parse as RPC response
-                    match serde_json::from_str::<RpcResponse>(&text) {
-                        Ok(response) => {
-                            // Check if this is the response for our request
-                            if response.id == request_id {
-                                return Ok(response);
-                            } else {
-                                tracing::warn!(
-                                    "Received response for different request ID: {} (expected: {})",
-                                    response.id,
-                                    request_id
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            tracing::debug!(bytes = text.len(), error = %e, "Non-RPC message received");
-                            // Could be status, log, or other server message - ignore
-                        }
-                    }
-                }
-                Message::Ping(_) => {
-                    tracing::trace!("Received ping");
-                }
-                Message::Pong(_) => {
-                    tracing::trace!("Received pong");
-                }
-                Message::Close(frame) => {
-                    bail!("Server closed connection: {:?}", frame);
-                }
-                _ => {
-                    tracing::trace!("Received other message type");
-                }
-            }
-        }
-
-        bail!("Connection closed before receiving response")
+        let method = request.method.clone();
+        tokio::time::timeout(
+            RPC_RESPONSE_TIMEOUT,
+            self.call_streaming(request, log_other_message),
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "No response from the server to '{method}' within {} minutes",
+                RPC_RESPONSE_TIMEOUT.as_secs() / 60
+            )
+        })?
     }
 
     /// Send a streaming RPC request and handle progress updates
@@ -231,13 +178,12 @@ impl RpcClient {
                             // Check if this is the response for our request
                             if response.id == request_id {
                                 return Ok(response);
-                            } else {
-                                tracing::warn!(
-                                    "Received response for different request ID: {} (expected: {})",
-                                    response.id,
-                                    request_id
-                                );
                             }
+                            tracing::warn!(
+                                "Received response for different request ID: {} (expected: {})",
+                                response.id,
+                                request_id
+                            );
                         }
                         Err(_) => {
                             // Not an RPC response - likely a Status or Log message
@@ -253,7 +199,7 @@ impl RpcClient {
                     tracing::trace!("Received pong");
                 }
                 Message::Close(frame) => {
-                    bail!("Server closed connection: {:?}", frame);
+                    bail!("Server closed connection: {frame:?}");
                 }
                 _ => {
                     tracing::trace!("Received other message type");

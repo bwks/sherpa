@@ -65,7 +65,7 @@ pub async fn connect(
              Sherpa server."
         ),
         KeyMismatch::Unknown => {
-            eprintln!("Loaded the SSH host key of {node_name} from the Sherpa server.")
+            eprintln!("Loaded the SSH host key of {node_name} from the Sherpa server.");
         }
     }
     match attempt(route, options, scope, cache).await {

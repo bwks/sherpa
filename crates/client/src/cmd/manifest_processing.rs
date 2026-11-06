@@ -16,13 +16,13 @@ pub fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology
 
 /// Get node image from a list of node images
 pub fn get_node_image(
-    node_model: &data::NodeModel,
+    node_model: data::NodeModel,
     data: &[data::NodeConfig],
 ) -> Result<data::NodeConfig> {
     Ok(data
         .iter()
-        .find(|x| &x.model == node_model && x.default)
-        .ok_or_else(|| anyhow!("Default node image not found for model: {}", node_model))?
+        .find(|x| x.model == node_model && x.default)
+        .ok_or_else(|| anyhow!("Default node image not found for model: {node_model}"))?
         .clone())
 }
 
@@ -175,7 +175,7 @@ mod tests {
             },
         ];
 
-        let result = get_node_image(&NodeModel::UbuntuLinux, &configs).unwrap();
+        let result = get_node_image(NodeModel::UbuntuLinux, &configs).unwrap();
         assert_eq!(result.version, "24.04");
         assert!(result.default);
     }
@@ -189,7 +189,7 @@ mod tests {
             ..Default::default()
         }];
 
-        let result = get_node_image(&NodeModel::UbuntuLinux, &configs);
+        let result = get_node_image(NodeModel::UbuntuLinux, &configs);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
         assert!(err_msg.contains("Default node image not found"));
@@ -204,14 +204,14 @@ mod tests {
             ..Default::default()
         }];
 
-        let result = get_node_image(&NodeModel::UbuntuLinux, &configs);
+        let result = get_node_image(NodeModel::UbuntuLinux, &configs);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_get_node_image_empty_configs_returns_error() {
         let configs: Vec<data::NodeConfig> = vec![];
-        let result = get_node_image(&NodeModel::UbuntuLinux, &configs);
+        let result = get_node_image(NodeModel::UbuntuLinux, &configs);
         assert!(result.is_err());
     }
 }
