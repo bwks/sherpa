@@ -41,6 +41,7 @@ pub struct KnownHostsTemplate {
 
 impl KnownHostsEntry {
     /// The name OpenSSH looks the node up by: the address on port 22, else `[address]:port`.
+    #[must_use]
     pub fn name(&self) -> String {
         if self.port == SSH_PORT {
             self.hostname.to_string()

@@ -189,9 +189,12 @@ user-owned Ignition directories for each missing parent under the owner's `/home
 (`build_ignition_home_directories`); Ignition would otherwise create them as root, leaving the user
 unable to write in, for example, their own `~/.config`.
 
-Modes are written in code as octal digits (`644`) and converted to decimal on serialization
-(`serialize_mode_as_decimal` in `crates/template/src/ignition.rs`), for files and directories
-alike. Ignition reads modes as decimal numbers, so an unconverted `644` would be octal `1204`.
+Ignition files and directories take their mode as a `template::FileMode`, which holds the
+permission bits and serializes them as the decimal number Ignition reads (`0o644` is `420`).
+Fixed modes are written as Rust octal literals, `FileMode::new(0o644)`. A manifest's text file
+mode, written as octal digits (`644`), goes through `FileMode::from_octal_digits`, which refuses
+digits other than 0 to 7 and values over 777; `topology::validate::check_text_file_modes`
+refuses those in the client and in `up` before they get that far.
 
 ## Windows (cloudbase-init)
 

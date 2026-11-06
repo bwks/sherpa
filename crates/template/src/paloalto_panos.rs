@@ -25,7 +25,7 @@ pub struct PaloAltoPanosZtpTemplate {
 /// Configures admin and sherpa user accounts with password hash,
 /// enables SSH on the management interface, and disables telnet.
 #[derive(Template)]
-#[template(path = "paloalto/paloalto_panos_bootstrap.jinja", ext = "txt")]
+#[template(path = "paloalto/paloalto_panos_bootstrap.jinja", escape = "xml")]
 pub struct PaloAltoPanosBootstrapTemplate {
     pub hostname: String,
     pub user: User,

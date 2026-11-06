@@ -6,7 +6,7 @@ use std::time::Duration;
 use shared::data::{ClientConfig, RedeployResponse, StatusKind, StatusMessage};
 use shared::error::RpcErrorCode;
 use shared::util::{Emoji, term_msg_surround};
-use topology::validate::validate_provisioners;
+use topology::validate::{check_text_file_modes, validate_provisioners};
 
 use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
@@ -46,6 +46,7 @@ pub async fn redeploy(
     // Load the manifest and resolve its client files, as `up` does.
     let mut manifest = topology::Manifest::load_file(manifest_path)?;
     validate_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
+    check_text_file_modes(&manifest.nodes).context("Manifest validation failed: text files")?;
     resolve_manifest_files(&mut manifest, manifest_path)?;
 
     // Always sent, so a node whose container provisioner was removed loses its secret files.

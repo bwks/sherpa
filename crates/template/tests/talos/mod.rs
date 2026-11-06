@@ -163,7 +163,7 @@ fn control_plane_config_matches_the_talos_document_set() {
     let documents = render(ClusterRole::ControlPlane, None, false, None);
     let mut expected: Vec<String> = CONTROL_PLANE_KINDS
         .iter()
-        .map(|kind| kind.to_string())
+        .map(std::string::ToString::to_string)
         .collect();
     expected.push("KubeCoreDNSConfig".to_owned());
     assert_eq!(kinds(&documents), expected);
@@ -315,7 +315,7 @@ fn cilium_control_planes_drop_flannel_and_kube_proxy() {
     let mut expected: Vec<String> = CONTROL_PLANE_KINDS
         .iter()
         .filter(|kind| **kind != "KubeFlannelCNIConfig")
-        .map(|kind| kind.to_string())
+        .map(std::string::ToString::to_string)
         .collect();
     expected.push("KubeCoreDNSConfig".to_owned());
     assert_eq!(kinds(&documents), expected);
@@ -510,7 +510,7 @@ fn keycloak_and_vault_leave_flannel_clusters_without_extra_manifests() {
         kinds(&documents),
         CONTROL_PLANE_KINDS
             .iter()
-            .map(|kind| kind.to_string())
+            .map(std::string::ToString::to_string)
             .chain(["KubeCoreDNSConfig".to_owned()])
             .collect::<Vec<String>>()
     );

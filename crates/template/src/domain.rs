@@ -87,6 +87,7 @@ impl DomainTuning {
     }
 
     /// Whether the domain pins any of its threads.
+    #[must_use]
     pub fn has_cputune(&self) -> bool {
         !self.cpu_pinning.is_empty()
             || self.qemu_cpuset.is_some()

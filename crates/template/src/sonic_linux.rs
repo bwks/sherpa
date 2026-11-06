@@ -23,10 +23,12 @@ pub struct SonicLinuxZtp {
 
 impl SonicLinuxZtp {
     /// The node's own account script, so nodes in one lab never overwrite each other's.
+    #[must_use]
     pub fn user_script_filename(device_name: &str) -> String {
         format!("{device_name}_ztp_user.sh")
     }
 
+    #[must_use]
     pub fn file_map(device_name: &str, ztp_server: &Ipv4Addr) -> String {
         let user_script = Self::user_script_filename(device_name);
         let sonic_ztp_template = json!(
@@ -51,6 +53,7 @@ impl SonicLinuxZtp {
         );
         sonic_ztp_template.to_string()
     }
+    #[must_use]
     pub fn config(&self) -> String {
         let mut template = json!({
           "DEVICE_METADATA": {

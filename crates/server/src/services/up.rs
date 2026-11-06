@@ -59,7 +59,7 @@ use topology::validate::{
     check_bridge_device, check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_device,
     check_link_impairments, check_mgmt_usage, check_no_p2p_field, check_performance_tuning,
-    check_ptx_platform, check_watchdog, validate_talos_clusters,
+    check_ptx_platform, check_text_file_modes, check_watchdog, validate_talos_clusters,
 };
 
 /// A data interface of a P2p container: a veth created into the container's netns once it has
@@ -734,6 +734,7 @@ pub async fn up_lab(
         .context("Link validation failed")?;
     check_link_impairments(manifest.links.as_deref().unwrap_or_default())
         .context("Link validation failed")?;
+    check_text_file_modes(&manifest.nodes).context("Text file validation failed")?;
     let links_detailed = process_manifest_links(&manifest.links, &nodes_expanded)
         .context("Failed to process manifest links")?;
     let bridges_detailed = process_manifest_bridges(&manifest.bridges, &nodes_expanded, lab_id)

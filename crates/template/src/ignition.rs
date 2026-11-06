@@ -1,14 +1,12 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-use anyhow::Result;
-use serde::Serializer;
+use anyhow::{Context, Result, ensure};
 use serde_derive::{Deserialize, Serialize};
 
-use shared::konst::{DOCKER_COMPOSE_VERSION, IGNITION_VERSION, SHERPA_DOMAIN_NAME};
-
-use shared::util::base64_encode;
-
 use shared::data::{NetworkV4, NetworkV6};
+use shared::konst::{IGNITION_VERSION, SHERPA_DOMAIN_NAME};
+use shared::util::base64_encode;
+use shared::validators::valid_octal_mode;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IgnitionConfig {
@@ -20,6 +18,7 @@ pub struct IgnitionConfig {
 }
 
 impl IgnitionConfig {
+    #[must_use]
     pub fn new(
         users: Vec<IgnitionUser>,
         files: Vec<IgnitionFile>,
@@ -46,15 +45,14 @@ impl IgnitionConfig {
             },
         }
     }
-    /// Serialize the IgnitionConfig to a JSON string
-    pub fn _to_json(&self) -> Result<String> {
-        serde_json::to_string(self).map_err(|e| anyhow::anyhow!("JSON serialization error: {}", e))
-    }
 
-    /// Serialize the IgnitionConfig to a pretty-printed JSON string
+    /// Serialize the `IgnitionConfig` to a pretty-printed JSON string.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the configuration cannot be serialized.
     pub fn to_json_pretty(&self) -> Result<String> {
-        serde_json::to_string_pretty(self)
-            .map_err(|e| anyhow::anyhow!("JSON serialization error: {}", e))
+        serde_json::to_string_pretty(self).context("Failed to serialize the Ignition config")
     }
 }
 
@@ -68,9 +66,9 @@ pub struct Ignition {
 impl Default for Ignition {
     fn default() -> Self {
         Self {
-            config: Default::default(),
-            security: Default::default(),
-            timeouts: Default::default(),
+            config: Config::default(),
+            security: Security::default(),
+            timeouts: Timeouts::default(),
             version: IGNITION_VERSION.to_owned(),
         }
     }
@@ -109,6 +107,40 @@ pub struct IgnitionUser {
     pub groups: Vec<String>,
 }
 
+/// A file's permission bits, which Ignition takes as a number: `0o644` is written as `420`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct FileMode(u32);
+
+impl FileMode {
+    /// The mode with the permission bits `bits`, such as `0o644`.
+    #[must_use]
+    pub const fn new(bits: u32) -> Self {
+        Self(bits)
+    }
+
+    /// The mode a manifest writes as octal digits, such as `644`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `digits` are not octal digits up to `777`.
+    pub fn from_octal_digits(digits: u32) -> Result<Self> {
+        ensure!(
+            valid_octal_mode(digits),
+            "File mode {digits} must be octal digits up to 777, such as 644"
+        );
+        let mut bits = 0;
+        let mut place = 1;
+        let mut rest = digits;
+        while rest > 0 {
+            bits += rest % 10 * place;
+            place *= 8;
+            rest /= 10;
+        }
+        Ok(Self(bits))
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Storage {
     pub files: Vec<IgnitionFile>,
@@ -138,8 +170,7 @@ impl Default for IgnitionFileSystem {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IgnitionDirectory {
     pub path: String,
-    #[serde(serialize_with = "serialize_mode_as_decimal")]
-    pub mode: u32,
+    pub mode: FileMode,
     pub overwrite: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<IgnitionFileParams>,
@@ -151,7 +182,7 @@ impl Default for IgnitionDirectory {
     fn default() -> Self {
         Self {
             path: "/opt/ztp".to_owned(),
-            mode: 755,
+            mode: FileMode::new(0o755),
             overwrite: false,
             user: None,
             group: None,
@@ -166,8 +197,7 @@ pub struct IgnitionFileParams {
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct IgnitionFile {
     pub path: String,
-    #[serde(serialize_with = "serialize_mode_as_decimal")]
-    pub mode: u32,
+    pub mode: FileMode,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub overwrite: Option<bool>,
     /// Omitted for an append-only file, so an existing file is kept and appended to.
@@ -182,70 +212,35 @@ pub struct IgnitionFile {
 }
 
 impl IgnitionFile {
-    pub fn disable_resolved() -> Self {
-        Self {
-            path: "/etc/systemd/resolved.conf.d/no-stub.conf".to_owned(),
-            mode: 644,
-            overwrite: Some(true),
-            contents: Some(IgnitionFileContents::new(
-                "data:text/plain;base64,RE5TU3R1Ykxpc3RlbmVyPW5vCg==",
-            )),
-            ..Default::default()
-        }
-    }
-
+    /// Turn Flatcar's automatic updates off, so a lab node never reboots to update.
+    #[must_use]
     pub fn disable_updates() -> Self {
         Self {
             path: "/etc/flatcar/update.conf".to_owned(),
-            mode: 644,
+            mode: FileMode::new(0o644),
             overwrite: Some(true),
             contents: Some(IgnitionFileContents::new("data:,REBOOT_STRATEGY%3Doff%0A")),
             ..Default::default()
         }
     }
-    pub fn docker_compose_raw() -> Self {
-        Self {
-            path: format!(
-                "/opt/extensions/docker-compose/docker-compose-{DOCKER_COMPOSE_VERSION}-x86-64.raw"
-            ),
-            mode: 644,
-            overwrite: Some(true),
-            contents: Some(IgnitionFileContents::new(&format!(
-                "https://extensions.flatcar.org/extensions/docker-compose-{DOCKER_COMPOSE_VERSION}-x86-64.raw"
-            ))),
-            ..Default::default()
-        }
-    }
-    pub fn docker_compose_conf() -> Self {
-        Self {
-            path: "/etc/sysupdate.docker-compose.d/docker-compose.conf".to_owned(),
-            mode: 644,
-            overwrite: Some(true),
-            contents: Some(IgnitionFileContents::new(
-                "https://extensions.flatcar.org/extensions/docker-compose.conf",
-            )),
-            ..Default::default()
-        }
-    }
-    pub fn systemd_noop() -> Self {
-        Self {
-            path: "/etc/sysupdate.d/noop.conf".to_owned(),
-            mode: 644,
-            overwrite: Some(true),
-            contents: Some(IgnitionFileContents::new(
-                "https://extensions.flatcar.org/extensions/noop.conf",
-            )),
-            ..Default::default()
-        }
-    }
+
+    /// The networkd configuration of the management interface, `eth0`.
+    #[must_use]
     pub fn ztp_interface(
         mgmt_ipv4_address: Ipv4Addr,
-        mgmt_ipv4: NetworkV4,
+        mgmt_ipv4: &NetworkV4,
         mgmt_ipv6_address: Option<Ipv6Addr>,
         mgmt_ipv6: Option<&NetworkV6>,
-    ) -> Result<Self> {
-        let mut contents = format!(
-            r#"[Match]
+    ) -> Self {
+        let ipv6 = match (mgmt_ipv6_address, mgmt_ipv6) {
+            (Some(address), Some(v6)) => format!(
+                "Address={address}/{}\nGateway={}\nDNS={}\n",
+                v6.prefix_length, v6.first, v6.boot_server,
+            ),
+            _ => String::new(),
+        };
+        let contents = format!(
+            r"[Match]
 Name=eth0
 
 [Network]
@@ -253,24 +248,17 @@ Address={address}/{prefix}
 Gateway={gateway}
 DNS={dns}
 Domains={domain}
-"#,
+{ipv6}",
             address = mgmt_ipv4_address,
             prefix = mgmt_ipv4.prefix_length,
             gateway = mgmt_ipv4.first,
             dns = mgmt_ipv4.boot_server,
             domain = SHERPA_DOMAIN_NAME,
         );
-
-        if let (Some(ipv6_addr), Some(v6)) = (mgmt_ipv6_address, mgmt_ipv6) {
-            contents.push_str(&format!(
-                "Address={}/{}\nGateway={}\nDNS={}\n",
-                ipv6_addr, v6.prefix_length, v6.first, v6.boot_server,
-            ));
-        }
         let encoded_contents = base64_encode(&contents);
-        Ok(Self {
+        Self {
             path: "/etc/systemd/network/00-eth0.network".to_owned(),
-            mode: 644,
+            mode: FileMode::new(0o644),
             overwrite: Some(true),
             contents: Some(IgnitionFileContents::new(&format!(
                 "data:;base64,{encoded_contents}"
@@ -282,17 +270,6 @@ Domains={domain}
                 name: "root".to_owned(),
             }),
             append: vec![],
-        })
-    }
-    pub fn dnsmasq_config(config: &str) -> Self {
-        Self {
-            path: "/opt/dnsmasq/dnsmasq.conf".to_owned(),
-            mode: 644,
-            overwrite: Some(true),
-            contents: Some(IgnitionFileContents::new(&format!(
-                "data:text/plain;base64,{config}"
-            ))),
-            ..Default::default()
         }
     }
 }
@@ -304,18 +281,6 @@ pub struct IgnitionLink {
     pub hard: bool,
     pub overwrite: bool,
 }
-impl IgnitionLink {
-    pub fn docker_compose_raw() -> Self {
-        Self {
-            path: "/etc/extensions/docker-compose.raw".to_owned(),
-            target: format!(
-                "/opt/extensions/docker-compose/docker-compose-{DOCKER_COMPOSE_VERSION}-x86-64.raw"
-            ),
-            hard: false,
-            overwrite: true,
-        }
-    }
-}
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct IgnitionFileContents {
@@ -325,6 +290,7 @@ pub struct IgnitionFileContents {
 }
 
 impl IgnitionFileContents {
+    #[must_use]
     pub fn new(source: &str) -> IgnitionFileContents {
         IgnitionFileContents {
             source: source.to_owned(),
@@ -337,12 +303,6 @@ impl IgnitionFileContents {
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Verification {}
 
-#[derive(Serialize, Clone, Deserialize, Debug, Default)]
-pub struct Dropin {
-    name: String,
-    contents: String,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct IgnitionUnit {
     pub name: String,
@@ -352,49 +312,17 @@ pub struct IgnitionUnit {
     pub mask: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contents: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dropins: Option<Vec<Dropin>>,
 }
 
 impl IgnitionUnit {
-    pub fn systemd_resolved() -> Self {
-        Self {
-            name: "systemd-resolved.service".to_owned(),
-            enabled: Some(false),
-            mask: Some(true),
-            ..Default::default()
-        }
-    }
-    pub fn systemd_update_timer() -> Self {
-        Self {
-            name: "systemd-sysupdate.timer".to_owned(),
-            enabled: Some(true),
-            ..Default::default()
-        }
-    }
-    pub fn systemd_update_service() -> Self {
-        Self {
-            name: "systemd-sysupdate.service".to_owned(),
-            dropins: Some(vec![
-                Dropin {
-                    name: "docker-compose.conf".to_owned(),
-                    contents: r#"[Service]
-ExecStartPre=/usr/bin/sh -c "readlink --canonicalize /etc/extensions/docker-compose.raw > /tmp/docker-compose"
-ExecStartPre=/usr/lib/systemd/systemd-sysupdate -C docker-compose update
-ExecStartPost=/usr/bin/sh -c "readlink --canonicalize /etc/extensions/docker-compose.raw > /tmp/docker-compose-new"
-ExecStartPost=/usr/bin/sh -c "if ! cmp --silent /tmp/docker-compose /tmp/docker-compose-new; then touch /run/reboot-required; fi"
-"#.to_owned(),
-                }
-            ]),
-            ..Default::default()
-        }
-    }
+    /// Mount the container data disk at `/media/container`.
+    #[must_use]
     pub fn mount_container_disk() -> Self {
         Self {
             name: "media-container.mount".to_owned(),
             enabled: Some(true),
             contents: Some(
-                r#"[Unit]
+                r"[Unit]
 Before=local-fs.target
 
 [Mount]
@@ -404,116 +332,9 @@ Type=ext4
 
 [Install]
 WantedBy=local-fs.target
-"#
+"
                 .to_owned(),
             ),
-            ..Default::default()
-        }
-    }
-    pub fn dnsmasq() -> Self {
-        Self {
-            name: "dnsmasq.service".to_owned(),
-            enabled: Some(true),
-            contents: Some(
-                    r#"[Unit]
-Description=dnsmasq
-After=media-container.mount containerd.service
-Requires=media-container.mount containerd.service
-
-[Service]
-TimeoutStartSec=infinity
-ExecStartPre=/usr/bin/mkdir -p /opt/ztp/dnsmasq
-ExecStartPre=/usr/bin/mkdir -p /opt/ztp/images
-ExecStartPre=/usr/bin/touch /opt/ztp/dnsmasq/leases.txt
-ExecStartPre=/usr/bin/bash -c 'chmod -R a+r /opt/ztp/'
-ExecStartPre=/usr/bin/docker load -i /media/container/dnsmasq.tar.gz
-ExecStart=/usr/bin/docker container run --rm --name dnsmasq-app --network host -v /opt/dnsmasq/dnsmasq.conf:/etc/dnsmasq.conf -v /opt/ztp/dnsmasq/leases.txt:/var/lib/misc/dnsmasq.leases -v /opt/ztp/tftp:/opt/ztp/tftp --cap-add=NET_ADMIN dockurr/dnsmasq
-ExecStop=/usr/bin/docker container stop dnsmasq-app
-
-Restart=always
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-"#
-                .to_string(),
-            ),
-            ..Default::default()
-        }
-    }
-    pub fn webdir() -> Self {
-        Self {
-            name: "webdir.service".to_owned(),
-            enabled: Some(true),
-            contents: Some(r#"[Unit]
-Description=WebDir
-After=media-container.mount containerd.service
-Requires=media-container.mount containerd.service
-
-[Service]
-TimeoutStartSec=infinity
-ExecStartPre=/usr/bin/mkdir -p /opt/ztp/configs
-ExecStartPre=/usr/bin/bash -c 'chmod -R a+r /opt/ztp/'
-ExecStartPre=/usr/bin/docker load -i /media/container/webdir.tar.gz
-ExecStart=/usr/bin/docker container run --rm --name webdir-app --network host -v /opt/ztp:/opt/ztp:ro ghcr.io/bwks/webdir
-ExecStop=/usr/bin/docker container stop webdir-app
-
-Restart=always
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-"#.to_string()),
-            ..Default::default()
-        }
-    }
-    pub fn srlinux() -> Self {
-        Self {
-            name: "srlinux.service".to_owned(),
-            enabled: Some(true),
-            contents: Some(r#"[Unit]
-Description=srlinux
-After=media-container.mount containerd.service
-Requires=media-container.mount containerd.service
-
-[Service]
-TimeoutStartSec=infinity
-ExecStartPre=/usr/bin/docker load -i /media/container/image.tar.gz
-ExecStart=sudo /usr/bin/docker container run --rm --privileged --name srlinux -p 2222:22/tcp ghcr.io/nokia/srlinux sudo bash /opt/srlinux/bin/sr_linux
-ExecStop=/usr/bin/docker container stop srlinux
-
-Restart=always
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-"#.to_owned()),
-            ..Default::default()
-        }
-    }
-    pub fn ceos() -> Self {
-        Self {
-            name: "ceos.service".to_owned(),
-            enabled: Some(true),
-            contents: Some(r#"[Unit]
-Description=ceos
-After=media-container.mount containerd.service
-Requires=media-container.mount containerd.service
-
-[Service]
-TimeoutStartSec=infinity
-ExecStartPre=/usr/bin/docker image load -i /media/container/image.tar.gz
-ExecStartPre=/usr/bin/docker container create --name ceos --privileged -p 2222:22/tcp -e INTFTYPE=eth -e ETBA=1 -e SKIP_ZEROTOUCH_BARRIER_IN_SYSDBINIT=1 -e CEOS=1 -e EOS_PLATFORM=ceoslab -e container=docker -e MAPETH0=1 -e MGMT_INTF=eth0 ceos:4.33.0f /sbin/init systemd.setenv=INTFTYPE=eth systemd.setenv=ETBA=1 systemd.setenv=SKIP_ZEROTOUCH_BARRIER_IN_SYSDBINIT=1 systemd.setenv=CEOS=1 systemd.setenv=EOS_PLATFORM=ceoslab systemd.setenv=container=docker systemd.setenv=MAPETH0=1 systemd.setenv=MGMT_INTF=eth0
-ExecStart=/usr/bin/docker container start ceos
-ExecStop=/usr/bin/docker container stop ceos
-
-Restart=always
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-"#
-            .to_owned()),
             ..Default::default()
         }
     }
@@ -529,19 +350,6 @@ pub struct Networkd {
     units: Vec<IgnitionUnit>,
 }
 
-/// Convert a unix octal permission mode (base 8) to it'd decimal equivalent (base 10).
-/// EG: 644 -> 420
-fn serialize_mode_as_decimal<S>(mode: &u32, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    // Convert octal-like decimal directly to decimal
-    let mode_str = mode.to_string();
-    let decimal_mode = u32::from_str_radix(&mode_str, 8).unwrap_or(*mode); // fallback to original value if parsing fails
-
-    serializer.serialize_u32(decimal_mode)
-}
-
 #[cfg(test)]
 mod tests {
     use std::net::{Ipv4Addr, Ipv6Addr};
@@ -549,6 +357,42 @@ mod tests {
     use shared::data::{NetworkV4, NetworkV6};
 
     use super::*;
+
+    // ── FileMode ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_file_mode_reads_octal_digits() {
+        assert_eq!(
+            FileMode::from_octal_digits(644).unwrap(),
+            FileMode::new(0o644)
+        );
+        assert_eq!(FileMode::from_octal_digits(0).unwrap(), FileMode::new(0));
+        assert_eq!(
+            FileMode::from_octal_digits(777).unwrap(),
+            FileMode::new(0o777)
+        );
+    }
+
+    #[test]
+    fn test_a_mode_that_is_not_octal_digits_is_refused() {
+        for digits in [999, 8, 1000] {
+            assert!(FileMode::from_octal_digits(digits).is_err(), "{digits}");
+        }
+    }
+
+    #[test]
+    fn test_file_mode_serializes_as_its_bits() {
+        let file = IgnitionFile {
+            path: "/etc/motd".to_owned(),
+            mode: FileMode::new(0o644),
+            ..Default::default()
+        };
+        assert!(
+            serde_json::to_string(&file)
+                .unwrap()
+                .contains("\"mode\":420")
+        );
+    }
 
     // ── IgnitionFileSystem ────────────────────────────────────────────────────
 
@@ -561,13 +405,13 @@ mod tests {
         assert_eq!(fs.label, "data-disk");
     }
 
-    // ── IgnitionDirectory ─────────────────────────────────────────────────────────────
+    // ── IgnitionDirectory ─────────────────────────────────────────────────────
 
     #[test]
     fn test_directory_default_values() {
         let d = IgnitionDirectory::default();
         assert_eq!(d.path, "/opt/ztp");
-        assert_eq!(d.mode, 755);
+        assert_eq!(d.mode, FileMode::new(0o755));
         assert!(!d.overwrite);
     }
 
@@ -583,51 +427,11 @@ mod tests {
     // ── IgnitionFile factory functions ────────────────────────────────────────
 
     #[test]
-    fn test_disable_resolved_path_and_mode() {
-        let f = IgnitionFile::disable_resolved();
-        assert_eq!(f.path, "/etc/systemd/resolved.conf.d/no-stub.conf");
-        assert_eq!(f.mode, 644);
-        assert_eq!(f.overwrite, Some(true));
-    }
-
-    #[test]
     fn test_disable_updates_path_and_mode() {
         let f = IgnitionFile::disable_updates();
         assert_eq!(f.path, "/etc/flatcar/update.conf");
-        assert_eq!(f.mode, 644);
+        assert_eq!(f.mode, FileMode::new(0o644));
         assert_eq!(f.overwrite, Some(true));
-    }
-
-    #[test]
-    fn test_docker_compose_raw_path() {
-        let f = IgnitionFile::docker_compose_raw();
-        assert!(f.path.contains("docker-compose"));
-        assert!(f.path.ends_with(".raw"));
-        assert_eq!(f.mode, 644);
-    }
-
-    #[test]
-    fn test_docker_compose_conf_path() {
-        let f = IgnitionFile::docker_compose_conf();
-        assert_eq!(
-            f.path,
-            "/etc/sysupdate.docker-compose.d/docker-compose.conf"
-        );
-        assert_eq!(f.mode, 644);
-    }
-
-    #[test]
-    fn test_systemd_noop_path() {
-        let f = IgnitionFile::systemd_noop();
-        assert_eq!(f.path, "/etc/sysupdate.d/noop.conf");
-        assert_eq!(f.mode, 644);
-    }
-
-    #[test]
-    fn test_dnsmasq_config_embeds_content() {
-        let f = IgnitionFile::dnsmasq_config("abc123==");
-        assert_eq!(f.path, "/opt/dnsmasq/dnsmasq.conf");
-        assert!(f.contents.as_ref().unwrap().source.contains("abc123=="));
     }
 
     fn make_netv4() -> NetworkV4 {
@@ -659,9 +463,9 @@ mod tests {
     #[test]
     fn test_ztp_interface_ipv4_only() {
         let addr: Ipv4Addr = "10.0.0.5".parse().unwrap();
-        let f = IgnitionFile::ztp_interface(addr, make_netv4(), None, None).unwrap();
+        let f = IgnitionFile::ztp_interface(addr, &make_netv4(), None, None);
         assert_eq!(f.path, "/etc/systemd/network/00-eth0.network");
-        assert_eq!(f.mode, 644);
+        assert_eq!(f.mode, FileMode::new(0o644));
         assert_eq!(f.user.as_ref().unwrap().name, "root");
         assert_eq!(f.group.as_ref().unwrap().name, "root");
         assert!(
@@ -678,79 +482,17 @@ mod tests {
         let addr: Ipv4Addr = "10.0.0.5".parse().unwrap();
         let v6_addr: Ipv6Addr = "2001:db8::5".parse().unwrap();
         let v6_net = make_netv6();
-        let f =
-            IgnitionFile::ztp_interface(addr, make_netv4(), Some(v6_addr), Some(&v6_net)).unwrap();
+        let f = IgnitionFile::ztp_interface(addr, &make_netv4(), Some(v6_addr), Some(&v6_net));
         assert_eq!(f.path, "/etc/systemd/network/00-eth0.network");
         assert!(f.contents.as_ref().unwrap().source.len() > "data:;base64,".len());
-    }
-
-    // ── IgnitionLink ──────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_ignition_link_docker_compose_raw() {
-        let link = IgnitionLink::docker_compose_raw();
-        assert!(
-            link.path.contains("docker-compose"),
-            "expected path to mention docker-compose"
-        );
-        assert!(!link.target.is_empty());
     }
 
     // ── IgnitionUnit factory functions ────────────────────────────────────────
 
     #[test]
-    fn test_unit_systemd_resolved() {
-        let u = IgnitionUnit::systemd_resolved();
-        assert_eq!(u.name, "systemd-resolved.service");
-        assert_eq!(u.enabled, Some(false));
-    }
-
-    #[test]
-    fn test_unit_systemd_update_timer() {
-        let u = IgnitionUnit::systemd_update_timer();
-        assert_eq!(u.name, "systemd-sysupdate.timer");
-        assert_eq!(u.enabled, Some(true));
-    }
-
-    #[test]
-    fn test_unit_systemd_update_service() {
-        let u = IgnitionUnit::systemd_update_service();
-        assert_eq!(u.name, "systemd-sysupdate.service");
-        assert!(u.dropins.is_some());
-    }
-
-    #[test]
     fn test_unit_mount_container_disk() {
         let u = IgnitionUnit::mount_container_disk();
         assert_eq!(u.name, "media-container.mount");
-        assert_eq!(u.enabled, Some(true));
-    }
-
-    #[test]
-    fn test_unit_dnsmasq() {
-        let u = IgnitionUnit::dnsmasq();
-        assert_eq!(u.name, "dnsmasq.service");
-        assert_eq!(u.enabled, Some(true));
-    }
-
-    #[test]
-    fn test_unit_webdir() {
-        let u = IgnitionUnit::webdir();
-        assert_eq!(u.name, "webdir.service");
-        assert_eq!(u.enabled, Some(true));
-    }
-
-    #[test]
-    fn test_unit_srlinux() {
-        let u = IgnitionUnit::srlinux();
-        assert_eq!(u.name, "srlinux.service");
-        assert_eq!(u.enabled, Some(true));
-    }
-
-    #[test]
-    fn test_unit_ceos() {
-        let u = IgnitionUnit::ceos();
-        assert_eq!(u.name, "ceos.service");
         assert_eq!(u.enabled, Some(true));
     }
 
@@ -777,7 +519,7 @@ mod tests {
     fn test_directory_owner_serialized() {
         let dir = IgnitionDirectory {
             path: "/home/alice/.config".to_owned(),
-            mode: 755,
+            mode: FileMode::new(0o755),
             overwrite: false,
             user: Some(IgnitionFileParams {
                 name: "alice".to_owned(),
@@ -797,7 +539,7 @@ mod tests {
     fn test_append_only_file_omits_contents() {
         let f = IgnitionFile {
             path: "/home/alice/.bash_profile".to_owned(),
-            mode: 644,
+            mode: FileMode::new(0o644),
             append: vec![IgnitionFileContents::new("data:,extra")],
             ..Default::default()
         };
@@ -808,18 +550,15 @@ mod tests {
 
     #[test]
     fn test_file_without_append_omits_append() {
-        let json = serde_json::to_value(IgnitionFile::disable_resolved()).unwrap();
+        let json = serde_json::to_value(IgnitionFile::disable_updates()).unwrap();
         assert!(json.get("append").is_none());
         assert!(json.get("contents").is_some());
     }
 
-    // ── serialize_mode_as_decimal ─────────────────────────────────────────────
-
     #[test]
     fn test_file_mode_serialized_as_decimal() {
-        // mode 644 in octal = 420 in decimal
-        let f = IgnitionFile::disable_resolved();
-        let json = serde_json::to_value(&f).unwrap();
+        // 0o644 is 420 in decimal.
+        let json = serde_json::to_value(IgnitionFile::disable_updates()).unwrap();
         assert_eq!(json["mode"], 420);
     }
 }

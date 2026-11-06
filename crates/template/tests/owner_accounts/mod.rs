@@ -13,8 +13,8 @@ use template::{
 
 use crate::helpers;
 
-fn mgmt_address() -> Option<Ipv4Addr> {
-    Some(Ipv4Addr::new(172, 20, 0, 10))
+fn mgmt_address() -> Ipv4Addr {
+    Ipv4Addr::new(172, 20, 0, 10)
 }
 
 #[test]
@@ -25,7 +25,7 @@ fn arista_owner_has_a_key_and_a_secondary_key() {
         owner: Some(helpers::test_owner()),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: mgmt_address(),
+        mgmt_ipv4_address: Some(mgmt_address()),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     }
@@ -47,7 +47,7 @@ fn aruba_owner_is_an_administrator_with_every_key() {
         owner: Some(helpers::test_owner()),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: mgmt_address(),
+        mgmt_ipv4_address: Some(mgmt_address()),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     }
@@ -68,7 +68,7 @@ fn asa_owner_has_no_password_and_hashed_keys() {
         owner: Some(helpers::test_owner()),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: mgmt_address(),
+        mgmt_ipv4_address: Some(mgmt_address()),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     }
@@ -95,7 +95,7 @@ fn ios_owner_has_a_random_secret_and_key_hashes() {
         mgmt_interface: "GigabitEthernet0/0".to_string(),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: mgmt_address(),
+        mgmt_ipv4_address: Some(mgmt_address()),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     }
@@ -123,7 +123,7 @@ fn iosxe_owner_has_a_random_secret_and_key_hashes() {
         dns: helpers::test_dns(),
         license_boot_command: None,
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: mgmt_address(),
+        mgmt_ipv4_address: Some(mgmt_address()),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     }
@@ -143,7 +143,7 @@ fn iosxr_owner_keys_are_numbered() {
         owner: Some(helpers::test_owner()),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: mgmt_address(),
+        mgmt_ipv4_address: Some(mgmt_address()),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     }
@@ -169,7 +169,7 @@ fn nxos_owner_is_a_network_admin() {
         owner: Some(helpers::test_owner()),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: mgmt_address(),
+        mgmt_ipv4_address: Some(mgmt_address()),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     }
@@ -189,7 +189,7 @@ fn cumulus_owner_has_a_named_key_each_and_the_admin_role() {
         owner: Some(helpers::test_owner()),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: mgmt_address(),
+        mgmt_ipv4_address: Some(mgmt_address()),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     }
@@ -235,7 +235,7 @@ fn junos_owner_is_a_super_user_with_every_key() {
         owner: Some(owner),
         mgmt_interface: "fxp0".to_string(),
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: mgmt_address(),
+        mgmt_ipv4_address: Some(mgmt_address()),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     }
@@ -262,7 +262,7 @@ fn mikrotik_owner_imports_each_key_file() {
         mgmt_interface: "ether1".to_string(),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: mgmt_address(),
+        mgmt_ipv4_address: Some(mgmt_address()),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     }
@@ -301,7 +301,7 @@ fn srlinux_owner_is_an_admin_user_with_every_key() {
         Some(&owner),
         &helpers::test_dns(),
         &helpers::test_network_v4(),
-        mgmt_address(),
+        Some(mgmt_address()),
         None,
     )
     .unwrap();
@@ -315,6 +315,33 @@ fn srlinux_owner_is_an_admin_user_with_every_key() {
         serde_json::json!(["ssh-rsa OWNERKEY1", "ssh-ed25519 OWNERKEY2"])
     );
     assert_eq!(users[1]["role"], serde_json::json!(["srl-admin"]));
+}
+
+#[test]
+fn panos_bootstrap_escapes_xml() {
+    let mut owner = helpers::test_owner();
+    owner.ssh_keys.truncate(1);
+    owner.ssh_keys[0].value = "KEY&<1".to_string();
+    let output = PaloAltoPanosBootstrapTemplate {
+        hostname: "pan01".to_string(),
+        user: helpers::test_user(),
+        owner: Some(owner),
+        password_hash: "$5$sherpa$hash".to_string(),
+        ssh_public_key_b64: "SHERPAKEY".to_string(),
+        mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
+        mgmt_ipv6_address: None,
+        mgmt_ipv6: None,
+        mgmt_netmask: Ipv4Addr::new(255, 255, 255, 0),
+        mgmt_gateway: Ipv4Addr::new(172, 20, 0, 1),
+        dns_primary: Ipv4Addr::new(172, 20, 0, 1),
+    }
+    .render()
+    .unwrap();
+    assert!(
+        output.contains("<public-key>KEY&#38;&#60;1</public-key>"),
+        "{output}"
+    );
+    assert!(output.contains("<phash>$5$sherpa$hash</phash>"), "{output}");
 }
 
 #[test]

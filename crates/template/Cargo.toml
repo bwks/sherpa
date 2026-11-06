@@ -19,3 +19,6 @@ ipnet = { workspace = true }
 
 [dev-dependencies]
 urlencoding = "2.1"
+
+[lints]
+workspace = true

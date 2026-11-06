@@ -1,6 +1,6 @@
 use std::net::Ipv4Addr;
 
-use template::{CiscoFtdvZtpTemplate, CiscoFxosIpMode};
+use template::{CiscoFtdvZtpTemplate, CiscoFxosIpMode, YesNo};
 
 // ============================================================================
 // Expected configs
@@ -9,7 +9,7 @@ use template::{CiscoFtdvZtpTemplate, CiscoFxosIpMode};
 // CiscoFtdvZtpTemplate serializes to JSON via serde.
 // Field names are PascalCase via #[serde(rename)].
 // CiscoFxosIpMode serializes lowercase. CiscoFxosFirewallMode serializes lowercase.
-// manage_locally uses custom Yes/No serializer.
+// manage_locally serializes as Yes or No.
 // Optional fields with skip_serializing_if are omitted when None.
 
 const EXPECTED_MANUAL_IPV4: &str = r#"{
@@ -43,7 +43,7 @@ fn test_manual_ipv4() {
         eula: "accept".to_string(),
         hostname: "ftdv01".to_string(),
         admin_password: "Admin123!".to_string(),
-        manage_locally: true,
+        manage_locally: YesNo(true),
         dns1: Some(Ipv4Addr::new(172, 20, 0, 1)),
         ipv4_mode: Some(CiscoFxosIpMode::Manual),
         ipv4_addr: Some(Ipv4Addr::new(172, 20, 0, 10)),
@@ -59,7 +59,7 @@ fn test_manual_ipv4() {
 fn test_manage_locally_false() {
     let t = CiscoFtdvZtpTemplate {
         hostname: "ftdv01".to_string(),
-        manage_locally: false,
+        manage_locally: YesNo(false),
         ..Default::default()
     };
     let json = serde_json::to_string_pretty(&t).expect("serializes");

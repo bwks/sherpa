@@ -110,7 +110,7 @@ struct AaaRole {
 #[derive(Serialize)]
 struct Authentication {
     #[serde(rename = "authentication-method")]
-    authentication_method: Vec<String>,
+    method: Vec<String>,
     #[serde(rename = "admin-user")]
     admin_user: AdminUser,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -244,6 +244,12 @@ struct NiLinux {
 // Builder
 // ============================================================================
 
+/// The SR Linux startup configuration, as JSON: the accounts, DNS, the management interface
+/// and network instance, and the factory ACLs.
+///
+/// # Errors
+///
+/// Fails when the configuration or the factory ACLs cannot be serialized or parsed.
 pub fn build_srlinux_config(
     hostname: &str,
     user: &User,
@@ -259,65 +265,8 @@ pub fn build_srlinux_config(
         "{} {}",
         user.ssh_public_key.algorithm, user.ssh_public_key.key
     );
-    let mut users = vec![AaaUser {
-        username: user.username.clone(),
-        password: password.clone(),
-        ssh_key: vec![ssh_key.clone()],
-        role: vec!["srl-admin".to_string()],
-    }];
-    if let Some(owner) = owner {
-        let mut owner_keys = Vec::new();
-        for key in &owner.ssh_keys {
-            owner_keys.push(format!("{} {}", key.kind, key.value));
-        }
-        users.push(AaaUser {
-            username: owner.username.clone(),
-            password: owner.secret.clone(),
-            ssh_key: owner_keys,
-            role: vec!["srl-admin".to_string()],
-        });
-    }
-
-    let mut dns_servers: Vec<String> = dns
-        .name_servers
-        .iter()
-        .map(|ns| ns.ipv4_address.to_string())
-        .collect();
-    for ns in &dns.name_servers {
-        if let Some(ipv6) = ns.ipv6_address {
-            dns_servers.push(ipv6.to_string());
-        }
-    }
-
-    let ipv4 = match mgmt_ipv4_address {
-        Some(addr) => SubinterfaceIpv4 {
-            admin_state: "enable".to_string(),
-            dhcp_client: None,
-            address: Some(vec![Ipv4Address {
-                ip_prefix: format!("{}/{}", addr, mgmt_ipv4.prefix_length),
-            }]),
-        },
-        None => SubinterfaceIpv4 {
-            admin_state: "enable".to_string(),
-            dhcp_client: Some(DhcpClient {}),
-            address: None,
-        },
-    };
-
-    let ipv6 = match mgmt_ipv6 {
-        Some((addr, v6)) => SubinterfaceIpv6 {
-            admin_state: "enable".to_string(),
-            dhcp_client: None,
-            address: Some(vec![Ipv6Address {
-                ip_prefix: format!("{}/{}", addr, v6.prefix_length),
-            }]),
-        },
-        None => SubinterfaceIpv6 {
-            admin_state: "enable".to_string(),
-            dhcp_client: Some(DhcpClient {}),
-            address: None,
-        },
-    };
+    let users = aaa_users(user, owner, &password, &ssh_key);
+    let dns_servers = dns_servers(dns);
 
     let config = SrlinuxConfig {
         system: System {
@@ -331,7 +280,7 @@ pub fn build_srlinux_config(
             }],
             aaa: Aaa {
                 authentication: Authentication {
-                    authentication_method: vec!["local".to_string()],
+                    method: vec!["local".to_string()],
                     admin_user: AdminUser {
                         password,
                         ssh_key: vec![ssh_key],
@@ -366,29 +315,13 @@ pub fn build_srlinux_config(
         interface: vec![Interface {
             name: "mgmt0".to_string(),
             admin_state: "enable".to_string(),
-            subinterface: vec![Subinterface {
-                index: 0,
-                admin_state: "enable".to_string(),
-                ipv4,
-                ipv6,
-            }],
+            subinterface: vec![management_subinterface(
+                mgmt_ipv4,
+                mgmt_ipv4_address,
+                mgmt_ipv6,
+            )],
         }],
-        network_instance: vec![NetworkInstance {
-            name: "mgmt".to_string(),
-            ni_type: "srl_nokia-network-instance:ip-vrf".to_string(),
-            admin_state: "enable".to_string(),
-            description: "Management network instance".to_string(),
-            interface: vec![NiInterface {
-                name: "mgmt0.0".to_string(),
-            }],
-            protocols: NiProtocols {
-                linux: NiLinux {
-                    import_routes: true,
-                    export_routes: true,
-                    export_neighbors: true,
-                },
-            },
-        }],
+        network_instance: vec![management_network_instance()],
     };
 
     // Serialize structured config to a Value so we can merge factory ACL config
@@ -407,4 +340,110 @@ pub fn build_srlinux_config(
 
     let json = serde_json::to_string_pretty(&config_value)?;
     Ok(json)
+}
+
+/// The accounts: Sherpa's own, and the lab owner's when there is one.
+fn aaa_users(
+    user: &User,
+    owner: Option<&OwnerUser>,
+    password: &str,
+    ssh_key: &str,
+) -> Vec<AaaUser> {
+    let mut users = vec![AaaUser {
+        username: user.username.clone(),
+        password: password.to_string(),
+        ssh_key: vec![ssh_key.to_string()],
+        role: vec!["srl-admin".to_string()],
+    }];
+    if let Some(owner) = owner {
+        let mut owner_keys = Vec::new();
+        for key in &owner.ssh_keys {
+            owner_keys.push(format!("{} {}", key.kind, key.value));
+        }
+        users.push(AaaUser {
+            username: owner.username.clone(),
+            password: owner.secret.clone(),
+            ssh_key: owner_keys,
+            role: vec!["srl-admin".to_string()],
+        });
+    }
+    users
+}
+
+/// The name servers' IPv4 addresses, then their IPv6 addresses.
+fn dns_servers(dns: &Dns) -> Vec<String> {
+    let mut servers: Vec<String> = dns
+        .name_servers
+        .iter()
+        .map(|ns| ns.ipv4_address.to_string())
+        .collect();
+    for ns in &dns.name_servers {
+        if let Some(ipv6) = ns.ipv6_address {
+            servers.push(ipv6.to_string());
+        }
+    }
+    servers
+}
+
+/// `mgmt0.0`, with static addresses where they are given and DHCP otherwise.
+fn management_subinterface(
+    mgmt_ipv4: &NetworkV4,
+    mgmt_ipv4_address: Option<Ipv4Addr>,
+    mgmt_ipv6: Option<(Ipv6Addr, &NetworkV6)>,
+) -> Subinterface {
+    let ipv4 = match mgmt_ipv4_address {
+        Some(addr) => SubinterfaceIpv4 {
+            admin_state: "enable".to_string(),
+            dhcp_client: None,
+            address: Some(vec![Ipv4Address {
+                ip_prefix: format!("{}/{}", addr, mgmt_ipv4.prefix_length),
+            }]),
+        },
+        None => SubinterfaceIpv4 {
+            admin_state: "enable".to_string(),
+            dhcp_client: Some(DhcpClient {}),
+            address: None,
+        },
+    };
+
+    let ipv6 = match mgmt_ipv6 {
+        Some((addr, v6)) => SubinterfaceIpv6 {
+            admin_state: "enable".to_string(),
+            dhcp_client: None,
+            address: Some(vec![Ipv6Address {
+                ip_prefix: format!("{}/{}", addr, v6.prefix_length),
+            }]),
+        },
+        None => SubinterfaceIpv6 {
+            admin_state: "enable".to_string(),
+            dhcp_client: Some(DhcpClient {}),
+            address: None,
+        },
+    };
+    Subinterface {
+        index: 0,
+        admin_state: "enable".to_string(),
+        ipv4,
+        ipv6,
+    }
+}
+
+/// The `mgmt` network instance, which holds `mgmt0.0` and shares routes with Linux.
+fn management_network_instance() -> NetworkInstance {
+    NetworkInstance {
+        name: "mgmt".to_string(),
+        ni_type: "srl_nokia-network-instance:ip-vrf".to_string(),
+        admin_state: "enable".to_string(),
+        description: "Management network instance".to_string(),
+        interface: vec![NiInterface {
+            name: "mgmt0.0".to_string(),
+        }],
+        protocols: NiProtocols {
+            linux: NiLinux {
+                import_routes: true,
+                export_routes: true,
+                export_neighbors: true,
+            },
+        },
+    }
 }

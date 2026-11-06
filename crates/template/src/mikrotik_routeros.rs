@@ -11,7 +11,7 @@ pub struct MikrotikRouterosZtpTemplate {
     pub hostname: String,
     pub user: User,
     pub owner: Option<OwnerUser>,
-    /// The owner's public key files on the config disk, as RouterOS paths, one key per file.
+    /// The owner's public key files on the config disk, as `RouterOS` paths, one key per file.
     pub owner_key_files: Vec<String>,
     pub mgmt_interface: String,
     pub dns: Dns,
@@ -23,11 +23,13 @@ pub struct MikrotikRouterosZtpTemplate {
 
 impl MikrotikRouterosZtpTemplate {
     /// The name of the owner's `index`th public key file on the config disk, counted from 1.
+    #[must_use]
     pub fn owner_key_filename(username: &str, index: usize) -> String {
         format!("{username}-{index}.pub")
     }
 
-    /// The file's path as RouterOS sees it on the config disk.
+    /// The file's path as `RouterOS` sees it on the config disk.
+    #[must_use]
     pub fn owner_key_path(username: &str, index: usize) -> String {
         format!(
             "{MIKROTIK_CONFIG_DISK}/{}",

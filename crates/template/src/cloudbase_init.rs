@@ -19,6 +19,11 @@ pub struct CloudbaseInitUser {
 }
 
 impl CloudbaseInitUser {
+    /// Sherpa's own account, with its SSH key.
+    ///
+    /// # Errors
+    ///
+    /// Fails when Sherpa's SSH public key cannot be read.
     pub fn sherpa() -> Result<Self> {
         let ssh_key = get_ssh_public_key(SHERPA_SSH_PUBLIC_KEY_PATH)?;
         Ok(Self {
@@ -56,7 +61,12 @@ pub struct CloudbaseInitConfig {
 }
 
 impl CloudbaseInitConfig {
-    pub fn to_string(&self) -> Result<String> {
+    /// Render the document.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the document cannot be serialized.
+    pub fn render(&self) -> Result<String> {
         to_cloud_config(self)
     }
 }
@@ -87,14 +97,20 @@ pub struct CloudbaseInitNetwork {
 }
 
 impl CloudbaseInitNetwork {
-    pub fn to_string(&self) -> Result<String> {
+    /// Render the document.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the document cannot be serialized.
+    pub fn render(&self) -> Result<String> {
         to_guest_yaml(self)
     }
 
+    #[must_use]
     pub fn ztp_interface(
         mgmt_ipv4_address: Ipv4Addr,
         mgmt_mac_address: String,
-        mgmt_ipv4: NetworkV4,
+        mgmt_ipv4: &NetworkV4,
         mgmt_ipv6_address: Option<Ipv6Addr>,
         mgmt_ipv6: Option<&NetworkV6>,
     ) -> Self {
