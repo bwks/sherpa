@@ -82,16 +82,22 @@ config over TFTP, HTTP, a USB or FAT disk, or Ignition do not use this writer.
 ## The function
 
 ```rust
-pub fn create_iso(iso_dst: &str, src_dir: &str, volume_id: &str) -> Result<(), IsoError>
+pub fn create_iso(
+    src_dir: impl AsRef<Path>,
+    iso_dst: impl AsRef<Path>,
+    volume_id: &str,
+) -> Result<(), IsoError>
 ```
+
+The source comes first and the destination second, as in `fs::copy`.
 
 - Writes an image of everything under `src_dir` to `iso_dst`, labelled `volume_id`.
 - `iso_dst` may be inside `src_dir`; that file is left out, whether or not it already exists.
 - Fails with an `IsoError` naming the path or name on anything it cannot represent faithfully
   (see [Limits and errors](#limits-and-errors)). Checks that need only the label or the source tree
   run before `iso_dst` is created, so a refused source leaves no file behind.
-- `#[instrument(level = "debug")]`; a debug event records the path, source, label and size in
-  sectors.
+- `#[instrument(level = "debug")]` with the source, destination and label as fields; a debug
+  event records the path, source, label and size in sectors.
 - The build time (`Timestamp::now()`, UTC) is used for every date in the image.
 
 ## Errors
@@ -101,13 +107,14 @@ name, the limit), and the I/O variants keep the `io::Error` as their `source()`:
 
 | Variant | Raised when |
 |---|---|
-| `InvalidVolumeId` | the label is empty, too long or not printable ASCII |
+| `InvalidVolumeId` | the label is empty, longer than 16 characters, or holds a space or anything but printable ASCII |
 | `NoFileName`, `OutputDir` | `iso_dst` has no file name, or its directory cannot be resolved |
 | `SourceDir` | `src_dir` cannot be resolved |
 | `Read` | a directory or a file's metadata or data cannot be read |
 | `NotRegularFile`, `NotUtf8` | the source holds a symlink or special file, or a name that is not UTF-8 |
 | `NameTooLong`, `NameClash`, `TooDeep` | a name breaks a tree's limit, two names convert alike, nesting is too deep |
-| `FileTooLarge`, `TooManyDirectories`, `TooLarge`, `RecordTooLong` | a size does not fit its ISO 9660 field |
+| `FileTooLarge`, `TooManyDirectories`, `TooLarge`, `RecordTooLong` | a size does not fit its ISO 9660 field; `TooLarge` names the field, such as an identifier or system use entry whose length is one byte |
+| `DateOutOfRange` | the build time is outside the years the image's dates can hold |
 | `Create`, `Copy`, `Write` | the image cannot be created or written, or a file cannot be copied into it |
 | `ChangedSize` | a source file changed size between the scan and the copy |
 | `Layout` | the writer is not at the sector the layout gave the next part (a bug in the writer) |
@@ -326,7 +333,7 @@ the value little-endian then big-endian.
 | 881 | 1 | File structure version | 1 | 1 |
 
 Optional path table locations stay zero. Descriptor dates (`volume_date`) are
-`YYYYMMDDHHMMSS00` in ASCII followed by a GMT offset byte of 0. Joliet text fields
+`YYYYMMDDHHMMSS00` in ASCII followed by a GMT offset byte of 0, so the year must be 0 to 9999. Joliet text fields
 (`put_text`) are filled with UTF-16 spaces (`00 20`) before the value is written; a field of
 odd length ends with a zero byte.
 
@@ -391,7 +398,7 @@ Each directory's extent (`dir_extent`) holds `.`, `..` and then its children in 
   recorded data length is that padded size.
 - **`..`** of the root points at the root.
 - **Dates** (`record_date`) are years since 1900, month, day, hour, minute, second, and a GMT
-  offset of 0.
+  offset of 0. The year is one byte, so only 1900 to 2155 can be recorded.
 - **Two passes:** `plan_tree` builds each directory's extent once with zero positions to learn
   its size, and `write_dirs` builds it again with the real positions. The size cannot change
   between the two: positions do not affect any length.
@@ -467,7 +474,7 @@ a few sectors each.
 
 | Refused | Limit | Variant |
 |---|---|---|
-| Volume label | 1–16 printable ASCII characters (32 bytes primary, 16 UTF-16 units Joliet) | `InvalidVolumeId` |
+| Volume label | 1–16 ASCII letters, digits or punctuation, no spaces (Joliet's field holds 16 UTF-16 units) | `InvalidVolumeId` |
 | Missing or unreadable source | | `SourceDir` |
 | Symlinks, sockets, devices, FIFOs | regular files and directories only | `NotRegularFile` |
 | Non-UTF-8 names | | `NotUtf8` |
@@ -478,6 +485,8 @@ a few sectors each.
 | A file that changes while written | | `ChangedSize` |
 | Path table numbers | 65 535 directories | `TooManyDirectories` |
 | Long records | 255 bytes | `RecordTooLong` |
+| Lengths stored in one byte | 255: identifiers, system use entries | `TooLarge` |
+| Build time | 1900–2155 | `DateOutOfRange` |
 
 None of these comes near what Sherpa generates. They exist so a future caller gets an error
 instead of an image a guest cannot read. Deep directories are refused rather than relocated
@@ -515,7 +524,10 @@ checks both-endian fields agree and that no record crosses a sector boundary.
 | `test_create_iso_directory_spans_sectors` | 300 entries in one directory |
 | `test_create_iso_path_tables_list_directories` | L and M tables agree; order, parent numbers and the root extent |
 | `test_create_iso_leaves_out_its_own_output` | Writing into the source twice never includes the ISO |
-| `test_create_iso_rejects_*`, `test_create_iso_limits_nesting_to_eight_levels` | Each refusal, by its `IsoError` variant; the missing source keeps its `io::Error` as the source, and a refused symlink is named in the message |
+| `test_create_iso_rejects_*`, `test_create_iso_limits_nesting_to_eight_levels` | Each refusal, by its `IsoError` variant; the missing source keeps its `io::Error` as the source, a refused symlink is named in the message, and a refused label says spaces are not allowed |
+| `test_record_date_rejects_years_outside_its_byte` | 1899 and 2156 are refused; 2155 is the last year recorded |
+| `test_volume_date_rejects_years_without_four_digits` | A negative year is refused; a date is written as 16 digits and a zero offset |
+| `test_su_entry_rejects_data_its_length_byte_cannot_hold` | A system use entry of 255 bytes is written; one byte more is refused |
 
 There is no `#[ignore]` test against `isoinfo` or a kernel mount: `isoinfo` ships with the
 `genisoimage` package the server no longer installs, and mounting needs root.

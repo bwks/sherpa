@@ -1,4 +1,4 @@
-//! ISO 9660 images for node configuration media: ZTP config drives, NoCloud seeds and the
+//! ISO 9660 images for node configuration media: ZTP config drives, `NoCloud` seeds and the
 //! PAN-OS bootstrap. See `docs/architecture/ZTP_ISO.md`.
 
 #![deny(clippy::unwrap_used, clippy::expect_used)]

@@ -11,8 +11,10 @@ use tracing::instrument;
 
 use crate::error::IsoError;
 
-/// ISO 9660 logical sector (and block) size.
-const ISO_SECTOR_SIZE: usize = 2048;
+/// ISO 9660 logical block size, as the volume descriptors record it.
+const ISO_BLOCK_SIZE: u16 = 2048;
+/// ISO 9660 logical sector size, the same as the block size.
+const ISO_SECTOR_SIZE: usize = ISO_BLOCK_SIZE as usize;
 /// Sectors before the volume descriptors, left zeroed.
 const ISO_SYSTEM_AREA_SECTORS: u32 = 16;
 /// Zeroed sectors after the last file, as `genisoimage` pads by default for drives that read
@@ -24,10 +26,8 @@ const ISO_MAX_DEPTH: usize = 8;
 const ISO_MAX_NAME_BYTES: usize = 31;
 /// Longest Joliet name, in UTF-16 code units.
 const ISO_MAX_JOLIET_UNITS: usize = 64;
-/// Longest primary volume label, in bytes.
-const ISO_MAX_VOLUME_ID_BYTES: usize = 32;
-/// Longest Joliet volume label, in UTF-16 code units.
-const ISO_MAX_JOLIET_VOLUME_ID_UNITS: usize = 16;
+/// Longest volume label. Joliet's label field holds 16 UTF-16 code units, and labels are ASCII.
+const ISO_MAX_VOLUME_ID_LEN: usize = 16;
 /// Standard identifier every volume descriptor carries.
 const ISO_STANDARD_ID: &[u8] = b"CD001";
 /// System identifier written to the volume descriptors.
@@ -39,9 +39,9 @@ const ISO_JOLIET_ESCAPE: &[u8] = b"%/E";
 /// Characters Joliet names may not contain; the writer replaces them with `_`.
 const ISO_JOLIET_RESERVED: [char; 6] = ['*', '/', ':', ';', '?', '\\'];
 /// Rock Ridge mode of every directory: read and search for all.
-const ISO_DIR_MODE: u32 = 0o040555;
+const ISO_DIR_MODE: u32 = 0o040_555;
 /// Rock Ridge mode of every file: read-only for all.
-const ISO_FILE_MODE: u32 = 0o100444;
+const ISO_FILE_MODE: u32 = 0o100_444;
 /// Rock Ridge `RR` flags on `.` and `..`: `PX` and `TF` follow.
 const ISO_RR_FLAGS_DOT: u8 = 0x81;
 /// Rock Ridge `RR` flags on named entries: `PX`, `NM` and `TF` follow.
@@ -126,12 +126,27 @@ struct SectorWriter {
 /// `iso_dst` may be inside `src_dir`; it is left out of the image. Names keep their case,
 /// hyphens and dots in the primary tree, files are read-only and owned by root in Rock Ridge,
 /// and Joliet carries the names unchanged. Symlinks and special files are refused.
-#[instrument(level = "debug")]
-pub fn create_iso(iso_dst: &str, src_dir: &str, volume_id: &str) -> Result<(), IsoError> {
+///
+/// # Errors
+///
+/// Fails when `volume_id` is not a valid label; when `src_dir` cannot be read, or holds a
+/// symlink, a special file, a name too long or clashing, nesting deeper than eight levels or a
+/// file of 4 GiB or more; or when the image cannot be written.
+#[instrument(
+    level = "debug",
+    skip_all,
+    fields(src_dir = %src_dir.as_ref().display(), iso_dst = %iso_dst.as_ref().display(), %volume_id)
+)]
+pub fn create_iso(
+    src_dir: impl AsRef<Path>,
+    iso_dst: impl AsRef<Path>,
+    volume_id: &str,
+) -> Result<(), IsoError> {
+    let (src_dir, iso_dst) = (src_dir.as_ref(), iso_dst.as_ref());
     validate_volume_id(volume_id)?;
-    let output = output_path(Path::new(iso_dst))?;
+    let output = output_path(iso_dst)?;
     let root = fs::canonicalize(src_dir).map_err(|source| IsoError::SourceDir {
-        path: PathBuf::from(src_dir),
+        path: src_dir.to_path_buf(),
         source,
     })?;
     let mut source = Source {
@@ -145,7 +160,7 @@ pub fn create_iso(iso_dst: &str, src_dir: &str, volume_id: &str) -> Result<(), I
     scan_dir(&mut source, 0, &root, 1, &output)?;
 
     let now = Timestamp::now();
-    let date = record_date(now);
+    let date = record_date(now)?;
     let mut primary = plan_tree(&source, Tree::Primary)?;
     let mut joliet = plan_tree(&source, Tree::Joliet)?;
 
@@ -154,20 +169,21 @@ pub fn create_iso(iso_dst: &str, src_dir: &str, volume_id: &str) -> Result<(), I
     let mut next = ISO_SYSTEM_AREA_SECTORS + 3;
     let primary_tables = place_path_tables(&source, &primary, &mut next)?;
     let joliet_tables = place_path_tables(&source, &joliet, &mut next)?;
-    place_dirs(&mut primary, &mut next);
+    place_dirs(&mut primary, &mut next)?;
     let continuation = next;
     next += 1;
-    place_dirs(&mut joliet, &mut next);
-    let file_order = place_files(&mut source, &primary, &mut next);
+    place_dirs(&mut joliet, &mut next)?;
+    let file_order = place_files(&mut source, &primary, &mut next)?;
     let volume_sectors = next + ISO_PADDING_SECTORS;
-    let er = su_entry(b"ER", &er_data());
+    let er = su_entry(*b"ER", &er_data()?)?;
+    let er_len = u32::try_from(er.len()).map_err(|_| IsoError::TooLarge("ER entry"))?;
 
     let file = File::create(iso_dst).map_err(|source| IsoError::Create {
-        path: PathBuf::from(iso_dst),
+        path: iso_dst.to_path_buf(),
         source,
     })?;
     let mut writer = SectorWriter {
-        path: PathBuf::from(iso_dst),
+        path: iso_dst.to_path_buf(),
         out: BufWriter::new(file),
         sector: 0,
     };
@@ -184,14 +200,14 @@ pub fn create_iso(iso_dst: &str, src_dir: &str, volume_id: &str) -> Result<(), I
     writer.padded(&terminator())?;
     for (layout, tables) in [(&primary, &primary_tables), (&joliet, &joliet_tables)] {
         writer.check_sector(tables.little)?;
-        writer.padded(&path_table(&source, layout, false))?;
+        writer.padded(&path_table(&source, layout, false)?)?;
         writer.check_sector(tables.big)?;
-        writer.padded(&path_table(&source, layout, true))?;
+        writer.padded(&path_table(&source, layout, true)?)?;
     }
-    write_dirs(&mut writer, &source, &primary, date, continuation, er.len())?;
+    write_dirs(&mut writer, &source, &primary, date, continuation, er_len)?;
     writer.check_sector(continuation)?;
     writer.padded(&er)?;
-    write_dirs(&mut writer, &source, &joliet, date, continuation, er.len())?;
+    write_dirs(&mut writer, &source, &joliet, date, continuation, er_len)?;
     for f in file_order {
         let file = &source.files[f];
         writer.check_sector(file.extent)?;
@@ -200,14 +216,12 @@ pub fn create_iso(iso_dst: &str, src_dir: &str, volume_id: &str) -> Result<(), I
     writer.zero_sectors(ISO_PADDING_SECTORS)?;
     writer.check_sector(volume_sectors)?;
     writer.flush()?;
-    tracing::debug!(path = %iso_dst, source_dir = %src_dir, %volume_id, sectors = volume_sectors, "ISO created");
+    tracing::debug!(path = %iso_dst.display(), source_dir = %src_dir.display(), %volume_id, sectors = volume_sectors, "ISO created");
     Ok(())
 }
 
 fn validate_volume_id(volume_id: &str) -> Result<(), IsoError> {
-    if volume_id.is_empty()
-        || volume_id.len() > ISO_MAX_VOLUME_ID_BYTES
-        || volume_id.encode_utf16().count() > ISO_MAX_JOLIET_VOLUME_ID_UNITS
+    if !(1..=ISO_MAX_VOLUME_ID_LEN).contains(&volume_id.len())
         || !volume_id.bytes().all(|b| b.is_ascii_graphic())
     {
         return Err(IsoError::InvalidVolumeId(volume_id.to_string()));
@@ -247,12 +261,12 @@ fn scan_dir(
         });
     }
     let mut entries = fs::read_dir(path)
-        .and_then(|entries| entries.collect::<io::Result<Vec<_>>>())
+        .and_then(Iterator::collect::<io::Result<Vec<_>>>)
         .map_err(|source| IsoError::Read {
             path: path.to_path_buf(),
             source,
         })?;
-    entries.sort_by_key(|entry| entry.file_name());
+    entries.sort_by_key(fs::DirEntry::file_name);
     for entry in entries {
         let entry_path = entry.path();
         if entry_path == output {
@@ -376,7 +390,7 @@ fn plan_tree(source: &Source, tree: Tree) -> Result<TreeLayout, IsoError> {
     let mut dir_id = vec![vec![0u8]; count];
     for child in children.iter().flatten() {
         if let Target::Dir(d) = child.target {
-            dir_id[d] = child.id.clone();
+            dir_id[d].clone_from(&child.id);
         }
     }
     // Path tables list directories by level, each parent's subdirectories in identifier order.
@@ -415,8 +429,8 @@ fn place_path_tables(
     layout: &TreeLayout,
     next: &mut u32,
 ) -> Result<PathTables, IsoError> {
-    let len = path_table(source, layout, false).len();
-    let sectors = sector_count(len);
+    let len = path_table(source, layout, false)?.len();
+    let sectors = sector_count(len)?;
     let tables = PathTables {
         little: *next,
         big: *next + sectors,
@@ -426,16 +440,21 @@ fn place_path_tables(
     Ok(tables)
 }
 
-fn place_dirs(layout: &mut TreeLayout, next: &mut u32) {
+fn place_dirs(layout: &mut TreeLayout, next: &mut u32) -> Result<(), IsoError> {
     for dir in &layout.order {
         layout.extent[*dir] = *next;
-        *next += sector_count(layout.size[*dir] as usize);
+        *next += sector_count(layout.size[*dir] as usize)?;
     }
+    Ok(())
 }
 
 /// Give each non-empty file its sectors, in primary-tree order, and return that order.
 /// Empty files keep extent 0.
-fn place_files(source: &mut Source, primary: &TreeLayout, next: &mut u32) -> Vec<usize> {
+fn place_files(
+    source: &mut Source,
+    primary: &TreeLayout,
+    next: &mut u32,
+) -> Result<Vec<usize>, IsoError> {
     let mut order = Vec::new();
     for dir in &primary.order {
         for child in &primary.children[*dir] {
@@ -443,22 +462,22 @@ fn place_files(source: &mut Source, primary: &TreeLayout, next: &mut u32) -> Vec
                 let file = &mut source.files[f];
                 if file.size > 0 {
                     file.extent = *next;
-                    *next += sector_count(file.size as usize);
+                    *next += sector_count(file.size as usize)?;
                     order.push(f);
                 }
             }
         }
     }
-    order
+    Ok(order)
 }
 
-fn path_table(source: &Source, layout: &TreeLayout, big_endian: bool) -> Vec<u8> {
+fn path_table(source: &Source, layout: &TreeLayout, big_endian: bool) -> Result<Vec<u8>, IsoError> {
     let mut table = Vec::new();
     for dir in &layout.order {
         let id = &layout.dir_id[*dir];
         let extent = layout.extent[*dir];
         let parent = layout.number[source.dirs[*dir].parent];
-        table.push(id.len() as u8);
+        table.push(len_u8(id.len(), "directory identifier")?);
         table.push(0);
         if big_endian {
             table.extend_from_slice(&extent.to_be_bytes());
@@ -472,7 +491,7 @@ fn path_table(source: &Source, layout: &TreeLayout, big_endian: bool) -> Vec<u8>
             table.push(0);
         }
     }
-    table
+    Ok(table)
 }
 
 fn write_dirs(
@@ -481,7 +500,7 @@ fn write_dirs(
     layout: &TreeLayout,
     date: [u8; 7],
     continuation: u32,
-    er_len: usize,
+    er_len: u32,
 ) -> Result<(), IsoError> {
     for dir in &layout.order {
         writer.check_sector(layout.extent[*dir])?;
@@ -506,7 +525,7 @@ fn dir_extent(
     dir: usize,
     date: [u8; 7],
     continuation: u32,
-    er_len: usize,
+    er_len: u32,
 ) -> Result<Vec<u8>, IsoError> {
     let rock_ridge = layout.tree == Tree::Primary;
     let parent = source.dirs[dir].parent;
@@ -514,21 +533,21 @@ fn dir_extent(
     let mut dotdot = Vec::new();
     if rock_ridge {
         if dir == 0 {
-            dot.extend(su_entry(b"SP", &[0xbe, 0xef, 0]));
+            dot.extend(su_entry(*b"SP", &[0xbe, 0xef, 0])?);
         }
-        dot.extend(su_entry(b"RR", &[ISO_RR_FLAGS_DOT]));
-        dot.extend(px_entry(ISO_DIR_MODE, 2 + source.dirs[dir].subdirs));
-        dot.extend(tf_entry(date));
+        dot.extend(su_entry(*b"RR", &[ISO_RR_FLAGS_DOT])?);
+        dot.extend(px_entry(ISO_DIR_MODE, 2 + source.dirs[dir].subdirs)?);
+        dot.extend(tf_entry(date)?);
         if dir == 0 {
             let mut ce = Vec::with_capacity(24);
             ce.extend(both32(continuation));
             ce.extend(both32(0));
-            ce.extend(both32(er_len as u32));
-            dot.extend(su_entry(b"CE", &ce));
+            ce.extend(both32(er_len));
+            dot.extend(su_entry(*b"CE", &ce)?);
         }
-        dotdot.extend(su_entry(b"RR", &[ISO_RR_FLAGS_DOT]));
-        dotdot.extend(px_entry(ISO_DIR_MODE, 2 + source.dirs[parent].subdirs));
-        dotdot.extend(tf_entry(date));
+        dotdot.extend(su_entry(*b"RR", &[ISO_RR_FLAGS_DOT])?);
+        dotdot.extend(px_entry(ISO_DIR_MODE, 2 + source.dirs[parent].subdirs)?);
+        dotdot.extend(tf_entry(date)?);
     }
     let mut records = vec![
         record(&[0], layout.extent[dir], layout.size[dir], true, date, &dot)?,
@@ -562,10 +581,10 @@ fn dir_extent(
         if rock_ridge {
             let mut nm = vec![0u8];
             nm.extend_from_slice(child.name.as_bytes());
-            system_use.extend(su_entry(b"RR", &[ISO_RR_FLAGS_NAMED]));
-            system_use.extend(su_entry(b"NM", &nm));
-            system_use.extend(px_entry(mode, nlink));
-            system_use.extend(tf_entry(date));
+            system_use.extend(su_entry(*b"RR", &[ISO_RR_FLAGS_NAMED])?);
+            system_use.extend(su_entry(*b"NM", &nm)?);
+            system_use.extend(px_entry(mode, nlink)?);
+            system_use.extend(tf_entry(date)?);
         }
         records.push(record(&child.id, extent, size, is_dir, date, &system_use)?);
     }
@@ -577,7 +596,7 @@ fn dir_extent(
         }
         out.extend(record);
     }
-    out.resize(sector_count(out.len()) as usize * ISO_SECTOR_SIZE, 0);
+    out.resize(sector_count(out.len())? as usize * ISO_SECTOR_SIZE, 0);
     Ok(out)
 }
 
@@ -596,7 +615,7 @@ fn record(
     record[18..25].copy_from_slice(&date);
     record[25] = if is_dir { 2 } else { 0 };
     record[28..32].copy_from_slice(&both16(1));
-    record[32] = id.len() as u8;
+    record[32] = len_u8(id.len(), "identifier")?;
     record.extend_from_slice(id);
     if id.len().is_multiple_of(2) {
         record.push(0);
@@ -611,45 +630,45 @@ fn record(
 }
 
 /// A System Use Sharing Protocol entry: signature, length, version 1, data.
-fn su_entry(signature: &[u8; 2], data: &[u8]) -> Vec<u8> {
+fn su_entry(signature: [u8; 2], data: &[u8]) -> Result<Vec<u8>, IsoError> {
     let mut entry = Vec::with_capacity(4 + data.len());
-    entry.extend_from_slice(signature);
-    entry.push((4 + data.len()) as u8);
+    entry.extend_from_slice(&signature);
+    entry.push(len_u8(4 + data.len(), "system use entry")?);
     entry.push(1);
     entry.extend_from_slice(data);
-    entry
+    Ok(entry)
 }
 
 /// Rock Ridge `PX`: mode, links, and uid and gid 0.
-fn px_entry(mode: u32, nlink: u32) -> Vec<u8> {
+fn px_entry(mode: u32, nlink: u32) -> Result<Vec<u8>, IsoError> {
     let mut data = Vec::with_capacity(32);
     for value in [mode, nlink, 0, 0] {
         data.extend(both32(value));
     }
-    su_entry(b"PX", &data)
+    su_entry(*b"PX", &data)
 }
 
 /// Rock Ridge `TF`: modify, access and attribute-change times, all `date`.
-fn tf_entry(date: [u8; 7]) -> Vec<u8> {
-    let mut data = vec![ISO_TF_FLAGS];
+fn tf_entry(date: [u8; 7]) -> Result<Vec<u8>, IsoError> {
+    let mut fields = vec![ISO_TF_FLAGS];
     for _ in 0..3 {
-        data.extend_from_slice(&date);
+        fields.extend_from_slice(&date);
     }
-    su_entry(b"TF", &data)
+    su_entry(*b"TF", &fields)
 }
 
 /// Rock Ridge `ER` data: the extension's identifier, descriptor and source.
-fn er_data() -> Vec<u8> {
+fn er_data() -> Result<Vec<u8>, IsoError> {
     let mut data = vec![
-        ISO_RRIP_ID.len() as u8,
-        ISO_RRIP_DESCRIPTOR.len() as u8,
-        ISO_RRIP_SOURCE.len() as u8,
+        len_u8(ISO_RRIP_ID.len(), "extension identifier")?,
+        len_u8(ISO_RRIP_DESCRIPTOR.len(), "extension descriptor")?,
+        len_u8(ISO_RRIP_SOURCE.len(), "extension source")?,
         1,
     ];
     data.extend_from_slice(ISO_RRIP_ID);
     data.extend_from_slice(ISO_RRIP_DESCRIPTOR);
     data.extend_from_slice(ISO_RRIP_SOURCE);
-    data
+    Ok(data)
 }
 
 /// The primary (type 1) or Joliet supplementary (type 2) volume descriptor.
@@ -676,7 +695,7 @@ fn volume_descriptor(
     }
     d[120..124].copy_from_slice(&both16(1));
     d[124..128].copy_from_slice(&both16(1));
-    d[128..132].copy_from_slice(&both16(ISO_SECTOR_SIZE as u16));
+    d[128..132].copy_from_slice(&both16(ISO_BLOCK_SIZE));
     d[132..140].copy_from_slice(&both32(tables.len));
     d[140..144].copy_from_slice(&tables.little.to_le_bytes());
     d[148..152].copy_from_slice(&tables.big.to_be_bytes());
@@ -685,7 +704,7 @@ fn volume_descriptor(
         layout.extent[0],
         layout.size[0],
         true,
-        record_date(now),
+        record_date(now)?,
         &[],
     )?;
     d[156..156 + root.len()].copy_from_slice(&root);
@@ -701,7 +720,7 @@ fn volume_descriptor(
     ] {
         put_text(&mut d[range], value, tree);
     }
-    let stamp = volume_date(now);
+    let stamp = volume_date(now)?;
     d[813..830].copy_from_slice(&stamp);
     d[830..847].copy_from_slice(&stamp);
     d[847..863].fill(b'0');
@@ -741,28 +760,36 @@ fn put_text(field: &mut [u8], value: &str, tree: Tree) {
 }
 
 /// A directory record date: years since 1900, month, day, hour, minute, second, UTC offset 0.
-fn record_date(now: Timestamp) -> [u8; 7] {
+fn record_date(now: Timestamp) -> Result<[u8; 7], IsoError> {
     let t = now.to_zoned(TimeZone::UTC);
-    [
-        (t.year() - 1900) as u8,
-        t.month() as u8,
-        t.day() as u8,
-        t.hour() as u8,
-        t.minute() as u8,
-        t.second() as u8,
+    let year = u8::try_from(t.year() - 1900).map_err(|_| IsoError::DateOutOfRange(now))?;
+    // jiff keeps the other fields within their calendar ranges, so none is negative.
+    Ok([
+        year,
+        t.month().cast_unsigned(),
+        t.day().cast_unsigned(),
+        t.hour().cast_unsigned(),
+        t.minute().cast_unsigned(),
+        t.second().cast_unsigned(),
         0,
-    ]
+    ])
 }
 
 /// A volume descriptor date: `YYYYMMDDHHMMSScc` digits, then a UTC offset of 0.
-fn volume_date(now: Timestamp) -> [u8; 17] {
-    let digits = now
-        .to_zoned(TimeZone::UTC)
-        .strftime("%Y%m%d%H%M%S00")
-        .to_string();
+fn volume_date(now: Timestamp) -> Result<[u8; 17], IsoError> {
+    let t = now.to_zoned(TimeZone::UTC);
+    // The field holds four year digits, and a sign is not a digit.
+    if !(0..=9999).contains(&t.year()) {
+        return Err(IsoError::DateOutOfRange(now));
+    }
+    let digits = t.strftime("%Y%m%d%H%M%S00").to_string();
+    let digits: [u8; 16] = digits
+        .as_bytes()
+        .try_into()
+        .map_err(|_| IsoError::DateOutOfRange(now))?;
     let mut date = [0u8; 17];
-    date[..16].copy_from_slice(&digits.as_bytes()[..16]);
-    date
+    date[..16].copy_from_slice(&digits);
+    Ok(date)
 }
 
 /// A 32-bit value little-endian then big-endian, as ISO 9660 stores most numbers.
@@ -780,14 +807,20 @@ fn both16(value: u16) -> [u8; 4] {
     out
 }
 
-fn sector_count(len: usize) -> u32 {
-    len.div_ceil(ISO_SECTOR_SIZE) as u32
+fn sector_count(len: usize) -> Result<u32, IsoError> {
+    u32::try_from(len.div_ceil(ISO_SECTOR_SIZE)).map_err(|_| IsoError::TooLarge("image"))
+}
+
+/// `len` as the single byte ISO 9660 records lengths in. `what` names the field that is too
+/// long when it does not fit.
+fn len_u8(len: usize, what: &'static str) -> Result<u8, IsoError> {
+    u8::try_from(len).map_err(|_| IsoError::TooLarge(what))
 }
 
 impl SectorWriter {
     /// Write `data`, zero-padded to whole sectors.
     fn padded(&mut self, data: &[u8]) -> Result<(), IsoError> {
-        let sectors = sector_count(data.len());
+        let sectors = sector_count(data.len())?;
         self.write(data)?;
         self.write(&vec![0u8; sectors as usize * ISO_SECTOR_SIZE - data.len()])?;
         self.sector += sectors;
@@ -813,7 +846,7 @@ impl SectorWriter {
         if copied != u64::from(file.size) {
             return Err(IsoError::ChangedSize(file.path.clone()));
         }
-        let sectors = sector_count(file.size as usize);
+        let sectors = sector_count(file.size as usize)?;
         self.write(&vec![
             0u8;
             sectors as usize * ISO_SECTOR_SIZE - file.size as usize
@@ -931,7 +964,7 @@ mod tests {
     /// The records of a directory extent. Fails if a record crosses a sector boundary.
     fn records(image: &[u8], extent: u32, size: u32) -> Vec<Record> {
         let mut out = Vec::new();
-        for n in 0..size.div_ceil(ISO_SECTOR_SIZE as u32) {
+        for n in 0..size.div_ceil(u32::from(ISO_BLOCK_SIZE)) {
             let data = sector(image, extent + n);
             let mut at = 0;
             while at < ISO_SECTOR_SIZE && data[at] != 0 {
@@ -1045,7 +1078,7 @@ mod tests {
     fn build(src: &Path, volume_id: &str) -> Result<Vec<u8>> {
         let out = TempDir::new()?;
         let iso = out.path().join(ISO_NAME);
-        create_iso(iso.to_str().unwrap(), src.to_str().unwrap(), volume_id)?;
+        create_iso(src, &iso, volume_id)?;
         Ok(fs::read(iso)?)
     }
 
@@ -1053,7 +1086,7 @@ mod tests {
     fn build_error(src: &Path, volume_id: &str) -> IsoError {
         let out = TempDir::new().unwrap();
         let iso = out.path().join(ISO_NAME);
-        create_iso(iso.to_str().unwrap(), src.to_str().unwrap(), volume_id).unwrap_err()
+        create_iso(src, &iso, volume_id).unwrap_err()
     }
 
     fn contents(entries: &[(&str, Option<&str>)]) -> BTreeMap<String, Option<Vec<u8>>> {
@@ -1264,7 +1297,7 @@ mod tests {
         ztp_source(src.path())?;
         let iso = src.path().join(ISO_NAME);
         for _ in 0..2 {
-            create_iso(iso.to_str().unwrap(), src.path().to_str().unwrap(), CIDATA)?;
+            create_iso(src.path(), &iso, CIDATA)?;
         }
         let names: Vec<String> = tree(&fs::read(&iso)?, Names::RockRidge)
             .into_keys()
@@ -1278,7 +1311,7 @@ mod tests {
         let dir = TempDir::new()?;
         let iso = dir.path().join(ISO_NAME);
         let missing = dir.path().join("missing");
-        let err = create_iso(iso.to_str().unwrap(), missing.to_str().unwrap(), CIDATA).unwrap_err();
+        let err = create_iso(&missing, &iso, CIDATA).unwrap_err();
         assert!(matches!(err, IsoError::SourceDir { .. }), "{err}");
         let cause = err.source().and_then(|e| e.downcast_ref::<io::Error>());
         assert_eq!(cause.map(io::Error::kind), Some(io::ErrorKind::NotFound));
@@ -1297,6 +1330,8 @@ mod tests {
                 "{volume_id:?}: {err}"
             );
         }
+        let err = build_error(src.path(), "with space");
+        assert!(err.to_string().contains("without spaces"), "{err}");
         Ok(())
     }
 
@@ -1356,5 +1391,36 @@ mod tests {
             "{err}"
         );
         Ok(())
+    }
+
+    #[test]
+    fn test_record_date_rejects_years_outside_its_byte() -> Result<()> {
+        for stamp in ["1899-12-31T23:59:59Z", "2156-01-01T00:00:00Z"] {
+            let err = record_date(stamp.parse()?).unwrap_err();
+            assert!(matches!(err, IsoError::DateOutOfRange(_)), "{stamp}: {err}");
+        }
+        assert_eq!(
+            record_date("2155-12-31T23:59:59Z".parse()?)?,
+            [255, 12, 31, 23, 59, 59, 0]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_volume_date_rejects_years_without_four_digits() -> Result<()> {
+        let err = volume_date("-000001-01-01T00:00:00Z".parse()?).unwrap_err();
+        assert!(matches!(err, IsoError::DateOutOfRange(_)), "{err}");
+        assert_eq!(
+            &volume_date("2026-11-06T10:47:36Z".parse()?)?,
+            b"2026110610473600\0"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_su_entry_rejects_data_its_length_byte_cannot_hold() {
+        assert_eq!(super::su_entry(*b"NM", &[0; 251]).unwrap().len(), 255);
+        let err = super::su_entry(*b"NM", &[0; 252]).unwrap_err();
+        assert!(matches!(err, IsoError::TooLarge(_)), "{err}");
     }
 }

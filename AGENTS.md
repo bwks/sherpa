@@ -11,7 +11,7 @@ database is Turso, embedded in sherpad as a single file (see `docs/architecture/
 ## Agent Hints
 - In planning mode, don't generate implementation code. Stick to high level implementation plan only.
   Code samples don't add value and will likely change during implementation. Do not show code in the terminal.
-- Always run `cargo fmt` and `cargo clippy --workspace -- -D warnings` before running tests.
+- Always run `cargo fmt` and `cargo clippy --workspace --all-targets -- -D warnings` before running tests.
   Formatting and linting must pass first. CI will fail if formatting is wrong, so catch it locally
   before committing.
 - Development, builds, installs and tests can run in the dev server, a Sherpa lab with root and
@@ -122,6 +122,9 @@ that owns the rule:
 
 Clippy:
 - Fix linting issues by following clippy rules. Do not add any code to ignore clippy linting.
+- Crates with `[lints] workspace = true` in their `Cargo.toml` inherit the workspace lints in the
+  root `Cargo.toml`, which include `clippy::pedantic`. Crates are moved onto them one at a time,
+  each with its pedantic warnings fixed.
 
 Errors:
 - Use Anyhow for error handling. Prefer adding context errors before they are returned.

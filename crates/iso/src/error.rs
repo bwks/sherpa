@@ -2,18 +2,21 @@ use std::ffi::OsString;
 use std::io;
 use std::path::PathBuf;
 
+use jiff::Timestamp;
 use thiserror::Error;
 
 /// Why an ISO image could not be written.
 #[derive(Debug, Error)]
 pub enum IsoError {
-    #[error("Invalid ISO volume label {0:?}: it must be 1 to 16 printable ASCII characters")]
+    #[error(
+        "Invalid ISO volume label {0:?}: it must be 1 to 16 ASCII letters, digits or punctuation, without spaces"
+    )]
     InvalidVolumeId(String),
 
     #[error("ISO path has no file name: {}", .0.display())]
     NoFileName(PathBuf),
 
-    #[error("Failed to read ISO directory {}", path.display())]
+    #[error("Failed to resolve the directory the ISO is written to, {}", path.display())]
     OutputDir {
         path: PathBuf,
         #[source]
@@ -87,4 +90,7 @@ pub enum IsoError {
 
     #[error("ISO layout error: writing sector {actual}, expected {expected}")]
     Layout { actual: u32, expected: u32 },
+
+    #[error("{0} is outside the dates ISO 9660 can record")]
+    DateOutOfRange(Timestamp),
 }

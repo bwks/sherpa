@@ -95,3 +95,7 @@ dead_code = "forbid"
 # because workspace-level deny translates to --deny CLI flags
 # which cannot be overridden by #[allow] in test code.
 # See clippy.toml for test exceptions.
+
+[workspace.lints.clippy]
+# Crates that inherit the workspace lints (`[lints] workspace = true`) are held to pedantic.
+pedantic = { level = "warn", priority = -1 }

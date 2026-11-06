@@ -22,7 +22,7 @@ cargo fmt
 ### 2. Clippy
 
 ```
-cargo clippy --workspace -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 ### 3. Tests with Coverage
