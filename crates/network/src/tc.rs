@@ -1,4 +1,5 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
+use futures::StreamExt;
 use rtnetlink::packet_core::DefaultNla;
 use rtnetlink::packet_core::{
     NLM_F_ACK, NLM_F_CREATE, NLM_F_REPLACE, NLM_F_REQUEST, NetlinkMessage, NetlinkPayload,
@@ -12,7 +13,12 @@ use tracing::instrument;
 use crate::linux::setup_netlink;
 
 /// Convert a percentage (0.0-100.0) to the kernel's u32 representation.
-/// Kernel uses 0 = 0%, u32::MAX ~ 100%.
+/// Kernel uses 0 = 0%, `u32::MAX` ~ 100%.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the value is clamped to 0..u32::MAX first, and Rust has no checked float to integer conversion"
+)]
 fn percent_to_kernel(pct: f32) -> u32 {
     if pct <= 0.0 {
         return 0;
@@ -20,7 +26,21 @@ fn percent_to_kernel(pct: f32) -> u32 {
     if pct >= 100.0 {
         return u32::MAX;
     }
-    ((pct as f64 / 100.0) * u32::MAX as f64) as u32
+    (f64::from(pct) / 100.0 * f64::from(u32::MAX)) as u32
+}
+
+/// `micros` microseconds in PSCHED ticks, the unit of netem's latency and jitter. Modern
+/// kernels use a fixed 15.625 MHz PSCHED clock: ticks = µs * 15625 / 1000. `what` names the
+/// value when it does not fit.
+fn psched_ticks(micros: u32, what: &str) -> Result<u32> {
+    u32::try_from(u64::from(micros) * 15_625 / 1_000)
+        .with_context(|| format!("{what} of {micros} µs is too long for netem"))
+}
+
+/// `iface_index` as the signed index a TC message carries.
+fn tc_index(iface_index: u32) -> Result<i32> {
+    i32::try_from(iface_index)
+        .with_context(|| format!("Interface index {iface_index} is out of range for TC"))
 }
 
 /// Build netem's `TCA_OPTIONS` payload.
@@ -28,18 +48,12 @@ fn percent_to_kernel(pct: f32) -> u32 {
 /// The kernel reads a raw `tc_netem_qopt` first, with no attribute header, then any netem
 /// attributes after it. Reordering and corruption have no field in `tc_netem_qopt`, so they
 /// go in `TCA_NETEM_REORDER` and `TCA_NETEM_CORRUPT`.
-fn netem_options(impairment: &LinkImpairment) -> Vec<u8> {
-    // latency and jitter are in PSCHED ticks, not microseconds. Modern kernels use a fixed
-    // 15.625 MHz PSCHED clock: ticks = µs * 15625 / 1000.
-    let latency = (impairment.delay_us as u64 * 15625 / 1000) as u32;
-    let jitter = (impairment.jitter_us as u64 * 15625 / 1000) as u32;
+fn netem_options(impairment: &LinkImpairment) -> Result<Vec<u8>> {
+    let latency = psched_ticks(impairment.delay_us, "Delay")?;
+    let jitter = psched_ticks(impairment.jitter_us, "Jitter")?;
     // With a gap of 1 and a reorder probability, each packet may be sent at once while the
     // rest wait for the delay, as `tc ... reorder` does.
-    let gap: u32 = if impairment.reorder_percent > 0.0 {
-        1
-    } else {
-        0
-    };
+    let gap = u32::from(impairment.reorder_percent > 0.0);
     let mut options = Vec::with_capacity(NETEM_QOPT_LEN + 24);
     options.extend_from_slice(&latency.to_ne_bytes());
     options.extend_from_slice(&1000u32.to_ne_bytes()); // limit: default queue depth
@@ -54,7 +68,7 @@ fn netem_options(impairment: &LinkImpairment) -> Vec<u8> {
     if impairment.corrupt_percent > 0.0 {
         push_probability_attribute(&mut options, TCA_NETEM_CORRUPT, impairment.corrupt_percent);
     }
-    options
+    Ok(options)
 }
 
 /// Append a netem attribute holding a probability and a correlation (always 0), the layout of
@@ -73,11 +87,11 @@ async fn send_tc_message(msg: NetlinkMessage<RouteNetlinkMessage>) -> Result<()>
         .request(msg)
         .context("failed to send TC netlink request")?;
 
-    while let Some(message) = futures::StreamExt::next(&mut response).await {
+    while let Some(message) = response.next().await {
         if let NetlinkPayload::Error(err) = message.payload
             && err.code.is_some()
         {
-            return Err(anyhow::anyhow!("TC netlink error: {err}"));
+            bail!("TC netlink error: {err}");
         }
     }
 
@@ -90,16 +104,21 @@ async fn send_tc_message(msg: NetlinkMessage<RouteNetlinkMessage>) -> Result<()>
 /// Can coexist with the clsact qdisc that aya uses for TC BPF programs,
 /// because clsact handles ingress/egress classification while netem is the
 /// root egress scheduler.
+///
+/// # Errors
+///
+/// Fails when the index or a delay does not fit its netlink field, or the kernel refuses the
+/// qdisc.
 #[instrument(fields(iface_index, delay_us = impairment.delay_us, jitter_us = impairment.jitter_us), level = "debug")]
-pub async fn apply_netem(iface_index: i32, impairment: &LinkImpairment) -> Result<()> {
+pub async fn apply_netem(iface_index: u32, impairment: &LinkImpairment) -> Result<()> {
     let mut msg = TcMessage::default();
-    msg.header.index = iface_index;
+    msg.header.index = tc_index(iface_index)?;
     msg.header.handle = TcHandle { major: 1, minor: 0 };
     msg.header.parent = TcHandle::ROOT;
     msg.attributes.push(TcAttribute::Kind("netem".to_string()));
     msg.attributes.push(TcAttribute::Other(DefaultNla::new(
         TCA_OPTIONS,
-        netem_options(impairment),
+        netem_options(impairment)?,
     )));
 
     let mut req = NetlinkMessage::from(RouteNetlinkMessage::NewQueueDiscipline(msg));
@@ -119,10 +138,15 @@ pub async fn apply_netem(iface_index: i32, impairment: &LinkImpairment) -> Resul
 }
 
 /// Remove the netem qdisc from an interface.
+///
+/// # Errors
+///
+/// Fails when the index is out of range or the kernel refuses, as it does when the interface
+/// has no netem qdisc.
 #[instrument(fields(iface_index), level = "debug")]
-pub async fn remove_netem(iface_index: i32) -> Result<()> {
+pub async fn remove_netem(iface_index: u32) -> Result<()> {
     let mut msg = TcMessage::default();
-    msg.header.index = iface_index;
+    msg.header.index = tc_index(iface_index)?;
     msg.header.handle = TcHandle { major: 1, minor: 0 };
     msg.header.parent = TcHandle::ROOT;
 
@@ -137,15 +161,26 @@ pub async fn remove_netem(iface_index: i32) -> Result<()> {
 /// Update netem parameters on an interface that already has netem applied.
 ///
 /// This replaces the existing netem qdisc with updated parameters.
+///
+/// # Errors
+///
+/// Fails as `apply_netem` does.
 #[instrument(skip(impairment), fields(iface_index), level = "debug")]
-pub async fn update_netem(iface_index: i32, impairment: &LinkImpairment) -> Result<()> {
-    // Remove then re-add — simplest approach that avoids change vs replace semantics
-    let _ = remove_netem(iface_index).await;
+pub async fn update_netem(iface_index: u32, impairment: &LinkImpairment) -> Result<()> {
+    // Remove then re-add — simplest approach that avoids change vs replace semantics. An
+    // interface without netem has nothing to remove.
+    if let Err(error) = remove_netem(iface_index).await {
+        tracing::debug!(iface_index, error = %error, "No netem qdisc removed before applying");
+    }
     apply_netem(iface_index, impairment).await
 }
 
 /// Apply a link's impairment for each direction that has one. Traffic from A to B leaves the
 /// host through B's end, so `a_to_b` goes on `ifindex_b`'s egress and `b_to_a` on `ifindex_a`'s.
+///
+/// # Errors
+///
+/// Fails as `apply_netem` does, naming the interface index.
 #[instrument(skip(a_to_b, b_to_a), fields(ifindex_a, ifindex_b), level = "debug")]
 pub async fn apply_link_netem(
     ifindex_a: u32,
@@ -154,12 +189,12 @@ pub async fn apply_link_netem(
     b_to_a: &LinkImpairment,
 ) -> Result<()> {
     if !a_to_b.is_clear() {
-        apply_netem(ifindex_b as i32, a_to_b)
+        apply_netem(ifindex_b, a_to_b)
             .await
             .context(format!("failed to apply netem on ifindex {ifindex_b}"))?;
     }
     if !b_to_a.is_clear() {
-        apply_netem(ifindex_a as i32, b_to_a)
+        apply_netem(ifindex_a, b_to_a)
             .await
             .context(format!("failed to apply netem on ifindex {ifindex_a}"))?;
     }
@@ -184,12 +219,10 @@ mod tests {
     fn test_percent_to_kernel_fifty() {
         let result = percent_to_kernel(50.0);
         // 50% should be roughly half of u32::MAX
-        let expected = (u32::MAX as f64 / 2.0) as u32;
+        let expected = u32::MAX / 2;
         assert!(
             result.abs_diff(expected) < 2,
-            "50% should be ~{}, got {}",
-            expected,
-            result
+            "50% should be ~{expected}, got {result}"
         );
     }
 
@@ -218,7 +251,8 @@ mod tests {
             delay_us: 20_000,
             loss_percent: 10.0,
             ..LinkImpairment::default()
-        });
+        })
+        .unwrap();
         assert_eq!(options.len(), NETEM_QOPT_LEN);
         assert_eq!(&options[0..4], &312_500u32.to_ne_bytes());
         assert_eq!(&options[8..12], &percent_to_kernel(10.0).to_ne_bytes());
@@ -230,7 +264,8 @@ mod tests {
             delay_us: 10_000,
             reorder_percent: 25.0,
             ..LinkImpairment::default()
-        });
+        })
+        .unwrap();
         assert_eq!(&options[12..16], &1u32.to_ne_bytes(), "gap");
         assert_eq!(options.len(), NETEM_QOPT_LEN + 12);
         assert_eq!(
@@ -244,7 +279,8 @@ mod tests {
         let options = netem_options(&LinkImpairment {
             corrupt_percent: 5.0,
             ..LinkImpairment::default()
-        });
+        })
+        .unwrap();
         assert_eq!(options.len(), NETEM_QOPT_LEN + 12);
         assert_eq!(
             nla(&options, NETEM_QOPT_LEN),
@@ -259,10 +295,24 @@ mod tests {
             reorder_percent: 25.0,
             corrupt_percent: 5.0,
             ..LinkImpairment::default()
-        });
+        })
+        .unwrap();
         assert_eq!(options.len(), NETEM_QOPT_LEN + 24);
         assert_eq!(nla(&options, NETEM_QOPT_LEN).1, TCA_NETEM_REORDER);
         assert_eq!(nla(&options, NETEM_QOPT_LEN + 12).1, TCA_NETEM_CORRUPT);
+    }
+
+    #[test]
+    fn test_netem_options_refuse_a_delay_netem_cannot_hold() {
+        let error = netem_options(&LinkImpairment {
+            delay_us: u32::MAX,
+            ..LinkImpairment::default()
+        })
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("too long for netem"),
+            "{error:#}"
+        );
     }
 
     #[test]

@@ -130,7 +130,7 @@ async fn set_netem(iface_name: &str, impairment: &LinkImpairment) -> Result<()> 
         .await
         .context(format!("Failed to get ifindex for {iface_name}"))?;
     if impairment.is_clear() {
-        match network::tc::remove_netem(ifindex as i32).await {
+        match network::tc::remove_netem(ifindex).await {
             Ok(()) => {
                 tracing::debug!(interface = %iface_name, "removed netem");
             }
@@ -141,7 +141,7 @@ async fn set_netem(iface_name: &str, impairment: &LinkImpairment) -> Result<()> 
         }
         return Ok(());
     }
-    network::tc::update_netem(ifindex as i32, impairment)
+    network::tc::update_netem(ifindex, impairment)
         .await
         .context(format!("Failed to apply netem on {iface_name}"))
 }
