@@ -18,9 +18,6 @@ use shared::konst::{
 use super::output::NodeOutput;
 use crate::ssh_client::{self, HostKeyRefresh, PromptScope};
 
-/// The mode a copied file is written with; `finish_file_command` then sets the final mode.
-const COPY_MODE: u32 = 0o600;
-
 /// A node reached through the lab's SSH config.
 pub struct SshTarget {
     node_name: String,
@@ -124,17 +121,19 @@ impl NodeSession {
     }
 
     /// Copy `data`, read from the client file `src`, to `dst` on the node, relative to the
-    /// login user's home unless absolute, over SFTP as OpenSSH's `scp` does. The data goes to a
-    /// private temporary file that is renamed over `dst`, so it is never readable by others.
+    /// login user's home unless absolute, over SFTP as OpenSSH's `scp` does, with the
+    /// permission bits `mode`. The data goes to a temporary file created with `mode` that is
+    /// renamed over `dst`, so it is never more readable than `mode` allows, and a failed copy
+    /// leaves `dst` as it was.
     #[tracing::instrument(skip(self, data), fields(host = %self.host), level = "debug")]
-    pub async fn copy_to(&self, src: &Path, data: &[u8], dst: &str) -> Result<()> {
+    pub async fn copy_to(&self, src: &Path, data: &[u8], dst: &str, mode: u32) -> Result<()> {
         let failed = || format!("Copying {} to {}:{dst} failed", src.display(), self.host);
         let mut sftp = self
             .session
             .sftp(Duration::from_secs(PROVISIONER_COPY_TIMEOUT))
             .await
             .with_context(failed)?;
-        let uploaded = sftp.upload(dst, data, COPY_MODE).await.with_context(failed);
+        let uploaded = sftp.upload(dst, data, mode).await.with_context(failed);
         if let Err(error) = sftp.close().await {
             tracing::debug!(host = %self.host, %error, "Failed to close the SFTP session cleanly");
         }
@@ -179,11 +178,11 @@ impl NodeSession {
         {
             match event {
                 Event::Stdout(bytes) => match output.as_deref_mut() {
-                    Some(output) => output.stdout(&bytes)?,
+                    Some(output) => output.stdout(&bytes),
                     None => tracing::debug!(host = %self.host, "Command stdout not shown"),
                 },
                 Event::Stderr(bytes) => match output.as_deref_mut() {
-                    Some(output) => output.stderr(&bytes)?,
+                    Some(output) => output.stderr(&bytes),
                     None => errors.extend(bytes),
                 },
                 Event::Exit(status) => exit = Some(status),
@@ -191,7 +190,7 @@ impl NodeSession {
             }
         }
         if let Some(output) = output {
-            output.finish()?;
+            output.finish();
         }
         let exit = exit.unwrap_or(Exit::Unknown);
         if exit == Exit::Code(0) {

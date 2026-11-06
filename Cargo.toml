@@ -88,7 +88,10 @@ opentelemetry-otlp = { version = "0.31", default-features = false, features = ["
 tracing-opentelemetry = "0.32"
 
 [workspace.lints.rust]
-dead_code = "forbid"
+# Deny rather than forbid: clap's derives put `#[allow(dead_code)]` on the code they
+# generate, which a forbid refuses. `clippy::allow_attributes` below still refuses an
+# `#[allow]` written in the source.
+dead_code = "deny"
 
 # Clippy lints: unwrap_used and expect_used are denied via
 # #![deny(...)] in each crate's lib.rs/main.rs (not here),
@@ -99,3 +102,5 @@ dead_code = "forbid"
 [workspace.lints.clippy]
 # Crates that inherit the workspace lints (`[lints] workspace = true`) are held to pedantic.
 pedantic = { level = "warn", priority = -1 }
+# Lints are fixed, not allowed; `#[expect(..., reason = "...")]` is the one exception.
+allow_attributes = "deny"

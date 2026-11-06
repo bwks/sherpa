@@ -3,8 +3,6 @@
 //! different nodes never mix.
 use std::io::{self, Write};
 
-use anyhow::{Context, Result};
-
 /// The lines shown for one node, with what the node has sent of a line it has not ended.
 pub struct NodeOutput {
     prefix: String,
@@ -23,31 +21,31 @@ impl NodeOutput {
     }
 
     /// Show a line about the provisioner's progress, such as a file being copied.
-    pub fn status(&self, text: &str) -> Result<()> {
+    pub fn status(&self, text: &str) {
         let mut line = Vec::new();
         end_line(&self.prefix, &mut text.as_bytes().to_vec(), &mut line);
         write_whole(&mut io::stdout().lock(), &line)
     }
 
     /// Show the complete lines in `bytes`, from a command's stdout.
-    pub fn stdout(&mut self, bytes: &[u8]) -> Result<()> {
+    pub fn stdout(&mut self, bytes: &[u8]) {
         let mut lines = Vec::new();
         prefix_lines(&self.prefix, &mut self.stdout, bytes, &mut lines);
         write_whole(&mut io::stdout().lock(), &lines)
     }
 
     /// Show the complete lines in `bytes`, from a command's stderr.
-    pub fn stderr(&mut self, bytes: &[u8]) -> Result<()> {
+    pub fn stderr(&mut self, bytes: &[u8]) {
         let mut lines = Vec::new();
         prefix_lines(&self.prefix, &mut self.stderr, bytes, &mut lines);
         write_whole(&mut io::stderr().lock(), &lines)
     }
 
     /// Show the last line of a command that ended without a newline.
-    pub fn finish(&mut self) -> Result<()> {
+    pub fn finish(&mut self) {
         let mut line = Vec::new();
         end_line(&self.prefix, &mut self.stdout, &mut line);
-        write_whole(&mut io::stdout().lock(), &line)?;
+        write_whole(&mut io::stdout().lock(), &line);
         line.clear();
         end_line(&self.prefix, &mut self.stderr, &mut line);
         write_whole(&mut io::stderr().lock(), &line)
@@ -82,13 +80,15 @@ fn end_line(prefix: &str, pending: &mut Vec<u8>, out: &mut Vec<u8>) {
 }
 
 /// Write `bytes` in one go and flush them, so another node's line cannot land in between.
-fn write_whole(out: &mut impl Write, bytes: &[u8]) -> Result<()> {
+/// Output that cannot be shown, as when stdout is a closed pipe, is only logged: the
+/// provisioner on the node carries on regardless.
+fn write_whole(out: &mut impl Write, bytes: &[u8]) {
     if bytes.is_empty() {
-        return Ok(());
+        return;
     }
-    out.write_all(bytes)
-        .context("Cannot show the provisioner's output")?;
-    out.flush().context("Cannot show the provisioner's output")
+    if let Err(error) = out.write_all(bytes).and_then(|()| out.flush()) {
+        tracing::debug!(%error, "Cannot show the provisioner's output");
+    }
 }
 
 #[cfg(test)]
@@ -99,6 +99,24 @@ mod tests {
         let mut out = Vec::new();
         prefix_lines("web | ", pending, bytes.as_bytes(), &mut out);
         String::from_utf8(out).unwrap()
+    }
+
+    /// A terminal that has gone away, as stdout is under `sherpa up | head`.
+    struct ClosedTerminal;
+
+    impl Write for ClosedTerminal {
+        fn write(&mut self, _bytes: &[u8]) -> io::Result<usize> {
+            Err(io::Error::from(io::ErrorKind::BrokenPipe))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::from(io::ErrorKind::BrokenPipe))
+        }
+    }
+
+    #[test]
+    fn output_that_cannot_be_shown_does_not_stop_the_provisioner() {
+        write_whole(&mut ClosedTerminal, b"web | one\n");
     }
 
     #[test]

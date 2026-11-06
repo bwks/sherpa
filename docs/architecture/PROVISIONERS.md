@@ -63,9 +63,10 @@ so nothing is lost by not serializing it.
 
 - **One connection per node.** `wait_for_node` connects with a 15 s connection limit
   (`konst::PROVISIONER_SSH_CONNECT_TIMEOUT`) and retries every 5 s until the ready timeout,
-  but only failures at the node itself (`ssh_client::retryable`): refused connections, and the
-  login refused because cloud-init has not created the account yet. A host key problem or the
-  Sherpa server refusing the login fails at once. All steps then share the connection.
+  but only failures at the node itself (`ssh_client::retryable`): refused or timed-out
+  connections, a tunnel or connection the starting node drops, and the login refused because
+  cloud-init has not created the account yet. A host key problem, the Sherpa server refusing
+  the login, or a local file or SSH config that cannot be read fails at once. All steps then share the connection.
 - **Unknown nodes fail at once.** A `<node>.<lab-id>` alias with no `Host` block in
   `sherpa_ssh_config`, such as a node added to the manifest after the lab was created, would
   resolve as in `ssh` to a direct connection to the alias as a hostname and fail its DNS
@@ -84,10 +85,11 @@ so nothing is lost by not serializing it.
 
 Remote steps, as the node's login user:
 
-- **Files:** `prepare_file_command` creates missing parents and an empty destination under
-  `umask 077` and makes an existing file `0600`; Jato's SFTP upload then writes the contents
-  to a new `0600` temporary file beside it and renames it over the destination, so they are
-  never readable by others; `finish_file_command` sets the final mode.
+- **Files:** `parent_folders_command` creates the destination's missing folders under
+  `umask 077`. Jato's SFTP upload then writes the contents to a new temporary file beside the
+  destination, created with the file's final mode (`mode_from_octal_digits` turns the
+  manifest's digits into bits), and renames it over the destination. The contents are never
+  more readable than that mode, and a failed copy leaves the destination as it was.
 - **Env files:** read as text and resolved by `env_file::resolve_env_file`: a line whose
   value is exactly `$NAME` or `${NAME}` (optionally indented or after `export`) gets the
   client's value of `NAME` (`client_variable`), single-quoted with `shell_quote`; other lines
@@ -129,8 +131,8 @@ nothing needs to be `'static` or `Send`.
   `provisioned` or `failed` line.
 - **Host key refresh.** `HostKeyRefresh` clones share a `tokio::sync::Mutex`, so nodes whose
   key is unknown at once refresh `sherpa_known_hosts` one at a time and never write it
-  together. A connection that reads the file while it is rewritten sees an unknown key and
-  refreshes again.
+  together. The file is replaced in one step (`write_secret_file` writes a temporary file and
+  renames it), so a connection reading it sees the old keys or the new ones, never half.
 
 ## Container secret files
 

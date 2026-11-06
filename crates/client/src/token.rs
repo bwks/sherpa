@@ -7,6 +7,8 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::PathBuf;
 
+use crate::private_key::write_secret_file;
+
 /// Get the path to the token file
 ///
 /// Returns `~/.sherpa/token`
@@ -16,19 +18,13 @@ fn get_token_path() -> Result<PathBuf> {
     Ok(sherpa_dir.join("token"))
 }
 
-/// Save a JWT token to ~/.sherpa/token with 0600 permissions
+/// Save a JWT token to ~/.sherpa/token, readable only by the current user.
 ///
 /// Creates the ~/.sherpa directory if it doesn't exist.
 ///
-/// # Arguments
-/// * `token` - The JWT token string to save
-///
 /// # Errors
-/// Returns an error if:
-/// - HOME environment variable is not set
-/// - Directory creation fails
-/// - File write fails
-/// - Permission setting fails (on Unix)
+/// Returns an error if the home directory is unknown, or the directory or the token file
+/// cannot be written.
 pub fn save_token(token: &str) -> Result<()> {
     let token_path = get_token_path()?;
 
@@ -39,18 +35,7 @@ pub fn save_token(token: &str) -> Result<()> {
         fs::create_dir_all(parent).context("Failed to create ~/.sherpa directory")?;
     }
 
-    // Write token to file
-    fs::write(&token_path, token).context("Failed to write token file")?;
-
-    // Set file permissions to 0600 (owner read/write only)
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = fs::Permissions::from_mode(0o600);
-        fs::set_permissions(&token_path, perms).context("Failed to set token file permissions")?;
-    }
-
-    Ok(())
+    write_secret_file(&token_path, token, "auth token")
 }
 
 /// Load a JWT token from ~/.sherpa/token

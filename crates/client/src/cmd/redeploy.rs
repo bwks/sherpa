@@ -61,8 +61,8 @@ pub async fn redeploy(
     let manifest_value =
         serde_json::to_value(&manifest).context("Failed to serialize manifest to JSON")?;
 
-    // Connect to server with extended timeout (15 minutes for redeploy)
-    let timeout = Duration::from_secs(900);
+    // Limits the connect only: the operation streams its progress for as long as it runs.
+    let timeout = Duration::from_secs(config.server_connection.timeout_secs);
     let ws_client = WebSocketClient::new(
         server_url.to_string(),
         timeout,

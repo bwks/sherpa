@@ -113,18 +113,21 @@ fn key_mismatch(error: &Error, target: &Node) -> Option<KeyMismatch> {
 }
 
 /// Whether a failure to reach `target` may pass if tried again: the node is still booting,
-/// not accepting connections or its login yet. A host key problem, the Sherpa server
-/// refusing the login, or a declined question will not.
+/// not accepting connections or its login yet, or dropped the connection while starting. A
+/// host key problem, the Sherpa server refusing the login, a local file or SSH config that
+/// cannot be read, or a declined question will not.
 pub fn retryable(error: &anyhow::Error, target: &Node) -> bool {
-    match error.downcast_ref::<Error>() {
-        Some(Error::AuthFailed { node, .. }) => node == target,
-        Some(
-            Error::HostKeyUnknown { .. }
-            | Error::HostKeyChanged { .. }
-            | Error::HostKeyRevoked { .. },
-        ) => false,
-        Some(_) => true,
-        None => false,
+    let Some(error) = error.downcast_ref::<Error>() else {
+        return false;
+    };
+    match error {
+        Error::AuthFailed { node, .. } => node == target,
+        Error::Connect { .. }
+        | Error::Tunnel { .. }
+        | Error::Timeout { .. }
+        | Error::ConnectionLost { .. }
+        | Error::Protocol { .. } => true,
+        _ => false,
     }
 }
 
@@ -159,6 +162,30 @@ mod tests {
             source: io::Error::from(io::ErrorKind::ConnectionRefused),
         });
         assert!(retryable(&refused, &node()));
+    }
+
+    #[test]
+    fn a_node_still_starting_is_retried() {
+        let timeout = anyhow::Error::new(Error::Timeout {
+            operation: "connect",
+            node: node(),
+            after: std::time::Duration::from_secs(15),
+        });
+        assert!(retryable(&timeout, &node()));
+    }
+
+    #[test]
+    fn local_problems_that_will_not_pass_are_not_retried() {
+        let unreadable = anyhow::Error::new(Error::Io {
+            context: "reading known_hosts".into(),
+            source: io::Error::from(io::ErrorKind::PermissionDenied),
+        });
+        assert!(!retryable(&unreadable, &node()));
+        let config = anyhow::Error::new(Error::SshConfig {
+            context: "sherpa_ssh_config".into(),
+            message: "bad ProxyJump".into(),
+        });
+        assert!(!retryable(&config, &node()));
     }
 
     #[test]

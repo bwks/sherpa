@@ -6,6 +6,7 @@ mod link;
 mod manifest;
 mod node;
 mod provisioner;
+mod resolve;
 mod talos_cluster;
 pub mod validate;
 
@@ -17,4 +18,5 @@ pub use node::{Node, NodeExpanded, StartupScript, TextFile, TextFileData, Volume
 pub use provisioner::{
     ContainerProvisioner, ContainerSecretFile, Provisioner, ProvisionerFile, SshProvisioner,
 };
+pub use resolve::{process_manifest_bridges, process_manifest_links};
 pub use talos_cluster::{TalosCluster, find_talos_cluster};

@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 
 use shared::konst::{PROVISIONER_FILE_DEFAULT_MODE, PROVISIONER_SSH_RETRY_INTERVAL};
+use shared::validators::mode_from_octal_digits;
 use tokio::time;
 use topology::SshProvisioner;
 
@@ -15,8 +16,8 @@ use super::client_files::{existing_client_file, resolve_client_path};
 use super::env_file::{client_variable, resolve_env_file};
 use super::output::NodeOutput;
 use super::remote::{
-    cloud_init_wait_command, env_file_destination, env_loader_command, finish_file_command,
-    prepare_file_command, script_wrapper_command, sftp_path,
+    cloud_init_wait_command, env_file_destination, env_loader_command, parent_folders_command,
+    script_wrapper_command, sftp_path,
 };
 use super::transport::{NodeSession, SshTarget};
 use crate::ssh_client::retryable;
@@ -77,7 +78,7 @@ pub async fn provision(
     let (files, env_files, scripts) = read_client_files(provisioner, manifest_dir)?;
 
     for file in &files {
-        output.status(&format!("copying {} to {}", file.src.display(), file.dst))?;
+        output.status(&format!("copying {} to {}", file.src.display(), file.dst));
         copy_file(session, file).await?;
     }
     if !env_files.is_empty() {
@@ -86,7 +87,7 @@ pub async fn provision(
                 "copying env file {} to {}",
                 file.src.display(),
                 file.dst
-            ))?;
+            ));
             copy_file(session, file).await?;
         }
         session
@@ -95,7 +96,7 @@ pub async fn provision(
             .context("Cannot make login shells load env files")?;
     }
     for script in &scripts {
-        output.status(&format!("running {}", script.path.display()))?;
+        output.status(&format!("running {}", script.path.display()));
         session
             .run_with_input(&script_wrapper_command(), &script.content, output)
             .await
@@ -155,17 +156,15 @@ fn read_client_files(
 }
 
 async fn copy_file(session: &NodeSession, file: &FileCopy) -> Result<()> {
+    let mode = mode_from_octal_digits(file.mode)
+        .with_context(|| format!("Provisioner file {} mode is invalid", file.dst))?;
     session
-        .run(&prepare_file_command(&file.dst))
+        .run(&parent_folders_command(&file.dst))
         .await
-        .with_context(|| format!("Cannot prepare {}", file.dst))?;
+        .with_context(|| format!("Cannot create the folders of {}", file.dst))?;
     session
-        .copy_to(&file.src, &file.content, &sftp_path(&file.dst))
-        .await?;
-    session
-        .run(&finish_file_command(&file.dst, file.mode))
+        .copy_to(&file.src, &file.content, &sftp_path(&file.dst), mode)
         .await
-        .with_context(|| format!("Cannot set the mode of {}", file.dst))
 }
 
 #[cfg(test)]

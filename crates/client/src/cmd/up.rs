@@ -9,7 +9,7 @@ use shared::data::{ClientConfig, NodeInfo, StatusKind, StatusMessage, UpResponse
 use shared::error::RpcErrorCode;
 use shared::konst::{LAB_FILE_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
-    Emoji, add_lab_ssh_include, base64_encode, expand_path, get_cwd, get_username, load_file,
+    Emoji, add_lab_ssh_include, base64_encode, get_cwd, get_username, load_file,
     render_lab_info_table, render_nodes_table, render_tailnet_table, term_msg_surround,
     term_msg_underline,
 };
@@ -23,7 +23,7 @@ use crate::cmd::tailscale_key::resolve_tailscale_key;
 use crate::keycloak_credentials::{print_keycloak_files, write_keycloak_credentials};
 use crate::lab_files::{rewrite_ssh_config_for_client, write_known_hosts, write_lab_ca};
 use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, write_secret_file};
-use crate::provision::{container_results, container_secrets, provision_lab};
+use crate::provision::{container_results, container_secrets, provision_lab, resolve_client_path};
 use crate::ssh_client::HostKeyRefresh;
 use crate::token::load_token;
 use crate::vault_credentials::{print_vault_files, write_vault_credentials};
@@ -91,8 +91,8 @@ pub async fn up(
     let manifest_value =
         serde_json::to_value(&manifest).context("Failed to serialize manifest to JSON")?;
 
-    // Extended timeout for long-running up operation (15 minutes)
-    let timeout = Duration::from_secs(900);
+    // Limits the connect only: the operation streams its progress for as long as it runs.
+    let timeout = Duration::from_secs(config.server_connection.timeout_secs);
     let ws_client = WebSocketClient::new(
         server_url.to_string(),
         timeout,
@@ -409,7 +409,7 @@ pub async fn up(
 
     // ssh provisioners run from the client, so their files never pass through the server.
     let ready_nodes = ssh_ready_nodes(&up_data.nodes);
-    provision_lab(
+    let provisioned = provision_lab(
         &manifest,
         manifest_dir,
         lab_id,
@@ -418,8 +418,10 @@ pub async fn up(
         container_results(&node_secrets),
         &HostKeyRefresh::new(lab_id, server_url, config, manifest_dir),
     )
-    .await?;
+    .await;
 
+    // A partly created lab is the failure to report: its missing nodes are why they were not
+    // provisioned.
     if !up_data.success {
         bail!(
             "Lab {}-{} was only partly created; see the errors above",
@@ -428,6 +430,7 @@ pub async fn up(
         );
     }
 
+    provisioned?;
     Ok(())
 }
 
@@ -459,12 +462,7 @@ pub(crate) fn resolve_ztp_configs(
             None => continue,
         };
 
-        let ztp_path = Path::new(&ztp_path_str);
-        let resolved_path = if ztp_path.is_absolute() {
-            ztp_path.to_path_buf()
-        } else {
-            manifest_dir.join(ztp_path)
-        };
+        let resolved_path = resolve_client_path(manifest_dir, &ztp_path_str);
 
         let contents = fs::read_to_string(&resolved_path).with_context(|| {
             format!(
@@ -488,118 +486,71 @@ pub(crate) fn resolve_ztp_configs(
     Ok(())
 }
 
-/// Resolve startup_scripts file paths relative to the manifest directory.
-/// Reads each script file, base64-encodes the contents, and populates
-/// `startup_scripts_data` for transmission to the server.
-pub(crate) fn resolve_startup_scripts(
+/// Read each node's `startup_scripts` and `user_scripts`, base64-encode them, and fill in
+/// `startup_scripts_data` and `user_scripts_data` for the server. Paths may start with `~`;
+/// relative paths start at the manifest's folder.
+pub(crate) fn resolve_scripts(
     manifest: &mut topology::Manifest,
     manifest_path: &str,
 ) -> Result<()> {
     let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
-
     for node in &mut manifest.nodes {
-        let scripts = match &node.startup_scripts {
-            Some(s) if !s.is_empty() => s.clone(),
-            _ => continue,
-        };
-
-        let mut script_data = Vec::with_capacity(scripts.len());
-        for script_path_str in &scripts {
-            let script_path = Path::new(script_path_str);
-            let resolved_path = if script_path.is_absolute() {
-                script_path.to_path_buf()
-            } else {
-                manifest_dir.join(script_path)
-            };
-
-            let contents = fs::read_to_string(&resolved_path).with_context(|| {
-                format!(
-                    "Failed to read startup_script for node '{}': {}",
-                    node.name,
-                    resolved_path.display()
-                )
-            })?;
-
-            if contents.is_empty() {
-                bail!(
-                    "startup_script for node '{}' is empty: {}",
-                    node.name,
-                    resolved_path.display()
-                );
-            }
-
-            let filename = resolved_path
-                .file_name()
-                .map(|f| f.to_string_lossy().to_string())
-                .unwrap_or_else(|| script_path_str.clone());
-
-            script_data.push(StartupScript {
-                filename,
-                content: base64_encode(&contents),
-            });
+        if let Some(paths) = node
+            .startup_scripts
+            .as_deref()
+            .filter(|paths| !paths.is_empty())
+        {
+            node.startup_scripts_data = Some(read_scripts(
+                &node.name,
+                paths,
+                "startup_script",
+                manifest_dir,
+            )?);
         }
-
-        node.startup_scripts_data = Some(script_data);
+        if let Some(paths) = node
+            .user_scripts
+            .as_deref()
+            .filter(|paths| !paths.is_empty())
+        {
+            node.user_scripts_data = Some(read_scripts(
+                &node.name,
+                paths,
+                "user_script",
+                manifest_dir,
+            )?);
+        }
     }
-
     Ok(())
 }
 
-/// Resolve user_scripts file paths relative to the manifest directory.
-/// Reads each script file, base64-encodes the contents, and populates
-/// `user_scripts_data` for transmission to the server.
-pub(crate) fn resolve_user_scripts(
-    manifest: &mut topology::Manifest,
-    manifest_path: &str,
-) -> Result<()> {
-    let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
-
-    for node in &mut manifest.nodes {
-        let scripts = match &node.user_scripts {
-            Some(s) if !s.is_empty() => s.clone(),
-            _ => continue,
-        };
-
-        let mut script_data = Vec::with_capacity(scripts.len());
-        for script_path_str in &scripts {
-            let script_path = Path::new(script_path_str);
-            let resolved_path = if script_path.is_absolute() {
-                script_path.to_path_buf()
-            } else {
-                manifest_dir.join(script_path)
-            };
-
-            let contents = fs::read_to_string(&resolved_path).with_context(|| {
-                format!(
-                    "Failed to read user_script for node '{}': {}",
-                    node.name,
-                    resolved_path.display()
-                )
-            })?;
-
-            if contents.is_empty() {
-                bail!(
-                    "user_script for node '{}' is empty: {}",
-                    node.name,
-                    resolved_path.display()
-                );
-            }
-
-            let filename = resolved_path
-                .file_name()
-                .map(|f| f.to_string_lossy().to_string())
-                .unwrap_or_else(|| script_path_str.clone());
-
-            script_data.push(StartupScript {
-                filename,
-                content: base64_encode(&contents),
-            });
+/// Read and encode the scripts at `paths` for node `node`; `kind` names them in errors.
+fn read_scripts(
+    node: &str,
+    paths: &[String],
+    kind: &str,
+    manifest_dir: &Path,
+) -> Result<Vec<StartupScript>> {
+    let mut scripts = Vec::with_capacity(paths.len());
+    for path in paths {
+        let resolved = resolve_client_path(manifest_dir, path);
+        let contents = fs::read_to_string(&resolved).with_context(|| {
+            format!(
+                "Failed to read {kind} for node '{node}': {}",
+                resolved.display()
+            )
+        })?;
+        if contents.is_empty() {
+            bail!("{kind} for node '{node}' is empty: {}", resolved.display());
         }
-
-        node.user_scripts_data = Some(script_data);
+        let filename = resolved
+            .file_name()
+            .map_or_else(|| path.clone(), |name| name.to_string_lossy().to_string());
+        scripts.push(StartupScript {
+            filename,
+            content: base64_encode(&contents),
+        });
     }
-
-    Ok(())
+    Ok(scripts)
 }
 
 /// Resolve every client file and `$VAR` value the server needs, for `up` and `redeploy`.
@@ -609,8 +560,7 @@ pub(crate) fn resolve_manifest_files(
 ) -> Result<()> {
     resolve_ztp_configs(manifest, manifest_path)?;
     resolve_text_files(manifest, manifest_path)?;
-    resolve_startup_scripts(manifest, manifest_path)?;
-    resolve_user_scripts(manifest, manifest_path)?;
+    resolve_scripts(manifest, manifest_path)?;
     resolve_environment_variables(manifest)
 }
 
@@ -631,13 +581,7 @@ pub(crate) fn resolve_text_files(
 
         let mut file_data = Vec::with_capacity(text_files.len());
         for file in &text_files {
-            let expanded = expand_path(&file.src);
-            let expanded_path = Path::new(&expanded);
-            let resolved_path = if expanded_path.is_absolute() {
-                expanded_path.to_path_buf()
-            } else {
-                manifest_dir.join(expanded_path)
-            };
+            let resolved_path = resolve_client_path(manifest_dir, &file.src);
 
             let contents = load_file(&resolved_path.to_string_lossy())
                 .with_context(|| format!("Failed to read text_file for node '{}'", node.name))?;
@@ -757,6 +701,55 @@ mod tests {
             nodes,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn startup_and_user_scripts_are_read_from_the_manifest_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("boot.sh"), "echo boot").unwrap();
+        fs::write(dir.path().join("user.sh"), "echo user").unwrap();
+        let mut manifest = topology::Manifest {
+            nodes: vec![topology::Node {
+                name: "dev01".into(),
+                startup_scripts: Some(vec!["boot.sh".into()]),
+                user_scripts: Some(vec!["user.sh".into()]),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let manifest_path = dir.path().join("manifest.toml");
+
+        resolve_scripts(&mut manifest, manifest_path.to_str().unwrap()).unwrap();
+
+        let startup = manifest.nodes[0].startup_scripts_data.as_ref().unwrap();
+        assert_eq!(startup[0].filename, "boot.sh");
+        assert_eq!(startup[0].content, base64_encode("echo boot"));
+        let user = manifest.nodes[0].user_scripts_data.as_ref().unwrap();
+        assert_eq!(user[0].filename, "user.sh");
+        assert_eq!(user[0].content, base64_encode("echo user"));
+    }
+
+    #[test]
+    fn an_empty_script_is_refused_naming_its_node() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("empty.sh"), "").unwrap();
+        let mut manifest = topology::Manifest {
+            nodes: vec![topology::Node {
+                name: "dev01".into(),
+                user_scripts: Some(vec!["empty.sh".into()]),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let manifest_path = dir.path().join("manifest.toml");
+
+        let error = resolve_scripts(&mut manifest, manifest_path.to_str().unwrap()).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .starts_with("user_script for node 'dev01' is empty"),
+            "{error}"
+        );
     }
 
     #[test]

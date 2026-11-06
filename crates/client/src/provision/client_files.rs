@@ -20,7 +20,7 @@ pub(super) fn existing_client_file(manifest_dir: &Path, path: &str) -> Result<Pa
 }
 
 /// A client path: `~` is expanded, and relative paths start at the manifest's directory.
-pub(super) fn resolve_client_path(manifest_dir: &Path, path: &str) -> PathBuf {
+pub fn resolve_client_path(manifest_dir: &Path, path: &str) -> PathBuf {
     let expanded = PathBuf::from(expand_path(path));
     if expanded.is_absolute() {
         expanded

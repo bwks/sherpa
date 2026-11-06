@@ -165,18 +165,22 @@ pub(crate) fn restrict_file_to_current_user(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Inspection of a file's ACL, for the tests that check secret files are private on Windows.
 #[cfg(test)]
-pub(crate) fn is_restricted_to_current_user(path: &Path) -> Result<bool> {
+pub(crate) mod acl_inspection {
     use std::ffi::c_void;
-    use std::mem::size_of;
 
     use windows_sys::Win32::Security::Authorization::GetNamedSecurityInfoW;
     use windows_sys::Win32::Security::{
-        ACCESS_ALLOWED_ACE, ACL_SIZE_INFORMATION, AclSizeInformation, EqualSid, GetAce,
+        ACCESS_ALLOWED_ACE, ACE_HEADER, ACL_SIZE_INFORMATION, AclSizeInformation, EqualSid, GetAce,
         GetAclInformation, GetSecurityDescriptorControl, INHERITED_ACE, PSECURITY_DESCRIPTOR,
         SE_DACL_PROTECTED,
     };
+    use windows_sys::Win32::System::SystemServices::ACCESS_ALLOWED_ACE_TYPE;
 
+    use super::*;
+
+    /// A security descriptor allocated by `GetNamedSecurityInfoW`, freed on drop.
     struct LocalSecurityDescriptor(PSECURITY_DESCRIPTOR);
 
     impl Drop for LocalSecurityDescriptor {
@@ -191,84 +195,94 @@ pub(crate) fn is_restricted_to_current_user(path: &Path) -> Result<bool> {
         }
     }
 
-    let current_user = CurrentUserSid::load()?;
-    let mut wide_path: Vec<u16> = path.as_os_str().encode_wide().collect();
-    wide_path.push(0);
+    /// Whether `path`'s ACL is protected from inheritance and holds a single, explicit
+    /// access-allowed entry for the current user.
+    pub(crate) fn is_restricted_to_current_user(path: &Path) -> Result<bool> {
+        let current_user = CurrentUserSid::load()?;
+        let mut wide_path: Vec<u16> = path.as_os_str().encode_wide().collect();
+        wide_path.push(0);
 
-    let mut dacl = null_mut();
-    let mut descriptor = null_mut();
-    // SAFETY: `wide_path` is NUL-terminated and the output pointers refer to
-    // writable storage. The returned descriptor is released below.
-    let status = unsafe {
-        GetNamedSecurityInfoW(
-            wide_path.as_mut_ptr(),
-            SE_FILE_OBJECT,
-            DACL_SECURITY_INFORMATION,
-            null_mut(),
-            null_mut(),
-            &mut dacl,
-            null_mut(),
-            &mut descriptor,
-        )
-    };
-    if status != 0 {
-        return Err(io::Error::from_raw_os_error(status as i32))
-            .context("Failed to inspect SSH private key ACL");
-    }
-    let descriptor = LocalSecurityDescriptor(descriptor);
-    if dacl.is_null() || descriptor.0.is_null() {
-        return Ok(false);
-    }
+        let mut dacl = null_mut();
+        let mut descriptor = null_mut();
+        // SAFETY: `wide_path` is NUL-terminated and the output pointers refer to
+        // writable storage. The returned descriptor is released below.
+        let status = unsafe {
+            GetNamedSecurityInfoW(
+                wide_path.as_mut_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                null_mut(),
+                null_mut(),
+                &mut dacl,
+                null_mut(),
+                &mut descriptor,
+            )
+        };
+        if status != 0 {
+            return Err(io::Error::from_raw_os_error(status as i32))
+                .context("Failed to inspect SSH private key ACL");
+        }
+        let descriptor = LocalSecurityDescriptor(descriptor);
+        if dacl.is_null() || descriptor.0.is_null() {
+            return Ok(false);
+        }
 
-    let mut control = 0u16;
-    let mut revision = 0u32;
-    // SAFETY: `descriptor.0` is a valid security descriptor returned by
-    // `GetNamedSecurityInfoW`; the output pointers are writable.
-    let control_loaded =
-        unsafe { GetSecurityDescriptorControl(descriptor.0, &mut control, &mut revision) };
-    if control_loaded == 0 {
-        return Err(io::Error::last_os_error())
-            .context("Failed to inspect SSH private key ACL protection");
-    }
-    if control & SE_DACL_PROTECTED == 0 {
-        return Ok(false);
-    }
+        let mut control = 0u16;
+        let mut revision = 0u32;
+        // SAFETY: `descriptor.0` is a valid security descriptor returned by
+        // `GetNamedSecurityInfoW`; the output pointers are writable.
+        let control_loaded =
+            unsafe { GetSecurityDescriptorControl(descriptor.0, &mut control, &mut revision) };
+        if control_loaded == 0 {
+            return Err(io::Error::last_os_error())
+                .context("Failed to inspect SSH private key ACL protection");
+        }
+        if control & SE_DACL_PROTECTED == 0 {
+            return Ok(false);
+        }
 
-    let mut acl_info = ACL_SIZE_INFORMATION::default();
-    // SAFETY: `dacl` is valid while `descriptor` is alive and `acl_info`
-    // provides correctly sized writable output storage.
-    let acl_loaded = unsafe {
-        GetAclInformation(
-            dacl,
-            (&mut acl_info as *mut ACL_SIZE_INFORMATION).cast(),
-            size_of::<ACL_SIZE_INFORMATION>() as u32,
-            AclSizeInformation,
-        )
-    };
-    if acl_loaded == 0 {
-        return Err(io::Error::last_os_error()).context("Failed to inspect SSH private key ACEs");
-    }
-    if acl_info.AceCount != 1 {
-        return Ok(false);
-    }
+        let mut acl_info = ACL_SIZE_INFORMATION::default();
+        // SAFETY: `dacl` is valid while `descriptor` is alive and `acl_info`
+        // provides correctly sized writable output storage.
+        let acl_loaded = unsafe {
+            GetAclInformation(
+                dacl,
+                (&mut acl_info as *mut ACL_SIZE_INFORMATION).cast(),
+                size_of::<ACL_SIZE_INFORMATION>() as u32,
+                AclSizeInformation,
+            )
+        };
+        if acl_loaded == 0 {
+            return Err(io::Error::last_os_error())
+                .context("Failed to inspect SSH private key ACEs");
+        }
+        if acl_info.AceCount != 1 {
+            return Ok(false);
+        }
 
-    let mut ace: *mut c_void = null_mut();
-    // SAFETY: `dacl` contains one ACE and `ace` points to writable output
-    // storage for the borrowed ACE pointer.
-    let ace_loaded = unsafe { GetAce(dacl, 0, &mut ace) };
-    if ace_loaded == 0 || ace.is_null() {
-        return Err(io::Error::last_os_error()).context("Failed to inspect SSH private key ACE");
-    }
+        let mut ace: *mut c_void = null_mut();
+        // SAFETY: `dacl` contains one ACE and `ace` points to writable output
+        // storage for the borrowed ACE pointer.
+        let ace_loaded = unsafe { GetAce(dacl, 0, &mut ace) };
+        if ace_loaded == 0 || ace.is_null() {
+            return Err(io::Error::last_os_error())
+                .context("Failed to inspect SSH private key ACE");
+        }
 
-    // SAFETY: The ACL was built by `SetEntriesInAclW` from one allow entry, so
-    // its sole ACE has the `ACCESS_ALLOWED_ACE` layout.
-    let allowed_ace = unsafe { &*ace.cast::<ACCESS_ALLOWED_ACE>() };
-    if allowed_ace.Header.AceFlags as u32 & INHERITED_ACE != 0 {
-        return Ok(false);
-    }
-    let ace_sid = (&raw const allowed_ace.SidStart).cast_mut().cast();
+        // SAFETY: `ace` points to the ACL's sole ACE, and every ACE starts with an `ACE_HEADER`.
+        let header = unsafe { &*ace.cast::<ACE_HEADER>() };
+        if u32::from(header.AceType) != ACCESS_ALLOWED_ACE_TYPE
+            || u32::from(header.AceFlags) & INHERITED_ACE != 0
+        {
+            return Ok(false);
+        }
+        // SAFETY: the header says this is an access-allowed ACE, which has the
+        // `ACCESS_ALLOWED_ACE` layout.
+        let allowed_ace = unsafe { &*ace.cast::<ACCESS_ALLOWED_ACE>() };
+        let ace_sid = (&raw const allowed_ace.SidStart).cast_mut().cast();
 
-    // SAFETY: Both SID pointers are valid for this call while `descriptor` and
-    // `current_user` remain alive.
-    Ok(unsafe { EqualSid(ace_sid, current_user.as_ptr()) } != 0)
+        // SAFETY: Both SID pointers are valid for this call while `descriptor` and
+        // `current_user` remain alive.
+        Ok(unsafe { EqualSid(ace_sid, current_user.as_ptr()) } != 0)
+    }
 }

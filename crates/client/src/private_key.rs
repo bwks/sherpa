@@ -1,36 +1,71 @@
-use std::fs;
+use std::ffi::OsString;
+use std::fs::{self, OpenOptions};
+use std::io::{self, ErrorKind, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow, bail};
 
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 /// Name of an SSH private key in error messages, e.g. "Failed to write SSH private key: <path>".
 pub(crate) const SSH_PRIVATE_KEY_ERROR_LABEL: &str = "SSH private key";
 
-/// Write a file holding a secret, such as an SSH private key or a kubeconfig, and restrict it
-/// to the current user. The file is removed if its permissions cannot be secured.
+/// Write a file holding a secret, such as an SSH private key or a kubeconfig, readable only by
+/// the current user. The contents go to a new private file beside `path` that then replaces
+/// it, so they are never readable by others, and a symlink at `path` is replaced rather than
+/// written through. The new file is removed if anything fails.
 ///
 /// `what` names the file in error messages.
 #[tracing::instrument(level = "debug", skip(contents), fields(path = %path.display(), %what))]
 pub(crate) fn write_secret_file(path: &Path, contents: &str, what: &str) -> Result<()> {
-    fs::write(path, contents)
-        .with_context(|| format!("Failed to write {what}: {}", path.display()))?;
+    let file_name = path
+        .file_name()
+        .with_context(|| format!("{what} path names no file: {}", path.display()))?;
+    let mut temp_name = OsString::from(".");
+    temp_name.push(file_name);
+    temp_name.push(".partial");
+    let temp = path.with_file_name(temp_name);
 
-    if let Err(permission_error) = restrict_secret_permissions(path, what) {
-        return match fs::remove_file(path) {
-            Ok(()) => Err(permission_error.context(format!(
-                "Removed {what} after permissions could not be secured"
-            ))),
+    let written = write_private_file(&temp, contents)
+        .and_then(|()| fs::rename(&temp, path))
+        .with_context(|| format!("Failed to write {what}: {}", path.display()));
+    if let Err(error) = written {
+        return match fs::remove_file(&temp) {
+            Ok(()) => Err(error),
+            Err(cleanup_error) if cleanup_error.kind() == ErrorKind::NotFound => Err(error),
             Err(cleanup_error) => Err(anyhow!(
-                "{permission_error:#}; also failed to remove insecure {what} {}: {cleanup_error}",
-                path.display()
+                "{error:#}; also failed to remove {}: {cleanup_error}",
+                temp.display()
             )),
         };
     }
-
     Ok(())
+}
+
+/// Write `contents` to a new file at `path` that only the current user can read. A file left
+/// at `path` by an earlier failed write is replaced; the new file is created exclusively, so a
+/// symlink placed there is never followed.
+fn write_private_file(path: &Path, contents: &str) -> io::Result<()> {
+    match fs::remove_file(path) {
+        Err(error) if error.kind() != ErrorKind::NotFound => return Err(error),
+        _ => {}
+    }
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options.open(path)?;
+
+    #[cfg(windows)]
+    crate::windows_acl::restrict_file_to_current_user(path).map_err(io::Error::other)?;
+    #[cfg(not(any(unix, windows)))]
+    return Err(io::Error::other(
+        "secret files are unsupported on this platform",
+    ));
+
+    file.write_all(contents.as_bytes())?;
+    file.sync_all()
 }
 
 /// Restrict an existing secret file to the current user.
@@ -131,9 +166,57 @@ mod tests {
             .expect("write private key");
 
         assert!(
-            crate::windows_acl::is_restricted_to_current_user(&key_path)
+            crate::windows_acl::acl_inspection::is_restricted_to_current_user(&key_path)
                 .expect("inspect private key ACL")
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_secret_replaces_a_symlink_instead_of_writing_through_it() {
+        let temp_dir = tempfile::tempdir().expect("create temp directory");
+        let elsewhere = temp_dir.path().join("elsewhere");
+        fs::write(&elsewhere, "untouched").expect("write target");
+        let path = temp_dir.path().join("kubeconfig-k8s");
+        std::os::unix::fs::symlink(&elsewhere, &path).expect("create symlink");
+
+        write_secret_file(&path, "config", "kubeconfig").expect("write secret file");
+
+        assert_eq!(
+            fs::read_to_string(&elsewhere).expect("read target"),
+            "untouched"
+        );
+        assert!(
+            !fs::symlink_metadata(&path)
+                .expect("stat")
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(fs::read_to_string(&path).expect("read secret"), "config");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_secret_replaces_an_open_file_and_leaves_no_temporary_file() {
+        let temp_dir = tempfile::tempdir().expect("create temp directory");
+        let path = temp_dir.path().join("kubeconfig-k8s");
+        fs::write(&path, "old").expect("write old file");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("open up file");
+
+        write_secret_file(&path, "new", "kubeconfig").expect("write secret file");
+
+        assert_eq!(fs::read_to_string(&path).expect("read secret"), "new");
+        let mode = fs::metadata(&path)
+            .expect("read metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+        let names: Vec<_> = fs::read_dir(temp_dir.path())
+            .expect("list directory")
+            .map(|entry| entry.expect("entry").file_name())
+            .collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("kubeconfig-k8s")]);
     }
 
     #[cfg(unix)]

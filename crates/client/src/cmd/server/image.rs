@@ -1,5 +1,5 @@
-use anyhow::{Context, Result, bail};
-use clap::Subcommand;
+use anyhow::{Context, Result, bail, ensure};
+use clap::{Args, Subcommand};
 
 use shared::data::{
     self, NodeConfig, NodeKind, NodeModel, ServerConnection, StatusKind, StatusMessage,
@@ -15,6 +15,37 @@ use shared::util::{
 
 use super::OutputFormat;
 use super::{rpc_call, rpc_call_streaming};
+
+/// Which kind of image an image command works on: at most one may be given, and none means
+/// every kind.
+#[derive(Debug, Args)]
+#[group(multiple = false)]
+pub struct ImageKindFlags {
+    /// Only container images
+    #[arg(long)]
+    container: bool,
+    /// Only unikernel images
+    #[arg(long)]
+    unikernel: bool,
+    /// Only virtual machine images
+    #[arg(long)]
+    virtual_machine: bool,
+}
+
+impl ImageKindFlags {
+    /// The kind of image given, if any.
+    pub fn kind(&self) -> Option<NodeKind> {
+        if self.container {
+            Some(NodeKind::Container)
+        } else if self.unikernel {
+            Some(NodeKind::Unikernel)
+        } else if self.virtual_machine {
+            Some(NodeKind::VirtualMachine)
+        } else {
+            None
+        }
+    }
+}
 
 #[derive(Debug, Subcommand)]
 pub enum ServerImageCommands {
@@ -33,28 +64,14 @@ pub enum ServerImageCommands {
         /// Optional: List images for a specific model
         #[arg(value_enum)]
         model: Option<NodeModel>,
-        /// List container images
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        container: bool,
-        /// List unikernel images
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        unikernel: bool,
-        /// List virtual machine images
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        virtual_machine: bool,
+        #[command(flatten)]
+        kind: ImageKindFlags,
     },
 
     /// Scan the images directory for on-disk images and import to database
     Scan {
-        /// Scan container images
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        container: bool,
-        /// Scan unikernel images
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        unikernel: bool,
-        /// Scan virtual machine images
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        virtual_machine: bool,
+        #[command(flatten)]
+        kind: ImageKindFlags,
         /// Show what would be imported without making changes
         #[arg(long, action = clap::ArgAction::SetTrue)]
         dry_run: bool,
@@ -133,38 +150,18 @@ pub async fn image_commands(
             )
             .await
         }
-        ServerImageCommands::List {
-            model,
-            container,
-            unikernel,
-            virtual_machine,
-        } => {
-            let kind = if *container {
-                Some(NodeKind::Container)
-            } else if *unikernel {
-                Some(NodeKind::Unikernel)
-            } else if *virtual_machine {
-                Some(NodeKind::VirtualMachine)
-            } else {
-                None
-            };
-            list_images(*model, kind, server_url, server_connection, output_format).await
+        ServerImageCommands::List { model, kind } => {
+            list_images(
+                *model,
+                kind.kind(),
+                server_url,
+                server_connection,
+                output_format,
+            )
+            .await
         }
-        ServerImageCommands::Scan {
-            container,
-            unikernel,
-            virtual_machine,
-            dry_run,
-        } => {
-            let kind = if *container {
-                Some(NodeKind::Container)
-            } else if *unikernel {
-                Some(NodeKind::Unikernel)
-            } else if *virtual_machine {
-                Some(NodeKind::VirtualMachine)
-            } else {
-                None
-            };
+        ServerImageCommands::Scan { kind, dry_run } => {
+            let kind = kind.kind();
             scan_images(kind, *dry_run, server_url, server_connection, output_format).await
         }
         ServerImageCommands::Import {
@@ -353,19 +350,7 @@ async fn import_image(
         request,
         server_url,
         server_connection,
-        |msg_text| {
-            if let Ok(status_msg) = serde_json::from_str::<StatusMessage>(msg_text)
-                && status_msg.r#type == "status"
-            {
-                let emoji = match status_msg.kind {
-                    StatusKind::Progress => Emoji::Progress,
-                    StatusKind::Done => Emoji::Success,
-                    StatusKind::Info => Emoji::Info,
-                    StatusKind::Waiting => Emoji::Hourglass,
-                };
-                println!("{} {}", emoji, status_msg.message);
-            }
-        },
+        print_status,
     )
     .await
     .context("Failed to import image")?;
@@ -490,15 +475,9 @@ async fn pull_container_image(
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
-    let (pull_repo, pull_tag) = if let Some(repo_str) = repo {
-        // Full repo reference provided — split on last ':' for repo + tag
-        if let Some((repo, tag)) = repo_str.rsplit_once(':') {
-            (repo.to_string(), tag.to_string())
-        } else {
-            bail!(
-                "Invalid repo format. Expected format: registry/image:tag (e.g., ghcr.io/nokia/srlinux:1.2.3)"
-            )
-        }
+    let (pull_repo, pull_tag) = if let Some(reference) = repo {
+        let (repo, tag) = split_image_reference(reference)?;
+        (repo.to_string(), tag.to_string())
     } else {
         // Known public repos — resolve from constants, version is the tag
         let known_repo = match model {
@@ -535,19 +514,7 @@ async fn pull_container_image(
         request,
         server_url,
         server_connection,
-        |msg_text| {
-            if let Ok(status_msg) = serde_json::from_str::<StatusMessage>(msg_text)
-                && status_msg.r#type == "status"
-            {
-                let emoji = match status_msg.kind {
-                    StatusKind::Progress => Emoji::Progress,
-                    StatusKind::Done => Emoji::Success,
-                    StatusKind::Info => Emoji::Info,
-                    StatusKind::Waiting => Emoji::Hourglass,
-                };
-                println!("{} {}", emoji, status_msg.message);
-            }
-        },
+        print_status,
     )
     .await
     .context("Failed to pull container image")?;
@@ -601,19 +568,7 @@ async fn download_vm_image(
         request,
         server_url,
         server_connection,
-        |msg_text| {
-            if let Ok(status_msg) = serde_json::from_str::<StatusMessage>(msg_text)
-                && status_msg.r#type == "status"
-            {
-                let emoji = match status_msg.kind {
-                    StatusKind::Progress => Emoji::Progress,
-                    StatusKind::Done => Emoji::Success,
-                    StatusKind::Info => Emoji::Info,
-                    StatusKind::Waiting => Emoji::Hourglass,
-                };
-                println!("{} {}", emoji, status_msg.message);
-            }
-        },
+        print_status,
     )
     .await
     .context("Failed to download VM image")?;
@@ -643,4 +598,62 @@ async fn download_vm_image(
     }
 
     Ok(())
+}
+
+/// The repository and tag of an image `reference` written as `registry/image:tag`. The tag
+/// follows the last `:` and cannot contain a `/`, so a registry port such as
+/// `localhost:5000/img` is not taken for a tag.
+fn split_image_reference(reference: &str) -> Result<(&str, &str)> {
+    let invalid = || {
+        format!(
+            "Image reference '{reference}' must be registry/image:tag, such as \
+             ghcr.io/nokia/srlinux:1.2.3; digests (@sha256:...) are not supported"
+        )
+    };
+    let (repo, tag) = reference.rsplit_once(':').with_context(invalid)?;
+    ensure!(
+        !repo.is_empty() && !tag.is_empty() && !tag.contains('/') && !reference.contains('@'),
+        invalid()
+    );
+    Ok((repo, tag))
+}
+
+/// Show a status message the server streams during a long image operation. It goes to stderr,
+/// so with `--output json` stdout holds only the JSON result.
+fn print_status(msg_text: &str) {
+    if let Ok(status_msg) = serde_json::from_str::<StatusMessage>(msg_text)
+        && status_msg.r#type == "status"
+    {
+        let emoji = match status_msg.kind {
+            StatusKind::Progress => Emoji::Progress,
+            StatusKind::Done => Emoji::Success,
+            StatusKind::Info => Emoji::Info,
+            StatusKind::Waiting => Emoji::Hourglass,
+        };
+        eprintln!("{} {}", emoji, status_msg.message);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_image_reference_splits_at_its_tag() {
+        assert_eq!(
+            split_image_reference("ghcr.io/nokia/srlinux:1.2.3").unwrap(),
+            ("ghcr.io/nokia/srlinux", "1.2.3")
+        );
+        assert_eq!(
+            split_image_reference("localhost:5000/img:1").unwrap(),
+            ("localhost:5000/img", "1")
+        );
+    }
+
+    #[test]
+    fn an_image_reference_without_a_tag_is_refused() {
+        for reference in ["localhost:5000/img", "img", "img:", ":1", "img@sha256:abc"] {
+            assert!(split_image_reference(reference).is_err(), "{reference}");
+        }
+    }
 }

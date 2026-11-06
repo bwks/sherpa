@@ -23,19 +23,10 @@ pub fn sftp_path(dst: &str) -> String {
     dst.strip_prefix("~/").unwrap_or(dst).to_string()
 }
 
-/// Create the destination's missing parents and an empty destination file, private to the
-/// login user, so the copied contents are never readable by others. An existing file keeps its
-/// contents and is made private.
-pub fn prepare_file_command(dst: &str) -> String {
-    format!(
-        r#"umask 077 && f={} && mkdir -p "$(dirname "$f")" && : >> "$f" && chmod 600 "$f""#,
-        remote_path(dst)
-    )
-}
-
-/// Give a copied file its final mode, written as octal digits.
-pub fn finish_file_command(dst: &str, mode: u32) -> String {
-    format!("chmod {mode:03} {}", remote_path(dst))
+/// Create the destination's missing folders, private to the login user. The file itself is
+/// left to the copy, which writes it with its mode from the start and replaces it in one step.
+pub fn parent_folders_command(dst: &str) -> String {
+    format!(r#"umask 077 && mkdir -p "$(dirname {})""#, remote_path(dst))
 }
 
 /// The destination of an env file on the node.
@@ -143,23 +134,22 @@ mod tests {
     }
 
     #[test]
-    fn a_file_is_private_before_its_contents_arrive() {
+    fn the_missing_folders_of_a_destination_are_created_private() {
         let home = tempdir().unwrap();
         let output = run(
             home.path(),
             Path::new(LOGIN_SHELL),
-            &prepare_file_command("~/.config/app/token"),
+            &parent_folders_command("~/.config/app/token"),
             "",
         );
         assert!(output.status.success(), "{output:?}");
-        let file = home.path().join(".config/app/token");
-        assert_eq!(fs::read_to_string(&file).unwrap(), "");
-        assert_eq!(mode(&file), 0o600);
         assert_eq!(mode(&home.path().join(".config")), 0o700);
+        assert_eq!(mode(&home.path().join(".config/app")), 0o700);
+        assert!(!home.path().join(".config/app/token").exists());
     }
 
     #[test]
-    fn an_existing_file_keeps_its_contents_and_is_made_private() {
+    fn preparing_a_copy_leaves_an_existing_file_alone() {
         let home = tempdir().unwrap();
         let file = home.path().join("token");
         fs::write(&file, "old").unwrap();
@@ -167,39 +157,12 @@ mod tests {
         let output = run(
             home.path(),
             Path::new(LOGIN_SHELL),
-            &prepare_file_command("~/token"),
+            &parent_folders_command("~/token"),
             "",
         );
         assert!(output.status.success(), "{output:?}");
         assert_eq!(fs::read_to_string(&file).unwrap(), "old");
-        assert_eq!(mode(&file), 0o600);
-    }
-
-    #[test]
-    fn a_copied_file_gets_its_final_mode() {
-        let home = tempdir().unwrap();
-        let dst = format!("{}/srv/token", home.path().display());
-        run(
-            home.path(),
-            Path::new(LOGIN_SHELL),
-            &prepare_file_command(&dst),
-            "",
-        );
-        let output = run(
-            home.path(),
-            Path::new(LOGIN_SHELL),
-            &finish_file_command(&dst, 640),
-            "",
-        );
-        assert!(output.status.success(), "{output:?}");
-        assert_eq!(mode(Path::new(&dst)), 0o640);
-        run(
-            home.path(),
-            Path::new(LOGIN_SHELL),
-            &finish_file_command(&dst, 44),
-            "",
-        );
-        assert_eq!(mode(Path::new(&dst)), 0o044);
+        assert_eq!(mode(&file), 0o644);
     }
 
     #[test]

@@ -8,6 +8,8 @@ use anyhow::{Context, Result};
 
 use shared::konst::{SHERPA_KNOWN_HOSTS_FILE, SHERPA_LAB_CA_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 
+use crate::private_key::write_secret_file;
+
 /// Rewrite server-generated SSH config for client-side use.
 ///
 /// - Replaces the relative `IdentityFile sherpa_ssh_key` and
@@ -41,14 +43,15 @@ pub(crate) fn rewrite_ssh_config_for_client(ssh_config: &str, cwd: &str) -> Stri
 }
 
 /// Save the lab's `known_hosts` file in `cwd`, and return its path. Nothing is written when
-/// the server recorded no host keys.
+/// the server recorded no host keys. The file is replaced in one step, as nodes being
+/// provisioned at the same time read it while another node refreshes it.
 pub(crate) fn write_known_hosts(cwd: &str, known_hosts: &str) -> Result<Option<PathBuf>> {
     if known_hosts.is_empty() {
         tracing::debug!("The server recorded no node host keys");
         return Ok(None);
     }
     let path = Path::new(cwd).join(SHERPA_KNOWN_HOSTS_FILE);
-    fs::write(&path, known_hosts).with_context(|| format!("Failed to write {}", path.display()))?;
+    write_secret_file(&path, known_hosts, "node host keys")?;
     Ok(Some(path))
 }
 

@@ -33,25 +33,22 @@ impl Default for ZtpServer {
     }
 }
 
-/// Server connection configuration for WebSocket RPC
+/// Server connection configuration for WebSocket RPC. A field left out of the config file
+/// takes its value from `ServerConnection::default()`.
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(default)]
 pub struct ServerConnection {
     /// WebSocket URL (e.g., ws://localhost:3030/ws)
-    #[serde(default)]
     pub url: Option<String>,
     /// Connection timeout in seconds
-    #[serde(default)]
     pub timeout_secs: u64,
     /// Validate server TLS certificates against system CA store
-    #[serde(default)]
     pub validate_certs: bool,
     /// Path to custom CA certificate for validating server cert
     /// Use this for self-signed certificates
-    #[serde(default)]
     pub ca_cert_path: Option<String>,
     /// Allow insecure connections (skip cert validation)
     /// DANGEROUS: Only for development/testing
-    #[serde(default)]
     pub insecure: bool,
 }
 
@@ -380,6 +377,16 @@ mod tests {
         assert_eq!(sc.timeout_secs, 3);
         assert!(sc.validate_certs);
         assert!(sc.ca_cert_path.is_none());
+        assert!(!sc.insecure);
+    }
+
+    #[test]
+    fn a_server_connection_missing_fields_takes_their_defaults() {
+        let sc: ServerConnection =
+            serde_json::from_str(r#"{"url": "wss://10.0.0.1:3030/ws"}"#).expect("deserializes");
+        assert_eq!(sc.url.as_deref(), Some("wss://10.0.0.1:3030/ws"));
+        assert_eq!(sc.timeout_secs, 3);
+        assert!(sc.validate_certs);
         assert!(!sc.insecure);
     }
 

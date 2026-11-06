@@ -1,9 +1,9 @@
 //! Login command - authenticate user and save JWT token.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use shared::data::{ClientConfig, LoginRequest, LoginResponse, ValidateResponse};
 use shared::konst::{SHERPA_USER_NAME_ENV, SHERPA_USER_PASSWORD_ENV};
-use shared::util::{emoji_error, emoji_success};
+use shared::util::emoji_success;
 use std::env;
 use std::io::{self, Write};
 use std::time::Duration;
@@ -23,7 +23,7 @@ pub async fn login(server_url: &str, insecure: bool, config: &ClientConfig) -> R
     };
 
     if username.is_empty() {
-        anyhow::bail!("Username cannot be empty");
+        bail!("Username cannot be empty");
     }
 
     // Prompt for password (without echo)
@@ -33,7 +33,7 @@ pub async fn login(server_url: &str, insecure: bool, config: &ClientConfig) -> R
     };
 
     if password.is_empty() {
-        anyhow::bail!("Password cannot be empty");
+        bail!("Password cannot be empty");
     }
 
     println!("Authenticating...");
@@ -74,7 +74,7 @@ pub async fn login(server_url: &str, insecure: bool, config: &ClientConfig) -> R
 
     // Check for error
     if let Some(error) = response.error {
-        anyhow::bail!("Login failed: {}", error.message);
+        bail!("Login failed: {}", error.message);
     }
 
     // Parse successful response
@@ -162,7 +162,7 @@ pub async fn whoami(server_url: &str, insecure: bool, config: &ClientConfig) -> 
 
     // Check for error
     if let Some(error) = response.error {
-        anyhow::bail!("Validation failed: {}", error.message);
+        bail!("Validation failed: {}", error.message);
     }
 
     // Parse response
@@ -171,9 +171,7 @@ pub async fn whoami(server_url: &str, insecure: bool, config: &ClientConfig) -> 
         serde_json::from_value(result).context("Failed to parse validation response")?;
 
     if !validate_response.valid {
-        println!("{}", emoji_error("Token is invalid or expired"));
-        println!("   Please run: sherpa login");
-        return Ok(());
+        bail!("Token is invalid or expired; run: sherpa login");
     }
 
     println!("{}", emoji_success("Authenticated"));

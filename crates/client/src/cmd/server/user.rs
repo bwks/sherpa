@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use base64::{Engine as _, engine::general_purpose};
 use clap::Subcommand;
 
@@ -280,20 +280,7 @@ async fn create_user(
     let username = normalize_username(username);
     validate_username(&username)?;
 
-    // Prompt for password from env or interactively
-    let password = if let Ok(env_password) = std::env::var("SHERPA_USER_PASSWORD") {
-        env_password
-    } else {
-        let password = rpassword::prompt_password(format!("Password for {}: ", username))
-            .context("Failed to read password")?;
-        let confirm =
-            rpassword::prompt_password("Confirm password: ").context("Failed to read password")?;
-
-        if password != confirm {
-            anyhow::bail!("Passwords do not match");
-        }
-        password
-    };
+    let password = prompt_new_password(&format!("Password for {username}: "))?;
 
     let request = data::CreateUserRequest {
         username,
@@ -437,21 +424,7 @@ async fn change_password(
     // If no username provided, use current user from token
     let target_username = target_user(username)?;
 
-    // Prompt for new password from env or interactively
-    let new_password = if let Ok(env_password) = std::env::var("SHERPA_USER_PASSWORD") {
-        env_password
-    } else {
-        let password =
-            rpassword::prompt_password(format!("New password for {}: ", target_username))
-                .context("Failed to read password")?;
-        let confirm = rpassword::prompt_password("Confirm new password: ")
-            .context("Failed to read password")?;
-
-        if password != confirm {
-            anyhow::bail!("Passwords do not match");
-        }
-        password
-    };
+    let new_password = prompt_new_password(&format!("New password for {target_username}: "))?;
 
     let request = data::ChangePasswordRequest {
         username: target_username,
@@ -565,11 +538,43 @@ fn extract_username_from_token() -> Result<String> {
         .map(|s| s.to_string())
 }
 
+/// Ask for a new password with `prompt`, then again to confirm it. It is always typed, never
+/// taken from `SHERPA_USER_PASSWORD`, which holds the caller's own password for `login`.
+fn prompt_new_password(prompt: &str) -> Result<String> {
+    let password = rpassword::prompt_password(prompt).context("Failed to read password")?;
+    let confirm =
+        rpassword::prompt_password("Confirm password: ").context("Failed to read password")?;
+    confirmed_password(password, &confirm)
+}
+
+/// The new `password`, if it is not empty and `confirm` matches it.
+fn confirmed_password(password: String, confirm: &str) -> Result<String> {
+    ensure!(!password.is_empty(), "The password cannot be empty");
+    ensure!(password == confirm, "Passwords do not match");
+    Ok(password)
+}
+
 #[cfg(test)]
 mod tests {
     use clap::Parser;
 
     use super::*;
+
+    #[test]
+    fn a_new_password_must_be_typed_the_same_twice() {
+        assert_eq!(
+            confirmed_password("s3cret".to_owned(), "s3cret").unwrap(),
+            "s3cret"
+        );
+        let error = confirmed_password("s3cret".to_owned(), "s3crex").unwrap_err();
+        assert_eq!(error.to_string(), "Passwords do not match");
+    }
+
+    #[test]
+    fn an_empty_new_password_is_refused() {
+        let error = confirmed_password(String::new(), "").unwrap_err();
+        assert_eq!(error.to_string(), "The password cannot be empty");
+    }
 
     const KEY: &str =
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh me@host";

@@ -38,9 +38,13 @@ sherpa_known_hosts
 .ruff_cache
 __pycache__/
 lab-info.toml
-# Talos cluster admin credentials written by `sherpa up` and `sherpa download`
+# Lab files and credentials written by `sherpa up` and `sherpa download`, removed by
+# `sherpa destroy`
+lab-ca.crt
 kubeconfig-*
 talosconfig-*
+vault-*.toml
+keycloak-*.toml
 *.env
 # Provisioner env files that hold only `$NAME` references, filled in by the CLI.
 !tests/environments/*/provision/*.env

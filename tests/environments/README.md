@@ -14,6 +14,10 @@ installation is never the thing under test.
 toolchains and checkouts provisioned on top of Ubuntu 24.04. The rules below apply to it only
 where they make sense; it is not disposable and installs more than cloud-init needs.
 
+[dev-windows](dev-windows/README.md) is not a test environment either: it is a disposable
+Windows 11 `devbox_windows` node for building and testing the client's Windows code, which the
+Linux dev server cannot compile.
+
 ## Rules
 
 - One directory per test server, each with one `manifest.toml` describing a
