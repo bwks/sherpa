@@ -867,7 +867,7 @@ pub async fn up_lab(
         );
         for domain in qemu_conn.list_all_domains(0)? {
             anyhow::ensure!(
-                !domain.get_name()?.contains(lab_id),
+                !libvirt::is_lab_device(&domain.get_name()?, lab_id),
                 "Existing VM for this lab ID must be cleaned before startup"
             );
         }

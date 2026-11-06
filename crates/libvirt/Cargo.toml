@@ -17,3 +17,6 @@ tracing = { workspace = true }
 
 # Libvirt
 virt = { workspace = true }
+
+[lints]
+workspace = true

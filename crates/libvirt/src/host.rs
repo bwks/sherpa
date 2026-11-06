@@ -10,6 +10,10 @@ pub struct HostCpus {
 }
 
 /// The server's CPUs and NUMA nodes.
+///
+/// # Errors
+///
+/// Fails when libvirt cannot report the host's CPUs.
 #[instrument(level = "debug", skip(qemu_conn))]
 pub fn host_cpus(qemu_conn: &Connect) -> Result<HostCpus> {
     let info = qemu_conn

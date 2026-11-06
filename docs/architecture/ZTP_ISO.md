@@ -93,6 +93,9 @@ The source comes first and the destination second, as in `fs::copy`.
 
 - Writes an image of everything under `src_dir` to `iso_dst`, labelled `volume_id`.
 - `iso_dst` may be inside `src_dir`; that file is left out, whether or not it already exists.
+- The image is written to a hidden `.<name>.partial` file beside `iso_dst` and renamed over it
+  once complete, so a failure leaves any previous image in place. The partial file is removed on
+  failure, and the walk leaves it out like the image.
 - Fails with an `IsoError` naming the path or name on anything it cannot represent faithfully
   (see [Limits and errors](#limits-and-errors)). Checks that need only the label or the source tree
   run before `iso_dst` is created, so a refused source leaves no file behind.
@@ -115,7 +118,7 @@ name, the limit), and the I/O variants keep the `io::Error` as their `source()`:
 | `NameTooLong`, `NameClash`, `TooDeep` | a name breaks a tree's limit, two names convert alike, nesting is too deep |
 | `FileTooLarge`, `TooManyDirectories`, `TooLarge`, `RecordTooLong` | a size does not fit its ISO 9660 field; `TooLarge` names the field, such as an identifier or system use entry whose length is one byte |
 | `DateOutOfRange` | the build time is outside the years the image's dates can hold |
-| `Create`, `Copy`, `Write` | the image cannot be created or written, or a file cannot be copied into it |
+| `Create`, `Copy`, `Write`, `Rename` | the image cannot be created, written or moved into place, or a file cannot be copied into it |
 | `ChangedSize` | a source file changed size between the scan and the copy |
 | `Layout` | the writer is not at the sector the layout gave the next part (a bug in the writer) |
 
@@ -524,6 +527,8 @@ checks both-endian fields agree and that no record crosses a sector boundary.
 | `test_create_iso_directory_spans_sectors` | 300 entries in one directory |
 | `test_create_iso_path_tables_list_directories` | L and M tables agree; order, parent numbers and the root extent |
 | `test_create_iso_leaves_out_its_own_output` | Writing into the source twice never includes the ISO |
+| `test_create_iso_leaves_out_a_partial_image` | A partial file left by a crashed write is not in the image |
+| `test_create_iso_failed_write_keeps_the_previous_image` | A write that fails keeps the previous image and removes its partial file |
 | `test_create_iso_rejects_*`, `test_create_iso_limits_nesting_to_eight_levels` | Each refusal, by its `IsoError` variant; the missing source keeps its `io::Error` as the source, a refused symlink is named in the message, and a refused label says spaces are not allowed |
 | `test_record_date_rejects_years_outside_its_byte` | 1899 and 2156 are refused; 2155 is the last year recorded |
 | `test_volume_date_rejects_years_without_four_digits` | A negative year is refused; a date is written as 16 digits and a zero offset |

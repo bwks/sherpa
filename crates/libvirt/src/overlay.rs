@@ -10,7 +10,7 @@ use virt::storage_pool::StoragePool;
 use virt::storage_vol::StorageVol;
 
 use crate::qcow2::read_qcow2_metadata;
-use crate::storage::refresh_pool;
+use crate::storage::{ensure_destination_absent, refresh_pool};
 use shared::konst::SHERPA_STORAGE_POOL;
 
 #[derive(Template)]
@@ -24,15 +24,18 @@ struct OverlayVolume<'a> {
 
 /// Create a sparse QCOW2 boot disk with an absolute, explicit QCOW2 backing store.
 /// The volume is created exclusively; existing destinations are never changed.
+///
+/// # Errors
+///
+/// Fails when the base cannot be resolved or is not a supported standalone QCOW2 image, the
+/// size would shrink it, `dst` exists, is relative or is not a UTF-8 file name, or libvirt
+/// cannot create the volume.
 #[instrument(level = "debug", skip(conn))]
 pub fn create_overlay(conn: &Connect, src: &str, dst: &str, size_gb: Option<u16>) -> Result<()> {
     let start = Instant::now();
     let backing = fs::canonicalize(src).context("Cannot resolve overlay base")?;
     let capacity = read_qcow2_metadata(&backing)?.overlay_capacity(size_gb)?;
-    ensure!(
-        fs::symlink_metadata(dst).is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound),
-        "Disk destination already exists or cannot be inspected: {dst}"
-    );
+    ensure_destination_absent(dst)?;
     let destination = Path::new(dst);
     ensure!(
         destination.is_absolute(),
@@ -68,14 +71,17 @@ pub fn create_overlay(conn: &Connect, src: &str, dst: &str, size_gb: Option<u16>
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{Qemu, QemuConnection, clone_disk, delete_disk, resize_disk};
-    use shared::konst::SHERPA_STORAGE_POOL_PATH;
-    use std::process::Command;
+    use std::env;
+    use std::process::{self, Command, Output};
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    use shared::konst::SHERPA_STORAGE_POOL_PATH;
     use virt::domain::Domain;
     use virt::stream::Stream;
     use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
+
+    use super::*;
+    use crate::{Qemu, QemuConnection, clone_disk, delete_disk, resize_disk};
 
     static NEXT_TEST: AtomicU64 = AtomicU64::new(0);
 
@@ -102,7 +108,7 @@ mod tests {
     #[ignore = "Requires local libvirt, sherpa-pool and qemu-io; set SHERPA_OVERLAY_LIVE=1"]
     fn live_overlay_disk_isolation_resize_and_reset() -> Result<()> {
         ensure!(
-            std::env::var("SHERPA_OVERLAY_LIVE").as_deref() == Ok("1"),
+            env::var("SHERPA_OVERLAY_LIVE").as_deref() == Ok("1"),
             "Set SHERPA_OVERLAY_LIVE=1 to authorize disposable test volumes"
         );
         let mut fixture = LiveVolumes::new()?;
@@ -177,7 +183,7 @@ mod tests {
         fixture.created.push(fixture.name("copy.qcow2"));
         block_io(&fixture.conn, &copy, "read -P 0x5a 0 4096")?;
         // Configuration media uses its existing byte-copy path.
-        let media = std::env::temp_dir()
+        let media = env::temp_dir()
             .join(fixture.name("source.iso"))
             .to_string_lossy()
             .into_owned();
@@ -210,7 +216,7 @@ mod tests {
         fn new() -> Result<Self> {
             let prefix = format!(
                 "sherpa-overlay-test-{}-{}",
-                std::process::id(),
+                process::id(),
                 NEXT_TEST.fetch_add(1, Ordering::Relaxed)
             );
             Ok(Self {
@@ -261,9 +267,9 @@ mod tests {
     // resulting image through libvirt. This needs no sudo or writable pool files.
     fn block_io(conn: &Connect, path: &str, command: &str) -> Result<()> {
         let writing = command.starts_with("write ");
-        let temporary = std::env::temp_dir().join(format!(
+        let temporary = env::temp_dir().join(format!(
             "sherpa-overlay-io-{}-{}.qcow2",
-            std::process::id(),
+            process::id(),
             NEXT_TEST.fetch_add(1, Ordering::Relaxed)
         ));
         let local_path = if writing {
@@ -279,31 +285,41 @@ mod tests {
         let output = process
             .args(["-f", "qcow2", "-c", command, local_path])
             .output()?;
-        let result = (|| -> Result<()> {
-            ensure!(
-                output.status.success(),
-                "Guest block check failed: {} {}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-            if writing {
-                let bytes = fs::read(&temporary)?;
-                let volume = StorageVol::lookup_by_path(conn, path)?;
-                let stream = Stream::new(conn, 0)?;
-                volume.upload(&stream, 0, bytes.len() as u64, 0)?;
-                let mut sent = 0;
-                while sent < bytes.len() {
-                    let count = stream.send(&bytes[sent..])?;
-                    ensure!(count > 0, "Test upload stopped accepting bytes");
-                    sent += count;
-                }
-                stream.finish()?;
-            }
-            Ok(())
-        })();
+        let result = finish_block_io(conn, path, &temporary, &output, writing);
         if writing {
             let _ = fs::remove_file(temporary);
         }
         result
+    }
+
+    /// Fail unless qemu-io succeeded, and upload a written image over the pool volume at `path`.
+    fn finish_block_io(
+        conn: &Connect,
+        path: &str,
+        temporary: &Path,
+        output: &Output,
+        writing: bool,
+    ) -> Result<()> {
+        ensure!(
+            output.status.success(),
+            "Guest block check failed: {} {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if !writing {
+            return Ok(());
+        }
+        let bytes = fs::read(temporary)?;
+        let volume = StorageVol::lookup_by_path(conn, path)?;
+        let stream = Stream::new(conn, 0)?;
+        volume.upload(&stream, 0, u64::try_from(bytes.len())?, 0)?;
+        let mut sent = 0;
+        while sent < bytes.len() {
+            let count = stream.send(&bytes[sent..])?;
+            ensure!(count > 0, "Test upload stopped accepting bytes");
+            sent += count;
+        }
+        stream.finish()?;
+        Ok(())
     }
 }

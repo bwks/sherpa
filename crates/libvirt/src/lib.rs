@@ -2,14 +2,17 @@
 #![forbid(unsafe_code)]
 
 mod host;
+mod names;
 mod network;
 mod overlay;
 mod qcow2;
 mod qemu;
+mod size;
 mod storage;
 mod vm;
 
 pub use host::{HostCpus, host_cpus};
+pub use names::{is_device_volume, is_lab_device, is_lab_volume};
 pub use network::{BridgeNetwork, IsolatedNetwork, NatNetwork, ReservedNetwork};
 pub use overlay::create_overlay;
 pub use qcow2::{Qcow2Metadata, ensure_no_overlay_dependencies, read_qcow2_metadata};

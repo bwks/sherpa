@@ -5,6 +5,22 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, ensure};
 use tracing::instrument;
 
+use crate::size::gib_to_bytes;
+
+/// The magic at the start of every QCOW2 image.
+const QCOW2_MAGIC: &[u8; 4] = b"QFI\xfb";
+/// Incompatible features QEMU handles in an overlay base: compression type (bit 3) and extended
+/// L2 entries (bit 4).
+const QCOW2_ALLOWED_INCOMPATIBLE_FEATURES: u64 = 0x18;
+/// Incompatible feature bit 2: the image's data is in an external file.
+const QCOW2_INCOMPATIBLE_EXTERNAL_DATA: u64 = 0x4;
+/// Autoclear feature bit 1: the external data file is raw.
+const QCOW2_AUTOCLEAR_RAW_EXTERNAL_DATA: u64 = 0x2;
+/// Header extension holding the full disk encryption header pointer.
+const QCOW2_EXTENSION_ENCRYPTION: u32 = 0x0537_be77;
+/// Header extension naming the external data file.
+const QCOW2_EXTENSION_DATA_FILE: u32 = 0x4441_5441;
+
 /// Only bounded header metadata is read; this is not a full image integrity check.
 #[derive(Debug)]
 pub struct Qcow2Metadata {
@@ -22,6 +38,11 @@ impl Qcow2Metadata {
     /// An omitted size inherits the base capacity. Explicit sizes are in GiB
     /// and may equal or exceed the base capacity. This check never modifies the
     /// base and does not validate its data or allocation tables.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the base has a backing file, encryption, an external data file or an
+    /// unsupported incompatible feature, or the size would shrink it.
     #[instrument(level = "debug")]
     pub fn overlay_capacity(&self, size_gb: Option<u16>) -> Result<u64> {
         ensure!(
@@ -36,12 +57,10 @@ impl Qcow2Metadata {
         // Compression and extended L2 entries are understood by QEMU. Dirty,
         // corrupt, external-data and unknown incompatible features are rejected.
         ensure!(
-            self.incompatible_features & !0x18 == 0,
+            self.incompatible_features & !QCOW2_ALLOWED_INCOMPATIBLE_FEATURES == 0,
             "Unsupported or unsafe QCOW2 incompatible features"
         );
-        let capacity = size_gb
-            .map(|size| u64::from(size) * 1024 * 1024 * 1024)
-            .unwrap_or(self.capacity);
+        let capacity = size_gb.map_or(self.capacity, gib_to_bytes);
         ensure!(
             capacity >= self.capacity,
             "Requested overlay size cannot shrink base capacity ({} bytes)",
@@ -56,6 +75,10 @@ impl Qcow2Metadata {
 /// Returns virtual capacity, the stored backing path, and feature flags used by
 /// overlay eligibility checks. File and parsing errors include the image path;
 /// guest data and allocation tables are not read.
+///
+/// # Errors
+///
+/// Fails when the file cannot be read or its header is not a valid QCOW2 v2 or v3 header.
 #[instrument(level = "debug", skip(path))]
 pub fn read_qcow2_metadata(path: &Path) -> Result<Qcow2Metadata> {
     let mut file = File::open(path)
@@ -73,7 +96,7 @@ pub fn read_qcow2_metadata(path: &Path) -> Result<Qcow2Metadata> {
 fn read_metadata(file: &mut (impl Read + Seek)) -> Result<Qcow2Metadata> {
     let mut header = [0_u8; 104];
     file.read_exact(&mut header[..72])?;
-    ensure!(&header[..4] == b"QFI\xfb", "Image is not QCOW2");
+    ensure!(&header[..4] == QCOW2_MAGIC, "Image is not QCOW2");
     let version = be32(&header[4..8])?;
     ensure!(
         matches!(version, 2 | 3),
@@ -105,9 +128,11 @@ fn read_metadata(file: &mut (impl Read + Seek)) -> Result<Qcow2Metadata> {
     let mut cluster = vec![0_u8; cluster_size];
     file.seek(SeekFrom::Start(0))?;
     file.read_exact(&mut cluster)?;
-    let backing_file = if offset == 0 {
+    // Extensions stop before the backing filename, or at the cluster boundary when there is
+    // no backing file.
+    let (backing_file, extension_end) = if offset == 0 {
         ensure!(length == 0, "QCOW2 backing length without an offset");
-        None
+        (None, cluster_size)
     } else {
         ensure!(
             length > 0 && length <= 1023,
@@ -121,20 +146,16 @@ fn read_metadata(file: &mut (impl Read + Seek)) -> Result<Qcow2Metadata> {
                 && length as u64 <= cluster_size as u64 - offset,
             "QCOW2 backing filename outside first cluster"
         );
-        let name = std::str::from_utf8(&cluster[offset as usize..offset as usize + length])?;
+        let start = usize::try_from(offset)?;
+        let name = str::from_utf8(&cluster[start..start + length])?;
         ensure!(!name.contains('\0'), "QCOW2 backing filename contains NUL");
-        Some(PathBuf::from(name))
-    };
-    let extension_end = if offset == 0 {
-        cluster_size
-    } else {
-        offset as usize
+        (Some(PathBuf::from(name)), start)
     };
     let mut encrypted = be32(&header[32..36])? != 0;
-    let mut external_data = incompatible_features & 4 != 0 || autoclear & 2 != 0;
+    let mut external_data = incompatible_features & QCOW2_INCOMPATIBLE_EXTERNAL_DATA != 0
+        || autoclear & QCOW2_AUTOCLEAR_RAW_EXTERNAL_DATA != 0;
     let mut cursor = header_length;
-    // Extensions stop before the backing filename, or at the cluster boundary
-    // when there is no backing file. Each payload is padded to eight bytes.
+    // Each extension's payload is padded to eight bytes.
     loop {
         ensure!(
             cursor + 8 <= extension_end,
@@ -150,8 +171,8 @@ fn read_metadata(file: &mut (impl Read + Seek)) -> Result<Qcow2Metadata> {
             end <= extension_end,
             "QCOW2 extension outside first cluster"
         );
-        encrypted |= kind == 0x0537be77;
-        external_data |= kind == 0x44415441;
+        encrypted |= kind == QCOW2_EXTENSION_ENCRYPTION;
+        external_data |= kind == QCOW2_EXTENSION_DATA_FILE;
         cursor = (end + 7) & !7;
     }
     Ok(Qcow2Metadata {
@@ -178,6 +199,11 @@ fn be64(bytes: &[u8]) -> Result<u64> {
 /// Canonicalize the image version directory before checking backing references.
 /// The caller must hold the image lifecycle lock through this check and deletion
 /// to prevent concurrent provisioning from introducing a new dependency.
+///
+/// # Errors
+///
+/// Fails when a managed disk references the image directory, or when storage or a disk's
+/// metadata cannot be read or resolved.
 #[instrument(level = "debug", skip(storage_path, image_dir))]
 pub fn ensure_no_overlay_dependencies(storage_path: &Path, image_dir: &Path) -> Result<()> {
     let image_dir = fs::canonicalize(image_dir)
@@ -195,8 +221,11 @@ fn scan_dependencies(storage_path: &Path, image_dir: &Path) -> Result<()> {
     for entry in fs::read_dir(storage_path)
         .context("Cannot enumerate managed storage for dependency check")?
     {
-        let path = entry?.path();
-        let metadata = fs::symlink_metadata(&path)?;
+        let path = entry
+            .context("Cannot read managed storage for dependency check")?
+            .path();
+        let metadata = fs::symlink_metadata(&path)
+            .with_context(|| format!("Cannot inspect {}", path.display()))?;
         if metadata.is_dir() {
             scan_dependencies(&path, image_dir)?;
             continue;
@@ -204,14 +233,17 @@ fn scan_dependencies(storage_path: &Path, image_dir: &Path) -> Result<()> {
         let mut file = File::open(&path)
             .with_context(|| format!("Cannot inspect dependency metadata: {}", path.display()))?;
         let mut magic = [0_u8; 4];
-        let count = file.read(&mut magic)?;
+        let count = file
+            .read(&mut magic)
+            .with_context(|| format!("Cannot inspect dependency metadata: {}", path.display()))?;
         let qcow_extension = path
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("qcow2"));
-        if !qcow_extension && (count != 4 || &magic != b"QFI\xfb") {
+        if !qcow_extension && (count != 4 || &magic != QCOW2_MAGIC) {
             continue;
         }
-        file.seek(SeekFrom::Start(0))?;
+        file.seek(SeekFrom::Start(0))
+            .with_context(|| format!("Cannot inspect dependency metadata: {}", path.display()))?;
         let metadata = read_metadata(&mut file)
             .with_context(|| format!("Cannot inspect dependency metadata: {}", path.display()))?;
         if let Some(backing) = metadata.backing_file {
@@ -237,13 +269,14 @@ fn scan_dependencies(storage_path: &Path, image_dir: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Cursor;
+
+    use super::*;
 
     /// Build a metadata-only fixture with a 512-byte cluster and 2 GiB capacity.
     fn header(version: u32) -> Vec<u8> {
         let mut bytes = vec![0; 512];
-        bytes[..4].copy_from_slice(b"QFI\xfb");
+        bytes[..4].copy_from_slice(QCOW2_MAGIC);
         bytes[4..8].copy_from_slice(&version.to_be_bytes());
         bytes[20..24].copy_from_slice(&9_u32.to_be_bytes());
         bytes[24..32].copy_from_slice(&(2_u64 << 30).to_be_bytes());
@@ -273,7 +306,7 @@ mod tests {
             let info = read_metadata(&mut Cursor::new(bytes)).unwrap();
             assert!(info.overlay_capacity(None).is_err());
         }
-        for kind in [0x44415441_u32, 0x0537be77] {
+        for kind in [QCOW2_EXTENSION_DATA_FILE, QCOW2_EXTENSION_ENCRYPTION] {
             let mut bytes = header(3);
             bytes[104..108].copy_from_slice(&kind.to_be_bytes());
             let info = read_metadata(&mut Cursor::new(bytes)).unwrap();

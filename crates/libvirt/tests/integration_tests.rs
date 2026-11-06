@@ -5,10 +5,14 @@
 ///
 /// Tests create and destroy their own networks and storage pools.
 /// Resource names are prefixed with "sherpa-test-" to avoid collisions.
+use std::fs;
 use std::net::Ipv4Addr;
+use std::path::Path;
 
 use anyhow::Result;
 use virt::connect::Connect;
+use virt::network::Network;
+use virt::storage_pool::StoragePool;
 
 use libvirt::{
     BridgeNetwork, IsolatedNetwork, NatNetwork, Qemu, QemuConnection, ReservedNetwork,
@@ -25,7 +29,7 @@ fn connect() -> Result<QemuConnection> {
 
 /// Clean up a libvirt network by name. Ignores errors (network may not exist).
 fn cleanup_network(conn: &Connect, name: &str) {
-    if let Ok(net) = virt::network::Network::lookup_by_name(conn, name) {
+    if let Ok(net) = Network::lookup_by_name(conn, name) {
         let _ = net.destroy();
         let _ = net.undefine();
     }
@@ -33,7 +37,7 @@ fn cleanup_network(conn: &Connect, name: &str) {
 
 /// Clean up a libvirt storage pool by name. Ignores errors.
 fn cleanup_pool(conn: &Connect, name: &str) {
-    if let Ok(pool) = virt::storage_pool::StoragePool::lookup_by_name(conn, name) {
+    if let Ok(pool) = StoragePool::lookup_by_name(conn, name) {
         let _ = pool.destroy();
         let _ = pool.undefine();
     }
@@ -44,15 +48,15 @@ fn cleanup_pool(conn: &Connect, name: &str) {
 // ============================================================================
 
 #[test]
-#[ignore]
+#[ignore = "requires a libvirt daemon"]
 fn test_qemu_connect() {
     let conn = connect().expect("connects to QEMU");
     let hostname = conn.get_hostname().expect("gets hostname");
-    assert!(!hostname.is_empty());
+    assert_ne!(hostname, "");
 }
 
 #[test]
-#[ignore]
+#[ignore = "requires a libvirt daemon"]
 fn test_qemu_connect_default_uri() {
     let qemu = Qemu::default();
     let conn = qemu.connect().expect("connects");
@@ -66,7 +70,7 @@ fn test_qemu_connect_default_uri() {
 // ============================================================================
 
 #[test]
-#[ignore]
+#[ignore = "requires a libvirt daemon"]
 fn test_create_bridge_network() {
     let conn = connect().expect("connects");
     let name = "sherpa-test-br-net";
@@ -82,7 +86,7 @@ fn test_create_bridge_network() {
     .expect("creates bridge network");
 
     // Verify network exists
-    let net = virt::network::Network::lookup_by_name(&conn, name).expect("network should exist");
+    let net = Network::lookup_by_name(&conn, name).expect("network should exist");
     assert!(net.is_active().expect("checks active"));
 
     // Cleanup
@@ -95,7 +99,7 @@ fn test_create_bridge_network() {
 // ============================================================================
 
 #[test]
-#[ignore]
+#[ignore = "requires a libvirt daemon"]
 fn test_create_isolated_network() {
     let conn = connect().expect("connects");
     let name = "sherpa-test-iso-net";
@@ -110,7 +114,7 @@ fn test_create_isolated_network() {
     .create(&conn)
     .expect("creates isolated network");
 
-    let net = virt::network::Network::lookup_by_name(&conn, name).expect("network should exist");
+    let net = Network::lookup_by_name(&conn, name).expect("network should exist");
     assert!(net.is_active().expect("checks active"));
 
     let xml = net.get_xml_desc(0).expect("gets xml");
@@ -130,7 +134,7 @@ fn test_create_isolated_network() {
 // ============================================================================
 
 #[test]
-#[ignore]
+#[ignore = "requires a libvirt daemon"]
 fn test_create_reserved_network() {
     let conn = connect().expect("connects");
     let name = "sherpa-test-rsv-net";
@@ -145,7 +149,7 @@ fn test_create_reserved_network() {
     .create(&conn)
     .expect("creates reserved network");
 
-    let net = virt::network::Network::lookup_by_name(&conn, name).expect("network should exist");
+    let net = Network::lookup_by_name(&conn, name).expect("network should exist");
     assert!(net.is_active().expect("checks active"));
 
     let xml = net.get_xml_desc(0).expect("gets xml");
@@ -167,7 +171,7 @@ fn test_create_reserved_network() {
 // ============================================================================
 
 #[test]
-#[ignore]
+#[ignore = "requires a libvirt daemon"]
 fn test_create_nat_network_ipv4() {
     let conn = connect().expect("connects");
     let name = "sherpa-test-nat-net";
@@ -186,7 +190,7 @@ fn test_create_nat_network_ipv4() {
     .create(&conn)
     .expect("creates NAT network");
 
-    let net = virt::network::Network::lookup_by_name(&conn, name).expect("network should exist");
+    let net = Network::lookup_by_name(&conn, name).expect("network should exist");
     assert!(net.is_active().expect("checks active"));
 
     let xml = net.get_xml_desc(0).expect("gets xml");
@@ -202,7 +206,7 @@ fn test_create_nat_network_ipv4() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "requires a libvirt daemon"]
 fn test_create_nat_network_dual_stack() {
     let conn = connect().expect("connects");
     let name = "sherpa-test-nat6-net";
@@ -221,7 +225,7 @@ fn test_create_nat_network_dual_stack() {
     .create(&conn)
     .expect("creates dual-stack NAT network");
 
-    let net = virt::network::Network::lookup_by_name(&conn, name).expect("network should exist");
+    let net = Network::lookup_by_name(&conn, name).expect("network should exist");
     let xml = net.get_xml_desc(0).expect("gets xml");
     assert!(xml.contains("192.168.251.1"));
     assert!(xml.contains("family='ipv6'"), "should contain IPv6 block");
@@ -235,7 +239,7 @@ fn test_create_nat_network_dual_stack() {
 // ============================================================================
 
 #[test]
-#[ignore]
+#[ignore = "requires a libvirt daemon"]
 fn test_network_create_idempotent() {
     let conn = connect().expect("connects");
     let name = "sherpa-test-idem-net";
@@ -257,7 +261,7 @@ fn test_network_create_idempotent() {
     net2.create(&conn).expect("second create (idempotent)");
 
     // Still active
-    let net = virt::network::Network::lookup_by_name(&conn, name).expect("network should exist");
+    let net = Network::lookup_by_name(&conn, name).expect("network should exist");
     assert!(net.is_active().expect("checks active"));
 
     let _ = net.destroy();
@@ -269,14 +273,14 @@ fn test_network_create_idempotent() {
 // ============================================================================
 
 #[test]
-#[ignore]
+#[ignore = "requires a libvirt daemon"]
 fn test_create_storage_pool() {
     let conn = connect().expect("connects");
     let pool_name = "sherpa-test-pool";
     let pool_path = "/tmp/sherpa-test-pool";
 
     cleanup_pool(&conn, pool_name);
-    let _ = std::fs::remove_dir_all(pool_path);
+    let _ = fs::remove_dir_all(pool_path);
 
     SherpaStoragePool {
         name: pool_name.to_string(),
@@ -286,31 +290,27 @@ fn test_create_storage_pool() {
     .expect("creates storage pool");
 
     // Verify pool exists and is active
-    let pool = virt::storage_pool::StoragePool::lookup_by_name(&conn, pool_name)
-        .expect("pool should exist");
+    let pool = StoragePool::lookup_by_name(&conn, pool_name).expect("pool should exist");
     assert!(pool.is_active().expect("checks active"));
 
     // Verify directory was created
-    assert!(
-        std::path::Path::new(pool_path).exists(),
-        "pool directory should exist"
-    );
+    assert!(Path::new(pool_path).exists(), "pool directory should exist");
 
     // Cleanup
     let _ = pool.destroy();
     let _ = pool.undefine();
-    let _ = std::fs::remove_dir_all(pool_path);
+    let _ = fs::remove_dir_all(pool_path);
 }
 
 #[test]
-#[ignore]
+#[ignore = "requires a libvirt daemon"]
 fn test_create_storage_pool_idempotent() {
     let conn = connect().expect("connects");
     let pool_name = "sherpa-test-pool-idem";
     let pool_path = "/tmp/sherpa-test-pool-idem";
 
     cleanup_pool(&conn, pool_name);
-    let _ = std::fs::remove_dir_all(pool_path);
+    let _ = fs::remove_dir_all(pool_path);
 
     let pool1 = SherpaStoragePool {
         name: pool_name.to_string(),
@@ -324,11 +324,42 @@ fn test_create_storage_pool_idempotent() {
     pool1.create(&conn).expect("first create");
     pool2.create(&conn).expect("second create (idempotent)");
 
-    let pool = virt::storage_pool::StoragePool::lookup_by_name(&conn, pool_name)
-        .expect("pool should exist");
+    let pool = StoragePool::lookup_by_name(&conn, pool_name).expect("pool should exist");
     assert!(pool.is_active().expect("checks active"));
 
     let _ = pool.destroy();
     let _ = pool.undefine();
-    let _ = std::fs::remove_dir_all(pool_path);
+    let _ = fs::remove_dir_all(pool_path);
+}
+
+#[test]
+#[ignore = "requires a libvirt daemon"]
+fn test_create_storage_pool_starts_an_inactive_pool() {
+    let conn = connect().expect("connects");
+    let pool_name = "sherpa-test-pool-inactive";
+    let pool_path = "/tmp/sherpa-test-pool-inactive";
+
+    cleanup_pool(&conn, pool_name);
+    let _ = fs::remove_dir_all(pool_path);
+
+    SherpaStoragePool {
+        name: pool_name.to_string(),
+        path: pool_path.to_string(),
+    }
+    .create(&conn)
+    .expect("first create");
+    let defined = StoragePool::lookup_by_name(&conn, pool_name).expect("pool should exist");
+    defined.destroy().expect("stops the pool");
+
+    SherpaStoragePool {
+        name: pool_name.to_string(),
+        path: pool_path.to_string(),
+    }
+    .create(&conn)
+    .expect("second create");
+    assert!(defined.is_active().expect("checks active"));
+
+    let _ = defined.destroy();
+    let _ = defined.undefine();
+    let _ = fs::remove_dir_all(pool_path);
 }

@@ -1,6 +1,7 @@
 //! The ISO 9660 writer. Only what config media readers need is written: a primary tree with
 //! relaxed names and Rock Ridge, and a Joliet tree, both over the same file data.
 
+use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -114,16 +115,21 @@ struct PathTables {
     len: u32,
 }
 
-/// Writes the image a sector at a time, so each part can be checked against the layout.
+/// Writes the image a sector at a time, so each part can be checked against the layout. The
+/// image is written to a partial file, which is removed on drop unless `finish` moved it into
+/// place.
 struct SectorWriter {
     path: PathBuf,
     out: BufWriter<File>,
     sector: u32,
+    finished: bool,
 }
 
 /// Write an ISO 9660 image of the directory `src_dir` to `iso_dst`, labelled `volume_id`.
 ///
-/// `iso_dst` may be inside `src_dir`; it is left out of the image. Names keep their case,
+/// `iso_dst` may be inside `src_dir`; it is left out of the image. The image is written to a
+/// hidden partial file beside `iso_dst` and renamed over it once complete, so a failure leaves
+/// any previous `iso_dst` in place. Names keep their case,
 /// hyphens and dots in the primary tree, files are read-only and owned by root in Rock Ridge,
 /// and Joliet carries the names unchanged. Symlinks and special files are refused.
 ///
@@ -145,6 +151,7 @@ pub fn create_iso(
     let (src_dir, iso_dst) = (src_dir.as_ref(), iso_dst.as_ref());
     validate_volume_id(volume_id)?;
     let output = output_path(iso_dst)?;
+    let partial = partial_path(&output)?;
     let root = fs::canonicalize(src_dir).map_err(|source| IsoError::SourceDir {
         path: src_dir.to_path_buf(),
         source,
@@ -157,7 +164,7 @@ pub fn create_iso(
         }],
         files: Vec::new(),
     };
-    scan_dir(&mut source, 0, &root, 1, &output)?;
+    scan_dir(&mut source, 0, &root, 1, &[&output, &partial])?;
 
     let now = Timestamp::now();
     let date = record_date(now)?;
@@ -178,14 +185,15 @@ pub fn create_iso(
     let er = su_entry(*b"ER", &er_data()?)?;
     let er_len = u32::try_from(er.len()).map_err(|_| IsoError::TooLarge("ER entry"))?;
 
-    let file = File::create(iso_dst).map_err(|source| IsoError::Create {
-        path: iso_dst.to_path_buf(),
+    let file = File::create(&partial).map_err(|source| IsoError::Create {
+        path: partial.clone(),
         source,
     })?;
     let mut writer = SectorWriter {
-        path: iso_dst.to_path_buf(),
+        path: partial,
         out: BufWriter::new(file),
         sector: 0,
+        finished: false,
     };
     writer.zero_sectors(ISO_SYSTEM_AREA_SECTORS)?;
     for (layout, tables) in [(&primary, &primary_tables), (&joliet, &joliet_tables)] {
@@ -215,7 +223,7 @@ pub fn create_iso(
     }
     writer.zero_sectors(ISO_PADDING_SECTORS)?;
     writer.check_sector(volume_sectors)?;
-    writer.flush()?;
+    writer.finish(&output)?;
     tracing::debug!(path = %iso_dst.display(), source_dir = %src_dir.display(), %volume_id, sectors = volume_sectors, "ISO created");
     Ok(())
 }
@@ -245,14 +253,26 @@ fn output_path(iso_dst: &Path) -> Result<PathBuf, IsoError> {
     Ok(parent.join(name))
 }
 
+/// The hidden file beside `output` the image is written to first, then renamed over `output`.
+fn partial_path(output: &Path) -> Result<PathBuf, IsoError> {
+    let name = output
+        .file_name()
+        .ok_or_else(|| IsoError::NoFileName(output.to_path_buf()))?;
+    let mut partial = OsString::from(".");
+    partial.push(name);
+    partial.push(".partial");
+    Ok(output.with_file_name(partial))
+}
+
 /// Add the entries of the directory at `path` to `source` as `dir`, recursing into
-/// subdirectories. `depth` counts the root as 1.
+/// subdirectories. `depth` counts the root as 1. The image and its partial file, in `skip`,
+/// are left out.
 fn scan_dir(
     source: &mut Source,
     dir: usize,
     path: &Path,
     depth: usize,
-    output: &Path,
+    skip: &[&Path],
 ) -> Result<(), IsoError> {
     if depth > ISO_MAX_DEPTH {
         return Err(IsoError::TooDeep {
@@ -269,7 +289,7 @@ fn scan_dir(
     entries.sort_by_key(fs::DirEntry::file_name);
     for entry in entries {
         let entry_path = entry.path();
-        if entry_path == output {
+        if skip.contains(&entry_path.as_path()) {
             tracing::debug!(path = %entry_path.display(), "Leaving the ISO out of its own source");
             continue;
         }
@@ -287,7 +307,7 @@ fn scan_dir(
             });
             source.dirs[dir].entries.push((name, Target::Dir(idx)));
             source.dirs[dir].subdirs += 1;
-            scan_dir(source, idx, &entry_path, depth + 1, output)?;
+            scan_dir(source, idx, &entry_path, depth + 1, skip)?;
         } else if meta.is_file() {
             let size = u32::try_from(meta.len())
                 .map_err(|_| IsoError::FileTooLarge(entry_path.clone()))?;
@@ -866,11 +886,18 @@ impl SectorWriter {
         Ok(())
     }
 
-    fn flush(&mut self) -> Result<(), IsoError> {
+    /// Flush the image and rename it over `destination`.
+    fn finish(mut self, destination: &Path) -> Result<(), IsoError> {
         self.out.flush().map_err(|source| IsoError::Write {
             path: self.path.clone(),
             source,
-        })
+        })?;
+        fs::rename(&self.path, destination).map_err(|source| IsoError::Rename {
+            path: destination.to_path_buf(),
+            source,
+        })?;
+        self.finished = true;
+        Ok(())
     }
 
     fn write(&mut self, data: &[u8]) -> Result<(), IsoError> {
@@ -881,13 +908,24 @@ impl SectorWriter {
     }
 }
 
+impl Drop for SectorWriter {
+    fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+        if let Err(error) = fs::remove_file(&self.path) {
+            tracing::warn!(path = %self.path.display(), %error, "Failed to remove a partial ISO");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
     use std::error::Error;
     use std::fs;
     #[cfg(unix)]
-    use std::os::unix::fs::symlink;
+    use std::os::unix::fs::{PermissionsExt, symlink};
     use std::path::Path;
 
     use anyhow::Result;
@@ -1299,6 +1337,50 @@ mod tests {
         for _ in 0..2 {
             create_iso(src.path(), &iso, CIDATA)?;
         }
+        let names: Vec<String> = tree(&fs::read(&iso)?, Names::RockRidge)
+            .into_keys()
+            .collect();
+        assert_eq!(names, ["meta-data", "network-config", "user-data"]);
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_create_iso_failed_write_keeps_the_previous_image() -> Result<()> {
+        let src = TempDir::new()?;
+        ztp_source(src.path())?;
+        let iso = src.path().join(ISO_NAME);
+        fs::write(&iso, "previous image")?;
+        let unreadable = src.path().join("user-data");
+        fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o000))?;
+        // Root reads any file, so there the failure cannot be made.
+        if File::open(&unreadable).is_ok() {
+            return Ok(());
+        }
+        let err = create_iso(src.path(), &iso, CIDATA).unwrap_err();
+        assert!(matches!(err, IsoError::Read { .. }), "{err}");
+        assert_eq!(fs::read(&iso)?, b"previous image");
+        let mut names: Vec<_> = fs::read_dir(src.path())?
+            .map(|entry| entry.map(|entry| entry.file_name()))
+            .collect::<io::Result<_>>()?;
+        names.sort();
+        assert_eq!(
+            names,
+            ["meta-data", "network-config", "user-data", ISO_NAME]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_iso_leaves_out_a_partial_image() -> Result<()> {
+        let src = TempDir::new()?;
+        ztp_source(src.path())?;
+        let iso = src.path().join(ISO_NAME);
+        fs::write(
+            src.path().join(format!(".{ISO_NAME}.partial")),
+            "crashed write",
+        )?;
+        create_iso(src.path(), &iso, CIDATA)?;
         let names: Vec<String> = tree(&fs::read(&iso)?, Names::RockRidge)
             .into_keys()
             .collect();

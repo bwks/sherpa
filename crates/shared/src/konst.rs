@@ -434,6 +434,17 @@ pub const DOCKER_COMPOSE_VERSION: &str = "2.34.0";
 
 pub const CONTAINER_IMAGE_NAME: &str = "image.tar.gz";
 pub const CONTAINER_DISK_NAME: &str = "disk.img";
+/// The endings of a node's disks in the storage pool, after `<node>-<lab_id>`. Destroy deletes
+/// only volumes named this way, so a new kind of disk needs its ending here.
+pub const LAB_VOLUME_SUFFIXES: [&str; 7] = [
+    ".qcow2",
+    ".iso",
+    ".elf",
+    "-hdd.qcow2",
+    "-cfg.img",
+    "-cfg.ign",
+    "-disk.img",
+];
 
 pub const CONTAINER_WEBDIR_NAME: &str = "webdir";
 pub const CONTAINER_WEBDIR_REPO: &str = "ghcr.io/bwks/webdir";

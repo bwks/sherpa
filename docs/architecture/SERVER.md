@@ -565,7 +565,7 @@ flowchart TB
     removecontainers --> secrets["destroy_lab_secrets: remove the lab's container secret files"]
     secrets --> listdomains
     subgraph vms["destroy_vms_and_disks"]
-        listdomains["list libvirt domains"] --> undefine["undefine/destroy domains containing lab_id"] --> pool["lookup Sherpa storage pool"] --> volumes["delete volumes containing lab_id"]
+        listdomains["list libvirt domains"] --> undefine["undefine/destroy domains named node-lab_id"] --> pool["lookup Sherpa storage pool"] --> volumes["delete volumes named node-lab_id plus a disk suffix"]
     end
     volumes --> listnetworks
     subgraph dockernets["destroy_docker_networks"]
@@ -588,6 +588,13 @@ flowchart TB
 ```
 
 Destruction uses name-based matching for many runtime resources because the runtime backends are external systems and the database may not be fully reliable after partial failures. This is why consistent naming with `lab_id` embedded in resource names is part of the architecture.
+
+Domains and disks are matched by their whole name, with `libvirt::is_lab_device` and
+`libvirt::is_lab_volume`: a domain is `<node>-<lab_id>`, and a disk adds one of
+`shared::konst::LAB_VOLUME_SUFFIXES`. A substring match would also take another lab's VMs and
+disks when one of its node names contains this lab's ID. A new kind of disk needs its suffix in
+`LAB_VOLUME_SUFFIXES`, or destroy leaves it behind. The startup guard in `up` and the disks
+`inspect` lists use the same rules.
 
 The lab name comes from the lab's database record, so destroy also works when `up` was stopped
 before it wrote the lab info file.

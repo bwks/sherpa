@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use askama::Template;
 use tracing::instrument;
 use virt::connect::Connect;
+use virt::error::ErrorNumber;
 use virt::network::Network;
 
 use shared::konst::{MTU_JUMBO_NET, SHERPA_DOMAIN_NAME};
@@ -12,8 +13,11 @@ use shared::konst::{MTU_JUMBO_NET, SHERPA_DOMAIN_NAME};
 /// exists (and is now active), false if it doesn't exist at all.
 fn ensure_network_active(qemu_conn: &Connect, name: &str) -> Result<bool> {
     let network = match Network::lookup_by_name(qemu_conn, name) {
-        Ok(n) => n,
-        Err(_) => return Ok(false),
+        Ok(network) => network,
+        Err(error) if error.code() == ErrorNumber::NoNetwork => return Ok(false),
+        Err(error) => {
+            return Err(error).with_context(|| format!("Failed to look up network '{name}'"));
+        }
     };
 
     let active = network
@@ -30,8 +34,20 @@ fn ensure_network_active(qemu_conn: &Connect, name: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// Define, start, and autostart a libvirt network from XML.
-fn create_network(qemu_conn: &Connect, xml: &str, kind: &str) -> Result<()> {
+/// Make sure the network `name` exists and is active: start it if it is inactive, or define,
+/// start and autostart it from `xml`. `kind` names the network in messages.
+fn ensure_network(
+    qemu_conn: &Connect,
+    name: &str,
+    bridge_name: &str,
+    kind: &str,
+    xml: &str,
+) -> Result<()> {
+    if ensure_network_active(qemu_conn, name)? {
+        tracing::debug!(network_name = %name, kind, "Network already exists");
+        return Ok(());
+    }
+
     let network = Network::define_xml(qemu_conn, xml)
         .with_context(|| format!("Failed to define {kind} network"))?;
     network
@@ -40,10 +56,13 @@ fn create_network(qemu_conn: &Connect, xml: &str, kind: &str) -> Result<()> {
     network
         .set_autostart(true)
         .with_context(|| format!("Failed to set {kind} network autostart"))?;
+
+    tracing::info!(network_name = %name, %bridge_name, kind, "Network created and started");
     Ok(())
 }
 
-#[derive(Template)]
+/// A network over an existing host bridge.
+#[derive(Debug, Template)]
 #[template(path = "network/bridge.jinja", ext = "xml")]
 pub struct BridgeNetwork {
     pub network_name: String,
@@ -51,24 +70,29 @@ pub struct BridgeNetwork {
 }
 
 impl BridgeNetwork {
-    #[instrument(level = "debug", skip(self, qemu_conn))]
+    /// Make sure the bridge network exists and is active.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the XML cannot be rendered, or libvirt cannot look up, define, start or
+    /// autostart the network.
+    #[instrument(level = "debug", skip(self, qemu_conn), fields(network_name = %self.network_name))]
     pub fn create(self, qemu_conn: &Connect) -> Result<()> {
-        if ensure_network_active(qemu_conn, &self.network_name)? {
-            tracing::debug!(network_name = %self.network_name, "Bridge network already exists");
-            return Ok(());
-        }
-
         let xml = self
             .render()
             .context("Failed to render bridge network XML")?;
-        create_network(qemu_conn, &xml, "bridge")?;
-
-        tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, "Bridge network created and started");
-        Ok(())
+        ensure_network(
+            qemu_conn,
+            &self.network_name,
+            &self.bridge_name,
+            "bridge",
+            &xml,
+        )
     }
 }
 
-#[derive(Template)]
+/// A bridge with forwarding disabled and its ports isolated from one another.
+#[derive(Debug, Template)]
 #[template(path = "network/isolated.jinja", ext = "xml")]
 pub struct IsolatedNetwork {
     pub network_name: String,
@@ -76,26 +100,29 @@ pub struct IsolatedNetwork {
 }
 
 impl IsolatedNetwork {
-    /// Create an isolated bridge for forwarding disabled and ports
-    /// isolated from one another.
-    #[instrument(level = "debug", skip(self, qemu_conn))]
+    /// Make sure the isolated network exists and is active.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the XML cannot be rendered, or libvirt cannot look up, define, start or
+    /// autostart the network.
+    #[instrument(level = "debug", skip(self, qemu_conn), fields(network_name = %self.network_name))]
     pub fn create(self, qemu_conn: &Connect) -> Result<()> {
-        if ensure_network_active(qemu_conn, &self.network_name)? {
-            tracing::debug!(network_name = %self.network_name, "Isolated network already exists");
-            return Ok(());
-        }
-
         let xml = self
             .render()
             .context("Failed to render isolated network XML")?;
-        create_network(qemu_conn, &xml, "isolated")?;
-
-        tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, "Isolated network created and started");
-        Ok(())
+        ensure_network(
+            qemu_conn,
+            &self.network_name,
+            &self.bridge_name,
+            "isolated",
+            &xml,
+        )
     }
 }
 
-#[derive(Template)]
+/// A bridge for control traffic inside a VM.
+#[derive(Debug, Template)]
 #[template(path = "network/reserved.jinja", ext = "xml")]
 pub struct ReservedNetwork {
     pub network_name: String,
@@ -103,25 +130,29 @@ pub struct ReservedNetwork {
 }
 
 impl ReservedNetwork {
-    /// Create a reserved bridge for control traffic in a VM.
-    #[instrument(level = "debug", skip(self, qemu_conn))]
+    /// Make sure the reserved network exists and is active.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the XML cannot be rendered, or libvirt cannot look up, define, start or
+    /// autostart the network.
+    #[instrument(level = "debug", skip(self, qemu_conn), fields(network_name = %self.network_name))]
     pub fn create(self, qemu_conn: &Connect) -> Result<()> {
-        if ensure_network_active(qemu_conn, &self.network_name)? {
-            tracing::debug!(network_name = %self.network_name, "Reserved network already exists");
-            return Ok(());
-        }
-
         let xml = self
             .render()
             .context("Failed to render reserved network XML")?;
-        create_network(qemu_conn, &xml, "reserved")?;
-
-        tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, "Reserved network created and started");
-        Ok(())
+        ensure_network(
+            qemu_conn,
+            &self.network_name,
+            &self.bridge_name,
+            "reserved",
+            &xml,
+        )
     }
 }
 
-#[derive(Template)]
+/// A NAT network with DNS, the management network.
+#[derive(Debug, Template)]
 #[template(path = "network/nat.jinja", ext = "xml")]
 pub struct NatNetwork {
     pub network_name: String,
@@ -133,18 +164,22 @@ pub struct NatNetwork {
 }
 
 impl NatNetwork {
-    #[instrument(level = "debug", skip(self, qemu_conn))]
+    /// Make sure the NAT network exists and is active.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the XML cannot be rendered, or libvirt cannot look up, define, start or
+    /// autostart the network.
+    #[instrument(level = "debug", skip(self, qemu_conn), fields(network_name = %self.network_name))]
     pub fn create(self, qemu_conn: &Connect) -> Result<()> {
-        if ensure_network_active(qemu_conn, &self.network_name)? {
-            tracing::debug!(network_name = %self.network_name, "NAT network already exists");
-            return Ok(());
-        }
-
         let xml = self.render().context("Failed to render NAT network XML")?;
-        create_network(qemu_conn, &xml, "NAT")?;
-
-        tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, ipv4_address = %self.ipv4_address, "NAT network created and started");
-        Ok(())
+        ensure_network(
+            qemu_conn,
+            &self.network_name,
+            &self.bridge_name,
+            "NAT",
+            &xml,
+        )
     }
 }
 
