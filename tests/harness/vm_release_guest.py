@@ -22,7 +22,7 @@ import tempfile
 import time
 import tomllib
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -881,11 +881,14 @@ class Guest:
         return found
 
     def wait_test_database(self):
+        # Docker's port proxy accepts connections before SurrealDB listens, then resets them, so
+        # an open port does not mean the database is ready; its health endpoint does.
+        url = f"http://127.0.0.1:{self.config['tests']['test_db_port']}/health"
         deadline = time.monotonic() + self.timeouts["startup"]
         while time.monotonic() < deadline:
-            with suppress(OSError), socket.create_connection(("127.0.0.1", self.config["tests"]["test_db_port"]),
-                                                             timeout=self.timeouts["connect"]):
-                return
+            with suppress(OSError), urllib.request.urlopen(url, timeout=self.timeouts["connect"]) as response:
+                if response.status == 200:
+                    return
             time.sleep(self.timeouts["poll"])
         raise TimeoutError("Test database did not start")
 
@@ -1268,6 +1271,25 @@ class GuestTests(unittest.TestCase):
         self.assertEqual((root["USER"], root["HOME"]), ("root", "/root"))
         self.assertEqual(root["CARGO_HOME"], "/home/tester/.cargo")
         self.assertNotIn("SHERPA_DB_PASSWORD", user)
+
+    def test_test_database_wait_retries_until_healthy(self):
+        guest = Guest.__new__(Guest)
+        guest.config = {"tests": {"test_db_port": 42069}}
+        guest.timeouts = {"startup": 60, "connect": 1, "poll": 0}
+        healthy = MagicMock(status=200)
+        healthy.__enter__.return_value = healthy
+        with patch.object(urllib.request, "urlopen",
+                          side_effect=[ConnectionResetError(104, "Connection reset by peer"), healthy]) as urlopen:
+            guest.wait_test_database()
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(urlopen.call_args.args[0], "http://127.0.0.1:42069/health")
+
+    def test_test_database_wait_times_out(self):
+        guest = Guest.__new__(Guest)
+        guest.config = {"tests": {"test_db_port": 42069}}
+        guest.timeouts = {"startup": 0, "connect": 1, "poll": 0}
+        with self.assertRaises(TimeoutError):
+            guest.wait_test_database()
 
     def test_releases_from_0_5_0_embed_the_database(self):
         for version in ("v0.5.0", "0.5.1", "v1.0.0", "v0.10.0"):
