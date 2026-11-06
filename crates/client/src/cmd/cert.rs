@@ -4,6 +4,9 @@
 
 use anyhow::{Context, Result};
 use std::io::{self, Write};
+use url::Url;
+
+use shared::konst::SHERPA_SERVER_WS_PORT;
 
 use shared::tls::{CertificateInfo, TrustStore, extract_cert_info, fetch_server_certificate};
 use shared::util::{
@@ -85,7 +88,7 @@ pub async fn cert_show(server_url: &str) -> Result<()> {
     let trust_store = TrustStore::new().context("Failed to initialize trust store")?;
 
     // Normalize the input to a full URL
-    let normalized_url = normalize_server_url(server_url);
+    let normalized_url = normalize_server_url(server_url)?;
 
     // Get certificate from trust store
     let cert_pem = trust_store
@@ -121,7 +124,7 @@ pub async fn cert_trust(server_url: &str) -> Result<()> {
     let trust_store = TrustStore::new().context("Failed to initialize trust store")?;
 
     // Normalize the input to a full URL
-    let normalized_url = normalize_server_url(server_url);
+    let normalized_url = normalize_server_url(server_url)?;
 
     // Check if already trusted
     if trust_store.get_cert(&normalized_url)?.is_some() {
@@ -182,7 +185,7 @@ pub async fn cert_delete(server_url: &str) -> Result<()> {
     let trust_store = TrustStore::new().context("Failed to initialize trust store")?;
 
     // Normalize the input to a full URL
-    let normalized_url = normalize_server_url(server_url);
+    let normalized_url = normalize_server_url(server_url)?;
 
     // Check if certificate exists
     let cert_pem = match trust_store.get_cert(&normalized_url)? {
@@ -233,8 +236,6 @@ pub async fn cert_delete(server_url: &str) -> Result<()> {
 
 /// Extract clean server display name (host:port) from server URL
 fn extract_server_display(server_url: &str) -> String {
-    use url::Url;
-
     // If it's a legacy certificate with unknown:// prefix, show as such
     if server_url.starts_with("unknown://") {
         return "<legacy>".to_string();
@@ -273,31 +274,28 @@ fn extract_server_display(server_url: &str) -> String {
     server_url.to_string()
 }
 
-/// Normalize server input to a full URL
-///
-/// Accepts either:
-/// - Full URL: wss://10.100.58.10:3030/ws
-/// - Host:port: 10.100.58.10:3030
-/// - Hostname: example.com
-fn normalize_server_url(input: &str) -> String {
-    use url::Url;
-
-    // If it already looks like a valid URL, return as-is
+/// The WebSocket URL of a server given as a host, `host:port` or a `ws://` or `wss://` URL,
+/// such as `10.100.58.10`, `10.100.58.10:3030` or `wss://10.100.58.10:3030/ws`. A host without
+/// a port gets the Sherpa server's port, as the client connects to it, so the URL names the same
+/// trust store entry as a connection does.
+fn normalize_server_url(input: &str) -> Result<String> {
     if let Ok(url) = Url::parse(input)
-        && (url.scheme() == "ws" || url.scheme() == "wss")
+        && matches!(url.scheme(), "ws" | "wss")
     {
-        return input.to_string();
+        return Ok(input.to_owned());
     }
-
-    // Otherwise, try to parse as host:port
-    // Default to wss:// scheme and /ws path
-    if input.contains(':') {
-        // Looks like host:port
-        format!("wss://{}/ws", input)
-    } else {
-        // Just hostname, use standard port
-        format!("wss://{}:443/ws", input)
-    }
+    // A scheme with no default port, so the port is only set when the input names one.
+    let address = Url::parse(&format!("sherpa://{input}"))
+        .ok()
+        .filter(|url| matches!(url.path(), "" | "/") && url.query().is_none())
+        .with_context(|| {
+            format!("Server '{input}' must be a host, host:port, or a ws:// or wss:// URL")
+        })?;
+    let host = address
+        .host_str()
+        .with_context(|| format!("Server '{input}' names no host"))?;
+    let port = address.port().unwrap_or(SHERPA_SERVER_WS_PORT);
+    Ok(format!("wss://{host}:{port}/ws"))
 }
 
 /// Helper function to display certificate information
@@ -325,4 +323,56 @@ fn display_certificate_info(cert_info: &CertificateInfo) -> Result<()> {
     println!();
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bare_host_uses_the_sherpa_server_port() {
+        assert_eq!(
+            normalize_server_url("10.0.0.1").unwrap(),
+            "wss://10.0.0.1:3030/ws"
+        );
+        assert_eq!(
+            normalize_server_url("[::1]").unwrap(),
+            "wss://[::1]:3030/ws"
+        );
+    }
+
+    #[test]
+    fn an_explicit_port_is_kept() {
+        assert_eq!(
+            normalize_server_url("10.0.0.1:3030").unwrap(),
+            "wss://10.0.0.1:3030/ws"
+        );
+        assert_eq!(
+            normalize_server_url("example.com:443").unwrap(),
+            "wss://example.com:443/ws"
+        );
+        assert_eq!(
+            normalize_server_url("[::1]:4000").unwrap(),
+            "wss://[::1]:4000/ws"
+        );
+    }
+
+    #[test]
+    fn a_websocket_url_is_used_as_given() {
+        assert_eq!(
+            normalize_server_url("wss://h:3030/ws").unwrap(),
+            "wss://h:3030/ws"
+        );
+        assert_eq!(
+            normalize_server_url("ws://h:3030/ws").unwrap(),
+            "ws://h:3030/ws"
+        );
+    }
+
+    #[test]
+    fn other_urls_are_refused() {
+        for input in ["https://h:3030", "h:3030/path", ""] {
+            assert!(normalize_server_url(input).is_err(), "{input}");
+        }
+    }
 }

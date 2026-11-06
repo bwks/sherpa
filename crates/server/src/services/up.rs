@@ -41,26 +41,25 @@ use shared::data::{
     LabSubnets, LinkImpairment, NodeCpuPins, NodeSshUsername, NodeState, StatusKind,
 };
 use shared::konst::{
-    BRIDGE_MEMBER_HOST_VETH_PREFIX, BRIDGE_PREFIX, CONTAINER_DNSMASQ_CAPABILITIES,
-    CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, CONTAINER_SECRETS_DIR, DNSMASQ_CONFIG_FILE,
-    DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI, LAB_CERTS_DIR, LAB_FILE_NAME,
-    LAB_SUBNET_ALLOCATION_ATTEMPTS, MANAGEMENT_GATEWAY_HOST_OFFSET, MANAGEMENT_NODE_HOST_OFFSETS,
-    MTU_JUMBO_NET, NODE_CONFIGS_DIR, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH,
-    SHERPA_LAB_MANIFEST_FILE, SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX,
-    SHERPA_LOOPBACK_PREFIX_IPV6, SHERPA_MANAGEMENT_IP_INDEX,
-    SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_IPV6,
-    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR, SHERPA_SSH_PRIVATE_KEY_PATH, SSH_PORT,
-    TAP_PREFIX, TFTP_DIR, ZTP_DIR,
+    BRIDGE_MEMBER_HOST_VETH_PREFIX, CONTAINER_DNSMASQ_CAPABILITIES, CONTAINER_DNSMASQ_NAME,
+    CONTAINER_DNSMASQ_REPO, CONTAINER_SECRETS_DIR, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR,
+    DNSMASQ_LEASES_FILE, KVM_OUI, LAB_CERTS_DIR, LAB_FILE_NAME, LAB_SUBNET_ALLOCATION_ATTEMPTS,
+    MANAGEMENT_GATEWAY_HOST_OFFSET, MANAGEMENT_NODE_HOST_OFFSETS, MTU_JUMBO_NET, NODE_CONFIGS_DIR,
+    READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH, SHERPA_LAB_MANIFEST_FILE,
+    SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX, SHERPA_LOOPBACK_PREFIX_IPV6,
+    SHERPA_MANAGEMENT_IP_INDEX, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
+    SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR,
+    SHERPA_SSH_PRIVATE_KEY_PATH, SSH_PORT, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::effective_data_interface_count;
-use topology::find_talos_cluster;
 use topology::validate::{
-    check_bridge_device, check_cpu_pin_overlap, check_device_count, check_duplicate_device,
-    check_duplicate_interface_link, check_interface_bounds, check_link_device,
-    check_link_impairments, check_mgmt_usage, check_no_p2p_field, check_performance_tuning,
-    check_ptx_platform, check_text_file_modes, check_watchdog, validate_talos_clusters,
+    check_cpu_pin_overlap, check_device_count, check_duplicate_device,
+    check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
+    check_mgmt_usage, check_no_p2p_field, check_performance_tuning, check_ptx_platform,
+    check_text_file_modes, check_watchdog, validate_talos_clusters,
 };
+use topology::{find_talos_cluster, process_manifest_bridges, process_manifest_links};
 
 /// A data interface of a P2p container: a veth created into the container's netns once it has
 /// started, with its host end named `host_veth`.
@@ -209,44 +208,6 @@ fn find_bridge_interface(
     interface_data
 }
 
-fn process_manifest_bridges(
-    manifest_bridges: &Option<Vec<topology::Bridge>>,
-    manifest_nodes: &[topology::NodeExpanded],
-    lab_id: &str,
-) -> Result<Vec<topology::BridgeDetailed>> {
-    let manifest_bridges = manifest_bridges.clone().unwrap_or_default();
-    let bridges = manifest_bridges
-        .iter()
-        .map(|x: &topology::Bridge| x.parse_links())
-        .collect::<Result<Vec<_>>>()?;
-
-    let mut bridges_detailed = vec![];
-    for (bridge_idx, bridge) in bridges.iter().enumerate() {
-        let mut bridge_links = vec![];
-
-        for link in bridge.links.iter() {
-            if let Some(node) = manifest_nodes.iter().find(|n| n.name == link.node) {
-                let interface_idx = util::interface_to_idx(&node.model, &link.interface)?;
-                bridge_links.push(topology::BridgeLinkDetailed {
-                    node_name: link.node.clone(),
-                    node_model: node.model,
-                    interface_name: link.interface.clone(),
-                    interface_index: interface_idx,
-                });
-            }
-        }
-
-        bridges_detailed.push(topology::BridgeDetailed {
-            manifest_name: bridge.name.clone(),
-            libvirt_name: format!("sherpa-bridge{}-{}-{}", bridge_idx, bridge.name, lab_id),
-            bridge_name: format!("{}s{}-{}", BRIDGE_PREFIX, bridge_idx, lab_id),
-            index: bridge_idx as u16,
-            links: bridge_links,
-        });
-    }
-    Ok(bridges_detailed)
-}
-
 /// Process manifest nodes into expanded format with indices assigned
 #[instrument(level = "debug", skip(manifest_nodes))]
 pub(crate) fn process_manifest_nodes(
@@ -260,58 +221,6 @@ pub(crate) fn process_manifest_nodes(
             ..topology::NodeExpanded::new(index, node)
         })
         .collect()
-}
-
-/// Process manifest links into detailed link format with resolved interface indices
-fn process_manifest_links(
-    manifest_links: &Option<Vec<topology::Link2>>,
-    manifest_nodes: &[topology::NodeExpanded],
-) -> Result<Vec<topology::LinkDetailed>> {
-    let manifest_links = manifest_links.clone().unwrap_or_default();
-    let links = manifest_links
-        .iter()
-        .map(|x: &topology::Link2| x.expand())
-        .collect::<Result<Vec<topology::LinkExpanded>>>()?;
-
-    let mut links_detailed = vec![];
-    for (link_idx, link) in links.iter().enumerate() {
-        let mut this_link = topology::LinkDetailed {
-            impairment: link.impairment.clone(),
-            ..Default::default()
-        };
-        for device in manifest_nodes.iter() {
-            let device_model = device.model;
-            if link.node_a == device.name {
-                let int_idx = util::interface_to_idx(&device_model, &link.int_a)?;
-                let peer_node = manifest_nodes
-                    .iter()
-                    .find(|n| n.name == link.node_b)
-                    .ok_or_else(|| anyhow!("Peer node not found: {}", link.node_b))?;
-                this_link.node_a = device.name.clone();
-                this_link.node_a_idx = device.index;
-                this_link.node_a_model = device_model;
-                this_link.int_a = link.int_a.clone();
-                this_link.int_a_idx = int_idx;
-                this_link.link_idx = link_idx as u16;
-                this_link.node_b_idx = peer_node.index;
-            } else if link.node_b == device.name {
-                let peer_node = manifest_nodes
-                    .iter()
-                    .find(|n| n.name == link.node_a)
-                    .ok_or_else(|| anyhow!("Peer node not found: {}", link.node_a))?;
-                let int_idx = util::interface_to_idx(&device_model, &link.int_b)?;
-                this_link.node_b = device.name.clone();
-                this_link.node_b_idx = device.index;
-                this_link.node_b_model = device_model;
-                this_link.int_b = link.int_b.clone();
-                this_link.int_b_idx = int_idx;
-                this_link.link_idx = link_idx as u16;
-                this_link.node_a_idx = peer_node.index;
-            }
-        }
-        links_detailed.push(this_link)
-    }
-    Ok(links_detailed)
 }
 
 /// Get node image from a list of node images.
@@ -735,10 +644,17 @@ pub async fn up_lab(
     check_link_impairments(manifest.links.as_deref().unwrap_or_default())
         .context("Link validation failed")?;
     check_text_file_modes(&manifest.nodes).context("Text file validation failed")?;
-    let links_detailed = process_manifest_links(&manifest.links, &nodes_expanded)
-        .context("Failed to process manifest links")?;
-    let bridges_detailed = process_manifest_bridges(&manifest.bridges, &nodes_expanded, lab_id)
-        .context("Failed to process manifest bridges")?;
+    let links_detailed = process_manifest_links(
+        manifest.links.as_deref().unwrap_or_default(),
+        &nodes_expanded,
+    )
+    .context("Failed to process manifest links")?;
+    let bridges_detailed = process_manifest_bridges(
+        manifest.bridges.as_deref().unwrap_or_default(),
+        &nodes_expanded,
+        lab_id,
+    )
+    .context("Failed to process manifest bridges")?;
 
     tracing::info!(
         lab_id = %lab_id,
@@ -815,14 +731,6 @@ pub async fn up_lab(
     if !links_detailed.is_empty() {
         check_duplicate_interface_link(&links_detailed, &bridges_detailed)
             .context("Duplicate interface link validation failed")?;
-        check_link_device(&manifest.nodes, &links_detailed)
-            .context("Link device validation failed")?;
-    }
-
-    // Bridge Validators
-    if !bridges_detailed.is_empty() {
-        check_bridge_device(&manifest.nodes, &bridges_detailed)
-            .context("Bridge device validation failed")?;
     }
 
     let _ = progress.send_status("Manifest validation complete".to_string(), StatusKind::Done);

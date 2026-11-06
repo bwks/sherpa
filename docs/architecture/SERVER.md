@@ -461,7 +461,7 @@ flowchart TB
     end
     setup --> validation
     subgraph phase2["2. ManifestValidation"]
-        validation["topology::validate checks: duplicate device, device count, Talos clusters<br/>validate environment variables<br/>container::get_local_images<br/>validate::validate_and_resolve_node_versions (server)<br/>process_manifest_nodes, then lease node images<br/>validate disk method and guest account per node<br/>process_manifest_links, process_manifest_bridges<br/>validate management/reserved/data interface bounds<br/>validate duplicate links, link and bridge endpoints"]
+        validation["topology::validate checks: duplicate device, device count, Talos clusters<br/>validate environment variables<br/>container::get_local_images<br/>validate::validate_and_resolve_node_versions (server)<br/>process_manifest_nodes, then lease node images<br/>validate disk method and guest account per node<br/>topology::process_manifest_links, process_manifest_bridges (unknown nodes fail)<br/>validate management/reserved/data interface bounds<br/>validate duplicate links"]
     end
     validation --> startguard["Guard: no disks or VMs left from an earlier attempt with this lab_id<br/>(after validation, before any resource is created)"]
     startguard --> hostnets

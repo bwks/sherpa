@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::process::Command;
 
-use anyhow::Result;
+use anyhow::{Context, Result, ensure};
 
 use shared::data::LabInfo;
 use shared::konst::{BOOT_SERVER_NAME, TELNET_PORT};
@@ -39,14 +39,9 @@ pub fn console(name: &str, manifest: &Manifest, lab_info: &LabInfo) -> Result<()
     let status = Command::new("telnet")
         .arg(device_ip.to_string())
         .arg(TELNET_PORT.to_string())
-        .status()?;
-
-    if !status.success() {
-        eprintln!("Telnet connection failed");
-        if let Some(code) = status.code() {
-            eprintln!("Exit code: {}", code);
-        }
-    }
+        .status()
+        .context("Failed to run telnet")?;
+    ensure!(status.success(), "Telnet to {device_ip} failed: {status}");
 
     Ok(())
 }

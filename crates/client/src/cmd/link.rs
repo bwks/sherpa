@@ -8,9 +8,10 @@ use shared::data::{
 };
 use shared::error::RpcErrorCode;
 use shared::konst::SHERPA_MANIFEST_FILE;
-use shared::util::{Emoji, get_id};
+use shared::util::Emoji;
 use topology::{Link2, Manifest};
 
+use super::lab_identity::manifest_lab_identity;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -69,7 +70,7 @@ pub async fn parse_link_commands(
             clear: _,
         } => {
             let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-            let lab_id = get_id(&manifest.name)?;
+            let lab_id = manifest_lab_identity(&manifest)?.id;
             let link_index =
                 find_link_index(manifest.links.as_deref().unwrap_or_default(), endpoint)?;
             // A value left out is zero, so --clear sends all zeros, which removes the impairment.

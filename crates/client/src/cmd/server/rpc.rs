@@ -32,7 +32,7 @@ where
 
     let ws_client = WebSocketClient::new(
         server_url.to_string(),
-        Duration::from_secs(30),
+        Duration::from_secs(server_connection.timeout_secs),
         server_connection.clone(),
     );
 
@@ -88,10 +88,10 @@ where
         obj.insert("token".to_string(), serde_json::Value::String(token));
     }
 
-    // Extended timeout for downloads (15 minutes)
+    // Limits the connect only: the operation streams its progress for as long as it runs.
     let ws_client = WebSocketClient::new(
         server_url.to_string(),
-        Duration::from_secs(900),
+        Duration::from_secs(server_connection.timeout_secs),
         server_connection.clone(),
     );
 

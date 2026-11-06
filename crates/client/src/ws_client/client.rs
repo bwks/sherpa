@@ -12,6 +12,10 @@ use shared::tls::TlsConfigBuilder;
 
 type WsStream = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
+/// How long `RpcClient::call` waits for its response once the request is sent, so a server
+/// that stops answering does not hang the command.
+const RPC_RESPONSE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+
 /// WebSocket client for connecting to sherpad server
 pub struct WebSocketClient {
     url: String,
@@ -127,13 +131,26 @@ impl RpcClient {
             .await
             .context("Failed to send RPC request")?;
 
-        // Wait for response
+        tokio::time::timeout(RPC_RESPONSE_TIMEOUT, self.read_response(&request_id))
+            .await
+            .with_context(|| {
+                format!(
+                    "No response from the server to '{}' within {} minutes",
+                    request.method,
+                    RPC_RESPONSE_TIMEOUT.as_secs() / 60
+                )
+            })?
+    }
+
+    /// Read messages until the RPC response to `request_id`.
+    async fn read_response(&mut self, request_id: &str) -> Result<RpcResponse> {
         while let Some(msg) = self.read.next().await {
             let msg = msg.context("Error reading WebSocket message")?;
 
             match msg {
                 Message::Text(text) => {
-                    tracing::debug!("Received message: {}", text);
+                    // Only the size: responses carry tokens, passwords and kubeconfigs.
+                    tracing::debug!(bytes = text.len(), "Received message");
 
                     // Try to parse as RPC response
                     match serde_json::from_str::<RpcResponse>(&text) {
@@ -150,7 +167,7 @@ impl RpcClient {
                             }
                         }
                         Err(e) => {
-                            tracing::debug!("Non-RPC message received: {} (error: {})", text, e);
+                            tracing::debug!(bytes = text.len(), error = %e, "Non-RPC message received");
                             // Could be status, log, or other server message - ignore
                         }
                     }
@@ -177,7 +194,8 @@ impl RpcClient {
     ///
     /// This method sends an RPC request and processes streaming messages (Status, Log)
     /// before receiving the final RPC response. The callback is invoked for each
-    /// progress message received.
+    /// progress message received. There is no time limit: the server reports progress for as
+    /// long as the operation runs, and the user can stop waiting with Ctrl-C.
     pub async fn call_streaming<F>(
         &mut self,
         request: RpcRequest,
@@ -204,7 +222,8 @@ impl RpcClient {
 
             match msg {
                 Message::Text(text) => {
-                    tracing::debug!("Received message: {}", text);
+                    // Only the size: responses carry tokens, passwords and kubeconfigs.
+                    tracing::debug!(bytes = text.len(), "Received message");
 
                     // Try to parse as RPC response first
                     match serde_json::from_str::<RpcResponse>(&text) {

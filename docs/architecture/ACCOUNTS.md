@@ -59,6 +59,8 @@ personal accounts, which may also be administrators.
   re-run.
 - `sherpa login` (`crates/client/src/cmd/login.rs`) takes `SHERPA_USER_NAME` and
   `SHERPA_USER_PASSWORD` from the environment when set, otherwise it prompts.
+  `sherpa server user create` and `passwd` always prompt for the new password twice and never
+  read `SHERPA_USER_PASSWORD`, which holds the caller's own password.
 - At startup, `daemon::state::ensure_admin_account` seeds `admin` when `SHERPA_ADMIN_PASSWORD`
   is set and the account is missing, and otherwise refuses to start without it.
 - `db::create_admin_user` is the only way to create `admin`; `db::create_user` rejects it as a

@@ -3,6 +3,8 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use clap::Subcommand;
 
+use super::server::ImageKindFlags;
+
 use shared::data::{ClientConfig, ListImagesResponse, NodeKind, NodeModel, ShowImageResponse};
 use shared::error::RpcErrorCode;
 use shared::util::{Emoji, render_image_detail_table, render_images_table};
@@ -27,15 +29,8 @@ pub enum ImageCommands {
         /// Optional: List all images for a model
         #[arg(value_enum)]
         model: Option<NodeModel>,
-        /// List container images
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        container: bool,
-        /// List unikernel images
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        unikernel: bool,
-        /// List virtual machine images
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        virtual_machine: bool,
+        #[command(flatten)]
+        kind: ImageKindFlags,
     },
 }
 
@@ -49,23 +44,8 @@ pub async fn parse_image_commands(
         ImageCommands::Show { model, version } => {
             show_image_rpc(*model, version.clone(), server_config, server_url).await?;
         }
-        ImageCommands::List {
-            model,
-            container,
-            unikernel,
-            virtual_machine,
-        } => {
-            let kind = if *container {
-                Some(NodeKind::Container)
-            } else if *unikernel {
-                Some(NodeKind::Unikernel)
-            } else if *virtual_machine {
-                Some(NodeKind::VirtualMachine)
-            } else {
-                None
-            };
-
-            list_images_rpc(*model, kind, server_config, server_url).await?;
+        ImageCommands::List { model, kind } => {
+            list_images_rpc(*model, kind.kind(), server_config, server_url).await?;
         }
     }
     Ok(())

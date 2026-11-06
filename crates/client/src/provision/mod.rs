@@ -13,5 +13,6 @@ mod run;
 mod ssh;
 mod transport;
 
+pub use client_files::resolve_client_path;
 pub use container::{container_results, container_secrets, node_secrets};
 pub use run::provision_lab;

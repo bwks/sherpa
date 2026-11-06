@@ -123,9 +123,7 @@ async fn provision_one(lab: &LabRun<'_>, node: &Node) -> ProvisionResult {
         Ok(()) => (ProvisionStatus::Provisioned, String::new()),
         Err(error) => (ProvisionStatus::Failed, format!("{error:#}")),
     };
-    if let Err(error) = output.status(&status.to_string()) {
-        tracing::debug!(node = %node.name, error = %format!("{error:#}"), "Cannot show the node's result");
-    }
+    output.status(&status.to_string());
     ProvisionResult {
         node: node.name.clone(),
         status,
@@ -139,7 +137,7 @@ async fn provision_target(lab: &LabRun<'_>, node: &Node, output: &mut NodeOutput
         .ssh_config
         .context("The lab SSH config was not loaded")?;
     let target = SshTarget::new(ssh_config, &node.name, lab.lab_id, lab.prompts, lab.refresh)?;
-    output.status(&format!("provisioning {}", target.host()))?;
+    output.status(&format!("provisioning {}", target.host()));
     provision_node(&target, node, lab.manifest_dir, lab.timeout, output).await
 }
 

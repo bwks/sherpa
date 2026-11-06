@@ -1,3 +1,4 @@
+use std::io::{self, ErrorKind};
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -12,6 +13,7 @@ use super::download::download;
 use super::image::{ImageCommands, parse_image_commands};
 use super::init::init;
 use super::inspect::inspect;
+use super::lab_identity::{manifest_lab_identity, resolve_lab_identity};
 use super::link::{LinkCommands, parse_link_commands};
 use super::login::{login, logout, whoami};
 use super::new::new;
@@ -27,46 +29,27 @@ use super::validate::validate_manifest;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
-use shared::data::{ClientConfig, InspectResponse, LabIdentity, LabInfo, Sherpa};
+use shared::data::{ClientConfig, InspectResponse, LabInfo, Sherpa};
 use shared::konst::{LAB_FILE_NAME, SHERPA_MANIFEST_FILE};
 use shared::util::{
-    build_client_websocket_url, file_exists, get_cwd, get_id, get_server_url, load_client_config,
-    load_file,
+    build_client_websocket_url, file_exists, get_cwd, get_server_url, load_client_config, load_file,
 };
 use topology::Manifest;
 
-/// Resolve lab identity (name + id) from the best available source.
-///
-/// Priority:
-/// 1. Try `lab-info.toml` in the current directory (written by `sherpa up`)
-/// 2. Fall back to `manifest.toml` in the current directory
-fn resolve_lab_identity() -> anyhow::Result<LabIdentity> {
-    // Try lab-info.toml first (already has id and name)
-    if let Ok(cwd) = get_cwd() {
-        let lab_info_path = format!("{}/{}", cwd, LAB_FILE_NAME);
-        if file_exists(&lab_info_path)
-            && let Ok(content) = load_file(&lab_info_path)
-            && let Ok(lab_info) = content.parse::<LabInfo>()
+/// Load the client config from `path`, or the defaults when there is no such file. A file that
+/// cannot be read or parsed is an error, rather than silently replaced by the defaults.
+fn load_client_config_or_default(path: &str) -> Result<ClientConfig> {
+    match load_client_config(path) {
+        Ok(config) => Ok(config),
+        Err(error)
+            if error
+                .downcast_ref::<io::Error>()
+                .is_some_and(|error| error.kind() == ErrorKind::NotFound) =>
         {
-            return Ok(LabIdentity {
-                name: lab_info.name,
-                id: lab_info.id,
-            });
+            Ok(ClientConfig::default())
         }
+        Err(error) => Err(error.context(format!("Failed to load the client config {path}"))),
     }
-
-    // Fall back to manifest.toml
-    let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-    let id = get_id(&manifest.name)?;
-    Ok(LabIdentity {
-        name: manifest.name,
-        id,
-    })
-}
-
-/// Load client config from file, falling back to defaults if the file doesn't exist.
-fn load_client_config_or_default(path: &str) -> ClientConfig {
-    load_client_config(path).unwrap_or_else(|_| ClientConfig::default())
 }
 
 fn apply_insecure_override(config: &mut ClientConfig, insecure: bool) {
@@ -76,10 +59,10 @@ fn apply_insecure_override(config: &mut ClientConfig, insecure: bool) {
     }
 }
 
-fn load_client_config_for_command(path: &str, insecure: bool) -> ClientConfig {
-    let mut config = load_client_config_or_default(path);
+fn load_client_config_for_command(path: &str, insecure: bool) -> Result<ClientConfig> {
+    let mut config = load_client_config_or_default(path)?;
     apply_insecure_override(&mut config, insecure);
-    config
+    Ok(config)
 }
 
 /// Resolve the server URL from CLI args, env, or config.
@@ -322,7 +305,7 @@ impl Cli {
         let sherpa = Sherpa::from_base_dir(sherpa_client_base_dir());
         match &cli.commands {
             Commands::Login => {
-                let config = load_client_config_or_default(&sherpa.config_file_path);
+                let config = load_client_config_or_default(&sherpa.config_file_path)?;
 
                 let server_url = cli
                     .server_url
@@ -335,7 +318,7 @@ impl Cli {
                 logout()?;
             }
             Commands::Whoami => {
-                let config = load_client_config_or_default(&sherpa.config_file_path);
+                let config = load_client_config_or_default(&sherpa.config_file_path)?;
 
                 let server_url = cli
                     .server_url
@@ -353,9 +336,10 @@ impl Cli {
 
             Commands::Up => {
                 let manifest_obj = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-                let lab_id = get_id(&manifest_obj.name)?;
+                let lab_id = manifest_lab_identity(&manifest_obj)?.id;
                 let lab_name = manifest_obj.name.clone();
-                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+                let config =
+                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 up(
@@ -369,23 +353,26 @@ impl Cli {
             }
             Commands::Down { node } => {
                 let lab = resolve_lab_identity()?;
-                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+                let config =
+                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 down(&lab.name, &lab.id, node.as_deref(), &server_url, &config).await?;
             }
             Commands::Resume { node } => {
                 let lab = resolve_lab_identity()?;
-                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+                let config =
+                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 resume(&lab.name, &lab.id, node.as_deref(), &server_url, &config).await?;
             }
             Commands::Redeploy { node } => {
                 let manifest_obj = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-                let lab_id = get_id(&manifest_obj.name)?;
+                let lab_id = manifest_lab_identity(&manifest_obj)?.id;
                 let lab_name = manifest_obj.name.clone();
-                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+                let config =
+                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 redeploy(
@@ -399,27 +386,31 @@ impl Cli {
                 .await?;
             }
             Commands::Provision { node } => {
-                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+                let config =
+                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 provision(node.as_deref(), &server_url, &config).await?;
             }
             Commands::Destroy { yes } => {
                 let lab = resolve_lab_identity()?;
-                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+                let config =
+                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 destroy(&lab.name, &lab.id, &server_url, &config, *yes).await?;
             }
             Commands::Inspect => {
                 let lab = resolve_lab_identity()?;
-                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+                let config =
+                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 inspect(&lab.name, &lab.id, &server_url, &config).await?;
             }
             Commands::Download { lab_id, force } => {
-                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+                let config =
+                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 download(lab_id, *force, &server_url, &config).await?;
@@ -429,8 +420,9 @@ impl Cli {
             }
             Commands::Console { name } => {
                 let manifest_obj = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-                let lab_id = get_id(&manifest_obj.name)?;
-                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+                let lab_id = manifest_lab_identity(&manifest_obj)?.id;
+                let config =
+                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 let lab_info = resolve_lab_info(&lab_id, &server_url, &config).await?;
@@ -438,34 +430,37 @@ impl Cli {
             }
             Commands::Ssh { name } => {
                 let lab = resolve_lab_identity()?;
-                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+                let config =
+                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
                 let server_url = resolve_server_url(cli.server_url, &config);
                 ssh(name, &lab.id, &server_url, &config).await?;
             }
             Commands::SshConfig { command } => match command {
                 SshConfigCommands::Inspect => {
                     let config =
-                        load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+                        load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
 
                     let server_url = resolve_server_url(cli.server_url, &config);
                     ssh_config_inspect(&server_url, &config).await?;
                 }
                 SshConfigCommands::Clean => {
                     let config =
-                        load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+                        load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
 
                     let server_url = resolve_server_url(cli.server_url, &config);
                     ssh_config_clean(&server_url, &config).await?;
                 }
             },
             Commands::Link { commands } => {
-                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+                let config =
+                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 parse_link_commands(commands, &config, &server_url).await?;
             }
             Commands::Image { commands } => {
-                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+                let config =
+                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 parse_image_commands(commands, &config, &server_url).await?;
@@ -481,7 +476,8 @@ impl Cli {
                 output,
                 commands,
             } => {
-                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+                let config =
+                    load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 run_server(commands, *verbose, output, &server_url, &config).await?;
@@ -493,7 +489,26 @@ impl Cli {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
+
+    #[test]
+    fn a_missing_client_config_gives_the_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sherpa.toml");
+        let config = load_client_config_or_default(path.to_str().unwrap()).unwrap();
+        assert_eq!(config.server_ipv4, ClientConfig::default().server_ipv4);
+    }
+
+    #[test]
+    fn a_client_config_that_does_not_parse_is_an_error_naming_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sherpa.toml");
+        fs::write(&path, "server_ipv4 = [").unwrap();
+        let error = load_client_config_or_default(path.to_str().unwrap()).unwrap_err();
+        assert!(error.to_string().contains("sherpa.toml"), "{error}");
+    }
 
     #[test]
     fn test_apply_insecure_override_sets_config_flag() {
@@ -531,6 +546,32 @@ mod tests {
             } => {}
             other => panic!("unexpected command: {other:?}"),
         }
+    }
+
+    #[test]
+    fn at_most_one_image_kind_can_be_given() {
+        for args in [
+            &["sherpa", "image", "list", "--container", "--unikernel"][..],
+            &[
+                "sherpa",
+                "server",
+                "image",
+                "list",
+                "--unikernel",
+                "--virtual-machine",
+            ],
+            &[
+                "sherpa",
+                "server",
+                "image",
+                "scan",
+                "--container",
+                "--virtual-machine",
+            ],
+        ] {
+            assert!(Cli::try_parse_from(args).is_err(), "{args:?}");
+        }
+        assert!(Cli::try_parse_from(["sherpa", "server", "image", "scan", "--container"]).is_ok());
     }
 
     #[test]

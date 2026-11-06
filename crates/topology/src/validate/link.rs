@@ -1,8 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use anyhow::{Context, Result, bail};
 
-use crate::{BridgeDetailed, Link2, LinkDetailed, Node};
+use crate::{BridgeDetailed, Link2, LinkDetailed};
 use shared::data::NodeModel;
 use shared::validators::validate_link_impairment;
 
@@ -156,43 +156,6 @@ pub fn check_link_impairments(links: &[Link2]) -> Result<()> {
             impairment.corrupt_percent.unwrap_or(0.0),
         )
         .with_context(|| format!("Manifest link - {} <-> {}", link.src, link.dst))?;
-    }
-    Ok(())
-}
-
-/// Check devices defined in links are defined as top level devices
-///
-/// # Errors
-///
-/// Fails when a link names a node that is not defined.
-pub fn check_link_device(devices: &[Node], links: &[LinkDetailed]) -> Result<()> {
-    let defined: HashSet<&str> = devices.iter().map(|d| d.name.as_str()).collect();
-    for link in links {
-        for device in [&link.node_a, &link.node_b] {
-            if !defined.contains(device.as_str()) {
-                bail!("Manifest link - '{device}' defined in links, not defined in devices");
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Check devices defined in bridges are defined as top level devices
-///
-/// # Errors
-///
-/// Fails when a bridge names a node that is not defined.
-pub fn check_bridge_device(devices: &[Node], bridges: &[BridgeDetailed]) -> Result<()> {
-    let defined: HashSet<&str> = devices.iter().map(|d| d.name.as_str()).collect();
-    for bridge in bridges {
-        for bridge_link in &bridge.links {
-            if !defined.contains(bridge_link.node_name.as_str()) {
-                bail!(
-                    "Manifest bridge - device '{}' defined in bridges, not defined in devices",
-                    bridge_link.node_name
-                );
-            }
-        }
     }
     Ok(())
 }
@@ -729,115 +692,6 @@ mod tests {
         assert!(err_msg.contains("rocky1"));
         assert!(err_msg.contains("interface index '10'"));
         assert!(err_msg.contains("already in use"));
-    }
-
-    #[test]
-    fn test_bridge_device_not_defined() {
-        // Bridge references a node that doesn't exist in manifest
-        let devices = vec![
-            Node {
-                name: "rocky1".to_string(),
-                model: NodeModel::RockyLinux,
-                ..Default::default()
-            },
-            Node {
-                name: "rocky2".to_string(),
-                model: NodeModel::RockyLinux,
-                ..Default::default()
-            },
-        ];
-
-        let bridges = vec![create_bridge(
-            "br1",
-            vec![("rocky1", 5), ("rocky3", 10)], // rocky3 doesn't exist
-        )];
-
-        let result = check_bridge_device(&devices, &bridges);
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("bridge"));
-        assert!(err_msg.contains("rocky3"));
-        assert!(err_msg.contains("not defined in devices"));
-    }
-
-    #[test]
-    fn test_check_bridge_device_valid() -> Result<()> {
-        // All bridge nodes are properly defined
-        let devices = vec![
-            Node {
-                name: "rocky1".to_string(),
-                model: NodeModel::RockyLinux,
-                ..Default::default()
-            },
-            Node {
-                name: "rocky2".to_string(),
-                model: NodeModel::RockyLinux,
-                ..Default::default()
-            },
-            Node {
-                name: "rocky3".to_string(),
-                model: NodeModel::RockyLinux,
-                ..Default::default()
-            },
-        ];
-
-        let bridges = vec![create_bridge(
-            "br1",
-            vec![("rocky1", 5), ("rocky2", 10), ("rocky3", 15)],
-        )];
-
-        check_bridge_device(&devices, &bridges)
-    }
-
-    // ============================================================================
-    // check_link_device tests
-    // ============================================================================
-
-    #[test]
-    fn test_check_link_device_valid() -> Result<()> {
-        let devices = vec![
-            Node {
-                name: "rocky1".to_string(),
-                model: NodeModel::RockyLinux,
-                ..Default::default()
-            },
-            Node {
-                name: "rocky2".to_string(),
-                model: NodeModel::RockyLinux,
-                ..Default::default()
-            },
-        ];
-        let links = vec![create_link("rocky1", 1, "rocky2", 1)];
-
-        check_link_device(&devices, &links)
-    }
-
-    #[test]
-    fn test_check_link_device_undefined() {
-        let devices = vec![Node {
-            name: "rocky1".to_string(),
-            model: NodeModel::RockyLinux,
-            ..Default::default()
-        }];
-        let links = vec![create_link("rocky1", 1, "rocky99", 1)];
-
-        let result = check_link_device(&devices, &links);
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("rocky99"));
-        assert!(err_msg.contains("not defined in devices"));
-    }
-
-    #[test]
-    fn test_check_link_device_empty_links() -> Result<()> {
-        let devices = vec![Node {
-            name: "rocky1".to_string(),
-            model: NodeModel::RockyLinux,
-            ..Default::default()
-        }];
-        let links = vec![];
-
-        check_link_device(&devices, &links)
     }
 
     fn impaired_link(impairment: crate::link::ManifestImpairment) -> Link2 {
