@@ -10,7 +10,7 @@ use container::tailscale::{gateway_name, is_gateway, remove_gateway};
 use container::{
     Docker, delete_network, kill_container, list_containers, list_networks, remove_container,
 };
-use libvirt::{delete_disk, list_lab_volumes};
+use libvirt::{delete_disk, is_lab_device, list_lab_volumes};
 use network::{delete_interface, find_interfaces_fuzzy};
 use shared::data::{
     DestroyError, DestroyResponse, DestroySummary, StatusKind, TailscaleGatewaySettings,
@@ -528,7 +528,7 @@ pub(crate) fn destroy_vms_and_disks(
             }
         };
 
-        if !vm_name.contains(lab_id) {
+        if !is_lab_device(&vm_name, lab_id) {
             continue;
         }
 

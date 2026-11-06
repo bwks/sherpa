@@ -1,11 +1,13 @@
 use std::ops::Deref;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tracing::instrument;
 use virt::connect::Connect;
 
 use shared::konst::QEMU_URI;
 
+/// A libvirt hypervisor connection URI, `qemu:///system` by default.
+#[derive(Debug)]
 pub struct Qemu {
     pub uri: String,
 }
@@ -19,13 +21,19 @@ impl Default for Qemu {
 }
 
 impl Qemu {
+    /// Open a connection to the hypervisor.
+    ///
+    /// # Errors
+    ///
+    /// Fails when libvirt cannot connect to `uri`.
     #[instrument(level = "debug", skip(self))]
     pub fn connect(&self) -> Result<QemuConnection> {
         // Suppress libvirt's default error handler which prints to stderr.
         // Errors are still returned via the Rust API.
         virt::error::clear_error_callback();
 
-        let conn = Connect::open(Some(self.uri.as_str()))?;
+        let conn = Connect::open(Some(self.uri.as_str()))
+            .with_context(|| format!("Failed to connect to libvirt at {}", self.uri))?;
         Ok(QemuConnection { conn })
     }
 }
@@ -49,7 +57,7 @@ impl Deref for QemuConnection {
 impl Drop for QemuConnection {
     fn drop(&mut self) {
         if let Err(e) = self.conn.close() {
-            tracing::error!("Failed to close libvirt connection: {}", e);
+            tracing::error!("Failed to close libvirt connection: {e}");
         }
     }
 }

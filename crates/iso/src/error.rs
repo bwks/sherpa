@@ -88,6 +88,13 @@ pub enum IsoError {
         source: io::Error,
     },
 
+    #[error("Failed to move the finished ISO into place at {}", path.display())]
+    Rename {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+
     #[error("ISO layout error: writing sector {actual}, expected {expected}")]
     Layout { actual: u32, expected: u32 },
 

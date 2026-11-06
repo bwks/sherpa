@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, anyhow};
+use libvirt::is_device_volume;
 use shared::data::{
     BridgeInfo, DbNode, DeviceInfo, InspectResponse, LabInfo, LinkInfo, NodeConfig, RecordId,
 };
@@ -178,7 +179,7 @@ fn device_info(node: &DbNode, image: &NodeConfig, volumes: &[String], lab_id: &s
     let device_name = format!("{}-{}", node.name, lab_id);
     let mut disks = Vec::new();
     for volume in volumes {
-        if volume.contains(&device_name) {
+        if is_device_volume(volume, &device_name) {
             disks.push(volume.clone());
         }
     }
