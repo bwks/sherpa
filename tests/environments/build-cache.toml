@@ -1,0 +1,15 @@
+# The VM code suite's build cache: a Redis server on the Sherpa host in which sccache in the
+# test guests keeps compiled crates. Manage it with `python3 tests/harness/test_env.py cache`;
+# tests/README.md describes it. No credentials are stored here.
+
+[redis]
+image = "redis:8.10.3-alpine@sha256:71885d8cc6e42f2bc0aa2eb853bfc4be200b5108a46ac50e117ae1df0531fb80"
+container = "sherpa-test-build-cache"
+port = 6379
+# Beyond this Redis evicts the least recently used entries. One release's test build stores
+# about 1.2 GB.
+max_memory = "4gb"
+
+[sccache]
+url = "https://github.com/mozilla/sccache/releases/download/v0.19.0/sccache-v0.19.0-x86_64-unknown-linux-musl.tar.gz"
+sha256 = "aa73c7270c997894038c0d8f0d297865f57569e1687883322bc431713d4bb9dd"

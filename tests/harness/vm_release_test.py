@@ -25,6 +25,7 @@ from unittest.mock import patch
 import uuid
 from urllib.parse import urlsplit
 
+import build_cache
 from vm_release_guest import validate_upgrade_evidence
 
 
@@ -262,7 +263,8 @@ class Runner:
             if validate["uuid"] != runner.guest_uuid or validate["nonce"] != runner.run_id:
                 raise ValueError("Refusing cleanup: guest payload identity changed")
             runner.remote_directory = validate["workspace"]
-            runner.secrets = [data["credentials"][key] for key in ("db_password", "admin_password", "test_db_password")
+            runner.secrets = [data["credentials"][key] for key in ("db_password", "admin_password", "test_db_password",
+                                                                   "build_cache_password")
                               if key in data["credentials"]]
         return runner
 
@@ -550,6 +552,13 @@ class Runner:
             self.secrets.append(test_db_password)
             payload["credentials"]["test_db_password"] = test_db_password
             payload["tests"] = {**self.config["tests"], "source_sha256": self.report["source"]["archive_sha256"]}
+            cache_password = build_cache.password()
+            if cache_password:
+                settings = build_cache.load_settings()
+                self.secrets.append(cache_password)
+                payload["credentials"]["build_cache_password"] = cache_password
+                payload["build_cache"] = {"endpoint": build_cache.endpoint(settings, build_cache.server_address()),
+                                          **settings["sccache"]}
         payload_path = self.directory / "guest.toml"
         payload_path.write_text(encode_toml(payload))
         payload_path.chmod(0o600)
