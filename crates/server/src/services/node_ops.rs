@@ -3292,17 +3292,19 @@ pub async fn start_container_node(
 ) -> Result<bool> {
     let is_running = container::run_container(
         docker,
-        container_name,
-        image,
-        env_vars,
-        volumes,
-        capabilities,
-        management_network_attachment,
-        additional_networks,
-        commands,
-        privileged,
-        shm_size,
-        user,
+        container::ContainerSpec {
+            name: container_name.to_string(),
+            image: image.to_string(),
+            env_vars,
+            volumes,
+            capabilities,
+            management_network: management_network_attachment,
+            additional_networks,
+            commands,
+            privileged,
+            shm_size,
+            user,
+        },
     )
     .await?;
 

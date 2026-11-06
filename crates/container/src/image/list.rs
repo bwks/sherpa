@@ -1,9 +1,13 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bollard::Docker;
 use bollard::query_parameters::ListImagesOptions;
 use tracing::instrument;
 
-/// Get list of all local container images with their tags
+/// The tags of all local container images, sorted.
+///
+/// # Errors
+///
+/// Fails when Docker cannot list the images.
 #[instrument(skip(docker_conn), level = "debug")]
 pub async fn get_local_images(docker_conn: &Docker) -> Result<Vec<String>> {
     let container_images = docker_conn
@@ -11,27 +15,14 @@ pub async fn get_local_images(docker_conn: &Docker) -> Result<Vec<String>> {
             all: true,
             ..Default::default()
         }))
-        .await?;
+        .await
+        .context("Failed to list container images")?;
 
-    let mut image_list = vec![];
-    for image in container_images {
-        for tag in image.repo_tags {
-            image_list.push(tag)
-        }
-    }
+    let mut image_list: Vec<String> = container_images
+        .into_iter()
+        .flat_map(|image| image.repo_tags)
+        .collect();
     image_list.sort();
 
     Ok(image_list)
-}
-
-/// List all container images (logs to console)
-#[instrument(skip(docker_conn), level = "debug")]
-pub async fn list_images(docker_conn: &Docker) -> Result<()> {
-    let image_list = get_local_images(docker_conn).await?;
-
-    for image in image_list {
-        tracing::info!(image = %image, "Container image");
-    }
-
-    Ok(())
 }

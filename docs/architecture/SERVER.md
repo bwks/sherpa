@@ -1008,6 +1008,11 @@ each data interface, connected in index order after the container starts
 one left out would rename every interface after it. A link end among them is an error, since a
 container with a link takes veths.
 
+`run_container` takes a `container::ContainerSpec`. A container it creates but cannot start or
+attach is removed again, so a retried `up` or `redeploy` can create it under the same name. An
+active, renamed data interface is set up with a script that gets the interface name as `$1`,
+never in the script text.
+
 | Interface | Docker network | Mode | Parent |
 |---|---|---|---|
 | `[[bridges]]` member | `{node}-brs{interface_index}-{lab_id}` | macvlan bridge | the bridge's `brs{bridge_index}-{lab_id}` |

@@ -1247,7 +1247,6 @@ name = "container"
 version = "0.5.12"
 dependencies = [
  "anyhow",
- "async-compression",
  "bollard",
  "futures",
  "futures-util",

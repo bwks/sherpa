@@ -3,6 +3,11 @@ use bollard::Docker;
 use bollard::query_parameters::StartContainerOptions;
 use tracing::instrument;
 
+/// Start the stopped container `name`.
+///
+/// # Errors
+///
+/// Fails when the container does not exist or Docker cannot start it.
 #[instrument(skip(docker), level = "debug")]
 pub async fn start_container(docker: &Docker, name: &str) -> Result<()> {
     docker
@@ -14,6 +19,11 @@ pub async fn start_container(docker: &Docker, name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Resume the paused container `name`.
+///
+/// # Errors
+///
+/// Fails when the container does not exist or is not paused.
 #[instrument(skip(docker), level = "debug")]
 pub async fn unpause_container(docker: &Docker, name: &str) -> Result<()> {
     docker

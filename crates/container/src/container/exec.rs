@@ -1,11 +1,18 @@
-use anyhow::{Context, Result, anyhow, bail};
+use std::time::Duration;
+
+use anyhow::{Context, Result, bail};
 use bollard::Docker;
 use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
 use futures_util::TryStreamExt;
+use tokio::time::sleep;
 use tracing::instrument;
 
 /// Execute a command inside a running container in attached mode.
 /// Waits for the command to complete and verifies the exit code.
+///
+/// # Errors
+///
+/// Fails when the command cannot be run, or exits with a non-zero code.
 #[instrument(skip(docker), level = "debug")]
 pub async fn exec_container(docker: &Docker, container_name: &str, cmd: Vec<&str>) -> Result<()> {
     let config = CreateExecOptions {
@@ -21,8 +28,6 @@ pub async fn exec_container(docker: &Docker, container_name: &str, cmd: Vec<&str
         .await
         .with_context(|| format!("Failed to create exec in container {container_name}"))?;
 
-    let exec_id = exec.id.clone();
-
     let result = docker
         .start_exec(
             &exec.id,
@@ -36,26 +41,33 @@ pub async fn exec_container(docker: &Docker, container_name: &str, cmd: Vec<&str
 
     // Drain the output stream to wait for the command to finish.
     if let StartExecResults::Attached { mut output, .. } = result {
-        while output.try_next().await?.is_some() {}
+        while output
+            .try_next()
+            .await
+            .with_context(|| format!("Failed to read exec output in container {container_name}"))?
+            .is_some()
+        {}
     }
 
     // Check exit code via inspect.
     let inspect = docker
-        .inspect_exec(&exec_id)
+        .inspect_exec(&exec.id)
         .await
         .with_context(|| format!("Failed to inspect exec in container {container_name}"))?;
 
     match inspect.exit_code {
         Some(0) => Ok(()),
         Some(code) => bail!("Exec in container {container_name} exited with code {code}"),
-        None => Err(anyhow!(
-            "Exec in container {container_name} has no exit code (still running?)"
-        )),
+        None => bail!("Exec in container {container_name} has no exit code (still running?)"),
     }
 }
 
 /// Execute a command inside a running container in detached mode.
 /// Fire-and-forget: the command starts but we do not wait for it to complete.
+///
+/// # Errors
+///
+/// Fails when the command cannot be started.
 #[instrument(skip(docker), level = "debug")]
 pub async fn exec_container_detached(
     docker: &Docker,
@@ -87,43 +99,43 @@ pub async fn exec_container_detached(
     Ok(())
 }
 
-/// Execute a command inside a running container with retry logic.
-/// Retries up to `max_retries` times with `delay` between attempts.
+/// Execute a command inside a running container, retrying up to `max_retries` times with
+/// `delay` between attempts.
+///
+/// # Errors
+///
+/// Fails with the last attempt's error when every attempt fails.
 #[instrument(skip(docker), level = "debug")]
 pub async fn exec_container_with_retry(
     docker: &Docker,
     container_name: &str,
     cmd: Vec<&str>,
     max_retries: u32,
-    delay: std::time::Duration,
+    delay: Duration,
 ) -> Result<()> {
-    let mut last_err = None;
-
-    for attempt in 0..=max_retries {
-        if attempt > 0 {
-            tracing::debug!(
-                container_name = %container_name,
-                attempt = attempt,
-                "Retrying exec after delay"
-            );
-            tokio::time::sleep(delay).await;
-        }
-
+    let mut attempt = 0;
+    loop {
         match exec_container(docker, container_name, cmd.clone()).await {
             Ok(()) => return Ok(()),
-            Err(e) => {
+            Err(error) if attempt < max_retries => {
+                attempt += 1;
                 tracing::warn!(
                     container_name = %container_name,
-                    attempt = attempt + 1,
-                    max_retries = max_retries + 1,
-                    error = %e,
-                    "Exec attempt failed"
+                    attempt,
+                    max_retries,
+                    error = %error,
+                    "Exec attempt failed; retrying"
                 );
-                last_err = Some(e);
+                sleep(delay).await;
+            }
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "Exec in container {container_name} failed after {} attempts",
+                        max_retries + 1
+                    )
+                });
             }
         }
     }
-
-    Err(last_err
-        .unwrap_or_else(|| anyhow::anyhow!("exec retry loop completed with no error captured")))
 }

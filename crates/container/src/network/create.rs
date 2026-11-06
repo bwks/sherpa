@@ -5,6 +5,14 @@ use bollard::Docker;
 use bollard::models::{Ipam, IpamConfig, NetworkCreateRequest};
 use tracing::instrument;
 
+use crate::status::is_conflict;
+
+/// Create a Docker bridge network on the Linux bridge `bridge`, with the given subnets. A
+/// network named `name` that already exists, such as on a retried `up`, counts as created.
+///
+/// # Errors
+///
+/// Fails when Docker refuses to create the network, for example for an invalid subnet.
 #[instrument(skip(docker), level = "debug")]
 pub async fn create_docker_bridge_network(
     docker: &Docker,
@@ -32,11 +40,10 @@ pub async fn create_docker_bridge_network(
         ..Default::default()
     };
 
-    let mut options = HashMap::new();
-    options.insert(
+    let options = HashMap::from([(
         "com.docker.network.bridge.name".to_string(),
         bridge.to_string(),
-    );
+    )]);
     let create_request = NetworkCreateRequest {
         name: name.to_owned(),
         driver: Some("bridge".to_owned()),
@@ -49,28 +56,36 @@ pub async fn create_docker_bridge_network(
 
     match docker.create_network(create_request).await {
         Ok(response) => {
-            tracing::info!(network_name = %name, response = ?response, "Container network created")
+            tracing::info!(network_name = %name, response = ?response, "Container network created");
+            Ok(())
         }
-        Err(e) => {
-            tracing::error!(network_name = %name, error = %e, "Error creating container network")
+        Err(error) if is_conflict(&error) => {
+            tracing::debug!(network_name = %name, "Container network already exists");
+            Ok(())
         }
+        Err(error) => Err(error).with_context(|| {
+            format!("Failed to create Docker bridge network '{name}' on bridge '{bridge}'")
+        }),
     }
-
-    Ok(())
 }
 
 /// Create a Docker macvlan network in **bridge** mode on an existing Linux bridge.
-/// Bridge mode allows multiple macvlan networks to share the same parent bridge — required for isolated bridges
-/// that carry multiple disabled interfaces.
+/// Bridge mode allows multiple macvlan networks to share the same parent bridge, which isolated
+/// bridges carrying several disabled interfaces need.
+///
+/// # Errors
+///
+/// Fails when Docker refuses to create the network.
 #[instrument(skip(docker), level = "debug")]
 pub async fn create_docker_macvlan_bridge_network(
     docker: &Docker,
     parent_interface: &str,
     network_name: &str,
 ) -> Result<()> {
-    let mut options = HashMap::new();
-    options.insert("parent".to_string(), parent_interface.to_string());
-    options.insert("macvlan_mode".to_string(), "bridge".to_string());
+    let options = HashMap::from([
+        ("parent".to_string(), parent_interface.to_string()),
+        ("macvlan_mode".to_string(), "bridge".to_string()),
+    ]);
 
     let create_request = NetworkCreateRequest {
         name: network_name.to_owned(),
@@ -88,8 +103,7 @@ pub async fn create_docker_macvlan_bridge_network(
         .await
         .with_context(|| {
             format!(
-                "Failed to create Docker macvlan bridge-mode network '{}' on bridge '{}'",
-                network_name, parent_interface
+                "Failed to create Docker macvlan bridge-mode network '{network_name}' on bridge '{parent_interface}'"
             )
         })?;
 

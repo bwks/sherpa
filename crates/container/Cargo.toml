@@ -16,11 +16,11 @@ tracing = { workspace = true }
 # oci-client = "0.15"
 bollard = { workspace = true }
 
-# De/Compression
-async-compression = { workspace = true }
-
 # Async
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "fs", "io-util"] }
 tokio-util = { workspace = true, features = ["codec"] }
 futures = { workspace = true }
 futures-util = { workspace = true }
+
+[lints]
+workspace = true

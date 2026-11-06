@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use bollard::Docker;
@@ -14,99 +15,135 @@ use tracing::instrument;
 use shared::data::ContainerNetworkAttachment;
 use shared::konst::DOCKER_ENDPOINT_IFNAME_OPT;
 
+use super::delete::remove_container;
 use super::exec::exec_container_with_retry;
 
-#[allow(clippy::too_many_arguments)]
-#[instrument(skip(docker), level = "debug")]
-pub async fn run_container(
-    docker: &Docker,
-    name: &str,
-    image: &str,
-    env_vars: Vec<String>,
-    volumes: Vec<String>,
-    capabilities: Vec<String>,
-    management_network: ContainerNetworkAttachment,
-    additional_networks: Vec<ContainerNetworkAttachment>,
-    commands: Vec<String>,
-    privileged: bool,
-    shm_size: Option<i64>,
-    user: Option<String>,
-) -> Result<bool> {
-    // Environment variables
+/// Sets an attached data interface promiscuous and up. The interface name is the shell's `$1`,
+/// so it is never read as script.
+const DATA_INTERFACE_SCRIPT: &str = r#"ip link set "$1" promisc on && ip link set "$1" up"#;
+/// Retries of the data interface command while the container's network settles.
+const DATA_INTERFACE_RETRIES: u32 = 3;
+/// The pause between data interface command attempts.
+const DATA_INTERFACE_RETRY_DELAY: Duration = Duration::from_secs(2);
 
-    // let env = env_vars.iter().map(|s| s.to_string()).collect();
+/// A container for `run_container` to create and start.
+#[derive(Clone, Debug)]
+pub struct ContainerSpec {
+    pub name: String,
+    pub image: String,
+    pub env_vars: Vec<String>,
+    /// Bind mounts, as `host:container[:options]`.
+    pub volumes: Vec<String>,
+    pub capabilities: Vec<String>,
+    /// Attached when the container is created, so it is the first interface.
+    pub management_network: ContainerNetworkAttachment,
+    /// Attached one by one after the container starts, so the interfaces keep this order.
+    pub additional_networks: Vec<ContainerNetworkAttachment>,
+    pub commands: Vec<String>,
+    pub privileged: bool,
+    pub shm_size: Option<i64>,
+    pub user: Option<String>,
+}
 
-    // Volume bindings
-    // let binds = volumes;
+/// Create and start a container, then attach its data networks in order. Returns whether the
+/// container is running afterwards.
+///
+/// A container that is created but cannot be started or attached is removed again, so a retry
+/// can create it under the same name.
+///
+/// # Errors
+///
+/// Fails when Docker cannot create, start, attach or inspect the container, or a data
+/// interface cannot be set up in it.
+#[instrument(skip(docker, spec), fields(container_name = %spec.name), level = "debug")]
+pub async fn run_container(docker: &Docker, spec: ContainerSpec) -> Result<bool> {
+    let ContainerSpec {
+        name,
+        image,
+        env_vars,
+        volumes,
+        capabilities,
+        management_network,
+        additional_networks,
+        commands,
+        privileged,
+        shm_size,
+        user,
+    } = spec;
 
-    // Commands
-    let cmds = commands.iter().map(|s| s.to_string()).collect();
-
-    // Create container with only the first network (management network)
-    // This is attahced first to ensure ordering.
-    let mut endpoints_config = HashMap::new();
-    endpoints_config.insert(
+    // Only the management network is attached at creation, so it is the first interface.
+    let endpoints_config = HashMap::from([(
         management_network.name.clone(),
         EndpointSettings {
             ipam_config: Some(EndpointIpamConfig {
-                ipv4_address: management_network.ipv4_address.clone(),
-                ipv6_address: management_network.ipv6_address.clone(),
+                ipv4_address: management_network.ipv4_address,
+                ipv6_address: management_network.ipv6_address,
                 link_local_ips: None,
             }),
             ..Default::default()
         },
-    );
+    )]);
 
-    let networking_config = NetworkingConfig {
-        endpoints_config: Some(endpoints_config),
-    };
-
-    let host_config = HostConfig {
-        binds: Some(volumes),
-        cap_add: Some(capabilities),
-        auto_remove: Some(false),
-        privileged: Some(privileged),
-        shm_size,
-        ..Default::default()
-    };
-
-    // Full container config
     let config = ContainerCreateBody {
-        image: Some(image.to_string()),
+        image: Some(image),
         env: Some(env_vars),
-        host_config: Some(host_config),
-        networking_config: Some(networking_config),
+        host_config: Some(HostConfig {
+            binds: Some(volumes),
+            cap_add: Some(capabilities),
+            auto_remove: Some(false),
+            privileged: Some(privileged),
+            shm_size,
+            ..Default::default()
+        }),
+        networking_config: Some(NetworkingConfig {
+            endpoints_config: Some(endpoints_config),
+        }),
         tty: Some(true),
         open_stdin: Some(true),
-        cmd: Some(cmds),
+        cmd: Some(commands),
         user,
         ..Default::default()
     };
 
     let create_opts = CreateContainerOptions {
-        name: Some(name.to_string()),
+        name: Some(name.clone()),
         ..Default::default()
     };
 
-    // Create the container
     tracing::info!(container_name = %name, "Creating container");
     let ContainerCreateResponse { id, .. } = docker
         .create_container(Some(create_opts), config)
         .await
         .with_context(|| format!("Error creating container: {name}"))?;
 
-    // Start the container
+    match start_and_attach(docker, &id, &name, &additional_networks).await {
+        Ok(running) => Ok(running),
+        Err(error) => {
+            if let Err(removal) = remove_container(docker, &id).await {
+                tracing::warn!(container_name = %name, error = %removal, "Failed to remove a container that could not be set up");
+            }
+            Err(error)
+        }
+    }
+}
+
+/// Start the container `id`, attach its data networks in order and set their interfaces up,
+/// then report whether it is running.
+async fn start_and_attach(
+    docker: &Docker,
+    id: &str,
+    name: &str,
+    additional_networks: &[ContainerNetworkAttachment],
+) -> Result<bool> {
     tracing::info!(container_name = %name, "Starting container");
     docker
-        .start_container(&id, None::<StartContainerOptions>)
+        .start_container(id, None::<StartContainerOptions>)
         .await
         .with_context(|| format!("Error starting container {name}"))?;
 
-    // Attach remaining networks sequentially to preserve interface order
-    // Skip the first network since it was attached during container creation
-    for attachment in &additional_networks {
+    for attachment in additional_networks {
         let connect_request = NetworkConnectRequest {
-            container: Some(id.clone()),
+            container: Some(id.to_string()),
             endpoint_config: Some(data_endpoint_settings(attachment)),
         };
 
@@ -126,9 +163,9 @@ pub async fn run_container(
             exec_container_with_retry(
                 docker,
                 name,
-                vec!["sh", "-c", &command],
-                3,
-                std::time::Duration::from_secs(2),
+                command.iter().map(String::as_str).collect(),
+                DATA_INTERFACE_RETRIES,
+                DATA_INTERFACE_RETRY_DELAY,
             )
             .await
             .with_context(|| {
@@ -140,42 +177,29 @@ pub async fn run_container(
         }
     }
 
-    // After starting the container:
-    let inspect_options = Some(InspectContainerOptions { size: false });
-    let details = docker.inspect_container(&id, inspect_options).await?;
-
-    // Check if the container is running
-    let is_running = if let Some(state) = &details.state {
-        let status = state
-            .status
-            .as_ref()
-            .map(|s| format!("{:?}", s))
-            .unwrap_or_else(|| "unknown".to_string());
-        let exit_code = state.exit_code.unwrap_or(-1);
-        tracing::debug!(
-            container_name = %name,
-            status = %status,
-            exit_code = exit_code,
-            "Container status after creation"
-        );
-        state.status == Some(ContainerStateStatusEnum::RUNNING)
-    } else {
-        false
+    let details = docker
+        .inspect_container(id, Some(InspectContainerOptions { size: false }))
+        .await
+        .with_context(|| format!("Error inspecting container {name}"))?;
+    let Some(state) = &details.state else {
+        return Ok(false);
     };
-
-    Ok(is_running)
+    tracing::debug!(
+        container_name = %name,
+        status = ?state.status,
+        exit_code = ?state.exit_code,
+        "Container status after creation"
+    );
+    Ok(state.status == Some(ContainerStateStatusEnum::RUNNING))
 }
 
 /// Docker endpoint settings for a data network. Docker names the interface in the container, so
 /// no command has to run in the image to rename it.
 fn data_endpoint_settings(attachment: &ContainerNetworkAttachment) -> EndpointSettings {
-    let mut driver_opts = None;
-    if let Some(name) = &attachment.linux_interface_name {
-        driver_opts = Some(HashMap::from([(
-            DOCKER_ENDPOINT_IFNAME_OPT.to_string(),
-            name.clone(),
-        )]));
-    }
+    let driver_opts = attachment
+        .linux_interface_name
+        .as_ref()
+        .map(|name| HashMap::from([(DOCKER_ENDPOINT_IFNAME_OPT.to_string(), name.clone())]));
     EndpointSettings {
         ipam_config: Some(EndpointIpamConfig {
             ipv4_address: attachment.ipv4_address.clone(),
@@ -190,14 +214,18 @@ fn data_endpoint_settings(attachment: &ContainerNetworkAttachment) -> EndpointSe
 /// The command to run in the container once a data interface is attached, if any: an active,
 /// renamed interface is set promiscuous and up. Disabled interfaces need none: the server takes
 /// the carrier away from the host, so images without `ip` work.
-fn data_interface_command(attachment: &ContainerNetworkAttachment) -> Option<String> {
+fn data_interface_command(attachment: &ContainerNetworkAttachment) -> Option<Vec<String>> {
     if attachment.admin_down {
         return None;
     }
     let name = attachment.linux_interface_name.as_ref()?;
-    Some(format!(
-        "ip link set {name} promisc on && ip link set {name} up"
-    ))
+    Some(vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        DATA_INTERFACE_SCRIPT.to_string(),
+        "sh".to_string(),
+        name.clone(),
+    ])
 }
 
 #[cfg(test)]
@@ -239,11 +267,16 @@ mod tests {
     }
 
     #[test]
+    fn interface_names_are_shell_arguments_not_script() {
+        let name = "e1;touch /x";
+        let command = data_interface_command(&attachment(Some(name), false)).unwrap();
+        assert_eq!(command.last().map(String::as_str), Some(name));
+        assert!(command.iter().rev().skip(1).all(|arg| !arg.contains(name)));
+    }
+
+    #[test]
     fn only_active_renamed_interfaces_run_a_command() {
-        assert_eq!(
-            data_interface_command(&attachment(Some("e1-1"), false)).as_deref(),
-            Some("ip link set e1-1 promisc on && ip link set e1-1 up")
-        );
+        assert!(data_interface_command(&attachment(Some("e1-1"), false)).is_some());
         // Disabled interfaces run nothing, so images without `ip` start.
         assert_eq!(
             data_interface_command(&attachment(Some("eth1"), true)),
