@@ -152,7 +152,9 @@ python3 tests/harness/test_env.py cache stop     # remove the container; the dat
   Redis builds uncached rather than failing, since sccache would fail every compilation.
 - `test-results.toml` records the hits and misses in `[build_cache]`, and the summary prints
   them. Crates whose source changed since the cache last saw them miss; linking and build
-  scripts are never cached.
+  scripts are never cached. The guests build into the same target directory path every run:
+  crates that generate code embed that path, so a per-run path would change their keys and
+  those of every crate depending on them.
 
 ## Installer suite
 

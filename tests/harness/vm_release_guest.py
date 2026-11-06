@@ -72,6 +72,10 @@ TEST_EXECUTABLES_FILE = "test-executables.toml"
 # sccache's configuration, naming the host's build cache; written only while the cache is usable.
 SCCACHE_CONFIG_FILE = "sccache.toml"
 SCCACHE_BINARY = "tools/sccache"
+# Build output, outside the source tree so a rerun can replace the source, and at the same path
+# in every run: crates that generate code embed their output path, and a path that changes
+# with the run changes their cache keys and those of every crate depending on them.
+CARGO_TARGET_DIR = "/var/tmp/sherpa-release-test-target"
 THP_BOOT_RULE = Path("/etc/tmpfiles.d/sherpa-thp.conf")
 
 
@@ -756,8 +760,7 @@ class Guest:
                        # Code under test reads the current user from these, as in a login session.
                        "USER": name, "LOGNAME": name,
                        "CARGO_HOME": f"{user.pw_dir}/.cargo", "RUSTUP_HOME": f"{user.pw_dir}/.rustup",
-                       # Keep build output outside the source tree so a rerun can replace the source.
-                       "CARGO_TARGET_DIR": str(self.workspace / "target"),
+                       "CARGO_TARGET_DIR": CARGO_TARGET_DIR,
                        "CARGO_TERM_COLOR": "never", "LANG": "C.UTF-8"}
         sccache_config = self.workspace / SCCACHE_CONFIG_FILE
         if not root and sccache_config.is_file():
@@ -1335,6 +1338,8 @@ class GuestTests(unittest.TestCase):
         self.assertEqual((user["USER"], user["LOGNAME"], user["HOME"]), ("tester", "tester", "/home/tester"))
         self.assertEqual((root["USER"], root["HOME"]), ("root", "/root"))
         self.assertEqual(root["CARGO_HOME"], "/home/tester/.cargo")
+        self.assertEqual(user["CARGO_TARGET_DIR"], CARGO_TARGET_DIR)
+        self.assertNotIn(str(guest.workspace), user["CARGO_TARGET_DIR"])
         self.assertNotIn("SHERPA_DB_PASSWORD", user)
 
     def cache_guest(self, workspace, build_cache=True):
