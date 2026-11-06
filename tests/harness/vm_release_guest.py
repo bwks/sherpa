@@ -22,7 +22,7 @@ import tempfile
 import time
 import tomllib
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -69,6 +69,13 @@ REQUIRED_RUN_MARKERS = ("Skipping VM test",)
 THP_ENABLED = Path("/sys/kernel/mm/transparent_hugepage/enabled")
 # Each integration crate's test executables, written by the test build for the test runs.
 TEST_EXECUTABLES_FILE = "test-executables.toml"
+# sccache's configuration, naming the host's build cache; written only while the cache is usable.
+SCCACHE_CONFIG_FILE = "sccache.toml"
+SCCACHE_BINARY = "tools/sccache"
+# Build output, outside the source tree so a rerun can replace the source, and at the same path
+# in every run: crates that generate code embed their output path, and a path that changes
+# with the run changes their cache keys and those of every crate depending on them.
+CARGO_TARGET_DIR = "/var/tmp/sherpa-release-test-target"
 THP_BOOT_RULE = Path("/etc/tmpfiles.d/sherpa-thp.conf")
 
 
@@ -227,6 +234,8 @@ class Guest:
         self.marker = self.workspace / ".owner"
         self.base = Path("/opt/sherpa")
         self.passwords = [self.credentials["db_password"], self.credentials["admin_password"]]
+        if "build_cache_password" in self.credentials:
+            self.passwords.append(self.credentials["build_cache_password"])
 
     def guard(self, baseline=False):
         identity = self.config["identity"]
@@ -751,9 +760,14 @@ class Guest:
                        # Code under test reads the current user from these, as in a login session.
                        "USER": name, "LOGNAME": name,
                        "CARGO_HOME": f"{user.pw_dir}/.cargo", "RUSTUP_HOME": f"{user.pw_dir}/.rustup",
-                       # Keep build output outside the source tree so a rerun can replace the source.
-                       "CARGO_TARGET_DIR": str(self.workspace / "target"),
+                       "CARGO_TARGET_DIR": CARGO_TARGET_DIR,
                        "CARGO_TERM_COLOR": "never", "LANG": "C.UTF-8"}
+        sccache_config = self.workspace / SCCACHE_CONFIG_FILE
+        if not root and sccache_config.is_file():
+            # The same for every cargo command, or cargo rebuilds what the test build made.
+            # sccache cannot cache incremental compilations.
+            environment.update(RUSTC_WRAPPER=str(self.workspace / SCCACHE_BINARY),
+                               SCCACHE_CONF=str(sccache_config), CARGO_INCREMENTAL="0")
         if root:
             environment.update(SHERPA_DB_PASSWORD=self.credentials["test_db_password"],
                                SHERPA_DEV_DB_PORT=str(self.config["tests"]["test_db_port"]),
@@ -840,13 +854,67 @@ class Guest:
                                        "vm_image": str(path), "vm_image_sha256": tests["vm_image_sha256"]})
         print("PASS test images")
 
+    def build_cache(self):
+        """Use the host's build cache when the run has one and sccache can reach it.
+
+        sccache refuses to start when it cannot read its storage, and every compilation then
+        fails, so the check is starting it: a cache that is down, or a wrong password, gives an
+        uncached build instead of a failed one."""
+        sccache_config = self.workspace / SCCACHE_CONFIG_FILE
+        sccache_config.unlink(missing_ok=True)
+        if "build_cache" not in self.config:
+            self.record_results("build_cache", {"status": "off"})
+            print("Build cache: off")
+            return
+        cache = self.config["build_cache"]
+        binary = self.workspace / SCCACHE_BINARY
+        if not binary.is_file():
+            archive = self.workspace / "sccache.tar.gz"
+            self.command(["curl", "-fsSL", "--proto", "=https", "--tlsv1.2", "-o", str(archive), cache["url"]],
+                         timeout=self.timeouts["download"])
+            require(digest(archive) == cache["sha256"], "sccache archive checksum mismatch")
+            # The archive holds one directory, named as the archive is, with the binary in it.
+            member = cache["url"].rsplit("/", 1)[1].removesuffix(".tar.gz") + "/sccache"
+            with tarfile.open(archive, "r:gz") as stream:
+                binary.parent.mkdir(exist_ok=True)
+                binary.write_bytes(stream.extractfile(member).read())
+            binary.chmod(0o755)
+        sccache_config.touch(mode=0o600)
+        sccache_config.write_text(toml_document({"cache.redis": {
+            "endpoint": cache["endpoint"], "password": self.credentials["build_cache_password"]}}))
+        user = self.login_user()
+        os.chown(sccache_config, user.pw_uid, user.pw_gid)
+        # A rerun finds the previous run's server still running with its old statistics.
+        self.command(self.as_user([str(binary), "--stop-server"]), check=False, display=False)
+        code, output = self.command(self.as_user([str(binary), "--start-server"]), check=False, display=False)
+        if code:
+            sccache_config.unlink()
+            self.record_results("build_cache", {"status": "unavailable", "endpoint": cache["endpoint"],
+                                                "error": self.redact(output.strip())})
+            print(f"Build cache at {cache['endpoint']} unavailable; building uncached:\n{self.redact(output)}")
+            return
+        print(f"Build cache: {cache['endpoint']}")
+
+    def build_cache_statistics(self):
+        if not (self.workspace / SCCACHE_CONFIG_FILE).is_file():
+            return
+        _, output = self.command(self.as_user([str(self.workspace / SCCACHE_BINARY), "--show-stats",
+                                               "--stats-format=json"]), display=False)
+        statistics = json.loads(output)["stats"]
+        hits = sum(statistics["cache_hits"]["counts"].values())
+        misses = sum(statistics["cache_misses"]["counts"].values())
+        self.record_results("build_cache", {"status": f"{hits} hits, {misses} misses", "hits": hits,
+                                            "misses": misses, "endpoint": self.config["build_cache"]["endpoint"]})
+
     def build_tests(self):
         # One build for the workspace. Building a crate alone with `-p` resolves its dependencies'
         # features for that crate only, which rebuilds them; the integration tests instead run the
         # executables this build made.
+        self.build_cache()
         command = ["cargo", "test", "--workspace", "--locked", "--no-run",
                    "--message-format=json-render-diagnostics"]
         code, output = self.logged("build-workspace", self.as_user(command), self.timeouts["build"])
+        self.build_cache_statistics()
         require(code == 0, "build-workspace failed")
         crates = self.config["tests"]["integration_crates"]
         executables = test_executables(output, crates)
@@ -881,11 +949,14 @@ class Guest:
         return found
 
     def wait_test_database(self):
+        # Docker's port proxy accepts connections before SurrealDB listens, then resets them, so
+        # an open port does not mean the database is ready; its health endpoint does.
+        url = f"http://127.0.0.1:{self.config['tests']['test_db_port']}/health"
         deadline = time.monotonic() + self.timeouts["startup"]
         while time.monotonic() < deadline:
-            with suppress(OSError), socket.create_connection(("127.0.0.1", self.config["tests"]["test_db_port"]),
-                                                             timeout=self.timeouts["connect"]):
-                return
+            with suppress(OSError), urllib.request.urlopen(url, timeout=self.timeouts["connect"]) as response:
+                if response.status == 200:
+                    return
             time.sleep(self.timeouts["poll"])
         raise TimeoutError("Test database did not start")
 
@@ -1267,7 +1338,102 @@ class GuestTests(unittest.TestCase):
         self.assertEqual((user["USER"], user["LOGNAME"], user["HOME"]), ("tester", "tester", "/home/tester"))
         self.assertEqual((root["USER"], root["HOME"]), ("root", "/root"))
         self.assertEqual(root["CARGO_HOME"], "/home/tester/.cargo")
+        self.assertEqual(user["CARGO_TARGET_DIR"], CARGO_TARGET_DIR)
+        self.assertNotIn(str(guest.workspace), user["CARGO_TARGET_DIR"])
         self.assertNotIn("SHERPA_DB_PASSWORD", user)
+
+    def cache_guest(self, workspace, build_cache=True):
+        guest = Guest.__new__(Guest)
+        guest.workspace = workspace
+        guest.config = {"tests": {"test_db_port": 42069}}
+        if build_cache:
+            guest.config["build_cache"] = {"endpoint": "redis://192.0.2.10:6379",
+                                           "url": "https://example.invalid/sccache-v0-x.tar.gz", "sha256": "0" * 64}
+        guest.credentials = {"test_db_password": "secret", "build_cache_password": "cache-secret"}
+        guest.passwords = ["cache-secret"]
+        guest.timeouts = {"download": 1}
+        return guest
+
+    def test_build_cache_is_off_without_a_host_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / SCCACHE_CONFIG_FILE).write_text("stale")
+            guest = self.cache_guest(workspace, build_cache=False)
+            with patch.object(Guest, "record_results") as record, patch.object(Guest, "command") as command:
+                guest.build_cache()
+            self.assertFalse((workspace / SCCACHE_CONFIG_FILE).exists())
+            record.assert_called_once_with("build_cache", {"status": "off"})
+            command.assert_not_called()
+
+    def test_unusable_build_cache_builds_uncached(self):
+        account = pwd.struct_passwd(("tester", "x", os.getuid(), os.getgid(), "", "/home/tester", "/bin/bash"))
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / "tools").mkdir()
+            (workspace / SCCACHE_BINARY).write_text("binary")
+            guest = self.cache_guest(workspace)
+            failure = (2, "sccache: error: Server startup failed for cache-secret")
+            with patch.dict(os.environ, {"SUDO_USER": "tester"}), \
+                 patch.object(pwd, "getpwnam", return_value=account), \
+                 patch.object(Guest, "record_results") as record, \
+                 patch.object(Guest, "command", side_effect=[(0, ""), failure]):
+                guest.build_cache()
+            self.assertFalse((workspace / SCCACHE_CONFIG_FILE).exists())
+            section, values = record.call_args.args
+            self.assertEqual((section, values["status"]), ("build_cache", "unavailable"))
+            self.assertNotIn("cache-secret", values["error"])
+
+    def test_usable_build_cache_wraps_every_user_cargo_command(self):
+        account = pwd.struct_passwd(("tester", "x", 1000, 1000, "", "/home/tester", "/bin/bash"))
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            guest = self.cache_guest(workspace)
+            with patch.dict(os.environ, {"SUDO_USER": "tester"}), \
+                 patch.object(pwd, "getpwnam", return_value=account):
+                self.assertNotIn("RUSTC_WRAPPER", guest.cargo_environment(root=False))
+                (workspace / SCCACHE_CONFIG_FILE).write_text("[cache.redis]\n")
+                user = guest.cargo_environment(root=False)
+                root = guest.cargo_environment(root=True)
+            self.assertEqual(user["RUSTC_WRAPPER"], str(workspace / SCCACHE_BINARY))
+            self.assertEqual(user["SCCACHE_CONF"], str(workspace / SCCACHE_CONFIG_FILE))
+            self.assertEqual(user["CARGO_INCREMENTAL"], "0")
+            self.assertNotIn("RUSTC_WRAPPER", root)
+
+    def test_build_cache_statistics_are_recorded(self):
+        statistics = {"stats": {"cache_hits": {"counts": {"Rust": 1080, "C/C++": 3}},
+                                "cache_misses": {"counts": {"Rust": 8}}}}
+        account = pwd.struct_passwd(("tester", "x", 1000, 1000, "", "/home/tester", "/bin/bash"))
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / SCCACHE_CONFIG_FILE).write_text("[cache.redis]\n")
+            guest = self.cache_guest(workspace)
+            with patch.dict(os.environ, {"SUDO_USER": "tester"}), \
+                 patch.object(pwd, "getpwnam", return_value=account), \
+                 patch.object(Guest, "record_results") as record, \
+                 patch.object(Guest, "command", return_value=(0, json.dumps(statistics))):
+                guest.build_cache_statistics()
+            section, values = record.call_args.args
+            self.assertEqual(section, "build_cache")
+            self.assertEqual((values["status"], values["hits"], values["misses"]), ("1083 hits, 8 misses", 1083, 8))
+
+    def test_test_database_wait_retries_until_healthy(self):
+        guest = Guest.__new__(Guest)
+        guest.config = {"tests": {"test_db_port": 42069}}
+        guest.timeouts = {"startup": 60, "connect": 1, "poll": 0}
+        healthy = MagicMock(status=200)
+        healthy.__enter__.return_value = healthy
+        with patch.object(urllib.request, "urlopen",
+                          side_effect=[ConnectionResetError(104, "Connection reset by peer"), healthy]) as urlopen:
+            guest.wait_test_database()
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(urlopen.call_args.args[0], "http://127.0.0.1:42069/health")
+
+    def test_test_database_wait_times_out(self):
+        guest = Guest.__new__(Guest)
+        guest.config = {"tests": {"test_db_port": 42069}}
+        guest.timeouts = {"startup": 0, "connect": 1, "poll": 0}
+        with self.assertRaises(TimeoutError):
+            guest.wait_test_database()
 
     def test_releases_from_0_5_0_embed_the_database(self):
         for version in ("v0.5.0", "0.5.1", "v1.0.0", "v0.10.0"):

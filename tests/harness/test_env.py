@@ -18,6 +18,7 @@ import tomllib
 import unittest
 import uuid
 
+import build_cache
 from vm_release_test import encode_toml, sha256
 
 
@@ -281,6 +282,19 @@ def rerun(result_directory):
     return process.returncode
 
 
+def cache(action):
+    settings = build_cache.load_settings()
+    if action == "start":
+        build_cache.start(settings, build_cache.server_address())
+    elif action == "stop":
+        build_cache.stop(settings)
+    elif action == "clear":
+        build_cache.clear(settings)
+    else:
+        return build_cache.status(settings, build_cache.server_address())
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="action", required=True)
@@ -291,11 +305,15 @@ def main():
     command.add_argument("environments", nargs="*", default=["ubuntu-2404", "ubuntu-2604"])
     command = commands.add_parser("rerun", help="Retest a retained failed run with the current checkout")
     command.add_argument("result_directory", type=Path, help="The failed run's .tmp/vm-release-tests/<id> directory")
+    command = commands.add_parser("cache", help="Manage the VM code suite's build cache on this host")
+    command.add_argument("cache_action", choices=("start", "stop", "status", "clear"))
     args = parser.parse_args()
     if args.action == "run":
         return run_environments(args.environments)
     if args.action == "rerun":
         return rerun(args.result_directory.resolve())
+    if args.action == "cache":
+        return cache(args.cache_action)
     actions = {"up": up, "check": check, "destroy": destroy}
     actions[args.action](environment_directory(args.environment))
     return 0

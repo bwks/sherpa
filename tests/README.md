@@ -10,7 +10,7 @@ instead of repeating these instructions.
 | `crates/*/tests/`, `#[cfg(test)]` modules | Rust unit and integration tests (Cargo requires these locations) |
 | `tests/specs/` | Testing principles and what each crate must test ([README](specs/README.md)) |
 | `tests/environments/` | Disposable Ubuntu VMs for the VM suites, and the long-lived dev server ([README](environments/README.md)) |
-| `tests/harness/` | VM test tooling: `test_env.py`, the release-test runner and guest helpers |
+| `tests/harness/` | VM test tooling: `test_env.py`, the release-test runner, guest helpers and the build cache |
 | `tests/labs/` | Labs under test, driven by the `sherpa` CLI against an installed server ([README](labs/README.md)) |
 | `tests/bats/` | Supplementary installer BATS tests |
 | `tests/web/` | Web UI JavaScript tests |
@@ -129,6 +129,33 @@ for debugging, not a substitute for a fresh run. Results are in `.tmp/test-env-r
 
 To manage one environment by hand: `python3 tests/harness/test_env.py up | check | destroy <env>`.
 
+### Build cache
+
+The test build is the suite's longest step. A Redis server on the Sherpa host can keep the
+compiled crates between runs: sccache in each guest stores what it compiles there and reuses it
+on the next run, from either release.
+
+```sh
+python3 tests/harness/test_env.py cache start    # start Redis in a container on this host
+python3 tests/harness/test_env.py cache status   # running state and the number of entries
+python3 tests/harness/test_env.py cache clear    # empty the cache
+python3 tests/harness/test_env.py cache stop     # remove the container; the data is kept
+```
+
+- Redis listens on the Sherpa server's address from the CLI configuration, where the guests
+  reach the host, and requires a password. The password is generated on the first start.
+  It and the cached data are kept in `~/.local/state/sherpa-tests/build-cache/`, outside the
+  checkout, and the password reaches each guest in its run settings, never on a command line.
+- Memory is capped and the least recently used entries are evicted; the image, port and
+  limit are in `tests/environments/build-cache.toml`, with the pinned sccache release.
+- Runs use the cache whenever that directory holds a password. A guest that cannot reach
+  Redis builds uncached rather than failing, since sccache would fail every compilation.
+- `test-results.toml` records the hits and misses in `[build_cache]`, and the summary prints
+  them. Crates whose source changed since the cache last saw them miss; linking and build
+  scripts are never cached. The guests build into the same target directory path every run:
+  crates that generate code embed that path, so a per-run path would change their keys and
+  those of every crate depending on them.
+
 ## Installer suite
 
 Tests the checkout's installer and uninstaller with published release binaries:
@@ -170,6 +197,7 @@ See [labs/README.md](labs/README.md) for the rules and each lab's README for wha
 ```sh
 python3 tests/harness/test_env.py --self-test
 python3 tests/harness/test_env_guest.py --self-test
+python3 tests/harness/build_cache.py --self-test
 python3 tests/harness/vm_release_test.py --self-test
 python3 tests/harness/vm_release_guest.py --self-test
 python3 tests/labs/private-bridge/private_bridge_lab_test.py --self-test
