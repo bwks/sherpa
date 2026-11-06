@@ -2842,7 +2842,7 @@ fn generate_ignition_ztp(
                 path: file.dst.clone(),
                 mode: template::FileMode::new(
                     mode_from_octal_digits(file.permissions)
-                        .with_context(|| format!("Text file {} mode", file.dst))?,
+                        .with_context(|| format!("Text file {} mode is invalid", file.dst))?,
                 ),
                 overwrite: None,
                 contents: Some(template::IgnitionFileContents::new(&format!(

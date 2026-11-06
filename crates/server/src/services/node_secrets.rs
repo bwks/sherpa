@@ -54,7 +54,7 @@ pub fn write_node_secrets(
             .decode()
             .with_context(|| format!("Secret file '{}' is not valid base64", file.name))?;
         let mode = mode_from_octal_digits(file.mode)
-            .with_context(|| format!("Secret file '{}' mode", file.name))?;
+            .with_context(|| format!("Secret file '{}' mode is invalid", file.name))?;
         decoded.push(DecodedSecret {
             name: &file.name,
             mode,

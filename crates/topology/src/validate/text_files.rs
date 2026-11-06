@@ -25,7 +25,7 @@ pub fn check_text_file_modes(nodes: &[Node]) -> Result<()> {
         for (dst, permissions) in files.chain(read) {
             mode_from_octal_digits(permissions).with_context(|| {
                 format!(
-                    "Manifest - node: '{}' text file '{dst}' permissions",
+                    "Manifest - node: '{}' text file '{dst}' permissions are invalid",
                     node.name
                 )
             })?;

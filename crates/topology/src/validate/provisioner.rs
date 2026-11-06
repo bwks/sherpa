@@ -100,8 +100,12 @@ fn validate_ssh(node: &str, ssh: &SshProvisioner, env_names: &mut HashSet<String
              parts",
             file.dst
         );
-        mode_from_octal_digits(file.mode)
-            .with_context(|| format!("Node '{node}': provisioner file '{}' mode", file.dst))?;
+        mode_from_octal_digits(file.mode).with_context(|| {
+            format!(
+                "Node '{node}': provisioner file '{}' mode is invalid",
+                file.dst
+            )
+        })?;
     }
     for env_file in &ssh.env_files {
         let name = env_file_name(env_file).with_context(|| {

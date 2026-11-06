@@ -14,7 +14,8 @@ pub fn validate_secret_file(name: &str, mode: u32) -> Result<()> {
         "Secret file name '{name}' must be a file name of up to {MAX_SECRET_FILE_NAME_LEN} \
          letters, digits and . _ - + @, other than . and .."
     );
-    mode_from_octal_digits(mode).with_context(|| format!("Secret file '{name}' mode"))?;
+    mode_from_octal_digits(mode)
+        .with_context(|| format!("Secret file '{name}' mode is invalid"))?;
     Ok(())
 }
 
