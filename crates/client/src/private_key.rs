@@ -101,6 +101,7 @@ pub(crate) fn restrict_secret_permissions(path: &Path, what: &str) -> Result<()>
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::fs;
 
     #[cfg(unix)]

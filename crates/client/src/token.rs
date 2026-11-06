@@ -85,11 +85,16 @@ pub fn token_exists() -> bool {
 mod tests {
     use super::*;
     use std::env;
+    use std::path::Path;
 
     #[test]
     fn test_get_token_path() {
         let path = get_token_path().expect("Failed to get token path");
-        assert!(path.to_string_lossy().contains(".sherpa/token"));
+        assert!(
+            path.ends_with(Path::new(".sherpa").join("token")),
+            "{}",
+            path.display()
+        );
     }
 
     #[test]
