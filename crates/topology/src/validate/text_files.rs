@@ -1,7 +1,7 @@
 use anyhow::{Result, ensure};
 
 use crate::Node;
-use shared::validators::valid_octal_mode;
+use shared::validators::mode_from_octal_digits;
 
 /// Check every node's text file modes are octal digits up to 777, as manifests write modes.
 /// Both the files as written and the contents the client read are checked, since the server
@@ -24,7 +24,7 @@ pub fn check_text_file_modes(nodes: &[Node]) -> Result<()> {
             .map(|file| (file.dst.as_str(), file.permissions));
         for (dst, permissions) in files.chain(read) {
             ensure!(
-                valid_octal_mode(permissions),
+                mode_from_octal_digits(permissions).is_some(),
                 "Manifest - node: '{}' text file '{dst}' has permissions {permissions}; use octal \
                  digits up to 777, such as 644",
                 node.name

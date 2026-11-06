@@ -1,12 +1,12 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use serde_derive::{Deserialize, Serialize};
 
 use shared::data::{NetworkV4, NetworkV6};
 use shared::konst::{IGNITION_VERSION, SHERPA_DOMAIN_NAME};
 use shared::util::base64_encode;
-use shared::validators::valid_octal_mode;
+use shared::validators::mode_from_octal_digits;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IgnitionConfig {
@@ -125,19 +125,9 @@ impl FileMode {
     ///
     /// Fails when `digits` are not octal digits up to `777`.
     pub fn from_octal_digits(digits: u32) -> Result<Self> {
-        ensure!(
-            valid_octal_mode(digits),
-            "File mode {digits} must be octal digits up to 777, such as 644"
-        );
-        let mut bits = 0;
-        let mut place = 1;
-        let mut rest = digits;
-        while rest > 0 {
-            bits += rest % 10 * place;
-            place *= 8;
-            rest /= 10;
-        }
-        Ok(Self(bits))
+        mode_from_octal_digits(digits).map(Self).with_context(|| {
+            format!("File mode {digits} must be octal digits up to 777, such as 644")
+        })
     }
 }
 

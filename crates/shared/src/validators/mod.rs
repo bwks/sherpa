@@ -13,7 +13,7 @@ mod ssh_key;
 mod tailscale_key;
 mod username;
 
-pub use file_mode::valid_octal_mode;
+pub use file_mode::mode_from_octal_digits;
 pub use impairment::validate_link_impairment;
 pub use interface_count::{effective_data_interface_count, validate_data_interface_count_override};
 pub use password::validate_password_strength;

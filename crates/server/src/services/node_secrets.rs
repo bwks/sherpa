@@ -15,6 +15,7 @@ use tracing::instrument;
 use container::get_container_mount_source;
 use shared::data::{NodeKind, NodeSecretsRequest, NodeSecretsResponse, SecretFile};
 use shared::konst::{CONTAINER_SECRETS_DIR, SHERPA_SECRETS_DIR};
+use shared::validators::mode_from_octal_digits;
 
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_owner;
@@ -52,7 +53,7 @@ pub fn write_node_secrets(
             .content
             .decode()
             .with_context(|| format!("Secret file '{}' is not valid base64", file.name))?;
-        let mode = u32::from_str_radix(&file.mode.to_string(), 8)
+        let mode = mode_from_octal_digits(file.mode)
             .with_context(|| format!("Secret file '{}' has an invalid mode", file.name))?;
         decoded.push(DecodedSecret {
             name: &file.name,

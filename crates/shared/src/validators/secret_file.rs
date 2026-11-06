@@ -1,7 +1,7 @@
 use anyhow::{Result, ensure};
 use tracing::instrument;
 
-use super::valid_octal_mode;
+use super::mode_from_octal_digits;
 
 const MAX_SECRET_FILE_NAME_LEN: usize = 255;
 
@@ -15,7 +15,7 @@ pub fn validate_secret_file(name: &str, mode: u32) -> Result<()> {
          letters, digits and . _ - + @, other than . and .."
     );
     ensure!(
-        valid_octal_mode(mode),
+        mode_from_octal_digits(mode).is_some(),
         "Secret file mode {mode} for '{name}' must be octal digits up to 777"
     );
     Ok(())
