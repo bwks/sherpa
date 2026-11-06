@@ -4,6 +4,10 @@ use crate::NodeExpanded;
 use shared::data::{NodeConfig, NodeKind};
 
 /// Check a node's `watchdog`: only virtual machines have a hardware watchdog.
+///
+/// # Errors
+///
+/// Fails when a node that is not a virtual machine sets `watchdog`.
 pub fn check_watchdog(node: &NodeExpanded, image: &NodeConfig) -> Result<()> {
     if node.watchdog.is_some() && image.kind != NodeKind::VirtualMachine {
         bail!(

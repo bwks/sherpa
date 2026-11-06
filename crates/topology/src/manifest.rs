@@ -51,6 +51,11 @@ pub struct TailscaleConfig {
 }
 
 impl Manifest {
+    /// An example manifest with a random name: two Linux nodes and a link between them.
+    ///
+    /// # Errors
+    ///
+    /// Fails when a lab name cannot be generated.
     pub fn example() -> Result<Self> {
         let name = generate_lab_name()?;
 
@@ -66,8 +71,8 @@ impl Manifest {
         };
 
         let links = vec![Link2 {
-            src: format!("{}::{}", dev01.name.clone(), "eth1"),
-            dst: format!("{}::{}", dev02.name.clone(), "eth1"),
+            src: format!("{}::eth1", dev01.name),
+            dst: format!("{}::eth1", dev02.name),
             p2p: None,
             impairment: None,
         }];
@@ -81,9 +86,12 @@ impl Manifest {
             ..Default::default()
         })
     }
-}
 
-impl Manifest {
+    /// Write the manifest to `file_path` as TOML.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the manifest cannot be serialized or the file cannot be written.
     pub fn write_file(&self, file_path: &str) -> Result<()> {
         let contents =
             toml::to_string_pretty(self).context("Failed to serialize manifest to TOML")?;
@@ -92,10 +100,15 @@ impl Manifest {
         Ok(())
     }
 
+    /// Read and parse the manifest at `file_path`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the file cannot be read or is not a valid manifest.
     pub fn load_file(file_path: &str) -> Result<Manifest> {
         let file_contents = load_file_util(file_path)?;
-        let manifest: Manifest = toml::from_str(&file_contents)?;
-        Ok(manifest)
+        toml::from_str(&file_contents)
+            .with_context(|| format!("Failed to parse manifest {file_path}"))
     }
 }
 
@@ -165,6 +178,16 @@ nodes = []
             );
         }
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn a_manifest_that_does_not_parse_names_its_file() {
+        let path = env::temp_dir().join(format!("sherpa-bad-manifest-{}.toml", process::id()));
+        fs::write(&path, "name = 'lab'\nnodes = [\n").unwrap();
+        let path = path.to_str().unwrap();
+        let error = format!("{:#}", Manifest::load_file(path).unwrap_err());
+        fs::remove_file(path).unwrap();
+        assert!(error.contains(path), "{error}");
     }
 
     #[test]

@@ -4,6 +4,10 @@ use tracing::instrument;
 use crate::Manifest;
 
 /// Validate configuration without resolving secrets or contacting Tailscale.
+///
+/// # Errors
+///
+/// Fails when an enabled tailnet does not name a valid environment variable for its key.
 #[instrument(skip(manifest), level = "debug")]
 pub fn validate_tailscale(manifest: &Manifest) -> Result<()> {
     let Some(config) = &manifest.tailscale else {

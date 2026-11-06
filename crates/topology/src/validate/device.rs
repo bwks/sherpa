@@ -1,26 +1,33 @@
+use std::collections::HashSet;
+
 use anyhow::{Result, bail};
 
 use crate::Node;
 use shared::konst::MANAGEMENT_NODE_HOST_OFFSETS;
 
-// Check duplicate device definitions
-pub fn check_duplicate_device(devices: &Vec<Node>) -> Result<()> {
-    let mut devs: Vec<String> = vec![];
-
+/// Check no two nodes share a name.
+///
+/// # Errors
+///
+/// Fails when a node name is used more than once.
+pub fn check_duplicate_device(devices: &[Node]) -> Result<()> {
+    let mut names = HashSet::new();
     for device in devices {
-        if devs.contains(&device.name) {
+        if !names.insert(device.name.as_str()) {
             bail!(
                 "Manifest - device: '{}' defined more than once",
                 device.name
             );
-        } else {
-            devs.push(device.name.clone())
         }
     }
     Ok(())
 }
 
 /// Check the manifest has no more nodes than the lab management node block has addresses.
+///
+/// # Errors
+///
+/// Fails when there are more nodes than addresses.
 pub fn check_device_count(devices: &[Node]) -> Result<()> {
     let max = MANAGEMENT_NODE_HOST_OFFSETS.clone().count();
     if devices.len() > max {

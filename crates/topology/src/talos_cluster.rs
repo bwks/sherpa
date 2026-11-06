@@ -31,6 +31,7 @@ pub struct TalosCluster {
 
 impl TalosCluster {
     /// The role of `node_name` in this cluster, if it is a member.
+    #[must_use]
     pub fn role_of(&self, node_name: &str) -> Option<ClusterRole> {
         if self.controllers.iter().any(|name| name == node_name) {
             Some(ClusterRole::ControlPlane)
@@ -42,6 +43,7 @@ impl TalosCluster {
     }
 
     /// Every member with its role: controllers first, in bootstrap order, then workers.
+    #[must_use]
     pub fn members(&self) -> Vec<(&str, ClusterRole)> {
         let mut members = Vec::with_capacity(self.controllers.len() + self.workers.len());
         for name in &self.controllers {
@@ -55,6 +57,7 @@ impl TalosCluster {
 }
 
 /// The cluster `node_name` belongs to and its role there, if it is in one.
+#[must_use]
 pub fn find_talos_cluster<'a>(
     clusters: &'a [TalosCluster],
     node_name: &str,
@@ -107,7 +110,7 @@ workers = ["w1"]
     fn workers_are_optional_and_controllers_are_required() {
         let cluster: TalosCluster =
             toml::from_str("name = \"solo\"\ncontrollers = [\"cp1\"]\n").unwrap();
-        assert!(cluster.workers.is_empty());
+        assert_eq!(cluster.workers, [] as [std::string::String; 0]);
         assert!(toml::from_str::<TalosCluster>("name = \"none\"\n").is_err());
     }
 

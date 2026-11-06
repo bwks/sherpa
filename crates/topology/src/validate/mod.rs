@@ -16,7 +16,7 @@ mod watchdog;
 pub use device::{check_device_count, check_duplicate_device};
 pub use link::{
     check_bridge_device, check_duplicate_interface_link, check_interface_bounds, check_link_device,
-    check_mgmt_usage, check_no_p2p_field,
+    check_link_impairments, check_mgmt_usage, check_no_p2p_field,
 };
 pub use performance_tuning::{check_cpu_pin_overlap, check_performance_tuning};
 pub use provisioner::validate_provisioners;

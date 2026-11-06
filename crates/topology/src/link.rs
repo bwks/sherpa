@@ -1,17 +1,8 @@
-use anyhow::Result;
+use anyhow::{Context, Error, Result};
 use serde_derive::{Deserialize, Serialize};
 
 use shared::data::{LinkImpairment, NodeModel};
 use shared::util::split_node_int;
-
-/// Manifest Link
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Link {
-    pub node_a: String,
-    pub int_a: u8,
-    pub node_b: String,
-    pub int_b: u8,
-}
 
 /// Link impairment configuration from the manifest.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -29,16 +20,24 @@ pub struct ManifestImpairment {
     pub corrupt_percent: Option<f32>,
 }
 
-impl From<&ManifestImpairment> for LinkImpairment {
+impl TryFrom<&ManifestImpairment> for LinkImpairment {
+    type Error = Error;
+
     /// The manifest gives delay and jitter in milliseconds; netem takes microseconds.
-    fn from(value: &ManifestImpairment) -> Self {
-        Self {
-            delay_us: value.delay.unwrap_or(0) * 1000,
-            jitter_us: value.jitter.unwrap_or(0) * 1000,
+    fn try_from(value: &ManifestImpairment) -> Result<Self> {
+        let delay = value.delay.unwrap_or(0);
+        let jitter = value.jitter.unwrap_or(0);
+        Ok(Self {
+            delay_us: delay
+                .checked_mul(1000)
+                .with_context(|| format!("Impairment delay of {delay} ms is too long"))?,
+            jitter_us: jitter
+                .checked_mul(1000)
+                .with_context(|| format!("Impairment jitter of {jitter} ms is too long"))?,
             loss_percent: value.loss_percent.unwrap_or(0.0),
             reorder_percent: value.reorder_percent.unwrap_or(0.0),
             corrupt_percent: value.corrupt_percent.unwrap_or(0.0),
-        }
+        })
     }
 }
 
@@ -67,11 +66,8 @@ pub struct LinkDetailed {
     pub impairment: Option<ManifestImpairment>,
 }
 
-/// Manifest Link
-/// expected format:
-/// "node_name::int_name" - Seperated by double collon `::`
-/// {src = "<src_node_name>::<src_int_name>", dst = "<dst_node_name>::<dst_int_name>" }
-/// {src = "dev01::eth1", dst = "dev02::eth0" }
+/// A link in the manifest, between two `node_name::int_name` ends:
+/// `{ src = "dev01::eth1", dst = "dev02::eth0" }`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Link2 {
@@ -84,6 +80,11 @@ pub struct Link2 {
 }
 
 impl Link2 {
+    /// Split both ends into node and interface names.
+    ///
+    /// # Errors
+    ///
+    /// Fails when an end is not `node_name::int_name`.
     pub fn expand(&self) -> Result<LinkExpanded> {
         let (node_a, int_a) = split_node_int(&self.src)?;
         let (node_b, int_b) = split_node_int(&self.dst)?;
@@ -112,7 +113,7 @@ mod tests {
             corrupt_percent: Some(0.5),
         };
         assert_eq!(
-            LinkImpairment::from(&manifest),
+            LinkImpairment::try_from(&manifest).unwrap(),
             LinkImpairment {
                 delay_us: 20_000,
                 jitter_us: 2_000,
@@ -125,6 +126,19 @@ mod tests {
 
     #[test]
     fn test_empty_manifest_impairment_is_clear() {
-        assert!(LinkImpairment::from(&ManifestImpairment::default()).is_clear());
+        assert!(
+            LinkImpairment::try_from(&ManifestImpairment::default())
+                .unwrap()
+                .is_clear()
+        );
+    }
+
+    #[test]
+    fn test_manifest_impairment_too_long_for_microseconds_is_refused() {
+        let manifest = ManifestImpairment {
+            delay: Some(u32::MAX),
+            ..ManifestImpairment::default()
+        };
+        assert!(LinkImpairment::try_from(&manifest).is_err());
     }
 }

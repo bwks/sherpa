@@ -24,6 +24,10 @@ const ALLOWED_CONTROLLER_COUNTS: [usize; 2] = [1, 3];
 ///   without `ztp_config` (Sherpa configures only the Vault it initialises);
 /// - there are no more clusters with three controllers than shared VIP addresses;
 /// - there are no more Cilium clusters than blocks of load balancer addresses.
+///
+/// # Errors
+///
+/// Fails on the first rule a cluster breaks.
 pub fn validate_talos_clusters(manifest: &Manifest) -> Result<()> {
     let clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
     let nodes: HashMap<&str, &Node> = manifest

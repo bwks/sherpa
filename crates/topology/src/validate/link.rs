@@ -1,46 +1,54 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 
 use crate::{BridgeDetailed, Link2, LinkDetailed, Node};
 use shared::data::NodeModel;
+use shared::validators::validate_link_impairment;
+
+/// Which interface indices of a node can carry a link or a bridge.
+struct InterfaceBounds<'a> {
+    device_model: &'a NodeModel,
+    data_interface_count: u8,
+    reserved_interface_count: u8,
+    dedicated_management_interface: bool,
+    /// The first data interface, after the management interface and the reserved ones.
+    first_data_interface_idx: u8,
+    max_interface_idx: u8,
+}
 
 /// Checks if any links or bridges use the management interface (index 0) on a node.
 /// Returns an error if a link or bridge attempts to use the management interface.
 /// This validation only applies to nodes without dedicated management interfaces.
+///
+/// # Errors
+///
+/// Fails when a link or bridge uses the node's management interface.
 pub fn check_mgmt_usage(
     device_name: &str,
     mgmt_interface_index: u8,
-    links: &Vec<LinkDetailed>,
+    links: &[LinkDetailed],
     bridges: &[BridgeDetailed],
 ) -> Result<()> {
-    // Check point-to-point links
     for link in links {
-        let (device, interface_idx, interface_name) = // no-fmt
-        if device_name == link.node_a {
-            (device_name, link.int_a_idx, link.int_a.clone())
-        } else if device_name == link.node_b {
-            (device_name, link.int_b_idx, link.int_b.clone())
-        } else {
-            continue; // this will skip to the next loop if device not matched in link
+        let Some((interface_idx, interface_name)) = link_end(link, device_name) else {
+            continue;
         };
-        if device_name == device && mgmt_interface_index == interface_idx {
+        if interface_idx == mgmt_interface_index {
             bail!(
-                "Manifest link - '{device}' interface '{interface_name}' overlaps with management interface",
+                "Manifest link - '{device_name}' interface '{interface_name}' overlaps with management interface",
             );
         }
     }
 
-    // Check bridge connections
     for bridge in bridges {
         for bridge_link in &bridge.links {
             if bridge_link.node_name == device_name
                 && bridge_link.interface_index == mgmt_interface_index
             {
                 bail!(
-                    "Manifest bridge '{}' - device '{}' interface '{}' overlaps with management interface",
+                    "Manifest bridge '{}' - device '{device_name}' interface '{}' overlaps with management interface",
                     bridge.manifest_name,
-                    device_name,
                     bridge_link.interface_name
                 );
             }
@@ -50,21 +58,34 @@ pub fn check_mgmt_usage(
     Ok(())
 }
 
+/// The interface index and name a link uses on `device_name`, if the link ends there.
+fn link_end<'a>(link: &'a LinkDetailed, device_name: &str) -> Option<(u8, &'a str)> {
+    if link.node_a == device_name {
+        Some((link.int_a_idx, link.int_a.as_str()))
+    } else if link.node_b == device_name {
+        Some((link.int_b_idx, link.int_b.as_str()))
+    } else {
+        None
+    }
+}
+
 /// Check for duplicate interface usage across device links and bridges.
 /// Each interface on a device can only be used once (either in a link OR a bridge).
+///
+/// # Errors
+///
+/// Fails when an interface is used by more than one link or bridge.
 pub fn check_duplicate_interface_link(
-    links: &Vec<LinkDetailed>,
+    links: &[LinkDetailed],
     bridges: &[BridgeDetailed],
 ) -> Result<()> {
     let mut device_int_map: HashMap<String, Vec<u8>> = HashMap::new();
 
-    // Check point-to-point links
     for link in links {
         check_device_interface(&link.node_a, link.int_a_idx, &mut device_int_map, "link")?;
         check_device_interface(&link.node_b, link.int_b_idx, &mut device_int_map, "link")?;
     }
 
-    // Check bridge connections
     for bridge in bridges {
         for bridge_link in &bridge.links {
             check_device_interface(
@@ -78,34 +99,30 @@ pub fn check_duplicate_interface_link(
 
     Ok(())
 }
-/// Helper function for `check_duplicate_interface_link` function
+
+/// Record that `device` uses `interface`, failing if something already does.
 fn check_device_interface(
     device: &str,
     interface: u8,
     device_int_map: &mut HashMap<String, Vec<u8>>,
     connection_type: &str,
 ) -> Result<()> {
-    match device_int_map.get_mut(device) {
-        Some(interfaces) => {
-            if interfaces.contains(&interface) {
-                bail!(
-                    "Manifest {} - device '{}' interface index '{}' is already in use",
-                    connection_type,
-                    device,
-                    interface
-                );
-            }
-            interfaces.push(interface);
-        }
-        None => {
-            device_int_map.insert(device.to_string(), vec![interface]);
-        }
+    let interfaces = device_int_map.entry(device.to_string()).or_default();
+    if interfaces.contains(&interface) {
+        bail!(
+            "Manifest {connection_type} - device '{device}' interface index '{interface}' is already in use"
+        );
     }
+    interfaces.push(interface);
     Ok(())
 }
 
 /// Rejects the removed `p2p` link setting. Every link is a P2p (eBPF) link, so a manifest that
 /// still sets it, either way, is told to delete it rather than having it silently ignored.
+///
+/// # Errors
+///
+/// Fails when a link sets `p2p`.
 pub fn check_no_p2p_field(links: &[Link2]) -> Result<()> {
     for link in links {
         if link.p2p.is_some() {
@@ -120,39 +137,61 @@ pub fn check_no_p2p_field(links: &[Link2]) -> Result<()> {
     Ok(())
 }
 
-/// Check devices defined in links are defined as top level devices
-pub fn check_link_device(devices: &[Node], links: &Vec<LinkDetailed>) -> Result<()> {
-    let unique_devices: Vec<String> = devices.iter().map(|d| d.name.clone()).collect();
-    let mut unique_device_link: HashSet<String> = HashSet::new();
+/// Check every link's impairment against what netem can apply.
+///
+/// # Errors
+///
+/// Fails when a link's delay or jitter is longer than netem can hold, or a percentage is not
+/// between 0 and 100.
+pub fn check_link_impairments(links: &[Link2]) -> Result<()> {
     for link in links {
-        unique_device_link.insert(link.node_a.clone());
-        unique_device_link.insert(link.node_b.clone());
+        let Some(impairment) = &link.impairment else {
+            continue;
+        };
+        validate_link_impairment(
+            impairment.delay.unwrap_or(0),
+            impairment.jitter.unwrap_or(0),
+            impairment.loss_percent.unwrap_or(0.0),
+            impairment.reorder_percent.unwrap_or(0.0),
+            impairment.corrupt_percent.unwrap_or(0.0),
+        )
+        .with_context(|| format!("Manifest link - {} <-> {}", link.src, link.dst))?;
     }
-    for device in &unique_device_link {
-        if !unique_devices.contains(device) {
-            bail!("Manifest link - '{device}' defined in links, not defined in devices");
+    Ok(())
+}
+
+/// Check devices defined in links are defined as top level devices
+///
+/// # Errors
+///
+/// Fails when a link names a node that is not defined.
+pub fn check_link_device(devices: &[Node], links: &[LinkDetailed]) -> Result<()> {
+    let defined: HashSet<&str> = devices.iter().map(|d| d.name.as_str()).collect();
+    for link in links {
+        for device in [&link.node_a, &link.node_b] {
+            if !defined.contains(device.as_str()) {
+                bail!("Manifest link - '{device}' defined in links, not defined in devices");
+            }
         }
     }
     Ok(())
 }
 
 /// Check devices defined in bridges are defined as top level devices
+///
+/// # Errors
+///
+/// Fails when a bridge names a node that is not defined.
 pub fn check_bridge_device(devices: &[Node], bridges: &[BridgeDetailed]) -> Result<()> {
-    let unique_devices: Vec<String> = devices.iter().map(|d| d.name.clone()).collect();
-    let mut unique_device_bridge: HashSet<String> = HashSet::new();
-
+    let defined: HashSet<&str> = devices.iter().map(|d| d.name.as_str()).collect();
     for bridge in bridges {
         for bridge_link in &bridge.links {
-            unique_device_bridge.insert(bridge_link.node_name.clone());
-        }
-    }
-
-    for device in &unique_device_bridge {
-        if !unique_devices.contains(device) {
-            bail!(
-                "Manifest bridge - device '{}' defined in bridges, not defined in devices",
-                device
-            );
+            if !defined.contains(bridge_link.node_name.as_str()) {
+                bail!(
+                    "Manifest bridge - device '{}' defined in bridges, not defined in devices",
+                    bridge_link.node_name
+                );
+            }
         }
     }
     Ok(())
@@ -160,111 +199,105 @@ pub fn check_bridge_device(devices: &[Node], bridges: &[BridgeDetailed]) -> Resu
 
 /// Check interface index bounds for both links and bridges.
 /// Interfaces defined in connections should not be:
-/// - the management interface (if dedicated_management_interface is true)
+/// - the management interface (if `dedicated_management_interface` is true)
 /// - reserved interfaces
-/// - greater than the maximum interface index calculated from data_interface_count
+/// - greater than the maximum interface index calculated from `data_interface_count`
+///
+/// # Errors
+///
+/// Fails when a link or bridge uses an interface outside the node's data interfaces.
 pub fn check_interface_bounds(
     device_name: &str,
     device_model: &NodeModel,
     data_interface_count: u8,
     reserved_interface_count: u8,
     dedicated_management_interface: bool,
-    links: &Vec<LinkDetailed>,
+    links: &[LinkDetailed],
     bridges: &[BridgeDetailed],
 ) -> Result<()> {
-    // Calculate the valid interface range
-    // Management is always at index 0
-    // Reserved interfaces are at indices 1 to reserved_interface_count
-    // Data interfaces start at (1 + reserved_interface_count)
-    let first_data_interface_idx = reserved_interface_count.checked_add(1).ok_or_else(|| {
-        anyhow::anyhow!(
+    // Management is always at index 0, reserved interfaces at 1 to reserved_interface_count,
+    // and data interfaces after them. With data_interface_count=52 and none reserved, data
+    // interfaces are 1 to 52; with no data interfaces, the maximum is the last reserved one.
+    let first_data_interface_idx = reserved_interface_count.checked_add(1).with_context(|| {
+        format!(
             "Interface bounds validation overflow for device '{device_name}' model '{device_model}' (reserved: {reserved_interface_count})"
         )
     })?;
+    let max_interface_idx = reserved_interface_count
+        .checked_add(data_interface_count)
+        .with_context(|| {
+            format!(
+                "Interface bounds validation overflow for device '{device_name}' model '{device_model}' (data_interface_count: {data_interface_count}, reserved: {reserved_interface_count})"
+            )
+        })?;
+    let bounds = InterfaceBounds {
+        device_model,
+        data_interface_count,
+        reserved_interface_count,
+        dedicated_management_interface,
+        first_data_interface_idx,
+        max_interface_idx,
+    };
 
-    // Maximum interface index = reserved_interface_count + data_interface_count.
-    // For example: data_interface_count=52, reserved=0 -> first_data=1, max=52.
-    // If data_interface_count=0, max_interface_idx is the last reserved index.
-    let max_interface_idx = reserved_interface_count.checked_add(data_interface_count).ok_or_else(|| {
-        anyhow::anyhow!(
-            "Interface bounds validation overflow for device '{device_name}' model '{device_model}' (data_interface_count: {data_interface_count}, reserved: {reserved_interface_count})"
-        )
-    })?;
-
-    // Check point-to-point links
     for link in links {
-        let (device, interface_idx, interface_name) = // no-fmt
-        if device_name == link.node_a {
-            (device_name, link.int_a_idx, link.int_a.clone())
-        } else if device_name == link.node_b {
-            (device_name, link.int_b_idx, link.int_b.clone())
-        } else {
-            continue; // this will skip to the next loop if device not matched in link
+        let Some((interface_idx, interface_name)) = link_end(link, device_name) else {
+            continue;
         };
-
-        // Check if interface is in valid range
-        if interface_idx == 0 {
-            if dedicated_management_interface {
-                bail!(
-                    "Manifest link - device '{device}' interface '{interface_name}' is the management interface and cannot be used in links"
-                )
-            }
-            // If not dedicated, index 0 can be used for data, so it's valid
-        } else if interface_idx > 0 && interface_idx < first_data_interface_idx {
-            bail!(
-                "Manifest link - device '{device}' interface index '{interface_name}' is a reserved interface (reserved_count: {reserved_interface_count}) and cannot be used in links"
-            )
-        } else if interface_idx > max_interface_idx {
-            bail!(
-                "Manifest link - device '{device}' interface index '{interface_name}' exceeds the maximum interface index '{max_interface_idx}' for device model '{device_model}' (data_interface_count: {data_interface_count}, reserved: {reserved_interface_count})"
-            )
-        }
+        check_interface_index(
+            &format!("Manifest link - device '{device_name}' interface '{interface_name}'"),
+            "links",
+            interface_idx,
+            &bounds,
+        )?;
     }
 
-    // Check bridge connections
     for bridge in bridges {
         for bridge_link in &bridge.links {
             if bridge_link.node_name != device_name {
                 continue;
             }
-
-            let interface_idx = bridge_link.interface_index;
-            let interface_name = &bridge_link.interface_name;
-
-            // Check if interface is in valid range
-            if interface_idx == 0 {
-                if dedicated_management_interface {
-                    bail!(
-                        "Manifest bridge '{}' - device '{}' interface '{}' is the management interface and cannot be used in bridges",
-                        bridge.manifest_name,
-                        device_name,
-                        interface_name
-                    )
-                }
-                // If not dedicated, index 0 can be used for data, so it's valid
-            } else if interface_idx > 0 && interface_idx < first_data_interface_idx {
-                bail!(
-                    "Manifest bridge '{}' - device '{}' interface '{}' is a reserved interface (reserved_count: {}) and cannot be used in bridges",
-                    bridge.manifest_name,
-                    device_name,
-                    interface_name,
-                    reserved_interface_count
-                )
-            } else if interface_idx > max_interface_idx {
-                bail!(
-                    "Manifest bridge '{}' - device '{}' interface '{}' exceeds the maximum interface index '{}' for device model '{}' (data_interface_count: {}, reserved: {})",
-                    bridge.manifest_name,
-                    device_name,
-                    interface_name,
-                    max_interface_idx,
-                    device_model,
-                    data_interface_count,
-                    reserved_interface_count
-                )
-            }
+            check_interface_index(
+                &format!(
+                    "Manifest bridge '{}' - device '{device_name}' interface '{}'",
+                    bridge.manifest_name, bridge_link.interface_name
+                ),
+                "bridges",
+                bridge_link.interface_index,
+                &bounds,
+            )?;
         }
     }
 
+    Ok(())
+}
+
+/// Check that `interface_idx` is a data interface. `connection` names the interface and what
+/// uses it, and `used_in` the kind of connection, for the error.
+fn check_interface_index(
+    connection: &str,
+    used_in: &str,
+    interface_idx: u8,
+    bounds: &InterfaceBounds,
+) -> Result<()> {
+    if interface_idx == 0 {
+        // Without a dedicated management interface, index 0 carries data.
+        if bounds.dedicated_management_interface {
+            bail!("{connection} is the management interface and cannot be used in {used_in}");
+        }
+    } else if interface_idx < bounds.first_data_interface_idx {
+        bail!(
+            "{connection} is a reserved interface (reserved_count: {}) and cannot be used in {used_in}",
+            bounds.reserved_interface_count
+        );
+    } else if interface_idx > bounds.max_interface_idx {
+        bail!(
+            "{connection} exceeds the maximum interface index '{}' for device model '{}' (data_interface_count: {}, reserved: {})",
+            bounds.max_interface_idx,
+            bounds.device_model,
+            bounds.data_interface_count,
+            bounds.reserved_interface_count
+        );
+    }
     Ok(())
 }
 
@@ -575,14 +608,14 @@ mod tests {
         BridgeDetailed {
             manifest_name: bridge_name.to_string(), // Use bridge_name as manifest_name for testing
             bridge_name: bridge_name.to_string(),
-            libvirt_name: format!("test_{}", bridge_name),
+            libvirt_name: format!("test_{bridge_name}"),
             index: 0,
             links: connections
                 .into_iter()
                 .map(|(node_name, interface_index)| BridgeLinkDetailed {
                     node_name: node_name.to_string(),
                     node_model: NodeModel::RockyLinux,
-                    interface_name: format!("eth{}", interface_index),
+                    interface_name: format!("eth{interface_index}"),
                     interface_index,
                 })
                 .collect(),
@@ -805,5 +838,39 @@ mod tests {
         let links = vec![];
 
         check_link_device(&devices, &links)
+    }
+
+    fn impaired_link(impairment: crate::link::ManifestImpairment) -> Link2 {
+        Link2 {
+            src: "dev01::eth1".to_string(),
+            dst: "dev02::eth1".to_string(),
+            p2p: None,
+            impairment: Some(impairment),
+        }
+    }
+
+    #[test]
+    fn link_impairments_netem_cannot_apply_are_refused() {
+        let error = check_link_impairments(&[impaired_link(crate::link::ManifestImpairment {
+            loss_percent: Some(150.0),
+            ..Default::default()
+        })])
+        .unwrap_err();
+        let error = format!("{error:#}");
+        assert!(error.contains("dev01::eth1 <-> dev02::eth1"), "{error}");
+        assert!(error.contains("loss_percent"), "{error}");
+        assert!(
+            check_link_impairments(&[impaired_link(crate::link::ManifestImpairment {
+                delay: Some(300_000),
+                ..Default::default()
+            })])
+            .is_err()
+        );
+        check_link_impairments(&[impaired_link(crate::link::ManifestImpairment {
+            delay: Some(20),
+            loss_percent: Some(1.5),
+            ..Default::default()
+        })])
+        .unwrap();
     }
 }

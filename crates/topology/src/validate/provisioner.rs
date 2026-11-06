@@ -13,6 +13,10 @@ use crate::{ContainerProvisioner, Manifest, Provisioner, SshProvisioner};
 /// Check node provisioners: ssh provisioners run only on Linux and BSD VMs and container
 /// provisioners only on containers, and their paths, names and modes must be usable. At least
 /// one node must be provisioned at a time.
+///
+/// # Errors
+///
+/// Fails on the first provisioner, path, name or mode that cannot be used.
 #[instrument(skip(manifest), level = "debug")]
 pub fn validate_provisioners(manifest: &Manifest) -> Result<()> {
     ensure!(
@@ -124,9 +128,10 @@ fn validate_ssh(node: &str, ssh: &SshProvisioner, env_names: &mut HashSet<String
 
 /// An absolute path, or one relative to the home directory with `~/`, naming a file.
 fn valid_destination(dst: &str) -> bool {
-    let relative = match (dst.strip_prefix("~/"), dst.strip_prefix('/')) {
-        (Some(relative), _) | (None, Some(relative)) => relative,
-        (None, None) => return false,
+    let ((Some(relative), _) | (None, Some(relative))) =
+        (dst.strip_prefix("~/"), dst.strip_prefix('/'))
+    else {
+        return false;
     };
     if relative.is_empty() {
         return false;
