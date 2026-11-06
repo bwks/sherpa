@@ -23,7 +23,7 @@ A single TC classifier BPF program is shared across all P2p links. For each inte
 3. A BPF HashMap stores the peer's ifindex (key=0, value=peer_ifindex)
 4. On every ingress packet, the program calls `bpf_redirect(peer_ifindex, 0)` to send the packet to the peer's egress
 
-The BPF objects are intentionally leaked via `std::mem::forget()` so the TC filters persist in the kernel after the setup function returns. They are cleaned up when the interfaces are deleted during lab destroy.
+Each TC attachment is taken out of its aya program and forgotten, because aya detaches the links a program holds when it is dropped. The rest of the aya object is dropped, closing sherpad's file descriptors for the program and its map: the TC filter holds the program and the program its map, so both stay in the kernel. They are removed when the interfaces are deleted during lab destroy. Leaking the whole object instead kept two descriptors open in sherpad per attach, and the programs alive until sherpad restarted.
 
 `network::attach_p2p_redirect` attaches the program as a legacy netlink TC filter
 (`TcAttachOptions::Netlink`), never through TCX, which aya chooses by default on kernels 6.6 and

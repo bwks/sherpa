@@ -11,3 +11,6 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 futures = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,4 +1,5 @@
 use std::io::ErrorKind;
+use std::mem;
 
 use anyhow::{Context, Result};
 use aya::Ebpf;
@@ -12,8 +13,8 @@ static EBPF_REDIRECT_ELF: &AlignedElf<
     { include_bytes!("../../ebpf-redirect/ebpf-redirect.elf").len() },
 > = &AlignedElf(*include_bytes!("../../ebpf-redirect/ebpf-redirect.elf"));
 
-/// Wrapper to ensure include_bytes!() data is 8-byte aligned.
-/// The ELF parser requires naturally-aligned data, but include_bytes!()
+/// Wrapper to ensure `include_bytes!()` data is 8-byte aligned.
+/// The ELF parser requires naturally-aligned data, but `include_bytes!()`
 /// only guarantees 1-byte alignment.
 #[repr(C, align(8))]
 struct AlignedElf<const N: usize>([u8; N]);
@@ -30,9 +31,14 @@ struct AlignedElf<const N: usize>([u8; N]);
 /// `qdisc_detach_program` cannot remove it, so a re-attach would leave the old program in
 /// front of the new one.
 ///
-/// The Ebpf object is intentionally leaked so the TC filter, BPF program, and maps
-/// persist in the kernel after this function returns. Cleanup happens when the
-/// interface is deleted (e.g. VM destroy removes the tap device).
+/// The TC filter holds the program, and the program its map, so both stay in the kernel after
+/// this function returns and its file descriptors close. They go when the interface is deleted
+/// (e.g. VM destroy removes the tap device).
+///
+/// # Errors
+///
+/// Fails when the clsact qdisc cannot be added, or the program cannot be loaded, given the peer
+/// index or attached.
 #[instrument(fields(%iface_name, peer_ifindex))]
 pub fn attach_p2p_redirect(iface_name: &str, peer_ifindex: u32) -> Result<()> {
     // Legacy TC filters hang off the clsact qdisc; it exists already on a re-attach.
@@ -94,20 +100,22 @@ pub fn attach_p2p_redirect(iface_name: &str, peer_ifindex: u32) -> Result<()> {
             .load()
             .context(format!("failed to load TC program for {iface_name}"))?;
 
-        program
+        let link_id = program
             .attach_with_options(
                 iface_name,
                 TcAttachType::Ingress,
                 TcAttachOptions::Netlink(NlOptions::default()),
             )
             .context(format!("failed to attach TC program to {iface_name}"))?;
-    }
 
-    // Intentionally leak the Ebpf object so the TC filter, BPF program, and maps
-    // persist in the kernel after this function returns. The kernel reference-counts
-    // these objects — they stay alive as long as the TC filter is attached.
-    // Cleanup happens automatically when the tap interface is deleted (VM destroy).
-    std::mem::forget(bpf);
+        // Dropping the program detaches every link it still holds, so the attachment is taken
+        // out of it and forgotten. A legacy TC link holds no file descriptor; the program's and
+        // the map's descriptors close when `bpf` is dropped, and the filter keeps both alive.
+        let link = program
+            .take_link(link_id)
+            .context(format!("failed to take the TC attachment on {iface_name}"))?;
+        mem::forget(link);
+    }
 
     tracing::info!(
         interface = %iface_name,

@@ -122,6 +122,9 @@ that owns the rule:
 
 Clippy:
 - Fix linting issues by following clippy rules. Do not add any code to ignore clippy linting.
+- The one exception is a float-to-integer conversion, which Rust can only do with `as`: the
+  function that clamps the value carries `#[expect(clippy::cast_possible_truncation,
+  clippy::cast_sign_loss, reason = "...")]`, as `network::tc::percent_to_kernel` does.
 - Crates with `[lints] workspace = true` in their `Cargo.toml` inherit the workspace lints in the
   root `Cargo.toml`, which include `clippy::pedantic`. Crates are moved onto them one at a time,
   each with its pedantic warnings fixed.

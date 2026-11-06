@@ -1,49 +1,58 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use futures::TryStreamExt;
 use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkMessage};
-use rtnetlink::{Handle, LinkBridge, LinkVeth, new_connection};
+use rtnetlink::{Error, Handle, LinkBridge, LinkVeth, new_connection};
 use shared::konst::MTU_JUMBO_NET;
 use tracing::instrument;
 
-/// Helper to set up netlink connection
+/// Linux's `ENODEV`: netlink's answer for a link name that does not exist.
+const ENODEV: i32 = 19;
+
+/// The link-local group addresses a bridge forwards, by the last nibble of
+/// 01-80-C2-00-00-0X.
+///
+/// IEEE 802.1D bridges do not relay frames sent to 01-80-C2-00-00-00 to 01-80-C2-00-00-0F.
+/// This forwards all of them except 00, 01 and 02, which the kernel refuses to forward:
+/// Spanning Tree (STP/RSTP/MSTP), Ethernet flow control (pause frames) and LACP.
+/// See <https://interestingtraffic.nl/2017/11/21/an-oddly-specific-post-about-group_fwd_mask/>.
+const BRIDGE_GROUP_FWD_MASK: u16 = 0xFFF8;
+
+/// Open a netlink connection, driven by a task on the current runtime.
 pub(crate) async fn setup_netlink() -> Result<Handle> {
     let (connection, handle, _) = new_connection().context("Error creating netlink connection")?;
     tokio::spawn(connection);
     Ok(handle)
 }
 
-/// Helper to get a link index
-pub(crate) async fn get_link_index(handle: &Handle, name: &str) -> Result<u32> {
-    let mut links = handle.link().get().match_name(name.to_string()).execute();
+/// Whether `error` is netlink's "no such device".
+fn is_no_device(error: &Error) -> bool {
+    matches!(error, Error::NetlinkError(message) if message.to_io().raw_os_error() == Some(ENODEV))
+}
 
-    if let Some(msg) = links.try_next().await? {
-        Ok(msg.header.index)
-    } else {
-        anyhow::bail!("link {} not found", name);
+/// The index of the link `name`, or `None` when there is no such link.
+async fn find_link_index(handle: &Handle, name: &str) -> Result<Option<u32>> {
+    let mut links = handle.link().get().match_name(name.to_string()).execute();
+    match links.try_next().await {
+        Ok(link) => Ok(link.map(|link| link.header.index)),
+        Err(error) if is_no_device(&error) => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("Failed to look up link {name}")),
     }
 }
 
-#[allow(dead_code)]
-/// Helper to set a link to up state
-async fn enable_link(handle: &Handle, name: &str, index: u32) -> Result<()> {
-    let mut msg = LinkMessage::default();
-    msg.header.index = index;
-    msg.header.flags = LinkFlags::Up; // IFF_UP = 1
-    msg.header.change_mask = LinkFlags::Up; // change the UP flag
-
-    tracing::debug!(link_name = %name, "Enabling link");
-    handle
-        .link()
-        .set(msg)
-        .execute()
-        .await
-        .context(format!("Error enabling link: {name}"))?;
-    Ok(())
+/// The index of the link `name`.
+pub(crate) async fn get_link_index(handle: &Handle, name: &str) -> Result<u32> {
+    find_link_index(handle, name)
+        .await?
+        .with_context(|| format!("Link {name} not found"))
 }
 
 /// Set a link to DOWN state.
 ///
 /// Used to remove carrier from a veth peer (e.g. disabled container interfaces).
+///
+/// # Errors
+///
+/// Fails when the link does not exist or netlink refuses the change.
 #[instrument(fields(%name), level = "debug")]
 pub async fn set_link_down(name: &str) -> Result<()> {
     let handle = setup_netlink().await?;
@@ -64,48 +73,7 @@ pub async fn set_link_down(name: &str) -> Result<()> {
     Ok(())
 }
 
-#[allow(dead_code)]
-/// Set MTU on an interface
-async fn set_mtu(handle: &Handle, name: &str, mtu: u32) -> Result<()> {
-    let index = get_link_index(handle, name).await?;
-
-    let mut msg = LinkMessage::default();
-    msg.header.index = index;
-    msg.attributes.push(LinkAttribute::Mtu(mtu));
-
-    tracing::debug!(link_name = %name, mtu = mtu, "Setting MTU on link");
-    handle
-        .link()
-        .set(msg)
-        .execute()
-        .await
-        .context(format!("Error setting MTU on: {name}"))?;
-
-    Ok(())
-}
-
-#[allow(dead_code)]
-/// Set alternate name on an interface
-async fn set_alias_name(handle: &Handle, name: &str, alias: &str) -> Result<()> {
-    let index = get_link_index(handle, name).await?;
-
-    let mut msg = LinkMessage::default();
-    msg.header.index = index;
-    msg.attributes
-        .push(LinkAttribute::IfAlias(alias.to_string()));
-
-    tracing::debug!(link_name = %name, alias = %alias, "Setting alias name on link");
-    handle
-        .link()
-        .set(msg)
-        .execute()
-        .await
-        .context(format!("Error setting alias: {alias} on: {name}"))?;
-
-    Ok(())
-}
-
-/// Set all common link properties at once.
+/// Bring a link up with an alias and an MTU.
 pub(crate) async fn set_link_properties(
     handle: &Handle,
     link_name: &str,
@@ -115,9 +83,9 @@ pub(crate) async fn set_link_properties(
 ) -> Result<()> {
     let mut msg = LinkMessage::default();
     msg.header.index = link_idx;
-    msg.header.flags = LinkFlags::Up; // IFF_UP = 1
-    msg.header.change_mask = LinkFlags::Up; // change the UP flag
-    msg.attributes.extend(vec![
+    msg.header.flags = LinkFlags::Up;
+    msg.header.change_mask = LinkFlags::Up;
+    msg.attributes.extend([
         LinkAttribute::IfAlias(link_alias.to_string()),
         LinkAttribute::Mtu(mtu),
     ]);
@@ -128,42 +96,45 @@ pub(crate) async fn set_link_properties(
         .set(msg)
         .execute()
         .await
-        .context(format!("Error setting properites on: {link_name}"))?;
+        .context(format!("Error setting properties on: {link_name}"))?;
 
     Ok(())
 }
 
-/// Create a bridge interface
+/// Create a bridge that forwards link-local protocols such as LLDP, up, with a jumbo MTU.
+///
+/// # Errors
+///
+/// Fails when netlink cannot create the bridge or set it up.
+#[instrument(fields(%name, %alias_name))]
 pub async fn create_bridge(name: &str, alias_name: &str) -> Result<()> {
     let handle = setup_netlink().await?;
-
-    // https://interestingtraffic.nl/2017/11/21/an-oddly-specific-post-about-group_fwd_mask/
-    //
-    // IEEE 802.1D MAC Bridge Filtered MAC Group Addresses: 01-80-C2-00-00-00 to 01-80-C2-00-00-0F;
-    // MAC frames that have a destination MAC address within this range are not relayed by MAC bridges
-    // conforming to IEEE 802.1D.
-    //
-    // Allow all protocols except for 00, 01, 02 which are limited in the kernel.
-    // 01-80-C2-00-00-00 	Spanning Tree (STP/RSPT/MSTP)
-    // 01-80-C2-00-00-01 	Ethernet Flow Control (pause frames)
-    // 01-80-C2-00-00-02 	Link Aggregation Control Protocol (LACP)
-    let mask: u16 = 0xFFF8;
 
     tracing::info!(bridge_name = %name, alias = %alias_name, "Creating bridge");
     handle
         .link()
-        .add(LinkBridge::new(name).group_fwd_mask(mask).build())
+        .add(
+            LinkBridge::new(name)
+                .group_fwd_mask(BRIDGE_GROUP_FWD_MASK)
+                .build(),
+        )
         .execute()
         .await
         .context(format!("Error creating bridge: {name}"))?;
 
     let idx = get_link_index(&handle, name).await?;
 
-    set_link_properties(&handle, name, idx, alias_name, MTU_JUMBO_NET as u32).await?;
+    set_link_properties(&handle, name, idx, alias_name, u32::from(MTU_JUMBO_NET)).await?;
 
     Ok(())
 }
 
+/// Create a veth pair, both ends up with a jumbo MTU and their aliases.
+///
+/// # Errors
+///
+/// Fails when netlink cannot create the pair or set its ends up.
+#[instrument(fields(%src_name, %dst_name))]
 pub async fn create_veth_pair(
     src_name: &str,
     dst_name: &str,
@@ -172,7 +143,6 @@ pub async fn create_veth_pair(
 ) -> Result<()> {
     let handle = setup_netlink().await?;
 
-    // Create veth pair
     tracing::info!(src_name = %src_name, dst_name = %dst_name, "Creating veth pair");
     handle
         .link()
@@ -189,7 +159,7 @@ pub async fn create_veth_pair(
         src_name,
         src_idx,
         src_alias_name,
-        MTU_JUMBO_NET as u32,
+        u32::from(MTU_JUMBO_NET),
     )
     .await?;
 
@@ -199,81 +169,86 @@ pub async fn create_veth_pair(
         dst_name,
         dst_idx,
         dst_alias_name,
-        MTU_JUMBO_NET as u32,
+        u32::from(MTU_JUMBO_NET),
     )
     .await?;
 
     Ok(())
 }
 
-/// Enslave a veth interface to a bridge
+/// Make the interface `int_name` a member of the bridge `bridge_name`.
+///
+/// # Errors
+///
+/// Fails when either link does not exist or netlink refuses the change.
+#[instrument(fields(%int_name, %bridge_name))]
 pub async fn enslave_to_bridge(int_name: &str, bridge_name: &str) -> Result<()> {
     let handle = setup_netlink().await?;
-
-    // Get the veth interface
-    let mut veth_links = handle
-        .link()
-        .get()
-        .match_name(int_name.to_string())
-        .execute();
-    let veth_link = if let Some(link) = veth_links.try_next().await? {
-        link
-    } else {
-        return Err(anyhow!("Interface {} not found", int_name));
-    };
-
-    // Get the bridge interface index
+    let index = get_link_index(&handle, int_name).await?;
     let bridge_idx = get_link_index(&handle, bridge_name).await?;
 
-    // Create a minimal LinkMessage for the change
     let mut msg = LinkMessage::default();
-    msg.header.index = veth_link.header.index;
+    msg.header.index = index;
     msg.attributes.push(LinkAttribute::Controller(bridge_idx));
 
     tracing::debug!(interface_name = %int_name, bridge_name = %bridge_name, "Enslaving interface to bridge");
     handle.link().change(msg).execute().await.context(format!(
-        "Error setting interface as bridge slave.\n int: {int_name} - bridge: {bridge_name}"
+        "Error setting interface {int_name} as a member of bridge {bridge_name}"
     ))?;
 
     Ok(())
 }
 
-/// Delete and interface
+/// Delete the interface `name`. An interface that is already gone counts as deleted, so a
+/// retried destroy succeeds.
+///
+/// # Errors
+///
+/// Fails when netlink cannot look the interface up or delete it.
+#[instrument(fields(%name))]
 pub async fn delete_interface(name: &str) -> Result<()> {
     let handle = setup_netlink().await?;
+    let Some(index) = find_link_index(&handle, name).await? else {
+        tracing::debug!(interface_name = %name, "Interface already deleted");
+        return Ok(());
+    };
 
-    // Get the interface index
-    let mut links = handle.link().get().match_name(name.to_string()).execute();
-
-    if let Some(link) = links.try_next().await? {
-        tracing::info!(interface_name = %name, "Deleting interface");
-        handle.link().del(link.header.index).execute().await?;
-        Ok(())
-    } else {
-        Err(anyhow!("Interface {} not found", name))
+    tracing::info!(interface_name = %name, "Deleting interface");
+    match handle.link().del(index).execute().await {
+        Ok(()) => Ok(()),
+        // Deleting a veth deletes its peer, so another delete can remove it first.
+        Err(error) if is_no_device(&error) => {
+            tracing::debug!(interface_name = %name, "Interface deleted meanwhile");
+            Ok(())
+        }
+        Err(error) => Err(error).with_context(|| format!("Error deleting interface {name}")),
     }
 }
 
-/// Find interfaces by fuzzy match
+/// The names of all interfaces whose name contains `fuzzy_name`.
+///
+/// # Errors
+///
+/// Fails when netlink cannot list the interfaces.
+#[instrument(fields(%fuzzy_name), level = "debug")]
 pub async fn find_interfaces_fuzzy(fuzzy_name: &str) -> Result<Vec<String>> {
     let handle = setup_netlink().await?;
 
-    // Get all links
     let mut links = handle.link().get().execute();
 
-    let mut intefaces = Vec::new();
+    let mut interfaces = Vec::new();
 
-    while let Some(link) = links.try_next().await? {
+    while let Some(link) = links.try_next().await.context("Error listing interfaces")? {
         // Extract the interface name from attributes
         for attr in link.attributes {
             if let LinkAttribute::IfName(name) = attr {
                 if name.contains(fuzzy_name) {
-                    intefaces.push(name);
+                    interfaces.push(name);
                 }
                 break;
             }
         }
     }
 
-    Ok(intefaces)
+    Ok(interfaces)
 }
