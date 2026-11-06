@@ -2236,17 +2236,19 @@ pub async fn up_lab(
 
         let is_running = container::run_container(
             &docker_conn,
-            &format!("{CONTAINER_DNSMASQ_NAME}-{lab_id}"),
-            CONTAINER_DNSMASQ_REPO,
-            dnsmasq_env_vars,
-            dnsmasq_volumes,
-            dnsmasq_capabilities,
-            management_network_attachment,
-            vec![],
-            vec![],
-            false,
-            None,
-            None,
+            container::ContainerSpec {
+                name: format!("{CONTAINER_DNSMASQ_NAME}-{lab_id}"),
+                image: CONTAINER_DNSMASQ_REPO.to_string(),
+                env_vars: dnsmasq_env_vars,
+                volumes: dnsmasq_volumes,
+                capabilities: dnsmasq_capabilities,
+                management_network: management_network_attachment,
+                additional_networks: vec![],
+                commands: vec![],
+                privileged: false,
+                shm_size: None,
+                user: None,
+            },
         )
         .await?;
 

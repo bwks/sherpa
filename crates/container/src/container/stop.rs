@@ -3,6 +3,11 @@ use bollard::Docker;
 use bollard::query_parameters::StopContainerOptions;
 use tracing::instrument;
 
+/// Stop the running container `name`.
+///
+/// # Errors
+///
+/// Fails when the container does not exist or Docker cannot stop it.
 #[instrument(skip(docker), level = "debug")]
 pub async fn stop_container(docker: &Docker, name: &str) -> Result<()> {
     docker
@@ -14,6 +19,11 @@ pub async fn stop_container(docker: &Docker, name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Freeze the running container `name`.
+///
+/// # Errors
+///
+/// Fails when the container does not exist or is not running.
 #[instrument(skip(docker), level = "debug")]
 pub async fn pause_container(docker: &Docker, name: &str) -> Result<()> {
     docker

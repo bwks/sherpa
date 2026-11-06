@@ -16,10 +16,10 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use container::{
-    create_docker_bridge_network, delete_network, docker_connection, exec_container,
+    ContainerSpec, create_docker_bridge_network, delete_network, docker_connection, exec_container,
     exec_container_detached, exec_container_with_retry, get_local_images, kill_container,
-    list_containers, list_networks, pause_container, pull_image, remove_container, run_container,
-    start_container, stop_container, unpause_container,
+    list_containers, list_networks, load_image, pause_container, pull_image, remove_container,
+    run_container, start_container, stop_container, unpause_container,
 };
 use shared::data::ContainerNetworkAttachment;
 
@@ -69,7 +69,7 @@ async fn create_test_network(docker: &Docker, net: &TestNet) -> Result<()> {
     )
     .await?;
 
-    // Verify network was actually created (create_docker_bridge_network swallows errors)
+    // Verify network was actually created
     let networks = list_networks(docker).await?;
     ensure!(
         networks
@@ -90,17 +90,19 @@ async fn create_test_container(docker: &Docker, name: &str, net: &TestNet) -> Re
 
     run_container(
         docker,
-        name,
-        TEST_IMAGE,
-        vec![],
-        vec![],
-        vec![],
-        test_network(&net.name),
-        vec![],
-        vec!["sleep".to_string(), "3600".to_string()],
-        false,
-        None,
-        None,
+        ContainerSpec {
+            name: name.to_string(),
+            image: TEST_IMAGE.to_string(),
+            env_vars: vec![],
+            volumes: vec![],
+            capabilities: vec![],
+            management_network: test_network(&net.name),
+            additional_networks: vec![],
+            commands: vec!["sleep".to_string(), "3600".to_string()],
+            privileged: false,
+            shm_size: None,
+            user: None,
+        },
     )
     .await?;
 
@@ -129,7 +131,7 @@ async fn container_listed(docker: &Docker, name: &str) -> Result<bool> {
 // ============================================================================
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_docker_connection() -> Result<()> {
     let docker = docker_connection()?;
     // Verify connection works by pinging Docker
@@ -142,7 +144,7 @@ async fn test_docker_connection() -> Result<()> {
 // ============================================================================
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_run_and_remove_container() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-run-remove";
@@ -171,7 +173,7 @@ async fn test_run_and_remove_container() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_stop_and_start_container() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-stop-start";
@@ -198,7 +200,7 @@ async fn test_stop_and_start_container() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_pause_and_unpause_container() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-pause";
@@ -238,7 +240,7 @@ async fn test_pause_and_unpause_container() -> Result<()> {
 // ============================================================================
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_exec_container_success() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-exec";
@@ -255,7 +257,7 @@ async fn test_exec_container_success() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_exec_container_failure_returns_error() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-exec-fail";
@@ -273,7 +275,7 @@ async fn test_exec_container_failure_returns_error() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_exec_container_detached() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-exec-detach";
@@ -291,7 +293,7 @@ async fn test_exec_container_detached() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_exec_container_with_retry_succeeds() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-exec-retry";
@@ -319,7 +321,7 @@ async fn test_exec_container_with_retry_succeeds() -> Result<()> {
 // ============================================================================
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_create_and_delete_bridge_network() -> Result<()> {
     let docker = docker_connection()?;
     let net = TestNet::new("bridge", 7);
@@ -342,7 +344,7 @@ async fn test_create_and_delete_bridge_network() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_list_networks_includes_default() -> Result<()> {
     let docker = docker_connection()?;
     let networks = list_networks(&docker).await?;
@@ -359,7 +361,7 @@ async fn test_list_networks_includes_default() -> Result<()> {
 // ============================================================================
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_get_local_images() -> Result<()> {
     let docker = docker_connection()?;
     let images = get_local_images(&docker).await?;
@@ -367,15 +369,14 @@ async fn test_get_local_images() -> Result<()> {
     // We pulled alpine:latest earlier, it should be in the list
     assert!(
         images.iter().any(|i| i.contains("alpine")),
-        "alpine should be in local images, got: {:?}",
-        images
+        "alpine should be in local images, got: {images:?}"
     );
 
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_pull_image() -> Result<()> {
     let count = AtomicU32::new(0);
     pull_image("alpine", "latest", |_msg| {
@@ -397,7 +398,7 @@ async fn test_pull_image() -> Result<()> {
 // ============================================================================
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_run_container_with_env_vars() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-env";
@@ -409,17 +410,19 @@ async fn test_run_container_with_env_vars() -> Result<()> {
 
         run_container(
             &docker,
-            name,
-            TEST_IMAGE,
-            vec!["MY_VAR=hello".to_string(), "OTHER=world".to_string()],
-            vec![],
-            vec![],
-            test_network(&net.name),
-            vec![],
-            vec!["sleep".to_string(), "3600".to_string()],
-            false,
-            None,
-            None,
+            ContainerSpec {
+                name: name.to_string(),
+                image: TEST_IMAGE.to_string(),
+                env_vars: vec!["MY_VAR=hello".to_string(), "OTHER=world".to_string()],
+                volumes: vec![],
+                capabilities: vec![],
+                management_network: test_network(&net.name),
+                additional_networks: vec![],
+                commands: vec!["sleep".to_string(), "3600".to_string()],
+                privileged: false,
+                shm_size: None,
+                user: None,
+            },
         )
         .await?;
 
@@ -445,7 +448,7 @@ async fn test_run_container_with_env_vars() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_run_container_privileged() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-priv";
@@ -457,17 +460,8 @@ async fn test_run_container_privileged() -> Result<()> {
 
         run_container(
             &docker,
-            name,
-            TEST_IMAGE,
-            vec![],
-            vec![],
-            vec![],
-            test_network(&net.name),
-            vec![],
-            vec!["sleep".to_string(), "3600".to_string()],
-            true, // privileged
-            None,
-            None,
+            ContainerSpec { name: name.to_string(), image: TEST_IMAGE.to_string(), env_vars: vec![], volumes: vec![], capabilities: vec![], management_network: test_network(&net.name), additional_networks: vec![], commands: vec!["sleep".to_string(), "3600".to_string()], privileged: true, shm_size: // privileged
+            None, user: None },
         )
         .await?;
 
@@ -488,4 +482,116 @@ async fn test_run_container_privileged() -> Result<()> {
     .await;
     cleanup(&docker, name, &net.name).await;
     result
+}
+
+// ============================================================================
+// Failures are reported, and cleanup is idempotent
+// ============================================================================
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon"]
+async fn test_create_bridge_network_reports_failure() -> Result<()> {
+    let docker = docker_connection()?;
+    let result = create_docker_bridge_network(
+        &docker,
+        "sherpa-test-net-invalid",
+        Some("not-a-subnet".to_string()),
+        None,
+        "br-sherpa-t90",
+    )
+    .await;
+    let _ = delete_network(&docker, "sherpa-test-net-invalid").await;
+    ensure!(result.is_err(), "an invalid subnet must fail");
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon"]
+async fn test_create_existing_bridge_network_succeeds() -> Result<()> {
+    let docker = docker_connection()?;
+    let net = TestNet::new("again", 51);
+    let _ = delete_network(&docker, &net.name).await;
+    create_test_network(&docker, &net).await?;
+    let again = create_docker_bridge_network(
+        &docker,
+        &net.name,
+        Some(net.subnet.clone()),
+        None,
+        &net.bridge,
+    )
+    .await;
+    delete_network(&docker, &net.name).await?;
+    again
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon"]
+async fn test_delete_network_in_use_fails_and_missing_succeeds() -> Result<()> {
+    let docker = docker_connection()?;
+    let name = "sherpa-test-net-in-use";
+    let net = TestNet::new("in-use", 52);
+    create_test_container(&docker, name, &net).await?;
+    let in_use = delete_network(&docker, &net.name).await;
+    cleanup(&docker, name, &net.name).await;
+    ensure!(
+        in_use.is_err(),
+        "a network with a container must not delete"
+    );
+    delete_network(&docker, &net.name).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon"]
+async fn test_remove_missing_container_succeeds() -> Result<()> {
+    let docker = docker_connection()?;
+    remove_container(&docker, "sherpa-test-container-missing").await
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon"]
+async fn test_load_image_reports_a_read_error() -> Result<()> {
+    let docker = docker_connection()?;
+    // A directory opens, but reading it fails.
+    let directory = std::env::temp_dir();
+    let error = load_image(&docker, directory.to_str().unwrap(), |_| {})
+        .await
+        .unwrap_err();
+    ensure!(
+        format!("{error:#}").contains("Failed to read image archive"),
+        "{error:#}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon"]
+async fn test_run_container_removes_a_container_it_cannot_set_up() -> Result<()> {
+    let docker = docker_connection()?;
+    let name = "sherpa-test-unattachable";
+    let net = TestNet::new("unattachable", 53);
+    cleanup(&docker, name, &net.name).await;
+    create_test_network(&docker, &net).await?;
+    let result = run_container(
+        &docker,
+        ContainerSpec {
+            name: name.to_string(),
+            image: TEST_IMAGE.to_string(),
+            env_vars: vec![],
+            volumes: vec![],
+            capabilities: vec![],
+            management_network: test_network(&net.name),
+            additional_networks: vec![test_network("sherpa-test-net-missing")],
+            commands: vec!["sleep".to_string(), "3600".to_string()],
+            privileged: false,
+            shm_size: None,
+            user: None,
+        },
+    )
+    .await;
+    let left = container_listed(&docker, name).await?;
+    cleanup(&docker, name, &net.name).await;
+    ensure!(result.is_err(), "attaching a missing network must fail");
+    ensure!(!left, "the container that failed to attach must be removed");
+    Ok(())
 }

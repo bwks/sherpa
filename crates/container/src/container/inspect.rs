@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, bail};
 use bollard::Docker;
 use bollard::query_parameters::InspectContainerOptions;
 use tracing::instrument;
@@ -7,6 +7,10 @@ use tracing::instrument;
 ///
 /// Returns the init PID of the container's main process,
 /// which can be used to access the container's network namespace.
+///
+/// # Errors
+///
+/// Fails when the container cannot be inspected or is not running.
 #[instrument(skip(docker), fields(%container_name), level = "debug")]
 pub async fn get_container_pid(docker: &Docker, container_name: &str) -> Result<u32> {
     let options = Some(InspectContainerOptions { size: false });
@@ -19,18 +23,19 @@ pub async fn get_container_pid(docker: &Docker, container_name: &str) -> Result<
         .state
         .as_ref()
         .and_then(|s| s.pid)
-        .ok_or_else(|| anyhow!("no PID found for container {container_name}"))?;
+        .with_context(|| format!("no PID found for container {container_name}"))?;
 
-    if pid <= 0 {
-        return Err(anyhow!(
-            "container {container_name} has invalid PID {pid} — is it running?"
-        ));
+    match u32::try_from(pid) {
+        Ok(pid) if pid > 0 => Ok(pid),
+        _ => bail!("container {container_name} has invalid PID {pid} — is it running?"),
     }
-
-    Ok(pid as u32)
 }
 
 /// The host path mounted at `destination` in a container, if one is.
+///
+/// # Errors
+///
+/// Fails when the container cannot be inspected.
 #[instrument(skip(docker), fields(%container_name, %destination), level = "debug")]
 pub async fn get_container_mount_source(
     docker: &Docker,

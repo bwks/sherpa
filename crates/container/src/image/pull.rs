@@ -1,102 +1,53 @@
-use anyhow::Result;
-use async_compression::Level;
-use async_compression::tokio::write::GzipEncoder;
-use bollard::Docker;
+use anyhow::{Context, Result};
 use bollard::query_parameters::CreateImageOptionsBuilder;
 use futures_util::StreamExt;
-use tokio::io::AsyncWriteExt;
 use tracing::instrument;
 
-use shared::data::{Config as SherpaConfig, ContainerImage};
+use crate::connect::docker_connection;
 
-/// Pull a container image from an OCI registry and save to local Docker daemon
-/// Similar to `docker pull` command
+/// Pull a container image from an OCI registry into the local Docker daemon, like
+/// `docker pull`.
 ///
-/// The optional `on_progress` callback is invoked with human-readable status
-/// strings as the pull progresses.
+/// The `on_progress` callback is invoked with human-readable status strings as the pull
+/// progresses.
+///
+/// # Errors
+///
+/// Fails when Docker cannot be reached or the pull fails.
 #[instrument(skip(on_progress), level = "debug")]
 pub async fn pull_image<F>(repo: &str, tag: &str, on_progress: F) -> Result<()>
 where
     F: Fn(&str),
 {
-    let docker = Docker::connect_with_local_defaults()?;
+    let docker = docker_connection()?;
 
-    let image_location = format!("{}:{}", repo, tag);
+    let image_location = format!("{repo}:{tag}");
 
     tracing::info!(image = %image_location, "Pulling container image");
-    on_progress(&format!("Pulling {}...", image_location));
+    on_progress(&format!("Pulling {image_location}..."));
 
-    // Specify the image details using the builder
     let options = CreateImageOptionsBuilder::default()
         .from_image(repo)
         .tag(tag)
         .build();
 
-    // Pull the image - this saves directly to Docker's local image store
+    // The pull saves directly to Docker's local image store.
     let mut pull_stream = docker.create_image(Some(options), None, None);
 
     while let Some(pull_result) = pull_stream.next().await {
-        match pull_result {
-            Ok(info) => {
-                // Report pull progress
-                if let Some(ref status) = info.status {
-                    if let Some(ref progress) = info.progress {
-                        on_progress(&format!("{}: {}", status, progress));
-                        tracing::debug!(status = %status, progress = %progress, "Image pull progress");
-                    } else {
-                        on_progress(status);
-                        tracing::debug!(status = %status, "Image pull progress");
-                    }
-                }
-            }
-            Err(e) => {
-                return Err(anyhow::anyhow!(
-                    "Error pulling image {}: {}",
-                    image_location,
-                    e
-                ));
+        let info = pull_result.with_context(|| format!("Error pulling image {image_location}"))?;
+        if let Some(ref status) = info.status {
+            if let Some(ref progress) = info.progress {
+                on_progress(&format!("{status}: {progress}"));
+                tracing::debug!(status = %status, progress = %progress, "Image pull progress");
+            } else {
+                on_progress(status);
+                tracing::debug!(status = %status, "Image pull progress");
             }
         }
     }
 
     tracing::info!(image = %image_location, "Successfully pulled image, now available in local Docker daemon");
-    on_progress(&format!("Successfully pulled {}", image_location));
-    Ok(())
-}
-
-/// Pull down a container image from an OCI compliant Repository.
-#[instrument(skip(config), level = "debug")]
-pub async fn pull_container_image(config: &SherpaConfig, image: &ContainerImage) -> Result<()> {
-    let image_location = format!("{}:{}", image.repo, image.version);
-    let image_save_location = format!("{}/{}.tar.gz", config.containers_dir, image.name);
-
-    let docker = Docker::connect_with_local_defaults()?;
-
-    // Specify the image details using the new builder
-    let options = CreateImageOptionsBuilder::default()
-        .from_image(&image_location)
-        .build();
-
-    // Pull the image
-    tracing::info!(image_name = %image.name, "Pulling container image");
-    let mut pull_stream = docker.create_image(Some(options), None, None);
-    while let Some(_pull_result) = pull_stream.next().await {}
-
-    tracing::debug!(image_name = %image.name, "Exporting container image");
-    // Export the image and save as a .tar.gz
-    let mut export_stream = docker.export_image(&image_location);
-
-    tracing::debug!(image_name = %image.name, path = %image_save_location, "Saving image to disk");
-    let file = tokio::fs::File::create(&image_save_location).await?;
-    let mut encoder = GzipEncoder::with_quality(file, Level::Fastest);
-
-    while let Some(chunk) = export_stream.next().await {
-        let chunk = chunk?;
-        encoder.write_all(&chunk).await?;
-    }
-    encoder.shutdown().await?;
-
-    tracing::info!(image_name = %image.name, path = %image_save_location, "Image saved successfully");
-
+    on_progress(&format!("Successfully pulled {image_location}"));
     Ok(())
 }
