@@ -53,7 +53,7 @@ use shared::konst::{
     WINDOWS_SSHD_CONFIG, WINDOWS_SYSTEM_SID, ZTP_DIR, ZTP_ISO, ZTP_ISO_VOLUME_ID, ZTP_JSON,
 };
 use shared::util;
-use shared::validators::effective_data_interface_count;
+use shared::validators::{effective_data_interface_count, mode_from_octal_digits};
 use virt::error::ErrorNumber;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
@@ -2840,8 +2840,10 @@ fn generate_ignition_ztp(
         .map(|file| -> Result<template::IgnitionFile> {
             Ok(template::IgnitionFile {
                 path: file.dst.clone(),
-                mode: template::FileMode::from_octal_digits(file.permissions)
-                    .with_context(|| format!("Text file {}", file.dst))?,
+                mode: template::FileMode::new(
+                    mode_from_octal_digits(file.permissions)
+                        .with_context(|| format!("Text file {} mode", file.dst))?,
+                ),
                 overwrite: None,
                 contents: Some(template::IgnitionFileContents::new(&format!(
                     "data:;base64,{}",

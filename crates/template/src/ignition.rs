@@ -6,7 +6,6 @@ use serde_derive::{Deserialize, Serialize};
 use shared::data::{NetworkV4, NetworkV6};
 use shared::konst::{IGNITION_VERSION, SHERPA_DOMAIN_NAME};
 use shared::util::base64_encode;
-use shared::validators::mode_from_octal_digits;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IgnitionConfig {
@@ -117,17 +116,6 @@ impl FileMode {
     #[must_use]
     pub const fn new(bits: u32) -> Self {
         Self(bits)
-    }
-
-    /// The mode a manifest writes as octal digits, such as `644`.
-    ///
-    /// # Errors
-    ///
-    /// Fails when `digits` are not octal digits up to `777`.
-    pub fn from_octal_digits(digits: u32) -> Result<Self> {
-        mode_from_octal_digits(digits).map(Self).with_context(|| {
-            format!("File mode {digits} must be octal digits up to 777, such as 644")
-        })
     }
 }
 
@@ -349,26 +337,6 @@ mod tests {
     use super::*;
 
     // ── FileMode ──────────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_file_mode_reads_octal_digits() {
-        assert_eq!(
-            FileMode::from_octal_digits(644).unwrap(),
-            FileMode::new(0o644)
-        );
-        assert_eq!(FileMode::from_octal_digits(0).unwrap(), FileMode::new(0));
-        assert_eq!(
-            FileMode::from_octal_digits(777).unwrap(),
-            FileMode::new(0o777)
-        );
-    }
-
-    #[test]
-    fn test_a_mode_that_is_not_octal_digits_is_refused() {
-        for digits in [999, 8, 1000] {
-            assert!(FileMode::from_octal_digits(digits).is_err(), "{digits}");
-        }
-    }
 
     #[test]
     fn test_file_mode_serializes_as_its_bits() {

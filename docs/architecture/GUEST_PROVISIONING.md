@@ -192,9 +192,10 @@ unable to write in, for example, their own `~/.config`.
 Ignition files and directories take their mode as a `template::FileMode`, which holds the
 permission bits and serializes them as the decimal number Ignition reads (`0o644` is `420`).
 Fixed modes are written as Rust octal literals, `FileMode::new(0o644)`. A manifest's text file
-mode, written as octal digits (`644`), goes through `FileMode::from_octal_digits`, which refuses
-digits other than 0 to 7 and values over 777; `topology::validate::check_text_file_modes`
-refuses those in the client and in `up` before they get that far.
+mode, written as octal digits (`644`), is converted by `shared::validators::mode_from_octal_digits`,
+which refuses digits other than 0 to 7 and values over 777. The same function converts container
+secret file modes and backs every mode validator; `topology::validate::check_text_file_modes`
+refuses bad text file modes in the client and in `up` before they get that far.
 
 ## Windows (cloudbase-init)
 

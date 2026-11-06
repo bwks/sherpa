@@ -1,4 +1,4 @@
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result};
 
 use crate::Node;
 use shared::validators::mode_from_octal_digits;
@@ -23,12 +23,12 @@ pub fn check_text_file_modes(nodes: &[Node]) -> Result<()> {
             .flatten()
             .map(|file| (file.dst.as_str(), file.permissions));
         for (dst, permissions) in files.chain(read) {
-            ensure!(
-                mode_from_octal_digits(permissions).is_some(),
-                "Manifest - node: '{}' text file '{dst}' has permissions {permissions}; use octal \
-                 digits up to 777, such as 644",
-                node.name
-            );
+            mode_from_octal_digits(permissions).with_context(|| {
+                format!(
+                    "Manifest - node: '{}' text file '{dst}' permissions",
+                    node.name
+                )
+            })?;
         }
     }
     Ok(())
