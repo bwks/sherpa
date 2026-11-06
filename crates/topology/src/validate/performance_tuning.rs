@@ -6,6 +6,10 @@ use shared::data::{
 };
 
 /// Check a node's `[nodes.performance_tuning]` against its own settings and its image.
+///
+/// # Errors
+///
+/// Fails when a setting does not fit the node's kind, CPU count, disks or interfaces.
 pub fn check_performance_tuning(node: &NodeExpanded, image: &NodeConfig) -> Result<()> {
     let Some(tuning) = &node.performance_tuning else {
         return Ok(());
@@ -45,7 +49,7 @@ pub fn check_performance_tuning(node: &NodeExpanded, image: &NodeConfig) -> Resu
 
     let vcpu_cpus = tuning.cpu_pinning.as_deref().unwrap_or_default();
     if let Some(pinning) = &tuning.cpu_pinning {
-        if pinning.len() as u32 != cpu_count {
+        if u32::try_from(pinning.len()).ok() != Some(cpu_count) {
             bail!(
                 "Manifest - node: '{name}' `cpu_pinning` lists {} host CPUs, one is needed for \
                  each of its {cpu_count} vCPUs",
@@ -113,6 +117,10 @@ pub fn check_performance_tuning(node: &NodeExpanded, image: &NodeConfig) -> Resu
 
 /// Check that no host CPU pinned to a vCPU is shared: not with another node's vCPUs, and not
 /// with any node's QEMU or I/O threads. QEMU and I/O threads may share CPUs with each other.
+///
+/// # Errors
+///
+/// Fails when a host CPU pinned to a vCPU is used twice.
 pub fn check_cpu_pin_overlap(nodes: &[NodeCpuPins]) -> Result<()> {
     for (index, node) in nodes.iter().enumerate() {
         for other in &nodes[index + 1..] {

@@ -5,6 +5,7 @@
 //! they are given; they do not generate data.
 
 mod file_mode;
+mod impairment;
 mod interface_count;
 mod password;
 mod secret_file;
@@ -13,6 +14,7 @@ mod tailscale_key;
 mod username;
 
 pub use file_mode::valid_octal_mode;
+pub use impairment::validate_link_impairment;
 pub use interface_count::{effective_data_interface_count, validate_data_interface_count_override};
 pub use password::validate_password_strength;
 pub use secret_file::validate_secret_file;

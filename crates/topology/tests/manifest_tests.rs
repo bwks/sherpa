@@ -171,7 +171,7 @@ fn test_parse_full_manifest() {
     assert_eq!(s1.name, "server1");
     assert_eq!(s1.model, NodeModel::UbuntuLinux);
     assert_eq!(s1.privileged, Some(true));
-    assert_eq!(s1.shm_size, Some(67108864));
+    assert_eq!(s1.shm_size, Some(67_108_864));
     assert_eq!(s1.user, Some("root".to_string()));
     let vols = s1.volumes.as_ref().expect("has volumes");
     assert_eq!(vols.len(), 2);
@@ -280,7 +280,7 @@ fn test_parse_node_rejects_management_addresses() {
 #[test]
 fn test_example_manifest() {
     let manifest = Manifest::example().expect("generates example");
-    assert!(!manifest.name.is_empty());
+    assert_ne!(manifest.name, "");
     assert_eq!(manifest.nodes.len(), 2);
     assert_eq!(manifest.nodes[0].name, "dev01");
     assert_eq!(manifest.nodes[0].model, NodeModel::UbuntuLinux);

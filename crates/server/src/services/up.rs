@@ -57,9 +57,9 @@ use shared::validators::effective_data_interface_count;
 use topology::find_talos_cluster;
 use topology::validate::{
     check_bridge_device, check_cpu_pin_overlap, check_device_count, check_duplicate_device,
-    check_duplicate_interface_link, check_interface_bounds, check_link_device, check_mgmt_usage,
-    check_no_p2p_field, check_performance_tuning, check_ptx_platform, check_watchdog,
-    validate_talos_clusters,
+    check_duplicate_interface_link, check_interface_bounds, check_link_device,
+    check_link_impairments, check_mgmt_usage, check_no_p2p_field, check_performance_tuning,
+    check_ptx_platform, check_watchdog, validate_talos_clusters,
 };
 
 /// A data interface of a P2p container: a veth created into the container's netns once it has
@@ -126,7 +126,7 @@ async fn attach_ready_p2p_links(
         if let Some(ld) = link_detail
             && let Some(ref impairment_cfg) = ld.impairment
         {
-            let impairment = LinkImpairment::from(impairment_cfg);
+            let impairment = LinkImpairment::try_from(impairment_cfg)?;
             network::apply_link_netem(ifindex_a, ifindex_b, &impairment, &impairment).await?;
         }
 
@@ -252,42 +252,12 @@ fn process_manifest_bridges(
 pub(crate) fn process_manifest_nodes(
     manifest_nodes: &[topology::Node],
 ) -> Vec<topology::NodeExpanded> {
-    manifest_nodes
-        .iter()
-        .enumerate()
-        .map(|(idx, node)| topology::NodeExpanded {
-            name: node.name.clone(),
-            model: node.model,
-            index: idx as u16 + 1,
-            version: node.version.clone(),
-            memory: node.memory,
-            cpu_count: node.cpu_count,
+    // check_device_count caps a lab far below u16::MAX nodes.
+    (1..=u16::MAX)
+        .zip(manifest_nodes)
+        .map(|(index, node)| topology::NodeExpanded {
             boot_disk_size: node.boot_disk_size.or(node.model.default_boot_disk_size()),
-            boot_disk_clone_method: node.boot_disk_clone_method,
-            data_interface_count: node.data_interface_count,
-            ipv4_address: None,
-            ipv6_address: None,
-            ssh_authorized_keys: node.ssh_authorized_keys.clone(),
-            ssh_authorized_key_files: node.ssh_authorized_key_files.clone(),
-            text_files: node.text_files_data.clone(),
-            binary_files: node.binary_files.clone(),
-            systemd_units: node.systemd_units.clone(),
-            image: node.image.clone(),
-            privileged: node.privileged,
-            shm_size: node.shm_size,
-            environment_variables: node.environment_variables.clone(),
-            volumes: node.volumes.clone(),
-            commands: node.commands.clone(),
-            user: node.user.clone(),
-            skip_ready_check: node.skip_ready_check,
-            ztp_config: node.ztp_config.clone(),
-            startup_scripts: node.startup_scripts_data.clone(),
-            user_scripts: node.user_scripts_data.clone(),
-            kernel_cmdline: node.kernel_cmdline.clone(),
-            ready_port: node.ready_port,
-            performance_tuning: node.performance_tuning.clone(),
-            watchdog: node.watchdog,
-            platform: node.platform,
+            ..topology::NodeExpanded::new(index, node)
         })
         .collect()
 }
@@ -761,6 +731,8 @@ pub async fn up_lab(
     }
 
     check_no_p2p_field(manifest.links.as_deref().unwrap_or_default())
+        .context("Link validation failed")?;
+    check_link_impairments(manifest.links.as_deref().unwrap_or_default())
         .context("Link validation failed")?;
     let links_detailed = process_manifest_links(&manifest.links, &nodes_expanded)
         .context("Failed to process manifest links")?;
@@ -1297,8 +1269,9 @@ pub async fn up_lab(
             .await?;
             // The manifest's impairment applies to both directions.
             if let Some(impairment) = &link.impairment {
-                db_link.impairment_a_to_b = LinkImpairment::from(impairment);
-                db_link.impairment_b_to_a = LinkImpairment::from(impairment);
+                let impairment = LinkImpairment::try_from(impairment)?;
+                db_link.impairment_a_to_b = impairment;
+                db_link.impairment_b_to_a = impairment;
                 db::update_link(&db, db_link).await.context(format!(
                     "failed to store impairment of link {}",
                     link.link_idx

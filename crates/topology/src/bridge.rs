@@ -5,7 +5,7 @@ use shared::data::NodeModel;
 use shared::util::split_node_int;
 
 /// Bridge connection in manifest format
-/// Expected format: "node_name::interface_name"
+/// Expected format: "`node_name::interface_name`"
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BridgeLink {
     pub node: String,
@@ -13,7 +13,11 @@ pub struct BridgeLink {
 }
 
 impl BridgeLink {
-    /// Parse a bridge connection string in format "node_name::interface_name"
+    /// Parse a bridge connection string in format `node_name::interface_name`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the string is not `node_name::interface_name`.
     pub fn parse(connection_str: &str) -> Result<Self> {
         let (node, interface) = split_node_int(connection_str)?;
         Ok(Self { node, interface })
@@ -29,7 +33,11 @@ pub struct Bridge {
 }
 
 impl Bridge {
-    /// Parse all links in this bridge
+    /// Parse all links in this bridge.
+    ///
+    /// # Errors
+    ///
+    /// Fails when a link is not `node_name::interface_name`.
     pub fn parse_links(&self) -> Result<BridgeExpanded> {
         let bridge_links = self
             .links
@@ -48,13 +56,6 @@ impl Bridge {
 pub struct BridgeExpanded {
     pub name: String,
     pub links: Vec<BridgeLink>,
-}
-
-/// Expanded bridge connection with node and interface details
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct BridgeLinkExpanded {
-    pub node_name: String,
-    pub interface_idx: u8,
 }
 
 /// Detailed bridge with resolved node models and interface indices

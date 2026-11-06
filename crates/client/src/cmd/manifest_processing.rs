@@ -8,44 +8,11 @@ use shared::util;
 /// Process manifest nodes into expanded format with indices assigned
 #[instrument(level = "debug", skip(manifest_nodes))]
 pub fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology::NodeExpanded> {
-    manifest_nodes
-        .iter()
-        .enumerate()
-        .map(|(idx, node)| topology::NodeExpanded {
-            name: node.name.clone(),
-            model: node.model,
-            // Node indexes start from 1. This aligns with IP address assignment
-            index: idx as u16 + 1,
-            version: node.version.clone(),
-            memory: node.memory,
-            cpu_count: node.cpu_count,
-            boot_disk_size: node.boot_disk_size,
-            boot_disk_clone_method: node.boot_disk_clone_method,
-            data_interface_count: node.data_interface_count,
-            ipv4_address: None,
-            ipv6_address: None,
-            ssh_authorized_keys: node.ssh_authorized_keys.clone(),
-            ssh_authorized_key_files: node.ssh_authorized_key_files.clone(),
-            text_files: node.text_files_data.clone(),
-            binary_files: node.binary_files.clone(),
-            systemd_units: node.systemd_units.clone(),
-            image: node.image.clone(),
-            privileged: node.privileged,
-            shm_size: node.shm_size,
-            environment_variables: node.environment_variables.clone(),
-            volumes: node.volumes.clone(),
-            commands: node.commands.clone(),
-            user: node.user.clone(),
-            skip_ready_check: node.skip_ready_check,
-            ztp_config: node.ztp_config.clone(),
-            startup_scripts: node.startup_scripts_data.clone(),
-            user_scripts: node.user_scripts_data.clone(),
-            kernel_cmdline: node.kernel_cmdline.clone(),
-            ready_port: node.ready_port,
-            performance_tuning: node.performance_tuning.clone(),
-            watchdog: node.watchdog,
-            platform: node.platform,
-        })
+    // Node indexes start from 1, which aligns with IP address assignment.
+    // check_device_count caps a lab far below u16::MAX nodes.
+    (1..=u16::MAX)
+        .zip(manifest_nodes)
+        .map(|(index, node)| topology::NodeExpanded::new(index, node))
         .collect()
 }
 

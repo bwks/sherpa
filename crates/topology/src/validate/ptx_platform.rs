@@ -5,6 +5,10 @@ use shared::data::{NodeConfig, NodeModel};
 
 /// Check a node's `platform` and, for `juniper_cevolved`, that its data interfaces fit the
 /// platform and its vCPUs and memory meet cJunosEvolved's minimums.
+///
+/// # Errors
+///
+/// Fails when `platform` is set on another model, or the node does not fit its platform.
 pub fn check_ptx_platform(node: &NodeExpanded, image: &NodeConfig) -> Result<()> {
     if image.model != NodeModel::JuniperCevolved {
         if node.platform.is_some() {

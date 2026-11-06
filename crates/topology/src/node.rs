@@ -92,6 +92,48 @@ pub struct NodeExpanded {
     pub platform: Option<PtxPlatform>,
 }
 
+impl NodeExpanded {
+    /// The manifest `node` as the `index`th node of its lab, counting from 1. Its addresses are
+    /// assigned later, and its scripts and text files are the contents the client read.
+    #[must_use]
+    pub fn new(index: u16, node: &Node) -> Self {
+        Self {
+            index,
+            name: node.name.clone(),
+            model: node.model,
+            image: node.image.clone(),
+            version: node.version.clone(),
+            cpu_count: node.cpu_count,
+            memory: node.memory,
+            boot_disk_size: node.boot_disk_size,
+            boot_disk_clone_method: node.boot_disk_clone_method,
+            data_interface_count: node.data_interface_count,
+            ipv4_address: None,
+            ipv6_address: None,
+            text_files: node.text_files_data.clone(),
+            binary_files: node.binary_files.clone(),
+            systemd_units: node.systemd_units.clone(),
+            ssh_authorized_keys: node.ssh_authorized_keys.clone(),
+            ssh_authorized_key_files: node.ssh_authorized_key_files.clone(),
+            commands: node.commands.clone(),
+            environment_variables: node.environment_variables.clone(),
+            volumes: node.volumes.clone(),
+            privileged: node.privileged,
+            shm_size: node.shm_size,
+            user: node.user.clone(),
+            skip_ready_check: node.skip_ready_check,
+            ztp_config: node.ztp_config.clone(),
+            startup_scripts: node.startup_scripts_data.clone(),
+            user_scripts: node.user_scripts_data.clone(),
+            kernel_cmdline: node.kernel_cmdline.clone(),
+            ready_port: node.ready_port,
+            performance_tuning: node.performance_tuning.clone(),
+            watchdog: node.watchdog,
+            platform: node.platform,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
 pub struct StartupScript {
     pub filename: String,
@@ -142,4 +184,36 @@ pub struct SystemdUnit {
 #[serde(deny_unknown_fields)]
 pub struct AuthorizedKeyFile {
     pub source: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_expanded_node_takes_the_contents_the_client_read() {
+        let node = Node {
+            name: "dev01".to_string(),
+            model: NodeModel::UbuntuLinux,
+            cpu_count: Some(4),
+            startup_scripts: Some(vec!["setup.sh".to_string()]),
+            startup_scripts_data: Some(vec![StartupScript {
+                filename: "setup.sh".to_string(),
+                content: "echo hi".to_string(),
+            }]),
+            text_files_data: Some(vec![TextFileData {
+                content: "data".to_string(),
+                dst: "/etc/motd".to_string(),
+                ..TextFileData::default()
+            }]),
+            ..Node::default()
+        };
+        let expanded = NodeExpanded::new(3, &node);
+        assert_eq!(expanded.index, 3);
+        assert_eq!(expanded.name, "dev01");
+        assert_eq!(expanded.cpu_count, Some(4));
+        assert_eq!(expanded.startup_scripts.unwrap()[0].content, "echo hi");
+        assert_eq!(expanded.text_files.unwrap()[0].dst, "/etc/motd");
+        assert!(expanded.ipv4_address.is_none());
+    }
 }
