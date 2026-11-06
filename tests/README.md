@@ -20,7 +20,7 @@ instead of repeating these instructions.
 
 | Test | Command | Needs | Time |
 |---|---|---|---|
-| Format and lint | `cargo fmt --check && cargo clippy --workspace -- -D warnings` | Rust toolchain | about 1–5 min |
+| Format and lint | `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings` | Rust toolchain | about 1–5 min |
 | Unit and database tests | `cargo test --workspace` | Nothing external | about 1–3 min |
 | db importer | `cargo test -p db --test mod import -- --ignored` | `dev/testdb` | seconds |
 | Other crate integration | see [Crate integration tests](#crate-integration-tests) | Docker, libvirt, sudo | minutes |
@@ -42,7 +42,7 @@ Formatting and linting must pass first; CI fails on either:
 
 ```sh
 cargo fmt
-cargo clippy --workspace -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 ## Unit tests
