@@ -83,11 +83,15 @@ impl<'a> Cells<'a> {
         }
     }
 
-    /// Percentages are `f32` in Sherpa and stored exactly as `REAL`.
+    /// Percentages are `f32` in Sherpa and stored exactly as `REAL`: a STRICT `REAL` column
+    /// keeps whole numbers as `REAL` too.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "every value was written from an f32, so the f64 narrows back exactly"
+    )]
     pub(crate) fn real(&mut self, field: &str) -> Result<f32> {
         match self.next(field)? {
             Value::Real(value) => Ok(value as f32),
-            Value::Integer(value) => Ok(value as f32),
             other => bail!("Database field {field} is not a number: {other:?}"),
         }
     }
@@ -307,7 +311,7 @@ fn impairment_from_cells(cells: &mut Cells<'_>, direction: &str) -> Result<LinkI
     })
 }
 
-fn impairment_values(impairment: &LinkImpairment) -> [Value; 5] {
+pub(crate) fn impairment_values(impairment: &LinkImpairment) -> [Value; 5] {
     [
         impairment.delay_us.into(),
         impairment.jitter_us.into(),

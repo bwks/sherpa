@@ -2,13 +2,13 @@ use anyhow::Result;
 
 use crate::{create_test_node_with_model, ipv4_lab_networks, setup_db};
 use db::{
-    LabOrigin, apply_schema, count_users, create_bridge, create_lab, create_link,
-    create_node_image, create_user, list_links_by_lab, update_link,
+    LabOrigin, apply_schema, create_bridge, create_lab, create_link, create_user,
+    list_links_by_lab, list_users, update_link_impairments, upsert_node_image,
 };
-use shared::data::{BridgeKind, BridgeMember, LinkImpairment, NodeConfig, NodeModel};
+use shared::data::{BridgeKind, BridgeMember, DbLink, LinkImpairment, NodeConfig, NodeModel};
 
 /// Schema application is idempotent — applying twice does not fail or corrupt data.
-/// setup_db already applies schema once. We apply it again and verify no error.
+/// `setup_db` already applies schema once. We apply it again and verify no error.
 #[tokio::test]
 async fn test_schema_idempotent() -> Result<()> {
     let db = setup_db().await?;
@@ -25,7 +25,7 @@ async fn test_schema_idempotent() -> Result<()> {
         vec![],
     )
     .await?;
-    let count = count_users(&db).await?;
+    let count = list_users(&db).await?.len();
     assert!(count >= 1);
 
     Ok(())
@@ -47,7 +47,7 @@ async fn test_schema_creates_all_tables() -> Result<()> {
     .await?;
 
     // node_image
-    create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // lab
     let lab = create_lab(
@@ -70,20 +70,25 @@ async fn test_schema_creates_all_tables() -> Result<()> {
 
     // link
     let node2 = create_test_node_with_model(&db, "node2", 2, NodeModel::UbuntuLinux, &lab).await?;
-    let node_a_id = node.id.clone().expect("node has id");
-    let node_b_id = node2.id.clone().expect("node2 has id");
+    let first_end = node.id.clone().expect("node has id");
+    let second_end = node2.id.clone().expect("node2 has id");
     let lab_id = lab.id.clone().expect("lab has id");
     create_link(
         &db,
-        0,
-        BridgeKind::default(),
-        node_a_id.clone(),
-        node_b_id.clone(),
-        "eth1".to_string(),
-        "eth1".to_string(),
-        String::new(),
-        String::new(),
-        lab_id.clone(),
+        DbLink {
+            id: None,
+            index: 0,
+            kind: BridgeKind::default(),
+            node_a: first_end.clone(),
+            node_b: second_end.clone(),
+            int_a: "eth1".to_string(),
+            int_b: "eth1".to_string(),
+            lab: lab_id.clone(),
+            tap_a: String::new(),
+            tap_b: String::new(),
+            impairment_a_to_b: LinkImpairment::default(),
+            impairment_b_to_a: LinkImpairment::default(),
+        },
     )
     .await?;
 
@@ -96,11 +101,11 @@ async fn test_schema_creates_all_tables() -> Result<()> {
         lab_id,
         vec![
             BridgeMember {
-                node: node_a_id,
+                node: first_end,
                 interface: "eth2".to_string(),
             },
             BridgeMember {
-                node: node_b_id,
+                node: second_end,
                 interface: "eth2".to_string(),
             },
         ],
@@ -123,7 +128,7 @@ async fn test_link_impairments_survive_schema_reapply() -> Result<()> {
         vec![],
     )
     .await?;
-    create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
     let lab = create_lab(
         &db,
         "Impair Lab",
@@ -141,17 +146,22 @@ async fn test_link_impairments_survive_schema_reapply() -> Result<()> {
     let lab_rid = lab.id.clone().expect("lab has id");
     let node1 = create_test_node_with_model(&db, "node1", 1, NodeModel::UbuntuLinux, &lab).await?;
     let node2 = create_test_node_with_model(&db, "node2", 2, NodeModel::UbuntuLinux, &lab).await?;
-    let mut link = create_link(
+    let link = create_link(
         &db,
-        0,
-        BridgeKind::default(),
-        node1.id.clone().expect("node1 has id"),
-        node2.id.clone().expect("node2 has id"),
-        "eth1".to_string(),
-        "eth1".to_string(),
-        String::new(),
-        String::new(),
-        lab_rid.clone(),
+        DbLink {
+            id: None,
+            index: 0,
+            kind: BridgeKind::default(),
+            node_a: node1.id.clone().expect("node1 has id"),
+            node_b: node2.id.clone().expect("node2 has id"),
+            int_a: "eth1".to_string(),
+            int_b: "eth1".to_string(),
+            lab: lab_rid.clone(),
+            tap_a: String::new(),
+            tap_b: String::new(),
+            impairment_a_to_b: LinkImpairment::default(),
+            impairment_b_to_a: LinkImpairment::default(),
+        },
     )
     .await?;
 
@@ -166,9 +176,7 @@ async fn test_link_impairments_survive_schema_reapply() -> Result<()> {
         delay_us: 7000,
         ..LinkImpairment::default()
     };
-    link.impairment_a_to_b = a_to_b;
-    link.impairment_b_to_a = b_to_a;
-    update_link(&db, link).await?;
+    update_link_impairments(&db, &link.id.clone().unwrap(), &a_to_b, &b_to_a).await?;
 
     apply_schema(&db).await?;
 

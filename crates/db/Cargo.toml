@@ -23,9 +23,6 @@ rand = { workspace = true }
 # Database. Pinned exactly: Turso is pre-1.0. Default features install mimalloc as the
 # process's global allocator, so they stay off.
 turso = { version = "=0.8.3", default-features = false }
-# Read only by the importer that moves a pre-0.5.0 server's data out of SurrealDB.
-surrealdb = "3.0.0"
-surrealdb-types = "3.0.0"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 
 [build-dependencies]
@@ -36,3 +33,6 @@ tokio = { workspace = true, features = ["rt"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+
+[lints]
+workspace = true

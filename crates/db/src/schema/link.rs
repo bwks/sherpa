@@ -6,14 +6,23 @@
 use anyhow::Result;
 use shared::data::BridgeKind;
 
-use super::helpers::{enum_rule, rule_triggers};
+use super::helpers::{EnumColumn, enum_column, rule_triggers};
 
 const TABLE: &str = "link";
 
 pub(crate) const TABLES: &str = include_str!("../../sql/schema/link.sql");
 
+/// The enum columns, and the values the current Rust enums allow in them.
+pub(crate) fn columns() -> Result<Vec<EnumColumn>> {
+    Ok(vec![enum_column(
+        TABLE,
+        "kind",
+        &BridgeKind::to_vec(),
+        false,
+    )?])
+}
+
 /// The triggers checking the enum columns against the current Rust enums.
 pub(crate) fn rules() -> Result<String> {
-    let rules = [enum_rule(TABLE, "kind", BridgeKind::to_vec(), false)?];
-    Ok(rule_triggers(TABLE, &rules))
+    Ok(rule_triggers(TABLE, &columns()?))
 }

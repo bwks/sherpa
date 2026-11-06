@@ -90,9 +90,15 @@ pub async fn update_impairment(
         "Updated link impairment"
     );
 
-    db::update_link(&state.db, db_link)
-        .await
-        .context("Failed to update link impairment in database")?;
+    let link_record = db_link.id.as_ref().context("Link record has no id")?;
+    db::update_link_impairments(
+        &state.db,
+        link_record,
+        &db_link.impairment_a_to_b,
+        &db_link.impairment_b_to_a,
+    )
+    .await
+    .context("Failed to update link impairment in database")?;
 
     let direction = match request.direction {
         ImpairmentDirection::Both => "both directions",

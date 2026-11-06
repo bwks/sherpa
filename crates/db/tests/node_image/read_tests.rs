@@ -1,8 +1,9 @@
-/// READ operation tests for node_image
+/// READ operation tests for `node_image`
 use anyhow::Result;
 use db::{
-    count_node_images, create_node_image, get_node_image_by_id,
-    get_node_image_by_model_kind_version, list_node_images,
+    count_node_images, find_default_node_image, find_node_image_by_id,
+    find_node_image_by_model_kind_version, get_node_image_versions, list_node_images,
+    upsert_node_image,
 };
 use shared::data::{NodeKind, NodeModel};
 
@@ -14,7 +15,7 @@ async fn test_get_node_image_by_id() -> Result<()> {
 
     // Create a test config
     let test_config = create_test_config(NodeModel::AristaCeos);
-    let created = create_node_image(&db, test_config).await?;
+    let created = upsert_node_image(&db, test_config).await?;
 
     let created_id = created
         .id
@@ -22,7 +23,7 @@ async fn test_get_node_image_by_id() -> Result<()> {
         .expect("Created config should have an ID");
 
     // Get by ID
-    let retrieved = get_node_image_by_id(&db, created_id).await?;
+    let retrieved = find_node_image_by_id(&db, created_id).await?;
 
     assert!(retrieved.is_some(), "Should find config by ID");
     let retrieved = retrieved.unwrap();
@@ -37,10 +38,10 @@ async fn test_get_node_config_by_model_kind() -> Result<()> {
 
     // Create a test config
     let test_config = create_test_config(NodeModel::CiscoAsav);
-    let _created = create_node_image(&db, test_config.clone()).await?;
+    let _created = upsert_node_image(&db, test_config.clone()).await?;
 
     // Get by model and kind
-    let retrieved: Option<_> = get_node_image_by_model_kind_version(
+    let retrieved: Option<_> = find_node_image_by_model_kind_version(
         &db,
         &NodeModel::CiscoAsav,
         &test_config.kind,
@@ -63,7 +64,7 @@ async fn test_count_node_images() -> Result<()> {
 
     // Create a test config
     let test_config = create_test_config(NodeModel::JuniperVrouter);
-    let _created = create_node_image(&db, test_config).await?;
+    let _created = upsert_node_image(&db, test_config).await?;
 
     let new_count = count_node_images(&db).await?;
     assert_eq!(
@@ -80,7 +81,7 @@ async fn test_get_nonexistent_config() -> Result<()> {
     let db = setup_db().await?;
 
     // Try to get a config that doesn't exist
-    let result: Option<_> = get_node_image_by_model_kind_version(
+    let result: Option<_> = find_node_image_by_model_kind_version(
         &db,
         &NodeModel::WindowsServer,
         &NodeKind::VirtualMachine,
@@ -103,7 +104,7 @@ async fn test_list_configs_returns_all_fields() -> Result<()> {
 
     // Create a config
     let test_config = create_test_config(NodeModel::UbuntuLinux);
-    let _created = create_node_image(&db, test_config).await?;
+    let _created = upsert_node_image(&db, test_config).await?;
 
     // List and verify all fields are populated
     let configs = list_node_images(&db).await?;
@@ -117,7 +118,42 @@ async fn test_list_configs_returns_all_fields() -> Result<()> {
     assert!(ubuntu_config.cpu_count > 0);
     assert!(ubuntu_config.memory > 0);
     assert!(ubuntu_config.data_interface_count > 0);
-    assert!(!ubuntu_config.interface_prefix.is_empty());
+    assert_ne!(ubuntu_config.interface_prefix, "");
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn image_versions_are_in_order_and_one_is_the_default() -> Result<()> {
+    let db = setup_db().await?;
+    for (version, default) in [("2", false), ("1", true), ("3", false)] {
+        let mut image = create_test_config(NodeModel::UbuntuLinux);
+        image.version = version.to_owned();
+        image.default = default;
+        upsert_node_image(&db, image).await?;
+    }
+    let kind = create_test_config(NodeModel::UbuntuLinux).kind;
+
+    let versions = get_node_image_versions(&db, &NodeModel::UbuntuLinux, &kind).await?;
+    let names: Vec<&str> = versions
+        .iter()
+        .map(|image| image.version.as_str())
+        .collect();
+    assert_eq!(names, ["1", "2", "3"]);
+    let default = find_default_node_image(&db, &NodeModel::UbuntuLinux, &kind).await?;
+    assert_eq!(default.map(|image| image.version), Some("1".to_owned()));
+
+    // A new default replaces the old one.
+    let mut three = create_test_config(NodeModel::UbuntuLinux);
+    three.version = "3".to_owned();
+    three.default = true;
+    upsert_node_image(&db, three).await?;
+    let versions = get_node_image_versions(&db, &NodeModel::UbuntuLinux, &kind).await?;
+    let defaults: Vec<&str> = versions
+        .iter()
+        .filter(|image| image.default)
+        .map(|image| image.version.as_str())
+        .collect();
+    assert_eq!(defaults, ["3"]);
     Ok(())
 }

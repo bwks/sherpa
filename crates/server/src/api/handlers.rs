@@ -74,7 +74,7 @@ pub async fn login(
     Json(request): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, ApiError> {
     // Get user from database (includes password_hash)
-    let user = db::get_user_for_auth(&state.db, &request.username)
+    let user = db::get_user(&state.db, &request.username)
         .await
         .map_err(|_| {
             // Don't reveal whether user exists
@@ -218,7 +218,7 @@ pub async fn login_form_handler(
     axum::Form(form): axum::Form<LoginForm>,
 ) -> impl IntoResponse {
     // Get user from database
-    let user = match db::get_user_for_auth(&state.db, &form.username).await {
+    let user = match db::get_user(&state.db, &form.username).await {
         Ok(user) => user,
         Err(_) => {
             tracing::debug!("Login attempt for non-existent user: {}", form.username);
@@ -577,7 +577,7 @@ pub async fn update_password_handler(
     }
 
     // 2. Get user from database (with password_hash)
-    let user = match db::get_user_for_auth(&state.db, &auth.username).await {
+    let user = match db::get_user(&state.db, &auth.username).await {
         Ok(user) => user,
         Err(e) => {
             tracing::error!(
@@ -642,7 +642,6 @@ pub async fn update_password_handler(
     // 6. Update user in database
     let mut updated_user = user;
     updated_user.password_hash = new_password_hash;
-    updated_user.updated_at = Timestamp::now();
 
     if let Err(e) = db::update_user(&state.db, updated_user).await {
         tracing::error!(
@@ -709,7 +708,6 @@ pub async fn add_ssh_key_handler(
 
     // 4. Add SSH key to user
     user.ssh_keys.push(form.ssh_key.clone());
-    user.updated_at = Timestamp::now();
 
     if let Err(e) = db::update_user(&state.db, user).await {
         tracing::error!(
@@ -766,7 +764,6 @@ pub async fn delete_ssh_key_handler(
 
     // 3. Remove SSH key
     user.ssh_keys.remove(index);
-    user.updated_at = Timestamp::now();
 
     if let Err(e) = db::update_user(&state.db, user).await {
         tracing::error!(
@@ -1486,7 +1483,7 @@ pub async fn node_detail_handler(
     };
 
     // Fetch node image config
-    let node_config = match db::get_node_image_by_id(&state.db, db_node.image.clone()).await {
+    let node_config = match db::find_node_image_by_id(&state.db, db_node.image.clone()).await {
         Ok(Some(config)) => config,
         Ok(None) => {
             tracing::error!("Node image not found for node '{}'", node_name);
@@ -1602,7 +1599,7 @@ pub async fn admin_labs_list_handler(
     let mut lab_summaries: Vec<crate::templates::AdminLabSummary> = Vec::new();
 
     for lab in labs {
-        let owner_username = match db::get_user_by_id(&state.db, lab.user.clone()).await {
+        let owner_username = match db::find_user_by_id(&state.db, lab.user.clone()).await {
             Ok(Some(user)) => user.username,
             _ => "unknown".to_string(),
         };
@@ -1825,7 +1822,6 @@ pub async fn admin_update_user_password_handler(
 
     // Update user password
     user.password_hash = new_password_hash;
-    user.updated_at = Timestamp::now();
 
     // Save to database
     db::update_user(&state.db, user).await.map_err(|e| {
@@ -1901,7 +1897,6 @@ pub async fn admin_add_ssh_key_handler(
 
     // Add SSH key
     user.ssh_keys.push(ssh_key.to_string());
-    user.updated_at = Timestamp::now();
 
     // Save to database
     db::update_user(&state.db, user.clone())
@@ -1970,7 +1965,6 @@ pub async fn admin_delete_ssh_key_handler(
 
     // Remove key at index
     user.ssh_keys.remove(key_index);
-    user.updated_at = Timestamp::now();
 
     // Save to database
     db::update_user(&state.db, user.clone())
@@ -2165,7 +2159,7 @@ pub async fn admin_image_detail_handler(
     // Fetch the specific config from database
     // If version is specified, fetch that specific version; otherwise fetch default
     let config = if let Some(version) = &params.version {
-        db::get_node_image_by_model_kind_version(&state.db, &node_model, &node_kind, version)
+        db::find_node_image_by_model_kind_version(&state.db, &node_model, &node_kind, version)
             .await
             .map_err(|e| {
                 tracing::error!(
@@ -2193,7 +2187,7 @@ pub async fn admin_image_detail_handler(
                 )
             })?
     } else {
-        db::get_default_node_image(&state.db, &node_model, &node_kind)
+        db::find_default_node_image(&state.db, &node_model, &node_kind)
             .await
             .map_err(|e| {
                 tracing::error!("Failed to get default image for {}: {:?}", params.model, e);
@@ -2245,7 +2239,7 @@ pub async fn admin_image_edit_page_handler(
     // Fetch the specific config from database
     // If version is specified, fetch that specific version; otherwise fetch default
     let config = if let Some(version) = &params.version {
-        db::get_node_image_by_model_kind_version(&state.db, &node_model, &node_kind, version)
+        db::find_node_image_by_model_kind_version(&state.db, &node_model, &node_kind, version)
             .await
             .map_err(|e| {
                 tracing::error!(
@@ -2273,7 +2267,7 @@ pub async fn admin_image_edit_page_handler(
                 )
             })?
     } else {
-        db::get_default_node_image(&state.db, &node_model, &node_kind)
+        db::find_default_node_image(&state.db, &node_model, &node_kind)
             .await
             .map_err(|e| {
                 tracing::error!("Failed to get default image for {}: {:?}", params.model, e);
@@ -2367,7 +2361,7 @@ pub async fn admin_image_update_handler(
     // Fetch the specific config from database
     // If version is specified, fetch that specific version; otherwise fetch default
     let config = if let Some(version) = &params.version {
-        db::get_node_image_by_model_kind_version(&state.db, &node_model, &node_kind, version)
+        db::find_node_image_by_model_kind_version(&state.db, &node_model, &node_kind, version)
             .await
             .map_err(|e| {
                 tracing::error!(
@@ -2395,7 +2389,7 @@ pub async fn admin_image_update_handler(
                 )
             })?
     } else {
-        db::get_default_node_image(&state.db, &node_model, &node_kind)
+        db::find_default_node_image(&state.db, &node_model, &node_kind)
             .await
             .map_err(|e| {
                 tracing::error!("Failed to get default image for {}: {:?}", params.model, e);
@@ -3346,7 +3340,6 @@ pub async fn change_password_json(
 
     user.password_hash = password::hash_password(&payload.new_password)
         .map_err(|e| ApiError::internal(format!("{e}")))?;
-    user.updated_at = Timestamp::now();
 
     db::update_user(&state.db, user)
         .await

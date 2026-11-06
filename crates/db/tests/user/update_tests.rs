@@ -86,8 +86,7 @@ async fn test_update_user_without_id_fails() -> Result<()> {
     let error_msg = result.unwrap_err().to_string();
     assert!(
         error_msg.contains("no ID"),
-        "Error should mention missing ID: {}",
-        error_msg
+        "Error should mention missing ID: {error_msg}"
     );
 
     Ok(())
@@ -113,8 +112,7 @@ async fn test_update_nonexistent_user_fails() -> Result<()> {
     let error_msg = result.unwrap_err().to_string();
     assert!(
         error_msg.contains("not found"),
-        "Error should mention user not found: {}",
-        error_msg
+        "Error should mention user not found: {error_msg}"
     );
 
     Ok(())
@@ -182,5 +180,20 @@ async fn test_update_username_conflict_fails() -> Result<()> {
         "Should fail when username conflicts with existing user"
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_update_sets_updated_at_and_keeps_created_at() -> Result<()> {
+    let db = setup_db().await?;
+    let created = create_user(&db, "erin".to_string(), "TestPass123!", false, vec![]).await?;
+    let mut changed = created.clone();
+    changed.created_at = Timestamp::UNIX_EPOCH;
+    changed.updated_at = Timestamp::UNIX_EPOCH;
+
+    let updated = update_user(&db, changed).await?;
+    assert_eq!(updated.created_at, created.created_at);
+    assert!(updated.updated_at >= created.updated_at);
+    assert_eq!(get_user(&db, "erin").await?.created_at, created.created_at);
     Ok(())
 }

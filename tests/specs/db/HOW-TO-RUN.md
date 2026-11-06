@@ -6,15 +6,6 @@ None. sherpad embeds its database (Turso, a Rust rewrite of SQLite), and every t
 own in-memory database with `db::open_in_memory()`, so the tests need no database server and
 run in parallel with the unit tests.
 
-The one exception is the importer's integration test, which reads a SurrealDB the way a server
-older than 0.5.0 stored its data. It is `#[ignore]` and needs the SurrealDB test database:
-
-```bash
-SHERPA_DEV_DB_USER=sherpa SHERPA_DEV_DB_PASS="$PASSWORD" dev/testdb restart
-SHERPA_DB_PASSWORD="$PASSWORD" cargo test -p db --test mod import -- --ignored
-dev/testdb destroy
-```
-
 ## Run All Tests
 
 ```bash
@@ -60,7 +51,6 @@ cargo test -p db test_delete_lab_cascade_removes_nodes_links_bridges
 - `crates/db/tests/{user,lab,node,link,node_image}/` — CRUD tests per entity
 - `crates/db/tests/schema/` — schema idempotency and table creation
 - `crates/db/tests/relationships/` — cascade deletes, query isolation, rollback, concurrency
-- `crates/db/tests/import/` — the SurrealDB importer (ignored; needs `dev/testdb`)
 - `#[cfg(test)]` modules in `crates/db/src/` — tests that need raw SQL, such as the admin
   protection triggers in `schema/user.rs`
 

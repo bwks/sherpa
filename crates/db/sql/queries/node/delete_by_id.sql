@@ -1,3 +1,0 @@
-DELETE FROM node
-WHERE id = ?1
-RETURNING id

@@ -1,9 +1,9 @@
 use anyhow::Result;
 use db::{
-    LabNetworks, LabOrigin, count_labs, create_lab, create_user, get_lab, upsert_lab,
+    LabNetworks, LabOrigin, create_lab, create_user, get_lab, list_labs, update_lab_state,
     validate_lab_id,
 };
-use shared::data::{DbLab, LabState};
+use shared::data::LabState;
 
 use crate::helper::{ipv4_lab_networks, setup_db};
 
@@ -89,14 +89,7 @@ async fn create_lab_stores_where_it_was_started() -> Result<()> {
     assert!(other.client_folder.is_none());
 
     // Updating the lab keeps them.
-    let updated = upsert_lab(
-        &db,
-        DbLab {
-            status: LabState::Running,
-            ..stored
-        },
-    )
-    .await?;
+    let updated = update_lab_state(&db, stored.id.clone().unwrap(), LabState::Running).await?;
     assert_eq!(updated.client_host.as_deref(), Some("dev01"));
 
     Ok(())
@@ -168,11 +161,10 @@ async fn test_create_lab_duplicate_lab_id_fails() -> Result<()> {
 
     assert!(result.is_err(), "Should fail on duplicate lab_id");
     let error_msg = result.unwrap_err().to_string();
-    println!("Duplicate lab_id error: {}", error_msg);
+    println!("Duplicate lab_id error: {error_msg}");
     assert!(
         error_msg.contains("Failed to create lab") && error_msg.contains("Lab Two"),
-        "Error should mention the failed lab creation, got: {}",
-        error_msg
+        "Error should mention the failed lab creation, got: {error_msg}"
     );
 
     Ok(())
@@ -221,11 +213,10 @@ async fn test_create_lab_duplicate_name_per_user_fails() -> Result<()> {
         "Should fail on duplicate (name, user) combination"
     );
     let error_msg = result.unwrap_err().to_string();
-    println!("Duplicate name+user error: {}", error_msg);
+    println!("Duplicate name+user error: {error_msg}");
     assert!(
         error_msg.contains("Failed to create lab") && error_msg.contains("My Lab"),
-        "Error should mention the failed lab creation, got: {}",
-        error_msg
+        "Error should mention the failed lab creation, got: {error_msg}"
     );
 
     Ok(())
@@ -301,8 +292,7 @@ async fn test_create_lab_invalid_lab_id_too_short() -> Result<()> {
     let error_msg = result.unwrap_err().to_string();
     assert!(
         error_msg.contains("exactly 8 characters"),
-        "Error should mention length requirement, got: {}",
-        error_msg
+        "Error should mention length requirement, got: {error_msg}"
     );
 
     Ok(())
@@ -334,8 +324,7 @@ async fn test_create_lab_invalid_lab_id_too_long() -> Result<()> {
     let error_msg = result.unwrap_err().to_string();
     assert!(
         error_msg.contains("exactly 8 characters"),
-        "Error should mention length requirement, got: {}",
-        error_msg
+        "Error should mention length requirement, got: {error_msg}"
     );
 
     Ok(())
@@ -367,8 +356,7 @@ async fn test_create_lab_invalid_lab_id_chars() -> Result<()> {
     let error_msg = result.unwrap_err().to_string();
     assert!(
         error_msg.contains("alphanumeric characters and hyphens"),
-        "Error should mention character restrictions, got: {}",
-        error_msg
+        "Error should mention character restrictions, got: {error_msg}"
     );
 
     Ok(())
@@ -391,101 +379,10 @@ fn test_validate_lab_id_invalid() {
 }
 
 #[tokio::test]
-async fn test_upsert_lab_creates_new() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "judy".to_string(), "TestPass123!", false, vec![]).await?;
-    let user_id = user.id.unwrap();
-
-    // Upsert with no ID should create new lab
-    let lab = DbLab {
-        id: None,
-        lab_id: "lab-0009".to_string(),
-        name: "Upsert Test".to_string(),
-        user: user_id.clone(),
-        loopback_network: "127.127.1.0/24".to_string(),
-        management_network: "172.31.1.0/24".to_string(),
-        gateway_ipv4: "172.31.1.1".to_string(),
-        router_ipv4: "172.31.1.2".to_string(),
-        tailscale_container_id: None,
-        management_network_v6: None,
-        gateway_ipv6: None,
-        router_ipv6: None,
-        loopback_network_v6: None,
-        status: LabState::default(),
-        client_host: None,
-        client_folder: None,
-    };
-
-    let result = upsert_lab(&db, lab).await?;
-
-    assert!(result.id.is_some(), "Should have created new lab with ID");
-    assert_eq!(result.lab_id, "lab-0009");
-    assert_eq!(result.name, "Upsert Test");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_upsert_lab_updates_existing() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "karl".to_string(), "TestPass123!", false, vec![]).await?;
-
-    // Create initial lab
-    let lab = create_lab(
-        &db,
-        "Original Name",
-        "lab-0010",
-        &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
-        &LabOrigin::default(),
-    )
-    .await?;
-    let lab_id = lab.id.clone().unwrap();
-
-    // Upsert with ID should update
-    let updated_lab = DbLab {
-        id: Some(lab_id.clone()),
-        lab_id: "lab-0010".to_string(),
-        name: "Updated Name".to_string(),
-        user: user.id.unwrap(),
-        loopback_network: "127.127.1.0/24".to_string(),
-        management_network: "172.31.1.0/24".to_string(),
-        gateway_ipv4: "172.31.1.1".to_string(),
-        router_ipv4: "172.31.1.2".to_string(),
-        tailscale_container_id: None,
-        management_network_v6: None,
-        gateway_ipv6: None,
-        router_ipv6: None,
-        loopback_network_v6: None,
-        status: LabState::default(),
-        client_host: None,
-        client_folder: None,
-    };
-
-    let result = upsert_lab(&db, updated_lab).await?;
-
-    assert_eq!(result.id, Some(lab_id), "ID should remain the same");
-    assert_eq!(result.name, "Updated Name", "Name should be updated");
-
-    // Verify via get_lab
-    let fetched = get_lab(&db, "lab-0010").await?;
-    assert_eq!(fetched.name, "Updated Name");
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_create_lab_increases_count() -> Result<()> {
     let db = setup_db().await?;
 
-    let count_before = count_labs(&db).await?;
+    let count_before = list_labs(&db).await?.len();
 
     let user = create_user(&db, "laura".to_string(), "TestPass123!", false, vec![]).await?;
     create_lab(
@@ -503,7 +400,7 @@ async fn test_create_lab_increases_count() -> Result<()> {
     )
     .await?;
 
-    let count_after = count_labs(&db).await?;
+    let count_after = list_labs(&db).await?.len();
 
     assert_eq!(count_after, count_before + 1, "Count should increase by 1");
 
@@ -577,7 +474,7 @@ async fn test_create_lab_duplicate_management_network_fails() -> Result<()> {
     .await;
     assert!(result.is_err(), "A loopback subnet must belong to one lab");
     assert_eq!(
-        count_labs(&db).await?,
+        list_labs(&db).await?.len(),
         1,
         "Rejected labs must not be created"
     );
@@ -669,7 +566,7 @@ async fn test_labs_without_ipv6_do_not_conflict() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    assert_eq!(count_labs(&db).await?, 3);
+    assert_eq!(list_labs(&db).await?.len(), 3);
 
     Ok(())
 }

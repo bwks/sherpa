@@ -112,7 +112,7 @@ flowchart TB
     signals --> envoverrides["apply env overrides<br/>SHERPA_SERVER_IPV4<br/>SHERPA_SERVER_IPV6<br/>SHERPA_SERVER_WS_PORT<br/>SHERPA_SERVER_HTTP_PORT"]
     envoverrides --> jwt
     subgraph appstate["AppState::new(config, metrics)"]
-        jwt["load/generate JWT secret"] --> database["open the database file"] --> schema["apply DB schema"] --> seed["optionally seed admin user"] --> storage["restrict lab storage directories<br/>(daemon::storage::secure_lab_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
+        jwt["load/generate JWT secret"] --> database["open the database file"] --> schema["apply DB schema"] --> seed["optionally seed admin user"] --> storage["restrict lab and database storage<br/>(daemon::storage::secure_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
     end
     registry --> cancel["create CancellationToken for background services"]
     cancel --> scanner["if scanner enabled:<br/>spawn services::scanner::run_scanner(...)"]
@@ -131,16 +131,18 @@ flowchart TB
 
 Shutdown uses SIGINT/SIGTERM. The handlers are registered once, before the server binds any listener, so a registration failure stops startup with an error instead of leaving a server that cannot shut down gracefully. On shutdown, the server cancels the background-service token. With TLS, it also asks the `axum_server::Handle` to perform graceful shutdown with a short timeout. The OpenTelemetry guard flushes traces/metrics when dropped.
 
-### Lab storage permissions
+### Lab and database storage permissions
 
-Lab data is kept from other server users by directory modes, not file modes, so files written by
-older releases are covered too. `daemon::storage::secure_lab_storage` runs on every start and
-calls `restrict_dir` on:
+Lab data and the database are kept from other server users by directory modes, not file modes,
+so files written by older releases are covered too. `daemon::storage::secure_storage` runs on
+every start and calls `restrict_dir` on:
 
 | Directory | Mode and group | Constants |
 |---|---|---|
 | `/opt/sherpa/labs` | `2750`, the `sherpa` group | `SHERPA_LABS_DIR_MODE` |
 | `/opt/sherpa/libvirt/images` (storage pool) | `2750`, `kvm` | `SHERPA_STORAGE_POOL_DIR_MODE`, `SHERPA_STORAGE_POOL_GROUP` |
+| `/opt/sherpa/db` | `750` | `SHERPA_DB_DIR_MODE` |
+| `/opt/sherpa/db/backups` | `700`; the backup service restricts it again before each backup | `SHERPA_DB_BACKUP_DIR_MODE` |
 
 - QEMU runs as `libvirt-qemu` in `kvm`, so it can reach the pool. Nothing reads `/opt/sherpa/labs`
   through the directory except `sherpad`: the dnsmasq router and container nodes get lab files
@@ -477,7 +479,7 @@ flowchart TB
     end
     tailscale --> links
     subgraph phase5["5. LinkCreation"]
-        links["for each link: db::create_link, all P2p (and db::update_link for impairment)<br/>nothing created yet: libvirt makes VM taps, container veths come later<br/>record veths for disabled interfaces on containers with links"]
+        links["for each link: db::create_link, all P2p, with the manifest's impairment<br/>nothing created yet: libvirt makes VM taps, container veths come later<br/>record veths for disabled interfaces on containers with links"]
     end
     links --> ctrnets
     subgraph phase6["6. ContainerNetworks"]
@@ -579,9 +581,9 @@ flowchart TB
     subgraph interfaces["destroy_interfaces"]
         findifaces["network::find_interfaces_fuzzy(lab_id)"] --> deleteifaces["delete known Sherpa-created bridge/veth/tap interfaces"]
     end
-    deleteifaces --> deletelinks
+    deleteifaces --> deletelab
     subgraph database["cleanup_database"]
-        deletelinks["db::delete_lab_links"] --> deletenodes["db::delete_lab_nodes"] --> deletelab["db::delete_lab"]
+        deletelab["db::delete_lab: the schema deletes its nodes, links and bridges"]
     end
     deletelab --> removedir["remove lab directory"]
     removedir --> response["Return DestroyResponse { success, summary, errors }"]

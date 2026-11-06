@@ -7,10 +7,10 @@ mod update;
 pub use create::{create_admin_user, create_user};
 
 // Public exports - READ operations
-pub use read::{count_users, find_user, get_user, get_user_by_id, get_user_for_auth, list_users};
+pub use read::{find_user, find_user_by_id, get_user, list_users};
 
 // Public exports - UPDATE operations
 pub use update::update_user;
 
 // Public exports - DELETE operations
-pub use delete::{delete_user, delete_user_by_username};
+pub use delete::delete_user;

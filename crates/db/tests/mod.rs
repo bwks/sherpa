@@ -30,9 +30,6 @@ mod schema;
 /// Cross-table relationships: cascade and restrict deletes, transactions, concurrency
 mod relationships;
 
-use helper::{create_test_config, create_test_node_with_model, ipv4_lab_networks, setup_db};
-
-/// The one-time SurrealDB importer, against the test SurrealDB
-///
-/// To run: cargo test --package db import -- --ignored
-mod import;
+use helper::{
+    create_test_config, create_test_node_with_model, ipv4_lab_networks, setup_db, test_link,
+};

@@ -8,10 +8,12 @@
 
 use anyhow::{Context, Result, bail};
 use tracing::instrument;
+use turso::Row;
 
 use super::{bridge, lab, link, migrations, node, node_image, user};
 use crate::Database;
-use crate::sql::query_count;
+use crate::persistence::Cells;
+use crate::sql::{query_all, query_count};
 
 /// Schema version 1: every table, parents before children.
 const TABLES: &[&str] = &[
@@ -73,6 +75,28 @@ pub async fn apply_schema(db: &Database) -> Result<()> {
             .context("Failed to record the database schema version")?;
     }
 
+    // Values a newer release stored would fail every later write of their rows once the rules
+    // below are rebuilt from this build's enums, so refuse before changing anything.
+    let columns = [
+        node_image::columns()?,
+        lab::columns()?,
+        node::columns()?,
+        link::columns()?,
+    ];
+    for column in columns.iter().flatten() {
+        let unknown = query_all(&tx, &column.unknown_values_query(), (), unknown_value)
+            .await
+            .with_context(|| format!("Failed to check the values of {}", column.name()))?;
+        if !unknown.is_empty() {
+            bail!(
+                "{} holds values this Sherpa build does not know: {}. A newer release stored \
+                 them; downgrading Sherpa is not supported",
+                column.name(),
+                unknown.join(", ")
+            );
+        }
+    }
+
     let rules = [
         user::rules(),
         node_image::rules()?,
@@ -80,7 +104,7 @@ pub async fn apply_schema(db: &Database) -> Result<()> {
         node::rules()?,
         link::rules()?,
     ];
-    for batch in rules.iter() {
+    for batch in &rules {
         tx.execute_batch(batch)
             .await
             .context("Failed to create the schema rule triggers")?;
@@ -92,16 +116,105 @@ pub async fn apply_schema(db: &Database) -> Result<()> {
     Ok(())
 }
 
+/// A stored enum value, from the first column of `row`.
+fn unknown_value(row: &Row) -> Result<String> {
+    Cells::new(row).text("value")
+}
+
 #[cfg(test)]
 mod tests {
     use shared::data::{DiskBuses, NodeConfig, NodeModel, ZtpMethod};
 
     use super::*;
-    use crate::{create_node_image, list_node_images, open_in_memory};
+    use crate::{list_node_images, open_in_memory, upsert_node_image};
 
     async fn version(db: &Database) -> usize {
         let conn = db.reader().await.unwrap();
         query_count(&conn, "PRAGMA user_version", ()).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn values_a_newer_release_stored_are_refused_before_the_rules_change() {
+        let db = open_in_memory().await.unwrap();
+        apply_schema(&db).await.unwrap();
+        upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux))
+            .await
+            .unwrap();
+        // As a newer release with a model this build does not know would leave the row.
+        {
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute_batch(
+                    "DROP TRIGGER node_image_rules_update; \
+                     UPDATE node_image SET model = 'future_model';",
+                )
+                .await
+                .unwrap();
+        }
+
+        let error = apply_schema(&db).await.unwrap_err();
+        let message = format!("{error:#}");
+        assert!(message.contains("node_image.model"), "{message}");
+        assert!(message.contains("future_model"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn a_migration_that_fails_halfway_leaves_the_database_as_it_was() {
+        let db = open_in_memory().await.unwrap();
+        apply_schema(&db).await.unwrap();
+        {
+            let mut writer = db.writer().await.unwrap();
+            let tx = writer.conn.transaction().await.unwrap();
+            tx.execute("ALTER TABLE lab ADD COLUMN half_applied TEXT", ())
+                .await
+                .unwrap();
+            tx.execute(&format!("PRAGMA user_version = {}", SCHEMA_VERSION + 1), ())
+                .await
+                .unwrap();
+            assert!(
+                tx.execute("ALTER TABLE missing ADD COLUMN x TEXT", ())
+                    .await
+                    .is_err()
+            );
+            // Dropped without a commit, as apply_schema's transaction is on an error.
+        }
+
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
+        let conn = db.reader().await.unwrap();
+        let columns = query_count(
+            &conn,
+            "SELECT count(*) FROM pragma_table_info('lab') WHERE name = 'half_applied'",
+            (),
+        )
+        .await
+        .unwrap();
+        assert_eq!(columns, 0);
+    }
+
+    #[tokio::test]
+    async fn a_model_has_one_default_image_per_kind() {
+        let db = open_in_memory().await.unwrap();
+        apply_schema(&db).await.unwrap();
+        let mut first = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        first.default = true;
+        upsert_node_image(&db, first).await.unwrap();
+        let mut second = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        second.version = "second".to_owned();
+        second.default = false;
+        upsert_node_image(&db, second).await.unwrap();
+
+        // Below the db functions, which clear the old default first.
+        let writer = db.writer().await.unwrap();
+        let both = writer
+            .conn
+            .execute(
+                "UPDATE node_image SET \"default\" = 1 WHERE model = 'ubuntu_linux' \
+                 AND version = 'second'",
+                (),
+            )
+            .await;
+        assert!(both.is_err(), "two default images were stored");
     }
 
     #[tokio::test]
@@ -137,7 +250,7 @@ mod tests {
         ] {
             let mut image = NodeConfig::get_model(model);
             image.data_interface_count = 16;
-            create_node_image(&db, image).await.unwrap();
+            upsert_node_image(&db, image).await.unwrap();
         }
 
         apply_schema(&db).await.unwrap();
@@ -174,12 +287,12 @@ mod tests {
         for model in [NodeModel::CiscoIse, NodeModel::CiscoAsav] {
             let mut image = NodeConfig::get_model(model);
             image.ztp_method = ZtpMethod::Cdrom;
-            create_node_image(&db, image).await.unwrap();
+            upsert_node_image(&db, image).await.unwrap();
         }
         for model in [NodeModel::GenericVm, NodeModel::CiscoIosv] {
             let mut image = NodeConfig::get_model(model);
             image.cdrom_bus = DiskBuses::Virtio;
-            create_node_image(&db, image).await.unwrap();
+            upsert_node_image(&db, image).await.unwrap();
         }
 
         apply_schema(&db).await.unwrap();
@@ -233,7 +346,7 @@ mod tests {
         for model in [NodeModel::JuniperVsrxv3, NodeModel::AristaVeos] {
             let mut image = NodeConfig::get_model(model);
             image.ztp_method = ZtpMethod::Tftp;
-            create_node_image(&db, image).await.unwrap();
+            upsert_node_image(&db, image).await.unwrap();
         }
 
         apply_schema(&db).await.unwrap();
@@ -283,8 +396,8 @@ mod tests {
         )
         .await
         .unwrap();
-        // Three admin protection triggers, and an insert and an update trigger for each of
-        // node_image, lab, node and link.
-        assert_eq!(triggers, 3 + 4 * 2);
+        // Three admin protection triggers, an insert and an update trigger for each of
+        // node_image, lab, node and link, and the two that keep interfaces used once.
+        assert_eq!(triggers, 3 + 4 * 2 + 2);
     }
 }

@@ -2,10 +2,7 @@
 ///
 /// The same rules applied to raw SQL are tested in `crates/db/src/schema/user.rs`.
 use anyhow::Result;
-use db::{
-    create_admin_user, create_user, delete_user, delete_user_by_username, get_user, list_users,
-    update_user,
-};
+use db::{create_admin_user, create_user, delete_user, get_user, list_users, update_user};
 use shared::konst::{ADMIN_PROTECTED_MESSAGE, ADMIN_USERNAME};
 
 use crate::setup_db;
@@ -22,7 +19,6 @@ async fn test_admin_cannot_be_deleted_by_id_or_username() -> Result<()> {
         format!("{error:#}").contains(ADMIN_PROTECTED_MESSAGE),
         "{error:#}"
     );
-    assert!(delete_user_by_username(&db, ADMIN_USERNAME).await.is_err());
     assert!(get_user(&db, ADMIN_USERNAME).await.is_ok());
 
     Ok(())
@@ -70,7 +66,7 @@ async fn test_other_admins_can_be_demoted_and_deleted() -> Result<()> {
     dana.is_admin = false;
     let demoted = update_user(&db, dana).await?;
     assert!(!demoted.is_admin);
-    delete_user_by_username(&db, "dana").await?;
+    delete_user(&db, demoted.id.clone().unwrap()).await?;
     assert_eq!(list_users(&db).await?.len(), 1);
 
     Ok(())

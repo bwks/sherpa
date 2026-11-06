@@ -55,11 +55,10 @@ async fn test_create_user_duplicate_username_fails() -> Result<()> {
     let error_msg = result.unwrap_err().to_string();
 
     // Verify the error is about creating the user (the underlying DB error may be masked by context)
-    println!("Duplicate username error: {}", error_msg);
+    println!("Duplicate username error: {error_msg}");
     assert!(
         error_msg.contains("Failed to create user") && error_msg.contains("charlie"),
-        "Error should mention the failed user creation, got: {}",
-        error_msg
+        "Error should mention the failed user creation, got: {error_msg}"
     );
 
     Ok(())
@@ -75,8 +74,7 @@ async fn test_create_user_username_too_short() -> Result<()> {
     let error_msg = result.unwrap_err().to_string();
     assert!(
         error_msg.contains("3–32"),
-        "Error should mention the length range: {}",
-        error_msg
+        "Error should mention the length range: {error_msg}"
     );
 
     Ok(())
@@ -184,7 +182,7 @@ async fn test_create_admin_user_creates_reserved_admin() -> Result<()> {
     let admin = create_admin_user(&db, "AdminPass123!").await?;
     assert_eq!(admin.username, "admin");
     assert!(admin.is_admin);
-    assert!(admin.ssh_keys.is_empty());
+    assert_eq!(admin.ssh_keys, [] as [std::string::String; 0]);
 
     Ok(())
 }

@@ -7,7 +7,7 @@ use crate::persistence::{NODE_IMAGE_TABLE, key_of, node_image_from_row};
 use crate::queries;
 use crate::sql::{query_count, query_optional};
 
-/// Delete a node_image record from the database by its RecordId
+/// Delete a `node_image` record from the database by its `RecordId`
 ///
 /// Returns an error if:
 /// - The record doesn't exist (returns "Node image not found" error)
@@ -15,7 +15,7 @@ use crate::sql::{query_count, query_optional};
 ///
 /// # Arguments
 /// * `db` - Database connection
-/// * `id` - RecordId of the node_image to delete
+/// * `id` - `RecordId` of the `node_image` to delete
 ///
 /// # Returns
 /// `Ok(())` on successful deletion
@@ -49,12 +49,11 @@ pub async fn delete_node_image(db: &Database, id: RecordId) -> Result<()> {
     )
     .await
     .context(format!(
-        "Failed to delete node_image: {:?}\nNote: Deletion will fail if any nodes reference this image",
-        id
+        "Failed to delete node_image: {id:?}\nNote: Deletion will fail if any nodes reference this image"
     ))?;
 
     // Verify the record was found and deleted
-    deleted.ok_or_else(|| anyhow!("Node image not found for deletion: {:?}", id))?;
+    deleted.ok_or_else(|| anyhow!("Node image not found for deletion: {id:?}"))?;
 
     Ok(())
 }

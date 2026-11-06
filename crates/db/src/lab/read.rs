@@ -7,31 +7,31 @@ use tracing::instrument;
 use turso::Row;
 
 use crate::Database;
-use crate::persistence::{Cells, LAB_TABLE, USER_TABLE, key_of, lab_from_row};
+use crate::persistence::{Cells, USER_TABLE, key_of, lab_from_row};
 use crate::queries;
 use crate::sql::{query_all, query_count, query_optional};
 
-/// Get a lab by its lab_id (business key)
+/// Get a lab by its `lab_id` (business key)
 ///
 /// # Arguments
 /// * `db` - Database connection
-/// * `lab_id` - The unique lab_id string
+/// * `lab_id` - The unique `lab_id` string
 ///
 /// # Returns
-/// The DbLab record
+/// The `DbLab` record
 ///
 /// # Errors
-/// - If lab with lab_id not found
+/// - If lab with `lab_id` not found
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
 pub async fn get_lab(db: &Database, lab_id: &str) -> Result<DbLab> {
     find_lab(db, lab_id)
         .await?
-        .ok_or_else(|| anyhow!("Lab with lab_id not found: {}", lab_id))
+        .ok_or_else(|| anyhow!("Lab with lab_id not found: {lab_id}"))
 }
 
-/// Find a lab by its lab_id, returning `None` when no such lab exists
+/// Find a lab by its `lab_id`, returning `None` when no such lab exists
 ///
 /// Use this instead of `get_lab` when a missing lab is an expected outcome that the
 /// caller must tell apart from a database failure.
@@ -44,68 +44,7 @@ pub async fn find_lab(db: &Database, lab_id: &str) -> Result<Option<DbLab>> {
     let conn = db.reader().await?;
     query_optional(&conn, queries::lab::FIND_BY_LAB_ID, [lab_id], lab_from_row)
         .await
-        .context(format!("Failed to query lab from database: {}", lab_id))
-}
-
-/// Get a lab by its RecordId (surrogate key)
-///
-/// # Arguments
-/// * `db` - Database connection
-/// * `id` - The RecordId of the lab
-///
-/// # Returns
-/// The DbLab record
-///
-/// # Errors
-/// - If lab with id not found
-/// - If there's a database error
-///
-#[instrument(skip(db), level = "debug")]
-pub async fn get_lab_by_id(db: &Database, id: RecordId) -> Result<DbLab> {
-    let conn = db.reader().await?;
-    let lab = query_optional(
-        &conn,
-        queries::lab::FIND_BY_ID,
-        [key_of(&id, LAB_TABLE)?],
-        lab_from_row,
-    )
-    .await
-    .context(format!("Failed to get lab by id: {:?}", id))?;
-
-    lab.ok_or_else(|| anyhow!("Lab not found with id: {:?}", id))
-}
-
-/// Get a lab by name and user (unique constraint)
-///
-/// # Arguments
-/// * `db` - Database connection
-/// * `name` - Lab name
-/// * `user_id` - Owner's RecordId
-///
-/// # Returns
-/// The DbLab record
-///
-/// # Errors
-/// - If lab not found
-/// - If there's a database error
-///
-#[instrument(skip(db), level = "debug")]
-pub async fn get_lab_by_name_and_user(
-    db: &Database,
-    name: &str,
-    user_id: RecordId,
-) -> Result<DbLab> {
-    let conn = db.reader().await?;
-    let db_lab = query_optional(
-        &conn,
-        queries::lab::FIND_BY_NAME_AND_USER,
-        [name.to_string(), key_of(&user_id, USER_TABLE)?],
-        lab_from_row,
-    )
-    .await
-    .context(format!("Failed to query lab by name and user: {}", name))?;
-
-    db_lab.ok_or_else(|| anyhow!("Lab not found with name '{}' for user: {:?}", name, user_id))
+        .context(format!("Failed to query lab from database: {lab_id}"))
 }
 
 /// List all labs in the database
@@ -114,7 +53,7 @@ pub async fn get_lab_by_name_and_user(
 /// * `db` - Database connection
 ///
 /// # Returns
-/// Vector of all DbLab records
+/// Vector of all `DbLab` records
 ///
 /// # Errors
 /// - If there's a database error
@@ -131,10 +70,10 @@ pub async fn list_labs(db: &Database) -> Result<Vec<DbLab>> {
 ///
 /// # Arguments
 /// * `db` - Database connection
-/// * `user_id` - Owner's RecordId
+/// * `user_id` - Owner's `RecordId`
 ///
 /// # Returns
-/// Vector of DbLab records owned by the user
+/// Vector of `DbLab` records owned by the user
 ///
 /// # Errors
 /// - If there's a database error
@@ -149,33 +88,14 @@ pub async fn list_labs_by_user(db: &Database, user_id: RecordId) -> Result<Vec<D
         lab_from_row,
     )
     .await
-    .context(format!("Failed to list labs for user: {:?}", user_id))
-}
-
-/// Count total number of labs in the database
-///
-/// # Arguments
-/// * `db` - Database connection
-///
-/// # Returns
-/// Total count of labs
-///
-/// # Errors
-/// - If there's a database error
-///
-#[instrument(skip(db), level = "debug")]
-pub async fn count_labs(db: &Database) -> Result<usize> {
-    let conn = db.reader().await?;
-    query_count(&conn, queries::lab::COUNT, ())
-        .await
-        .context("Failed to count labs")
+    .context(format!("Failed to list labs for user: {user_id:?}"))
 }
 
 /// Count number of labs owned by a specific user
 ///
 /// # Arguments
 /// * `db` - Database connection
-/// * `user_id` - Owner's RecordId
+/// * `user_id` - Owner's `RecordId`
 ///
 /// # Returns
 /// Count of labs owned by the user
@@ -200,29 +120,13 @@ pub async fn count_labs_by_user(db: &Database, user_id: RecordId) -> Result<usiz
 /// Returns a vector of `Ipv4Net` representing the loopback subnets
 /// in use by existing labs. Used when allocating a new loopback subnet
 /// to avoid collisions.
+///
+/// # Errors
+///
+/// Fails when the labs cannot be read, or a lab holds a network that does not parse.
 #[instrument(skip(db), level = "debug")]
 pub async fn get_used_loopback_networks(db: &Database) -> Result<Vec<Ipv4Net>> {
-    let conn = db.reader().await?;
-    let rows = query_all(
-        &conn,
-        queries::lab::LOOPBACK_NETWORKS,
-        (),
-        lab_network_from_row,
-    )
-    .await
-    .context("Failed to query labs for loopback networks")?;
-
-    let mut networks = Vec::new();
-    for (lab_id, network) in rows {
-        let net = Ipv4Net::from_str(&network).with_context(|| {
-            format!(
-                "Failed to parse loopback_network '{}' for lab '{}'",
-                network, lab_id
-            )
-        })?;
-        networks.push(net);
-    }
-    Ok(networks)
+    used_networks(db, queries::lab::LOOPBACK_NETWORKS, "loopback_network").await
 }
 
 /// Get all management networks currently allocated to labs.
@@ -230,87 +134,68 @@ pub async fn get_used_loopback_networks(db: &Database) -> Result<Vec<Ipv4Net>> {
 /// Returns a vector of `Ipv4Net` representing the management subnets
 /// in use by existing labs. Used when allocating a new management subnet
 /// to avoid collisions.
+///
+/// # Errors
+///
+/// Fails when the labs cannot be read, or a lab holds a network that does not parse.
 #[instrument(skip(db), level = "debug")]
 pub async fn get_used_management_networks(db: &Database) -> Result<Vec<Ipv4Net>> {
-    let conn = db.reader().await?;
-    let rows = query_all(
-        &conn,
-        queries::lab::MANAGEMENT_NETWORKS,
-        (),
-        lab_network_from_row,
-    )
-    .await
-    .context("Failed to query labs for management networks")?;
-
-    let mut networks = Vec::new();
-    for (lab_id, network) in rows {
-        let net = Ipv4Net::from_str(&network).with_context(|| {
-            format!(
-                "Failed to parse management_network '{}' for lab '{}'",
-                network, lab_id
-            )
-        })?;
-        networks.push(net);
-    }
-    Ok(networks)
+    used_networks(db, queries::lab::MANAGEMENT_NETWORKS, "management_network").await
 }
 
 /// Get all IPv6 management networks currently allocated to labs.
 ///
 /// Returns a vector of `Ipv6Net` representing the IPv6 management subnets
 /// in use by existing labs. Labs without IPv6 are skipped.
+///
+/// # Errors
+///
+/// Fails when the labs cannot be read, or a lab holds a network that does not parse.
 #[instrument(skip(db), level = "debug")]
 pub async fn get_used_ipv6_management_networks(db: &Database) -> Result<Vec<Ipv6Net>> {
-    let conn = db.reader().await?;
-    let rows = query_all(
-        &conn,
+    used_networks(
+        db,
         queries::lab::MANAGEMENT_NETWORKS_V6,
-        (),
-        lab_network_from_row,
+        "management_network_v6",
     )
     .await
-    .context("Failed to query labs for IPv6 management networks")?;
-
-    let mut networks = Vec::new();
-    for (lab_id, network) in rows {
-        let net = Ipv6Net::from_str(&network).with_context(|| {
-            format!(
-                "Failed to parse management_network_v6 '{}' for lab '{}'",
-                network, lab_id
-            )
-        })?;
-        networks.push(net);
-    }
-    Ok(networks)
 }
 
 /// Get all IPv6 loopback networks currently allocated to labs.
 ///
 /// Returns a vector of `Ipv6Net` representing the IPv6 loopback subnets
 /// in use by existing labs. Labs without IPv6 are skipped.
+///
+/// # Errors
+///
+/// Fails when the labs cannot be read, or a lab holds a network that does not parse.
 #[instrument(skip(db), level = "debug")]
 pub async fn get_used_ipv6_loopback_networks(db: &Database) -> Result<Vec<Ipv6Net>> {
-    let conn = db.reader().await?;
-    let rows = query_all(
-        &conn,
+    used_networks(
+        db,
         queries::lab::LOOPBACK_NETWORKS_V6,
-        (),
-        lab_network_from_row,
+        "loopback_network_v6",
     )
     .await
-    .context("Failed to query labs for IPv6 loopback networks")?;
+}
 
-    let mut networks = Vec::new();
-    for (lab_id, network) in rows {
-        let net = Ipv6Net::from_str(&network).with_context(|| {
-            format!(
-                "Failed to parse loopback_network_v6 '{}' for lab '{}'",
-                network, lab_id
-            )
-        })?;
-        networks.push(net);
-    }
-    Ok(networks)
+/// The networks labs hold in `column`, read with `sql`, each parsed as a `T`.
+async fn used_networks<T>(db: &Database, sql: &str, column: &str) -> Result<Vec<T>>
+where
+    T: FromStr,
+    T::Err: std::error::Error + Send + Sync + 'static,
+{
+    let conn = db.reader().await?;
+    let rows = query_all(&conn, sql, (), lab_network_from_row)
+        .await
+        .with_context(|| format!("Failed to query labs for their {column}"))?;
+    rows.into_iter()
+        .map(|(lab_id, network)| {
+            network
+                .parse()
+                .with_context(|| format!("Failed to parse {column} '{network}' for lab '{lab_id}'"))
+        })
+        .collect()
 }
 
 /// A lab's `lab_id` and one network column, from `SELECT lab_id, <network> FROM lab`.

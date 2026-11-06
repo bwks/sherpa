@@ -106,8 +106,7 @@ that owns the rule:
   for running every kind of test.
 - `images/` holds recipes for node images Sherpa builds itself, such as `images/nixos`, the NixOS
   flake for `nixos_linux` nodes.
-- `dev/` holds helper scripts for local development, such as `dev/testdb`, the SurrealDB
-  container the importer's test reads from.
+- `dev/` holds helper scripts for local development, such as `dev/serve`.
 
 ## Project goals
 
@@ -254,7 +253,6 @@ Use these preferred libraries for the listed functions.
 - `reqwest` - Web client.
 - `axum` - Web server.
 - `turso` - Database, embedded. Only the `db` crate uses it.
-  `surrealdb` stays only for the importer that moves pre-0.5.0 data, until that is removed.
 - `anyhow` - Errors.
 - `serde` - Serialization/Deserialization.
 - `tabled` - Display information in the terminal
@@ -262,11 +260,3 @@ Use these preferred libraries for the listed functions.
 ## Test Database
 Database tests need no database server: each opens its own in-memory database with
 `db::open_in_memory()`, and `cargo test -p db` runs them.
-
-The importer's test is `#[ignore]` and reads from a SurrealDB container, managed with:
-- `dev/testdb start`   — spin up an in-memory SurrealDB v3.0.0 container
-- `dev/testdb stop`    — stop the container
-- `dev/testdb restart` — destroy and recreate (fresh database)
-- `dev/testdb status`  — check if it's running
-- `dev/testdb logs`    — tail container logs
-- `dev/testdb destroy` — stop and remove the container

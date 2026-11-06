@@ -52,9 +52,8 @@ pub(crate) async fn provision(
     };
     let settings = &state.config.tailscale;
     let id = tailscale::create_gateway(&state.docker, &config, settings).await?;
-    let mut updated = lab.clone();
-    updated.tailscale_container_id = Some(id.clone());
-    db::update_lab(&state.db, updated)
+    let lab_record = lab.id.as_ref().context("Lab record has no id")?;
+    db::update_lab_tailscale_container(&state.db, lab_record, Some(&id))
         .await
         .context("Unable to persist Tailscale gateway ownership")?;
     tailscale::enroll_gateway(

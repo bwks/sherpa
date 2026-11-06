@@ -1,6 +1,6 @@
 /// READ operation tests for user
 use anyhow::Result;
-use db::{count_users, create_user, find_user, get_user, get_user_by_id, list_users};
+use db::{create_user, find_user, find_user_by_id, get_user, list_users};
 use shared::data::RecordId;
 
 use crate::setup_db;
@@ -39,8 +39,7 @@ async fn test_get_user_not_found() -> Result<()> {
     let error_msg = result.unwrap_err().to_string();
     assert!(
         error_msg.contains("not found") || error_msg.contains("nonexistent"),
-        "Error should mention user not found: {}",
-        error_msg
+        "Error should mention user not found: {error_msg}"
     );
 
     Ok(())
@@ -55,7 +54,7 @@ async fn test_get_user_by_id() -> Result<()> {
     let user_id = created.id.expect("User should have ID");
 
     // Get by ID
-    let user = get_user_by_id(&db, user_id).await?;
+    let user = find_user_by_id(&db, user_id).await?;
 
     assert!(user.is_some(), "Should find user by ID");
     let user = user.unwrap();
@@ -70,7 +69,7 @@ async fn test_get_user_by_id_not_found() -> Result<()> {
 
     let fake_id = RecordId::new("user", "nonexistent");
 
-    let user = get_user_by_id(&db, fake_id).await?;
+    let user = find_user_by_id(&db, fake_id).await?;
 
     assert!(user.is_none(), "Should return None for nonexistent ID");
 
@@ -118,34 +117,6 @@ async fn test_list_users_returns_all_fields() -> Result<()> {
     assert_eq!(dave.username, "dave");
     assert_eq!(dave.ssh_keys, ssh_keys);
     assert!(dave.id.is_some());
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_count_users() -> Result<()> {
-    let db = setup_db().await?;
-
-    let initial_count = count_users(&db).await?;
-
-    // Create users
-    create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
-    create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
-
-    let new_count = count_users(&db).await?;
-
-    assert_eq!(new_count, initial_count + 2, "Count should increase by 2");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_count_users_empty() -> Result<()> {
-    let db = setup_db().await?;
-
-    let count = count_users(&db).await?;
-
-    assert_eq!(count, 0, "Should have 0 users in fresh database");
 
     Ok(())
 }

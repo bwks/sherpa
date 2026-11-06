@@ -8,18 +8,18 @@ use crate::node_image::create::replace_node_image;
 use crate::persistence::{NODE_IMAGE_TABLE, enum_text, key_of};
 use crate::queries;
 
-/// Update an existing node_image record in the database
+/// Update an existing `node_image` record in the database
 ///
-/// This performs a full replacement of all fields. The NodeConfig must have
+/// This performs a full replacement of all fields. The `NodeConfig` must have
 /// a valid `id` field set. If config.default is true, it also unsets default on the other
 /// versions of the same (model, kind), in the same transaction.
 ///
 /// # Arguments
 /// * `db` - Database connection
-/// * `config` - NodeConfig with updated fields and a valid `id`
+/// * `config` - `NodeConfig` with updated fields and a valid `id`
 ///
 /// # Returns
-/// The updated NodeConfig on success
+/// The updated `NodeConfig` on success
 ///
 /// # Errors
 /// - If the config has no ID

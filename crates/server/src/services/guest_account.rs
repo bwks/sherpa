@@ -453,7 +453,7 @@ pub(crate) async fn resolve_owner(
     db: &db::Database,
     owner_id: RecordId,
 ) -> Result<Option<GuestAccount>> {
-    let owner = db::get_user_by_id(db, owner_id)
+    let owner = db::find_user_by_id(db, owner_id)
         .await
         .context("Failed to look up the lab owner")?
         .context("Lab owner account no longer exists")?;

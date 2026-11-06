@@ -1,10 +1,9 @@
 use anyhow::Result;
 use db::{
-    LabOrigin, count_labs, count_labs_by_user, create_lab, create_user, find_lab, get_lab,
-    get_lab_by_id, get_lab_by_name_and_user, get_used_management_networks, list_labs,
-    list_labs_by_user,
+    LabNetworks, LabOrigin, count_labs_by_user, create_lab, create_user, find_lab, get_lab,
+    get_used_ipv6_loopback_networks, get_used_ipv6_management_networks, get_used_loopback_networks,
+    get_used_management_networks, list_labs, list_labs_by_user,
 };
-use shared::data::RecordId;
 
 use crate::helper::{ipv4_lab_networks, setup_db};
 
@@ -44,91 +43,6 @@ async fn test_get_lab_not_found() -> Result<()> {
     let result = get_lab(&db, "invalid").await;
 
     assert!(result.is_err(), "Should error on non-existent lab");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_get_lab_by_id() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
-    let created = create_lab(
-        &db,
-        "Test Lab",
-        "lab-0002",
-        &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
-        &LabOrigin::default(),
-    )
-    .await?;
-    let lab_id = created.id.clone().unwrap();
-
-    let fetched = get_lab_by_id(&db, lab_id).await?;
-
-    assert_eq!(fetched.id, created.id);
-    assert_eq!(fetched.name, "Test Lab");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_get_lab_by_id_not_found() -> Result<()> {
-    let db = setup_db().await?;
-
-    let fake_id = RecordId::new("lab", "nonexistent");
-    let result = get_lab_by_id(&db, fake_id).await;
-
-    assert!(result.is_err(), "Should error on non-existent lab ID");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_get_lab_by_name_and_user() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
-    let user_id = user.id.as_ref().unwrap().clone();
-
-    let created = create_lab(
-        &db,
-        "My Lab",
-        "lab-0003",
-        &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
-        &LabOrigin::default(),
-    )
-    .await?;
-
-    let fetched = get_lab_by_name_and_user(&db, "My Lab", user_id).await?;
-
-    assert_eq!(fetched.id, created.id);
-    assert_eq!(fetched.name, "My Lab");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_get_lab_by_name_and_user_not_found() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
-    let user_id = user.id.unwrap();
-
-    let result = get_lab_by_name_and_user(&db, "Nonexistent", user_id).await;
-
-    assert!(result.is_err(), "Should error when lab not found");
 
     Ok(())
 }
@@ -294,50 +208,6 @@ async fn test_list_labs_returns_all_fields() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_count_labs() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "ivan".to_string(), "TestPass123!", false, vec![]).await?;
-
-    let count_before = count_labs(&db).await?;
-    assert_eq!(count_before, 0, "Should start with 0 labs");
-
-    create_lab(
-        &db,
-        "Lab 1",
-        "lab-0011",
-        &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
-        &LabOrigin::default(),
-    )
-    .await?;
-    create_lab(
-        &db,
-        "Lab 2",
-        "lab-0012",
-        &user,
-        &ipv4_lab_networks(
-            "127.127.2.0/24",
-            "172.31.2.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
-        &LabOrigin::default(),
-    )
-    .await?;
-
-    let count_after = count_labs(&db).await?;
-    assert_eq!(count_after, 2, "Should have 2 labs");
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_count_labs_by_user() -> Result<()> {
     let db = setup_db().await?;
 
@@ -417,8 +287,8 @@ async fn test_get_used_management_networks() -> Result<()> {
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
 
     // No labs yet — should return empty
-    let used = get_used_management_networks(&db).await?;
-    assert!(used.is_empty(), "Should be empty when no labs exist");
+    let in_use = get_used_management_networks(&db).await?;
+    assert!(in_use.is_empty(), "Should be empty when no labs exist");
 
     // Create two labs with different management networks
     create_lab(
@@ -450,13 +320,13 @@ async fn test_get_used_management_networks() -> Result<()> {
     )
     .await?;
 
-    let used = get_used_management_networks(&db).await?;
-    assert_eq!(used.len(), 2, "Should have 2 management networks");
+    let in_use = get_used_management_networks(&db).await?;
+    assert_eq!(in_use.len(), 2, "Should have 2 management networks");
 
     let net1: ipnet::Ipv4Net = "172.31.1.0/24".parse()?;
     let net2: ipnet::Ipv4Net = "172.31.2.0/24".parse()?;
-    assert!(used.contains(&net1), "Should contain 172.31.1.0/24");
-    assert!(used.contains(&net2), "Should contain 172.31.2.0/24");
+    assert!(in_use.contains(&net1), "Should contain 172.31.1.0/24");
+    assert!(in_use.contains(&net2), "Should contain 172.31.2.0/24");
 
     Ok(())
 }
@@ -485,5 +355,58 @@ async fn find_lab_returns_none_for_a_missing_lab() -> Result<()> {
     assert_eq!(found.id, created.id);
     assert!(find_lab(&db, "invalid").await?.is_none());
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn every_network_a_lab_holds_is_reported_as_used() -> Result<()> {
+    let db = setup_db().await?;
+    let user = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
+    let networks = LabNetworks {
+        management_network_v6: Some("fd00:b00b:0:9::/64".to_string()),
+        loopback_network_v6: Some("fd00:1001:0:9::/64".to_string()),
+        gateway_ipv6: Some("fd00:b00b:0:9::1".to_string()),
+        router_ipv6: Some("fd00:b00b:0:9::2".to_string()),
+        ..ipv4_lab_networks(
+            "127.127.9.0/24",
+            "172.31.9.0/24",
+            "172.31.9.1",
+            "172.31.9.2",
+        )
+    };
+    create_lab(
+        &db,
+        "Nets",
+        "nets0009",
+        &user,
+        &networks,
+        &LabOrigin::default(),
+    )
+    .await?;
+
+    assert_eq!(
+        get_used_loopback_networks(&db)
+            .await?
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["127.127.9.0/24"]
+    );
+    assert_eq!(
+        get_used_ipv6_management_networks(&db)
+            .await?
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["fd00:b00b:0:9::/64"]
+    );
+    assert_eq!(
+        get_used_ipv6_loopback_networks(&db)
+            .await?
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["fd00:1001:0:9::/64"]
+    );
     Ok(())
 }

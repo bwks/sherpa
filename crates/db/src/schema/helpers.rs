@@ -11,7 +11,11 @@ use crate::persistence::enum_text;
 use crate::sql::sql_text;
 
 /// A comma-separated list of the quoted, stored names of `values`, for an SQL `IN` list.
-pub(crate) fn sql_values<T: Serialize>(values: Vec<T>, field: &str) -> Result<String> {
+///
+/// # Errors
+///
+/// Fails when a value does not serialize to its stored name.
+pub(crate) fn sql_values<T: Serialize>(values: &[T], field: &str) -> Result<String> {
     let names = values
         .iter()
         .map(|value| enum_text(value, field).map(|name| sql_text(&name)))
@@ -19,28 +23,73 @@ pub(crate) fn sql_values<T: Serialize>(values: Vec<T>, field: &str) -> Result<St
     Ok(names.join(", "))
 }
 
-/// A trigger statement refusing a row whose `column` is not one of `values`.
-pub(crate) fn enum_rule<T: Serialize>(
-    table: &str,
-    column: &str,
-    values: Vec<T>,
+/// An enum column, and the stored names of the values the current Rust enum allows in it.
+pub(crate) struct EnumColumn {
+    table: &'static str,
+    column: &'static str,
+    allowed: String,
     nullable: bool,
-) -> Result<String> {
-    let allowed = sql_values(values, column)?;
-    let present = if nullable {
-        format!("NEW.{column} IS NOT NULL AND ")
-    } else {
-        String::new()
-    };
-    Ok(format!(
-        "SELECT RAISE(ABORT, {}) WHERE {present}NEW.{column} NOT IN ({allowed});",
-        sql_text(&format!("Invalid value for {table}.{column}"))
-    ))
 }
 
-/// Drop and create the insert and update triggers that apply `rules` to `table`.
-pub(crate) fn rule_triggers(table: &str, rules: &[String]) -> String {
-    let body = rules.join("\n    ");
+/// The enum column `table.column`, which holds one of `values`, or NULL when `nullable`.
+pub(crate) fn enum_column<T: Serialize>(
+    table: &'static str,
+    column: &'static str,
+    values: &[T],
+    nullable: bool,
+) -> Result<EnumColumn> {
+    Ok(EnumColumn {
+        table,
+        column,
+        allowed: sql_values(values, column)?,
+        nullable,
+    })
+}
+
+impl EnumColumn {
+    /// `table.column`, as errors name it.
+    pub(crate) fn name(&self) -> String {
+        format!("{}.{}", self.table, self.column)
+    }
+
+    /// A trigger statement refusing a row whose value is not allowed.
+    pub(crate) fn rule(&self) -> String {
+        let present = if self.nullable {
+            format!("NEW.{} IS NOT NULL AND ", self.column)
+        } else {
+            String::new()
+        };
+        format!(
+            "SELECT RAISE(ABORT, {}) WHERE {present}NEW.{} NOT IN ({});",
+            sql_text(&format!("Invalid value for {}", self.name())),
+            self.column,
+            self.allowed
+        )
+    }
+
+    /// A query for the stored values that are not allowed, as a newer release can leave.
+    pub(crate) fn unknown_values_query(&self) -> String {
+        let present = if self.nullable {
+            format!("{} IS NOT NULL AND ", self.column)
+        } else {
+            String::new()
+        };
+        format!(
+            "SELECT DISTINCT {column} FROM {table} WHERE {present}{column} NOT IN ({allowed})",
+            column = self.column,
+            table = self.table,
+            allowed = self.allowed
+        )
+    }
+}
+
+/// Drop and create the insert and update triggers that check `columns` of `table`.
+pub(crate) fn rule_triggers(table: &str, columns: &[EnumColumn]) -> String {
+    let body = columns
+        .iter()
+        .map(EnumColumn::rule)
+        .collect::<Vec<_>>()
+        .join("\n    ");
     format!(
         "DROP TRIGGER IF EXISTS {table}_rules_insert;
 CREATE TRIGGER {table}_rules_insert BEFORE INSERT ON {table} BEGIN
@@ -61,12 +110,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn enum_rule_lists_stored_names() {
-        let rule = enum_rule("node_image", "kind", NodeKind::to_vec(), false).unwrap();
+    fn an_enum_rule_lists_stored_names() {
+        let column = enum_column("node_image", "kind", &NodeKind::to_vec(), false).unwrap();
+        let rule = column.rule();
         assert!(rule.contains("NEW.kind NOT IN ("));
         assert!(rule.contains(&sql_text(&enum_text(&NodeKind::Container, "kind").unwrap())));
         assert!(!rule.contains("IS NOT NULL"));
-        let nullable = enum_rule("node_image", "kind", NodeKind::to_vec(), true).unwrap();
-        assert!(nullable.contains("NEW.kind IS NOT NULL AND NEW.kind NOT IN ("));
+        assert!(
+            column
+                .unknown_values_query()
+                .contains("WHERE kind NOT IN (")
+        );
+        let nullable = enum_column("node_image", "kind", &NodeKind::to_vec(), true).unwrap();
+        assert!(
+            nullable
+                .rule()
+                .contains("NEW.kind IS NOT NULL AND NEW.kind NOT IN (")
+        );
+        assert!(
+            nullable
+                .unknown_values_query()
+                .contains("WHERE kind IS NOT NULL AND kind NOT IN (")
+        );
     }
 }

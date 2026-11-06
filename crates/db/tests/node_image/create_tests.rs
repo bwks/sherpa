@@ -1,6 +1,6 @@
-/// CREATE operation tests for node_image
+/// CREATE operation tests for `node_image`
 use anyhow::Result;
-use db::{create_node_image, list_node_images, upsert_node_image};
+use db::{list_node_images, upsert_node_image};
 use shared::data::NodeModel;
 
 use crate::{create_test_config, setup_db};
@@ -11,7 +11,7 @@ async fn test_create_and_list_node_images() -> Result<()> {
 
     // Create a test config
     let test_config = create_test_config(NodeModel::AristaVeos);
-    let created = create_node_image(&db, test_config.clone()).await?;
+    let created = upsert_node_image(&db, test_config.clone()).await?;
 
     assert_eq!(created.model, NodeModel::AristaVeos);
     assert!(created.id.is_some(), "Created config should have an ID");

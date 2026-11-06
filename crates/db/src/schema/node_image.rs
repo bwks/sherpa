@@ -8,33 +8,37 @@ use shared::data::{
     NodeKind, NodeModel, OsVariant, UnikernelBootMode, ZtpMethod,
 };
 
-use super::helpers::{enum_rule, rule_triggers};
+use super::helpers::{EnumColumn, enum_column, rule_triggers};
 
 const TABLE: &str = "node_image";
 
 pub(crate) const TABLES: &str = include_str!("../../sql/schema/node_image.sql");
 
-/// The triggers checking the enum columns against the current Rust enums.
-pub(crate) fn rules() -> Result<String> {
-    let rules = [
-        enum_rule(TABLE, "model", NodeModel::to_vec(), false)?,
-        enum_rule(TABLE, "os_variant", OsVariant::to_vec(), false)?,
-        enum_rule(TABLE, "kind", NodeKind::to_vec(), false)?,
-        enum_rule(TABLE, "bios", BiosTypes::to_vec(), false)?,
-        enum_rule(TABLE, "cpu_architecture", CpuArchitecture::to_vec(), false)?,
-        enum_rule(TABLE, "cpu_model", CpuModels::to_vec(), false)?,
-        enum_rule(TABLE, "machine_type", MachineType::to_vec(), false)?,
-        enum_rule(TABLE, "hdd_bus", DiskBuses::to_vec(), false)?,
-        enum_rule(TABLE, "cdrom_bus", DiskBuses::to_vec(), false)?,
-        enum_rule(TABLE, "ztp_method", ZtpMethod::to_vec(), false)?,
-        enum_rule(TABLE, "interface_type", InterfaceType::to_vec(), false)?,
-        enum_rule(
+/// The enum columns, and the values the current Rust enums allow in them.
+pub(crate) fn columns() -> Result<Vec<EnumColumn>> {
+    Ok(vec![
+        enum_column(TABLE, "model", &NodeModel::to_vec(), false)?,
+        enum_column(TABLE, "os_variant", &OsVariant::to_vec(), false)?,
+        enum_column(TABLE, "kind", &NodeKind::to_vec(), false)?,
+        enum_column(TABLE, "bios", &BiosTypes::to_vec(), false)?,
+        enum_column(TABLE, "cpu_architecture", &CpuArchitecture::to_vec(), false)?,
+        enum_column(TABLE, "cpu_model", &CpuModels::to_vec(), false)?,
+        enum_column(TABLE, "machine_type", &MachineType::to_vec(), false)?,
+        enum_column(TABLE, "hdd_bus", &DiskBuses::to_vec(), false)?,
+        enum_column(TABLE, "cdrom_bus", &DiskBuses::to_vec(), false)?,
+        enum_column(TABLE, "ztp_method", &ZtpMethod::to_vec(), false)?,
+        enum_column(TABLE, "interface_type", &InterfaceType::to_vec(), false)?,
+        enum_column(
             TABLE,
             "management_interface",
-            MgmtInterfaces::to_vec(),
+            &MgmtInterfaces::to_vec(),
             false,
         )?,
-        enum_rule(TABLE, "boot_mode", UnikernelBootMode::to_vec(), true)?,
-    ];
-    Ok(rule_triggers(TABLE, &rules))
+        enum_column(TABLE, "boot_mode", &UnikernelBootMode::to_vec(), true)?,
+    ])
+}
+
+/// The triggers checking the enum columns against the current Rust enums.
+pub(crate) fn rules() -> Result<String> {
+    Ok(rule_triggers(TABLE, &columns()?))
 }

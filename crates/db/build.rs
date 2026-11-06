@@ -4,7 +4,9 @@
 //! in-memory Turso database, followed by each migration in `sql/migrations/`, so the database has
 //! the schema a running Sherpa has. Each query file is then prepared against it. Preparing makes
 //! Turso check the statement's syntax and every table and column it names, so a statement that
-//! does not fit the schema fails the build with the file and Turso's message.
+//! does not fit the schema fails the build with the file and Turso's message. A statement that
+//! returns every column of a table must return them in the table's order, as the row mappers in
+//! `src/persistence.rs` read them by position.
 //!
 //! It generates two files:
 //! - `queries.rs`: a constant for each query file, in a module per directory:
@@ -29,6 +31,16 @@ const QUERIES_FILE: &str = "queries.rs";
 const MIGRATIONS_FILE: &str = "migrations.rs";
 /// The schema version the first migration takes the database to; `sql/schema/` is version 1.
 const FIRST_MIGRATION_VERSION: usize = 2;
+/// The files in `sql/schema/`, parents before children, in the order `src/schema/apply.rs`
+/// applies them.
+const SCHEMA_FILES: &[&str] = &[
+    "user.sql",
+    "node_image.sql",
+    "lab.sql",
+    "node.sql",
+    "link.sql",
+    "bridge.sql",
+];
 
 fn main() -> Result<()> {
     println!("cargo:rerun-if-changed={SQL_DIR}");
@@ -54,19 +66,36 @@ async fn check_sql(manifest_dir: &Path) -> Result<(String, String)> {
         .await
         .context("Failed to open an in-memory database for checking SQL")?;
     let conn = db.connect()?;
-    for file in sql_files(&manifest_dir.join(SCHEMA_DIR))? {
+    let schema_dir = manifest_dir.join(SCHEMA_DIR);
+    let mut found: Vec<String> = sql_files(&schema_dir)?
+        .iter()
+        .filter_map(|file| {
+            file.file_name()
+                .map(|name| name.to_string_lossy().to_string())
+        })
+        .collect();
+    found.sort();
+    let mut listed: Vec<String> = SCHEMA_FILES.iter().map(ToString::to_string).collect();
+    listed.sort();
+    if found != listed {
+        bail!("{SCHEMA_DIR} holds {found:?}, but SCHEMA_FILES lists {listed:?}");
+    }
+    for name in SCHEMA_FILES {
+        let file = schema_dir.join(name);
         let schema = fs::read_to_string(&file)?;
         conn.execute_batch(&schema)
             .await
             .with_context(|| format!("Failed to apply {}", file.display()))?;
     }
     let migrations = migrations(&conn, manifest_dir).await?;
+    let tables = table_columns(&conn).await?;
 
     let mut errors = Vec::new();
     let queries = module(
         &conn,
         manifest_dir,
         &manifest_dir.join(QUERIES_DIR),
+        &tables,
         &mut errors,
     )
     .await?;
@@ -124,19 +153,62 @@ async fn migrations(conn: &Connection, manifest_dir: &Path) -> Result<String> {
     Ok(code)
 }
 
+/// Each table and its columns, in the table's order.
+async fn table_columns(conn: &Connection) -> Result<Vec<(String, Vec<String>)>> {
+    let mut names = Vec::new();
+    let mut rows = conn
+        .query(
+            "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+            (),
+        )
+        .await?;
+    while let Some(row) = rows.next().await? {
+        names.push(row.get::<String>(0)?);
+    }
+    let mut tables = Vec::new();
+    for table in names {
+        let mut columns = Vec::new();
+        let mut rows = conn
+            .query(&format!("PRAGMA table_info({table})"), ())
+            .await?;
+        while let Some(row) = rows.next().await? {
+            columns.push(row.get::<String>(1)?);
+        }
+        tables.push((table, columns));
+    }
+    Ok(tables)
+}
+
 /// The constants for the query files in `dir`, and a nested module for each subdirectory.
 async fn module(
     conn: &Connection,
     manifest_dir: &Path,
     dir: &Path,
+    tables: &[(String, Vec<String>)],
     errors: &mut Vec<String>,
 ) -> Result<String> {
     let mut code = String::new();
     for file in sql_files(dir)? {
         let sql = fs::read_to_string(&file)?;
         let relative = file.strip_prefix(manifest_dir)?.display().to_string();
-        if let Err(error) = conn.prepare(&sql).await {
-            errors.push(format!("  {relative}: {error}"));
+        match conn.prepare(&sql).await {
+            Ok(statement) => {
+                let returned = statement.column_names();
+                for (table, columns) in tables {
+                    let mut sorted = returned.clone();
+                    sorted.sort();
+                    let mut expected = columns.clone();
+                    expected.sort();
+                    if sorted == expected && returned != *columns {
+                        errors.push(format!(
+                            "  {relative}: returns every column of {table}, but not in its \
+                             order: {}",
+                            columns.join(", ")
+                        ));
+                    }
+                }
+            }
+            Err(error) => errors.push(format!("  {relative}: {error}")),
         }
         let name = file
             .file_stem()
@@ -161,7 +233,7 @@ async fn module(
             .context("Query directory has no name")?
             .to_string_lossy()
             .to_string();
-        let inner = Box::pin(module(conn, manifest_dir, &sub, errors)).await?;
+        let inner = Box::pin(module(conn, manifest_dir, &sub, tables, errors)).await?;
         writeln!(code, "pub(crate) mod {name} {{\n{inner}}}")?;
     }
     Ok(code)

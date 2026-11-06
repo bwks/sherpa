@@ -117,7 +117,7 @@ async fn authorize_lab(
         .await
         .context("Failed to look up lab for authorization")?
         .ok_or_else(|| ServiceError::NotFound(format!("Lab not found: {lab_id}")))?;
-    let owner = db::get_user_by_id(db, lab.user.clone())
+    let owner = db::find_user_by_id(db, lab.user.clone())
         .await
         .context("Failed to look up lab owner for authorization")?
         .ok_or_else(|| anyhow!("Owner of lab '{lab_id}' not found"))?;

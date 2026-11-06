@@ -6,14 +6,23 @@
 use anyhow::Result;
 use shared::data::NodeState;
 
-use super::helpers::{enum_rule, rule_triggers};
+use super::helpers::{EnumColumn, enum_column, rule_triggers};
 
 const TABLE: &str = "node";
 
 pub(crate) const TABLES: &str = include_str!("../../sql/schema/node.sql");
 
+/// The enum columns, and the values the current Rust enums allow in them.
+pub(crate) fn columns() -> Result<Vec<EnumColumn>> {
+    Ok(vec![enum_column(
+        TABLE,
+        "state",
+        &NodeState::to_vec(),
+        false,
+    )?])
+}
+
 /// The triggers checking the enum columns against the current Rust enums.
 pub(crate) fn rules() -> Result<String> {
-    let rules = [enum_rule(TABLE, "state", NodeState::to_vec(), false)?];
-    Ok(rule_triggers(TABLE, &rules))
+    Ok(rule_triggers(TABLE, &columns()?))
 }

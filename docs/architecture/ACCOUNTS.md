@@ -24,8 +24,7 @@ would collide with accounts that already exist on lab nodes.
 one place so callers cannot skip it:
 
 - `db::create_user` normalises, then validates, before writing;
-- `db::find_user` (and so `get_user` and `get_user_for_auth`) and `db::delete_user_by_username`
-  normalise the name they look up.
+- `db::find_user` (and so `get_user`) normalises the name it looks up.
 
 Tokens carry the stored, lower-case username, so `AuthContext::username` is always canonical.
 Handlers that compare a caller-supplied username with the caller's own (self-service password

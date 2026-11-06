@@ -128,6 +128,33 @@ _run_function() {
     [ "$status" -ne 0 ]
 }
 
+@test "version_newer_than: compares release versions, not text" {
+    _run_function 'version_newer_than v0.5.13 v0.5.12 && version_newer_than v0.10.0 v0.5.12 && echo newer'
+    [ "$output" = "newer" ]
+    _run_function 'version_newer_than v0.5.12 v0.5.12 || version_newer_than 0.5.9 v0.5.12 || echo not-newer'
+    [ "$output" = "not-newer" ]
+}
+
+@test "check_database_can_move: refuses a release that cannot move the SurrealDB data" {
+    _stub_docker_with_containers sherpa-db
+    _run_function 'SHERPA_VERSION=v0.5.13; check_database_can_move'
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--version v0.5.12"* ]]
+}
+
+@test "check_database_can_move: allows a release that still moves the data" {
+    _stub_docker_with_containers sherpa-db
+    _run_function 'SHERPA_VERSION=v0.5.12; check_database_can_move'
+    [ "$status" -eq 0 ]
+}
+
+@test "check_database_can_move: allows any release once the data has moved" {
+    _stub_docker_with_containers sherpa-db
+    touch "${WORK_DIR}/sherpa.sqlite"
+    _run_function 'SHERPA_VERSION=v0.5.13; check_database_can_move'
+    [ "$status" -eq 0 ]
+}
+
 @test "legacy_db_port: reads the port sherpa-db publishes from Docker" {
     _stub_docker_for_migration 8123
     _run_function legacy_db_port

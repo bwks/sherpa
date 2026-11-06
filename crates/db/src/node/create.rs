@@ -19,8 +19,8 @@ use crate::sql::query_optional;
 /// * `db` - Database connection
 /// * `name` - Node name (must be unique within the lab)
 /// * `index` - Node index (must be unique within the lab, 0-65535)
-/// * `image_id` - RecordId of the node_image to use
-/// * `lab_id` - RecordId of the lab this node belongs to
+/// * `image_id` - `RecordId` of the `node_image` to use
+/// * `lab` - `RecordId` of the lab this node belongs to
 ///
 /// # Returns
 ///
@@ -32,8 +32,8 @@ use crate::sql::query_optional;
 /// Returns an error if:
 /// - A node with the same name already exists in the lab
 /// - A node with the same index already exists in the lab
-/// - The image_id doesn't reference a valid node_image
-/// - The lab_id doesn't reference a valid lab
+/// - The `image_id` doesn't reference a valid `node_image`
+/// - The lab doesn't reference a valid lab
 /// - Database operation fails
 #[instrument(skip(db), level = "debug")]
 pub async fn create_node(
@@ -41,14 +41,14 @@ pub async fn create_node(
     name: &str,
     index: u16,
     image_id: RecordId,
-    lab_id: RecordId,
+    lab: RecordId,
 ) -> Result<DbNode> {
     let domain = DbNode {
         id: None,
         name: name.to_string(),
         image: image_id.clone(),
         index,
-        lab: lab_id.clone(),
+        lab: lab.clone(),
         mgmt_ipv4: None,
         mgmt_ipv6: None,
         mgmt_mac: None,
@@ -70,17 +70,12 @@ pub async fn create_node(
     )
     .await
     .context(format!(
-        "Failed to create node: name='{}', index={}, lab_id={:?}",
-        name, index, lab_id
+        "Failed to create node: name='{name}', index={index}, lab={lab:?}"
     ))?;
 
     node.ok_or_else(|| {
         anyhow!(
-            "Node was not created: name='{}', index={}, image_id={:?}, lab_id={:?}",
-            name,
-            index,
-            image_id,
-            lab_id
+            "Node was not created: name='{name}', index={index}, image_id={image_id:?}, lab={lab:?}"
         )
     })
 }

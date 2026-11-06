@@ -1,43 +1,11 @@
 use anyhow::Result;
 use db::{
-    LabOrigin, count_nodes, count_nodes_by_lab, create_lab, create_node, create_node_image,
-    create_user, get_node, get_node_by_id, get_node_by_name_and_lab, list_nodes, list_nodes_by_lab,
+    LabOrigin, count_nodes_by_lab, create_lab, create_node, create_user, get_node,
+    get_node_by_name_and_lab, list_nodes_by_lab, upsert_node_image,
 };
 use shared::data::{NodeConfig, NodeModel, RecordId};
 
 use crate::helper::{ipv4_lab_networks, setup_db};
-
-#[tokio::test]
-async fn test_get_node_by_id_success() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(
-        &db,
-        "Test Lab",
-        "lab-0001",
-        &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
-        &LabOrigin::default(),
-    )
-    .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
-
-    let created = create_node(&db, "node1", 1, config.id.unwrap(), lab.id.clone().unwrap()).await?;
-
-    let node_id = created.id.clone().unwrap();
-    let retrieved = get_node_by_id(&db, node_id).await?;
-
-    assert_eq!(created.id, retrieved.id);
-    assert_eq!(created.name, retrieved.name);
-
-    Ok(())
-}
 
 #[tokio::test]
 async fn test_get_node_not_found() -> Result<()> {
@@ -50,8 +18,7 @@ async fn test_get_node_not_found() -> Result<()> {
     let error_msg = result.unwrap_err().to_string();
     assert!(
         error_msg.contains("not found"),
-        "Error should mention node not found, got: {}",
-        error_msg
+        "Error should mention node not found, got: {error_msg}"
     );
 
     Ok(())
@@ -76,7 +43,7 @@ async fn test_get_node_by_name_and_lab_success() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     let created = create_node(
         &db,
@@ -122,74 +89,8 @@ async fn test_get_node_by_name_and_lab_not_found() -> Result<()> {
     let error_msg = result.unwrap_err().to_string();
     assert!(
         error_msg.contains("not found") && error_msg.contains("nonexistent"),
-        "Error should mention node not found, got: {}",
-        error_msg
+        "Error should mention node not found, got: {error_msg}"
     );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_list_nodes_empty() -> Result<()> {
-    let db = setup_db().await?;
-
-    let nodes = list_nodes(&db).await?;
-
-    assert_eq!(nodes.len(), 0, "Should have no nodes initially");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_list_nodes_returns_all() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(
-        &db,
-        "Lab",
-        "lab-0004",
-        &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
-        &LabOrigin::default(),
-    )
-    .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
-
-    // Create multiple nodes
-    create_node(
-        &db,
-        "node1",
-        1,
-        config.id.clone().unwrap(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-    create_node(
-        &db,
-        "node2",
-        2,
-        config.id.clone().unwrap(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-    create_node(
-        &db,
-        "node3",
-        3,
-        config.id.clone().unwrap(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-
-    let nodes = list_nodes(&db).await?;
-
-    assert_eq!(nodes.len(), 3, "Should have 3 nodes");
 
     Ok(())
 }
@@ -254,7 +155,7 @@ async fn test_list_nodes_by_lab_filters_correctly() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     // Create nodes in lab1
     create_node(
@@ -289,57 +190,6 @@ async fn test_list_nodes_by_lab_filters_correctly() -> Result<()> {
 
     assert_eq!(lab1_nodes.len(), 2, "Lab1 should have 2 nodes");
     assert_eq!(lab2_nodes.len(), 1, "Lab2 should have 1 node");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_count_nodes_zero() -> Result<()> {
-    let db = setup_db().await?;
-
-    let count = count_nodes(&db).await?;
-
-    assert_eq!(count, 0, "Should have no nodes initially");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_count_nodes_accurate() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(
-        &db,
-        "Lab",
-        "lab-0008",
-        &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
-        &LabOrigin::default(),
-    )
-    .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
-
-    // Create nodes
-    for i in 1..=5 {
-        create_node(
-            &db,
-            &format!("node{}", i),
-            i as u16,
-            config.id.clone().unwrap(),
-            lab.id.clone().unwrap(),
-        )
-        .await?;
-    }
-
-    let count = count_nodes(&db).await?;
-
-    assert_eq!(count, 5, "Should have 5 nodes");
 
     Ok(())
 }
@@ -404,14 +254,14 @@ async fn test_count_nodes_by_lab_accurate() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     // Create nodes in lab1
-    for i in 1..=3 {
+    for i in 1_u16..=3 {
         create_node(
             &db,
-            &format!("node{}", i),
-            i as u16,
+            &format!("node{i}"),
+            i,
             config.id.clone().unwrap(),
             lab1.id.clone().unwrap(),
         )
@@ -419,11 +269,11 @@ async fn test_count_nodes_by_lab_accurate() -> Result<()> {
     }
 
     // Create nodes in lab2
-    for i in 1..=2 {
+    for i in 1_u16..=2 {
         create_node(
             &db,
-            &format!("node{}", i),
-            i as u16,
+            &format!("node{i}"),
+            i,
             config.id.clone().unwrap(),
             lab2.id.clone().unwrap(),
         )
@@ -432,11 +282,9 @@ async fn test_count_nodes_by_lab_accurate() -> Result<()> {
 
     let lab1_count = count_nodes_by_lab(&db, lab1.id.unwrap()).await?;
     let lab2_count = count_nodes_by_lab(&db, lab2.id.unwrap()).await?;
-    let total_count = count_nodes(&db).await?;
 
     assert_eq!(lab1_count, 3, "Lab1 should have 3 nodes");
     assert_eq!(lab2_count, 2, "Lab2 should have 2 nodes");
-    assert_eq!(total_count, 5, "Total should be 5 nodes");
 
     Ok(())
 }

@@ -1,8 +1,8 @@
-/// DELETE operation tests for node_image
+/// DELETE operation tests for `node_image`
 use anyhow::Result;
 use db::{
-    LabOrigin, count_node_images, create_lab, create_node_image, create_user, delete_node_image,
-    get_node_image_by_id,
+    LabOrigin, count_node_images, create_lab, create_user, delete_node_image,
+    find_node_image_by_id, upsert_node_image,
 };
 use shared::data::{NodeModel, RecordId};
 
@@ -14,14 +14,14 @@ async fn test_delete_node_image_success() -> Result<()> {
 
     // Create a config
     let test_config = create_test_config(NodeModel::AristaVeos);
-    let created = create_node_image(&db, test_config).await?;
+    let created = upsert_node_image(&db, test_config).await?;
     let created_id = created.id.clone().expect("Created config should have ID");
 
     // Delete the config
     delete_node_image(&db, created_id.clone()).await?;
 
     // Verify it's deleted
-    let result = get_node_image_by_id(&db, created_id).await?;
+    let result = find_node_image_by_id(&db, created_id).await?;
     assert!(result.is_none(), "Config should be deleted");
 
     Ok(())
@@ -39,8 +39,7 @@ async fn test_delete_nonexistent_config_fails() -> Result<()> {
     let err = result.unwrap_err();
     assert!(
         err.to_string().contains("not found"),
-        "Error should mention record not found: {}",
-        err
+        "Error should mention record not found: {err}"
     );
 
     Ok(())
@@ -55,7 +54,7 @@ async fn test_delete_and_verify_count_decreases() -> Result<()> {
 
     // Create a config
     let test_config = create_test_config(NodeModel::CiscoAsav);
-    let created = create_node_image(&db, test_config).await?;
+    let created = upsert_node_image(&db, test_config).await?;
     let created_id = created.id.clone().expect("Created config should have ID");
 
     // Verify count increased
@@ -99,7 +98,7 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
         .duration_since(std::time::UNIX_EPOCH)?
         .as_secs();
     // Use last 8 digits of timestamp to ensure uniqueness
-    let lab_id = format!("{:08}", timestamp_secs % 100000000);
+    let lab_id = format!("{:08}", timestamp_secs % 100_000_000);
     let lab = create_lab(
         &db,
         "test-lab-constraint",
@@ -117,7 +116,7 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
 
     // Create a node config
     let test_config = create_test_config(NodeModel::WindowsServer);
-    let created_config = create_node_image(&db, test_config).await?;
+    let created_config = upsert_node_image(&db, test_config).await?;
     let config_id = created_config
         .id
         .clone()
@@ -136,7 +135,7 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
 
     let result = delete_node_image(&db, config_id.clone()).await;
     assert!(result.is_err(), "Referenced images must never be deleted");
-    assert!(get_node_image_by_id(&db, config_id).await?.is_some());
+    assert!(find_node_image_by_id(&db, config_id).await?.is_some());
 
     Ok(())
 }
