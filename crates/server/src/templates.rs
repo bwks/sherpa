@@ -134,6 +134,8 @@ impl IntoResponse for ErrorTemplate {
 pub struct LoginPageTemplate {
     pub error: String,
     pub message: String,
+    /// Whether to link to the signup page; see `Config::allow_signup`.
+    pub allow_signup: bool,
 }
 
 impl IntoResponse for LoginPageTemplate {
@@ -994,11 +996,52 @@ pub struct DestroySummaryFailedFragment {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
     use askama::{NO_VALUES, Template};
     use shared::data::{NodeKind, NodeModel, NodeState};
 
     use super::filters::initial;
     use super::*;
+
+    /// Every template file under `dir`.
+    fn template_files(dir: &Path) -> Vec<PathBuf> {
+        let mut files = Vec::new();
+        for entry in fs::read_dir(dir).expect("read templates dir") {
+            let path = entry.expect("dir entry").path();
+            if path.is_dir() {
+                files.extend(template_files(&path));
+            } else if path.extension().is_some_and(|ext| ext == "jinja") {
+                files.push(path);
+            }
+        }
+        files
+    }
+
+    /// Inline event handlers (`onclick=` and friends) and `<script>` blocks without `src`.
+    fn inline_javascript(html: &str) -> Vec<String> {
+        let lower = html.to_ascii_lowercase();
+        let mut found = Vec::new();
+        for (start, _) in lower.match_indices(" on") {
+            let name: String = lower[start + 1..]
+                .chars()
+                .take_while(char::is_ascii_alphabetic)
+                .collect();
+            if name.len() > 2 && lower[start + 1 + name.len()..].starts_with('=') {
+                found.push(name);
+            }
+        }
+        for (start, _) in lower.match_indices("<script") {
+            let tag_end = lower[start..]
+                .find('>')
+                .map_or(lower.len(), |end| start + end);
+            if !lower[start..tag_end].contains(" src=") {
+                found.push("<script> block".to_owned());
+            }
+        }
+        found
+    }
 
     // ========================================================================
     // Filter tests
@@ -1265,6 +1308,7 @@ mod tests {
         let tpl = LoginPageTemplate {
             error: String::new(),
             message: String::new(),
+            allow_signup: false,
         };
         let html = tpl.render().expect("template should render");
         assert!(html.contains("Login") || html.contains("login"));
@@ -1407,5 +1451,42 @@ mod tests {
         let html = tpl.render().expect("template should render");
         assert!(html.contains("User Management"));
         assert!(html.contains("No users found"));
+    }
+
+    /// Inline JavaScript runs whatever a template interpolates into it, and HTML escaping does
+    /// not stop that: the browser decodes `&#x27;` back to `'` before the handler runs. All
+    /// behaviour lives in `web/static/js` and reads its arguments from `data-` attributes.
+    #[test]
+    fn templates_carry_no_inline_javascript() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+        let offenders: Vec<String> = template_files(&dir)
+            .into_iter()
+            .flat_map(|path| {
+                let html = fs::read_to_string(&path).expect("read template");
+                let name = path
+                    .strip_prefix(&dir)
+                    .unwrap_or(&path)
+                    .display()
+                    .to_string();
+                inline_javascript(&html)
+                    .into_iter()
+                    .map(move |found| format!("{name}: {found}"))
+            })
+            .collect();
+        assert!(offenders.is_empty(), "inline JavaScript: {offenders:#?}");
+    }
+
+    #[test]
+    fn the_inline_javascript_check_finds_handlers_and_script_blocks() {
+        assert_eq!(
+            inline_javascript(r#"<button onclick="go()">x</button><script>run()</script>"#),
+            vec!["onclick".to_owned(), "<script> block".to_owned()]
+        );
+        assert!(
+            inline_javascript(
+                r#"<a href="/x" data-lab-id="on=1"><script src="/js/a.js"></script>"#
+            )
+            .is_empty()
+        );
     }
 }

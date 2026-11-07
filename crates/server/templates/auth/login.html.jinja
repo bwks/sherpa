@@ -86,6 +86,8 @@
 {% endblock %}
 
 {% block footer_links %}
+    {% if allow_signup %}
     Don't have an account?
     <a href="/signup" class="text-accent hover:text-accent-hover font-medium">Sign up</a>
+    {% endif %}
 {% endblock %}

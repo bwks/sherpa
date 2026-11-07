@@ -235,7 +235,7 @@
         {% when LabState::Running %}
         <button
             id="lab-stop-btn"
-            onclick="labDetailAction('{{ lab_info.id }}', 'stop', this)"
+            data-lab-detail-action="stop" data-lab-id="{{ lab_info.id }}"
             class="btn-danger cursor-pointer"
         >
             Stop Lab
@@ -243,14 +243,14 @@
         {% when LabState::Partial %}
         <button
             id="lab-start-btn"
-            onclick="labDetailAction('{{ lab_info.id }}', 'start', this)"
+            data-lab-detail-action="start" data-lab-id="{{ lab_info.id }}"
             class="btn-primary cursor-pointer"
         >
             Start Lab
         </button>
         <button
             id="lab-stop-btn"
-            onclick="labDetailAction('{{ lab_info.id }}', 'stop', this)"
+            data-lab-detail-action="stop" data-lab-id="{{ lab_info.id }}"
             class="btn-danger cursor-pointer"
         >
             Stop Lab
@@ -258,7 +258,7 @@
         {% when LabState::Starting %}
         <button
             id="lab-stop-btn"
-            onclick="labDetailAction('{{ lab_info.id }}', 'stop', this)"
+            data-lab-detail-action="stop" data-lab-id="{{ lab_info.id }}"
             class="btn-danger cursor-pointer"
         >
             Stop Lab
@@ -266,7 +266,7 @@
         {% else %}
         <button
             id="lab-start-btn"
-            onclick="labDetailAction('{{ lab_info.id }}', 'start', this)"
+            data-lab-detail-action="start" data-lab-id="{{ lab_info.id }}"
             class="btn-primary cursor-pointer"
         >
             Start Lab

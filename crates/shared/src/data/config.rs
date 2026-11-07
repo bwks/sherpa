@@ -231,6 +231,10 @@ pub struct Config {
     pub images_dir: String,
     pub containers_dir: String,
     pub bins_dir: String,
+    /// Whether anyone may create an account on the web signup page. Off, only admins create
+    /// accounts.
+    #[serde(default)]
+    pub allow_signup: bool,
     #[serde(default)]
     pub ztp_server: ZtpServer,
     #[serde(default)]

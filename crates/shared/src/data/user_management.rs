@@ -86,6 +86,10 @@ pub struct ChangePasswordRequest {
     pub username: String,
     /// New password (will be hashed server-side)
     pub new_password: String,
+    /// The caller's current password. Required to change your own; an admin resetting
+    /// another user's password leaves it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_password: Option<String>,
     /// Caller's authentication token
     pub token: String,
 }

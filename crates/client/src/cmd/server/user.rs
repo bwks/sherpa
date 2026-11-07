@@ -413,12 +413,23 @@ async fn change_password(
 ) -> Result<()> {
     // If no username provided, use current user from token
     let target_username = target_user(username)?;
+    // The server asks for the current password when you change your own, admins included.
+    let own_account = normalize_username(&target_username) == username_from_token(&load_token()?)?;
+    let current_password = if own_account {
+        Some(
+            rpassword::prompt_password(format!("Current password for {target_username}: "))
+                .context("Failed to read password")?,
+        )
+    } else {
+        None
+    };
 
     let new_password = prompt_new_password(&format!("New password for {target_username}: "))?;
 
     let request = data::ChangePasswordRequest {
         username: target_username,
         new_password,
+        current_password,
         token: String::new(),
     };
 

@@ -14,7 +14,10 @@ pub mod validate;
 pub use bridge::{Bridge, BridgeDetailed, BridgeExpanded, BridgeLink, BridgeLinkDetailed};
 pub use link::{Link2, LinkDetailed, LinkExpanded};
 pub use manifest::Manifest;
-pub use node::{Node, NodeExpanded, StartupScript, TextFile, TextFileData, VolumeMount};
+pub use node::{
+    AuthorizedKeyFile, BinaryFile, BinaryFileData, Node, NodeExpanded, StartupScript, SystemdUnit,
+    SystemdUnitData, TextFile, TextFileData, VolumeMount,
+};
 pub use provisioner::{
     ContainerProvisioner, ContainerSecretFile, Provisioner, ProvisionerFile, SshProvisioner,
 };

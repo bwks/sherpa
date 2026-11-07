@@ -4,6 +4,7 @@
 //! `shared::validators`. Validators only inspect the data they are given; they do not
 //! generate data.
 
+mod client_files;
 mod device;
 mod link;
 mod performance_tuning;
@@ -14,7 +15,8 @@ mod talos_cluster;
 mod text_files;
 mod watchdog;
 
-pub use device::{check_device_count, check_duplicate_device};
+pub use client_files::check_client_read_files;
+pub use device::{check_device_count, check_duplicate_device, check_node_names};
 pub use link::{
     check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
     check_no_p2p_field,

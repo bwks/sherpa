@@ -15,6 +15,7 @@ use tracing::instrument;
 use crate::services::guest_account::{self, GuestAccount, KeyFormat};
 use crate::services::image_lifecycle::ImageLease;
 use crate::services::progress::ProgressSender;
+use crate::tls::generator::write_file_with_permissions;
 use crate::tls::lab_ca::NodeCertPaths;
 
 use iso::create_iso;
@@ -53,9 +54,15 @@ use shared::konst::{
     WINDOWS_SSHD_CONFIG, WINDOWS_SYSTEM_SID, ZTP_DIR, ZTP_ISO, ZTP_ISO_VOLUME_ID, ZTP_JSON,
 };
 use shared::util;
-use shared::validators::{effective_data_interface_count, mode_from_octal_digits};
+use shared::validators::{
+    effective_data_interface_count, mode_from_octal_digits, validate_ssh_key,
+};
+use topology::{BinaryFileData, SystemdUnitData};
 use virt::error::ErrorNumber;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
+
+/// The folder in a node's lab folder that holds its binary files before they go on its disk.
+const BINARY_FILES_DIR: &str = "binary_files";
 
 // ============================================================================
 // Result structs
@@ -182,7 +189,9 @@ pub(crate) fn write_nocloud_files(
 
     let user_data_path = format!("{dir}/{CLOUD_INIT_USER_DATA}");
     match user_data {
-        Some(content) => util::create_file(&user_data_path, content.to_owned())?,
+        Some(content) => {
+            write_file_with_permissions(Path::new(&user_data_path), content.as_bytes(), 0o600)?;
+        }
         None => match fs::remove_file(&user_data_path) {
             Ok(()) => tracing::debug!(path = %user_data_path, "Removed stale user-data"),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -1851,7 +1860,7 @@ fn generate_cloud_init_ztp(
             let network_config = format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}");
 
             util::create_dir(&dir)?;
-            util::create_file(&user_data, user_data_config)?;
+            write_file_with_permissions(Path::new(&user_data), user_data_config.as_bytes(), 0o600)?;
             util::create_file(&meta_data, meta_data_config)?;
 
             let ztp_interface = template::CloudInitNetwork::ztp_interface(
@@ -1962,7 +1971,7 @@ fn generate_cloud_init_ztp(
             let network_config = format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}");
 
             util::create_dir(&dir)?;
-            util::create_file(&user_data, user_data_config)?;
+            write_file_with_permissions(Path::new(&user_data), user_data_config.as_bytes(), 0o600)?;
             util::create_file(&meta_data, meta_data_config)?;
 
             let ztp_interface = template::CloudbaseInitNetwork::ztp_interface(
@@ -2065,7 +2074,7 @@ fn generate_cloud_init_ztp(
             let network_config = format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}");
 
             util::create_dir(&dir)?;
-            util::create_file(&user_data, user_data_config)?;
+            write_file_with_permissions(Path::new(&user_data), user_data_config.as_bytes(), 0o600)?;
             util::create_file(&meta_data, meta_data_config)?;
 
             let ztp_interface = template::CloudInitNetwork::ztp_interface(
@@ -2751,6 +2760,43 @@ fn generate_http_ztp(
     Ok(())
 }
 
+/// Ignition units for the systemd unit files the client read.
+fn ignition_units(units: &[SystemdUnitData]) -> Result<Vec<template::IgnitionUnit>> {
+    units
+        .iter()
+        .map(|unit| {
+            let contents = util::base64_decode(&unit.content)
+                .with_context(|| format!("systemd unit '{}' contents", unit.name))?;
+            Ok(template::IgnitionUnit {
+                name: unit.name.clone(),
+                enabled: Some(unit.enabled),
+                contents: Some(contents),
+                ..Default::default()
+            })
+        })
+        .collect()
+}
+
+/// Write the binary files the client read into `{dir}/binary_files`, and return their paths for
+/// copying onto the node's data disk. `check_client_read_files` has checked their names.
+fn write_binary_files(dir: &str, files: &[BinaryFileData]) -> Result<Vec<String>> {
+    if files.is_empty() {
+        return Ok(Vec::new());
+    }
+    let binary_dir = format!("{dir}/{BINARY_FILES_DIR}");
+    util::create_dir(&binary_dir)?;
+    files
+        .iter()
+        .map(|file| {
+            let contents = util::base64_decode_bytes(&file.content)
+                .with_context(|| format!("binary file '{}' contents", file.filename))?;
+            let path = format!("{binary_dir}/{}", file.filename);
+            fs::write(&path, contents).with_context(|| format!("Failed to write {path}"))?;
+            Ok(path)
+        })
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn generate_ignition_ztp(
     node: &topology::NodeExpanded,
@@ -2785,20 +2831,12 @@ fn generate_ignition_ztp(
     let manifest_authorized_keys: Vec<String> =
         node.ssh_authorized_keys.clone().unwrap_or_default();
 
-    let manifest_authorized_key_files: Vec<String> = node
-        .ssh_authorized_key_files
-        .iter()
-        .flatten()
-        .map(|file| -> Result<String> {
-            let ssh_key = util::get_ssh_public_key(&file.source)?;
-            Ok(format!(
-                "{} {} {}",
-                ssh_key.algorithm,
-                ssh_key.key,
-                ssh_key.comment.unwrap_or_default()
-            ))
-        })
-        .collect::<Result<Vec<String>>>()?;
+    // The client read these key files; the server checks the keys but opens no files.
+    let manifest_authorized_key_files = node.ssh_authorized_key_files.clone().unwrap_or_default();
+    for key in &manifest_authorized_key_files {
+        validate_ssh_key(key)
+            .with_context(|| format!("Node '{}' ssh_authorized_key_files", node.name))?;
+    }
 
     authorized_keys.extend(manifest_authorized_keys);
     authorized_keys.extend(manifest_authorized_key_files);
@@ -2860,22 +2898,7 @@ fn generate_ignition_ztp(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let manifest_binary_disk_files = node.binary_files.clone().unwrap_or_default();
-
-    let manifest_systemd_units: Vec<template::IgnitionUnit> = node
-        .systemd_units
-        .iter()
-        .flatten()
-        .map(|file| {
-            let file_contents = util::load_file(file.source.as_str())?;
-            Ok(template::IgnitionUnit {
-                name: file.name.clone(),
-                enabled: Some(file.enabled),
-                contents: Some(file_contents),
-                ..Default::default()
-            })
-        })
-        .collect::<Result<Vec<template::IgnitionUnit>>>()?;
+    let manifest_systemd_units = ignition_units(node.systemd_units.as_deref().unwrap_or_default())?;
 
     match node_image.model {
         data::NodeModel::FlatcarLinux => {
@@ -2943,12 +2966,10 @@ fn generate_ignition_ztp(
 
             util::copy_file(&src_data_disk, &dst_disk)?;
 
-            let disk_files: Vec<&str> = manifest_binary_disk_files
-                .iter()
-                .map(|x| x.source.as_str())
-                .collect();
-
+            let disk_files =
+                write_binary_files(&dir, node.binary_files.as_deref().unwrap_or_default())?;
             if !disk_files.is_empty() {
+                let disk_files: Vec<&str> = disk_files.iter().map(String::as_str).collect();
                 util::copy_to_ext4_image(&disk_files, &dst_disk, "/")?;
             }
 
@@ -3783,6 +3804,39 @@ mod tests {
     use tempfile::tempdir;
     use tokio::io::AsyncWriteExt;
     use tokio::sync::mpsc;
+
+    #[test]
+    fn systemd_units_carry_the_contents_the_client_read() {
+        let units = ignition_units(&[SystemdUnitData {
+            name: "app.service".to_owned(),
+            content: util::base64_encode("[Unit]\nDescription=app\n"),
+            enabled: false,
+        }])
+        .expect("units");
+        assert_eq!(units[0].name, "app.service");
+        assert_eq!(units[0].enabled, Some(false));
+        assert_eq!(
+            units[0].contents.as_deref(),
+            Some("[Unit]\nDescription=app\n")
+        );
+    }
+
+    #[test]
+    fn binary_files_are_written_into_the_node_folder() {
+        let dir = tempdir().expect("tempdir");
+        let node_dir = dir.path().to_string_lossy().into_owned();
+        let paths = write_binary_files(
+            &node_dir,
+            &[BinaryFileData {
+                filename: "tool".to_owned(),
+                content: util::base64_encode_bytes(&[0, 159, 146, 150]),
+            }],
+        )
+        .expect("write");
+        assert_eq!(paths, vec![format!("{node_dir}/{BINARY_FILES_DIR}/tool")]);
+        assert_eq!(fs::read(&paths[0]).expect("read"), vec![0, 159, 146, 150]);
+        assert!(write_binary_files(&node_dir, &[]).expect("none").is_empty());
+    }
 
     #[test]
     fn disabled_veths_stay_down_unless_the_model_keeps_them_up() {
@@ -4627,6 +4681,12 @@ mod tests {
             fs::read_to_string(dir.join(CLOUD_INIT_USER_DATA)).unwrap(),
             user_data
         );
+        // It holds the node's secrets, so only sherpad may read it.
+        let mode = fs::metadata(dir.join(CLOUD_INIT_USER_DATA))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
         let meta: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(dir.join(CLOUD_INIT_META_DATA)).unwrap())
                 .unwrap();

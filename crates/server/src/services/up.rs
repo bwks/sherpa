@@ -15,7 +15,7 @@ use opentelemetry::KeyValue;
 use tracing::instrument;
 
 use crate::auth::context::AuthContext;
-use crate::auth::policy::require_lab_starter;
+use crate::auth::policy::{require_host_access, require_lab_starter};
 use crate::daemon::state::AppState;
 use crate::services::clean;
 use crate::services::container_networks;
@@ -55,10 +55,10 @@ use shared::konst::{
 use shared::util;
 use shared::validators::effective_data_interface_count;
 use topology::validate::{
-    check_cpu_pin_overlap, check_device_count, check_duplicate_device,
+    check_client_read_files, check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
-    check_no_p2p_field, check_performance_tuning, check_ptx_platform, check_text_file_modes,
-    check_watchdog, validate_talos_clusters,
+    check_no_p2p_field, check_node_names, check_performance_tuning, check_ptx_platform,
+    check_text_file_modes, check_watchdog, validate_talos_clusters,
 };
 use topology::{find_talos_cluster, process_manifest_bridges, process_manifest_links};
 
@@ -414,6 +414,8 @@ pub async fn up_lab(
     // Deserialize manifest from JSON Value
     let manifest: topology::Manifest =
         serde_json::from_value(request.manifest).context("Failed to deserialize manifest")?;
+    require_host_access(ctx, &manifest.nodes)?;
+    check_client_read_files(&manifest.nodes).context("Manifest validation failed: files")?;
     reject_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
     validate_node_secrets(&manifest, &request.node_secrets)
         .context("Manifest validation failed: container secret files")?;
@@ -518,6 +520,7 @@ pub async fn up_lab(
     tracing::debug!(lab_id = %lab_id, node_images = node_images.len(), "Fetched node configs from database");
 
     // Device Validators (CRITICAL ERROR - fail fast on validation failure)
+    check_node_names(&manifest.nodes).context("Manifest validation failed: node names")?;
     check_duplicate_device(&manifest.nodes)
         .context("Manifest validation failed: duplicate devices")?;
     check_device_count(&manifest.nodes).context("Manifest validation failed: node count")?;

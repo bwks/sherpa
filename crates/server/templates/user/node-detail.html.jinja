@@ -212,21 +212,21 @@
     </a>
     {% if device.state.to_string() == "running" %}
     <button
-        onclick="nodeAction('{{ lab_id }}', '{{ device.name }}', 'stop', this)"
+        data-node-action="stop" data-lab-id="{{ lab_id }}" data-node-name="{{ device.name }}"
         class="btn-danger cursor-pointer"
     >
         Stop Node
     </button>
     {% else %}
     <button
-        onclick="nodeAction('{{ lab_id }}', '{{ device.name }}', 'start', this)"
+        data-node-action="start" data-lab-id="{{ lab_id }}" data-node-name="{{ device.name }}"
         class="btn-primary cursor-pointer"
     >
         Start Node
     </button>
     {% endif %}
     <button
-        onclick="nodeRedeploy('{{ lab_id }}', '{{ device.name }}', this)"
+        data-node-action="redeploy" data-lab-id="{{ lab_id }}" data-node-name="{{ device.name }}"
         class="btn-edit cursor-pointer"
     >
         Redeploy Node

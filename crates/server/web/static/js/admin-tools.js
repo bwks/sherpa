@@ -196,3 +196,12 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+// The page loads this script after the form, so its elements exist.
+document.getElementById("clean-form").addEventListener("submit", submitClean);
+document.getElementById("confirm-clean-btn").addEventListener("click", executeClean);
+document.getElementById("cancel-clean-btn").addEventListener("click", cancelClean);
+document.getElementById("scan-btn").addEventListener("click", function () { executeScan(true); });
+document.getElementById("scan-import-btn").addEventListener("click", submitScanImport);
+document.getElementById("confirm-import-btn").addEventListener("click", function () { executeScan(false); });
+document.getElementById("cancel-scan-btn").addEventListener("click", cancelScan);

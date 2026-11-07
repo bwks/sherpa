@@ -37,40 +37,17 @@ pub struct TestServer {
 impl TestServer {
     /// Start a new test server with its own in-memory database
     pub async fn start() -> Result<Self> {
-        Self::start_with_config(None).await
+        Self::start_with_config(test_config()?).await
     }
 
-    /// Start a new test server with optional config overrides
-    pub async fn start_with_config(images_dir: Option<String>) -> Result<Self> {
+    /// Start a new test server with `config`, usually [`test_config`] with changes.
+    pub async fn start_with_config(config: Config) -> Result<Self> {
         let db = db::open_in_memory().await?;
         db::apply_schema(&db).await?;
         db::seed_admin_user(&db, TEST_ADMIN_PASSWORD).await?;
 
         let docker = Docker::connect_with_local_defaults()?;
         let qemu = Qemu::default();
-
-        let config = Config {
-            name: "test-server".to_string(),
-            server_ipv4: std::net::Ipv4Addr::new(127, 0, 0, 1),
-            server_ipv6: None,
-            ws_port: 0,
-            http_port: 0,
-            vm_provider: VmProviders::default(),
-            qemu_bin: "/usr/bin/qemu-system-x86_64".to_string(),
-            // Use a range that doesn't conflict with host interfaces (enp3s0 uses 172.31.0.0/16)
-            management_prefix_ipv4: "10.200.0.0/16".parse()?,
-            management_prefix_ipv6: None,
-            images_dir: images_dir.unwrap_or_else(|| "/opt/sherpa/images".to_string()),
-            containers_dir: "/opt/sherpa/containers".to_string(),
-            bins_dir: "/opt/sherpa/bins".to_string(),
-            ztp_server: ZtpServer::default(),
-            container_images: vec![],
-            server_connection: ServerConnection::default(),
-            tls: TlsConfig::default(),
-            otel: OtelConfig::default(),
-            scanner: ScannerConfig::default(),
-            tailscale: TailscaleGatewaySettings::default(),
-        };
 
         let jwt_secret: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();
 
@@ -106,6 +83,33 @@ impl TestServer {
     pub fn ws_url(&self) -> String {
         format!("ws://{}/ws", self.addr)
     }
+}
+
+/// The server configuration test servers start with.
+pub fn test_config() -> Result<Config> {
+    Ok(Config {
+        name: "test-server".to_string(),
+        server_ipv4: std::net::Ipv4Addr::new(127, 0, 0, 1),
+        server_ipv6: None,
+        ws_port: 0,
+        http_port: 0,
+        vm_provider: VmProviders::default(),
+        qemu_bin: "/usr/bin/qemu-system-x86_64".to_string(),
+        // Use a range that doesn't conflict with host interfaces (enp3s0 uses 172.31.0.0/16)
+        management_prefix_ipv4: "10.200.0.0/16".parse()?,
+        management_prefix_ipv6: None,
+        images_dir: "/opt/sherpa/images".to_string(),
+        containers_dir: "/opt/sherpa/containers".to_string(),
+        bins_dir: "/opt/sherpa/bins".to_string(),
+        allow_signup: false,
+        ztp_server: ZtpServer::default(),
+        container_images: vec![],
+        server_connection: ServerConnection::default(),
+        tls: TlsConfig::default(),
+        otel: OtelConfig::default(),
+        scanner: ScannerConfig::default(),
+        tailscale: TailscaleGatewaySettings::default(),
+    })
 }
 
 /// Open a fresh, empty in-memory database with the schema applied and no users. Used by tests

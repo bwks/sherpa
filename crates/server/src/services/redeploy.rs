@@ -14,7 +14,7 @@ use tokio::sync::Mutex;
 use tracing::instrument;
 
 use crate::auth::context::AuthContext;
-use crate::auth::policy::{require_lab_owner, require_lab_starter};
+use crate::auth::policy::{require_host_access, require_lab_owner, require_lab_starter};
 use crate::daemon::state::AppState;
 use crate::services::container_networks::{self, ContainerDataInterface};
 use crate::services::guest_account;
@@ -44,7 +44,9 @@ use shared::konst::{
 use shared::util;
 use shared::validators::effective_data_interface_count;
 use topology::find_talos_cluster;
-use topology::validate::{check_performance_tuning, check_ptx_platform, check_watchdog};
+use topology::validate::{
+    check_client_read_files, check_performance_tuning, check_ptx_platform, check_watchdog,
+};
 
 // Redeploy updates shared lab files. Serialize redeploys within each lab so one
 // node's new identity cannot overwrite another node's concurrent update.
@@ -117,6 +119,8 @@ pub async fn redeploy_node(
     // Parse manifest
     let manifest: topology::Manifest =
         serde_json::from_value(request.manifest).context("Failed to deserialize manifest")?;
+    require_host_access(ctx, &manifest.nodes)?;
+    check_client_read_files(&manifest.nodes).context("Manifest validation failed: files")?;
     reject_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
     if let Some(files) = request.secrets.as_deref()
         && !files.is_empty()

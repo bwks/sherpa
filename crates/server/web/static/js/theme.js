@@ -31,10 +31,13 @@
       }
     });
 
-  // Global toggle function for dark/light
-  window.toggleTheme = function () {
+  // Theme toggle buttons carry `data-theme-toggle`.
+  document.addEventListener("click", function (event) {
+    if (!event.target.closest("[data-theme-toggle]")) {
+      return;
+    }
     var isDark = root.classList.contains("dark");
     applyTheme(!isDark);
     localStorage.setItem("theme", isDark ? "light" : "dark");
-  };
+  });
 })();

@@ -11,7 +11,7 @@ use std::fs;
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
-use helpers::test_server::{TEST_ADMIN_PASSWORD, TEST_SSH_PUBLIC_KEY, TestServer};
+use helpers::test_server::{TEST_ADMIN_PASSWORD, TEST_SSH_PUBLIC_KEY, TestServer, test_config};
 use helpers::ws_client::TestWsClient;
 
 /// Checks a personal account's user, home, shell and passwordless sudo.
@@ -604,8 +604,11 @@ async fn current_user_vm_login_sudo_resume_and_owner_redeploy() -> Result<()> {
     );
     let model =
         std::env::var("SHERPA_GUEST_TEST_MODEL").unwrap_or_else(|_| "ubuntu_linux".to_owned());
-    let server =
-        TestServer::start_with_config(std::env::var("SHERPA_GUEST_TEST_IMAGES_DIR").ok()).await?;
+    let mut config = test_config()?;
+    if let Ok(images_dir) = std::env::var("SHERPA_GUEST_TEST_IMAGES_DIR") {
+        config.images_dir = images_dir;
+    }
+    let server = TestServer::start_with_config(config).await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let admin_token = ws.login_admin().await?;
     bootstrap_images(&mut ws, &admin_token).await?;

@@ -314,35 +314,5 @@
     </form>
 </div>
 
-<script>
-    // Track the initial state of the default checkbox
-    const defaultCheckbox = document.getElementById('default');
-    const initialDefaultState = defaultCheckbox.checked;
-
-    // Intercept form submission to show confirmation dialog when toggling default
-    document.getElementById('edit-form').addEventListener('submit', function(event) {
-        const currentDefaultState = defaultCheckbox.checked;
-
-        // If default checkbox state has changed, show confirmation
-        if (currentDefaultState !== initialDefaultState) {
-            // Prevent form submission
-            event.preventDefault();
-
-            let message = '';
-            if (currentDefaultState) {
-                message = 'Are you sure you want to set this version as the default? This will unset the current default version.';
-            } else {
-                message = 'Are you sure you want to unset this as the default version? At least one version must remain as default.';
-            }
-
-            if (confirm(message)) {
-                // User confirmed, submit the form manually
-                // Remove event listener to prevent infinite loop
-                event.target.removeEventListener('submit', arguments.callee);
-                event.target.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-            }
-        }
-        // If default state hasn't changed, form submits normally
-    });
-</script>
+<script src="/js/image-edit.js"></script>
 {% endblock %}
