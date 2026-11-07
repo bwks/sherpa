@@ -2,6 +2,124 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.13] - 2026-11-07
+
+### Bug Fixes
+
+- Expect each release's own database directory mode by @bwks ([b11d2ed](https://github.com/bwks/sherpa/commit/b11d2edcca4b57bff5607bfcb51f6500df59d4cf))
+- Database directory mode and theme toggle in the test expectations by @bwks ([e208df7](https://github.com/bwks/sherpa/commit/e208df7ced3a67ba5a39aaee51aa2b3748a1ff33))
+- Lifecycle bugs from the server review [skip ci] by @bwks ([61d5aeb](https://github.com/bwks/sherpa/commit/61d5aeb61e0f42514c36fa46cd32fa7e97a1ed7b))
+- Close the security holes from the server review [skip ci] by @bwks ([3c2ff1d](https://github.com/bwks/sherpa/commit/3c2ff1ded382062cf0556fa57596e3487b79834d))
+- Trust, SSH config and config-default fixes from the review [skip ci] by @bwks ([ad897c5](https://github.com/bwks/sherpa/commit/ad897c57d66041e1312ed8dd91bd26c469ac1b01))
+- First client clean-up, the fixes [skip ci] by @bwks ([2643cae](https://github.com/bwks/sherpa/commit/2643cae71cd7983ebbb4b15cba32cc991880dfbb))
+
+### Documentation
+
+- The overlay test runs as root by @bwks ([dfc7e43](https://github.com/bwks/sherpa/commit/dfc7e43a80e8d51d4587e9a6a90aadac99443359))
+
+### Miscellaneous
+
+- Merge pull request #490 from bwks/chore/version-bump
+
+chore: bump version to 0.5.13 by @bwks in [#490](https://github.com/bwks/sherpa/pull/490) ([578c0f3](https://github.com/bwks/sherpa/commit/578c0f37084282f3604eeda0414b71f677119f01))
+- Bump version to 0.5.13 by @bwks ([552faca](https://github.com/bwks/sherpa/commit/552faca7d2be67cd242b7bc748c4571b0046c416))
+- Merge pull request #489 from bwks/chore/raw-strings
+
+style: raw strings instead of escaped quotes by @bwks in [#489](https://github.com/bwks/sherpa/pull/489) ([565c7a2](https://github.com/bwks/sherpa/commit/565c7a2b99d2ee6a44de6285604a4c6f5d976c9e))
+- Raw strings instead of escaped quotes across the workspace [skip ci] by @bwks ([b20675a](https://github.com/bwks/sherpa/commit/b20675ac0261c6733d0d6f1ab051fb613c21de4f))
+- Merge pull request #488 from bwks/chore/server-pedantic
+
+refactor(server): clippy pedantic, long functions split, one test binary by @bwks in [#488](https://github.com/bwks/sherpa/pull/488) ([08ced4e](https://github.com/bwks/sherpa/commit/08ced4e864545505fd03b0e90d347114aa2a2945))
+- Whole-path route docs, raw strings over escaped quotes [skip ci] by @bwks ([4233bd9](https://github.com/bwks/sherpa/commit/4233bd974bb7f42439c4c1cb2d451dcc496a366f))
+- Merge pull request #487 from bwks/chore/server-templates
+
+refactor(server): askama_web templates, dead code and unused deps by @bwks in [#487](https://github.com/bwks/sherpa/pull/487) ([0af076f](https://github.com/bwks/sherpa/commit/0af076f9454ba7c218f025ee27d667adaf16429e))
+- Merge pull request #486 from bwks/chore/server-up-split
+
+refactor(server): split up and redeploy by stage by @bwks in [#486](https://github.com/bwks/sherpa/pull/486) ([f800e38](https://github.com/bwks/sherpa/commit/f800e3855b9cf0778391b54e552ad80e3c038214))
+- Merge pull request #484 from bwks/chore/server-rpc
+
+refactor(server): one RPC dispatcher, handlers split by resource by @bwks in [#484](https://github.com/bwks/sherpa/pull/484) ([fb3a214](https://github.com/bwks/sherpa/commit/fb3a214574c3897e25e7eba32c957ec4063083f9))
+- Merge pull request #483 from bwks/chore/server-lifecycle
+
+fix(server): lifecycle bugs from the server review by @bwks in [#483](https://github.com/bwks/sherpa/pull/483) ([743b239](https://github.com/bwks/sherpa/commit/743b2394297c4e5d120439bdafd6075d40386df1))
+- Merge pull request #481 from bwks/chore/server-security
+
+fix(server): security fixes from the server review by @bwks in [#481](https://github.com/bwks/sherpa/pull/481) ([4614323](https://github.com/bwks/sherpa/commit/4614323c831aa5c5d7daf96082fe020c381e6502))
+- Merge pull request #479 from bwks/chore/shared-pedantic
+
+refactor(shared): hold the crate to clippy pedantic by @bwks in [#479](https://github.com/bwks/sherpa/pull/479) ([3138cad](https://github.com/bwks/sherpa/commit/3138cad6adf15838114a6446b14d09e6498a6d65))
+- Merge pull request #475 from bwks/chore/shared-housekeeping
+
+refactor(shared): review fixes for trust, SSH config and config defaults by @bwks in [#475](https://github.com/bwks/sherpa/pull/475) ([dd411af](https://github.com/bwks/sherpa/commit/dd411af8608e85c2b0bd86c9f72ab8bd8f542451))
+- Merge pull request #472 from bwks/chore/db-housekeeping
+
+refactor(db): hold the crate to clippy pedantic, remove the importer by @bwks in [#472](https://github.com/bwks/sherpa/pull/472) ([ac28ac8](https://github.com/bwks/sherpa/commit/ac28ac860bdf116d75e6f616a96ba19fd37d451c))
+- Merge pull request #471 from bwks/chore/client-housekeeping
+
+refactor(client): hold the crate to clippy pedantic by @bwks in [#471](https://github.com/bwks/sherpa/pull/471) ([5926a72](https://github.com/bwks/sherpa/commit/5926a72f09fff1866d81b9fddba95fb4f47d5051))
+- Merge pull request #468 from bwks/chore/client-fixes
+
+fix(client): first client clean-up, the fixes by @bwks in [#468](https://github.com/bwks/sherpa/pull/468) ([eff3daa](https://github.com/bwks/sherpa/commit/eff3daa4d5e806bff81180122b223edc1d526fe2))
+- Merge pull request #467 from bwks/chore/template-housekeeping
+
+refactor(template): hold the crate to clippy pedantic by @bwks in [#467](https://github.com/bwks/sherpa/pull/467) ([fd797b9](https://github.com/bwks/sherpa/commit/fd797b99005ea60dd46766af74bf61380dec9f7b))
+- Merge pull request #466 from bwks/chore/topology-housekeeping
+
+refactor(topology): hold the crate to clippy pedantic by @bwks in [#466](https://github.com/bwks/sherpa/pull/466) ([3ce54ab](https://github.com/bwks/sherpa/commit/3ce54abaaf990ce8edca87b5766bcd531caded6f))
+- Merge pull request #465 from bwks/chore/container-housekeeping
+
+refactor(container): hold the crate to clippy pedantic by @bwks in [#465](https://github.com/bwks/sherpa/pull/465) ([8a95945](https://github.com/bwks/sherpa/commit/8a95945d3d907b62251fd08545e5cadc37e5d559))
+- Merge pull request #464 from bwks/chore/network-housekeeping
+
+refactor(network): hold the crate to clippy pedantic by @bwks in [#464](https://github.com/bwks/sherpa/pull/464) ([2487926](https://github.com/bwks/sherpa/commit/2487926cf7e37d1720eabcfe8d4ad892122eaf59))
+- Merge pull request #463 from bwks/chore/libvirt-housekeeping
+
+refactor(libvirt): hold the crate to clippy pedantic by @bwks in [#463](https://github.com/bwks/sherpa/pull/463) ([d8a0dda](https://github.com/bwks/sherpa/commit/d8a0dda5ca49946f8348dd882c3f40b1f41d17c7))
+- Merge pull request #462 from bwks/chore/iso-housekeeping
+
+refactor(iso): hold the crate to clippy pedantic by @bwks in [#462](https://github.com/bwks/sherpa/pull/462) ([76478e7](https://github.com/bwks/sherpa/commit/76478e7c4d90476c398f2a4a9c56f38ce472d770))
+- Hold the version until the crate clean-up is done by @bwks ([4f32f3c](https://github.com/bwks/sherpa/commit/4f32f3c360e550fb2c8fe794684adca6b38c4e1f))
+- Merge pull request #461 from bwks/feat/test-build-cache
+
+test: cache the VM suite test build in Redis on the host by @bwks in [#461](https://github.com/bwks/sherpa/pull/461) ([cec5e38](https://github.com/bwks/sherpa/commit/cec5e38666870283f06c461ffed01a1a0ae59bfe))
+- Merge pull request #460 from bwks/fix/release-test-rebuild
+
+test: build the VM suite tests once and run the executables by @bwks in [#460](https://github.com/bwks/sherpa/pull/460) ([c525efe](https://github.com/bwks/sherpa/commit/c525efe058ec875975b6b5a476a67086c4486acf))
+- Merge pull request #459 from bwks/changelog/v0.5.12
+
+chore(release): update changelog for v0.5.12 by @github-actions[bot] in [#459](https://github.com/bwks/sherpa/pull/459) ([46c4eb7](https://github.com/bwks/sherpa/commit/46c4eb7c203f67c299ce5b56101fb5a8fd699f0a))
+
+### Refactor
+
+- Hold sherpad to clippy pedantic, split long functions, one test binary [skip ci] by @bwks ([4c9b52b](https://github.com/bwks/sherpa/commit/4c9b52b833d093ebc7978e4a817bdf7dd4f8da03))
+- Askama_web templates, dead code and unused deps [skip ci] by @bwks ([cf91b86](https://github.com/bwks/sherpa/commit/cf91b8690f7ed23531f78fbf03f214f9eab10a48))
+- Split up and redeploy by stage [skip ci] by @bwks ([0003476](https://github.com/bwks/sherpa/commit/0003476a017ca453cd9b75a5d6d3d12767aa0ccd))
+- Format user dates with jiff strftime [skip ci] by @bwks ([3aa37ed](https://github.com/bwks/sherpa/commit/3aa37ed7dc4bea339613a5deedf52af3a2536c65))
+- One RPC dispatcher, handlers split by resource [skip ci] by @bwks ([c121dba](https://github.com/bwks/sherpa/commit/c121dbaac3a3238d1fa2075fcf070e13c66666e6))
+- Hold the crate to clippy pedantic [skip ci] by @bwks ([d36a49d](https://github.com/bwks/sherpa/commit/d36a49d30c073115a36f46e972f441a3604e1496))
+- Check enum values by type, not by rebuilt triggers [skip ci] by @bwks ([2474f9c](https://github.com/bwks/sherpa/commit/2474f9c06ad7f79ce717d031be5e0a8cd7f82490))
+- Hold the crate to clippy pedantic, remove the importer [skip ci] by @bwks ([97a65f4](https://github.com/bwks/sherpa/commit/97a65f496df26f39f64de263127f4c87e9f5e6a7))
+- Use the Emoji constants in certificate messages [skip ci] by @bwks ([f91f8c6](https://github.com/bwks/sherpa/commit/f91f8c6020bfd254243eb820ba4f1a48cc35ba85))
+- Hold the crate to clippy pedantic [skip ci] by @bwks ([508d36c](https://github.com/bwks/sherpa/commit/508d36c67e3bfd025d5f9583c0ca286150dfa242))
+- Say a bad file mode is invalid in its context [skip ci] by @bwks ([68eeae5](https://github.com/bwks/sherpa/commit/68eeae5b11afdba41d4ef77aa819c68c679bd20e))
+- The mode conversion owns its error message [skip ci] by @bwks ([827d0b4](https://github.com/bwks/sherpa/commit/827d0b4a52859e2fe80fabaf9514213e508c5a33))
+- One conversion from octal mode digits to bits [skip ci] by @bwks ([e3eb73a](https://github.com/bwks/sherpa/commit/e3eb73aa2f413819565f29c6eb7baa46f8843912))
+- Hold the crate to clippy pedantic [skip ci] by @bwks ([95b19a6](https://github.com/bwks/sherpa/commit/95b19a6fb52cd0f706fb3bc6cac9d5abe498c81d))
+- Hold the crate to clippy pedantic [skip ci] by @bwks ([f48a5a9](https://github.com/bwks/sherpa/commit/f48a5a9e3885b7c737ea20e589ad3623165691e5))
+- Hold the crate to clippy pedantic [skip ci] by @bwks ([ac3ffc9](https://github.com/bwks/sherpa/commit/ac3ffc925aaaedef489c0e6250056a823f3eda67))
+- Hold the crate to clippy pedantic [skip ci] by @bwks ([3210ad5](https://github.com/bwks/sherpa/commit/3210ad585745f83b5661e964805ed36c0a2a726e))
+- Hold the crate to clippy pedantic [skip ci] by @bwks ([97cb3fb](https://github.com/bwks/sherpa/commit/97cb3fb31c81b6e3814eea9409713defdc42f266))
+- Hold the crate to clippy pedantic by @bwks ([d74c1db](https://github.com/bwks/sherpa/commit/d74c1db337202401967a1d02f5e45af20c2c0a93))
+
+### Testing
+
+- Run the live tailnet test in the VM code suite when given a key by @bwks ([5bc8cb7](https://github.com/bwks/sherpa/commit/5bc8cb7bc05a733c851d82b65297028357ecf044))
+- Make the client tests pass on Windows [skip ci] by @bwks ([0ada732](https://github.com/bwks/sherpa/commit/0ada7328d4f6d0c4c80e60fc765e965455bba623))
+- Build the VM suite at the same target path every run by @bwks ([b888e25](https://github.com/bwks/sherpa/commit/b888e25d2ce99e286a20ecca7f15e6738d63dc43))
+- Cache the VM suite's test build in Redis on the host by @bwks ([d341dd1](https://github.com/bwks/sherpa/commit/d341dd1ca56e4538615b29649cdb0ac79e39c5f2))
+- Wait for the test database's health endpoint by @bwks ([d2d3e67](https://github.com/bwks/sherpa/commit/d2d3e674dbc08a386ac053d387a418a209edd481))
+- Build the VM suite's tests once and run the executables by @bwks ([5117f31](https://github.com/bwks/sherpa/commit/5117f31b5b9137b30d29fb4709cd7861b1541336))
 ## [0.5.12] - 2026-11-05
 
 ### Features
