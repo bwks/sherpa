@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail, ensure};
 use jato::{Auth, ConnectOptions, Exit, Hop, HostKeyPolicy, Node, Session};
 use reqwest::{Client, StatusCode};
 use serde_json::json;
-use shared::data::{NodeConfig, NodeModel};
+use shared::data::{NodeConfig, NodeModel, NodeState};
 use shared::error::RpcErrorCode;
 use shared::konst::SSH_PORT;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
@@ -258,6 +258,63 @@ async fn a_container_that_exits_at_once_fails_its_node_not_the_lab() -> Result<(
         ensure!(
             db::find_lab(&server.db, &lab_name).await?.is_some(),
             "the lab record is gone"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
+async fn a_redeploy_that_fails_after_teardown_fails_its_node() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_lab_admin(&server).await?;
+    bootstrap_images(&mut ws, &token).await?;
+
+    // generic_container keeps the manifest's commands; alpine is in the dev server's Docker.
+    let mut alpine = NodeConfig::get_model(NodeModel::GenericContainer);
+    alpine.repo = Some("alpine".to_owned());
+    alpine.version = "latest".to_owned();
+    alpine.default = true;
+    db::upsert_node_image(&server.db, alpine).await?;
+
+    let lab_name = format!("tf{:06}", std::process::id() % 1_000_000);
+    let manifest = json!({
+        "name": lab_name,
+        "nodes": [
+            { "name": "box1", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+        ]
+    });
+    // Docker creates the container, then cannot start it: the node is already torn down.
+    let broken = json!({
+        "name": lab_name,
+        "nodes": [
+            { "name": "box1", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0, "user": "nosuchuser" },
+        ]
+    });
+
+    let checks: Result<()> = async {
+        lab_up(&mut ws, &token, &lab_name, &manifest, Duration::from_secs(180)).await?;
+        let (_statuses, response) = ws
+            .rpc_call_streaming(
+                "redeploy",
+                json!({ "token": token, "lab_id": lab_name, "node_name": "box1", "manifest": broken }),
+                Duration::from_secs(180),
+            )
+            .await?;
+        ensure!(
+            response.get("error").is_some(),
+            "the redeploy succeeded: {response}"
+        );
+        let lab = db::get_lab(&server.db, &lab_name).await?;
+        let node = db::get_node_by_name_and_lab(&server.db, "box1", db::get_lab_id(&lab)?).await?;
+        ensure!(
+            node.state == NodeState::Failed,
+            "the node was left {}",
+            node.state
         );
         Ok(())
     }

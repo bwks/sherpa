@@ -42,7 +42,7 @@ flowchart TB
         boundaryduties["Responsibilities:<br/>parse path/query/body/form/multipart data<br/>authenticate cookies, bearer tokens, or RPC params.token<br/>pass the caller's AuthContext to services<br/>construct service request structs<br/>convert service results into HTML, JSON, SSE, or RPC responses"]
     end
     subgraph servicelayer["Service layer"]
-        servicefiles["services/up.rs, services/destroy.rs<br/>services/down.rs, services/resume.rs<br/>services/redeploy.rs, services/inspect.rs<br/>services/import.rs, services/container_pull.rs<br/>services/impairment.rs, services/scanner.rs"]
+        servicefiles["services/up/, services/destroy.rs<br/>services/down.rs, services/resume.rs<br/>services/redeploy/, services/inspect.rs<br/>services/import.rs, services/container_pull.rs<br/>services/impairment.rs, services/scanner.rs"]
         serviceduties["Responsibilities:<br/>orchestrate db/libvirt/docker/network/template/topology/validate<br/>emit progress updates for long-running operations<br/>maintain operation-level rollback/best-effort cleanup semantics<br/>return shared request/response models"]
     end
     subgraph infra["Infrastructure and domain crates"]
@@ -449,9 +449,9 @@ The services are not symmetrical. Some are short CRUD-style orchestrators, and s
 
 | Category | Module | Purpose |
 |---|---|---|
-| Lifecycle services | `up.rs` | create a full lab and all resources |
+| Lifecycle services | `up/` | create a full lab and all resources |
 | | `destroy.rs` | remove a full lab and all resources |
-| | `redeploy.rs` | replace one node inside an existing lab |
+| | `redeploy/` | replace one node inside an existing lab |
 | | `down.rs` | stop all nodes or one node |
 | | `resume.rs` | start all nodes or one node |
 | Read/model services | `inspect.rs` | read DB + runtime data and build lab inspection output |
@@ -465,9 +465,38 @@ The services are not symmetrical. Some are short CRUD-style orchestrators, and s
 | Shared helpers | `node_ops.rs` | common node setup/building helpers |
 | | `progress.rs` | progress message abstraction |
 
+### Node operations
+
+`node_ops.rs` holds what `up`, `redeploy` and `resume` share: generating a node's configuration,
+building its domain, and starting it. Arguments that travel together are grouped:
+
+- `LabZtp`: the lab's part of generating any node's configuration (lab ID and directory, images
+  directory, the sherpa user, DNS, management network, progress, the owner's account).
+  `generate_vm_ztp` and `generate_container_ztp` take it with the node, its image and its
+  addresses. Each ZTP method's generator takes the private per-node `NodeZtp`.
+- `DomainParts`: the disks, interfaces and network names a VM or unikernel domain is built from,
+  for `build_domain_template` and `build_unikernel_domain_template`.
+- `container::ContainerSpec`: what `start_container_node` starts, as the `container` crate's
+  `run_container` takes it.
+
 ### Service call graph for lab creation
 
-`up.rs` is the largest orchestration module. Its job is to convert a validated manifest into persistent records, generated files, runtime networks, and running nodes.
+`up` is the largest orchestration module. Its job is to convert a validated manifest into persistent records, generated files, runtime networks, and running nodes. `up_lab` runs the phases in turn; each phase is a function in its own file, taking the shared `LabBuild` (lab ID and directory, connections, config, progress) and returning what the next phases need:
+
+| File | What it holds |
+|---|---|
+| `lab.rs` | `up_lab`, setup (phase 1), and rolling back a failed `up` |
+| `context.rs` | `LabBuild` |
+| `plan.rs` | phase 2: validation against the server, and the `LabPlan` |
+| `records.rs` | phase 3: the lab and node records, interfaces, per-node networks |
+| `networks.rs` | subnet reservation, lab files and management networks (4), container data networks (6), shared bridges (7) |
+| `links.rs` | phase 5, and attaching P2p eBPF redirects |
+| `ztp.rs` | phases 8 and 9: addresses, certificates, node configurations and domains, the boot container |
+| `runtime.rs` | phases 10 and 11: disks, VM and unikernel domains |
+| `ssh.rs` | phase 12 |
+| `readiness.rs` | phase 13: starting containers and waiting for nodes |
+| `services.rs` | Kubernetes clusters, Keycloak realms and Vaults once nodes are ready |
+| `nodes.rs` | manifest node expansion and image lookup, shared with `redeploy` |
 
 ```mermaid
 flowchart TB
@@ -671,18 +700,33 @@ pull, import or delete. Container image leases last until the containers start.
 
 Redeploy is a controlled single-node replacement. It exists because updating node configuration in place is often less reliable than destroying and recreating that node.
 
+The web UI loads the lab's saved manifest; the CLI sends its own. `redeploy_node` (`node.rs`)
+runs the stages; each is in its own file under `services/redeploy/`:
+
 ```mermaid
 flowchart TB
-    request["redeploy request"] --> owner["require_lab_owner in the service<br/>(owner only, admins included)"]
-    owner --> manifest["load saved manifest from lab directory for web UI flow"]
-    manifest --> validate["validate target lab and node"]
-    validate --> teardown["stop/remove current runtime node resources"]
-    teardown --> regenerate["regenerate node-specific config/assets from manifest"]
-    regenerate --> recreate["recreate node runtime resource"]
-    recreate --> reconnect["reconnect node to existing lab networks/links"]
-    reconnect --> updatedb["update DB node state/details"]
-    updatedb --> stream["stream progress and final RedeployResponse"]
+    request["redeploy_node (node.rs)"] --> owner["require_lab_owner in the service<br/>(owner only, admins included), owner has an SSH key<br/>lab_operations::begin, require_lab_owner again<br/>the lab's redeploy lock"]
+    owner --> load
+    subgraph stage1["1. load_redeploy (context.rs): nothing is changed"]
+        load["manifest checks: host access, client files, provisioners, secrets<br/>node and image from the DB; same model; unikernels refused<br/>lease the image, check the disk method<br/>lab info, management network, DNS, lab CA, Talos worker config<br/>saved management addresses, owner account and node login<br/>performance tuning, watchdog, platform, CPU pins"]
+    end
+    load --> starting["clear the host key, node Starting"]
+    starting --> destroy
+    subgraph rebuild["rebuild (node.rs): a failure records the node Failed"]
+        destroy["2. destroy_node (teardown.rs): the VM or container, the node's ZTP directory"] --> vmnets["3. recreate_vm_networks (teardown.rs): isolated and reserved networks, VMs only"]
+        vmnets --> resources["reserve_node_resources (keeps the VNC port)<br/>reissue the node certificate"]
+        resources --> ctr["container.rs: generate_container_ztp<br/>no links: Docker macvlan data networks; P2p: a veth per data interface<br/>start_container_node, veths into the netns, reattach_p2p_redirects<br/>Running; Vault unsealed, Keycloak realm made again"]
+        resources --> vm["vm.rs: generate_vm_ztp, clone_node_disks<br/>vm_interfaces from the DB links and bridges<br/>build_domain_template, create_vm, reattach_p2p_redirects<br/>isolated bridge down; wait for the ready port, host key, Running"]
+    end
+    ctr --> ssh["ssh_config::refresh_lab_ssh_files"]
+    vm --> ssh
+    ssh --> stream["RedeployResponse"]
 ```
+
+A refused redeploy leaves the node, its state and its host key as they were. Once the node is
+torn down, a failure records it `Failed` rather than leaving it `Starting` until the scanner
+next runs. A VM that is not ready within the ready timeout is left `Starting` and the redeploy
+succeeds.
 
 The important boundary is that redeploy should preserve the lab-level network topology and only replace the selected node's runtime resources and generated files.
 
@@ -1196,10 +1240,10 @@ Open implementation seams (handler-driven auth, inconsistent service authorizati
 | WebSocket lifecycle | `crates/server/src/api/websocket/handler.rs`, `connection.rs`, `messages.rs` |
 | RPC dispatch | `crates/server/src/api/websocket/rpc/dispatch.rs` |
 | JWT/cookies/auth context | `crates/server/src/auth/` |
-| Lab create | `crates/server/src/services/up.rs` |
+| Lab create | `crates/server/src/services/up/` |
 | Lab destroy | `crates/server/src/services/destroy.rs` |
 | Node/lab stop/start | `crates/server/src/services/down.rs`, `resume.rs` |
-| Redeploy | `crates/server/src/services/redeploy.rs` |
+| Redeploy | `crates/server/src/services/redeploy/` |
 | Inspect/list/download | `crates/server/src/services/inspect.rs`, `list_labs.rs`, `download.rs` |
 | Image management | `crates/server/src/services/import.rs`, `container_pull.rs`, `delete.rs` |
 | Link impairment | `crates/server/src/services/impairment.rs` |
