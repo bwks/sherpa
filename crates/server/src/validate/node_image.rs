@@ -1,5 +1,10 @@
 use anyhow::{Result, bail};
 
+use crate::services::error::ServiceError;
+
+/// The longest image version.
+const IMAGE_VERSION_MAX_LEN: usize = 64;
+
 /// Validate node image form data before database update
 pub fn validate_node_image_update(
     cpu_count: u8,
@@ -14,7 +19,7 @@ pub fn validate_node_image_update(
     validate_interface_mtu(interface_mtu)?;
 
     // Validate string fields
-    validate_version(version)?;
+    validate_image_version(version)?;
     validate_interface_prefix(interface_prefix)?;
 
     Ok(())
@@ -41,15 +46,30 @@ fn validate_interface_mtu(mtu: u16) -> Result<()> {
     Ok(())
 }
 
-fn validate_version(version: &str) -> Result<()> {
-    let trimmed = version.trim();
-    if trimmed.is_empty() {
-        bail!("Version cannot be empty");
+/// Check an image version, which names the image's folder and its container tag.
+///
+/// A version is 1 to 64 letters, digits, `.`, `_`, `+` or `-`, starting with a letter or digit,
+/// so it can never be a path such as `..` or `a/b`.
+///
+/// # Errors
+///
+/// Fails with `ServiceError::Invalid` when `version` breaks the rule.
+pub fn validate_image_version(version: &str) -> Result<()> {
+    let starts_well = version
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphanumeric());
+    let plain = version
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-'));
+    if starts_well && plain && version.len() <= IMAGE_VERSION_MAX_LEN {
+        return Ok(());
     }
-    if trimmed.len() <= 4 {
-        bail!("Version must be more than 4 characters");
-    }
-    Ok(())
+    Err(ServiceError::Invalid(format!(
+        "Image version '{version}' is not allowed: use 1 to {IMAGE_VERSION_MAX_LEN} letters, \
+         digits, '.', '_', '+' or '-', starting with a letter or digit"
+    ))
+    .into())
 }
 
 fn validate_interface_prefix(prefix: &str) -> Result<()> {
@@ -87,15 +107,42 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_version() {
-        assert!(validate_version("1.0.0").is_ok());
-        assert!(validate_version("latest").is_ok());
-        assert!(validate_version("v2024").is_ok());
-        assert!(validate_version("").is_err());
-        assert!(validate_version("   ").is_err());
-        assert!(validate_version("1.0").is_err()); // 3 chars
-        assert!(validate_version("abcd").is_err()); // 4 chars
-        assert!(validate_version("abcde").is_ok()); // 5 chars (> 4)
+    fn real_image_versions_are_accepted() {
+        let longest = "1".repeat(64);
+        for version in [
+            "1.0",
+            "24.4",
+            "17",
+            "9-23-1",
+            "latest",
+            "26.2R1.7-EVO",
+            "v1.9.0+k3s1",
+            "abc_1",
+            longest.as_str(),
+        ] {
+            assert!(validate_image_version(version).is_ok(), "{version}");
+        }
+    }
+
+    #[test]
+    fn versions_that_are_paths_or_odd_names_are_refused() {
+        let too_long = "1".repeat(65);
+        for version in [
+            "",
+            " ",
+            "..",
+            ".",
+            "../images",
+            "a/b",
+            ".hidden",
+            "-x",
+            "_x",
+            "1 0",
+            "1.0\n",
+            too_long.as_str(),
+        ] {
+            assert!(validate_image_version(version).is_err(), "{version:?}");
+        }
     }
 
     #[test]
@@ -137,7 +184,7 @@ mod tests {
     fn test_validate_node_image_update_empty_version() {
         let result = validate_node_image_update(1, 1024, 1500, "", "eth");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Version"));
+        assert!(result.unwrap_err().to_string().contains("Image version"));
     }
 
     #[test]

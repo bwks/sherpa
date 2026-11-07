@@ -8,6 +8,7 @@ use tracing::instrument;
 
 use crate::daemon::state::AppState;
 use crate::services::progress::ProgressSender;
+use crate::validate::validate_image_version;
 
 /// Pull a container image from an OCI registry via Docker and import to DB
 #[instrument(skip(state, progress), fields(model = %request.model, repo = %request.repo, tag = %request.tag))]
@@ -17,6 +18,7 @@ pub async fn pull_container_image(
     progress: ProgressSender,
 ) -> Result<ContainerPullResponse> {
     let start = Instant::now();
+    validate_image_version(&request.tag)?;
 
     tracing::info!(
         model = %request.model,

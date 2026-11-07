@@ -174,6 +174,8 @@ pub const BRIDGE_PREFIX: &str = "br";
 pub const TAP_PREFIX: &str = "tp";
 /// Host side of a P2p container's private bridge member veth; it joins the bridge.
 pub const BRIDGE_MEMBER_HOST_VETH_PREFIX: &str = "cb";
+/// Prefix of the host end of a veth created into a P2p container's network namespace.
+pub const CONTAINER_HOST_VETH_PREFIX: &str = "cd";
 
 /// Directory of Sherpa's embedded database and its backups.
 pub const SHERPA_DB_PATH: &str = "/opt/sherpa/db";

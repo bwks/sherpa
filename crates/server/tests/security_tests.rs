@@ -320,3 +320,26 @@ async fn the_server_never_reads_a_file_a_manifest_names() -> Result<()> {
     }
     Ok(())
 }
+
+// ── Impairment requests ──
+
+#[tokio::test]
+async fn out_of_range_impairment_numbers_are_refused_not_wrapped() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = user_token(&server, &mut ws, "alice", false).await?;
+
+    for (field, value) in [
+        ("link_index", json!(70_000)),
+        ("delay", json!(5_000_000_000_u64)),
+    ] {
+        let mut params = json!({ "token": token, "lab_id": "abc12345", "link_index": 1 });
+        params[field] = value;
+        let response = ws.rpc_call("link.update_impairment", params).await?;
+        ensure!(
+            *error_code(&response) == json!(RpcErrorCode::InvalidParams),
+            "{field} out of range was not refused: {response}"
+        );
+    }
+    Ok(())
+}

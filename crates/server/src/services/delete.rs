@@ -9,6 +9,7 @@ use std::future::Future;
 use std::path::Path;
 
 use crate::daemon::state::AppState;
+use crate::validate::validate_image_version;
 
 /// Delete an imported image from both disk and database
 #[instrument(skip(state), fields(model = %request.model, version = %request.version))]
@@ -16,6 +17,7 @@ pub async fn delete_image(
     request: DeleteImageRequest,
     state: &AppState,
 ) -> Result<DeleteImageResponse> {
+    validate_image_version(&request.version)?;
     let _image_guard = lock_image(request.model, &request.version).await;
     let config = NodeConfig::get_model(request.model);
     let kind = config.kind.clone();

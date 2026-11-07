@@ -14,7 +14,7 @@ mod version;
 
 pub use environment::validate_environment_variables;
 pub use lab_origin::validate_lab_origin;
-pub use node_image::validate_node_image_update;
+pub use node_image::{validate_image_version, validate_node_image_update};
 pub use node_secrets::{validate_node_secrets, validate_secret_files};
 pub use performance_tuning::check_host_resources;
 pub use provisioner::reject_provisioners;

@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use futures_util::{Stream, StreamExt};
 use opentelemetry::KeyValue;
 use std::time::Instant;
 use tokio::io::AsyncWriteExt;
@@ -17,6 +18,10 @@ use tracing::instrument;
 use crate::daemon::state::AppState;
 use crate::services::image_lifecycle::lock_image;
 use crate::services::progress::ProgressSender;
+use crate::validate::validate_image_version;
+
+/// Bytes between progress reports while downloading an image.
+const DOWNLOAD_REPORT_INTERVAL: u64 = 5 * 1024 * 1024;
 
 /// Import an image to the server and track it in the database.
 ///
@@ -30,6 +35,7 @@ pub async fn import_image(
 ) -> Result<ImportResponse> {
     let start = Instant::now();
 
+    validate_image_version(&request.version)?;
     let _image_guard = lock_image(request.model, &request.version).await;
     let config = NodeConfig::get_model(request.model);
     let kind = config.kind.clone();
@@ -695,6 +701,87 @@ fn talos_image_url(schematic_id: &str, version: &str) -> String {
     format!("{TALOS_IMAGE_FACTORY_URL}/image/{schematic_id}/v{version}/nocloud-amd64.qcow2")
 }
 
+/// Stream a download into `dest` and return its size.
+///
+/// The bytes go to `{dest}.partial`, renamed to `dest` only when the whole body arrived and,
+/// when the server sent a length, matches it. An interrupted download leaves nothing at `dest`
+/// for a later run to take as a complete image.
+async fn write_download<S, B, E>(
+    mut body: S,
+    dest: &str,
+    expected_size: Option<u64>,
+    progress: &ProgressSender,
+) -> Result<u64>
+where
+    S: Stream<Item = std::result::Result<B, E>> + Unpin,
+    B: AsRef<[u8]>,
+    E: std::error::Error + Send + Sync + 'static,
+{
+    let partial = format!("{dest}.partial");
+    let written = async {
+        let mut file = tokio::fs::File::create(&partial)
+            .await
+            .with_context(|| format!("Failed to create file {partial}"))?;
+        let mut downloaded: u64 = 0;
+        let mut last_reported: u64 = 0;
+        while let Some(chunk) = body.next().await {
+            let chunk = chunk.context("Failed to read response chunk")?;
+            let chunk = chunk.as_ref();
+            file.write_all(chunk)
+                .await
+                .context("Failed to write chunk to disk")?;
+            downloaded += chunk.len() as u64;
+            if downloaded - last_reported >= DOWNLOAD_REPORT_INTERVAL {
+                last_reported = downloaded;
+                let _ = progress.send_status(
+                    download_progress(downloaded, expected_size),
+                    StatusKind::Progress,
+                );
+            }
+        }
+        file.sync_all()
+            .await
+            .context("Failed to flush image file")?;
+        if let Some(expected) = expected_size
+            && downloaded != expected
+        {
+            anyhow::bail!("Download ended after {downloaded} of {expected} bytes");
+        }
+        tokio::fs::rename(&partial, dest)
+            .await
+            .with_context(|| format!("Failed to move {partial} to {dest}"))?;
+        Ok(downloaded)
+    }
+    .await;
+    if written.is_err() {
+        match tokio::fs::remove_file(&partial).await {
+            Ok(()) => tracing::debug!(path = %partial, "Removed incomplete download"),
+            Err(error) => {
+                tracing::debug!(path = %partial, %error, "No incomplete download to remove")
+            }
+        }
+    }
+    written
+}
+
+/// A progress line for `downloaded` bytes of `total`, when known.
+fn download_progress(downloaded: u64, total: Option<u64>) -> String {
+    match total {
+        Some(total) => format!(
+            "Downloaded {:.1} MB / {:.1} MB ({}%)",
+            megabytes(downloaded),
+            megabytes(total),
+            downloaded * 100 / total.max(1)
+        ),
+        None => format!("Downloaded {:.1} MB", megabytes(downloaded)),
+    }
+}
+
+/// `bytes` in MiB, for progress messages.
+fn megabytes(bytes: u64) -> f64 {
+    bytes as f64 / 1_048_576.0
+}
+
 /// Download a VM image from a URL and track it in the database
 #[instrument(skip(state, progress), fields(model = %request.model, version = %request.version))]
 pub async fn download_image(
@@ -702,6 +789,7 @@ pub async fn download_image(
     state: &AppState,
     progress: ProgressSender,
 ) -> Result<ImportResponse> {
+    validate_image_version(&request.version)?;
     let _image_guard = lock_image(request.model, &request.version).await;
     let config = NodeConfig::get_model(request.model);
     let kind = config.kind.clone();
@@ -764,60 +852,21 @@ pub async fn download_image(
             );
         }
 
-        // Get content length for progress reporting
         let total_size = response.content_length();
-
-        // Stream the response body to a file in chunks
-        let mut file = tokio::fs::File::create(&version_disk)
-            .await
-            .context(format!("Failed to create file {}", version_disk))?;
-
-        let mut downloaded: u64 = 0;
-        let mut last_reported: u64 = 0;
-        let report_interval: u64 = 5 * 1024 * 1024; // Report every 5MB
-
-        let mut stream = response.bytes_stream();
-        use futures_util::StreamExt;
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.context("Failed to read response chunk")?;
-            file.write_all(&chunk)
-                .await
-                .context("Failed to write chunk to disk")?;
-
-            downloaded += chunk.len() as u64;
-
-            // Report progress every ~5MB
-            if downloaded - last_reported >= report_interval {
-                last_reported = downloaded;
-                let msg = if let Some(total) = total_size {
-                    let percent = (downloaded as f64 / total as f64 * 100.0) as u64;
-                    format!(
-                        "Downloaded {:.1} MB / {:.1} MB ({}%)",
-                        downloaded as f64 / 1_048_576.0,
-                        total as f64 / 1_048_576.0,
-                        percent
-                    )
-                } else {
-                    format!("Downloaded {:.1} MB", downloaded as f64 / 1_048_576.0)
-                };
-                let _ = progress.send_status(msg, StatusKind::Progress);
-            }
-        }
-
-        file.flush().await.context("Failed to flush image file")?;
+        let downloaded = write_download(
+            response.bytes_stream(),
+            &version_disk,
+            total_size,
+            &progress,
+        )
+        .await?;
 
         tracing::info!("Download complete: {}", version_disk);
 
-        // Final download size message
-        let final_msg = if let Some(total) = total_size {
-            format!("Download complete: {:.1} MB", total as f64 / 1_048_576.0)
-        } else {
-            format!(
-                "Download complete: {:.1} MB",
-                downloaded as f64 / 1_048_576.0
-            )
-        };
-        let _ = progress.send_status(final_msg, StatusKind::Done);
+        let _ = progress.send_status(
+            format!("Download complete: {:.1} MB", megabytes(downloaded)),
+            StatusKind::Done,
+        );
     }
 
     let _ = progress.send_status("Updating database...".to_string(), StatusKind::Progress);
@@ -863,7 +912,66 @@ pub async fn download_image(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::stream;
     use shared::util::file_exists;
+    use std::io;
+
+    fn quiet_progress() -> ProgressSender {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        ProgressSender::new(tx)
+    }
+
+    fn chunks(parts: Vec<io::Result<Vec<u8>>>) -> impl Stream<Item = io::Result<Vec<u8>>> + Unpin {
+        stream::iter(parts)
+    }
+
+    #[tokio::test]
+    async fn a_complete_download_lands_at_its_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("disk.qcow2").to_string_lossy().into_owned();
+        let body = chunks(vec![Ok(b"abc".to_vec()), Ok(b"def".to_vec())]);
+
+        let size = write_download(body, &dest, Some(6), &quiet_progress())
+            .await
+            .unwrap();
+
+        assert_eq!(size, 6);
+        assert_eq!(std::fs::read(&dest).unwrap(), b"abcdef");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_interrupted_download_leaves_nothing_to_reuse() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("disk.qcow2").to_string_lossy().into_owned();
+        let body = chunks(vec![
+            Ok(b"abc".to_vec()),
+            Err(io::Error::other("connection reset")),
+        ]);
+
+        assert!(
+            write_download(body, &dest, None, &quiet_progress())
+                .await
+                .is_err()
+        );
+
+        assert!(!file_exists(&dest));
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_body_shorter_than_its_content_length_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("disk.qcow2").to_string_lossy().into_owned();
+        let body = chunks(vec![Ok(b"abc".to_vec())]);
+
+        let error = write_download(body, &dest, Some(10), &quiet_progress())
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("3 of 10 bytes"), "{error}");
+        assert!(!file_exists(&dest));
+    }
 
     #[tokio::test]
     async fn test_resolve_download_url_ubuntu() {

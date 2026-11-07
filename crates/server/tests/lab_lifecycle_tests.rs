@@ -4,6 +4,7 @@ use anyhow::{Context, Result, bail, ensure};
 use jato::{Auth, ConnectOptions, Exit, Hop, HostKeyPolicy, Node, Session};
 use reqwest::{Client, StatusCode};
 use serde_json::json;
+use shared::data::{NodeConfig, NodeModel};
 use shared::error::RpcErrorCode;
 use shared::konst::SSH_PORT;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
@@ -215,6 +216,58 @@ async fn lab_up(
 
 #[tokio::test]
 #[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
+async fn a_container_that_exits_at_once_fails_its_node_not_the_lab() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_lab_admin(&server).await?;
+    bootstrap_images(&mut ws, &token).await?;
+
+    // generic_container keeps the manifest's commands; alpine is in the dev server's Docker.
+    let mut alpine = NodeConfig::get_model(NodeModel::GenericContainer);
+    alpine.repo = Some("alpine".to_owned());
+    alpine.version = "latest".to_owned();
+    alpine.default = true;
+    db::upsert_node_image(&server.db, alpine).await?;
+
+    let lab_name = format!("tx{:06}", std::process::id() % 1_000_000);
+    let manifest = json!({
+        "name": lab_name,
+        "nodes": [
+            { "name": "dead1", "model": "generic_container", "commands": ["/bin/false"], "data_interface_count": 0 },
+            { "name": "live1", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+        ]
+    });
+
+    let checks: Result<()> = async {
+        let (_statuses, response) = ws
+            .rpc_call_streaming(
+                "up",
+                json!({ "token": token, "lab_id": lab_name, "manifest": manifest }),
+                Duration::from_secs(180),
+            )
+            .await?;
+        ensure!(
+            response.get("error").is_none(),
+            "the lab was rolled back: {response}"
+        );
+        let errors = response["result"]["errors"].to_string();
+        ensure!(
+            errors.contains("dead1") && errors.contains("exited"),
+            "the exited node was not reported: {response}"
+        );
+        ensure!(
+            db::find_lab(&server.db, &lab_name).await?.is_some(),
+            "the lab record is gone"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
 async fn test_container_lab_up_and_inspect() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -273,7 +326,8 @@ async fn test_container_lab_down_and_resume() -> Result<()> {
             Duration::from_secs(180),
         )
         .await?;
-        for method in ["down", "resume"] {
+        // Each runs twice: a second down or resume finds the nodes already there.
+        for method in ["down", "down", "resume", "resume"] {
             let (_s, response) = ws
                 .rpc_call_streaming(
                     method,
@@ -282,8 +336,9 @@ async fn test_container_lab_down_and_resume() -> Result<()> {
                 )
                 .await?;
             ensure!(
-                response.get("error").is_none(),
-                "{method} should succeed: {response}"
+                response.get("error").is_none()
+                    && !response["result"].to_string().contains("\"success\":false"),
+                "{method} should succeed for every node: {response}"
             );
         }
         Ok(())

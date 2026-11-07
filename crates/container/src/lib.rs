@@ -12,10 +12,10 @@ pub use connect::docker_connection;
 
 // Re-export container operations
 pub use container::{
-    ContainerSpec, exec_container, exec_container_detached, exec_container_with_retry,
-    get_container_mount_source, get_container_pid, kill_container, list_containers,
-    pause_container, remove_container, run_container, start_container, stop_container,
-    unpause_container,
+    ContainerSpec, container_status, exec_container, exec_container_detached,
+    exec_container_with_retry, get_container_mount_source, get_container_pid, kill_container,
+    list_containers, pause_container, remove_container, run_container, start_container,
+    stop_container, unpause_container,
 };
 
 // Re-export network operations

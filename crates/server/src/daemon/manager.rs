@@ -1,9 +1,9 @@
 use anyhow::{Context, Result, bail};
 use nix::sys::signal::Signal;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
@@ -43,26 +43,43 @@ pub async fn start_daemon(foreground: bool) -> Result<()> {
 
         // We'll use a simple fork-like approach by spawning ourselves with a special flag
         // The child process will write its own PID
-        let child = Command::new(exe)
+        // The child's stderr goes to the daemon log, so a failure before its logging starts,
+        // such as a broken sherpa.toml, is still recorded.
+        let stderr = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(SHERPAD_LOG_FILE_PATH)
+            .with_context(|| format!("Failed to open log file: {SHERPAD_LOG_FILE_PATH}"))?;
+        let mut child = Command::new(exe)
             .arg("--background-child")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::from(stderr))
             .spawn()
             .context("Failed to spawn background process")?;
 
-        let child_pid = child.id();
-
         // Give the child a moment to start and write its PID
         thread::sleep(Duration::from_millis(500));
+        check_still_running(&mut child)?;
 
-        // Verify the child is still running
-        if !is_process_running(child_pid) {
-            bail!("Failed to start sherpad: process exited immediately");
-        }
-
-        tracing::info!(pid = child_pid, "sherpad started successfully");
+        tracing::info!(pid = child.id(), "sherpad started successfully");
         Ok(())
+    }
+}
+
+/// Check a just-spawned daemon is still running.
+///
+/// `try_wait` reaps a child that already exited; `kill(pid, 0)` would still find it, as a zombie,
+/// and report it running.
+fn check_still_running(child: &mut Child) -> Result<()> {
+    match child
+        .try_wait()
+        .context("Failed to check the background process")?
+    {
+        Some(status) => bail!(
+            "Failed to start sherpad: it exited at once ({status}); see {SHERPAD_LOG_FILE_PATH}"
+        ),
+        None => Ok(()),
     }
 }
 
@@ -91,12 +108,12 @@ pub fn stop_daemon(force: bool) -> Result<()> {
 
     // Check if process is actually running
     if !is_process_running(pid) {
-        tracing::warn!(pid = pid, "Server is not running (stale PID file found)");
+        tracing::warn!(%pid, "Server is not running (stale PID file found)");
         remove_pid(SHERPAD_PID_FILE_PATH)?;
         return Ok(());
     }
 
-    tracing::info!(pid = pid, "Stopping sherpad");
+    tracing::info!(%pid, "Stopping sherpad");
 
     // Send SIGTERM for graceful shutdown
     if let Err(e) = send_signal(pid, Signal::SIGTERM) {
@@ -223,5 +240,30 @@ pub fn logs_daemon(follow: bool) -> Result<()> {
         ))?;
         print!("{}", contents);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spawn_shell(script: &str) -> Child {
+        Command::new("sh").arg("-c").arg(script).spawn().unwrap()
+    }
+
+    #[test]
+    fn a_child_that_already_exited_is_reported() {
+        let mut child = spawn_shell("exit 3");
+        thread::sleep(Duration::from_millis(300));
+        let error = check_still_running(&mut child).expect_err("an exited child passed");
+        assert!(error.to_string().contains("exit status: 3"), "{error}");
+    }
+
+    #[test]
+    fn a_running_child_passes() {
+        let mut child = spawn_shell("sleep 5");
+        assert!(check_still_running(&mut child).is_ok());
+        child.kill().unwrap();
+        child.wait().unwrap();
     }
 }

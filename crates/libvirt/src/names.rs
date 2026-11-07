@@ -5,14 +5,7 @@
 //! its node names contains this lab's ID, and destroy deletes what matches.
 
 use shared::konst::LAB_VOLUME_SUFFIXES;
-
-/// Whether `name` is `<node>-<lab_id>`, a node's device in the lab `lab_id`.
-#[must_use]
-pub fn is_lab_device(name: &str, lab_id: &str) -> bool {
-    name.strip_suffix(lab_id)
-        .and_then(|rest| rest.strip_suffix('-'))
-        .is_some_and(|node| !node.is_empty())
-}
+use shared::util::is_lab_resource;
 
 /// Whether `volume` is a disk of a node in the lab `lab_id`.
 #[must_use]
@@ -20,7 +13,7 @@ pub fn is_lab_volume(volume: &str, lab_id: &str) -> bool {
     LAB_VOLUME_SUFFIXES.iter().any(|suffix| {
         volume
             .strip_suffix(suffix)
-            .is_some_and(|device| is_lab_device(device, lab_id))
+            .is_some_and(|device| is_lab_resource(device, lab_id))
     })
 }
 
@@ -64,15 +57,6 @@ mod tests {
         ] {
             assert!(!is_lab_volume(volume, LAB_ID), "{volume}");
         }
-    }
-
-    #[test]
-    fn lab_devices_are_a_node_name_and_the_lab_id() {
-        assert!(is_lab_device("dev-fecb1a12", LAB_ID));
-        assert!(is_lab_device("web-1-fecb1a12", LAB_ID));
-        assert!(!is_lab_device("fecb1a12-0a1b2c3d", LAB_ID));
-        assert!(!is_lab_device("fecb1a12", LAB_ID));
-        assert!(!is_lab_device("-fecb1a12", LAB_ID));
     }
 
     #[test]

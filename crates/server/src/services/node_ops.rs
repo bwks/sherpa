@@ -12,6 +12,7 @@ use askama::Template;
 use jato::{Auth, ConnectOptions, Hop, HostKeyPolicy, Node, Session};
 use tracing::instrument;
 
+use crate::services::container_networks::is_node_network;
 use crate::services::guest_account::{self, GuestAccount, KeyFormat};
 use crate::services::image_lifecycle::ImageLease;
 use crate::services::progress::ProgressSender;
@@ -3770,7 +3771,12 @@ pub async fn destroy_vm_node(
     Ok(())
 }
 
-/// Destroy a single container node: kill, remove, and delete associated Docker networks.
+/// Destroy a single container node: kill, remove, and delete its Docker data networks.
+///
+/// # Errors
+///
+/// Fails when the container or one of its networks cannot be removed. Each step is
+/// idempotent, so a failed redeploy can run it again.
 #[instrument(skip(docker), fields(%node_name, %lab_id), level = "debug")]
 pub async fn destroy_container_node(
     docker: &bollard::Docker,
@@ -3778,19 +3784,23 @@ pub async fn destroy_container_node(
     lab_id: &str,
 ) -> Result<()> {
     let container_name = format!("{}-{}", node_name, lab_id);
-    let _ = container::kill_container(docker, &container_name).await;
-    let _ = container::remove_container(docker, &container_name).await;
+    // Killing fails when the container is not running, which is fine: it is removed next.
+    if let Err(error) = container::kill_container(docker, &container_name).await {
+        tracing::debug!(container = %container_name, error = %error, "Container not killed");
+    }
+    container::remove_container(docker, &container_name)
+        .await
+        .with_context(|| format!("Failed to remove container {container_name}"))?;
 
-    // Destroy Docker networks belonging to this node
-    if let Ok(networks) = container::list_networks(docker).await {
-        for net in networks {
-            if let Some(net_name) = net.name
-                && net_name.starts_with(&format!("{}-", node_name))
-                && net_name.ends_with(&format!("-{}", lab_id))
-            {
-                let _ = container::delete_network(docker, &net_name).await;
-                tracing::info!(network = %net_name, "Destroyed Docker network for node");
-            }
+    let networks = container::list_networks(docker)
+        .await
+        .context("Failed to list Docker networks")?;
+    for net_name in networks.into_iter().filter_map(|net| net.name) {
+        if is_node_network(&net_name, node_name, lab_id) {
+            container::delete_network(docker, &net_name)
+                .await
+                .with_context(|| format!("Failed to delete Docker network {net_name}"))?;
+            tracing::info!(network = %net_name, "Destroyed Docker network for node");
         }
     }
 
