@@ -13,9 +13,19 @@ use ipnet::{ipv4_mask_to_prefix, ipv6_mask_to_prefix};
 use crate::konst::MANAGEMENT_NODE_HOST_OFFSETS;
 
 /// Get the nth IPv4 addr from a network block given an index
+///
+/// # Errors
+///
+/// Fails when the network has no `nth` address.
 pub fn get_ipv4_addr(network: &Ipv4Net, nth: u32) -> Result<Ipv4Addr> {
-    let net_bits = network.network().to_bits();
-    Ok(Ipv4Addr::from_bits(net_bits + nth))
+    let addr = network
+        .network()
+        .to_bits()
+        .checked_add(nth)
+        .map(Ipv4Addr::from_bits)
+        .filter(|addr| network.contains(addr))
+        .with_context(|| format!("{network} has no address {nth}"))?;
+    Ok(addr)
 }
 
 /// Parses a CIDR notation string into an `Ipv4Network`.
@@ -30,7 +40,7 @@ pub fn get_ipv4_addr(network: &Ipv4Net, nth: u32) -> Result<Ipv4Addr> {
 /// # Errors
 /// - Returns an error if the input string is not a valid CIDR notation.
 pub fn get_ipv4_network(ipv4_net: &str) -> Result<Ipv4Net> {
-    Ipv4Net::from_str(ipv4_net).with_context(|| "Failed to parse network: {ipv4_net}")
+    Ipv4Net::from_str(ipv4_net).with_context(|| format!("Failed to parse network: {ipv4_net}"))
 }
 
 /// Get a free subnet from the supernet block that is not currently in use.
@@ -149,12 +159,10 @@ pub fn get_ip(loopback_subnet: &Ipv4Net, host_addr: u8) -> Ipv4Addr {
 ///
 /// Skips `x.x.0.0/24` and returns the first `/24` not present in `used`.
 pub fn allocate_loopback_subnet(prefix: &Ipv4Net, used: &[Ipv4Net]) -> Result<Ipv4Net> {
-    let subnets: Vec<Ipv4Net> = prefix
+    for subnet in prefix
         .subnets(24)
         .context("Failed to subnet loopback prefix into /24s")?
-        .collect();
-
-    for subnet in subnets {
+    {
         // Skip the x.x.0.0/24 subnet (network zero)
         if subnet.network().octets()[2] == 0 {
             continue;
@@ -179,12 +187,10 @@ pub fn allocate_management_subnet(
     used: &[Ipv4Net],
     host: &[Ipv4Net],
 ) -> Result<Ipv4Net> {
-    let subnets: Vec<Ipv4Net> = prefix
+    for subnet in prefix
         .subnets(24)
         .context("Failed to subnet management prefix into /24s")?
-        .collect();
-
-    for subnet in subnets {
+    {
         // Skip the x.x.0.0/24 subnet (network zero)
         if subnet.network().octets()[2] == 0 {
             continue;
@@ -200,9 +206,19 @@ pub fn allocate_management_subnet(
 }
 
 /// Get the nth IPv6 addr from a network block given an index.
+///
+/// # Errors
+///
+/// Fails when the network has no `nth` address.
 pub fn get_ipv6_addr(network: &Ipv6Net, nth: u32) -> Result<Ipv6Addr> {
-    let net_bits = network.network().to_bits();
-    Ok(Ipv6Addr::from_bits(net_bits + nth as u128))
+    let addr = network
+        .network()
+        .to_bits()
+        .checked_add(u128::from(nth))
+        .map(Ipv6Addr::from_bits)
+        .filter(|addr| network.contains(addr))
+        .with_context(|| format!("{network} has no address {nth}"))?;
+    Ok(addr)
 }
 
 /// Parses a CIDR notation string into an `Ipv6Net`.
@@ -219,12 +235,10 @@ pub fn allocate_ipv6_management_subnet(
     used: &[Ipv6Net],
     host: &[Ipv6Net],
 ) -> Result<Ipv6Net> {
-    let subnets: Vec<Ipv6Net> = prefix
+    for subnet in prefix
         .subnets(64)
         .context("Failed to subnet IPv6 management prefix into /64s")?
-        .collect();
-
-    for subnet in subnets {
+    {
         // Skip the first /64 (network zero)
         if subnet.network() == prefix.network() {
             continue;
@@ -243,12 +257,10 @@ pub fn allocate_ipv6_management_subnet(
 ///
 /// Skips the first `/64` and returns the first `/64` not present in `used`.
 pub fn allocate_ipv6_loopback_subnet(prefix: &Ipv6Net, used: &[Ipv6Net]) -> Result<Ipv6Net> {
-    let subnets: Vec<Ipv6Net> = prefix
+    for subnet in prefix
         .subnets(64)
         .context("Failed to subnet IPv6 loopback prefix into /64s")?
-        .collect();
-
-    for subnet in subnets {
+    {
         // Skip the first /64 (network zero)
         if subnet.network() == prefix.network() {
             continue;
@@ -275,6 +287,37 @@ pub fn get_ipv6_ip(subnet: &Ipv6Net, host_addr: u16) -> Ipv6Addr {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_address_outside_its_network_is_refused() {
+        let network: Ipv4Net = "10.0.0.0/30".parse().unwrap();
+        assert_eq!(
+            get_ipv4_addr(&network, 3).unwrap(),
+            Ipv4Addr::new(10, 0, 0, 3)
+        );
+        assert!(get_ipv4_addr(&network, 4).is_err());
+        let top: Ipv4Net = "255.255.255.255/32".parse().unwrap();
+        assert!(get_ipv4_addr(&top, 1).is_err());
+
+        let network6: Ipv6Net = "fd00::/126".parse().unwrap();
+        assert!(get_ipv6_addr(&network6, 3).is_ok());
+        assert!(get_ipv6_addr(&network6, 4).is_err());
+    }
+
+    #[test]
+    fn a_network_that_does_not_parse_is_named() {
+        let error = get_ipv4_network("10.0.0/24").unwrap_err();
+        assert!(error.to_string().contains("10.0.0/24"), "{error}");
+    }
+
+    #[test]
+    fn a_large_ipv6_prefix_is_not_listed_whole() {
+        let prefix: Ipv6Net = "fd00::/32".parse().unwrap();
+        let subnet = allocate_ipv6_management_subnet(&prefix, &[], &[]).unwrap();
+        assert_eq!(subnet, "fd00:0:0:1::/64".parse::<Ipv6Net>().unwrap());
+        let loopback = allocate_ipv6_loopback_subnet(&prefix, &[]).unwrap();
+        assert_eq!(loopback, "fd00:0:0:1::/64".parse::<Ipv6Net>().unwrap());
+    }
     use std::net::Ipv4Addr;
 
     fn test_subnet(third_octet: u8) -> Ipv4Net {

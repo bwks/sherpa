@@ -2,7 +2,7 @@ use super::TailnetStatus;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::data::{LabInfo, LabState, NodeKind, NodeModel, NodeState};
+use crate::data::{BridgeKind, LabInfo, LabState, NodeKind, NodeModel, NodeState};
 
 /// Request type for inspecting a lab
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -50,7 +50,7 @@ pub struct LinkInfo {
     pub int_a: String,
     pub node_b_name: String,
     pub int_b: String,
-    pub kind: String,
+    pub kind: BridgeKind,
 }
 
 /// Display-ready information about a shared bridge connecting multiple nodes

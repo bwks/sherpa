@@ -23,6 +23,8 @@ pub struct CertificateInfo {
     pub fingerprint: String,
     pub subject: String,
     pub issuer: String,
+    /// Whether the certificate names itself as its issuer.
+    pub self_signed: bool,
     pub valid_from: String,
     pub valid_to: String,
 }
@@ -272,12 +274,7 @@ pub fn extract_cert_info(server_url: &str, cert_pem: &str) -> Result<Certificate
         .unwrap_or("Unknown")
         .to_string();
 
-    // Check if self-signed
-    let issuer_display = if subject == issuer {
-        format!("{} (self-signed)", issuer)
-    } else {
-        issuer
-    };
+    let self_signed = subject == issuer;
 
     // Extract validity dates
     let valid_from = cert.validity().not_before.to_string();
@@ -290,7 +287,8 @@ pub fn extract_cert_info(server_url: &str, cert_pem: &str) -> Result<Certificate
         server_url: server_url.to_string(),
         fingerprint,
         subject,
-        issuer: issuer_display,
+        issuer,
+        self_signed,
         valid_from,
         valid_to,
     })
@@ -311,6 +309,16 @@ pub fn compute_fingerprint(cert_der: &CertificateDer) -> Result<String> {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    const SELF_SIGNED: &str = include_str!("testdata/self_signed.crt");
+
+    #[test]
+    fn a_self_signed_certificate_is_flagged_and_keeps_its_issuer() {
+        let info = extract_cert_info("wss://localhost:3030/ws", SELF_SIGNED).unwrap();
+        assert_eq!(info.subject, "Sherpa Test");
+        assert_eq!(info.issuer, "Sherpa Test");
+        assert!(info.self_signed);
+    }
 
     const TEST_CERT_PEM: &str = r#"-----BEGIN CERTIFICATE-----
 MIIDazCCAlOgAwIBAgIUFYnDFi0kqgXhGd6WgTHZvqaJOsswDQYJKoZIhvcNAQEL

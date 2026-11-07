@@ -106,6 +106,25 @@ The server uses TLS. Download the certificate for trust-on-first-use:
 curl http://<server>:3031/cert > server.crt
 ```
 
+`sherpad` logs the certificate's SHA-256 fingerprint when it loads it
+(`CertificateManager::load_server_config`), in the same format the client shows.
+
+The client builds its TLS configuration in `shared::tls::TlsConfigBuilder::build_with_trust_flow`:
+
+1. `insecure` skips verification; `ca_cert_path` trusts only that CA.
+2. A certificate in the client's trust store (`~/.sherpa/trusted_certs`) is trusted, with the
+   public CAs (`webpki-roots`) as well when `validate_certs` is on.
+3. Otherwise, with `validate_certs` on, only the public CAs are trusted. `PublicCaVerifier`
+   wraps rustls's WebPKI verifier and flags a refusal for `UnknownIssuer`. When the handshake
+   fails with the flag set (`ServerTls::refused_unknown_issuer`), `WebSocketClient::connect`
+   runs `trust_on_first_use` and connects again.
+4. With `validate_certs` off, `trust_on_first_use` runs before connecting.
+
+`trust_on_first_use` fetches `/cert` from the server's HTTP port
+(`[server_connection] http_port`), shows the certificate and its fingerprint, and saves it to
+the trust store if the user accepts. A certificate refused for any reason other than an unknown
+issuer (expired, wrong name, a CA certificate used as the server's) is an error, not a prompt.
+
 ## CORS
 
 CORS is enabled for all origins with credentials support. Configure specific origins for production.

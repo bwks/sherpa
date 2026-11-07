@@ -310,7 +310,7 @@ impl Cli {
             Commands::New { force } => new(*force),
             Commands::Init { force } => init(&sherpa, *force),
             Commands::Validate => validate_manifest(SHERPA_MANIFEST_FILE),
-            Commands::Cert { commands } => run_cert(commands).await,
+            Commands::Cert { commands } => run_cert(commands, &sherpa).await,
             command => {
                 let config =
                     load_client_config_for_command(&sherpa.config_file_path, cli.insecure)?;
@@ -322,11 +322,14 @@ impl Cli {
 }
 
 /// Run a trusted certificate command; these only read and change the local trust store.
-async fn run_cert(command: &CertCommands) -> Result<()> {
+async fn run_cert(command: &CertCommands, sherpa: &Sherpa) -> Result<()> {
     match command {
         CertCommands::List => cert_list(),
         CertCommands::Show { server_url } => cert_show(server_url),
-        CertCommands::Trust { server_url } => cert_trust(server_url).await,
+        CertCommands::Trust { server_url } => {
+            let config = load_client_config_or_default(&sherpa.config_file_path)?;
+            cert_trust(server_url, config.server_connection.http_port).await
+        }
         CertCommands::Delete { server_url } => cert_delete(server_url),
     }
 }

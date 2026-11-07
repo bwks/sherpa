@@ -7,7 +7,6 @@ use std::io::BufReader;
 use std::path::Path;
 
 /// Load certificates from PEM file
-#[allow(dead_code)]
 pub fn load_certificates(path: &Path) -> Result<Vec<CertificateDer<'static>>> {
     let file = File::open(path)
         .with_context(|| format!("Failed to open certificate file: {}", path.display()))?;

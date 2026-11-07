@@ -234,7 +234,7 @@ pub fn render_links_table(links: &[LinkInfo]) -> String {
             int_a: link.int_a.clone(),
             node_b: link.node_b_name.clone(),
             int_b: link.int_b.clone(),
-            kind: link.kind.clone(),
+            kind: link.kind.to_string(),
         })
         .collect();
 
@@ -804,7 +804,7 @@ mod tests {
     fn test_render_single_node() {
         let nodes = vec![NodeInfo {
             name: "dev01".to_string(),
-            kind: "VirtualMachine".to_string(),
+            kind: NodeKind::VirtualMachine,
             model: NodeModel::ArubaAoscx,
             status: NodeState::Running,
             ip_address: Some("172.31.0.11".to_string()),
@@ -828,7 +828,7 @@ mod tests {
         let nodes = vec![
             NodeInfo {
                 name: "dev01".to_string(),
-                kind: "VirtualMachine".to_string(),
+                kind: NodeKind::VirtualMachine,
                 model: NodeModel::ArubaAoscx,
                 status: NodeState::Running,
                 ip_address: Some("172.31.0.11".to_string()),
@@ -836,7 +836,7 @@ mod tests {
             },
             NodeInfo {
                 name: "router01".to_string(),
-                kind: "VirtualMachine".to_string(),
+                kind: NodeKind::VirtualMachine,
                 model: NodeModel::CiscoCat8000v,
                 status: NodeState::Running,
                 ip_address: Some("172.31.0.12".to_string()),
@@ -860,7 +860,7 @@ mod tests {
     fn test_render_node_missing_ip() {
         let nodes = vec![NodeInfo {
             name: "dev01".to_string(),
-            kind: "Container".to_string(),
+            kind: NodeKind::Container,
             model: NodeModel::AlpineLinux,
             status: NodeState::Starting,
             ip_address: None,

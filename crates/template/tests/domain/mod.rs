@@ -83,6 +83,33 @@ fn test_domain_vnc_console_has_a_fixed_port() {
 }
 
 #[test]
+fn test_domain_has_a_virtio_scsi_controller_only_for_scsi_disks() {
+    let xml = base_domain_template().render().unwrap();
+    assert!(!xml.contains("<controller type='scsi'"), "{xml}");
+
+    let mut template = base_domain_template();
+    template.disks[0].target_dev = DiskTargets::Sda;
+    template.disks[0].target_bus = DiskBuses::Scsi;
+    let xml = template.render().unwrap();
+    assert!(xml.contains("<target dev='sda' bus='scsi'/>"), "{xml}");
+    assert!(
+        xml.contains("<controller type='scsi' index='0' model='virtio-scsi'/>"),
+        "{xml}"
+    );
+
+    // libvirt takes an I/O thread only on a virtio disk, so a SCSI disk's is on its controller.
+    template.tuning.io_thread_cpuset = Some("2".to_string());
+    let xml = template.render().unwrap();
+    assert!(xml.contains("<driver name='qemu' type='qcow2'/>"), "{xml}");
+    assert!(
+        xml.contains(
+            "<controller type='scsi' index='0' model='virtio-scsi'>\n      <driver iothread='1'/>"
+        ),
+        "{xml}"
+    );
+}
+
+#[test]
 fn test_domain_has_no_watchdog() {
     // Cisco IOS images arm an i6300esb watchdog early in boot and feed it only after a long init
     // phase; when that phase outlasts the timeout, as it does on every boot under nested KVM, a

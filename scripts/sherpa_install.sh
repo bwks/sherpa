@@ -840,6 +840,9 @@ Next Steps:
        sherpad init --server-ipv4 ${SERVER_IP} --ws-port ${WS_PORT} --http-port ${HTTP_PORT}
   3. Start the service:
        sudo systemctl start sherpad
+  4. Note the server certificate's fingerprint. Clients show it on their first connect
+     and ask you to check it, so give it to your users:
+       sudo openssl x509 -in ${SHERPA_BASE_DIR}/.certs/server.crt -noout -fingerprint -sha256
 
 EOF
 

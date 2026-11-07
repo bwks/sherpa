@@ -4938,6 +4938,7 @@ dependencies = [
  "base64",
  "clap",
  "dirs",
+ "gethostname",
  "getifaddrs",
  "hex",
  "ipnet",

@@ -14,7 +14,6 @@ an `[otel]` section to `sherpa.toml`:
 [otel]
 enabled = true
 endpoint = "http://localhost:4317"   # OTLP gRPC collector
-protocol = "grpc"                    # "grpc" (default) or "http"
 service_name = "sherpad"             # reported to the collector
 sample_ratio = 1.0                   # 0.0–1.0 (1.0 = sample everything)
 ```

@@ -1,6 +1,8 @@
 use anyhow::{Context, Result, bail};
 use futures_util::{SinkExt, StreamExt};
+use rustls::ClientConfig;
 use shared::data::{ConnectedMsg, ServerConnection};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio_tungstenite::{
     Connector, MaybeTlsStream, WebSocketStream, connect_async, connect_async_tls_with_config,
@@ -33,6 +35,17 @@ impl WebSocketClient {
         }
     }
 
+    /// Open the secure WebSocket with `config`, within the connection timeout.
+    async fn connect_tls(&self, config: Arc<ClientConfig>) -> Result<WsStream> {
+        let connector = Connector::Rustls(config);
+        let connect_future = connect_async_tls_with_config(&self.url, None, false, Some(connector));
+        let (ws_stream, _) = tokio::time::timeout(self.timeout, connect_future)
+            .await
+            .context("Connection timeout")?
+            .context("Failed to connect to secure WebSocket")?;
+        Ok(ws_stream)
+    }
+
     /// Connect to the WebSocket server and return an RPC client
     pub async fn connect(&self) -> Result<RpcClient> {
         tracing::debug!("Connecting to WebSocket: {}", self.url);
@@ -45,23 +58,26 @@ impl WebSocketClient {
 
             // Build TLS configuration with trust-on-first-use flow
             let tls_builder = TlsConfigBuilder::new(&self.server_connection);
-            let tls_config = tls_builder
+            let tls = tls_builder
                 .build_with_trust_flow(&self.url)
                 .await
                 .context("Failed to build TLS configuration")?;
 
-            // Create connector with our TLS config
-            let connector = Connector::Rustls(tls_config);
-
-            // Connect with TLS and timeout
-            let connect_future =
-                connect_async_tls_with_config(&self.url, None, false, Some(connector));
-            let (ws_stream, _) = tokio::time::timeout(self.timeout, connect_future)
-                .await
-                .context("Connection timeout")?
-                .context("Failed to connect to secure WebSocket")?;
-
-            ws_stream
+            match self.connect_tls(Arc::clone(&tls.config)).await {
+                Ok(ws_stream) => ws_stream,
+                Err(error) if tls.refused_unknown_issuer() => {
+                    tracing::info!(
+                        error = format!("{error:#}"),
+                        "No public CA issued the server's certificate; trusting it on first use"
+                    );
+                    let config = tls_builder
+                        .trust_on_first_use(&self.url)
+                        .await
+                        .context("Failed to build TLS configuration")?;
+                    self.connect_tls(config).await?
+                }
+                Err(error) => return Err(error),
+            }
         } else {
             // Plain WebSocket connection
             tracing::debug!("Using plain WebSocket connection (ws://)");

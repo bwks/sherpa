@@ -2,6 +2,7 @@ use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 use ipnet::{Ipv4Net, Ipv6Net};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -19,7 +20,7 @@ pub struct LabSubnets {
     pub router_ipv6: Ipv6Addr,
 }
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BridgeKind {
     #[default]

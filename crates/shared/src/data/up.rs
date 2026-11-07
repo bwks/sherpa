@@ -4,7 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::lab::LabInfo;
-use super::node::{NodeModel, NodeState};
+use super::node::{NodeKind, NodeModel, NodeState};
 use super::{SecretFile, TailnetAuthKey, TailnetStatus};
 
 /// Request type for starting a lab
@@ -124,7 +124,7 @@ pub struct UpSummary {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct NodeInfo {
     pub name: String,
-    pub kind: String,
+    pub kind: NodeKind,
     pub model: NodeModel,
     pub status: NodeState,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -229,6 +229,20 @@ impl UpPhase {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_node_kind_is_sent_as_every_other_api_sends_it() {
+        let node = NodeInfo {
+            name: "dev01".to_string(),
+            kind: NodeKind::VirtualMachine,
+            model: NodeModel::UbuntuLinux,
+            status: NodeState::Running,
+            ip_address: None,
+            ssh_port: None,
+        };
+        let json = serde_json::to_value(&node).unwrap();
+        assert_eq!(json["kind"], "virtual_machine");
+    }
 
     #[test]
     fn test_status_kind_serde_round_trip() {
