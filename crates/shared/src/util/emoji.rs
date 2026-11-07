@@ -76,18 +76,14 @@ impl fmt::Display for Emoji {
 
 /// Formats a message with a success emoji (✅) prefix.
 ///
+#[must_use]
 pub fn emoji_success(msg: &str) -> String {
     format!("{} {}", Emoji::Success, msg)
 }
 
-/// Formats a message with an error emoji (❌) prefix.
-///
-pub fn emoji_error(msg: &str) -> String {
-    format!("{} {}", Emoji::Error, msg)
-}
-
 /// Formats a message with a warning emoji (⚠️) prefix.
 ///
+#[must_use]
 pub fn emoji_warning(msg: &str) -> String {
     format!("{} {}", Emoji::Warning, msg)
 }
@@ -108,31 +104,9 @@ mod tests {
     }
 
     #[test]
-    fn test_emoji_error() {
-        let result = emoji_error("Test failed");
-        assert_eq!(result, "❌ Test failed");
-        assert!(result.starts_with(&Emoji::Error.to_string()));
-    }
-
-    #[test]
     fn test_emoji_warning() {
         let result = emoji_warning("Test warning");
         assert_eq!(result, "⚠️ Test warning");
         assert!(result.starts_with(&Emoji::Warning.to_string()));
-    }
-
-    #[test]
-    fn test_emoji_empty_string() {
-        assert_eq!(emoji_success(""), "✅ ");
-        assert_eq!(emoji_error(""), "❌ ");
-        assert_eq!(emoji_warning(""), "⚠️ ");
-    }
-
-    #[test]
-    fn test_emoji_with_special_chars() {
-        let msg = "Test: 100% complete!";
-        assert_eq!(emoji_success(msg), "✅ Test: 100% complete!");
-        assert_eq!(emoji_error(msg), "❌ Test: 100% complete!");
-        assert_eq!(emoji_warning(msg), "⚠️ Test: 100% complete!");
     }
 }

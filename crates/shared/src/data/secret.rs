@@ -20,10 +20,16 @@ impl fmt::Debug for SecretContent {
 }
 
 impl SecretContent {
+    #[must_use]
     pub fn from_bytes(bytes: &[u8]) -> Self {
         Self(base64_encode_bytes(bytes))
     }
 
+    /// The content, decoded from base64.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the content is not valid base64.
     pub fn decode(&self) -> Result<Vec<u8>> {
         base64_decode_bytes(&self.0)
     }

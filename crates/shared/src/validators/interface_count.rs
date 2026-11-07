@@ -4,6 +4,12 @@ use tracing::instrument;
 use crate::data::NodeConfig;
 use crate::util;
 
+/// The number of data interfaces a node gets: the manifest's count when it sets one, checked
+/// against the model, or else the image's default.
+///
+/// # Errors
+///
+/// Fails when the override is more interfaces than the model has.
 #[instrument(skip(node_image), fields(node_name = %node_name, node_model = %node_image.model), level = "debug")]
 pub fn effective_data_interface_count(
     node_name: &str,
@@ -19,6 +25,11 @@ pub fn effective_data_interface_count(
     }
 }
 
+/// Check a manifest's data interface count for a node against what its model has.
+///
+/// # Errors
+///
+/// Fails when the override is more interfaces than the model has.
 #[instrument(skip(node_image), fields(node_name = %node_name, node_model = %node_image.model), level = "debug")]
 pub fn validate_data_interface_count_override(
     node_name: &str,

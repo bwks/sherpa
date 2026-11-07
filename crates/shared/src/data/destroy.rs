@@ -141,8 +141,8 @@ mod tests {
     #[test]
     fn test_destroy_summary_default() {
         let summary = DestroySummary::default();
-        assert!(summary.containers_destroyed.is_empty());
-        assert!(summary.vms_destroyed.is_empty());
+        assert_eq!(summary.containers_destroyed, Vec::<String>::new());
+        assert_eq!(summary.vms_destroyed, Vec::<String>::new());
         assert!(!summary.lab_directory_deleted);
         assert!(!summary.database_records_deleted);
     }

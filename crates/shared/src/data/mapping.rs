@@ -4,16 +4,8 @@ use super::disk::{
     DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskImageCloneMethod, DiskTargets,
 };
 
+/// Data used to clone a disk for VM creation.
 #[derive(Clone, Debug)]
-// Device name to IP address mapping
-pub struct NodeConnection {
-    pub name: String,
-    pub ip_address: String,
-    // pub mac_address: String,
-    pub ssh_port: u16,
-}
-
-// Data used to clone disk for VM creation
 pub struct CloneDisk {
     pub src: String,
     pub dst: String,
@@ -31,31 +23,35 @@ pub struct NodeDisk {
     pub target_bus: DiskBuses,
 }
 
+/// A QEMU command-line argument.
 #[derive(Clone, Debug)]
-// Qemu commamnd-line arguments mapping
 pub struct QemuCommand {
     pub param: String,
     pub value: String,
 }
 impl QemuCommand {
+    #[must_use]
     pub fn juniper_vrouter() -> Vec<Self> {
         vec![Self {
             param: "-smbios".to_owned(),
             value: "type=1,product=VM-VMX,family=lab".to_owned(),
         }]
     }
+    #[must_use]
     pub fn juniper_vswitch() -> Vec<Self> {
         vec![Self {
             param: "-smbios".to_owned(),
             value: "type=1,product=VM-VEX".to_owned(),
         }]
     }
+    #[must_use]
     pub fn juniper_vsrxv3() -> Vec<Self> {
         vec![Self {
             param: "-machine".to_owned(),
             value: "smbios-entry-point-type=32".to_owned(),
         }]
     }
+    #[must_use]
     pub fn juniper_vevolved() -> Vec<Self> {
         vec![
             Self {
@@ -72,6 +68,7 @@ impl QemuCommand {
         },
         ]
     }
+    #[must_use]
     pub fn ignition_config(path: &str) -> Vec<Self> {
         vec![Self {
             param: "-fw_cfg".to_owned(),

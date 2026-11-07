@@ -89,6 +89,30 @@ mod tests {
         query_count(&conn, "PRAGMA user_version", ()).await.unwrap()
     }
 
+    /// Insert `image` into a database at a version before 9, whose `node_image` table still has
+    /// the `dedicated_management_interface` column today's queries do not write: the column is
+    /// dropped for the insert and added back, as an older release stored it.
+    async fn insert_into_older_schema(db: &Database, image: NodeConfig) {
+        db.writer()
+            .await
+            .unwrap()
+            .conn
+            .execute_batch("ALTER TABLE node_image DROP COLUMN dedicated_management_interface;")
+            .await
+            .unwrap();
+        upsert_node_image(db, image).await.unwrap();
+        db.writer()
+            .await
+            .unwrap()
+            .conn
+            .execute_batch(
+                "ALTER TABLE node_image ADD COLUMN dedicated_management_interface INTEGER \
+                 NOT NULL DEFAULT 0;",
+            )
+            .await
+            .unwrap();
+    }
+
     async fn trigger_count(db: &Database, pattern: &str) -> usize {
         let conn = db.reader().await.unwrap();
         query_count(
@@ -143,8 +167,12 @@ mod tests {
         assert_eq!(trigger_count(&db, "user_protect_admin_%").await, 3);
 
         // A database from before the triggers were removed, which still has them.
+        let db = open_in_memory().await.unwrap();
         {
             let writer = db.writer().await.unwrap();
+            for batch in TABLES.iter().chain(&migrations::ALL[..6]) {
+                writer.conn.execute_batch(batch).await.unwrap();
+            }
             writer
                 .conn
                 .execute_batch(
@@ -250,7 +278,7 @@ mod tests {
         ] {
             let mut image = NodeConfig::get_model(model);
             image.data_interface_count = 16;
-            upsert_node_image(&db, image).await.unwrap();
+            insert_into_older_schema(&db, image).await;
         }
 
         apply_schema(&db).await.unwrap();
@@ -286,13 +314,13 @@ mod tests {
         drop(writer);
         for model in [NodeModel::CiscoIse, NodeModel::CiscoAsav] {
             let mut image = NodeConfig::get_model(model);
-            image.ztp_method = ZtpMethod::Cdrom;
-            upsert_node_image(&db, image).await.unwrap();
+            image.ztp.method = ZtpMethod::Cdrom;
+            insert_into_older_schema(&db, image).await;
         }
         for model in [NodeModel::GenericVm, NodeModel::CiscoIosv] {
             let mut image = NodeConfig::get_model(model);
             image.cdrom_bus = DiskBuses::Virtio;
-            upsert_node_image(&db, image).await.unwrap();
+            insert_into_older_schema(&db, image).await;
         }
 
         apply_schema(&db).await.unwrap();
@@ -302,7 +330,7 @@ mod tests {
             .await
             .unwrap()
             .into_iter()
-            .map(|image| (image.model, image.ztp_method))
+            .map(|image| (image.model, image.ztp.method))
             .collect();
         assert!(
             methods.contains(&(NodeModel::CiscoIse, ZtpMethod::Disk)),
@@ -345,8 +373,8 @@ mod tests {
         drop(writer);
         for model in [NodeModel::JuniperVsrxv3, NodeModel::AristaVeos] {
             let mut image = NodeConfig::get_model(model);
-            image.ztp_method = ZtpMethod::Tftp;
-            upsert_node_image(&db, image).await.unwrap();
+            image.ztp.method = ZtpMethod::Tftp;
+            insert_into_older_schema(&db, image).await;
         }
 
         apply_schema(&db).await.unwrap();
@@ -356,7 +384,7 @@ mod tests {
             .await
             .unwrap()
             .into_iter()
-            .map(|image| (image.model, image.ztp_method))
+            .map(|image| (image.model, image.ztp.method))
             .collect();
         assert!(
             methods.contains(&(NodeModel::JuniperVsrxv3, ZtpMethod::Cdrom)),
@@ -366,6 +394,37 @@ mod tests {
             methods.contains(&(NodeModel::AristaVeos, ZtpMethod::Tftp)),
             "{methods:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn apply_schema_drops_the_dedicated_management_interface_column() {
+        let db = open_in_memory().await.unwrap();
+        {
+            let writer = db.writer().await.unwrap();
+            for batch in TABLES.iter().chain(&migrations::ALL[..7]) {
+                writer.conn.execute_batch(batch).await.unwrap();
+            }
+            writer
+                .conn
+                .execute("PRAGMA user_version = 8", ())
+                .await
+                .unwrap();
+        }
+        insert_into_older_schema(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await;
+
+        apply_schema(&db).await.unwrap();
+
+        let conn = db.reader().await.unwrap();
+        let columns = query_count(
+            &conn,
+            "SELECT COUNT(*) FROM pragma_table_info('node_image') \
+             WHERE name = 'dedicated_management_interface'",
+            (),
+        )
+        .await
+        .unwrap();
+        assert_eq!(columns, 0);
+        assert_eq!(list_node_images(&db).await.unwrap().len(), 1);
     }
 
     #[tokio::test]

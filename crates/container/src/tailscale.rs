@@ -20,9 +20,8 @@ use tokio::io::AsyncWriteExt;
 use tokio::time::{sleep, timeout};
 use tracing::instrument;
 
-use shared::data::{
-    TAILNET_DOCS_URL, TailnetAuthKey, TailnetState, TailnetStatus, TailscaleGatewaySettings,
-};
+use shared::data::{TailnetAuthKey, TailnetState, TailnetStatus, TailscaleGatewaySettings};
+use shared::konst::TAILNET_DOCS_URL;
 
 use crate::status::is_missing;
 

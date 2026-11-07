@@ -61,7 +61,7 @@ pub struct InterfaceData {
     pub data: NodeInterface,
 }
 
-/// Minimal lab identity (name + id) used by CLI commands that don't need full LabInfo.
+/// Minimal lab identity (name + id) used by CLI commands that don't need full `LabInfo`.
 #[derive(Debug, Clone)]
 pub struct LabIdentity {
     pub name: String,
@@ -134,7 +134,7 @@ impl LabInfo {
 impl fmt::Display for LabInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let toml_string = toml::to_string_pretty(self).map_err(|_| fmt::Error)?;
-        write!(f, "{}", toml_string)
+        write!(f, "{toml_string}")
     }
 }
 impl FromStr for LabInfo {
@@ -172,25 +172,10 @@ pub struct LabLinkData {
     pub node_b: DbNode,
     pub int_a: String,
     pub int_b: String,
-    /// Tap device name for node_a side (P2p links only).
+    /// Tap device name for `node_a` side (P2p links only).
     pub tap_a: String,
-    /// Tap device name for node_b side (P2p links only).
+    /// Tap device name for `node_b` side (P2p links only).
     pub tap_b: String,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct LabBridgeData {
-    pub index: u16,
-    pub bridge_name: String,
-    pub network_name: String,
-    pub connections: Vec<BridgeConnection>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct BridgeConnection {
-    pub node_record: DbNode,
-    pub interface_name: String,
-    pub interface_index: u8,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -232,11 +217,13 @@ pub enum LabState {
 
 impl LabState {
     /// Returns all variants as a vector (used by DB schema generation).
+    #[must_use]
     pub fn to_vec() -> Vec<LabState> {
         LabState::iter().collect()
     }
 
     /// Derive the aggregate lab status from the states of its nodes.
+    #[must_use]
     pub fn derive(states: &[NodeState]) -> Self {
         if states.is_empty() {
             return LabState::Empty;
@@ -357,7 +344,7 @@ mod tests {
         let saved = make_lab_info().to_string();
         assert!(!saved.contains("ssh_usernames"));
         let restored: LabInfo = saved.parse().unwrap();
-        assert!(restored.ssh_usernames.is_empty());
+        assert_eq!(restored.ssh_usernames, Vec::<NodeSshUsername>::new());
     }
 
     #[test]

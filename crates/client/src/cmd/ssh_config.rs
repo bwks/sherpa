@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -16,12 +16,12 @@ use crate::ws_client::{RpcRequest, WebSocketClient};
 const LABS_LIST_RPC_METHOD: &str = "labs.list";
 
 struct ServerValidation {
-    active_lab_ids: Option<HashSet<String>>,
+    active_lab_ids: Option<BTreeSet<String>>,
     message: Option<String>,
 }
 
 impl ServerValidation {
-    fn available(active_lab_ids: HashSet<String>) -> Self {
+    fn available(active_lab_ids: BTreeSet<String>) -> Self {
         Self {
             active_lab_ids: Some(active_lab_ids),
             message: None,

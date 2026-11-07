@@ -103,6 +103,7 @@ impl fmt::Display for DiskIo {
 
 impl PerformanceTuning {
     /// The host CPUs running QEMU's threads other than vCPUs: its own and the disk I/O thread.
+    #[must_use]
     pub fn qemu_thread_cpus(&self) -> Vec<u16> {
         let mut cpus: Vec<u16> = self
             .qemu_cpus
@@ -119,6 +120,7 @@ impl PerformanceTuning {
 
 impl NodeCpuPins {
     /// The pins of a node with this tuning.
+    #[must_use]
     pub fn of(node_name: &str, tuning: &PerformanceTuning) -> Self {
         Self {
             node_name: node_name.to_string(),
@@ -200,7 +202,10 @@ mod tests {
             ..PerformanceTuning::default()
         };
         assert_eq!(tuning.qemu_thread_cpus(), vec![7, 8, 24]);
-        assert!(PerformanceTuning::default().qemu_thread_cpus().is_empty());
+        assert_eq!(
+            PerformanceTuning::default().qemu_thread_cpus(),
+            Vec::<u16>::new()
+        );
     }
 
     #[test]

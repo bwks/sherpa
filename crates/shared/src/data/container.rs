@@ -1,20 +1,9 @@
-use clap::ValueEnum;
-
 use serde_derive::{Deserialize, Serialize};
 
 use crate::konst::{
     CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, CONTAINER_DNSMASQ_VERSION,
     CONTAINER_WEBDIR_NAME, CONTAINER_WEBDIR_REPO, CONTAINER_WEBDIR_VERSION,
 };
-
-#[derive(PartialEq, Clone, Debug, Deserialize, Serialize, ValueEnum)]
-#[serde(rename_all = "snake_case")]
-#[clap(rename_all = "snake_case")]
-pub enum ContainerModel {
-    Webdir,
-    Dnsmasq,
-    Srlinux,
-}
 
 #[derive(PartialEq, Clone, Debug, Deserialize, Serialize)]
 pub struct ContainerImage {
@@ -24,6 +13,7 @@ pub struct ContainerImage {
 }
 
 impl ContainerImage {
+    #[must_use]
     pub fn webdir() -> ContainerImage {
         ContainerImage {
             name: CONTAINER_WEBDIR_NAME.to_owned(),
@@ -31,6 +21,7 @@ impl ContainerImage {
             version: CONTAINER_WEBDIR_VERSION.to_owned(),
         }
     }
+    #[must_use]
     pub fn dnsmasq() -> ContainerImage {
         ContainerImage {
             name: CONTAINER_DNSMASQ_NAME.to_owned(),

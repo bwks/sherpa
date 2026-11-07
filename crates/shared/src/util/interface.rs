@@ -13,6 +13,11 @@ use crate::data::{
 /// The interfaces cJunosEvolved creates for itself in its container, `eth1` to `eth3`.
 const CEVOLVED_INTERNAL_INTERFACES: u16 = 3;
 
+/// The index of the interface named `interface` on `device_model`.
+///
+/// # Errors
+///
+/// Fails when the model has no interface named `interface`.
 pub fn interface_to_idx(device_model: &NodeModel, interface: &str) -> Result<u8> {
     let idx = match device_model {
         NodeModel::AristaVeos => AristaVeosInt::from_str(interface)?.to_idx(),
@@ -41,6 +46,11 @@ pub fn interface_to_idx(device_model: &NodeModel, interface: &str) -> Result<u8>
     Ok(idx)
 }
 
+/// The name of the interface at `idx` on `device_model`.
+///
+/// # Errors
+///
+/// Fails when the model has no interface at `idx`.
 pub fn interface_from_idx(device_model: &NodeModel, idx: u8) -> Result<String> {
     let iface = match device_model {
         NodeModel::AristaVeos => AristaVeosInt::from_idx(idx)?,
@@ -69,6 +79,7 @@ pub fn interface_from_idx(device_model: &NodeModel, idx: u8) -> Result<String> {
     Ok(iface)
 }
 
+#[must_use]
 pub fn node_model_interfaces(device_model: &NodeModel) -> Vec<String> {
     match device_model {
         NodeModel::AristaVeos => AristaVeosInt::all_interfaces(),
@@ -99,6 +110,10 @@ pub fn node_model_interfaces(device_model: &NodeModel) -> Vec<String> {
 /// The name of data interface `idx` of a `model` container, inside the container. SR Linux
 /// has its own names. cJunosEvolved creates `eth1` to `eth3` itself, so its first data
 /// interface is `eth4`. Other models use `eth<idx>`.
+///
+/// # Errors
+///
+/// Fails when the model has no interface at `idx`.
 pub fn container_interface_name(model: &NodeModel, idx: u8) -> Result<String> {
     match model {
         NodeModel::NokiaSrlinux => srlinux_to_linux_interface(&interface_from_idx(model, idx)?),
@@ -112,6 +127,10 @@ pub fn container_interface_name(model: &NodeModel, idx: u8) -> Result<String> {
 
 /// Convert an SR Linux interface name to the Linux-compatible name used
 /// inside the container.  e.g. "eth-1/3" → "e1-3".
+///
+/// # Errors
+///
+/// Fails when `name` is not an SR Linux `ethernet-1/N` interface.
 pub fn srlinux_to_linux_interface(name: &str) -> Result<String> {
     let rest = name.strip_prefix("eth-").unwrap_or(name);
     let linux_name = rest.replace('/', "-");
@@ -124,6 +143,8 @@ pub fn srlinux_to_linux_interface(name: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use strum::IntoEnumIterator;
+
     use super::*;
 
     #[test]
@@ -200,109 +221,30 @@ mod tests {
 
     #[test]
     fn test_node_model_interfaces_returns_nonempty() {
-        assert!(!node_model_interfaces(&NodeModel::CiscoIosv).is_empty());
-        assert!(!node_model_interfaces(&NodeModel::NokiaSrlinux).is_empty());
-        assert!(!node_model_interfaces(&NodeModel::UbuntuLinux).is_empty());
-    }
-
-    // Helper: verify idx→name→idx round-trips correctly for a given model.
-    fn assert_roundtrip(model: &NodeModel) {
-        let name = interface_from_idx(model, 0).unwrap();
-        let back = interface_to_idx(model, &name).unwrap();
-        assert_eq!(
-            back, 0,
-            "{model:?}: round-trip failed for idx 0 (name={name})"
+        assert_ne!(
+            node_model_interfaces(&NodeModel::CiscoIosv),
+            Vec::<String>::new()
+        );
+        assert_ne!(
+            node_model_interfaces(&NodeModel::NokiaSrlinux),
+            Vec::<String>::new()
+        );
+        assert_ne!(
+            node_model_interfaces(&NodeModel::UbuntuLinux),
+            Vec::<String>::new()
         );
     }
 
     #[test]
-    fn test_roundtrip_arista_ceos() {
-        assert_roundtrip(&NodeModel::AristaCeos);
-    }
-
-    #[test]
-    fn test_roundtrip_aruba_aoscx() {
-        assert_roundtrip(&NodeModel::ArubaAoscx);
-    }
-
-    #[test]
-    fn test_roundtrip_cisco_asav() {
-        assert_roundtrip(&NodeModel::CiscoAsav);
-    }
-
-    #[test]
-    fn test_roundtrip_cisco_csr1000v() {
-        assert_roundtrip(&NodeModel::CiscoCsr1000v);
-    }
-
-    #[test]
-    fn test_roundtrip_cisco_cat8000v() {
-        assert_roundtrip(&NodeModel::CiscoCat8000v);
-    }
-
-    #[test]
-    fn test_roundtrip_cisco_cat9000v() {
-        assert_roundtrip(&NodeModel::CiscoCat9000v);
-    }
-
-    #[test]
-    fn test_roundtrip_cisco_iosxrv9000() {
-        assert_roundtrip(&NodeModel::CiscoIosxrv9000);
-    }
-
-    #[test]
-    fn test_roundtrip_cisco_nexus9300v() {
-        assert_roundtrip(&NodeModel::CiscoNexus9300v);
-    }
-
-    #[test]
-    fn test_roundtrip_cisco_iosvl2() {
-        assert_roundtrip(&NodeModel::CiscoIosvl2);
-    }
-
-    #[test]
-    fn test_roundtrip_cisco_ftdv() {
-        assert_roundtrip(&NodeModel::CiscoFtdv);
-    }
-
-    #[test]
-    fn test_roundtrip_juniper_vrouter() {
-        assert_roundtrip(&NodeModel::JuniperVrouter);
-    }
-
-    #[test]
-    fn test_roundtrip_juniper_vswitch() {
-        assert_roundtrip(&NodeModel::JuniperVswitch);
-    }
-
-    #[test]
-    fn test_roundtrip_juniper_vevolved() {
-        assert_roundtrip(&NodeModel::JuniperVevolved);
-    }
-
-    #[test]
-    fn test_roundtrip_juniper_vsrxv3() {
-        assert_roundtrip(&NodeModel::JuniperVsrxv3);
-    }
-
-    #[test]
-    fn test_roundtrip_cumulus_linux() {
-        assert_roundtrip(&NodeModel::CumulusLinux);
-    }
-
-    #[test]
-    fn test_roundtrip_nokia_srlinux() {
-        assert_roundtrip(&NodeModel::NokiaSrlinux);
-    }
-
-    #[test]
-    fn test_roundtrip_mikrotik_chr() {
-        assert_roundtrip(&NodeModel::MikrotikChr);
-    }
-
-    #[test]
-    fn test_roundtrip_paloalto_panos() {
-        assert_roundtrip(&NodeModel::PaloaltoPanos);
+    fn the_first_interface_of_every_model_round_trips() {
+        for model in NodeModel::iter() {
+            let name = interface_from_idx(&model, 0).unwrap();
+            let back = interface_to_idx(&model, &name).unwrap();
+            assert_eq!(
+                back, 0,
+                "{model:?}: round-trip failed for idx 0 (name={name})"
+            );
+        }
     }
 
     #[test]

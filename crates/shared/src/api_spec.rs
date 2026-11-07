@@ -21,7 +21,7 @@ use crate::data::{
 #[derive(Debug, Clone, Serialize)]
 pub struct ApiSpec {
     /// Spec format version
-    pub version: String,
+    pub version: &'static str,
     /// All available operations
     pub operations: Vec<OperationDef>,
     /// JSON Schema definitions for all request/response types
@@ -32,9 +32,9 @@ pub struct ApiSpec {
 #[derive(Debug, Clone, Serialize)]
 pub struct OperationDef {
     /// Operation name (e.g., "lab.create")
-    pub name: String,
+    pub name: &'static str,
     /// Human-readable description
-    pub description: String,
+    pub description: &'static str,
     /// Operation category
     pub category: Category,
     /// Authentication requirement
@@ -42,15 +42,15 @@ pub struct OperationDef {
     /// Whether this operation streams progress
     pub streaming: bool,
     /// JSON Schema reference for request type (key into schemas map)
-    pub request_schema: Option<String>,
+    pub request_schema: Option<&'static str>,
     /// JSON Schema reference for response type (key into schemas map)
-    pub response_schema: Option<String>,
+    pub response_schema: Option<&'static str>,
     /// Transport bindings
     pub transports: Transports,
 }
 
 /// Operation category
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Category {
     Admin,
@@ -63,7 +63,7 @@ pub enum Category {
 }
 
 /// Authentication requirement level
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AuthRequirement {
     None,
@@ -85,17 +85,17 @@ pub struct RestBinding {
     /// HTTP method
     pub method: HttpMethod,
     /// URL path pattern
-    pub path: String,
+    pub path: &'static str,
     /// Path parameter names (e.g. `["id", "node"]`)
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub path_params: Vec<String>,
+    pub path_params: Vec<&'static str>,
     /// Streaming mechanism (null for non-streaming)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stream_type: Option<String>,
+    pub stream_type: Option<StreamType>,
 }
 
 /// HTTP methods
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum HttpMethod {
     Get,
@@ -103,675 +103,461 @@ pub enum HttpMethod {
     Delete,
 }
 
+impl HttpMethod {
+    /// The method's key in an `OpenAPI` path item.
+    fn openapi_key(self) -> &'static str {
+        match self {
+            HttpMethod::Get => "get",
+            HttpMethod::Post => "post",
+            HttpMethod::Delete => "delete",
+        }
+    }
+}
+
+/// How a streaming operation sends its progress.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StreamType {
+    /// Server-Sent Events
+    Sse,
+}
+
 /// WebSocket JSON-RPC binding
 #[derive(Debug, Clone, Serialize)]
 pub struct RpcBinding {
     /// JSON-RPC method name
-    pub method: String,
+    pub method: &'static str,
 }
 
 /// CLI command binding
 #[derive(Debug, Clone, Serialize)]
 pub struct CliBinding {
     /// Full command path (e.g., "sherpa server image import")
-    pub command: String,
+    pub command: &'static str,
+}
+
+/// An operation as `OPERATIONS` declares it. Its published form, `OperationDef`, adds what follows
+/// from it: the path parameters, from the `{name}` segments of the path, and whether it streams.
+struct Operation {
+    name: &'static str,
+    description: &'static str,
+    category: Category,
+    auth: AuthRequirement,
+    request_schema: Option<&'static str>,
+    response_schema: Option<&'static str>,
+    method: HttpMethod,
+    path: &'static str,
+    stream_type: Option<StreamType>,
+    rpc_method: &'static str,
+    cli_command: &'static str,
+}
+
+/// Every operation the API offers.
+const OPERATIONS: &[Operation] = &[
+    // Auth operations
+    Operation {
+        name: "auth.login",
+        description: "Authenticate a user and receive a JWT token",
+        category: Category::Auth,
+        auth: AuthRequirement::None,
+        request_schema: Some("LoginRequest"),
+        response_schema: Some("LoginResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/auth/login",
+        stream_type: None,
+        rpc_method: "auth.login",
+        cli_command: "sherpa login",
+    },
+    Operation {
+        name: "auth.validate",
+        description: "Validate a JWT token and return user info",
+        category: Category::Auth,
+        auth: AuthRequirement::None,
+        request_schema: Some("ValidateRequest"),
+        response_schema: Some("ValidateResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/auth/validate",
+        stream_type: None,
+        rpc_method: "auth.validate",
+        cli_command: "sherpa whoami",
+    },
+    // Lab operations
+    Operation {
+        name: "lab.create",
+        description: "Create and start a new lab from a manifest",
+        category: Category::Lab,
+        auth: AuthRequirement::Authenticated,
+        request_schema: Some("UpRequest"),
+        response_schema: Some("UpResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/labs",
+        stream_type: Some(StreamType::Sse),
+        rpc_method: "up",
+        cli_command: "sherpa up",
+    },
+    Operation {
+        name: "lab.destroy",
+        description: "Destroy a lab and all its resources",
+        category: Category::Lab,
+        auth: AuthRequirement::Authenticated,
+        request_schema: Some("DestroyRequest"),
+        response_schema: Some("DestroyResponse"),
+        method: HttpMethod::Delete,
+        path: "/api/v1/labs/{id}",
+        stream_type: Some(StreamType::Sse),
+        rpc_method: "destroy",
+        cli_command: "sherpa destroy",
+    },
+    Operation {
+        name: "lab.inspect",
+        description: "Get detailed information about a lab",
+        category: Category::Lab,
+        auth: AuthRequirement::Authenticated,
+        request_schema: Some("InspectRequest"),
+        response_schema: Some("InspectResponse"),
+        method: HttpMethod::Get,
+        path: "/api/v1/labs/{id}",
+        stream_type: None,
+        rpc_method: "inspect",
+        cli_command: "sherpa inspect",
+    },
+    Operation {
+        name: "lab.down",
+        description: "Stop all or specific nodes in a lab",
+        category: Category::Lab,
+        auth: AuthRequirement::Authenticated,
+        request_schema: None,
+        response_schema: Some("LabNodeActionResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/labs/{id}/down",
+        stream_type: None,
+        rpc_method: "down",
+        cli_command: "sherpa down",
+    },
+    Operation {
+        name: "lab.cancel",
+        description: "Stop the operations running on a lab (up, redeploy, resume) at their next safe point and wait for them to end; a stopped up rolls back",
+        category: Category::Lab,
+        auth: AuthRequirement::Authenticated,
+        request_schema: None,
+        response_schema: Some("CancelLabResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/labs/{id}/cancel",
+        stream_type: None,
+        rpc_method: "cancel",
+        cli_command: "Ctrl-C during sherpa up, redeploy or resume",
+    },
+    Operation {
+        name: "lab.resume",
+        description: "Resume all or specific stopped nodes in a lab and wait for booted nodes to become ready",
+        category: Category::Lab,
+        auth: AuthRequirement::Authenticated,
+        request_schema: None,
+        response_schema: Some("LabNodeActionResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/labs/{id}/resume",
+        stream_type: None,
+        rpc_method: "resume",
+        cli_command: "sherpa resume",
+    },
+    Operation {
+        name: "lab.clean",
+        description: "Force-clean all resources for a lab without ownership check",
+        category: Category::Admin,
+        auth: AuthRequirement::Admin,
+        request_schema: None,
+        response_schema: Some("DestroyResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/admin/tools/labs/clean/{id}",
+        stream_type: None,
+        rpc_method: "clean",
+        cli_command: "sherpa server clean",
+    },
+    // Node operations
+    Operation {
+        name: "node.redeploy",
+        description: "Destroy and recreate a node with fresh configuration; only the current lab owner may redeploy",
+        category: Category::Node,
+        auth: AuthRequirement::Authenticated,
+        request_schema: Some("RedeployRequest"),
+        response_schema: Some("RedeployResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/labs/{id}/nodes/{node}/redeploy",
+        stream_type: Some(StreamType::Sse),
+        rpc_method: "redeploy",
+        cli_command: "sherpa redeploy",
+    },
+    // Image operations
+    Operation {
+        name: "image.list",
+        description: "List available images with optional filters",
+        category: Category::Image,
+        auth: AuthRequirement::Authenticated,
+        request_schema: Some("ListImagesRequest"),
+        response_schema: Some("ListImagesResponse"),
+        method: HttpMethod::Get,
+        path: "/api/v1/images",
+        stream_type: None,
+        rpc_method: "image.list",
+        cli_command: "sherpa image list",
+    },
+    Operation {
+        name: "image.show",
+        description: "Show detailed information about an image",
+        category: Category::Image,
+        auth: AuthRequirement::Authenticated,
+        request_schema: Some("ShowImageRequest"),
+        response_schema: Some("ShowImageResponse"),
+        method: HttpMethod::Get,
+        path: "/api/v1/images/{model}",
+        stream_type: None,
+        rpc_method: "image.show",
+        cli_command: "sherpa image show",
+    },
+    Operation {
+        name: "image.import",
+        description: "Import a disk image or container tar archive",
+        category: Category::Image,
+        auth: AuthRequirement::Admin,
+        request_schema: Some("ImportRequest"),
+        response_schema: Some("ImportResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/images/import",
+        stream_type: None,
+        rpc_method: "image.import",
+        cli_command: "sherpa server image import",
+    },
+    Operation {
+        name: "image.delete",
+        description: "Delete an imported image",
+        category: Category::Image,
+        auth: AuthRequirement::Admin,
+        request_schema: Some("DeleteImageRequest"),
+        response_schema: Some("DeleteImageResponse"),
+        method: HttpMethod::Delete,
+        path: "/api/v1/images/{model}/{version}",
+        stream_type: None,
+        rpc_method: "image.delete",
+        cli_command: "sherpa server image delete",
+    },
+    Operation {
+        name: "image.set_default",
+        description: "Set the default version for an image model",
+        category: Category::Image,
+        auth: AuthRequirement::Admin,
+        request_schema: Some("SetDefaultImageRequest"),
+        response_schema: Some("SetDefaultImageResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/images/{model}/{version}/default",
+        stream_type: None,
+        rpc_method: "image.set_default",
+        cli_command: "sherpa server image set-default",
+    },
+    Operation {
+        name: "image.scan",
+        description: "Scan filesystem and Docker for discoverable images",
+        category: Category::Admin,
+        auth: AuthRequirement::Admin,
+        request_schema: Some("ScanImagesRequest"),
+        response_schema: Some("ScanImagesResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/admin/tools/images/scan",
+        stream_type: None,
+        rpc_method: "image.scan",
+        cli_command: "sherpa server image scan",
+    },
+    Operation {
+        name: "image.pull",
+        description: "Pull a container image from an OCI registry",
+        category: Category::Image,
+        auth: AuthRequirement::Admin,
+        request_schema: Some("ContainerPullRequest"),
+        response_schema: Some("ContainerPullResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/images/pull",
+        stream_type: Some(StreamType::Sse),
+        rpc_method: "image.pull",
+        cli_command: "sherpa server image pull",
+    },
+    Operation {
+        name: "image.download",
+        description: "Download a VM image from a URL",
+        category: Category::Image,
+        auth: AuthRequirement::Admin,
+        request_schema: Some("DownloadImageRequest"),
+        response_schema: None,
+        method: HttpMethod::Post,
+        path: "/api/v1/images/download",
+        stream_type: Some(StreamType::Sse),
+        rpc_method: "image.download",
+        cli_command: "sherpa server image pull --url",
+    },
+    Operation {
+        name: "image.upload",
+        description: "Upload an image file via multipart form data",
+        category: Category::Image,
+        auth: AuthRequirement::Admin,
+        request_schema: None,
+        response_schema: Some("ImportResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/images/upload",
+        stream_type: None,
+        rpc_method: "image.upload",
+        cli_command: "sherpa server image upload",
+    },
+    // User operations
+    Operation {
+        name: "user.create",
+        description: "Create a new user account",
+        category: Category::Admin,
+        auth: AuthRequirement::Admin,
+        request_schema: Some("CreateUserRequest"),
+        response_schema: Some("CreateUserResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/admin/users",
+        stream_type: None,
+        rpc_method: "user.create",
+        cli_command: "sherpa server user create",
+    },
+    Operation {
+        name: "user.list",
+        description: "List all user accounts",
+        category: Category::Admin,
+        auth: AuthRequirement::Admin,
+        request_schema: Some("ListUsersRequest"),
+        response_schema: Some("ListUsersResponse"),
+        method: HttpMethod::Get,
+        path: "/api/v1/admin/users",
+        stream_type: None,
+        rpc_method: "user.list",
+        cli_command: "sherpa server user list",
+    },
+    Operation {
+        name: "user.delete",
+        description: "Delete a user account",
+        category: Category::Admin,
+        auth: AuthRequirement::Admin,
+        request_schema: Some("DeleteUserRequest"),
+        response_schema: Some("DeleteUserResponse"),
+        method: HttpMethod::Delete,
+        path: "/api/v1/admin/users/{username}",
+        stream_type: None,
+        rpc_method: "user.delete",
+        cli_command: "sherpa server user delete",
+    },
+    Operation {
+        name: "user.passwd",
+        description: "Change a user's password",
+        category: Category::Admin,
+        auth: AuthRequirement::Authenticated,
+        request_schema: Some("ChangePasswordRequest"),
+        response_schema: Some("ChangePasswordResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/admin/users/{username}/password",
+        stream_type: None,
+        rpc_method: "user.passwd",
+        cli_command: "sherpa server user passwd",
+    },
+    Operation {
+        name: "user.info",
+        description: "Get detailed information about a user",
+        category: Category::Admin,
+        auth: AuthRequirement::Authenticated,
+        request_schema: Some("GetUserInfoRequest"),
+        response_schema: Some("GetUserInfoResponse"),
+        method: HttpMethod::Get,
+        path: "/api/v1/admin/users/{username}",
+        stream_type: None,
+        rpc_method: "user.info",
+        cli_command: "sherpa server user info",
+    },
+    Operation {
+        name: "user.ssh_key.add",
+        description: "Add an SSH public key to a user: your own, or any user's for an admin",
+        category: Category::Admin,
+        auth: AuthRequirement::Authenticated,
+        request_schema: Some("AddSshKeyRequest"),
+        response_schema: Some("UserSshKeysResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/admin/users/{username}/ssh-keys",
+        stream_type: None,
+        rpc_method: "user.ssh_key.add",
+        cli_command: "sherpa server user ssh-key add",
+    },
+    Operation {
+        name: "user.ssh_key.remove",
+        description: "Remove an SSH public key, given as the key or its SHA256 fingerprint, from a user",
+        category: Category::Admin,
+        auth: AuthRequirement::Authenticated,
+        request_schema: Some("RemoveSshKeyRequest"),
+        response_schema: Some("UserSshKeysResponse"),
+        method: HttpMethod::Delete,
+        path: "/api/v1/admin/users/{username}/ssh-keys",
+        stream_type: None,
+        rpc_method: "user.ssh_key.remove",
+        cli_command: "sherpa server user ssh-key remove",
+    },
+    // Link operations
+    Operation {
+        name: "link.update_impairment",
+        description: "Update link impairment (delay, jitter, loss, reorder, corruption) on a running P2p link, in one or both directions",
+        category: Category::Link,
+        auth: AuthRequirement::Authenticated,
+        request_schema: Some("UpdateImpairmentRequest"),
+        response_schema: Some("UpdateImpairmentResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/labs/{lab_id}/links/{link_index}/impairment",
+        stream_type: None,
+        rpc_method: "link.update_impairment",
+        cli_command: "sherpa link impair",
+    },
+];
+
+impl From<&Operation> for OperationDef {
+    fn from(operation: &Operation) -> Self {
+        let path_params = operation
+            .path
+            .split('/')
+            .filter_map(|segment| segment.strip_prefix('{')?.strip_suffix('}'))
+            .collect();
+        Self {
+            name: operation.name,
+            description: operation.description,
+            category: operation.category,
+            auth: operation.auth,
+            streaming: operation.stream_type.is_some(),
+            request_schema: operation.request_schema,
+            response_schema: operation.response_schema,
+            transports: Transports {
+                rest: RestBinding {
+                    method: operation.method,
+                    path: operation.path,
+                    path_params,
+                    stream_type: operation.stream_type,
+                },
+                rpc: RpcBinding {
+                    method: operation.rpc_method,
+                },
+                cli: CliBinding {
+                    command: operation.cli_command,
+                },
+            },
+        }
+    }
 }
 
 /// Build the complete unified API specification
+#[must_use]
 pub fn build_spec() -> ApiSpec {
-    let operations = build_operations();
-    let schemas = build_schemas();
-
     ApiSpec {
-        version: "1.0.0".to_string(),
-        operations,
-        schemas,
+        version: "1.0.0",
+        operations: OPERATIONS.iter().map(OperationDef::from).collect(),
+        schemas: build_schemas(),
     }
-}
-
-fn build_operations() -> Vec<OperationDef> {
-    vec![
-        // Auth operations
-        OperationDef {
-            name: "auth.login".to_string(),
-            description: "Authenticate a user and receive a JWT token".to_string(),
-            category: Category::Auth,
-            auth: AuthRequirement::None,
-            streaming: false,
-            request_schema: Some("LoginRequest".to_string()),
-            response_schema: Some("LoginResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Post,
-                    path: "/api/v1/auth/login".to_string(),
-                    path_params: vec![],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "auth.login".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa login".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "auth.validate".to_string(),
-            description: "Validate a JWT token and return user info".to_string(),
-            category: Category::Auth,
-            auth: AuthRequirement::None,
-            streaming: false,
-            request_schema: Some("ValidateRequest".to_string()),
-            response_schema: Some("ValidateResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Post,
-                    path: "/api/v1/auth/validate".to_string(),
-                    path_params: vec![],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "auth.validate".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa whoami".to_string(),
-                },
-            },
-        },
-        // Lab operations
-        OperationDef {
-            name: "lab.create".to_string(),
-            description: "Create and start a new lab from a manifest".to_string(),
-            category: Category::Lab,
-            auth: AuthRequirement::Authenticated,
-            streaming: true,
-            request_schema: Some("UpRequest".to_string()),
-            response_schema: Some("UpResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Post,
-                    path: "/api/v1/labs".to_string(),
-                    path_params: vec![],
-                    stream_type: Some("sse".to_string()),
-                },
-                rpc: RpcBinding {
-                    method: "up".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa up".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "lab.destroy".to_string(),
-            description: "Destroy a lab and all its resources".to_string(),
-            category: Category::Lab,
-            auth: AuthRequirement::Authenticated,
-            streaming: true,
-            request_schema: Some("DestroyRequest".to_string()),
-            response_schema: Some("DestroyResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Delete,
-                    path: "/api/v1/labs/{id}".to_string(),
-                    path_params: vec!["id".to_string()],
-                    stream_type: Some("sse".to_string()),
-                },
-                rpc: RpcBinding {
-                    method: "destroy".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa destroy".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "lab.inspect".to_string(),
-            description: "Get detailed information about a lab".to_string(),
-            category: Category::Lab,
-            auth: AuthRequirement::Authenticated,
-            streaming: false,
-            request_schema: Some("InspectRequest".to_string()),
-            response_schema: Some("InspectResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Get,
-                    path: "/api/v1/labs/{id}".to_string(),
-                    path_params: vec!["id".to_string()],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "inspect".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa inspect".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "lab.down".to_string(),
-            description: "Stop all or specific nodes in a lab".to_string(),
-            category: Category::Lab,
-            auth: AuthRequirement::Authenticated,
-            streaming: false,
-            request_schema: None,
-            response_schema: Some("LabNodeActionResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Post,
-                    path: "/api/v1/labs/{id}/down".to_string(),
-                    path_params: vec!["id".to_string()],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "down".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa down".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "lab.cancel".to_string(),
-            description: "Stop the operations running on a lab (up, redeploy, resume) at their next safe point and wait for them to end; a stopped up rolls back".to_string(),
-            category: Category::Lab,
-            auth: AuthRequirement::Authenticated,
-            streaming: false,
-            request_schema: None,
-            response_schema: Some("CancelLabResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Post,
-                    path: "/api/v1/labs/{id}/cancel".to_string(),
-                    path_params: vec!["id".to_string()],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "cancel".to_string(),
-                },
-                cli: CliBinding {
-                    command: "Ctrl-C during sherpa up, redeploy or resume".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "lab.resume".to_string(),
-            description: "Resume all or specific stopped nodes in a lab and wait for booted nodes to become ready".to_string(),
-            category: Category::Lab,
-            auth: AuthRequirement::Authenticated,
-            streaming: false,
-            request_schema: None,
-            response_schema: Some("LabNodeActionResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Post,
-                    path: "/api/v1/labs/{id}/resume".to_string(),
-                    path_params: vec!["id".to_string()],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "resume".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa resume".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "lab.clean".to_string(),
-            description: "Force-clean all resources for a lab without ownership check".to_string(),
-            category: Category::Admin,
-            auth: AuthRequirement::Admin,
-            streaming: false,
-            request_schema: None,
-            response_schema: Some("DestroyResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Post,
-                    path: "/api/v1/admin/tools/labs/clean/{id}".to_string(),
-                    path_params: vec!["id".to_string()],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "clean".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa server clean".to_string(),
-                },
-            },
-        },
-        // Node operations
-        OperationDef {
-            name: "node.redeploy".to_string(),
-            description: "Destroy and recreate a node with fresh configuration; only the current lab owner may redeploy".to_string(),
-            category: Category::Node,
-            auth: AuthRequirement::Authenticated,
-            streaming: true,
-            request_schema: Some("RedeployRequest".to_string()),
-            response_schema: Some("RedeployResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Post,
-                    path: "/api/v1/labs/{id}/nodes/{node}/redeploy".to_string(),
-                    path_params: vec!["id".to_string(), "node".to_string()],
-                    stream_type: Some("sse".to_string()),
-                },
-                rpc: RpcBinding {
-                    method: "redeploy".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa redeploy".to_string(),
-                },
-            },
-        },
-        // Image operations
-        OperationDef {
-            name: "image.list".to_string(),
-            description: "List available images with optional filters".to_string(),
-            category: Category::Image,
-            auth: AuthRequirement::Authenticated,
-            streaming: false,
-            request_schema: Some("ListImagesRequest".to_string()),
-            response_schema: Some("ListImagesResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Get,
-                    path: "/api/v1/images".to_string(),
-                    path_params: vec![],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "image.list".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa image list".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "image.show".to_string(),
-            description: "Show detailed information about an image".to_string(),
-            category: Category::Image,
-            auth: AuthRequirement::Authenticated,
-            streaming: false,
-            request_schema: Some("ShowImageRequest".to_string()),
-            response_schema: Some("ShowImageResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Get,
-                    path: "/api/v1/images/{model}".to_string(),
-                    path_params: vec!["model".to_string()],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "image.show".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa image show".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "image.import".to_string(),
-            description: "Import a disk image or container tar archive".to_string(),
-            category: Category::Image,
-            auth: AuthRequirement::Admin,
-            streaming: false,
-            request_schema: Some("ImportRequest".to_string()),
-            response_schema: Some("ImportResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Post,
-                    path: "/api/v1/images/import".to_string(),
-                    path_params: vec![],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "image.import".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa server image import".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "image.delete".to_string(),
-            description: "Delete an imported image".to_string(),
-            category: Category::Image,
-            auth: AuthRequirement::Admin,
-            streaming: false,
-            request_schema: Some("DeleteImageRequest".to_string()),
-            response_schema: Some("DeleteImageResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Delete,
-                    path: "/api/v1/images/{model}/{version}".to_string(),
-                    path_params: vec!["model".to_string(), "version".to_string()],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "image.delete".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa server image delete".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "image.set_default".to_string(),
-            description: "Set the default version for an image model".to_string(),
-            category: Category::Image,
-            auth: AuthRequirement::Admin,
-            streaming: false,
-            request_schema: Some("SetDefaultImageRequest".to_string()),
-            response_schema: Some("SetDefaultImageResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Post,
-                    path: "/api/v1/images/{model}/{version}/default".to_string(),
-                    path_params: vec!["model".to_string(), "version".to_string()],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "image.set_default".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa server image set-default".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "image.scan".to_string(),
-            description: "Scan filesystem and Docker for discoverable images".to_string(),
-            category: Category::Admin,
-            auth: AuthRequirement::Admin,
-            streaming: false,
-            request_schema: Some("ScanImagesRequest".to_string()),
-            response_schema: Some("ScanImagesResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Post,
-                    path: "/api/v1/admin/tools/images/scan".to_string(),
-                    path_params: vec![],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "image.scan".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa server image scan".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "image.pull".to_string(),
-            description: "Pull a container image from an OCI registry".to_string(),
-            category: Category::Image,
-            auth: AuthRequirement::Admin,
-            streaming: true,
-            request_schema: Some("ContainerPullRequest".to_string()),
-            response_schema: Some("ContainerPullResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Post,
-                    path: "/api/v1/images/pull".to_string(),
-                    path_params: vec![],
-                    stream_type: Some("sse".to_string()),
-                },
-                rpc: RpcBinding {
-                    method: "image.pull".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa server image pull".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "image.download".to_string(),
-            description: "Download a VM image from a URL".to_string(),
-            category: Category::Image,
-            auth: AuthRequirement::Admin,
-            streaming: true,
-            request_schema: Some("DownloadImageRequest".to_string()),
-            response_schema: None,
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Post,
-                    path: "/api/v1/images/download".to_string(),
-                    path_params: vec![],
-                    stream_type: Some("sse".to_string()),
-                },
-                rpc: RpcBinding {
-                    method: "image.download".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa server image pull --url".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "image.upload".to_string(),
-            description: "Upload an image file via multipart form data".to_string(),
-            category: Category::Image,
-            auth: AuthRequirement::Admin,
-            streaming: false,
-            request_schema: None,
-            response_schema: Some("ImportResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Post,
-                    path: "/api/v1/images/upload".to_string(),
-                    path_params: vec![],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "image.upload".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa server image upload".to_string(),
-                },
-            },
-        },
-        // User operations
-        OperationDef {
-            name: "user.create".to_string(),
-            description: "Create a new user account".to_string(),
-            category: Category::Admin,
-            auth: AuthRequirement::Admin,
-            streaming: false,
-            request_schema: Some("CreateUserRequest".to_string()),
-            response_schema: Some("CreateUserResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Post,
-                    path: "/api/v1/admin/users".to_string(),
-                    path_params: vec![],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "user.create".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa server user create".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "user.list".to_string(),
-            description: "List all user accounts".to_string(),
-            category: Category::Admin,
-            auth: AuthRequirement::Admin,
-            streaming: false,
-            request_schema: Some("ListUsersRequest".to_string()),
-            response_schema: Some("ListUsersResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Get,
-                    path: "/api/v1/admin/users".to_string(),
-                    path_params: vec![],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "user.list".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa server user list".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "user.delete".to_string(),
-            description: "Delete a user account".to_string(),
-            category: Category::Admin,
-            auth: AuthRequirement::Admin,
-            streaming: false,
-            request_schema: Some("DeleteUserRequest".to_string()),
-            response_schema: Some("DeleteUserResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Delete,
-                    path: "/api/v1/admin/users/{username}".to_string(),
-                    path_params: vec!["username".to_string()],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "user.delete".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa server user delete".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "user.passwd".to_string(),
-            description: "Change a user's password".to_string(),
-            category: Category::Admin,
-            auth: AuthRequirement::Authenticated,
-            streaming: false,
-            request_schema: Some("ChangePasswordRequest".to_string()),
-            response_schema: Some("ChangePasswordResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Post,
-                    path: "/api/v1/admin/users/{username}/password".to_string(),
-                    path_params: vec!["username".to_string()],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "user.passwd".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa server user passwd".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "user.info".to_string(),
-            description: "Get detailed information about a user".to_string(),
-            category: Category::Admin,
-            auth: AuthRequirement::Authenticated,
-            streaming: false,
-            request_schema: Some("GetUserInfoRequest".to_string()),
-            response_schema: Some("GetUserInfoResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Get,
-                    path: "/api/v1/admin/users/{username}".to_string(),
-                    path_params: vec!["username".to_string()],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "user.info".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa server user info".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "user.ssh_key.add".to_string(),
-            description: "Add an SSH public key to a user: your own, or any user's for an admin"
-                .to_string(),
-            category: Category::Admin,
-            auth: AuthRequirement::Authenticated,
-            streaming: false,
-            request_schema: Some("AddSshKeyRequest".to_string()),
-            response_schema: Some("UserSshKeysResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Post,
-                    path: "/api/v1/admin/users/{username}/ssh-keys".to_string(),
-                    path_params: vec!["username".to_string()],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "user.ssh_key.add".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa server user ssh-key add".to_string(),
-                },
-            },
-        },
-        OperationDef {
-            name: "user.ssh_key.remove".to_string(),
-            description:
-                "Remove an SSH public key, given as the key or its SHA256 fingerprint, from a user"
-                    .to_string(),
-            category: Category::Admin,
-            auth: AuthRequirement::Authenticated,
-            streaming: false,
-            request_schema: Some("RemoveSshKeyRequest".to_string()),
-            response_schema: Some("UserSshKeysResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Delete,
-                    path: "/api/v1/admin/users/{username}/ssh-keys".to_string(),
-                    path_params: vec!["username".to_string()],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "user.ssh_key.remove".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa server user ssh-key remove".to_string(),
-                },
-            },
-        },
-        // Link operations
-        OperationDef {
-            name: "link.update_impairment".to_string(),
-            description: "Update link impairment (delay, jitter, loss, reorder, corruption) on a \
-                          running P2p link, in one or both directions"
-                .to_string(),
-            category: Category::Link,
-            auth: AuthRequirement::Authenticated,
-            streaming: false,
-            request_schema: Some("UpdateImpairmentRequest".to_string()),
-            response_schema: Some("UpdateImpairmentResponse".to_string()),
-            transports: Transports {
-                rest: RestBinding {
-                    method: HttpMethod::Post,
-                    path: "/api/v1/labs/{lab_id}/links/{link_index}/impairment".to_string(),
-                    path_params: vec!["lab_id".to_string(), "link_index".to_string()],
-                    stream_type: None,
-                },
-                rpc: RpcBinding {
-                    method: "link.update_impairment".to_string(),
-                },
-                cli: CliBinding {
-                    command: "sherpa link impair".to_string(),
-                },
-            },
-        },
-    ]
 }
 
 fn add_schema<T: schemars::JsonSchema>(schemas: &mut BTreeMap<String, serde_json::Value>) {
-    let schema = schema_for!(T);
-    let name = T::schema_name().to_string();
-    if let Ok(value) = serde_json::to_value(schema) {
-        schemas.insert(name, value);
-    }
+    schemas.insert(T::schema_name().to_string(), schema_for!(T).to_value());
 }
 
 fn build_schemas() -> BTreeMap<String, serde_json::Value> {
@@ -835,7 +621,7 @@ fn build_schemas() -> BTreeMap<String, serde_json::Value> {
 }
 
 /// Recursively rewrite `$ref` paths from schemars format (`#/definitions/Foo`)
-/// to OpenAPI 3.1 format (`#/components/schemas/Foo`).
+/// to `OpenAPI` 3.1 format (`#/components/schemas/Foo`).
 fn rewrite_refs(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(map) => {
@@ -874,11 +660,103 @@ fn extract_definitions(schemas: &mut BTreeMap<String, serde_json::Value>) {
 
     for (name, mut def) in hoisted {
         rewrite_refs(&mut def);
-        schemas.entry(name).or_insert(def);
+        match schemas.get(&name) {
+            Some(existing) if *existing != def => {
+                tracing::warn!(schema = %name, "Two types share a schema name; keeping the first");
+            }
+            Some(_) => {}
+            None => {
+                schemas.insert(name, def);
+            }
+        }
     }
 }
 
-/// Build an OpenAPI 3.1.0 document from the unified API spec.
+/// The `OpenAPI` operation object for `op`: its tags, security, request body and responses.
+fn openapi_operation(op: &OperationDef) -> serde_json::Value {
+    let security = match op.auth {
+        AuthRequirement::None => json!([]),
+        AuthRequirement::Authenticated | AuthRequirement::Admin => {
+            json!([{"BearerAuth": []}, {"CookieAuth": []}])
+        }
+    };
+
+    let success_response = if op.streaming {
+        json!({
+            "description": format!("{} (Server-Sent Events stream)", op.description),
+            "content": { "text/event-stream": { "schema": { "type": "string" } } }
+        })
+    } else if let Some(schema_name) = op.response_schema {
+        json!({
+            "description": op.description,
+            "content": {
+                "application/json": {
+                    "schema": { "$ref": format!("#/components/schemas/{schema_name}") }
+                }
+            }
+        })
+    } else {
+        json!({ "description": op.description })
+    };
+
+    let mut responses = serde_json::Map::new();
+    responses.insert("200".to_owned(), success_response);
+    responses.insert("400".to_owned(), json!({ "description": "Bad request" }));
+    responses.insert(
+        "500".to_owned(),
+        json!({ "description": "Internal server error" }),
+    );
+    if matches!(
+        op.auth,
+        AuthRequirement::Authenticated | AuthRequirement::Admin
+    ) {
+        responses.insert("401".to_owned(), json!({ "description": "Unauthorized" }));
+    }
+    if matches!(op.auth, AuthRequirement::Admin) {
+        responses.insert(
+            "403".to_owned(),
+            json!({ "description": "Forbidden — admin privileges required" }),
+        );
+    }
+
+    let mut operation = serde_json::Map::new();
+    operation.insert("operationId".to_owned(), json!(op.name));
+    operation.insert("summary".to_owned(), json!(op.description));
+    operation.insert("tags".to_owned(), json!([op.category]));
+    operation.insert("security".to_owned(), security);
+    operation.insert("responses".to_owned(), serde_json::Value::Object(responses));
+    // A GET request has no body.
+    if op.transports.rest.method != HttpMethod::Get
+        && let Some(schema_name) = op.request_schema
+    {
+        operation.insert(
+            "requestBody".to_owned(),
+            json!({
+                "required": true,
+                "content": {
+                    "application/json": {
+                        "schema": { "$ref": format!("#/components/schemas/{schema_name}") }
+                    }
+                }
+            }),
+        );
+    }
+    if matches!(op.auth, AuthRequirement::Admin) {
+        operation.insert("x-admin-required".to_owned(), json!(true));
+    }
+    serde_json::Value::Object(operation)
+}
+
+/// The `OpenAPI` path parameters for `names`, each a required string.
+fn path_parameters(names: &[&str]) -> serde_json::Value {
+    names
+        .iter()
+        .map(|name| json!({ "name": name, "in": "path", "required": true, "schema": { "type": "string" } }))
+        .collect()
+}
+
+/// Build an `OpenAPI` 3.1.0 document from the unified API spec.
+#[must_use]
 pub fn build_openapi() -> serde_json::Value {
     let spec = build_spec();
 
@@ -888,147 +766,16 @@ pub fn build_openapi() -> serde_json::Value {
         rewrite_refs(schema);
     }
 
-    // Build paths, grouping operations that share the same REST path
-    let mut paths: BTreeMap<String, serde_json::Map<String, serde_json::Value>> = BTreeMap::new();
-
+    // Operations that share a REST path share its path item; the parameters are set once.
+    let mut paths: BTreeMap<&str, serde_json::Map<String, serde_json::Value>> = BTreeMap::new();
     for op in &spec.operations {
         let rest = &op.transports.rest;
-
-        let method_key = match rest.method {
-            HttpMethod::Get => "get",
-            HttpMethod::Post => "post",
-            HttpMethod::Delete => "delete",
-        };
-
-        let category_tag = match op.category {
-            Category::Admin => "admin",
-            Category::Auth => "auth",
-            Category::Lab => "lab",
-            Category::Link => "link",
-            Category::Node => "node",
-            Category::Image => "image",
-            Category::User => "user",
-        };
-
-        // Security
-        let security = match op.auth {
-            AuthRequirement::None => json!([]),
-            AuthRequirement::Authenticated | AuthRequirement::Admin => {
-                json!([{"BearerAuth": []}, {"CookieAuth": []}])
-            }
-        };
-
-        // Request body (skip for GET)
-        let request_body = match rest.method {
-            HttpMethod::Get => None,
-            _ => op.request_schema.as_ref().map(|schema_name| {
-                json!({
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": { "$ref": format!("#/components/schemas/{schema_name}") }
-                        }
-                    }
-                })
-            }),
-        };
-
-        // Response
-        let success_response = if op.streaming {
-            json!({
-                "description": format!("{} (Server-Sent Events stream)", op.description),
-                "content": {
-                    "text/event-stream": {
-                        "schema": { "type": "string" }
-                    }
-                }
-            })
-        } else if let Some(ref schema_name) = op.response_schema {
-            json!({
-                "description": op.description,
-                "content": {
-                    "application/json": {
-                        "schema": { "$ref": format!("#/components/schemas/{schema_name}") }
-                    }
-                }
-            })
-        } else {
-            json!({ "description": op.description })
-        };
-
-        let mut responses = serde_json::Map::new();
-        responses.insert("200".to_string(), success_response);
-
-        // Add error responses based on auth requirement
-        responses.insert("400".to_string(), json!({ "description": "Bad request" }));
-        responses.insert(
-            "500".to_string(),
-            json!({ "description": "Internal server error" }),
-        );
-
-        match op.auth {
-            AuthRequirement::None => {}
-            AuthRequirement::Authenticated => {
-                responses.insert("401".to_string(), json!({ "description": "Unauthorized" }));
-            }
-            AuthRequirement::Admin => {
-                responses.insert("401".to_string(), json!({ "description": "Unauthorized" }));
-                responses.insert(
-                    "403".to_string(),
-                    json!({ "description": "Forbidden — admin privileges required" }),
-                );
-            }
+        let path_item = paths.entry(rest.path).or_default();
+        if !rest.path_params.is_empty() && !path_item.contains_key("parameters") {
+            path_item.insert("parameters".to_owned(), path_parameters(&rest.path_params));
         }
-
-        // Build the operation object
-        let mut operation = serde_json::Map::new();
-        operation.insert("operationId".to_string(), json!(op.name));
-        operation.insert("summary".to_string(), json!(op.description));
-        operation.insert("tags".to_string(), json!([category_tag]));
-        operation.insert("security".to_string(), security);
-        operation.insert(
-            "responses".to_string(),
-            serde_json::Value::Object(responses),
-        );
-
-        if let Some(body) = request_body {
-            operation.insert("requestBody".to_string(), body);
-        }
-
-        if matches!(op.auth, AuthRequirement::Admin) {
-            operation.insert("x-admin-required".to_string(), json!(true));
-        }
-
-        // Path parameters at path item level (shared across methods)
-        let path_entry = paths.entry(rest.path.clone()).or_default();
-
-        if !rest.path_params.is_empty() && !path_entry.contains_key("parameters") {
-            let params: Vec<serde_json::Value> = rest
-                .path_params
-                .iter()
-                .map(|name| {
-                    json!({
-                        "name": name,
-                        "in": "path",
-                        "required": true,
-                        "schema": { "type": "string" }
-                    })
-                })
-                .collect();
-            path_entry.insert("parameters".to_string(), json!(params));
-        }
-
-        path_entry.insert(method_key.to_string(), serde_json::Value::Object(operation));
+        path_item.insert(rest.method.openapi_key().to_owned(), openapi_operation(op));
     }
-
-    // Convert paths to Value
-    let paths_value: serde_json::Map<String, serde_json::Value> = paths
-        .into_iter()
-        .map(|(k, v)| (k, serde_json::Value::Object(v)))
-        .collect();
-
-    // Convert schemas to Value
-    let schemas_value: serde_json::Map<String, serde_json::Value> = schemas.into_iter().collect();
 
     json!({
         "openapi": "3.1.0",
@@ -1038,20 +785,12 @@ pub fn build_openapi() -> serde_json::Value {
             "version": spec.version
         },
         "servers": [{ "url": "/" }],
-        "paths": serde_json::Value::Object(paths_value),
+        "paths": paths,
         "components": {
-            "schemas": serde_json::Value::Object(schemas_value),
+            "schemas": schemas,
             "securitySchemes": {
-                "BearerAuth": {
-                    "type": "http",
-                    "scheme": "bearer",
-                    "bearerFormat": "JWT"
-                },
-                "CookieAuth": {
-                    "type": "apiKey",
-                    "in": "cookie",
-                    "name": "sherpa_token"
-                }
+                "BearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" },
+                "CookieAuth": { "type": "apiKey", "in": "cookie", "name": "sherpa_token" }
             }
         }
     })
@@ -1094,9 +833,9 @@ mod tests {
     #[test]
     fn test_all_operation_names_unique() {
         let spec = build_spec();
-        let mut names: Vec<&str> = spec.operations.iter().map(|op| op.name.as_str()).collect();
+        let mut names: Vec<&str> = spec.operations.iter().map(|op| op.name).collect();
         let total = names.len();
-        names.sort();
+        names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), total, "Duplicate operation names found");
     }
@@ -1107,7 +846,7 @@ mod tests {
         let rpc_methods: Vec<&str> = spec
             .operations
             .iter()
-            .map(|op| op.transports.rpc.method.as_str())
+            .map(|op| op.transports.rpc.method)
             .collect();
 
         // These are the RPC methods from the WebSocket handler
@@ -1144,8 +883,7 @@ mod tests {
         for method in &expected {
             assert!(
                 rpc_methods.contains(method),
-                "RPC method '{}' not found in spec",
-                method
+                "RPC method '{method}' not found in spec"
             );
         }
         assert_eq!(rpc_methods.len(), expected.len());
@@ -1172,7 +910,7 @@ mod tests {
     fn test_schema_references_valid() {
         let spec = build_spec();
         for op in &spec.operations {
-            if let Some(ref schema_name) = op.request_schema {
+            if let Some(schema_name) = op.request_schema {
                 assert!(
                     spec.schemas.contains_key(schema_name),
                     "Operation '{}' references request schema '{}' which is not in schemas map",
@@ -1180,7 +918,7 @@ mod tests {
                     schema_name
                 );
             }
-            if let Some(ref schema_name) = op.response_schema {
+            if let Some(schema_name) = op.response_schema {
                 assert!(
                     spec.schemas.contains_key(schema_name),
                     "Operation '{}' references response schema '{}' which is not in schemas map",
@@ -1211,16 +949,15 @@ mod tests {
         let mut expected_paths: Vec<&str> = spec
             .operations
             .iter()
-            .map(|op| op.transports.rest.path.as_str())
+            .map(|op| op.transports.rest.path)
             .collect();
-        expected_paths.sort();
+        expected_paths.sort_unstable();
         expected_paths.dedup();
 
         for path in &expected_paths {
             assert!(
                 paths.contains_key(*path),
-                "Path '{}' missing from OpenAPI document",
-                path
+                "Path '{path}' missing from OpenAPI document"
             );
         }
     }

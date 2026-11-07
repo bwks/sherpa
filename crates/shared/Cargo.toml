@@ -80,3 +80,6 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [features]
 netinfo = ["dep:getifaddrs"]
+
+[lints]
+workspace = true

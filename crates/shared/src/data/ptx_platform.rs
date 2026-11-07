@@ -17,6 +17,7 @@ pub enum PtxPlatform {
 
 impl PtxPlatform {
     /// The value of the container's `CPTX_COSIM` variable, which selects the platform.
+    #[must_use]
     pub fn cosim(self) -> &'static str {
         match self {
             PtxPlatform::Bt => "BT",
@@ -25,6 +26,7 @@ impl PtxPlatform {
     }
 
     /// The most data interfaces the platform has, unchannelized: `et-0/0/0` onwards.
+    #[must_use]
     pub fn max_data_interfaces(self) -> u8 {
         match self {
             PtxPlatform::Bt => 12,

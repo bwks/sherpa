@@ -6,7 +6,6 @@ mod container;
 mod cpu;
 mod db;
 mod destroy;
-mod dhcp;
 mod disk;
 mod dns;
 mod download;
@@ -43,11 +42,10 @@ pub use config::{
     ClientConfig, Config, OtelConfig, ScannerConfig, ServerConnection, Sherpa,
     TailscaleGatewaySettings, TlsConfig, ZtpServer,
 };
-pub use container::{ContainerImage, ContainerModel, ContainerNetworkAttachment};
+pub use container::{ContainerImage, ContainerNetworkAttachment};
 pub use cpu::{CpuFeature, CpuFeaturePolicy, CpuModels};
 pub use db::{BridgeMember, DbBridge, DbLab, DbLink, DbNode, DbUser, NodeResources};
 pub use destroy::{DestroyError, DestroyRequest, DestroyResponse, DestroySummary};
-pub use dhcp::DhcpLease;
 pub use disk::{
     DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskImageCloneMethod, DiskTargets,
 };
@@ -72,16 +70,15 @@ pub use interface::{
     MgmtInterfaces, MikrotikChrInt, NokiaSrlinuxInt, PaloaltoPanosInt,
 };
 pub use lab::{
-    BridgeConnection, BridgeInterface, InterfaceData, InterfaceState, LabBridgeData, LabIdentity,
-    LabInfo, LabIsolatedNetwork, LabLinkData, LabNodeData, LabReservedNetwork, LabState,
-    LabSummary, ListLabsResponse, NodeInterface, NodeSetupData, NodeSshUsername, PeerInterface,
-    PeerSide,
+    BridgeInterface, InterfaceData, InterfaceState, LabIdentity, LabInfo, LabIsolatedNetwork,
+    LabLinkData, LabNodeData, LabReservedNetwork, LabState, LabSummary, ListLabsResponse,
+    NodeInterface, NodeSetupData, NodeSshUsername, PeerInterface, PeerSide,
 };
-pub use mapping::{CloneDisk, NodeConnection, NodeDisk, QemuCommand};
+pub use mapping::{CloneDisk, NodeDisk, QemuCommand};
 pub use network::{BridgeKind, LabSubnets, NetworkV4, NetworkV6, SherpaNetwork};
 pub use node::{
     BiosTypes, CpuArchitecture, InterfaceType, MachineType, NodeConfig, NodeKind, NodeModel,
-    NodeState, OsVariant, UnikernelBootMode, ZtpMethod,
+    NodeState, OsVariant, UnikernelBootMode, ZtpMethod, ZtpSettings,
 };
 pub use performance::{
     CpuMode, CpuTopology, DiskCache, DiskIo, NodeCpuPins, PerformanceTuning, cpuset,
@@ -110,4 +107,4 @@ pub use ws::ConnectedMsg;
 pub use ztp::ZtpRecord;
 
 pub mod tailscale;
-pub use tailscale::{RouteApproval, TAILNET_DOCS_URL, TailnetAuthKey, TailnetState, TailnetStatus};
+pub use tailscale::{RouteApproval, TailnetAuthKey, TailnetState, TailnetStatus};

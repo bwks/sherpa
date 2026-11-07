@@ -11,51 +11,9 @@ struct InterfaceBounds<'a> {
     device_model: &'a NodeModel,
     data_interface_count: u8,
     reserved_interface_count: u8,
-    dedicated_management_interface: bool,
     /// The first data interface, after the management interface and the reserved ones.
     first_data_interface_idx: u8,
     max_interface_idx: u8,
-}
-
-/// Checks if any links or bridges use the management interface (index 0) on a node.
-/// Returns an error if a link or bridge attempts to use the management interface.
-/// This validation only applies to nodes without dedicated management interfaces.
-///
-/// # Errors
-///
-/// Fails when a link or bridge uses the node's management interface.
-pub fn check_mgmt_usage(
-    device_name: &str,
-    mgmt_interface_index: u8,
-    links: &[LinkDetailed],
-    bridges: &[BridgeDetailed],
-) -> Result<()> {
-    for link in links {
-        let Some((interface_idx, interface_name)) = link_end(link, device_name) else {
-            continue;
-        };
-        if interface_idx == mgmt_interface_index {
-            bail!(
-                "Manifest link - '{device_name}' interface '{interface_name}' overlaps with management interface",
-            );
-        }
-    }
-
-    for bridge in bridges {
-        for bridge_link in &bridge.links {
-            if bridge_link.node_name == device_name
-                && bridge_link.interface_index == mgmt_interface_index
-            {
-                bail!(
-                    "Manifest bridge '{}' - device '{device_name}' interface '{}' overlaps with management interface",
-                    bridge.manifest_name,
-                    bridge_link.interface_name
-                );
-            }
-        }
-    }
-
-    Ok(())
 }
 
 /// The interface index and name a link uses on `device_name`, if the link ends there.
@@ -162,7 +120,7 @@ pub fn check_link_impairments(links: &[Link2]) -> Result<()> {
 
 /// Check interface index bounds for both links and bridges.
 /// Interfaces defined in connections should not be:
-/// - the management interface (if `dedicated_management_interface` is true)
+/// - the management interface, index 0 on every model
 /// - reserved interfaces
 /// - greater than the maximum interface index calculated from `data_interface_count`
 ///
@@ -174,7 +132,6 @@ pub fn check_interface_bounds(
     device_model: &NodeModel,
     data_interface_count: u8,
     reserved_interface_count: u8,
-    dedicated_management_interface: bool,
     links: &[LinkDetailed],
     bridges: &[BridgeDetailed],
 ) -> Result<()> {
@@ -197,7 +154,6 @@ pub fn check_interface_bounds(
         device_model,
         data_interface_count,
         reserved_interface_count,
-        dedicated_management_interface,
         first_data_interface_idx,
         max_interface_idx,
     };
@@ -243,10 +199,7 @@ fn check_interface_index(
     bounds: &InterfaceBounds,
 ) -> Result<()> {
     if interface_idx == 0 {
-        // Without a dedicated management interface, index 0 carries data.
-        if bounds.dedicated_management_interface {
-            bail!("{connection} is the management interface and cannot be used in {used_in}");
-        }
+        bail!("{connection} is the management interface and cannot be used in {used_in}");
     } else if interface_idx < bounds.first_data_interface_idx {
         bail!(
             "{connection} is a reserved interface (reserved_count: {}) and cannot be used in {used_in}",
@@ -325,9 +278,8 @@ mod tests {
         check_interface_bounds(
             "rocky1",
             &NodeModel::RockyLinux,
-            52,   // data_interface_count
-            0,    // reserved_interface_count
-            true, // dedicated_management_interface
+            52, // data_interface_count
+            0,  // reserved_interface_count
             &links,
             &bridges,
         )
@@ -339,15 +291,8 @@ mod tests {
         let links = vec![create_link("rocky1", 53, "rocky2", 1)];
         let bridges = vec![];
 
-        let result = check_interface_bounds(
-            "rocky1",
-            &NodeModel::RockyLinux,
-            52,
-            0,
-            true,
-            &links,
-            &bridges,
-        );
+        let result =
+            check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &links, &bridges);
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
@@ -361,15 +306,8 @@ mod tests {
         let links = vec![create_link("rocky1", 0, "rocky2", 1)];
         let bridges = vec![];
 
-        let result = check_interface_bounds(
-            "rocky1",
-            &NodeModel::RockyLinux,
-            52,
-            0,
-            true, // dedicated_management_interface = true
-            &links,
-            &bridges,
-        );
+        let result =
+            check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &links, &bridges);
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
@@ -377,20 +315,14 @@ mod tests {
     }
 
     #[test]
-    fn test_interface_bounds_management_interface_not_dedicated() -> Result<()> {
-        // CentOS with non-dedicated management, using interface 0 is OK
-        let links = vec![create_link("centos1", 0, "centos2", 0)];
-        let bridges = vec![];
+    fn index_0_is_always_the_management_interface() {
+        // Every model's interface table has its management interface at index 0.
+        let links = vec![create_link("centos1", 0, "centos2", 1)];
 
-        check_interface_bounds(
-            "centos1",
-            &NodeModel::CentosLinux,
-            1,
-            0,
-            false, // dedicated_management_interface = false
-            &links,
-            &bridges,
-        )
+        let result = check_interface_bounds("centos1", &NodeModel::CentosLinux, 1, 0, &links, &[]);
+
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("is the management interface and cannot be used in links"));
     }
 
     #[test]
@@ -404,7 +336,6 @@ mod tests {
             &NodeModel::CiscoIosxrv9000,
             31,
             2, // reserved_interface_count = 2 (indices 1 and 2)
-            true,
             &links,
             &bridges,
         );
@@ -425,7 +356,6 @@ mod tests {
             &NodeModel::CiscoIosxrv9000,
             31,
             2, // reserved_interface_count = 2
-            true,
             &links,
             &bridges,
         )
@@ -437,15 +367,7 @@ mod tests {
         let links = vec![create_link("xr1", 33, "xr2", 3)];
         let bridges = vec![];
 
-        check_interface_bounds(
-            "xr1",
-            &NodeModel::CiscoIosxrv9000,
-            31,
-            2,
-            true,
-            &links,
-            &bridges,
-        )
+        check_interface_bounds("xr1", &NodeModel::CiscoIosxrv9000, 31, 2, &links, &bridges)
     }
 
     #[test]
@@ -455,15 +377,7 @@ mod tests {
         let bridges = vec![];
 
         // Check device "rocky3" which is not in the link
-        check_interface_bounds(
-            "rocky3",
-            &NodeModel::RockyLinux,
-            52,
-            0,
-            true,
-            &links,
-            &bridges,
-        )
+        check_interface_bounds("rocky3", &NodeModel::RockyLinux, 52, 0, &links, &bridges)
     }
 
     #[test]
@@ -471,15 +385,7 @@ mod tests {
         let links = vec![];
         let bridges = vec![];
 
-        check_interface_bounds(
-            "rocky1",
-            &NodeModel::RockyLinux,
-            52,
-            0,
-            true,
-            &links,
-            &bridges,
-        )
+        check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &links, &bridges)
     }
 
     #[test]
@@ -488,15 +394,7 @@ mod tests {
         let links = vec![create_link("rocky1", 1, "rocky2", 1)];
         let bridges = vec![];
 
-        check_interface_bounds(
-            "rocky1",
-            &NodeModel::RockyLinux,
-            52,
-            0,
-            true,
-            &links,
-            &bridges,
-        )
+        check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &links, &bridges)
     }
 
     #[test]
@@ -511,7 +409,6 @@ mod tests {
             &NodeModel::RockyLinux,
             1, // data_interface_count = 1
             0,
-            true,
             &links,
             &bridges,
         )
@@ -523,47 +420,10 @@ mod tests {
         let links = vec![create_link("rocky1", 2, "rocky2", 1)];
         let bridges = vec![];
 
-        let result = check_interface_bounds(
-            "rocky1",
-            &NodeModel::RockyLinux,
-            1,
-            0,
-            true,
-            &links,
-            &bridges,
-        );
+        let result =
+            check_interface_bounds("rocky1", &NodeModel::RockyLinux, 1, 0, &links, &bridges);
 
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_check_mgmt_usage_blocks_eth0() {
-        // Test: eth0 (index 0) should be blocked as management interface
-        let links = vec![create_link("node1", 0, "node2", 1)];
-        let bridges = vec![];
-
-        let result = check_mgmt_usage("node1", 0, &links, &bridges);
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("management interface"));
-    }
-
-    #[test]
-    fn test_check_mgmt_usage_allows_eth1() -> Result<()> {
-        // Test: eth1 (index 1) should be allowed for data links
-        let links = vec![create_link("node1", 1, "node2", 1)];
-        let bridges = vec![];
-
-        check_mgmt_usage("node1", 0, &links, &bridges)
-    }
-
-    #[test]
-    fn test_check_mgmt_usage_allows_higher_interfaces() -> Result<()> {
-        // Test: eth2, eth3, etc. should all be allowed
-        let links = vec![create_link("node1", 2, "node2", 3)];
-        let bridges = vec![];
-
-        check_mgmt_usage("node1", 0, &links, &bridges)
     }
 
     /// Helper to create a test bridge with connections
@@ -598,9 +458,8 @@ mod tests {
         check_interface_bounds(
             "rocky1",
             &NodeModel::RockyLinux,
-            52,   // data_interface_count
-            0,    // reserved_interface_count
-            true, // dedicated_management_interface
+            52, // data_interface_count
+            0,  // reserved_interface_count
             &links,
             &bridges,
         )
@@ -612,15 +471,8 @@ mod tests {
         let links = vec![];
         let bridges = vec![create_bridge("br1", vec![("rocky1", 100)])];
 
-        let result = check_interface_bounds(
-            "rocky1",
-            &NodeModel::RockyLinux,
-            52,
-            0,
-            true,
-            &links,
-            &bridges,
-        );
+        let result =
+            check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &links, &bridges);
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
@@ -634,11 +486,11 @@ mod tests {
         let links = vec![];
         let bridges = vec![create_bridge("br1", vec![("rocky1", 0), ("rocky2", 5)])];
 
-        let result = check_mgmt_usage("rocky1", 0, &links, &bridges);
-        assert!(result.is_err());
+        let result =
+            check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &links, &bridges);
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("bridge 'br1'"));
-        assert!(err_msg.contains("management interface"));
+        assert!(err_msg.contains("is the management interface and cannot be used in bridges"));
     }
 
     #[test]
@@ -652,7 +504,6 @@ mod tests {
             &NodeModel::RockyLinux,
             52,
             5, // reserved_interface_count - indices 1-5 are reserved
-            true,
             &links,
             &bridges,
         );

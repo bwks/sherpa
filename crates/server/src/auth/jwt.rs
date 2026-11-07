@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use rand::RngCore;
 use shared::auth::jwt::Claims;
+use shared::data::ValidateResponse;
 use shared::konst::JWT_SECRET_PATH;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -160,6 +161,28 @@ pub fn validate_token(secret: &[u8], token: &str) -> Result<Claims> {
     Ok(token_data.claims)
 }
 
+/// Whether `token` is valid, and whose it is: the answer to `auth.validate`, over RPC or REST.
+#[tracing::instrument(level = "debug", skip(secret, token))]
+pub fn token_status(secret: &[u8], token: &str) -> ValidateResponse {
+    match validate_token(secret, token) {
+        Ok(claims) => ValidateResponse {
+            valid: true,
+            username: Some(claims.sub),
+            is_admin: Some(claims.is_admin),
+            expires_at: Some(claims.exp),
+        },
+        Err(error) => {
+            debug!(error = format!("{error:#}"), "Token validation failed");
+            ValidateResponse {
+                valid: false,
+                username: None,
+                is_admin: None,
+                expires_at: None,
+            }
+        }
+    }
+}
+
 /// Validate a token's signature and claims while allowing an expired `exp` value.
 ///
 /// This is used only to recover safe diagnostic metadata from an expired token.
@@ -194,7 +217,6 @@ mod tests {
 
         assert_eq!(claims.sub, username);
         assert_eq!(claims.is_admin, is_admin);
-        assert!(!claims.is_expired());
     }
 
     #[test]

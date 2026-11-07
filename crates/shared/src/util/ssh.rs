@@ -6,7 +6,7 @@ use ssh_key::{Algorithm, HashAlg, LineEnding, PrivateKey, PublicKey};
 use tempfile::NamedTempFile;
 use tracing::instrument;
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 #[cfg(unix)]
 use std::fs::Permissions;
 use std::fs::{File, OpenOptions};
@@ -75,59 +75,67 @@ const SSH_LOCK_FILE: &str = "sherpa_lab_hosts.lock";
 const PRIVATE_KEY_MODE: u32 = 0o640;
 
 /// Read an SSH public key file and return a String.
+///
+/// # Errors
+///
+/// Fails when the file cannot be read or is not an OpenSSH public key.
 pub fn get_ssh_public_key(path: &str) -> Result<SshPublicKey> {
     let full_path = expand_path(path);
     let file = File::open(&full_path).with_context(|| format!("Error loading file: {path}"))?;
-    let reader = BufReader::new(file);
-
-    // Read the first line of the file
-    if let Some(line) = reader.lines().next() {
-        let key = line?;
-        let key_parts: Vec<&str> = key.split_whitespace().collect();
-
-        // Validate that the key contains at least two parts (type and base64 key)
-        if key_parts.len() < 2 {
-            return Err(anyhow!("Invalid SSH public key format"));
-        }
-        let algorithm = key_parts[0].parse::<SshKeyAlgorithms>()?;
-        let ssh_pub_key = SshPublicKey {
-            algorithm,
-            key: key_parts[1].to_string(),
-            comment: if key_parts.len() == 3 {
-                Some(key_parts[2].to_string())
-            } else {
-                None
-            },
-        };
-        Ok(ssh_pub_key)
-    } else {
-        Err(anyhow!("Invalid SSH public key file: {full_path}",))
-    }
+    let line = BufReader::new(file)
+        .lines()
+        .next()
+        .with_context(|| format!("Invalid SSH public key file: {full_path}"))??;
+    let public_key = PublicKey::from_openssh(line.trim())
+        .with_context(|| format!("Invalid SSH public key in {full_path}"))?;
+    let algorithm = public_key
+        .algorithm()
+        .as_str()
+        .parse::<SshKeyAlgorithms>()?;
+    let key = general_purpose::STANDARD.encode(
+        public_key
+            .to_bytes()
+            .context("Failed to encode the SSH public key")?,
+    );
+    let comment = Some(public_key.comment().to_owned()).filter(|comment| !comment.is_empty());
+    Ok(SshPublicKey {
+        algorithm,
+        key,
+        comment,
+    })
 }
 
 /// Convert an SSH public key base64 encoded string to an MD5 Hash
 /// expected by Cisco devices.
+///
+/// # Errors
+///
+/// Fails when the key data is not base64.
 pub fn pub_ssh_key_to_md5_hash(pub_key_str: &str) -> Result<String> {
     // Decode the base64 encoded key to get binary data
     let binary_key = general_purpose::STANDARD
         .decode(pub_key_str)
-        .map_err(|e| anyhow!("Error decoding base64 key: {}", e))?;
+        .map_err(|e| anyhow!("Error decoding base64 key: {e}"))?;
 
     // Compute the MD5 hash of the binary key data
     let md5_hash = md5::compute(binary_key);
 
     // Format the hash as an uppercase hexadecimal string accepted by cisco devices
-    let formatted_hash = format!("{:X}", md5_hash);
+    let formatted_hash = format!("{md5_hash:X}");
 
     Ok(formatted_hash)
 }
 
 /// Convert a base64 encoded SSH public key to an SHA-256 hash
+///
+/// # Errors
+///
+/// Fails when the key data is not base64.
 pub fn pub_ssh_key_to_sha256_hash(pub_key_str: &str) -> Result<String> {
     // Decode the base64 encoded key to get binary data
     let binary_key = general_purpose::STANDARD
         .decode(pub_key_str)
-        .map_err(|e| anyhow!("Error decoding base64 key: {}", e))?;
+        .map_err(|e| anyhow!("Error decoding base64 key: {e}"))?;
 
     // Compute the SHA-256 hash of the binary key data
     let sha256_hash = Sha256::digest(&binary_key);
@@ -135,7 +143,7 @@ pub fn pub_ssh_key_to_sha256_hash(pub_key_str: &str) -> Result<String> {
     // Format the hash as a lowercase hexadecimal string
     let fingerprint = sha256_hash
         .iter()
-        .map(|b| format!("{:02x}", b))
+        .map(|b| format!("{b:02x}"))
         .collect::<Vec<String>>()
         .join(":");
 
@@ -144,13 +152,21 @@ pub fn pub_ssh_key_to_sha256_hash(pub_key_str: &str) -> Result<String> {
 
 /// The SHA256 fingerprint of an OpenSSH public key, as `ssh-keygen -l` prints it
 /// (`SHA256:...`).
+///
+/// # Errors
+///
+/// Fails when `public_key` is not an OpenSSH public key.
 pub fn ssh_key_fingerprint(public_key: &str) -> Result<String> {
     let key = PublicKey::from_openssh(public_key.trim()).context("Invalid SSH public key")?;
     Ok(key.fingerprint(HashAlg::Sha256).to_string())
 }
 
 /// Generate an SSH RSA keypair.
-pub fn generate_ssh_keypair(directory: &str, keyname: &str, algorithm: Algorithm) -> Result<()> {
+///
+/// # Errors
+///
+/// Fails when the algorithm is not RSA, Ed25519 or ECDSA, or the key files cannot be written.
+pub fn generate_ssh_keypair(directory: &str, keyname: &str, algorithm: &Algorithm) -> Result<()> {
     let mut rng = OsRng;
 
     // Generate a new private key based on the algorithm
@@ -162,9 +178,11 @@ pub fn generate_ssh_keypair(directory: &str, keyname: &str, algorithm: Algorithm
             },
         )?,
         Algorithm::Ed25519 => PrivateKey::random(&mut rng, Algorithm::Ed25519)?,
-        Algorithm::Ecdsa { curve } => PrivateKey::random(&mut rng, Algorithm::Ecdsa { curve })?,
+        Algorithm::Ecdsa { curve } => {
+            PrivateKey::random(&mut rng, Algorithm::Ecdsa { curve: *curve })?
+        }
         _ => {
-            return Err(anyhow!("Unsupported SSH key algorithm: {:?}", algorithm));
+            return Err(anyhow!("Unsupported SSH key algorithm: {algorithm:?}"));
         }
     };
 
@@ -178,7 +196,7 @@ pub fn generate_ssh_keypair(directory: &str, keyname: &str, algorithm: Algorithm
     let private_key_path = &format!("{directory}/{keyname}");
     let public_key_path = &format!("{directory}/{keyname}.pub");
 
-    create_file(public_key_path, public_key_ssh.to_string())?;
+    create_file(public_key_path, public_key_ssh.clone())?;
     write_private_key(Path::new(private_key_path), &private_key_pem)
 }
 
@@ -199,43 +217,6 @@ fn write_private_key(path: &Path, key: &str) -> Result<()> {
     file.write_all(key.as_bytes())
         .with_context(|| format!("Error writing {}", path.display()))?;
     Ok(())
-}
-
-/// Find SSH public keys in the current user's home directory
-///
-/// Searches for common SSH key files in ~/.ssh/:
-/// - id_rsa.pub
-/// - id_ed25519.pub  
-/// - id_ecdsa.pub
-///
-/// Returns a vector of key contents as raw strings (suitable for database storage).
-/// Returns an empty vector if no keys are found.
-///
-pub fn find_user_ssh_keys() -> Vec<String> {
-    let mut keys = Vec::new();
-
-    // Get home directory
-    let home = match dirs::home_dir() {
-        Some(h) => h,
-        None => return keys, // No home directory found, return empty
-    };
-
-    let ssh_dir = home.join(".ssh");
-    let ssh_dir = ssh_dir.to_string_lossy();
-
-    // Look for common SSH key files
-    for key_type in &["id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub"] {
-        let key_path = format!("{}/{}", ssh_dir, key_type);
-
-        if let Ok(content) = std::fs::read_to_string(&key_path) {
-            let trimmed = content.trim();
-            if !trimmed.is_empty() {
-                keys.push(trimmed.to_string());
-            }
-        }
-    }
-
-    keys
 }
 
 /// Resolve the user's ~/.ssh directory.
@@ -379,7 +360,7 @@ fn read_lab_info_for_include(include_path: &Path) -> Result<LabInfo> {
 fn inspect_include_entry(
     line_number: usize,
     include_path: String,
-    active_lab_ids: Option<&HashSet<String>>,
+    active_lab_ids: Option<&BTreeSet<String>>,
     seen_include_paths: &mut HashSet<String>,
 ) -> SshConfigInspectionEntry {
     if !seen_include_paths.insert(include_path.clone()) {
@@ -453,7 +434,7 @@ fn inspect_include_entry(
 
 fn inspect_lab_ssh_includes_at(
     ssh_dir: &Path,
-    active_lab_ids: Option<&HashSet<String>>,
+    active_lab_ids: Option<&BTreeSet<String>>,
     server_validation_message: Option<String>,
 ) -> Result<SshConfigInspectionReport> {
     let index_path = sherpa_index_path(ssh_dir);
@@ -503,7 +484,7 @@ fn inspect_lab_ssh_includes_at(
 
 fn clean_stale_lab_ssh_includes_at(
     ssh_dir: &Path,
-    active_lab_ids: Option<&HashSet<String>>,
+    active_lab_ids: Option<&BTreeSet<String>>,
     server_validation_message: Option<String>,
 ) -> Result<SshConfigCleanReport> {
     let _lock = if ssh_dir.exists() {
@@ -512,7 +493,7 @@ fn clean_stale_lab_ssh_includes_at(
         None
     };
     let inspection =
-        inspect_lab_ssh_includes_at(ssh_dir, active_lab_ids, server_validation_message.clone())?;
+        inspect_lab_ssh_includes_at(ssh_dir, active_lab_ids, server_validation_message)?;
 
     if !inspection.index_path.exists() {
         return Ok(SshConfigCleanReport {
@@ -576,8 +557,8 @@ fn clean_stale_lab_ssh_includes_at(
     })
 }
 
-/// Ensure ssh_dir/config has a permanent Include line for ssh_dir/sherpa_lab_hosts.
-/// Creates the config and sherpa_lab_hosts files if they don't exist. The caller holds the
+/// Ensure `ssh_dir/config` has a permanent Include line for `ssh_dir/sherpa_lab_hosts`.
+/// Creates the config and `sherpa_lab_hosts` files if they don't exist. The caller holds the
 /// SSH folder lock.
 fn ensure_sherpa_include_in_ssh_config_at(ssh_dir: &Path) -> Result<PathBuf> {
     let ssh_config_path = ssh_dir.join("config");
@@ -613,7 +594,7 @@ fn ensure_sherpa_include_in_ssh_config_at(ssh_dir: &Path) -> Result<PathBuf> {
     Ok(sherpa_configs_path)
 }
 
-/// Add an Include line for a lab's sherpa_ssh_config to the sherpa_lab_hosts index.
+/// Add an Include line for a lab's `sherpa_ssh_config` to the `sherpa_lab_hosts` index.
 fn add_lab_ssh_include_at(ssh_dir: &Path, lab_ssh_config_path: &str) -> Result<()> {
     let include_line = include_directive(lab_ssh_config_path)?;
     create_ssh_dir(ssh_dir)?;
@@ -633,7 +614,7 @@ fn add_lab_ssh_include_at(ssh_dir: &Path, lab_ssh_config_path: &str) -> Result<(
     Ok(())
 }
 
-/// Remove an Include line for a lab's sherpa_ssh_config from the sherpa_lab_hosts index.
+/// Remove an Include line for a lab's `sherpa_ssh_config` from the `sherpa_lab_hosts` index.
 fn remove_lab_ssh_include_at(ssh_dir: &Path, lab_ssh_config_path: &str) -> Result<()> {
     let sherpa_configs_path = ssh_dir.join(SHERPA_SSH_INDEX_FILE);
 
@@ -660,35 +641,51 @@ fn remove_lab_ssh_include_at(ssh_dir: &Path, lab_ssh_config_path: &str) -> Resul
     Ok(())
 }
 
-/// Add an Include line for a lab's sherpa_ssh_config to ~/.ssh/sherpa_lab_hosts.
+/// Add an Include line for a lab's `sherpa_ssh_config` to `~/.ssh/sherpa_lab_hosts`.
 /// Also ensures the permanent Include in ~/.ssh/config exists.
+///
+/// # Errors
+///
+/// Fails when the path cannot be written as an `Include`, or the SSH config files cannot be locked, read or replaced.
 #[instrument(fields(%lab_ssh_config_path))]
 pub fn add_lab_ssh_include(lab_ssh_config_path: &str) -> Result<()> {
     let ssh_dir = get_user_ssh_dir()?;
     add_lab_ssh_include_at(&ssh_dir, lab_ssh_config_path)
 }
 
-/// Remove an Include line for a lab's sherpa_ssh_config from ~/.ssh/sherpa_lab_hosts.
+/// Remove an Include line for a lab's `sherpa_ssh_config` from `~/.ssh/sherpa_lab_hosts`.
+///
+/// # Errors
+///
+/// Fails when the SSH config files cannot be locked, read or replaced.
 #[instrument(fields(%lab_ssh_config_path))]
 pub fn remove_lab_ssh_include(lab_ssh_config_path: &str) -> Result<()> {
     let ssh_dir = get_user_ssh_dir()?;
     remove_lab_ssh_include_at(&ssh_dir, lab_ssh_config_path)
 }
 
-/// Inspect ~/.ssh/sherpa_lab_hosts for stale or broken Sherpa lab Include entries.
+/// Inspect `~/.ssh/sherpa_lab_hosts` for stale or broken Sherpa lab Include entries.
+///
+/// # Errors
+///
+/// Fails when the home directory is unknown or the index cannot be read.
 #[instrument(skip(active_lab_ids))]
 pub fn inspect_lab_ssh_includes(
-    active_lab_ids: Option<&HashSet<String>>,
+    active_lab_ids: Option<&BTreeSet<String>>,
     server_validation_message: Option<String>,
 ) -> Result<SshConfigInspectionReport> {
     let ssh_dir = get_user_ssh_dir()?;
     inspect_lab_ssh_includes_at(&ssh_dir, active_lab_ids, server_validation_message)
 }
 
-/// Remove stale or broken Sherpa lab Include entries from ~/.ssh/sherpa_lab_hosts.
+/// Remove stale or broken Sherpa lab Include entries from `~/.ssh/sherpa_lab_hosts`.
+///
+/// # Errors
+///
+/// Fails when the home directory is unknown, or the index cannot be locked, read or replaced.
 #[instrument(skip(active_lab_ids))]
 pub fn clean_stale_lab_ssh_includes(
-    active_lab_ids: Option<&HashSet<String>>,
+    active_lab_ids: Option<&BTreeSet<String>>,
     server_validation_message: Option<String>,
 ) -> Result<SshConfigCleanReport> {
     let ssh_dir = get_user_ssh_dir()?;
@@ -697,7 +694,6 @@ pub fn clean_stale_lab_ssh_includes(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
     use std::path::Path;
 
     use tempfile::TempDir;
@@ -712,7 +708,7 @@ mod tests {
         std::fs::write(&key, "old").unwrap();
         std::fs::set_permissions(&key, Permissions::from_mode(0o644)).unwrap();
 
-        generate_ssh_keypair(dir.path().to_str().unwrap(), "lab_key", Algorithm::Ed25519).unwrap();
+        generate_ssh_keypair(dir.path().to_str().unwrap(), "lab_key", &Algorithm::Ed25519).unwrap();
 
         let mode = std::fs::metadata(&key).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o640);
@@ -961,7 +957,7 @@ loopback_network = "127.127.1.0/24"
             "{content}"
         );
 
-        let active = HashSet::from(["lab-space".to_string()]);
+        let active = BTreeSet::from(["lab-space".to_string()]);
         let report = clean_stale_lab_ssh_includes_at(&ssh_dir, Some(&active), None).unwrap();
         assert!(report.removed.is_empty(), "{:?}", report.removed);
         assert_eq!(report.kept[0].status, SshConfigEntryStatus::Valid);
@@ -1037,7 +1033,7 @@ loopback_network = "127.127.1.0/24"
         let include_path = create_lab_files(tmp.path(), "lab1", "lab-active");
         add_lab_ssh_include_at(&ssh_dir, &include_path).unwrap();
 
-        let mut active = HashSet::new();
+        let mut active = BTreeSet::new();
         active.insert("lab-active".to_string());
         let report = inspect_lab_ssh_includes_at(&ssh_dir, Some(&active), None).unwrap();
 
@@ -1054,7 +1050,7 @@ loopback_network = "127.127.1.0/24"
         let include_path = create_lab_files(tmp.path(), "lab1", "deleted-lab");
         add_lab_ssh_include_at(&ssh_dir, &include_path).unwrap();
 
-        let active = HashSet::new();
+        let active = BTreeSet::new();
         let report = inspect_lab_ssh_includes_at(&ssh_dir, Some(&active), None).unwrap();
 
         assert_eq!(report.entries.len(), 1);
@@ -1103,7 +1099,7 @@ loopback_network = "127.127.1.0/24"
         add_lab_ssh_include_at(&ssh_dir, &valid_include).unwrap();
         add_lab_ssh_include_at(&ssh_dir, &stale_include).unwrap();
 
-        let mut active = HashSet::new();
+        let mut active = BTreeSet::new();
         active.insert("active-lab".to_string());
         let report = clean_stale_lab_ssh_includes_at(&ssh_dir, Some(&active), None).unwrap();
 
@@ -1124,14 +1120,11 @@ loopback_network = "127.127.1.0/24"
         ensure_sherpa_include_in_ssh_config_at(&ssh_dir).unwrap();
         std::fs::write(
             ssh_dir.join(SHERPA_SSH_INDEX_FILE),
-            format!(
-                "{}\nInclude {}\nInclude {}\n",
-                SHERPA_SSH_INDEX_HEADER, include_path, include_path
-            ),
+            format!("{SHERPA_SSH_INDEX_HEADER}\nInclude {include_path}\nInclude {include_path}\n"),
         )
         .unwrap();
 
-        let mut active = HashSet::new();
+        let mut active = BTreeSet::new();
         active.insert("active-lab".to_string());
         let report = clean_stale_lab_ssh_includes_at(&ssh_dir, Some(&active), None).unwrap();
 
@@ -1150,8 +1143,7 @@ loopback_network = "127.127.1.0/24"
         std::fs::write(
             ssh_dir.join(SHERPA_SSH_INDEX_FILE),
             format!(
-                "{}\nInclude /tmp/lab1/sherpa_ssh_config-extra\nInclude /tmp/lab1/sherpa_ssh_config\n",
-                SHERPA_SSH_INDEX_HEADER
+                "{SHERPA_SSH_INDEX_HEADER}\nInclude /tmp/lab1/sherpa_ssh_config-extra\nInclude /tmp/lab1/sherpa_ssh_config\n"
             ),
         )
         .unwrap();

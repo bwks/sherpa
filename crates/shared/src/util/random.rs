@@ -4,12 +4,20 @@ use twox_hash::XxHash32;
 use super::user::get_username;
 
 /// Generate a random two-word lab name (e.g. "adorable-badger").
+///
+/// # Errors
+///
+/// Fails when no name could be generated.
 pub fn generate_lab_name() -> Result<String> {
     petname::petname(2, "-").ok_or_else(|| anyhow!("Failed to generate lab name"))
 }
 
 /// Get the xxHash of a username and lab name.
 /// The hash will be a maximum of 8 chars long.
+///
+/// # Errors
+///
+/// Fails when the current user's name is unknown.
 pub fn get_id(lab_name: &str) -> Result<String> {
     let username = get_username()?;
     Ok(get_id_for_user(&username, lab_name))
@@ -17,11 +25,12 @@ pub fn get_id(lab_name: &str) -> Result<String> {
 
 /// Get the xxHash of an explicit username and lab name.
 /// The hash will be a maximum of 8 chars long.
+#[must_use]
 pub fn get_id_for_user(username: &str, lab_name: &str) -> String {
-    let combined = format!("{}{}", username, lab_name);
+    let combined = format!("{username}{lab_name}");
     let seed = 4_294_967_295;
     let hash = XxHash32::oneshot(seed, combined.as_bytes());
-    format!("{:08x}", hash)
+    format!("{hash:08x}")
 }
 
 #[cfg(test)]
@@ -35,7 +44,7 @@ mod tests {
     #[test]
     fn test_generate_lab_name_returns_ok() {
         let name = generate_lab_name().expect("should generate a name");
-        assert!(!name.is_empty());
+        assert_ne!(name, "");
     }
 
     #[test]

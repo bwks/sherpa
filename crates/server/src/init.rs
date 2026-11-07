@@ -89,7 +89,7 @@ pub async fn init(
         generate_ssh_keypair(
             SHERPA_SSH_PATH,
             SHERPA_SSH_PRIVATE_KEY_FILE,
-            Algorithm::Rsa { hash: None },
+            &Algorithm::Rsa { hash: None },
         )?;
     }
 

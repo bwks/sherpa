@@ -7,6 +7,8 @@ use anyhow::{Context, Result};
 use std::time::Duration;
 use url::Url;
 
+use crate::tls::trust_store::parse_certificate_pem;
+
 /// Fetch server certificate from the /cert endpoint via HTTP
 ///
 /// # Arguments
@@ -23,12 +25,12 @@ use url::Url;
 pub async fn fetch_server_certificate(server_url: &str, http_port: u16) -> Result<String> {
     // Parse the WebSocket URL to extract host
     let ws_url =
-        Url::parse(server_url).with_context(|| format!("Invalid server URL: {}", server_url))?;
+        Url::parse(server_url).with_context(|| format!("Invalid server URL: {server_url}"))?;
 
     let host = ws_url.host_str().context("Server URL missing host")?;
 
     // Construct HTTP URL for certificate endpoint
-    let cert_url = format!("http://{}:{}/cert", host, http_port);
+    let cert_url = format!("http://{host}:{http_port}/cert");
     tracing::debug!("Fetching certificate from: {}", cert_url);
 
     // Create HTTP client with timeout
@@ -38,12 +40,10 @@ pub async fn fetch_server_certificate(server_url: &str, http_port: u16) -> Resul
         .context("Failed to create HTTP client")?;
 
     // Fetch certificate
-    let response = client.get(&cert_url).send().await.with_context(|| {
-        format!(
-            "Unable to reach server at {}. Is the server running?",
-            cert_url
-        )
-    })?;
+    let response =
+        client.get(&cert_url).send().await.with_context(|| {
+            format!("Unable to reach server at {cert_url}. Is the server running?")
+        })?;
 
     // Check status code
     match response.status() {
@@ -54,13 +54,7 @@ pub async fn fetch_server_certificate(server_url: &str, http_port: u16) -> Resul
                 .await
                 .context("Failed to read certificate response body")?;
 
-            // Validate it's a valid PEM format
-            if !cert_pem.contains("-----BEGIN CERTIFICATE-----") {
-                anyhow::bail!(
-                    "Server returned invalid certificate format. \
-                     The response doesn't appear to be a valid PEM certificate."
-                );
-            }
+            parse_certificate_pem(&cert_pem).context("Server returned an invalid certificate")?;
 
             tracing::info!("Successfully fetched certificate from server");
             Ok(cert_pem)
@@ -82,12 +76,9 @@ pub async fn fetch_server_certificate(server_url: &str, http_port: u16) -> Resul
         }
         status => {
             // Try to get error message from response
-            let error_msg = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
+            let error_msg = response.text().await.unwrap_or_default();
 
-            anyhow::bail!("Server returned error status {}:\n{}", status, error_msg)
+            anyhow::bail!("Server returned error status {status}:\n{error_msg}")
         }
     }
 }

@@ -26,6 +26,7 @@ pub enum ClusterCni {
 }
 
 impl ClusterCni {
+    #[must_use]
     pub fn is_flannel(&self) -> bool {
         *self == ClusterCni::Flannel
     }

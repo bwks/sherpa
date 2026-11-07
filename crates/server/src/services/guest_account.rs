@@ -97,11 +97,11 @@ pub(crate) enum KeyFormat {
 /// unikernels have no way to add an account at boot.
 #[instrument(level = "debug", skip(image))]
 pub(crate) fn supports_guest_account(image: &NodeConfig) -> bool {
-    if !image.ztp_enable {
+    if !image.ztp.enable {
         return false;
     }
     match image.kind {
-        NodeKind::VirtualMachine => match image.ztp_method {
+        NodeKind::VirtualMachine => match image.ztp.method {
             ZtpMethod::CloudInit => matches!(
                 image.model,
                 NodeModel::CentosLinux
@@ -761,7 +761,7 @@ mod tests {
         ] {
             let mut image = NodeConfig::get_model(model);
             assert!(supports_guest_account(&image), "{model}");
-            image.ztp_enable = false;
+            image.ztp.enable = false;
             assert!(!supports_guest_account(&image), "{model}");
         }
         for model in [
@@ -781,7 +781,7 @@ mod tests {
         image.kind = NodeKind::Container;
         assert!(!supports_guest_account(&image));
         let mut image = NodeConfig::get_model(NodeModel::CiscoIosv);
-        image.ztp_method = ZtpMethod::Tftp;
+        image.ztp.method = ZtpMethod::Tftp;
         assert!(!supports_guest_account(&image));
     }
 

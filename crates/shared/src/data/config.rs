@@ -6,7 +6,6 @@ use serde_derive::{Deserialize, Serialize};
 use tracing::instrument;
 
 use super::container::ContainerImage;
-// use super::node::NodeConfig;
 use super::provider::VmProviders;
 
 use crate::konst::{
@@ -38,7 +37,7 @@ impl Default for ZtpServer {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default)]
 pub struct ServerConnection {
-    /// WebSocket URL (e.g., ws://localhost:3030/ws)
+    /// WebSocket URL (e.g., <ws://localhost:3030/ws>)
     pub url: Option<String>,
     /// The server's HTTP port, which serves its certificate to trust on first connect
     pub http_port: u16,
@@ -249,7 +248,7 @@ pub struct Config {
 }
 
 fn default_server_ipv4() -> Ipv4Addr {
-    Ipv4Addr::new(127, 0, 0, 1)
+    Ipv4Addr::LOCALHOST
 }
 
 fn default_ws_port() -> u16 {
@@ -278,6 +277,7 @@ pub struct Sherpa {
 impl Sherpa {
     /// Build a `Sherpa` with all paths derived from a base directory.
     /// Uses platform-native path separators.
+    #[must_use]
     pub fn from_base_dir(base_dir: String) -> Self {
         let base = Path::new(&base_dir);
         let config_dir = base.join(crate::konst::SHERPA_CONFIG_DIR);
@@ -412,13 +412,13 @@ mod tests {
         assert!(tls.key_path.is_none());
         assert!(tls.auto_generate_cert);
         assert_eq!(tls.cert_validity_days, 365);
-        assert!(tls.san.is_empty());
+        assert_eq!(tls.san, Vec::<String>::new());
     }
 
     #[test]
     fn test_client_config_default() {
         let config = ClientConfig::default();
-        assert_eq!(config.server_ipv4, Ipv4Addr::new(127, 0, 0, 1));
+        assert_eq!(config.server_ipv4, Ipv4Addr::LOCALHOST);
         assert_eq!(config.ws_port, SHERPA_SERVER_WS_PORT);
         assert!(config.server_ipv6.is_none());
     }

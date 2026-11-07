@@ -10,6 +10,10 @@ use gethostname::gethostname;
 use getifaddrs::{Address, Interfaces, getifaddrs};
 
 /// Returns the short hostname of the machine.
+///
+/// # Errors
+///
+/// Fails when the hostname is empty or not UTF-8.
 pub fn get_hostname() -> Result<String> {
     let hostname = gethostname();
     let hostname = hostname
@@ -26,6 +30,7 @@ pub fn get_hostname() -> Result<String> {
 /// Returns the fully qualified domain name (FQDN) of the machine.
 ///
 /// Returns `None` if the FQDN cannot be determined or is the same as the short hostname.
+#[must_use]
 pub fn get_fqdn() -> Option<String> {
     let output = std::process::Command::new("hostname")
         .arg("--fqdn")
@@ -45,6 +50,10 @@ pub fn get_fqdn() -> Option<String> {
 }
 
 /// Returns all non-loopback IPv4 addresses assigned to network interfaces on the host.
+///
+/// # Errors
+///
+/// Fails when the host's interfaces cannot be listed.
 #[cfg(feature = "netinfo")]
 pub fn get_non_loopback_ipv4_addresses() -> Result<Vec<Ipv4Addr>> {
     let interfaces = getifaddrs()
@@ -68,6 +77,10 @@ pub fn get_non_loopback_ipv4_addresses() -> Result<Vec<Ipv4Addr>> {
 }
 
 /// Returns all non-loopback IPv6 addresses assigned to network interfaces on the host.
+///
+/// # Errors
+///
+/// Fails when the host's interfaces cannot be listed.
 #[cfg(feature = "netinfo")]
 pub fn get_non_loopback_ipv6_addresses() -> Result<Vec<Ipv6Addr>> {
     let interfaces = getifaddrs()
@@ -97,14 +110,14 @@ mod tests {
     #[test]
     fn test_get_hostname_returns_non_empty() {
         let hostname = get_hostname().unwrap();
-        assert!(!hostname.is_empty());
+        assert_ne!(hostname, "");
         assert!(!hostname.contains('\n'));
     }
 
     #[test]
     fn test_get_fqdn_returns_non_empty_if_some() {
         if let Some(fqdn) = get_fqdn() {
-            assert!(!fqdn.is_empty());
+            assert_ne!(fqdn, "");
             assert!(!fqdn.contains('\n'));
         }
     }

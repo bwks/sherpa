@@ -1,6 +1,12 @@
 use anyhow::{Result, ensure};
 use tracing::instrument;
 
+/// Check that `key` looks like a Tailscale auth key (`tskey-auth-...`), not an OAuth
+/// credential.
+///
+/// # Errors
+///
+/// Fails when the key is not a Tailscale auth key.
 #[instrument(skip(key), level = "debug")]
 pub fn validate_tailscale_key(key: &str) -> Result<()> {
     ensure!(

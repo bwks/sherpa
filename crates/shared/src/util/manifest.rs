@@ -9,6 +9,10 @@ use tracing::instrument;
 use crate::konst::SHERPA_LAB_MANIFEST_FILE;
 
 /// Load the resolved manifest, retaining read compatibility with older labs.
+///
+/// # Errors
+///
+/// Fails when the lab's saved manifest cannot be read or parsed.
 #[instrument(level = "debug")]
 pub fn load_saved_manifest(lab_dir: &Path) -> Result<Value> {
     match fs::read_to_string(lab_dir.join(SHERPA_LAB_MANIFEST_FILE)) {

@@ -36,6 +36,7 @@ impl fmt::Display for BridgeKind {
     }
 }
 impl BridgeKind {
+    #[must_use]
     pub fn to_vec() -> Vec<BridgeKind> {
         BridgeKind::iter().collect()
     }

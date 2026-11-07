@@ -53,10 +53,6 @@
             <span class="block text-sm font-medium text-muted mb-1">Mgmt Interface</span>
             <span class="block text-base text-heading font-mono">{{ node_config.management_interface }}</span>
         </div>
-        <div class="flex flex-col gap-1">
-            <span class="block text-sm font-medium text-muted mb-1">Dedicated Mgmt Interface</span>
-            <span class="block text-base text-heading font-mono">{% if node_config.dedicated_management_interface %}Yes{% else %}No{% endif %}</span>
-        </div>
     </div>
 </div>
 
@@ -164,21 +160,21 @@
 </div>
 
 <!-- ZTP Configuration -->
-{% if node_config.ztp_enable %}
+{% if node_config.ztp.enable %}
 <div class="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
     <h2 class="text-xl font-semibold text-heading mb-4">Zero-Touch Provisioning</h2>
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">Method</span>
-            <span class="block text-base text-heading font-mono">{{ node_config.ztp_method }}</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.ztp.method }}</span>
         </div>
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">Username</span>
-            <span class="block text-base text-heading font-mono">{% if let Some(user) = node_config.ztp_username %}{{ user }}{% else %}-{% endif %}</span>
+            <span class="block text-base text-heading font-mono">{% if let Some(user) = node_config.ztp.username %}{{ user }}{% else %}-{% endif %}</span>
         </div>
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">Password Auth</span>
-            <span class="block text-base text-heading font-mono">{% if node_config.ztp_password_auth %}Enabled{% else %}Disabled{% endif %}</span>
+            <span class="block text-base text-heading font-mono">{% if node_config.ztp.password_auth %}Enabled{% else %}Disabled{% endif %}</span>
         </div>
     </div>
 </div>

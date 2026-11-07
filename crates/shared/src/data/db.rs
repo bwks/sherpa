@@ -93,16 +93,16 @@ pub struct DbLink {
     pub int_a: String,
     pub int_b: String,
     pub lab: RecordId,
-    /// Tap device name for node_a side (P2p links only).
+    /// Tap device name for `node_a` side (P2p links only).
     #[serde(default)]
     pub tap_a: String,
-    /// Tap device name for node_b side (P2p links only).
+    /// Tap device name for `node_b` side (P2p links only).
     #[serde(default)]
     pub tap_b: String,
-    /// Impairment on traffic from node_a to node_b: netem on `tap_b`'s egress.
+    /// Impairment on traffic from `node_a` to `node_b`: netem on `tap_b`'s egress.
     #[serde(default)]
     pub impairment_a_to_b: LinkImpairment,
-    /// Impairment on traffic from node_b to node_a: netem on `tap_a`'s egress.
+    /// Impairment on traffic from `node_b` to `node_a`: netem on `tap_a`'s egress.
     #[serde(default)]
     pub impairment_b_to_a: LinkImpairment,
 }

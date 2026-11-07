@@ -1,4 +1,5 @@
 /// Replaces chars with dashes.
+#[must_use]
 pub fn dasher(text: &str) -> String {
     text.replace(['/', ':', '.'], "-")
 }

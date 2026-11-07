@@ -50,6 +50,7 @@ impl fmt::Display for CpuModels {
     }
 }
 impl CpuModels {
+    #[must_use]
     pub fn to_vec() -> Vec<CpuModels> {
         CpuModels::iter().collect()
     }
