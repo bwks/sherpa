@@ -7,7 +7,6 @@ use axum::{
 };
 use futures_util::StreamExt;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use tracing::Instrument;
 use uuid::Uuid;
 
@@ -15,7 +14,7 @@ use super::connection::Connection;
 use super::messages::{ClientMessage, ServerMessage};
 use super::rpc;
 use crate::daemon::state::AppState;
-use shared::data::{ConnectedMsg, StatusKind};
+use shared::data::ConnectedMsg;
 
 /// WebSocket upgrade handler
 pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
@@ -110,49 +109,6 @@ async fn handle_client_message(
     let message: ClientMessage = serde_json::from_str(text)?;
 
     match message {
-        ClientMessage::SubscribeLogs => {
-            // Enable log subscription for this connection
-            if let Some(conn) = state.connections.get(&connection.id) {
-                conn.subscribed_logs.store(true, Ordering::Relaxed);
-            }
-            tracing::info!("Client {} subscribed to logs", connection.id);
-
-            // Send confirmation
-            let response = ServerMessage::Status {
-                message: "Subscribed to logs".to_string(),
-                timestamp: jiff::Timestamp::now(),
-                kind: StatusKind::Info,
-                phase: None,
-                progress: None,
-            };
-
-            if let Ok(json) = serde_json::to_string(&response) {
-                connection.send(Message::Text(json.into())).await?;
-            }
-        }
-        ClientMessage::UnsubscribeLogs => {
-            if let Some(conn) = state.connections.get(&connection.id) {
-                conn.subscribed_logs.store(false, Ordering::Relaxed);
-            }
-            tracing::info!("Client {} unsubscribed from logs", connection.id);
-
-            // Send confirmation
-            let response = ServerMessage::Status {
-                message: "Unsubscribed from logs".to_string(),
-                timestamp: jiff::Timestamp::now(),
-                kind: StatusKind::Info,
-                phase: None,
-                progress: None,
-            };
-
-            if let Ok(json) = serde_json::to_string(&response) {
-                connection.send(Message::Text(json.into())).await?;
-            }
-        }
-        ClientMessage::Pong => {
-            // Keepalive response - no action needed
-            tracing::trace!("Received pong from client {}", connection.id);
-        }
         ClientMessage::RpcRequest { id, method, params } => {
             // Handle RPC request asynchronously
             let rpc_span = tracing::info_span!(

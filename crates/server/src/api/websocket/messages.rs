@@ -2,7 +2,6 @@ use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use shared::data::StatusKind;
 use shared::error::RpcErrorCode;
-use std::collections::HashMap;
 
 /// RPC error information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,16 +19,6 @@ pub struct RpcError {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
-    /// Log message
-    #[allow(dead_code)]
-    Log {
-        level: LogLevel,
-        message: String,
-        timestamp: Timestamp,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        context: Option<HashMap<String, String>>,
-    },
-
     /// Status update
     Status {
         message: String,
@@ -49,10 +38,6 @@ pub enum ServerMessage {
         data: Option<serde_json::Value>,
     },
 
-    /// Ping for keepalive
-    #[allow(dead_code)]
-    Ping,
-
     /// RPC response
     RpcResponse {
         id: String,
@@ -61,17 +46,6 @@ pub enum ServerMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<RpcError>,
     },
-}
-
-/// Log levels matching tracing levels
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum LogLevel {
-    Trace,
-    Debug,
-    Info,
-    Warn,
-    Error,
 }
 
 /// Progress information for status updates
@@ -86,15 +60,6 @@ pub struct StatusProgress {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
-    /// Subscribe to log stream
-    SubscribeLogs,
-
-    /// Unsubscribe from log stream
-    UnsubscribeLogs,
-
-    /// Ping response
-    Pong,
-
     /// RPC request
     RpcRequest {
         id: String,
@@ -122,46 +87,13 @@ mod tests {
     }
 
     #[test]
-    fn test_log_message_serialization() {
-        let msg = ServerMessage::Log {
-            level: LogLevel::Info,
-            message: "Test log".to_string(),
-            timestamp: Timestamp::now(),
-            context: None,
-        };
-
-        let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains("\"type\":\"log\""));
-        assert!(json.contains("\"level\":\"info\""));
-        assert!(json.contains("\"message\":\"Test log\""));
-    }
-
-    #[test]
-    fn test_client_message_deserialization() {
-        let json = r#"{"type":"subscribe_logs"}"#;
-        let msg: ClientMessage = serde_json::from_str(json).unwrap();
-        assert!(matches!(msg, ClientMessage::SubscribeLogs));
-    }
-
-    #[test]
-    fn test_log_level_serialization() {
-        let level = LogLevel::Warn;
-        let json = serde_json::to_string(&level).unwrap();
-        assert_eq!(json, "\"warn\"");
-    }
-
-    #[test]
     fn test_rpc_request_deserialization() {
         let json = r#"{"type":"rpc_request","id":"test-001","method":"inspect","params":{"lab_id":"abc123"}}"#;
         let msg: ClientMessage = serde_json::from_str(json).unwrap();
-        match msg {
-            ClientMessage::RpcRequest { id, method, params } => {
-                assert_eq!(id, "test-001");
-                assert_eq!(method, "inspect");
-                assert_eq!(params.get("lab_id").unwrap().as_str().unwrap(), "abc123");
-            }
-            _ => panic!("Expected RpcRequest"),
-        }
+        let ClientMessage::RpcRequest { id, method, params } = msg;
+        assert_eq!(id, "test-001");
+        assert_eq!(method, "inspect");
+        assert_eq!(params.get("lab_id").unwrap().as_str().unwrap(), "abc123");
     }
 
     #[test]

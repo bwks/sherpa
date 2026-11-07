@@ -61,21 +61,6 @@ pub(crate) fn extract_tokens_from_cookie(cookie_header: &str) -> Vec<&str> {
         .collect()
 }
 
-/// Extracts the JWT token from a Cookie header value.
-///
-/// Parses the Cookie header looking for the auth cookie name and returns its value.
-///
-/// # Arguments
-/// * `cookie_header` - The value of the Cookie header
-///
-/// # Returns
-/// The token string if found, None otherwise
-pub fn extract_token_from_cookie(cookie_header: &str) -> Option<String> {
-    extract_tokens_from_cookie(cookie_header)
-        .first()
-        .map(|token| (*token).to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,31 +109,31 @@ mod tests {
     #[test]
     fn test_extract_token_from_cookie_found() {
         let cookie_header = "sherpa_auth=my_token_123; other_cookie=value";
-        let token = extract_token_from_cookie(cookie_header);
+        let tokens = extract_tokens_from_cookie(cookie_header);
 
-        assert_eq!(token, Some("my_token_123".to_string()));
+        assert_eq!(tokens, vec!["my_token_123"]);
     }
 
     #[test]
     fn test_extract_token_from_cookie_only_auth() {
         let cookie_header = "sherpa_auth=just_this_token";
-        let token = extract_token_from_cookie(cookie_header);
+        let tokens = extract_tokens_from_cookie(cookie_header);
 
-        assert_eq!(token, Some("just_this_token".to_string()));
+        assert_eq!(tokens, vec!["just_this_token"]);
     }
 
     #[test]
     fn test_extract_token_from_cookie_not_found() {
         let cookie_header = "other_cookie=value; another=thing";
-        let token = extract_token_from_cookie(cookie_header);
+        let tokens = extract_tokens_from_cookie(cookie_header);
 
-        assert_eq!(token, None);
+        assert!(tokens.is_empty());
     }
 
     #[test]
     fn test_extract_token_from_cookie_empty() {
-        let token = extract_token_from_cookie("");
+        let tokens = extract_tokens_from_cookie("");
 
-        assert_eq!(token, None);
+        assert!(tokens.is_empty());
     }
 }
