@@ -32,15 +32,12 @@ pub async fn delete_image(
     .await
     .context("Failed to look up image in database")?;
 
-    let node_image = match node_image {
-        Some(img) => img,
-        None => {
-            anyhow::bail!(
-                "Image not found for model '{}' with version '{}'. Use 'server image list' to see available images.",
-                request.model,
-                request.version
-            );
-        }
+    let Some(node_image) = node_image else {
+        anyhow::bail!(
+            "Image not found for model '{}' with version '{}'. Use 'server image list' to see available images.",
+            request.model,
+            request.version
+        );
     };
 
     let version_dir = format!(

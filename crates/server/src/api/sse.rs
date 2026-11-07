@@ -24,7 +24,7 @@ fn progress_event(text: &str) -> Option<Event> {
         }
     };
     let html = render_fragment(&DestroyProgressLineFragment {
-        emoji: status_emoji(&status.kind).to_string(),
+        emoji: status_emoji(status.kind).to_string(),
         message: status.message,
     });
     if html.is_empty() {
@@ -46,7 +46,7 @@ fn render_fragment(template: &impl Template) -> String {
 }
 
 /// Map a `StatusKind` to its corresponding emoji character.
-fn status_emoji(kind: &StatusKind) -> &'static str {
+fn status_emoji(kind: StatusKind) -> &'static str {
     match kind {
         StatusKind::Progress => "\u{1F504}",
         StatusKind::Done => "\u{2705}",

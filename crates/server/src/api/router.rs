@@ -71,13 +71,30 @@ async fn embedded_asset_handler(Path(path): Path<String>) -> Response {
 /// Build the Axum router with all API routes
 pub fn build_router() -> Router<AppState> {
     Router::new()
-        // Public HTML routes (authentication pages)
+        .merge(auth_page_routes())
+        .merge(user_page_routes())
+        .merge(admin_page_routes())
+        .merge(public_api_routes())
+        .merge(api_routes())
+        // Apply middleware layers (outermost = first to process request)
+        .layer(TraceLayer::new_for_http())
+        // Serve embedded static files
+        .route("/{*path}", get(embedded_asset_handler))
+}
+
+/// Public HTML routes: the authentication pages.
+fn auth_page_routes() -> Router<AppState> {
+    Router::new()
         .route("/login", get(login_page_handler))
         .route("/login", post(login_form_handler))
         .route("/signup", get(signup_page_handler))
         .route("/signup", post(signup_form_handler))
         .route("/logout", post(logout_handler))
-        // Protected HTML routes (require cookie authentication)
+}
+
+/// Protected HTML routes, which require cookie authentication.
+fn user_page_routes() -> Router<AppState> {
+    Router::new()
         .route("/", get(dashboard_handler))
         .route("/labs", get(labs_list_page_handler))
         .route("/labs/grid", get(get_labs_html))
@@ -118,7 +135,11 @@ pub fn build_router() -> Router<AppState> {
         .route("/profile/password", post(update_password_handler))
         .route("/profile/ssh-keys", post(add_ssh_key_handler))
         .route("/profile/ssh-keys/{index}", delete(delete_ssh_key_handler))
-        // Admin routes (require admin privileges)
+}
+
+/// Admin HTML routes, which require admin privileges.
+fn admin_page_routes() -> Router<AppState> {
+    Router::new()
         .route("/admin/users", get(admin_dashboard_handler))
         .route("/admin/labs", get(admin_labs_list_handler))
         .route("/admin/users/{username}", get(admin_user_edit_handler))
@@ -167,7 +188,11 @@ pub fn build_router() -> Router<AppState> {
             "/admin/images/{model}/edit",
             get(admin_image_edit_page_handler).post(admin_image_update_handler),
         )
-        // Public API endpoints (no authentication required)
+}
+
+/// Public API endpoints, which need no authentication.
+fn public_api_routes() -> Router<AppState> {
+    Router::new()
         .route("/health", get(health_check))
         .route("/cert", get(get_certificate_handler))
         .route("/api/v1/spec", get(api_spec_handler))
@@ -175,7 +200,11 @@ pub fn build_router() -> Router<AppState> {
         .route("/api/docs", get(api_docs_handler))
         .route("/api/v1/auth/login", post(login)) // JSON login for CLI
         .route("/api/v1/auth/validate", post(validate_token_json))
-        // Protected API endpoints (authentication required)
+}
+
+/// Protected API endpoints, which require authentication.
+fn api_routes() -> Router<AppState> {
+    Router::new()
         .route("/api/v1/labs", get(get_labs_json).post(create_lab_json))
         .route("/api/v1/labs/{id}", get(get_lab))
         .route("/api/v1/labs/{id}", delete(delete_lab_json))
@@ -226,10 +255,6 @@ pub fn build_router() -> Router<AppState> {
             "/api/v1/admin/users/{username}/ssh-keys",
             post(add_ssh_key_json).delete(remove_ssh_key_json),
         )
-        // Apply middleware layers (outermost = first to process request)
-        .layer(TraceLayer::new_for_http())
-        // Serve embedded static files
-        .route("/{*path}", get(embedded_asset_handler))
 }
 
 #[cfg(test)]

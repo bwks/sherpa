@@ -121,7 +121,7 @@ pub async fn get_certificate_handler(State(state): State<AppState>) -> impl Into
 
 /// Serve the unified API specification
 ///
-/// GET /api/v1/spec
+/// GET `/api/v1/spec`
 /// Public endpoint - no authentication required
 pub async fn api_spec_handler() -> Result<impl IntoResponse, ApiError> {
     static SPEC_JSON: std::sync::OnceLock<Result<serde_json::Value, String>> =
@@ -138,9 +138,9 @@ pub async fn api_spec_handler() -> Result<impl IntoResponse, ApiError> {
     }
 }
 
-/// Serve the OpenAPI 3.1 specification
+/// Serve the `OpenAPI` 3.1 specification
 ///
-/// GET /api/v1/openapi.json
+/// GET `/api/v1/openapi.json`
 /// Public endpoint - no authentication required
 pub async fn openapi_handler() -> Result<impl IntoResponse, ApiError> {
     static OPENAPI_JSON: std::sync::OnceLock<Result<serde_json::Value, String>> =

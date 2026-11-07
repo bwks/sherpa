@@ -93,7 +93,7 @@ pub(crate) enum KeyFormat {
 }
 
 /// Whether the image's ZTP generator adds the owner's account. Keep this list aligned with the
-/// model branches in the ZTP generators. Cisco FTDv, Talos, the application containers and
+/// model branches in the ZTP generators. Cisco `FTDv`, Talos, the application containers and
 /// unikernels have no way to add an account at boot.
 #[instrument(level = "debug", skip(image))]
 pub(crate) fn supports_guest_account(image: &NodeConfig) -> bool {
@@ -183,7 +183,7 @@ pub(crate) fn provisions_owner(node: &topology::NodeExpanded, image: &NodeConfig
 }
 
 /// The owner keys a model takes, from each vendor's documentation of user public keys.
-fn key_rules(model: &NodeModel) -> KeyRules {
+fn key_rules(model: NodeModel) -> KeyRules {
     let (accepted, max_keys) = match model {
         // IOS `key-hash` and IOS XE take RSA only, two keys per user.
         NodeModel::CiscoIosv
@@ -201,8 +201,7 @@ fn key_rules(model: &NodeModel) -> KeyRules {
         NodeModel::MikrotikChr => (AcceptedKeys::Only(ED25519_OR_RSA_KEY), usize::MAX),
         // A key and a `secondary` key.
         NodeModel::AristaVeos | NodeModel::AristaCeos => (AcceptedKeys::Only(ANY_DEVICE_KEY), 2),
-        NodeModel::ArubaAoscx => (AcceptedKeys::Only(ANY_DEVICE_KEY), 32),
-        NodeModel::NokiaSrlinux => (AcceptedKeys::Only(ANY_DEVICE_KEY), 32),
+        NodeModel::ArubaAoscx | NodeModel::NokiaSrlinux => (AcceptedKeys::Only(ANY_DEVICE_KEY), 32),
         NodeModel::CumulusLinux
         | NodeModel::JuniperVrouter
         | NodeModel::JuniperVswitch
@@ -260,7 +259,7 @@ pub(crate) fn node_account(
     node_name: &str,
     image: &NodeConfig,
 ) -> Result<NodeAccount> {
-    let KeyRules { accepted, max_keys } = key_rules(&image.model);
+    let KeyRules { accepted, max_keys } = key_rules(image.model);
     let mut ssh_keys = Vec::new();
     let mut skipped_keys = Vec::new();
     for key in &account.ssh_keys {
@@ -559,7 +558,7 @@ pub(crate) fn bsd_cloud_init_user(account: &GuestAccount) -> CloudInitUser {
 }
 
 /// The personal account on Windows: a local administrator. cloudbase-init needs a password, so it
-/// gets a random one nobody is told. Its keys go in its own file, which the node's sshd_config
+/// gets a random one nobody is told. Its keys go in its own file, which the node's `sshd_config`
 /// reads.
 #[instrument(level = "debug", skip(account))]
 pub(crate) fn cloudbase_user(account: &GuestAccount) -> CloudbaseInitUser {
@@ -808,7 +807,7 @@ mod tests {
             node_account(&account(&[KEY, RSA_KEY, ECDSA_KEY]), "vm", &image).unwrap();
         assert_eq!(node_account.account.username, "alice");
         assert_eq!(node_account.account.ssh_keys, vec![KEY, RSA_KEY, ECDSA_KEY]);
-        assert!(node_account.skipped_keys.is_empty());
+        assert_eq!(node_account.skipped_keys, [] as [std::string::String; 0]);
     }
 
     #[test]

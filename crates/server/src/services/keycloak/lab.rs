@@ -206,7 +206,7 @@ pub async fn ensure_keycloak_realm(
     Ok(credentials.into_info(node_name))
 }
 
-/// Poll Keycloak until it serves its OpenID configuration, within `timeout`.
+/// Poll Keycloak until it serves its `OpenID` configuration, within `timeout`.
 async fn wait_until_ready(
     client: &KeycloakClient,
     node_name: &str,
@@ -333,10 +333,9 @@ mod tests {
         assert_eq!(names, ["kc01", "kc02"]);
         assert_eq!(keycloaks[0].realm, "sherpa");
         assert_eq!(keycloaks[1].address, "https://172.31.1.24:8443");
-        assert!(
-            read_keycloak_credentials(&dir.path().join("missing"))
-                .unwrap()
-                .is_empty()
+        assert_eq!(
+            read_keycloak_credentials(&dir.path().join("missing")).unwrap(),
+            [] as [shared::data::KeycloakInfo; 0]
         );
     }
 }

@@ -26,6 +26,14 @@ use shared::util::{
 use shared::validators::{validate_ssh_key, validate_username};
 use ssh_key::Algorithm;
 
+/// Set up a new server: its directories, `sherpa.toml`, SSH key pair, libvirt network and
+/// storage pool, database, admin account and first user.
+///
+/// # Errors
+///
+/// Fails when a directory, file or key cannot be written, libvirt cannot create the network or
+/// pool, the database cannot be opened or migrated, or the first user's details are invalid or
+/// cannot be read.
 pub async fn init(
     force: bool,
     server_ipv4: Ipv4Addr,
@@ -222,7 +230,7 @@ async fn create_first_user(db: &Database) -> Result<()> {
 }
 
 fn prompt(label: &str) -> Result<String> {
-    print!("{}: ", label);
+    print!("{label}: ");
     io::stdout().flush().context("Failed to flush stdout")?;
 
     let mut input = String::new();
@@ -238,7 +246,7 @@ fn prompt(label: &str) -> Result<String> {
 }
 
 fn prompt_optional(label: &str) -> Result<String> {
-    print!("{}: ", label);
+    print!("{label}: ");
     io::stdout().flush().context("Failed to flush stdout")?;
 
     let mut input = String::new();
@@ -324,7 +332,7 @@ mod tests {
     #[test]
     fn test_read_ssh_key_accepts_a_key_a_file_or_nothing() {
         assert_eq!(read_ssh_key(TEST_SSH_KEY).unwrap(), vec![TEST_SSH_KEY]);
-        assert!(read_ssh_key("").unwrap().is_empty());
+        assert_eq!(read_ssh_key("").unwrap(), [] as [std::string::String; 0]);
 
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("id_ed25519.pub");

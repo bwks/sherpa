@@ -95,7 +95,7 @@ pub async fn pull_container_image(
 /// and repo it was pulled from. Models without a built-in repo run the repo recorded here.
 fn pulled_node_image(request: &ContainerPullRequest, default: bool) -> NodeConfig {
     let mut config = NodeConfig::get_model(request.model);
-    config.version = request.tag.clone();
+    config.version.clone_from(&request.tag);
     config.repo = Some(request.repo.clone());
     config.default = default;
     config.id = None;

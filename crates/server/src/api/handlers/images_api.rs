@@ -22,7 +22,7 @@ use shared::data::{
 
 /// List images
 ///
-/// GET /api/v1/images
+/// GET `/api/v1/images`
 pub async fn list_images_json(
     _auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -39,7 +39,7 @@ pub async fn list_images_json(
 
 /// Show image details
 ///
-/// GET /api/v1/images/{model}
+/// GET `/api/v1/images/{model}`
 pub async fn show_image_json(
     _auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -66,7 +66,7 @@ pub async fn show_image_json(
 
 /// Import an image (SSE streaming)
 ///
-/// POST /api/v1/images/import
+/// POST `/api/v1/images/import`
 pub async fn import_image_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -88,7 +88,7 @@ pub async fn import_image_json(
 
 /// Upload an image via multipart form data
 ///
-/// POST /api/v1/images/upload
+/// POST `/api/v1/images/upload`
 pub async fn upload_image_multipart(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -112,7 +112,7 @@ pub async fn upload_image_multipart(
 
     tokio::fs::write(&temp_file, &fields.file_data)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to write temp file: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to write temp file: {e}")))?;
 
     let request = ImportRequest {
         model: fields.model,
@@ -131,7 +131,7 @@ pub async fn upload_image_multipart(
         tracing::warn!("Failed to clean up temp file {}: {:?}", temp_path, e);
     }
 
-    let response = result.map_err(|e| ApiError::internal(format!("Import failed: {}", e)))?;
+    let response = result.map_err(|e| ApiError::internal(format!("Import failed: {e}")))?;
 
     Ok(Json(serde_json::to_value(&response).map_err(|e| {
         ApiError::internal(format!("Failed to serialize response: {e}"))
@@ -140,7 +140,7 @@ pub async fn upload_image_multipart(
 
 /// Delete an image
 ///
-/// DELETE /api/v1/images/{model}/{version}
+/// DELETE `/api/v1/images/{model}/{version}`
 pub async fn delete_image_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -165,7 +165,7 @@ pub async fn delete_image_json(
 
 /// Set default image version
 ///
-/// POST /api/v1/images/{model}/{version}/default
+/// POST `/api/v1/images/{model}/{version}/default`
 pub async fn set_default_image_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -190,7 +190,7 @@ pub async fn set_default_image_json(
 
 /// Scan for images
 ///
-/// POST /api/v1/admin/tools/images/scan
+/// POST `/api/v1/admin/tools/images/scan`
 pub async fn scan_images_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -209,7 +209,7 @@ pub async fn scan_images_json(
 
 /// Pull a container image (SSE streaming)
 ///
-/// POST /api/v1/images/pull
+/// POST `/api/v1/images/pull`
 pub async fn pull_image_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -231,7 +231,7 @@ pub async fn pull_image_json(
 
 /// Download a VM image (SSE streaming)
 ///
-/// POST /api/v1/images/download
+/// POST `/api/v1/images/download`
 pub async fn download_image_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,

@@ -9,13 +9,15 @@ use opentelemetry::KeyValue;
 use tracing::instrument;
 
 use shared::data::{
-    ClusterRole, LabNodeActionResponse, NodeActionResult, NodeKind, NodeModel, NodeState, RecordId,
+    ClusterRole, LabNodeActionResponse, NodeActionResult, NodeConfig, NodeKind, NodeModel,
+    NodeState,
 };
 use shared::konst::{VM_SHUTDOWN_POLL, VM_SHUTDOWN_TIMEOUT};
 
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
+use crate::services::lab_nodes::load_target_nodes;
 use crate::services::talos;
 
 /// Why unikernels are powered off without a shutdown request.
@@ -108,31 +110,8 @@ pub async fn shutdown_lab_nodes(
         .clone()
         .ok_or_else(|| anyhow!("Lab missing record ID"))?;
 
-    // Get all nodes for this lab
-    let db_nodes = db::list_nodes_by_lab(&state.db, lab_record_id)
-        .await
-        .context("Failed to list nodes for lab")?;
-
-    // Filter by node_name if provided
-    let target_nodes: Vec<_> = if let Some(name) = node_name {
-        db_nodes.into_iter().filter(|n| n.name == name).collect()
-    } else {
-        db_nodes
-    };
-
-    if let Some(name) = node_name
-        && target_nodes.is_empty()
-    {
-        return Err(anyhow!("Node '{}' not found in lab '{}'", name, lab_id));
-    }
-
-    // Batch-fetch node images to determine kind (VM vs Container)
-    let mut image_ids: Vec<RecordId> = target_nodes.iter().map(|n| n.image.clone()).collect();
-    image_ids.dedup();
-
-    let node_images = db::list_node_images_by_ids(&state.db, image_ids)
-        .await
-        .context("Failed to batch fetch node images")?;
+    let (target_nodes, node_images) =
+        load_target_nodes(&state.db, lab_record_id, lab_id, node_name).await?;
 
     // Talos cluster controllers stop last: workers drain through the Kubernetes API, which
     // runs on the controllers.
@@ -155,31 +134,7 @@ pub async fn shutdown_lab_nodes(
             continue;
         };
 
-        let mut membership = None;
-        let mut lookup_error = None;
-        if node_image.model == NodeModel::TalosLinux {
-            match talos::find_member_cluster(lab_id, &node.name) {
-                Ok(found) => membership = found,
-                Err(error) => lookup_error = Some(format!("{error:#}")),
-            }
-        }
-        let role = membership.as_ref().map(|(_, role, _)| *role);
-        let route = shutdown_route(&node_image.kind, node_image.model, role);
-        let method = match (route, membership, lookup_error) {
-            (_, _, Some(error)) => ShutdownMethod::Unavailable(format!(
-                "could not load the node's Talos cluster: {error}"
-            )),
-            (Route::TalosApi, Some((cluster, _, address)), None) => ShutdownMethod::TalosApi {
-                cluster: Box::new(cluster),
-                address,
-            },
-            (Route::TalosApi, None, None) => {
-                ShutdownMethod::Unavailable("no Talos cluster found for the node".to_string())
-            }
-            (Route::Acpi, _, None) => ShutdownMethod::Acpi,
-            (Route::PowerOff(reason), _, None) => ShutdownMethod::PowerOff(reason),
-            (Route::Pause, _, None) => ShutdownMethod::Pause,
-        };
+        let (method, role) = shutdown_method(lab_id, &node.name, node_image);
 
         let node_name = node.name.clone();
         let node_id = node.id.clone();
@@ -217,17 +172,7 @@ pub async fn shutdown_lab_nodes(
     if node_name.is_none()
         && let Some(id) = db_lab.tailscale_container_id.as_deref()
     {
-        let stopped =
-            container::tailscale::stop_gateway(&state.docker, id, lab_id, &state.config.tailscale)
-                .await;
-        results.push(NodeActionResult {
-            name: "Tailscale gateway".into(),
-            success: stopped.is_ok(),
-            message: match stopped {
-                Ok(()) => "Stopped".into(),
-                Err(error) => format!("Unable to stop Tailscale gateway: {error:#}"),
-            },
-        });
+        results.push(stop_tailscale_gateway(state, id, lab_id).await);
     }
     let tailscale = super::tailscale::inspect(state, &db_lab).await;
 
@@ -237,6 +182,65 @@ pub async fn shutdown_lab_nodes(
     );
 
     Ok(LabNodeActionResponse { results, tailscale })
+}
+
+/// How to stop the node, and its Talos cluster role. A Talos node's cluster is looked up; when
+/// that fails, or a cluster node has no cluster, the node is powered off with the reason.
+fn shutdown_method(
+    lab_id: &str,
+    node_name: &str,
+    node_image: &NodeConfig,
+) -> (ShutdownMethod, Option<ClusterRole>) {
+    let mut membership = None;
+    let mut lookup_error = None;
+    if node_image.model == NodeModel::TalosLinux {
+        match talos::find_member_cluster(lab_id, node_name) {
+            Ok(found) => membership = found,
+            Err(error) => lookup_error = Some(format!("{error:#}")),
+        }
+    }
+    let role = membership.as_ref().map(|(_, role, _)| *role);
+    let route = shutdown_route(&node_image.kind, node_image.model, role);
+    let method = match (route, membership, lookup_error) {
+        (_, _, Some(error)) => {
+            ShutdownMethod::Unavailable(format!("could not load the node's Talos cluster: {error}"))
+        }
+        (Route::TalosApi, Some((cluster, _, address)), None) => ShutdownMethod::TalosApi {
+            cluster: Box::new(cluster),
+            address,
+        },
+        (Route::TalosApi, None, None) => {
+            ShutdownMethod::Unavailable("no Talos cluster found for the node".to_string())
+        }
+        (Route::Acpi, _, None) => ShutdownMethod::Acpi,
+        (Route::PowerOff(reason), _, None) => ShutdownMethod::PowerOff(reason),
+        (Route::Pause, _, None) => ShutdownMethod::Pause,
+    };
+    (method, role)
+}
+
+/// Stop the lab's Tailscale gateway container, as a node result.
+#[instrument(skip(state), fields(%lab_id), level = "debug")]
+async fn stop_tailscale_gateway(
+    state: &AppState,
+    container_id: &str,
+    lab_id: &str,
+) -> NodeActionResult {
+    let stopped = container::tailscale::stop_gateway(
+        &state.docker,
+        container_id,
+        lab_id,
+        &state.config.tailscale,
+    )
+    .await;
+    NodeActionResult {
+        name: "Tailscale gateway".into(),
+        success: stopped.is_ok(),
+        message: match stopped {
+            Ok(()) => "Stopped".into(),
+            Err(error) => format!("Unable to stop Tailscale gateway: {error:#}"),
+        },
+    }
 }
 
 /// How `down` stops a node, decided from its kind, model and Talos cluster role.
@@ -309,7 +313,7 @@ fn check_domain(conn: &virt::connect::Connect, device_name: &str, node_name: &st
             return DomainCheck::Done(NodeActionResult {
                 name: node_name.to_string(),
                 success: false,
-                message: format!("Domain not found: {}", e),
+                message: format!("Domain not found: {e}"),
             });
         }
     };
@@ -323,7 +327,7 @@ fn check_domain(conn: &virt::connect::Connect, device_name: &str, node_name: &st
         Err(e) => DomainCheck::Done(NodeActionResult {
             name: node_name.to_string(),
             success: false,
-            message: format!("Failed to check state: {}", e),
+            message: format!("Failed to check state: {e}"),
         }),
     }
 }
@@ -383,12 +387,12 @@ async fn shutdown_vm(
         Ok(Err(e)) => NodeActionResult {
             name: node_name.to_string(),
             success: false,
-            message: format!("Libvirt error: {}", e),
+            message: format!("Libvirt error: {e}"),
         },
         Err(e) => NodeActionResult {
             name: node_name.to_string(),
             success: false,
-            message: format!("Task panicked: {}", e),
+            message: format!("Task panicked: {e}"),
         },
     }
 }

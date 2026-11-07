@@ -107,27 +107,21 @@ pub struct SignupForm {
 
 /// Display login page
 ///
-/// GET /login
+/// GET `/login`
 ///
 /// Shows the login form. If user is already authenticated (valid cookie),
 /// redirects to dashboard.
 ///
 /// Query parameters:
-/// - `error`: Optional error code (session_required, session_expired, logout_success)
+/// - `error`: Optional error code (`session_required`, `session_expired`, `logout_success`)
 /// - `message`: Optional informational message
 pub async fn login_page_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
-    let mut error = params
-        .get("error")
-        .map(|s| s.to_string())
-        .unwrap_or_default();
-    let message = params
-        .get("message")
-        .map(|s| s.to_string())
-        .unwrap_or_default();
+    let mut error = params.get("error").cloned().unwrap_or_default();
+    let message = params.get("message").cloned().unwrap_or_default();
 
     let cookie_header = headers
         .get(header::COOKIE)
@@ -166,7 +160,7 @@ pub async fn login_page_handler(
 
 /// Process login form submission
 ///
-/// POST /login
+/// POST `/login`
 ///
 /// Validates credentials and sets authentication cookie on success.
 /// Returns HTMX-compatible response (either error HTML or redirect header).
@@ -174,7 +168,7 @@ pub async fn login_page_handler(
 /// Form fields:
 /// - username: User's username
 /// - password: User's password
-/// - remember_me: Optional checkbox (extends cookie to 30 days)
+/// - `remember_me`: Optional checkbox (extends cookie to 30 days)
 ///
 /// Success: Returns HX-Redirect header to dashboard
 /// Failure: Returns error HTML fragment for HTMX swap
@@ -259,7 +253,7 @@ pub async fn login_form_handler(
 
 /// Display signup page
 ///
-/// GET /signup
+/// GET `/signup`
 ///
 /// Shows the signup form with password requirements.
 pub async fn signup_page_handler(State(state): State<AppState>) -> Response {
@@ -271,7 +265,7 @@ pub async fn signup_page_handler(State(state): State<AppState>) -> Response {
 
 /// Process signup form submission
 ///
-/// POST /signup
+/// POST `/signup`
 ///
 /// Creates a new user account with the provided credentials.
 /// All self-registered users are created as non-admin.
@@ -279,15 +273,15 @@ pub async fn signup_page_handler(State(state): State<AppState>) -> Response {
 /// Form fields:
 /// - username: Desired username (3–32 lowercase letters, digits, `_` or `-`; not reserved)
 /// - password: Desired password (must meet strength requirements)
-/// - confirm_password: Password confirmation (must match password)
+/// - `confirm_password`: Password confirmation (must match password)
 ///
 /// Success: Creates user, sets auth cookie, returns HX-Redirect to dashboard
 /// Failure: Returns error HTML fragment for HTMX swap
 ///
 /// # Validation
 /// - Passwords must match
-/// - Username must meet format requirements (handled by db::create_user)
-/// - Password must meet strength requirements (handled by db::create_user)
+/// - Username must meet format requirements (handled by `db::create_user`)
+/// - Password must meet strength requirements (handled by `db::create_user`)
 /// - Username must be unique (enforced by database)
 pub async fn signup_form_handler(
     State(state): State<AppState>,
@@ -435,15 +429,12 @@ fn extract_validation_message(error_str: &str, context: &str) -> String {
     }
 
     // Fallback: return a generic message
-    format!(
-        "{} validation failed. Please check the requirements.",
-        context
-    )
+    format!("{context} validation failed. Please check the requirements.")
 }
 
 /// Logout handler
 ///
-/// POST /logout
+/// POST `/logout`
 ///
 /// Clears the authentication cookie and redirects to login page.
 pub async fn logout_handler() -> impl IntoResponse {

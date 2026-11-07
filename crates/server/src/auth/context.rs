@@ -10,7 +10,7 @@ pub struct AuthContext {
 }
 
 impl AuthContext {
-    /// Create a new AuthContext
+    /// Create a new `AuthContext`
     pub fn new(username: String, is_admin: bool) -> Self {
         Self { username, is_admin }
     }

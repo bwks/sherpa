@@ -23,7 +23,7 @@ impl TestHttpClient {
 
         Self {
             client,
-            base_url: format!("http://{}", addr),
+            base_url: format!("http://{addr}"),
             token: None,
         }
     }

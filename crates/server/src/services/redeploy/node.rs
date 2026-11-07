@@ -106,7 +106,7 @@ pub async fn redeploy_node(
     let response = RedeployResponse {
         success: true,
         node_name: node_name.clone(),
-        message: format!("Node '{}' redeployed successfully", node_name),
+        message: format!("Node '{node_name}' redeployed successfully"),
         total_time_secs: total_time,
     };
 
@@ -125,13 +125,12 @@ fn lab_lock(lab_id: &str) -> Arc<Mutex<()>> {
     let locks = REDEPLOY_LOCKS.get_or_init(DashMap::new);
     locks.retain(|_, lock| lock.strong_count() > 0);
     let mut entry = locks.entry(lab_id.to_owned()).or_default();
-    match entry.upgrade() {
-        Some(lock) => lock,
-        None => {
-            let lock = Arc::new(Mutex::new(()));
-            *entry = Arc::downgrade(&lock);
-            lock
-        }
+    if let Some(lock) = entry.upgrade() {
+        lock
+    } else {
+        let lock = Arc::new(Mutex::new(()));
+        *entry = Arc::downgrade(&lock);
+        lock
     }
 }
 

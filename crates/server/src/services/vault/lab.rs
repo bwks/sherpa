@@ -44,8 +44,8 @@ impl VaultCredentials {
 
 /// Whether Sherpa initialises and unseals a node: a Vault node running the config Sherpa
 /// generates. A user's own config may not serve the API over TLS, so it is left to the user.
-pub fn sherpa_initialises_vault(model: &NodeModel, own_config: bool) -> bool {
-    *model == NodeModel::HashicorpVault && !own_config
+pub fn sherpa_initialises_vault(model: NodeModel, own_config: bool) -> bool {
+    model == NodeModel::HashicorpVault && !own_config
 }
 
 /// The lab directory where Sherpa keeps its Vault nodes' credentials.
@@ -220,9 +220,9 @@ mod tests {
 
     #[test]
     fn only_vault_nodes_with_the_generated_config_are_initialised() {
-        assert!(sherpa_initialises_vault(&NodeModel::HashicorpVault, false));
-        assert!(!sherpa_initialises_vault(&NodeModel::HashicorpVault, true));
-        assert!(!sherpa_initialises_vault(&NodeModel::AristaCeos, false));
+        assert!(sherpa_initialises_vault(NodeModel::HashicorpVault, false));
+        assert!(!sherpa_initialises_vault(NodeModel::HashicorpVault, true));
+        assert!(!sherpa_initialises_vault(NodeModel::AristaCeos, false));
     }
 
     #[test]
@@ -249,10 +249,9 @@ mod tests {
         let names: Vec<&str> = vaults.iter().map(|vault| vault.name.as_str()).collect();
         assert_eq!(names, ["vault01", "vault02"]);
         assert_eq!(vaults[1].root_token, "hvs.two");
-        assert!(
-            read_vault_credentials(&dir.path().join("missing"))
-                .unwrap()
-                .is_empty()
+        assert_eq!(
+            read_vault_credentials(&dir.path().join("missing")).unwrap(),
+            [] as [shared::data::VaultInfo; 0]
         );
     }
 }

@@ -20,7 +20,7 @@ use shared::validators::validate_username;
 
 /// Create a user (admin only)
 ///
-/// POST /api/v1/admin/users
+/// POST `/api/v1/admin/users`
 pub async fn create_user_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -50,7 +50,7 @@ pub async fn create_user_json(
 
 /// List users (admin only)
 ///
-/// GET /api/v1/admin/users
+/// GET `/api/v1/admin/users`
 pub async fn list_users_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -75,7 +75,7 @@ pub async fn list_users_json(
 
 /// Delete a user (admin only)
 ///
-/// DELETE /api/v1/admin/users/{username}
+/// DELETE `/api/v1/admin/users/{username}`
 ///
 /// Refuses self-delete and the last admin (403), and users who own labs (409).
 pub async fn delete_user_json(
@@ -91,7 +91,7 @@ pub async fn delete_user_json(
 
 /// Change a user's password
 ///
-/// POST /api/v1/admin/users/{username}/password
+/// POST `/api/v1/admin/users/{username}/password`
 ///
 /// Changing your own password needs `current_password`; see `user_password::change_password`.
 pub async fn change_password_json(
@@ -114,7 +114,7 @@ pub async fn change_password_json(
 
 /// Add an SSH public key to a user
 ///
-/// POST /api/v1/admin/users/{username}/ssh-keys
+/// POST `/api/v1/admin/users/{username}/ssh-keys`
 pub async fn add_ssh_key_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -130,7 +130,7 @@ pub async fn add_ssh_key_json(
 
 /// Remove an SSH public key, given as the key or its SHA256 fingerprint, from a user
 ///
-/// DELETE /api/v1/admin/users/{username}/ssh-keys
+/// DELETE `/api/v1/admin/users/{username}/ssh-keys`
 pub async fn remove_ssh_key_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -146,7 +146,7 @@ pub async fn remove_ssh_key_json(
 
 /// Get user info
 ///
-/// GET /api/v1/admin/users/{username}
+/// GET `/api/v1/admin/users/{username}`
 pub async fn get_user_info_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,

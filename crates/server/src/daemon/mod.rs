@@ -1,6 +1,6 @@
 pub mod manager;
 pub mod metrics;
-pub mod pidfile;
-pub mod server;
+pub(crate) mod pidfile;
+pub(crate) mod server;
 pub mod state;
-pub mod storage;
+pub(crate) mod storage;

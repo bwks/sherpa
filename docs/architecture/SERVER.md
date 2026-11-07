@@ -59,6 +59,8 @@ The important boundary is between handlers and services. Handlers know about tra
 
 The binary entry point is `crates/server/src/main.rs`. Its job is intentionally small: initialize rustls, detect the internal background-child mode, parse the `sherpad` CLI, and dispatch to daemon management.
 
+`sherpad` is also a library, for `main.rs` and the integration tests (`crates/server/tests/integration/`, one test binary). It exports only what they use: `cli`, `init`, `doctor`, `daemon::{manager, metrics, state}`, `api::build_router`, `api::websocket::{connection, handler}` and `auth::cookies`. Everything else is `pub(crate)`, so the compiler reports unused code and the pedantic API lints apply only to that surface.
+
 ```mermaid
 flowchart TB
     start["sherpad process start"] --> mainrs["main.rs"]
@@ -112,7 +114,7 @@ flowchart TB
     signals --> envoverrides["apply env overrides<br/>SHERPA_SERVER_IPV4<br/>SHERPA_SERVER_IPV6<br/>SHERPA_SERVER_WS_PORT<br/>SHERPA_SERVER_HTTP_PORT"]
     envoverrides --> jwt
     subgraph appstate["AppState::new(config, metrics)"]
-        jwt["load/generate JWT secret"] --> database["open the database file"] --> schema["apply DB schema"] --> seed["optionally seed admin user"] --> storage["restrict lab and database storage<br/>(daemon::storage::secure_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
+        jwt["load/generate JWT secret<br/>(a new one written 0600 in a 0700 directory)"] --> database["open the database file"] --> schema["apply DB schema"] --> seed["optionally seed admin user"] --> storage["restrict lab and database storage<br/>(daemon::storage::secure_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
     end
     registry --> cancel["create CancellationToken for background services"]
     cancel --> scanner["if scanner enabled:<br/>spawn services::scanner::run_scanner(...)"]
@@ -128,6 +130,8 @@ flowchart TB
     bindplain --> plain6["optionally spawn IPv6 listener"]
     plain6 --> serveplain["serve with graceful shutdown future"]
 ```
+
+In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), `apply_env_overrides`, builds `AppState` and the scanner, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
 
 Shutdown uses SIGINT/SIGTERM. The handlers are registered once, before the server binds any listener, so a registration failure stops startup with an error instead of leaving a server that cannot shut down gracefully. On shutdown, the server cancels the background-service token. With TLS, it also asks the `axum_server::Handle` to perform graceful shutdown with a short timeout. The OpenTelemetry guard flushes traces/metrics when dropped.
 
@@ -454,6 +458,7 @@ The services are not symmetrical. Some are short CRUD-style orchestrators, and s
 | | `redeploy/` | replace one node inside an existing lab |
 | | `down.rs` | stop all nodes or one node |
 | | `resume.rs` | start all nodes or one node |
+| | `lab_nodes.rs` | the lab's nodes and images that `down` and `resume` act on |
 | Read/model services | `inspect.rs` | read DB + runtime data and build lab inspection output |
 | | `list_labs.rs` | list lab summaries for a user |
 | | `download.rs` | package saved lab files for client download |
@@ -485,7 +490,7 @@ building its domain, and starting it. Arguments that travel together are grouped
 
 | File | What it holds |
 |---|---|
-| `lab.rs` | `up_lab`, setup (phase 1), and rolling back a failed `up` |
+| `lab.rs` | `up_lab`: the request checks, setup (phase 1) and planning (phase 2); `LabUp`, whose methods run phases 3 to 13 in groups (records, lab network, links, nodes, readiness) and build the response; rolling back a failed `up` |
 | `context.rs` | `LabBuild` |
 | `plan.rs` | phase 2: validation against the server, and the `LabPlan` |
 | `records.rs` | phase 3: the lab and node records, interfaces, per-node networks |
@@ -650,6 +655,11 @@ before it wrote the lab info file.
 
 When any resource fails to go, `cleanup_lab_metadata` keeps the lab's database record and
 folder, so its owner can destroy it again; both are removed only once everything else is gone.
+
+The five teardown steps are `destroy::destroy_lab_resources` (`destroy_compute`: containers,
+secret files, VMs and disks; then `destroy_networking`: Docker networks, libvirt networks,
+interfaces). `clean` (admin clean, and the rollback of a failed `up`) runs the same function
+without a progress sender, so both remove exactly the same resources.
 
 ### Operation lifecycle and stopping operations
 
@@ -864,7 +874,7 @@ The scanner is reconciliation, not orchestration. It should not create or destro
 
 `api/router.rs` builds a single Axum router. It attaches HTTP tracing, embedded static asset handling, and the route table. It has no CORS layer; see `API.md`. The WebSocket route is added in `daemon/server.rs` after `build_router()` returns.
 
-`build_router()` contents:
+`build_router()` merges one router per area (`auth_page_routes`, `user_page_routes`, `admin_page_routes`, `public_api_routes`, `api_routes`), then adds the trace layer and, after it, the static asset route:
 
 | Group | Routes |
 |---|---|

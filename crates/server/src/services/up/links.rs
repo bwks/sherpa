@@ -102,7 +102,7 @@ pub(super) fn find_interface_link(
                 peer_interface: link.int_b.clone(),
                 peer_interface_index: link.int_b_idx,
                 peer_side: data::PeerSide::B,
-            }))
+            }));
         } else if link.node_b == node_name && link.int_b == *interface_name {
             interface_data = Some(data::NodeInterface::Peer(data::PeerInterface {
                 link_index: link.link_idx,
@@ -116,7 +116,7 @@ pub(super) fn find_interface_link(
                 peer_interface: link.int_a.clone(),
                 peer_interface_index: link.int_a_idx,
                 peer_side: data::PeerSide::A,
-            }))
+            }));
         }
     }
     interface_data
@@ -128,12 +128,12 @@ pub(super) fn find_bridge_interface(
     bridge_connections: &[topology::BridgeDetailed],
 ) -> Option<data::NodeInterface> {
     let mut interface_data = None;
-    for bridge in bridge_connections.iter() {
-        for link in bridge.links.iter() {
+    for bridge in bridge_connections {
+        for link in &bridge.links {
             if link.node_name == node_name && link.interface_name == *interface_name {
                 interface_data = Some(data::NodeInterface::Bridge(data::BridgeInterface {
                     name: bridge.bridge_name.clone(),
-                }))
+                }));
             }
         }
     }
@@ -160,12 +160,7 @@ pub(super) async fn create_links(
     lab_node_data: &[data::LabNodeData],
     node_setup_data: &[data::NodeSetupData],
 ) -> Result<LinkRecords> {
-    let LabBuild {
-        lab_id,
-        db,
-        progress,
-        ..
-    } = *build;
+    let lab_id = build.lab_id;
 
     tracing::info!(
         lab_id = %lab_id,
@@ -181,114 +176,55 @@ pub(super) async fn create_links(
     let mut p2p_container_names: HashSet<String> = HashSet::new();
 
     for (idx, link) in links_detailed.iter().enumerate() {
-        let node_a = lab_node_data
-            .iter()
-            .find(|n| n.name == link.node_a)
-            .ok_or_else(|| anyhow!("Node not found: {}", link.node_a))?;
-
-        let node_b = lab_node_data
-            .iter()
-            .find(|n| n.name == link.node_b)
-            .ok_or_else(|| anyhow!("Node not found: {}", link.node_b))?;
-
-        let link_kind = data::BridgeKind::P2p;
-
-        let tap_a = format!("{}a{}-{}", TAP_PREFIX, link.link_idx, lab_id);
-        let tap_b = format!("{}b{}-{}", TAP_PREFIX, link.link_idx, lab_id);
-
-        // The manifest's impairment applies to both directions.
-        let impairment = link
-            .impairment
-            .as_ref()
-            .map(LinkImpairment::try_from)
-            .transpose()?
-            .unwrap_or_default();
-        db::create_link(
-            db,
-            data::DbLink {
-                id: None,
-                index: link.link_idx,
-                kind: link_kind.clone(),
-                node_a: db::get_node_id(&node_a.record)?,
-                node_b: db::get_node_id(&node_b.record)?,
-                int_a: link.int_a.clone(),
-                int_b: link.int_b.clone(),
-                lab: lab_record_id.clone(),
-                tap_a: tap_a.clone(),
-                tap_b: tap_b.clone(),
-                impairment_a_to_b: impairment,
-                impairment_b_to_a: impairment,
-            },
-        )
-        .await?;
-
-        lab_link_data.push(data::LabLinkData {
-            index: link.link_idx,
-            kind: link_kind.clone(),
-            node_a: node_a.record.clone(),
-            node_b: node_b.record.clone(),
-            int_a: link.int_a.clone(),
-            int_b: link.int_b.clone(),
-            tap_a: tap_a.clone(),
-            tap_b: tap_b.clone(),
-        });
-
-        let _ = progress.send_status(
-            format!(
-                "Creating link #{} ({}) - {}::{} <-> {}::{}",
-                idx, link_kind, link.node_a, link.int_a, link.node_b, link.int_b
-            ),
-            StatusKind::Progress,
-        );
-
-        tracing::info!(
-            lab_id = %lab_id,
-            link_num = idx,
-            link_kind = %link_kind,
-            node_a = %link.node_a,
-            int_a = %link.int_a,
-            node_b = %link.node_b,
-            int_b = %link.int_b,
-            "Creating point-to-point link"
-        );
+        let node_a = lab_node(lab_node_data, &link.node_a)?;
+        let node_b = lab_node(lab_node_data, &link.node_b)?;
+        let link_data = record_link(build, lab_record_id, idx, link, node_a, node_b).await?;
 
         // P2p link: for VMs, libvirt creates the tap devices via type='ethernet'.
         // A container end is a veth created into the container's netns once it has
         // started, its host end named as the tap. eBPF redirect is attached once both
         // ends exist.
-
-        if node_a.kind == data::NodeKind::Container {
+        let ends = [
+            (
+                node_a,
+                &link.node_a,
+                &link.int_a,
+                link.int_a_idx,
+                link.node_a_model,
+                &link_data.tap_a,
+            ),
+            (
+                node_b,
+                &link.node_b,
+                &link.int_b,
+                link.int_b_idx,
+                link.node_b_model,
+                &link_data.tap_b,
+            ),
+        ];
+        for (node, node_name, interface, interface_idx, node_model, tap) in ends {
+            if node.kind != data::NodeKind::Container {
+                continue;
+            }
             p2p_container_veths.push(P2pContainerVeth {
-                node_name: link.node_a.clone(),
-                host_veth: tap_a.clone(),
-                host_alias: format!("{}-p2p-host-{}::{}", lab_id, link.node_a, link.int_a),
-                interface_idx: link.int_a_idx,
-                node_model: link.node_a_model,
+                node_name: node_name.clone(),
+                host_veth: tap.clone(),
+                host_alias: format!("{lab_id}-p2p-host-{node_name}::{interface}"),
+                interface_idx,
+                node_model,
                 admin_down: false,
                 bridge: None,
             });
-            p2p_container_names.insert(link.node_a.clone());
-        }
-
-        if node_b.kind == data::NodeKind::Container {
-            p2p_container_veths.push(P2pContainerVeth {
-                node_name: link.node_b.clone(),
-                host_veth: tap_b.clone(),
-                host_alias: format!("{}-p2p-host-{}::{}", lab_id, link.node_b, link.int_b),
-                interface_idx: link.int_b_idx,
-                node_model: link.node_b_model,
-                admin_down: false,
-                bridge: None,
-            });
-            p2p_container_names.insert(link.node_b.clone());
+            p2p_container_names.insert(node_name.clone());
         }
 
         tracing::info!(
             lab_id = %lab_id,
-            tap_a = %tap_a,
-            tap_b = %tap_b,
+            tap_a = %link_data.tap_a,
+            tap_b = %link_data.tap_b,
             "P2p link registered — eBPF redirect will attach after node creation"
         );
+        lab_link_data.push(link_data);
     }
 
     tracing::info!(
@@ -297,9 +233,116 @@ pub(super) async fn create_links(
         "All point-to-point links created"
     );
 
-    // Record veths for disabled interfaces on P2p containers.
-    // P2p containers handle ALL data interfaces via veth+netns (not Docker networks)
-    // to avoid ethN naming conflicts between Docker and the container's init process.
+    p2p_container_veths.extend(disabled_container_veths(
+        lab_id,
+        node_setup_data,
+        lab_node_data,
+        &p2p_container_names,
+    )?);
+
+    Ok(LinkRecords {
+        lab_link_data,
+        p2p_container_veths,
+        p2p_container_names,
+    })
+}
+
+/// The lab node called `name`.
+fn lab_node<'a>(
+    lab_node_data: &'a [data::LabNodeData],
+    name: &str,
+) -> Result<&'a data::LabNodeData> {
+    lab_node_data
+        .iter()
+        .find(|n| n.name == name)
+        .ok_or_else(|| anyhow!("Node not found: {name}"))
+}
+
+/// Record one P2p link, numbered `idx` in the manifest, with its taps and the manifest's
+/// impairment in both directions.
+#[instrument(skip_all, fields(lab_id = %build.lab_id, link = idx), level = "debug")]
+async fn record_link(
+    build: &LabBuild<'_>,
+    lab_record_id: &RecordId,
+    idx: usize,
+    link: &topology::LinkDetailed,
+    node_a: &data::LabNodeData,
+    node_b: &data::LabNodeData,
+) -> Result<data::LabLinkData> {
+    let lab_id = build.lab_id;
+    let link_kind = data::BridgeKind::P2p;
+
+    let tap_a = format!("{}a{}-{}", TAP_PREFIX, link.link_idx, lab_id);
+    let tap_b = format!("{}b{}-{}", TAP_PREFIX, link.link_idx, lab_id);
+
+    // The manifest's impairment applies to both directions.
+    let impairment = link
+        .impairment
+        .as_ref()
+        .map(LinkImpairment::try_from)
+        .transpose()?
+        .unwrap_or_default();
+    db::create_link(
+        build.db,
+        data::DbLink {
+            id: None,
+            index: link.link_idx,
+            kind: link_kind.clone(),
+            node_a: db::get_node_id(&node_a.record)?,
+            node_b: db::get_node_id(&node_b.record)?,
+            int_a: link.int_a.clone(),
+            int_b: link.int_b.clone(),
+            lab: lab_record_id.clone(),
+            tap_a: tap_a.clone(),
+            tap_b: tap_b.clone(),
+            impairment_a_to_b: impairment,
+            impairment_b_to_a: impairment,
+        },
+    )
+    .await?;
+
+    let _ = build.progress.send_status(
+        format!(
+            "Creating link #{} ({}) - {}::{} <-> {}::{}",
+            idx, link_kind, link.node_a, link.int_a, link.node_b, link.int_b
+        ),
+        StatusKind::Progress,
+    );
+
+    tracing::info!(
+        lab_id = %lab_id,
+        link_num = idx,
+        link_kind = %link_kind,
+        node_a = %link.node_a,
+        int_a = %link.int_a,
+        node_b = %link.node_b,
+        int_b = %link.int_b,
+        "Creating point-to-point link"
+    );
+
+    Ok(data::LabLinkData {
+        index: link.link_idx,
+        kind: link_kind,
+        node_a: node_a.record.clone(),
+        node_b: node_b.record.clone(),
+        int_a: link.int_a.clone(),
+        int_b: link.int_b.clone(),
+        tap_a,
+        tap_b,
+    })
+}
+
+/// A veth for each disabled interface of the containers on a P2p link. Those containers take
+/// every data interface as a veth in their netns, not a Docker network, so Docker and the
+/// container's init cannot both name `ethN`. A disabled interface's veth stays down, with no
+/// eBPF.
+fn disabled_container_veths(
+    lab_id: &str,
+    node_setup_data: &[data::NodeSetupData],
+    lab_node_data: &[data::LabNodeData],
+    p2p_container_names: &HashSet<String>,
+) -> Result<Vec<P2pContainerVeth>> {
+    let mut veths = vec![];
     for nsd in node_setup_data {
         if !p2p_container_names.contains(&nsd.name) {
             continue;
@@ -313,10 +356,9 @@ pub(super) async fn create_links(
             if !matches!(iface.data, data::NodeInterface::Disabled) {
                 continue;
             }
-            // A disabled interface's veth stays down, with no eBPF.
             // Format: cd{node_idx}i{iface_idx}-{lab_id}, compact to stay within Linux's
             // 15-char interface name limit.
-            p2p_container_veths.push(P2pContainerVeth {
+            veths.push(P2pContainerVeth {
                 node_name: nsd.name.clone(),
                 host_veth: format!(
                     "{CONTAINER_HOST_VETH_PREFIX}{}i{}-{lab_id}",
@@ -330,12 +372,7 @@ pub(super) async fn create_links(
             });
         }
     }
-
-    Ok(LinkRecords {
-        lab_link_data,
-        p2p_container_veths,
-        p2p_container_names,
-    })
+    Ok(veths)
 }
 
 /// The P2p link ends that exist, by name, and the links whose eBPF redirect is attached. Links

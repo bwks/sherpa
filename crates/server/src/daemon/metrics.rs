@@ -7,7 +7,7 @@ use shared::konst::{
 /// Holds all OpenTelemetry metric instruments.
 ///
 /// All instruments are internally reference-counted, so this struct is cheap
-/// to clone and safe to share across tasks.  When OTel is disabled a noop
+/// to clone and safe to share across tasks.  When `OTel` is disabled a noop
 /// meter is used — every recording call becomes a no-op with zero overhead.
 #[derive(Clone)]
 pub struct Metrics {
@@ -22,7 +22,8 @@ pub struct Metrics {
 }
 
 impl Metrics {
-    /// Create instruments from an active meter (used when OTel is enabled).
+    /// Create instruments from an active meter (used when `OTel` is enabled).
+    #[must_use]
     pub fn new(meter: &Meter) -> Self {
         let ws_connections = meter
             .i64_up_down_counter(OTEL_METRIC_WS_CONNECTIONS)
@@ -55,7 +56,8 @@ impl Metrics {
         }
     }
 
-    /// Create noop instruments (used when OTel is disabled).
+    /// Create noop instruments (used when `OTel` is disabled).
+    #[must_use]
     pub fn noop() -> Self {
         let meter = opentelemetry::global::meter("noop");
         Self::new(&meter)

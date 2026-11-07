@@ -108,14 +108,12 @@ async fn inspect_lab_inner(
 
     // Get storage pool
     let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL).context(format!(
-        "Failed to find storage pool '{}'",
-        SHERPA_STORAGE_POOL
+        "Failed to find storage pool '{SHERPA_STORAGE_POOL}'"
     ))?;
 
     // List volumes once before the loop instead of per-node
     let volumes = pool.list_volumes().context(format!(
-        "Failed to list volumes in pool '{}'",
-        SHERPA_STORAGE_POOL
+        "Failed to list volumes in pool '{SHERPA_STORAGE_POOL}'"
     ))?;
 
     tracing::debug!(
@@ -197,18 +195,17 @@ fn device_info(node: &DbNode, image: &NodeConfig, volumes: &[String], lab_id: &s
     }
 }
 
-/// Find a node image by RecordId in the pre-fetched list.
+/// Find a node image by `RecordId` in the pre-fetched list.
 fn find_node_image<'a>(images: &'a [NodeConfig], id: &RecordId) -> Option<&'a NodeConfig> {
     images.iter().find(|img| img.id.as_ref() == Some(id))
 }
 
-/// Resolve a node RecordId to its name using the already-fetched node list.
+/// Resolve a node `RecordId` to its name using the already-fetched node list.
 fn node_name_from_id(nodes: &[DbNode], rid: &RecordId) -> String {
     nodes
         .iter()
         .find(|n| n.id.as_ref() == Some(rid))
-        .map(|n| n.name.clone())
-        .unwrap_or_else(|| format!("{:?}", rid))
+        .map_or_else(|| format!("{rid:?}"), |n| n.name.clone())
 }
 
 #[cfg(test)]

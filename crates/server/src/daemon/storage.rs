@@ -34,7 +34,7 @@ pub fn secure_storage() {
     for (path, mode, group) in dirs {
         match restrict_dir(Path::new(path), mode, group) {
             Ok(()) => {
-                tracing::info!(path = %path, mode = %format!("{mode:o}"), "Storage restricted")
+                tracing::info!(path = %path, mode = %format!("{mode:o}"), "Storage restricted");
             }
             Err(error) => tracing::warn!(
                 path = %path,

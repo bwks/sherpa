@@ -13,7 +13,7 @@ static IMAGE_LOCKS: OnceLock<DashMap<String, Arc<RwLock<()>>>> = OnceLock::new()
 
 pub(crate) type ImageLease = Arc<OwnedRwLockReadGuard<()>>;
 
-/// Shared across AppState instances and all image-mutating workflows in this process.
+/// Shared across `AppState` instances and all image-mutating workflows in this process.
 #[instrument(level = "debug")]
 pub(crate) async fn lock_image(model: NodeModel, version: &str) -> OwnedRwLockWriteGuard<()> {
     let key = format!("{model}/{version}");
@@ -139,7 +139,7 @@ mod tests {
         if let Some(backing) = backing {
             let name = backing.to_str().unwrap().as_bytes();
             bytes[8..16].copy_from_slice(&128_u64.to_be_bytes());
-            bytes[16..20].copy_from_slice(&(name.len() as u32).to_be_bytes());
+            bytes[16..20].copy_from_slice(&u32::try_from(name.len()).unwrap().to_be_bytes());
             bytes[128..128 + name.len()].copy_from_slice(name);
         }
         bytes

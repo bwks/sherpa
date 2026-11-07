@@ -1,11 +1,9 @@
-mod helpers;
-
 use anyhow::Result;
 use serde_json::json;
 use std::time::Duration;
 
-use helpers::test_server::TestServer;
-use helpers::ws_client::TestWsClient;
+use crate::helpers::test_server::TestServer;
+use crate::helpers::ws_client::TestWsClient;
 
 // ── Image Scan ──
 
@@ -26,8 +24,7 @@ async fn test_image_scan_discovers_images() -> Result<()> {
 
     assert!(
         response.get("result").is_some(),
-        "image.scan should succeed: {:?}",
-        response
+        "image.scan should succeed: {response:?}"
     );
     // Status messages are emitted per discovered image; OK if none found on a clean env
 
@@ -57,8 +54,7 @@ async fn test_image_list_returns_images() -> Result<()> {
 
     assert!(
         response.get("result").is_some(),
-        "image.list should succeed: {:?}",
-        response
+        "image.list should succeed: {response:?}"
     );
 
     Ok(())
@@ -99,8 +95,7 @@ async fn test_image_show_returns_config() -> Result<()> {
         let result = response.get("result").unwrap();
         assert!(
             result.get("image").is_some(),
-            "image.show result should have 'image' field: {:?}",
-            result
+            "image.show result should have 'image' field: {result:?}"
         );
     }
 
@@ -149,8 +144,7 @@ async fn test_image_set_default() -> Result<()> {
 
             assert!(
                 response.get("result").is_some(),
-                "set_default should succeed: {:?}",
-                response
+                "set_default should succeed: {response:?}"
             );
         }
     }
@@ -182,8 +176,7 @@ async fn test_image_import_nonexistent_file() -> Result<()> {
 
     assert!(
         response.get("error").is_some(),
-        "importing nonexistent file should fail: {:?}",
-        response
+        "importing nonexistent file should fail: {response:?}"
     );
 
     Ok(())
@@ -214,8 +207,7 @@ async fn test_image_pull_container() -> Result<()> {
 
     assert!(
         response.get("result").is_some(),
-        "image.pull should succeed: {:?}",
-        response
+        "image.pull should succeed: {response:?}"
     );
 
     Ok(())

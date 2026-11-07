@@ -193,7 +193,7 @@ pub async fn wait_for_kubernetes(
     Ok(false)
 }
 
-/// Count nodes whose `Ready` condition is `True` in a Kubernetes NodeList.
+/// Count nodes whose `Ready` condition is `True` in a Kubernetes `NodeList`.
 fn ready_node_count(nodes: &Value) -> usize {
     let Some(items) = nodes["items"].as_array() else {
         return 0;

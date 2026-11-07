@@ -10,7 +10,7 @@ pub const COOKIE_MAX_AGE_REMEMBER: i64 = 30 * 24 * 60 * 60; // 30 days in second
 /// Creates an authentication cookie with the JWT token.
 ///
 /// The cookie is:
-/// - HttpOnly (prevents JavaScript access)
+/// - `HttpOnly` (prevents JavaScript access)
 /// - Secure (HTTPS only in production)
 /// - SameSite=Strict (CSRF protection)
 /// - Path=/ (available for entire site)
@@ -21,6 +21,7 @@ pub const COOKIE_MAX_AGE_REMEMBER: i64 = 30 * 24 * 60 * 60; // 30 days in second
 ///
 /// # Returns
 /// A Set-Cookie header value string
+#[must_use]
 pub fn create_auth_cookie(token: &str, remember_me: bool) -> String {
     let max_age = if remember_me {
         COOKIE_MAX_AGE_REMEMBER
@@ -31,8 +32,7 @@ pub fn create_auth_cookie(token: &str, remember_me: bool) -> String {
     // In production, add Secure flag. For development/testing, omit it.
     // You can check an env var or compile-time flag if needed.
     format!(
-        "{}={}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age={}",
-        AUTH_COOKIE_NAME, token, max_age
+        "{AUTH_COOKIE_NAME}={token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age={max_age}"
     )
 }
 
@@ -42,10 +42,10 @@ pub fn create_auth_cookie(token: &str, remember_me: bool) -> String {
 ///
 /// # Returns
 /// A Set-Cookie header value string that clears the auth cookie
+#[must_use]
 pub fn create_clear_cookie() -> String {
     format!(
-        "{}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
-        AUTH_COOKIE_NAME
+        "{AUTH_COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT"
     )
 }
 
@@ -73,7 +73,7 @@ mod tests {
         assert!(cookie.contains("sherpa_auth=test_token_123"));
         assert!(cookie.contains("HttpOnly"));
         assert!(cookie.contains("SameSite=Strict"));
-        assert!(cookie.contains(&format!("Max-Age={}", COOKIE_MAX_AGE_NORMAL)));
+        assert!(cookie.contains(&format!("Max-Age={COOKIE_MAX_AGE_NORMAL}")));
         assert!(cookie.contains("Path=/"));
     }
 
@@ -83,7 +83,7 @@ mod tests {
         let cookie = create_auth_cookie(token, true);
 
         assert!(cookie.contains("sherpa_auth=test_token_456"));
-        assert!(cookie.contains(&format!("Max-Age={}", COOKIE_MAX_AGE_REMEMBER)));
+        assert!(cookie.contains(&format!("Max-Age={COOKIE_MAX_AGE_REMEMBER}")));
     }
 
     #[test]
@@ -127,13 +127,13 @@ mod tests {
         let cookie_header = "other_cookie=value; another=thing";
         let tokens = extract_tokens_from_cookie(cookie_header);
 
-        assert!(tokens.is_empty());
+        assert_eq!(tokens, [] as [&str; 0]);
     }
 
     #[test]
     fn test_extract_token_from_cookie_empty() {
         let tokens = extract_tokens_from_cookie("");
 
-        assert!(tokens.is_empty());
+        assert_eq!(tokens, [] as [&str; 0]);
     }
 }

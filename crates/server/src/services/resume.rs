@@ -3,8 +3,8 @@ use bollard::secret::ContainerStateStatusEnum;
 use futures::future::join_all;
 use opentelemetry::KeyValue;
 use shared::data::{
-    self, LabNodeActionResponse, NodeActionResult, NodeKind, NodeState, RecordId, StatusKind,
-    TailnetAuthKey,
+    self, DbLab, LabNodeActionResponse, NodeActionResult, NodeKind, NodeState, RecordId,
+    StatusKind, TailnetAuthKey, TailnetStatus,
 };
 use shared::konst::{READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_LABS_PATH, SSH_PORT};
 use shared::util::load_saved_manifest;
@@ -16,6 +16,7 @@ use virt::sys::{VIR_DOMAIN_PAUSED, VIR_DOMAIN_SHUTOFF};
 
 use tracing::instrument;
 
+use super::lab_nodes::load_target_nodes;
 use super::lab_operations::{self, LabOperation};
 use super::node_ops::{self, VmReadiness};
 use super::progress::ProgressSender;
@@ -76,52 +77,13 @@ pub async fn start_lab_nodes(
     // Check again under the lease: a destroy that finished while this waited has removed the lab.
     let db_lab = require_lab_access(ctx, &state.db, lab_id).await?;
 
-    let credential = super::tailscale::resume_credential(
-        db_lab.tailscale_container_id.is_some(),
-        node_name.is_none(),
-        tailscale_auth_key,
-        state.config.tls.enabled,
-    )?;
-    let tailscale = match credential {
-        Some(key) => {
-            if let Some(progress) = progress {
-                let _ = progress.send_status(
-                    "Connecting lab to Tailscale".to_string(),
-                    StatusKind::Progress,
-                );
-            }
-            super::tailscale::resume(state, &db_lab, key).await?
-        }
-        None => super::tailscale::inspect(state, &db_lab).await,
-    };
+    let tailscale =
+        resume_tailscale(state, &db_lab, node_name, tailscale_auth_key, progress).await?;
 
     let lab_record_id = db_lab.id.ok_or_else(|| anyhow!("Lab missing record ID"))?;
 
-    // Get all nodes for this lab
-    let db_nodes = db::list_nodes_by_lab(&state.db, lab_record_id.clone())
-        .await
-        .context("Failed to list nodes for lab")?;
-
-    // Filter by node_name if provided
-    let target_nodes: Vec<_> = if let Some(name) = node_name {
-        db_nodes.into_iter().filter(|n| n.name == name).collect()
-    } else {
-        db_nodes
-    };
-
-    if let Some(name) = node_name
-        && target_nodes.is_empty()
-    {
-        return Err(anyhow!("Node '{}' not found in lab '{}'", name, lab_id));
-    }
-
-    // Batch-fetch node images to determine kind (VM vs Container)
-    let mut image_ids: Vec<RecordId> = target_nodes.iter().map(|n| n.image.clone()).collect();
-    image_ids.dedup();
-
-    let node_images = db::list_node_images_by_ids(&state.db, image_ids)
-        .await
-        .context("Failed to batch fetch node images")?;
+    let (target_nodes, node_images) =
+        load_target_nodes(&state.db, lab_record_id.clone(), lab_id, node_name).await?;
 
     // Build futures for all node operations concurrently
     let mut futures = Vec::new();
@@ -135,16 +97,15 @@ pub async fn start_lab_nodes(
             .iter()
             .find(|img| img.id.as_ref() == Some(&node.image));
 
-        let kind = match node_image {
-            Some(img) => img.kind.clone(),
-            None => {
-                immediate_results.push(NodeActionResult {
-                    name: node.name.clone(),
-                    success: false,
-                    message: "Node image not found in database".to_string(),
-                });
-                continue;
-            }
+        let kind = if let Some(img) = node_image {
+            img.kind.clone()
+        } else {
+            immediate_results.push(NodeActionResult {
+                name: node.name.clone(),
+                success: false,
+                message: "Node image not found in database".to_string(),
+            });
+            continue;
         };
 
         let node_name = node.name.clone();
@@ -204,24 +165,19 @@ pub async fn start_lab_nodes(
     }
 
     // Wait for cold-booted nodes after their links are restored, as `up` does.
-    let manifest = load_lab_manifest(lab_id);
-    let targets = readiness_targets(lab_id, &target_nodes, &cold_booted, manifest.as_ref());
-    if !targets.is_empty() {
-        let timeout = ready_timeout(manifest.as_ref());
-        let ready =
-            wait_for_readiness(lab_id, &targets, timeout, state, progress, &operation).await?;
-        for result in results.iter_mut() {
-            if targets.iter().any(|target| target.name == result.name) {
-                result.message = readiness_message(ready.contains_key(&result.name), timeout);
-            }
-        }
-        // A node may make a new host key when it boots, so record the keys again.
-        if let Err(error) =
-            save_host_keys(lab_id, &lab_record_id, &ready, &target_nodes, state).await
-        {
-            tracing::warn!(lab_id = %lab_id, error = ?error, "Failed to save resumed nodes' host keys");
-        }
-    }
+    wait_for_cold_booted(
+        ResumedLab {
+            lab_id,
+            lab_record_id: &lab_record_id,
+            nodes: &target_nodes,
+            state,
+            progress,
+            operation: &operation,
+        },
+        &cold_booted,
+        &mut results,
+    )
+    .await?;
 
     state.metrics.operation_duration.record(
         start.elapsed().as_secs_f64(),
@@ -229,6 +185,82 @@ pub async fn start_lab_nodes(
     );
 
     Ok(LabNodeActionResponse { results, tailscale })
+}
+
+/// Enroll the lab's Tailscale gateway again on a whole-lab resume with a key, as `down` logged
+/// it out; otherwise report its current status.
+#[instrument(skip_all, fields(lab_id = %db_lab.lab_id), level = "debug")]
+async fn resume_tailscale(
+    state: &AppState,
+    db_lab: &DbLab,
+    node_name: Option<&str>,
+    tailscale_auth_key: Option<&TailnetAuthKey>,
+    progress: Option<&ProgressSender>,
+) -> Result<Option<TailnetStatus>> {
+    let credential = super::tailscale::resume_credential(
+        db_lab.tailscale_container_id.is_some(),
+        node_name.is_none(),
+        tailscale_auth_key,
+        state.config.tls.enabled,
+    )?;
+    match credential {
+        Some(key) => {
+            if let Some(progress) = progress {
+                let _ = progress.send_status(
+                    "Connecting lab to Tailscale".to_string(),
+                    StatusKind::Progress,
+                );
+            }
+            super::tailscale::resume(state, db_lab, key).await
+        }
+        None => Ok(super::tailscale::inspect(state, db_lab).await),
+    }
+}
+
+/// The lab being resumed, for waiting on its cold-booted nodes.
+struct ResumedLab<'a> {
+    lab_id: &'a str,
+    lab_record_id: &'a RecordId,
+    nodes: &'a [data::DbNode],
+    state: &'a AppState,
+    progress: Option<&'a ProgressSender>,
+    operation: &'a LabOperation,
+}
+
+/// Wait for the cold-booted VMs and unikernels to become ready, as `up` does, with the saved
+/// manifest's readiness settings. Each one's result says whether it became ready, and the host
+/// keys it offers are recorded again.
+#[instrument(skip_all, fields(lab_id = %lab.lab_id), level = "debug")]
+async fn wait_for_cold_booted(
+    lab: ResumedLab<'_>,
+    cold_booted: &[(String, NodeKind)],
+    results: &mut [NodeActionResult],
+) -> Result<()> {
+    let ResumedLab {
+        lab_id,
+        lab_record_id,
+        nodes,
+        state,
+        progress,
+        operation,
+    } = lab;
+    let manifest = load_lab_manifest(lab_id);
+    let targets = readiness_targets(lab_id, nodes, cold_booted, manifest.as_ref());
+    if targets.is_empty() {
+        return Ok(());
+    }
+    let timeout = ready_timeout(manifest.as_ref());
+    let ready = wait_for_readiness(lab_id, &targets, timeout, state, progress, operation).await?;
+    for result in results.iter_mut() {
+        if targets.iter().any(|target| target.name == result.name) {
+            result.message = readiness_message(ready.contains_key(&result.name), timeout);
+        }
+    }
+    // A node may make a new host key when it boots, so record the keys again.
+    if let Err(error) = save_host_keys(lab_id, lab_record_id, &ready, nodes, state).await {
+        tracing::warn!(lab_id = %lab_id, error = ?error, "Failed to save resumed nodes' host keys");
+    }
+    Ok(())
 }
 
 /// Load the manifest saved by `up`. Labs without a readable manifest use the defaults.
@@ -276,7 +308,7 @@ fn readiness_check(
     match kind {
         // Without a saved manifest the model is unknown, so fall back to SSH as before.
         NodeKind::VirtualMachine => Some(ReadinessCheck::Port(match manifest_node {
-            Some(node) => node_ops::vm_ready_port(&node.model, ready_port),
+            Some(node) => node_ops::vm_ready_port(node.model, ready_port),
             None => SSH_PORT,
         })),
         NodeKind::Unikernel => Some(ReadinessCheck::Unikernel { ready_port }),
@@ -469,7 +501,7 @@ async fn start_vm(device_name: &str, node_name: &str, state: &AppState) -> NodeA
                 return Ok(NodeActionResult {
                     name: node_name,
                     success: false,
-                    message: format!("Domain not found: {}", e),
+                    message: format!("Domain not found: {e}"),
                 });
             }
         };
@@ -487,7 +519,7 @@ async fn start_vm(device_name: &str, node_name: &str, state: &AppState) -> NodeA
                         Err(e) => Ok(NodeActionResult {
                             name: node_name,
                             success: false,
-                            message: format!("Failed to start: {}", e),
+                            message: format!("Failed to start: {e}"),
                         }),
                     }
                 } else if state == VIR_DOMAIN_PAUSED {
@@ -501,7 +533,7 @@ async fn start_vm(device_name: &str, node_name: &str, state: &AppState) -> NodeA
                         Err(e) => Ok(NodeActionResult {
                             name: node_name,
                             success: false,
-                            message: format!("Failed to resume: {}", e),
+                            message: format!("Failed to resume: {e}"),
                         }),
                     }
                 } else {
@@ -516,7 +548,7 @@ async fn start_vm(device_name: &str, node_name: &str, state: &AppState) -> NodeA
             Err(e) => Ok(NodeActionResult {
                 name: node_name,
                 success: false,
-                message: format!("Failed to get state: {}", e),
+                message: format!("Failed to get state: {e}"),
             }),
         }
     })
@@ -526,12 +558,12 @@ async fn start_vm(device_name: &str, node_name: &str, state: &AppState) -> NodeA
         Ok(Err(e)) => NodeActionResult {
             name: node_name.to_string(),
             success: false,
-            message: format!("Libvirt error: {}", e),
+            message: format!("Libvirt error: {e}"),
         },
         Err(e) => NodeActionResult {
             name: node_name.to_string(),
             success: false,
-            message: format!("Task panicked: {}", e),
+            message: format!("Task panicked: {e}"),
         },
     }
 }

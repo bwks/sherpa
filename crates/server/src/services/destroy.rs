@@ -94,151 +94,7 @@ pub async fn destroy_lab(
         "Loaded lab information"
     );
 
-    // 1. Destroy containers
-    let containers_timer = std::time::Instant::now();
-    tracing::info!(lab_id = %lab_id, "Destroying containers");
-    let _ = progress.send_status("Destroying containers...".to_string(), StatusKind::Progress);
-    destroy_containers(
-        lab_id,
-        &state.docker,
-        &state.config.tailscale,
-        &mut summary,
-        &mut errors,
-    )
-    .await;
-    destroy_lab_secrets(lab_id, Path::new(SHERPA_SECRETS_DIR), &mut errors);
-    let containers_duration = containers_timer.elapsed().as_secs();
-    if summary.containers_destroyed.is_empty() && summary.containers_failed.is_empty() {
-        let _ = progress.send_status("No containers to destroy".to_string(), StatusKind::Info);
-    } else {
-        for name in &summary.containers_destroyed {
-            let _ =
-                progress.send_status(format!("Destroyed container: {}", name), StatusKind::Done);
-        }
-    }
-    tracing::info!(
-        lab_id = %lab_id,
-        destroyed = summary.containers_destroyed.len(),
-        failed = summary.containers_failed.len(),
-        duration_secs = containers_duration,
-        "Container destruction completed"
-    );
-
-    // 2. Destroy VMs and disks
-    let vms_timer = std::time::Instant::now();
-    tracing::info!(lab_id = %lab_id, "Destroying VMs and disks");
-    let _ = progress.send_status(
-        "Destroying VMs and disks...".to_string(),
-        StatusKind::Progress,
-    );
-    destroy_vms_and_disks(lab_id, &state.qemu, &mut summary, &mut errors);
-    if summary.vms_destroyed.is_empty() && summary.vms_failed.is_empty() {
-        let _ = progress.send_status("No VMs to destroy".to_string(), StatusKind::Info);
-    } else {
-        for name in &summary.vms_destroyed {
-            let _ = progress.send_status(format!("Destroyed VM: {}", name), StatusKind::Done);
-        }
-        for name in &summary.disks_deleted {
-            let _ = progress.send_status(format!("Deleted disk: {}", name), StatusKind::Done);
-        }
-    }
-    let vms_duration = vms_timer.elapsed().as_secs();
-    tracing::info!(
-        lab_id = %lab_id,
-        vms_destroyed = summary.vms_destroyed.len(),
-        vms_failed = summary.vms_failed.len(),
-        disks_deleted = summary.disks_deleted.len(),
-        disks_failed = summary.disks_failed.len(),
-        duration_secs = vms_duration,
-        "VM and disk destruction completed"
-    );
-
-    // 3. Destroy Docker networks
-    let docker_net_timer = std::time::Instant::now();
-    tracing::info!(lab_id = %lab_id, "Destroying Docker networks");
-    let _ = progress.send_status(
-        "Destroying Docker networks...".to_string(),
-        StatusKind::Progress,
-    );
-    destroy_docker_networks(lab_id, &state.docker, &mut summary, &mut errors).await;
-    if summary.docker_networks_destroyed.is_empty() && summary.docker_networks_failed.is_empty() {
-        let _ = progress.send_status(
-            "No Docker networks to destroy".to_string(),
-            StatusKind::Info,
-        );
-    } else {
-        for name in &summary.docker_networks_destroyed {
-            let _ = progress.send_status(
-                format!("Destroyed Docker network: {}", name),
-                StatusKind::Done,
-            );
-        }
-    }
-    let docker_net_duration = docker_net_timer.elapsed().as_secs();
-    tracing::info!(
-        lab_id = %lab_id,
-        destroyed = summary.docker_networks_destroyed.len(),
-        failed = summary.docker_networks_failed.len(),
-        duration_secs = docker_net_duration,
-        "Docker network destruction completed"
-    );
-
-    // 4. Destroy libvirt networks
-    let libvirt_net_timer = std::time::Instant::now();
-    tracing::info!(lab_id = %lab_id, "Destroying libvirt networks");
-    let _ = progress.send_status(
-        "Destroying libvirt networks...".to_string(),
-        StatusKind::Progress,
-    );
-    destroy_libvirt_networks(lab_id, &state.qemu, &mut summary, &mut errors);
-    if summary.libvirt_networks_destroyed.is_empty() && summary.libvirt_networks_failed.is_empty() {
-        let _ = progress.send_status(
-            "No libvirt networks to destroy".to_string(),
-            StatusKind::Info,
-        );
-    } else {
-        for name in &summary.libvirt_networks_destroyed {
-            let _ = progress.send_status(
-                format!("Destroyed libvirt network: {}", name),
-                StatusKind::Done,
-            );
-        }
-    }
-    let libvirt_net_duration = libvirt_net_timer.elapsed().as_secs();
-    tracing::info!(
-        lab_id = %lab_id,
-        destroyed = summary.libvirt_networks_destroyed.len(),
-        failed = summary.libvirt_networks_failed.len(),
-        duration_secs = libvirt_net_duration,
-        "Libvirt network destruction completed"
-    );
-
-    // 5. Delete network interfaces
-    let interfaces_timer = std::time::Instant::now();
-    tracing::info!(lab_id = %lab_id, "Deleting network interfaces");
-    let _ = progress.send_status(
-        "Deleting network interfaces...".to_string(),
-        StatusKind::Progress,
-    );
-    destroy_interfaces(lab_id, &mut summary, &mut errors).await;
-    if summary.interfaces_deleted.is_empty() && summary.interfaces_failed.is_empty() {
-        let _ = progress.send_status(
-            "No network interfaces to delete".to_string(),
-            StatusKind::Info,
-        );
-    } else {
-        for name in &summary.interfaces_deleted {
-            let _ = progress.send_status(format!("Deleted interface: {}", name), StatusKind::Done);
-        }
-    }
-    let interfaces_duration = interfaces_timer.elapsed().as_secs();
-    tracing::info!(
-        lab_id = %lab_id,
-        deleted = summary.interfaces_deleted.len(),
-        failed = summary.interfaces_failed.len(),
-        duration_secs = interfaces_duration,
-        "Network interface deletion completed"
-    );
+    destroy_lab_resources(lab_id, state, &mut summary, &mut errors, Some(&progress)).await;
 
     cleanup_lab_metadata(
         lab_id,
@@ -287,6 +143,195 @@ pub async fn destroy_lab(
     })
 }
 
+/// Remove the lab's infrastructure: containers and their secret files, VMs and disks, Docker
+/// and libvirt networks, and host interfaces. A resource that cannot be removed is recorded in
+/// `errors` and the rest still go. With `progress`, each step and what it removed is reported.
+#[instrument(skip(state, summary, errors, progress), fields(%lab_id), level = "debug")]
+pub(crate) async fn destroy_lab_resources(
+    lab_id: &str,
+    state: &AppState,
+    summary: &mut DestroySummary,
+    errors: &mut Vec<DestroyError>,
+    progress: Option<&ProgressSender>,
+) {
+    destroy_compute(lab_id, state, summary, errors, progress).await;
+    destroy_networking(lab_id, state, summary, errors, progress).await;
+}
+
+/// Teardown steps 1 and 2: containers and their secret files, then VMs and their disks.
+async fn destroy_compute(
+    lab_id: &str,
+    state: &AppState,
+    summary: &mut DestroySummary,
+    errors: &mut Vec<DestroyError>,
+    progress: Option<&ProgressSender>,
+) {
+    // 1. Destroy containers
+    let containers_timer = std::time::Instant::now();
+    tracing::info!(lab_id = %lab_id, "Destroying containers");
+    send_progress(progress, "Destroying containers...", StatusKind::Progress);
+    destroy_containers(
+        lab_id,
+        &state.docker,
+        &state.config.tailscale,
+        summary,
+        errors,
+    )
+    .await;
+    destroy_lab_secrets(lab_id, Path::new(SHERPA_SECRETS_DIR), errors);
+    report_step(
+        progress,
+        summary.containers_destroyed.is_empty() && summary.containers_failed.is_empty(),
+        "No containers to destroy",
+        &[("Destroyed container", &summary.containers_destroyed)],
+    );
+    tracing::info!(
+        lab_id = %lab_id,
+        destroyed = summary.containers_destroyed.len(),
+        failed = summary.containers_failed.len(),
+        duration_secs = containers_timer.elapsed().as_secs(),
+        "Container destruction completed"
+    );
+
+    // 2. Destroy VMs and disks
+    let vms_timer = std::time::Instant::now();
+    tracing::info!(lab_id = %lab_id, "Destroying VMs and disks");
+    send_progress(
+        progress,
+        "Destroying VMs and disks...",
+        StatusKind::Progress,
+    );
+    destroy_vms_and_disks(lab_id, &state.qemu, summary, errors);
+    report_step(
+        progress,
+        summary.vms_destroyed.is_empty() && summary.vms_failed.is_empty(),
+        "No VMs to destroy",
+        &[
+            ("Destroyed VM", &summary.vms_destroyed),
+            ("Deleted disk", &summary.disks_deleted),
+        ],
+    );
+    tracing::info!(
+        lab_id = %lab_id,
+        vms_destroyed = summary.vms_destroyed.len(),
+        vms_failed = summary.vms_failed.len(),
+        disks_deleted = summary.disks_deleted.len(),
+        disks_failed = summary.disks_failed.len(),
+        duration_secs = vms_timer.elapsed().as_secs(),
+        "VM and disk destruction completed"
+    );
+}
+
+/// Teardown steps 3 to 5: Docker and libvirt networks, then host interfaces.
+async fn destroy_networking(
+    lab_id: &str,
+    state: &AppState,
+    summary: &mut DestroySummary,
+    errors: &mut Vec<DestroyError>,
+    progress: Option<&ProgressSender>,
+) {
+    // 3. Destroy Docker networks
+    let docker_net_timer = std::time::Instant::now();
+    tracing::info!(lab_id = %lab_id, "Destroying Docker networks");
+    send_progress(
+        progress,
+        "Destroying Docker networks...",
+        StatusKind::Progress,
+    );
+    destroy_docker_networks(lab_id, &state.docker, summary, errors).await;
+    report_step(
+        progress,
+        summary.docker_networks_destroyed.is_empty() && summary.docker_networks_failed.is_empty(),
+        "No Docker networks to destroy",
+        &[(
+            "Destroyed Docker network",
+            &summary.docker_networks_destroyed,
+        )],
+    );
+    tracing::info!(
+        lab_id = %lab_id,
+        destroyed = summary.docker_networks_destroyed.len(),
+        failed = summary.docker_networks_failed.len(),
+        duration_secs = docker_net_timer.elapsed().as_secs(),
+        "Docker network destruction completed"
+    );
+
+    // 4. Destroy libvirt networks
+    let libvirt_net_timer = std::time::Instant::now();
+    tracing::info!(lab_id = %lab_id, "Destroying libvirt networks");
+    send_progress(
+        progress,
+        "Destroying libvirt networks...",
+        StatusKind::Progress,
+    );
+    destroy_libvirt_networks(lab_id, &state.qemu, summary, errors);
+    report_step(
+        progress,
+        summary.libvirt_networks_destroyed.is_empty() && summary.libvirt_networks_failed.is_empty(),
+        "No libvirt networks to destroy",
+        &[(
+            "Destroyed libvirt network",
+            &summary.libvirt_networks_destroyed,
+        )],
+    );
+    tracing::info!(
+        lab_id = %lab_id,
+        destroyed = summary.libvirt_networks_destroyed.len(),
+        failed = summary.libvirt_networks_failed.len(),
+        duration_secs = libvirt_net_timer.elapsed().as_secs(),
+        "Libvirt network destruction completed"
+    );
+
+    // 5. Delete network interfaces
+    let interfaces_timer = std::time::Instant::now();
+    tracing::info!(lab_id = %lab_id, "Deleting network interfaces");
+    send_progress(
+        progress,
+        "Deleting network interfaces...",
+        StatusKind::Progress,
+    );
+    destroy_interfaces(lab_id, summary, errors).await;
+    report_step(
+        progress,
+        summary.interfaces_deleted.is_empty() && summary.interfaces_failed.is_empty(),
+        "No network interfaces to delete",
+        &[("Deleted interface", &summary.interfaces_deleted)],
+    );
+    tracing::info!(
+        lab_id = %lab_id,
+        deleted = summary.interfaces_deleted.len(),
+        failed = summary.interfaces_failed.len(),
+        duration_secs = interfaces_timer.elapsed().as_secs(),
+        "Network interface deletion completed"
+    );
+}
+
+/// Send a status message when the caller streams progress.
+fn send_progress(progress: Option<&ProgressSender>, message: &str, kind: StatusKind) {
+    if let Some(progress) = progress {
+        let _ = progress.send_status(message.to_owned(), kind);
+    }
+}
+
+/// Report one teardown step: `none_message` when it found nothing, otherwise each resource it
+/// removed, as `label: name`.
+fn report_step(
+    progress: Option<&ProgressSender>,
+    found_nothing: bool,
+    none_message: &str,
+    removed: &[(&str, &Vec<String>)],
+) {
+    if found_nothing {
+        send_progress(progress, none_message, StatusKind::Info);
+        return;
+    }
+    for (label, names) in removed {
+        for name in *names {
+            send_progress(progress, &format!("{label}: {name}"), StatusKind::Done);
+        }
+    }
+}
+
 /// Finish database and filesystem cleanup after infrastructure teardown.
 /// Keep metadata when any resource failed to go, so the lab can be destroyed again; the
 /// database future is only polled once every resource is gone.
@@ -321,14 +366,14 @@ pub(crate) async fn cleanup_lab_metadata(
         StatusKind::Progress,
     );
     match database_cleanup.await {
-        Ok(_) => {
+        Ok(()) => {
             summary.database_records_deleted = true;
             send_status("Database records cleaned".to_string(), StatusKind::Done);
             tracing::info!(lab_id = %lab_id, "Database cleanup successful");
         }
         Err(e) => {
             summary.database_records_deleted = false;
-            errors.push(DestroyError::new("database", lab_id, format!("{:?}", e)));
+            errors.push(DestroyError::new("database", lab_id, format!("{e:?}")));
             tracing::error!(lab_id = %lab_id, error = ?e, "Database cleanup failed");
         }
     }
@@ -344,14 +389,14 @@ pub(crate) async fn cleanup_lab_metadata(
     );
     if dir_exists(lab_dir) {
         match fs::remove_dir_all(lab_dir) {
-            Ok(_) => {
+            Ok(()) => {
                 summary.lab_directory_deleted = true;
                 send_status("Lab directory deleted".to_string(), StatusKind::Done);
                 tracing::info!(lab_id = %lab_id, lab_dir = %lab_dir, "Lab directory deleted");
             }
             Err(e) => {
                 summary.lab_directory_deleted = false;
-                errors.push(DestroyError::new("filesystem", lab_dir, format!("{:?}", e)));
+                errors.push(DestroyError::new("filesystem", lab_dir, format!("{e:?}")));
                 tracing::error!(lab_id = %lab_id, lab_dir = %lab_dir, error = ?e, "Failed to delete lab directory");
             }
         }
@@ -455,7 +500,7 @@ pub(crate) async fn destroy_containers(
                 }
 
                 match remove_container(docker, name).await {
-                    Ok(_) => {
+                    Ok(()) => {
                         summary.containers_destroyed.push(name.to_string());
                         tracing::info!(
                             lab_id = %lab_id,
@@ -465,7 +510,7 @@ pub(crate) async fn destroy_containers(
                     }
                     Err(e) => {
                         summary.containers_failed.push(name.to_string());
-                        errors.push(DestroyError::new("container", name, format!("{:?}", e)));
+                        errors.push(DestroyError::new("container", name, format!("{e:?}")));
                         tracing::error!(
                             lab_id = %lab_id,
                             container_name = %name,
@@ -480,7 +525,7 @@ pub(crate) async fn destroy_containers(
             errors.push(DestroyError::new(
                 "container",
                 "list_containers",
-                format!("Failed to list containers: {:?}", e),
+                format!("Failed to list containers: {e:?}"),
             ));
             tracing::error!(lab_id = %lab_id, error = ?e, "Failed to list containers");
         }
@@ -542,7 +587,7 @@ pub(crate) fn destroy_vms_and_disks(
                 errors.push(DestroyError::new(
                     "vm",
                     "unknown",
-                    format!("Failed to get domain name: {:?}", e),
+                    format!("Failed to get domain name: {e:?}"),
                 ));
                 continue;
             }
@@ -564,13 +609,13 @@ pub(crate) fn destroy_vms_and_disks(
         })();
 
         match result {
-            Ok(_) => {
+            Ok(()) => {
                 summary.vms_destroyed.push(vm_name.clone());
                 tracing::info!("Destroyed VM: {}", vm_name);
             }
             Err(e) => {
                 summary.vms_failed.push(vm_name.clone());
-                errors.push(DestroyError::new("vm", &vm_name, format!("{:?}", e)));
+                errors.push(DestroyError::new("vm", &vm_name, format!("{e:?}")));
                 tracing::error!("Failed to destroy VM {}: {:?}", vm_name, e);
             }
         }
@@ -596,13 +641,13 @@ pub(crate) fn destroy_vms_and_disks(
 
     for disk in &lab_disks {
         match delete_disk(&qemu_conn, disk) {
-            Ok(_) => {
-                summary.disks_deleted.push(disk.to_string());
+            Ok(()) => {
+                summary.disks_deleted.push(disk.clone());
                 tracing::info!("Deleted disk: {}", disk);
             }
             Err(e) => {
-                summary.disks_failed.push(disk.to_string());
-                errors.push(DestroyError::new("disk", disk, format!("{:?}", e)));
+                summary.disks_failed.push(disk.clone());
+                errors.push(DestroyError::new("disk", disk, format!("{e:?}")));
                 tracing::error!("Failed to delete disk {}: {:?}", disk, e);
             }
         }
@@ -623,7 +668,7 @@ pub(crate) async fn destroy_docker_networks(
                     && is_lab_resource(&network_name, lab_id)
                 {
                     match delete_network(docker, &network_name).await {
-                        Ok(_) => {
+                        Ok(()) => {
                             summary.docker_networks_destroyed.push(network_name.clone());
                             tracing::info!("Destroyed Docker network: {}", network_name);
                         }
@@ -632,7 +677,7 @@ pub(crate) async fn destroy_docker_networks(
                             errors.push(DestroyError::new(
                                 "docker_network",
                                 &network_name,
-                                format!("{:?}", e),
+                                format!("{e:?}"),
                             ));
                             tracing::error!(
                                 "Failed to destroy Docker network {}: {:?}",
@@ -648,7 +693,7 @@ pub(crate) async fn destroy_docker_networks(
             errors.push(DestroyError::new(
                 "docker_network",
                 "list_networks",
-                format!("Failed to list Docker networks: {:?}", e),
+                format!("Failed to list Docker networks: {e:?}"),
             ));
             tracing::error!("Failed to list Docker networks: {:?}", e);
         }
@@ -695,7 +740,7 @@ pub(crate) fn destroy_libvirt_networks(
                 errors.push(DestroyError::new(
                     "libvirt_network",
                     "unknown",
-                    format!("Failed to get network name: {:?}", e),
+                    format!("Failed to get network name: {e:?}"),
                 ));
                 continue;
             }
@@ -710,7 +755,7 @@ pub(crate) fn destroy_libvirt_networks(
                 network.undefine().context("Failed to undefine network")?;
                 Ok(())
             })() {
-                Ok(_) => {
+                Ok(()) => {
                     summary
                         .libvirt_networks_destroyed
                         .push(network_name.clone());
@@ -721,7 +766,7 @@ pub(crate) fn destroy_libvirt_networks(
                     errors.push(DestroyError::new(
                         "libvirt_network",
                         &network_name,
-                        format!("{:?}", e),
+                        format!("{e:?}"),
                     ));
                     tracing::error!(
                         "Failed to destroy libvirt network {}: {:?}",
@@ -745,7 +790,7 @@ pub(crate) async fn destroy_interfaces(
             for interface in interfaces {
                 if is_lab_interface(&interface, lab_id) {
                     match delete_interface(&interface).await {
-                        Ok(_) => {
+                        Ok(()) => {
                             summary.interfaces_deleted.push(interface.clone());
                             tracing::info!("Deleted interface: {}", interface);
                         }
@@ -754,7 +799,7 @@ pub(crate) async fn destroy_interfaces(
                             errors.push(DestroyError::new(
                                 "interface",
                                 &interface,
-                                format!("{:?}", e),
+                                format!("{e:?}"),
                             ));
                             tracing::error!("Failed to delete interface {}: {:?}", interface, e);
                         }
@@ -766,7 +811,7 @@ pub(crate) async fn destroy_interfaces(
             errors.push(DestroyError::new(
                 "interface",
                 "find_interfaces",
-                format!("Failed to find interfaces: {:?}", e),
+                format!("Failed to find interfaces: {e:?}"),
             ));
             tracing::error!("Failed to find interfaces: {:?}", e);
         }
@@ -1008,7 +1053,7 @@ mod tests {
             &mut errors,
         )
         .await;
-        assert!(summary.containers_destroyed.is_empty());
+        assert_eq!(summary.containers_destroyed, [] as [std::string::String; 0]);
         assert!(errors.is_empty());
         assert!(
             mock.requests

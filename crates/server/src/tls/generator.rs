@@ -44,16 +44,16 @@ pub fn generate_self_signed_certificate(
             params.subject_alt_names.push(SanType::DnsName(
                 dns.to_string()
                     .try_into()
-                    .context(format!("Invalid DNS SAN: {}", dns))?,
+                    .context(format!("Invalid DNS SAN: {dns}"))?,
             ));
             tracing::debug!("Added DNS SAN: {}", dns);
         } else {
             // Assume it's a DNS name if no prefix
             params.subject_alt_names.push(SanType::DnsName(
                 san_entry
-                    .to_string()
+                    .clone()
                     .try_into()
-                    .context(format!("Invalid DNS SAN: {}", san_entry))?,
+                    .context(format!("Invalid DNS SAN: {san_entry}"))?,
             ));
             tracing::debug!("Added DNS SAN: {}", san_entry);
         }
@@ -85,7 +85,7 @@ pub fn generate_self_signed_certificate(
     // Set validity period using jiff for time calculation
     // Note: Timestamp only supports units of hours or smaller, so convert days to hours
     let now = jiff::Timestamp::now();
-    let validity_hours = (validity_days as i64) * 24;
+    let validity_hours = i64::from(validity_days) * 24;
     let future = now
         .checked_add(jiff::Span::new().hours(validity_hours))
         .context("Failed to calculate certificate expiration date")?;
@@ -535,7 +535,7 @@ mod tests {
         let rendered: Vec<String> = names
             .general_names
             .iter()
-            .map(|name| name.to_string())
+            .map(std::string::ToString::to_string)
             .collect();
         assert_eq!(
             rendered,

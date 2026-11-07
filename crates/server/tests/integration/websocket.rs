@@ -1,11 +1,9 @@
-mod helpers;
-
 use anyhow::Result;
 use serde_json::json;
 use std::time::Duration;
 
-use helpers::test_server::TestServer;
-use helpers::ws_client::TestWsClient;
+use crate::helpers::test_server::TestServer;
+use crate::helpers::ws_client::TestWsClient;
 
 // ── Connection Tests ──
 
@@ -15,7 +13,7 @@ async fn test_ws_connected_message() -> Result<()> {
     let ws = TestWsClient::connect(&server).await?;
 
     // Connection ID should be a valid UUID
-    assert!(!ws.connection_id.is_empty());
+    assert_ne!(ws.connection_id, "");
     assert!(
         uuid::Uuid::parse_str(&ws.connection_id).is_ok(),
         "connection_id should be a valid UUID"
@@ -50,7 +48,10 @@ async fn test_rpc_unknown_method() -> Result<()> {
 
     let error = response.get("error").expect("should have error");
     // MethodNotFound = -32601
-    assert_eq!(error.get("code").and_then(|v| v.as_i64()), Some(-32601));
+    assert_eq!(
+        error.get("code").and_then(serde_json::Value::as_i64),
+        Some(-32601)
+    );
     assert!(
         error
             .get("message")
@@ -115,8 +116,7 @@ async fn test_rpc_streaming_returns_final_response() -> Result<()> {
 
     assert!(
         response.get("result").is_some(),
-        "streaming call should return a final result: {:?}",
-        response
+        "streaming call should return a final result: {response:?}"
     );
     // auth.validate is not a streaming operation so no intermediate status messages
     assert!(
@@ -155,12 +155,18 @@ async fn test_rpc_auth_validate_returns_user_info() -> Result<()> {
         .await?;
 
     let result = response.get("result").expect("should have result");
-    assert_eq!(result.get("valid").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(
+        result.get("valid").and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
     assert_eq!(
         result.get("username").and_then(|v| v.as_str()),
         Some("admin")
     );
-    assert_eq!(result.get("is_admin").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(
+        result.get("is_admin").and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
     assert!(result.get("expires_at").is_some());
 
     Ok(())

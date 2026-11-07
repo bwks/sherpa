@@ -10,7 +10,7 @@ pub struct RpcError {
     pub code: RpcErrorCode,
     /// Human-readable error message
     pub message: String,
-    /// Additional debug context (file:line, stack trace)
+    /// Additional debug context (<file:line>, stack trace)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
 }
@@ -80,10 +80,10 @@ mod tests {
             server_version: "0.3.58".to_string(),
         };
 
-        let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains("\"type\":\"connected\""));
-        assert!(json.contains("\"connection_id\":\"test-123\""));
-        assert!(json.contains("\"server_version\":\"0.3.58\""));
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["type"], "connected");
+        assert_eq!(json["connection_id"], "test-123");
+        assert_eq!(json["server_version"], "0.3.58");
     }
 
     #[test]
@@ -104,11 +104,11 @@ mod tests {
             error: None,
         };
 
-        let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains("\"type\":\"rpc_response\""));
-        assert!(json.contains("\"id\":\"test-001\""));
-        assert!(json.contains("\"result\""));
-        assert!(!json.contains("\"error\""));
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["type"], "rpc_response");
+        assert_eq!(json["id"], "test-001");
+        assert_eq!(json["result"]["status"], "ok");
+        assert!(json.get("error").is_none());
     }
 
     #[test]
@@ -121,10 +121,10 @@ mod tests {
             progress: None,
         };
 
-        let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains("\"type\":\"status\""));
-        assert!(json.contains("\"kind\":\"progress\""));
-        assert!(json.contains("\"message\":\"Creating VM\""));
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["type"], "status");
+        assert_eq!(json["kind"], "progress");
+        assert_eq!(json["message"], "Creating VM");
     }
 
     #[test]
@@ -141,9 +141,9 @@ mod tests {
             }),
         };
 
-        let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains("\"kind\":\"done\""));
-        assert!(json.contains("\"phase\":\"Node Readiness Check\""));
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["kind"], "done");
+        assert_eq!(json["phase"], "Node Readiness Check");
     }
 
     #[test]
@@ -158,11 +158,10 @@ mod tests {
             }),
         };
 
-        let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains("\"type\":\"rpc_response\""));
-        assert!(json.contains("\"id\":\"test-002\""));
-        assert!(json.contains("\"error\""));
-        assert!(json.contains("\"code\":-32603"));
-        assert!(json.contains("\"message\":\"Internal error\""));
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["type"], "rpc_response");
+        assert_eq!(json["id"], "test-002");
+        assert_eq!(json["error"]["code"], -32603);
+        assert_eq!(json["error"]["message"], "Internal error");
     }
 }

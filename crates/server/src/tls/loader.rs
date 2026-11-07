@@ -28,7 +28,7 @@ pub fn load_certificates(path: &Path) -> Result<Vec<CertificateDer<'static>>> {
     Ok(certs)
 }
 
-/// Build axum-server RustlsConfig from certificate and key paths
+/// Build axum-server `RustlsConfig` from certificate and key paths
 pub async fn build_rustls_config(cert_path: &Path, key_path: &Path) -> Result<RustlsConfig> {
     let config = RustlsConfig::from_pem_file(cert_path, key_path)
         .await
@@ -45,7 +45,7 @@ mod tests {
     use tempfile::NamedTempFile;
 
     // Sample self-signed certificate for testing
-    const TEST_CERT_PEM: &str = r#"-----BEGIN CERTIFICATE-----
+    const TEST_CERT_PEM: &str = r"-----BEGIN CERTIFICATE-----
 MIIDazCCAlOgAwIBAgIUfPXqR/f7V8OBLaHnfHXLqNr7qnEwDQYJKoZIhvcNAQEL
 BQAwRTELMAkGA1UEBhMCVVMxEzARBgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoM
 GEludGVybmV0IFdpZGdpdHMgUHR5IEx0ZDAeFw0yNDAxMDEwMDAwMDBaFw0yNTAx
@@ -65,7 +65,7 @@ cQTjHvXJPLqHrJvXLbqf2CmFZJVhSRU0vUqQ3eG4KMTdnYCQ3FhPvBJYZLJyKbf3
 2lxE3J8Vk7wLLqCE4lLFVjwHxKkKqMqvXQPJxCYQWwxQUWvVcGF4SxLVNJNqVlxy
 t3w8G6kVOQdMdYKqbQT8qWNuEJWvDzKLZlJxXvhR0YJn3Y7DRXPqKQxzVjCVJYqZ
 LkK3HQdFGQWqVGqfyN5x
------END CERTIFICATE-----"#;
+-----END CERTIFICATE-----";
 
     #[test]
     fn test_load_certificates() {
@@ -77,6 +77,6 @@ LkK3HQdFGQWqVGqfyN5x
         assert!(result.is_ok());
 
         let certs = result.unwrap();
-        assert!(!certs.is_empty());
+        assert_ne!(certs, [] as [rustls::pki_types::CertificateDer<'_>; 0]);
     }
 }

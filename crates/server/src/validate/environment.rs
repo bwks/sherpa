@@ -8,33 +8,25 @@ pub fn validate_environment_variables(entries: &[String], node_name: &str) -> Re
     for entry in entries {
         let Some((key, _value)) = entry.split_once('=') else {
             bail!(
-                "Invalid environment variable '{}' for node '{}': must be KEY=VALUE format",
-                entry,
-                node_name
+                "Invalid environment variable '{entry}' for node '{node_name}': must be KEY=VALUE format"
             );
         };
 
         if key.is_empty() {
             bail!(
-                "Invalid environment variable '{}' for node '{}': KEY must not be empty",
-                entry,
-                node_name
+                "Invalid environment variable '{entry}' for node '{node_name}': KEY must not be empty"
             );
         }
 
         if key.starts_with(|c: char| c.is_ascii_digit()) {
             bail!(
-                "Invalid environment variable key '{}' for node '{}': KEY must not start with a digit",
-                key,
-                node_name
+                "Invalid environment variable key '{key}' for node '{node_name}': KEY must not start with a digit"
             );
         }
 
         if !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
             bail!(
-                "Invalid environment variable key '{}' for node '{}': KEY must contain only alphanumeric characters and underscores",
-                key,
-                node_name
+                "Invalid environment variable key '{key}' for node '{node_name}': KEY must contain only alphanumeric characters and underscores"
             );
         }
     }

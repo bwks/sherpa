@@ -19,18 +19,15 @@ use sherpad::daemon::state::AppState;
 /// Default admin password used for test servers
 pub const TEST_ADMIN_PASSWORD: &str = "TestPass123!";
 /// Personal admin account used by tests that start labs; the built-in `admin` cannot.
-#[allow(dead_code)]
 pub const TEST_LAB_ADMIN: &str = "labadmin";
 /// SSH public key registered for test users who start labs.
-#[allow(dead_code)]
 pub const TEST_SSH_PUBLIC_KEY: &str =
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh";
 
 /// A test server that runs an in-process instance of sherpad
 pub struct TestServer {
     pub addr: SocketAddr,
-    /// Used by lab_lifecycle_tests but not all test binaries, triggering a false positive warning.
-    #[allow(dead_code)]
+    /// The server's database, for tests that read or seed records directly.
     pub db: db::Database,
 }
 
@@ -89,7 +86,7 @@ impl TestServer {
 pub fn test_config() -> Result<Config> {
     Ok(Config {
         name: "test-server".to_string(),
-        server_ipv4: std::net::Ipv4Addr::new(127, 0, 0, 1),
+        server_ipv4: std::net::Ipv4Addr::LOCALHOST,
         server_ipv6: None,
         ws_port: 0,
         http_port: 0,
@@ -114,7 +111,6 @@ pub fn test_config() -> Result<Config> {
 
 /// Open a fresh, empty in-memory database with the schema applied and no users. Used by tests
 /// that check startup behaviour before the admin account exists.
-#[allow(dead_code)]
 pub async fn empty_database() -> Result<db::Database> {
     let db = db::open_in_memory().await?;
     db::apply_schema(&db).await?;

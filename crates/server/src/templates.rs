@@ -9,14 +9,6 @@ use shared::data::{
 
 use crate::api::handlers::{ImageSummary, UserSummary};
 
-mod filters {
-    pub fn initial(s: &str, _: &dyn askama::Values) -> askama::Result<String> {
-        Ok(s.chars()
-            .next()
-            .map(|c| c.to_uppercase().to_string())
-            .unwrap_or_default())
-    }
-}
 /// Main dashboard page template
 #[derive(Template, WebTemplate)]
 #[template(path = "user/dashboard.html.jinja")]
@@ -532,11 +524,10 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    use askama::{NO_VALUES, Template};
+    use askama::Template;
     use axum::http::header::CONTENT_TYPE;
     use shared::data::{NodeKind, NodeModel, NodeState};
 
-    use super::filters::initial;
     use super::*;
 
     /// Every template file under `dir`.
@@ -578,22 +569,37 @@ mod tests {
     }
 
     // ========================================================================
-    // Filter tests
+    // Sidebar initial tests
     // ========================================================================
 
-    #[test]
-    fn test_initial_lowercase() {
-        assert_eq!(initial("bradmin", NO_VALUES).unwrap(), "B");
+    /// The sidebar avatar's text on the dashboard for `username`.
+    fn sidebar_initial(username: &str) -> String {
+        let html = DashboardTemplate {
+            username: username.to_string(),
+            is_admin: false,
+            active_page: "dashboard".to_string(),
+            lab_count: 0,
+            image_count: 0,
+            docker_ok: true,
+            libvirt_ok: true,
+        }
+        .render()
+        .expect("template should render");
+        let marker = r#"<span class="text-xs font-semibold text-accent">"#;
+        let start = html.find(marker).expect("sidebar avatar") + marker.len();
+        let end = start + html[start..].find("</span>").expect("avatar end");
+        html[start..end].to_string()
     }
 
     #[test]
-    fn test_initial_uppercase() {
-        assert_eq!(initial("Admin", NO_VALUES).unwrap(), "A");
+    fn the_sidebar_shows_the_username_initial_in_capitals() {
+        assert_eq!(sidebar_initial("bradmin"), "B");
+        assert_eq!(sidebar_initial("Admin"), "A");
     }
 
     #[test]
-    fn test_initial_empty() {
-        assert_eq!(initial("", NO_VALUES).unwrap(), "");
+    fn the_sidebar_shows_no_initial_for_an_empty_username() {
+        assert_eq!(sidebar_initial(""), "");
     }
 
     // ========================================================================
@@ -914,7 +920,7 @@ mod tests {
         let tpl = Error404Template {
             username: "testuser".to_string(),
             is_admin: false,
-            active_page: "".to_string(),
+            active_page: String::new(),
             message: "Page not found".to_string(),
         };
         let html = tpl.render().expect("template should render");
@@ -1050,11 +1056,11 @@ mod tests {
             inline_javascript(r#"<button onclick="go()">x</button><script>run()</script>"#),
             vec!["onclick".to_owned(), "<script> block".to_owned()]
         );
-        assert!(
+        assert_eq!(
             inline_javascript(
                 r#"<a href="/x" data-lab-id="on=1"><script src="/js/a.js"></script>"#
-            )
-            .is_empty()
+            ),
+            [] as [std::string::String; 0]
         );
     }
 }
