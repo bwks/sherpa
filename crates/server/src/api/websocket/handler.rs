@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use super::connection::Connection;
 use super::messages::{ClientMessage, ServerMessage};
+use super::rpc;
 use crate::daemon::state::AppState;
 use shared::data::{ConnectedMsg, StatusKind};
 
@@ -172,52 +173,12 @@ async fn handle_client_message(
             let connection_clone = Arc::clone(connection);
             let state_clone = state.clone();
 
-            // Check if this is a streaming RPC method
-            if method == "up"
-                || method == "destroy"
-                || method == "resume"
-                || method == "redeploy"
-                || method == "image.import"
-                || method == "image.pull"
-                || method == "image.download"
-            {
-                // Handle streaming RPC (sends multiple messages during execution)
-                tokio::spawn(
-                    async move {
-                        crate::api::websocket::rpc::handle_streaming_rpc_request(
-                            id,
-                            method,
-                            params,
-                            &state_clone,
-                            &connection_clone,
-                        )
-                        .await;
-                    }
-                    .instrument(rpc_span),
-                );
-            } else {
-                // Handle regular RPC (single response)
-                tokio::spawn(
-                    async move {
-                        // Call RPC router
-                        let response = crate::api::websocket::rpc::handle_rpc_request(
-                            id,
-                            method,
-                            params,
-                            &state_clone,
-                        )
-                        .await;
-
-                        // Send response back to client
-                        if let Ok(json) = serde_json::to_string(&response)
-                            && let Err(e) = connection_clone.send(Message::Text(json.into())).await
-                        {
-                            tracing::error!("Failed to send RPC response: {:?}", e);
-                        }
-                    }
-                    .instrument(rpc_span),
-                );
-            }
+            tokio::spawn(
+                async move {
+                    rpc::dispatch(id, method, params, &state_clone, &connection_clone).await;
+                }
+                .instrument(rpc_span),
+            );
         }
     }
 

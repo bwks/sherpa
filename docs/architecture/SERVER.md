@@ -38,7 +38,7 @@ flowchart TB
         router["api/router.rs<br/>HTML routes: pages, forms, HTMX fragments<br/>REST routes: /api/v1/...<br/>WebSocket route: /ws<br/>static assets: rust_embed catch-all"]
     end
     subgraph boundary["Request/Auth/Response boundary"]
-        boundaryfiles["api/handlers.rs<br/>api/extractors.rs<br/>api/websocket/rpc.rs<br/>auth/{jwt,cookies,middleware,context}.rs"]
+        boundaryfiles["api/handlers/<br/>api/extractors.rs<br/>api/websocket/rpc/<br/>auth/{jwt,cookies,middleware,context}.rs"]
         boundaryduties["Responsibilities:<br/>parse path/query/body/form/multipart data<br/>authenticate cookies, bearer tokens, or RPC params.token<br/>pass the caller's AuthContext to services<br/>construct service request structs<br/>convert service results into HTML, JSON, SSE, or RPC responses"]
     end
     subgraph servicelayer["Service layer"]
@@ -217,7 +217,7 @@ flowchart TB
     ws["WebSocket RPC<br/>/ws"]
     htmlhandlers["HTML handlers<br/>templates.rs"]
     resthandlers["REST handlers<br/>Json#lt;T#gt;/SSE"]
-    rpc["rpc.rs dispatcher<br/>ServerMessage"]
+    rpc["rpc::dispatch<br/>ServerMessage"]
     services["services/*.rs"]
     router --> html
     router --> rest
@@ -269,7 +269,8 @@ That `pending_jobs` map is intentionally a transient handoff, not persistent job
 
 ### REST JSON API
 
-REST handlers live in `api/handlers.rs`. They use Axum extractors (`Path`, `Query`, `Json`, `Multipart`, `State`) and return either `Json<T>`, generic `IntoResponse`, or SSE streams.
+HTTP handlers live in `api/handlers/`, one file per resource and transport: `auth`, `profile`,
+`system`, `labs_api`, `labs_web`, `admin_web`, `images_api`, `images_web` and `users_api`. They use Axum extractors (`Path`, `Query`, `Json`, `Multipart`, `State`) and return either `Json<T>`, generic `IntoResponse`, or SSE streams.
 
 REST auth is implemented by `AuthenticatedUser` in `api/extractors.rs`. It tries bearer auth first and then cookie auth. Admin-only REST handlers call `require_admin_auth(&auth)` inside the handler.
 
@@ -292,23 +293,31 @@ flowchart TB
     msgloop --> subs["SubscribeLogs / UnsubscribeLogs"]
     msgloop --> pong["Pong"]
     msgloop --> rpcreq["RpcRequest { id, method, params }"]
-    rpcreq --> streaming{"streaming method?"}
-    streaming -->|yes| streamrpc["spawn rpc::handle_streaming_rpc_request(...)"]
-    streaming -->|no| plainrpc["spawn rpc::handle_rpc_request(...)"]
+    rpcreq --> dispatch["spawn rpc::dispatch(...)"]
+    dispatch --> lookup["find the method in rpc::METHODS"]
+    lookup --> authn["authenticate once: Public, User or Admin"]
+    authn --> streaming{"streaming?"}
+    streaming -->|yes| forward["forward ProgressSender messages to the connection"]
+    streaming -->|no| call["call the resource module"]
+    forward --> call
+    call --> respond["send RpcResponse, record rpc_duration"]
 ```
 
-Streaming RPC methods currently include:
+`api/websocket/rpc/dispatch.rs` holds `METHODS`, the one table of RPC methods: each method's
+access (`Public`, any authenticated `User`, or `Admin` with its refusal message) and whether it
+streams status messages before its response. `dispatch` authenticates the caller as the table
+says, so the method functions in `auth.rs`, `labs.rs`, `images.rs`, `users.rs` and `server.rs`
+only parse their params, call the service and return `Result<Value, RpcError>`; `parse` and
+`respond` turn parse failures and service results into RPC errors and results. A test checks
+`METHODS` against the published API spec (`shared::api_spec`): every RPC method's access and
+streaming must agree, and the spec's `transports.rpc.streaming` says which methods stream.
 
-- `up`
-- `destroy`
-- `resume`
-- `redeploy`
-- `image.import`
-- `image.pull`
-- `image.download`
+The streaming methods are `up`, `destroy`, `resume`, `redeploy`, `image.import`, `image.pull`
+and `image.download`.
 
 `node.secrets` (a regular method) rewrites a container node's secret files; its params are never
-logged, and a parse error is not echoed back.
+logged, and a parse error is not echoed back. `up` and `redeploy` carry secret files too, so
+all three parse with `parse_quietly`, which drops serde's message because it can quote values.
 
 Regular RPC methods return one `ServerMessage::RpcResponse`. Streaming methods send zero or more `ServerMessage::Status` values, followed by one final `ServerMessage::RpcResponse`.
 
@@ -384,8 +393,8 @@ Every lab service takes the caller's `&AuthContext` and checks it with the helpe
 Refusals are returned as a typed `services::error::ServiceError` inside `anyhow::Error`: `Denied` (not allowed), `NotFound`, or `Conflict` (allowed, but the current state forbids it, such as deleting a user who owns labs). Transports find it with `ServiceError::find`, which works through added context:
 
 - REST: `ApiError::from` maps `Denied` to 403, `NotFound` to 404 and `Conflict` to 409. No authorization decision is made by matching on error text.
-- RPC: `service_error` in `rpc.rs` maps them to `AccessDenied`, `NotFound`, and `ServerError` with the conflict message (JSON-RPC has no conflict code); other failures stay `ServerError` with the error chain as context.
-- HTML: `lab_error_page` and `lab_error_fragment` in `handlers.rs` render the 403 and 404 templates.
+- RPC: `service_error` in `rpc/dispatch.rs` maps them to `AccessDenied`, `NotFound`, `InvalidParams`, and `ServerError` with the conflict message (JSON-RPC has no conflict code); other failures stay `ServerError` with the error's message chain (`{:#}`, never its debug form) as context. Authentication failures carry no context.
+- HTML: `lab_error_page` and `lab_error_fragment` in `handlers/labs_web.rs` render the 403 and 404 templates.
 
 Request structs (`UpRequest`, `DestroyRequest`, `InspectRequest`, `RedeployRequest`, `UpdateImpairmentRequest`) do not carry a username. Identity only ever comes from the `AuthContext`. Older clients that still send `username` keep working, because unknown fields are ignored.
 
@@ -618,7 +627,7 @@ folder, so its owner can destroy it again; both are removed only once everything
 Long-running operations (`up`, `destroy`, `redeploy`, `resume`, `down`, admin `clean`, image
 operations) always run as their own tasks, on every transport, and keep running when their
 client disconnects. The WebSocket and SSE handlers spawn them; the plain HTTP handlers wait on
-them through `run_detached` in `api/handlers.rs`, because axum drops a handler's future when
+them through `run_detached` in `api/handlers/labs_api.rs`, because axum drops a handler's future when
 its client disconnects and would otherwise stop the operation at an arbitrary await point.
 
 `services/lab_operations.rs` keeps, per lab, a read/write lease and a cancellation token with
@@ -1181,11 +1190,11 @@ Open implementation seams (handler-driven auth, inconsistent service authorizati
 | Shared state | `crates/server/src/daemon/state.rs` |
 | Metrics | `crates/server/src/daemon/metrics.rs` |
 | Router | `crates/server/src/api/router.rs` |
-| REST/HTML handlers | `crates/server/src/api/handlers.rs` |
+| REST/HTML handlers | `crates/server/src/api/handlers/` |
 | REST auth extractors | `crates/server/src/api/extractors.rs` |
 | SSE conversion | `crates/server/src/api/sse.rs` |
 | WebSocket lifecycle | `crates/server/src/api/websocket/handler.rs`, `connection.rs`, `messages.rs` |
-| RPC dispatch | `crates/server/src/api/websocket/rpc.rs` |
+| RPC dispatch | `crates/server/src/api/websocket/rpc/dispatch.rs` |
 | JWT/cookies/auth context | `crates/server/src/auth/` |
 | Lab create | `crates/server/src/services/up.rs` |
 | Lab destroy | `crates/server/src/services/destroy.rs` |
