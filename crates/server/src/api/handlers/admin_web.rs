@@ -54,7 +54,8 @@ pub async fn admin_dashboard_handler(
 
     for user in users.into_iter() {
         // Format created_at date using jiff
-        let created_at_formatted = format_date_simple(user.created_at);
+        // In UTC, such as "Nov 7, 2026".
+        let created_at_formatted = user.created_at.strftime("%b %-d, %Y").to_string();
 
         // Count labs owned by this user
         let lab_count = if let Some(ref user_id) = user.id {
@@ -516,33 +517,5 @@ pub async fn admin_delete_user_handler(
                 Err(ApiError::internal("Failed to delete user"))
             }
         },
-    }
-}
-
-/// Helper function to format datetime as "MMM DD, YYYY"
-fn format_date_simple(timestamp: jiff::Timestamp) -> String {
-    match timestamp.in_tz("UTC") {
-        Ok(zoned) => {
-            let month = match zoned.month() {
-                1 => "Jan",
-                2 => "Feb",
-                3 => "Mar",
-                4 => "Apr",
-                5 => "May",
-                6 => "Jun",
-                7 => "Jul",
-                8 => "Aug",
-                9 => "Sep",
-                10 => "Oct",
-                11 => "Nov",
-                12 => "Dec",
-                _ => "???",
-            };
-            format!("{} {}, {}", month, zoned.day(), zoned.year())
-        }
-        Err(_) => {
-            // Fallback to timestamp if conversion fails
-            format!("{}", timestamp)
-        }
     }
 }
