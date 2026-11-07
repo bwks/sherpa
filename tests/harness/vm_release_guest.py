@@ -364,7 +364,7 @@ class Guest:
             require(link.is_symlink() and link.resolve() == path, f"Invalid {binary} symlink")
             _, output = self.command([str(path), "--version"])
             validate_binary_version(binary, self.config[selection]["version"], output)
-        for directory, permissions in (("", 0o775), ("db", 0o775), ("config", 0o775), ("env", 0o750)):
+        for directory, permissions in (("", 0o775), ("db", 0o750), ("config", 0o775), ("env", 0o750)):
             path = self.base / directory
             require(path.is_dir() and path.stat().st_mode & 0o777 == permissions,
                     f"Invalid permissions for {path}")
