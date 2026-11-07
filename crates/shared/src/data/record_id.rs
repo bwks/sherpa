@@ -27,6 +27,11 @@ impl RecordId {
         }
     }
 
+    /// Parse a record ID written as `table:key`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `value` is not a `table:key` record ID.
     #[instrument(level = "debug")]
     pub fn parse_simple(value: &str) -> Result<Self> {
         let (table, key) = value

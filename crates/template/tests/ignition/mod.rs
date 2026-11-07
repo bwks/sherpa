@@ -1,6 +1,5 @@
 use std::net::Ipv4Addr;
 
-use shared::konst::DOCKER_COMPOSE_VERSION;
 use shared::util::base64_decode;
 use template::{
     FileMode, IgnitionConfig, IgnitionFile, IgnitionFileContents, IgnitionLink, IgnitionUnit,
@@ -8,6 +7,9 @@ use template::{
 };
 
 use crate::helpers;
+
+/// The Docker Compose sysext version the fixtures name.
+const DOCKER_COMPOSE_VERSION: &str = "2.34.0";
 
 // ============================================================================
 // Expected configs

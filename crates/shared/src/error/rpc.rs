@@ -53,6 +53,7 @@ pub enum RpcErrorCode {
 impl RpcErrorCode {
     /// Get the i32 error code value
     ///
+    #[must_use]
     pub fn code(&self) -> i32 {
         match self {
             Self::ParseError => -32700,

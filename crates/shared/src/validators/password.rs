@@ -1,5 +1,7 @@
-use anyhow::{Context, Result, anyhow};
-use regex::Regex;
+use anyhow::{Result, anyhow};
+
+/// The special characters a password can use to meet the special character rule.
+const PASSWORD_SPECIAL_CHARACTERS: &str = "!@#$%^&*_+-=";
 
 /// Validates password strength requirements.
 ///
@@ -31,9 +33,10 @@ pub fn validate_password_strength(password: &str) -> Result<()> {
     }
 
     // Check for special character (restricted safe set)
-    let special_chars =
-        Regex::new(r"[!@#$%^&*_+\-=]").context("Failed to compile password regex")?;
-    if !special_chars.is_match(password) {
+    if !password
+        .chars()
+        .any(|c| PASSWORD_SPECIAL_CHARACTERS.contains(c))
+    {
         errors.push("• At least one special character (!@#$%^&*_+-=)");
     }
 
@@ -63,8 +66,7 @@ mod tests {
         for password in valid_passwords {
             assert!(
                 validate_password_strength(password).is_ok(),
-                "Password '{}' should be valid",
-                password
+                "Password '{password}' should be valid"
             );
         }
     }

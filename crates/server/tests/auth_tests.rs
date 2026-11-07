@@ -3,14 +3,18 @@ mod helpers;
 mod http_client;
 
 use anyhow::{Result, ensure};
-use reqwest::header;
+use reqwest::{Method, StatusCode, header};
 use serde_json::json;
+use shared::api_spec::{HttpMethod, build_spec};
 use shared::error::RpcErrorCode;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 
 use helpers::test_server::{TEST_ADMIN_PASSWORD, TestServer};
 use helpers::ws_client::TestWsClient;
 use http_client::TestHttpClient;
+
+/// Operations the spec gives a REST binding the server does not route yet.
+const KNOWN_UNROUTED: &[&str] = &[];
 
 // ── JWT Authentication Tests ──
 
@@ -113,6 +117,30 @@ async fn test_auth_validate_valid_token() -> Result<()> {
         Some("admin")
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_token_validates_over_rest_as_over_rpc() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+    let client = TestHttpClient::new(server.addr);
+
+    let valid: serde_json::Value = client
+        .post_json("/api/v1/auth/validate", &json!({ "token": token }))
+        .await?
+        .json()
+        .await?;
+    assert_eq!(valid["valid"], true, "{valid}");
+    assert_eq!(valid["username"], "admin", "{valid}");
+
+    let invalid: serde_json::Value = client
+        .post_json("/api/v1/auth/validate", &json!({ "token": "not-a-token" }))
+        .await?
+        .json()
+        .await?;
+    assert_eq!(invalid["valid"], false, "{invalid}");
     Ok(())
 }
 
@@ -551,6 +579,49 @@ async fn deleted_user_token_is_rejected_on_all_transports() -> Result<()> {
         response.status().is_redirection() && location.contains("session_expired"),
         "Deleted user's session was not cleared: {} {location}",
         response.status()
+    );
+    Ok(())
+}
+
+// ── API spec routes ──
+
+/// Every REST binding in the published spec is a route the server serves. The request is sent
+/// without a token: a route that exists answers 401 or 400, one that does not answers 404 or 405.
+#[tokio::test]
+async fn every_rest_operation_in_the_spec_is_routed() -> Result<()> {
+    let server = TestServer::start().await?;
+    let client = reqwest::Client::new();
+    let mut unrouted = Vec::new();
+
+    for op in build_spec().operations {
+        let rest = &op.transports.rest;
+        let mut path = rest.path.to_owned();
+        for param in &rest.path_params {
+            path = path.replace(&format!("{{{param}}}"), "spec-check");
+        }
+        let method = match rest.method {
+            HttpMethod::Get => Method::GET,
+            HttpMethod::Post => Method::POST,
+            HttpMethod::Delete => Method::DELETE,
+        };
+        let status = client
+            .request(method.clone(), format!("http://{}{path}", server.addr))
+            .send()
+            .await?
+            .status();
+        let routed = !matches!(
+            status,
+            StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED
+        );
+        if routed == KNOWN_UNROUTED.contains(&op.name) {
+            unrouted.push(format!("{} {method} {path}: {status}", op.name));
+        }
+    }
+
+    assert!(
+        unrouted.is_empty(),
+        "Routing differs from the spec (update KNOWN_UNROUTED if one was fixed):\n{}",
+        unrouted.join("\n")
     );
     Ok(())
 }

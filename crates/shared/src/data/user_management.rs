@@ -14,9 +14,9 @@ pub struct CreateUserRequest {
     pub password: String,
     /// Whether the user should have admin privileges
     pub is_admin: bool,
-    /// Optional SSH public keys
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ssh_keys: Option<Vec<String>>,
+    /// SSH public keys; none when left out
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ssh_keys: Vec<String>,
     /// Caller's authentication token
     pub token: String,
 }

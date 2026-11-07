@@ -10,9 +10,9 @@ pub fn term_msg_surround(message: &str) {
     let msg_len = message.len();
     let surround = "━".repeat(msg_len);
     println!(
-        r#"{surround}
+        r"{surround}
 {message}
-{surround}"#,
+{surround}",
     );
 }
 
@@ -21,8 +21,8 @@ pub fn term_msg_underline(message: &str) {
     let msg_len = message.len();
     let underline = "─".repeat(msg_len);
     println!(
-        r#"{message}
-{underline}"#,
+        r"{message}
+{underline}",
     );
 }
 
@@ -32,154 +32,84 @@ pub fn term_msg_highlight(message: &str) {
 }
 
 /// Display detailed destroy/clean results with success/failure tracking
+///
+/// # Errors
+///
+/// Never fails today; the `Result` is kept for callers.
 pub fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
     let summary = &response.summary;
 
     term_msg_surround("Destroy Results");
 
-    // Containers
-    if !summary.containers_destroyed.is_empty() {
-        term_msg_underline(&format!(
-            "{} Containers Destroyed ({})",
+    let sections: [(Emoji, &str, &[String]); 12] = [
+        (
             Emoji::Success,
-            summary.containers_destroyed.len()
-        ));
-        for container in &summary.containers_destroyed {
-            println!("  - {}", container);
-        }
-        println!();
-    }
-    if !summary.containers_failed.is_empty() {
-        term_msg_underline(&format!(
-            "{} Containers Failed ({})",
+            "Containers Destroyed",
+            &summary.containers_destroyed,
+        ),
+        (
             Emoji::Error,
-            summary.containers_failed.len()
-        ));
-        for container in &summary.containers_failed {
-            println!("  - {}", container);
+            "Containers Failed",
+            &summary.containers_failed,
+        ),
+        (
+            Emoji::Success,
+            "Virtual Machines Destroyed",
+            &summary.vms_destroyed,
+        ),
+        (Emoji::Error, "Virtual Machines Failed", &summary.vms_failed),
+        (Emoji::Success, "Disks Deleted", &summary.disks_deleted),
+        (Emoji::Error, "Disks Failed", &summary.disks_failed),
+        (
+            Emoji::Success,
+            "Libvirt Networks Destroyed",
+            &summary.libvirt_networks_destroyed,
+        ),
+        (
+            Emoji::Error,
+            "Libvirt Networks Failed",
+            &summary.libvirt_networks_failed,
+        ),
+        (
+            Emoji::Success,
+            "Docker Networks Destroyed",
+            &summary.docker_networks_destroyed,
+        ),
+        (
+            Emoji::Error,
+            "Docker Networks Failed",
+            &summary.docker_networks_failed,
+        ),
+        (
+            Emoji::Success,
+            "Interfaces Deleted",
+            &summary.interfaces_deleted,
+        ),
+        (
+            Emoji::Error,
+            "Interfaces Failed",
+            &summary.interfaces_failed,
+        ),
+    ];
+    for (emoji, title, items) in sections {
+        if items.is_empty() {
+            continue;
+        }
+        term_msg_underline(&format!("{emoji} {title} ({})", items.len()));
+        for item in items {
+            println!("  - {item}");
         }
         println!();
     }
 
-    // Virtual Machines
-    if !summary.vms_destroyed.is_empty() {
-        term_msg_underline(&format!(
-            "{} Virtual Machines Destroyed ({})",
-            Emoji::Success,
-            summary.vms_destroyed.len()
-        ));
-        for vm in &summary.vms_destroyed {
-            println!("  - {}", vm);
-        }
-        println!();
-    }
-    if !summary.vms_failed.is_empty() {
-        term_msg_underline(&format!(
-            "{} Virtual Machines Failed ({})",
-            Emoji::Error,
-            summary.vms_failed.len()
-        ));
-        for vm in &summary.vms_failed {
-            println!("  - {}", vm);
-        }
-        println!();
-    }
+    print_destroy_outcome(response);
 
-    // Disks
-    if !summary.disks_deleted.is_empty() {
-        term_msg_underline(&format!(
-            "{} Disks Deleted ({})",
-            Emoji::Success,
-            summary.disks_deleted.len()
-        ));
-        for disk in &summary.disks_deleted {
-            println!("  - {}", disk);
-        }
-        println!();
-    }
-    if !summary.disks_failed.is_empty() {
-        term_msg_underline(&format!(
-            "{} Disks Failed ({})",
-            Emoji::Error,
-            summary.disks_failed.len()
-        ));
-        for disk in &summary.disks_failed {
-            println!("  - {}", disk);
-        }
-        println!();
-    }
+    Ok(())
+}
 
-    // Libvirt Networks
-    if !summary.libvirt_networks_destroyed.is_empty() {
-        term_msg_underline(&format!(
-            "{} Libvirt Networks Destroyed ({})",
-            Emoji::Success,
-            summary.libvirt_networks_destroyed.len()
-        ));
-        for network in &summary.libvirt_networks_destroyed {
-            println!("  - {}", network);
-        }
-        println!();
-    }
-    if !summary.libvirt_networks_failed.is_empty() {
-        term_msg_underline(&format!(
-            "{} Libvirt Networks Failed ({})",
-            Emoji::Error,
-            summary.libvirt_networks_failed.len()
-        ));
-        for network in &summary.libvirt_networks_failed {
-            println!("  - {}", network);
-        }
-        println!();
-    }
-
-    // Docker Networks
-    if !summary.docker_networks_destroyed.is_empty() {
-        term_msg_underline(&format!(
-            "{} Docker Networks Destroyed ({})",
-            Emoji::Success,
-            summary.docker_networks_destroyed.len()
-        ));
-        for network in &summary.docker_networks_destroyed {
-            println!("  - {}", network);
-        }
-        println!();
-    }
-    if !summary.docker_networks_failed.is_empty() {
-        term_msg_underline(&format!(
-            "{} Docker Networks Failed ({})",
-            Emoji::Error,
-            summary.docker_networks_failed.len()
-        ));
-        for network in &summary.docker_networks_failed {
-            println!("  - {}", network);
-        }
-        println!();
-    }
-
-    // Interfaces
-    if !summary.interfaces_deleted.is_empty() {
-        term_msg_underline(&format!(
-            "{} Interfaces Deleted ({})",
-            Emoji::Success,
-            summary.interfaces_deleted.len()
-        ));
-        for interface in &summary.interfaces_deleted {
-            println!("  - {}", interface);
-        }
-        println!();
-    }
-    if !summary.interfaces_failed.is_empty() {
-        term_msg_underline(&format!(
-            "{} Interfaces Failed ({})",
-            Emoji::Error,
-            summary.interfaces_failed.len()
-        ));
-        for interface in &summary.interfaces_failed {
-            println!("  - {}", interface);
-        }
-        println!();
-    }
+/// Print whether the lab's database records and folder went, the errors, and the outcome.
+fn print_destroy_outcome(response: &DestroyResponse) {
+    let summary = &response.summary;
 
     // Database and filesystem
     if summary.database_records_deleted {
@@ -225,8 +155,6 @@ pub fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
             Emoji::Warning
         );
     }
-
-    Ok(())
 }
 
 /// Ask `question` and read the answer from stdin: `y` or `yes`, in any case, is yes; anything

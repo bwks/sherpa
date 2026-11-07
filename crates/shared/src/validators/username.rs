@@ -11,6 +11,10 @@ use crate::konst::{
 /// 3–32 lowercase ASCII letters, digits, underscores or hyphens, starting with a letter or
 /// underscore, and not a reserved name. Callers normalise the input with
 /// `util::normalize_username` before validating it.
+///
+/// # Errors
+///
+/// Fails when the username breaks a rule, naming the rule.
 #[instrument(level = "debug")]
 pub fn validate_username(username: &str) -> Result<()> {
     ensure!(
@@ -25,6 +29,10 @@ pub fn validate_username(username: &str) -> Result<()> {
 }
 
 /// Validate a portable Linux username and conflicts with generated guest accounts.
+///
+/// # Errors
+///
+/// Fails when the username cannot be a guest login, naming why.
 #[instrument(level = "debug")]
 pub fn validate_guest_username(username: &str, reserved: &[&str]) -> Result<()> {
     ensure!(

@@ -7,6 +7,10 @@ const MAX_SECRET_FILE_NAME_LEN: usize = 255;
 
 /// Check a secret file's name and mode. The name is a single file name, used as a path part on
 /// the server and in the container.
+///
+/// # Errors
+///
+/// Fails when the name or mode is not allowed, with the reason.
 #[instrument(level = "debug")]
 pub fn validate_secret_file(name: &str, mode: u32) -> Result<()> {
     ensure!(

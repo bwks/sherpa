@@ -93,6 +93,7 @@ impl fmt::Display for DiskBuses {
     }
 }
 impl DiskBuses {
+    #[must_use]
     pub fn to_vec() -> Vec<DiskBuses> {
         DiskBuses::iter().collect()
     }
@@ -180,6 +181,12 @@ impl fmt::Display for DiskTargets {
 }
 
 impl DiskTargets {
+    /// The target device for the disk at `index` on `disk_bus`, such as `vdb` for the second
+    /// virtio disk.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the bus has no target at `index`; each bus has ten.
     pub fn target(disk_bus: &DiskBuses, index: u8) -> Result<DiskTargets> {
         match disk_bus {
             DiskBuses::Ide => match index {
@@ -274,9 +281,9 @@ mod tests {
         let expected = [
             "hda", "hdb", "hdc", "hdd", "hde", "hdf", "hdg", "hdh", "hdi", "hdj",
         ];
-        for (i, name) in expected.iter().enumerate() {
-            let t = DiskTargets::target(&DiskBuses::Ide, i as u8).unwrap();
-            assert_eq!(t.to_string(), *name);
+        for (index, name) in (0u8..).zip(expected) {
+            let t = DiskTargets::target(&DiskBuses::Ide, index).unwrap();
+            assert_eq!(t.to_string(), name);
         }
     }
 
@@ -285,9 +292,9 @@ mod tests {
         let expected = [
             "sda", "sdb", "sdc", "sdd", "sde", "sdf", "sdg", "sdh", "sdi", "sdj",
         ];
-        for (i, name) in expected.iter().enumerate() {
-            let t = DiskTargets::target(&DiskBuses::Sata, i as u8).unwrap();
-            assert_eq!(t.to_string(), *name);
+        for (index, name) in (0u8..).zip(expected) {
+            let t = DiskTargets::target(&DiskBuses::Sata, index).unwrap();
+            assert_eq!(t.to_string(), name);
         }
     }
 
@@ -305,9 +312,9 @@ mod tests {
         let expected = [
             "vda", "vdb", "vdc", "vdd", "vde", "vdf", "vdg", "vdh", "vdi", "vdj",
         ];
-        for (i, name) in expected.iter().enumerate() {
-            let t = DiskTargets::target(&DiskBuses::Virtio, i as u8).unwrap();
-            assert_eq!(t.to_string(), *name);
+        for (index, name) in (0u8..).zip(expected) {
+            let t = DiskTargets::target(&DiskBuses::Virtio, index).unwrap();
+            assert_eq!(t.to_string(), name);
         }
     }
 

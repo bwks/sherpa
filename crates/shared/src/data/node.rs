@@ -347,28 +347,32 @@ impl std::str::FromStr for NodeModel {
             "unikraft_unikernel" => Ok(NodeModel::UnikraftUnikernel),
             "nanos_unikernel" => Ok(NodeModel::NanosUnikernel),
 
-            _ => Err(format!("Unknown node model: {}", s)),
+            _ => Err(format!("Unknown node model: {s}")),
         }
     }
 }
 impl NodeModel {
+    #[must_use]
     pub fn to_vec() -> Vec<NodeModel> {
         NodeModel::iter().collect()
     }
 
-    /// Get the NodeKind for this model
-    /// Uses the existing hardcoded mapping in NodeConfig::get_model()
+    /// Get the `NodeKind` for this model
+    /// Uses the existing hardcoded mapping in `NodeConfig::get_model()`
+    #[must_use]
     pub fn kind(&self) -> NodeKind {
         NodeConfig::get_model(*self).kind
     }
 
     /// Whether nodes of this model accept SSH logins. Talos Linux has no SSH or shell.
+    #[must_use]
     pub fn has_ssh(&self) -> bool {
         !matches!(self, NodeModel::TalosLinux)
     }
 
     /// Whether every data interface of a container of this model stays up, disabled ones too.
     /// cJunosEvolved waits at boot until all the data interfaces it is told about are up.
+    #[must_use]
     pub fn keeps_data_interfaces_up(&self) -> bool {
         matches!(self, NodeModel::JuniperCevolved)
     }
@@ -376,6 +380,7 @@ impl NodeModel {
     /// TCP port that shows a virtual machine of this model is ready.
     ///
     /// Talos Linux has no SSH, so its API port is used instead.
+    #[must_use]
     pub fn ready_port(&self) -> u16 {
         match self {
             NodeModel::TalosLinux => TALOS_API_PORT,
@@ -387,6 +392,7 @@ impl NodeModel {
     ///
     /// `None` keeps the image's own size. The Talos Linux image is about 4 GB but Talos needs
     /// at least 10 GB.
+    #[must_use]
     pub fn default_boot_disk_size(&self) -> Option<u16> {
         match self {
             NodeModel::TalosLinux => Some(TALOS_DEFAULT_BOOT_DISK_SIZE),
@@ -465,6 +471,7 @@ impl fmt::Display for OsVariant {
     }
 }
 impl OsVariant {
+    #[must_use]
     pub fn to_vec() -> Vec<OsVariant> {
         OsVariant::iter().collect()
     }
@@ -484,43 +491,43 @@ impl fmt::Display for CpuArchitecture {
     }
 }
 impl CpuArchitecture {
+    #[must_use]
     pub fn to_vec() -> Vec<CpuArchitecture> {
         CpuArchitecture::iter().collect()
     }
 }
 
-#[allow(non_camel_case_types)]
 #[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
 pub enum MachineType {
     #[default]
-    #[serde(rename(serialize = "pc", deserialize = "pc"))]
+    #[serde(rename = "pc")]
     Pc, // alias of pc-i440fx-X.Y - Qemu version dependent
-    #[serde(rename(serialize = "q35", deserialize = "q35"))]
+    #[serde(rename = "q35")]
     Q35, // alias of pc-q35-X.Y - Qemu version dependent
-    #[serde(rename(serialize = "pc-q35-5.0", deserialize = "pc-q35-5.0"))]
+    #[serde(rename = "pc-q35-5.0")]
     PcQ35_5_0,
-    #[serde(rename(serialize = "pc-q35-5.2", deserialize = "pc-q35-5.2"))]
+    #[serde(rename = "pc-q35-5.2")]
     PcQ35_5_2,
-    #[serde(rename(serialize = "pc-q35-6.2", deserialize = "pc-q35-6.2"))]
+    #[serde(rename = "pc-q35-6.2")]
     PcQ35_6_2,
-    #[serde(rename(serialize = "pc-q35-6.0", deserialize = "pc-q35-6.0"))]
+    #[serde(rename = "pc-q35-6.0")]
     PcQ35_6_0,
-    #[serde(rename(serialize = "pc-q35-8.0", deserialize = "pc-q35-8.0"))]
+    #[serde(rename = "pc-q35-8.0")]
     PcQ35_8_0,
-    #[serde(rename(serialize = "pc-q35-8.1", deserialize = "pc-q35-8.1"))]
+    #[serde(rename = "pc-q35-8.1")]
     PcQ35_8_1,
-    #[serde(rename(serialize = "pc-q35-8.2", deserialize = "pc-q35-8.2"))]
+    #[serde(rename = "pc-q35-8.2")]
     PcQ35_8_2,
-    #[serde(rename(serialize = "pc-i440fx-4.2", deserialize = "pc-i440fx-4.2"))]
-    PcI440Fx_4_2,
-    #[serde(rename(serialize = "pc-i440fx-5.1", deserialize = "pc-i440fx-5.1"))]
-    PcI440Fx_5_1,
-    #[serde(rename(serialize = "pc-i440fx-8.0", deserialize = "pc-i440fx-8.0"))]
-    PcI440Fx_8_0,
-    #[serde(rename(serialize = "pc-i440fx-8.1", deserialize = "pc-i440fx-8.1"))]
-    PcI440Fx_8_1,
-    #[serde(rename(serialize = "pc-i440fx-8.2", deserialize = "pc-i440fx-8.2"))]
-    PcI440Fx_8_2,
+    #[serde(rename = "pc-i440fx-4.2")]
+    PcI440Fx4_2,
+    #[serde(rename = "pc-i440fx-5.1")]
+    PcI440Fx5_1,
+    #[serde(rename = "pc-i440fx-8.0")]
+    PcI440Fx8_0,
+    #[serde(rename = "pc-i440fx-8.1")]
+    PcI440Fx8_1,
+    #[serde(rename = "pc-i440fx-8.2")]
+    PcI440Fx8_2,
 }
 impl fmt::Display for MachineType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -534,15 +541,16 @@ impl fmt::Display for MachineType {
             MachineType::PcQ35_8_0 => write!(f, "pc-q35-8.0"),
             MachineType::PcQ35_8_1 => write!(f, "pc-q35-8.1"),
             MachineType::PcQ35_8_2 => write!(f, "pc-q35-8.2"),
-            MachineType::PcI440Fx_5_1 => write!(f, "pc-i440fx-5.1"),
-            MachineType::PcI440Fx_4_2 => write!(f, "pc-i440fx-4.2"),
-            MachineType::PcI440Fx_8_0 => write!(f, "pc-i440fx-8.0"),
-            MachineType::PcI440Fx_8_1 => write!(f, "pc-i440fx-8.1"),
-            MachineType::PcI440Fx_8_2 => write!(f, "pc-i440fx-8.2"),
+            MachineType::PcI440Fx5_1 => write!(f, "pc-i440fx-5.1"),
+            MachineType::PcI440Fx4_2 => write!(f, "pc-i440fx-4.2"),
+            MachineType::PcI440Fx8_0 => write!(f, "pc-i440fx-8.0"),
+            MachineType::PcI440Fx8_1 => write!(f, "pc-i440fx-8.1"),
+            MachineType::PcI440Fx8_2 => write!(f, "pc-i440fx-8.2"),
         }
     }
 }
 impl MachineType {
+    #[must_use]
     pub fn to_vec() -> Vec<MachineType> {
         MachineType::iter().collect()
     }
@@ -576,6 +584,7 @@ impl fmt::Display for InterfaceType {
     }
 }
 impl InterfaceType {
+    #[must_use]
     pub fn to_vec() -> Vec<InterfaceType> {
         InterfaceType::iter().collect()
     }
@@ -597,6 +606,7 @@ impl fmt::Display for BiosTypes {
     }
 }
 impl BiosTypes {
+    #[must_use]
     pub fn to_vec() -> Vec<BiosTypes> {
         BiosTypes::iter().collect()
     }
@@ -624,11 +634,12 @@ impl std::str::FromStr for UnikernelBootMode {
         match s {
             "direct_kernel" => Ok(UnikernelBootMode::DirectKernel),
             "disk_boot" => Ok(UnikernelBootMode::DiskBoot),
-            _ => Err(format!("Unknown unikernel boot mode: {}", s)),
+            _ => Err(format!("Unknown unikernel boot mode: {s}")),
         }
     }
 }
 impl UnikernelBootMode {
+    #[must_use]
     pub fn to_vec() -> Vec<UnikernelBootMode> {
         UnikernelBootMode::iter().collect()
     }
@@ -638,14 +649,14 @@ impl UnikernelBootMode {
 #[serde(rename_all = "lowercase")]
 pub enum ZtpMethod {
     #[default]
-    #[serde(rename(serialize = "cloud-init", deserialize = "cloud-init"))]
+    #[serde(rename = "cloud-init")]
     CloudInit,
     Cdrom,
     Disk,
     Http,
     Ignition,
     Ipxe,
-    /// NoCloud `cidata` CD-ROM carrying the node's own `user-data` (if any) with Sherpa's
+    /// `NoCloud` `cidata` CD-ROM carrying the node's own `user-data` (if any) with Sherpa's
     /// `meta-data` and static management `network-config`.
     NoCloud,
     Tftp,
@@ -671,6 +682,7 @@ impl fmt::Display for ZtpMethod {
     }
 }
 impl ZtpMethod {
+    #[must_use]
     pub fn to_vec() -> Vec<ZtpMethod> {
         ZtpMethod::iter().collect()
     }
@@ -703,11 +715,12 @@ impl std::str::FromStr for NodeKind {
             "virtual_machine" => Ok(NodeKind::VirtualMachine),
             "container" => Ok(NodeKind::Container),
             "unikernel" => Ok(NodeKind::Unikernel),
-            _ => Err(format!("Unknown node kind: {}", s)),
+            _ => Err(format!("Unknown node kind: {s}")),
         }
     }
 }
 impl NodeKind {
+    #[must_use]
     pub fn to_vec() -> Vec<NodeKind> {
         NodeKind::iter().collect()
     }
@@ -768,11 +781,35 @@ impl std::str::FromStr for NodeState {
 }
 
 impl NodeState {
+    #[must_use]
     pub fn to_vec() -> Vec<NodeState> {
         NodeState::iter().collect()
     }
 }
 
+/// Zero touch provisioning for a node image: whether Sherpa provisions its nodes at boot, by
+/// which method, and with which credentials. `NodeConfig` flattens it, so on the wire and in the
+/// database the fields keep their `ztp_` names.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
+pub struct ZtpSettings {
+    /// Whether Sherpa provisions the image's nodes at boot.
+    #[serde(rename = "ztp_enable")]
+    pub enable: bool,
+    /// How the nodes are provisioned.
+    #[serde(rename = "ztp_method")]
+    pub method: ZtpMethod,
+    /// The account the provisioning sets up, when the image has a fixed one.
+    #[serde(rename = "ztp_username")]
+    pub username: Option<String>,
+    /// That account's password.
+    #[serde(rename = "ztp_password")]
+    pub password: Option<String>,
+    /// Whether the account can log in with its password, as well as with keys.
+    #[serde(rename = "ztp_password_auth")]
+    pub password_auth: bool,
+}
+
+/// A node image: the model and version, and how Sherpa builds and boots its nodes.
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 pub struct NodeConfig {
     #[schemars(skip)]
@@ -792,17 +829,13 @@ pub struct NodeConfig {
     pub hdd_bus: DiskBuses,
     pub cdrom: Option<String>,
     pub cdrom_bus: DiskBuses,
-    pub ztp_enable: bool,
-    pub ztp_method: ZtpMethod,
-    pub ztp_username: Option<String>,
-    pub ztp_password: Option<String>,
-    pub ztp_password_auth: bool,
+    #[serde(flatten)]
+    pub ztp: ZtpSettings,
     pub data_interface_count: u8,
     pub interface_prefix: String,
     pub interface_type: InterfaceType,
     pub interface_mtu: u16,
     pub first_interface_index: u8,
-    pub dedicated_management_interface: bool,
     pub management_interface: MgmtInterfaces,
     pub reserved_interface_count: u8,
     pub default: bool,
@@ -828,17 +861,18 @@ impl Default for NodeConfig {
             hdd_bus: DiskBuses::default(),
             cdrom: None,
             cdrom_bus: DiskBuses::default(),
-            ztp_enable: false,
-            ztp_method: ZtpMethod::None,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: false,
+                method: ZtpMethod::None,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             data_interface_count: 0,
             interface_prefix: "eth".to_owned(),
             interface_type: InterfaceType::default(),
             interface_mtu: 1500,
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::default(),
             reserved_interface_count: 0,
             default: false,
@@ -848,7 +882,7 @@ impl Default for NodeConfig {
 }
 
 impl NodeConfig {
-    #[allow(dead_code)]
+    #[must_use]
     pub fn get_model(device_model: NodeModel) -> NodeConfig {
         match device_model {
             // Arista
@@ -963,6 +997,7 @@ impl NodeConfig {
             .map(str::to_string)
             .or_else(|| self.repo.clone())
     }
+    #[must_use]
     pub fn arista_veos() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -985,19 +1020,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Sata,
             cdrom: Some("aboot.iso".to_owned()),
             cdrom_bus: DiskBuses::Ide,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Tftp,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Tftp,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 1,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Management1,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn arista_ceos() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1020,19 +1057,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::None,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 1,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn aruba_aoscx() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1055,19 +1094,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Tftp,
-            ztp_password_auth: true,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Tftp,
+                username: None,
+                password: None,
+                password_auth: true,
+            },
             first_interface_index: 1,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Mgmt,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn cisco_asav() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1090,19 +1131,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Ide,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Cdrom,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Cdrom,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 1,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn cisco_csr1000v() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1125,19 +1168,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Cdrom,
-            ztp_password_auth: true,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Cdrom,
+                username: None,
+                password: None,
+                password_auth: true,
+            },
             first_interface_index: 1,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::GigabitEthernet1,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn cisco_cat8000v() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1160,19 +1205,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Cdrom,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Cdrom,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::GigabitEthernet1,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn cisco_cat9000v() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1195,19 +1242,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Cdrom,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Cdrom,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 1,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::GigabitEthernet0_0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn cisco_iosxrv9000() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1230,19 +1279,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Cdrom,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Cdrom,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::MgmtEth0Rp0Cpu0_0,
             reserved_interface_count: 2,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn cisco_nexus9300v() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1265,19 +1316,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Ide,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Cdrom,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Cdrom,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 1,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Mgmt0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn cisco_iosv() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1300,19 +1353,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Virtio,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Disk,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Disk,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::GigabitEthernet0_0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn cisco_iosvl2() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1336,19 +1391,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Virtio,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Disk,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Disk,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::GigabitEthernet0_0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn cisco_ise() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1371,19 +1428,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Disk,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Disk,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn cisco_ftdv() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1406,19 +1465,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Cdrom,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Cdrom,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Management0_0,
             reserved_interface_count: 1,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn juniper_vrouter() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1441,19 +1502,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Cdrom,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Cdrom,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Fxp0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn juniper_vswitch() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1476,19 +1539,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Cdrom,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Cdrom,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Fxp0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn juniper_vevolved() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1511,19 +1576,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Tftp,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Tftp,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Re0Mgmt0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn juniper_vsrxv3() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1540,25 +1607,27 @@ impl NodeConfig {
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::SandyBridge,
-            machine_type: MachineType::PcI440Fx_8_0,
+            machine_type: MachineType::PcI440Fx8_0,
             vmx_enabled: true,
             memory: 4096,
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Ide,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Cdrom,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Cdrom,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Fxp0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn alma_linux() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1581,19 +1650,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn rocky_linux() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1616,19 +1687,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn alpine_linux() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1651,19 +1724,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn cumulus_linux() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1686,13 +1761,14 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Usb,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Usb,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 1,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
@@ -1701,6 +1777,7 @@ impl NodeConfig {
     }
     /// cJunosEvolved. The vCPUs and memory are its EVO VM's, given to the container as
     /// `CPTX_EVOVM_CPU` and `CPTX_EVOVM_MEM_MB`; they are cJunosEvolved's minimums.
+    #[must_use]
     pub fn juniper_cevolved() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1723,19 +1800,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::None,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 1,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Re0Mgmt0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn nokia_srlinux() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1758,19 +1837,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::None,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 1,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Mgmt0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn centos_linux() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1793,19 +1874,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn devbox_linux() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1828,19 +1911,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn fedora_linux() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1863,19 +1948,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn redhat_linux() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1898,19 +1985,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn suse_linux() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1933,19 +2022,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn opensuse_linux() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1968,19 +2059,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn ubuntu_linux() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2003,13 +2096,14 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
@@ -2018,14 +2112,19 @@ impl NodeConfig {
     }
     /// Talos Linux: immutable, API-managed Kubernetes OS with no SSH or shell.
     ///
-    /// The machine config is delivered as NoCloud `user-data` on a `cidata` CD-ROM.
+    /// The machine config is delivered as `NoCloud` `user-data` on a `cidata` CD-ROM.
+    #[must_use]
     pub fn talos_linux() -> NodeConfig {
+        let ubuntu = NodeConfig::ubuntu_linux();
         NodeConfig {
             model: NodeModel::TalosLinux,
             cpu_count: 2,
             memory: 4096,
-            ztp_method: ZtpMethod::NoCloud,
-            ..NodeConfig::ubuntu_linux()
+            ztp: ZtpSettings {
+                method: ZtpMethod::NoCloud,
+                ..ubuntu.ztp
+            },
+            ..ubuntu
         }
     }
     /// NixOS, built from Sherpa's image recipe in `images/nixos`. More memory than the other
@@ -2050,6 +2149,7 @@ impl NodeConfig {
             ..NodeConfig::ubuntu_linux()
         }
     }
+    #[must_use]
     pub fn kali_linux() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2072,19 +2172,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn sonic_linux() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2107,19 +2209,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Virtio,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Http,
-            ztp_password_auth: true,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Http,
+                username: None,
+                password: None,
+                password_auth: true,
+            },
             first_interface_index: 1,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn flatcar_linux() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2142,19 +2246,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Ignition,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Ignition,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn free_bsd() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2177,19 +2283,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn open_bsd() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2212,19 +2320,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn devbox_windows() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2247,19 +2357,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn windows_server() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2282,19 +2394,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn jenkins_server() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2317,19 +2431,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: true,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: true,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn nautobot_server() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2352,19 +2468,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: true,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: true,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn virt_server() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2387,19 +2505,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: true,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: true,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn netbox_server() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2422,19 +2542,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: true,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: true,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn infrahub_server() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2457,19 +2579,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: true,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: true,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn signoz_server() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2492,19 +2616,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: true,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: true,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn forgejo_forge() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2517,19 +2643,21 @@ impl NodeConfig {
             interface_type: InterfaceType::MacVlan,
             cpu_count: 1,
             memory: 1024,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::None,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             ..Default::default()
         }
     }
+    #[must_use]
     pub fn gitlab_ce() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2542,19 +2670,21 @@ impl NodeConfig {
             interface_type: InterfaceType::MacVlan,
             cpu_count: 2,
             memory: 4096,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::None,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             ..Default::default()
         }
     }
+    #[must_use]
     pub fn surreal_db() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2567,19 +2697,21 @@ impl NodeConfig {
             interface_type: InterfaceType::MacVlan,
             cpu_count: 1,
             memory: 1024,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::None,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             ..Default::default()
         }
     }
+    #[must_use]
     pub fn hashicorp_vault() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2592,19 +2724,21 @@ impl NodeConfig {
             interface_type: InterfaceType::MacVlan,
             cpu_count: 1,
             memory: 1024,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::None,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             ..Default::default()
         }
     }
+    #[must_use]
     pub fn keycloak_server() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2617,19 +2751,21 @@ impl NodeConfig {
             interface_type: InterfaceType::MacVlan,
             cpu_count: 2,
             memory: 2048,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::None,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             ..Default::default()
         }
     }
+    #[must_use]
     pub fn mysql_db() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2642,19 +2778,21 @@ impl NodeConfig {
             interface_type: InterfaceType::MacVlan,
             cpu_count: 1,
             memory: 1024,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::None,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             ..Default::default()
         }
     }
+    #[must_use]
     pub fn mongo_db() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2667,19 +2805,21 @@ impl NodeConfig {
             interface_type: InterfaceType::MacVlan,
             cpu_count: 1,
             memory: 1024,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::None,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             ..Default::default()
         }
     }
+    #[must_use]
     pub fn nats_bus() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2692,19 +2832,21 @@ impl NodeConfig {
             interface_type: InterfaceType::MacVlan,
             cpu_count: 1,
             memory: 512,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::None,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             ..Default::default()
         }
     }
+    #[must_use]
     pub fn postgresql_db() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2717,19 +2859,21 @@ impl NodeConfig {
             interface_type: InterfaceType::MacVlan,
             cpu_count: 1,
             memory: 1024,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::None,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             ..Default::default()
         }
     }
+    #[must_use]
     pub fn mikrotik_chr() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2752,19 +2896,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Ide,
             cdrom: None,
             cdrom_bus: DiskBuses::Ide,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Disk,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Disk,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 1,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Ether1,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn paloalto_panos() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2787,19 +2933,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::Cdrom,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::Cdrom,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Management,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn frr_linux() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2822,19 +2970,21 @@ impl NodeConfig {
             hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::None,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
         }
     }
+    #[must_use]
     pub fn generic_container() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2847,19 +2997,21 @@ impl NodeConfig {
             interface_type: InterfaceType::MacVlan,
             cpu_count: 1,
             memory: 1024,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::None,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
             ..Default::default()
         }
     }
+    #[must_use]
     pub fn generic_unikernel() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2872,13 +3024,14 @@ impl NodeConfig {
             interface_type: InterfaceType::Virtio,
             cpu_count: 1,
             memory: 512,
-            ztp_enable: false,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: false,
+                method: ZtpMethod::None,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
@@ -2886,6 +3039,7 @@ impl NodeConfig {
             ..Default::default()
         }
     }
+    #[must_use]
     pub fn unikraft_unikernel() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2898,13 +3052,14 @@ impl NodeConfig {
             interface_type: InterfaceType::Virtio,
             cpu_count: 1,
             memory: 512,
-            ztp_enable: false,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: false,
+                method: ZtpMethod::None,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
@@ -2912,6 +3067,7 @@ impl NodeConfig {
             ..Default::default()
         }
     }
+    #[must_use]
     pub fn nanos_unikernel() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2924,13 +3080,14 @@ impl NodeConfig {
             interface_type: InterfaceType::Virtio,
             cpu_count: 1,
             memory: 512,
-            ztp_enable: false,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: false,
+                method: ZtpMethod::None,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
@@ -2938,6 +3095,7 @@ impl NodeConfig {
             ..Default::default()
         }
     }
+    #[must_use]
     pub fn generic_vm() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -2951,13 +3109,14 @@ impl NodeConfig {
             cpu_count: 1,
             memory: 1024,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
-            ztp_password_auth: false,
+            ztp: ZtpSettings {
+                enable: true,
+                method: ZtpMethod::CloudInit,
+                username: None,
+                password: None,
+                password_auth: false,
+            },
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
@@ -3010,7 +3169,10 @@ mod tests {
     fn test_all_variants_are_unique() {
         use std::collections::HashSet;
         let variants = NodeModel::to_vec();
-        let unique: HashSet<String> = variants.iter().map(|v| v.to_string()).collect();
+        let unique: HashSet<String> = variants
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
         assert_eq!(
             variants.len(),
             unique.len(),
@@ -3096,8 +3258,7 @@ mod tests {
             assert_eq!(
                 config.kind,
                 NodeKind::Unikernel,
-                "Model {} should be Unikernel kind",
-                model
+                "Model {model} should be Unikernel kind"
             );
         }
     }
@@ -3110,8 +3271,7 @@ mod tests {
             assert_eq!(
                 config.boot_mode,
                 Some(UnikernelBootMode::DirectKernel),
-                "Model {} should default to DirectKernel",
-                model
+                "Model {model} should default to DirectKernel"
             );
         }
 
@@ -3133,16 +3293,11 @@ mod tests {
         ];
         for model in unikernel_models {
             let config = NodeConfig::get_model(model);
-            assert!(
-                !config.ztp_enable,
-                "Model {} should have ZTP disabled",
-                model
-            );
+            assert!(!config.ztp.enable, "Model {model} should have ZTP disabled");
             assert_eq!(
-                config.ztp_method,
+                config.ztp.method,
                 ZtpMethod::None,
-                "Model {} should have ZTP method None",
-                model
+                "Model {model} should have ZTP method None"
             );
         }
     }
@@ -3166,8 +3321,7 @@ mod tests {
             let config = NodeConfig::get_model(model);
             assert_eq!(
                 config.boot_mode, None,
-                "VM model {} should not have boot_mode set",
-                model
+                "VM model {model} should not have boot_mode set"
             );
         }
     }
@@ -3177,7 +3331,7 @@ mod tests {
         let config = super::NodeConfig::get_model(model);
         assert_eq!(model.to_string(), "omarchy_linux");
         assert!(matches!(config.bios, super::BiosTypes::Uefi));
-        assert_eq!(config.ztp_method, super::ZtpMethod::CloudInit);
+        assert_eq!(config.ztp.method, super::ZtpMethod::CloudInit);
         assert!(matches!(config.hdd_bus, super::DiskBuses::Virtio));
         assert!(config.cdrom.is_none());
         assert_eq!(config.memory, 8192);
@@ -3197,7 +3351,7 @@ mod tests {
         assert_eq!(config.kind, super::NodeKind::VirtualMachine);
         assert!(matches!(config.os_variant, super::OsVariant::Linux));
         assert!(matches!(config.bios, super::BiosTypes::SeaBios));
-        assert_eq!(config.ztp_method, super::ZtpMethod::CloudInit);
+        assert_eq!(config.ztp.method, super::ZtpMethod::CloudInit);
         assert!(matches!(config.hdd_bus, super::DiskBuses::Virtio));
         assert!(matches!(
             config.interface_type,
@@ -3227,7 +3381,7 @@ mod tests {
         assert!(matches!(config.os_variant, super::OsVariant::Linux));
         assert!(matches!(config.machine_type, super::MachineType::Q35));
         assert!(matches!(config.cpu_model, super::CpuModels::HostModel));
-        assert_eq!(config.ztp_method, super::ZtpMethod::NoCloud);
+        assert_eq!(config.ztp.method, super::ZtpMethod::NoCloud);
         assert!(matches!(config.hdd_bus, super::DiskBuses::Virtio));
         assert!(matches!(config.cdrom_bus, super::DiskBuses::Sata));
         assert!(matches!(
@@ -3237,7 +3391,7 @@ mod tests {
         assert!(config.cdrom.is_none());
         assert_eq!(config.cpu_count, 2);
         assert_eq!(config.memory, 4096);
-        assert!(!config.ztp_password_auth);
+        assert!(!config.ztp.password_auth);
         assert_eq!(model.default_boot_disk_size(), Some(20));
         assert!(!model.has_ssh());
         assert_eq!(model.ready_port(), TALOS_API_PORT);

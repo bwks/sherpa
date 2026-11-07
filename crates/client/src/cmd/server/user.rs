@@ -287,11 +287,7 @@ async fn create_user(
         username,
         password,
         is_admin,
-        ssh_keys: if ssh_keys.is_empty() {
-            None
-        } else {
-            Some(ssh_keys)
-        },
+        ssh_keys,
         token: String::new(),
     };
 

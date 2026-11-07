@@ -45,7 +45,6 @@ pub fn test_dns() -> Dns {
     Dns {
         domain: "lab.sherpa.local".to_string(),
         name_servers: vec![NameServer {
-            name: "ns1".to_string(),
             ipv4_address: Ipv4Addr::new(172, 20, 0, 1),
             ipv6_address: None,
         }],

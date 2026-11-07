@@ -2418,7 +2418,7 @@ async fn handle_user_create(
         request.username.clone(),
         &request.password,
         request.is_admin,
-        request.ssh_keys.unwrap_or_default(),
+        request.ssh_keys,
     )
     .await
     {
@@ -3012,61 +3012,21 @@ async fn handle_auth_validate(
         }
     };
 
-    // Validate token
-    match crate::auth::jwt::validate_token(&state.jwt_secret, &validate_request.token) {
-        Ok(claims) => {
-            let response = data::ValidateResponse {
-                valid: true,
-                username: Some(claims.sub.clone()),
-                is_admin: Some(claims.is_admin),
-                expires_at: Some(claims.exp),
-            };
-
-            tracing::debug!(username = %claims.sub, "Token validated successfully");
-
-            match serde_json::to_value(&response) {
-                Ok(result) => ServerMessage::RpcResponse {
-                    id,
-                    result: Some(result),
-                    error: None,
-                },
-                Err(e) => ServerMessage::RpcResponse {
-                    id,
-                    result: None,
-                    error: Some(RpcError {
-                        code: RpcErrorCode::InternalError,
-                        message: RPC_MSG_SERIALIZE_FAILED.to_string(),
-                        context: Some(format!("{:?}", e)),
-                    }),
-                },
-            }
-        }
-        Err(_) => {
-            let response = data::ValidateResponse {
-                valid: false,
-                username: None,
-                is_admin: None,
-                expires_at: None,
-            };
-
-            tracing::debug!("Token validation failed");
-
-            match serde_json::to_value(&response) {
-                Ok(result) => ServerMessage::RpcResponse {
-                    id,
-                    result: Some(result),
-                    error: None,
-                },
-                Err(e) => ServerMessage::RpcResponse {
-                    id,
-                    result: None,
-                    error: Some(RpcError {
-                        code: RpcErrorCode::InternalError,
-                        message: RPC_MSG_SERIALIZE_FAILED.to_string(),
-                        context: Some(format!("{:?}", e)),
-                    }),
-                },
-            }
-        }
+    let response = crate::auth::jwt::token_status(&state.jwt_secret, &validate_request.token);
+    match serde_json::to_value(&response) {
+        Ok(result) => ServerMessage::RpcResponse {
+            id,
+            result: Some(result),
+            error: None,
+        },
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(RpcError {
+                code: RpcErrorCode::InternalError,
+                message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                context: Some(format!("{:?}", e)),
+            }),
+        },
     }
 }

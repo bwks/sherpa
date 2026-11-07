@@ -34,6 +34,7 @@ impl Claims {
     ///
     /// # Returns
     /// A new `Claims` instance with the current time as `iat` and calculated `exp`
+    #[must_use]
     pub fn new(username: String, is_admin: bool, expiry_seconds: i64) -> Self {
         let now = jiff::Timestamp::now().as_second();
         Self {
@@ -42,14 +43,6 @@ impl Claims {
             iat: now,
             is_admin,
         }
-    }
-
-    /// Check if the token has expired.
-    ///
-    /// # Returns
-    /// `true` if the current time is past the expiration time
-    pub fn is_expired(&self) -> bool {
-        jiff::Timestamp::now().as_second() > self.exp
     }
 }
 
@@ -77,26 +70,8 @@ mod tests {
     }
 
     #[test]
-    fn test_claims_not_expired() {
-        let claims = Claims::new("user".to_string(), false, 3600);
-        assert!(!claims.is_expired());
-    }
-
-    #[test]
-    fn test_claims_expired() {
-        let now = jiff::Timestamp::now().as_second();
-        let claims = Claims {
-            sub: "user".to_string(),
-            exp: now - 100, // expired 100 seconds ago
-            iat: now - 3700,
-            is_admin: false,
-        };
-        assert!(claims.is_expired());
-    }
-
-    #[test]
     fn test_claims_serde_roundtrip() {
-        let claims = Claims::new("testuser".to_string(), true, 604800);
+        let claims = Claims::new("testuser".to_string(), true, 604_800);
         let json = serde_json::to_string(&claims).expect("serializes");
         let deserialized: Claims = serde_json::from_str(&json).expect("deserializes");
         assert_eq!(claims, deserialized);
@@ -104,7 +79,7 @@ mod tests {
 
     #[test]
     fn test_claims_exp_minus_iat_equals_expiry() {
-        let expiry = 604800; // 7 days
+        let expiry = 604_800; // 7 days
         let claims = Claims::new("user".to_string(), false, expiry);
         assert_eq!(claims.exp - claims.iat, expiry);
     }

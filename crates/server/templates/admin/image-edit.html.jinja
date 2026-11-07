@@ -199,7 +199,7 @@
 
                 <!-- ZTP Enable -->
                 <div class="flex items-center md:col-span-2">
-                    <input type="checkbox" id="ztp_enable" name="ztp_enable" {% if config.ztp_enable %}checked{% endif %} class="h-4 w-4 text-accent focus:ring-accent border-border-strong rounded">
+                    <input type="checkbox" id="ztp_enable" name="ztp_enable" {% if config.ztp.enable %}checked{% endif %} class="h-4 w-4 text-accent focus:ring-accent border-border-strong rounded">
                     <label for="ztp_enable" class="ml-2 block text-sm font-medium text-body">Enable Zero Touch Provisioning</label>
                 </div>
 
@@ -207,7 +207,7 @@
                 <div>
                     <label for="ztp_method" class="block text-sm font-medium text-body mb-2">ZTP Method *</label>
                     <select id="ztp_method" name="ztp_method" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
-                        {% let current_ztp = config.ztp_method.to_string() %}
+                        {% let current_ztp = config.ztp.method.to_string() %}
                         {% for method in ztp_methods %}
                         <option value="{{ method }}" {% if *method == current_ztp %}selected{% endif %}>{{ method }}</option>
                         {% endfor %}
@@ -216,14 +216,14 @@
 
                 <!-- ZTP Password Auth -->
                 <div class="flex items-center">
-                    <input type="checkbox" id="ztp_password_auth" name="ztp_password_auth" {% if config.ztp_password_auth %}checked{% endif %} class="h-4 w-4 text-accent focus:ring-accent border-border-strong rounded">
+                    <input type="checkbox" id="ztp_password_auth" name="ztp_password_auth" {% if config.ztp.password_auth %}checked{% endif %} class="h-4 w-4 text-accent focus:ring-accent border-border-strong rounded">
                     <label for="ztp_password_auth" class="ml-2 block text-sm font-medium text-body">Password Authentication</label>
                 </div>
 
                 <!-- ZTP Username -->
                 <div>
                     <label for="ztp_username" class="block text-sm font-medium text-body mb-2">ZTP Username</label>
-                    {% match config.ztp_username %}
+                    {% match config.ztp.username %}
                     {% when Some with (username_value) %}
                     <input type="text" id="ztp_username" name="ztp_username" value="{{ username_value }}" class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
                     {% when None %}
@@ -234,7 +234,7 @@
                 <!-- ZTP Password -->
                 <div>
                     <label for="ztp_password" class="block text-sm font-medium text-body mb-2">ZTP Password</label>
-                    {% match config.ztp_password %}
+                    {% match config.ztp.password %}
                     {% when Some with (password_value) %}
                     <input type="password" id="ztp_password" name="ztp_password" value="{{ password_value }}" class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
                     {% when None %}
@@ -291,12 +291,6 @@
                 <div>
                     <label for="reserved_interface_count" class="block text-sm font-medium text-body mb-2">Reserved Interface Count *</label>
                     <input type="number" id="reserved_interface_count" name="reserved_interface_count" value="{{ config.reserved_interface_count }}" min="0" max="255" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
-                </div>
-
-                <!-- Dedicated Management Interface -->
-                <div class="flex items-center md:col-span-2">
-                    <input type="checkbox" id="dedicated_management_interface" name="dedicated_management_interface" {% if config.dedicated_management_interface %}checked{% endif %} class="h-4 w-4 text-accent focus:ring-accent border-border-strong rounded">
-                    <label for="dedicated_management_interface" class="ml-2 block text-sm font-medium text-body">Dedicated Management Interface</label>
                 </div>
 
                 <!-- Management Interface (Read-only) -->

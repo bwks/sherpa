@@ -69,13 +69,13 @@ mod tests {
             token: "jwt.token.here".to_string(),
             username: "admin".to_string(),
             is_admin: true,
-            expires_at: 1700000000,
+            expires_at: 1_700_000_000,
         };
         let json = serde_json::to_string(&resp).expect("serializes");
         let back: LoginResponse = serde_json::from_str(&json).expect("deserializes");
         assert_eq!(back.token, "jwt.token.here");
         assert!(back.is_admin);
-        assert_eq!(back.expires_at, 1700000000);
+        assert_eq!(back.expires_at, 1_700_000_000);
     }
 
     #[test]
@@ -84,7 +84,7 @@ mod tests {
             valid: true,
             username: Some("admin".to_string()),
             is_admin: Some(true),
-            expires_at: Some(1700000000),
+            expires_at: Some(1_700_000_000),
         };
         let json = serde_json::to_string(&resp).expect("serializes");
         let back: ValidateResponse = serde_json::from_str(&json).expect("deserializes");

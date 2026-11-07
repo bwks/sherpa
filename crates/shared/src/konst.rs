@@ -8,30 +8,16 @@ pub const SHERPA_CONFIG_FILE: &str = "sherpa.toml";
 pub const SHERPA_MANIFEST_FILE: &str = "manifest.toml";
 pub const SHERPA_LAB_MANIFEST_FILE: &str = "manifest.toml";
 pub const SHERPA_CONFIG_DIR: &str = "config";
-pub const SHERPA_ENV_DIR: &str = "env";
-pub const SHERPA_ENV_FILE: &str = "sherpa.env";
 pub const SHERPA_SSH_DIR: &str = "ssh";
 pub const SHERPA_IMAGES_DIR: &str = "images";
 pub const SHERPA_CONTAINERS_DIR: &str = "containers";
 pub const SHERPA_BINS_DIR: &str = "bins";
-pub const SHERPA_LABS_DIR: &str = "labs";
-pub const SHERPA_RUN_DIR: &str = "run";
-pub const SHERPA_LOG_DIR: &str = "logs";
-pub const SHERPA_CERTS_DIR: &str = ".certs";
 pub const SHERPA_BLANK_DISK_DIR: &str = "blank_disk";
-pub const _SHERPA_BLANK_DISK_FAT16: &str = "fat16.img";
 pub const SHERPA_BLANK_DISK_FAT32: &str = "fat32.img";
 pub const SHERPA_BLANK_DISK_IOSV: &str = "iosv.img";
 pub const SHERPA_BLANK_DISK_ISE: &str = "ise.img";
-pub const SHERPA_BLANK_DISK_AOSCX: &str = "aos.img";
 pub const SHERPA_BLANK_DISK_JUNOS: &str = "junos.img";
-pub const SHERPA_BLANK_DISK_SRLINUX: &str = "srlinux.img";
 pub const SHERPA_BLANK_DISK_EXT4_500MB: &str = "ext4-500mb.img";
-pub const SHERPA_BLANK_DISK_EXT4_1G: &str = "ext4-1g.img";
-pub const SHERPA_BLANK_DISK_EXT4_2G: &str = "ext4-2g.img";
-pub const SHERPA_BLANK_DISK_EXT4_3G: &str = "ext4-3g.img";
-pub const SHERPA_BLANK_DISK_EXT4_4G: &str = "ext4-4g.img";
-pub const SHERPA_BLANK_DISK_EXT4_5G: &str = "ext4-5g.img";
 pub const VM_DISK_FILENAME: &str = "virtioa.qcow2";
 pub const UNIKERNEL_KERNEL_FILENAME: &str = "kernel.elf";
 pub const UNIKERNEL_DISK_FILENAME: &str = "disk.qcow2";
@@ -39,7 +25,6 @@ pub const UNIKERNEL_DISK_FILENAME: &str = "disk.qcow2";
 // Full directory paths
 // ============================================================================
 pub const SHERPA_CONFIG_PATH: &str = "/opt/sherpa/config";
-pub const SHERPA_ENV_PATH: &str = "/opt/sherpa/env";
 pub const SHERPA_SSH_PATH: &str = "/opt/sherpa/ssh";
 pub const SHERPA_IMAGES_PATH: &str = "/opt/sherpa/images";
 pub const SHERPA_CONTAINERS_PATH: &str = "/opt/sherpa/containers";
@@ -49,9 +34,6 @@ pub const SHERPA_LABS_PATH: &str = "/opt/sherpa/labs";
 pub const SHERPA_LABS_DIR_MODE: u32 = 0o2750;
 pub const SHERPA_RUN_PATH: &str = "/opt/sherpa/run";
 pub const SHERPA_LOG_PATH: &str = "/opt/sherpa/logs";
-pub const SHERPA_CERTS_PATH: &str = "/opt/sherpa/.certs";
-pub const SHERPA_BLANK_DISK_PATH: &str = "/opt/sherpa/images/blank_disk";
-pub const WEB_ASSETS_DIR: &str = "web/static";
 // ============================================================================
 // Full file paths
 // ============================================================================
@@ -75,7 +57,6 @@ pub const STORAGE_VOLUME_MODE: &str = "0600";
 /// which libvirt does not hand over. The storage pool directory keeps them private.
 pub const STORAGE_VOLUME_QEMU_ARG_MODE: &str = "0644";
 pub const SHERPA_MANAGEMENT_NETWORK_NAME: &str = "sherpa-management";
-pub const SHERPA_MANAGEMENT_NETWORK_BRIDGE: &str = "sherpa-br0";
 pub const SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX: &str = "brm";
 /// Default management network. Built with `new_assert`, so an invalid prefix fails the build.
 pub const SHERPA_MANAGEMENT_NETWORK_IPV4: Ipv4Net =
@@ -94,7 +75,6 @@ pub const MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS: RangeInclusive<u32> = 11..=20;
 /// the offset `start + n - 1`.
 pub const MANAGEMENT_NODE_HOST_OFFSETS: RangeInclusive<u32> = 21..=254;
 pub const SHERPA_ISOLATED_NETWORK_NAME: &str = "sherpa-isolated";
-pub const SHERPA_ISOLATED_NETWORK_BRIDGE: &str = "sherpa-br666";
 pub const SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX: &str = "bri";
 pub const SHERPA_RESERVED_NETWORK_NAME: &str = "sherpa-reserved";
 pub const SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX: &str = "brr";
@@ -104,6 +84,8 @@ pub const SHERPA_USERNAME: &str = "sherpa";
 pub const ADMIN_USERNAME: &str = "admin";
 /// User documentation on generating and registering SSH keys, linked from errors.
 pub const SSH_KEYS_DOCS_URL: &str = "https://docs.sherpalabs.net/architecture/ssh-keys/";
+/// Where the Tailscale gateway docs are, for route approval and recovery.
+pub const TAILNET_DOCS_URL: &str = "https://docs.sherpalabs.net/architecture/networking/tailscale/";
 pub const SHERPA_ADMIN_PASSWORD_ENV: &str = "SHERPA_ADMIN_PASSWORD";
 /// The first user account for unattended `sherpad init`, and the account `sherpa login` uses.
 pub const SHERPA_USER_NAME_ENV: &str = "SHERPA_USER_NAME";
@@ -177,10 +159,8 @@ pub const RESERVED_USERNAMES: &[&str] = &[
 pub const RESERVED_USERNAME_PREFIXES: &[&str] = &["systemd-"];
 pub const SHERPA_PASSWORD: &str = "Everest1953!";
 pub const SHERPA_PASSWORD_HASH: &str = "$6$rounds=4096$amTfvavVzUSS6wQS$4jB1NvmLzRytnUjaVaMkw/JjD99eHj9OL2tLcnccQhV7Rw1rVQp8tZQMu4mi6y8NlwsRSSeEPZq44hVPu4tE7/";
-pub const SHERPA_PASSWORD_HASH_MD5: &str = "$1$xXKaRUnh$v5.fg9lEMWQGAqu4DAgaG0";
 pub const SHERPA_PASSWORD_HASH_SHA256: &str =
     "$5$mhhcowfq$qKK.CiKWZxuOfadgSyOawx6srN3knX4jRgfa8hZxcB0";
-pub const SHERPA_SSH_PUBLIC_KEY_FILE: &str = "sherpa_ssh_key.pub";
 pub const SHERPA_SSH_PRIVATE_KEY_FILE: &str = "sherpa_ssh_key";
 pub const SHERPA_SSH_CONFIG_FILE: &str = "sherpa_ssh_config";
 pub const SHERPA_KNOWN_HOSTS_FILE: &str = "sherpa_known_hosts";
@@ -231,10 +211,7 @@ pub const SHERPA_LOOPBACK_PREFIX_IPV6: &str = "fd00:1001::/48";
 
 pub const QEMU_BIN: &str = "/usr/bin/qemu-system-x86_64";
 pub const QEMU_URI: &str = "qemu:///system";
-pub const _DEFAULT_STORAGE_POOL: &str = "default";
-pub const _DEFAULT_STORAGE_POOL_PATH: &str = "/var/lib/libvirt/images";
 pub const SSH_PORT: u16 = 22;
-pub const SSH_PORT_ALT: u16 = 2222;
 /// Talos Linux API (apid) port, used for readiness and bootstrap.
 pub const TALOS_API_PORT: u16 = 50000;
 /// Talos Linux minor version Sherpa generates cluster machine configs for.
@@ -263,28 +240,12 @@ pub const VNC_PORT_LAST: u16 = 6999;
 /// Attempts to reserve a VNC port when concurrent labs take the same one.
 pub const VNC_PORT_ALLOCATION_ATTEMPTS: u32 = 10;
 pub const HTTP_PORT: u16 = 8080;
-pub const TFTP_PORT: u16 = 69;
-
 pub const KVM_OUI: &str = "52:54:00";
-pub const ARISTA_OUI: &str = "02:01:00";
-pub const CISCO_IOSXE_OUI: &str = "02:02:00";
-pub const CISCO_IOSV_OUI: &str = "02:02:01";
-pub const CISCO_NXOS_OUI: &str = "02:02:02";
-pub const CISCO_IOSXR_OUI: &str = "02:02:03";
-pub const JUNIPER_OUI: &str = "02:03:00";
-pub const CUMULUS_OUI: &str = "02:04:00";
-pub const ARUBA_OUI: &str = "02:05:00";
-pub const BOOT_SERVER_MAC: &str = "02:ff:ff:b0:07:01";
-
 pub const BOOT_SERVER_NAME: &str = "boot01";
 
 pub const CLOUD_INIT_USER_DATA: &str = "user-data";
 pub const CLOUD_INIT_META_DATA: &str = "meta-data";
 pub const CLOUD_INIT_NETWORK_CONFIG: &str = "network-config";
-pub const _USER_SSH_DIR: &str = "~/.ssh";
-pub const _USER_SSH_PUBLIC_KEY_FILE: &str = "id_rsa.pub";
-pub const TEMP_DIR: &str = ".tmp";
-
 pub const MTU_STD: u16 = 1500;
 pub const MTU_JUMBO_INT: u16 = 9216;
 pub const MTU_JUMBO_NET: u16 = 9600;
@@ -302,7 +263,7 @@ pub const TCA_NETEM_CORRUPT: u16 = 4;
 
 pub const ZTP_DIR: &str = "ztp";
 pub const ZTP_ISO: &str = "ztp.iso";
-/// Volume label of the ZTP ISO. cloud-init's NoCloud source finds its seed by this label.
+/// Volume label of the ZTP ISO. cloud-init's `NoCloud` source finds its seed by this label.
 pub const ZTP_ISO_VOLUME_ID: &str = "cidata";
 /// Volume label PAN-OS looks for on its bootstrap ISO.
 pub const PALOALTO_BOOTSTRAP_VOLUME_ID: &str = "bootstrap";
@@ -312,7 +273,6 @@ pub const NODE_CONFIGS_DIR: &str = "configs";
 pub const DNSMASQ_DIR: &str = "dnsmasq";
 pub const DNSMASQ_CONFIG_FILE: &str = "dnsmasq.conf";
 pub const DNSMASQ_LEASES_FILE: &str = "dnsmasq.leases";
-pub const CISCO_ZTP_DIR: &str = "cisco";
 pub const CISCO_IOSXE_ZTP_CONFIG: &str = "iosxe_config.txt";
 pub const CISCO_IOSV_ZTP_CONFIG: &str = "ios_config.txt";
 pub const CISCO_ASAV_ZTP_CONFIG: &str = "day0-config";
@@ -320,28 +280,18 @@ pub const CISCO_NXOS_ZTP_CONFIG: &str = "nxos_config.txt";
 pub const CISCO_IOSXR_ZTP_CONFIG: &str = "iosxr_config.txt";
 pub const CISCO_ISE_ZTP_CONFIG: &str = "ise-ztp.conf";
 pub const CISCO_FTDV_ZTP_CONFIG: &str = "day0-config";
-pub const CUMULUS_ZTP_DIR: &str = "cumulus";
-pub const CUMULUS_ZTP_CONFIG: &str = "cumulus-config.txt";
 pub const CUMULUS_ZTP: &str = "cumulus-ztp";
-pub const ARISTA_ZTP_DIR: &str = "arista";
 pub const ARISTA_ABOOT_DIR: &str = "aboot_iso";
-pub const ARISTA_VEOS_ZTP_SCRIPT: &str = "veos-ztp.sh";
-pub const ARISTA_VEOS_ZTP: &str = "startup-config";
 /// Where a cEOS node's ZTP config is mounted, read-only. EOS saves by replacing
 /// `ARISTA_CEOS_STARTUP_CONFIG`, which a bind-mounted file cannot be, so the config is copied
 /// there when the container starts.
 pub const ARISTA_CEOS_ZTP_VOLUME_MOUNT: &str = "/mnt/sherpa-ztp/startup-config";
 pub const ARISTA_CEOS_STARTUP_CONFIG: &str = "/mnt/flash/startup-config";
 pub const NOKIA_SRLINUX_ZTP_VOLUME_MOUNT: &str = "/etc/opt/srlinux/config.json";
-pub const ARUBA_ZTP_DIR: &str = "aruba";
-pub const ARUBA_ZTP_CONFIG: &str = "aos-config.txt";
-pub const ARUBA_ZTP_SCRIPT: &str = "aos-config.sh";
-pub const JUNIPER_ZTP_DIR: &str = "juniper";
 pub const JUNIPER_ZTP_CONFIG: &str = "juniper.conf";
-pub const JUNIPER_ZTP_SCRIPT: &str = "junos-ztp.sh";
 pub const JUNIPER_ZTP_CONFIG_TGZ: &str = "vmm-config.tgz";
 pub const MIKROTIK_CHR_ZTP_CONFIG: &str = "config.rsc";
-/// The config disk as RouterOS names it; the image imports `config.rsc` and the `sherpa` key
+/// The config disk as `RouterOS` names it; the image imports `config.rsc` and the `sherpa` key
 /// from it.
 pub const MIKROTIK_CONFIG_DISK: &str = "sata1";
 pub const PALOALTO_ZTP_CONFIG: &str = "init-cfg.txt";
@@ -350,18 +300,16 @@ pub const PALOALTO_BOOTSTRAP_CONFIG: &str = "bootstrap.xml";
 pub const LAB_CERTS_DIR: &str = "certs";
 pub const LAB_CA_CERT_FILE: &str = "ca.crt";
 pub const LAB_CA_KEY_FILE: &str = "ca.key";
-pub const NODE_CERT_FILE: &str = "node.crt";
-pub const NODE_KEY_FILE: &str = "node.key";
 pub const NODE_CERTS_DIR: &str = "/etc/sherpa/certs";
 pub const NODE_CERTS_DIR_WINDOWS: &str = r"C:\sherpa\certs";
 /// The built-in Administrators group, as `icacls` takes a SID.
 pub const WINDOWS_ADMINISTRATORS_SID: &str = "*S-1-5-32-544";
-/// The LocalSystem account, as `icacls` takes a SID.
+/// The `LocalSystem` account, as `icacls` takes a SID.
 pub const WINDOWS_SYSTEM_SID: &str = "*S-1-5-18";
 pub const WINDOWS_SSHD_CONFIG: &str = r"C:\ProgramData\ssh\sshd_config";
 /// Each account's SSH public keys, in a file named after the account.
 pub const WINDOWS_AUTHORIZED_KEYS_DIR: &str = r"C:\ProgramData\ssh\authorized_keys";
-/// [`WINDOWS_AUTHORIZED_KEYS_DIR`] as sshd_config names it.
+/// [`WINDOWS_AUTHORIZED_KEYS_DIR`] as `sshd_config` names it.
 pub const WINDOWS_SSHD_AUTHORIZED_KEYS_DIR: &str = "__PROGRAMDATA__/ssh/authorized_keys";
 pub const NODE_USER_SCRIPTS_DIR: &str = "/opt/sherpa/user_scripts";
 pub const NODE_STARTUP_SCRIPTS_DIR: &str = "/opt/sherpa/startup_scripts";
@@ -426,12 +374,6 @@ pub const LAB_SUBNET_ALLOCATION_ATTEMPTS: u32 = 8;
 pub const READINESS_SLEEP: u64 = 10;
 pub const IGNITION_VERSION: &str = "3.3.0";
 
-pub const DHCP_URI_DIR: &str = "dnsmasq";
-pub const DHCP_LEASES_FILE: &str = "dnsmasq.leases";
-
-pub const DOCKER_COMPOSE_VERSION: &str = "2.34.0";
-
-pub const CONTAINER_IMAGE_NAME: &str = "image.tar.gz";
 pub const CONTAINER_DISK_NAME: &str = "disk.img";
 /// The endings of a node's disks in the storage pool, after `<node>-<lab_id>`. Destroy deletes
 /// only volumes named this way, so a new kind of disk needs its ending here.
@@ -454,7 +396,6 @@ pub const CONTAINER_DNSMASQ_REPO: &str = "ghcr.io/bwks/sherpa-router";
 pub const CONTAINER_DNSMASQ_VERSION: &str = "latest";
 pub const CONTAINER_DNSMASQ_CAPABILITIES: &[&str] = &["NET_ADMIN"];
 
-pub const CONTAINER_SRLINUX_NAME: &str = "srlinux";
 pub const CONTAINER_NOKIA_SRLINUX_REPO: &str = "ghcr.io/nokia/srlinux";
 pub const CONTAINER_NOKIA_SRLINUX_ENV_VARS: &[&str] = &["SRLINUX=1"];
 pub const CONTAINER_NOKIA_SRLINUX_USER: &str = "0:0";
@@ -488,18 +429,15 @@ pub const CONTAINER_ARISTA_CEOS_COMMANDS: &[&str] = &[
 
 pub const CONTAINER_FRR_REPO: &str = "quay.io/frrouting/frr";
 pub const CONTAINER_FRR_ENV_VARS: &[&str] = &[];
-pub const CONTAINER_FRR_COMMANDS: &[&str] = &[];
 pub const FRR_ZTP_DAEMONS_MOUNT: &str = "/etc/frr/daemons";
 pub const FRR_ZTP_CONFIG_MOUNT: &str = "/etc/frr/frr.conf";
 pub const FRR_ZTP_STARTUP_MOUNT: &str = "/tmp/sherpa-init.sh";
 
 pub const CONTAINER_GITLAB_CE_REPO: &str = "gitlab/gitlab-ce";
-pub const CONTAINER_GITLAB_CE_ENV_VARS: &[&str] = &[];
 pub const CONTAINER_GITLAB_CE_COMMANDS: &[&str] = &[];
 pub const CONTAINER_GITLAB_CE_SHM_SIZE: i64 = 256;
 
 pub const CONTAINER_SURREAL_DB_REPO: &str = "surrealdb/surrealdb";
-pub const CONTAINER_SURREAL_DB_ENV_VARS: &[&str] = &[];
 pub const CONTAINER_SURREAL_DB_COMMANDS: &[&str] = &[
     "start",
     "--log",
@@ -512,15 +450,12 @@ pub const CONTAINER_SURREAL_DB_COMMANDS: &[&str] = &[
 ];
 
 pub const CONTAINER_MONGO_DB_REPO: &str = "mongo";
-pub const CONTAINER_MONGO_DB_ENV_VARS: &[&str] = &[];
 pub const CONTAINER_MONGO_DB_COMMANDS: &[&str] = &[];
 
 pub const CONTAINER_NATS_REPO: &str = "nats";
-pub const CONTAINER_NATS_ENV_VARS: &[&str] = &[];
 pub const CONTAINER_NATS_COMMANDS: &[&str] = &[];
 
 pub const CONTAINER_FORGEJO_REPO: &str = "codeberg.org/forgejo/forgejo";
-pub const CONTAINER_FORGEJO_ENV_VARS: &[&str] = &[];
 pub const CONTAINER_FORGEJO_COMMANDS: &[&str] = &[];
 
 pub const CONTAINER_HASHICORP_VAULT_REPO: &str = "hashicorp/vault";
@@ -568,29 +503,13 @@ pub const OTEL_METRIC_OPERATION_DURATION: &str = "sherpad.operation.duration";
 pub const OTEL_METRIC_ERROR_COUNT: &str = "sherpad.errors";
 pub const OTEL_METRIC_EXPORT_INTERVAL_SECS: u64 = 60;
 
-// Sherpad daemon constants
-pub const SHERPAD_PID_FILE: &str = "sherpad.pid";
-pub const SHERPAD_LOG_FILE: &str = "sherpad.log";
-pub const SHERPAD_HOST: &str = "127.0.0.1";
-pub const SHERPAD_PORT: u16 = 3030;
-
 // JWT Authentication constants
 pub const JWT_SECRET_PATH: &str = "/opt/sherpa/.secret/jwt.secret";
 pub const JWT_TOKEN_EXPIRY_SECONDS: i64 = 604_800; // 7 days
 
-// TLS certificate paths
-pub const SHERPA_SERVER_CERT_FILE: &str = "server.crt";
-pub const SHERPA_SERVER_KEY_FILE: &str = "server.key";
-pub const SHERPA_CA_CERT_FILE: &str = "ca.crt";
-
 // ============================================================================
 // JSON-RPC Error Messages
 // ============================================================================
-
-// Standard JSON-RPC error messages
-pub const RPC_MSG_PARSE_ERROR: &str = "Parse error";
-pub const RPC_MSG_INVALID_REQUEST: &str = "Invalid Request";
-pub const RPC_MSG_INTERNAL_ERROR: &str = "Internal error";
 
 // Authentication and authorization messages
 pub const RPC_MSG_AUTH_REQUIRED: &str = "Authentication required";
@@ -679,9 +598,6 @@ pub const RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD: &str =
 pub const RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD: &str =
     "Invalid params: expected DownloadImageRequest";
 
-// Node name params
-pub const RPC_MSG_INVALID_PARAMS_NODE_NAME: &str = "Invalid 'node_name' parameter";
-
 // Impairment operations
 pub const RPC_MSG_IMPAIRMENT_UPDATE_FAILED: &str = "Link impairment update failed";
 pub const RPC_MSG_INVALID_PARAMS_IMPAIRMENT: &str =
@@ -769,7 +685,8 @@ mod tests {
             *TALOS_LOAD_BALANCER_HOST_OFFSETS.end(),
             *MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS.end()
         );
-        let count = TALOS_LOAD_BALANCER_HOST_OFFSETS.clone().count() as u32;
+        let count =
+            TALOS_LOAD_BALANCER_HOST_OFFSETS.end() - TALOS_LOAD_BALANCER_HOST_OFFSETS.start() + 1;
         assert_eq!(count % TALOS_LOAD_BALANCER_BLOCK_SIZE, 0);
     }
 }

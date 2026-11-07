@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
-pub const TAILNET_DOCS_URL: &str = "https://docs.sherpa.com/architecture/networking/tailscale/";
+use crate::konst::TAILNET_DOCS_URL;
 
 /// Enrollment credential. Debug output must never expose its contents.
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
@@ -89,6 +89,12 @@ impl TailnetStatus {
         }
     }
 
+    /// The tailnet status from the Tailscale daemon's JSON status, for a gateway advertising
+    /// `routes`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `input` is not the daemon's JSON status.
     #[instrument(skip(input), level = "debug")]
     pub fn from_daemon(input: &str, routes: Vec<String>) -> Result<Self> {
         let daemon: DaemonStatus =
@@ -148,7 +154,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(approved.approval, RouteApproval::Approved);
-        assert!(approved.warnings.is_empty());
+        assert_eq!(approved.warnings, Vec::<String>::new());
         let pending = TailnetStatus::from_daemon(
             r#"{"BackendState":"Running","Self":{"AllowedIPs":["192.0.2.0/24"]}}"#,
             routes.clone(),

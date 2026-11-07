@@ -52,7 +52,8 @@ use shared::data::{
     ListLabsResponse, ListUsersResponse, LoginRequest, LoginResponse, MachineType, NodeConfig,
     NodeModel, OsVariant, RedeployRequest, RemoveSshKeyRequest, ScanImagesRequest,
     SetDefaultImageRequest, ShowImageRequest, TailnetAuthKey, UpRequest, UpdateImpairmentRequest,
-    UpdateImpairmentResponse, UserInfo, UserSshKeysResponse, ZtpMethod,
+    UpdateImpairmentResponse, UserInfo, UserSshKeysResponse, ValidateRequest, ValidateResponse,
+    ZtpMethod, ZtpSettings,
 };
 use shared::konst::{
     ADMIN_USER_DELETE_ERROR_TARGET, JWT_TOKEN_EXPIRY_SECONDS, LAB_FILE_NAME,
@@ -61,6 +62,15 @@ use shared::konst::{
 };
 use shared::util::{generate_lab_name, get_id_for_user, load_saved_manifest, normalize_username};
 use shared::validators::{validate_password_strength, validate_ssh_key, validate_username};
+
+/// Validate a JWT token, as the `auth.validate` RPC method does. An invalid token is answered
+/// `valid: false`, not an error.
+pub async fn validate_token_json(
+    State(state): State<AppState>,
+    Json(request): Json<ValidateRequest>,
+) -> Json<ValidateResponse> {
+    Json(jwt::token_status(&state.jwt_secret, &request.token))
+}
 
 /// Authenticate user and issue JWT token
 ///
@@ -2331,7 +2341,6 @@ pub struct ImageForm {
     pub interface_type: String,
     pub interface_mtu: u16,
     pub first_interface_index: u8,
-    pub dedicated_management_interface: Option<String>, // checkbox
     pub reserved_interface_count: u8,
     pub default: Option<String>, // checkbox
 }
@@ -2458,7 +2467,6 @@ pub async fn admin_image_update_handler(
     let vmx_enabled = form.vmx_enabled.is_some();
     let ztp_enable = form.ztp_enable.is_some();
     let ztp_password_auth = form.ztp_password_auth.is_some();
-    let dedicated_management_interface = form.dedicated_management_interface.is_some();
     let form_default = form.default.is_some();
 
     // Validate: prevent unsetting the last default for this (model, kind)
@@ -2527,17 +2535,18 @@ pub async fn admin_image_update_handler(
         hdd_bus,
         cdrom,
         cdrom_bus,
-        ztp_enable,
-        ztp_method,
-        ztp_username,
-        ztp_password,
-        ztp_password_auth,
+        ztp: ZtpSettings {
+            enable: ztp_enable,
+            method: ztp_method,
+            username: ztp_username,
+            password: ztp_password,
+            password_auth: ztp_password_auth,
+        },
         data_interface_count: form.data_interface_count,
         interface_prefix: form.interface_prefix,
         interface_type,
         interface_mtu: form.interface_mtu,
         first_interface_index: form.first_interface_index,
-        dedicated_management_interface,
         management_interface: config.management_interface, // Keep original (read-only)
         reserved_interface_count: form.reserved_interface_count,
         default: form_default,       // Use value from form checkbox
@@ -3267,7 +3276,7 @@ pub async fn create_user_json(
         username,
         &request.password,
         request.is_admin,
-        request.ssh_keys.unwrap_or_default(),
+        request.ssh_keys,
     )
     .await
     .map_err(ApiError::from)?;

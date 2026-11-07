@@ -695,7 +695,7 @@ pub(crate) fn generate_container_ztp(
         ipv4_address: node_ipv4_address,
         ipv6_address: None,
         mac_address: String::new(),
-        ztp_method: node_image.ztp_method.clone(),
+        ztp_method: node_image.ztp.method.clone(),
         ssh_port: Some(SSH_PORT),
     };
 
@@ -837,10 +837,10 @@ pub(crate) fn generate_vm_ztp(
     let (mut src_ignition_disk, mut dst_ignition_disk): (Option<String>, Option<String>) =
         (None, None);
 
-    if node_image.ztp_enable {
+    if node_image.ztp.enable {
         // Validate custom ZTP config support
         if node.ztp_config.is_some() {
-            match node_image.ztp_method {
+            match node_image.ztp.method {
                 data::ZtpMethod::CloudInit
                 | data::ZtpMethod::Ignition
                 | data::ZtpMethod::Http
@@ -849,7 +849,7 @@ pub(crate) fn generate_vm_ztp(
                         "Custom ZTP config is not supported for node '{}' with ZTP method '{:?}'. \
                          Only Tftp, Cdrom, Disk, Usb, and Volume methods support custom ZTP config files.",
                         node.name,
-                        node_image.ztp_method
+                        node_image.ztp.method
                     );
                 }
                 _ => {}
@@ -858,7 +858,7 @@ pub(crate) fn generate_vm_ztp(
 
         let custom_ztp = take_custom_ztp_config(node, progress)?;
 
-        match node_image.ztp_method {
+        match node_image.ztp.method {
             data::ZtpMethod::CloudInit => {
                 generate_cloud_init_ztp(
                     node,
@@ -1123,7 +1123,7 @@ pub(crate) fn generate_vm_ztp(
         ipv4_address: node_ipv4_address,
         ipv6_address: None,
         mac_address: mac_address.to_string(),
-        ztp_method: node_image.ztp_method.clone(),
+        ztp_method: node_image.ztp.method.clone(),
         ssh_port: node_image.model.has_ssh().then_some(SSH_PORT),
     };
 
@@ -2526,7 +2526,7 @@ fn generate_disk_ztp(
             let dst_disk = format!("{dir}/{node_name_with_lab}-cfg.img");
 
             util::copy_file(&src_disk, &dst_disk)?;
-            util::copy_to_ext4_image(vec![&ztp_config], &dst_disk, "/")?;
+            util::copy_to_ext4_image(&[&ztp_config], &dst_disk, "/")?;
 
             let dst_final = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img");
             Ok((dst_disk, dst_final))
@@ -2949,7 +2949,7 @@ fn generate_ignition_ztp(
                 .collect();
 
             if !disk_files.is_empty() {
-                util::copy_to_ext4_image(disk_files, &dst_disk, "/")?;
+                util::copy_to_ext4_image(&disk_files, &dst_disk, "/")?;
             }
 
             let dst_config_disk =
@@ -4474,7 +4474,7 @@ mod tests {
         assert!(xml.contains("<model type='virtio' heads='1'/>"));
         assert!(xml.contains("OVMF_CODE_4M.fd"));
         assert!(xml.find("<boot dev='cdrom'/>").unwrap() < xml.find("<boot dev='hd'/>").unwrap());
-        assert_eq!(config.ztp_method, data::ZtpMethod::CloudInit);
+        assert_eq!(config.ztp.method, data::ZtpMethod::CloudInit);
         assert!(config.cdrom.is_none());
     }
 

@@ -2,7 +2,7 @@ use std::env;
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter, Write};
 #[cfg(unix)]
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 #[cfg(unix)]
 use std::process::Command;
@@ -15,11 +15,16 @@ use crate::data::{NodeKind, UnikernelBootMode};
 use crate::konst::{UNIKERNEL_DISK_FILENAME, UNIKERNEL_KERNEL_FILENAME, VM_DISK_FILENAME};
 
 /// Convert a `Path` to an owned `String`, using lossy UTF-8 conversion.
+#[must_use]
 pub fn path_to_string(path: &Path) -> String {
     path.to_string_lossy().to_string()
 }
 
 /// Load a file
+///
+/// # Errors
+///
+/// Fails when the file cannot be read as UTF-8 text.
 pub fn load_file(file_path: &str) -> Result<String> {
     let path = expand_path(file_path);
     let file_contents =
@@ -28,12 +33,20 @@ pub fn load_file(file_path: &str) -> Result<String> {
 }
 
 /// Get the current working directory path
+///
+/// # Errors
+///
+/// Fails when the working directory is unknown or its path is not UTF-8.
 pub fn get_cwd() -> Result<String> {
     let path = env::current_dir()?;
     Ok(path.display().to_string())
 }
 
-/// Create a directory, expanding ~ if it's passed
+/// Create a directory
+///
+/// # Errors
+///
+/// Fails when the directory cannot be created.
 pub fn create_dir(dir_path: &str) -> Result<()> {
     fs::create_dir_all(dir_path)
         .with_context(|| format!("Error creating directory: {dir_path}"))?;
@@ -41,7 +54,11 @@ pub fn create_dir(dir_path: &str) -> Result<()> {
     Ok(())
 }
 
-/// Create a file, expanding ~ if it's passed
+/// Create a file
+///
+/// # Errors
+///
+/// Fails when the file cannot be written.
 pub fn create_file(file_path: &str, contents: String) -> Result<()> {
     let size = contents.len();
     fs::write(file_path, contents).with_context(|| format!("Error creating file: {file_path}"))?;
@@ -49,57 +66,33 @@ pub fn create_file(file_path: &str, contents: String) -> Result<()> {
     Ok(())
 }
 
-/// Check for file existence, expanding ~ if it's passed
+/// Check for file existence
+#[must_use]
 pub fn file_exists(file_path: &str) -> bool {
     let path = Path::new(file_path);
     path.exists() && path.is_file()
 }
 
-/// Check for directory existence, expanding ~ if it's passed
+/// Check for directory existence
+#[must_use]
 pub fn dir_exists(dir_path: &str) -> bool {
     let path = Path::new(dir_path);
     path.exists() && path.is_dir()
 }
 
 /// Expand a path if it's passed with ~
+#[must_use]
 pub fn expand_path(path: &str) -> String {
     let expanded_path = shellexpand::tilde(path);
     let full_path = Path::new(expanded_path.as_ref());
     full_path.display().to_string()
 }
 
-/// Check if a file is between a certain size.
-/// Currently only supports file sizes up to 5GB
-pub fn check_file_size(path: &str) -> Result<u8> {
-    let expanded_path = shellexpand::tilde(path);
-    let metadata = fs::metadata(Path::new(expanded_path.as_ref()))?;
-    let size_in_bytes = metadata.len();
-    let size_in_gb = size_in_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-
-    let result = match size_in_gb {
-        0.1..1.0 => 1,
-        1.0..2.0 => 2,
-        2.0..3.0 => 3,
-        3.0..4.0 => 4,
-        4.0..5.0 => 5,
-        _ => 0,
-    };
-
-    Ok(result as u8)
-}
-
-/// Delete a file, expanding ~ if it's passed
-#[allow(dead_code)]
-pub fn delete_file(file_path: &str) -> Result<()> {
-    let path = expand_path(file_path);
-    if file_exists(&path) {
-        std::fs::remove_file(&path)?;
-        tracing::debug!(path = %path, "File deleted");
-    }
-    Ok(())
-}
-
 /// Recursively delete a directory
+///
+/// # Errors
+///
+/// Fails when the directory exists but cannot be removed.
 pub fn delete_dirs(dir_path: &str) -> Result<()> {
     if dir_exists(dir_path) {
         fs::remove_dir_all(dir_path)?;
@@ -110,6 +103,10 @@ pub fn delete_dirs(dir_path: &str) -> Result<()> {
 
 /// Copy a file from a source to a destination.
 /// This will overwrite the destination file if it exists.
+///
+/// # Errors
+///
+/// Fails when `src` cannot be read or `dst` written.
 pub fn copy_file(src: &str, dst: &str) -> Result<()> {
     let source = File::open(src).with_context(|| format!("Error loading src file: {src}"))?;
     let destination =
@@ -128,23 +125,11 @@ pub fn copy_file(src: &str, dst: &str) -> Result<()> {
     Ok(())
 }
 
-/// Create a symbolic link from source to target path
-/// Will expand ~ in paths if present
-#[cfg(unix)]
-pub fn create_symlink(src: &str, target: &str) -> Result<()> {
-    let expanded_src = expand_path(src);
-    let expanded_target = expand_path(target);
-
-    // Remove target if it exists
-    if file_exists(&expanded_target) {
-        std::fs::remove_file(&expanded_target)?;
-    }
-
-    symlink(&expanded_src, &expanded_target)?;
-    Ok(())
-}
-
 /// Set Unix file permissions on a single file.
+///
+/// # Errors
+///
+/// Fails when the mode cannot be set.
 #[cfg(unix)]
 #[tracing::instrument(level = "debug")]
 pub fn set_file_permissions(path: &str, mode: u32) -> Result<()> {
@@ -155,6 +140,10 @@ pub fn set_file_permissions(path: &str, mode: u32) -> Result<()> {
 
 /// Set permissions for all files in a folder subtree.
 /// Sets files to read-write and removes executable bit for users/groups.
+///
+/// # Errors
+///
+/// Fails when a mode cannot be set or a directory cannot be read.
 #[cfg(unix)]
 pub fn fix_permissions_recursive(path: &str) -> Result<()> {
     let path = expand_path(path);
@@ -188,6 +177,10 @@ pub fn fix_permissions_recursive(path: &str) -> Result<()> {
 /// Copy a file to a virtual DOS disk image using the `mcopy` command.
 ///
 /// `mcopy` must be installed on the system.
+///
+/// # Errors
+///
+/// Fails when `mcopy` cannot be run or exits with an error.
 #[cfg(unix)]
 pub fn copy_to_dos_image(src_file: &str, dst_image: &str, dst_dir: &str) -> Result<()> {
     let status = Command::new("mcopy")
@@ -209,12 +202,14 @@ pub fn copy_to_dos_image(src_file: &str, dst_image: &str, dst_dir: &str) -> Resu
 /// Copy a file to a virtual EXT4 disk image using the `e2cp` command.
 ///
 /// `e2cp` must be installed on the system.
+///
+/// # Errors
+///
+/// Fails when `e2cp` cannot be run or exits with an error.
 #[cfg(unix)]
-pub fn copy_to_ext4_image(src_files: Vec<&str>, dst_image: &str, dst_dir: &str) -> Result<()> {
-    let dst = format!("{}:{}", dst_image, dst_dir);
-    let mut cmd = src_files.clone();
-    cmd.push(&dst);
-    let status = Command::new("e2cp").args(cmd).status()?;
+pub fn copy_to_ext4_image(src_files: &[&str], dst_image: &str, dst_dir: &str) -> Result<()> {
+    let dst = format!("{dst_image}:{dst_dir}");
+    let status = Command::new("e2cp").args(src_files).arg(&dst).status()?;
     if !status.success() {
         bail!(
             "e2cp failed (exit {}): copying to image {}",
@@ -230,15 +225,19 @@ pub fn copy_to_ext4_image(src_files: Vec<&str>, dst_image: &str, dst_dir: &str) 
 /// Create a config archive using the `tar` command.
 ///
 /// `tar` must be installed on the system.
+///
+/// # Errors
+///
+/// Fails when `tar` cannot be run or exits with an error.
 #[cfg(unix)]
 pub fn create_config_archive(src_path: &str, dst_path: &str) -> Result<()> {
     let path = Path::new(src_path);
     let dir = path
         .parent()
-        .ok_or_else(|| anyhow::anyhow!("No parent directory for: {}", src_path))?;
+        .ok_or_else(|| anyhow::anyhow!("No parent directory for: {src_path}"))?;
     let filename = path
         .file_name()
-        .ok_or_else(|| anyhow::anyhow!("No filename for: {}", src_path))?;
+        .ok_or_else(|| anyhow::anyhow!("No filename for: {src_path}"))?;
 
     let status = Command::new("tar")
         .args([
@@ -261,20 +260,12 @@ pub fn create_config_archive(src_path: &str, dst_path: &str) -> Result<()> {
     Ok(())
 }
 
-/// Convert an ISO file to a Qcow2 disk image.
-#[cfg(unix)]
-pub fn _convert_iso_qcow2(src_iso: &str, dst_disk: &str) -> Result<()> {
-    Command::new("qemu-img")
-        .args(["convert", "-O", "qcow2", src_iso, dst_disk])
-        .status()?;
-    Ok(())
-}
-
 /// Return the expected image filename for a given node kind and boot mode.
 ///
 /// - VMs: `virtioa.qcow2`
-/// - Unikernel DirectKernel: `kernel.elf`
-/// - Unikernel DiskBoot: `disk.qcow2`
+/// - Unikernel `DirectKernel`: `kernel.elf`
+/// - Unikernel `DiskBoot`: `disk.qcow2`
+#[must_use]
 pub fn image_filename(kind: &NodeKind, boot_mode: Option<&UnikernelBootMode>) -> &'static str {
     match kind {
         NodeKind::Unikernel => match boot_mode {
@@ -303,7 +294,7 @@ mod tests {
     #[test]
     fn test_get_cwd_returns_a_path() {
         let cwd = get_cwd().unwrap();
-        assert!(!cwd.is_empty());
+        assert_ne!(cwd, "");
     }
 
     #[test]
@@ -387,22 +378,6 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_file_removes_file() -> Result<()> {
-        let dir = TempDir::new()?;
-        let path = dir.path().join("to_delete.txt");
-        fs::write(&path, "data")?;
-        assert!(path.exists());
-        delete_file(path.to_str().unwrap())?;
-        assert!(!path.exists());
-        Ok(())
-    }
-
-    #[test]
-    fn test_delete_file_nonexistent_is_ok() {
-        assert!(delete_file("/tmp/sherpa_nonexistent_delete.txt").is_ok());
-    }
-
-    #[test]
     fn test_delete_dirs_removes_directory() -> Result<()> {
         let dir = TempDir::new()?;
         let sub = dir.path().join("subdir");
@@ -433,34 +408,6 @@ mod tests {
     #[test]
     fn test_copy_file_nonexistent_src_returns_err() {
         assert!(copy_file("/tmp/sherpa_no_src.txt", "/tmp/sherpa_dst.txt").is_err());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_create_symlink() -> Result<()> {
-        let dir = TempDir::new()?;
-        let src = dir.path().join("source.txt");
-        let link = dir.path().join("link.txt");
-        fs::write(&src, "symlink content")?;
-        create_symlink(src.to_str().unwrap(), link.to_str().unwrap())?;
-        assert!(link.exists());
-        assert!(link.is_symlink());
-        assert_eq!(fs::read_to_string(&link)?, "symlink content");
-        Ok(())
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_create_symlink_replaces_existing_target() -> Result<()> {
-        let dir = TempDir::new()?;
-        let src = dir.path().join("source.txt");
-        let link = dir.path().join("link.txt");
-        fs::write(&src, "new content")?;
-        fs::write(&link, "old content")?;
-        create_symlink(src.to_str().unwrap(), link.to_str().unwrap())?;
-        assert!(link.is_symlink());
-        assert_eq!(fs::read_to_string(&link)?, "new content");
-        Ok(())
     }
 
     #[cfg(unix)]

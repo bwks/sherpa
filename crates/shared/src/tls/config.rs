@@ -3,14 +3,16 @@ use rustls::client::WebPkiServerVerifier;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, ServerName};
 use rustls::{CertificateError, ClientConfig, RootCertStore};
-use std::io::{self, BufReader, IsTerminal};
+use std::io::{self, IsTerminal};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::data::ServerConnection;
 use crate::tls::cert_fetch::fetch_server_certificate;
-use crate::tls::trust_store::{CertificateInfo, TrustStore, extract_cert_info};
+use crate::tls::trust_store::{
+    CertificateInfo, TrustStore, extract_cert_info, parse_certificate_pem,
+};
 use crate::util::{Emoji, confirm, term_msg_surround, term_msg_underline};
 
 /// Builds TLS configuration for WebSocket client
@@ -32,6 +34,7 @@ pub struct ServerTls {
 impl ServerTls {
     /// Whether the handshake refused the server's certificate because no public CA issued it,
     /// as with Sherpa's own self-signed certificate.
+    #[must_use]
     pub fn refused_unknown_issuer(&self) -> bool {
         self.unknown_issuer
             .as_ref()
@@ -41,6 +44,7 @@ impl ServerTls {
 
 impl TlsConfigBuilder {
     /// Create a new TLS config builder from server connection settings
+    #[must_use]
     pub fn new(server_conn: &ServerConnection) -> Self {
         Self {
             validate_certs: server_conn.validate_certs,
@@ -58,6 +62,10 @@ impl TlsConfigBuilder {
     ///    then refuses the certificate (`ServerTls::refused_unknown_issuer`), the caller runs
     ///    `trust_on_first_use`.
     /// 4. With `validate_certs` off, the user is asked to trust the server's certificate now.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the custom CA or a trusted certificate cannot be loaded, the trust store cannot be opened, or, with `validate_certs` off, the user does not trust the server's certificate.
     pub async fn build_with_trust_flow(&self, server_url: &str) -> Result<ServerTls> {
         if self.insecure {
             tracing::warn!("INSECURE MODE: TLS certificate validation is DISABLED");
@@ -116,6 +124,10 @@ impl TlsConfigBuilder {
 
     /// Fetch the server's certificate, show it and ask the user to trust it; a trusted
     /// certificate is saved to the trust store and the configuration trusting it is returned.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the certificate cannot be fetched or parsed, the user does not trust it, there is no terminal to ask on, or it cannot be saved.
     pub async fn trust_on_first_use(&self, server_url: &str) -> Result<Arc<ClientConfig>> {
         tracing::info!("Certificate not found in trust store, fetching from server...");
         let fetched_cert = fetch_server_certificate(server_url, self.http_port)
@@ -159,7 +171,7 @@ impl TlsConfigBuilder {
     fn trusted_config(&self, cert_pem: &str) -> Result<Arc<ClientConfig>> {
         let mut root_store = RootCertStore::empty();
         let cert =
-            Self::load_cert_from_pem(cert_pem).context("Failed to parse trusted certificate")?;
+            parse_certificate_pem(cert_pem).context("Failed to parse trusted certificate")?;
         root_store
             .add(cert)
             .context("Failed to add trusted certificate to root store")?;
@@ -172,25 +184,11 @@ impl TlsConfigBuilder {
         Ok(Arc::new(config))
     }
 
-    /// Load a certificate from PEM string
-    fn load_cert_from_pem(pem: &str) -> Result<CertificateDer<'static>> {
-        let mut reader = BufReader::new(pem.as_bytes());
-        let mut certs = rustls_pemfile::certs(&mut reader)
-            .collect::<Result<Vec<_>, _>>()
-            .context("Failed to parse certificate from PEM")?;
-
-        if certs.is_empty() {
-            anyhow::bail!("No certificates found in PEM data");
-        }
-
-        Ok(certs.remove(0))
-    }
-
     /// Load a CA certificate from file
     fn load_ca_cert(path: &Path) -> Result<CertificateDer<'static>> {
         let pem = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to open CA certificate file: {}", path.display()))?;
-        Self::load_cert_from_pem(&pem)
+        parse_certificate_pem(&pem)
             .with_context(|| format!("No certificate in CA file: {}", path.display()))
     }
 
@@ -378,14 +376,14 @@ mod tests {
     fn a_certificate_no_public_ca_issued_is_refused_and_flagged() {
         let unknown_issuer = Arc::new(AtomicBool::new(false));
         let verifier = PublicCaVerifier::new(Arc::clone(&unknown_issuer)).unwrap();
-        let cert = TlsConfigBuilder::load_cert_from_pem(SELF_SIGNED).unwrap();
+        let cert = parse_certificate_pem(SELF_SIGNED).unwrap();
         let name = ServerName::try_from("localhost").unwrap();
 
-        let verified =
+        let outcome =
             verifier.verify_server_cert(&cert, &[], &name, &[], rustls::pki_types::UnixTime::now());
 
-        assert!(verified.is_err());
-        assert!(unknown_issuer.load(Ordering::Relaxed), "{verified:?}");
+        assert!(outcome.is_err());
+        assert!(unknown_issuer.load(Ordering::Relaxed), "{outcome:?}");
     }
 
     #[tokio::test]

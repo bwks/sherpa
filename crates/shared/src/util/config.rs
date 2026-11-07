@@ -16,21 +16,11 @@ use crate::konst::{
     SHERPA_SERVER_WS_PORT, SHERPA_USERNAME,
 };
 
-/// Build WebSocket URL from config
-pub fn build_websocket_url(config: &Config) -> String {
-    // Check if explicit URL is set
-    if let Some(ref url) = config.server_connection.url {
-        return url.clone();
-    }
-
-    // Construct URL based on TLS config
-    let scheme = if config.tls.enabled { "wss" } else { "ws" };
-    let host = config.server_ipv4;
-    let port = config.ws_port;
-
-    format!("{}://{}:{}/ws", scheme, host, port)
-}
-
+/// Write the server config to `path` as TOML.
+///
+/// # Errors
+///
+/// Fails when the config cannot be serialized or written.
 #[instrument(skip(config), level = "debug")]
 pub fn create_config(config: &Config, path: &str) -> Result<()> {
     let toml_string =
@@ -38,6 +28,11 @@ pub fn create_config(config: &Config, path: &str) -> Result<()> {
     create_file(path, toml_string)?;
     Ok(())
 }
+/// Load the server config from `file_path`.
+///
+/// # Errors
+///
+/// Fails when the file cannot be read or is not a valid server config.
 #[instrument(level = "debug")]
 pub fn load_config(file_path: &str) -> Result<Config> {
     let expanded_path = shellexpand::tilde(file_path);
@@ -49,6 +44,7 @@ pub fn load_config(file_path: &str) -> Result<Config> {
 }
 
 /// Build WebSocket URL from client config
+#[must_use]
 pub fn build_client_websocket_url(config: &ClientConfig) -> String {
     if let Some(ref url) = config.server_connection.url {
         return url.clone();
@@ -58,15 +54,25 @@ pub fn build_client_websocket_url(config: &ClientConfig) -> String {
     let host = config.server_ipv4;
     let port = config.ws_port;
 
-    format!("{}://{}:{}/ws", scheme, host, port)
+    format!("{scheme}://{host}:{port}/ws")
 }
 
+/// Write the client config to `path` as TOML.
+///
+/// # Errors
+///
+/// Fails when the config cannot be serialized or written.
 pub fn create_client_config(config: &ClientConfig, path: &str) -> Result<()> {
     let toml_string = toml::to_string_pretty(&config)?;
     create_file(path, toml_string)?;
     Ok(())
 }
 
+/// Load the client config from `file_path`.
+///
+/// # Errors
+///
+/// Fails when the file cannot be read or is not a valid client config.
 pub fn load_client_config(file_path: &str) -> Result<ClientConfig> {
     let expanded_path = shellexpand::tilde(file_path);
     let config_path = Path::new(expanded_path.as_ref());
@@ -105,7 +111,7 @@ pub fn default_config() -> Config {
         management_prefix_ipv6: None,
         ztp_server,
         server_connection: ServerConnection::default(),
-        server_ipv4: Ipv4Addr::new(127, 0, 0, 1),
+        server_ipv4: Ipv4Addr::LOCALHOST,
         server_ipv6: None,
         ws_port: SHERPA_SERVER_WS_PORT,
         http_port: SHERPA_SERVER_HTTP_PORT,
@@ -175,33 +181,6 @@ mod tests {
     }
 
     #[test]
-    fn test_build_websocket_url_with_tls() {
-        let mut config = default_config();
-        config.tls.enabled = true;
-        config.server_ipv4 = Ipv4Addr::new(10, 0, 0, 1);
-        config.ws_port = 3030;
-        config.server_connection.url = None;
-        assert_eq!(build_websocket_url(&config), "wss://10.0.0.1:3030/ws");
-    }
-
-    #[test]
-    fn test_build_websocket_url_without_tls() {
-        let mut config = default_config();
-        config.tls.enabled = false;
-        config.server_ipv4 = Ipv4Addr::new(10, 0, 0, 1);
-        config.ws_port = 3030;
-        config.server_connection.url = None;
-        assert_eq!(build_websocket_url(&config), "ws://10.0.0.1:3030/ws");
-    }
-
-    #[test]
-    fn test_build_websocket_url_explicit_url_takes_precedence() {
-        let mut config = default_config();
-        config.server_connection.url = Some("wss://custom.host:9999/ws".to_string());
-        assert_eq!(build_websocket_url(&config), "wss://custom.host:9999/ws");
-    }
-
-    #[test]
     fn test_build_client_websocket_url_with_tls() {
         let mut config = ClientConfig::default();
         config.tls.enabled = true;
@@ -225,12 +204,12 @@ mod tests {
     #[test]
     fn test_default_config_has_sensible_values() {
         let config = default_config();
-        assert_eq!(config.server_ipv4, Ipv4Addr::new(127, 0, 0, 1));
+        assert_eq!(config.server_ipv4, Ipv4Addr::LOCALHOST);
         assert_eq!(config.ws_port, SHERPA_SERVER_WS_PORT);
         assert_eq!(config.http_port, SHERPA_SERVER_HTTP_PORT);
-        assert!(!config.images_dir.is_empty());
-        assert!(!config.containers_dir.is_empty());
-        assert!(!config.container_images.is_empty());
+        assert_ne!(config.images_dir, "");
+        assert_ne!(config.containers_dir, "");
+        assert_ne!(config.container_images, Vec::new());
     }
 
     #[test]

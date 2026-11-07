@@ -40,6 +40,7 @@ pub struct LinkImpairment {
 
 impl LinkImpairment {
     /// True when nothing is impaired, so no netem qdisc is needed.
+    #[must_use]
     pub fn is_clear(&self) -> bool {
         *self == Self::default()
     }

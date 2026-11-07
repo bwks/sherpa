@@ -229,7 +229,7 @@ mod tests {
     use super::*;
     use shared::data::{
         BiosTypes, CpuArchitecture, CpuModels, DiskBuses, InterfaceType, MachineType,
-        MgmtInterfaces, OsVariant, ZtpMethod,
+        MgmtInterfaces, OsVariant, ZtpSettings,
     };
 
     fn create_test_node_image(model: NodeModel, version: &str, kind: NodeKind) -> NodeConfig {
@@ -250,17 +250,12 @@ mod tests {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
-            ztp_enable: false,
-            ztp_method: ZtpMethod::None,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_password_auth: false,
+            ztp: ZtpSettings::default(),
             data_interface_count: 4,
             interface_prefix: "eth".to_string(),
             interface_type: InterfaceType::Virtio,
             interface_mtu: 1500,
             first_interface_index: 0,
-            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: false,

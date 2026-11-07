@@ -1,8 +1,6 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
-#[cfg(feature = "netinfo")]
-use anyhow::anyhow;
 use anyhow::{Context, Result, bail};
 #[cfg(feature = "netinfo")]
 use getifaddrs::{Address, Interfaces, getifaddrs};
@@ -43,25 +41,11 @@ pub fn get_ipv4_network(ipv4_net: &str) -> Result<Ipv4Net> {
     Ipv4Net::from_str(ipv4_net).with_context(|| format!("Failed to parse network: {ipv4_net}"))
 }
 
-/// Get a free subnet from the supernet block that is not currently in use.
-#[cfg(feature = "netinfo")]
-pub fn get_free_subnet(prefix: &String) -> Result<Ipv4Net> {
-    // get existing ip assigned to interfaces
-    let interface_networks = get_interface_networks()?;
-
-    // subnet, supernet block into /24's
-    let supernet = Ipv4Net::from_str(prefix)?;
-    let subnets: Vec<Ipv4Net> = supernet.subnets(24)?.collect();
-
-    for subnet in subnets {
-        if !ipv4_overlaps_any(&subnet, &interface_networks) {
-            return Ok(subnet);
-        }
-    }
-    Err(anyhow!("No free subnet found in supernet: {}", prefix))
-}
-
 /// Management host offset of the node with the given 1-based index, from the lab node block.
+///
+/// # Errors
+///
+/// Fails when the node index is past the end of the node address range.
 pub fn node_management_host_offset(node_index: u16) -> Result<u32> {
     let offset = (MANAGEMENT_NODE_HOST_OFFSETS.start() + u32::from(node_index)).saturating_sub(1);
     if node_index == 0 || !MANAGEMENT_NODE_HOST_OFFSETS.contains(&offset) {
@@ -74,6 +58,7 @@ pub fn node_management_host_offset(node_index: u16) -> Result<u32> {
 }
 
 /// Whether `subnet` overlaps any of `networks`: either contains the other's network address.
+#[must_use]
 pub fn ipv4_overlaps_any(subnet: &Ipv4Net, networks: &[Ipv4Net]) -> bool {
     for network in networks {
         if subnet.contains(&network.network()) || network.contains(&subnet.network()) {
@@ -84,6 +69,7 @@ pub fn ipv4_overlaps_any(subnet: &Ipv4Net, networks: &[Ipv4Net]) -> bool {
 }
 
 /// Whether `subnet` overlaps any of `networks`: either contains the other's network address.
+#[must_use]
 pub fn ipv6_overlaps_any(subnet: &Ipv6Net, networks: &[Ipv6Net]) -> bool {
     for network in networks {
         if subnet.contains(&network.network()) || network.contains(&subnet.network()) {
@@ -94,6 +80,10 @@ pub fn ipv6_overlaps_any(subnet: &Ipv6Net, networks: &[Ipv6Net]) -> bool {
 }
 
 /// Get the IPv6 networks currently assigned to interfaces.
+///
+/// # Errors
+///
+/// Fails when the host's interfaces cannot be listed.
 #[cfg(feature = "netinfo")]
 pub fn get_interface_networks_v6() -> Result<Vec<Ipv6Net>> {
     let interfaces = getifaddrs()
@@ -118,6 +108,10 @@ pub fn get_interface_networks_v6() -> Result<Vec<Ipv6Net>> {
 }
 
 /// Get a list of IP addresses currently assigned to intefaces
+///
+/// # Errors
+///
+/// Fails when the host's interfaces cannot be listed.
 #[cfg(feature = "netinfo")]
 pub fn get_interface_networks() -> Result<Vec<Ipv4Net>> {
     let interfaces = getifaddrs()
@@ -139,7 +133,7 @@ pub fn get_interface_networks() -> Result<Vec<Ipv4Net>> {
 
                 let ip_network = Ipv4Net::new(ip, prefix)?;
                 let subnet = Ipv4Net::new(ip_network.network(), prefix)?;
-                interface_networks.push(subnet)
+                interface_networks.push(subnet);
             }
         }
     }
@@ -150,14 +144,19 @@ pub fn get_interface_networks() -> Result<Vec<Ipv4Net>> {
 ///
 /// Combines the subnet's network address with the host address offset
 /// to produce a unique loopback IP per lab per node.
+#[must_use]
 pub fn get_ip(loopback_subnet: &Ipv4Net, host_addr: u8) -> Ipv4Addr {
     let net_bits = loopback_subnet.network().to_bits();
-    Ipv4Addr::from_bits(net_bits + host_addr as u32)
+    Ipv4Addr::from_bits(net_bits + u32::from(host_addr))
 }
 
 /// Allocate the next free loopback `/24` subnet from the supernet prefix.
 ///
 /// Skips `x.x.0.0/24` and returns the first `/24` not present in `used`.
+///
+/// # Errors
+///
+/// Fails when the prefix cannot be split into /24s or every /24 is in use.
 pub fn allocate_loopback_subnet(prefix: &Ipv4Net, used: &[Ipv4Net]) -> Result<Ipv4Net> {
     for subnet in prefix
         .subnets(24)
@@ -172,8 +171,7 @@ pub fn allocate_loopback_subnet(prefix: &Ipv4Net, used: &[Ipv4Net]) -> Result<Ip
         }
     }
     Err(anyhow::anyhow!(
-        "No free loopback /24 subnet found in prefix: {}",
-        prefix
+        "No free loopback /24 subnet found in prefix: {prefix}"
     ))
 }
 
@@ -182,6 +180,10 @@ pub fn allocate_loopback_subnet(prefix: &Ipv4Net, used: &[Ipv4Net]) -> Result<Ip
 /// Skips `x.x.0.0/24` and returns the first `/24` not present in `used` (allocated to labs)
 /// and not overlapping `host` (networks already on host interfaces, such as a leftover
 /// lab bridge or another service).
+///
+/// # Errors
+///
+/// Fails when the prefix cannot be split into /24s or every /24 is in use or on the host.
 pub fn allocate_management_subnet(
     prefix: &Ipv4Net,
     used: &[Ipv4Net],
@@ -200,8 +202,7 @@ pub fn allocate_management_subnet(
         }
     }
     Err(anyhow::anyhow!(
-        "No free management /24 subnet found in prefix: {}",
-        prefix
+        "No free management /24 subnet found in prefix: {prefix}"
     ))
 }
 
@@ -222,6 +223,10 @@ pub fn get_ipv6_addr(network: &Ipv6Net, nth: u32) -> Result<Ipv6Addr> {
 }
 
 /// Parses a CIDR notation string into an `Ipv6Net`.
+///
+/// # Errors
+///
+/// Fails when `ipv6_net` is not an IPv6 CIDR network.
 pub fn get_ipv6_network(ipv6_net: &str) -> Result<Ipv6Net> {
     Ipv6Net::from_str(ipv6_net).with_context(|| format!("Failed to parse IPv6 network: {ipv6_net}"))
 }
@@ -230,6 +235,10 @@ pub fn get_ipv6_network(ipv6_net: &str) -> Result<Ipv6Net> {
 ///
 /// Skips `::0/64` and returns the first `/64` not present in `used` and not overlapping
 /// `host` (networks already on host interfaces).
+///
+/// # Errors
+///
+/// Fails when the prefix cannot be split into /64s or every /64 is in use or on the host.
 pub fn allocate_ipv6_management_subnet(
     prefix: &Ipv6Net,
     used: &[Ipv6Net],
@@ -248,14 +257,17 @@ pub fn allocate_ipv6_management_subnet(
         }
     }
     Err(anyhow::anyhow!(
-        "No free IPv6 management /64 subnet found in prefix: {}",
-        prefix
+        "No free IPv6 management /64 subnet found in prefix: {prefix}"
     ))
 }
 
 /// Allocate the next free IPv6 loopback `/64` subnet from the supernet prefix.
 ///
 /// Skips the first `/64` and returns the first `/64` not present in `used`.
+///
+/// # Errors
+///
+/// Fails when the prefix cannot be split into /64s or every /64 is in use.
 pub fn allocate_ipv6_loopback_subnet(prefix: &Ipv6Net, used: &[Ipv6Net]) -> Result<Ipv6Net> {
     for subnet in prefix
         .subnets(64)
@@ -270,18 +282,8 @@ pub fn allocate_ipv6_loopback_subnet(prefix: &Ipv6Net, used: &[Ipv6Net]) -> Resu
         }
     }
     Err(anyhow::anyhow!(
-        "No free IPv6 loopback /64 subnet found in prefix: {}",
-        prefix
+        "No free IPv6 loopback /64 subnet found in prefix: {prefix}"
     ))
-}
-
-/// Get an IPv6 address from a subnet and host address offset.
-///
-/// Combines the subnet's network address with the host address offset
-/// to produce a unique IPv6 per lab per node.
-pub fn get_ipv6_ip(subnet: &Ipv6Net, host_addr: u16) -> Ipv6Addr {
-    let net_bits = subnet.network().to_bits();
-    Ipv6Addr::from_bits(net_bits + host_addr as u128)
 }
 
 #[cfg(test)]
@@ -469,13 +471,13 @@ mod tests {
 
     fn ipv6_mgmt_subnet(index: u16) -> Ipv6Net {
         let base = Ipv6Addr::from_str("fd00:b00b::").unwrap().to_bits();
-        let addr = Ipv6Addr::from_bits(base + ((index as u128) << 64));
+        let addr = Ipv6Addr::from_bits(base + (u128::from(index) << 64));
         Ipv6Net::new(addr, 64).unwrap()
     }
 
     fn ipv6_loop_subnet(index: u16) -> Ipv6Net {
         let base = Ipv6Addr::from_str("fd00:1001::").unwrap().to_bits();
-        let addr = Ipv6Addr::from_bits(base + ((index as u128) << 64));
+        let addr = Ipv6Addr::from_bits(base + (u128::from(index) << 64));
         Ipv6Net::new(addr, 64).unwrap()
     }
 
@@ -495,30 +497,6 @@ mod tests {
     #[test]
     fn test_get_ipv6_network_invalid() {
         assert!(get_ipv6_network("not-a-network").is_err());
-    }
-
-    #[test]
-    fn test_get_ipv6_ip() {
-        let subnet = ipv6_mgmt_subnet(1);
-        let ip = get_ipv6_ip(&subnet, 42);
-        let expected_bits = subnet.network().to_bits() + 42u128;
-        assert_eq!(ip, Ipv6Addr::from_bits(expected_bits));
-    }
-
-    #[test]
-    fn test_get_ipv6_ip_zero() {
-        let subnet = ipv6_mgmt_subnet(1);
-        let ip = get_ipv6_ip(&subnet, 0);
-        assert_eq!(ip, subnet.network());
-    }
-
-    #[test]
-    fn test_get_ipv6_ip_different_subnets() {
-        let subnet1 = ipv6_mgmt_subnet(1);
-        let subnet2 = ipv6_mgmt_subnet(2);
-        let ip1 = get_ipv6_ip(&subnet1, 1);
-        let ip2 = get_ipv6_ip(&subnet2, 1);
-        assert_ne!(ip1, ip2);
     }
 
     #[test]

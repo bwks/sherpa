@@ -56,7 +56,7 @@ mod tests {
     #[test]
     fn the_longest_delay_fits_netem_ticks() {
         let ticks = u64::from(MAX_IMPAIRMENT_DELAY_MS) * 1_000 * 15_625 / 1_000;
-        assert!(ticks <= u64::from(u32::MAX));
+        assert!(u32::try_from(ticks).is_ok());
         let next = u64::from(MAX_IMPAIRMENT_DELAY_MS + 1) * 1_000 * 15_625 / 1_000;
         assert!(next > u64::from(u32::MAX));
     }

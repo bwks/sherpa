@@ -27,7 +27,7 @@ use super::handlers::{
     node_redeploy_handler, node_start_handler, node_stop_handler, openapi_handler, profile_handler,
     pull_image_json, redeploy_node_json, remove_ssh_key_json, resume_lab_json, scan_images_json,
     set_default_image_json, show_image_json, signup_form_handler, signup_page_handler,
-    update_impairment_json, update_password_handler, upload_image_multipart,
+    update_impairment_json, update_password_handler, upload_image_multipart, validate_token_json,
 };
 
 #[derive(Embed)]
@@ -196,6 +196,7 @@ pub fn build_router() -> Router<AppState> {
         .route("/api/v1/openapi.json", get(openapi_handler))
         .route("/api/docs", get(api_docs_handler))
         .route("/api/v1/auth/login", post(login)) // JSON login for CLI
+        .route("/api/v1/auth/validate", post(validate_token_json))
         // Protected API endpoints (authentication required)
         .route("/api/v1/labs", get(get_labs_json).post(create_lab_json))
         .route("/api/v1/labs/{id}", get(get_lab))

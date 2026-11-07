@@ -185,6 +185,7 @@ pub enum UpPhase {
 }
 
 impl UpPhase {
+    #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
             UpPhase::Setup => "Setup",
@@ -203,6 +204,7 @@ impl UpPhase {
         }
     }
 
+    #[must_use]
     pub fn number(&self) -> u8 {
         match self {
             UpPhase::Setup => 1,
@@ -221,6 +223,7 @@ impl UpPhase {
         }
     }
 
+    #[must_use]
     pub fn total_phases() -> u8 {
         13
     }
@@ -292,7 +295,7 @@ mod tests {
             #[serde(default)]
             kind: StatusKind,
         }
-        let msg: TestMsg = serde_json::from_str(r#"{}"#).unwrap();
+        let msg: TestMsg = serde_json::from_str(r"{}").unwrap();
         assert_eq!(msg.kind, StatusKind::Info);
     }
 
@@ -339,8 +342,8 @@ mod tests {
             UpPhase::SshConfig,
             UpPhase::NodeReadiness,
         ];
-        for (i, phase) in phases.iter().enumerate() {
-            assert_eq!(phase.number(), (i + 1) as u8);
+        for (number, phase) in (1u8..).zip(phases.iter()) {
+            assert_eq!(phase.number(), number);
         }
     }
 

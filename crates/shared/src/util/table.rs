@@ -33,6 +33,7 @@ struct SshConfigInspectionTableRow {
 }
 
 /// Renders Sherpa SSH config inspection results.
+#[must_use]
 pub fn render_ssh_config_inspection_table(entries: &[SshConfigInspectionEntry]) -> String {
     let rows: Vec<SshConfigInspectionTableRow> = entries
         .iter()
@@ -72,19 +73,20 @@ struct NodeTableRow {
 /// Renders a table of nodes with their management IP, connection info, and model
 ///
 /// # Arguments
-/// * `nodes` - Slice of NodeInfo structs to display in the table
+/// * `nodes` - Slice of `NodeInfo` structs to display in the table
 /// * `lab_id` - Lab ID appended to each node name, as `<name>.<lab_id>`
 ///
 /// # Returns
 /// A formatted table string using modern Unicode box-drawing characters
 ///
+#[must_use]
 pub fn render_nodes_table(nodes: &[NodeInfo], lab_id: &str) -> String {
     let rows: Vec<NodeTableRow> = nodes
         .iter()
         .map(|node| {
             let mgmt_ip = node.ip_address.as_deref().unwrap_or("-");
             let connection = match (&node.ip_address, node.ssh_port) {
-                (Some(ip), Some(port)) => format!("{}:{}", ip, port),
+                (Some(ip), Some(port)) => format!("{ip}:{port}"),
                 _ => "-".to_string(),
             };
             let node_model = node.model.to_string();
@@ -144,12 +146,13 @@ struct DeviceTableRow {
 /// VNC port and disks
 ///
 /// # Arguments
-/// * `devices` - Slice of DeviceInfo structs to display in the table
+/// * `devices` - Slice of `DeviceInfo` structs to display in the table
 /// * `lab_id` - Lab ID appended to each device name, as `<name>.<lab_id>`
 ///
 /// # Returns
 /// A formatted table string using modern Unicode box-drawing characters
 ///
+#[must_use]
 pub fn render_devices_table(devices: &[DeviceInfo], lab_id: &str) -> String {
     let rows: Vec<DeviceTableRow> = devices
         .iter()
@@ -226,6 +229,7 @@ struct LinkTableRow {
 }
 
 /// Renders a table of point-to-point links between nodes
+#[must_use]
 pub fn render_links_table(links: &[LinkInfo]) -> String {
     let rows: Vec<LinkTableRow> = links
         .iter()
@@ -260,6 +264,7 @@ struct BridgeTableRow {
 }
 
 /// Renders a table of shared bridges connecting multiple nodes
+#[must_use]
 pub fn render_bridges_table(bridges: &[BridgeInfo]) -> String {
     let rows: Vec<BridgeTableRow> = bridges
         .iter()
@@ -291,6 +296,7 @@ struct ProvisionTableRow {
 }
 
 /// Renders the result of running provisioners on a lab's nodes
+#[must_use]
 pub fn render_provision_table(results: &[ProvisionResult], lab_id: &str) -> String {
     let mut rows = Vec::with_capacity(results.len());
     for result in results {
@@ -320,80 +326,51 @@ struct LabInfoTableRow {
 }
 
 /// Renders a two-column table of lab information
-///
-/// # Arguments
-/// * `lab_info` - Reference to LabInfo struct to display
-///
-/// # Returns
-/// A formatted table string using modern Unicode box-drawing characters
-///
+#[must_use]
 pub fn render_lab_info_table(lab_info: &LabInfo) -> String {
     let mut rows = vec![
-        LabInfoTableRow {
-            property: "ID".to_string(),
-            value: lab_info.id.clone(),
-        },
-        LabInfoTableRow {
-            property: "Name".to_string(),
-            value: lab_info.name.clone(),
-        },
-        LabInfoTableRow {
-            property: "User".to_string(),
-            value: lab_info.user.clone(),
-        },
-        LabInfoTableRow {
-            property: "Management Network".to_string(),
-            value: lab_info.ipv4_network.to_string(),
-        },
-        LabInfoTableRow {
-            property: "IPv4 Gateway".to_string(),
-            value: lab_info.ipv4_gateway.to_string(),
-        },
-        LabInfoTableRow {
-            property: "IPv4 Router".to_string(),
-            value: lab_info.ipv4_router.to_string(),
-        },
-        LabInfoTableRow {
-            property: "Loopback Network".to_string(),
-            value: lab_info.loopback_network.to_string(),
-        },
+        ("ID", lab_info.id.clone()),
+        ("Name", lab_info.name.clone()),
+        ("User", lab_info.user.clone()),
+        ("Management Network", lab_info.ipv4_network.to_string()),
+        ("IPv4 Gateway", lab_info.ipv4_gateway.to_string()),
+        ("IPv4 Router", lab_info.ipv4_router.to_string()),
+        ("Loopback Network", lab_info.loopback_network.to_string()),
     ];
+    let optional = [
+        (
+            "IPv6 Management Network",
+            lab_info.ipv6_network.map(|net| net.to_string()),
+        ),
+        (
+            "IPv6 Gateway",
+            lab_info.ipv6_gateway.map(|addr| addr.to_string()),
+        ),
+        (
+            "IPv6 Router",
+            lab_info.ipv6_router.map(|addr| addr.to_string()),
+        ),
+        ("Client Host", lab_info.client_host.clone()),
+        ("Client Folder", lab_info.client_folder.clone()),
+    ];
+    rows.extend(
+        optional
+            .into_iter()
+            .filter_map(|(property, value)| Some((property, value?))),
+    );
+    property_table("Lab Info", rows)
+}
 
-    if let Some(ref ipv6_net) = lab_info.ipv6_network {
-        rows.push(LabInfoTableRow {
-            property: "IPv6 Management Network".to_string(),
-            value: ipv6_net.to_string(),
-        });
-    }
-    if let Some(ref ipv6_gw) = lab_info.ipv6_gateway {
-        rows.push(LabInfoTableRow {
-            property: "IPv6 Gateway".to_string(),
-            value: ipv6_gw.to_string(),
-        });
-    }
-    if let Some(ref ipv6_rtr) = lab_info.ipv6_router {
-        rows.push(LabInfoTableRow {
-            property: "IPv6 Router".to_string(),
-            value: ipv6_rtr.to_string(),
-        });
-    }
-    if let Some(ref host) = lab_info.client_host {
-        rows.push(LabInfoTableRow {
-            property: "Client Host".to_string(),
-            value: host.clone(),
-        });
-    }
-    if let Some(ref folder) = lab_info.client_folder {
-        rows.push(LabInfoTableRow {
-            property: "Client Folder".to_string(),
-            value: folder.clone(),
-        });
-    }
-
+/// A two-column property and value table under `title`.
+fn property_table(title: &str, rows: Vec<(&str, String)>) -> String {
+    let rows = rows.into_iter().map(|(property, value)| LabInfoTableRow {
+        property: property.to_owned(),
+        value,
+    });
     Table::new(rows)
         .with(Style::modern())
         .with(Remove::row(Rows::first()))
-        .with(Panel::header("Lab Info"))
+        .with(Panel::header(title))
         .with(Modify::new(Rows::first()).with(Alignment::center()))
         .with(BorderCorrection::span())
         .to_string()
@@ -413,6 +390,7 @@ struct CertTableRow {
 }
 
 /// Renders a table of images with their model, kind, version, and default status
+#[must_use]
 pub fn render_images_table(images: &[ImageSummary]) -> String {
     Table::new(images)
         .with(Style::modern())
@@ -423,6 +401,7 @@ pub fn render_images_table(images: &[ImageSummary]) -> String {
 }
 
 /// Renders a table of scanned images with their model, version, kind, and status
+#[must_use]
 pub fn render_scanned_images_table(images: &[ScannedImage]) -> String {
     Table::new(images)
         .with(Style::modern())
@@ -432,130 +411,54 @@ pub fn render_scanned_images_table(images: &[ScannedImage]) -> String {
         .to_string()
 }
 
-/// Renders a two-column key-value table with all NodeConfig fields for an image
+/// Renders a two-column key-value table with all `NodeConfig` fields for an image
+#[must_use]
 pub fn render_image_detail_table(image: &NodeConfig) -> String {
     let rows = vec![
-        LabInfoTableRow {
-            property: "Model".to_string(),
-            value: image.model.to_string(),
-        },
-        LabInfoTableRow {
-            property: "Kind".to_string(),
-            value: image.kind.to_string(),
-        },
-        LabInfoTableRow {
-            property: "Version".to_string(),
-            value: image.version.clone(),
-        },
-        LabInfoTableRow {
-            property: "Default".to_string(),
-            value: image.default.to_string(),
-        },
-        LabInfoTableRow {
-            property: "OS Variant".to_string(),
-            value: image.os_variant.to_string(),
-        },
-        LabInfoTableRow {
-            property: "BIOS".to_string(),
-            value: image.bios.to_string(),
-        },
-        LabInfoTableRow {
-            property: "CPU Architecture".to_string(),
-            value: image.cpu_architecture.to_string(),
-        },
-        LabInfoTableRow {
-            property: "CPU Model".to_string(),
-            value: image.cpu_model.to_string(),
-        },
-        LabInfoTableRow {
-            property: "CPU Count".to_string(),
-            value: image.cpu_count.to_string(),
-        },
-        LabInfoTableRow {
-            property: "Memory (MB)".to_string(),
-            value: image.memory.to_string(),
-        },
-        LabInfoTableRow {
-            property: "Machine Type".to_string(),
-            value: image.machine_type.to_string(),
-        },
-        LabInfoTableRow {
-            property: "VMX Enabled".to_string(),
-            value: image.vmx_enabled.to_string(),
-        },
-        LabInfoTableRow {
-            property: "HDD Bus".to_string(),
-            value: image.hdd_bus.to_string(),
-        },
-        LabInfoTableRow {
-            property: "CDROM".to_string(),
-            value: image.cdrom.as_deref().unwrap_or("none").to_string(),
-        },
-        LabInfoTableRow {
-            property: "CDROM Bus".to_string(),
-            value: image.cdrom_bus.to_string(),
-        },
-        LabInfoTableRow {
-            property: "Interface Type".to_string(),
-            value: image.interface_type.to_string(),
-        },
-        LabInfoTableRow {
-            property: "Interface Prefix".to_string(),
-            value: image.interface_prefix.clone(),
-        },
-        LabInfoTableRow {
-            property: "Interface MTU".to_string(),
-            value: image.interface_mtu.to_string(),
-        },
-        LabInfoTableRow {
-            property: "Data Interface Count".to_string(),
-            value: image.data_interface_count.to_string(),
-        },
-        LabInfoTableRow {
-            property: "First Interface Index".to_string(),
-            value: image.first_interface_index.to_string(),
-        },
-        LabInfoTableRow {
-            property: "Management Interface".to_string(),
-            value: image.management_interface.to_string(),
-        },
-        LabInfoTableRow {
-            property: "Dedicated Mgmt Interface".to_string(),
-            value: image.dedicated_management_interface.to_string(),
-        },
-        LabInfoTableRow {
-            property: "Reserved Interface Count".to_string(),
-            value: image.reserved_interface_count.to_string(),
-        },
-        LabInfoTableRow {
-            property: "Repo".to_string(),
-            value: image.repo.as_deref().unwrap_or("none").to_string(),
-        },
-        LabInfoTableRow {
-            property: "ZTP Enabled".to_string(),
-            value: image.ztp_enable.to_string(),
-        },
-        LabInfoTableRow {
-            property: "ZTP Method".to_string(),
-            value: image.ztp_method.to_string(),
-        },
-        LabInfoTableRow {
-            property: "ZTP Username".to_string(),
-            value: image.ztp_username.as_deref().unwrap_or("none").to_string(),
-        },
-        LabInfoTableRow {
-            property: "ZTP Password Auth".to_string(),
-            value: image.ztp_password_auth.to_string(),
-        },
+        ("Model", image.model.to_string()),
+        ("Kind", image.kind.to_string()),
+        ("Version", image.version.clone()),
+        ("Default", image.default.to_string()),
+        ("OS Variant", image.os_variant.to_string()),
+        ("BIOS", image.bios.to_string()),
+        ("CPU Architecture", image.cpu_architecture.to_string()),
+        ("CPU Model", image.cpu_model.to_string()),
+        ("CPU Count", image.cpu_count.to_string()),
+        ("Memory (MB)", image.memory.to_string()),
+        ("Machine Type", image.machine_type.to_string()),
+        ("VMX Enabled", image.vmx_enabled.to_string()),
+        ("HDD Bus", image.hdd_bus.to_string()),
+        ("CDROM", image.cdrom.as_deref().unwrap_or("none").to_owned()),
+        ("CDROM Bus", image.cdrom_bus.to_string()),
+        ("Interface Type", image.interface_type.to_string()),
+        ("Interface Prefix", image.interface_prefix.clone()),
+        ("Interface MTU", image.interface_mtu.to_string()),
+        (
+            "Data Interface Count",
+            image.data_interface_count.to_string(),
+        ),
+        (
+            "First Interface Index",
+            image.first_interface_index.to_string(),
+        ),
+        (
+            "Management Interface",
+            image.management_interface.to_string(),
+        ),
+        (
+            "Reserved Interface Count",
+            image.reserved_interface_count.to_string(),
+        ),
+        ("Repo", image.repo.as_deref().unwrap_or("none").to_owned()),
+        ("ZTP Enabled", image.ztp.enable.to_string()),
+        ("ZTP Method", image.ztp.method.to_string()),
+        (
+            "ZTP Username",
+            image.ztp.username.as_deref().unwrap_or("none").to_owned(),
+        ),
+        ("ZTP Password Auth", image.ztp.password_auth.to_string()),
     ];
-
-    Table::new(rows)
-        .with(Style::modern())
-        .with(Remove::row(Rows::first()))
-        .with(Panel::header("Image Detail"))
-        .with(Modify::new(Rows::first()).with(Alignment::center()))
-        .with(BorderCorrection::span())
-        .to_string()
+    property_table("Image Detail", rows)
 }
 
 /// Certificate information for table display
@@ -568,11 +471,12 @@ pub struct CertificateTableInfo {
 /// Renders a table of trusted certificates
 ///
 /// # Arguments
-/// * `certs` - Slice of CertificateTableInfo structs to display in the table
+/// * `certs` - Slice of `CertificateTableInfo` structs to display in the table
 ///
 /// # Returns
 /// A formatted table string using modern Unicode box-drawing characters
 ///
+#[must_use]
 pub fn render_certificates_table(certs: &[CertificateTableInfo]) -> String {
     let rows: Vec<CertTableRow> = certs
         .iter()
@@ -605,6 +509,7 @@ struct SshKeyRow {
 }
 
 /// Render a user's SSH public keys with their SHA256 fingerprints
+#[must_use]
 pub fn render_ssh_keys_table(username: &str, keys: &[String]) -> String {
     let rows: Vec<SshKeyRow> = keys
         .iter()
@@ -647,6 +552,7 @@ struct ServerStatusRow {
 }
 
 /// Render a server status table
+#[must_use]
 pub fn render_server_status_table(server: &str, status: &str, tls: &str) -> String {
     let row = ServerStatusRow {
         server: server.to_string(),
@@ -660,17 +566,8 @@ pub fn render_server_status_table(server: &str, status: &str, tls: &str) -> Stri
         .to_string()
 }
 
-/// Render how many records of each kind a database migration imported.
-pub fn render_migration_table(counts: &[(&str, usize)]) -> String {
-    let mut builder = Builder::default();
-    builder.push_record(["Records", "Imported"]);
-    for (kind, count) in counts {
-        builder.push_record([kind.to_string(), count.to_string()]);
-    }
-    builder.build().with(Style::modern()).to_string()
-}
-
 /// Render where a database backup was written on the server.
+#[must_use]
 pub fn render_backup_table(backup: &BackupResponse) -> String {
     let mut builder = Builder::default();
     builder.push_record(["Backup", "Details"]);
@@ -845,7 +742,7 @@ mod tests {
         ];
 
         let table = render_nodes_table(&nodes, "a1b2c3d4");
-        println!("\n{}", table);
+        println!("\n{table}");
 
         // Check that all nodes are present
         assert!(table.contains("dev01"));
@@ -873,7 +770,7 @@ mod tests {
         assert!(table.contains("dev01"));
         assert!(table.contains("alpine_linux"));
         // The table should have "-" for missing IP and connection
-        assert!(table.matches("-").count() >= 2);
+        assert!(table.matches('-').count() >= 2);
     }
 
     #[test]
@@ -950,7 +847,7 @@ mod tests {
         ];
 
         let table = render_devices_table(&devices, "a1b2c3d4");
-        println!("\n{}", table);
+        println!("\n{table}");
 
         // Check that all devices are present
         assert!(table.contains("router01"));
@@ -1012,7 +909,7 @@ mod tests {
             model: NodeModel::AlpineLinux,
             kind: NodeKind::Container,
             state: NodeState::Stopped,
-            mgmt_ipv4: "".to_string(),
+            mgmt_ipv4: String::new(),
             mgmt_ipv6: None,
             vnc_port: None,
             disks: vec![],
@@ -1026,7 +923,7 @@ mod tests {
         assert!(table.contains("container01"));
         assert!(table.contains("alpine_linux"));
         assert!(table.contains("stopped")); // state = Stopped
-        assert!(table.contains("-")); // empty mgmt_ipv4
+        assert!(table.contains('-')); // empty mgmt_ipv4
     }
 
     #[test]
@@ -1048,7 +945,7 @@ mod tests {
         use std::net::Ipv4Addr;
 
         let lab_info = LabInfo {
-            ssh_usernames: Default::default(),
+            ssh_usernames: Vec::default(),
             id: "039ab286".to_string(),
             name: "simple-ceos-test".to_string(),
             user: "admin".to_string(),
@@ -1085,14 +982,14 @@ mod tests {
         assert!(table.contains("┌") || table.contains("│"));
 
         // Print the table for visual verification
-        println!("\n{}", table);
+        println!("\n{table}");
         assert!(!table.contains("Client"), "{table}");
     }
 
     #[test]
     fn lab_info_table_shows_where_the_lab_was_started() {
         let lab_info = LabInfo {
-            ssh_usernames: Default::default(),
+            ssh_usernames: Vec::default(),
             id: "039ab286".to_string(),
             name: "core".to_string(),
             user: "alice".to_string(),
@@ -1143,7 +1040,6 @@ mod tests {
         assert!(table.contains("Data Interface Count"));
         assert!(table.contains("First Interface Index"));
         assert!(table.contains("Management Interface"));
-        assert!(table.contains("Dedicated Mgmt Interface"));
         assert!(table.contains("Reserved Interface Count"));
         assert!(table.contains("Repo"));
         assert!(table.contains("ZTP Enabled"));
@@ -1161,7 +1057,7 @@ mod tests {
         // Check for modern style box-drawing characters
         assert!(table.contains("┌") || table.contains("│"));
 
-        println!("\n{}", table);
+        println!("\n{table}");
     }
 
     #[test]
@@ -1177,7 +1073,7 @@ mod tests {
         // Repo should be populated for container models
         assert!(!table.contains("Repo") || !table.contains("none") || table.contains("ghcr.io"));
 
-        println!("\n{}", table);
+        println!("\n{table}");
     }
 
     #[test]
@@ -1189,7 +1085,7 @@ mod tests {
         // Optional fields should show "none" when not set
         assert!(table.contains("none")); // repo, cdrom, ztp_username are None by default
 
-        println!("\n{}", table);
+        println!("\n{table}");
     }
 
     #[test]

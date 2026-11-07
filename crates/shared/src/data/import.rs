@@ -9,7 +9,7 @@ use super::node::{NodeConfig, NodeKind, NodeModel};
 pub struct ListImagesRequest {
     /// Optional model filter
     pub model: Option<NodeModel>,
-    /// Optional kind filter (VirtualMachine, Container, Unikernel)
+    /// Optional kind filter: `virtual_machine`, `container` or `unikernel`
     pub kind: Option<NodeKind>,
 }
 
@@ -72,7 +72,7 @@ pub struct ImportResponse {
     pub success: bool,
     /// The node model that was imported
     pub model: NodeModel,
-    /// The node kind (VirtualMachine, Container, Unikernel)
+    /// The node kind: `virtual_machine`, `container` or `unikernel`
     pub kind: NodeKind,
     /// The version that was imported
     pub version: String,
@@ -85,7 +85,7 @@ pub struct ImportResponse {
 /// Request type for scanning on-disk images
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ScanImagesRequest {
-    /// Optional kind filter (currently only VirtualMachine is supported)
+    /// Optional kind filter; only `virtual_machine` is supported
     pub kind: Option<NodeKind>,
     /// If true, only report what would be imported without making changes
     #[serde(default)]
@@ -130,7 +130,7 @@ pub struct DeleteImageResponse {
     pub success: bool,
     /// The node model that was deleted
     pub model: NodeModel,
-    /// The node kind (VirtualMachine, Container, Unikernel)
+    /// The node kind: `virtual_machine`, `container` or `unikernel`
     pub kind: NodeKind,
     /// The version that was deleted
     pub version: String,
@@ -156,7 +156,7 @@ pub struct SetDefaultImageResponse {
     pub success: bool,
     /// The node model that was updated
     pub model: NodeModel,
-    /// The node kind (VirtualMachine, Container, Unikernel)
+    /// The node kind: `virtual_machine`, `container` or `unikernel`
     pub kind: NodeKind,
     /// The version that is now the default
     pub version: String,

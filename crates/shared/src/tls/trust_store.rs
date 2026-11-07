@@ -1,15 +1,18 @@
 //! Certificate trust store management for self-signed server certificates.
 //!
 //! This module implements a Trust-On-First-Use (TOFU) system for managing
-//! server certificates. Certificates are stored in ~/.sherpa/trusted_certs/
+//! server certificates. Certificates are stored in ~/.`sherpa/trusted_certs`/
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use rustls::pki_types::CertificateDer;
 use rustls_pemfile::certs;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::BufReader;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use url::Url;
 
 /// Manages trusted server certificates
 pub struct TrustStore {
@@ -30,14 +33,22 @@ pub struct CertificateInfo {
 }
 
 impl TrustStore {
-    /// Create a new trust store instance
+    /// Open the user's trust store, `~/.sherpa/trusted_certs/`, creating it if needed.
     ///
-    /// Initializes the trust store directory at ~/.sherpa/trusted_certs/
-    /// Creates the directory if it doesn't exist.
+    /// # Errors
+    ///
+    /// Fails when the home directory is unknown or the store cannot be created.
     pub fn new() -> Result<Self> {
         let home = dirs::home_dir().context("Failed to determine home directory")?;
-        let store_dir = home.join(".sherpa").join("trusted_certs");
+        Self::at(home.join(".sherpa").join("trusted_certs"))
+    }
 
+    /// Open the trust store in `store_dir`, creating it owner-only if it does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the folder cannot be created or its mode set.
+    pub fn at(store_dir: PathBuf) -> Result<Self> {
         // Create directory if it doesn't exist
         if !store_dir.exists() {
             fs::create_dir_all(&store_dir).with_context(|| {
@@ -49,12 +60,8 @@ impl TrustStore {
 
             // Set restrictive permissions (owner only)
             #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let perms = fs::Permissions::from_mode(0o700);
-                fs::set_permissions(&store_dir, perms)
-                    .context("Failed to set trust store directory permissions")?;
-            }
+            fs::set_permissions(&store_dir, fs::Permissions::from_mode(0o700))
+                .context("Failed to set trust store directory permissions")?;
 
             tracing::info!("Created trust store directory: {}", store_dir.display());
         }
@@ -65,6 +72,10 @@ impl TrustStore {
     /// Get the certificate for a server URL if it exists in the trust store
     ///
     /// Returns None if no certificate is found for this server.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the saved certificate cannot be read or does not parse.
     pub fn get_cert(&self, server_url: &str) -> Result<Option<String>> {
         let cert_path = self.cert_path(server_url);
 
@@ -75,13 +86,12 @@ impl TrustStore {
         let cert_pem = fs::read_to_string(&cert_path)
             .with_context(|| format!("Failed to read certificate from: {}", cert_path.display()))?;
 
-        // Validate it's a valid PEM format
-        if !cert_pem.contains("-----BEGIN CERTIFICATE-----") {
-            anyhow::bail!(
-                "Invalid certificate format in trust store: {}",
+        parse_certificate_pem(&cert_pem).with_context(|| {
+            format!(
+                "Invalid certificate in trust store: {}",
                 cert_path.display()
-            );
-        }
+            )
+        })?;
 
         tracing::debug!("Found trusted certificate for: {}", server_url);
         Ok(Some(cert_pem))
@@ -90,11 +100,12 @@ impl TrustStore {
     /// Save a certificate to the trust store
     ///
     /// The certificate will be stored with restrictive permissions (owner only).
+    ///
+    /// # Errors
+    ///
+    /// Fails when `cert_pem` is not a certificate, or it cannot be written.
     pub fn save_cert(&self, server_url: &str, cert_pem: &str) -> Result<()> {
-        // Validate PEM format
-        if !cert_pem.contains("-----BEGIN CERTIFICATE-----") {
-            anyhow::bail!("Invalid certificate format: not a valid PEM certificate");
-        }
+        parse_certificate_pem(cert_pem).context("Invalid certificate")?;
 
         let cert_path = self.cert_path(server_url);
 
@@ -104,12 +115,8 @@ impl TrustStore {
 
         // Set restrictive permissions
         #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = fs::Permissions::from_mode(0o600);
-            fs::set_permissions(&cert_path, perms)
-                .context("Failed to set certificate file permissions")?;
-        }
+        fs::set_permissions(&cert_path, fs::Permissions::from_mode(0o600))
+            .context("Failed to set certificate file permissions")?;
 
         tracing::info!("Saved trusted certificate for: {}", server_url);
         tracing::debug!("Certificate path: {}", cert_path.display());
@@ -120,6 +127,10 @@ impl TrustStore {
     /// Remove a certificate from the trust store
     ///
     /// Returns true if a certificate was removed, false if it didn't exist.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the certificate file exists but cannot be removed.
     pub fn remove_cert(&self, server_url: &str) -> Result<bool> {
         let cert_path = self.cert_path(server_url);
 
@@ -137,18 +148,23 @@ impl TrustStore {
     /// Get the file path for a server's certificate
     fn cert_path(&self, server_url: &str) -> PathBuf {
         let filename = url_to_filename(server_url);
-        self.store_dir.join(format!("{}.pem", filename))
+        self.store_dir.join(format!("{filename}.pem"))
     }
 
     /// Get the directory path for the trust store
+    #[must_use]
     pub fn store_dir(&self) -> &Path {
         &self.store_dir
     }
 
     /// List all trusted certificates
     ///
-    /// Returns a vector of (server_url, cert_pem) tuples for all trusted certificates.
-    /// The server_url is reconstructed from the filename.
+    /// Returns a vector of (`server_url`, `cert_pem`) tuples for all trusted certificates.
+    /// The `server_url` is reconstructed from the filename.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the store or one of its files cannot be read; a file that does not parse is skipped.
     pub fn list_all(&self) -> Result<Vec<(String, String)>> {
         let mut certs = Vec::new();
 
@@ -173,9 +189,8 @@ impl TrustStore {
             let cert_pem = fs::read_to_string(&path)
                 .with_context(|| format!("Failed to read certificate from: {}", path.display()))?;
 
-            // Validate it's a valid PEM format
-            if !cert_pem.contains("-----BEGIN CERTIFICATE-----") {
-                tracing::warn!("Skipping invalid certificate: {}", path.display());
+            if let Err(error) = parse_certificate_pem(&cert_pem) {
+                tracing::warn!(path = %path.display(), error = format!("{error:#}"), "Skipping invalid certificate");
                 continue;
             }
 
@@ -194,24 +209,16 @@ impl TrustStore {
 /// Convert a server URL to a safe filename
 ///
 /// Extracts host and port from URL and creates a readable filename.
-/// Example: wss://10.100.58.10:3030/ws -> 10.100.58.10_3030.pem
+/// Example: <wss://10.100.58.10:3030/ws> -> `10.100.58.10_3030.pem`
 fn url_to_filename(server_url: &str) -> String {
-    use url::Url;
-
     // Parse URL to extract host and port
     if let Ok(url) = Url::parse(server_url) {
         let host = url.host_str().unwrap_or("unknown");
-        let port = url.port().or_else(|| match url.scheme() {
-            "ws" => Some(80),
-            "wss" => Some(443),
-            _ => None,
-        });
-
-        if let Some(port) = port {
+        if let Some(port) = url.port_or_known_default() {
             // Replace : with _ for Windows compatibility
             // Replace other unsafe chars with _
             let safe_host = host.replace([':', '/'], "_");
-            return format!("{}_{}", safe_host, port);
+            return format!("{safe_host}_{port}");
         }
     }
 
@@ -224,37 +231,45 @@ fn url_to_filename(server_url: &str) -> String {
 
 /// Convert a filename back to a server URL
 ///
-/// Example: 10.100.58.10_3030 -> wss://10.100.58.10:3030/ws
+/// Example: `10.100.58.10_3030` -> <wss://10.100.58.10:3030/ws>
 fn filename_to_url(filename: &str) -> String {
     // Try to parse as host_port format
     if let Some((host, port_str)) = filename.rsplit_once('_')
         && port_str.parse::<u16>().is_ok()
     {
         // Reconstruct as wss:// URL (assume secure by default for display)
-        return format!("wss://{}:{}/ws", host, port_str);
+        return format!("wss://{host}:{port_str}/ws");
     }
 
     // Fallback: return filename as-is if can't parse
-    format!("unknown://{}", filename)
+    format!("unknown://{filename}")
+}
+
+/// The first certificate in a PEM string, checked to be an X.509 certificate.
+///
+/// # Errors
+///
+/// Fails when the text holds no PEM certificate, or the first one is not valid X.509.
+pub fn parse_certificate_pem(cert_pem: &str) -> Result<CertificateDer<'static>> {
+    let mut reader = BufReader::new(cert_pem.as_bytes());
+    let cert_der = certs(&mut reader)
+        .next()
+        .context("No certificates found in PEM data")?
+        .context("Failed to parse certificate PEM")?;
+    x509_parser::parse_x509_certificate(cert_der.as_ref())
+        .map_err(|error| anyhow!("Failed to parse X.509 certificate: {error}"))?;
+    Ok(cert_der)
 }
 
 /// Extract information from a certificate PEM string
+///
+/// # Errors
+///
+/// Fails when `cert_pem` holds no valid certificate.
 pub fn extract_cert_info(server_url: &str, cert_pem: &str) -> Result<CertificateInfo> {
-    // Parse PEM to DER
-    let mut reader = BufReader::new(cert_pem.as_bytes());
-    let cert_ders: Vec<CertificateDer> = certs(&mut reader)
-        .collect::<Result<Vec<_>, _>>()
-        .context("Failed to parse certificate PEM")?;
-
-    if cert_ders.is_empty() {
-        anyhow::bail!("No certificates found in PEM data");
-    }
-
-    let cert_der = &cert_ders[0];
-
-    // Parse the certificate using x509-parser
+    let cert_der = &parse_certificate_pem(cert_pem)?;
     let (_, cert) = x509_parser::parse_x509_certificate(cert_der.as_ref())
-        .map_err(|e| anyhow::anyhow!("Failed to parse X.509 certificate: {}", e))?;
+        .map_err(|error| anyhow!("Failed to parse X.509 certificate: {error}"))?;
 
     // Extract subject CN
     let subject = cert
@@ -295,13 +310,17 @@ pub fn extract_cert_info(server_url: &str, cert_pem: &str) -> Result<Certificate
 }
 
 /// Compute SHA-256 fingerprint of a certificate in colon-separated hex format
+///
+/// # Errors
+///
+/// Never fails today; the `Result` is kept for callers.
 pub fn compute_fingerprint(cert_der: &CertificateDer) -> Result<String> {
     let mut hasher = Sha256::new();
     hasher.update(cert_der.as_ref());
     let hash = hasher.finalize();
 
     // Convert to colon-separated hex format: A1:B2:C3:...
-    let hex_bytes: Vec<String> = hash.iter().map(|b| format!("{:02X}", b)).collect();
+    let hex_bytes: Vec<String> = hash.iter().map(|b| format!("{b:02X}")).collect();
     Ok(hex_bytes.join(":"))
 }
 
@@ -320,14 +339,15 @@ mod tests {
         assert!(info.self_signed);
     }
 
-    const TEST_CERT_PEM: &str = r#"-----BEGIN CERTIFICATE-----
+    /// The start of a certificate, cut short: it has the PEM markers but does not parse.
+    const TRUNCATED_CERT_PEM: &str = r"-----BEGIN CERTIFICATE-----
 MIIDazCCAlOgAwIBAgIUFYnDFi0kqgXhGd6WgTHZvqaJOsswDQYJKoZIhvcNAQEL
 BQAwRTELMAkGA1UEBhMCQVUxEzARBgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoM
 GEludGVybmV0IFdpZGdpdHMgUHR5IEx0ZDAeFw0yNDAyMTYwMDAwMDBaFw0yNTAy
 MTUyMzU5NTlaMEUxCzAJBgNVBAYTAkFVMRMwEQYDVQQIDApTb21lLVN0YXRlMSEw
 HwYDVQQKDBhJbnRlcm5ldCBXaWRnaXRzIFB0eSBMdGQwggEiMA0GCSqGSIb3DQEB
 AQUAA4IBDwAwggEKAoIBAQDHg6LlvEJKCxvdv3aNi+wN8nL6yGJ9khK1rjqU8NeX
------END CERTIFICATE-----"#;
+-----END CERTIFICATE-----";
 
     #[test]
     fn test_url_to_filename() {
@@ -352,87 +372,73 @@ AQUAA4IBDwAwggEKAoIBAQDHg6LlvEJKCxvdv3aNi+wN8nL6yGJ9khK1rjqU8NeX
 
     #[test]
     fn test_trust_store_new() {
-        let temp_home = TempDir::new().unwrap();
-        unsafe {
-            std::env::set_var("HOME", temp_home.path());
-        }
+        let dir = TempDir::new().unwrap();
+        let trust_store = TrustStore::at(dir.path().join("trusted_certs")).unwrap();
 
-        let trust_store = TrustStore::new().unwrap();
-
-        // Check directory was created
         assert!(trust_store.store_dir().exists());
-
-        // Check permissions on Unix
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            let metadata = fs::metadata(trust_store.store_dir()).unwrap();
-            let mode = metadata.permissions().mode();
+            let mode = fs::metadata(trust_store.store_dir())
+                .unwrap()
+                .permissions()
+                .mode();
             assert_eq!(mode & 0o777, 0o700);
         }
     }
 
     #[test]
     fn test_save_and_get_cert() {
-        let temp_home = TempDir::new().unwrap();
-        unsafe {
-            std::env::set_var("HOME", temp_home.path());
-        }
-
-        let trust_store = TrustStore::new().unwrap();
+        let dir = TempDir::new().unwrap();
+        let trust_store = TrustStore::at(dir.path().to_path_buf()).unwrap();
         let server_url = "wss://test.example.com:3030/ws";
 
-        // Initially should return None
-        let result = trust_store.get_cert(server_url).unwrap();
-        assert!(result.is_none());
-
-        // Save certificate
-        trust_store.save_cert(server_url, TEST_CERT_PEM).unwrap();
-
-        // Now should return the certificate
-        let result = trust_store.get_cert(server_url).unwrap();
-        assert!(result.is_some());
-        assert_eq!(result.unwrap(), TEST_CERT_PEM);
+        assert!(trust_store.get_cert(server_url).unwrap().is_none());
+        trust_store.save_cert(server_url, SELF_SIGNED).unwrap();
+        assert_eq!(
+            trust_store.get_cert(server_url).unwrap().as_deref(),
+            Some(SELF_SIGNED)
+        );
+        assert_eq!(
+            trust_store.list_all().unwrap(),
+            [(server_url.to_string(), SELF_SIGNED.to_string())]
+        );
     }
 
     #[test]
     fn test_remove_cert() {
-        let temp_home = TempDir::new().unwrap();
-        unsafe {
-            std::env::set_var("HOME", temp_home.path());
-        }
-
-        let trust_store = TrustStore::new().unwrap();
+        let dir = TempDir::new().unwrap();
+        let trust_store = TrustStore::at(dir.path().to_path_buf()).unwrap();
         let server_url = "wss://test.example.com:3030/ws";
 
-        // Save certificate
-        trust_store.save_cert(server_url, TEST_CERT_PEM).unwrap();
-
-        // Remove it
-        let removed = trust_store.remove_cert(server_url).unwrap();
-        assert!(removed);
-
-        // Should no longer exist
-        let result = trust_store.get_cert(server_url).unwrap();
-        assert!(result.is_none());
-
-        // Removing again should return false
-        let removed = trust_store.remove_cert(server_url).unwrap();
-        assert!(!removed);
+        trust_store.save_cert(server_url, SELF_SIGNED).unwrap();
+        assert!(trust_store.remove_cert(server_url).unwrap());
+        assert!(trust_store.get_cert(server_url).unwrap().is_none());
+        assert!(!trust_store.remove_cert(server_url).unwrap());
     }
 
     #[test]
-    fn test_invalid_pem_format() {
-        let temp_home = TempDir::new().unwrap();
-        unsafe {
-            std::env::set_var("HOME", temp_home.path());
-        }
-
-        let trust_store = TrustStore::new().unwrap();
+    fn a_certificate_that_does_not_parse_is_refused() {
+        let dir = TempDir::new().unwrap();
+        let trust_store = TrustStore::at(dir.path().to_path_buf()).unwrap();
         let server_url = "wss://test.example.com:3030/ws";
 
-        // Try to save invalid PEM
-        let result = trust_store.save_cert(server_url, "not a valid pem");
-        assert!(result.is_err());
+        assert!(
+            trust_store
+                .save_cert(server_url, "not a valid pem")
+                .is_err()
+        );
+        assert!(
+            trust_store
+                .save_cert(server_url, TRUNCATED_CERT_PEM)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_url_without_a_port_is_stored_under_its_scheme_default() {
+        assert_eq!(
+            url_to_filename("wss://sherpa.example/ws"),
+            "sherpa.example_443"
+        );
     }
 }

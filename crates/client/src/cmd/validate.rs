@@ -7,9 +7,8 @@ use shared::validators::effective_data_interface_count;
 use topology::validate::{
     check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
-    check_mgmt_usage, check_no_p2p_field, check_performance_tuning, check_ptx_platform,
-    check_text_file_modes, check_watchdog, validate_provisioners, validate_tailscale,
-    validate_talos_clusters,
+    check_no_p2p_field, check_performance_tuning, check_ptx_platform, check_text_file_modes,
+    check_watchdog, validate_provisioners, validate_tailscale, validate_talos_clusters,
 };
 use topology::{Manifest, process_manifest_bridges, process_manifest_links};
 
@@ -66,11 +65,6 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     for node in &nodes_expanded {
         let node_image = get_node_image(node.model, &node_images)?;
 
-        // Management interface check
-        if !node_image.dedicated_management_interface {
-            check_mgmt_usage(&node.name, 0, &links_detailed, &bridges_detailed)?;
-        }
-
         let data_interface_count =
             effective_data_interface_count(&node.name, node.data_interface_count, &node_image)?;
 
@@ -80,7 +74,6 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
             &node_image.model,
             data_interface_count,
             node_image.reserved_interface_count,
-            node_image.dedicated_management_interface,
             &links_detailed,
             &bridges_detailed,
         )?;

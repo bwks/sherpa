@@ -144,17 +144,17 @@
         <div class="grid grid-cols-2 gap-4">
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">ZTP Enabled:</span>
-                <span class="text-sm text-body font-medium">{% if config.ztp_enable %}Yes{% else %}No{% endif %}</span>
+                <span class="text-sm text-body font-medium">{% if config.ztp.enable %}Yes{% else %}No{% endif %}</span>
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">ZTP Method:</span>
-                <span class="text-sm text-body font-medium">{{ config.ztp_method }}</span>
+                <span class="text-sm text-body font-medium">{{ config.ztp.method }}</span>
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Password Auth:</span>
-                <span class="text-sm text-body font-medium">{% if config.ztp_password_auth %}Enabled{% else %}Disabled{% endif %}</span>
+                <span class="text-sm text-body font-medium">{% if config.ztp.password_auth %}Enabled{% else %}Disabled{% endif %}</span>
             </div>
-            {% match config.ztp_username %}
+            {% match config.ztp.username %}
             {% when Some with (username_value) %}
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">ZTP Username:</span>
@@ -162,7 +162,7 @@
             </div>
             {% when None %}
             {% endmatch %}
-            {% match config.ztp_password %}
+            {% match config.ztp.password %}
             {% when Some with (password_value) %}
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">ZTP Password:</span>
@@ -196,10 +196,6 @@
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">First Interface Index:</span>
                 <span class="text-sm text-body font-medium">{{ config.first_interface_index }}</span>
-            </div>
-            <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-muted uppercase tracking-wide">Dedicated Management:</span>
-                <span class="text-sm text-body font-medium">{% if config.dedicated_management_interface %}Yes{% else %}No{% endif %}</span>
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Management Interface:</span>
