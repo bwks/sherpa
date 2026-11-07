@@ -127,4 +127,7 @@ issuer (expired, wrong name, a CA certificate used as the server's) is an error,
 
 ## CORS
 
-CORS is enabled for all origins with credentials support. Configure specific origins for production.
+The server sends no CORS headers, so browsers refuse cross-origin calls. The web UI calls only
+its own origin and the CLI is not a browser, so neither needs a grant. A layer that mirrors the
+request origin with credentials would let any web page call the API with a signed-in user's
+session cookie, which the REST routes also accept.

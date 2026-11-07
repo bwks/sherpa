@@ -151,6 +151,7 @@ impl From<&ServiceError> for ApiError {
             ServiceError::Denied(_) => ApiError::forbidden(err.to_string()),
             ServiceError::NotFound(message) => ApiError::not_found("Resource", message.clone()),
             ServiceError::Conflict(message) => ApiError::conflict(message.clone()),
+            ServiceError::Invalid(message) => ApiError::bad_request(message.clone()),
         }
     }
 }

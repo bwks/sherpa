@@ -15,12 +15,16 @@ pub enum ServiceError {
     /// The caller is allowed, but the current state forbids the operation, for example
     /// deleting a user who still owns labs.
     Conflict(String),
+    /// The request itself is malformed, for example a lab ID that is not a lab ID.
+    Invalid(String),
 }
 
 impl fmt::Display for ServiceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotFound(message) | Self::Conflict(message) => write!(f, "{message}"),
+            Self::NotFound(message) | Self::Conflict(message) | Self::Invalid(message) => {
+                write!(f, "{message}")
+            }
             Self::Denied(message) => write!(f, "Access denied: {message}"),
         }
     }

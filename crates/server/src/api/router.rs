@@ -3,7 +3,6 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Router, extract::Path};
 use rust_embed::Embed;
-use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use crate::daemon::state::AppState;
@@ -71,27 +70,6 @@ async fn embedded_asset_handler(Path(path): Path<String>) -> Response {
 
 /// Build the Axum router with all API routes
 pub fn build_router() -> Router<AppState> {
-    use axum::http::Method;
-
-    // Configure CORS
-    // Note: When allow_credentials is true, we cannot use Any - we mirror the request origin instead
-    // For production, replace mirror_request() with explicit allowed origins
-    let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::mirror_request()) // Mirror requesting origin (permissive)
-        .allow_methods(vec![
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::DELETE,
-            Method::OPTIONS,
-        ])
-        .allow_headers(vec![
-            axum::http::header::AUTHORIZATION,
-            axum::http::header::CONTENT_TYPE,
-            axum::http::header::ACCEPT,
-        ])
-        .allow_credentials(true); // Allow credentials (cookies, auth headers)
-
     Router::new()
         // Public HTML routes (authentication pages)
         .route("/login", get(login_page_handler))
@@ -249,7 +227,6 @@ pub fn build_router() -> Router<AppState> {
             post(add_ssh_key_json).delete(remove_ssh_key_json),
         )
         // Apply middleware layers (outermost = first to process request)
-        .layer(cors)
         .layer(TraceLayer::new_for_http())
         // Serve embedded static files
         .route("/{*path}", get(embedded_asset_handler))

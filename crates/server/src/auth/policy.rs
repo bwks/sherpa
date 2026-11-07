@@ -13,6 +13,7 @@ use anyhow::{Context, Result, anyhow};
 use db::Database;
 use shared::data::DbLab;
 use shared::konst::{ADMIN_LAB_START_MESSAGE, ADMIN_USERNAME};
+use topology::Node;
 use tracing::instrument;
 
 use crate::auth::context::AuthContext;
@@ -95,6 +96,43 @@ pub fn require_self_or_admin(ctx: &AuthContext, username: &str) -> Result<(), Se
     )))
 }
 
+/// Refuse manifest nodes that reach into the host unless the caller is an admin.
+///
+/// A `privileged` container, or one that bind-mounts a host path through `volumes`, is root on
+/// the host: it can read the database, other labs and the server's keys. Only admins may ask
+/// for either.
+pub fn require_host_access(ctx: &AuthContext, nodes: &[Node]) -> Result<(), ServiceError> {
+    if ctx.is_admin {
+        return Ok(());
+    }
+    let mut requests = Vec::new();
+    for node in nodes {
+        if node.privileged == Some(true) {
+            requests.push(format!("'{}' asks for privileged", node.name));
+        }
+        if node
+            .volumes
+            .as_ref()
+            .is_some_and(|volumes| !volumes.is_empty())
+        {
+            requests.push(format!("'{}' asks for host volumes", node.name));
+        }
+    }
+    if requests.is_empty() {
+        return Ok(());
+    }
+    tracing::warn!(
+        event = "auth.access_denied",
+        username = %ctx.username,
+        requests = %requests.join(", "),
+        "Non-admin asked for host access in a manifest"
+    );
+    Err(ServiceError::Denied(format!(
+        "only admins may give nodes host access: {}",
+        requests.join(", ")
+    )))
+}
+
 /// Require that the caller owns the lab or is an admin. Returns the lab.
 #[instrument(level = "debug", skip(ctx, db), fields(username = %ctx.username, %lab_id))]
 pub async fn require_lab_access(ctx: &AuthContext, db: &Database, lab_id: &str) -> Result<DbLab> {
@@ -149,9 +187,53 @@ async fn authorize_lab(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use topology::VolumeMount;
 
     fn ctx(username: &str, is_admin: bool) -> AuthContext {
         AuthContext::new(username.to_owned(), is_admin)
+    }
+
+    fn container(name: &str, privileged: Option<bool>, volumes: Option<Vec<VolumeMount>>) -> Node {
+        Node {
+            name: name.to_owned(),
+            privileged,
+            volumes,
+            ..Default::default()
+        }
+    }
+
+    fn host_root() -> Vec<VolumeMount> {
+        vec![VolumeMount {
+            src: "/".to_owned(),
+            dst: "/host".to_owned(),
+        }]
+    }
+
+    #[test]
+    fn only_admins_may_give_nodes_host_access() {
+        let nodes = [
+            container("plain", Some(false), Some(vec![])),
+            container("priv", Some(true), None),
+            container("mount", None, Some(host_root())),
+        ];
+        assert!(require_host_access(&ctx("dana", true), &nodes).is_ok());
+        assert_eq!(
+            require_host_access(&ctx("alice", false), &nodes),
+            Err(ServiceError::Denied(
+                "only admins may give nodes host access: 'priv' asks for privileged, \
+                 'mount' asks for host volumes"
+                    .to_owned()
+            ))
+        );
+    }
+
+    #[test]
+    fn nodes_without_host_access_need_no_admin() {
+        let nodes = [
+            container("plain", Some(false), Some(vec![])),
+            container("bare", None, None),
+        ];
+        assert!(require_host_access(&ctx("alice", false), &nodes).is_ok());
     }
 
     #[test]

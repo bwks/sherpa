@@ -7,8 +7,9 @@ use shared::validators::effective_data_interface_count;
 use topology::validate::{
     check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
-    check_no_p2p_field, check_performance_tuning, check_ptx_platform, check_text_file_modes,
-    check_watchdog, validate_provisioners, validate_tailscale, validate_talos_clusters,
+    check_no_p2p_field, check_node_names, check_performance_tuning, check_ptx_platform,
+    check_text_file_modes, check_watchdog, validate_provisioners, validate_tailscale,
+    validate_talos_clusters,
 };
 use topology::{Manifest, process_manifest_bridges, process_manifest_links};
 
@@ -30,6 +31,7 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
 
     // Device Validators
     println!("→ Checking for duplicate device names...");
+    check_node_names(&manifest.nodes)?;
     check_duplicate_device(&manifest.nodes)?;
     println!("  ✓ No duplicate devices");
 

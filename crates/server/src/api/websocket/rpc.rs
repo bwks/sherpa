@@ -9,27 +9,25 @@ use tokio::sync::mpsc;
 use crate::api::websocket::connection::Connection;
 use crate::api::websocket::messages::{RpcError, ServerMessage};
 use crate::auth::context::AuthContext;
-use crate::auth::middleware;
+use crate::auth::{login, middleware};
 use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
 use crate::services::{
     backup, cancel, clean, container_pull, delete, destroy, down, download, host_keys, impairment,
     import, inspect, list_labs, node_secrets, progress, redeploy, resume, up, user_delete,
-    user_ssh_keys,
+    user_password, user_ssh_keys,
 };
-use shared::auth::password;
 use shared::data;
 use shared::error::RpcErrorCode;
 use shared::konst::{
-    JWT_TOKEN_EXPIRY_SECONDS, RPC_MSG_ACCESS_DENIED_OWN_INFO, RPC_MSG_ACCESS_DENIED_OWN_PASSWORD,
-    RPC_MSG_ADMIN_ONLY_BACKUP, RPC_MSG_ADMIN_ONLY_CLEAN, RPC_MSG_ADMIN_ONLY_CONTAINER_PULL,
-    RPC_MSG_ADMIN_ONLY_IMAGE_DELETE, RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD,
-    RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT, RPC_MSG_ADMIN_ONLY_IMAGE_SCAN,
-    RPC_MSG_ADMIN_ONLY_IMAGE_SET_DEFAULT, RPC_MSG_AUTH_ERROR, RPC_MSG_AUTH_INVALID,
-    RPC_MSG_AUTH_REQUIRED, RPC_MSG_BACKUP_FAILED, RPC_MSG_CONTAINER_PULL_FAILED,
-    RPC_MSG_IMAGE_DELETE_FAILED, RPC_MSG_IMAGE_DOWNLOAD_FAILED, RPC_MSG_IMAGE_IMPORT_FAILED,
-    RPC_MSG_IMAGE_LIST_FAILED, RPC_MSG_IMAGE_SCAN_FAILED, RPC_MSG_IMAGE_SET_DEFAULT_FAILED,
-    RPC_MSG_IMAGE_SHOW_FAILED, RPC_MSG_IMPAIRMENT_UPDATE_FAILED,
+    JWT_TOKEN_EXPIRY_SECONDS, RPC_MSG_ACCESS_DENIED_OWN_INFO, RPC_MSG_ADMIN_ONLY_BACKUP,
+    RPC_MSG_ADMIN_ONLY_CLEAN, RPC_MSG_ADMIN_ONLY_CONTAINER_PULL, RPC_MSG_ADMIN_ONLY_IMAGE_DELETE,
+    RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD, RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT,
+    RPC_MSG_ADMIN_ONLY_IMAGE_SCAN, RPC_MSG_ADMIN_ONLY_IMAGE_SET_DEFAULT, RPC_MSG_AUTH_ERROR,
+    RPC_MSG_AUTH_INVALID, RPC_MSG_AUTH_REQUIRED, RPC_MSG_BACKUP_FAILED,
+    RPC_MSG_CONTAINER_PULL_FAILED, RPC_MSG_IMAGE_DELETE_FAILED, RPC_MSG_IMAGE_DOWNLOAD_FAILED,
+    RPC_MSG_IMAGE_IMPORT_FAILED, RPC_MSG_IMAGE_LIST_FAILED, RPC_MSG_IMAGE_SCAN_FAILED,
+    RPC_MSG_IMAGE_SET_DEFAULT_FAILED, RPC_MSG_IMAGE_SHOW_FAILED, RPC_MSG_IMPAIRMENT_UPDATE_FAILED,
     RPC_MSG_INVALID_PARAMS_ADD_SSH_KEY, RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD,
     RPC_MSG_INVALID_PARAMS_CONTAINER_PULL, RPC_MSG_INVALID_PARAMS_CREATE_USER,
     RPC_MSG_INVALID_PARAMS_DELETE_USER, RPC_MSG_INVALID_PARAMS_GET_USER_INFO,
@@ -43,11 +41,11 @@ use shared::konst::{
     RPC_MSG_INVALID_TAILSCALE_KEY, RPC_MSG_LAB_CANCEL_FAILED, RPC_MSG_LAB_CLEAN_FAILED,
     RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED, RPC_MSG_LAB_INSPECT_FAILED,
     RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED, RPC_MSG_NODE_HOST_KEYS_FAILED,
-    RPC_MSG_NODE_SECRETS_FAILED, RPC_MSG_PASSWORD_VALIDATION_FAILED, RPC_MSG_REDEPLOY_FAILED,
-    RPC_MSG_SERIALIZE_FAILED, RPC_MSG_SSH_KEY_ADD_FAILED, RPC_MSG_SSH_KEY_REMOVE_FAILED,
-    RPC_MSG_TOKEN_CREATE_FAILED, RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE,
-    RPC_MSG_USER_ADMIN_ONLY_LIST, RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
-    RPC_MSG_USER_LIST_FAILED, RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
+    RPC_MSG_NODE_SECRETS_FAILED, RPC_MSG_REDEPLOY_FAILED, RPC_MSG_SERIALIZE_FAILED,
+    RPC_MSG_SSH_KEY_ADD_FAILED, RPC_MSG_SSH_KEY_REMOVE_FAILED, RPC_MSG_TOKEN_CREATE_FAILED,
+    RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE, RPC_MSG_USER_ADMIN_ONLY_LIST,
+    RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED, RPC_MSG_USER_LIST_FAILED,
+    RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
 };
 use shared::util::normalize_username;
 
@@ -115,6 +113,11 @@ fn service_error(error: &anyhow::Error, failure_message: &str) -> RpcError {
         // JSON-RPC has no conflict code; the message tells the caller what to change.
         Some(ServiceError::Conflict(message)) => RpcError {
             code: RpcErrorCode::ServerError,
+            message: message.clone(),
+            context: None,
+        },
+        Some(ServiceError::Invalid(message)) => RpcError {
+            code: RpcErrorCode::InvalidParams,
             message: message.clone(),
             context: None,
         },
@@ -2282,104 +2285,87 @@ async fn handle_auth_login(
         }
     };
 
-    // Get user from database (for authentication)
-    let user = match db::get_user(&state.db, &login_request.username).await {
-        Ok(user) => user,
-        Err(_) => {
-            // Don't reveal whether user exists or not
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::AuthInvalid,
-                    message: RPC_MSG_AUTH_INVALID.to_string(),
-                    context: None,
-                }),
-            };
-        }
-    };
-
-    // Verify password
-    match password::verify_password(&login_request.password, &user.password_hash) {
-        Ok(true) => {
-            // Password is correct, create JWT token
-
-            match crate::auth::jwt::create_token(
-                &state.jwt_secret,
-                &user.username,
-                user.is_admin,
-                JWT_TOKEN_EXPIRY_SECONDS,
-            ) {
-                Ok(token) => {
-                    let expires_at = jiff::Timestamp::now().as_second() + JWT_TOKEN_EXPIRY_SECONDS;
-
-                    let response = data::LoginResponse {
-                        token,
-                        username: user.username.clone(),
-                        is_admin: user.is_admin,
-                        expires_at,
-                    };
-
-                    tracing::info!(
-                        username = %user.username,
-                        is_admin = user.is_admin,
-                        "User logged in successfully"
-                    );
-
-                    match serde_json::to_value(&response) {
-                        Ok(result) => ServerMessage::RpcResponse {
-                            id,
-                            result: Some(result),
-                            error: None,
-                        },
-                        Err(e) => ServerMessage::RpcResponse {
-                            id,
-                            result: None,
-                            error: Some(RpcError {
-                                code: RpcErrorCode::InternalError,
-                                message: RPC_MSG_SERIALIZE_FAILED.to_string(),
-                                context: Some(format!("{:?}", e)),
-                            }),
-                        },
-                    }
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, "Failed to create JWT token");
-                    ServerMessage::RpcResponse {
-                        id,
-                        result: None,
-                        error: Some(RpcError {
-                            code: RpcErrorCode::InternalError,
-                            message: RPC_MSG_TOKEN_CREATE_FAILED.to_string(),
-                            context: Some(format!("{:?}", e)),
-                        }),
-                    }
-                }
+    let user =
+        match login::check_credentials(&state.db, &login_request.username, &login_request.password)
+            .await
+        {
+            Ok(Some(user)) => user,
+            Ok(None) => {
+                tracing::warn!(
+                    username = %login_request.username,
+                    "Login failed: unknown user or wrong password"
+                );
+                return ServerMessage::RpcResponse {
+                    id,
+                    result: None,
+                    error: Some(RpcError {
+                        code: RpcErrorCode::AuthInvalid,
+                        message: RPC_MSG_AUTH_INVALID.to_string(),
+                        context: None,
+                    }),
+                };
             }
-        }
-        Ok(false) => {
-            tracing::warn!(
-                username = %login_request.username,
-                "Login failed: invalid password"
+            Err(e) => {
+                tracing::error!(error = ?e, "Login check failed");
+                return ServerMessage::RpcResponse {
+                    id,
+                    result: None,
+                    error: Some(RpcError {
+                        code: RpcErrorCode::InternalError,
+                        message: RPC_MSG_AUTH_ERROR.to_string(),
+                        context: None,
+                    }),
+                };
+            }
+        };
+
+    match crate::auth::jwt::create_token(
+        &state.jwt_secret,
+        &user.username,
+        user.is_admin,
+        JWT_TOKEN_EXPIRY_SECONDS,
+    ) {
+        Ok(token) => {
+            let expires_at = jiff::Timestamp::now().as_second() + JWT_TOKEN_EXPIRY_SECONDS;
+
+            let response = data::LoginResponse {
+                token,
+                username: user.username.clone(),
+                is_admin: user.is_admin,
+                expires_at,
+            };
+
+            tracing::info!(
+                username = %user.username,
+                is_admin = user.is_admin,
+                "User logged in successfully"
             );
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::AuthInvalid,
-                    message: RPC_MSG_AUTH_INVALID.to_string(),
-                    context: None,
-                }),
+
+            match serde_json::to_value(&response) {
+                Ok(result) => ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                },
+                Err(e) => ServerMessage::RpcResponse {
+                    id,
+                    result: None,
+                    error: Some(RpcError {
+                        code: RpcErrorCode::InternalError,
+                        message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                        context: Some(format!("{:?}", e)),
+                    }),
+                },
             }
         }
         Err(e) => {
-            tracing::error!(error = %e, "Password verification error");
+            tracing::error!(error = %e, "Failed to create JWT token");
             ServerMessage::RpcResponse {
                 id,
                 result: None,
                 error: Some(RpcError {
                     code: RpcErrorCode::InternalError,
-                    message: RPC_MSG_AUTH_ERROR.to_string(),
+                    message: RPC_MSG_TOKEN_CREATE_FAILED.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             }
@@ -2594,7 +2580,9 @@ async fn handle_user_delete(
 
 /// Handle "user.passwd" RPC call
 ///
-/// Expected params: ChangePasswordRequest {"username": "string", "new_password": "string", "token": "string"}
+/// Expected params: ChangePasswordRequest {"username": "string", "new_password": "string",
+/// "current_password": "string", "token": "string"}; `current_password` is required to change
+/// your own password.
 async fn handle_user_passwd(
     id: String,
     params: serde_json::Value,
@@ -2633,113 +2621,36 @@ async fn handle_user_passwd(
         }
     };
 
-    // Check authorization: admin can change any password, regular user only their own
-    if !auth_ctx.is_admin && normalize_username(&request.username) != auth_ctx.username {
-        tracing::warn!(
-            user = %auth_ctx.username,
-            target = %request.username,
-            "User attempted to change another user's password without admin privileges"
-        );
-        return ServerMessage::RpcResponse {
+    match user_password::change_password(
+        &auth_ctx,
+        &request.username,
+        request.current_password.as_deref(),
+        &request.new_password,
+        &state.db,
+    )
+    .await
+    {
+        Ok(response) => match serde_json::to_value(&response) {
+            Ok(result) => ServerMessage::RpcResponse {
+                id,
+                result: Some(result),
+                error: None,
+            },
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => ServerMessage::RpcResponse {
             id,
             result: None,
-            error: Some(RpcError {
-                code: RpcErrorCode::AccessDenied,
-                message: RPC_MSG_ACCESS_DENIED_OWN_PASSWORD.to_string(),
-                context: None,
-            }),
-        };
-    }
-
-    // Get the user to update
-    let mut user = match db::get_user(&state.db, &request.username).await {
-        Ok(u) => u,
-        Err(_) => {
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::NotFound,
-                    message: format!("User not found: {}", request.username),
-                    context: None,
-                }),
-            };
-        }
-    };
-
-    // Hash the new password (this also validates password strength)
-    let new_password_hash = match password::hash_password(&request.new_password) {
-        Ok(hash) => hash,
-        Err(e) => {
-            tracing::warn!(
-                user = %auth_ctx.username,
-                target = %request.username,
-                error = %e,
-                "Password validation failed"
-            );
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::InvalidParams,
-                    message: RPC_MSG_PASSWORD_VALIDATION_FAILED.to_string(),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
-        }
-    };
-
-    // Update password and updated_at timestamp
-    user.password_hash = new_password_hash;
-
-    match db::update_user(&state.db, user).await {
-        Ok(_) => {
-            tracing::info!(
-                user = %auth_ctx.username,
-                target = %request.username,
-                is_admin = auth_ctx.is_admin,
-                "Password changed successfully"
-            );
-
-            let response = data::ChangePasswordResponse {
-                success: true,
-                username: request.username,
-            };
-
-            match serde_json::to_value(&response) {
-                Ok(result) => ServerMessage::RpcResponse {
-                    id,
-                    result: Some(result),
-                    error: None,
-                },
-                Err(e) => ServerMessage::RpcResponse {
-                    id,
-                    result: None,
-                    error: Some(RpcError {
-                        code: RpcErrorCode::InternalError,
-                        message: RPC_MSG_SERIALIZE_FAILED.to_string(),
-                        context: Some(format!("{:?}", e)),
-                    }),
-                },
-            }
-        }
-        Err(e) => {
-            tracing::error!(
-                user = %auth_ctx.username,
-                target = %request.username,
-                error = %e,
-                "Failed to update password"
-            );
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_USER_PASSWORD_UPDATE_FAILED.to_string(),
-                    context: Some(format!("{:?}", e)),
-                }),
-            }
-        }
+            error: Some(service_error(&e, RPC_MSG_USER_PASSWORD_UPDATE_FAILED)),
+        },
     }
 }
 

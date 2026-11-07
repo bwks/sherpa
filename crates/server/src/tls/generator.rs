@@ -3,10 +3,10 @@ use rcgen::{
     BasicConstraints, CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, IsCa,
     KeyPair, KeyUsagePurpose, PKCS_ECDSA_P256_SHA256, PKCS_ED25519, SanType,
 };
-use std::fs::{self, File};
-use std::io::Write;
+use std::fs::{self, DirBuilder, OpenOptions};
+use std::io::{ErrorKind, Write};
 use std::net::IpAddr;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
 /// Generate a self-signed certificate with the given parameters
@@ -306,45 +306,97 @@ pub fn issue_server_certificate(
     })
 }
 
-/// Write a file with specific permissions
+/// Write `content` to `path` with permission bits `mode`, replacing any file there.
+///
+/// The file never exists with wider permissions: it is written to a temporary file created
+/// with `mode` in the same folder, then renamed over `path`. Missing parent folders are created
+/// private (0700); existing folders keep their permissions.
 pub fn write_file_with_permissions(path: &Path, content: &[u8], mode: u32) -> Result<()> {
-    // Ensure parent directory exists
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+    let parent = path
+        .parent()
+        .with_context(|| format!("No parent directory for: {}", path.display()))?;
+    DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(parent)
+        .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
 
-        // Set directory permissions to 0700
-        #[cfg(unix)]
-        {
-            let metadata = fs::metadata(parent)?;
-            let mut permissions = metadata.permissions();
-            permissions.set_mode(0o700);
-            fs::set_permissions(parent, permissions)?;
+    let file_name = path
+        .file_name()
+        .with_context(|| format!("No file name in: {}", path.display()))?;
+    let temp_path = parent.join(format!(".{}.tmp", file_name.to_string_lossy()));
+    // A leftover from an interrupted write would make `create_new` fail.
+    match fs::remove_file(&temp_path) {
+        Ok(()) => tracing::debug!(path = %temp_path.display(), "Removed a stale temporary file"),
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            tracing::trace!(path = %temp_path.display(), "No stale temporary file");
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("Failed to remove {}", temp_path.display()));
         }
     }
 
-    // Write file
-    let mut file =
-        File::create(path).with_context(|| format!("Failed to create file: {}", path.display()))?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(mode)
+        .open(&temp_path)
+        .with_context(|| format!("Failed to create file: {}", temp_path.display()))?;
+    // The umask may have narrowed `mode`; set it exactly.
+    file.set_permissions(fs::Permissions::from_mode(mode))
+        .with_context(|| format!("Failed to set permissions on {}", temp_path.display()))?;
     file.write_all(content)
-        .with_context(|| format!("Failed to write to file: {}", path.display()))?;
-
-    // Set file permissions
-    #[cfg(unix)]
-    {
-        let metadata = file.metadata()?;
-        let mut permissions = metadata.permissions();
-        permissions.set_mode(mode);
-        fs::set_permissions(path, permissions)?;
-    }
-
-    Ok(())
+        .and_then(|()| file.sync_all())
+        .with_context(|| format!("Failed to write to file: {}", temp_path.display()))?;
+    fs::rename(&temp_path, path)
+        .with_context(|| format!("Failed to replace file: {}", path.display()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    fn mode_of(path: &Path) -> u32 {
+        fs::metadata(path).expect("metadata").permissions().mode() & 0o777
+    }
+
+    #[test]
+    fn writing_a_file_leaves_its_folder_alone() {
+        let dir = TempDir::new().expect("tempdir");
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).expect("chmod");
+
+        write_file_with_permissions(&dir.path().join("key.pem"), b"secret", 0o600).expect("write");
+
+        assert_eq!(mode_of(dir.path()), 0o755);
+    }
+
+    #[test]
+    fn a_rewritten_file_gets_the_new_mode_and_contents() {
+        let dir = TempDir::new().expect("tempdir");
+        let path = dir.path().join("key.pem");
+        fs::write(&path, b"old").expect("seed");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("chmod");
+
+        write_file_with_permissions(&path, b"secret", 0o600).expect("write");
+
+        assert_eq!(mode_of(&path), 0o600);
+        assert_eq!(fs::read(&path).expect("read"), b"secret");
+        let leftovers = fs::read_dir(dir.path()).expect("read dir").count();
+        assert_eq!(leftovers, 1, "a temporary file was left behind");
+    }
+
+    #[test]
+    fn missing_folders_are_created_private() {
+        let dir = TempDir::new().expect("tempdir");
+        let path = dir.path().join("a/b/cert.pem");
+
+        write_file_with_permissions(&path, b"cert", 0o644).expect("write");
+
+        assert_eq!(mode_of(&path), 0o644);
+        assert_eq!(mode_of(&dir.path().join("a")), 0o700);
+        assert_eq!(mode_of(&dir.path().join("a/b")), 0o700);
+    }
 
     #[test]
     fn test_generate_self_signed_certificate() {

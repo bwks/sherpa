@@ -35,14 +35,6 @@ async function labAction(labId, btn, action) {
     }
 }
 
-function labStart(labId, btn) {
-    labAction(labId, btn, "start");
-}
-
-function labStop(labId, btn) {
-    labAction(labId, btn, "stop");
-}
-
 function showLabNotification(labId, type, message) {
     var existing = document.getElementById(`lab-notification-${labId}`);
     if (existing) {
@@ -227,4 +219,29 @@ function showDetailResult(type, message) {
     setTimeout(function() {
         resultDiv.classList.add("hidden");
     }, 8000);
+}
+
+// ============================================================================
+// Buttons name their action and target in data- attributes; one listener serves
+// every page. Partials that htmx swaps in load this script again, so bind once.
+// ============================================================================
+
+if (!window.labActionsBound) {
+    window.labActionsBound = true;
+    document.addEventListener("click", function (event) {
+        var btn = event.target.closest("[data-lab-action], [data-lab-detail-action], [data-node-action]");
+        if (!btn) {
+            return;
+        }
+        var data = btn.dataset;
+        if (data.labAction) {
+            labAction(data.labId, btn, data.labAction);
+        } else if (data.labDetailAction) {
+            labDetailAction(data.labId, data.labDetailAction, btn);
+        } else if (data.nodeAction === "redeploy") {
+            nodeRedeploy(data.labId, data.nodeName, btn);
+        } else {
+            nodeAction(data.labId, data.nodeName, data.nodeAction, btn);
+        }
+    });
 }

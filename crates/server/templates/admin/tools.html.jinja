@@ -18,7 +18,7 @@
             interfaces, database records, and the lab directory without ownership checks.
         </p>
 
-        <form id="clean-form" class="mt-4 flex items-end gap-3" onsubmit="submitClean(event)">
+        <form id="clean-form" class="mt-4 flex items-end gap-3">
             <div class="flex-1 max-w-sm">
                 <label for="lab-id" class="block text-sm font-medium text-body mb-1">Lab ID</label>
                 <input
@@ -41,8 +41,8 @@
                 This will destroy all associated resources and cannot be undone.
             </p>
             <div class="mt-3 flex gap-2">
-                <button onclick="executeClean()" class="btn-danger">Confirm Clean</button>
-                <button onclick="cancelClean()" class="btn-cancel">Cancel</button>
+                <button id="confirm-clean-btn" class="btn-danger">Confirm Clean</button>
+                <button id="cancel-clean-btn" class="btn-cancel">Cancel</button>
             </div>
         </div>
 
@@ -59,8 +59,8 @@
         </p>
 
         <div class="mt-4 flex items-center gap-3">
-            <button type="button" id="scan-btn" onclick="executeScan(true)" class="btn-primary">Scan</button>
-            <button type="button" id="scan-import-btn" onclick="submitScanImport()" class="btn-primary">Scan &amp; Import</button>
+            <button type="button" id="scan-btn" class="btn-primary">Scan</button>
+            <button type="button" id="scan-import-btn" class="btn-primary">Scan &amp; Import</button>
         </div>
 
         <!-- Scan Confirmation -->
@@ -69,8 +69,8 @@
                 Are you sure you want to scan and import images? New images will be added to the database.
             </p>
             <div class="mt-3 flex gap-2">
-                <button onclick="executeScan(false)" class="btn-primary">Confirm Import</button>
-                <button onclick="cancelScan()" class="btn-cancel">Cancel</button>
+                <button id="confirm-import-btn" class="btn-primary">Confirm Import</button>
+                <button id="cancel-scan-btn" class="btn-cancel">Cancel</button>
             </div>
         </div>
 

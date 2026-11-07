@@ -42,6 +42,15 @@ pub struct Node {
     pub user_scripts_data: Option<Vec<StartupScript>>,
     #[serde(default)]
     pub text_files_data: Option<Vec<TextFileData>>,
+    /// The `binary_files` the client read, for the server.
+    #[serde(default)]
+    pub binary_files_data: Option<Vec<BinaryFileData>>,
+    /// The `systemd_units` the client read, for the server.
+    #[serde(default)]
+    pub systemd_units_data: Option<Vec<SystemdUnitData>>,
+    /// The keys in the `ssh_authorized_key_files` the client read, one OpenSSH line each.
+    #[serde(default)]
+    pub ssh_authorized_key_files_data: Option<Vec<String>>,
     pub kernel_cmdline: Option<String>,
     pub ready_port: Option<u16>,
     /// `[nodes.performance_tuning]`: CPU, memory, disk and interface tuning for a VM.
@@ -71,10 +80,11 @@ pub struct NodeExpanded {
     pub ipv4_address: Option<Ipv4Addr>,
     pub ipv6_address: Option<Ipv6Addr>,
     pub text_files: Option<Vec<TextFileData>>,
-    pub binary_files: Option<Vec<BinaryFile>>,
-    pub systemd_units: Option<Vec<SystemdUnit>>,
+    pub binary_files: Option<Vec<BinaryFileData>>,
+    pub systemd_units: Option<Vec<SystemdUnitData>>,
     pub ssh_authorized_keys: Option<Vec<String>>,
-    pub ssh_authorized_key_files: Option<Vec<AuthorizedKeyFile>>,
+    /// Keys the client read from the manifest's `ssh_authorized_key_files`.
+    pub ssh_authorized_key_files: Option<Vec<String>>,
     pub commands: Option<Vec<String>>,
     pub environment_variables: Option<Vec<String>>,
     pub volumes: Option<Vec<VolumeMount>>,
@@ -94,7 +104,7 @@ pub struct NodeExpanded {
 
 impl NodeExpanded {
     /// The manifest `node` as the `index`th node of its lab, counting from 1. Its addresses are
-    /// assigned later, and its scripts and text files are the contents the client read.
+    /// assigned later, and its scripts and files are the contents the client read.
     #[must_use]
     pub fn new(index: u16, node: &Node) -> Self {
         Self {
@@ -111,10 +121,10 @@ impl NodeExpanded {
             ipv4_address: None,
             ipv6_address: None,
             text_files: node.text_files_data.clone(),
-            binary_files: node.binary_files.clone(),
-            systemd_units: node.systemd_units.clone(),
+            binary_files: node.binary_files_data.clone(),
+            systemd_units: node.systemd_units_data.clone(),
             ssh_authorized_keys: node.ssh_authorized_keys.clone(),
-            ssh_authorized_key_files: node.ssh_authorized_key_files.clone(),
+            ssh_authorized_key_files: node.ssh_authorized_key_files_data.clone(),
             commands: node.commands.clone(),
             environment_variables: node.environment_variables.clone(),
             volumes: node.volumes.clone(),
@@ -184,6 +194,21 @@ pub struct SystemdUnit {
 #[serde(deny_unknown_fields)]
 pub struct AuthorizedKeyFile {
     pub source: String,
+}
+
+/// A binary file the client read: its file name and base64 contents.
+#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+pub struct BinaryFileData {
+    pub filename: String,
+    pub content: String,
+}
+
+/// A systemd unit the client read: the unit name, its base64 contents and whether to enable it.
+#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+pub struct SystemdUnitData {
+    pub name: String,
+    pub content: String,
+    pub enabled: bool,
 }
 
 #[cfg(test)]

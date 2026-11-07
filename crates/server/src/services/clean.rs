@@ -16,6 +16,7 @@ use crate::services::destroy::{
     cleanup_database, cleanup_lab_metadata, destroy_containers, destroy_docker_networks,
     destroy_interfaces, destroy_lab_secrets, destroy_libvirt_networks, destroy_vms_and_disks,
 };
+use crate::services::error::ServiceError;
 use crate::services::lab_operations::{self, StopReason};
 
 /// Clean all resources for a lab (admin only)
@@ -44,6 +45,9 @@ pub async fn clean_lab(
 /// user who started it. Requests from users go through `clean_lab`.
 #[instrument(skip(state), fields(%lab_id))]
 pub(crate) async fn clean_lab_resources(lab_id: &str, state: &AppState) -> Result<DestroyResponse> {
+    // Resources are matched by lab ID and the lab folder is built from it, so an empty or
+    // path-like ID would reach other labs' resources.
+    db::validate_lab_id(lab_id).map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     let start_time = std::time::Instant::now();
 
     tracing::info!(lab_id = %lab_id, "Starting admin clean operation");

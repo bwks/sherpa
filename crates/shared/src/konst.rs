@@ -522,8 +522,6 @@ pub const RPC_MSG_TOKEN_CREATE_FAILED: &str = "Failed to create authentication t
 pub const ADMIN_USER_DELETE_ERROR_TARGET: &str = "#user-delete-error";
 
 // Authorization messages
-pub const RPC_MSG_ACCESS_DENIED_OWN_PASSWORD: &str =
-    "Access denied: you can only change your own password";
 pub const RPC_MSG_ACCESS_DENIED_OWN_INFO: &str =
     "Access denied: you can only view your own information";
 
@@ -541,7 +539,6 @@ pub const RPC_MSG_USER_DELETE_FAILED: &str = "Failed to delete user";
 pub const RPC_MSG_USER_PASSWORD_UPDATE_FAILED: &str = "Failed to update password";
 pub const RPC_MSG_SSH_KEY_ADD_FAILED: &str = "Failed to add SSH key";
 pub const RPC_MSG_SSH_KEY_REMOVE_FAILED: &str = "Failed to remove SSH key";
-pub const RPC_MSG_PASSWORD_VALIDATION_FAILED: &str = "Password validation failed";
 
 // Lab operations
 pub const RPC_MSG_LAB_INSPECT_FAILED: &str = "Inspect operation failed";

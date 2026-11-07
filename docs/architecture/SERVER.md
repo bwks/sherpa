@@ -238,6 +238,7 @@ The browser UI is not a separate frontend application. It is server-rendered HTM
 - Template files live in `crates/server/templates/`.
 - Static assets are embedded from `crates/server/web/static/` using `rust_embed`.
 - HTMX is used for form submissions, partial updates, node-table polling, lab-grid updates, and progress pages.
+- Templates carry no inline JavaScript: no `on*=` handlers and no `<script>` blocks without `src`. Buttons name their action and target in `data-` attributes, and the scripts in `web/static/js` listen for them. HTML escaping does not make interpolation into a handler safe, because the browser decodes the escapes before running it. `templates::tests::templates_carry_no_inline_javascript` enforces this.
 
 HTML routes generally authenticate with `AuthenticatedUserFromCookie`. When auth fails, the extractor redirects to `/login?error=session_required`.
 
@@ -407,9 +408,14 @@ Web UI create and destroy run as jobs: the POST queues a `Job` in `AppState::pen
 - Browser page access uses cookie-only extractors.
 - REST API access uses bearer-or-cookie extractors.
 - WebSocket RPC access requires `params.token`.
-- User password/info operations allow admins to target anyone and regular users to target themselves. These checks are still in the transports, not in services.
+- Password changes go through `services::user_password::change_password` on every transport (web profile, web admin reset, REST, RPC). Users change only their own password and admins may reset anyone's. Changing your own password, as an admin too, needs the current password, so a stolen token cannot lock the owner out; `sherpa server user passwd` prompts for it. An admin resetting another user's password does not.
+- User info operations allow admins to target anyone and regular users to target themselves. These checks are still in the transports, not in services.
+- Logins on every route go through `auth::login::check_credentials`. An unknown username is checked against a dummy hash, so it takes as long as a wrong password and response times do not show which usernames exist.
+- `auth::policy::require_host_access` refuses `up` and `redeploy` manifests from non-admins whose nodes are `privileged` or bind-mount host paths (`volumes`). Either is root on the host.
+- The server never opens a path a manifest names. The CLI reads `text_files`, `binary_files`, `systemd_units`, `ssh_authorized_key_files` and the scripts on the client and sends their contents in the matching `*_data` fields; `topology::validate::check_client_read_files` refuses a manifest that lists files without them, and binary file and unit names that are not plain file names.
+- Signup is closed unless `allow_signup = true` in `sherpa.toml`. With it off, `GET` and `POST /signup` return 404 and the login page does not link to it.
 - User deletion goes through `services::user_delete::delete_user` on every transport. It is admin only and refuses self-delete, the last admin account, and any user who owns labs (`Conflict`, listing the labs). The web admin page shows a refusal in its `#user-delete-error` notification using `HX-Retarget`. The database backs up the owned-lab rule: `lab.user` is `REFERENCE ON DELETE REJECT`, because deleting only the records would leave the labs' VMs, containers and networks running unmanaged. With identity read from the database, the last-admin rule can only be hit by a race (two admins deleting each other at once); there is no transaction around the check and the delete.
-- `clean_lab_resources` is the unchecked clean used internally, to roll back a failed `up` on behalf of the user who started it. User requests go through `clean_lab`.
+- `clean_lab_resources` is the unchecked clean used internally, to roll back a failed `up` on behalf of the user who started it. User requests go through `clean_lab`. Both validate the lab ID first (`Invalid`, a 400 or `InvalidParams`): resources are matched by it and the lab folder is built from it, so an empty or path-like ID would reach every lab.
 
 ## Service layer architecture
 
@@ -784,18 +790,18 @@ The scanner is reconciliation, not orchestration. It should not create or destro
 
 ## HTTP routing architecture
 
-`api/router.rs` builds a single Axum router. It attaches CORS, HTTP tracing, embedded static asset handling, and the route table. The WebSocket route is added in `daemon/server.rs` after `build_router()` returns.
+`api/router.rs` builds a single Axum router. It attaches HTTP tracing, embedded static asset handling, and the route table. It has no CORS layer; see `API.md`. The WebSocket route is added in `daemon/server.rs` after `build_router()` returns.
 
 `build_router()` contents:
 
 | Group | Routes |
 |---|---|
-| Public browser routes | `GET/POST /login`, `GET/POST /signup`, `POST /logout` |
+| Public browser routes | `GET/POST /login`, `GET/POST /signup` (404 unless `allow_signup`), `POST /logout` |
 | Protected browser routes | `GET /`; `GET /labs`, `/labs/grid`, `/labs/create`; `GET /jobs/{job_id}`, `/jobs/{job_id}/stream`; `GET /labs/{lab_id}`; `GET /labs/{lab_id}/nodes[/node]`; `POST` lab/node start/stop/redeploy/destroy actions; `GET/POST` profile and SSH-key routes |
 | Admin browser routes | `/admin/users...`, `/admin/labs`, `/admin/tools...`, `/admin/images...` |
 | Public API routes | `GET /health`, `GET /cert`, `GET /api/v1/spec`, `GET /api/v1/openapi.json`, `GET /api/docs`, `POST /api/v1/auth/login` |
 | REST API routes | labs: list/create/inspect/delete/down/resume/redeploy; links: impairment update; images: list/show/import/upload/delete/default/pull/download; admin tools: clean/scan; users: create/list/info/delete/password |
-| Layers | `CorsLayer` mirror_request + credentials; `TraceLayer::new_for_http()` |
+| Layers | `TraceLayer::new_for_http()` |
 | Catch-all | static asset route `/{*path}` |
 
 Auth is enforced by handler signatures and handler-local checks, not by route grouping. When reviewing a route's protection level, check the handler parameters and body rather than only the route table.

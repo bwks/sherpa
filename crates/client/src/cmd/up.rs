@@ -7,10 +7,13 @@ use std::time::Duration;
 
 use shared::data::{ClientConfig, NodeInfo, StatusMessage, UpResponse};
 use shared::util::{
-    Emoji, base64_encode, get_cwd, load_file, render_lab_info_table, render_nodes_table,
-    render_tailnet_table, term_msg_surround, term_msg_underline,
+    Emoji, base64_encode, base64_encode_bytes, get_cwd, get_ssh_public_key, load_file,
+    render_lab_info_table, render_nodes_table, render_tailnet_table, term_msg_surround,
+    term_msg_underline,
 };
-use topology::StartupScript;
+use topology::{
+    AuthorizedKeyFile, BinaryFile, BinaryFileData, StartupScript, SystemdUnit, SystemdUnitData,
+};
 
 use super::progress::status_emoji;
 use crate::cmd::interrupt::{
@@ -297,6 +300,7 @@ pub(crate) fn resolve_manifest_files(
 ) -> Result<()> {
     resolve_ztp_configs(manifest, manifest_path)?;
     resolve_text_files(manifest, manifest_path)?;
+    resolve_node_files(manifest, manifest_path)?;
     resolve_scripts(manifest, manifest_path)?;
     resolve_environment_variables(manifest, client_variable)
 }
@@ -336,6 +340,105 @@ pub(crate) fn resolve_text_files(
     }
 
     Ok(())
+}
+
+/// Read each node's `binary_files`, `systemd_units` and `ssh_authorized_key_files` and fill in
+/// their `*_data` fields. The server never opens manifest paths: it uses what the client read.
+/// Paths may start with `~`; relative paths start at the manifest's folder.
+pub(crate) fn resolve_node_files(
+    manifest: &mut topology::Manifest,
+    manifest_path: &str,
+) -> Result<()> {
+    let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
+    for node in &mut manifest.nodes {
+        if let Some(files) = node.binary_files.as_deref() {
+            node.binary_files_data = Some(read_binary_files(&node.name, files, manifest_dir)?);
+        }
+        if let Some(units) = node.systemd_units.as_deref() {
+            node.systemd_units_data = Some(read_systemd_units(&node.name, units, manifest_dir)?);
+        }
+        if let Some(files) = node.ssh_authorized_key_files.as_deref() {
+            node.ssh_authorized_key_files_data =
+                Some(read_authorized_key_files(&node.name, files, manifest_dir)?);
+        }
+    }
+    Ok(())
+}
+
+fn read_binary_files(
+    node: &str,
+    files: &[BinaryFile],
+    manifest_dir: &Path,
+) -> Result<Vec<BinaryFileData>> {
+    files
+        .iter()
+        .map(|file| {
+            let path = resolve_client_path(manifest_dir, &file.source);
+            let contents = fs::read(&path).with_context(|| {
+                format!(
+                    "Failed to read binary_file for node '{node}': {}",
+                    path.display()
+                )
+            })?;
+            let filename = path
+                .file_name()
+                .with_context(|| format!("binary_file for node '{node}' has no file name"))?
+                .to_string_lossy()
+                .into_owned();
+            Ok(BinaryFileData {
+                filename,
+                content: base64_encode_bytes(&contents),
+            })
+        })
+        .collect()
+}
+
+fn read_systemd_units(
+    node: &str,
+    units: &[SystemdUnit],
+    manifest_dir: &Path,
+) -> Result<Vec<SystemdUnitData>> {
+    units
+        .iter()
+        .map(|unit| {
+            let path = resolve_client_path(manifest_dir, &unit.source);
+            let contents = fs::read_to_string(&path).with_context(|| {
+                format!(
+                    "Failed to read systemd_unit for node '{node}': {}",
+                    path.display()
+                )
+            })?;
+            Ok(SystemdUnitData {
+                name: unit.name.clone(),
+                content: base64_encode(&contents),
+                enabled: unit.enabled,
+            })
+        })
+        .collect()
+}
+
+/// Each key file's key, as one OpenSSH line.
+fn read_authorized_key_files(
+    node: &str,
+    files: &[AuthorizedKeyFile],
+    manifest_dir: &Path,
+) -> Result<Vec<String>> {
+    files
+        .iter()
+        .map(|file| {
+            let path = resolve_client_path(manifest_dir, &file.source);
+            let key = get_ssh_public_key(&path.to_string_lossy()).with_context(|| {
+                format!("Failed to read ssh_authorized_key_file for node '{node}'")
+            })?;
+            let line = format!(
+                "{} {} {}",
+                key.algorithm,
+                key.key,
+                key.comment.unwrap_or_default()
+            );
+            Ok(line.trim_end().to_owned())
+        })
+        .collect()
 }
 
 /// Resolve `$ENV_VAR` references in environment variable values.
@@ -675,6 +778,92 @@ mod tests {
 
         resolve_environment_variables(&mut manifest, no_variables)
             .expect("should succeed with no env vars");
+    }
+
+    #[test]
+    fn node_files_are_read_on_the_client_relative_to_the_manifest() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        fs::create_dir(dir.path().join("units")).expect("mkdir");
+        fs::write(
+            dir.path().join("units/app.service"),
+            "[Unit]\nDescription=app\n",
+        )
+        .expect("unit");
+        fs::write(dir.path().join("tool"), [0_u8, 159, 146, 150]).expect("binary");
+        fs::write(
+            dir.path().join("key.pub"),
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh me@host\n",
+        )
+        .expect("key");
+        let manifest_path = dir.path().join("manifest.toml");
+
+        let mut manifest = test_manifest(vec![topology::Node {
+            name: "fc1".to_string(),
+            model: NodeModel::FlatcarLinux,
+            binary_files: Some(vec![BinaryFile {
+                source: "tool".to_string(),
+            }]),
+            systemd_units: Some(vec![SystemdUnit {
+                name: "app.service".to_string(),
+                source: "units/app.service".to_string(),
+                enabled: true,
+            }]),
+            ssh_authorized_key_files: Some(vec![AuthorizedKeyFile {
+                source: "key.pub".to_string(),
+            }]),
+            ..Default::default()
+        }]);
+
+        resolve_node_files(&mut manifest, manifest_path.to_str().expect("path"))
+            .expect("resolve should succeed");
+
+        let node = &manifest.nodes[0];
+        let binaries = node.binary_files_data.as_ref().expect("binary_files_data");
+        assert_eq!(binaries[0].filename, "tool");
+        assert_eq!(
+            shared::util::base64_decode_bytes(&binaries[0].content).expect("decode"),
+            vec![0_u8, 159, 146, 150]
+        );
+        let units = node
+            .systemd_units_data
+            .as_ref()
+            .expect("systemd_units_data");
+        assert_eq!(units[0].name, "app.service");
+        assert!(units[0].enabled);
+        assert_eq!(
+            base64_decode(&units[0].content).expect("decode"),
+            "[Unit]\nDescription=app\n"
+        );
+        assert_eq!(
+            node.ssh_authorized_key_files_data.as_deref(),
+            Some(
+                &["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh me@host"
+                    .to_string()][..]
+            )
+        );
+        topology::validate::check_client_read_files(&manifest.nodes).expect("server accepts");
+    }
+
+    #[test]
+    fn a_missing_node_file_names_the_node_and_path() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let manifest_path = dir.path().join("manifest.toml");
+        let mut manifest = test_manifest(vec![topology::Node {
+            name: "fc1".to_string(),
+            model: NodeModel::FlatcarLinux,
+            binary_files: Some(vec![BinaryFile {
+                source: "missing".to_string(),
+            }]),
+            ..Default::default()
+        }]);
+
+        let error = resolve_node_files(&mut manifest, manifest_path.to_str().expect("path"))
+            .expect_err("missing file read");
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("fc1") && message.contains("missing"),
+            "{message}"
+        );
     }
 
     #[test]

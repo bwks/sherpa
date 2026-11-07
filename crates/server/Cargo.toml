@@ -60,7 +60,7 @@ async-stream = "0.3"
 
 # WebSocket support
 tower = "0.5"
-tower-http = { version = "0.6", features = ["trace", "cors"] }
+tower-http = { version = "0.6", features = ["trace"] }
 
 # Embed static assets
 rust-embed = "8"

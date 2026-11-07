@@ -15,14 +15,14 @@ use strum::IntoEnumIterator;
 
 use crate::api::sse::{destroy_progress_stream, json_progress_stream, up_progress_stream};
 use crate::auth::policy::{require_lab_access, require_lab_owner, require_lab_starter};
-use crate::auth::{cookies, jwt};
+use crate::auth::{cookies, jwt, login};
 use crate::daemon::state::AppState;
 use crate::daemon::state::{Job, JobType};
 use crate::services::error::ServiceError;
 use crate::services::progress::ProgressSender;
 use crate::services::{
     cancel, clean, container_pull, delete, destroy, down, download, impairment, import, inspect,
-    list_labs, redeploy, resume, up, user_delete, user_ssh_keys,
+    list_labs, redeploy, resume, up, user_delete, user_password, user_ssh_keys,
 };
 use crate::templates::{
     AdminImageUploadTemplate, AdminNotificationErrorTemplate, AdminPasswordErrorTemplate,
@@ -43,7 +43,6 @@ use super::extractors::{
 
 use crate::validate::validate_node_image_update;
 use shared::api_spec;
-use shared::auth::password;
 use shared::data::{
     AddSshKeyRequest, BiosTypes, CancelLabResponse, ChangePasswordRequest, ChangePasswordResponse,
     ContainerPullRequest, CpuArchitecture, CpuModels, CreateUserRequest, CreateUserResponse,
@@ -61,7 +60,7 @@ use shared::konst::{
     SHERPA_SSH_PRIVATE_KEY_FILE,
 };
 use shared::util::{generate_lab_name, get_id_for_user, load_saved_manifest, normalize_username};
-use shared::validators::{validate_password_strength, validate_ssh_key, validate_username};
+use shared::validators::{validate_ssh_key, validate_username};
 
 /// Validate a JWT token, as the `auth.validate` RPC method does. An invalid token is answered
 /// `valid: false`, not an error.
@@ -83,26 +82,13 @@ pub async fn login(
     State(state): State<AppState>,
     Json(request): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, ApiError> {
-    // Get user from database (includes password_hash)
-    let user = db::get_user(&state.db, &request.username)
+    let user = login::check_credentials(&state.db, &request.username, &request.password)
         .await
-        .map_err(|_| {
-            // Don't reveal whether user exists
-            tracing::debug!("Login attempt for non-existent user: {}", request.username);
-            ApiError::unauthorized("Invalid username or password")
-        })?;
-
-    // Verify password against stored hash
-    let is_valid =
-        password::verify_password(&request.password, &user.password_hash).map_err(|e| {
-            tracing::error!("Password verification error: {:?}", e);
+        .map_err(|e| {
+            tracing::error!("Login check failed: {:?}", e);
             ApiError::internal("Authentication error")
-        })?;
-
-    if !is_valid {
-        tracing::debug!("Invalid password for user: {}", request.username);
-        return Err(ApiError::unauthorized("Invalid username or password"));
-    }
+        })?
+        .ok_or_else(|| ApiError::unauthorized("Invalid username or password"))?;
 
     // Create JWT token
     let token = jwt::create_token(
@@ -196,13 +182,22 @@ pub async fn login_page_handler(
             };
             axum::response::Redirect::to(redirect_path).into_response()
         }
-        Err(CookieSessionError::Missing) => LoginPageTemplate { error, message }.into_response(),
+        Err(CookieSessionError::Missing) => LoginPageTemplate {
+            error,
+            message,
+            allow_signup: state.config.allow_signup,
+        }
+        .into_response(),
         Err(session_error) => {
             trace_rejected_session("/login", &session_error, "clear_and_render_login");
             error = "session_expired".to_string();
             (
                 [(header::SET_COOKIE, cookies::create_clear_cookie())],
-                LoginPageTemplate { error, message },
+                LoginPageTemplate {
+                    error,
+                    message,
+                    allow_signup: state.config.allow_signup,
+                },
             )
                 .into_response()
         }
@@ -227,37 +222,22 @@ pub async fn login_form_handler(
     State(state): State<AppState>,
     axum::Form(form): axum::Form<LoginForm>,
 ) -> impl IntoResponse {
-    // Get user from database
-    let user = match db::get_user(&state.db, &form.username).await {
-        Ok(user) => user,
-        Err(_) => {
-            tracing::debug!("Login attempt for non-existent user: {}", form.username);
+    let user = match login::check_credentials(&state.db, &form.username, &form.password).await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
             return LoginErrorTemplate {
                 message: "Invalid username or password".to_string(),
             }
             .into_response();
         }
-    };
-
-    // Verify password
-    let is_valid = match password::verify_password(&form.password, &user.password_hash) {
-        Ok(valid) => valid,
         Err(e) => {
-            tracing::error!("Password verification error: {:?}", e);
+            tracing::error!("Login check failed: {:?}", e);
             return LoginErrorTemplate {
                 message: "An error occurred during authentication".to_string(),
             }
             .into_response();
         }
     };
-
-    if !is_valid {
-        tracing::debug!("Invalid password for user: {}", form.username);
-        return LoginErrorTemplate {
-            message: "Invalid username or password".to_string(),
-        }
-        .into_response();
-    }
 
     // Determine cookie expiry based on remember_me
     let expiry_seconds = if form.remember_me {
@@ -322,8 +302,11 @@ pub async fn login_form_handler(
 /// GET /signup
 ///
 /// Shows the signup form with password requirements.
-pub async fn signup_page_handler() -> impl IntoResponse {
-    SignupPageTemplate {}
+pub async fn signup_page_handler(State(state): State<AppState>) -> Response {
+    if !state.config.allow_signup {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    SignupPageTemplate {}.into_response()
 }
 
 /// Process signup form submission
@@ -350,6 +333,10 @@ pub async fn signup_form_handler(
     State(state): State<AppState>,
     axum::Form(form): axum::Form<SignupForm>,
 ) -> impl IntoResponse {
+    if !state.config.allow_signup {
+        tracing::warn!(username = %form.username, "Refused signup: signup is closed");
+        return StatusCode::NOT_FOUND.into_response();
+    }
     tracing::info!("Signup attempt for username: {}", form.username);
 
     // 1. Validate passwords match
@@ -586,86 +573,26 @@ pub async fn update_password_handler(
         .into_response();
     }
 
-    // 2. Get user from database (with password_hash)
-    let user = match db::get_user(&state.db, &auth.username).await {
-        Ok(user) => user,
-        Err(e) => {
-            tracing::error!(
-                "Failed to load user '{}' for password update: {:?}",
-                auth.username,
-                e
-            );
-            return PasswordErrorTemplate {
-                message: "Failed to verify current password".to_string(),
+    let ctx = auth.into_context();
+    if let Err(error) = user_password::change_password(
+        &ctx,
+        &ctx.username,
+        Some(&form.current_password),
+        &form.new_password,
+        &state.db,
+    )
+    .await
+    {
+        let message = match ServiceError::find(&error) {
+            Some(ServiceError::Denied(_)) => "Current password is incorrect".to_owned(),
+            Some(refusal @ ServiceError::Invalid(_)) => refusal.to_string(),
+            _ => {
+                tracing::error!(username = %ctx.username, "Failed to update password: {error:?}");
+                "Failed to update password".to_owned()
             }
-            .into_response();
-        }
-    };
-
-    // 3. Verify current password
-    let is_valid = match password::verify_password(&form.current_password, &user.password_hash) {
-        Ok(valid) => valid,
-        Err(e) => {
-            tracing::error!(
-                "Password verification error for user '{}': {:?}",
-                auth.username,
-                e
-            );
-            return PasswordErrorTemplate {
-                message: "Failed to verify current password".to_string(),
-            }
-            .into_response();
-        }
-    };
-
-    if !is_valid {
-        return PasswordErrorTemplate {
-            message: "Current password is incorrect".to_string(),
-        }
-        .into_response();
+        };
+        return PasswordErrorTemplate { message }.into_response();
     }
-
-    // 4. Validate new password strength
-    if let Err(e) = validate_password_strength(&form.new_password) {
-        return PasswordErrorTemplate {
-            message: format!("New password does not meet requirements: {}", e),
-        }
-        .into_response();
-    }
-
-    // 5. Hash new password
-    let new_password_hash = match password::hash_password(&form.new_password) {
-        Ok(hash) => hash,
-        Err(e) => {
-            tracing::error!(
-                "Failed to hash new password for user '{}': {:?}",
-                auth.username,
-                e
-            );
-            return PasswordErrorTemplate {
-                message: "Failed to update password".to_string(),
-            }
-            .into_response();
-        }
-    };
-
-    // 6. Update user in database
-    let mut updated_user = user;
-    updated_user.password_hash = new_password_hash;
-
-    if let Err(e) = db::update_user(&state.db, updated_user).await {
-        tracing::error!(
-            "Failed to update password for user '{}': {:?}",
-            auth.username,
-            e
-        );
-        return PasswordErrorTemplate {
-            message: "Failed to update password".to_string(),
-        }
-        .into_response();
-    }
-
-    tracing::info!("Password updated successfully for user '{}'", auth.username);
 
     PasswordSuccessTemplate {
         message: "Password updated successfully".to_string(),
@@ -1371,7 +1298,7 @@ fn lab_error_page(
             }
             .into_response()
         }
-        Some(ServiceError::Conflict(_)) | None => {
+        Some(ServiceError::Conflict(_) | ServiceError::Invalid(_)) | None => {
             tracing::error!(
                 "Failed to load lab '{}' for user '{}': {:?}",
                 lab_id,
@@ -1401,7 +1328,7 @@ fn lab_error_fragment(error: &anyhow::Error, failure_message: &str) -> Response 
         Some(ServiceError::NotFound(_)) => {
             (StatusCode::NOT_FOUND, ErrorTemplate { message }).into_response()
         }
-        Some(ServiceError::Conflict(_)) | None => {
+        Some(ServiceError::Conflict(_) | ServiceError::Invalid(_)) | None => {
             tracing::error!("{failure_message}: {:?}", error);
             ErrorTemplate { message }.into_response()
         }
@@ -1808,46 +1735,24 @@ pub async fn admin_update_user_password_handler(
         .into_response());
     }
 
-    // Validate password strength
-    if let Err(e) = validate_password_strength(&form.new_password) {
-        return Ok(AdminPasswordErrorTemplate {
-            error_message: format!("Password validation failed: {}", e),
+    if let Err(error) = user_password::change_password(
+        &admin.into_context(),
+        &target_username,
+        None,
+        &form.new_password,
+        &state.db,
+    )
+    .await
+    {
+        if let Some(refusal @ ServiceError::Invalid(_)) = ServiceError::find(&error) {
+            return Ok(AdminPasswordErrorTemplate {
+                error_message: refusal.to_string(),
+            }
+            .into_response());
         }
-        .into_response());
+        tracing::error!(target = %target_username, "Failed to update password: {error:?}");
+        return Err(ApiError::from(error));
     }
-
-    // Get user from database
-    let mut user = db::get_user(&state.db, &target_username)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get user '{}': {:?}", target_username, e);
-            ApiError::internal("Failed to update password")
-        })?;
-
-    // Hash the new password
-    let new_password_hash = password::hash_password(&form.new_password).map_err(|e| {
-        tracing::error!("Failed to hash password: {:?}", e);
-        ApiError::internal("Failed to update password")
-    })?;
-
-    // Update user password
-    user.password_hash = new_password_hash;
-
-    // Save to database
-    db::update_user(&state.db, user).await.map_err(|e| {
-        tracing::error!(
-            "Failed to update user '{}' in database: {:?}",
-            target_username,
-            e
-        );
-        ApiError::internal("Failed to update password")
-    })?;
-
-    tracing::info!(
-        "Admin '{}' successfully updated password for user '{}'",
-        admin.username,
-        target_username
-    );
 
     Ok(AdminPasswordSuccessTemplate { target_username }.into_response())
 }
@@ -3332,32 +3237,24 @@ pub async fn delete_user_json(
 /// Change a user's password
 ///
 /// POST /api/v1/admin/users/{username}/password
+///
+/// Changing your own password needs `current_password`; see `user_password::change_password`.
 pub async fn change_password_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
     Path(username): Path<String>,
     Json(payload): Json<ChangePasswordRequest>,
 ) -> Result<Json<ChangePasswordResponse>, ApiError> {
-    // Admins can change any password; users can only change their own
-    if !auth.is_admin && auth.username != normalize_username(&username) {
-        return Err(ApiError::forbidden("You can only change your own password"));
-    }
-
-    let mut user = db::get_user(&state.db, &username)
-        .await
-        .map_err(ApiError::from)?;
-
-    user.password_hash = password::hash_password(&payload.new_password)
-        .map_err(|e| ApiError::internal(format!("{e}")))?;
-
-    db::update_user(&state.db, user)
-        .await
-        .map_err(ApiError::from)?;
-
-    Ok(Json(ChangePasswordResponse {
-        success: true,
-        username,
-    }))
+    let response = user_password::change_password(
+        &auth.into_context(),
+        &username,
+        payload.current_password.as_deref(),
+        &payload.new_password,
+        &state.db,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    Ok(Json(response))
 }
 
 /// Add an SSH public key to a user

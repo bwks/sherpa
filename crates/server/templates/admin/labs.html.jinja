@@ -37,13 +37,13 @@
                     <td class="p-4 text-sm text-body">
                         <div class="flex items-center justify-end space-x-2">
                             <button
-                                onclick="labStart('{{ lab.lab_id }}', this)"
+                                data-lab-action="start" data-lab-id="{{ lab.lab_id }}"
                                 class="text-accent hover:text-accent-hover transition-colors cursor-pointer"
                                 title="Start all nodes">
                                 {% call icons::play() %}
                             </button>
                             <button
-                                onclick="labStop('{{ lab.lab_id }}', this)"
+                                data-lab-action="stop" data-lab-id="{{ lab.lab_id }}"
                                 class="text-danger-solid hover:text-danger-solid-hover transition-colors cursor-pointer"
                                 title="Stop all nodes">
                                 {% call icons::stop() %}

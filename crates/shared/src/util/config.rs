@@ -106,6 +106,7 @@ pub fn default_config() -> Config {
         images_dir: boxes_dir,
         containers_dir,
         bins_dir,
+        allow_signup: false,
         container_images,
         management_prefix_ipv4: mgmt_prefix_ipv4,
         management_prefix_ipv6: None,

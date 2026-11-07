@@ -25,34 +25,34 @@
                         {% match lab.status %}
                             {% when LabState::Running %}
                             <button
-                                onclick="labStop('{{ lab.id }}', this)"
+                                data-lab-action="stop" data-lab-id="{{ lab.id }}"
                                 class="text-danger-solid hover:text-danger-solid-hover transition-colors cursor-pointer"
                                 title="Stop all nodes">
                                 {% call icons::stop() %}
                             </button>
                             {% when LabState::Partial %}
                             <button
-                                onclick="labStart('{{ lab.id }}', this)"
+                                data-lab-action="start" data-lab-id="{{ lab.id }}"
                                 class="text-accent hover:text-accent-hover transition-colors cursor-pointer"
                                 title="Start all nodes">
                                 {% call icons::play() %}
                             </button>
                             <button
-                                onclick="labStop('{{ lab.id }}', this)"
+                                data-lab-action="stop" data-lab-id="{{ lab.id }}"
                                 class="text-danger-solid hover:text-danger-solid-hover transition-colors cursor-pointer"
                                 title="Stop all nodes">
                                 {% call icons::stop() %}
                             </button>
                             {% when LabState::Starting %}
                             <button
-                                onclick="labStop('{{ lab.id }}', this)"
+                                data-lab-action="stop" data-lab-id="{{ lab.id }}"
                                 class="text-danger-solid hover:text-danger-solid-hover transition-colors cursor-pointer"
                                 title="Stop all nodes">
                                 {% call icons::stop() %}
                             </button>
                             {% else %}
                             <button
-                                onclick="labStart('{{ lab.id }}', this)"
+                                data-lab-action="start" data-lab-id="{{ lab.id }}"
                                 class="text-accent hover:text-accent-hover transition-colors cursor-pointer"
                                 title="Start all nodes">
                                 {% call icons::play() %}
