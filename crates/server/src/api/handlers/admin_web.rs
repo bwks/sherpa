@@ -35,7 +35,7 @@ pub struct UserSummary {
 
 /// Admin users page - lists all users
 ///
-/// GET /admin/users
+/// GET `/admin/users`
 pub async fn admin_dashboard_handler(
     State(state): State<AppState>,
     admin: AdminUser,
@@ -90,7 +90,7 @@ pub async fn admin_dashboard_handler(
 
 /// Admin labs list - shows all labs across all users
 ///
-/// GET /admin/labs
+/// GET `/admin/labs`
 pub async fn admin_labs_list_handler(
     State(state): State<AppState>,
     admin: AdminUser,
@@ -141,7 +141,7 @@ pub async fn admin_labs_list_handler(
 
 /// Admin tools page
 ///
-/// GET /admin/tools
+/// GET `/admin/tools`
 pub async fn admin_tools_handler(admin: AdminUser) -> impl IntoResponse {
     AdminToolsTemplate {
         username: admin.username,
@@ -152,7 +152,7 @@ pub async fn admin_tools_handler(admin: AdminUser) -> impl IntoResponse {
 
 /// Admin lab clean - force-clean all resources for a lab
 ///
-/// POST /`admin/tools/clean/{lab_id`}
+/// POST `/admin/tools/clean/{lab_id}`
 #[tracing::instrument(skip(state), fields(%lab_id))]
 pub async fn admin_tools_clean_handler(
     admin: AdminUser,
@@ -175,7 +175,7 @@ pub async fn admin_tools_clean_handler(
 
 /// Admin image scan - scan filesystem and Docker for discoverable images
 ///
-/// POST /admin/tools/scan
+/// POST `/admin/tools/scan`
 #[tracing::instrument(skip(state))]
 pub async fn admin_tools_scan_handler(
     admin: AdminUser,
@@ -474,7 +474,7 @@ pub async fn admin_delete_ssh_key_handler(
 
 /// Admin delete user handler
 ///
-/// DELETE /admin/users/{username}
+/// DELETE `/admin/users/{username}`
 ///
 /// On success the response is empty and HTMX removes the user's table row. A refused delete
 /// (self-delete, last admin, or a user who owns labs) is shown in the page's

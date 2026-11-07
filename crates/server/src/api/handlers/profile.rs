@@ -36,7 +36,7 @@ pub struct AddSshKeyForm {
 
 /// Display user profile page
 ///
-/// GET /profile
+/// GET `/profile`
 ///
 /// Shows user profile with password change form and SSH key management.
 /// Requires authentication via cookie.
@@ -70,7 +70,7 @@ pub async fn profile_handler(
 
 /// Update user password
 ///
-/// POST /profile/password
+/// POST `/profile/password`
 ///
 /// Validates current password, checks new password strength, and updates password.
 /// Returns HTML fragment for HTMX swap (success or error message).
@@ -116,7 +116,7 @@ pub async fn update_password_handler(
 
 /// Add SSH key to user profile
 ///
-/// POST /profile/ssh-keys
+/// POST `/profile/ssh-keys`
 ///
 /// Validates SSH key format and adds it to user's profile.
 /// Returns updated SSH keys list HTML fragment for HTMX swap.
@@ -180,7 +180,7 @@ pub async fn add_ssh_key_handler(
 
 /// Delete SSH key from user profile
 ///
-/// DELETE /profile/ssh-keys/{index}
+/// DELETE `/profile/ssh-keys/{index}`
 ///
 /// Removes SSH key at the specified index from user's profile.
 /// Returns updated SSH keys list HTML fragment for HTMX swap.

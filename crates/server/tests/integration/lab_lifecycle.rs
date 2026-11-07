@@ -18,7 +18,7 @@ use crate::helpers::test_server::{
 use crate::helpers::ws_client::TestWsClient;
 
 /// Checks a personal account's user, home, shell and passwordless sudo.
-const ACCOUNT_CHECK: &str = "test \"$(id -un)\" = \"${USER}\" && test \"$HOME\" = \"/home/${USER}\" && test \"$SHELL\" = /bin/bash && test -d \"$HOME\" && sudo -n true";
+const ACCOUNT_CHECK: &str = r#"test "$(id -un)" = "${USER}" && test "$HOME" = "/home/${USER}" && test "$SHELL" = /bin/bash && test -d "$HOME" && sudo -n true"#;
 
 /// Helper to create a minimal container-only manifest
 fn container_manifest(lab_name: &str) -> serde_json::Value {

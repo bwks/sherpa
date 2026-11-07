@@ -22,16 +22,29 @@ pub fn reject_provisioners(manifest: &topology::Manifest) -> Result<()> {
 mod tests {
     use super::*;
 
+    const SSH_PROVISIONER: &str = r#"
+        [[nodes.provisioners]]
+        type = "ssh"
+        scripts = ["a.sh"]
+    "#;
+
     fn manifest(provisioner: &str) -> topology::Manifest {
         toml::from_str(&format!(
-            "name = \"lab\"\n[[nodes]]\nname = \"dev01\"\nmodel = \"ubuntu_linux\"\n{provisioner}"
+            r#"
+            name = "lab"
+
+            [[nodes]]
+            name = "dev01"
+            model = "ubuntu_linux"
+            {provisioner}
+            "#
         ))
         .unwrap()
     }
 
     #[test]
     fn manifests_with_provisioners_are_refused() {
-        let manifest = manifest("[[nodes.provisioners]]\ntype = \"ssh\"\nscripts = [\"a.sh\"]\n");
+        let manifest = manifest(SSH_PROVISIONER);
         let error = reject_provisioners(&manifest).unwrap_err().to_string();
         assert!(error.contains("dev01"), "{error}");
         assert!(error.contains("sherpa up"), "{error}");
@@ -44,7 +57,7 @@ mod tests {
 
     #[test]
     fn manifests_sent_by_the_client_never_carry_provisioners() {
-        let manifest = manifest("[[nodes.provisioners]]\ntype = \"ssh\"\nscripts = [\"a.sh\"]\n");
+        let manifest = manifest(SSH_PROVISIONER);
         let sent: topology::Manifest =
             serde_json::from_value(serde_json::to_value(&manifest).unwrap()).unwrap();
         reject_provisioners(&sent).unwrap();

@@ -107,7 +107,7 @@ pub struct SignupForm {
 
 /// Display login page
 ///
-/// GET /login
+/// GET `/login`
 ///
 /// Shows the login form. If user is already authenticated (valid cookie),
 /// redirects to dashboard.
@@ -160,7 +160,7 @@ pub async fn login_page_handler(
 
 /// Process login form submission
 ///
-/// POST /login
+/// POST `/login`
 ///
 /// Validates credentials and sets authentication cookie on success.
 /// Returns HTMX-compatible response (either error HTML or redirect header).
@@ -253,7 +253,7 @@ pub async fn login_form_handler(
 
 /// Display signup page
 ///
-/// GET /signup
+/// GET `/signup`
 ///
 /// Shows the signup form with password requirements.
 pub async fn signup_page_handler(State(state): State<AppState>) -> Response {
@@ -265,7 +265,7 @@ pub async fn signup_page_handler(State(state): State<AppState>) -> Response {
 
 /// Process signup form submission
 ///
-/// POST /signup
+/// POST `/signup`
 ///
 /// Creates a new user account with the provided credentials.
 /// All self-registered users are created as non-admin.
@@ -434,7 +434,7 @@ fn extract_validation_message(error_str: &str, context: &str) -> String {
 
 /// Logout handler
 ///
-/// POST /logout
+/// POST `/logout`
 ///
 /// Clears the authentication cookie and redirects to login page.
 pub async fn logout_handler() -> impl IntoResponse {

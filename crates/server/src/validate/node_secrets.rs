@@ -57,8 +57,17 @@ mod tests {
 
     fn manifest() -> topology::Manifest {
         toml::from_str(
-            "name = \"lab\"\n[[nodes]]\nname = \"db01\"\nmodel = \"mongo_db\"\n\
-             [[nodes]]\nname = \"dev01\"\nmodel = \"ubuntu_linux\"\n",
+            r#"
+            name = "lab"
+
+            [[nodes]]
+            name = "db01"
+            model = "mongo_db"
+
+            [[nodes]]
+            name = "dev01"
+            model = "ubuntu_linux"
+            "#,
         )
         .unwrap()
     }

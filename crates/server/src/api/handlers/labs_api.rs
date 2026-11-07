@@ -158,7 +158,7 @@ pub(super) fn require_admin_auth(auth: &AuthenticatedUser) -> Result<(), ApiErro
 
 /// Create a lab (SSE streaming)
 ///
-/// POST /api/v1/labs
+/// POST `/api/v1/labs`
 pub async fn create_lab_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -182,7 +182,7 @@ pub async fn create_lab_json(
 
 /// Destroy a lab (SSE streaming)
 ///
-/// DELETE /`api/v1/labs/{lab_id`}
+/// DELETE `/api/v1/labs/{lab_id}`
 pub async fn delete_lab_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -206,7 +206,7 @@ pub async fn delete_lab_json(
 
 /// Stop lab nodes
 ///
-/// POST /`api/v1/labs/{lab_id}/down`
+/// POST `/api/v1/labs/{lab_id}/down`
 pub async fn down_lab_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -225,7 +225,7 @@ pub async fn down_lab_json(
 
 /// Stop the operations running on a lab and wait for them to end
 ///
-/// POST /`api/v1/labs/{lab_id}/cancel`
+/// POST `/api/v1/labs/{lab_id}/cancel`
 pub async fn cancel_lab_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -242,7 +242,7 @@ pub async fn cancel_lab_json(
 
 /// Resume lab nodes
 ///
-/// POST /`api/v1/labs/{lab_id}/resume`
+/// POST `/api/v1/labs/{lab_id}/resume`
 pub async fn resume_lab_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -269,7 +269,7 @@ pub async fn resume_lab_json(
 
 /// Redeploy a lab node (SSE streaming)
 ///
-/// POST /`api/v1/labs/{lab_id}/nodes/{node_name}/redeploy`
+/// POST `/api/v1/labs/{lab_id}/nodes/{node_name}/redeploy`
 pub async fn redeploy_node_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -313,7 +313,7 @@ pub async fn redeploy_node_json(
 
 /// Force-clean a lab (admin only)
 ///
-/// POST /`api/v1/admin/tools/labs/clean/{lab_id`}
+/// POST `/api/v1/admin/tools/labs/clean/{lab_id}`
 pub async fn clean_lab_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -333,7 +333,7 @@ pub async fn clean_lab_json(
 
 /// Update link impairment on a running P2p link
 ///
-/// POST /`api/v1/labs/{lab_id}/links/{link_index}/impairment`
+/// POST `/api/v1/labs/{lab_id}/links/{link_index}/impairment`
 pub async fn update_impairment_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,

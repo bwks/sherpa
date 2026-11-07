@@ -82,7 +82,7 @@ pub async fn dashboard_handler(
 
 /// Labs list full page handler
 ///
-/// GET /labs/list
+/// GET `/labs/list`
 pub async fn labs_list_page_handler(auth: AuthenticatedUserFromCookie) -> impl IntoResponse {
     LabsListTemplate {
         username: auth.username,
@@ -142,7 +142,7 @@ pub async fn get_labs_html(
 
 /// Stop all nodes in a lab (web UI handler, cookie auth)
 ///
-/// POST /`labs/{lab_id}/stop`
+/// POST `/labs/{lab_id}/stop`
 #[tracing::instrument(skip(state), fields(%lab_id))]
 pub async fn lab_stop_handler(
     auth: AuthenticatedUserFromCookie,
@@ -160,7 +160,7 @@ pub async fn lab_stop_handler(
 
 /// Start all nodes in a lab (web UI handler, cookie auth)
 ///
-/// POST /`labs/{lab_id}/start`
+/// POST `/labs/{lab_id}/start`
 #[tracing::instrument(skip(state), fields(%lab_id))]
 pub async fn lab_start_handler(
     auth: AuthenticatedUserFromCookie,
@@ -179,7 +179,7 @@ pub async fn lab_start_handler(
 
 /// Stop a single node in a lab (web UI handler, cookie auth)
 ///
-/// POST /`labs/{lab_id}/nodes/{node_name}/stop`
+/// POST `/labs/{lab_id}/nodes/{node_name}/stop`
 #[tracing::instrument(skip(state), fields(%lab_id, %node_name))]
 pub async fn node_stop_handler(
     auth: AuthenticatedUserFromCookie,
@@ -198,7 +198,7 @@ pub async fn node_stop_handler(
 
 /// Start a single node in a lab (web UI handler, cookie auth)
 ///
-/// POST /`labs/{lab_id}/nodes/{node_name}/start`
+/// POST `/labs/{lab_id}/nodes/{node_name}/start`
 #[tracing::instrument(skip(state), fields(%lab_id, %node_name))]
 pub async fn node_start_handler(
     auth: AuthenticatedUserFromCookie,
@@ -217,7 +217,7 @@ pub async fn node_start_handler(
 
 /// Redeploy a single node in a lab (web UI handler, cookie auth)
 ///
-/// POST /`labs/{lab_id}/nodes/{node_name}/redeploy`
+/// POST `/labs/{lab_id}/nodes/{node_name}/redeploy`
 #[tracing::instrument(skip(state), fields(%lab_id, %node_name))]
 pub async fn node_redeploy_handler(
     auth: AuthenticatedUserFromCookie,
@@ -402,7 +402,7 @@ fn lab_error_fragment(error: &anyhow::Error, failure_message: &str) -> Response 
 
 /// Node detail page (web UI handler, cookie auth)
 ///
-/// GET /`labs/{lab_id}/nodes/{node_name`}
+/// GET `/labs/{lab_id}/nodes/{node_name}`
 #[tracing::instrument(skip(state), fields(%lab_id, %node_name))]
 pub async fn node_detail_handler(
     Path((lab_id, node_name)): Path<(String, String)>,
@@ -515,7 +515,7 @@ pub async fn node_detail_handler(
 
 /// Handler to return the nodes table fragment for HTMX polling
 ///
-/// GET /`labs/{lab_id}/nodes`
+/// GET `/labs/{lab_id}/nodes`
 pub async fn lab_nodes_handler(
     Path(lab_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
@@ -537,7 +537,7 @@ pub async fn lab_nodes_handler(
 
 /// Download lab files as a zip archive
 ///
-/// GET /`labs/{lab_id}/download`
+/// GET `/labs/{lab_id}/download`
 ///
 /// Returns a zip containing lab-info.toml and `sherpa_ssh_config`, plus `sherpa_known_hosts` when
 /// node host keys were recorded and `sherpa_ssh_key` when the lab's SSH config uses the server
@@ -602,7 +602,7 @@ pub async fn lab_download_handler(
 
 /// Handler to return the destroy confirmation panel
 ///
-/// GET /`labs/{lab_id}/destroy/confirm`
+/// GET `/labs/{lab_id}/destroy/confirm`
 pub async fn lab_destroy_confirm_handler(
     Path(lab_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
@@ -621,7 +621,7 @@ pub async fn lab_destroy_confirm_handler(
 
 /// Handler to return the original destroy button (used by Cancel)
 ///
-/// GET /`labs/{lab_id}/destroy/button`
+/// GET `/labs/{lab_id}/destroy/button`
 pub async fn lab_destroy_button_handler(
     Path(lab_id): Path<String>,
     _auth: AuthenticatedUserFromCookie,
@@ -631,7 +631,7 @@ pub async fn lab_destroy_button_handler(
 
 /// Handler to initiate destroy — creates a job and redirects to the jobs page
 ///
-/// POST /`labs/{lab_id}/destroy`
+/// POST `/labs/{lab_id}/destroy`
 pub async fn lab_destroy_post_handler(
     Path(lab_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
@@ -668,7 +668,7 @@ pub async fn lab_destroy_post_handler(
 
 /// Handler to render the job progress page
 ///
-/// GET /`jobs/{job_id`}
+/// GET `/jobs/{job_id}`
 pub async fn job_page_handler(
     Path(job_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
@@ -718,7 +718,7 @@ pub async fn job_page_handler(
 
 /// Handler to stream job progress via SSE
 ///
-/// GET /`jobs/{job_id}/stream`
+/// GET `/jobs/{job_id}/stream`
 pub async fn job_stream_handler(
     Path(job_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
@@ -785,7 +785,7 @@ pub async fn job_stream_handler(
 
 /// Handler to show the create lab page
 ///
-/// GET /labs/create
+/// GET `/labs/create`
 pub async fn lab_create_page_handler(auth: AuthenticatedUserFromCookie) -> impl IntoResponse {
     let generated_name = generate_lab_name().unwrap_or_else(|_| "my-lab".to_string());
     let models: Vec<String> = NodeModel::iter().map(|m| m.to_string()).collect();
@@ -801,7 +801,7 @@ pub async fn lab_create_page_handler(auth: AuthenticatedUserFromCookie) -> impl 
 
 /// Handler to validate manifest and initiate lab creation
 ///
-/// POST /labs/create
+/// POST `/labs/create`
 pub async fn lab_create_post_handler(
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,

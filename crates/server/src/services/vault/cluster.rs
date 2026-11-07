@@ -34,8 +34,13 @@ pub fn cluster_auth_mount(cluster_name: &str) -> String {
 /// Policy letting a cluster's workloads read the secrets under `secret/<cluster>/`.
 fn cluster_policy(cluster_name: &str) -> String {
     format!(
-        "path \"{VAULT_KV_MOUNT}/data/{cluster_name}/*\" {{\n  capabilities = [\"read\"]\n}}\n\
-         path \"{VAULT_KV_MOUNT}/metadata/{cluster_name}/*\" {{\n  capabilities = [\"read\", \"list\"]\n}}\n"
+        r#"path "{VAULT_KV_MOUNT}/data/{cluster_name}/*" {{
+  capabilities = ["read"]
+}}
+path "{VAULT_KV_MOUNT}/metadata/{cluster_name}/*" {{
+  capabilities = ["read", "list"]
+}}
+"#
     )
 }
 
@@ -127,8 +132,13 @@ mod tests {
     fn workloads_read_only_their_clusters_secrets() {
         assert_eq!(
             cluster_policy("k8s"),
-            "path \"secret/data/k8s/*\" {\n  capabilities = [\"read\"]\n}\n\
-             path \"secret/metadata/k8s/*\" {\n  capabilities = [\"read\", \"list\"]\n}\n"
+            r#"path "secret/data/k8s/*" {
+  capabilities = ["read"]
+}
+path "secret/metadata/k8s/*" {
+  capabilities = ["read", "list"]
+}
+"#
         );
     }
 }
