@@ -1,4 +1,5 @@
-// Shared per-node operations extracted from up.rs for reuse by redeploy.rs
+//! Per-node operations shared by `up`, `redeploy` and `resume`: configuration, domains and
+//! starting nodes.
 
 use std::collections::HashSet;
 use std::fs;
@@ -19,6 +20,7 @@ use crate::services::progress::ProgressSender;
 use crate::tls::generator::write_file_with_permissions;
 use crate::tls::lab_ca::NodeCertPaths;
 
+use container::ContainerSpec;
 use iso::create_iso;
 use network::NetnsVethState;
 use shared::data;
@@ -50,9 +52,10 @@ use shared::konst::{
     SHERPA_PASSWORD_HASH, SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
     SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_READY_HANDSHAKE_TIMEOUT,
-    TALOS_API_PORT, TELNET_PORT, VAULT_API_PORT, VAULT_CLUSTER_PORT, VAULT_ZTP_CONFIG_MOUNT,
-    WINDOWS_ADMINISTRATORS_SID, WINDOWS_AUTHORIZED_KEYS_DIR, WINDOWS_SSHD_AUTHORIZED_KEYS_DIR,
-    WINDOWS_SSHD_CONFIG, WINDOWS_SYSTEM_SID, ZTP_DIR, ZTP_ISO, ZTP_ISO_VOLUME_ID, ZTP_JSON,
+    TALOS_API_PORT, TELNET_PORT, TFTP_DIR, VAULT_API_PORT, VAULT_CLUSTER_PORT,
+    VAULT_ZTP_CONFIG_MOUNT, WINDOWS_ADMINISTRATORS_SID, WINDOWS_AUTHORIZED_KEYS_DIR,
+    WINDOWS_SSHD_AUTHORIZED_KEYS_DIR, WINDOWS_SSHD_CONFIG, WINDOWS_SYSTEM_SID, ZTP_DIR, ZTP_ISO,
+    ZTP_ISO_VOLUME_ID, ZTP_JSON,
 };
 use shared::util;
 use shared::validators::{
@@ -67,6 +70,39 @@ const BINARY_FILES_DIR: &str = "binary_files";
 
 // ============================================================================
 // Result structs
+/// What generating a lab's node configurations needs: its folders and management network, the
+/// accounts, and where progress goes.
+#[derive(Clone, Copy)]
+pub(crate) struct LabZtp<'a> {
+    pub(crate) lab_id: &'a str,
+    pub(crate) lab_dir: &'a str,
+    pub(crate) images_dir: &'a str,
+    pub(crate) sherpa_user: &'a data::User,
+    pub(crate) dns: &'a data::Dns,
+    pub(crate) mgmt_net: &'a data::SherpaNetwork,
+    pub(crate) progress: &'a ProgressSender,
+    /// The lab owner's account; each node gets its own form of it, if it takes one.
+    pub(crate) owner_account: Option<&'a GuestAccount>,
+}
+
+/// One VM's part of generating its configuration: the lab's, plus the node's addresses,
+/// certificate and account. Every ZTP method's generator takes it.
+#[derive(Clone, Copy)]
+struct NodeZtp<'a> {
+    lab_dir: &'a str,
+    tftp_dir: &'a str,
+    images_dir: &'a str,
+    sherpa_user: &'a data::User,
+    dns: &'a data::Dns,
+    mgmt_net: &'a data::SherpaNetwork,
+    progress: &'a ProgressSender,
+    node_ipv4_address: Ipv4Addr,
+    mac_address: &'a str,
+    node_name_with_lab: &'a str,
+    cert_paths: Option<&'a NodeCertPaths>,
+    guest_account: Option<&'a GuestAccount>,
+}
+
 // ============================================================================
 
 pub struct ContainerZtpResult {
@@ -103,6 +139,18 @@ pub enum VmReadiness {
 /// `runcmd` once its owner exists. This avoids `write_files` `defer`, which some images'
 /// cloud-init configs never run.
 #[derive(Debug)]
+/// The disks, interfaces and networks a VM or unikernel domain is built from.
+pub struct DomainParts {
+    pub disks: Vec<data::NodeDisk>,
+    pub interfaces: Vec<data::Interface>,
+    pub loopback_ipv4: String,
+    pub management_network: String,
+    /// Empty when the node has no isolated network.
+    pub isolated_network: String,
+    /// Empty when the node has no reserved network.
+    pub reserved_network: String,
+}
+
 struct StagedFile {
     /// Absolute path, or `~/`-relative to the user's home, which is looked up at boot because
     /// it differs by OS (`/usr/home` on FreeBSD).
@@ -117,7 +165,7 @@ struct StagedFile {
 }
 
 // ============================================================================
-// Helper functions (moved from up.rs)
+// Helper functions
 // ============================================================================
 
 pub fn node_isolated_network_data(
@@ -207,20 +255,20 @@ pub(crate) fn write_nocloud_files(
 }
 
 /// Build the NoCloud `cidata` ISO for a node.
-#[tracing::instrument(
-    level = "debug",
-    skip(node, mgmt_net, user_data, progress),
-    fields(node_name = %node.name)
-)]
+#[instrument(level = "debug", skip_all, fields(node_name = %node.name))]
 fn generate_nocloud_ztp(
     node: &topology::NodeExpanded,
-    lab_dir: &str,
-    mgmt_net: &data::SherpaNetwork,
-    node_ipv4_address: Ipv4Addr,
-    mac_address: &str,
+    ztp: &NodeZtp<'_>,
     user_data: Option<&str>,
-    progress: &ProgressSender,
 ) -> Result<()> {
+    let NodeZtp {
+        lab_dir,
+        mgmt_net,
+        node_ipv4_address,
+        mac_address,
+        progress,
+        ..
+    } = *ztp;
     let dir = format!("{lab_dir}/{}", node.name);
     if user_data.is_none() {
         let _ = progress.send_status(
@@ -306,19 +354,22 @@ pub fn model_capabilities(model: &data::NodeModel) -> Vec<String> {
 
 /// Generate ZTP configuration for a container node.
 /// Returns the image, env_vars, volumes, commands, privileged flag, user, and ZTP record.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn generate_container_ztp(
     node: &mut topology::NodeExpanded,
     node_image: &data::NodeConfig,
-    lab_dir: &str,
-    sherpa_user: &data::User,
-    dns: &data::Dns,
-    mgmt_net: &data::SherpaNetwork,
+    lab: &LabZtp<'_>,
     node_ipv4_address: Ipv4Addr,
-    progress: &ProgressSender,
     cert_paths: Option<&NodeCertPaths>,
-    guest_account: Option<&GuestAccount>,
 ) -> Result<ContainerZtpResult> {
+    let LabZtp {
+        lab_dir,
+        sherpa_user,
+        dns,
+        mgmt_net,
+        progress,
+        owner_account: guest_account,
+        ..
+    } = *lab;
     let node_account = guest_account::node_owner(guest_account, node, node_image)?;
     let guest_account = node_account.as_ref();
     let dir = format!("{}/{}", lab_dir, node.name);
@@ -770,36 +821,26 @@ fn ceos_startup_commands() -> Vec<String> {
 
 /// Generate ZTP configuration for a VM node.
 /// Returns ZTP record, clone disks, disk definitions, MAC address, and QEMU commands.
-#[allow(clippy::too_many_arguments)]
-#[instrument(
-    level = "debug",
-    skip(
-        node,
-        node_image,
-        sherpa_user,
-        mgmt_net,
-        dns,
-        progress,
-        cert_paths,
-        guest_account
-    )
-)]
+#[instrument(level = "debug", skip_all, fields(node_name = %node.name))]
 pub(crate) fn generate_vm_ztp(
     node: &mut topology::NodeExpanded,
     node_image: &data::NodeConfig,
-    lab_id: &str,
-    lab_dir: &str,
-    tftp_dir: &str,
-    images_dir: &str,
-    mgmt_net: &data::SherpaNetwork,
+    lab: &LabZtp<'_>,
     node_ipv4_address: Ipv4Addr,
-    sherpa_user: &data::User,
-    dns: &data::Dns,
-    progress: &ProgressSender,
     mgmt_mac: Option<&str>,
     cert_paths: Option<&NodeCertPaths>,
-    guest_account: Option<&GuestAccount>,
 ) -> Result<VmZtpResult> {
+    let LabZtp {
+        lab_id,
+        lab_dir,
+        images_dir,
+        sherpa_user,
+        dns,
+        mgmt_net,
+        progress,
+        owner_account: guest_account,
+    } = *lab;
+    let tftp_dir = format!("{lab_dir}/{ZTP_DIR}/{TFTP_DIR}");
     let node_account = guest_account::node_owner(guest_account, node, node_image)?;
     let guest_account = node_account.as_ref();
     let node_name_with_lab = format!("{}-{}", node.name, lab_id);
@@ -811,6 +852,20 @@ pub(crate) fn generate_vm_ztp(
         .map(|m| m.to_string())
         .unwrap_or_else(|| util::random_mac(KVM_OUI));
 
+    let ztp = NodeZtp {
+        lab_dir,
+        tftp_dir: &tftp_dir,
+        images_dir,
+        sherpa_user,
+        dns,
+        mgmt_net,
+        progress,
+        node_ipv4_address,
+        mac_address: &mac_address,
+        node_name_with_lab: &node_name_with_lab,
+        cert_paths,
+        guest_account,
+    };
     let mut clone_disks: Vec<data::CloneDisk> = vec![];
     let mut disks: Vec<data::NodeDisk> = vec![];
 
@@ -870,131 +925,45 @@ pub(crate) fn generate_vm_ztp(
 
         match node_image.ztp.method {
             data::ZtpMethod::CloudInit => {
-                generate_cloud_init_ztp(
-                    node,
-                    node_image,
-                    lab_dir,
-                    mgmt_net,
-                    node_ipv4_address,
-                    &mac_address,
-                    progress,
-                    cert_paths,
-                    guest_account,
-                )?;
+                generate_cloud_init_ztp(node, node_image, &ztp)?;
                 src_cdrom_iso = Some(format!("{lab_dir}/{}/{ZTP_ISO}", node.name));
                 dst_cdrom_iso = Some(format!(
                     "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}.iso"
                 ));
             }
             data::ZtpMethod::Tftp => {
-                generate_tftp_ztp(
-                    node,
-                    node_image,
-                    tftp_dir,
-                    sherpa_user,
-                    dns,
-                    mgmt_net,
-                    node_ipv4_address,
-                    &custom_ztp,
-                    progress,
-                    guest_account,
-                )?;
+                generate_tftp_ztp(node, node_image, &ztp, &custom_ztp)?;
             }
             data::ZtpMethod::NoCloud => {
-                generate_nocloud_ztp(
-                    node,
-                    lab_dir,
-                    mgmt_net,
-                    node_ipv4_address,
-                    &mac_address,
-                    custom_ztp.as_deref(),
-                    progress,
-                )?;
+                generate_nocloud_ztp(node, &ztp, custom_ztp.as_deref())?;
                 src_cdrom_iso = Some(format!("{lab_dir}/{}/{ZTP_ISO}", node.name));
                 dst_cdrom_iso = Some(format!(
                     "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}.iso"
                 ));
             }
             data::ZtpMethod::Cdrom => {
-                generate_cdrom_ztp(
-                    node,
-                    node_image,
-                    lab_dir,
-                    sherpa_user,
-                    dns,
-                    mgmt_net,
-                    node_ipv4_address,
-                    &custom_ztp,
-                    progress,
-                    guest_account,
-                )?;
+                generate_cdrom_ztp(node, node_image, &ztp, &custom_ztp)?;
                 src_cdrom_iso = Some(format!("{lab_dir}/{}/{ZTP_ISO}", node.name));
                 dst_cdrom_iso = Some(format!(
                     "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}.iso"
                 ));
             }
             data::ZtpMethod::Disk => {
-                let (src_cfg, dst_cfg) = generate_disk_ztp(
-                    node,
-                    node_image,
-                    lab_dir,
-                    images_dir,
-                    sherpa_user,
-                    dns,
-                    mgmt_net,
-                    node_ipv4_address,
-                    &node_name_with_lab,
-                    &custom_ztp,
-                    progress,
-                    guest_account,
-                )?;
+                let (src_cfg, dst_cfg) = generate_disk_ztp(node, node_image, &ztp, &custom_ztp)?;
                 src_config_disk = Some(src_cfg);
                 dst_config_disk = Some(dst_cfg);
             }
             data::ZtpMethod::Usb => {
-                let (src_usb, dst_usb) = generate_usb_ztp(
-                    node,
-                    node_image,
-                    lab_dir,
-                    images_dir,
-                    sherpa_user,
-                    dns,
-                    mgmt_net,
-                    node_ipv4_address,
-                    &node_name_with_lab,
-                    &custom_ztp,
-                    progress,
-                    guest_account,
-                )?;
+                let (src_usb, dst_usb) = generate_usb_ztp(node, node_image, &ztp, &custom_ztp)?;
                 src_usb_disk = Some(src_usb);
                 dst_usb_disk = Some(dst_usb);
             }
             data::ZtpMethod::Http => {
-                generate_http_ztp(
-                    node,
-                    node_image,
-                    lab_dir,
-                    sherpa_user,
-                    mgmt_net,
-                    node_ipv4_address,
-                    progress,
-                    guest_account,
-                )?;
+                generate_http_ztp(node, node_image, &ztp)?;
             }
             data::ZtpMethod::Ignition => {
-                let (src_ign, dst_ign, src_cfg, dst_cfg) = generate_ignition_ztp(
-                    node,
-                    node_image,
-                    lab_dir,
-                    images_dir,
-                    sherpa_user,
-                    mgmt_net,
-                    node_ipv4_address,
-                    &node_name_with_lab,
-                    progress,
-                    cert_paths,
-                    guest_account,
-                )?;
+                let (src_ign, dst_ign, src_cfg, dst_cfg) =
+                    generate_ignition_ztp(node, node_image, &ztp)?;
                 src_ignition_disk = Some(src_ign);
                 dst_ignition_disk = Some(dst_ign);
                 src_config_disk = Some(src_cfg);
@@ -1723,18 +1692,22 @@ fn cloud_init_user_settings(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[instrument(level = "debug", skip_all, fields(node_name = %node.name))]
 fn generate_cloud_init_ztp(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
-    lab_dir: &str,
-    mgmt_net: &data::SherpaNetwork,
-    node_ipv4_address: Ipv4Addr,
-    mac_address: &str,
-    progress: &ProgressSender,
-    cert_paths: Option<&NodeCertPaths>,
-    guest_account: Option<&GuestAccount>,
+    ztp: &NodeZtp<'_>,
 ) -> Result<()> {
+    let NodeZtp {
+        lab_dir,
+        mgmt_net,
+        node_ipv4_address,
+        mac_address,
+        progress,
+        cert_paths,
+        guest_account,
+        ..
+    } = *ztp;
     let _ = progress.send_status(
         format!("Creating Cloud-Init config for VM: {}", node.name),
         StatusKind::Progress,
@@ -2101,19 +2074,23 @@ fn generate_cloud_init_ztp(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[instrument(level = "debug", skip_all, fields(node_name = %node.name))]
 fn generate_tftp_ztp(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
-    tftp_dir: &str,
-    sherpa_user: &data::User,
-    dns: &data::Dns,
-    mgmt_net: &data::SherpaNetwork,
-    node_ipv4_address: Ipv4Addr,
+    ztp: &NodeZtp<'_>,
     custom_ztp: &Option<String>,
-    progress: &ProgressSender,
-    guest_account: Option<&GuestAccount>,
 ) -> Result<()> {
+    let NodeZtp {
+        tftp_dir,
+        sherpa_user,
+        dns,
+        mgmt_net,
+        node_ipv4_address,
+        progress,
+        guest_account,
+        ..
+    } = *ztp;
     let _ = progress.send_status(
         format!("Creating TFTP ZTP config for VM: {}", node.name),
         StatusKind::Progress,
@@ -2178,19 +2155,23 @@ fn generate_tftp_ztp(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[instrument(level = "debug", skip_all, fields(node_name = %node.name))]
 fn generate_cdrom_ztp(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
-    lab_dir: &str,
-    sherpa_user: &data::User,
-    dns: &data::Dns,
-    mgmt_net: &data::SherpaNetwork,
-    node_ipv4_address: Ipv4Addr,
+    ztp: &NodeZtp<'_>,
     custom_ztp: &Option<String>,
-    progress: &ProgressSender,
-    guest_account: Option<&GuestAccount>,
 ) -> Result<()> {
+    let NodeZtp {
+        lab_dir,
+        sherpa_user,
+        dns,
+        mgmt_net,
+        node_ipv4_address,
+        progress,
+        guest_account,
+        ..
+    } = *ztp;
     let _ = progress.send_status(
         format!("Creating CDROM ZTP config for VM: {}", node.name),
         StatusKind::Progress,
@@ -2400,21 +2381,25 @@ fn generate_cdrom_ztp(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[instrument(level = "debug", skip_all, fields(node_name = %node.name))]
 fn generate_disk_ztp(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
-    lab_dir: &str,
-    images_dir: &str,
-    sherpa_user: &data::User,
-    dns: &data::Dns,
-    mgmt_net: &data::SherpaNetwork,
-    node_ipv4_address: Ipv4Addr,
-    node_name_with_lab: &str,
+    ztp: &NodeZtp<'_>,
     custom_ztp: &Option<String>,
-    progress: &ProgressSender,
-    guest_account: Option<&GuestAccount>,
 ) -> Result<(String, String)> {
+    let NodeZtp {
+        lab_dir,
+        images_dir,
+        sherpa_user,
+        dns,
+        mgmt_net,
+        node_ipv4_address,
+        node_name_with_lab,
+        progress,
+        guest_account,
+        ..
+    } = *ztp;
     let _ = progress.send_status(
         format!("Creating Disk ZTP config for VM: {}", node.name),
         StatusKind::Progress,
@@ -2607,21 +2592,25 @@ fn generate_disk_ztp(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[instrument(level = "debug", skip_all, fields(node_name = %node.name))]
 fn generate_usb_ztp(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
-    lab_dir: &str,
-    images_dir: &str,
-    sherpa_user: &data::User,
-    dns: &data::Dns,
-    mgmt_net: &data::SherpaNetwork,
-    node_ipv4_address: Ipv4Addr,
-    node_name_with_lab: &str,
+    ztp: &NodeZtp<'_>,
     custom_ztp: &Option<String>,
-    progress: &ProgressSender,
-    guest_account: Option<&GuestAccount>,
 ) -> Result<(String, String)> {
+    let NodeZtp {
+        lab_dir,
+        images_dir,
+        sherpa_user,
+        dns,
+        mgmt_net,
+        node_ipv4_address,
+        node_name_with_lab,
+        progress,
+        guest_account,
+        ..
+    } = *ztp;
     let _ = progress.send_status(
         format!("Creating USB ZTP config for VM: {}", node.name),
         StatusKind::Progress,
@@ -2707,17 +2696,21 @@ fn generate_usb_ztp(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[instrument(level = "debug", skip_all, fields(node_name = %node.name))]
 fn generate_http_ztp(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
-    lab_dir: &str,
-    sherpa_user: &data::User,
-    mgmt_net: &data::SherpaNetwork,
-    node_ipv4_address: Ipv4Addr,
-    progress: &ProgressSender,
-    guest_account: Option<&GuestAccount>,
+    ztp: &NodeZtp<'_>,
 ) -> Result<()> {
+    let NodeZtp {
+        lab_dir,
+        sherpa_user,
+        mgmt_net,
+        node_ipv4_address,
+        progress,
+        guest_account,
+        ..
+    } = *ztp;
     let _ = progress.send_status(
         format!("Creating HTTP ZTP config for VM: {}", node.name),
         StatusKind::Progress,
@@ -2798,20 +2791,24 @@ fn write_binary_files(dir: &str, files: &[BinaryFileData]) -> Result<Vec<String>
         .collect()
 }
 
-#[allow(clippy::too_many_arguments)]
+#[instrument(level = "debug", skip_all, fields(node_name = %node.name))]
 fn generate_ignition_ztp(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
-    lab_dir: &str,
-    images_dir: &str,
-    sherpa_user: &data::User,
-    mgmt_net: &data::SherpaNetwork,
-    node_ipv4_address: Ipv4Addr,
-    node_name_with_lab: &str,
-    progress: &ProgressSender,
-    cert_paths: Option<&NodeCertPaths>,
-    guest_account: Option<&GuestAccount>,
+    ztp: &NodeZtp<'_>,
 ) -> Result<(String, String, String, String)> {
+    let NodeZtp {
+        lab_dir,
+        images_dir,
+        sherpa_user,
+        mgmt_net,
+        node_ipv4_address,
+        node_name_with_lab,
+        progress,
+        cert_paths,
+        guest_account,
+        ..
+    } = *ztp;
     let _ = progress.send_status(
         format!("Creating Ignition config for VM: {}", node.name),
         StatusKind::Progress,
@@ -2992,22 +2989,16 @@ fn generate_ignition_ztp(
 /// Build a DomainTemplate from node data, image config, disks, interfaces, and networks.
 #[instrument(
     level = "debug",
-    skip(node, node_image, disks, interfaces, qemu_commands),
+    skip(node, node_image, parts, qemu_commands),
     fields(node_name = %node.name)
 )]
-#[allow(clippy::too_many_arguments)]
 pub fn build_domain_template(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
     lab_id: &str,
     qemu_bin: &str,
-    disks: Vec<data::NodeDisk>,
-    interfaces: Vec<data::Interface>,
+    parts: DomainParts,
     qemu_commands: Vec<data::QemuCommand>,
-    loopback_ipv4: String,
-    management_network: String,
-    isolated_network_name: String,
-    reserved_network: String,
     resources: &data::NodeResources,
 ) -> Result<template::DomainTemplate> {
     let node_name_with_lab = format!("{}-{}", node.name, lab_id);
@@ -3043,8 +3034,8 @@ pub fn build_domain_template(
         cpu_count,
         vmx_enabled: node_image.vmx_enabled,
         bios: node_image.bios.clone(),
-        disks,
-        interfaces,
+        disks: parts.disks,
+        interfaces: parts.interfaces,
         interface_type: node_image.interface_type.clone(),
         tuning: template::DomainTuning::from_tuning(tuning, &management_interface_type),
         management_interface_type,
@@ -3052,13 +3043,13 @@ pub fn build_domain_template(
             &node_image.model,
             &node_image.interface_type,
         ),
-        loopback_ipv4,
+        loopback_ipv4: parts.loopback_ipv4,
         telnet_port: TELNET_PORT,
         qemu_commands,
         lab_id: lab_id.to_string(),
-        management_network,
-        isolated_network: isolated_network_name,
-        reserved_network,
+        management_network: parts.management_network,
+        isolated_network: parts.isolated_network,
+        reserved_network: parts.reserved_network,
         is_windows: matches!(
             node_image.model,
             data::NodeModel::WindowsServer | data::NodeModel::DevboxWindows
@@ -3299,41 +3290,19 @@ pub async fn create_vm(
 // ============================================================================
 
 /// Start a container node with all its network attachments.
-#[allow(clippy::too_many_arguments)]
-#[instrument(skip(docker, env_vars, volumes, capabilities, progress), fields(%container_name, %image), level = "debug")]
+#[instrument(
+    skip(docker, spec, progress),
+    fields(container_name = %spec.name, image = %spec.image),
+    level = "debug"
+)]
 pub async fn start_container_node(
     docker: &Arc<bollard::Docker>,
-    container_name: &str,
-    image: &str,
-    env_vars: Vec<String>,
-    volumes: Vec<String>,
-    capabilities: Vec<String>,
-    management_network_attachment: data::ContainerNetworkAttachment,
-    additional_networks: Vec<data::ContainerNetworkAttachment>,
-    commands: Vec<String>,
-    privileged: bool,
-    shm_size: Option<i64>,
-    user: Option<String>,
+    spec: ContainerSpec,
     model: data::NodeModel,
     progress: &ProgressSender,
 ) -> Result<bool> {
-    let is_running = container::run_container(
-        docker,
-        container::ContainerSpec {
-            name: container_name.to_string(),
-            image: image.to_string(),
-            env_vars,
-            volumes,
-            capabilities,
-            management_network: management_network_attachment,
-            additional_networks,
-            commands,
-            privileged,
-            shm_size,
-            user,
-        },
-    )
-    .await?;
+    let container_name = spec.name.clone();
+    let is_running = container::run_container(docker, spec).await?;
 
     if !is_running {
         return Ok(false);
@@ -3342,7 +3311,7 @@ pub async fn start_container_node(
     // SR Linux: flush default namespace IP to avoid DUP pings
     if model == data::NodeModel::NokiaSrlinux {
         let flush_cmd = "for i in $(seq 1 30); do ip netns list 2>/dev/null | grep -q srbase-mgmt && break; sleep 1; done; ip addr flush dev mgmt0";
-        container::exec_container_detached(docker, container_name, vec!["sh", "-c", flush_cmd])
+        container::exec_container_detached(docker, &container_name, vec!["sh", "-c", flush_cmd])
             .await
             .with_context(|| {
                 format!(
@@ -3527,20 +3496,14 @@ pub fn generate_unikernel_setup(
 }
 
 /// Build a unikernel domain template with auto IP injection for DirectKernel models.
-#[allow(clippy::too_many_arguments)]
-#[instrument(skip(node_image, disks, interfaces, mgmt_net), fields(node_name = %node.name), level = "debug")]
+#[instrument(skip(node_image, parts, mgmt_net), fields(node_name = %node.name), level = "debug")]
 pub fn build_unikernel_domain_template(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
     lab_id: &str,
     qemu_bin: &str,
-    disks: Vec<data::NodeDisk>,
-    interfaces: Vec<data::Interface>,
+    parts: DomainParts,
     kernel_path: Option<String>,
-    loopback_ipv4: String,
-    management_network: String,
-    isolated_network_name: String,
-    reserved_network: String,
     mgmt_net: &data::SherpaNetwork,
 ) -> template::UnikernelDomainTemplate {
     let node_name_with_lab = format!("{}-{}", node.name, lab_id);
@@ -3569,16 +3532,16 @@ pub fn build_unikernel_domain_template(
         boot_mode,
         kernel_path,
         kernel_cmdline,
-        disks,
-        interfaces,
+        disks: parts.disks,
+        interfaces: parts.interfaces,
         interface_type: node_image.interface_type.clone(),
         management_interface_type: node_image.interface_type.clone(),
         reserved_interface_type: node_image.interface_type.clone(),
-        loopback_ipv4,
+        loopback_ipv4: parts.loopback_ipv4,
         telnet_port: TELNET_PORT,
-        management_network,
-        isolated_network: isolated_network_name,
-        reserved_network,
+        management_network: parts.management_network,
+        isolated_network: parts.isolated_network,
+        reserved_network: parts.reserved_network,
     }
 }
 
@@ -4517,13 +4480,15 @@ mod tests {
             &config,
             "lab1",
             "/usr/bin/qemu-system-x86_64",
+            DomainParts {
+                disks: vec![],
+                interfaces: vec![],
+                loopback_ipv4: "127.0.0.1".to_owned(),
+                management_network: "mgmt".to_owned(),
+                isolated_network: String::new(),
+                reserved_network: String::new(),
+            },
             vec![],
-            vec![],
-            vec![],
-            "127.0.0.1".to_owned(),
-            "mgmt".to_owned(),
-            String::new(),
-            String::new(),
             &data::NodeResources {
                 cpu_count: Some(2),
                 memory: Some(4096),
@@ -4589,21 +4554,23 @@ mod tests {
         };
         let (tx, _rx) = mpsc::unbounded_channel();
         let progress = ProgressSender::new(tx);
+        let dns = util::default_dns(&network.v4.prefix).unwrap();
         for personal in [None, Some(&account)] {
-            let (config_path, _, _, _) = generate_ignition_ztp(
-                &node,
-                &image,
-                root,
-                root,
-                &user,
-                &network,
-                "192.0.2.10".parse().unwrap(),
-                "vm-test",
-                &progress,
-                None,
-                personal,
-            )
-            .unwrap();
+            let ztp = NodeZtp {
+                lab_dir: root,
+                tftp_dir: root,
+                images_dir: root,
+                sherpa_user: &user,
+                dns: &dns,
+                mgmt_net: &network,
+                progress: &progress,
+                node_ipv4_address: "192.0.2.10".parse().unwrap(),
+                mac_address: "52:54:00:00:00:01",
+                node_name_with_lab: "vm-test",
+                cert_paths: None,
+                guest_account: personal,
+            };
+            let (config_path, _, _, _) = generate_ignition_ztp(&node, &image, &ztp).unwrap();
             let json: serde_json::Value =
                 serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
             let files = json["storage"]["files"].as_array().unwrap();

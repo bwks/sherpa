@@ -1,0 +1,290 @@
+//! Phase 2: validating the manifest against the server, and planning the lab.
+
+use anyhow::{Context, Result, anyhow};
+use tracing::instrument;
+
+use super::context::LabBuild;
+use super::nodes::{get_node_image, process_manifest_nodes};
+use crate::services::guest_account;
+use crate::services::guest_account::GuestAccount;
+use crate::services::image_lifecycle::{ImageLease, lease_image, validate_disk_method};
+use crate::services::node_resources;
+use crate::validate::{validate_and_resolve_node_versions, validate_environment_variables};
+
+use shared::data;
+use shared::data::{NodeCpuPins, NodeSshUsername, StatusKind};
+use shared::validators::effective_data_interface_count;
+use topology::validate::{
+    check_cpu_pin_overlap, check_device_count, check_duplicate_device,
+    check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
+    check_no_p2p_field, check_node_names, check_performance_tuning, check_ptx_platform,
+    check_text_file_modes, check_watchdog, validate_talos_clusters,
+};
+use topology::{process_manifest_bridges, process_manifest_links};
+
+/// What validation decided before anything is created: the nodes and their images, the image
+/// leases that keep those images until the nodes use them, the owner's account on the nodes, and
+/// the links and bridges.
+pub(super) struct LabPlan {
+    pub(super) node_images: Vec<data::NodeConfig>,
+    pub(super) nodes_expanded: Vec<topology::NodeExpanded>,
+    pub(super) selected_images: Vec<data::NodeConfig>,
+    pub(super) image_guards: Vec<ImageLease>,
+    pub(super) container_image_guards: Vec<ImageLease>,
+    pub(super) personal_account: Option<GuestAccount>,
+    pub(super) ssh_usernames: Vec<NodeSshUsername>,
+    pub(super) links_detailed: Vec<topology::LinkDetailed>,
+    pub(super) bridges_detailed: Vec<topology::BridgeDetailed>,
+}
+
+/// Validate the manifest against the server and plan the lab (phase 2). Creates nothing.
+#[instrument(skip_all, fields(lab_id = %build.lab_id))]
+pub(super) async fn plan_lab(
+    build: &LabBuild<'_>,
+    manifest: &topology::Manifest,
+    db_user: &data::DbUser,
+    node_images: Vec<data::NodeConfig>,
+) -> Result<LabPlan> {
+    let LabBuild {
+        lab_id,
+        db,
+        docker_conn,
+        qemu_conn,
+        config,
+        progress,
+        ..
+    } = *build;
+
+    tracing::info!(
+        lab_id = %lab_id,
+        lab_name = %manifest.name,
+        "Validating lab manifest"
+    );
+
+    tracing::debug!(lab_id = %lab_id, node_images = node_images.len(), "Fetched node configs from database");
+
+    // Device Validators (CRITICAL ERROR - fail fast on validation failure)
+    check_node_names(&manifest.nodes).context("Manifest validation failed: node names")?;
+    check_duplicate_device(&manifest.nodes)
+        .context("Manifest validation failed: duplicate devices")?;
+    check_device_count(&manifest.nodes).context("Manifest validation failed: node count")?;
+    validate_talos_clusters(manifest).context("Manifest validation failed: talos clusters")?;
+
+    // Environment variable validators
+    for node in &manifest.nodes {
+        if let Some(ref env_vars) = node.environment_variables {
+            validate_environment_variables(env_vars, &node.name)
+                .context("Manifest validation failed: environment variables")?;
+        }
+    }
+
+    // Version & Image Validators (CRITICAL ERROR - fail fast on validation failure)
+    // Fetch local Docker images for validation
+    let docker_images = container::get_local_images(docker_conn)
+        .await
+        .context("Failed to list local Docker images")?;
+
+    let validated_nodes = validate_and_resolve_node_versions(
+        &manifest.nodes,
+        &node_images,
+        &config.images_dir,
+        &docker_images,
+    )
+    .context("Manifest validation failed: version/image validation")?;
+
+    let nodes_expanded = process_manifest_nodes(&validated_nodes);
+    // Acquire in a stable order to avoid deadlocks between overlapping labs.
+    // Leases stop deletion racing validation, database references and disk creation.
+    // Disk image (VM and unikernel) leases end once every disk and domain exists: node
+    // records and overlay backing files protect the images from then on, and a long
+    // readiness wait must not block image pull, import or delete. Container image leases
+    // last until the containers start, during readiness polling.
+    let mut selected_images = nodes_expanded
+        .iter()
+        .map(|node| get_node_image(&node.model, node.version.as_deref(), &node_images))
+        .collect::<Result<Vec<_>>>()?;
+    selected_images.sort_by_key(|image| (image.model.to_string(), image.version.clone()));
+    selected_images.dedup_by(|a, b| a.model == b.model && a.version == b.version);
+    let mut image_guards = Vec::new();
+    let mut container_image_guards = Vec::new();
+    for image in &selected_images {
+        let lease = lease_image(image.model, &image.version).await;
+        if image.kind == data::NodeKind::Container {
+            container_image_guards.push(lease);
+        } else {
+            image_guards.push(lease);
+        }
+        let current = db::find_node_image_by_model_kind_version(
+            db,
+            &image.model,
+            &image.kind,
+            &image.version,
+        )
+        .await?
+        .ok_or_else(|| anyhow!("Selected image was deleted before provisioning"))?;
+        anyhow::ensure!(
+            current.id == image.id,
+            "Selected image changed before provisioning; retry startup"
+        );
+    }
+    for node in &nodes_expanded {
+        let image = get_node_image(&node.model, node.version.as_deref(), &node_images)?;
+        validate_disk_method(
+            node.boot_disk_clone_method,
+            &image,
+            &config.images_dir,
+            node.boot_disk_size,
+        )
+        .with_context(|| format!("Disk provisioning validation failed for node {}", node.name))?;
+    }
+
+    let mut personal_nodes = Vec::new();
+    if manifest.provision_current_user {
+        for node in &nodes_expanded {
+            let image = get_node_image(&node.model, node.version.as_deref(), &node_images)?;
+            if guest_account::provisions_owner(node, &image) {
+                personal_nodes.push((node.name.clone(), image));
+            } else if guest_account::supports_guest_account(&image) {
+                let _ = progress.send_status(
+                    format!(
+                        "Node '{}' has a custom ZTP config, so it gets no account for '{}'",
+                        node.name, db_user.username
+                    ),
+                    StatusKind::Info,
+                );
+            }
+        }
+    }
+    let personal_account = if personal_nodes.is_empty() {
+        None
+    } else {
+        let account = guest_account::from_user(db_user)?;
+        if account.is_none() {
+            let _ = progress.send_status(
+                format!(
+                    "Username '{}' cannot be a login on lab nodes; nodes use the sherpa account",
+                    db_user.username
+                ),
+                StatusKind::Info,
+            );
+        }
+        account
+    };
+    // Every node must take one of the owner's keys before anything is created.
+    let mut ssh_usernames = Vec::new();
+    if let Some(account) = &personal_account {
+        for (name, image) in &personal_nodes {
+            let node_account = guest_account::node_account(account, name, image)?;
+            if !node_account.skipped_keys.is_empty() {
+                let _ = progress.send_status(
+                    format!(
+                        "Node '{name}' does not take these SSH keys of '{}': {}",
+                        account.username,
+                        node_account.skipped_keys.join(", ")
+                    ),
+                    StatusKind::Info,
+                );
+            }
+            ssh_usernames.push(NodeSshUsername {
+                node_name: name.clone(),
+                username: node_account.account.username,
+            });
+        }
+    }
+
+    check_no_p2p_field(manifest.links.as_deref().unwrap_or_default())
+        .context("Link validation failed")?;
+    check_link_impairments(manifest.links.as_deref().unwrap_or_default())
+        .context("Link validation failed")?;
+    check_text_file_modes(&manifest.nodes).context("Text file validation failed")?;
+    let links_detailed = process_manifest_links(
+        manifest.links.as_deref().unwrap_or_default(),
+        &nodes_expanded,
+    )
+    .context("Failed to process manifest links")?;
+    let bridges_detailed = process_manifest_bridges(
+        manifest.bridges.as_deref().unwrap_or_default(),
+        &nodes_expanded,
+        lab_id,
+    )
+    .context("Failed to process manifest bridges")?;
+
+    tracing::info!(
+        lab_id = %lab_id,
+        nodes = nodes_expanded.len(),
+        links = links_detailed.len(),
+        bridges = bridges_detailed.len(),
+        "Processed manifest structures"
+    );
+
+    for node in &nodes_expanded {
+        let node_image = get_node_image(&node.model, node.version.as_deref(), &node_images)
+            .context(format!("Node config not found for model: {}", node.model))?;
+
+        let data_interface_count =
+            effective_data_interface_count(&node.name, node.data_interface_count, &node_image)
+                .context(format!(
+                    "Data interface count validation failed for node: {}",
+                    node.name
+                ))?;
+
+        check_interface_bounds(
+            &node.name,
+            &node_image.model,
+            data_interface_count,
+            node_image.reserved_interface_count,
+            &links_detailed,
+            &bridges_detailed,
+        )
+        .context(format!(
+            "Interface bounds validation failed for node: {}",
+            node.name
+        ))?;
+
+        check_performance_tuning(node, &node_image).context(format!(
+            "Performance tuning validation failed for node: {}",
+            node.name
+        ))?;
+        check_watchdog(node, &node_image).context(format!(
+            "Watchdog validation failed for node: {}",
+            node.name
+        ))?;
+        check_ptx_platform(node, &node_image).context(format!(
+            "Platform validation failed for node: {}",
+            node.name
+        ))?;
+    }
+    let manifest_pins: Vec<NodeCpuPins> = nodes_expanded
+        .iter()
+        .filter_map(|node| {
+            node.performance_tuning
+                .as_ref()
+                .map(|tuning| NodeCpuPins::of(&node.name, tuning))
+        })
+        .collect();
+    check_cpu_pin_overlap(&manifest_pins).context("CPU pinning validation failed")?;
+    let tuned_nodes: Vec<&topology::NodeExpanded> = nodes_expanded.iter().collect();
+    node_resources::check_cpu_pins_on_server(db, qemu_conn, &tuned_nodes, None)
+        .await
+        .context("CPU pinning validation failed")?;
+
+    // Connection Validators
+    if !links_detailed.is_empty() {
+        check_duplicate_interface_link(&links_detailed, &bridges_detailed)
+            .context("Duplicate interface link validation failed")?;
+    }
+
+    let _ = progress.send_status("Manifest validation complete".to_string(), StatusKind::Done);
+    tracing::info!(lab_id = %lab_id, "Manifest validation completed successfully");
+    Ok(LabPlan {
+        node_images,
+        nodes_expanded,
+        selected_images,
+        image_guards,
+        container_image_guards,
+        personal_account,
+        ssh_usernames,
+        links_detailed,
+        bridges_detailed,
+    })
+}
