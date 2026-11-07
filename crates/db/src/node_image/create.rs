@@ -10,19 +10,16 @@ use crate::persistence::{
 use crate::queries;
 use crate::sql::query_optional;
 
-/// Create a node_image record in the database with auto-generated ID
-#[instrument(skip(db), level = "debug")]
-pub async fn create_node_image(db: &Database, config: NodeConfig) -> Result<NodeConfig> {
-    let writer = db.writer().await?;
-    insert_node_image(&writer.conn, &config).await
-}
-
-/// Upsert a node_image record (create if not exists, update if exists)
+/// Upsert a `node_image` record (create if not exists, update if exists)
 ///
 /// The record is matched on its unique `(model, kind, version)`. If config.default is true,
 /// it also unsets default on the other versions of the same (model, kind) combination.
 /// It runs in one transaction under the write lock, so it is atomic.
 /// New records get a generated ID; an existing record keeps its ID.
+///
+/// # Errors
+///
+/// Fails when the image cannot be written, as when one of its values is not one this build allows.
 #[instrument(skip(db), level = "debug")]
 pub async fn upsert_node_image(db: &Database, config: NodeConfig) -> Result<NodeConfig> {
     let mut writer = db.writer().await?;

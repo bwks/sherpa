@@ -14,7 +14,6 @@ instead of repeating these instructions.
 | `tests/labs/` | Labs under test, driven by the `sherpa` CLI against an installed server ([README](labs/README.md)) |
 | `tests/bats/` | Supplementary installer BATS tests |
 | `tests/web/` | Web UI JavaScript tests |
-| `dev/testdb` | Local SurrealDB container, only for the importer test that moves a pre-0.5.0 server's data |
 
 ## Quick reference
 
@@ -22,7 +21,6 @@ instead of repeating these instructions.
 |---|---|---|---|
 | Format and lint | `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings` | Rust toolchain | about 1–5 min |
 | Unit and database tests | `cargo test --workspace` | Nothing external | about 1–3 min |
-| db importer | `cargo test -p db --test mod import -- --ignored` | `dev/testdb` | seconds |
 | Other crate integration | see [Crate integration tests](#crate-integration-tests) | Docker, libvirt, sudo | minutes |
 | VM code suite | `python3 tests/harness/test_env.py run [ubuntu-2404] [ubuntu-2604]` | Sherpa host, logged-in CLI | about 40 min per release, in parallel |
 | Installer suite | `./tests/harness/test_install.sh --config tests/environments/<env>/release-test.toml` | Sherpa host, logged-in CLI | about 20–30 min |
@@ -59,15 +57,8 @@ sherpad embeds its database, and each test opens its own in-memory database
 
 Integration tests are `#[ignore]` tests that talk to real services. They need a host with
 the services each crate uses; the [VM code suite](#vm-code-suite) provides one
-automatically. The db crate's only integration test is the importer's, which reads a
-SurrealDB like a server older than 0.5.0. To run it, start the test database:
-
-```sh
-SHERPA_DEV_DB_USER=sherpa SHERPA_DEV_DB_PASS="$PASSWORD" dev/testdb restart
-export SHERPA_DB_PASSWORD="$PASSWORD"
-```
-
-Then run the crates you need:
+automatically. The db crate has none: its tests use in-memory databases and run with the unit
+tests. Run the crates you need:
 
 | Crate | Command | Needs |
 |---|---|---|
@@ -88,8 +79,6 @@ Opt-in live tests read these environment variables:
 | `SHERPA_TEST_KEEP_FAILED_LABS=1` | A failed lab test keeps its lab for debugging |
 | `SHERPA_TEST_TAILSCALE_*` | The live tailnet enrollment test; deferred, see `PROJECT.md` |
 
-Test database commands: `dev/testdb start | stop | restart | status | logs | destroy`.
-It listens on `ws://localhost:42069`. Only the importer test uses it.
 
 ## VM code suite
 

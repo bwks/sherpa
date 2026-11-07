@@ -11,7 +11,7 @@ For installation, usage, and configuration see the [documentation](https://docs.
 ### Prerequisites
 
 - Rust (stable)
-- Docker (for containers and the SurrealDB dev database)
+- Docker (for container nodes)
 - libvirt/KVM/QEMU (for VM and unikernel support)
 
 ### Project Structure
@@ -22,7 +22,7 @@ The project is organized as a Cargo workspace with crates under `crates/`:
 |--------------|------------------------------------------------|
 | `client`     | CLI tool (`sherpa`) for interacting with the server |
 | `server`     | Server daemon (`sherpad`) — API, web UI, and WebSocket RPC |
-| `db`         | SurrealDB schema, migrations, and CRUD operations |
+| `db`         | Embedded Turso database: schema, migrations, and CRUD operations |
 | `libvirt`    | VM and unikernel management via libvirt        |
 | `container`  | Container management via Docker/Bollard        |
 | `network`    | Host network operations                        |
@@ -75,9 +75,6 @@ Helper scripts are in the `dev/` directory:
 
 ```bash
 dev/serve              # run the server in development mode
-dev/testdb start       # spin up an in-memory SurrealDB test database
-dev/testdb stop        # stop the test database
-dev/testdb restart     # fresh database
 dev/dbreset            # reset the database
 dev/rebuild            # Rebuild the project and copy binaries to path
 ```

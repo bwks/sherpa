@@ -769,9 +769,7 @@ class Guest:
             environment.update(RUSTC_WRAPPER=str(self.workspace / SCCACHE_BINARY),
                                SCCACHE_CONF=str(sccache_config), CARGO_INCREMENTAL="0")
         if root:
-            environment.update(SHERPA_DB_PASSWORD=self.credentials["test_db_password"],
-                               SHERPA_DEV_DB_PORT=str(self.config["tests"]["test_db_port"]),
-                               SHERPA_GUEST_TEST_KEY=str(self.workspace / "guest-test-key"),
+            environment.update(SHERPA_GUEST_TEST_KEY=str(self.workspace / "guest-test-key"),
                                SHERPA_GUEST_TEST_ROTATED_KEY=str(self.workspace / "guest-test-key-rotated"))
         return environment
 
@@ -948,18 +946,6 @@ class Guest:
         found["links"] = sorted(link["ifname"] for link in json.loads(links))
         return found
 
-    def wait_test_database(self):
-        # Docker's port proxy accepts connections before SurrealDB listens, then resets them, so
-        # an open port does not mean the database is ready; its health endpoint does.
-        url = f"http://127.0.0.1:{self.config['tests']['test_db_port']}/health"
-        deadline = time.monotonic() + self.timeouts["startup"]
-        while time.monotonic() < deadline:
-            with suppress(OSError), urllib.request.urlopen(url, timeout=self.timeouts["connect"]) as response:
-                if response.status == 200:
-                    return
-            time.sleep(self.timeouts["poll"])
-        raise TimeoutError("Test database did not start")
-
     def integration_tests(self):
         tests = self.config["tests"]
         # The tests start their own server; the installed service must not compete for resources.
@@ -973,12 +959,6 @@ class Guest:
         skips = [argument for name in tests["skip_tests"] for argument in ("--skip", name)]
         self.record_results("configuration", {"skip_tests": tests["skip_tests"],
                                               "environment": tests["environment"]})
-        self.command(["bash", str(self.workspace / "source/dev/testdb"), "restart"],
-                     env={"PATH": environment["PATH"], "SHERPA_DEV_DB_USER": tests["test_db_user"],
-                          "SHERPA_DEV_DB_PASS": self.credentials["test_db_password"],
-                          "SHERPA_DEV_DB_PORT": str(tests["test_db_port"])},
-                     cwd=self.workspace / "source")
-        self.wait_test_database()
         executables = tomllib.loads((self.workspace / TEST_EXECUTABLES_FILE).read_text())
         before = self.inventory()
         failed = []
@@ -1328,8 +1308,8 @@ class GuestTests(unittest.TestCase):
     def test_cargo_environment_names_the_running_user(self):
         guest = Guest.__new__(Guest)
         guest.workspace = Path("/var/tmp/workspace")
-        guest.config = {"tests": {"test_db_port": 42069}}
-        guest.credentials = {"test_db_password": "secret"}
+        guest.config = {"tests": {}}
+        guest.credentials = {}
         account = pwd.struct_passwd(("tester", "x", 1000, 1000, "", "/home/tester", "/bin/bash"))
         with patch.dict(os.environ, {"SUDO_USER": "tester"}), \
              patch.object(pwd, "getpwnam", return_value=account):
@@ -1340,16 +1320,15 @@ class GuestTests(unittest.TestCase):
         self.assertEqual(root["CARGO_HOME"], "/home/tester/.cargo")
         self.assertEqual(user["CARGO_TARGET_DIR"], CARGO_TARGET_DIR)
         self.assertNotIn(str(guest.workspace), user["CARGO_TARGET_DIR"])
-        self.assertNotIn("SHERPA_DB_PASSWORD", user)
 
     def cache_guest(self, workspace, build_cache=True):
         guest = Guest.__new__(Guest)
         guest.workspace = workspace
-        guest.config = {"tests": {"test_db_port": 42069}}
+        guest.config = {"tests": {}}
         if build_cache:
             guest.config["build_cache"] = {"endpoint": "redis://192.0.2.10:6379",
                                            "url": "https://example.invalid/sccache-v0-x.tar.gz", "sha256": "0" * 64}
-        guest.credentials = {"test_db_password": "secret", "build_cache_password": "cache-secret"}
+        guest.credentials = {"build_cache_password": "cache-secret"}
         guest.passwords = ["cache-secret"]
         guest.timeouts = {"download": 1}
         return guest
@@ -1415,25 +1394,6 @@ class GuestTests(unittest.TestCase):
             section, values = record.call_args.args
             self.assertEqual(section, "build_cache")
             self.assertEqual((values["status"], values["hits"], values["misses"]), ("1083 hits, 8 misses", 1083, 8))
-
-    def test_test_database_wait_retries_until_healthy(self):
-        guest = Guest.__new__(Guest)
-        guest.config = {"tests": {"test_db_port": 42069}}
-        guest.timeouts = {"startup": 60, "connect": 1, "poll": 0}
-        healthy = MagicMock(status=200)
-        healthy.__enter__.return_value = healthy
-        with patch.object(urllib.request, "urlopen",
-                          side_effect=[ConnectionResetError(104, "Connection reset by peer"), healthy]) as urlopen:
-            guest.wait_test_database()
-        self.assertEqual(urlopen.call_count, 2)
-        self.assertEqual(urlopen.call_args.args[0], "http://127.0.0.1:42069/health")
-
-    def test_test_database_wait_times_out(self):
-        guest = Guest.__new__(Guest)
-        guest.config = {"tests": {"test_db_port": 42069}}
-        guest.timeouts = {"startup": 0, "connect": 1, "poll": 0}
-        with self.assertRaises(TimeoutError):
-            guest.wait_test_database()
 
     def test_releases_from_0_5_0_embed_the_database(self):
         for version in ("v0.5.0", "0.5.1", "v1.0.0", "v0.10.0"):

@@ -18,11 +18,11 @@ use crate::sql::query_optional;
 /// * `index` - Bridge index (0-65535, unique per lab)
 /// * `bridge_name` - Linux bridge name on the host
 /// * `network_name` - Libvirt network name
-/// * `lab_id` - RecordId of the lab this bridge belongs to
+/// * `lab` - `RecordId` of the lab this bridge belongs to
 /// * `members` - The node interfaces connected to this bridge
 ///
 /// # Returns
-/// The created DbBridge record with generated ID
+/// The created `DbBridge` record with generated ID
 ///
 /// # Errors
 /// - If unique constraint is violated (index, lab combination)
@@ -34,7 +34,7 @@ pub async fn create_bridge(
     index: u16,
     bridge_name: String,
     network_name: String,
-    lab_id: RecordId,
+    lab: RecordId,
     members: Vec<BridgeMember>,
 ) -> Result<DbBridge> {
     let domain = DbBridge {
@@ -42,14 +42,12 @@ pub async fn create_bridge(
         index,
         bridge_name: bridge_name.clone(),
         network_name,
-        lab: lab_id.clone(),
+        lab: lab.clone(),
         members,
     };
     let key = new_key();
-    let failure = format!(
-        "Failed to create bridge: index={}, bridge_name={}, lab_id={:?}",
-        index, bridge_name, lab_id
-    );
+    let failure =
+        format!("Failed to create bridge: index={index}, bridge_name={bridge_name}, lab={lab:?}");
 
     let mut writer = db.writer().await?;
     let tx = writer.conn.transaction().await.context(failure.clone())?;
@@ -65,10 +63,7 @@ pub async fn create_bridge(
 
     let mut bridge = bridge.ok_or_else(|| {
         anyhow::anyhow!(
-            "Bridge was not created: index={}, bridge_name={}, lab_id={:?}",
-            index,
-            bridge_name,
-            lab_id
+            "Bridge was not created: index={index}, bridge_name={bridge_name}, lab={lab:?}"
         )
     })?;
 

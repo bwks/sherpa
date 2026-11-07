@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use shared::data::{NodeConfig, NodeKind, NodeModel, RecordId};
 use tracing::instrument;
 
@@ -7,7 +7,11 @@ use crate::persistence::{NODE_IMAGE_TABLE, enum_text, key_of, node_image_from_ro
 use crate::queries;
 use crate::sql::{query_all, query_count, query_optional};
 
-/// List all node_image records from the database ordered by model
+/// List all `node_image` records from the database ordered by model
+///
+/// # Errors
+///
+/// Fails when the database cannot be read.
 #[instrument(skip(db), level = "debug")]
 pub async fn list_node_images(db: &Database) -> Result<Vec<NodeConfig>> {
     let conn = db.reader().await?;
@@ -16,9 +20,13 @@ pub async fn list_node_images(db: &Database) -> Result<Vec<NodeConfig>> {
         .context("Failed to query all node_images from database")
 }
 
-/// Get node_image by model, kind, and version
+/// Get `node_image` by model, kind, and version
+///
+/// # Errors
+///
+/// Fails when the database cannot be read; a missing image is `Ok(None)`.
 #[instrument(skip(db), level = "debug")]
-pub async fn get_node_image_by_model_kind_version(
+pub async fn find_node_image_by_model_kind_version(
     db: &Database,
     model: &NodeModel,
     kind: &NodeKind,
@@ -37,14 +45,17 @@ pub async fn get_node_image_by_model_kind_version(
     )
     .await
     .context(format!(
-        "Failed to query node_image from database: model={}, kind={}, version={}",
-        model, kind, version
+        "Failed to query node_image from database: model={model}, kind={kind}, version={version}"
     ))
 }
 
-/// Get the default node_image for a specific model and kind
+/// Get the default `node_image` for a specific model and kind
+///
+/// # Errors
+///
+/// Fails when the database cannot be read; a model with no default image is `Ok(None)`.
 #[instrument(skip(db), level = "debug")]
-pub async fn get_default_node_image(
+pub async fn find_default_node_image(
     db: &Database,
     model: &NodeModel,
     kind: &NodeKind,
@@ -58,12 +69,15 @@ pub async fn get_default_node_image(
     )
     .await
     .context(format!(
-        "Failed to query default node_image from database: model={}, kind={}",
-        model, kind
+        "Failed to query default node_image from database: model={model}, kind={kind}"
     ))
 }
 
-/// List all node_image records filtered by kind
+/// List all `node_image` records filtered by kind
+///
+/// # Errors
+///
+/// Fails when the database cannot be read.
 #[instrument(skip(db), level = "debug")]
 pub async fn list_node_images_by_kind(db: &Database, kind: &NodeKind) -> Result<Vec<NodeConfig>> {
     let conn = db.reader().await?;
@@ -75,12 +89,15 @@ pub async fn list_node_images_by_kind(db: &Database, kind: &NodeKind) -> Result<
     )
     .await
     .context(format!(
-        "Failed to query node_images by kind from database: kind={}",
-        kind
+        "Failed to query node_images by kind from database: kind={kind}"
     ))
 }
 
-/// Get all versions of a node_image for a specific model and kind
+/// Get all versions of a `node_image` for a specific model and kind
+///
+/// # Errors
+///
+/// Fails when the database cannot be read.
 #[instrument(skip(db), level = "debug")]
 pub async fn get_node_image_versions(
     db: &Database,
@@ -96,14 +113,17 @@ pub async fn get_node_image_versions(
     )
     .await
     .context(format!(
-        "Failed to query node_image versions from database: model={}, kind={}",
-        model, kind
+        "Failed to query node_image versions from database: model={model}, kind={kind}"
     ))
 }
 
-/// Get multiple node_images by a list of RecordIds in a single query
+/// Get multiple `node_images` by a list of `RecordIds` in a single query
 ///
 /// Results follow the order of `ids`; ids with no record are skipped.
+///
+/// # Errors
+///
+/// Fails when the database cannot be read.
 #[instrument(skip(db), level = "debug")]
 pub async fn list_node_images_by_ids(db: &Database, ids: Vec<RecordId>) -> Result<Vec<NodeConfig>> {
     if ids.is_empty() {
@@ -135,9 +155,13 @@ pub async fn list_node_images_by_ids(db: &Database, ids: Vec<RecordId>) -> Resul
     Ok(ordered)
 }
 
-/// Get node_image by RecordId
+/// Get `node_image` by `RecordId`
+///
+/// # Errors
+///
+/// Fails when the database cannot be read; a missing image is `Ok(None)`.
 #[instrument(skip(db), level = "debug")]
-pub async fn get_node_image_by_id(db: &Database, id: RecordId) -> Result<Option<NodeConfig>> {
+pub async fn find_node_image_by_id(db: &Database, id: RecordId) -> Result<Option<NodeConfig>> {
     let conn = db.reader().await?;
     query_optional(
         &conn,
@@ -146,29 +170,14 @@ pub async fn get_node_image_by_id(db: &Database, id: RecordId) -> Result<Option<
         node_image_from_row,
     )
     .await
-    .context(format!("Failed to query node_image by id: {:?}", id))
+    .context(format!("Failed to query node_image by id: {id:?}"))
 }
 
-/// Get node_image from node_model (returns error if not found)
-/// This is used internally for image lookups by model.
-#[allow(dead_code)]
-#[instrument(skip(db), level = "debug")]
-pub(crate) async fn get_node_image(db: &Database, node_model: &NodeModel) -> Result<NodeConfig> {
-    let conn = db.reader().await?;
-    query_optional(
-        &conn,
-        queries::node_image::FIND_BY_MODEL,
-        [enum_text(node_model, "model")?],
-        node_image_from_row,
-    )
-    .await
-    .context(format!(
-        "Failed to query node_image from database: {node_model}"
-    ))?
-    .ok_or_else(|| anyhow!("Node image not found for model: {node_model}"))
-}
-
-/// Count total number of node_image records in the database
+/// Count total number of `node_image` records in the database
+///
+/// # Errors
+///
+/// Fails when the database cannot be read.
 #[instrument(skip(db), level = "debug")]
 pub async fn count_node_images(db: &Database) -> Result<usize> {
     let conn = db.reader().await?;

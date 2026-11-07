@@ -3,35 +3,10 @@
 //! - `username` is unique and follows the guest-safe username rules: 3 to 32 characters of
 //!   `a-z`, `0-9`, `_` and `-`, starting with a letter or `_`.
 //! - A user who owns labs cannot be deleted (`lab.user` is `ON DELETE RESTRICT`).
-//! - Triggers protect the built-in `admin` account: it cannot be deleted, renamed or lose its
-//!   administrator flag, and no `admin` row can exist without the flag.
-use shared::konst::{ADMIN_PROTECTED_MESSAGE, ADMIN_USERNAME};
-
-use crate::sql::sql_text;
-
+//! - Triggers protect the built-in `admin` account (`sql/migrations/0008_static_triggers.sql`): it
+//!   cannot be deleted, renamed or lose its administrator flag, and no `admin` row can exist
+//!   without the flag.
 pub(crate) const TABLES: &str = include_str!("../../sql/schema/user.sql");
-
-/// The triggers protecting the built-in admin account.
-pub(crate) fn rules() -> String {
-    let admin = sql_text(ADMIN_USERNAME);
-    let message = sql_text(ADMIN_PROTECTED_MESSAGE);
-    format!(
-        "DROP TRIGGER IF EXISTS user_protect_admin_insert;
-CREATE TRIGGER user_protect_admin_insert BEFORE INSERT ON user
-    WHEN NEW.username = {admin} AND NEW.is_admin != 1
-    BEGIN SELECT RAISE(ABORT, {message}); END;
-DROP TRIGGER IF EXISTS user_protect_admin_update;
-CREATE TRIGGER user_protect_admin_update BEFORE UPDATE ON user
-    WHEN (OLD.username = {admin} AND (NEW.username != {admin} OR NEW.is_admin != 1))
-        OR (NEW.username = {admin} AND NEW.is_admin != 1)
-    BEGIN SELECT RAISE(ABORT, {message}); END;
-DROP TRIGGER IF EXISTS user_protect_admin_delete;
-CREATE TRIGGER user_protect_admin_delete BEFORE DELETE ON user
-    WHEN OLD.username = {admin}
-    BEGIN SELECT RAISE(ABORT, {message}); END;
-"
-    )
-}
 
 #[cfg(test)]
 mod tests {

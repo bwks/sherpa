@@ -27,16 +27,28 @@ are in [`../investigations/turso-migration.md`](../investigations/turso-migratio
   tasks, about 0.5% of transactions waited past the timeout and failed with `Busy`. The tokio mutex
   is fair, so writers queue in arrival order instead, with no loss of throughput. Reads take no
   lock.
-- **Whole operations under the lock.** A write that reads before it writes, such as an update that
-  checks an immutable field, does both under one `Writer`, so nothing changes between the check
-  and the write. Statements that must succeed together run in one transaction
-  (`writer.conn.transaction()`, committed explicitly; dropping it rolls back).
+- **Whole operations under the lock.** A write that reads before it writes does both under one
+  `Writer`, so nothing changes between the check and the write. Statements that must succeed
+  together run in one transaction (`writer.conn.transaction()`, committed explicitly; dropping it
+  rolls back); a test checks that a transaction that fails after DDL and a `user_version` change
+  leaves neither.
+- **Narrow updates.** An update writes only the columns it is for: `update_lab_state`,
+  `update_lab_tailscale_container`, `update_link_impairments` and the `update_node_*` functions.
+  A caller holding an older copy of the record cannot write back columns another task changed
+  meanwhile. `update_user` writes the user's own fields, sets `updated_at` itself and never changes
+  `created_at`. A link is created with its impairments in one statement (`create_link` takes a
+  `DbLink`).
 - **Exclusive file.** While `sherpad` has the file open, no other process can open it, including
-  the `sqlite3` command; Turso's multi-process mode is experimental. `sherpad migrate-db` and any
-  inspection therefore run with `sherpad` stopped.
+  the `sqlite3` command; Turso's multi-process mode is experimental. Inspection therefore runs
+  with `sherpad` stopped.
 - **Backups.** `Database::backup(path)` runs `VACUUM INTO` under the write lock, so the copy is
   consistent and writes wait for it. It refuses a destination that exists. The `server.backup`
-  RPC (`crates/server/src/services/backup.rs`) writes to `SHERPA_DB_BACKUP_PATH`.
+  RPC (`crates/server/src/services/backup.rs`) writes to `SHERPA_DB_BACKUP_PATH`, which it first
+  restricts to `sherpa` (`SHERPA_DB_BACKUP_DIR_MODE`, `0700`): `VACUUM INTO` writes the copy before
+  its file is restricted. The database directory is `0750` (`SHERPA_DB_DIR_MODE`), set by the
+  installer, the update script and `sherpad` at startup. `open` restricts the database file and
+  its `-wal` and `-shm` files to `0600`; Turso creates the `-wal` file when it opens the database,
+  so the first writes do not leave it readable by others.
 - **Tests.** `open_in_memory()` gives each test its own database; connections to one in-memory
   database share its data. The db and server integration tests need no database server.
 
@@ -68,13 +80,19 @@ flowchart LR
 - **Constants.** The build script generates one constant per file, holding the file with
   `include_str!`, in a module per directory: `sql/queries/lab/find_by_id.sql` is
   `queries::lab::FIND_BY_ID`. A statement used by more than one module, such as
-  `queries::node::COUNT_BY_LAB`, is one file. The rule triggers and `PRAGMA user_version` stay in
-  `schema/`.
-- **Not checked.** Preparing does not compare a statement's result columns or parameter count with
-  the mapper that reads them; the mappers below still read and write by position.
+  `queries::node::COUNT_BY_LAB`, is one file. Triggers are migrations. Only `PRAGMA
+  user_version`, which takes no bound parameter, is built in `schema/apply.rs`.
+- **Column order checked.** A statement that returns every column of a table must return them in
+  the table's order (`PRAGMA table_info`), or the build fails naming the file: the mappers read by
+  position, and two columns of one type, such as `gateway_ipv4` and `router_ipv4`, would otherwise
+  swap silently. A statement returning some columns, such as the network readers' `lab_id` and
+  network, is not checked, nor is a statement's parameter count.
+- **Schema order.** The build script applies `sql/schema/` in the order `apply_schema` does,
+  parents first (`SCHEMA_FILES`), and refuses a schema file missing from that list.
 
 `crates/db/src/sql.rs` has the three query helpers: `query_optional`, `query_all` and
-`query_count`. The first two take a mapper, a plain `fn(&Row) -> Result<T>`.
+`query_count`. The first two take a mapper, a plain `fn(&Row) -> Result<T>`. A failed statement
+is named by its first line, and a row that does not map by its first column, its id.
 
 `crates/db/src/persistence.rs` maps rows to records:
 
@@ -89,8 +107,8 @@ flowchart LR
   `b_to_a_*` columns, and a bridge's members are rows of `bridge_member`, ordered by `position`.
 - **Record keys.** A column holds only a record's key; the table is implied by the column, and
   `Cells::record(table, field)` rebuilds the `RecordId`. `key_of` refuses an id from another table.
-  New keys are 20 random characters from `SHERPA_DB_KEY_CHARSET`, the length and alphabet
-  SurrealDB used, so imported keys and new ones look alike.
+  New keys are 20 random characters from `SHERPA_DB_KEY_CHARSET`, the length and alphabet of the
+  keys of releases before 0.5.0, which upgraded servers still hold.
 
 ## Schema
 
@@ -129,6 +147,9 @@ table, copy the rows, drop the old one, rename.
 | 3 | `0003_lab_source.sql`: `lab.client_host` and `lab.client_folder`, where `sherpa up` ran (see below) |
 | 4 | `0004_fix_ztp_image_defaults.sql`: `cisco_ise` images stored with the CD-ROM ZTP method (the old default, which has no ISE generator) are set to the disk method, and `generic_vm` images stored with a VirtIO CD-ROM bus (the old default, which cannot hold the cloud-init ISO) are set to SATA |
 | 5 | `0005_fix_vsrx_ztp_method.sql`: `juniper_vsrxv3` images stored with the TFTP ZTP method (the old default; vSRX's factory config runs no DHCP client, so it never fetched its config) are set to the CD-ROM method |
+| 6 | `0006_one_default_node_image.sql`: one default image per model and kind. Duplicate defaults keep the most recently written image, then the partial unique index `node_image_one_default` refuses a second |
+| 7 | `0007_interfaces_used_once.sql`: triggers refuse a link or bridge member on a node interface already used by a link or bridge, a link from an interface to itself, and an interface twice in one bridge. They check new rows only, so a database that holds a repeat still opens |
+| 8 | `0008_static_triggers.sql`: drops the enum rule triggers, which earlier releases rebuilt from the Rust enums on every start, and creates the admin protection triggers as fixed text |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
@@ -143,41 +164,25 @@ and the folder it ran in. The CLI sends them in the `up` request (`client_host`,
 neither (`NULL`). `inspect` reads them from the record into `LabInfo`, so the CLI's lab table and
 the web UI's lab page show them.
 
-### Rule triggers
+### Enum values and triggers
 
-Two kinds of rule are triggers, dropped and created again by every `apply_schema` rather than
-versioned:
+Enum columns are checked by the types, not by the database: every value `db` writes is serialized
+from its Rust enum (`enum_text`), and every value it reads is decoded back, so a value outside the
+enum, such as one a newer release stored before a downgrade, fails when its row is read, naming the
+row. Data-fix migrations, which write enum names as literal text, each have a test that reads the
+corrected rows back.
 
-- **Enum columns.** The set of values comes from the Rust enums (`NodeModel::to_vec()` and so on),
-  which grow with every new node model. A `CHECK` constraint would need a table rebuild each time,
-  so each table with enum columns gets `<table>_rules_insert` and `<table>_rules_update` triggers,
-  built by `schema::helpers::enum_rule` and `rule_triggers`. A value outside the list fails with
-  `Invalid value for <table>.<column>`.
-- **The built-in admin account** (`schema/user.rs`). Triggers refuse deleting, renaming or demoting
-  `admin`, and an `admin` row without the admin flag, with `ADMIN_PROTECTED_MESSAGE`. They apply to
-  any statement, not only the application's.
+Triggers enforce only rules the types cannot express. All of them are fixed text in migrations, so
+the build checks them:
 
-## Importer
+- **The built-in admin account** (`0008_static_triggers.sql`). Triggers refuse deleting, renaming
+  or demoting `admin`, and an `admin` row without the admin flag, with `ADMIN_PROTECTED_MESSAGE`.
+  They apply to any statement, not only the application's.
+- **Interfaces used once** (`0007_interfaces_used_once.sql`).
 
-`crates/db/src/import/` moves a pre-0.5.0 server's data. `sherpad migrate-db`
-(`crates/server/src/migrate.rs`) calls `import_from_surrealdb(&SurrealSource, &Database)`, and
-`scripts/sherpa_update.sh` runs it on the first update to 0.5.0.
+## Upgrades from before 0.5.0
 
-`migrate-db` takes the SurrealDB password and port only from its flags or the environment;
-`sherpad` never parses `/opt/sherpa/env/sherpa.env` itself. The update script runs it with
-`systemd-run` as the `sherpa` user and with the service's `EnvironmentFile=`, so systemd reads the
-password exactly as it did for the old `sherpad` (quotes, escapes, the last of repeated keys). The
-port comes from the host port Docker records for the `sherpa-db` container, passed as `--db-port`.
-
-- `source.rs` connects to the old SurrealDB container over WebSocket and reads every table.
-- `rows.rs` holds the rows as SurrealDB stored them, and their conversion to Sherpa's records,
-  including the old link impairment and bridge member layouts.
-- `write.rs` applies the schema, then in one transaction under the writer refuses a target that
-  already has a user or a lab, inserts every record with its original key in dependency order, and
-  compares each table's row count with what it read. Any failure rolls back. The schema is applied
-  before the rows exist, so data corrections in later migrations do not reach imported rows; the
-  importer runs `FIX_DATA_INTERFACE_COUNTS` itself after writing the node images.
-
-The importer is the only user of the `surrealdb` crate and of the `SHERPA_DB_SERVER`,
-`SHERPA_DB_PORT`, `SHERPA_DB_NAMESPACE`, `SHERPA_DB_NAME` and `SHERPA_DB_USER` constants. They go
-when the importer is removed.
+Releases before 0.5.0 kept their data in a SurrealDB container. Releases 0.5.0 to 0.5.12 moved it
+into the embedded database with `sherpad migrate-db`, which `scripts/sherpa_update.sh` ran on the
+first update. Later releases have no importer: the update script refuses such a server before
+changing anything and tells the user to update to 0.5.12 first.

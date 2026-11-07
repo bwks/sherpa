@@ -561,7 +561,7 @@ pub async fn up_lab(
         } else {
             image_guards.push(lease);
         }
-        let current = db::get_node_image_by_model_kind_version(
+        let current = db::find_node_image_by_model_kind_version(
             &db,
             &image.model,
             &image.kind,
@@ -1162,30 +1162,31 @@ pub async fn up_lab(
             let tap_a = format!("{}a{}-{}", TAP_PREFIX, link.link_idx, lab_id);
             let tap_b = format!("{}b{}-{}", TAP_PREFIX, link.link_idx, lab_id);
 
-            // Create the link in the database
-            let mut db_link = db::create_link(
+            // The manifest's impairment applies to both directions.
+            let impairment = link
+                .impairment
+                .as_ref()
+                .map(LinkImpairment::try_from)
+                .transpose()?
+                .unwrap_or_default();
+            db::create_link(
                 &db,
-                link.link_idx,
-                link_kind.clone(),
-                db::get_node_id(&node_a.record)?,
-                db::get_node_id(&node_b.record)?,
-                link.int_a.clone(),
-                link.int_b.clone(),
-                tap_a.clone(),
-                tap_b.clone(),
-                lab_record_id.clone(),
+                data::DbLink {
+                    id: None,
+                    index: link.link_idx,
+                    kind: link_kind.clone(),
+                    node_a: db::get_node_id(&node_a.record)?,
+                    node_b: db::get_node_id(&node_b.record)?,
+                    int_a: link.int_a.clone(),
+                    int_b: link.int_b.clone(),
+                    lab: lab_record_id.clone(),
+                    tap_a: tap_a.clone(),
+                    tap_b: tap_b.clone(),
+                    impairment_a_to_b: impairment,
+                    impairment_b_to_a: impairment,
+                },
             )
             .await?;
-            // The manifest's impairment applies to both directions.
-            if let Some(impairment) = &link.impairment {
-                let impairment = LinkImpairment::try_from(impairment)?;
-                db_link.impairment_a_to_b = impairment;
-                db_link.impairment_b_to_a = impairment;
-                db::update_link(&db, db_link).await.context(format!(
-                    "failed to store impairment of link {}",
-                    link.link_idx
-                ))?;
-            }
 
             lab_link_data.push(data::LabLinkData {
                 index: link.link_idx,

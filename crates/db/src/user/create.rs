@@ -22,11 +22,11 @@ use crate::sql::query_optional;
 /// * `ssh_keys` - Optional list of SSH public keys
 ///
 /// # Returns
-/// The created DbUser with assigned ID
+/// The created `DbUser` with assigned ID
 ///
 /// # Errors
 /// - If username validation fails
-/// - If password validation fails (see shared::auth::password)
+/// - If password validation fails (see `shared::auth::password`)
 /// - If username already exists (unique constraint violation)
 /// - If there's a database error during creation
 ///
@@ -87,7 +87,7 @@ async fn insert_user(
         user_from_row,
     )
     .await
-    .context(format!("Failed to create user: '{}'", username))?;
+    .context(format!("Failed to create user: '{username}'"))?;
 
-    created.ok_or_else(|| anyhow!("User was not created: '{}'", username))
+    created.ok_or_else(|| anyhow!("User was not created: '{username}'"))
 }

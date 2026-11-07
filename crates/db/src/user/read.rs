@@ -6,7 +6,7 @@ use tracing::instrument;
 use crate::Database;
 use crate::persistence::{USER_TABLE, key_of, user_from_row};
 use crate::queries;
-use crate::sql::{query_all, query_count, query_optional};
+use crate::sql::{query_all, query_optional};
 
 /// Get a user by username
 ///
@@ -17,7 +17,7 @@ use crate::sql::{query_all, query_count, query_optional};
 /// * `username` - The username to search for
 ///
 /// # Returns
-/// The DbUser if found
+/// The `DbUser` if found
 ///
 /// # Errors
 /// - If the user is not found
@@ -27,7 +27,7 @@ use crate::sql::{query_all, query_count, query_optional};
 pub async fn get_user(db: &Database, username: &str) -> Result<DbUser> {
     find_user(db, username)
         .await?
-        .ok_or_else(|| anyhow!("User not found: {}", username))
+        .ok_or_else(|| anyhow!("User not found: {username}"))
 }
 
 /// Find a user by username, returning `None` when no such user exists
@@ -48,14 +48,14 @@ pub async fn find_user(db: &Database, username: &str) -> Result<Option<DbUser>> 
         user_from_row,
     )
     .await
-    .context(format!("Failed to query user from database: {}", username))
+    .context(format!("Failed to query user from database: {username}"))
 }
 
-/// Get a user by RecordId
+/// Get a user by `RecordId`
 ///
 /// # Arguments
 /// * `db` - Database connection
-/// * `id` - The RecordId of the user
+/// * `id` - The `RecordId` of the user
 ///
 /// # Returns
 /// Some(DbUser) if found, None if not found
@@ -65,7 +65,7 @@ pub async fn find_user(db: &Database, username: &str) -> Result<Option<DbUser>> 
 /// - If there's a database error during the query
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn get_user_by_id(db: &Database, id: RecordId) -> Result<Option<DbUser>> {
+pub async fn find_user_by_id(db: &Database, id: RecordId) -> Result<Option<DbUser>> {
     let conn = db.reader().await?;
     query_optional(
         &conn,
@@ -74,7 +74,7 @@ pub async fn get_user_by_id(db: &Database, id: RecordId) -> Result<Option<DbUser
         user_from_row,
     )
     .await
-    .context(format!("Failed to query user by id: {:?}", id))
+    .context(format!("Failed to query user by id: {id:?}"))
 }
 
 /// List all users in the database
@@ -94,47 +94,4 @@ pub async fn list_users(db: &Database) -> Result<Vec<DbUser>> {
     query_all(&conn, queries::user::LIST, (), user_from_row)
         .await
         .context("Failed to query all users from database")
-}
-
-/// Count the total number of users in the database
-///
-/// # Arguments
-/// * `db` - Database connection
-///
-/// # Returns
-/// The number of users
-///
-/// # Errors
-/// - If there's a database error during the query
-///
-#[instrument(skip(db), level = "debug")]
-pub async fn count_users(db: &Database) -> Result<usize> {
-    let conn = db.reader().await?;
-    query_count(&conn, queries::user::COUNT, ())
-        .await
-        .context("Failed to count users from database")
-}
-
-/// Get a user by username for authentication purposes
-///
-/// This is the same as get_user but explicitly named for authentication use cases.
-/// Returns the full user record including password_hash field needed for verification.
-///
-/// # Arguments
-/// * `db` - Database connection
-/// * `username` - The username to search for
-///
-/// # Returns
-/// The DbUser if found, including password_hash for authentication
-///
-/// # Errors
-/// - If the user is not found
-/// - If there's a database error during the query
-///
-/// # Security Note
-/// This function returns the password hash. Only use it for authentication purposes
-/// and never expose the hash in API responses or logs.
-#[instrument(skip(db), level = "debug")]
-pub async fn get_user_for_auth(db: &Database, username: &str) -> Result<DbUser> {
-    get_user(db, username).await
 }

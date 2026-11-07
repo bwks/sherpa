@@ -25,6 +25,10 @@ use crate::user::{create_admin_user, find_user};
 /// This function should only be called during server initialization with a password
 /// provided via secure means (environment variable, not config file).
 ///
+///
+/// # Errors
+///
+/// Fails when the password is too weak or the admin account cannot be written.
 #[instrument(skip(db, password), level = "debug")]
 pub async fn seed_admin_user(db: &Database, password: &str) -> Result<bool> {
     // Check if admin user already exists
@@ -51,7 +55,7 @@ pub async fn seed_admin_user(db: &Database, password: &str) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::user::{count_users, create_user, get_user};
+    use crate::user::{create_user, get_user, list_users};
 
     #[tokio::test]
     async fn test_seed_admin_user_creates_when_empty() -> Result<()> {
@@ -102,7 +106,7 @@ mod tests {
         assert!(result.is_err(), "Should fail with weak password");
 
         // Verify no user was created
-        let user_count = count_users(&db).await?;
+        let user_count = list_users(&db).await?.len();
         assert_eq!(
             user_count, 0,
             "No users should be created with invalid password"
@@ -125,7 +129,7 @@ mod tests {
         assert!(!created2, "Second call should skip (user exists)");
 
         // Should still have exactly 1 user
-        let user_count = count_users(&db).await?;
+        let user_count = list_users(&db).await?.len();
         assert_eq!(user_count, 1, "Should have exactly one user");
 
         Ok(())

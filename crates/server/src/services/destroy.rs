@@ -761,14 +761,9 @@ pub(crate) async fn destroy_interfaces(
     }
 }
 
-/// Clean up database records for a lab
+/// Delete a lab's database records in one write: the schema removes its nodes, links and bridges
+/// with it.
 pub(crate) async fn cleanup_database(lab_id: &str, db: &db::Database) -> Result<()> {
-    db::delete_lab_links(db, lab_id)
-        .await
-        .context("Failed to delete lab links")?;
-    db::delete_lab_nodes(db, lab_id)
-        .await
-        .context("Failed to delete lab nodes")?;
     db::delete_lab(db, lab_id)
         .await
         .context("Failed to delete lab")?;

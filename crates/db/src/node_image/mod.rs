@@ -4,12 +4,12 @@ mod read;
 mod update;
 
 // Public exports - CREATE operations
-pub use create::{create_node_image, upsert_node_image};
+pub use create::upsert_node_image;
 
 // Public exports - READ operations
 pub use read::{
-    count_node_images, get_default_node_image, get_node_image_by_id,
-    get_node_image_by_model_kind_version, get_node_image_versions, list_node_images,
+    count_node_images, find_default_node_image, find_node_image_by_id,
+    find_node_image_by_model_kind_version, get_node_image_versions, list_node_images,
     list_node_images_by_ids, list_node_images_by_kind,
 };
 

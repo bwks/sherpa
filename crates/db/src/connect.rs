@@ -62,6 +62,10 @@ impl Database {
     /// Copy the database to `destination`, a file that must not exist yet, while it stays in use.
     ///
     /// The copy holds the write lock, so it is consistent and writes wait until it finishes.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `destination` exists, its path is not valid UTF-8, or the copy cannot be written.
     #[instrument(skip(self))]
     pub async fn backup(&self, destination: &Path) -> Result<()> {
         let target = destination
@@ -90,7 +94,7 @@ fn remove_empty_sidecars(path: &Path) -> Result<()> {
         let file = format!("{}{suffix}", path.display());
         match fs::metadata(&file) {
             Ok(metadata) if metadata.len() == 0 => {
-                fs::remove_file(&file).context(format!("Failed to remove {file}"))?
+                fs::remove_file(&file).context(format!("Failed to remove {file}"))?;
             }
             Ok(metadata) => {
                 tracing::warn!(file = %file, size = metadata.len(), "Backup left a non-empty file; kept");
@@ -125,6 +129,11 @@ fn restrict_permissions(path: &Path) -> Result<()> {
 }
 
 /// Open the database file at `path`, creating it if it does not exist.
+///
+/// # Errors
+///
+/// Fails when the path is not valid UTF-8, the file cannot be opened, or its permissions cannot
+/// be restricted.
 #[instrument(level = "debug")]
 pub async fn open(path: &Path) -> Result<Database> {
     let location = path.to_str().context("Database path is not valid UTF-8")?;
@@ -142,6 +151,10 @@ pub async fn open(path: &Path) -> Result<Database> {
 }
 
 /// Open a database that lives only in memory and disappears with the last handle. For tests.
+///
+/// # Errors
+///
+/// Fails when Turso cannot open an in-memory database.
 #[instrument(level = "debug")]
 pub async fn open_in_memory() -> Result<Database> {
     open(Path::new(SHERPA_DB_MEMORY)).await
@@ -195,6 +208,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_new_database_and_its_first_writes_are_owner_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sherpa.sqlite");
+
+        let db = open(&path).await.unwrap();
+        apply_schema(&db).await.unwrap();
+        crate::create_user(&db, "dana".into(), "TestPass123!", false, vec![])
+            .await
+            .unwrap();
+
+        // Without reopening: the files the first writes created.
+        for suffix in ["", "-wal"] {
+            let file = format!("{}{suffix}", path.display());
+            let mode = fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, SHERPA_DB_FILE_MODE, "{file}");
+        }
+        drop(db);
+    }
+
+    #[tokio::test]
     async fn backup_refuses_an_existing_file() {
         let dir = tempfile::tempdir().unwrap();
         let db = open(&dir.path().join("sherpa.sqlite")).await.unwrap();
@@ -220,6 +253,6 @@ mod tests {
         for task in tasks {
             task.await.unwrap().unwrap();
         }
-        assert_eq!(crate::count_users(&db).await.unwrap(), 32);
+        assert_eq!(crate::list_users(&db).await.unwrap().len(), 32);
     }
 }

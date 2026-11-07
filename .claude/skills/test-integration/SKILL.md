@@ -9,7 +9,7 @@ model: sonnet
 
 Run integration tests locally. This skill is designed to be invoked from within a
 `devbox_linux` VM that has passwordless sudo and all dependencies pre-installed
-(Rust, Docker, SurrealDB, libvirt).
+(Rust, Docker, libvirt).
 
 ## Arguments
 
@@ -21,24 +21,7 @@ Run integration tests locally. This skill is designed to be invoked from within 
 Execute the following phases sequentially. Report progress to the user as you go.
 Stop and report if any phase fails.
 
-### Phase 1 — Restart Test DB
-
-Always restart the test database for a clean state:
-
-```bash
-cd /home/sherpa/sherpa && SHERPA_DEV_DB_USER=sherpa SHERPA_DEV_DB_PASS='Everest1953!' ./dev/testdb restart
-```
-
-Wait 3 seconds after restart for the database to be ready:
-
-```bash
-sleep 3
-```
-
-The DB must be started with user `sherpa` and password `Everest1953!` to match the
-credentials used by the test helpers (which default to `SHERPA_PASSWORD` constant).
-
-### Phase 2 — Format and Lint
+### Phase 1 — Format and Lint
 
 Run formatting and linting checks. Use `--check` for fmt — report failures for the
 user to fix.
@@ -53,7 +36,7 @@ cargo clippy --workspace -- -D warnings
 
 If either fails, report the error output and stop.
 
-### Phase 3 — Test Execution
+### Phase 2 — Test Execution
 
 Run integration tests. Execute sequentially and stop on first failure.
 
@@ -75,7 +58,7 @@ command from the table below.
 
 Note: `network` and `server` require sudo for network capabilities.
 
-### Phase 4 — Report
+### Phase 3 — Report
 
 Present a clear summary of results:
 

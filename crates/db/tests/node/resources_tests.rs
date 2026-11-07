@@ -1,8 +1,8 @@
 use anyhow::Result;
 use db::{
-    LabOrigin, create_lab, create_node, create_node_image, create_user, get_node,
-    list_pinned_nodes, list_vnc_ports, update_node_host_key, update_node_resources,
-    update_node_state,
+    LabOrigin, create_lab, create_node, create_user, get_node, list_pinned_nodes, list_vnc_ports,
+    update_node_host_key, update_node_mgmt_ipv4, update_node_mgmt_ipv6, update_node_mgmt_mac,
+    update_node_resources, update_node_state, upsert_node_image,
 };
 use shared::data::{NodeConfig, NodeModel, NodeResources, NodeState};
 
@@ -24,7 +24,7 @@ async fn lab_with_nodes(db: &db::Database, count: u16) -> Result<Vec<shared::dat
         &LabOrigin::default(),
     )
     .await?;
-    let image = create_node_image(db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let image = upsert_node_image(db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
     let mut nodes = Vec::new();
     for index in 1..=count {
         nodes.push(
@@ -141,5 +141,22 @@ async fn test_node_host_key_is_stored_and_cleared() -> Result<()> {
     update_node_host_key(&db, id.clone(), None).await?;
     assert_eq!(get_node(&db, id).await?.ssh_host_key, None);
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn management_addresses_are_stored() -> Result<()> {
+    let db = setup_db().await?;
+    let nodes = lab_with_nodes(&db, 1).await?;
+    let id = nodes[0].id.clone().unwrap();
+
+    update_node_mgmt_ipv4(&db, id.clone(), "172.31.1.21").await?;
+    update_node_mgmt_ipv6(&db, id.clone(), "fd00:b00b:0:1::21").await?;
+    update_node_mgmt_mac(&db, id.clone(), "52:54:00:12:34:56").await?;
+
+    let node = get_node(&db, id).await?;
+    assert_eq!(node.mgmt_ipv4.as_deref(), Some("172.31.1.21"));
+    assert_eq!(node.mgmt_ipv6.as_deref(), Some("fd00:b00b:0:1::21"));
+    assert_eq!(node.mgmt_mac.as_deref(), Some("52:54:00:12:34:56"));
     Ok(())
 }

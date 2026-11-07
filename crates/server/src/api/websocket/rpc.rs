@@ -2283,7 +2283,7 @@ async fn handle_auth_login(
     };
 
     // Get user from database (for authentication)
-    let user = match db::get_user_for_auth(&state.db, &login_request.username).await {
+    let user = match db::get_user(&state.db, &login_request.username).await {
         Ok(user) => user,
         Err(_) => {
             // Don't reveal whether user exists or not
@@ -2691,7 +2691,6 @@ async fn handle_user_passwd(
 
     // Update password and updated_at timestamp
     user.password_hash = new_password_hash;
-    user.updated_at = jiff::Timestamp::now();
 
     match db::update_user(&state.db, user).await {
         Ok(_) => {

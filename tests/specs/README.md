@@ -137,7 +137,7 @@ Manages containers via the Bollard library (Docker API). All operations require 
 
 ### `db/` — Database Layer (embedded Turso)
 
-CRUD operations and schema management for 6 tables: lab, node, link, bridge, user, node_image. Tests use in-memory databases; only the importer test needs the SurrealDB test database (`dev/testdb`).
+CRUD operations and schema management for 6 tables: lab, node, link, bridge, user, node_image. Tests use in-memory databases.
 
 | File | Purpose |
 |------|---------|

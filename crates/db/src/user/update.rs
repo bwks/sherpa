@@ -1,27 +1,29 @@
 use anyhow::{Context, Result, anyhow};
+use jiff::Timestamp;
 use shared::data::DbUser;
 use tracing::instrument;
+use turso::Value;
 
 use crate::Database;
 use crate::helpers::get_user_id;
-use crate::persistence::{USER_TABLE, key_of, user_from_row, user_values};
+use crate::persistence::{USER_TABLE, json_text, key_of, user_from_row};
 use crate::queries;
 use crate::sql::query_optional;
 
 /// Update an existing user in the database
 ///
-/// This performs a full replacement of all fields except the id.
-/// The DbUser must have a valid `id` field set.
+/// Writes the user's name, password hash, admin flag and SSH keys, and sets `updated_at` to now.
+/// `created_at` is never changed. The `DbUser` must have a valid `id` field set.
 ///
 /// **Note:** Changing the username may fail if it conflicts with another user's
 /// username due to the unique constraint.
 ///
 /// # Arguments
 /// * `db` - Database connection
-/// * `user` - DbUser with updated fields and a valid `id`
+/// * `user` - `DbUser` with updated fields and a valid `id`
 ///
 /// # Returns
-/// The updated DbUser on success
+/// The updated `DbUser` on success
 ///
 /// # Errors
 /// - If the user has no ID
@@ -37,12 +39,15 @@ pub async fn update_user(db: &Database, user: DbUser) -> Result<DbUser> {
     let key = key_of(&id, USER_TABLE)?;
 
     let writer = db.writer().await?;
-    let updated = query_optional(
-        &writer.conn,
-        queries::user::UPDATE,
-        user_values(&user, &key)?,
-        user_from_row,
-    )
+    let values = vec![
+        Value::from(key),
+        Value::from(user.username.as_str()),
+        Value::from(user.password_hash.as_str()),
+        Value::from(user.is_admin),
+        Value::from(json_text(&user.ssh_keys, "ssh_keys")?),
+        Value::from(Timestamp::now().to_string()),
+    ];
+    let updated = query_optional(&writer.conn, queries::user::UPDATE, values, user_from_row)
     .await
     .context(format!(
         "Failed to update user:\n id: {:?}\n username: {}\nNote: Username change may fail if it conflicts with another user",

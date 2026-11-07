@@ -80,11 +80,6 @@ vm_image_model = "ubuntu_linux"
 vm_image_version = "26.04"
 vm_image_url = "https://cloud-images.ubuntu.com/releases/resolute/release-20260927/ubuntu-26.04-server-cloudimg-amd64.img"
 vm_image_sha256 = "8800651811af9a85465ad1d552add729947bb16488dddb4a9b5305a3d97332b2"
-# A SurrealDB test database (dev/testdb) for the importer's ignored test, which moves a
-# pre-0.5.0 server's data. The other database tests use in-memory databases.
-# The test database password is generated per run.
-test_db_user = "sherpa"
-test_db_port = 42069
 # Tests skipped by name. Live tailnet enrollment is deferred; see PROJECT.md (Tailnet access).
 skip_tests = ["tailscale::tests::live_tailnet_enrollment_stop_reenroll_cleanup"]
 # Non-secret opt-ins for live integration tests. Credentials are never stored here.

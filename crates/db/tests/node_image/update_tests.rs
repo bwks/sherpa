@@ -1,6 +1,6 @@
-/// UPDATE operation tests for node_image
+/// UPDATE operation tests for `node_image`
 use anyhow::Result;
-use db::{create_node_image, get_node_image_by_id, update_node_image};
+use db::{find_node_image_by_id, update_node_image, upsert_node_image};
 use shared::data::{NodeModel, RecordId};
 
 use crate::{create_test_config, setup_db};
@@ -11,7 +11,7 @@ async fn test_update_node_image_success() -> Result<()> {
 
     // Create a config
     let test_config = create_test_config(NodeModel::AristaVeos);
-    let created = create_node_image(&db, test_config).await?;
+    let created = upsert_node_image(&db, test_config).await?;
     let original_id = created.id.clone();
 
     // Modify multiple fields
@@ -51,8 +51,7 @@ async fn test_update_node_image_without_id_fails() -> Result<()> {
     let err = result.unwrap_err();
     assert!(
         err.to_string().contains("has no ID"),
-        "Error should mention missing ID: {}",
-        err
+        "Error should mention missing ID: {err}"
     );
 
     Ok(())
@@ -73,8 +72,7 @@ async fn test_update_nonexistent_config_fails() -> Result<()> {
     let err = result.unwrap_err();
     assert!(
         err.to_string().contains("not found"),
-        "Error should mention record not found: {}",
-        err
+        "Error should mention record not found: {err}"
     );
 
     Ok(())
@@ -86,7 +84,7 @@ async fn test_update_preserves_id() -> Result<()> {
 
     // Create a config
     let test_config = create_test_config(NodeModel::NokiaSrlinux);
-    let created = create_node_image(&db, test_config).await?;
+    let created = upsert_node_image(&db, test_config).await?;
     let original_id = created.id.clone().expect("Created config should have ID");
 
     // Update multiple times
@@ -111,7 +109,7 @@ async fn test_update_preserves_id() -> Result<()> {
     }
 
     // Verify via get_by_id that ID is still correct
-    let retrieved = get_node_image_by_id(&db, original_id.clone())
+    let retrieved = find_node_image_by_id(&db, original_id.clone())
         .await?
         .expect("Config should still exist");
 

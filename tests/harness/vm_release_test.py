@@ -166,7 +166,7 @@ def validate_config(config):
                      "startup", "reboot", "cleanup", "poll", "terminate", "build", "tests", "images"),
         "faults": ("wait", "command_timeout", "ready_timeout", "ready_port", "trigger_timeout"),
         "tests": ("integration_crates", "container_images", "vm_image_model", "vm_image_version",
-                  "vm_image_url", "vm_image_sha256", "test_db_user", "test_db_port", "skip_tests",
+                  "vm_image_url", "vm_image_sha256", "skip_tests",
                   "environment"),
     }
     if "baseline" in config:
@@ -263,7 +263,7 @@ class Runner:
             if validate["uuid"] != runner.guest_uuid or validate["nonce"] != runner.run_id:
                 raise ValueError("Refusing cleanup: guest payload identity changed")
             runner.remote_directory = validate["workspace"]
-            runner.secrets = [data["credentials"][key] for key in ("db_password", "admin_password", "test_db_password",
+            runner.secrets = [data["credentials"][key] for key in ("db_password", "admin_password",
                                                                    "build_cache_password")
                               if key in data["credentials"]]
         return runner
@@ -548,9 +548,6 @@ class Runner:
         if self.report["run"]["scenario"] == "upgrade":
             payload["baseline"] = dict(self.report["baseline"])
         if self.report["run"]["scenario"] == "code":
-            test_db_password = "Cc3!" + secrets.token_hex(24)
-            self.secrets.append(test_db_password)
-            payload["credentials"]["test_db_password"] = test_db_password
             payload["tests"] = {**self.config["tests"], "source_sha256": self.report["source"]["archive_sha256"]}
             cache_password = build_cache.password()
             if cache_password:

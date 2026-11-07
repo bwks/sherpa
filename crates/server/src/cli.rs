@@ -2,9 +2,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use clap::{Parser, Subcommand};
 
-use shared::konst::{
-    SHERPA_DB_PORT, SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_IPV4, SHERPA_SERVER_WS_PORT,
-};
+use shared::konst::{SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_IPV4, SHERPA_SERVER_WS_PORT};
 
 #[derive(Parser)]
 #[command(name = "sherpad")]
@@ -70,18 +68,6 @@ pub enum Commands {
         /// HTTP port for the certificate endpoint
         #[arg(long = "http-port", env = "SHERPA_SERVER_HTTP_PORT", default_value_t = SHERPA_SERVER_HTTP_PORT)]
         http_port: u16,
-    },
-
-    /// Import the data of a server older than 0.5.0 from its SurrealDB container into the
-    /// embedded database. Run it once, with sherpad stopped and the SurrealDB container running.
-    MigrateDb {
-        /// SurrealDB password
-        #[arg(long = "db-pass", env = "SHERPA_DB_PASSWORD")]
-        db_password: String,
-
-        /// SurrealDB port
-        #[arg(long = "db-port", env = "SHERPA_DB_PORT", default_value_t = SHERPA_DB_PORT)]
-        db_port: u16,
     },
 
     /// Fix up server environment
@@ -153,25 +139,5 @@ mod tests {
     fn init_rejects_an_invalid_address() {
         assert!(Cli::try_parse_from(["sherpad", "init", "--server-ipv4", "192.0.2"]).is_err());
         assert!(Cli::try_parse_from(["sherpad", "init", "--server-ipv6", "2001:db8::zz"]).is_err());
-    }
-
-    #[test]
-    fn migrate_db_requires_the_password() {
-        assert!(Cli::try_parse_from(["sherpad", "migrate-db"]).is_err());
-    }
-
-    #[test]
-    fn migrate_db_keeps_the_password_as_given_and_defaults_the_port() {
-        let cli =
-            Cli::try_parse_from(["sherpad", "migrate-db", "--db-pass", "\"quoted\""]).unwrap();
-        let Commands::MigrateDb {
-            db_password,
-            db_port,
-        } = cli.command
-        else {
-            panic!("expected migrate-db");
-        };
-        assert_eq!(db_password, "\"quoted\"");
-        assert_eq!(db_port, 8000);
     }
 }

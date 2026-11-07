@@ -4,63 +4,9 @@ use tracing::instrument;
 use turso::Value;
 
 use crate::Database;
-use crate::node::read::select_node;
-use crate::persistence::{NODE_TABLE, enum_text, json_text, key_of, node_from_row, node_values};
+use crate::persistence::{NODE_TABLE, enum_text, json_text, key_of, node_from_row};
 use crate::queries;
 use crate::sql::query_optional;
-
-/// Update an existing node in the database
-///
-/// **IMPORTANT:** The `lab` field is immutable and cannot be changed.
-/// If the provided node has a different lab than the existing node, the update will fail.
-/// Nodes cannot be moved between labs after creation.
-///
-/// # Arguments
-/// * `db` - Database connection
-/// * `node` - DbNode with all fields populated (id field is required)
-///
-/// # Returns
-/// The updated DbNode record
-///
-/// # Errors
-/// - If node.id is None (id is required for updates)
-/// - If node doesn't exist
-/// - If trying to change the lab (lab field is immutable)
-/// - If unique constraints are violated (name+lab, index+lab)
-/// - If there's a database error
-///
-#[instrument(skip(db), level = "debug")]
-pub async fn update_node(db: &Database, node: DbNode) -> Result<DbNode> {
-    // Require id field for updates
-    let id = node
-        .id
-        .as_ref()
-        .ok_or_else(|| anyhow!("Cannot update node without id field"))?;
-    let key = key_of(id, NODE_TABLE)?;
-
-    // Read and write under one write lock, so the lab check holds for the update.
-    let writer = db.writer().await?;
-    let existing = select_node(&writer.conn, id).await?;
-
-    // Verify lab is not being changed - it's immutable
-    if existing.lab != node.lab {
-        return Err(anyhow!(
-            "Cannot change node lab: lab field is immutable. Nodes cannot be moved between labs. Existing lab: {:?}, attempted new lab: {:?}",
-            existing.lab,
-            node.lab
-        ));
-    }
-
-    query_optional(
-        &writer.conn,
-        queries::node::UPDATE,
-        node_values(&node, &key)?,
-        node_from_row,
-    )
-    .await
-    .context(format!("Failed to update node: {}", node.name))?
-    .ok_or_else(|| anyhow!("Node update failed: {}", node.name))
-}
 
 /// Set columns of one node with `sql`, whose `?1` is the node's key, and return the node.
 async fn update_columns(
@@ -74,19 +20,19 @@ async fn update_columns(
     let writer = db.writer().await?;
     query_optional(&writer.conn, sql, values, node_from_row)
         .await
-        .context(format!("Failed to update {what} for node: {:?}", node_id))?
-        .ok_or_else(|| anyhow!("Node not found with id: {:?}", node_id))
+        .context(format!("Failed to update {what} for node: {node_id:?}"))?
+        .ok_or_else(|| anyhow!("Node not found with id: {node_id:?}"))
 }
 
 /// Update a node's management IPv4 address.
 ///
 /// # Arguments
 /// * `db` - Database connection
-/// * `node_id` - RecordId of the node to update
+/// * `node_id` - `RecordId` of the node to update
 /// * `mgmt_ipv4` - The management IPv4 address to set
 ///
 /// # Returns
-/// The updated DbNode record
+/// The updated `DbNode` record
 ///
 /// # Errors
 /// - If the node doesn't exist
@@ -111,11 +57,11 @@ pub async fn update_node_mgmt_ipv4(
 ///
 /// # Arguments
 /// * `db` - Database connection
-/// * `node_id` - RecordId of the node to update
+/// * `node_id` - `RecordId` of the node to update
 /// * `mgmt_ipv6` - The management IPv6 address to set
 ///
 /// # Returns
-/// The updated DbNode record
+/// The updated `DbNode` record
 ///
 /// # Errors
 /// - If the node doesn't exist
@@ -140,11 +86,11 @@ pub async fn update_node_mgmt_ipv6(
 ///
 /// # Arguments
 /// * `db` - Database connection
-/// * `node_id` - RecordId of the node to update
+/// * `node_id` - `RecordId` of the node to update
 /// * `mgmt_mac` - The management MAC address to set
 ///
 /// # Returns
-/// The updated DbNode record
+/// The updated `DbNode` record
 ///
 /// # Errors
 /// - If the node doesn't exist
@@ -169,11 +115,11 @@ pub async fn update_node_mgmt_mac(
 ///
 /// # Arguments
 /// * `db` - Database connection
-/// * `node_id` - RecordId of the node to update
-/// * `state` - The new NodeState to set
+/// * `node_id` - `RecordId` of the node to update
+/// * `state` - The new `NodeState` to set
 ///
 /// # Returns
-/// The updated DbNode record
+/// The updated `DbNode` record
 ///
 /// # Errors
 /// - If the node doesn't exist

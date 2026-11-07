@@ -4,7 +4,6 @@
 //! keys, and admins may manage anyone's. Labs only start for users with a registered key.
 
 use anyhow::{Context, Result};
-use jiff::Timestamp;
 use tracing::instrument;
 
 use shared::data::{DbUser, UserSshKeysResponse};
@@ -87,8 +86,7 @@ async fn load_user(username: &str, state: &AppState) -> Result<DbUser> {
         .ok_or_else(|| ServiceError::NotFound(format!("User not found: {username}")))?)
 }
 
-async fn save_keys(mut user: DbUser, state: &AppState) -> Result<UserSshKeysResponse> {
-    user.updated_at = Timestamp::now();
+async fn save_keys(user: DbUser, state: &AppState) -> Result<UserSshKeysResponse> {
     let user = db::update_user(&state.db, user)
         .await
         .context("Failed to save SSH keys")?;

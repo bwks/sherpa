@@ -1,11 +1,11 @@
 use anyhow::Result;
 use db::{
-    LabOrigin, count_links, count_links_by_lab, create_lab, create_link, create_node,
-    create_node_image, create_user, get_link, get_link_by_peers,
+    LabOrigin, create_lab, create_link, create_node, create_user, list_links_by_lab,
+    upsert_node_image,
 };
 use shared::data::{BridgeKind, NodeConfig, NodeModel};
 
-use crate::helper::{ipv4_lab_networks, setup_db};
+use crate::helper::{ipv4_lab_networks, setup_db, test_link};
 
 #[tokio::test]
 async fn test_create_link_success() -> Result<()> {
@@ -27,7 +27,7 @@ async fn test_create_link_success() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     let node1 = create_node(
         &db,
@@ -49,15 +49,7 @@ async fn test_create_link_success() -> Result<()> {
     // Create link
     let link = create_link(
         &db,
-        0,
-        BridgeKind::P2p,
-        node1.id.clone().unwrap(),
-        node2.id.clone().unwrap(),
-        "eth0".to_string(),
-        "eth0".to_string(),
-        String::new(),
-        String::new(),
-        lab.id.clone().unwrap(),
+        test_link(&lab, 0, BridgeKind::P2p, &node1, "eth0", &node2, "eth0"),
     )
     .await?;
 
@@ -91,7 +83,7 @@ async fn test_create_link_with_lab() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     let node1 = create_node(
         &db,
@@ -112,15 +104,15 @@ async fn test_create_link_with_lab() -> Result<()> {
 
     let link = create_link(
         &db,
-        0,
-        BridgeKind::P2p,
-        node1.id.clone().unwrap(),
-        node2.id.clone().unwrap(),
-        "GigabitEthernet0/0".to_string(),
-        "GigabitEthernet0/0".to_string(),
-        String::new(),
-        String::new(),
-        lab.id.clone().unwrap(),
+        test_link(
+            &lab,
+            0,
+            BridgeKind::P2p,
+            &node1,
+            "GigabitEthernet0/0",
+            &node2,
+            "GigabitEthernet0/0",
+        ),
     )
     .await?;
 
@@ -149,7 +141,7 @@ async fn test_create_link_duplicate_peers_fails() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     let node1 = create_node(
         &db,
@@ -171,30 +163,14 @@ async fn test_create_link_duplicate_peers_fails() -> Result<()> {
     // Create first link
     create_link(
         &db,
-        0,
-        BridgeKind::P2p,
-        node1.id.clone().unwrap(),
-        node2.id.clone().unwrap(),
-        "eth0".to_string(),
-        "eth0".to_string(),
-        String::new(),
-        String::new(),
-        lab.id.clone().unwrap(),
+        test_link(&lab, 0, BridgeKind::P2p, &node1, "eth0", &node2, "eth0"),
     )
     .await?;
 
     // Try to create link with same peer combination
     let result = create_link(
         &db,
-        1,
-        BridgeKind::P2p,
-        node1.id.clone().unwrap(),
-        node2.id.clone().unwrap(),
-        "eth0".to_string(),
-        "eth0".to_string(),
-        String::new(),
-        String::new(),
-        lab.id.clone().unwrap(),
+        test_link(&lab, 1, BridgeKind::P2p, &node1, "eth0", &node2, "eth0"),
     )
     .await;
 
@@ -203,11 +179,10 @@ async fn test_create_link_duplicate_peers_fails() -> Result<()> {
         "Should fail on duplicate (node_a, node_b, int_a, int_b) combination"
     );
     let error_msg = result.unwrap_err().to_string();
-    println!("Duplicate peers error: {}", error_msg);
+    println!("Duplicate peers error: {error_msg}");
     assert!(
         error_msg.contains("Failed to create link"),
-        "Error should mention failed link creation, got: {}",
-        error_msg
+        "Error should mention failed link creation, got: {error_msg}"
     );
 
     Ok(())
@@ -232,7 +207,7 @@ async fn test_create_link_different_interfaces_succeeds() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     let node1 = create_node(
         &db,
@@ -254,30 +229,30 @@ async fn test_create_link_different_interfaces_succeeds() -> Result<()> {
     // Create first link between same nodes on eth0
     let link1 = create_link(
         &db,
-        0,
-        BridgeKind::P2p,
-        node1.id.clone().unwrap(),
-        node2.id.clone().unwrap(),
-        "GigabitEthernet0/0".to_string(),
-        "GigabitEthernet0/0".to_string(),
-        String::new(),
-        String::new(),
-        lab.id.clone().unwrap(),
+        test_link(
+            &lab,
+            0,
+            BridgeKind::P2p,
+            &node1,
+            "GigabitEthernet0/0",
+            &node2,
+            "GigabitEthernet0/0",
+        ),
     )
     .await?;
 
     // Create second link between same nodes on eth1 - should succeed
     let link2 = create_link(
         &db,
-        1,
-        BridgeKind::P2p,
-        node1.id.clone().unwrap(),
-        node2.id.clone().unwrap(),
-        "GigabitEthernet0/1".to_string(),
-        "GigabitEthernet0/1".to_string(),
-        String::new(),
-        String::new(),
-        lab.id.clone().unwrap(),
+        test_link(
+            &lab,
+            1,
+            BridgeKind::P2p,
+            &node1,
+            "GigabitEthernet0/1",
+            &node2,
+            "GigabitEthernet0/1",
+        ),
     )
     .await?;
 
@@ -308,7 +283,7 @@ async fn test_create_link_with_bridge_kinds() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     let node1 = create_node(
         &db,
@@ -338,30 +313,22 @@ async fn test_create_link_with_bridge_kinds() -> Result<()> {
     // Test P2p
     let link2 = create_link(
         &db,
-        1,
-        BridgeKind::P2p,
-        node2.id.clone().unwrap(),
-        node3.id.clone().unwrap(),
-        "eth0".to_string(),
-        "eth0".to_string(),
-        String::new(),
-        String::new(),
-        lab.id.clone().unwrap(),
+        test_link(&lab, 1, BridgeKind::P2p, &node2, "eth0", &node3, "eth0"),
     )
     .await?;
 
     // Test SharedBridge
     let link3 = create_link(
         &db,
-        2,
-        BridgeKind::SharedBridge,
-        node1.id.clone().unwrap(),
-        node3.id.clone().unwrap(),
-        "eth1".to_string(),
-        "eth1".to_string(),
-        String::new(),
-        String::new(),
-        lab.id.clone().unwrap(),
+        test_link(
+            &lab,
+            2,
+            BridgeKind::SharedBridge,
+            &node1,
+            "eth1",
+            &node3,
+            "eth1",
+        ),
     )
     .await?;
 
@@ -390,7 +357,7 @@ async fn test_create_link_increments_count() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     let node1 = create_node(
         &db,
@@ -409,176 +376,23 @@ async fn test_create_link_increments_count() -> Result<()> {
     )
     .await?;
 
-    let initial_count = count_links(&db).await?;
-    let initial_lab_count = count_links_by_lab(&db, lab.id.clone().unwrap()).await?;
+    let initial_lab_count = list_links_by_lab(&db, lab.id.clone().unwrap()).await?.len();
 
     // Create links
     create_link(
         &db,
-        0,
-        BridgeKind::P2p,
-        node1.id.clone().unwrap(),
-        node2.id.clone().unwrap(),
-        "eth0".to_string(),
-        "eth0".to_string(),
-        String::new(),
-        String::new(),
-        lab.id.clone().unwrap(),
+        test_link(&lab, 0, BridgeKind::P2p, &node1, "eth0", &node2, "eth0"),
     )
     .await?;
     create_link(
         &db,
-        1,
-        BridgeKind::P2p,
-        node1.id.clone().unwrap(),
-        node2.id.clone().unwrap(),
-        "eth1".to_string(),
-        "eth1".to_string(),
-        String::new(),
-        String::new(),
-        lab.id.clone().unwrap(),
+        test_link(&lab, 1, BridgeKind::P2p, &node1, "eth1", &node2, "eth1"),
     )
     .await?;
 
-    let final_count = count_links(&db).await?;
-    let final_lab_count = count_links_by_lab(&db, lab.id.clone().unwrap()).await?;
+    let final_lab_count = list_links_by_lab(&db, lab.id.clone().unwrap()).await?.len();
 
-    assert_eq!(final_count, initial_count + 2);
     assert_eq!(final_lab_count, initial_lab_count + 2);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_create_link_can_retrieve_by_peers() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(
-        &db,
-        "Lab Retrieve",
-        "lab-0007",
-        &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
-        &LabOrigin::default(),
-    )
-    .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
-
-    let node1 = create_node(
-        &db,
-        "router1",
-        1,
-        config.id.clone().unwrap(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-    let node2 = create_node(
-        &db,
-        "router2",
-        2,
-        config.id.clone().unwrap(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-
-    // Create link
-    let created_link = create_link(
-        &db,
-        0,
-        BridgeKind::P2p,
-        node1.id.clone().unwrap(),
-        node2.id.clone().unwrap(),
-        "GigabitEthernet0/0".to_string(),
-        "GigabitEthernet0/0".to_string(),
-        String::new(),
-        String::new(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-
-    // Retrieve by peers
-    let retrieved_link = get_link_by_peers(
-        &db,
-        node1.id.clone().unwrap(),
-        node2.id.clone().unwrap(),
-        "GigabitEthernet0/0",
-        "GigabitEthernet0/0",
-    )
-    .await?;
-
-    assert_eq!(created_link.id, retrieved_link.id);
-    assert_eq!(created_link.index, retrieved_link.index);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_create_link_can_retrieve_by_id() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "hannah".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(
-        &db,
-        "Lab Retrieve ID",
-        "lab-0008",
-        &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
-        &LabOrigin::default(),
-    )
-    .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
-
-    let node1 = create_node(
-        &db,
-        "node1",
-        1,
-        config.id.clone().unwrap(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-    let node2 = create_node(
-        &db,
-        "node2",
-        2,
-        config.id.clone().unwrap(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-
-    // Create link
-    let created_link = create_link(
-        &db,
-        0,
-        BridgeKind::P2p,
-        node1.id.clone().unwrap(),
-        node2.id.clone().unwrap(),
-        "eth0".to_string(),
-        "eth0".to_string(),
-        String::new(),
-        String::new(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-
-    // Retrieve by ID
-    let link_id = created_link.id.clone().unwrap();
-    let retrieved_link = get_link(&db, link_id).await?;
-
-    assert_eq!(created_link.id, retrieved_link.id);
-    assert_eq!(created_link.index, retrieved_link.index);
-    assert_eq!(created_link.node_a, retrieved_link.node_a);
-    assert_eq!(created_link.node_b, retrieved_link.node_b);
 
     Ok(())
 }

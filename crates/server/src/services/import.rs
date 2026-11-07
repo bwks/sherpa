@@ -234,11 +234,11 @@ pub async fn show_image(request: ShowImageRequest, state: &AppState) -> Result<S
 
     let image = match request.version {
         Some(version) => {
-            db::get_node_image_by_model_kind_version(&state.db, &request.model, &kind, &version)
+            db::find_node_image_by_model_kind_version(&state.db, &request.model, &kind, &version)
                 .await
                 .context("Failed to query node image by model, kind and version")?
         }
-        None => db::get_default_node_image(&state.db, &request.model, &kind)
+        None => db::find_default_node_image(&state.db, &request.model, &kind)
             .await
             .context("Failed to query default node image")?,
     };
@@ -370,7 +370,7 @@ pub async fn scan_images(
 
             // Check if record already exists with this version
             let existing =
-                db::get_node_image_by_model_kind_version(&state.db, &model, &kind, &version)
+                db::find_node_image_by_model_kind_version(&state.db, &model, &kind, &version)
                     .await
                     .context("Failed to check existing node_image")?;
 
@@ -497,7 +497,7 @@ pub async fn scan_images(
 
                 // Check if record already exists with this version
                 let existing =
-                    db::get_node_image_by_model_kind_version(&state.db, &model, &kind, &version)
+                    db::find_node_image_by_model_kind_version(&state.db, &model, &kind, &version)
                         .await
                         .context("Failed to check existing node_image")?;
 
@@ -590,7 +590,7 @@ pub async fn set_default_image(
     let kind = config.kind.clone();
 
     // Look up the image in the database
-    let node_image = db::get_node_image_by_model_kind_version(
+    let node_image = db::find_node_image_by_model_kind_version(
         &state.db,
         &request.model,
         &kind,

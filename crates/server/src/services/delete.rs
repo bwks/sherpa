@@ -21,7 +21,7 @@ pub async fn delete_image(
     let kind = config.kind.clone();
 
     // Look up the image in the database
-    let node_image = db::get_node_image_by_model_kind_version(
+    let node_image = db::find_node_image_by_model_kind_version(
         &state.db,
         &request.model,
         &kind,

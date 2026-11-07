@@ -201,6 +201,11 @@ pub const SHERPA_DB_PATH: &str = "/opt/sherpa/db";
 pub const SHERPA_DB_FILE_PATH: &str = "/opt/sherpa/db/sherpa.sqlite";
 /// Where database backups taken by the server are written.
 pub const SHERPA_DB_BACKUP_PATH: &str = "/opt/sherpa/db/backups";
+/// The database directory: `sherpa` and its group only, so no other server user can open the
+/// database or its backups, whatever their file modes.
+pub const SHERPA_DB_DIR_MODE: u32 = 0o750;
+/// The backup directory: `sherpa` only. A backup is written before its file is restricted.
+pub const SHERPA_DB_BACKUP_DIR_MODE: u32 = 0o700;
 /// Backup files are named `<prefix><UTC time><extension>`.
 pub const SHERPA_DB_BACKUP_PREFIX: &str = "sherpa-";
 pub const SHERPA_DB_BACKUP_TIME_FORMAT: &str = "%Y%m%dT%H%M%SZ";
@@ -211,16 +216,10 @@ pub const SHERPA_DB_MEMORY: &str = ":memory:";
 pub const SHERPA_DB_FILE_MODE: u32 = 0o600;
 /// How long a connection waits for a lock held by another connection.
 pub const SHERPA_DB_BUSY_TIMEOUT_SECS: u64 = 5;
-/// Generated record keys: the length and alphabet SurrealDB used, so imported keys look alike.
+/// Generated record keys: the length and alphabet of the keys of releases before 0.5.0, which
+/// servers that were upgraded still hold.
 pub const SHERPA_DB_KEY_LENGTH: usize = 20;
 pub const SHERPA_DB_KEY_CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
-
-// The SurrealDB server that releases before 0.5.0 used. Only the importer reads these.
-pub const SHERPA_DB_NAME: &str = "sherpa";
-pub const SHERPA_DB_NAMESPACE: &str = "sherpa";
-pub const SHERPA_DB_USER: &str = "sherpa";
-pub const SHERPA_DB_SERVER: &str = "localhost";
-pub const SHERPA_DB_PORT: u16 = 8000;
 pub const SHERPA_SERVER_WS_PORT: u16 = 3030;
 pub const SHERPA_SERVER_HTTP_PORT: u16 = 3031;
 pub const SHERPA_SERVER_IPV4: &str = "0.0.0.0";

@@ -1,102 +1,64 @@
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbLab, LabState, RecordId};
 use tracing::instrument;
+use turso::Value;
 
 use crate::Database;
-use crate::lab::validate_lab_id;
-use crate::persistence::{LAB_TABLE, enum_text, key_of, lab_from_row, lab_values};
+use crate::persistence::{LAB_TABLE, enum_text, key_of, lab_from_row};
 use crate::queries;
 use crate::sql::query_optional;
 
-/// Update an existing lab in the database
-///
-/// **IMPORTANT:** The `user` field (owner) is immutable and cannot be changed.
-/// If the provided lab has a different user than the existing lab, the update will fail.
-///
-/// # Arguments
-/// * `db` - Database connection
-/// * `lab` - DbLab with all fields populated (id field is required)
-///
-/// # Returns
-/// The updated DbLab record
+/// Record the Tailscale gateway container of the lab `id`, or `None` once it is removed. Only
+/// that column is written, so a status written meanwhile is kept.
 ///
 /// # Errors
-/// - If lab.id is None (id is required for updates)
-/// - If lab_id validation fails
-/// - If lab doesn't exist
-/// - If trying to change the owner (user field is immutable)
-/// - If unique constraints are violated (lab_id, name+user)
-/// - If there's a database error
 ///
+/// Fails when the lab does not exist or the database cannot be written.
 #[instrument(skip(db), level = "debug")]
-pub async fn update_lab(db: &Database, lab: DbLab) -> Result<DbLab> {
-    // Require id field for updates
-    let id = lab
-        .id
-        .as_ref()
-        .ok_or_else(|| anyhow!("Cannot update lab without id field"))?;
-
-    // Validate lab_id format
-    validate_lab_id(&lab.lab_id)?;
-
-    let key = key_of(id, LAB_TABLE)?;
-
-    // Hold the write lock across the check and the update, so the owner cannot change between.
+pub async fn update_lab_tailscale_container(
+    db: &Database,
+    id: &RecordId,
+    container_id: Option<&str>,
+) -> Result<DbLab> {
     let writer = db.writer().await?;
-
-    // Verify the lab exists and check if user is being changed
-    let existing = query_optional(
-        &writer.conn,
-        queries::lab::FIND_BY_ID,
-        [key.as_str()],
-        lab_from_row,
-    )
-    .await
-    .context(format!("Failed to fetch existing lab: {:?}", id))?
-    .ok_or_else(|| anyhow!("Lab not found: {:?}", id))?;
-
-    // Verify owner (user) is not being changed - it's immutable
-    if existing.user != lab.user {
-        return Err(anyhow!(
-            "Cannot change lab owner: owner is immutable. Existing owner: {:?}, attempted new owner: {:?}",
-            existing.user,
-            lab.user
-        ));
-    }
-
-    // Perform update
     let updated = query_optional(
         &writer.conn,
-        queries::lab::UPDATE,
-        lab_values(&lab, &key)?,
+        queries::lab::UPDATE_TAILSCALE_CONTAINER,
+        vec![
+            Value::from(key_of(id, LAB_TABLE)?),
+            container_id.map_or(Value::Null, Value::from),
+        ],
         lab_from_row,
     )
     .await
-    .context(format!("Failed to update lab: {}", lab.name))?;
-
-    updated.ok_or_else(|| anyhow!("Lab update failed: {}", lab.name))
+    .with_context(|| format!("Failed to record the Tailscale container of lab {id:?}"))?;
+    updated.with_context(|| format!("Lab not found: {id:?}"))
 }
 
 /// Update the status field of an existing lab
 ///
 /// # Arguments
 /// * `db` - Database connection
-/// * `lab_id` - Record ID of the lab to update
+/// * `lab` - Record ID of the lab to update
 /// * `state` - New lab state
 ///
 /// # Returns
-/// The updated DbLab record
+/// The updated `DbLab` record
+///
+/// # Errors
+///
+/// Fails when the lab does not exist or the database cannot be written.
 #[instrument(skip(db), level = "debug")]
-pub async fn update_lab_state(db: &Database, lab_id: RecordId, state: LabState) -> Result<DbLab> {
+pub async fn update_lab_state(db: &Database, lab: RecordId, state: LabState) -> Result<DbLab> {
     let writer = db.writer().await?;
     let updated = query_optional(
         &writer.conn,
         queries::lab::UPDATE_STATUS,
-        [key_of(&lab_id, LAB_TABLE)?, enum_text(&state, "status")?],
+        [key_of(&lab, LAB_TABLE)?, enum_text(&state, "status")?],
         lab_from_row,
     )
     .await
-    .context(format!("Failed to update state for lab: {:?}", lab_id))?;
+    .context(format!("Failed to update state for lab: {lab:?}"))?;
 
-    updated.ok_or_else(|| anyhow!("Lab not found: {:?}", lab_id))
+    updated.ok_or_else(|| anyhow!("Lab not found: {lab:?}"))
 }

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use jiff::Timestamp;
@@ -6,20 +6,25 @@ use tracing::instrument;
 
 use shared::data::BackupResponse;
 use shared::konst::{
-    SHERPA_DB_BACKUP_EXTENSION, SHERPA_DB_BACKUP_PATH, SHERPA_DB_BACKUP_PREFIX,
-    SHERPA_DB_BACKUP_TIME_FORMAT,
+    SHERPA_DB_BACKUP_DIR_MODE, SHERPA_DB_BACKUP_EXTENSION, SHERPA_DB_BACKUP_PATH,
+    SHERPA_DB_BACKUP_PREFIX, SHERPA_DB_BACKUP_TIME_FORMAT,
 };
-use shared::util::create_dir;
 
 use crate::auth::context::AuthContext;
 use crate::daemon::state::AppState;
+use crate::daemon::storage::restrict_dir;
 
 /// Copy the database to a new file in the server's backup directory while it stays in use.
 ///
-/// Writes wait for the copy to finish. The file is named after the time it was taken, in UTC.
+/// Writes wait for the copy to finish. The file is named after the time it was taken, in UTC. The
+/// backup directory is limited to `sherpa` first, as the copy is written before its file is.
 #[instrument(skip(state), fields(username = %auth_ctx.username))]
 pub async fn backup_database(auth_ctx: &AuthContext, state: &AppState) -> Result<BackupResponse> {
-    create_dir(SHERPA_DB_BACKUP_PATH)?;
+    restrict_dir(
+        Path::new(SHERPA_DB_BACKUP_PATH),
+        SHERPA_DB_BACKUP_DIR_MODE,
+        None,
+    )?;
     let path = backup_path(Timestamp::now());
     state.db.backup(&path).await?;
     let size_bytes = std::fs::metadata(&path)

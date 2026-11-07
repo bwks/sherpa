@@ -64,6 +64,6 @@
 ## Authorization Checks
 
 **What to test:**
-- Lab ownership verified before operations (get_lab_owner_username) `[integration]` **P0**
+- Lab ownership verified before operations (the server's `auth::policy`) `[integration]` **P0**
 - Non-owner cannot access another user's lab data `[integration]` **P0**
 - Admin bypass for lab operations (if applicable) `[integration]` **P1**

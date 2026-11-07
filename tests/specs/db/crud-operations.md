@@ -16,10 +16,8 @@
 - List all labs, list by user, count labs, count by user `[integration]` **P0**
 - Update lab fields (name, networks) `[integration]` **P0**
 - Delete lab by record ID, by lab_id `[integration]` **P0**
-- `delete_lab_cascade()` removes lab and all child records `[integration]` **P0**
-- `delete_lab_safe()` refuses if child records exist `[integration]` **P1**
+- `delete_lab()` removes the lab and, through the schema's cascades, its child records `[integration]` **P0**
 - `validate_lab_id()` checks format/uniqueness `[integration]` **P1**
-- `get_lab_owner_username()` returns correct owner `[integration]` **P1**
 - Network allocation queries: `get_used_management_networks()`, `get_used_ipv6_management_networks()` `[integration]` **P1**
 
 **Existing coverage:** Comprehensive CRUD tests exist
@@ -38,8 +36,6 @@
 - Update management IP/MAC individually: `update_node_mgmt_ipv4()`, `update_node_mgmt_ipv6()`, `update_node_mgmt_mac()` `[integration]` **P0**
 - `update_node_state()` transitions state correctly `[integration]` **P0**
 - Delete node by ID `[integration]` **P0**
-- `delete_node_cascade()` removes node and its links `[integration]` **P0**
-- `delete_nodes_by_lab()` bulk delete `[integration]` **P1**
 
 **Existing coverage:** Comprehensive CRUD tests exist
 
@@ -82,7 +78,7 @@
 - Usernames are stored lower case; lookups and delete by username ignore case `[integration]` **P0**
 - A case variant of an existing username is a duplicate `[integration]` **P0**
 - `create_admin_user()` creates the reserved `admin` account `[integration]` **P0**
-- `get_user_for_auth()` returns user with password_hash for login `[integration]` **P0**
+- `get_user()` returns the user with its password_hash for login `[integration]` **P0**
 - List users, count users `[integration]` **P0**
 - Update user (password, SSH keys, admin status) `[integration]` **P0**
 - Delete user by username `[integration]` **P0**

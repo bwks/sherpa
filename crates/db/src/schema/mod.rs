@@ -1,11 +1,10 @@
 //! Database schema definitions
 //!
-//! Each table's schema is in its own file. A file holds the table's `CREATE` statements and,
-//! for tables with enum columns or protected rows, the triggers that enforce those rules.
+//! Each table's schema is in its own file, holding the table's `CREATE` statements from
+//! `sql/schema/`. Later changes, triggers included, are migrations in `sql/migrations/`.
 //!
 //! ## Schema Organization
 //!
-//! - `helpers`: SQL text, enum value lists and rule triggers
 //! - `user`: User account table
 //! - `node_image`: Node image table
 //! - `lab`: Network lab table
@@ -17,12 +16,10 @@
 //!
 //! ## Usage
 //!
-//! The entry point is `apply_schema`, which brings a database to the current schema version
-//! and recreates the rule triggers.
+//! The entry point is `apply_schema`, which brings a database to the current schema version.
 
 mod apply;
 mod bridge;
-mod helpers;
 mod lab;
 mod link;
 mod migrations;
@@ -32,7 +29,3 @@ mod user;
 
 // Public API - only schema application function is exposed outside the crate
 pub use apply::{SCHEMA_VERSION, apply_schema};
-// The importer applies the same corrections to the node images it writes.
-pub(crate) use migrations::{
-    FIX_DATA_INTERFACE_COUNTS, FIX_VSRX_ZTP_METHOD, FIX_ZTP_IMAGE_DEFAULTS,
-};

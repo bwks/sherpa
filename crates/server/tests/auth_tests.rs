@@ -513,7 +513,7 @@ async fn demoted_admin_token_loses_admin_rights_on_all_transports() -> Result<()
 async fn deleted_user_token_is_rejected_on_all_transports() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
-    db::create_user(
+    let dave = db::create_user(
         &server.db,
         "dave".to_owned(),
         TEST_ADMIN_PASSWORD,
@@ -522,7 +522,7 @@ async fn deleted_user_token_is_rejected_on_all_transports() -> Result<()> {
     )
     .await?;
     let token = ws.login("dave", TEST_ADMIN_PASSWORD).await?;
-    db::delete_user_by_username(&server.db, "dave").await?;
+    db::delete_user(&server.db, db::get_user_id(&dave)?).await?;
 
     let response = ws.rpc_call("user.list", json!({ "token": token })).await?;
     ensure!(

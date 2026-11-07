@@ -1,7 +1,7 @@
 use anyhow::Result;
 use db::{
-    LabOrigin, count_nodes, count_nodes_by_lab, create_lab, create_node, create_node_image,
-    create_user, get_node, get_node_by_name_and_lab,
+    LabOrigin, count_nodes_by_lab, create_lab, create_node, create_user, get_node,
+    get_node_by_name_and_lab, upsert_node_image,
 };
 use shared::data::{NodeConfig, NodeModel};
 
@@ -27,7 +27,7 @@ async fn test_create_node_success() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create node
     let node = create_node(
@@ -67,7 +67,7 @@ async fn test_create_node_with_lab() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     let node = create_node(
         &db,
@@ -104,7 +104,7 @@ async fn test_create_node_duplicate_name_per_lab_fails() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create first node
     create_node(
@@ -131,11 +131,10 @@ async fn test_create_node_duplicate_name_per_lab_fails() -> Result<()> {
         "Should fail on duplicate (name, lab) combination"
     );
     let error_msg = result.unwrap_err().to_string();
-    println!("Duplicate name+lab error: {}", error_msg);
+    println!("Duplicate name+lab error: {error_msg}");
     assert!(
         error_msg.contains("Failed to create node") && error_msg.contains("node1"),
-        "Error should mention the failed node creation, got: {}",
-        error_msg
+        "Error should mention the failed node creation, got: {error_msg}"
     );
 
     Ok(())
@@ -160,7 +159,7 @@ async fn test_create_node_duplicate_index_per_lab_fails() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     // Create first node
     create_node(
@@ -187,11 +186,10 @@ async fn test_create_node_duplicate_index_per_lab_fails() -> Result<()> {
         "Should fail on duplicate (index, lab) combination"
     );
     let error_msg = result.unwrap_err().to_string();
-    println!("Duplicate index+lab error: {}", error_msg);
+    println!("Duplicate index+lab error: {error_msg}");
     assert!(
         error_msg.contains("Failed to create node") && error_msg.contains("router2"),
-        "Error should mention the failed node creation, got: {}",
-        error_msg
+        "Error should mention the failed node creation, got: {error_msg}"
     );
 
     Ok(())
@@ -230,7 +228,7 @@ async fn test_create_node_same_name_different_labs_succeeds() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create node in lab1
     let node1 = create_node(
@@ -278,7 +276,7 @@ async fn test_create_node_with_index_boundaries() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     // Test minimum index (0)
     let node1 = create_node(
@@ -324,9 +322,8 @@ async fn test_create_node_increments_count() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
-    let initial_count = count_nodes(&db).await?;
     let initial_lab_count = count_nodes_by_lab(&db, lab.id.clone().unwrap()).await?;
 
     // Create nodes
@@ -347,10 +344,8 @@ async fn test_create_node_increments_count() -> Result<()> {
     )
     .await?;
 
-    let final_count = count_nodes(&db).await?;
     let final_lab_count = count_nodes_by_lab(&db, lab.id.clone().unwrap()).await?;
 
-    assert_eq!(final_count, initial_count + 2);
     assert_eq!(final_lab_count, initial_lab_count + 2);
 
     Ok(())
@@ -375,7 +370,7 @@ async fn test_create_node_can_retrieve_by_name_and_lab() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     // Create node
     let created_node = create_node(
@@ -416,7 +411,7 @@ async fn test_create_node_can_retrieve_by_id() -> Result<()> {
         &LabOrigin::default(),
     )
     .await?;
-    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create node
     let created_node = create_node(

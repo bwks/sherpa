@@ -452,7 +452,8 @@ setup_directories() {
     # Set ownership and permissions
     chown -R sherpa:sherpa "${SHERPA_BASE_DIR}"
     chmod 775 "${SHERPA_BASE_DIR}"
-    chmod 775 "${SHERPA_DB_DIR}"
+    # The database and its backups hold password hashes; sherpad keeps the same mode.
+    chmod 750 "${SHERPA_DB_DIR}"
     chmod 775 "${SHERPA_CONFIG_DIR}"
     chmod 750 "${SHERPA_ENV_DIR}"
 

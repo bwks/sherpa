@@ -1,8 +1,6 @@
 /// DELETE operation tests for user
 use anyhow::Result;
-use db::{
-    LabOrigin, count_users, create_lab, create_user, delete_user, delete_user_by_username, get_user,
-};
+use db::{LabOrigin, create_lab, create_user, delete_lab, delete_user, get_user, list_users};
 use shared::data::RecordId;
 
 use crate::{ipv4_lab_networks, setup_db};
@@ -26,33 +24,6 @@ async fn test_delete_user_success() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_delete_user_by_username_ignores_case() -> Result<()> {
-    let db = setup_db().await?;
-
-    create_user(&db, "carol".to_string(), "TestPass123!", false, vec![]).await?;
-    delete_user_by_username(&db, "CaRoL").await?;
-    assert!(get_user(&db, "carol").await.is_err());
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_delete_user_by_username() -> Result<()> {
-    let db = setup_db().await?;
-
-    create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
-
-    // Delete by username
-    delete_user_by_username(&db, "bob").await?;
-
-    // Verify user is gone
-    let result = get_user(&db, "bob").await;
-    assert!(result.is_err(), "User should not exist after deletion");
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_delete_nonexistent_user_fails() -> Result<()> {
     let db = setup_db().await?;
 
@@ -64,20 +35,8 @@ async fn test_delete_nonexistent_user_fails() -> Result<()> {
     let error_msg = result.unwrap_err().to_string();
     assert!(
         error_msg.contains("not found"),
-        "Error should mention user not found: {}",
-        error_msg
+        "Error should mention user not found: {error_msg}"
     );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_delete_nonexistent_username_fails() -> Result<()> {
-    let db = setup_db().await?;
-
-    let result = delete_user_by_username(&db, "nonexistent").await;
-
-    assert!(result.is_err(), "Should fail when username doesn't exist");
 
     Ok(())
 }
@@ -90,12 +49,12 @@ async fn test_delete_user_decreases_count() -> Result<()> {
     create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
     let user2 = create_user(&db, "dave".to_string(), "TestPass123!", false, vec![]).await?;
 
-    let count_before = count_users(&db).await?;
+    let count_before = list_users(&db).await?.len();
 
     // Delete one user
     delete_user(&db, user2.id.unwrap()).await?;
 
-    let count_after = count_users(&db).await?;
+    let count_after = list_users(&db).await?.len();
 
     assert_eq!(count_after, count_before - 1, "Count should decrease by 1");
 
@@ -197,8 +156,6 @@ async fn test_delete_user_with_multiple_labs_is_rejected() -> Result<()> {
 #[tokio::test]
 async fn test_delete_user_with_labs_needs_manual_cleanup() -> Result<()> {
     let db = setup_db().await?;
-
-    use db::delete_lab;
 
     // Create user and lab
     let user = create_user(&db, "heidi".to_string(), "TestPass123!", false, vec![]).await?;

@@ -5,7 +5,7 @@ use turso::Connection;
 
 use crate::Database;
 use crate::helpers::get_user_id;
-use crate::persistence::{LAB_TABLE, key_of, lab_from_row, lab_values, new_key};
+use crate::persistence::{lab_from_row, lab_values, new_key};
 use crate::queries;
 use crate::sql::query_optional;
 
@@ -30,18 +30,22 @@ pub struct LabOrigin {
     pub client_folder: Option<String>,
 }
 
-/// Validate lab_id format
+/// Validate `lab_id` format
 ///
 /// Requirements:
 /// - Must be exactly 8 characters long
 /// - Should contain alphanumeric characters and hyphens
 ///
 /// # Arguments
-/// * `lab_id` - The lab_id string to validate
+/// * `lab_id` - The `lab_id` string to validate
 ///
 /// # Returns
 /// * `Ok(())` if valid
 /// * `Err` with descriptive message if invalid
+///
+/// # Errors
+///
+/// Fails when `lab_id` is not a valid lab ID.
 #[instrument(level = "debug")]
 pub fn validate_lab_id(lab_id: &str) -> Result<()> {
     // Check length
@@ -71,8 +75,8 @@ pub fn validate_lab_id(lab_id: &str) -> Result<()> {
 /// any of the subnets, the insert fails and nothing is created.
 ///
 /// # Errors
-/// - If lab_id validation fails (not 8 characters)
-/// - If lab_id, (name, user) or any allocated subnet is already in use
+/// - If `lab_id` validation fails (not 8 characters)
+/// - If `lab_id`, (name, user) or any allocated subnet is already in use
 /// - If there's a database error during creation
 #[instrument(skip(db), level = "debug")]
 pub async fn create_lab(
@@ -111,52 +115,9 @@ pub async fn create_lab(
     let writer = db.writer().await?;
     let created = insert_lab(&writer.conn, &lab)
         .await
-        .context(format!("Failed to create lab: '{}'", name))?;
+        .context(format!("Failed to create lab: '{name}'"))?;
 
-    created.ok_or_else(|| anyhow!("Lab was not created: '{}'", name))
-}
-
-/// Create a new lab or update existing lab (upsert operation)
-///
-/// If a lab with the same `id` exists, it will be updated.
-/// If no `id` is provided or lab doesn't exist, a new lab will be created.
-///
-/// # Arguments
-/// * `db` - Database connection
-/// * `lab` - DbLab struct with all fields populated
-///
-/// # Returns
-/// The created or updated DbLab
-///
-/// # Errors
-/// - If lab_id validation fails
-/// - If unique constraints are violated
-/// - If there's a database error
-///
-#[instrument(skip(db), level = "debug")]
-pub async fn upsert_lab(db: &Database, lab: DbLab) -> Result<DbLab> {
-    // Validate lab_id format
-    validate_lab_id(&lab.lab_id)?;
-
-    let writer = db.writer().await?;
-    let result = if let Some(id) = &lab.id {
-        // Update existing lab
-        query_optional(
-            &writer.conn,
-            queries::lab::UPDATE,
-            lab_values(&lab, &key_of(id, LAB_TABLE)?)?,
-            lab_from_row,
-        )
-        .await
-        .context(format!("Failed to update lab: '{}'", lab.name))?
-    } else {
-        // Create new lab
-        insert_lab(&writer.conn, &lab)
-            .await
-            .context(format!("Failed to create lab: '{}'", lab.name))?
-    };
-
-    result.ok_or_else(|| anyhow!("Lab upsert failed: '{}'", lab.name))
+    created.ok_or_else(|| anyhow!("Lab was not created: '{name}'"))
 }
 
 /// Insert `lab` under a new key, returning the stored lab.

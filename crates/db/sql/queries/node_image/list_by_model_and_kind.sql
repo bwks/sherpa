@@ -5,4 +5,4 @@ SELECT id, model, version, repo, os_variant, kind, bios, cpu_count, cpu_architec
     management_interface, reserved_interface_count, "default", boot_mode
 FROM node_image
 WHERE model = ?1 AND kind = ?2
-ORDER BY model ASC
+ORDER BY version ASC
