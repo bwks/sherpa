@@ -87,9 +87,15 @@ Opt-in live tests read these environment variables:
 
 | Variable | Effect |
 |---|---|
-| `SHERPA_OVERLAY_LIVE=1` | Runs the libvirt overlay isolation test (disposable volumes in `sherpa-pool`) |
+| `SHERPA_OVERLAY_LIVE=1` | Runs the libvirt overlay isolation test (disposable volumes in `sherpa-pool`), as root: it checks the guest-visible blocks with `qemu-io` on the volume files, which only QEMU can read. The VM code suite does not set it |
 | `SHERPA_TEST_KEEP_FAILED_LABS=1` | A failed lab test keeps its lab for debugging |
 | `SHERPA_TEST_TAILSCALE_*` | The live tailnet enrollment test; deferred, see `PROJECT.md` |
+
+Run the overlay test from the built libvirt test binary:
+
+```sh
+sudo -n env SHERPA_OVERLAY_LIVE=1 <binary> --ignored --test-threads=1 live_overlay
+```
 
 
 ## VM code suite
