@@ -80,8 +80,8 @@ flowchart LR
 - **Constants.** The build script generates one constant per file, holding the file with
   `include_str!`, in a module per directory: `sql/queries/lab/find_by_id.sql` is
   `queries::lab::FIND_BY_ID`. A statement used by more than one module, such as
-  `queries::node::COUNT_BY_LAB`, is one file. The rule triggers and `PRAGMA user_version` stay in
-  `schema/`.
+  `queries::node::COUNT_BY_LAB`, is one file. Triggers are migrations. Only `PRAGMA
+  user_version`, which takes no bound parameter, is built in `schema/apply.rs`.
 - **Column order checked.** A statement that returns every column of a table must return them in
   the table's order (`PRAGMA table_info`), or the build fails naming the file: the mappers read by
   position, and two columns of one type, such as `gateway_ipv4` and `router_ipv4`, would otherwise
@@ -149,6 +149,7 @@ table, copy the rows, drop the old one, rename.
 | 5 | `0005_fix_vsrx_ztp_method.sql`: `juniper_vsrxv3` images stored with the TFTP ZTP method (the old default; vSRX's factory config runs no DHCP client, so it never fetched its config) are set to the CD-ROM method |
 | 6 | `0006_one_default_node_image.sql`: one default image per model and kind. Duplicate defaults keep the most recently written image, then the partial unique index `node_image_one_default` refuses a second |
 | 7 | `0007_interfaces_used_once.sql`: triggers refuse a link or bridge member on a node interface already used by a link or bridge, a link from an interface to itself, and an interface twice in one bridge. They check new rows only, so a database that holds a repeat still opens |
+| 8 | `0008_static_triggers.sql`: drops the enum rule triggers, which earlier releases rebuilt from the Rust enums on every start, and creates the admin protection triggers as fixed text |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
@@ -163,22 +164,21 @@ and the folder it ran in. The CLI sends them in the `up` request (`client_host`,
 neither (`NULL`). `inspect` reads them from the record into `LabInfo`, so the CLI's lab table and
 the web UI's lab page show them.
 
-### Rule triggers
+### Enum values and triggers
 
-Two kinds of rule are triggers, dropped and created again by every `apply_schema` rather than
-versioned:
+Enum columns are checked by the types, not by the database: every value `db` writes is serialized
+from its Rust enum (`enum_text`), and every value it reads is decoded back, so a value outside the
+enum, such as one a newer release stored before a downgrade, fails when its row is read, naming the
+row. Data-fix migrations, which write enum names as literal text, each have a test that reads the
+corrected rows back.
 
-- **Enum columns.** The set of values comes from the Rust enums (`NodeModel::to_vec()` and so on),
-  which grow with every new node model. A `CHECK` constraint would need a table rebuild each time,
-  so each table with enum columns gets `<table>_rules_insert` and `<table>_rules_update` triggers,
-  built from each table module's `columns()` (`schema::helpers::EnumColumn`) by `rule_triggers`. A
-  value outside the list fails with `Invalid value for <table>.<column>`. Before rebuilding the
-  triggers, `apply_schema` looks for stored values the build's enums do not have, which a newer
-  release leaves when it adds a node model without a migration, and refuses to start, naming the
-  column and the values: with the rebuilt triggers, every later write of those rows would fail.
-- **The built-in admin account** (`schema/user.rs`). Triggers refuse deleting, renaming or demoting
-  `admin`, and an `admin` row without the admin flag, with `ADMIN_PROTECTED_MESSAGE`. They apply to
-  any statement, not only the application's.
+Triggers enforce only rules the types cannot express. All of them are fixed text in migrations, so
+the build checks them:
+
+- **The built-in admin account** (`0008_static_triggers.sql`). Triggers refuse deleting, renaming
+  or demoting `admin`, and an `admin` row without the admin flag, with `ADMIN_PROTECTED_MESSAGE`.
+  They apply to any statement, not only the application's.
+- **Interfaces used once** (`0007_interfaces_used_once.sql`).
 
 ## Upgrades from before 0.5.0
 

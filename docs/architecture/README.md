@@ -10,7 +10,7 @@ Do not document user-facing behaviour here; document it there.
 | Document | Covers |
 |---|---|
 | [`ACCOUNTS.md`](ACCOUNTS.md) | Server usernames: the shared rule, reserved names, case-insensitive storage and lookup, enforcement points; the built-in `admin` account; owner SSH keys. |
-| [`DATABASE.md`](DATABASE.md) | The embedded Turso database in `crates/db`: the `Database` handle, connections and the write lock, row mapping and record keys, schema versions, rule triggers, backups, the SurrealDB importer. |
+| [`DATABASE.md`](DATABASE.md) | The embedded Turso database in `crates/db`: the `Database` handle, connections and the write lock, row mapping and record keys, schema versions, triggers, backups, and upgrades from before 0.5.0. |
 | [`GUEST_PROVISIONING.md`](GUEST_PROVISIONING.md) | How a VM node's login, environment variables, text files, scripts and certificates reach the guest: cloud-init staging, Ignition, native tools per OS, per-OS cloud-init adjustments. |
 | [`PROVISIONERS.md`](PROVISIONERS.md) | Client-side provisioners: the never-serialized manifest field, validation and server refusal, the SSH provisioner's remote steps and transport, and when the CLI runs them. |
 | [`LAB_CA.md`](LAB_CA.md) | The per-lab CA and node certificates, their delivery and client copy, Vault over TLS with Sherpa's init and unseal, and Keycloak's HTTPS and the realm Sherpa makes. |

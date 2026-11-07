@@ -2,18 +2,14 @@
 //!
 //! The database's `user_version` is its schema version. Version 1 is the tables in `sql/schema/`;
 //! each file in `sql/migrations/` takes the schema up one version, in order. A released version
-//! is never changed, and a later change to the schema is a new migration file. The rule triggers
-//! derived from the Rust enums are not versioned: they are dropped and created again on every
-//! application.
+//! is never changed, and a later change to the schema is a new migration file.
 
 use anyhow::{Context, Result, bail};
 use tracing::instrument;
-use turso::Row;
 
 use super::{bridge, lab, link, migrations, node, node_image, user};
 use crate::Database;
-use crate::persistence::Cells;
-use crate::sql::{query_all, query_count};
+use crate::sql::query_count;
 
 /// Schema version 1: every table, parents before children.
 const TABLES: &[&str] = &[
@@ -28,7 +24,7 @@ const TABLES: &[&str] = &[
 /// The schema version this build of Sherpa writes.
 pub const SCHEMA_VERSION: usize = 1 + migrations::ALL.len();
 
-/// Bring the database to the current schema version and recreate the rule triggers.
+/// Bring the database to the current schema version.
 ///
 /// It runs in one transaction, so a failure leaves the database as it was. It is idempotent.
 ///
@@ -75,50 +71,10 @@ pub async fn apply_schema(db: &Database) -> Result<()> {
             .context("Failed to record the database schema version")?;
     }
 
-    // Values a newer release stored would fail every later write of their rows once the rules
-    // below are rebuilt from this build's enums, so refuse before changing anything.
-    let columns = [
-        node_image::columns()?,
-        lab::columns()?,
-        node::columns()?,
-        link::columns()?,
-    ];
-    for column in columns.iter().flatten() {
-        let unknown = query_all(&tx, &column.unknown_values_query(), (), unknown_value)
-            .await
-            .with_context(|| format!("Failed to check the values of {}", column.name()))?;
-        if !unknown.is_empty() {
-            bail!(
-                "{} holds values this Sherpa build does not know: {}. A newer release stored \
-                 them; downgrading Sherpa is not supported",
-                column.name(),
-                unknown.join(", ")
-            );
-        }
-    }
-
-    let rules = [
-        user::rules(),
-        node_image::rules()?,
-        lab::rules()?,
-        node::rules()?,
-        link::rules()?,
-    ];
-    for batch in &rules {
-        tx.execute_batch(batch)
-            .await
-            .context("Failed to create the schema rule triggers")?;
-    }
-
     tx.commit()
         .await
         .context("Failed to commit the schema transaction")?;
     Ok(())
-}
-
-/// A stored enum value, from the first column of `row`.
-fn unknown_value(row: &Row) -> Result<String> {
-    Cells::new(row).text("value")
 }
 
 #[cfg(test)]
@@ -133,8 +89,19 @@ mod tests {
         query_count(&conn, "PRAGMA user_version", ()).await.unwrap()
     }
 
+    async fn trigger_count(db: &Database, pattern: &str) -> usize {
+        let conn = db.reader().await.unwrap();
+        query_count(
+            &conn,
+            "SELECT count(*) FROM sqlite_schema WHERE type = 'trigger' AND name LIKE ?1",
+            [pattern],
+        )
+        .await
+        .unwrap()
+    }
+
     #[tokio::test]
-    async fn values_a_newer_release_stored_are_refused_before_the_rules_change() {
+    async fn a_value_a_newer_release_stored_is_kept_and_named_when_read() {
         let db = open_in_memory().await.unwrap();
         apply_schema(&db).await.unwrap();
         upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux))
@@ -145,18 +112,51 @@ mod tests {
             let writer = db.writer().await.unwrap();
             writer
                 .conn
-                .execute_batch(
-                    "DROP TRIGGER node_image_rules_update; \
-                     UPDATE node_image SET model = 'future_model';",
-                )
+                .execute("UPDATE node_image SET model = 'future_model'", ())
                 .await
                 .unwrap();
         }
 
-        let error = apply_schema(&db).await.unwrap_err();
-        let message = format!("{error:#}");
-        assert!(message.contains("node_image.model"), "{message}");
-        assert!(message.contains("future_model"), "{message}");
+        apply_schema(&db).await.unwrap();
+        let error = list_node_images(&db).await.unwrap_err();
+        assert!(
+            format!("{error:#}").contains("Failed to read row"),
+            "{error:#}"
+        );
+        // The row's other columns can still be written.
+        let writer = db.writer().await.unwrap();
+        writer
+            .conn
+            .execute(
+                "UPDATE node_image SET memory = 2048 WHERE model = 'future_model'",
+                (),
+            )
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn no_enum_rule_triggers_are_created_and_older_ones_are_dropped() {
+        let db = open_in_memory().await.unwrap();
+        apply_schema(&db).await.unwrap();
+        assert_eq!(trigger_count(&db, "%_rules_%").await, 0);
+        assert_eq!(trigger_count(&db, "user_protect_admin_%").await, 3);
+
+        // A database from before the triggers were removed, which still has them.
+        {
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute_batch(
+                    "CREATE TRIGGER node_image_rules_insert BEFORE INSERT ON node_image \
+                     BEGIN SELECT 1; END; PRAGMA user_version = 7;",
+                )
+                .await
+                .unwrap();
+        }
+        apply_schema(&db).await.unwrap();
+        assert_eq!(trigger_count(&db, "%_rules_%").await, 0);
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
     }
 
     #[tokio::test]
@@ -385,19 +385,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn apply_schema_creates_the_rule_triggers() {
+    async fn apply_schema_creates_the_protection_triggers() {
         let db = open_in_memory().await.unwrap();
         apply_schema(&db).await.unwrap();
-        let conn = db.reader().await.unwrap();
-        let triggers = query_count(
-            &conn,
-            "SELECT count(*) FROM sqlite_schema WHERE type = 'trigger'",
-            (),
-        )
-        .await
-        .unwrap();
-        // Three admin protection triggers, an insert and an update trigger for each of
-        // node_image, lab, node and link, and the two that keep interfaces used once.
-        assert_eq!(triggers, 3 + 4 * 2 + 2);
+        // Three admin protection triggers, and the two that keep interfaces used once.
+        assert_eq!(trigger_count(&db, "%").await, 3 + 2);
     }
 }
