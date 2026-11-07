@@ -127,6 +127,8 @@ pub enum StreamType {
 pub struct RpcBinding {
     /// JSON-RPC method name
     pub method: &'static str,
+    /// Whether the method sends status messages before its response.
+    pub streaming: bool,
 }
 
 /// CLI command binding
@@ -149,6 +151,8 @@ struct Operation {
     path: &'static str,
     stream_type: Option<StreamType>,
     rpc_method: &'static str,
+    /// Whether the RPC method streams status messages; REST streams only with `stream_type`.
+    rpc_streaming: bool,
     cli_command: &'static str,
 }
 
@@ -166,6 +170,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/auth/login",
         stream_type: None,
         rpc_method: "auth.login",
+        rpc_streaming: false,
         cli_command: "sherpa login",
     },
     Operation {
@@ -179,6 +184,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/auth/validate",
         stream_type: None,
         rpc_method: "auth.validate",
+        rpc_streaming: false,
         cli_command: "sherpa whoami",
     },
     // Lab operations
@@ -193,6 +199,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/labs",
         stream_type: Some(StreamType::Sse),
         rpc_method: "up",
+        rpc_streaming: true,
         cli_command: "sherpa up",
     },
     Operation {
@@ -206,6 +213,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/labs/{id}",
         stream_type: Some(StreamType::Sse),
         rpc_method: "destroy",
+        rpc_streaming: true,
         cli_command: "sherpa destroy",
     },
     Operation {
@@ -219,6 +227,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/labs/{id}",
         stream_type: None,
         rpc_method: "inspect",
+        rpc_streaming: false,
         cli_command: "sherpa inspect",
     },
     Operation {
@@ -232,6 +241,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/labs/{id}/down",
         stream_type: None,
         rpc_method: "down",
+        rpc_streaming: false,
         cli_command: "sherpa down",
     },
     Operation {
@@ -245,6 +255,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/labs/{id}/cancel",
         stream_type: None,
         rpc_method: "cancel",
+        rpc_streaming: false,
         cli_command: "Ctrl-C during sherpa up, redeploy or resume",
     },
     Operation {
@@ -258,6 +269,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/labs/{id}/resume",
         stream_type: None,
         rpc_method: "resume",
+        rpc_streaming: true,
         cli_command: "sherpa resume",
     },
     Operation {
@@ -271,6 +283,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/admin/tools/labs/clean/{id}",
         stream_type: None,
         rpc_method: "clean",
+        rpc_streaming: false,
         cli_command: "sherpa server clean",
     },
     // Node operations
@@ -285,6 +298,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/labs/{id}/nodes/{node}/redeploy",
         stream_type: Some(StreamType::Sse),
         rpc_method: "redeploy",
+        rpc_streaming: true,
         cli_command: "sherpa redeploy",
     },
     // Image operations
@@ -299,6 +313,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/images",
         stream_type: None,
         rpc_method: "image.list",
+        rpc_streaming: false,
         cli_command: "sherpa image list",
     },
     Operation {
@@ -312,6 +327,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/images/{model}",
         stream_type: None,
         rpc_method: "image.show",
+        rpc_streaming: false,
         cli_command: "sherpa image show",
     },
     Operation {
@@ -325,6 +341,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/images/import",
         stream_type: None,
         rpc_method: "image.import",
+        rpc_streaming: true,
         cli_command: "sherpa server image import",
     },
     Operation {
@@ -338,6 +355,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/images/{model}/{version}",
         stream_type: None,
         rpc_method: "image.delete",
+        rpc_streaming: false,
         cli_command: "sherpa server image delete",
     },
     Operation {
@@ -351,6 +369,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/images/{model}/{version}/default",
         stream_type: None,
         rpc_method: "image.set_default",
+        rpc_streaming: false,
         cli_command: "sherpa server image set-default",
     },
     Operation {
@@ -364,6 +383,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/admin/tools/images/scan",
         stream_type: None,
         rpc_method: "image.scan",
+        rpc_streaming: false,
         cli_command: "sherpa server image scan",
     },
     Operation {
@@ -377,6 +397,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/images/pull",
         stream_type: Some(StreamType::Sse),
         rpc_method: "image.pull",
+        rpc_streaming: true,
         cli_command: "sherpa server image pull",
     },
     Operation {
@@ -390,6 +411,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/images/download",
         stream_type: Some(StreamType::Sse),
         rpc_method: "image.download",
+        rpc_streaming: true,
         cli_command: "sherpa server image pull --url",
     },
     Operation {
@@ -403,6 +425,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/images/upload",
         stream_type: None,
         rpc_method: "image.upload",
+        rpc_streaming: false,
         cli_command: "sherpa server image upload",
     },
     // User operations
@@ -417,6 +440,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/admin/users",
         stream_type: None,
         rpc_method: "user.create",
+        rpc_streaming: false,
         cli_command: "sherpa server user create",
     },
     Operation {
@@ -430,6 +454,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/admin/users",
         stream_type: None,
         rpc_method: "user.list",
+        rpc_streaming: false,
         cli_command: "sherpa server user list",
     },
     Operation {
@@ -443,6 +468,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/admin/users/{username}",
         stream_type: None,
         rpc_method: "user.delete",
+        rpc_streaming: false,
         cli_command: "sherpa server user delete",
     },
     Operation {
@@ -456,6 +482,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/admin/users/{username}/password",
         stream_type: None,
         rpc_method: "user.passwd",
+        rpc_streaming: false,
         cli_command: "sherpa server user passwd",
     },
     Operation {
@@ -469,6 +496,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/admin/users/{username}",
         stream_type: None,
         rpc_method: "user.info",
+        rpc_streaming: false,
         cli_command: "sherpa server user info",
     },
     Operation {
@@ -482,6 +510,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/admin/users/{username}/ssh-keys",
         stream_type: None,
         rpc_method: "user.ssh_key.add",
+        rpc_streaming: false,
         cli_command: "sherpa server user ssh-key add",
     },
     Operation {
@@ -495,6 +524,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/admin/users/{username}/ssh-keys",
         stream_type: None,
         rpc_method: "user.ssh_key.remove",
+        rpc_streaming: false,
         cli_command: "sherpa server user ssh-key remove",
     },
     // Link operations
@@ -509,6 +539,7 @@ const OPERATIONS: &[Operation] = &[
         path: "/api/v1/labs/{lab_id}/links/{link_index}/impairment",
         stream_type: None,
         rpc_method: "link.update_impairment",
+        rpc_streaming: false,
         cli_command: "sherpa link impair",
     },
 ];
@@ -537,6 +568,7 @@ impl From<&Operation> for OperationDef {
                 },
                 rpc: RpcBinding {
                     method: operation.rpc_method,
+                    streaming: operation.rpc_streaming,
                 },
                 cli: CliBinding {
                     command: operation.cli_command,
