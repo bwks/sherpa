@@ -940,7 +940,7 @@ mod tests {
     const USER_DATA: &str = "#cloud-config\nhostname: node1\n";
     const NETWORK_CONFIG: &str = "version: 2\n";
     const INIT_CFG: &str = "type=static\nhostname=pan1\n";
-    const BOOTSTRAP_XML: &str = "<config version=\"11.1.0\"/>\n";
+    const BOOTSTRAP_XML: &str = r#"<config version="11.1.0"/>"#;
     const BIG_FILE_LEN: usize = 10_000;
     const MANY_FILES: usize = 300;
 

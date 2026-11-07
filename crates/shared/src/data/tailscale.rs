@@ -142,7 +142,7 @@ mod tests {
     fn credentials_are_redacted_in_debug_but_transmitted() {
         let key = TailnetAuthKey::new("test-secret".into());
         assert!(!format!("{key:?}").contains("test-secret"));
-        assert_eq!(serde_json::to_string(&key).unwrap(), "\"test-secret\"");
+        assert_eq!(serde_json::to_string(&key).unwrap(), r#""test-secret""#);
     }
 
     #[test]

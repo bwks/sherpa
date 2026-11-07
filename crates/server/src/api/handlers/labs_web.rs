@@ -592,7 +592,7 @@ pub async fn lab_download_handler(
             (header::CONTENT_TYPE, "application/zip".to_string()),
             (
                 header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"{filename}\""),
+                format!(r#"attachment; filename="{filename}""#),
             ),
         ],
         zip_bytes,

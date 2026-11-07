@@ -77,10 +77,10 @@ mod tests {
     fn cluster() -> TalosCluster {
         toml::from_str(
             r#"
-name = "k8s"
-controllers = ["cp1", "cp2", "cp3"]
-workers = ["w1"]
-"#,
+            name = "k8s"
+            controllers = ["cp1", "cp2", "cp3"]
+            workers = ["w1"]
+            "#,
         )
         .unwrap()
     }
@@ -108,21 +108,36 @@ workers = ["w1"]
 
     #[test]
     fn workers_are_optional_and_controllers_are_required() {
-        let cluster: TalosCluster =
-            toml::from_str("name = \"solo\"\ncontrollers = [\"cp1\"]\n").unwrap();
+        let cluster: TalosCluster = toml::from_str(
+            r#"
+            name = "solo"
+            controllers = ["cp1"]
+            "#,
+        )
+        .unwrap();
         assert_eq!(cluster.workers, [] as [std::string::String; 0]);
-        assert!(toml::from_str::<TalosCluster>("name = \"none\"\n").is_err());
+        assert!(toml::from_str::<TalosCluster>(r#"name = "none""#).is_err());
     }
 
     #[test]
     fn the_cni_defaults_to_flannel() {
         assert_eq!(cluster().cni, ClusterCni::Flannel);
-        let cilium: TalosCluster =
-            toml::from_str("name = \"k8s\"\ncontrollers = [\"cp1\"]\ncni = \"cilium\"\n").unwrap();
+        let cilium: TalosCluster = toml::from_str(
+            r#"
+            name = "k8s"
+            controllers = ["cp1"]
+            cni = "cilium"
+            "#,
+        )
+        .unwrap();
         assert_eq!(cilium.cni, ClusterCni::Cilium);
         assert!(
             toml::from_str::<TalosCluster>(
-                "name = \"k8s\"\ncontrollers = [\"cp1\"]\ncni = \"calico\"\n"
+                r#"
+                name = "k8s"
+                controllers = ["cp1"]
+                cni = "calico"
+                "#
             )
             .is_err()
         );
@@ -133,7 +148,12 @@ workers = ["w1"]
         assert_eq!(cluster().oidc, None);
         assert_eq!(cluster().vault, None);
         let cluster: TalosCluster = toml::from_str(
-            "name = \"k8s\"\ncontrollers = [\"cp1\"]\noidc = \"kc01\"\nvault = \"vault01\"\n",
+            r#"
+            name = "k8s"
+            controllers = ["cp1"]
+            oidc = "kc01"
+            vault = "vault01"
+            "#,
         )
         .unwrap();
         assert_eq!(cluster.oidc.as_deref(), Some("kc01"));
@@ -143,8 +163,14 @@ workers = ["w1"]
     #[test]
     fn unknown_fields_are_rejected() {
         assert!(
-            toml::from_str::<TalosCluster>("name = \"k8s\"\ncontrollers = [\"cp1\"]\nnodes = []\n")
-                .is_err()
+            toml::from_str::<TalosCluster>(
+                r#"
+                name = "k8s"
+                controllers = ["cp1"]
+                nodes = []
+                "#
+            )
+            .is_err()
         );
     }
 

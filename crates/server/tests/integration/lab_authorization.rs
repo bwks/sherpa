@@ -13,6 +13,11 @@ use crate::helpers::ws_client::TestWsClient;
 const RPC_TIMEOUT: Duration = Duration::from_secs(60);
 /// A lab ID no lab has.
 const UNKNOWN_LAB: &str = "deadbeef";
+/// A lab with no nodes, for checks that refuse the request before anything is built.
+const ADMIN_LAB_MANIFEST: &str = r#"
+name = "admin-lab"
+nodes = []
+"#;
 
 /// A logged-in caller in the authorization matrix.
 struct Caller {
@@ -538,7 +543,7 @@ async fn built_in_admin_cannot_start_lab_work_on_any_transport() -> Result<()> {
     let response = http
         .post(format!("{base}/labs/create"))
         .header(header::COOKIE, cookie(&admin))
-        .form(&[("manifest", "name = \"admin-lab\"\nnodes = []\n")])
+        .form(&[("manifest", ADMIN_LAB_MANIFEST)])
         .send()
         .await?;
     let body = response.text().await?;

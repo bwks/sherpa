@@ -10,8 +10,7 @@ use crate::helpers;
 // Expected configs
 // ============================================================================
 
-const EXPECTED_STATIC_IPV4: &str = "\
-!
+const EXPECTED_STATIC_IPV4: &str = r#"!
 hostname iosv01
 ip domain name lab.sherpa.local
 ip name-server 172.20.0.1
@@ -62,20 +61,19 @@ line vty 0 4
  exit
 !
 event manager applet ENABLE-MGMT
- event syslog pattern \"SYS-5-RESTART\"
- action 0 cli command \"enable\"
- action 1 cli command \"conf t\"
- action 2 cli command \"interface GigabitEthernet0/0\"
- action 3 cli command \"no shutdown\"
- action 4 cli command \"exit\"
- action 5 cli command \"crypto key generate rsa modulus 2048\"
+ event syslog pattern "SYS-5-RESTART"
+ action 0 cli command "enable"
+ action 1 cli command "conf t"
+ action 2 cli command "interface GigabitEthernet0/0"
+ action 3 cli command "no shutdown"
+ action 4 cli command "exit"
+ action 5 cli command "crypto key generate rsa modulus 2048"
 !
 do write memory
 !
-exit";
+exit"#;
 
-const EXPECTED_DUAL_STACK: &str = "\
-!
+const EXPECTED_DUAL_STACK: &str = r#"!
 hostname iosv01
 ip domain name lab.sherpa.local
 ip name-server 172.20.0.1
@@ -129,20 +127,19 @@ line vty 0 4
  exit
 !
 event manager applet ENABLE-MGMT
- event syslog pattern \"SYS-5-RESTART\"
- action 0 cli command \"enable\"
- action 1 cli command \"conf t\"
- action 2 cli command \"interface GigabitEthernet0/0\"
- action 3 cli command \"no shutdown\"
- action 4 cli command \"exit\"
- action 5 cli command \"crypto key generate rsa modulus 2048\"
+ event syslog pattern "SYS-5-RESTART"
+ action 0 cli command "enable"
+ action 1 cli command "conf t"
+ action 2 cli command "interface GigabitEthernet0/0"
+ action 3 cli command "no shutdown"
+ action 4 cli command "exit"
+ action 5 cli command "crypto key generate rsa modulus 2048"
 !
 do write memory
 !
-exit";
+exit"#;
 
-const EXPECTED_DHCP: &str = "\
-!
+const EXPECTED_DHCP: &str = r#"!
 hostname iosv01
 ip domain name lab.sherpa.local
 ip name-server 172.20.0.1
@@ -193,17 +190,17 @@ line vty 0 4
  exit
 !
 event manager applet ENABLE-MGMT
- event syslog pattern \"SYS-5-RESTART\"
- action 0 cli command \"enable\"
- action 1 cli command \"conf t\"
- action 2 cli command \"interface GigabitEthernet0/0\"
- action 3 cli command \"no shutdown\"
- action 4 cli command \"exit\"
- action 5 cli command \"crypto key generate rsa modulus 2048\"
+ event syslog pattern "SYS-5-RESTART"
+ action 0 cli command "enable"
+ action 1 cli command "conf t"
+ action 2 cli command "interface GigabitEthernet0/0"
+ action 3 cli command "no shutdown"
+ action 4 cli command "exit"
+ action 5 cli command "crypto key generate rsa modulus 2048"
 !
 do write memory
 !
-exit";
+exit"#;
 
 // ============================================================================
 // Tests

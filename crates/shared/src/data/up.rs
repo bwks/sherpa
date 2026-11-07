@@ -271,19 +271,19 @@ mod tests {
     fn test_status_kind_rename_all() {
         assert_eq!(
             serde_json::to_string(&StatusKind::Progress).unwrap(),
-            "\"progress\""
+            r#""progress""#
         );
         assert_eq!(
             serde_json::to_string(&StatusKind::Done).unwrap(),
-            "\"done\""
+            r#""done""#
         );
         assert_eq!(
             serde_json::to_string(&StatusKind::Info).unwrap(),
-            "\"info\""
+            r#""info""#
         );
         assert_eq!(
             serde_json::to_string(&StatusKind::Waiting).unwrap(),
-            "\"waiting\""
+            r#""waiting""#
         );
     }
 

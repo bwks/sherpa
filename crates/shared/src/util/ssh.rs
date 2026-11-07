@@ -271,7 +271,7 @@ fn include_directive(path: &str) -> Result<String> {
         bail!("ssh cannot include a path with a double quote: {path}");
     }
     if path.contains(char::is_whitespace) {
-        Ok(format!("Include \"{path}\""))
+        Ok(format!(r#"Include "{path}""#))
     } else {
         Ok(format!("Include {path}"))
     }
@@ -953,7 +953,7 @@ loopback_network = "127.127.1.0/24"
 
         let content = read_file(&ssh_dir.join(SHERPA_SSH_INDEX_FILE));
         assert!(
-            content.contains(&format!("Include \"{include_path}\"")),
+            content.contains(&format!(r#"Include "{include_path}""#)),
             "{content}"
         );
 
@@ -970,7 +970,7 @@ loopback_network = "127.127.1.0/24"
     fn a_path_ssh_cannot_quote_is_refused() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
-        assert!(add_lab_ssh_include_at(&ssh_dir, "/tmp/a\"b/sherpa_ssh_config").is_err());
+        assert!(add_lab_ssh_include_at(&ssh_dir, r#"/tmp/a"b/sherpa_ssh_config"#).is_err());
     }
 
     #[cfg(unix)]

@@ -85,21 +85,21 @@ mod tests {
     use crate::Manifest;
 
     const MANIFEST: &str = r#"
-name = "lab"
+        name = "lab"
 
-[[nodes]]
-name = "dev01"
-model = "ubuntu_linux"
+        [[nodes]]
+        name = "dev01"
+        model = "ubuntu_linux"
 
-[[nodes.provisioners]]
-type = "ssh"
-env_files = ["~/.secrets/dev.env"]
-scripts = ["./setup.sh"]
+        [[nodes.provisioners]]
+        type = "ssh"
+        env_files = ["~/.secrets/dev.env"]
+        scripts = ["./setup.sh"]
 
-[[nodes.provisioners.files]]
-src = "~/hosts.yml"
-dst = "~/.config/gh/hosts.yml"
-"#;
+        [[nodes.provisioners.files]]
+        src = "~/hosts.yml"
+        dst = "~/.config/gh/hosts.yml"
+        "#;
 
     fn parse_error(manifest: &str) -> String {
         toml::from_str::<Manifest>(manifest)
@@ -119,24 +119,24 @@ dst = "~/.config/gh/hosts.yml"
     fn container_provisioner_parses_with_a_default_mode() {
         let manifest: Manifest = toml::from_str(
             r#"
-name = "lab"
+            name = "lab"
 
-[[nodes]]
-name = "db01"
-model = "mongo_db"
+            [[nodes]]
+            name = "db01"
+            model = "mongo_db"
 
-[[nodes.provisioners]]
-type = "container"
+            [[nodes.provisioners]]
+            type = "container"
 
-[[nodes.provisioners.files]]
-src = "secrets/mongo-password"
-name = "mongo_password"
+            [[nodes.provisioners.files]]
+            src = "secrets/mongo-password"
+            name = "mongo_password"
 
-[[nodes.provisioners.files]]
-src = "secrets/tls.key"
-name = "tls.key"
-mode = 400
-"#,
+            [[nodes.provisioners.files]]
+            src = "secrets/tls.key"
+            name = "tls.key"
+            mode = 400
+            "#,
         )
         .unwrap();
         let provisioners = manifest.nodes[0].provisioners.as_ref().unwrap();
@@ -152,9 +152,20 @@ mode = 400
     #[test]
     fn unknown_container_file_field_is_rejected() {
         let error = parse_error(
-            "name = \"lab\"\n[[nodes]]\nname = \"db01\"\nmodel = \"mongo_db\"\n\
-             [[nodes.provisioners]]\ntype = \"container\"\n\
-             [[nodes.provisioners.files]]\nsrc = \"a\"\ndst = \"/run/a\"\n",
+            r#"
+            name = "lab"
+
+            [[nodes]]
+            name = "db01"
+            model = "mongo_db"
+
+            [[nodes.provisioners]]
+            type = "container"
+
+            [[nodes.provisioners.files]]
+            src = "a"
+            dst = "/run/a"
+            "#,
         );
         assert!(error.contains("dst"), "{error}");
     }
@@ -215,7 +226,8 @@ mode = 400
     fn unknown_file_field_is_rejected() {
         let error = parse_error(&MANIFEST.replace(
             r#"src = "~/hosts.yml""#,
-            "owner = \"root\"\nsrc = \"~/hosts.yml\"",
+            r#"owner = "root"
+src = "~/hosts.yml""#,
         ));
         assert!(error.contains("owner"), "{error}");
     }

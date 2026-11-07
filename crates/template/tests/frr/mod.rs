@@ -45,12 +45,11 @@ staticd=no
 
 vtysh_enable=yes";
 
-const EXPECTED_FRR_STARTUP: &str = "\
-#!/bin/sh
+const EXPECTED_FRR_STARTUP: &str = r#"#!/bin/sh
 # Install OpenSSH server and sudo, retrying while the network is not yet reachable
 for attempt in 1 2 3 4 5 6 7 8 9 10; do
   apk add --no-cache openssh-server sudo lldpd && break
-  echo \"apk add failed (attempt $attempt of 10), retrying in 3s\"
+  echo "apk add failed (attempt $attempt of 10), retrying in 3s"
   sleep 3
 done
 ssh-keygen -A
@@ -85,7 +84,7 @@ lldpd
 /usr/lib/frr/frrinit.sh start
 
 # Keep container running
-tail -f /dev/null";
+tail -f /dev/null"#;
 
 // ============================================================================
 // Tests

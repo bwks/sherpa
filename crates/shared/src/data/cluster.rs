@@ -61,7 +61,10 @@ mod tests {
             (ClusterRole::Worker, "worker"),
         ] {
             assert_eq!(role.to_string(), name);
-            assert_eq!(serde_json::to_string(&role).unwrap(), format!("\"{name}\""));
+            assert_eq!(
+                serde_json::to_string(&role).unwrap(),
+                format!(r#""{name}""#)
+            );
         }
     }
 
@@ -72,7 +75,7 @@ mod tests {
             (ClusterCni::Cilium, "cilium"),
         ] {
             assert_eq!(cni.to_string(), name);
-            assert_eq!(serde_json::to_string(&cni).unwrap(), format!("\"{name}\""));
+            assert_eq!(serde_json::to_string(&cni).unwrap(), format!(r#""{name}""#));
         }
         assert_eq!(ClusterCni::default(), ClusterCni::Flannel);
         assert!(ClusterCni::Flannel.is_flannel());

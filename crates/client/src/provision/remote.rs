@@ -215,7 +215,10 @@ mod tests {
         let env_dir = home.path().join(NODE_USER_ENV_DIR);
         fs::create_dir(&env_dir).unwrap();
         fs::write(env_dir.join("dev.env"), "FROM_ENV_FILE=b\n").unwrap();
-        let script = "#!/bin/sh\nprintf '%s-%s' \"$FROM_MANIFEST\" \"$FROM_ENV_FILE\"\nexit 3\n";
+        let script = r#"#!/bin/sh
+printf '%s-%s' "$FROM_MANIFEST" "$FROM_ENV_FILE"
+exit 3
+"#;
         let output = run(
             home.path(),
             Path::new(LOGIN_SHELL),
@@ -243,7 +246,7 @@ mod tests {
         fs::set_permissions(&tool, fs::Permissions::from_mode(0o755)).unwrap();
         fs::write(
             home.path().join(".profile"),
-            format!("PATH=\"{}:$PATH\"; export PATH\n", tools.display()),
+            format!(r#"PATH="{}:$PATH"; export PATH"#, tools.display()),
         )
         .unwrap();
         let output = run(
@@ -271,7 +274,9 @@ mod tests {
             home.path(),
             Path::new(LOGIN_SHELL),
             &script_wrapper_command(),
-            "#!/bin/sh\nprintf %s \"$TOKEN\"\n",
+            r#"#!/bin/sh
+printf %s "$TOKEN"
+"#,
         );
         assert_eq!(String::from_utf8_lossy(&output.stdout), "from-env-file");
     }
@@ -294,8 +299,10 @@ mod tests {
         let shell = home.join("nologin-flag-sh");
         fs::write(
             &shell,
-            "#!/bin/sh\ncase \"$1\" in -l) echo 'Illegal option -l' >&2; exit 2;; esac\n\
-             exec /bin/sh \"$@\"\n",
+            r#"#!/bin/sh
+case "$1" in -l) echo 'Illegal option -l' >&2; exit 2;; esac
+exec /bin/sh "$@"
+"#,
         )
         .unwrap();
         fs::set_permissions(&shell, fs::Permissions::from_mode(0o755)).unwrap();
@@ -313,7 +320,7 @@ mod tests {
         fs::set_permissions(&tool, fs::Permissions::from_mode(0o755)).unwrap();
         fs::write(
             home.path().join(".profile"),
-            format!("PATH=\"{}:$PATH\"; export PATH\n", tools.display()),
+            format!(r#"PATH="{}:$PATH"; export PATH"#, tools.display()),
         )
         .unwrap();
         let output = run(
@@ -342,7 +349,10 @@ mod tests {
             home.path(),
             &shell,
             &script_wrapper_command(),
-            "#!/bin/sh\nprintf %s \"$TOKEN\"\nexit 3\n",
+            r#"#!/bin/sh
+printf %s "$TOKEN"
+exit 3
+"#,
         );
         assert_eq!(String::from_utf8_lossy(&output.stdout), "from-env-file");
         assert_eq!(output.status.code(), Some(3));

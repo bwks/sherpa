@@ -250,39 +250,39 @@ mod tests {
     fn manifest() -> Manifest {
         toml::from_str(
             r#"
-name = "lab"
+            name = "lab"
 
-[[nodes]]
-name = "dev01"
-model = "ubuntu_linux"
+            [[nodes]]
+            name = "dev01"
+            model = "ubuntu_linux"
 
-[[nodes.provisioners]]
-type = "ssh"
-scripts = ["a.sh"]
+            [[nodes.provisioners]]
+            type = "ssh"
+            scripts = ["a.sh"]
 
-[[nodes]]
-name = "dev02"
-model = "ubuntu_linux"
+            [[nodes]]
+            name = "dev02"
+            model = "ubuntu_linux"
 
-[[nodes]]
-name = "dev03"
-model = "free_bsd"
+            [[nodes]]
+            name = "dev03"
+            model = "free_bsd"
 
-[[nodes.provisioners]]
-type = "ssh"
-scripts = ["a.sh"]
+            [[nodes.provisioners]]
+            type = "ssh"
+            scripts = ["a.sh"]
 
-[[nodes]]
-name = "db01"
-model = "mongo_db"
+            [[nodes]]
+            name = "db01"
+            model = "mongo_db"
 
-[[nodes.provisioners]]
-type = "container"
+            [[nodes.provisioners]]
+            type = "container"
 
-[[nodes.provisioners.files]]
-src = "password"
-name = "password"
-"#,
+            [[nodes.provisioners.files]]
+            src = "password"
+            name = "password"
+            "#,
         )
         .unwrap()
     }
@@ -406,9 +406,16 @@ name = "password"
 
     #[tokio::test]
     async fn a_lab_without_provisioners_needs_no_ssh_config() {
-        let manifest: Manifest =
-            toml::from_str("name = \"lab\"\n[[nodes]]\nname = \"r1\"\nmodel = \"cisco_iosv\"\n")
-                .unwrap();
+        let manifest: Manifest = toml::from_str(
+            r#"
+            name = "lab"
+
+            [[nodes]]
+            name = "r1"
+            model = "cisco_iosv"
+            "#,
+        )
+        .unwrap();
         let provisioned = provision_lab(
             &manifest,
             Path::new("/nonexistent"),

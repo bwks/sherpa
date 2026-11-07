@@ -96,7 +96,7 @@ pub async fn get_certificate_handler(State(state): State<AppState>) -> impl Into
                     (header::CONTENT_TYPE, "application/x-pem-file"),
                     (
                         header::CONTENT_DISPOSITION,
-                        "inline; filename=\"server.crt\"",
+                        r#"inline; filename="server.crt""#,
                     ),
                 ],
                 cert_pem,

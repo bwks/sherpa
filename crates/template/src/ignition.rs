@@ -348,7 +348,7 @@ mod tests {
         assert!(
             serde_json::to_string(&file)
                 .unwrap()
-                .contains("\"mode\":420")
+                .contains(r#""mode":420"#)
         );
     }
 

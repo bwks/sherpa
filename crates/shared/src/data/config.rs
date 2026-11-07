@@ -438,8 +438,13 @@ mod tests {
 
     #[test]
     fn an_otel_section_from_an_older_release_still_loads() {
-        let otel: OtelConfig =
-            toml::from_str("enabled = true\nprotocol = \"grpc\"\n").expect("parses");
+        let otel: OtelConfig = toml::from_str(
+            r#"
+            enabled = true
+            protocol = "grpc"
+            "#,
+        )
+        .expect("parses");
         assert!(otel.enabled);
         let written = toml::to_string_pretty(&otel).expect("serializes");
         assert!(!written.contains("protocol"), "{written}");

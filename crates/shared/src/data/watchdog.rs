@@ -65,7 +65,7 @@ mod tests {
 
     #[test]
     fn unknown_actions_are_refused() {
-        assert!(serde_json::from_str::<WatchdogAction>("\"reboot\"").is_err());
-        assert!(serde_json::from_str::<WatchdogAction>("\"inject_nmi\"").is_err());
+        assert!(serde_json::from_str::<WatchdogAction>(r#""reboot""#).is_err());
+        assert!(serde_json::from_str::<WatchdogAction>(r#""inject_nmi""#).is_err());
     }
 }
