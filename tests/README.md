@@ -87,9 +87,9 @@ Opt-in live tests read these environment variables:
 
 | Variable | Effect |
 |---|---|
-| `SHERPA_OVERLAY_LIVE=1` | Runs the libvirt overlay isolation test (disposable volumes in `sherpa-pool`), as root: it checks the guest-visible blocks with `qemu-io` on the volume files, which only QEMU can read. The VM code suite does not set it |
+| `SHERPA_OVERLAY_LIVE=1` | Runs the libvirt overlay isolation test (disposable volumes in `sherpa-pool`), as root: it checks the guest-visible blocks with `qemu-io` on the volume files, which only QEMU can read. The VM code suite sets it and runs the integration tests as root |
 | `SHERPA_TEST_KEEP_FAILED_LABS=1` | A failed lab test keeps its lab for debugging |
-| `SHERPA_TEST_TAILSCALE_*` | The live tailnet enrollment test; deferred, see `PROJECT.md` |
+| `SHERPA_TEST_TAILSCALE_*` | The live tailnet enrollment test, which joins a real tailnet; see [the Tailscale spec](specs/integration/tailscale.md). The VM code suite sets them itself when it has a key |
 
 Run the overlay test from the built libvirt test binary:
 
@@ -121,6 +121,19 @@ It needs an authenticated `sherpa` CLI with at least four hours left on its toke
    them (about 8 minutes for `db`),
 4. fails on any failed or skipped required test and on Docker, libvirt or network resources
    left behind.
+
+The live tailnet enrollment test joins a real tailnet, so it runs only when the run starts
+with an auth key in `SHERPA_TEST_TAILSCALE_AUTH_KEY` on the host; without one it is skipped and
+`test-results.toml` records why. Use an ephemeral key, from a secret manager:
+
+```sh
+SHERPA_TEST_TAILSCALE_AUTH_KEY=<key> python3 tests/harness/test_env.py run
+```
+
+The key reaches the guest in its run settings, like the build cache password, never on a
+command line, and is redacted from the logs. The guest creates a disposable Docker network for
+the test's gateway and removes it before checking for leftover resources. The gateway joins the
+tailnet as `tntest<pid>`, advertises `172.31.250.0/24` and logs out when the test stops it.
 
 A passing VM is destroyed; a failing one is kept. Then:
 
