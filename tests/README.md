@@ -68,6 +68,18 @@ tests. Run the crates you need:
 | libvirt | `cargo test -p libvirt -- --ignored --test-threads=1` | libvirtd, `sherpa-pool` |
 | sherpad | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p sherpad -- --ignored --test-threads=1` | root, Docker, libvirt, test images |
 
+sherpad's integration tests are one test binary, `integration`
+(`crates/server/tests/integration/`), with a module per area: `auth`, `image_management`,
+`lab_authorization`, `lab_lifecycle`, `security`, `user_management` and `websocket`. Run one
+area by its module path, and run root tests from the built binary so root never writes to
+`target/`:
+
+```sh
+cargo test -p sherpad --test integration lab_lifecycle::
+cargo test -p sherpad --test integration --no-run --message-format=json   # prints the binary
+sudo -n <binary> --ignored --test-threads=1 lab_lifecycle::
+```
+
 `tests/harness/run-integration-tests.sh` runs all of them in order. Container, network,
 libvirt and sherpad tests create real resources: run them only on a disposable host.
 

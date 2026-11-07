@@ -1,10 +1,10 @@
-mod helpers;
-
 use anyhow::{Context, Result, bail, ensure};
+use bollard::Docker;
+use bollard::query_parameters::{InspectContainerOptions, ListNetworksOptions};
 use jato::{Auth, ConnectOptions, Exit, Hop, HostKeyPolicy, Node, Session};
 use reqwest::{Client, StatusCode};
 use serde_json::json;
-use shared::data::{NodeConfig, NodeModel, NodeState};
+use shared::data::{DbUser, NodeConfig, NodeModel, NodeState};
 use shared::error::RpcErrorCode;
 use shared::konst::SSH_PORT;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
@@ -12,8 +12,10 @@ use std::fs;
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
-use helpers::test_server::{TEST_ADMIN_PASSWORD, TEST_SSH_PUBLIC_KEY, TestServer, test_config};
-use helpers::ws_client::TestWsClient;
+use crate::helpers::test_server::{
+    TEST_ADMIN_PASSWORD, TEST_SSH_PUBLIC_KEY, TestServer, test_config,
+};
+use crate::helpers::ws_client::TestWsClient;
 
 /// Checks a personal account's user, home, shell and passwordless sudo.
 const ACCOUNT_CHECK: &str = "test \"$(id -un)\" = \"${USER}\" && test \"$HOME\" = \"/home/${USER}\" && test \"$SHELL\" = /bin/bash && test -d \"$HOME\" && sudo -n true";
@@ -55,8 +57,7 @@ async fn bootstrap_images(ws: &mut TestWsClient, token: &str) -> Result<()> {
         .await?;
     assert!(
         response.get("error").is_none(),
-        "image.scan failed: {:?}",
-        response
+        "image.scan failed: {response:?}"
     );
     Ok(())
 }
@@ -258,6 +259,79 @@ async fn a_container_that_exits_at_once_fails_its_node_not_the_lab() -> Result<(
         ensure!(
             db::find_lab(&server.db, &lab_name).await?.is_some(),
             "the lab record is gone"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
+async fn admin_clean_removes_a_running_lab() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_lab_admin(&server).await?;
+    let admin_token = ws.login_admin().await?;
+    bootstrap_images(&mut ws, &token).await?;
+
+    // generic_container keeps the manifest's commands; alpine is in the dev server's Docker.
+    let mut alpine = NodeConfig::get_model(NodeModel::GenericContainer);
+    alpine.repo = Some("alpine".to_owned());
+    alpine.version = "latest".to_owned();
+    alpine.default = true;
+    db::upsert_node_image(&server.db, alpine).await?;
+
+    let lab_name = format!("tk{:06}", std::process::id() % 1_000_000);
+    let manifest = json!({
+        "name": lab_name,
+        "nodes": [
+            { "name": "box1", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+        ]
+    });
+
+    let checks: Result<()> = async {
+        lab_up(
+            &mut ws,
+            &token,
+            &lab_name,
+            &manifest,
+            Duration::from_secs(180),
+        )
+        .await?;
+        let docker = Docker::connect_with_local_defaults()?;
+        let container = format!("box1-{lab_name}");
+        ensure!(
+            docker
+                .inspect_container(&container, None::<InspectContainerOptions>)
+                .await
+                .is_ok(),
+            "the lab's container was not created"
+        );
+
+        let response = ws
+            .rpc_call("clean", json!({ "token": admin_token, "lab_id": lab_name }))
+            .await?;
+        ensure!(response.get("error").is_none(), "clean failed: {response}");
+        ensure!(
+            docker
+                .inspect_container(&container, None::<InspectContainerOptions>)
+                .await
+                .is_err(),
+            "clean left the lab's container"
+        );
+        let networks = docker.list_networks(None::<ListNetworksOptions>).await?;
+        ensure!(
+            !networks
+                .iter()
+                .filter_map(|network| network.name.as_deref())
+                .any(|name| name.ends_with(&format!("-{lab_name}"))),
+            "clean left a Docker network of the lab"
+        );
+        ensure!(
+            db::find_lab(&server.db, &lab_name).await?.is_none(),
+            "clean left the lab record"
         );
         Ok(())
     }
@@ -584,8 +658,7 @@ async fn test_lab_up_missing_image() -> Result<()> {
 
     assert!(
         response.get("error").is_some(),
-        "lab up with missing image should fail: {:?}",
-        response
+        "lab up with missing image should fail: {response:?}"
     );
 
     Ok(())
@@ -612,8 +685,7 @@ async fn test_lab_up_invalid_manifest() -> Result<()> {
 
     assert!(
         response.get("error").is_some(),
-        "invalid manifest should fail: {:?}",
-        response
+        "invalid manifest should fail: {response:?}"
     );
 
     Ok(())
@@ -693,8 +765,7 @@ async fn test_lab_up_rejects_duplicate_lab_id() -> Result<()> {
 
     assert!(
         error_message.contains("Lab already exists with status"),
-        "Expected lab-already-exists error, got: {}",
-        error_message
+        "Expected lab-already-exists error, got: {error_message}"
     );
 
     Ok(())
@@ -740,7 +811,7 @@ async fn current_user_vm_login_sudo_resume_and_owner_redeploy() -> Result<()> {
         "Acceptance lab ID is already in use"
     );
     let manifest = json!({ "name": lab_id, "provision_current_user": true, "nodes": [{ "name": "vm", "model": model }] });
-    let timeout = Duration::from_secs(900);
+    let timeout = Duration::from_mins(15);
 
     // Return failures as errors so cleanup still runs when any check fails.
     let checks: Result<()> = async {
@@ -802,38 +873,124 @@ async fn current_user_vm_login_sudo_resume_and_owner_redeploy() -> Result<()> {
     with_cleanup(checks, cleanup)
 }
 
+/// A user with the test SSH key, which redeploy requires of the lab owner.
+async fn create_keyed_user(server: &TestServer, name: &str, is_admin: bool) -> Result<DbUser> {
+    db::create_user(
+        &server.db,
+        name.to_owned(),
+        TEST_ADMIN_PASSWORD,
+        is_admin,
+        vec![TEST_SSH_PUBLIC_KEY.to_owned()],
+    )
+    .await
+}
+
+/// RPC redeploy as `username`: the owner reaches the node lookup, anyone else is refused
+/// before any progress is streamed.
+async fn check_redeploy_rpc(
+    ws: &mut TestWsClient,
+    lab_id: &str,
+    owner: &str,
+    username: &str,
+    token: &str,
+) -> Result<()> {
+    let owns_lab = username == owner;
+    let (statuses, response) = ws.rpc_call_streaming("redeploy", json!({
+        "token": token, "lab_id": lab_id, "node_name": "vm",
+        "username": owner,
+        "manifest": { "name": "auth-test", "nodes": [{ "name": "vm", "model": "ubuntu_linux" }] },
+    }), Duration::from_secs(30)).await?;
+    let expected = if owns_lab {
+        RpcErrorCode::ServerError
+    } else {
+        RpcErrorCode::AccessDenied
+    };
+    ensure!(
+        response["error"]["code"] == json!(expected),
+        "Wrong RPC authorization for {username}: {response}"
+    );
+    if owns_lab {
+        ensure!(
+            response["error"]["context"]
+                .as_str()
+                .is_some_and(|message| message.contains("Node 'vm' not found")),
+            "Owner did not reach node lookup: {response}"
+        );
+    } else {
+        ensure!(
+            statuses.is_empty(),
+            "Unauthorized request started streaming node operations"
+        );
+    }
+    Ok(())
+}
+
+/// REST and cookie redeploy as `username`: the owner gets past authorization to the missing
+/// manifest, anyone else gets 403.
+async fn check_redeploy_http(
+    http: &Client,
+    server: &TestServer,
+    lab_id: &str,
+    owner: &str,
+    username: &str,
+    token: &str,
+) -> Result<()> {
+    let owns_lab = username == owner;
+    // Missing manifest yields 400 only after owner authorization passes.
+    let response = http
+        .post(format!(
+            "http://{}/api/v1/labs/{lab_id}/nodes/vm/redeploy",
+            server.addr
+        ))
+        .bearer_auth(token)
+        .json(&json!({ "username": owner }))
+        .send()
+        .await?;
+    ensure!(
+        response.status()
+            == if owns_lab {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::FORBIDDEN
+            },
+        "Wrong HTTP authorization for {username}: {}",
+        response.status()
+    );
+    // An authorized cookie request stops at the absent saved manifest.
+    let response = http
+        .post(format!(
+            "http://{}/labs/{lab_id}/nodes/vm/redeploy",
+            server.addr
+        ))
+        .header(
+            reqwest::header::COOKIE,
+            format!("{AUTH_COOKIE_NAME}={token}"),
+        )
+        .send()
+        .await?;
+    ensure!(
+        response.status()
+            == if owns_lab {
+                StatusCode::INTERNAL_SERVER_ERROR
+            } else {
+                StatusCode::FORBIDDEN
+            },
+        "Wrong cookie authorization for {username}: {}",
+        response.status()
+    );
+    Ok(())
+}
+
 /// Database and local API sockets only; no VM, container or lab files are created.
 #[tokio::test]
 async fn redeploy_only_allows_current_owner_on_all_transports() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     // A personal admin: the built-in `admin` account cannot redeploy at all.
-    let admin = db::create_user(
-        &server.db,
-        "dana".to_owned(),
-        TEST_ADMIN_PASSWORD,
-        true,
-        // Redeploy requires the owner to have an SSH key.
-        vec![TEST_SSH_PUBLIC_KEY.to_owned()],
-    )
-    .await?;
+    let admin = create_keyed_user(&server, "dana", true).await?;
     let admin_token = ws.login("dana", TEST_ADMIN_PASSWORD).await?;
-    let alice = db::create_user(
-        &server.db,
-        "alice".to_owned(),
-        TEST_ADMIN_PASSWORD,
-        false,
-        vec![TEST_SSH_PUBLIC_KEY.to_owned()],
-    )
-    .await?;
-    let bob = db::create_user(
-        &server.db,
-        "bob".to_owned(),
-        TEST_ADMIN_PASSWORD,
-        false,
-        vec![TEST_SSH_PUBLIC_KEY.to_owned()],
-    )
-    .await?;
+    let alice = create_keyed_user(&server, "alice", false).await?;
+    let bob = create_keyed_user(&server, "bob", false).await?;
     let alice_token = ws.login("alice", TEST_ADMIN_PASSWORD).await?;
     let bob_token = ws.login("bob", TEST_ADMIN_PASSWORD).await?;
     let http = Client::builder()
@@ -862,76 +1019,8 @@ async fn redeploy_only_allows_current_owner_on_all_transports() -> Result<()> {
         )
         .await?;
         for (username, token) in callers {
-            let owns_lab = username == owner.username;
-            let (statuses, response) = ws.rpc_call_streaming("redeploy", json!({
-                "token": token, "lab_id": lab_id, "node_name": "vm",
-                "username": owner.username,
-                "manifest": { "name": "auth-test", "nodes": [{ "name": "vm", "model": "ubuntu_linux" }] },
-            }), Duration::from_secs(30)).await?;
-            let expected = if owns_lab {
-                RpcErrorCode::ServerError
-            } else {
-                RpcErrorCode::AccessDenied
-            };
-            ensure!(
-                response["error"]["code"] == json!(expected),
-                "Wrong RPC authorization for {username}: {response}"
-            );
-            if owns_lab {
-                ensure!(
-                    response["error"]["context"]
-                        .as_str()
-                        .is_some_and(|message| message.contains("Node 'vm' not found")),
-                    "Owner did not reach node lookup: {response}"
-                );
-            } else {
-                ensure!(
-                    statuses.is_empty(),
-                    "Unauthorized request started streaming node operations"
-                );
-            }
-            // Missing manifest yields 400 only after owner authorization passes.
-            let response = http
-                .post(format!(
-                    "http://{}/api/v1/labs/{lab_id}/nodes/vm/redeploy",
-                    server.addr
-                ))
-                .bearer_auth(token)
-                .json(&json!({ "username": owner.username }))
-                .send()
-                .await?;
-            ensure!(
-                response.status()
-                    == if owns_lab {
-                        StatusCode::BAD_REQUEST
-                    } else {
-                        StatusCode::FORBIDDEN
-                    },
-                "Wrong HTTP authorization for {username}: {}",
-                response.status()
-            );
-            // An authorized cookie request stops at the absent saved manifest.
-            let response = http
-                .post(format!(
-                    "http://{}/labs/{lab_id}/nodes/vm/redeploy",
-                    server.addr
-                ))
-                .header(
-                    reqwest::header::COOKIE,
-                    format!("{AUTH_COOKIE_NAME}={token}"),
-                )
-                .send()
-                .await?;
-            ensure!(
-                response.status()
-                    == if owns_lab {
-                        StatusCode::INTERNAL_SERVER_ERROR
-                    } else {
-                        StatusCode::FORBIDDEN
-                    },
-                "Wrong cookie authorization for {username}: {}",
-                response.status()
-            );
+            check_redeploy_rpc(&mut ws, &lab_id, &owner.username, username, token).await?;
+            check_redeploy_http(&http, &server, &lab_id, &owner.username, username, token).await?;
         }
         ensure!(
             db::list_nodes_by_lab(&server.db, db::get_lab_id(&lab)?)

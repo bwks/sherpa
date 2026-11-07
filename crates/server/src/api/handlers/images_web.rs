@@ -4,6 +4,8 @@ use axum::Form;
 use axum::extract::{Multipart, Path, State};
 use axum::http::header;
 use axum::response::{Html, IntoResponse, Response};
+use serde::de::value::{Error as DeError, StrDeserializer};
+use serde::de::{DeserializeOwned, IntoDeserializer};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use strum::IntoEnumIterator;
@@ -44,7 +46,7 @@ pub struct ImageSummary {
 /// Admin handler to list all image configurations
 pub async fn admin_images_list_handler(
     State(state): State<AppState>,
-    _admin: AdminUser,
+    admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     tracing::debug!("Admin requesting images list");
 
@@ -85,7 +87,7 @@ pub async fn admin_images_list_handler(
     summaries.sort_by(|a, b| a.model.cmp(&b.model));
 
     let template = crate::templates::AdminImagesListTemplate {
-        username: _admin.username.clone(),
+        username: admin.username.clone(),
         is_admin: true,
         active_page: "admin_images".to_string(),
         configs: summaries,
@@ -94,19 +96,8 @@ pub async fn admin_images_list_handler(
     Ok(template)
 }
 
-/// Admin handler to view a single image configuration detail
-pub async fn admin_image_detail_handler(
-    State(state): State<AppState>,
-    Path(params): Path<ImagePath>,
-    _admin: AdminUser,
-) -> Result<impl IntoResponse, ApiError> {
-    tracing::debug!(
-        "Admin requesting image detail: {} (version: {:?})",
-        params.model,
-        params.version
-    );
-
-    // Parse model from URL string
+/// The image a page or update names: the URL's version of the model, or its default version.
+async fn find_image_config(state: &AppState, params: &ImagePath) -> Result<NodeConfig, ApiError> {
     let node_model = NodeModel::from_str(&params.model).map_err(|e| {
         tracing::warn!("Invalid node model in URL: {} - {}", params.model, e);
         ApiError::not_found("Image", format!("Invalid model: {}", params.model))
@@ -163,9 +154,104 @@ pub async fn admin_image_detail_handler(
                 )
             })?
     };
+    Ok(config)
+}
+
+/// The image form's choices, parsed from their `snake_case` names.
+struct ImageFormChoices {
+    os_variant: OsVariant,
+    bios: BiosTypes,
+    cpu_architecture: CpuArchitecture,
+    cpu_model: CpuModels,
+    machine_type: MachineType,
+    hdd_bus: DiskBuses,
+    cdrom_bus: DiskBuses,
+    ztp_method: ZtpMethod,
+    interface_type: InterfaceType,
+}
+
+impl ImageFormChoices {
+    fn parse(form: &ImageForm) -> Result<Self, ApiError> {
+        Ok(Self {
+            os_variant: parse_form_choice(&form.os_variant, "OS variant")?,
+            bios: parse_form_choice(&form.bios, "BIOS type")?,
+            cpu_architecture: parse_form_choice(&form.cpu_architecture, "CPU architecture")?,
+            cpu_model: parse_form_choice(&form.cpu_model, "CPU model")?,
+            machine_type: parse_form_choice(&form.machine_type, "machine type")?,
+            hdd_bus: parse_form_choice(&form.hdd_bus, "HDD bus")?,
+            cdrom_bus: parse_form_choice(&form.cdrom_bus, "CDROM bus")?,
+            ztp_method: parse_form_choice(&form.ztp_method, "ZTP method")?,
+            interface_type: parse_form_choice(&form.interface_type, "interface type")?,
+        })
+    }
+}
+
+/// One of the form's choices, by the enum's serde name.
+fn parse_form_choice<T: DeserializeOwned>(value: &str, field_name: &str) -> Result<T, ApiError> {
+    let deserializer: StrDeserializer<'_, DeError> = value.into_deserializer();
+    T::deserialize(deserializer)
+        .map_err(|_| ApiError::bad_request(format!("Invalid {field_name}: {value}")))
+}
+
+/// The image's new configuration from the form. Its id, model, kind, management interface and
+/// boot mode are kept; checkboxes are on when present, and blank optional fields are unset.
+fn updated_image_config(
+    config: NodeConfig,
+    form: ImageForm,
+    choices: ImageFormChoices,
+) -> NodeConfig {
+    NodeConfig {
+        id: config.id,
+        model: config.model, // Keep original (read-only)
+        kind: config.kind,   // Keep original (read-only)
+        version: form.version,
+        repo: form.repo.filter(|s| !s.trim().is_empty()),
+        os_variant: choices.os_variant,
+        bios: choices.bios,
+        cpu_count: form.cpu_count,
+        cpu_architecture: choices.cpu_architecture,
+        cpu_model: choices.cpu_model,
+        machine_type: choices.machine_type,
+        vmx_enabled: form.vmx_enabled.is_some(),
+        memory: form.memory,
+        hdd_bus: choices.hdd_bus,
+        cdrom: form.cdrom.filter(|s| !s.trim().is_empty()),
+        cdrom_bus: choices.cdrom_bus,
+        ztp: ZtpSettings {
+            enable: form.ztp_enable.is_some(),
+            method: choices.ztp_method,
+            username: form.ztp_username.filter(|s| !s.trim().is_empty()),
+            password: form.ztp_password.filter(|s| !s.trim().is_empty()),
+            password_auth: form.ztp_password_auth.is_some(),
+        },
+        data_interface_count: form.data_interface_count,
+        interface_prefix: form.interface_prefix,
+        interface_type: choices.interface_type,
+        interface_mtu: form.interface_mtu,
+        first_interface_index: form.first_interface_index,
+        management_interface: config.management_interface, // Keep original (read-only)
+        reserved_interface_count: form.reserved_interface_count,
+        default: form.default.is_some(),
+        boot_mode: config.boot_mode, // Keep original
+    }
+}
+
+/// Admin handler to view a single image configuration detail
+pub async fn admin_image_detail_handler(
+    State(state): State<AppState>,
+    Path(params): Path<ImagePath>,
+    admin: AdminUser,
+) -> Result<impl IntoResponse, ApiError> {
+    tracing::debug!(
+        "Admin requesting image detail: {} (version: {:?})",
+        params.model,
+        params.version
+    );
+
+    let config = find_image_config(&state, &params).await?;
 
     let template = crate::templates::AdminImageDetailTemplate {
-        username: _admin.username.clone(),
+        username: admin.username.clone(),
         is_admin: true,
         active_page: "admin_images".to_string(),
         config,
@@ -178,7 +264,7 @@ pub async fn admin_image_detail_handler(
 pub async fn admin_image_edit_page_handler(
     State(state): State<AppState>,
     Path(params): Path<ImagePath>,
-    _admin: AdminUser,
+    admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     tracing::debug!(
         "Admin requesting image edit page: {} (version: {:?})",
@@ -186,67 +272,11 @@ pub async fn admin_image_edit_page_handler(
         params.version
     );
 
-    // Parse model from URL string
-    let node_model = NodeModel::from_str(&params.model).map_err(|e| {
-        tracing::warn!("Invalid node model in URL: {} - {}", params.model, e);
-        ApiError::not_found("Image", format!("Invalid model: {}", params.model))
-    })?;
-
-    // Derive kind from model
-    let node_kind = node_model.kind();
-
-    // Fetch the specific config from database
-    // If version is specified, fetch that specific version; otherwise fetch default
-    let config = if let Some(version) = &params.version {
-        db::find_node_image_by_model_kind_version(&state.db, &node_model, &node_kind, version)
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    "Failed to get image for {}/{}: {:?}",
-                    params.model,
-                    version,
-                    e
-                );
-                ApiError::not_found(
-                    "Image",
-                    format!(
-                        "Configuration for {} version {} not found",
-                        params.model, version
-                    ),
-                )
-            })?
-            .ok_or_else(|| {
-                tracing::warn!("Node config not found for {}/{}", params.model, version);
-                ApiError::not_found(
-                    "Image",
-                    format!(
-                        "Configuration for {} version {} not found",
-                        params.model, version
-                    ),
-                )
-            })?
-    } else {
-        db::find_default_node_image(&state.db, &node_model, &node_kind)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to get default image for {}: {:?}", params.model, e);
-                ApiError::not_found(
-                    "Image",
-                    format!("Default configuration for {} not found", params.model),
-                )
-            })?
-            .ok_or_else(|| {
-                tracing::warn!("Default image not found for {}", params.model);
-                ApiError::not_found(
-                    "Image",
-                    format!("Default configuration for {} not found", params.model),
-                )
-            })?
-    };
+    let config = find_image_config(&state, &params).await?;
 
     // Generate enum options for dropdowns
     let template = crate::templates::AdminImageEditTemplate {
-        username: _admin.username.clone(),
+        username: admin.username.clone(),
         is_admin: true,
         active_page: "admin_images".to_string(),
         config,
@@ -307,121 +337,16 @@ pub async fn admin_image_update_handler(
         params.version
     );
 
-    // Parse model from URL string
-    let node_model = NodeModel::from_str(&params.model).map_err(|e| {
-        tracing::warn!("Invalid node model in URL: {} - {}", params.model, e);
-        ApiError::not_found("Image", format!("Invalid model: {}", params.model))
-    })?;
+    let config = find_image_config(&state, &params).await?;
 
-    // Derive kind from model
-    let node_kind = node_model.kind();
+    let choices = ImageFormChoices::parse(&form)?;
 
-    // Fetch the specific config from database
-    // If version is specified, fetch that specific version; otherwise fetch default
-    let config = if let Some(version) = &params.version {
-        db::find_node_image_by_model_kind_version(&state.db, &node_model, &node_kind, version)
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    "Failed to get image for {}/{}: {:?}",
-                    params.model,
-                    version,
-                    e
-                );
-                ApiError::not_found(
-                    "Image",
-                    format!(
-                        "Configuration for {} version {} not found",
-                        params.model, version
-                    ),
-                )
-            })?
-            .ok_or_else(|| {
-                tracing::warn!("Node config not found for {}/{}", params.model, version);
-                ApiError::not_found(
-                    "Image",
-                    format!(
-                        "Configuration for {} version {} not found",
-                        params.model, version
-                    ),
-                )
-            })?
-    } else {
-        db::find_default_node_image(&state.db, &node_model, &node_kind)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to get default image for {}: {:?}", params.model, e);
-                ApiError::not_found(
-                    "Image",
-                    format!("Default configuration for {} not found", params.model),
-                )
-            })?
-            .ok_or_else(|| {
-                tracing::warn!("Default image not found for {}", params.model);
-                ApiError::not_found(
-                    "Image",
-                    format!("Default configuration for {} not found", params.model),
-                )
-            })?
-    };
-
-    // Parse enum fields from form strings using serde_json
-    // The enums have #[serde(rename_all = "snake_case")] so we parse via JSON
-
-    // Helper to parse enum from snake_case string
-    let parse_enum = |value: &str, field_name: &str| -> Result<serde_json::Value, ApiError> {
-        serde_json::from_str(&format!("\"{}\"", value))
-            .map_err(|_| ApiError::bad_request(format!("Invalid {}: {}", field_name, value)))
-    };
-
-    let os_variant: OsVariant = serde_json::from_value(parse_enum(&form.os_variant, "OS variant")?)
-        .map_err(|_| ApiError::bad_request(format!("Invalid OS variant: {}", form.os_variant)))?;
-
-    let bios: BiosTypes = serde_json::from_value(parse_enum(&form.bios, "BIOS type")?)
-        .map_err(|_| ApiError::bad_request(format!("Invalid BIOS type: {}", form.bios)))?;
-
-    let cpu_architecture: CpuArchitecture =
-        serde_json::from_value(parse_enum(&form.cpu_architecture, "CPU architecture")?).map_err(
-            |_| {
-                ApiError::bad_request(format!(
-                    "Invalid CPU architecture: {}",
-                    form.cpu_architecture
-                ))
-            },
-        )?;
-
-    let cpu_model: CpuModels = serde_json::from_value(parse_enum(&form.cpu_model, "CPU model")?)
-        .map_err(|_| ApiError::bad_request(format!("Invalid CPU model: {}", form.cpu_model)))?;
-
-    let machine_type: MachineType =
-        serde_json::from_value(parse_enum(&form.machine_type, "machine type")?).map_err(|_| {
-            ApiError::bad_request(format!("Invalid machine type: {}", form.machine_type))
-        })?;
-
-    let hdd_bus: DiskBuses = serde_json::from_value(parse_enum(&form.hdd_bus, "HDD bus")?)
-        .map_err(|_| ApiError::bad_request(format!("Invalid HDD bus: {}", form.hdd_bus)))?;
-
-    let cdrom_bus: DiskBuses = serde_json::from_value(parse_enum(&form.cdrom_bus, "CDROM bus")?)
-        .map_err(|_| ApiError::bad_request(format!("Invalid CDROM bus: {}", form.cdrom_bus)))?;
-
-    let ztp_method: ZtpMethod = serde_json::from_value(parse_enum(&form.ztp_method, "ZTP method")?)
-        .map_err(|_| ApiError::bad_request(format!("Invalid ZTP method: {}", form.ztp_method)))?;
-
-    let interface_type: InterfaceType =
-        serde_json::from_value(parse_enum(&form.interface_type, "interface type")?).map_err(
-            |_| ApiError::bad_request(format!("Invalid interface type: {}", form.interface_type)),
-        )?;
-
-    // Convert checkboxes (Some("on") or None) to bool
-    let vmx_enabled = form.vmx_enabled.is_some();
-    let ztp_enable = form.ztp_enable.is_some();
-    let ztp_password_auth = form.ztp_password_auth.is_some();
     let form_default = form.default.is_some();
 
     // Validate: prevent unsetting the last default for this (model, kind)
     if config.default && !form_default {
         // User is trying to unset default - check if this is the only default
-        let versions = db::get_node_image_versions(&state.db, &node_model, &node_kind)
+        let versions = db::get_node_image_versions(&state.db, &config.model, &config.kind)
             .await
             .map_err(|e| {
                 tracing::error!("Failed to get versions for {}: {:?}", params.model, e);
@@ -445,12 +370,6 @@ pub async fn admin_image_update_handler(
         }
     }
 
-    // Handle optional string fields - convert empty strings to None
-    let repo = form.repo.filter(|s| !s.trim().is_empty());
-    let cdrom = form.cdrom.filter(|s| !s.trim().is_empty());
-    let ztp_username = form.ztp_username.filter(|s| !s.trim().is_empty());
-    let ztp_password = form.ztp_password.filter(|s| !s.trim().is_empty());
-
     // Validate form data
     if let Err(e) = validate_node_image_update(
         form.cpu_count,
@@ -466,48 +385,14 @@ pub async fn admin_image_update_handler(
         .into_response());
     }
 
-    // Create updated config (keeping id, model, kind, management_interface from existing)
-    let updated_config = NodeConfig {
-        id: config.id,
-        model: config.model, // Keep original (read-only)
-        kind: config.kind,   // Keep original (read-only)
-        version: form.version,
-        repo,
-        os_variant,
-        bios,
-        cpu_count: form.cpu_count,
-        cpu_architecture,
-        cpu_model,
-        machine_type,
-        vmx_enabled,
-        memory: form.memory,
-        hdd_bus,
-        cdrom,
-        cdrom_bus,
-        ztp: ZtpSettings {
-            enable: ztp_enable,
-            method: ztp_method,
-            username: ztp_username,
-            password: ztp_password,
-            password_auth: ztp_password_auth,
-        },
-        data_interface_count: form.data_interface_count,
-        interface_prefix: form.interface_prefix,
-        interface_type,
-        interface_mtu: form.interface_mtu,
-        first_interface_index: form.first_interface_index,
-        management_interface: config.management_interface, // Keep original (read-only)
-        reserved_interface_count: form.reserved_interface_count,
-        default: form_default,       // Use value from form checkbox
-        boot_mode: config.boot_mode, // Keep original
-    };
+    let updated_config = updated_image_config(config, form, choices);
 
     // Update in database
     db::update_node_image(&state.db, updated_config)
         .await
         .map_err(|e| {
             tracing::error!("Failed to update image: {:?}", e);
-            ApiError::internal(format!("Failed to update configuration: {}", e))
+            ApiError::internal(format!("Failed to update configuration: {e}"))
         })?;
 
     tracing::info!(
@@ -528,7 +413,7 @@ pub async fn admin_image_update_handler(
     response.headers_mut().insert(
         header::HeaderName::from_static("hx-redirect"),
         header::HeaderValue::from_str(&redirect_url).map_err(|e| {
-            ApiError::internal(format!("Failed to create redirect header value: {}", e))
+            ApiError::internal(format!("Failed to create redirect header value: {e}"))
         })?,
     );
 
@@ -545,7 +430,7 @@ pub async fn admin_image_versions_handler(
 
     // Parse model enum
     let model_enum = NodeModel::from_str(&model)
-        .map_err(|_| ApiError::bad_request(format!("Invalid model: {}", model)))?;
+        .map_err(|_| ApiError::bad_request(format!("Invalid model: {model}")))?;
 
     // Derive kind from model
     let kind_enum = model_enum.kind();
@@ -555,7 +440,7 @@ pub async fn admin_image_versions_handler(
         .await
         .map_err(|e| {
             tracing::error!("Failed to fetch image versions: {:?}", e);
-            ApiError::internal(format!("Failed to fetch versions: {}", e))
+            ApiError::internal(format!("Failed to fetch versions: {e}"))
         })?;
 
     tracing::debug!("Found {} versions for {}", versions.len(), model);
@@ -594,13 +479,13 @@ pub struct RawUploadFields {
     pub default: Option<String>,
 }
 
-/// Validate raw upload fields and convert to typed UploadFields.
+/// Validate raw upload fields and convert to typed `UploadFields`.
 ///
 /// Checks that all required fields are present and valid.
 pub fn validate_upload_fields(raw: RawUploadFields) -> Result<UploadFields, String> {
     let model_str = raw.model.ok_or("Missing required field: model")?;
     let parsed_model =
-        NodeModel::from_str(&model_str).map_err(|_| format!("Invalid model: {}", model_str))?;
+        NodeModel::from_str(&model_str).map_err(|_| format!("Invalid model: {model_str}"))?;
 
     let version_str = raw.version.ok_or("Missing required field: version")?;
     if version_str.is_empty() {
@@ -632,7 +517,7 @@ pub async fn parse_upload_fields(mut multipart: Multipart) -> Result<UploadField
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| format!("Failed to read form field: {}", e))?
+        .map_err(|e| format!("Failed to read form field: {e}"))?
     {
         let name = field.name().unwrap_or("").to_string();
         match name.as_str() {
@@ -640,21 +525,21 @@ pub async fn parse_upload_fields(mut multipart: Multipart) -> Result<UploadField
                 let text = field
                     .text()
                     .await
-                    .map_err(|e| format!("Failed to read model field: {}", e))?;
+                    .map_err(|e| format!("Failed to read model field: {e}"))?;
                 model = Some(text);
             }
             "version" => {
                 let text = field
                     .text()
                     .await
-                    .map_err(|e| format!("Failed to read version field: {}", e))?;
+                    .map_err(|e| format!("Failed to read version field: {e}"))?;
                 version = Some(text);
             }
             "file" => {
                 let bytes = field
                     .bytes()
                     .await
-                    .map_err(|e| format!("Failed to read file data: {}", e))?;
+                    .map_err(|e| format!("Failed to read file data: {e}"))?;
                 if !bytes.is_empty() {
                     file_data = Some(bytes.to_vec());
                 }
@@ -663,7 +548,7 @@ pub async fn parse_upload_fields(mut multipart: Multipart) -> Result<UploadField
                 let text = field
                     .text()
                     .await
-                    .map_err(|e| format!("Failed to read default field: {}", e))?;
+                    .map_err(|e| format!("Failed to read default field: {e}"))?;
                 default = Some(text);
             }
             _ => {
@@ -682,13 +567,16 @@ pub async fn parse_upload_fields(mut multipart: Multipart) -> Result<UploadField
 
 /// Admin handler to render the image upload form (GET /admin/images/upload)
 pub async fn admin_image_upload_page_handler(
-    _admin: AdminUser,
+    admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let mut models: Vec<String> = NodeModel::to_vec().iter().map(|m| m.to_string()).collect();
+    let mut models: Vec<String> = NodeModel::to_vec()
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect();
     models.sort();
 
     let template = AdminImageUploadTemplate {
-        username: _admin.username,
+        username: admin.username,
         is_admin: true,
         active_page: "admin_images".to_string(),
         models,
@@ -727,7 +615,7 @@ pub async fn admin_image_upload_handler(
     if let Err(e) = tokio::fs::write(&temp_file, &fields.file_data).await {
         tracing::error!("Failed to write temp file {}: {:?}", temp_path, e);
         return Ok(AdminNotificationErrorTemplate {
-            message: format!("Failed to save uploaded file: {}", e),
+            message: format!("Failed to save uploaded file: {e}"),
         }
         .into_response());
     }
@@ -770,7 +658,7 @@ pub async fn admin_image_upload_handler(
         Err(e) => {
             tracing::error!("Image upload failed: {:?}", e);
             Ok(AdminNotificationErrorTemplate {
-                message: format!("Import failed: {}", e),
+                message: format!("Import failed: {e}"),
             }
             .into_response())
         }
@@ -792,10 +680,10 @@ mod tests {
         default: Option<&str>,
     ) -> RawUploadFields {
         RawUploadFields {
-            model: model.map(|s| s.to_string()),
-            version: version.map(|s| s.to_string()),
+            model: model.map(std::string::ToString::to_string),
+            version: version.map(std::string::ToString::to_string),
             file_data,
-            default: default.map(|s| s.to_string()),
+            default: default.map(std::string::ToString::to_string),
         }
     }
 
@@ -819,7 +707,7 @@ mod tests {
         let result =
             validate_upload_fields(raw_fields(None, Some("24.04"), Some(vec![0x01]), None));
         let err = result.unwrap_err();
-        assert!(err.contains("model"), "expected model error, got: {}", err);
+        assert!(err.contains("model"), "expected model error, got: {err}");
     }
 
     #[test]
@@ -833,8 +721,7 @@ mod tests {
         let err = result.unwrap_err();
         assert!(
             err.contains("version"),
-            "expected version error, got: {}",
-            err
+            "expected version error, got: {err}"
         );
     }
 
@@ -843,7 +730,7 @@ mod tests {
         let result =
             validate_upload_fields(raw_fields(Some("ubuntu_linux"), Some("24.04"), None, None));
         let err = result.unwrap_err();
-        assert!(err.contains("file"), "expected file error, got: {}", err);
+        assert!(err.contains("file"), "expected file error, got: {err}");
     }
 
     #[test]
@@ -857,8 +744,7 @@ mod tests {
         let err = result.unwrap_err();
         assert!(
             err.contains("Invalid model"),
-            "expected invalid model error, got: {}",
-            err
+            "expected invalid model error, got: {err}"
         );
     }
 
@@ -873,8 +759,7 @@ mod tests {
         let err = result.unwrap_err();
         assert!(
             err.contains("empty"),
-            "expected empty version error, got: {}",
-            err
+            "expected empty version error, got: {err}"
         );
     }
 

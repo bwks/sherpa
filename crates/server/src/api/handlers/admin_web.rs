@@ -51,7 +51,7 @@ pub async fn admin_dashboard_handler(
     // Transform users into display format
     let mut user_summaries: Vec<UserSummary> = Vec::new();
 
-    for user in users.into_iter() {
+    for user in users {
         // Format created_at date using jiff
         // In UTC, such as "Nov 7, 2026".
         let created_at_formatted = user.created_at.strftime("%b %-d, %Y").to_string();
@@ -152,7 +152,7 @@ pub async fn admin_tools_handler(admin: AdminUser) -> impl IntoResponse {
 
 /// Admin lab clean - force-clean all resources for a lab
 ///
-/// POST /admin/tools/clean/{lab_id}
+/// POST /`admin/tools/clean/{lab_id`}
 #[tracing::instrument(skip(state), fields(%lab_id))]
 pub async fn admin_tools_clean_handler(
     admin: AdminUser,
@@ -229,7 +229,7 @@ pub async fn admin_user_edit_handler(
         .await
         .map_err(|e| {
             tracing::warn!("User '{}' not found: {:?}", target_username, e);
-            ApiError::not_found("User", format!("User '{}' not found", target_username))
+            ApiError::not_found("User", format!("User '{target_username}' not found"))
         })?;
 
     // Check if admin is editing themselves
@@ -347,7 +347,7 @@ pub async fn admin_add_ssh_key_handler(
         return Ok(AdminSshKeysListTemplate {
             target_username: target_username.clone(),
             ssh_keys: vec![],
-            success_message: format!("Error: {}", e),
+            success_message: format!("Error: {e}"),
             is_error: true,
         }
         .into_response());
@@ -488,27 +488,28 @@ pub async fn admin_delete_user_handler(
     match user_delete::delete_user(&admin.into_context(), &target_username, &state).await {
         // Return empty response - HTMX will remove the table row
         Ok(_) => Ok(StatusCode::OK.into_response()),
-        Err(e) => match ServiceError::find(&e) {
-            Some(refusal) => Ok((
-                [
-                    (
-                        header::HeaderName::from_static("hx-retarget"),
-                        header::HeaderValue::from_static(ADMIN_USER_DELETE_ERROR_TARGET),
-                    ),
-                    (
-                        header::HeaderName::from_static("hx-reswap"),
-                        header::HeaderValue::from_static("innerHTML"),
-                    ),
-                ],
-                AdminNotificationErrorTemplate {
-                    message: refusal.to_string(),
-                },
-            )
-                .into_response()),
-            None => {
+        Err(e) => {
+            if let Some(refusal) = ServiceError::find(&e) {
+                Ok((
+                    [
+                        (
+                            header::HeaderName::from_static("hx-retarget"),
+                            header::HeaderValue::from_static(ADMIN_USER_DELETE_ERROR_TARGET),
+                        ),
+                        (
+                            header::HeaderName::from_static("hx-reswap"),
+                            header::HeaderValue::from_static("innerHTML"),
+                        ),
+                    ],
+                    AdminNotificationErrorTemplate {
+                        message: refusal.to_string(),
+                    },
+                )
+                    .into_response())
+            } else {
                 tracing::error!("Failed to delete user '{}': {:?}", target_username, e);
                 Err(ApiError::internal("Failed to delete user"))
             }
-        },
+        }
     }
 }

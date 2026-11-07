@@ -1,18 +1,98 @@
 //! Regression tests for the server's security boundaries: what an authenticated or anonymous
 //! caller must not be able to do, on every transport.
 
-mod helpers;
-
 use anyhow::{Context, Result, ensure};
-use reqwest::{Client, Method, StatusCode, header};
+use reqwest::{Client, Method, Response, StatusCode, header};
 use serde_json::{Value, json};
+use shared::data::{NodeConfig, NodeModel};
 use shared::error::RpcErrorCode;
+use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 use std::time::Duration;
 
-use helpers::test_server::{TEST_ADMIN_PASSWORD, TEST_SSH_PUBLIC_KEY, TestServer, test_config};
-use helpers::ws_client::TestWsClient;
+use crate::helpers::test_server::{
+    TEST_ADMIN_PASSWORD, TEST_SSH_PUBLIC_KEY, TestServer, test_config,
+};
+use crate::helpers::ws_client::TestWsClient;
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
+/// Version of the image the access matrix seeds, so the image pages have one to show.
+const MATRIX_IMAGE_VERSION: &str = "matrix-1";
+/// Admin web pages that only read. An admin is served each; anyone else is refused.
+const ADMIN_PAGE_READS: &[&str] = &[
+    "/admin/users",
+    "/admin/labs",
+    "/admin/tools",
+    "/admin/images",
+    "/admin/images/upload",
+    "/admin/images/ubuntu_linux",
+    "/admin/images/ubuntu_linux/edit",
+    "/admin/images/ubuntu_linux/versions",
+    "/admin/images/ubuntu_linux/matrix-1",
+    "/admin/images/ubuntu_linux/matrix-1/edit",
+];
+/// Admin web actions. Only their refusals are checked: done by an admin, they act on the host.
+const ADMIN_PAGE_ACTIONS: &[&str] = &[
+    "/admin/tools/clean/c0ffee99",
+    "/admin/tools/scan",
+    "/admin/images/upload",
+    "/admin/images/ubuntu_linux/edit",
+    "/admin/images/ubuntu_linux/matrix-1/edit",
+];
+/// Admin-only REST operations, each with a body its handler parses, so that a refusal comes
+/// from the admin check rather than from the body. Only refusals are checked. The bodies name
+/// nothing that exists, in case a refusal ever fails.
+const ADMIN_API_ACTIONS: &[ApiAction] = &[
+    ApiAction::json("POST", "/api/v1/admin/tools/labs/clean/c0ffee99", "{}"),
+    ApiAction::json(
+        "POST",
+        "/api/v1/admin/tools/images/scan",
+        r#"{"dry_run":true}"#,
+    ),
+    ApiAction::json(
+        "POST",
+        "/api/v1/images/import",
+        r#"{"model":"ubuntu_linux","version":"none","src":"/nonexistent/disk.qcow2"}"#,
+    ),
+    ApiAction {
+        method: "POST",
+        path: "/api/v1/images/upload",
+        content_type: "multipart/form-data; boundary=matrix",
+        body: "",
+    },
+    ApiAction::json(
+        "POST",
+        "/api/v1/images/pull",
+        r#"{"model":"generic_container","repo":"sherpa-test/does-not-exist","tag":"none"}"#,
+    ),
+    ApiAction::json(
+        "POST",
+        "/api/v1/images/download",
+        r#"{"model":"ubuntu_linux","version":"none","url":"http://127.0.0.1:9/none"}"#,
+    ),
+    ApiAction::json("DELETE", "/api/v1/images/ubuntu_linux/matrix-1", ""),
+    ApiAction::json("POST", "/api/v1/images/ubuntu_linux/matrix-1/default", ""),
+];
+/// Image reads any logged-in user may make.
+const IMAGE_API_READS: &[&str] = &["/api/v1/images", "/api/v1/images/ubuntu_linux"];
+
+/// One REST request of the access matrix.
+struct ApiAction {
+    method: &'static str,
+    path: &'static str,
+    content_type: &'static str,
+    body: &'static str,
+}
+
+impl ApiAction {
+    const fn json(method: &'static str, path: &'static str, body: &'static str) -> Self {
+        Self {
+            method,
+            path,
+            content_type: "application/json",
+            body,
+        }
+    }
+}
 const NEW_PASSWORD: &str = "Changed-Pass-456!";
 const FOREIGN_ORIGIN: &str = "https://attacker.example";
 
@@ -47,6 +127,52 @@ async fn can_log_in(ws: &mut TestWsClient, username: &str, password: &str) -> Re
         )
         .await?;
     Ok(response.get("error").is_none())
+}
+
+/// Seed a default Ubuntu image record, for the image pages of the access matrix.
+async fn seed_matrix_image(server: &TestServer) -> Result<()> {
+    let mut image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+    MATRIX_IMAGE_VERSION.clone_into(&mut image.version);
+    image.default = true;
+    db::upsert_node_image(&server.db, image).await?;
+    Ok(())
+}
+
+/// Send a web request, with the session cookie of `token` when there is one.
+async fn web_request(
+    http: &Client,
+    server: &TestServer,
+    method: Method,
+    path: &str,
+    token: Option<&str>,
+) -> Result<Response> {
+    let mut request = http.request(method, url(server, path));
+    if let Some(token) = token {
+        request = request.header(header::COOKIE, format!("{AUTH_COOKIE_NAME}={token}"));
+    }
+    Ok(request.send().await?)
+}
+
+/// A client that does not follow redirects, so a login redirect is seen as one.
+fn no_redirect_client() -> Result<Client> {
+    Ok(Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?)
+}
+
+/// Assert an admin web route sent an anonymous caller to log in.
+fn ensure_login_redirect(response: &Response, label: &str) -> Result<()> {
+    let location = response
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    ensure!(
+        response.status() == StatusCode::SEE_OTHER && location == "/login?error=session_required",
+        "{label}: anonymous caller got {} {location}",
+        response.status()
+    );
+    Ok(())
 }
 
 fn error_code(response: &Value) -> &Value {
@@ -339,6 +465,113 @@ async fn out_of_range_impairment_numbers_are_refused_not_wrapped() -> Result<()>
         ensure!(
             *error_code(&response) == json!(RpcErrorCode::InvalidParams),
             "{field} out of range was not refused: {response}"
+        );
+    }
+    Ok(())
+}
+
+// ── Admin route access matrix ──
+
+#[tokio::test]
+async fn admin_pages_are_refused_to_others_and_served_to_admins() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    seed_matrix_image(&server).await?;
+    let admin = ws.login_admin().await?;
+    let user = user_token(&server, &mut ws, "alice", false).await?;
+    let http = no_redirect_client()?;
+
+    for path in ADMIN_PAGE_READS {
+        let response = web_request(&http, &server, Method::GET, path, None).await?;
+        ensure_login_redirect(&response, &format!("GET {path}"))?;
+        let response = web_request(&http, &server, Method::GET, path, Some(&user)).await?;
+        ensure!(
+            response.status() == StatusCode::FORBIDDEN,
+            "GET {path}: regular user got {}",
+            response.status()
+        );
+        let response = web_request(&http, &server, Method::GET, path, Some(&admin)).await?;
+        ensure!(
+            response.status() == StatusCode::OK,
+            "GET {path}: admin got {}",
+            response.status()
+        );
+    }
+    for path in ADMIN_PAGE_ACTIONS {
+        let response = web_request(&http, &server, Method::POST, path, None).await?;
+        ensure_login_redirect(&response, &format!("POST {path}"))?;
+        let response = web_request(&http, &server, Method::POST, path, Some(&user)).await?;
+        ensure!(
+            response.status() == StatusCode::FORBIDDEN,
+            "POST {path}: regular user got {}",
+            response.status()
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn admin_api_operations_are_refused_to_others() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    seed_matrix_image(&server).await?;
+    let user = user_token(&server, &mut ws, "alice", false).await?;
+    let http = no_redirect_client()?;
+
+    for action in ADMIN_API_ACTIONS {
+        let method = Method::from_bytes(action.method.as_bytes())?;
+        let label = format!("{} {}", action.method, action.path);
+        for (token, expected) in [
+            (None, StatusCode::UNAUTHORIZED),
+            (Some(&user), StatusCode::FORBIDDEN),
+        ] {
+            let mut request = http
+                .request(method.clone(), url(&server, action.path))
+                .header(header::CONTENT_TYPE, action.content_type)
+                .body(action.body);
+            if let Some(token) = token {
+                request = request.bearer_auth(token);
+            }
+            let response = request.send().await?;
+            ensure!(
+                response.status() == expected,
+                "{label}: expected {expected}, got {}",
+                response.status()
+            );
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn image_reads_need_a_login_but_not_admin() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    seed_matrix_image(&server).await?;
+    let user = user_token(&server, &mut ws, "alice", false).await?;
+    let http = no_redirect_client()?;
+
+    for path in IMAGE_API_READS {
+        let response = http.get(url(&server, path)).send().await?;
+        ensure!(
+            response.status() == StatusCode::UNAUTHORIZED,
+            "GET {path}: anonymous caller got {}",
+            response.status()
+        );
+        let response = http
+            .get(url(&server, path))
+            .bearer_auth(&user)
+            .send()
+            .await?;
+        ensure!(
+            response.status() == StatusCode::OK,
+            "GET {path}: regular user got {}",
+            response.status()
+        );
+        let body: Value = response.json().await?;
+        ensure!(
+            body.to_string().contains(MATRIX_IMAGE_VERSION),
+            "GET {path} did not list the seeded image: {body}"
         );
     }
     Ok(())

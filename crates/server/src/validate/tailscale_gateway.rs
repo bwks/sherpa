@@ -46,29 +46,29 @@ mod tests {
 
     #[test]
     fn gateway_settings_reject_invalid_image_socket_and_timeouts() {
+        type SettingsEdit = fn(&mut TailscaleGatewaySettings);
         let defaults = TailscaleGatewaySettings::default();
         assert!(validate_tailscale_gateway_settings(&defaults).is_ok());
-        type SettingsEdit = fn(&mut TailscaleGatewaySettings);
         let cases: &[(&str, SettingsEdit)] = &[
             ("image", |s| s.image.clear()),
             ("image", |s| s.image = "image with spaces".into()),
             ("socket_path", |s| s.socket_path = "relative.sock".into()),
             ("socket_path", |s| s.socket_path = "/".into()),
             ("socket_path", |s| {
-                s.socket_path = "/run/invalid\0.sock".into()
+                s.socket_path = "/run/invalid\0.sock".into();
             }),
             ("socket_path", |s| {
-                s.socket_path = format!("/run/{}", "s".repeat(108))
+                s.socket_path = format!("/run/{}", "s".repeat(108));
             }),
             ("exec_timeout_secs", |s| s.exec_timeout_secs = 0),
             ("daemon_ready_timeout_secs", |s| {
-                s.daemon_ready_timeout_secs = 0
+                s.daemon_ready_timeout_secs = 0;
             }),
             ("enrollment_timeout_secs", |s| s.enrollment_timeout_secs = 0),
             ("connection_timeout_secs", |s| s.connection_timeout_secs = 0),
             ("stop_timeout_secs", |s| s.stop_timeout_secs = 0),
             ("stop_timeout_secs", |s| {
-                s.stop_timeout_secs = i32::MAX as u32 + 1
+                s.stop_timeout_secs = i32::MAX as u32 + 1;
             }),
         ];
         for (field, edit) in cases {

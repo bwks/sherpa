@@ -112,7 +112,7 @@ pub async fn upload_image_multipart(
 
     tokio::fs::write(&temp_file, &fields.file_data)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to write temp file: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to write temp file: {e}")))?;
 
     let request = ImportRequest {
         model: fields.model,
@@ -131,7 +131,7 @@ pub async fn upload_image_multipart(
         tracing::warn!("Failed to clean up temp file {}: {:?}", temp_path, e);
     }
 
-    let response = result.map_err(|e| ApiError::internal(format!("Import failed: {}", e)))?;
+    let response = result.map_err(|e| ApiError::internal(format!("Import failed: {e}")))?;
 
     Ok(Json(serde_json::to_value(&response).map_err(|e| {
         ApiError::internal(format!("Failed to serialize response: {e}"))

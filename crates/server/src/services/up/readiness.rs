@@ -292,7 +292,7 @@ impl Readiness<'_, '_> {
                 image: format!("{image_name}:{version}"),
                 env_vars: container.environment_variables.clone().unwrap_or_default(),
                 volumes,
-                capabilities: node_ops::model_capabilities(&container.model),
+                capabilities: node_ops::model_capabilities(container.model),
                 management_network,
                 additional_networks: data_networks,
                 commands: container.commands.clone().unwrap_or_default(),
@@ -356,7 +356,7 @@ impl Readiness<'_, '_> {
         let pid = container::get_container_pid(self.build.docker_conn, container_name).await?;
         for veth in veths {
             let target_name = util::container_interface_name(&veth.node_model, veth.interface_idx)?;
-            let state = node_ops::netns_veth_state(&veth.node_model, veth.admin_down);
+            let state = node_ops::netns_veth_state(veth.node_model, veth.admin_down);
             network::create_veth_in_netns(
                 &veth.host_veth,
                 &veth.host_alias,
@@ -404,7 +404,7 @@ impl Readiness<'_, '_> {
         else {
             return Ok(());
         };
-        let ready_port = node_ops::vm_ready_port(&vm.model, vm.ready_port);
+        let ready_port = node_ops::vm_ready_port(vm.model, vm.ready_port);
         let ready_label = node_ops::ready_port_label(ready_port);
         match node_ops::check_vm_ready(&record.ipv4_address.to_string(), ready_port).await? {
             VmReadiness::Ready { host_key } => {

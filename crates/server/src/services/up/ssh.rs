@@ -10,7 +10,7 @@ use shared::data::StatusKind;
 use shared::konst::SHERPA_SSH_PRIVATE_KEY_PATH;
 use shared::util;
 
-/// Write the lab's SSH config, with the server as ProxyJump, and return the server's private
+/// Write the lab's SSH config, with the server as `ProxyJump`, and return the server's private
 /// key when the config uses it, or an empty string (phase 12). Node host keys are added once nodes are
 /// ready, and the files saved again.
 pub(super) fn write_ssh_files(

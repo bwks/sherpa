@@ -23,26 +23,20 @@ pub(crate) fn process_manifest_nodes(
 /// Get node image from a list of node images.
 /// When a version is provided, match on that version. Otherwise fall back to the default.
 pub(super) fn get_node_image(
-    node_model: &data::NodeModel,
+    node_model: data::NodeModel,
     version: Option<&str>,
     data: &[data::NodeConfig],
 ) -> Result<data::NodeConfig> {
     if let Some(v) = version {
         data.iter()
-            .find(|x| &x.model == node_model && x.version == v)
+            .find(|x| x.model == node_model && x.version == v)
             .cloned()
-            .ok_or_else(|| {
-                anyhow!(
-                    "Node image not found for model: {} version: {}",
-                    node_model,
-                    v
-                )
-            })
+            .ok_or_else(|| anyhow!("Node image not found for model: {node_model} version: {v}"))
     } else {
         data.iter()
-            .find(|x| &x.model == node_model && x.default)
+            .find(|x| x.model == node_model && x.default)
             .cloned()
-            .ok_or_else(|| anyhow!("Default node image not found for model: {}", node_model))
+            .ok_or_else(|| anyhow!("Default node image not found for model: {node_model}"))
     }
 }
 

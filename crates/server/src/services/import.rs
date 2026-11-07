@@ -58,127 +58,15 @@ pub async fn import_image(
         request.default
     };
 
+    let mut db_config = config;
+    db_config.version.clone_from(&request.version);
+    db_config.default = make_default;
+    db_config.id = None;
+
     let result = match kind {
-        NodeKind::Container => {
-            // Container import: load tar archive into Docker daemon
-            tracing::info!(
-                model = %request.model,
-                version = %request.version,
-                src = %request.src,
-                "Importing container image from tar archive"
-            );
-
-            let _ = progress.send_status(
-                format!("Loading container image from tar archive: {}", request.src),
-                StatusKind::Progress,
-            );
-
-            container::load_image(&state.docker, &request.src, |msg| {
-                tracing::info!("{}", msg);
-            })
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to load container image from '{}' for model '{}'",
-                    request.src, request.model
-                )
-            })?;
-
-            let _ = progress.send_status(
-                "Container image loaded into Docker daemon".to_string(),
-                StatusKind::Done,
-            );
-
-            // Record in database
-            let _ = progress.send_status("Updating database...".to_string(), StatusKind::Progress);
-
-            let mut db_config = config;
-            db_config.version = request.version.clone();
-            db_config.default = make_default;
-            db_config.id = None;
-
-            db::upsert_node_image(&state.db, db_config)
-                .await
-                .context(format!(
-                    "Failed to register container model '{}' in database",
-                    request.model
-                ))?;
-
-            tracing::info!(
-                "Upserted node_image for model={} version={}",
-                request.model,
-                request.version
-            );
-
-            let _ = progress.send_status("Image tracked in database".to_string(), StatusKind::Done);
-
-            Ok(ImportResponse {
-                success: true,
-                model: request.model,
-                kind,
-                version: request.version,
-                image_path: format!("loaded from {}", request.src),
-                db_tracked: true,
-            })
-        }
+        NodeKind::Container => import_container_image(&request, db_config, state, &progress).await,
         NodeKind::VirtualMachine | NodeKind::Unikernel => {
-            // VM/Unikernel import: copy disk image to images directory
-            let _ = progress.send_status("Updating database...".to_string(), StatusKind::Progress);
-
-            let mut db_config = config;
-            db_config.version = request.version.clone();
-            db_config.default = make_default;
-            db_config.id = None;
-
-            let filename = image_filename(&kind, db_config.boot_mode.as_ref());
-
-            db::upsert_node_image(&state.db, db_config)
-                .await
-                .context(format!(
-                    "Failed to register node model '{}' in database. Ensure the server is up to date.",
-                    request.model
-                ))?;
-
-            tracing::info!(
-                "Upserted node_image for model={} version={}",
-                request.model,
-                request.version
-            );
-
-            let _ = progress.send_status("Image tracked in database".to_string(), StatusKind::Done);
-
-            // Copy image file
-            let images_dir = SHERPA_IMAGES_PATH.to_owned();
-            let model_dir = format!("{images_dir}/{}", request.model);
-            let version_dir = format!("{model_dir}/{}", request.version);
-            let version_disk = format!("{version_dir}/{filename}");
-
-            create_dir(&version_dir).context("Failed to create version directory")?;
-
-            if !file_exists(&version_disk) {
-                let _ = progress.send_status(
-                    format!("Copying image to {}...", version_disk),
-                    StatusKind::Progress,
-                );
-                tracing::info!("Copying image from {} to {}", request.src, version_disk);
-                copy_file(&request.src, &version_disk).context("Failed to copy image file")?;
-                let _ = progress.send_status("Image copy complete".to_string(), StatusKind::Done);
-            } else {
-                let _ = progress.send_status(
-                    "Image already exists on disk, skipping copy".to_string(),
-                    StatusKind::Info,
-                );
-                tracing::info!("Image already exists at {}, skipping copy", version_disk);
-            }
-
-            Ok(ImportResponse {
-                success: true,
-                model: request.model,
-                kind,
-                version: request.version,
-                image_path: version_disk,
-                db_tracked: true,
-            })
+            import_disk_image(&request, db_config, state, &progress).await
         }
     };
 
@@ -192,6 +80,134 @@ pub async fn import_image(
     }
 
     result
+}
+
+/// Load a container image's tar archive into the Docker daemon and record `db_config`.
+#[instrument(skip_all, fields(model = %request.model, version = %request.version), level = "debug")]
+async fn import_container_image(
+    request: &ImportRequest,
+    db_config: NodeConfig,
+    state: &AppState,
+    progress: &ProgressSender,
+) -> Result<ImportResponse> {
+    tracing::info!(
+        model = %request.model,
+        version = %request.version,
+        src = %request.src,
+        "Importing container image from tar archive"
+    );
+
+    let _ = progress.send_status(
+        format!("Loading container image from tar archive: {}", request.src),
+        StatusKind::Progress,
+    );
+
+    container::load_image(&state.docker, &request.src, |msg| {
+        tracing::info!("{}", msg);
+    })
+    .await
+    .with_context(|| {
+        format!(
+            "Failed to load container image from '{}' for model '{}'",
+            request.src, request.model
+        )
+    })?;
+
+    let _ = progress.send_status(
+        "Container image loaded into Docker daemon".to_string(),
+        StatusKind::Done,
+    );
+
+    // Record in database
+    let _ = progress.send_status("Updating database...".to_string(), StatusKind::Progress);
+
+    let kind = db_config.kind.clone();
+    db::upsert_node_image(&state.db, db_config)
+        .await
+        .context(format!(
+            "Failed to register container model '{}' in database",
+            request.model
+        ))?;
+
+    tracing::info!(
+        "Upserted node_image for model={} version={}",
+        request.model,
+        request.version
+    );
+
+    let _ = progress.send_status("Image tracked in database".to_string(), StatusKind::Done);
+
+    Ok(ImportResponse {
+        success: true,
+        model: request.model,
+        kind,
+        version: request.version.clone(),
+        image_path: format!("loaded from {}", request.src),
+        db_tracked: true,
+    })
+}
+
+/// Record `db_config` and copy a VM or unikernel disk image into the images directory, unless
+/// the version already has one.
+#[instrument(skip_all, fields(model = %request.model, version = %request.version), level = "debug")]
+async fn import_disk_image(
+    request: &ImportRequest,
+    db_config: NodeConfig,
+    state: &AppState,
+    progress: &ProgressSender,
+) -> Result<ImportResponse> {
+    let _ = progress.send_status("Updating database...".to_string(), StatusKind::Progress);
+
+    let kind = db_config.kind.clone();
+    let filename = image_filename(&kind, db_config.boot_mode.as_ref());
+
+    db::upsert_node_image(&state.db, db_config)
+        .await
+        .context(format!(
+            "Failed to register node model '{}' in database. Ensure the server is up to date.",
+            request.model
+        ))?;
+
+    tracing::info!(
+        "Upserted node_image for model={} version={}",
+        request.model,
+        request.version
+    );
+
+    let _ = progress.send_status("Image tracked in database".to_string(), StatusKind::Done);
+
+    // Copy image file
+    let images_dir = SHERPA_IMAGES_PATH.to_owned();
+    let model_dir = format!("{images_dir}/{}", request.model);
+    let version_dir = format!("{model_dir}/{}", request.version);
+    let version_disk = format!("{version_dir}/{filename}");
+
+    create_dir(&version_dir).context("Failed to create version directory")?;
+
+    if file_exists(&version_disk) {
+        let _ = progress.send_status(
+            "Image already exists on disk, skipping copy".to_string(),
+            StatusKind::Info,
+        );
+        tracing::info!("Image already exists at {}, skipping copy", version_disk);
+    } else {
+        let _ = progress.send_status(
+            format!("Copying image to {version_disk}..."),
+            StatusKind::Progress,
+        );
+        tracing::info!("Copying image from {} to {}", request.src, version_disk);
+        copy_file(&request.src, &version_disk).context("Failed to copy image file")?;
+        let _ = progress.send_status("Image copy complete".to_string(), StatusKind::Done);
+    }
+
+    Ok(ImportResponse {
+        success: true,
+        model: request.model,
+        kind,
+        version: request.version.clone(),
+        image_path: version_disk,
+        db_tracked: true,
+    })
 }
 
 /// List images from the database with optional filtering by model and/or kind
@@ -266,25 +282,91 @@ pub async fn scan_images(
     request: ScanImagesRequest,
     state: &AppState,
 ) -> Result<ScanImagesResponse> {
+    let mut tally = ScanTally::default();
+    scan_disk_images(&request, state, &mut tally).await?;
+
+    // --- Container image scanning ---
+    // Query Docker for local images and match against known container models
+    let skip_containers = matches!(request.kind, Some(ref k) if *k != NodeKind::Container);
+    if !skip_containers {
+        scan_container_images(&request, state, &mut tally).await?;
+    }
+
+    Ok(ScanImagesResponse {
+        scanned: tally.scanned,
+        total_imported: tally.total_imported,
+    })
+}
+
+/// What an image scan found, and how many versions it imported or would import.
+#[derive(Default)]
+struct ScanTally {
+    scanned: Vec<ScannedImage>,
+    total_imported: usize,
+}
+
+/// One model during a scan: its config, and whether the next version imported for it becomes
+/// its default (true while the model has no records and nothing has been imported for it yet).
+struct ModelScan {
+    model: NodeModel,
+    kind: NodeKind,
+    config: NodeConfig,
+    set_default: bool,
+    /// What the import log calls the record.
+    label: &'static str,
+}
+
+impl ModelScan {
+    /// Start scanning `model`, from the versions already recorded for it.
+    async fn new(state: &AppState, model: NodeModel, label: &'static str) -> Result<Self> {
+        let config = NodeConfig::get_model(model);
+        let kind = config.kind.clone();
+        // Check if any existing records exist for this model.
+        // If none exist, the first imported version should become the default.
+        let existing_versions = db::get_node_image_versions(&state.db, &model, &kind)
+            .await
+            .context("Failed to query existing node_image versions")?;
+        Ok(Self {
+            model,
+            kind,
+            config,
+            set_default: existing_versions.is_empty(),
+            label,
+        })
+    }
+
+    fn scanned(&self, version: String, status: String) -> ScannedImage {
+        ScannedImage {
+            model: self.model,
+            version,
+            kind: self.kind.clone(),
+            status,
+        }
+    }
+}
+
+/// Scan `images_dir/<model>/<version>/` for VM and unikernel disk images.
+#[instrument(skip_all, level = "debug")]
+async fn scan_disk_images(
+    request: &ScanImagesRequest,
+    state: &AppState,
+    tally: &mut ScanTally,
+) -> Result<()> {
     let images_dir = SHERPA_IMAGES_PATH.to_owned();
-    let mut scanned: Vec<ScannedImage> = Vec::new();
-    let mut total_imported: usize = 0;
 
     // Read model directories from the images dir
-    let model_entries = tokio::fs::read_dir(&images_dir)
+    let mut model_entries = tokio::fs::read_dir(&images_dir)
         .await
-        .context(format!("Failed to read images directory: {}", images_dir))?;
+        .context(format!("Failed to read images directory: {images_dir}"))?;
 
-    let mut model_entries = model_entries;
     while let Some(entry) = model_entries
         .next_entry()
         .await
         .context("Failed to read directory entry")?
     {
         // Skip non-directories
-        let metadata = match entry.metadata().await {
-            Ok(m) => m,
-            Err(_) => continue,
+        let Ok(metadata) = entry.metadata().await else {
+            continue;
         };
         if !metadata.is_dir() {
             continue;
@@ -293,19 +375,15 @@ pub async fn scan_images(
         let dir_name = entry.file_name().to_string_lossy().to_string();
 
         // Try to parse the directory name as a NodeModel
-        let model: NodeModel = match dir_name.parse() {
-            Ok(m) => m,
-            Err(_) => {
-                tracing::debug!("Skipping non-model directory: {}", dir_name);
-                continue;
-            }
+        let model: NodeModel = if let Ok(m) = dir_name.parse() {
+            m
+        } else {
+            tracing::debug!("Skipping non-model directory: {}", dir_name);
+            continue;
         };
 
-        // Get the model's config to determine kind
-        let config = NodeConfig::get_model(model);
-        let kind = config.kind.clone();
-
         // Skip container kinds in filesystem scan (containers live in Docker, not on disk)
+        let kind = NodeConfig::get_model(model).kind;
         if kind == NodeKind::Container {
             tracing::debug!("Skipping container model in disk scan: {}", model);
             continue;
@@ -318,271 +396,197 @@ pub async fn scan_images(
             continue;
         }
 
-        // Check if any existing records exist for this model.
-        // If none exist, the first imported version should become the default.
-        let existing_versions = db::get_node_image_versions(&state.db, &model, &kind)
-            .await
-            .context("Failed to query existing node_image versions")?;
-        let mut set_default = existing_versions.is_empty();
+        let mut scan = ModelScan::new(state, model, "node_image").await?;
+        let model_dir = format!("{images_dir}/{dir_name}");
+        scan_version_dirs(state, &mut scan, &model_dir, request.dry_run, tally).await?;
+    }
+    Ok(())
+}
 
-        // Iterate version subdirectories
-        let model_dir = format!("{}/{}", images_dir, dir_name);
-        let mut version_entries = match tokio::fs::read_dir(&model_dir).await {
-            Ok(entries) => entries,
-            Err(e) => {
-                tracing::warn!("Failed to read model directory {}: {}", model_dir, e);
-                continue;
-            }
+/// Scan a model directory's version subdirectories for its disk image. Symlinked directories
+/// are skipped.
+async fn scan_version_dirs(
+    state: &AppState,
+    scan: &mut ModelScan,
+    model_dir: &str,
+    dry_run: bool,
+    tally: &mut ScanTally,
+) -> Result<()> {
+    let mut version_entries = match tokio::fs::read_dir(model_dir).await {
+        Ok(entries) => entries,
+        Err(e) => {
+            tracing::warn!("Failed to read model directory {}: {}", model_dir, e);
+            return Ok(());
+        }
+    };
+
+    while let Some(version_entry) = version_entries
+        .next_entry()
+        .await
+        .context("Failed to read version directory entry")?
+    {
+        let Ok(version_metadata) = version_entry.metadata().await else {
+            continue;
         };
 
-        while let Some(version_entry) = version_entries
-            .next_entry()
-            .await
-            .context("Failed to read version directory entry")?
+        // Skip symlinks and non-directories
+        if !version_metadata.is_dir() || version_metadata.file_type().is_symlink() {
+            continue;
+        }
+
+        // Also check via symlink_metadata to catch symlinked directories
+        let Ok(symlink_meta) = tokio::fs::symlink_metadata(version_entry.path()).await else {
+            continue;
+        };
+        if symlink_meta.file_type().is_symlink() {
+            continue;
+        }
+
+        let version = version_entry.file_name().to_string_lossy().to_string();
+        let filename = image_filename(&scan.kind, scan.config.boot_mode.as_ref());
+        let disk_path = format!("{model_dir}/{version}/{filename}");
+
+        // Check if image file exists in this version directory
+        if !file_exists(&disk_path) {
+            tracing::debug!(
+                "No {} found for model={} version={}",
+                filename,
+                scan.model,
+                version
+            );
+            continue;
+        }
+
+        scan_version(state, scan, version, dry_run, tally).await?;
+    }
+    Ok(())
+}
+
+/// Match the Docker daemon's local image tags against the container models' repositories.
+#[instrument(skip_all, level = "debug")]
+async fn scan_container_images(
+    request: &ScanImagesRequest,
+    state: &AppState,
+    tally: &mut ScanTally,
+) -> Result<()> {
+    let docker_tags = container::get_local_images(&state.docker)
+        .await
+        .context("Failed to list local Docker images")?;
+
+    for model in NodeModel::to_vec() {
+        let config = NodeConfig::get_model(model);
+
+        // Only process container models
+        if config.kind != NodeKind::Container {
+            continue;
+        }
+
+        // If a kind filter was provided, check it (redundant guard for safety)
+        if let Some(ref filter_kind) = request.kind
+            && *filter_kind != config.kind
         {
-            let version_metadata = match version_entry.metadata().await {
-                Ok(m) => m,
-                Err(_) => continue,
+            continue;
+        }
+
+        // Skip models with no repo (no way to match Docker images)
+        let Some(repo) = config.repo else {
+            tracing::debug!("Skipping container model {} (no repo configured)", model);
+            continue;
+        };
+
+        let mut scan = ModelScan::new(state, model, "container node_image").await?;
+        let prefix = format!("{repo}:");
+        for tag in &docker_tags {
+            // Match tags like "localrepo/arista_ceos:4.32.0F"
+            let Some(version) = tag.strip_prefix(&prefix) else {
+                continue;
             };
-
-            // Skip symlinks and non-directories
-            if !version_metadata.is_dir() || version_metadata.file_type().is_symlink() {
-                continue;
-            }
-
-            // Also check via symlink_metadata to catch symlinked directories
-            let symlink_meta = match tokio::fs::symlink_metadata(version_entry.path()).await {
-                Ok(m) => m,
-                Err(_) => continue,
-            };
-            if symlink_meta.file_type().is_symlink() {
-                continue;
-            }
-
-            let version = version_entry.file_name().to_string_lossy().to_string();
-            let filename = image_filename(&kind, config.boot_mode.as_ref());
-            let disk_path = format!("{}/{}/{}", model_dir, version, filename);
-
-            // Check if image file exists in this version directory
-            if !file_exists(&disk_path) {
-                tracing::debug!(
-                    "No {} found for model={} version={}",
-                    filename,
-                    model,
-                    version
-                );
-                continue;
-            }
-
-            // Check if record already exists with this version
-            let existing =
-                db::find_node_image_by_model_kind_version(&state.db, &model, &kind, &version)
-                    .await
-                    .context("Failed to check existing node_image")?;
-
-            if existing.is_some() {
-                scanned.push(ScannedImage {
-                    model,
-                    version,
-                    kind: kind.clone(),
-                    status: "already_exists".to_string(),
-                });
-                continue;
-            }
-
-            // First import for a model with no existing records gets default
-            let make_default = set_default;
-
-            if request.dry_run {
-                let status = if make_default {
-                    "would_import (default)"
-                } else {
-                    "would_import"
-                };
-                scanned.push(ScannedImage {
-                    model,
-                    version,
-                    kind: kind.clone(),
-                    status: status.to_string(),
-                });
-                total_imported += 1;
-                // Only the first version gets default
-                set_default = false;
-                continue;
-            }
-
-            let mut db_config = config.clone();
-            db_config.version = version.clone();
-            db_config.default = make_default;
-            db_config.id = None;
-
-            let status = match db::upsert_node_image(&state.db, db_config).await {
-                Ok(_) => {
-                    tracing::info!(
-                        "Scanned and imported node_image for model={} version={} default={}",
-                        model,
-                        version,
-                        make_default
-                    );
-                    total_imported += 1;
-                    if make_default {
-                        "imported (default)".to_string()
-                    } else {
-                        "imported".to_string()
-                    }
-                }
-                Err(e) => {
-                    tracing::error!(
-                        "Failed to upsert node_image for model={} version={}: {:?}",
-                        model,
-                        version,
-                        e
-                    );
-                    format!("error: {:#}", e)
-                }
-            };
-
-            // Only the first version gets default
-            set_default = false;
-
-            scanned.push(ScannedImage {
-                model,
-                version,
-                kind: kind.clone(),
-                status,
-            });
+            scan_version(
+                state,
+                &mut scan,
+                version.to_string(),
+                request.dry_run,
+                tally,
+            )
+            .await?;
         }
     }
+    Ok(())
+}
 
-    // --- Container image scanning ---
-    // Query Docker for local images and match against known container models
-    let skip_containers = matches!(request.kind, Some(ref k) if *k != NodeKind::Container);
-    if !skip_containers {
-        let docker_tags = container::get_local_images(&state.docker)
+/// Record one version a scan found: already tracked, would be imported (dry run), or imported.
+/// Only the first version imported for a model without records becomes its default.
+async fn scan_version(
+    state: &AppState,
+    scan: &mut ModelScan,
+    version: String,
+    dry_run: bool,
+    tally: &mut ScanTally,
+) -> Result<()> {
+    // Check if record already exists with this version
+    let existing =
+        db::find_node_image_by_model_kind_version(&state.db, &scan.model, &scan.kind, &version)
             .await
-            .context("Failed to list local Docker images")?;
+            .context("Failed to check existing node_image")?;
 
-        for model in NodeModel::to_vec() {
-            let config = NodeConfig::get_model(model);
-            let kind = config.kind.clone();
-
-            // Only process container models
-            if kind != NodeKind::Container {
-                continue;
-            }
-
-            // If a kind filter was provided, check it (redundant guard for safety)
-            if let Some(ref filter_kind) = request.kind
-                && *filter_kind != kind
-            {
-                continue;
-            }
-
-            // Skip models with no repo (no way to match Docker images)
-            let repo = match &config.repo {
-                Some(r) => r.clone(),
-                None => {
-                    tracing::debug!("Skipping container model {} (no repo configured)", model);
-                    continue;
-                }
-            };
-
-            // Check if any existing records exist for this model
-            let existing_versions = db::get_node_image_versions(&state.db, &model, &kind)
-                .await
-                .context("Failed to query existing node_image versions")?;
-            let mut set_default = existing_versions.is_empty();
-
-            let prefix = format!("{}:", repo);
-            for tag in &docker_tags {
-                // Match tags like "localrepo/arista_ceos:4.32.0F"
-                let version = match tag.strip_prefix(&prefix) {
-                    Some(v) => v.to_string(),
-                    None => continue,
-                };
-
-                // Check if record already exists with this version
-                let existing =
-                    db::find_node_image_by_model_kind_version(&state.db, &model, &kind, &version)
-                        .await
-                        .context("Failed to check existing node_image")?;
-
-                if existing.is_some() {
-                    scanned.push(ScannedImage {
-                        model,
-                        version,
-                        kind: kind.clone(),
-                        status: "already_exists".to_string(),
-                    });
-                    continue;
-                }
-
-                let make_default = set_default;
-
-                if request.dry_run {
-                    let status = if make_default {
-                        "would_import (default)"
-                    } else {
-                        "would_import"
-                    };
-                    scanned.push(ScannedImage {
-                        model,
-                        version,
-                        kind: kind.clone(),
-                        status: status.to_string(),
-                    });
-                    total_imported += 1;
-                    set_default = false;
-                    continue;
-                }
-
-                let mut db_config = config.clone();
-                db_config.version = version.clone();
-                db_config.default = make_default;
-                db_config.id = None;
-
-                let status = match db::upsert_node_image(&state.db, db_config).await {
-                    Ok(_) => {
-                        tracing::info!(
-                            "Scanned and imported container node_image for model={} version={} default={}",
-                            model,
-                            version,
-                            make_default
-                        );
-                        total_imported += 1;
-                        if make_default {
-                            "imported (default)".to_string()
-                        } else {
-                            "imported".to_string()
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to upsert node_image for model={} version={}: {:?}",
-                            model,
-                            version,
-                            e
-                        );
-                        format!("error: {:#}", e)
-                    }
-                };
-
-                set_default = false;
-
-                scanned.push(ScannedImage {
-                    model,
-                    version,
-                    kind: kind.clone(),
-                    status,
-                });
-            }
-        }
+    if existing.is_some() {
+        tally
+            .scanned
+            .push(scan.scanned(version, "already_exists".to_string()));
+        return Ok(());
     }
 
-    Ok(ScanImagesResponse {
-        scanned,
-        total_imported,
-    })
+    let make_default = scan.set_default;
+    // Only the first version gets default
+    scan.set_default = false;
+
+    if dry_run {
+        let status = if make_default {
+            "would_import (default)"
+        } else {
+            "would_import"
+        };
+        tally
+            .scanned
+            .push(scan.scanned(version, status.to_string()));
+        tally.total_imported += 1;
+        return Ok(());
+    }
+
+    let mut db_config = scan.config.clone();
+    db_config.version.clone_from(&version);
+    db_config.default = make_default;
+    db_config.id = None;
+
+    let status = match db::upsert_node_image(&state.db, db_config).await {
+        Ok(_) => {
+            tracing::info!(
+                "Scanned and imported {} for model={} version={} default={}",
+                scan.label,
+                scan.model,
+                version,
+                make_default
+            );
+            tally.total_imported += 1;
+            if make_default {
+                "imported (default)".to_string()
+            } else {
+                "imported".to_string()
+            }
+        }
+        Err(e) => {
+            tracing::error!(
+                "Failed to upsert node_image for model={} version={}: {:?}",
+                scan.model,
+                version,
+                e
+            );
+            format!("error: {e:#}")
+        }
+    };
+
+    tally.scanned.push(scan.scanned(version, status));
+    Ok(())
 }
 
 /// Set the default version for a node image
@@ -605,15 +609,12 @@ pub async fn set_default_image(
     .await
     .context("Failed to look up image in database")?;
 
-    let mut node_image = match node_image {
-        Some(img) => img,
-        None => {
-            anyhow::bail!(
-                "Image not found for model '{}' with version '{}'. Use 'server image list' to see available images.",
-                request.model,
-                request.version
-            );
-        }
+    let Some(mut node_image) = node_image else {
+        anyhow::bail!(
+            "Image not found for model '{}' with version '{}'. Use 'server image list' to see available images.",
+            request.model,
+            request.version
+        );
     };
 
     // Set as default — update_node_image already unsets other defaults
@@ -649,7 +650,7 @@ async fn resolve_download_url(
             let schematic_id = talos_vanilla_schematic_id().await?;
             Ok(talos_image_url(&schematic_id, version))
         }
-        _ => anyhow::bail!("No auto-download URL for model '{}'. Provide --url.", model),
+        _ => anyhow::bail!("No auto-download URL for model '{model}'. Provide --url."),
     }
 }
 
@@ -695,7 +696,7 @@ fn parse_schematic_id(body: &[u8]) -> Result<String> {
     Ok(id.to_owned())
 }
 
-/// NoCloud image URL for a schematic and Talos version (with or without a leading `v`).
+/// `NoCloud` image URL for a schematic and Talos version (with or without a leading `v`).
 fn talos_image_url(schematic_id: &str, version: &str) -> String {
     let version = version.strip_prefix('v').unwrap_or(version);
     format!("{TALOS_IMAGE_FACTORY_URL}/image/{schematic_id}/v{version}/nocloud-amd64.qcow2")
@@ -757,7 +758,7 @@ where
         match tokio::fs::remove_file(&partial).await {
             Ok(()) => tracing::debug!(path = %partial, "Removed incomplete download"),
             Err(error) => {
-                tracing::debug!(path = %partial, %error, "No incomplete download to remove")
+                tracing::debug!(path = %partial, %error, "No incomplete download to remove");
             }
         }
     }
@@ -768,18 +769,19 @@ where
 fn download_progress(downloaded: u64, total: Option<u64>) -> String {
     match total {
         Some(total) => format!(
-            "Downloaded {:.1} MB / {:.1} MB ({}%)",
+            "Downloaded {} MB / {} MB ({}%)",
             megabytes(downloaded),
             megabytes(total),
             downloaded * 100 / total.max(1)
         ),
-        None => format!("Downloaded {:.1} MB", megabytes(downloaded)),
+        None => format!("Downloaded {} MB", megabytes(downloaded)),
     }
 }
 
-/// `bytes` in MiB, for progress messages.
-fn megabytes(bytes: u64) -> f64 {
-    bytes as f64 / 1_048_576.0
+/// `bytes` in MiB to one decimal place, rounded, for progress messages.
+fn megabytes(bytes: u64) -> String {
+    let tenths = (u128::from(bytes) * 10 + 524_288) / 1_048_576;
+    format!("{}.{}", tenths / 10, tenths % 10)
 }
 
 /// Download a VM image from a URL and track it in the database
@@ -795,10 +797,7 @@ pub async fn download_image(
     let kind = config.kind.clone();
 
     if kind != NodeKind::VirtualMachine {
-        anyhow::bail!(
-            "Image download is only supported for virtual machine models, got '{}'",
-            kind
-        );
+        anyhow::bail!("Image download is only supported for virtual machine models, got '{kind}'");
     }
 
     let _ = progress.send_status("Resolving download URL...".to_string(), StatusKind::Info);
@@ -842,7 +841,7 @@ pub async fn download_image(
 
         let response = reqwest::get(&download_url)
             .await
-            .context(format!("Failed to download image from {}", download_url))?;
+            .context(format!("Failed to download image from {download_url}"))?;
 
         if !response.status().is_success() {
             anyhow::bail!(
@@ -864,7 +863,7 @@ pub async fn download_image(
         tracing::info!("Download complete: {}", version_disk);
 
         let _ = progress.send_status(
-            format!("Download complete: {:.1} MB", megabytes(downloaded)),
+            format!("Download complete: {} MB", megabytes(downloaded)),
             StatusKind::Done,
         );
     }
@@ -1062,5 +1061,13 @@ mod tests {
         // logic is the first thing checked — verify via file_exists.
         let fake_path = "/tmp/sherpa_test_nonexistent_image_12345.qcow2";
         assert!(!file_exists(fake_path));
+    }
+
+    #[test]
+    fn megabytes_are_shown_to_one_decimal_place() {
+        assert_eq!(megabytes(0), "0.0");
+        assert_eq!(megabytes(1_572_864), "1.5");
+        assert_eq!(megabytes(1_048_575), "1.0");
+        assert_eq!(megabytes(10 * 1_048_576), "10.0");
     }
 }

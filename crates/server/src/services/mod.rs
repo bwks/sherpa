@@ -33,4 +33,5 @@ pub mod vault;
 pub(crate) mod tailscale;
 
 pub(crate) mod image_lifecycle;
+pub(crate) mod lab_nodes;
 pub mod lab_operations;

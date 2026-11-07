@@ -21,6 +21,10 @@ impl Connection {
     }
 
     /// Send a message to this connection
+    ///
+    /// # Errors
+    ///
+    /// Fails when the WebSocket is closed or the message cannot be written to it.
     pub async fn send(&self, message: Message) -> Result<(), axum::Error> {
         self.sender
             .lock()
@@ -35,6 +39,7 @@ impl Connection {
 pub type ConnectionRegistry = Arc<DashMap<Uuid, Arc<Connection>>>;
 
 /// Create a new connection registry
+#[must_use]
 pub fn create_registry() -> ConnectionRegistry {
     Arc::new(DashMap::new())
 }

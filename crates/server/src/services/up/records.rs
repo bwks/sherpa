@@ -48,12 +48,7 @@ pub(super) async fn create_node_records(
     bridges_detailed: &[topology::BridgeDetailed],
 ) -> Result<NodeRecords> {
     let LabBuild {
-        lab_id,
-        db,
-        qemu_conn,
-        config,
-        progress,
-        ..
+        lab_id, db, config, ..
     } = *build;
     let management_network = format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}");
 
@@ -73,8 +68,8 @@ pub(super) async fn create_node_records(
     let mut lab_node_data = vec![];
     let mut node_setup_data = vec![];
 
-    for node in nodes_expanded.iter() {
-        let node_image = get_node_image(&node.model, node.version.as_deref(), node_images)?;
+    for node in nodes_expanded {
+        let node_image = get_node_image(node.model, node.version.as_deref(), node_images)?;
 
         tracing::info!(
             lab_id = %lab_id,
@@ -84,49 +79,8 @@ pub(super) async fn create_node_records(
             "Creating node database record"
         );
 
-        // Build interface data structures
-        let mut node_interfaces_detailed: Vec<data::InterfaceData> = vec![];
-        let data_interface_count =
-            effective_data_interface_count(&node.name, node.data_interface_count, &node_image)?;
-        let first_data_interface_idx = node_image
-            .reserved_interface_count
-            .checked_add(1)
-            .ok_or_else(|| anyhow!("Reserved interface count overflow for node {}", node.name))?;
-        let max_interface_idx = node_image
-            .reserved_interface_count
-            .checked_add(data_interface_count)
-            .ok_or_else(|| anyhow!("Data interface count overflow for node {}", node.name))?;
-
-        for idx in 0..=max_interface_idx {
-            let interface_name = util::interface_from_idx(&node.model, idx)?;
-            let interface_idx = idx;
-            let mut interface_state = data::InterfaceState::Enabled;
-            let mut interface_data = data::NodeInterface::Disabled;
-
-            if idx == 0 {
-                interface_data = data::NodeInterface::Management;
-            } else if idx < first_data_interface_idx {
-                interface_data = data::NodeInterface::Reserved;
-            } else {
-                if let Some(data) = find_interface_link(&node.name, &interface_name, links_detailed)
-                {
-                    interface_data = data
-                }
-                if let Some(data) =
-                    find_bridge_interface(&node.name, &interface_name, bridges_detailed)
-                {
-                    interface_data = data
-                }
-                interface_state = data::InterfaceState::Disabled;
-            }
-
-            node_interfaces_detailed.push(data::InterfaceData {
-                name: interface_name.to_string(),
-                index: interface_idx,
-                state: interface_state,
-                data: interface_data,
-            });
-        }
+        let node_interfaces_detailed =
+            plan_interfaces(node, &node_image, links_detailed, bridges_detailed)?;
 
         let lab_node = db::create_node(
             db,
@@ -165,89 +119,16 @@ pub(super) async fn create_node_records(
             }
         }
 
-        let has_disabled_interfaces = node_interfaces_detailed
-            .iter()
-            .any(|i| matches!(i.data, data::NodeInterface::Disabled));
-
-        let node_isolated_network = if matches!(
-            node_image.kind,
-            data::NodeKind::VirtualMachine | data::NodeKind::Container
-        ) && has_disabled_interfaces
-        {
-            Some(node_ops::node_isolated_network_data(
-                &node.name, node.index, lab_id,
-            ))
-        } else {
-            None
-        };
-
-        let node_reserved_network = if matches!(node_image.kind, data::NodeKind::VirtualMachine)
-            && node_image.reserved_interface_count > 0
-        {
-            Some(node_ops::node_reserved_network_data(
-                &node.name, node.index, lab_id,
-            ))
-        } else {
-            None
-        };
-
-        if let Some(network) = node_isolated_network.clone() {
-            let _ = progress.send_status(
-                format!("Creating isolated network for node: {}", node.name),
-                StatusKind::Progress,
-            );
-            tracing::info!(
-                lab_id = %lab_id,
-                node_name = %node.name,
-                network_type = "isolated",
-                "Creating node isolated network"
-            );
-            match node_image.kind {
-                data::NodeKind::VirtualMachine => {
-                    let node_isolated_network = libvirt::IsolatedNetwork {
-                        network_name: network.network_name,
-                        bridge_name: network.bridge_name,
-                    };
-                    node_isolated_network.create(qemu_conn)?;
-                }
-                data::NodeKind::Container => {
-                    network::create_bridge(&network.bridge_name, &network.network_name).await?;
-                }
-                data::NodeKind::Unikernel => {
-                    tracing::warn!(
-                        node_name = %node.name,
-                        "Skipping isolated network creation for unikernel node"
-                    );
-                }
-            }
-        }
-
-        if let Some(network) = node_reserved_network.clone() {
-            let _ = progress.send_status(
-                format!("Creating reserved network for node: {}", node.name),
-                StatusKind::Progress,
-            );
-            tracing::info!(
-                lab_id = %lab_id,
-                node_name = %node.name,
-                network_type = "reserved",
-                "Creating node reserved network"
-            );
-            let node_reserved_network = libvirt::ReservedNetwork {
-                network_name: network.network_name,
-                bridge_name: network.bridge_name,
-            };
-            node_reserved_network.create(qemu_conn)?;
-        }
-
-        node_setup_data.push(data::NodeSetupData {
-            name: node.name.clone(),
-            index: node.index,
-            management_network: management_network.clone(),
-            isolated_network: node_isolated_network,
-            reserved_network: node_reserved_network,
-            interfaces: node_interfaces_detailed,
-        });
+        node_setup_data.push(
+            node_setup(
+                build,
+                node,
+                &node_image,
+                node_interfaces_detailed,
+                &management_network,
+            )
+            .await?,
+        );
     }
 
     tracing::info!(
@@ -268,5 +149,157 @@ pub(super) async fn create_node_records(
         vm_nodes,
         lab_node_data,
         node_setup_data,
+    })
+}
+
+/// The node's interfaces, by index: management, reserved, then each data interface on its link
+/// or bridge, or disabled.
+fn plan_interfaces(
+    node: &topology::NodeExpanded,
+    node_image: &data::NodeConfig,
+    links_detailed: &[topology::LinkDetailed],
+    bridges_detailed: &[topology::BridgeDetailed],
+) -> Result<Vec<data::InterfaceData>> {
+    let mut node_interfaces_detailed: Vec<data::InterfaceData> = vec![];
+    let data_interface_count =
+        effective_data_interface_count(&node.name, node.data_interface_count, node_image)?;
+    let first_data_interface_idx = node_image
+        .reserved_interface_count
+        .checked_add(1)
+        .ok_or_else(|| anyhow!("Reserved interface count overflow for node {}", node.name))?;
+    let max_interface_idx = node_image
+        .reserved_interface_count
+        .checked_add(data_interface_count)
+        .ok_or_else(|| anyhow!("Data interface count overflow for node {}", node.name))?;
+
+    for idx in 0..=max_interface_idx {
+        let interface_name = util::interface_from_idx(&node.model, idx)?;
+        let interface_idx = idx;
+        let mut interface_state = data::InterfaceState::Enabled;
+        let mut interface_data = data::NodeInterface::Disabled;
+
+        if idx == 0 {
+            interface_data = data::NodeInterface::Management;
+        } else if idx < first_data_interface_idx {
+            interface_data = data::NodeInterface::Reserved;
+        } else {
+            if let Some(data) = find_interface_link(&node.name, &interface_name, links_detailed) {
+                interface_data = data;
+            }
+            if let Some(data) = find_bridge_interface(&node.name, &interface_name, bridges_detailed)
+            {
+                interface_data = data;
+            }
+            interface_state = data::InterfaceState::Disabled;
+        }
+
+        node_interfaces_detailed.push(data::InterfaceData {
+            name: interface_name.clone(),
+            index: interface_idx,
+            state: interface_state,
+            data: interface_data,
+        });
+    }
+    Ok(node_interfaces_detailed)
+}
+
+/// Create the node's isolated network, when it has disabled interfaces, and a VM's reserved
+/// network, and return the node's setup data.
+#[instrument(skip_all, fields(lab_id = %build.lab_id, node_name = %node.name), level = "debug")]
+async fn node_setup(
+    build: &LabBuild<'_>,
+    node: &topology::NodeExpanded,
+    node_image: &data::NodeConfig,
+    node_interfaces_detailed: Vec<data::InterfaceData>,
+    management_network: &str,
+) -> Result<data::NodeSetupData> {
+    let LabBuild {
+        lab_id,
+        qemu_conn,
+        progress,
+        ..
+    } = *build;
+    let has_disabled_interfaces = node_interfaces_detailed
+        .iter()
+        .any(|i| matches!(i.data, data::NodeInterface::Disabled));
+
+    let node_isolated_network = if matches!(
+        node_image.kind,
+        data::NodeKind::VirtualMachine | data::NodeKind::Container
+    ) && has_disabled_interfaces
+    {
+        Some(node_ops::node_isolated_network_data(
+            &node.name, node.index, lab_id,
+        ))
+    } else {
+        None
+    };
+
+    let node_reserved_network = if matches!(node_image.kind, data::NodeKind::VirtualMachine)
+        && node_image.reserved_interface_count > 0
+    {
+        Some(node_ops::node_reserved_network_data(
+            &node.name, node.index, lab_id,
+        ))
+    } else {
+        None
+    };
+
+    if let Some(network) = node_isolated_network.clone() {
+        let _ = progress.send_status(
+            format!("Creating isolated network for node: {}", node.name),
+            StatusKind::Progress,
+        );
+        tracing::info!(
+            lab_id = %lab_id,
+            node_name = %node.name,
+            network_type = "isolated",
+            "Creating node isolated network"
+        );
+        match node_image.kind {
+            data::NodeKind::VirtualMachine => {
+                let node_isolated_network = libvirt::IsolatedNetwork {
+                    network_name: network.network_name,
+                    bridge_name: network.bridge_name,
+                };
+                node_isolated_network.create(qemu_conn)?;
+            }
+            data::NodeKind::Container => {
+                network::create_bridge(&network.bridge_name, &network.network_name).await?;
+            }
+            data::NodeKind::Unikernel => {
+                tracing::warn!(
+                    node_name = %node.name,
+                    "Skipping isolated network creation for unikernel node"
+                );
+            }
+        }
+    }
+
+    if let Some(network) = node_reserved_network.clone() {
+        let _ = progress.send_status(
+            format!("Creating reserved network for node: {}", node.name),
+            StatusKind::Progress,
+        );
+        tracing::info!(
+            lab_id = %lab_id,
+            node_name = %node.name,
+            network_type = "reserved",
+            "Creating node reserved network"
+        );
+        let node_reserved_network = libvirt::ReservedNetwork {
+            network_name: network.network_name,
+            bridge_name: network.bridge_name,
+        };
+        node_reserved_network.create(qemu_conn)?;
+    }
+
+    Ok(data::NodeSetupData {
+        name: node.name.clone(),
+        index: node.index,
+        management_network: management_network.to_owned(),
+        isolated_network: node_isolated_network,
+        reserved_network: node_reserved_network,
+        interfaces: node_interfaces_detailed,
     })
 }

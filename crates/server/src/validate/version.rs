@@ -9,7 +9,7 @@ use topology::Node;
 /// Validate and resolve node versions, checking that images exist
 ///
 /// This function performs three key validations:
-/// 1. Resolves version from node_image if not set in manifest
+/// 1. Resolves version from `node_image` if not set in manifest
 /// 2. Validates version exists in database for the model
 /// 3. Verifies image/disk exists based on node kind
 ///
@@ -24,7 +24,7 @@ use topology::Node;
 ///
 /// # Errors
 /// Returns error if:
-/// - Version not found in node_image for model
+/// - Version not found in `node_image` for model
 /// - Container image not found in local Docker
 /// - VM disk file not found on filesystem
 pub fn validate_and_resolve_node_versions(
@@ -61,21 +61,20 @@ pub fn validate_and_resolve_node_versions(
         })?;
 
         // Step 2: Resolve version (use node_image version if not set in manifest)
-        let resolved_version = match &node.version {
-            Some(v) => v.clone(),
-            None => {
-                tracing::debug!(
-                    node = %node.name,
-                    model = ?node.model,
-                    version = %node_image.version,
-                    "Using version from node_image (not set in manifest)"
-                );
-                node_image.version.clone()
-            }
+        let resolved_version = if let Some(v) = &node.version {
+            v.clone()
+        } else {
+            tracing::debug!(
+                node = %node.name,
+                model = ?node.model,
+                version = %node_image.version,
+                "Using version from node_image (not set in manifest)"
+            );
+            node_image.version.clone()
         };
 
         // Step 3: Validate resolved version exists in database for this model
-        validate_version_in_db(&node.model, &resolved_version, node_images).context(format!(
+        validate_version_in_db(node.model, &resolved_version, node_images).context(format!(
             "Version validation failed for node: {} (model: {})",
             node.name, node.model
         ))?;
@@ -88,11 +87,11 @@ pub fn validate_and_resolve_node_versions(
                     .find(|c| c.model == node.model && c.version == resolved_version)
                     .and_then(|c| c.container_repo(node.image.as_deref()));
                 if updated_node.image.is_none() {
-                    updated_node.image = repo.clone();
+                    updated_node.image.clone_from(&repo);
                 }
                 validate_container_image(
                     &node.name,
-                    &node.model,
+                    node.model,
                     repo.as_deref(),
                     &resolved_version,
                     docker_images,
@@ -101,7 +100,7 @@ pub fn validate_and_resolve_node_versions(
             NodeKind::VirtualMachine | NodeKind::Unikernel => {
                 validate_disk_image(
                     &node.name,
-                    &node.model,
+                    node.model,
                     &resolved_version,
                     images_dir,
                     &node_image.kind,
@@ -118,51 +117,49 @@ pub fn validate_and_resolve_node_versions(
     Ok(validated_nodes)
 }
 
-/// Validate that a version exists in node_image for the given model
+/// Validate that a version exists in `node_image` for the given model
 fn validate_version_in_db(
-    model: &NodeModel,
+    model: NodeModel,
     version: &str,
     node_images: &[NodeConfig],
 ) -> Result<()> {
     let matching_config = node_images
         .iter()
-        .find(|c| c.model == *model && c.version == version);
+        .find(|c| c.model == model && c.version == version);
 
-    match matching_config {
-        Some(_) => Ok(()),
-        None => {
-            // Build helpful error with available versions
-            let available_versions: Vec<&str> = node_images
-                .iter()
-                .filter(|c| c.model == *model)
-                .map(|c| c.version.as_str())
-                .collect();
+    if matching_config.is_some() {
+        Ok(())
+    } else {
+        // Build helpful error with available versions
+        let available_versions: Vec<&str> = node_images
+            .iter()
+            .filter(|c| c.model == model)
+            .map(|c| c.version.as_str())
+            .collect();
 
-            if available_versions.is_empty() {
-                bail!("No configurations found in database for model: {}", model);
-            } else {
-                bail!(
-                    "Version '{}' not found in database for model: {}. Available versions: {}",
-                    version,
-                    model,
-                    available_versions.join(", ")
-                );
-            }
+        if available_versions.is_empty() {
+            bail!("No configurations found in database for model: {model}");
         }
+        bail!(
+            "Version '{}' not found in database for model: {}. Available versions: {}",
+            version,
+            model,
+            available_versions.join(", ")
+        );
     }
 }
 
 /// Validate container image exists in local Docker
 fn validate_container_image(
     node_name: &str,
-    model: &NodeModel,
+    model: NodeModel,
     repo: Option<&str>,
     version: &str,
     docker_images: &[String],
 ) -> Result<()> {
     // Build expected image name
     let expected_image = match repo {
-        Some(r) => format!("{}:{}", r, version),
+        Some(r) => format!("{r}:{version}"),
         None => {
             bail!(
                 "Container node '{node_name}' (model: {model}) has no image repo configured: set \
@@ -182,11 +179,8 @@ fn validate_container_image(
         Ok(())
     } else {
         bail!(
-            "Container image not found in local Docker for node '{}': {}\n\
-            Hint: Pull the image with: docker pull {}",
-            node_name,
-            expected_image,
-            expected_image
+            "Container image not found in local Docker for node '{node_name}': {expected_image}\n\
+            Hint: Pull the image with: docker pull {expected_image}"
         );
     }
 }
@@ -194,14 +188,14 @@ fn validate_container_image(
 /// Validate disk image file exists on filesystem for VMs and unikernels.
 fn validate_disk_image(
     node_name: &str,
-    model: &NodeModel,
+    model: NodeModel,
     version: &str,
     images_dir: &str,
     kind: &NodeKind,
     boot_mode: Option<&UnikernelBootMode>,
 ) -> Result<()> {
     let filename = image_filename(kind, boot_mode);
-    let disk_path = format!("{}/{}/{}/{}", images_dir, model, version, filename);
+    let disk_path = format!("{images_dir}/{model}/{version}/{filename}");
     let path = Path::new(&disk_path);
 
     if path.exists() {
@@ -213,13 +207,9 @@ fn validate_disk_image(
         Ok(())
     } else {
         bail!(
-            "Disk image not found for node '{}' (model: {}, version: {})\n\
-            Expected path: {}\n\
-            Hint: Ensure the image is installed in the correct directory",
-            node_name,
-            model,
-            version,
-            disk_path
+            "Disk image not found for node '{node_name}' (model: {model}, version: {version})\n\
+            Expected path: {disk_path}\n\
+            Hint: Ensure the image is installed in the correct directory"
         );
     }
 }
@@ -271,7 +261,7 @@ mod tests {
             create_test_node_image(model, "4.29.2F", NodeKind::VirtualMachine),
         ];
 
-        let result = validate_version_in_db(&model, "4.28.0F", &configs);
+        let result = validate_version_in_db(model, "4.28.0F", &configs);
         assert!(result.is_ok());
     }
 
@@ -283,7 +273,7 @@ mod tests {
             create_test_node_image(model, "4.29.2F", NodeKind::VirtualMachine),
         ];
 
-        let result = validate_version_in_db(&model, "4.30.0F", &configs);
+        let result = validate_version_in_db(model, "4.30.0F", &configs);
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("4.30.0F"));
@@ -297,7 +287,7 @@ mod tests {
         let model = NodeModel::AristaVeos;
         let configs = vec![];
 
-        let result = validate_version_in_db(&model, "4.28.0F", &configs);
+        let result = validate_version_in_db(model, "4.28.0F", &configs);
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("No configurations found"));
@@ -313,7 +303,7 @@ mod tests {
 
         let result = validate_container_image(
             "test-node",
-            &NodeModel::AristaCeos,
+            NodeModel::AristaCeos,
             Some("test-repo"),
             "1.0.0",
             &docker_images,
@@ -330,7 +320,7 @@ mod tests {
 
         let result = validate_container_image(
             "test-node",
-            &NodeModel::AristaCeos,
+            NodeModel::AristaCeos,
             Some("test-repo"),
             "2.0.0",
             &docker_images,
@@ -347,7 +337,7 @@ mod tests {
 
         let result = validate_container_image(
             "test-node",
-            &NodeModel::AristaCeos,
+            NodeModel::AristaCeos,
             None,
             "1.0.0",
             &docker_images,
@@ -365,7 +355,7 @@ mod tests {
     fn test_validate_disk_image_vm_not_found() {
         let result = validate_disk_image(
             "vm1",
-            &NodeModel::AristaVeos,
+            NodeModel::AristaVeos,
             "4.28.0F",
             "/tmp/nonexistent_sherpa_images",
             &NodeKind::VirtualMachine,
@@ -382,7 +372,7 @@ mod tests {
     fn test_validate_disk_image_vm_path_format() {
         let result = validate_disk_image(
             "vm1",
-            &NodeModel::RockyLinux,
+            NodeModel::RockyLinux,
             "9.3",
             "/opt/images",
             &NodeKind::VirtualMachine,
@@ -397,7 +387,7 @@ mod tests {
     fn test_validate_disk_image_unikernel_direct_kernel() {
         let result = validate_disk_image(
             "uk1",
-            &NodeModel::UnikraftUnikernel,
+            NodeModel::UnikraftUnikernel,
             "latest",
             "/opt/images",
             &NodeKind::Unikernel,
@@ -412,7 +402,7 @@ mod tests {
     fn test_validate_disk_image_unikernel_disk_boot() {
         let result = validate_disk_image(
             "uk1",
-            &NodeModel::NanosUnikernel,
+            NodeModel::NanosUnikernel,
             "latest",
             "/opt/images",
             &NodeKind::Unikernel,
@@ -431,7 +421,7 @@ mod tests {
         Node {
             name: name.to_string(),
             model,
-            version: version.map(|v| v.to_string()),
+            version: version.map(std::string::ToString::to_string),
             ..Default::default()
         }
     }

@@ -21,7 +21,7 @@ impl ProgressSender {
     /// Send a phase progress update
     pub fn send_phase(&self, phase: UpPhase, message: String) -> Result<()> {
         let server_msg = ServerMessage::Status {
-            message: message.clone(),
+            message,
             timestamp: Timestamp::now(),
             kind: StatusKind::Progress,
             phase: Some(phase.as_str().to_string()),

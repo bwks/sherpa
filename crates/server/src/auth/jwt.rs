@@ -13,6 +13,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
+use crate::tls::generator::write_file_with_permissions;
+
 /// Load or generate a JWT secret.
 ///
 /// This function:
@@ -61,41 +63,13 @@ pub fn load_or_generate_secret() -> Result<Vec<u8>> {
 
 /// Generate a new secret and save it to the specified path.
 fn generate_and_save_secret(secret_path: &Path) -> Result<Vec<u8>> {
-    // Create parent directory with 0700 permissions
-    let parent_dir = secret_path
-        .parent()
-        .context("Failed to get parent directory of JWT secret path")?;
-
-    if !parent_dir.exists() {
-        fs::create_dir_all(parent_dir).context("Failed to create .secret directory")?;
-
-        // Set directory permissions to 0700 (owner read/write/execute only)
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = fs::Permissions::from_mode(0o700);
-            fs::set_permissions(parent_dir, perms)
-                .context("Failed to set .secret directory permissions")?;
-        }
-
-        debug!("Created directory: {}", parent_dir.display());
-    }
-
     // Generate 32-byte (256-bit) random secret
     let mut secret = vec![0u8; 32];
     rand::thread_rng().fill_bytes(&mut secret);
 
-    // Write secret to file
-    fs::write(secret_path, &secret).context("Failed to write JWT secret file")?;
-
-    // Set file permissions to 0600 (owner read/write only)
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = fs::Permissions::from_mode(0o600);
-        fs::set_permissions(secret_path, perms)
-            .context("Failed to set JWT secret file permissions")?;
-    }
+    // Created 0600 in a 0700 directory, so the secret is never readable by others.
+    write_file_with_permissions(secret_path, &secret, 0o600)
+        .context("Failed to write JWT secret file")?;
 
     info!("Successfully generated and saved new JWT secret");
     Ok(secret)
@@ -201,6 +175,10 @@ pub(crate) fn validate_expired_token_for_diagnostics(secret: &[u8], token: &str)
 mod tests {
     use super::*;
 
+    use std::os::unix::fs::PermissionsExt;
+
+    use tempfile::TempDir;
+
     #[test]
     fn test_create_and_validate_token() {
         let secret = b"test_secret_32_bytes_long_enough";
@@ -266,8 +244,7 @@ mod tests {
         let result = validate_token(secret, &token);
         assert!(
             result.is_err(),
-            "Token validation should fail for expired token, got: {:?}",
-            result
+            "Token validation should fail for expired token, got: {result:?}"
         );
     }
 
@@ -297,8 +274,6 @@ mod tests {
     #[test]
     #[ignore = "writes the JWT secret file to the server's filesystem"]
     fn test_generate_secret() {
-        use tempfile::TempDir;
-
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let secret_path = temp_dir.path().join("jwt.secret");
 
@@ -314,13 +289,10 @@ mod tests {
         let read_secret = fs::read(&secret_path).expect("Failed to read secret file");
         assert_eq!(secret, read_secret);
 
-        // Verify file permissions on Unix
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let metadata = fs::metadata(&secret_path).expect("Failed to read metadata");
-            let mode = metadata.permissions().mode();
-            assert_eq!(mode & 0o777, 0o600);
-        }
+        let mode = fs::metadata(&secret_path)
+            .expect("Failed to read metadata")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 }

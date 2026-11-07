@@ -18,7 +18,7 @@ pub(super) async fn destroy_node(redeploy: &Redeploy<'_>) -> Result<()> {
     let lab_id = redeploy.lab_id.as_str();
     let node_name = redeploy.node_name.as_str();
     let _ = redeploy.progress.send_status(
-        format!("Destroying existing node: {}", node_name),
+        format!("Destroying existing node: {node_name}"),
         StatusKind::Progress,
     );
 
@@ -44,11 +44,11 @@ pub(super) async fn destroy_node(redeploy: &Redeploy<'_>) -> Result<()> {
     let node_ztp_dir = format!("{}/{node_name}", redeploy.lab_dir);
     if Path::new(&node_ztp_dir).exists() {
         fs::remove_dir_all(&node_ztp_dir)
-            .with_context(|| format!("Failed to remove ZTP dir: {}", node_ztp_dir))?;
+            .with_context(|| format!("Failed to remove ZTP dir: {node_ztp_dir}"))?;
     }
 
     let _ = redeploy.progress.send_status(
-        format!("Existing node destroyed: {}", node_name),
+        format!("Existing node destroyed: {node_name}"),
         StatusKind::Done,
     );
     Ok(())
@@ -61,7 +61,7 @@ pub(super) fn recreate_vm_networks(redeploy: &Redeploy<'_>) -> Result<()> {
     let node_name = redeploy.node_name.as_str();
     let node_idx = redeploy.db_node.index;
     let _ = redeploy.progress.send_status(
-        format!("Recreating networks for node: {}", node_name),
+        format!("Recreating networks for node: {node_name}"),
         StatusKind::Progress,
     );
 
@@ -82,7 +82,7 @@ pub(super) fn recreate_vm_networks(redeploy: &Redeploy<'_>) -> Result<()> {
     }
 
     let _ = redeploy.progress.send_status(
-        format!("Networks recreated for node: {}", node_name),
+        format!("Networks recreated for node: {node_name}"),
         StatusKind::Done,
     );
     Ok(())

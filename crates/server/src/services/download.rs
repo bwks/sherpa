@@ -16,7 +16,7 @@ use crate::services::keycloak;
 use crate::services::talos;
 use crate::services::vault;
 
-/// Download lab files (lab-info, SSH config, known_hosts, SSH key) for CLI use.
+/// Download lab files (lab-info, SSH config, `known_hosts`, SSH key) for CLI use.
 ///
 /// The caller must own the lab or be an admin. The server SSH private key is included only
 /// when the lab's SSH config uses it.
@@ -28,13 +28,13 @@ pub async fn download_lab_files(
 ) -> Result<DownloadLabResponse> {
     require_lab_access(ctx, &state.db, lab_id).await?;
 
-    let lab_dir = format!("{}/{}", SHERPA_LABS_PATH, lab_id);
+    let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
     let lab_info: LabInfo = tokio::fs::read_to_string(format!("{lab_dir}/{LAB_FILE_NAME}"))
         .await
         .context("Failed to read lab info")?
         .parse()?;
 
-    let ssh_config_path = format!("{}/{}", lab_dir, SHERPA_SSH_CONFIG_FILE);
+    let ssh_config_path = format!("{lab_dir}/{SHERPA_SSH_CONFIG_FILE}");
     let ssh_config = tokio::fs::read_to_string(&ssh_config_path)
         .await
         .context("SSH config not found. Has the lab been started?")?;

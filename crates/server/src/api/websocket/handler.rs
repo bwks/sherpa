@@ -56,13 +56,13 @@ async fn handle_socket_inner(socket: WebSocket, state: AppState, conn_id: Uuid) 
     while let Some(msg) = receiver.next().await {
         match msg {
             Ok(Message::Text(text)) => {
-                if let Err(e) = handle_client_message(&text, &connection, &state).await {
+                if let Err(e) = handle_client_message(&text, &connection, &state) {
                     tracing::error!("Error handling message from {}: {}", conn_id, e);
 
                     // Send error response to client
                     let error_msg = ServerMessage::Result {
                         success: false,
-                        message: format!("Error processing message: {}", e),
+                        message: format!("Error processing message: {e}"),
                         data: None,
                     };
 
@@ -101,7 +101,7 @@ async fn handle_socket_inner(socket: WebSocket, state: AppState, conn_id: Uuid) 
 }
 
 /// Handle messages from client
-async fn handle_client_message(
+fn handle_client_message(
     text: &str,
     connection: &Arc<Connection>,
     state: &AppState,

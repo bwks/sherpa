@@ -52,7 +52,7 @@ impl TestWsClient {
                     .context("Missing connection_id in Connected message")?
                     .to_string()
             }
-            other => bail!("Expected text message, got: {:?}", other),
+            other => bail!("Expected text message, got: {other:?}"),
         };
 
         Ok(Self {
@@ -112,9 +112,6 @@ impl TestWsClient {
                     let msg_type = parsed.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
                     match msg_type {
-                        "status" => {
-                            status_messages.push(parsed);
-                        }
                         "rpc_response" => {
                             let resp_id = parsed.get("id").and_then(|v| v.as_str()).unwrap_or("");
                             if resp_id == id {
@@ -148,7 +145,6 @@ impl TestWsClient {
     /// Create the personal admin account `labadmin`, with an SSH key, and log in as it.
     ///
     /// Tests that start labs use it: the built-in `admin` cannot start lab work.
-    #[allow(dead_code)]
     pub async fn login_lab_admin(&mut self, server: &TestServer) -> Result<String> {
         if db::find_user(&server.db, TEST_LAB_ADMIN).await?.is_none() {
             db::create_user(

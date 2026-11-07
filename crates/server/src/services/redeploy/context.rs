@@ -71,6 +71,25 @@ pub(super) struct Redeploy<'a> {
     pub(super) image_guard: ImageLease,
 }
 
+/// The node's record and image, and its data interface count, as the redeploy finds them.
+struct LoadedNode {
+    db_node: DbNode,
+    node_record_id: RecordId,
+    node_image: data::NodeConfig,
+    data_interface_count: u8,
+    image_guard: ImageLease,
+}
+
+/// The lab's saved files: its directory, lab info, management network, DNS and CA.
+struct LabFiles {
+    lab_dir: String,
+    lab_info: data::LabInfo,
+    mgmt_net: data::SherpaNetwork,
+    dns: data::Dns,
+    certs_dir: String,
+    lab_ca: LabCa,
+}
+
 /// Load the node, its image and its lab, and run every check that can refuse the redeploy
 /// (stage 1). Nothing is changed, so a refused redeploy leaves the node as it was.
 #[instrument(skip_all, fields(lab_id = %request.lab_id, node_name = %request.node_name), level = "debug")]
@@ -89,25 +108,11 @@ pub(super) async fn load_redeploy<'a>(
         secrets,
     } = request;
     let _ = progress.send_status(
-        format!("Loading context for node: {}", node_name),
+        format!("Loading context for node: {node_name}"),
         StatusKind::Progress,
     );
 
-    let manifest: topology::Manifest =
-        serde_json::from_value(manifest).context("Failed to deserialize manifest")?;
-    require_host_access(ctx, &manifest.nodes)?;
-    check_client_read_files(&manifest.nodes).context("Manifest validation failed: files")?;
-    reject_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
-    if let Some(files) = secrets.as_deref()
-        && !files.is_empty()
-    {
-        validate_node_secrets(
-            &manifest,
-            &BTreeMap::from([(node_name.clone(), files.to_vec())]),
-        )
-        .context("Manifest validation failed: container secret files")?;
-    }
-
+    let manifest = check_manifest(ctx, manifest, &node_name, secrets.as_deref())?;
     let mut target_node = manifest_node(&manifest, &node_name)?;
     let talos_membership = find_talos_cluster(
         manifest.talos_clusters.as_deref().unwrap_or_default(),
@@ -117,67 +122,32 @@ pub(super) async fn load_redeploy<'a>(
 
     let db = &state.db;
     let lab_record_id = db::get_lab_id(db_lab).context("Failed to get lab record ID")?;
-    let db_node = db::get_node_by_name_and_lab(db, &node_name, lab_record_id.clone())
-        .await
-        .context(format!(
-            "Node '{}' not found in database for lab '{}'",
-            node_name, lab_id
-        ))?;
-    let node_record_id = db::get_node_id(&db_node).context("Failed to get node record ID")?;
-
-    let node_images = db::list_node_images_by_ids(db, vec![db_node.image.clone()])
-        .await
-        .context("Failed to get node image config")?;
-    let node_image = node_images
-        .first()
-        .ok_or_else(|| anyhow!("Node image config not found for node '{}'", node_name))?
-        .clone();
-    ensure!(
-        target_node.model == node_image.model,
-        "Redeploy cannot change node model; expected {}",
-        node_image.model
-    );
-    ensure!(
-        !matches!(node_image.kind, data::NodeKind::Unikernel),
-        "Redeploy not supported for unikernel nodes"
-    );
-    let data_interface_count =
-        effective_data_interface_count(&node_name, target_node.data_interface_count, &node_image)
-            .context(format!(
-            "Data interface count validation failed for node: {}",
-            node_name
-        ))?;
-
-    let image_guard = lease_image(node_image.model, &node_image.version).await;
+    let LoadedNode {
+        db_node,
+        node_record_id,
+        node_image,
+        data_interface_count,
+        image_guard,
+    } = load_node(state, &lab_record_id, &lab_id, &target_node).await?;
     target_node.version = Some(node_image.version.clone());
-    validate_disk_method(
-        target_node.boot_disk_clone_method,
-        &node_image,
-        &state.config.images_dir,
-        target_node.boot_disk_size,
-    )?;
 
-    let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
-    let lab_file = util::load_file(&format!("{lab_dir}/{LAB_FILE_NAME}"))
-        .context("Unable to load lab file")?;
-    let mut lab_info: data::LabInfo = lab_file.parse().context("Failed to parse lab info file")?;
-    let mgmt_net = lab_management_network(&lab_info);
-    let dns = if let Some(ref v6) = mgmt_net.v6 {
-        util::default_dns_dual_stack(&lab_info.ipv4_network, &v6.prefix)?
-    } else {
-        util::default_dns(&lab_info.ipv4_network)?
-    };
-    let certs_dir = format!("{lab_dir}/{LAB_CERTS_DIR}");
-    let lab_ca = lab_ca::load_lab_ca(Path::new(&certs_dir), &lab_id)?;
+    let LabFiles {
+        lab_dir,
+        mut lab_info,
+        mgmt_net,
+        dns,
+        certs_dir,
+        lab_ca,
+    } = load_lab_files(&lab_id)?;
     // A cluster worker rejoins with a config built from the cluster's saved secrets.
     if let Some((talos_cluster, _)) = talos_membership {
-        talos::secrets::ensure_supported_version(&node_name, &node_image.version)?;
-        let cluster = talos::load_cluster(&lab_id, &talos_cluster.name)?;
-        target_node.ztp_config = Some(talos::node_machine_config(
-            &cluster,
-            &node_name,
-            &mgmt_net.v4,
-            &lab_ca.pair.cert,
+        target_node.ztp_config = Some(worker_rejoin_config(
+            &lab_id,
+            &target_node,
+            &node_image,
+            &talos_cluster.name,
+            &mgmt_net,
+            &lab_ca,
         )?);
     }
     let sherpa_user = util::sherpa_user().context("Failed to get sherpa user")?;
@@ -187,42 +157,15 @@ pub(super) async fn load_redeploy<'a>(
     let owner_account = if manifest.provision_current_user
         && guest_account::provisions_owner(&target_node, &node_image)
     {
-        let account = guest_account::resolve_owner(db, db_lab.user.clone()).await?;
-        if account.is_none() {
-            let _ = progress.send_status(
-                    format!(
-                        "Username '{}' cannot be a login on lab nodes; '{node_name}' uses the sherpa account",
-                        ctx.username
-                    ),
-                    StatusKind::Info,
-                );
-        }
-        account
+        owner_account(db, db_lab, &ctx.username, &node_name, progress).await?
     } else {
         None
     };
-    // The node must take one of the owner's keys before teardown.
-    let node_login = match &owner_account {
-        Some(account) => {
-            let node_account = guest_account::node_account(account, &node_name, &node_image)?;
-            if !node_account.skipped_keys.is_empty() {
-                let _ = progress.send_status(
-                    format!(
-                        "Node '{node_name}' does not take these SSH keys of '{}': {}",
-                        account.username,
-                        node_account.skipped_keys.join(", ")
-                    ),
-                    StatusKind::Info,
-                );
-            }
-            Some(node_account.account.username)
-        }
-        None => None,
-    };
     // Calculate the next SSH config before teardown, preserving every other node's identity.
+    let node_login = node_login(owner_account.as_ref(), &node_name, &node_image, progress)?;
     lab_info.set_ssh_username(&node_name, node_login.as_deref());
     let _ = progress.send_status(
-        format!("Context loaded for node: {}", node_name),
+        format!("Context loaded for node: {node_name}"),
         StatusKind::Done,
     );
 
@@ -232,23 +175,7 @@ pub(super) async fn load_redeploy<'a>(
             .connect()
             .context("Failed to connect to libvirt")?,
     );
-
-    // The node's performance tuning must still fit the server before the node is destroyed.
-    check_performance_tuning(&target_node, &node_image).context(format!(
-        "Performance tuning validation failed for node: {node_name}"
-    ))?;
-    check_watchdog(&target_node, &node_image)
-        .context(format!("Watchdog validation failed for node: {node_name}"))?;
-    check_ptx_platform(&target_node, &node_image)
-        .context(format!("Platform validation failed for node: {node_name}"))?;
-    node_resources::check_cpu_pins_on_server(
-        db,
-        &qemu_conn,
-        &[&target_node],
-        Some(&node_record_id),
-    )
-    .await
-    .context("CPU pinning validation failed")?;
+    check_fits_server(db, &qemu_conn, &target_node, &node_image, &node_record_id).await?;
 
     Ok(Redeploy {
         state,
@@ -280,15 +207,206 @@ pub(super) async fn load_redeploy<'a>(
     })
 }
 
+/// The request's manifest, with the checks a redeploy shares with `sherpa up`: host access, the
+/// files the client read, provisioners, and the node's secret files.
+fn check_manifest(
+    ctx: &AuthContext,
+    manifest: serde_json::Value,
+    node_name: &str,
+    secrets: Option<&[data::SecretFile]>,
+) -> Result<topology::Manifest> {
+    let manifest: topology::Manifest =
+        serde_json::from_value(manifest).context("Failed to deserialize manifest")?;
+    require_host_access(ctx, &manifest.nodes)?;
+    check_client_read_files(&manifest.nodes).context("Manifest validation failed: files")?;
+    reject_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
+    if let Some(files) = secrets
+        && !files.is_empty()
+    {
+        validate_node_secrets(
+            &manifest,
+            &BTreeMap::from([(node_name.to_owned(), files.to_vec())]),
+        )
+        .context("Manifest validation failed: container secret files")?;
+    }
+    Ok(manifest)
+}
+
+/// The node's record and image, leased, with the node's disk method checked against it. The
+/// model cannot change, and unikernels cannot be redeployed.
+#[instrument(skip_all, fields(%lab_id, node_name = %target_node.name), level = "debug")]
+async fn load_node(
+    state: &AppState,
+    lab_record_id: &RecordId,
+    lab_id: &str,
+    target_node: &topology::NodeExpanded,
+) -> Result<LoadedNode> {
+    let db = &state.db;
+    let node_name = target_node.name.as_str();
+    let db_node = db::get_node_by_name_and_lab(db, node_name, lab_record_id.clone())
+        .await
+        .context(format!(
+            "Node '{node_name}' not found in database for lab '{lab_id}'"
+        ))?;
+    let node_record_id = db::get_node_id(&db_node).context("Failed to get node record ID")?;
+
+    let node_images = db::list_node_images_by_ids(db, vec![db_node.image.clone()])
+        .await
+        .context("Failed to get node image config")?;
+    let node_image = node_images
+        .first()
+        .ok_or_else(|| anyhow!("Node image config not found for node '{node_name}'"))?
+        .clone();
+    ensure!(
+        target_node.model == node_image.model,
+        "Redeploy cannot change node model; expected {}",
+        node_image.model
+    );
+    ensure!(
+        !matches!(node_image.kind, data::NodeKind::Unikernel),
+        "Redeploy not supported for unikernel nodes"
+    );
+    let data_interface_count =
+        effective_data_interface_count(node_name, target_node.data_interface_count, &node_image)
+            .context(format!(
+                "Data interface count validation failed for node: {node_name}"
+            ))?;
+
+    let image_guard = lease_image(node_image.model, &node_image.version).await;
+    validate_disk_method(
+        target_node.boot_disk_clone_method,
+        &node_image,
+        &state.config.images_dir,
+        target_node.boot_disk_size,
+    )?;
+    Ok(LoadedNode {
+        db_node,
+        node_record_id,
+        node_image,
+        data_interface_count,
+        image_guard,
+    })
+}
+
+/// The lab's saved lab info, its management network and DNS from it, and its CA.
+#[instrument(level = "debug")]
+fn load_lab_files(lab_id: &str) -> Result<LabFiles> {
+    let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
+    let lab_file = util::load_file(&format!("{lab_dir}/{LAB_FILE_NAME}"))
+        .context("Unable to load lab file")?;
+    let lab_info: data::LabInfo = lab_file.parse().context("Failed to parse lab info file")?;
+    let mgmt_net = lab_management_network(&lab_info);
+    let dns = if let Some(ref v6) = mgmt_net.v6 {
+        util::default_dns_dual_stack(&lab_info.ipv4_network, &v6.prefix)?
+    } else {
+        util::default_dns(&lab_info.ipv4_network)?
+    };
+    let certs_dir = format!("{lab_dir}/{LAB_CERTS_DIR}");
+    let lab_ca = lab_ca::load_lab_ca(Path::new(&certs_dir), lab_id)?;
+    Ok(LabFiles {
+        lab_dir,
+        lab_info,
+        mgmt_net,
+        dns,
+        certs_dir,
+        lab_ca,
+    })
+}
+
+/// The machine config a Talos cluster worker rejoins with, built from the cluster's saved
+/// secrets.
+fn worker_rejoin_config(
+    lab_id: &str,
+    target_node: &topology::NodeExpanded,
+    node_image: &data::NodeConfig,
+    cluster_name: &str,
+    mgmt_net: &data::SherpaNetwork,
+    lab_ca: &LabCa,
+) -> Result<String> {
+    talos::secrets::ensure_supported_version(&target_node.name, &node_image.version)?;
+    let cluster = talos::load_cluster(lab_id, cluster_name)?;
+    talos::node_machine_config(&cluster, &target_node.name, &mgmt_net.v4, &lab_ca.pair.cert)
+}
+
+/// The lab owner's account, for a node that takes it. `None` when the owner's username cannot
+/// be a login on lab nodes; the node then uses the sherpa account.
+#[instrument(skip_all, fields(%node_name), level = "debug")]
+async fn owner_account(
+    db: &db::Database,
+    db_lab: &DbLab,
+    username: &str,
+    node_name: &str,
+    progress: &ProgressSender,
+) -> Result<Option<GuestAccount>> {
+    let account = guest_account::resolve_owner(db, db_lab.user.clone()).await?;
+    if account.is_none() {
+        let _ = progress.send_status(
+            format!(
+                "Username '{username}' cannot be a login on lab nodes; '{node_name}' uses the sherpa account"
+            ),
+            StatusKind::Info,
+        );
+    }
+    Ok(account)
+}
+
+/// The node's login for the owner's account. The node must take one of the owner's keys before
+/// teardown; keys it does not take are reported.
+fn node_login(
+    owner_account: Option<&GuestAccount>,
+    node_name: &str,
+    node_image: &data::NodeConfig,
+    progress: &ProgressSender,
+) -> Result<Option<String>> {
+    let Some(account) = owner_account else {
+        return Ok(None);
+    };
+    let node_account = guest_account::node_account(account, node_name, node_image)?;
+    if !node_account.skipped_keys.is_empty() {
+        let _ = progress.send_status(
+            format!(
+                "Node '{node_name}' does not take these SSH keys of '{}': {}",
+                account.username,
+                node_account.skipped_keys.join(", ")
+            ),
+            StatusKind::Info,
+        );
+    }
+    Ok(Some(node_account.account.username))
+}
+
+/// The node's performance tuning, watchdog, platform and CPU pins must still fit the server
+/// before the node is destroyed.
+#[instrument(skip_all, fields(node_name = %target_node.name), level = "debug")]
+async fn check_fits_server(
+    db: &db::Database,
+    qemu_conn: &QemuConnection,
+    target_node: &topology::NodeExpanded,
+    node_image: &data::NodeConfig,
+    node_record_id: &RecordId,
+) -> Result<()> {
+    let node_name = target_node.name.as_str();
+    check_performance_tuning(target_node, node_image).context(format!(
+        "Performance tuning validation failed for node: {node_name}"
+    ))?;
+    check_watchdog(target_node, node_image)
+        .context(format!("Watchdog validation failed for node: {node_name}"))?;
+    check_ptx_platform(target_node, node_image)
+        .context(format!("Platform validation failed for node: {node_name}"))?;
+    node_resources::check_cpu_pins_on_server(db, qemu_conn, &[target_node], Some(node_record_id))
+        .await
+        .context("CPU pinning validation failed")
+}
+
 /// The node in the manifest, with its custom ZTP config decoded.
 fn manifest_node(manifest: &topology::Manifest, node_name: &str) -> Result<topology::NodeExpanded> {
     let mut node = process_manifest_nodes(&manifest.nodes)
         .into_iter()
         .find(|n| n.name == node_name)
-        .ok_or_else(|| anyhow!("Node '{}' not found in manifest", node_name))?;
+        .ok_or_else(|| anyhow!("Node '{node_name}' not found in manifest"))?;
     if let Some(ref encoded) = node.ztp_config {
         let decoded = util::base64_decode(encoded)
-            .with_context(|| format!("Failed to decode ztp_config for node '{}'", node_name))?;
+            .with_context(|| format!("Failed to decode ztp_config for node '{node_name}'"))?;
         node.ztp_config = Some(decoded);
     }
     Ok(node)
@@ -366,11 +484,11 @@ pub(super) fn data_interface_indices(
     let first = node_image
         .reserved_interface_count
         .checked_add(1)
-        .ok_or_else(|| anyhow!("Reserved interface count overflow for node {}", node_name))?;
+        .ok_or_else(|| anyhow!("Reserved interface count overflow for node {node_name}"))?;
     let last = node_image
         .reserved_interface_count
         .checked_add(data_interface_count)
-        .ok_or_else(|| anyhow!("Data interface count overflow for node {}", node_name))?;
+        .ok_or_else(|| anyhow!("Data interface count overflow for node {node_name}"))?;
     Ok(first..=last)
 }
 

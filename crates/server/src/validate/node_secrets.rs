@@ -75,10 +75,10 @@ mod tests {
         }
     }
 
-    fn error(secrets: BTreeMap<String, Vec<SecretFile>>) -> String {
+    fn error(secrets: &BTreeMap<String, Vec<SecretFile>>) -> String {
         format!(
             "{:#}",
-            validate_node_secrets(&manifest(), &secrets).unwrap_err()
+            validate_node_secrets(&manifest(), secrets).unwrap_err()
         )
     }
 
@@ -94,12 +94,12 @@ mod tests {
 
     #[test]
     fn secrets_must_be_for_container_nodes_in_the_manifest() {
-        let missing = error(secrets("db09", vec![file("password", 444)]));
+        let missing = error(&secrets("db09", vec![file("password", 444)]));
         assert!(
             missing.contains("db09") && missing.contains("not in the manifest"),
             "{missing}"
         );
-        let vm = error(secrets("dev01", vec![file("password", 444)]));
+        let vm = error(&secrets("dev01", vec![file("password", 444)]));
         assert!(vm.contains("dev01") && vm.contains("container"), "{vm}");
     }
 
@@ -115,7 +115,7 @@ mod tests {
             (vec![file("a", 444), file("a", 400)], "Two secret files"),
             (vec![bad_content], "base64"),
         ] {
-            let message = error(secrets("db01", files));
+            let message = error(&secrets("db01", files));
             assert!(message.contains(expected), "{expected}: {message}");
             assert!(message.contains("db01"), "{message}");
         }

@@ -33,6 +33,7 @@ pub struct Job {
 
 impl Job {
     /// Whether `ctx` may view or stream this job.
+    #[must_use]
     pub fn can_view(&self, ctx: &AuthContext) -> bool {
         ctx.can_access(&self.requester.username)
     }
@@ -64,12 +65,18 @@ pub struct AppState {
     /// OpenTelemetry metrics instruments
     pub metrics: Metrics,
     /// Pending jobs awaiting SSE stream pickup.
-    /// Keyed by job_id, consumed once by the stream handler.
+    /// Keyed by `job_id`, consumed once by the stream handler.
     pub pending_jobs: Arc<DashMap<String, Job>>,
 }
 
 impl AppState {
-    /// Create a new AppState with all infrastructure connections
+    /// Create a new `AppState` with all infrastructure connections
+    ///
+    /// # Errors
+    ///
+    /// Fails when the Tailscale gateway settings are invalid, the JWT secret cannot be loaded or
+    /// generated, the database cannot be opened or migrated, the admin account is missing (see
+    /// [`ensure_admin_account`]), or Docker cannot be reached.
     #[instrument(skip(config, metrics))]
     pub async fn new(config: Config, metrics: Metrics) -> Result<Self> {
         validate_tailscale_gateway_settings(&config.tailscale)
@@ -124,6 +131,11 @@ impl AppState {
 ///
 /// With `admin_password` (from `SHERPA_ADMIN_PASSWORD`) a missing account is created; without
 /// it, a missing account is an error, so the server never runs without its recovery account.
+///
+/// # Errors
+///
+/// Fails when the account is missing and no password is given, or the database cannot be read
+/// or written.
 #[instrument(skip(db, admin_password))]
 pub async fn ensure_admin_account(db: &db::Database, admin_password: Option<&str>) -> Result<()> {
     if let Some(admin_password) = admin_password {

@@ -214,11 +214,7 @@ impl Configuring<'_, '_> {
     }
 
     fn image(&self, node: &topology::NodeExpanded) -> Result<data::NodeConfig> {
-        get_node_image(
-            &node.model,
-            node.version.as_deref(),
-            self.inputs.node_images,
-        )
+        get_node_image(node.model, node.version.as_deref(), self.inputs.node_images)
     }
 
     /// Configure a container node. Returns the volumes it is created with: its own and the lab
@@ -351,6 +347,12 @@ impl Configuring<'_, '_> {
             .find(|n| n.name == node.name)
             .map(|n| &n.record)
             .with_context(|| format!("Node '{}' has no database record", node.name))?;
+        let loopback_host = u8::try_from(node_data.index).with_context(|| {
+            format!(
+                "Node '{}' has an index past the loopback network",
+                node.name
+            )
+        })?;
         node_ops::build_domain_template(
             node,
             &node_image,
@@ -359,11 +361,8 @@ impl Configuring<'_, '_> {
             DomainParts {
                 disks: ztp_result.disks,
                 interfaces,
-                loopback_ipv4: util::get_ip(
-                    &self.inputs.subnets.loopback_subnet,
-                    node_data.index as u8,
-                )
-                .to_string(),
+                loopback_ipv4: util::get_ip(&self.inputs.subnets.loopback_subnet, loopback_host)
+                    .to_string(),
                 management_network: node_data.management_network.clone(),
                 isolated_network: node_data
                     .isolated_network
@@ -417,6 +416,12 @@ impl Configuring<'_, '_> {
             &setup_result.mac_address,
             self.build.lab_id,
         )?;
+        let loopback_host = u8::try_from(node_data.index).with_context(|| {
+            format!(
+                "Node '{}' has an index past the loopback network",
+                node.name
+            )
+        })?;
         let domain = node_ops::build_unikernel_domain_template(
             node,
             &node_image,
@@ -425,11 +430,8 @@ impl Configuring<'_, '_> {
             DomainParts {
                 disks: setup_result.disks,
                 interfaces,
-                loopback_ipv4: util::get_ip(
-                    &self.inputs.subnets.loopback_subnet,
-                    node_data.index as u8,
-                )
-                .to_string(),
+                loopback_ipv4: util::get_ip(&self.inputs.subnets.loopback_subnet, loopback_host)
+                    .to_string(),
                 management_network: node_data.management_network.clone(),
                 isolated_network: node_data
                     .isolated_network
@@ -443,7 +445,6 @@ impl Configuring<'_, '_> {
                     .unwrap_or_default(),
             },
             setup_result.kernel_path,
-            self.inputs.mgmt_net,
         );
         let _ = self.build.progress.send_status(
             format!("Unikernel node {} configured", node.name),
@@ -555,46 +556,7 @@ pub(super) async fn start_boot_container(
         "Created ZTP directories"
     );
 
-    // Create dnsmasq config
-    let dnsmaq_template = template::DnsmasqTemplate {
-        tftp_server_ipv4: mgmt_net.v4.boot_server.to_string(),
-        gateway_ipv4: mgmt_net.v4.first.to_string(),
-        dhcp_start: util::get_ipv4_addr(
-            &mgmt_net.v4.prefix,
-            *MANAGEMENT_NODE_HOST_OFFSETS.start(),
-        )?
-        .to_string(),
-        dhcp_end: util::get_ipv4_addr(&mgmt_net.v4.prefix, *MANAGEMENT_NODE_HOST_OFFSETS.end())?
-            .to_string(),
-        gateway_ipv6: mgmt_net.v6.as_ref().map(|v6| v6.first.to_string()),
-        dhcp6_start: mgmt_net
-            .v6
-            .as_ref()
-            .map(|v6| {
-                util::get_ipv6_addr(&v6.prefix, *MANAGEMENT_NODE_HOST_OFFSETS.start())
-                    .map(|a| a.to_string())
-            })
-            .transpose()?,
-        dhcp6_end: mgmt_net
-            .v6
-            .as_ref()
-            .map(|v6| {
-                util::get_ipv6_addr(&v6.prefix, *MANAGEMENT_NODE_HOST_OFFSETS.end())
-                    .map(|a| a.to_string())
-            })
-            .transpose()?,
-        dns_ipv6: mgmt_net.v6.as_ref().map(|v6| v6.boot_server.to_string()),
-        ztp_records: ztp_records.to_vec(),
-    };
-    let dnsmasq_rendered_template = dnsmaq_template.render()?;
-    util::create_file(
-        &format!("{dnsmasq_dir}/{DNSMASQ_CONFIG_FILE}"),
-        dnsmasq_rendered_template,
-    )?;
-    util::create_file(
-        &format!("{dnsmasq_dir}/{DNSMASQ_LEASES_FILE}"),
-        "".to_string(),
-    )?;
+    write_dnsmasq_config(&dnsmasq_dir, mgmt_net, ztp_records)?;
 
     // Create boot container (tftp_dir already created in Phase 8)
     let configs_dir = format!("{ztp_dir}/{NODE_CONFIGS_DIR}");
@@ -615,7 +577,7 @@ pub(super) async fn start_boot_container(
     ];
     let dnsmasq_capabilities: Vec<String> = CONTAINER_DNSMASQ_CAPABILITIES
         .iter()
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .collect();
 
     let management_network_attachment = data::ContainerNetworkAttachment {
@@ -657,5 +619,54 @@ pub(super) async fn start_boot_container(
         );
     }
 
+    Ok(())
+}
+
+/// Write the dnsmasq config, with a DHCP host entry for each node, and its empty leases file.
+#[instrument(skip_all, level = "debug")]
+fn write_dnsmasq_config(
+    dnsmasq_dir: &str,
+    mgmt_net: &data::SherpaNetwork,
+    ztp_records: &[data::ZtpRecord],
+) -> Result<()> {
+    let dnsmaq_template = template::DnsmasqTemplate {
+        tftp_server_ipv4: mgmt_net.v4.boot_server.to_string(),
+        gateway_ipv4: mgmt_net.v4.first.to_string(),
+        dhcp_start: util::get_ipv4_addr(
+            &mgmt_net.v4.prefix,
+            *MANAGEMENT_NODE_HOST_OFFSETS.start(),
+        )?
+        .to_string(),
+        dhcp_end: util::get_ipv4_addr(&mgmt_net.v4.prefix, *MANAGEMENT_NODE_HOST_OFFSETS.end())?
+            .to_string(),
+        gateway_ipv6: mgmt_net.v6.as_ref().map(|v6| v6.first.to_string()),
+        dhcp6_start: mgmt_net
+            .v6
+            .as_ref()
+            .map(|v6| {
+                util::get_ipv6_addr(&v6.prefix, *MANAGEMENT_NODE_HOST_OFFSETS.start())
+                    .map(|a| a.to_string())
+            })
+            .transpose()?,
+        dhcp6_end: mgmt_net
+            .v6
+            .as_ref()
+            .map(|v6| {
+                util::get_ipv6_addr(&v6.prefix, *MANAGEMENT_NODE_HOST_OFFSETS.end())
+                    .map(|a| a.to_string())
+            })
+            .transpose()?,
+        dns_ipv6: mgmt_net.v6.as_ref().map(|v6| v6.boot_server.to_string()),
+        ztp_records: ztp_records.to_vec(),
+    };
+    let dnsmasq_rendered_template = dnsmaq_template.render()?;
+    util::create_file(
+        &format!("{dnsmasq_dir}/{DNSMASQ_CONFIG_FILE}"),
+        dnsmasq_rendered_template,
+    )?;
+    util::create_file(
+        &format!("{dnsmasq_dir}/{DNSMASQ_LEASES_FILE}"),
+        String::new(),
+    )?;
     Ok(())
 }

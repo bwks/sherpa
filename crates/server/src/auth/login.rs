@@ -35,12 +35,11 @@ pub async fn check_credentials(
         .await
         .context("Failed to look up user")?;
     let Some(user) = user else {
-        match DUMMY_HASH.as_deref() {
-            Some(hash) => {
-                // The result is ignored: the user does not exist either way.
-                let _ = password::verify_password(password, hash);
-            }
-            None => tracing::error!("No dummy password hash; unknown usernames answer faster"),
+        if let Some(hash) = DUMMY_HASH.as_deref() {
+            // The result is ignored: the user does not exist either way.
+            let _ = password::verify_password(password, hash);
+        } else {
+            tracing::error!("No dummy password hash; unknown usernames answer faster");
         }
         tracing::debug!("Login attempt for an unknown user");
         return Ok(None);

@@ -7,4 +7,4 @@ mod labs;
 mod server;
 mod users;
 
-pub use dispatch::{Access, METHODS, Method, dispatch};
+pub use dispatch::dispatch;

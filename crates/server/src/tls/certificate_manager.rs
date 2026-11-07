@@ -17,7 +17,7 @@ pub struct CertificateManager {
 
 impl CertificateManager {
     /// Create a new certificate manager with paths from config
-    pub fn new(config: &TlsConfig) -> Result<Self> {
+    pub fn new(config: &TlsConfig) -> Self {
         let cert_path = if let Some(ref path) = config.cert_path {
             PathBuf::from(path)
         } else {
@@ -30,15 +30,15 @@ impl CertificateManager {
             PathBuf::from(SHERPA_SERVER_KEY_PATH)
         };
 
-        Ok(Self {
+        Self {
             cert_path,
             key_path,
             config: config.clone(),
-        })
+        }
     }
 
     /// Ensure certificates exist (generate if needed and allowed)
-    pub async fn ensure_certificates(&self, san: &[String]) -> Result<()> {
+    pub fn ensure_certificates(&self, san: &[String]) -> Result<()> {
         let cert_exists = self.cert_path.exists();
         let key_exists = self.key_path.exists();
 
@@ -75,7 +75,7 @@ impl CertificateManager {
         Ok(())
     }
 
-    /// Load certificates and create axum-server RustlsConfig
+    /// Load certificates and create axum-server `RustlsConfig`
     pub async fn load_server_config(&self) -> Result<RustlsConfig> {
         tracing::info!("Loading TLS configuration");
 
@@ -131,8 +131,8 @@ mod tests {
             san: vec!["IP:127.0.0.1".to_string()],
         };
 
-        let manager = CertificateManager::new(&config).unwrap();
-        let result = manager.ensure_certificates(&config.san).await;
+        let manager = CertificateManager::new(&config);
+        let result = manager.ensure_certificates(&config.san);
 
         assert!(result.is_ok());
         assert!(cert_path.exists());
@@ -149,8 +149,8 @@ mod tests {
             san: vec!["IP:127.0.0.1".to_string()],
             ..TlsConfig::default()
         };
-        let manager = CertificateManager::new(&config).unwrap();
-        manager.ensure_certificates(&config.san).await.unwrap();
+        let manager = CertificateManager::new(&config);
+        manager.ensure_certificates(&config.san).unwrap();
 
         let pem = std::fs::read_to_string(&cert_path).unwrap();
         let shown = extract_cert_info("wss://127.0.0.1:3030/ws", &pem).unwrap();

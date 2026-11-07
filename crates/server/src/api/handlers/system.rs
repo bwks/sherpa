@@ -138,7 +138,7 @@ pub async fn api_spec_handler() -> Result<impl IntoResponse, ApiError> {
     }
 }
 
-/// Serve the OpenAPI 3.1 specification
+/// Serve the `OpenAPI` 3.1 specification
 ///
 /// GET /api/v1/openapi.json
 /// Public endpoint - no authentication required

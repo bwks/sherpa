@@ -1,10 +1,8 @@
-use std::path::Path;
-
 use anyhow::Result;
 use opentelemetry::KeyValue;
 
 use shared::data::{DestroyResponse, DestroySummary, LabInfo};
-use shared::konst::{LAB_FILE_NAME, SHERPA_LABS_PATH, SHERPA_SECRETS_DIR};
+use shared::konst::{LAB_FILE_NAME, SHERPA_LABS_PATH};
 use shared::util::load_file;
 
 use tracing::instrument;
@@ -12,10 +10,7 @@ use tracing::instrument;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_admin;
 use crate::daemon::state::AppState;
-use crate::services::destroy::{
-    cleanup_database, cleanup_lab_metadata, destroy_containers, destroy_docker_networks,
-    destroy_interfaces, destroy_lab_secrets, destroy_libvirt_networks, destroy_vms_and_disks,
-};
+use crate::services::destroy::{cleanup_database, cleanup_lab_metadata, destroy_lab_resources};
 use crate::services::error::ServiceError;
 use crate::services::lab_operations::{self, StopReason};
 
@@ -69,75 +64,7 @@ pub(crate) async fn clean_lab_resources(lab_id: &str, state: &AppState) -> Resul
         "Clean operation context"
     );
 
-    // 1. Destroy containers
-    let containers_timer = std::time::Instant::now();
-    tracing::info!(lab_id = %lab_id, "Cleaning containers");
-    destroy_containers(
-        lab_id,
-        &state.docker,
-        &state.config.tailscale,
-        &mut summary,
-        &mut errors,
-    )
-    .await;
-    destroy_lab_secrets(lab_id, Path::new(SHERPA_SECRETS_DIR), &mut errors);
-    tracing::info!(
-        lab_id = %lab_id,
-        destroyed = summary.containers_destroyed.len(),
-        failed = summary.containers_failed.len(),
-        duration_secs = containers_timer.elapsed().as_secs(),
-        "Container cleanup completed"
-    );
-
-    // 2. Destroy VMs and disks
-    let vms_timer = std::time::Instant::now();
-    tracing::info!(lab_id = %lab_id, "Cleaning VMs and disks");
-    destroy_vms_and_disks(lab_id, &state.qemu, &mut summary, &mut errors);
-    tracing::info!(
-        lab_id = %lab_id,
-        vms_destroyed = summary.vms_destroyed.len(),
-        vms_failed = summary.vms_failed.len(),
-        disks_deleted = summary.disks_deleted.len(),
-        disks_failed = summary.disks_failed.len(),
-        duration_secs = vms_timer.elapsed().as_secs(),
-        "VM and disk cleanup completed"
-    );
-
-    // 3. Destroy Docker networks
-    let docker_net_timer = std::time::Instant::now();
-    tracing::info!(lab_id = %lab_id, "Cleaning Docker networks");
-    destroy_docker_networks(lab_id, &state.docker, &mut summary, &mut errors).await;
-    tracing::info!(
-        lab_id = %lab_id,
-        destroyed = summary.docker_networks_destroyed.len(),
-        failed = summary.docker_networks_failed.len(),
-        duration_secs = docker_net_timer.elapsed().as_secs(),
-        "Docker network cleanup completed"
-    );
-
-    // 4. Destroy libvirt networks
-    let libvirt_net_timer = std::time::Instant::now();
-    tracing::info!(lab_id = %lab_id, "Cleaning libvirt networks");
-    destroy_libvirt_networks(lab_id, &state.qemu, &mut summary, &mut errors);
-    tracing::info!(
-        lab_id = %lab_id,
-        destroyed = summary.libvirt_networks_destroyed.len(),
-        failed = summary.libvirt_networks_failed.len(),
-        duration_secs = libvirt_net_timer.elapsed().as_secs(),
-        "Libvirt network cleanup completed"
-    );
-
-    // 5. Delete network interfaces
-    let interfaces_timer = std::time::Instant::now();
-    tracing::info!(lab_id = %lab_id, "Cleaning network interfaces");
-    destroy_interfaces(lab_id, &mut summary, &mut errors).await;
-    tracing::info!(
-        lab_id = %lab_id,
-        deleted = summary.interfaces_deleted.len(),
-        failed = summary.interfaces_failed.len(),
-        duration_secs = interfaces_timer.elapsed().as_secs(),
-        "Network interface cleanup completed"
-    );
+    destroy_lab_resources(lab_id, state, &mut summary, &mut errors, None).await;
 
     cleanup_lab_metadata(
         lab_id,

@@ -8,6 +8,7 @@ use shared::auth::jwt::Claims;
 use crate::auth::middleware::resolve_user;
 use crate::auth::{context::AuthContext, cookies, jwt};
 use crate::daemon::state::AppState;
+use crate::templates::Admin403Template;
 
 use super::errors::ApiError;
 
@@ -269,7 +270,7 @@ pub struct AuthenticatedUser {
 }
 
 impl AuthenticatedUser {
-    /// Convert to AuthContext for service layer
+    /// Convert to `AuthContext` for service layer
     pub fn into_context(self) -> AuthContext {
         AuthContext::new(self.username, self.is_admin)
     }
@@ -318,12 +319,12 @@ pub struct AuthenticatedUserFromCookie {
 }
 
 impl AuthenticatedUserFromCookie {
-    /// Convert to AuthContext for service layer
+    /// Convert to `AuthContext` for service layer
     pub fn into_context(self) -> AuthContext {
         AuthContext::new(self.username, self.is_admin)
     }
 
-    /// AuthContext for the service layer, keeping the user for page rendering
+    /// `AuthContext` for the service layer, keeping the user for page rendering
     pub fn context(&self) -> AuthContext {
         AuthContext::new(self.username.clone(), self.is_admin)
     }
@@ -434,7 +435,7 @@ pub struct AdminUser {
 }
 
 impl AdminUser {
-    /// Convert to AuthContext for service layer
+    /// Convert to `AuthContext` for service layer
     pub fn into_context(self) -> AuthContext {
         AuthContext::new(self.username, true)
     }
@@ -447,7 +448,6 @@ pub struct AdminForbidden {
 
 impl IntoResponse for AdminForbidden {
     fn into_response(self) -> Response {
-        use crate::templates::Admin403Template;
         Admin403Template {
             username: self.username,
             is_admin: false,
@@ -556,10 +556,7 @@ mod tests {
     fn test_valid_bearer_token() {
         let token = make_token("alice", false);
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "authorization",
-            format!("Bearer {}", token).parse().unwrap(),
-        );
+        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
 
         let result = extract_and_validate_token(&headers, TEST_SECRET);
         assert!(result.is_ok());
@@ -572,10 +569,7 @@ mod tests {
     fn test_valid_bearer_token_admin() {
         let token = make_token("admin", true);
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "authorization",
-            format!("Bearer {}", token).parse().unwrap(),
-        );
+        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
 
         let result = extract_and_validate_token(&headers, TEST_SECRET);
         assert!(result.is_ok());
@@ -588,10 +582,7 @@ mod tests {
     fn test_expired_bearer_token_rejected() {
         let token = make_expired_token();
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "authorization",
-            format!("Bearer {}", token).parse().unwrap(),
-        );
+        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
 
         let result = extract_and_validate_token(&headers, TEST_SECRET);
         assert!(result.is_err());
@@ -611,10 +602,7 @@ mod tests {
         let token = make_token("alice", false);
         let wrong_secret = b"different_secret_32bytes_exactly";
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "authorization",
-            format!("Bearer {}", token).parse().unwrap(),
-        );
+        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
 
         let result = extract_and_validate_token(&headers, wrong_secret);
         assert!(result.is_err());
@@ -640,7 +628,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(
             header::COOKIE,
-            format!("sherpa_auth={}", token).parse().unwrap(),
+            format!("sherpa_auth={token}").parse().unwrap(),
         );
 
         let result = extract_and_validate_token(&headers, TEST_SECRET);
@@ -655,7 +643,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(
             header::COOKIE,
-            format!("other=val; sherpa_auth={}; another=x", token)
+            format!("other=val; sherpa_auth={token}; another=x")
                 .parse()
                 .unwrap(),
         );
@@ -673,7 +661,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(
             header::COOKIE,
-            format!("sherpa_auth={}", token).parse().unwrap(),
+            format!("sherpa_auth={token}").parse().unwrap(),
         );
 
         let result = extract_and_validate_token(&headers, TEST_SECRET);
@@ -684,7 +672,7 @@ mod tests {
     fn test_expired_cookie_before_valid_replacement_recovers() {
         let expired_token = make_expired_token();
         let valid_token = make_token("replacement_user", false);
-        let cookie_header = format!("sherpa_auth={}; sherpa_auth={}", expired_token, valid_token);
+        let cookie_header = format!("sherpa_auth={expired_token}; sherpa_auth={valid_token}");
 
         let session = validate_cookie_session(Some(&cookie_header), TEST_SECRET)
             .expect("valid replacement cookie should be accepted");
@@ -703,7 +691,7 @@ mod tests {
     fn test_valid_cookie_before_expired_duplicate_succeeds() {
         let valid_token = make_token("first_user", true);
         let expired_token = make_expired_token();
-        let cookie_header = format!("sherpa_auth={}; sherpa_auth={}", valid_token, expired_token);
+        let cookie_header = format!("sherpa_auth={valid_token}; sherpa_auth={expired_token}");
 
         let session = validate_cookie_session(Some(&cookie_header), TEST_SECRET)
             .expect("first valid cookie should be accepted");
@@ -781,11 +769,11 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(
             "authorization",
-            format!("Bearer {}", bearer_token).parse().unwrap(),
+            format!("Bearer {bearer_token}").parse().unwrap(),
         );
         headers.insert(
             header::COOKIE,
-            format!("sherpa_auth={}", cookie_token).parse().unwrap(),
+            format!("sherpa_auth={cookie_token}").parse().unwrap(),
         );
 
         let result = extract_and_validate_token(&headers, TEST_SECRET);
@@ -802,7 +790,7 @@ mod tests {
         headers.insert("authorization", "Bearer invalid.jwt.token".parse().unwrap());
         headers.insert(
             header::COOKIE,
-            format!("sherpa_auth={}", cookie_token).parse().unwrap(),
+            format!("sherpa_auth={cookie_token}").parse().unwrap(),
         );
 
         let result = extract_and_validate_token(&headers, TEST_SECRET);
@@ -824,7 +812,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(
             header::COOKIE,
-            format!("wrong_cookie={}", token).parse().unwrap(),
+            format!("wrong_cookie={token}").parse().unwrap(),
         );
 
         let result = extract_and_validate_token(&headers, TEST_SECRET);

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::ops::RangeInclusive;
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tracing::instrument;
 
 use super::context::{Redeploy, data_interface_indices};
@@ -54,12 +54,12 @@ pub(super) async fn redeploy_vm(
     let node_name = redeploy.node_name.as_str();
     let progress = redeploy.progress;
     let _ = progress.send_status(
-        format!("ZTP regenerated for node: {}", node_name),
+        format!("ZTP regenerated for node: {node_name}"),
         StatusKind::Done,
     );
 
     let _ = progress.send_status(
-        format!("Cloning disks for node: {}", node_name),
+        format!("Cloning disks for node: {node_name}"),
         StatusKind::Progress,
     );
     node_ops::clone_node_disks(
@@ -89,6 +89,8 @@ pub(super) async fn redeploy_vm(
     )?;
 
     let node_idx = redeploy.db_node.index;
+    let loopback_host = u8::try_from(node_idx)
+        .with_context(|| format!("Node '{node_name}' has an index past the loopback network"))?;
     let isolated_net = node_ops::node_isolated_network_data(node_name, node_idx, lab_id);
     let reserved_network = if redeploy.node_image.reserved_interface_count > 0 {
         node_ops::node_reserved_network_data(node_name, node_idx, lab_id).network_name
@@ -107,7 +109,7 @@ pub(super) async fn redeploy_vm(
         DomainParts {
             disks: vm_ztp.disks,
             interfaces,
-            loopback_ipv4: util::get_ip(&redeploy.lab_info.loopback_network, node_idx as u8)
+            loopback_ipv4: util::get_ip(&redeploy.lab_info.loopback_network, loopback_host)
                 .to_string(),
             management_network: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
             isolated_network: isolated_net.network_name,
@@ -117,7 +119,7 @@ pub(super) async fn redeploy_vm(
         &node_resources::resources_of(&redeploy.db_node),
     )?;
 
-    let _ = progress.send_status(format!("Creating VM: {}", node_name), StatusKind::Progress);
+    let _ = progress.send_status(format!("Creating VM: {node_name}"), StatusKind::Progress);
     node_ops::create_vm(redeploy.qemu_conn.clone(), domain, progress).await?;
 
     reattach_p2p_redirects(lab_id, &links, progress).await?;
@@ -150,7 +152,7 @@ fn vm_interfaces(
 
     for idx in 1..*data_indices.start() {
         interfaces.push(data::Interface {
-            name: format!("int{}", idx),
+            name: format!("int{idx}"),
             num: idx,
             mtu: node_image.interface_mtu,
             mac_address: util::random_mac(KVM_OUI),
@@ -202,14 +204,14 @@ async fn wait_until_ready(redeploy: &Redeploy<'_>) -> Result<()> {
     let node_name = redeploy.node_name.as_str();
     let progress = redeploy.progress;
     let _ = progress.send_status(
-        format!("Waiting for node {} to become ready", node_name),
+        format!("Waiting for node {node_name} to become ready"),
         StatusKind::Waiting,
     );
 
     let skip_ready = redeploy.target_node.skip_ready_check.unwrap_or(false);
     if skip_ready {
         let _ = progress.send_status(
-            format!("Node {} - Ready check skipped", node_name),
+            format!("Node {node_name} - Ready check skipped"),
             StatusKind::Done,
         );
     }
@@ -223,7 +225,7 @@ async fn wait_until_ready(redeploy: &Redeploy<'_>) -> Result<()> {
         .await?;
     } else {
         let _ = progress.send_status(
-            format!("Node {} did not become ready within timeout", node_name),
+            format!("Node {node_name} did not become ready within timeout"),
             StatusKind::Waiting,
         );
     }
@@ -235,7 +237,7 @@ async fn wait_until_ready(redeploy: &Redeploy<'_>) -> Result<()> {
 async fn poll_until_ready(redeploy: &Redeploy<'_>) -> Result<bool> {
     let node_name = redeploy.node_name.as_str();
     let target_node = &redeploy.target_node;
-    let ready_port = node_ops::vm_ready_port(&target_node.model, target_node.ready_port);
+    let ready_port = node_ops::vm_ready_port(target_node.model, target_node.ready_port);
     let ready_label = node_ops::ready_port_label(ready_port);
     let ip = redeploy.ipv4.to_string();
     let start = Instant::now();
@@ -252,14 +254,14 @@ async fn poll_until_ready(redeploy: &Redeploy<'_>) -> Result<bool> {
                     .await?;
                 }
                 let _ = redeploy.progress.send_status(
-                    format!("Node {} - Ready ({ready_label} reachable)", node_name),
+                    format!("Node {node_name} - Ready ({ready_label} reachable)"),
                     StatusKind::Done,
                 );
                 return Ok(true);
             }
             VmReadiness::NotReady => {
                 let _ = redeploy.progress.send_status(
-                    format!("Node {} - Waiting for {ready_label}", node_name),
+                    format!("Node {node_name} - Waiting for {ready_label}"),
                     StatusKind::Waiting,
                 );
                 redeploy

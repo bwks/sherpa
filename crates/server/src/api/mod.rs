@@ -1,8 +1,8 @@
-pub mod errors;
-pub mod extractors;
-pub mod handlers;
-pub mod router;
-pub mod sse;
+pub(crate) mod errors;
+pub(crate) mod extractors;
+pub(crate) mod handlers;
+pub(crate) mod router;
+pub(crate) mod sse;
 pub mod websocket;
 
 // Re-export build_router for convenience

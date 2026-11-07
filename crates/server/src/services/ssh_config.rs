@@ -93,15 +93,14 @@ pub(crate) fn saved_node_ssh_records(
 ) -> Result<Vec<ZtpRecord>> {
     let mut records = Vec::new();
     for node in nodes {
-        let has_ssh = match images
+        let has_ssh = if let Some(image) = images
             .iter()
             .find(|image| image.id.as_ref() == Some(&node.image))
         {
-            Some(image) => image.model.has_ssh(),
-            None => {
-                tracing::debug!(node_name = %node.name, "Node image not found; keeping SSH");
-                true
-            }
+            image.model.has_ssh()
+        } else {
+            tracing::debug!(node_name = %node.name, "Node image not found; keeping SSH");
+            true
         };
         let Some(ip) = &node.mgmt_ipv4 else {
             tracing::debug!(node_name = %node.name, "Node has no management address");

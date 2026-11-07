@@ -1,17 +1,14 @@
-mod helpers;
-#[path = "helpers/http_client.rs"]
-mod http_client;
-
 use anyhow::{Result, ensure};
-use reqwest::{Method, StatusCode, header};
+use reqwest::header::HeaderName;
+use reqwest::{Method, Response, StatusCode, header};
 use serde_json::json;
 use shared::api_spec::{HttpMethod, build_spec};
 use shared::error::RpcErrorCode;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 
-use helpers::test_server::{TEST_ADMIN_PASSWORD, TestServer};
-use helpers::ws_client::TestWsClient;
-use http_client::TestHttpClient;
+use crate::helpers::http_client::TestHttpClient;
+use crate::helpers::test_server::{TEST_ADMIN_PASSWORD, TestServer};
+use crate::helpers::ws_client::TestWsClient;
 
 /// Operations the spec gives a REST binding the server does not route yet.
 const KNOWN_UNROUTED: &[&str] = &[];
@@ -28,7 +25,7 @@ async fn test_auth_login_valid_credentials() -> Result<()> {
             "auth.login",
             json!({
                 "username": "admin",
-                "password": helpers::test_server::TEST_ADMIN_PASSWORD,
+                "password": TEST_ADMIN_PASSWORD,
             }),
         )
         .await?;
@@ -39,7 +36,10 @@ async fn test_auth_login_valid_credentials() -> Result<()> {
         result.get("username").and_then(|v| v.as_str()),
         Some("admin")
     );
-    assert_eq!(result.get("is_admin").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(
+        result.get("is_admin").and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
     assert!(result.get("expires_at").is_some(), "should have expires_at");
 
     Ok(())
@@ -94,7 +94,10 @@ async fn test_auth_login_missing_params() -> Result<()> {
     let response = ws.rpc_call("auth.login", json!({})).await?;
 
     let error = response.get("error").expect("should have error");
-    assert_eq!(error.get("code").and_then(|v| v.as_i64()), Some(-32602)); // InvalidParams
+    assert_eq!(
+        error.get("code").and_then(serde_json::Value::as_i64),
+        Some(-32602)
+    ); // InvalidParams
 
     Ok(())
 }
@@ -111,7 +114,10 @@ async fn test_auth_validate_valid_token() -> Result<()> {
         .await?;
 
     let result = response.get("result").expect("should have result");
-    assert_eq!(result.get("valid").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(
+        result.get("valid").and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
     assert_eq!(
         result.get("username").and_then(|v| v.as_str()),
         Some("admin")
@@ -154,7 +160,10 @@ async fn test_auth_validate_invalid_token() -> Result<()> {
         .await?;
 
     let result = response.get("result").expect("should have result");
-    assert_eq!(result.get("valid").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(
+        result.get("valid").and_then(serde_json::Value::as_bool),
+        Some(false)
+    );
 
     Ok(())
 }
@@ -167,7 +176,10 @@ async fn test_auth_validate_missing_token() -> Result<()> {
     let response = ws.rpc_call("auth.validate", json!({})).await?;
 
     let error = response.get("error").expect("should have error");
-    assert_eq!(error.get("code").and_then(|v| v.as_i64()), Some(-32602));
+    assert_eq!(
+        error.get("code").and_then(serde_json::Value::as_i64),
+        Some(-32602)
+    );
 
     Ok(())
 }
@@ -186,7 +198,10 @@ async fn test_rpc_requires_auth_token() -> Result<()> {
 
     let error = response.get("error").expect("should have error");
     // AuthRequired = -32002
-    assert_eq!(error.get("code").and_then(|v| v.as_i64()), Some(-32002));
+    assert_eq!(
+        error.get("code").and_then(serde_json::Value::as_i64),
+        Some(-32002)
+    );
 
     Ok(())
 }
@@ -220,7 +235,10 @@ async fn test_admin_rpc_denied_for_non_admin() -> Result<()> {
 
     let error = response.get("error").expect("should have error");
     // AccessDenied = -32003
-    assert_eq!(error.get("code").and_then(|v| v.as_i64()), Some(-32003));
+    assert_eq!(
+        error.get("code").and_then(serde_json::Value::as_i64),
+        Some(-32003)
+    );
 
     Ok(())
 }
@@ -235,10 +253,7 @@ async fn test_cookie_login_valid() -> Result<()> {
     let resp = client
         .post_form(
             "/login",
-            &[
-                ("username", "admin"),
-                ("password", helpers::test_server::TEST_ADMIN_PASSWORD),
-            ],
+            &[("username", "admin"), ("password", TEST_ADMIN_PASSWORD)],
         )
         .await?;
 
@@ -267,8 +282,7 @@ async fn test_cookie_login_invalid() -> Result<()> {
     // Should return 200 with login page showing error, or redirect back to login
     assert!(
         status.as_u16() == 200 || status.is_redirection(),
-        "Expected 200 or redirect for invalid login, got {}",
-        status
+        "Expected 200 or redirect for invalid login, got {status}"
     );
 
     Ok(())
@@ -452,10 +466,7 @@ async fn test_stale_cookie_login_recovery_and_duplicate_replacement() -> Result<
     let login_response = client
         .post_form(
             "/login",
-            &[
-                ("username", "admin"),
-                ("password", helpers::test_server::TEST_ADMIN_PASSWORD),
-            ],
+            &[("username", "admin"), ("password", TEST_ADMIN_PASSWORD)],
         )
         .await?;
     assert_eq!(login_response.status().as_u16(), 200);
@@ -622,6 +633,127 @@ async fn every_rest_operation_in_the_spec_is_routed() -> Result<()> {
         unrouted.is_empty(),
         "Routing differs from the spec (update KNOWN_UNROUTED if one was fixed):\n{}",
         unrouted.join("\n")
+    );
+    Ok(())
+}
+
+// ── REST login, logout and public docs ──
+
+/// A response header as text, or empty when it is missing.
+fn header_text(response: &Response, name: HeaderName) -> String {
+    response
+        .headers()
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned()
+}
+
+#[tokio::test]
+async fn rest_login_issues_a_token_only_for_the_right_password() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut client = TestHttpClient::new(server.addr);
+
+    let response = client
+        .post_json(
+            "/api/v1/auth/login",
+            &json!({ "username": "admin", "password": "wrong-password" }),
+        )
+        .await?;
+    ensure!(
+        response.status() == StatusCode::UNAUTHORIZED,
+        "wrong password: {}",
+        response.status()
+    );
+
+    let response = client
+        .post_json(
+            "/api/v1/auth/login",
+            &json!({ "username": "admin", "password": TEST_ADMIN_PASSWORD }),
+        )
+        .await?;
+    ensure!(
+        response.status() == StatusCode::OK,
+        "right password: {}",
+        response.status()
+    );
+    let body: serde_json::Value = response.json().await?;
+    ensure!(
+        body["username"] == "admin" && body["is_admin"] == true,
+        "login response: {body}"
+    );
+    let token = body["token"].as_str().unwrap_or_default().to_owned();
+    ensure!(!token.is_empty(), "login returned no token: {body}");
+
+    // The token authenticates REST calls.
+    client.set_token(token);
+    let response = client.get("/api/v1/admin/users").await?;
+    ensure!(
+        response.status() == StatusCode::OK,
+        "issued token was refused: {}",
+        response.status()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn logout_clears_the_session_cookie() -> Result<()> {
+    let server = TestServer::start().await?;
+    let client = TestHttpClient::new(server.addr);
+
+    let response = client.post_form("/logout", &[]).await?;
+    ensure!(
+        response.status() == StatusCode::SEE_OTHER,
+        "logout: {}",
+        response.status()
+    );
+    let location = header_text(&response, header::LOCATION);
+    let cookie = header_text(&response, header::SET_COOKIE);
+    ensure!(
+        location == "/login?error=logout_success",
+        "logout redirected to {location}"
+    );
+    ensure!(
+        cookie.starts_with(&format!("{AUTH_COOKIE_NAME}=;")) && cookie.contains("Max-Age=0"),
+        "logout did not clear the auth cookie: {cookie}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_openapi_document_and_docs_page_are_public() -> Result<()> {
+    let server = TestServer::start().await?;
+    let client = TestHttpClient::new(server.addr);
+
+    let response = client.get("/api/v1/openapi.json").await?;
+    ensure!(
+        response.status() == StatusCode::OK,
+        "openapi.json: {}",
+        response.status()
+    );
+    let doc: serde_json::Value = response.json().await?;
+    ensure!(
+        doc["openapi"] == "3.1.0",
+        "not an OpenAPI 3.1 document: {doc}"
+    );
+    for path in ["/api/v1/labs", "/api/v1/images", "/api/v1/auth/login"] {
+        ensure!(
+            doc["paths"].get(path).is_some(),
+            "openapi.json does not list {path}"
+        );
+    }
+
+    let response = client.get("/api/docs").await?;
+    let content_type = header_text(&response, header::CONTENT_TYPE);
+    ensure!(
+        response.status() == StatusCode::OK && content_type.starts_with("text/html"),
+        "docs page: {} {content_type}",
+        response.status()
+    );
+    let body = response.text().await?;
+    ensure!(
+        body.to_lowercase().contains("swagger"),
+        "docs page is not the Swagger UI: {body}"
     );
     Ok(())
 }

@@ -26,7 +26,7 @@ pub async fn resolve_user(db: &Database, username: &str) -> Result<Option<AuthCo
 /// 1. Extracts the "token" field from params
 /// 2. Validates the token signature and expiration
 /// 3. Resolves the token's user against the database
-/// 4. Returns an AuthContext with the user's current admin flag
+/// 4. Returns an `AuthContext` with the user's current admin flag
 ///
 /// Returns an error if:
 /// - Token is missing

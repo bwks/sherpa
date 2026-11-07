@@ -20,9 +20,12 @@ use shared::validators::validate_ssh_key;
 /// Form data for password update
 #[derive(Debug, Deserialize)]
 pub struct UpdatePasswordForm {
-    current_password: String,
-    new_password: String,
-    confirm_new_password: String,
+    #[serde(rename = "current_password")]
+    current: String,
+    #[serde(rename = "new_password")]
+    new: String,
+    #[serde(rename = "confirm_new_password")]
+    confirm_new: String,
 }
 
 /// Form data for adding SSH key
@@ -77,7 +80,7 @@ pub async fn update_password_handler(
     axum::Form(form): axum::Form<UpdatePasswordForm>,
 ) -> impl IntoResponse {
     // 1. Validate passwords match
-    if form.new_password != form.confirm_new_password {
+    if form.new != form.confirm_new {
         return PasswordErrorTemplate {
             message: "New passwords do not match".to_string(),
         }
@@ -88,8 +91,8 @@ pub async fn update_password_handler(
     if let Err(error) = user_password::change_password(
         &ctx,
         &ctx.username,
-        Some(&form.current_password),
-        &form.new_password,
+        Some(&form.current),
+        &form.new,
         &state.db,
     )
     .await
@@ -125,7 +128,7 @@ pub async fn add_ssh_key_handler(
     // 1. Validate SSH key format
     if let Err(e) = validate_ssh_key(&form.ssh_key) {
         return SshKeyErrorTemplate {
-            message: format!("Invalid SSH key: {}", e),
+            message: format!("Invalid SSH key: {e}"),
         }
         .into_response();
     }

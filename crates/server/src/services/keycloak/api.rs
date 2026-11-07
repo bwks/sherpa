@@ -63,7 +63,7 @@ impl KeycloakClient {
         &self.address
     }
 
-    /// Succeeds once the master realm's OpenID configuration is served.
+    /// Succeeds once the master realm's `OpenID` configuration is served.
     pub async fn ready(&self) -> Result<()> {
         let url = format!(
             "{}/realms/{MASTER_REALM}/.well-known/openid-configuration",

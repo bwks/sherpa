@@ -12,7 +12,7 @@ use super::context::{Redeploy, data_interface_indices};
 use super::links::{node_bridge_interfaces, node_links, reattach_p2p_redirects};
 use crate::services::container_networks::{self, ContainerDataInterface};
 use crate::services::keycloak;
-use crate::services::node_ops::{self, LabZtp};
+use crate::services::node_ops::{self, ContainerZtpResult, LabZtp};
 use crate::services::node_secrets::secrets_for_redeploy;
 use crate::services::talos;
 use crate::services::vault;
@@ -48,38 +48,19 @@ pub(super) async fn redeploy_container(
 ) -> Result<()> {
     // Read before the node's ZTP takes a custom config out of it.
     let initialises_vault = vault::sherpa_initialises_vault(
-        &redeploy.target_node.model,
+        redeploy.target_node.model,
         redeploy.target_node.ztp_config.is_some(),
     );
-    // As validated on `sherpa up`, from the image the node was created from.
-    if redeploy.target_node.image.is_none() {
-        redeploy.target_node.image = redeploy.node_image.container_repo(None);
-    }
-    let ztp_result = node_ops::generate_container_ztp(
-        &mut redeploy.target_node,
-        &redeploy.node_image,
-        &LabZtp {
-            lab_id: &redeploy.lab_id,
-            lab_dir: &redeploy.lab_dir,
-            images_dir: &redeploy.state.config.images_dir,
-            sherpa_user: &redeploy.sherpa_user,
-            dns: &redeploy.dns,
-            mgmt_net: &redeploy.mgmt_net,
-            progress: redeploy.progress,
-            owner_account: redeploy.owner_account.as_ref(),
-        },
-        redeploy.ipv4,
-        Some(cert_paths),
-    )?;
+    let ztp_result = configure_container(redeploy, cert_paths)?;
 
     let lab_id = redeploy.lab_id.as_str();
     let node_name = redeploy.node_name.as_str();
     let _ = redeploy.progress.send_status(
-        format!("Recreating networks and starting container: {}", node_name),
+        format!("Recreating networks and starting container: {node_name}"),
         StatusKind::Progress,
     );
 
-    let container_name = format!("{}-{}", node_name, lab_id);
+    let container_name = format!("{node_name}-{lab_id}");
     let container_image = format!(
         "{}:{}",
         ztp_result.image,
@@ -150,10 +131,7 @@ pub(super) async fn redeploy_container(
     .await?;
 
     if !is_running {
-        bail!(
-            "Container {} is not in running state after redeploy",
-            container_name
-        );
+        bail!("Container {container_name} is not in running state after redeploy");
     }
 
     // Take the carrier from disabled interfaces, as for VMs.
@@ -170,6 +148,33 @@ pub(super) async fn redeploy_container(
 
     db::update_node_state(db, redeploy.node_record_id.clone(), NodeState::Running).await?;
     restore_node_services(redeploy, initialises_vault).await
+}
+
+/// Generate the container's configuration (stage 4), with the image the node was created from
+/// when the manifest names none, as validated on `sherpa up`.
+fn configure_container(
+    redeploy: &mut Redeploy<'_>,
+    cert_paths: &NodeCertPaths,
+) -> Result<ContainerZtpResult> {
+    if redeploy.target_node.image.is_none() {
+        redeploy.target_node.image = redeploy.node_image.container_repo(None);
+    }
+    node_ops::generate_container_ztp(
+        &mut redeploy.target_node,
+        &redeploy.node_image,
+        &LabZtp {
+            lab_id: &redeploy.lab_id,
+            lab_dir: &redeploy.lab_dir,
+            images_dir: &redeploy.state.config.images_dir,
+            sherpa_user: &redeploy.sherpa_user,
+            dns: &redeploy.dns,
+            mgmt_net: &redeploy.mgmt_net,
+            progress: redeploy.progress,
+            owner_account: redeploy.owner_account.as_ref(),
+        },
+        redeploy.ipv4,
+        Some(cert_paths),
+    )
 }
 
 /// The veths of a container on a P2p link, one for every data interface: its links, its
@@ -273,7 +278,7 @@ async fn create_data_networks(
         };
         attachments.push(container_networks::data_attachment(
             node_name,
-            model,
+            *model,
             &iface_name,
             idx,
             connection,
@@ -296,7 +301,7 @@ async fn create_p2p_veths(
     for veth_info in veths {
         let target_name =
             util::container_interface_name(&veth_info.node_model, veth_info.interface_idx)?;
-        let state = node_ops::netns_veth_state(&veth_info.node_model, veth_info.admin_down);
+        let state = node_ops::netns_veth_state(veth_info.node_model, veth_info.admin_down);
 
         network::create_veth_in_netns(
             &veth_info.host_veth,

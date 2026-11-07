@@ -41,7 +41,7 @@ pub async fn run_scanner(state: AppState, cancel: CancellationToken) {
                     tracing::error!(error = %e, "Scanner cycle failed");
                 }
             }
-            _ = cancel.cancelled() => {
+            () = cancel.cancelled() => {
                 tracing::info!("Scanner service shutting down");
                 return;
             }
@@ -139,22 +139,17 @@ async fn scan_lab(
     let mut host_key_reads = Vec::new();
 
     for node in &nodes {
-        let node_id = match &node.id {
-            Some(id) => id,
-            None => {
-                tracing::warn!(node_name = %node.name, "Node missing record ID, skipping");
-                current_node_states.push(node.state);
-                continue;
-            }
+        let Some(node_id) = &node.id else {
+            tracing::warn!(node_name = %node.name, "Node missing record ID, skipping");
+            current_node_states.push(node.state);
+            continue;
         };
 
         // Determine NodeKind from image
         let image = node_images
             .iter()
             .find(|img| img.id.as_ref() == Some(&node.image));
-        let kind = image
-            .map(|img| img.kind.clone())
-            .unwrap_or(NodeKind::VirtualMachine);
+        let kind = image.map_or(NodeKind::VirtualMachine, |img| img.kind.clone());
         let has_ssh = image.is_some_and(|img| img.model.has_ssh());
 
         let runtime_name = format!("{}-{}", node.name, lab.lab_id);
@@ -202,11 +197,53 @@ async fn scan_lab(
         current_node_states.push(detected_state);
     }
 
+    record_host_keys(
+        state,
+        lab,
+        lab_record_id,
+        &host_key_reads,
+        awaiting_host_key,
+    )
+    .await?;
+
+    // Derive and persist lab state from current node states
+    let derived_lab_state = LabState::derive(&current_node_states);
+    if derived_lab_state != lab.status {
+        tracing::info!(
+            lab_id = %lab.lab_id,
+            old_state = %lab.status,
+            new_state = %derived_lab_state,
+            "Lab state changed"
+        );
+        if let Err(e) =
+            db::update_lab_state(&state.db, lab_record_id.clone(), derived_lab_state).await
+        {
+            tracing::warn!(
+                lab_id = %lab.lab_id,
+                error = %e,
+                "Failed to update lab state"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// Read the host keys of `reads` (each node with its runtime name) and, when any was recorded,
+/// save the lab's SSH files again with them. A node whose key was recorded is no longer awaited.
+#[instrument(skip_all, fields(lab_id = %lab.lab_id), level = "debug")]
+async fn record_host_keys(
+    state: &AppState,
+    lab: &DbLab,
+    lab_record_id: &RecordId,
+    reads: &[(&DbNode, String)],
+    awaiting_host_key: &mut HashSet<String>,
+) -> Result<()> {
     let mut recorded = false;
-    for (node, runtime_name) in host_key_reads {
+    for (node, runtime_name) in reads {
         match read_host_key(state, node).await {
             Ok(true) => {
-                awaiting_host_key.remove(&runtime_name);
+                awaiting_host_key.remove(runtime_name);
                 recorded = true;
             }
             Ok(false) => {
@@ -229,27 +266,6 @@ async fn scan_lab(
         )
         .await?;
     }
-
-    // Derive and persist lab state from current node states
-    let derived_lab_state = LabState::derive(&current_node_states);
-    if derived_lab_state != lab.status {
-        tracing::info!(
-            lab_id = %lab.lab_id,
-            old_state = %lab.status,
-            new_state = %derived_lab_state,
-            "Lab state changed"
-        );
-        if let Err(e) =
-            db::update_lab_state(&state.db, lab_record_id.clone(), derived_lab_state).await
-        {
-            tracing::warn!(
-                lab_id = %lab.lab_id,
-                error = %e,
-                "Failed to update lab state"
-            );
-        }
-    }
-
     Ok(())
 }
 
@@ -306,14 +322,14 @@ fn detect_node_state(
         NodeKind::Container => match container_states?.get(runtime_name) {
             Some(status) => match status {
                 ContainerSummaryStateEnum::RUNNING => NodeState::Running,
-                ContainerSummaryStateEnum::EXITED | ContainerSummaryStateEnum::DEAD => {
-                    NodeState::Stopped
-                }
+                ContainerSummaryStateEnum::EXITED
+                | ContainerSummaryStateEnum::DEAD
+                | ContainerSummaryStateEnum::PAUSED => NodeState::Stopped,
                 ContainerSummaryStateEnum::CREATED => NodeState::Created,
                 ContainerSummaryStateEnum::RESTARTING => NodeState::Starting,
-                ContainerSummaryStateEnum::PAUSED => NodeState::Stopped,
-                ContainerSummaryStateEnum::REMOVING => NodeState::Unknown,
-                ContainerSummaryStateEnum::EMPTY => NodeState::Unknown,
+                ContainerSummaryStateEnum::REMOVING | ContainerSummaryStateEnum::EMPTY => {
+                    NodeState::Unknown
+                }
             },
             None => NodeState::Stopped,
         },
@@ -321,7 +337,7 @@ fn detect_node_state(
     Some(state)
 }
 
-/// Query libvirt for all domain states. Must run in spawn_blocking since
+/// Query libvirt for all domain states. Must run in `spawn_blocking` since
 /// libvirt calls are blocking FFI.
 async fn query_libvirt_states(qemu: Arc<libvirt::Qemu>) -> Result<HashMap<String, u32>> {
     tokio::task::spawn_blocking(move || -> Result<HashMap<String, u32>> {

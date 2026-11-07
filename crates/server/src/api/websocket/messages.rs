@@ -10,7 +10,7 @@ pub struct RpcError {
     pub code: RpcErrorCode,
     /// Human-readable error message
     pub message: String,
-    /// Additional debug context (file:line, stack trace)
+    /// Additional debug context (<file:line>, stack trace)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
 }

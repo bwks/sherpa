@@ -1,5 +1,6 @@
 //! After readiness: the lab's Kubernetes clusters, Keycloak realms and Vaults.
 
+use std::net::Ipv4Addr;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -61,11 +62,9 @@ pub(super) async fn start_lab_services(
         )
         .await?;
         for name in not_ready {
-            errors.push(data::UpError {
-                phase: "NodeReadiness".to_string(),
-                message: format!("Kubernetes cluster {name} did not become ready"),
-                is_critical: false,
-            });
+            errors.push(service_error(format!(
+                "Kubernetes cluster {name} did not become ready"
+            )));
         }
         clusters
     };
@@ -76,7 +75,7 @@ pub(super) async fn start_lab_services(
     let mut vaults = Vec::new();
     for node in inputs.manifest_nodes {
         let initialises_vault =
-            vault::sherpa_initialises_vault(&node.model, node.ztp_config.is_some());
+            vault::sherpa_initialises_vault(node.model, node.ztp_config.is_some());
         if node.model != data::NodeModel::KeycloakServer && !initialises_vault {
             continue;
         }
@@ -88,7 +87,6 @@ pub(super) async fn start_lab_services(
         else {
             continue;
         };
-        let timeout = inputs.timeout;
         if !initialises_vault {
             match keycloak::ensure_keycloak_realm(
                 lab_id,
@@ -96,56 +94,20 @@ pub(super) async fn start_lab_services(
                 node_address,
                 &inputs.lab_ca.pair.cert,
                 inputs.owner,
-                timeout,
+                inputs.timeout,
                 progress,
             )
             .await
             {
                 Ok(info) => keycloaks.push(info),
-                Err(error) => errors.push(data::UpError {
-                    phase: "NodeReadiness".to_string(),
-                    message: format!("{error:#}"),
-                    is_critical: false,
-                }),
+                Err(error) => errors.push(service_error(format!("{error:#}"))),
             }
             continue;
         }
-        let info = match vault::ensure_vault_unsealed(
-            lab_id,
-            &node.name,
-            node_address,
-            &inputs.lab_ca.pair.cert,
-            timeout,
-            progress,
-        )
-        .await
+        if let Some(info) = unseal_vault(build, inputs, &node.name, node_address, &mut errors).await
         {
-            Ok(info) => info,
-            Err(error) => {
-                errors.push(data::UpError {
-                    phase: "NodeReadiness".to_string(),
-                    message: format!("{error:#}"),
-                    is_critical: false,
-                });
-                continue;
-            }
-        };
-        if let Err(error) = talos::grant_vault_access(
-            inputs.lab_clusters,
-            &node.name,
-            node_address,
-            &inputs.lab_ca.pair.cert,
-            &info.root_token,
-        )
-        .await
-        {
-            errors.push(data::UpError {
-                phase: "NodeReadiness".to_string(),
-                message: format!("{error:#}"),
-                is_critical: false,
-            });
+            vaults.push(info);
         }
-        vaults.push(info);
     }
 
     Ok(LabServices {
@@ -154,4 +116,54 @@ pub(super) async fn start_lab_services(
         vaults,
         errors,
     })
+}
+
+/// Initialise and unseal a Vault node, and let the clusters that use it log in. `None`, with
+/// the error recorded, when the Vault does not come up; a cluster that cannot be given access
+/// is recorded too, and the Vault is still returned.
+#[instrument(skip_all, fields(lab_id = %build.lab_id, %node_name), level = "debug")]
+async fn unseal_vault(
+    build: &LabBuild<'_>,
+    inputs: &ServiceInputs<'_>,
+    node_name: &str,
+    node_address: Ipv4Addr,
+    errors: &mut Vec<data::UpError>,
+) -> Option<data::VaultInfo> {
+    let info = match vault::ensure_vault_unsealed(
+        build.lab_id,
+        node_name,
+        node_address,
+        &inputs.lab_ca.pair.cert,
+        inputs.timeout,
+        build.progress,
+    )
+    .await
+    {
+        Ok(info) => info,
+        Err(error) => {
+            errors.push(service_error(format!("{error:#}")));
+            return None;
+        }
+    };
+    if let Err(error) = talos::grant_vault_access(
+        inputs.lab_clusters,
+        node_name,
+        node_address,
+        &inputs.lab_ca.pair.cert,
+        &info.root_token,
+    )
+    .await
+    {
+        errors.push(service_error(format!("{error:#}")));
+    }
+    Some(info)
+}
+
+/// A lab service that did not come up: a non-critical error of the readiness phase.
+fn service_error(message: String) -> data::UpError {
+    data::UpError {
+        phase: "NodeReadiness".to_string(),
+        message,
+        is_critical: false,
+    }
 }

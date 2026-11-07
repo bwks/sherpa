@@ -14,7 +14,7 @@ use shared::validators::validate_link_impairment;
 /// Update link impairment on a running P2p link
 ///
 /// This function:
-/// 1. Finds the link in the database by lab_id + link_index
+/// 1. Finds the link in the database by `lab_id` + `link_index`
 /// 2. Validates it is a P2p link (impairment only works on P2p links)
 /// 3. Applies TC netem impairment to the host end of each direction the request names,
 ///    leaving the other direction as it was. All-zero values remove the impairment.
@@ -35,7 +35,7 @@ pub async fn update_impairment(
 
     let lab_record_id = lab
         .id
-        .ok_or_else(|| anyhow!("Lab '{}' missing record ID", lab_id))?;
+        .ok_or_else(|| anyhow!("Lab '{lab_id}' missing record ID"))?;
 
     let links = db::list_links_by_lab(&state.db, lab_record_id).await?;
 

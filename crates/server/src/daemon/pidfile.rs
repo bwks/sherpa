@@ -13,10 +13,8 @@ const MIN_DAEMON_PID: i32 = 2;
 /// Ensure the run directory exists
 pub fn ensure_run_dir() -> Result<()> {
     if !Path::new(SHERPA_RUN_PATH).exists() {
-        fs::create_dir_all(SHERPA_RUN_PATH).context(format!(
-            "Failed to create run directory: {}",
-            SHERPA_RUN_PATH
-        ))?;
+        fs::create_dir_all(SHERPA_RUN_PATH)
+            .context(format!("Failed to create run directory: {SHERPA_RUN_PATH}"))?;
     }
     Ok(())
 }
@@ -24,10 +22,8 @@ pub fn ensure_run_dir() -> Result<()> {
 /// Ensure the log directory exists
 pub fn ensure_log_dir() -> Result<()> {
     if !Path::new(SHERPA_LOG_PATH).exists() {
-        fs::create_dir_all(SHERPA_LOG_PATH).context(format!(
-            "Failed to create log directory: {}",
-            SHERPA_LOG_PATH
-        ))?;
+        fs::create_dir_all(SHERPA_LOG_PATH)
+            .context(format!("Failed to create log directory: {SHERPA_LOG_PATH}"))?;
     }
     Ok(())
 }
@@ -35,7 +31,7 @@ pub fn ensure_log_dir() -> Result<()> {
 /// Write the current process PID to a file
 pub fn write_pid(path: &str) -> Result<()> {
     let pid = std::process::id();
-    fs::write(path, pid.to_string()).context(format!("Failed to write PID file: {}", path))?;
+    fs::write(path, pid.to_string()).context(format!("Failed to write PID file: {path}"))?;
     Ok(())
 }
 
@@ -46,13 +42,12 @@ pub fn read_pid(path: &str) -> Result<Option<Pid>> {
         return Ok(None);
     }
 
-    let contents =
-        fs::read_to_string(path).context(format!("Failed to read PID file: {}", path))?;
+    let contents = fs::read_to_string(path).context(format!("Failed to read PID file: {path}"))?;
 
     let pid = contents
         .trim()
         .parse::<i32>()
-        .context(format!("Invalid PID in file: {}", path))?;
+        .context(format!("Invalid PID in file: {path}"))?;
     if pid < MIN_DAEMON_PID {
         bail!("PID file {path} holds {pid}, which is not a daemon's PID");
     }
@@ -63,7 +58,7 @@ pub fn read_pid(path: &str) -> Result<Option<Pid>> {
 /// Remove the PID file
 pub fn remove_pid(path: &str) -> Result<()> {
     if Path::new(path).exists() {
-        fs::remove_file(path).context(format!("Failed to remove PID file: {}", path))?;
+        fs::remove_file(path).context(format!("Failed to remove PID file: {path}"))?;
     }
     Ok(())
 }
@@ -78,19 +73,18 @@ pub fn is_process_running(pid: Pid) -> bool {
 pub fn verify_not_running() -> Result<()> {
     if let Some(pid) = read_pid(SHERPAD_PID_FILE_PATH)? {
         if is_process_running(pid) {
-            bail!("Server is already running (PID: {})", pid);
-        } else {
-            // Stale PID file - clean it up
-            tracing::warn!("Found stale PID file, cleaning up");
-            remove_pid(SHERPAD_PID_FILE_PATH)?;
+            bail!("Server is already running (PID: {pid})");
         }
+        // Stale PID file - clean it up
+        tracing::warn!("Found stale PID file, cleaning up");
+        remove_pid(SHERPAD_PID_FILE_PATH)?;
     }
     Ok(())
 }
 
 /// Send a signal to the process in the PID file
 pub fn send_signal(pid: Pid, signal: Signal) -> Result<()> {
-    kill(pid, signal).context(format!("Failed to send signal {:?} to PID {}", signal, pid))?;
+    kill(pid, signal).context(format!("Failed to send signal {signal:?} to PID {pid}"))?;
     Ok(())
 }
 

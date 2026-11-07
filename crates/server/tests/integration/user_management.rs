@@ -1,18 +1,23 @@
-mod helpers;
-
 use anyhow::{Result, ensure};
-use reqwest::{Client, Response, StatusCode, header};
+use reqwest::{Client, Method, Response, StatusCode, header};
 use serde_json::json;
 use shared::error::RpcErrorCode;
 use shared::util::ssh_key_fingerprint;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 use sherpad::daemon::state::ensure_admin_account;
 
-use helpers::test_server::{TEST_ADMIN_PASSWORD, TEST_SSH_PUBLIC_KEY, TestServer, empty_database};
-use helpers::ws_client::TestWsClient;
+use crate::helpers::test_server::{
+    TEST_ADMIN_PASSWORD, TEST_SSH_PUBLIC_KEY, TestServer, empty_database,
+};
+use crate::helpers::ws_client::TestWsClient;
 
 /// Element on the admin users page that receives a refused delete's message.
 const USER_DELETE_ERROR_TARGET: &str = "#user-delete-error";
+/// A second valid public key, distinct from `TEST_SSH_PUBLIC_KEY`.
+const SECOND_SSH_PUBLIC_KEY: &str =
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID/jzzYPs04UP8SineXGU7LMkDnc71EIPeVx48sC5jXh second";
+/// The password the profile password test changes to.
+const NEW_PASSWORD: &str = "Changed-Pass-456!";
 
 // ── User Creation ──
 
@@ -45,7 +50,7 @@ async fn test_admin_creates_user() -> Result<()> {
 
     // Verify user can login
     let user_token = ws.login("testuser", "TestUser123!").await?;
-    assert!(!user_token.is_empty());
+    assert_ne!(user_token, "");
 
     Ok(())
 }
@@ -132,7 +137,7 @@ async fn test_non_admin_cannot_create_user() -> Result<()> {
         response
             .get("error")
             .and_then(|e| e.get("code"))
-            .and_then(|c| c.as_i64()),
+            .and_then(serde_json::Value::as_i64),
         Some(-32003) // AccessDenied
     );
 
@@ -266,7 +271,10 @@ async fn test_user_gets_own_info() -> Result<()> {
     // user.info returns GetUserInfoResponse { user: UserInfo { ... } }
     let user = result.get("user").expect("result should have 'user' field");
     assert_eq!(user.get("username").and_then(|v| v.as_str()), Some("admin"));
-    assert_eq!(user.get("is_admin").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(
+        user.get("is_admin").and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
 
     Ok(())
 }
@@ -309,8 +317,7 @@ async fn test_user_changes_own_password() -> Result<()> {
 
     assert!(
         response.get("result").is_some(),
-        "password change should succeed: {:?}",
-        response
+        "password change should succeed: {response:?}"
     );
 
     // Old password should fail
@@ -327,7 +334,7 @@ async fn test_user_changes_own_password() -> Result<()> {
 
     // New password should work
     let new_token = ws.login("pwduser", "NewPass456!").await?;
-    assert!(!new_token.is_empty());
+    assert_ne!(new_token, "");
 
     Ok(())
 }
@@ -484,7 +491,7 @@ async fn test_non_admin_cannot_delete_user() -> Result<()> {
         response
             .get("error")
             .and_then(|e| e.get("code"))
-            .and_then(|c| c.as_i64()),
+            .and_then(serde_json::Value::as_i64),
         Some(-32003) // AccessDenied: non-admin cannot delete other users
     );
 
@@ -511,7 +518,10 @@ async fn test_db_reflects_user_operations() -> Result<()> {
         admin.get("username").and_then(|v| v.as_str()),
         Some("admin")
     );
-    assert_eq!(admin.get("is_admin").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(
+        admin.get("is_admin").and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
 
     // Create a user via RPC
     ws.rpc_call(
@@ -541,7 +551,9 @@ async fn test_db_reflects_user_operations() -> Result<()> {
         Some("dbverify")
     );
     assert_eq!(
-        new_user.get("is_admin").and_then(|v| v.as_bool()),
+        new_user
+            .get("is_admin")
+            .and_then(serde_json::Value::as_bool),
         Some(false)
     );
 
@@ -550,15 +562,23 @@ async fn test_db_reflects_user_operations() -> Result<()> {
 
 // ── Account pages ──
 
-/// GET a web page with a session cookie.
-async fn web_get(server: &TestServer, token: &str, path: &str) -> Result<Response> {
-    Ok(Client::builder()
+/// Send a web request with a session cookie, and a form body when `form` is not empty.
+async fn web_request(
+    server: &TestServer,
+    token: &str,
+    method: Method,
+    path: &str,
+    form: &[(&str, &str)],
+) -> Result<Response> {
+    let mut request = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()?
-        .get(format!("http://{}{path}", server.addr))
-        .header(header::COOKIE, format!("{AUTH_COOKIE_NAME}={token}"))
-        .send()
-        .await?)
+        .request(method, format!("http://{}{path}", server.addr))
+        .header(header::COOKIE, format!("{AUTH_COOKIE_NAME}={token}"));
+    if !form.is_empty() {
+        request = request.form(form);
+    }
+    Ok(request.send().await?)
 }
 
 #[tokio::test]
@@ -588,7 +608,7 @@ async fn account_pages_render_their_ssh_key_lists() -> Result<()> {
             r#"<div id="admin-ssh-keys-list""#,
         ),
     ] {
-        let response = web_get(&server, token, path).await?;
+        let response = web_request(&server, token, Method::GET, path, &[]).await?;
         ensure!(
             response.status() == StatusCode::OK,
             "GET {path}: {}",
@@ -600,6 +620,163 @@ async fn account_pages_render_their_ssh_key_lists() -> Result<()> {
             "GET {path} did not render the SSH key list: {body}"
         );
     }
+    Ok(())
+}
+
+/// The user's SSH keys as stored.
+async fn stored_keys(server: &TestServer, username: &str) -> Result<Vec<String>> {
+    Ok(db::get_user(&server.db, username).await?.ssh_keys)
+}
+
+#[tokio::test]
+async fn profile_ssh_keys_are_validated_added_and_deleted() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    db::create_user(
+        &server.db,
+        "keyowner".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        false,
+        vec![TEST_SSH_PUBLIC_KEY.to_owned()],
+    )
+    .await?;
+    let token = ws.login("keyowner", TEST_ADMIN_PASSWORD).await?;
+
+    for (key, refusal) in [
+        ("not-a-key", "Invalid SSH key"),
+        (TEST_SSH_PUBLIC_KEY, "This SSH key is already added"),
+    ] {
+        let body = web_request(
+            &server,
+            &token,
+            Method::POST,
+            "/profile/ssh-keys",
+            &[("ssh_key", key)],
+        )
+        .await?
+        .text()
+        .await?;
+        ensure!(
+            body.contains(refusal),
+            "adding {key:?} was not refused: {body}"
+        );
+    }
+    ensure!(
+        stored_keys(&server, "keyowner").await? == vec![TEST_SSH_PUBLIC_KEY.to_owned()],
+        "a refused key was stored"
+    );
+
+    let body = web_request(
+        &server,
+        &token,
+        Method::POST,
+        "/profile/ssh-keys",
+        &[("ssh_key", SECOND_SSH_PUBLIC_KEY)],
+    )
+    .await?
+    .text()
+    .await?;
+    ensure!(
+        body.contains(r#"<div id="ssh-keys-list">"#) && body.contains("second"),
+        "the added key was not listed: {body}"
+    );
+    ensure!(
+        stored_keys(&server, "keyowner").await?.len() == 2,
+        "the added key was not stored"
+    );
+
+    let body = web_request(&server, &token, Method::DELETE, "/profile/ssh-keys/5", &[])
+        .await?
+        .text()
+        .await?;
+    ensure!(
+        body.contains("SSH key not found"),
+        "an out-of-range delete was not refused: {body}"
+    );
+    web_request(&server, &token, Method::DELETE, "/profile/ssh-keys/0", &[]).await?;
+    ensure!(
+        stored_keys(&server, "keyowner").await? == vec![SECOND_SSH_PUBLIC_KEY.to_owned()],
+        "the key at index 0 was not the one deleted"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_profile_password_change_needs_the_current_password() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    db::create_user(
+        &server.db,
+        "pwowner".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        false,
+        vec![],
+    )
+    .await?;
+    let token = ws.login("pwowner", TEST_ADMIN_PASSWORD).await?;
+
+    for (current, confirm, refusal) in [
+        (
+            "wrong-password",
+            NEW_PASSWORD,
+            "Current password is incorrect",
+        ),
+        (
+            TEST_ADMIN_PASSWORD,
+            "Something-Else-789!",
+            "New passwords do not match",
+        ),
+    ] {
+        let body = web_request(
+            &server,
+            &token,
+            Method::POST,
+            "/profile/password",
+            &[
+                ("current_password", current),
+                ("new_password", NEW_PASSWORD),
+                ("confirm_new_password", confirm),
+            ],
+        )
+        .await?
+        .text()
+        .await?;
+        ensure!(
+            body.contains(refusal),
+            "password change was not refused: {body}"
+        );
+    }
+    ensure!(
+        ws.login("pwowner", TEST_ADMIN_PASSWORD).await.is_ok(),
+        "a refused change altered the password"
+    );
+
+    let body = web_request(
+        &server,
+        &token,
+        Method::POST,
+        "/profile/password",
+        &[
+            ("current_password", TEST_ADMIN_PASSWORD),
+            ("new_password", NEW_PASSWORD),
+            ("confirm_new_password", NEW_PASSWORD),
+        ],
+    )
+    .await?
+    .text()
+    .await?;
+    ensure!(
+        body.contains("Password updated successfully"),
+        "password change failed: {body}"
+    );
+    ensure!(
+        ws.login("pwowner", NEW_PASSWORD).await.is_ok(),
+        "the new password does not log in"
+    );
+    ensure!(
+        ws.login("pwowner", TEST_ADMIN_PASSWORD).await.is_err(),
+        "the old password still logs in"
+    );
     Ok(())
 }
 
@@ -617,17 +794,6 @@ fn ipv4_lab_networks() -> db::LabNetworks {
         gateway_ipv6: None,
         router_ipv6: None,
     }
-}
-
-/// Delete a user through the web admin page with the admin's session cookie.
-async fn web_delete_user(server: &TestServer, token: &str, username: &str) -> Result<Response> {
-    Ok(Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()?
-        .delete(format!("http://{}/admin/users/{username}", server.addr))
-        .header(header::COOKIE, format!("{AUTH_COOKIE_NAME}={token}"))
-        .send()
-        .await?)
 }
 
 /// Assert the web admin page showed a refusal instead of removing the user's row.
@@ -698,7 +864,11 @@ async fn deleting_a_user_who_owns_labs_is_refused_on_all_transports() -> Result<
         response.status()
     );
 
-    ensure_web_refusal(web_delete_user(&server, &token, "carol").await?, "c0ffee01").await?;
+    ensure_web_refusal(
+        web_request(&server, &token, Method::DELETE, "/admin/users/carol", &[]).await?,
+        "c0ffee01",
+    )
+    .await?;
 
     ensure!(
         db::find_user(&server.db, "carol").await?.is_some(),
@@ -760,7 +930,7 @@ async fn self_delete_is_refused_on_all_transports() -> Result<()> {
     );
 
     ensure_web_refusal(
-        web_delete_user(&server, &token, "dana").await?,
+        web_request(&server, &token, Method::DELETE, "/admin/users/dana", &[]).await?,
         "your own account",
     )
     .await?;
@@ -810,7 +980,7 @@ async fn built_in_admin_delete_is_refused_on_all_transports() -> Result<()> {
     );
 
     ensure_web_refusal(
-        web_delete_user(&server, &token, "admin").await?,
+        web_request(&server, &token, Method::DELETE, "/admin/users/admin", &[]).await?,
         "built-in admin account",
     )
     .await?;

@@ -15,6 +15,12 @@ use super::server::run_server;
 use shared::konst::{SHERPAD_LOG_FILE_PATH, SHERPAD_PID_FILE_PATH};
 
 /// Start the sherpad daemon
+///
+/// # Errors
+///
+/// Fails when the run or log directory cannot be created, sherpad is already running, the PID
+/// file cannot be written, the background process cannot be started or exits at once, or the
+/// server fails in the foreground.
 pub async fn start_daemon(foreground: bool) -> Result<()> {
     // Ensure directories exist
     ensure_run_dir()?;
@@ -83,7 +89,11 @@ fn check_still_running(child: &mut Child) -> Result<()> {
     }
 }
 
-/// Internal function to run as background child (called by start_daemon)
+/// Internal function to run as background child (called by `start_daemon`)
+///
+/// # Errors
+///
+/// Fails when the PID file cannot be written or removed, or the server fails.
 pub async fn run_background_child() -> Result<()> {
     // Write our own PID
     write_pid(SHERPAD_PID_FILE_PATH)?;
@@ -97,13 +107,15 @@ pub async fn run_background_child() -> Result<()> {
 }
 
 /// Stop the sherpad daemon
+///
+/// # Errors
+///
+/// Fails when sherpad is not running, the PID file cannot be read or removed, or the process
+/// cannot be signalled or does not exit.
 pub fn stop_daemon(force: bool) -> Result<()> {
     // Read PID from file
-    let pid = match read_pid(SHERPAD_PID_FILE_PATH)? {
-        Some(pid) => pid,
-        None => {
-            bail!("Server is not running");
-        }
+    let Some(pid) = read_pid(SHERPAD_PID_FILE_PATH)? else {
+        bail!("Server is not running");
     };
 
     // Check if process is actually running
@@ -120,7 +132,7 @@ pub fn stop_daemon(force: bool) -> Result<()> {
         if force {
             tracing::warn!(error = %e, "Failed to send SIGTERM, trying SIGKILL");
         } else {
-            bail!("Failed to stop server: {}", e);
+            bail!("Failed to stop server: {e}");
         }
     } else {
         // Wait up to 10 seconds for process to exit
@@ -166,6 +178,11 @@ pub fn stop_daemon(force: bool) -> Result<()> {
 }
 
 /// Restart the sherpad daemon
+///
+/// # Errors
+///
+/// Fails when the running server cannot be stopped or the new one cannot be started; see
+/// [`stop_daemon`] and [`start_daemon`].
 pub async fn restart_daemon(foreground: bool) -> Result<()> {
     tracing::info!("Restarting sherpad");
 
@@ -186,31 +203,36 @@ pub async fn restart_daemon(foreground: bool) -> Result<()> {
     start_daemon(foreground).await
 }
 
-/// Show the status of the sherpad daemon
+/// Show the status of the sherpad daemon. Exits with status 1 when it is not running.
+///
+/// # Errors
+///
+/// Fails when the PID file cannot be read.
 pub fn status_daemon() -> Result<()> {
-    match read_pid(SHERPAD_PID_FILE_PATH)? {
-        Some(pid) => {
-            if is_process_running(pid) {
-                println!("sherpad is running (pid: {pid})");
-                Ok(())
-            } else {
-                eprintln!("sherpad is not running (stale PID file found)");
-                std::process::exit(1);
-            }
-        }
-        None => {
-            eprintln!("sherpad is not running");
+    if let Some(pid) = read_pid(SHERPAD_PID_FILE_PATH)? {
+        if is_process_running(pid) {
+            println!("sherpad is running (pid: {pid})");
+            Ok(())
+        } else {
+            eprintln!("sherpad is not running (stale PID file found)");
             std::process::exit(1);
         }
+    } else {
+        eprintln!("sherpad is not running");
+        std::process::exit(1);
     }
 }
 
 /// Show the logs of the sherpad daemon
+///
+/// # Errors
+///
+/// Fails when the log file does not exist or cannot be read.
 pub fn logs_daemon(follow: bool) -> Result<()> {
     let log_path = Path::new(SHERPAD_LOG_FILE_PATH);
 
     if !log_path.exists() {
-        bail!("Log file not found at {}", SHERPAD_LOG_FILE_PATH);
+        bail!("Log file not found at {SHERPAD_LOG_FILE_PATH}");
     }
 
     if follow {
@@ -232,15 +254,12 @@ pub fn logs_daemon(follow: bool) -> Result<()> {
                 println!("{}", line?);
             }
         }
-    } else {
-        // Just print the entire file
-        let contents = fs::read_to_string(log_path).context(format!(
-            "Failed to read log file: {}",
-            SHERPAD_LOG_FILE_PATH
-        ))?;
-        print!("{}", contents);
-        Ok(())
     }
+    // Just print the entire file
+    let contents = fs::read_to_string(log_path)
+        .context(format!("Failed to read log file: {SHERPAD_LOG_FILE_PATH}"))?;
+    print!("{contents}");
+    Ok(())
 }
 
 #[cfg(test)]

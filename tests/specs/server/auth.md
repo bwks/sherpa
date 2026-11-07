@@ -70,12 +70,13 @@
 - Authorization uses database ownership; caller-supplied usernames are ignored `[integration]` **P0**
 - An admin who owns the lab may redeploy; other admin operations retain their access rules `[unit]` `[integration]` **P0**
 
-The ignored `redeploy_only_allows_current_owner_on_all_transports` test in
-`lab_lifecycle_tests.rs` uses an in-memory database and local API sockets.
+The `redeploy_only_allows_current_owner_on_all_transports` test in
+`crates/server/tests/integration/lab_lifecycle.rs` uses an in-memory database and local API
+sockets.
 It creates database metadata only and does not start or destroy lab resources.
 
 ```sh
-cargo test -p sherpad --test lab_lifecycle_tests redeploy_only_allows_current_owner_on_all_transports -- --ignored --nocapture
+cargo test -p sherpad --test integration lab_lifecycle::redeploy_only_allows_current_owner_on_all_transports -- --nocapture
 ```
 
 ## Database-backed identity
@@ -84,7 +85,7 @@ cargo test -p sherpad --test lab_lifecycle_tests redeploy_only_allows_current_ow
 - A valid token for a deleted user is rejected: RPC `AuthRequired`, REST 401, web session cleared `[integration]` **P0**
 
 Tests: `demoted_admin_token_loses_admin_rights_on_all_transports` and
-`deleted_user_token_is_rejected_on_all_transports` in `auth_tests.rs`.
+`deleted_user_token_is_rejected_on_all_transports` in `integration/auth.rs`.
 
 ## Lab operation authorization
 
@@ -94,12 +95,12 @@ Tests: `demoted_admin_token_loses_admin_rights_on_all_transports` and
 - `GET /api/v1/labs` requires login; regular users list only their own labs; admins may pass `?username=` `[integration]` **P0**
 - A web job page and stream are served only to the job's creator or an admin, and a refused request does not consume the job `[unit]` `[integration]` **P0**
 
-Tests: `lab_authorization_tests.rs`, `auth::policy` unit tests, `api::errors` unit tests and
+Tests: `integration/lab_authorization.rs`, `auth::policy` unit tests, `api::errors` unit tests and
 `daemon::state` unit tests. The integration tests seed lab records only, in an in-memory
 database; they need local Docker and libvirt sockets, but no root.
 
 ```sh
-cargo test -p sherpad --test lab_authorization_tests -- --ignored --test-threads=1
+cargo test -p sherpad --test integration lab_authorization:: -- --ignored --test-threads=1
 ```
 
 ## User deletion
@@ -112,5 +113,5 @@ cargo test -p sherpad --test lab_authorization_tests -- --ignored --test-threads
 - The schema rejects deleting a lab owner, including on a database upgraded from the old cascading definition `[integration]` (db) **P0**
 
 Tests: `deleting_a_user_who_owns_labs_is_refused_on_all_transports` and
-`self_delete_is_refused_on_all_transports` in `user_management_tests.rs`, the
+`self_delete_is_refused_on_all_transports` in `integration/user_management.rs`, the
 `services::user_delete` unit tests, and the db `relationships` tests.

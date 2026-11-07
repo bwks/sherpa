@@ -57,7 +57,7 @@ impl ApiError {
         }
     }
 
-    /// Create a NotFound error
+    /// Create a `NotFound` error
     pub fn not_found(resource: impl Into<String>, msg: impl Into<String>) -> Self {
         Self::NotFound {
             resource: resource.into(),
@@ -72,14 +72,14 @@ impl ApiError {
         }
     }
 
-    /// Create a BadRequest error
+    /// Create a `BadRequest` error
     pub fn bad_request(msg: impl Into<String>) -> Self {
         Self::BadRequest {
             message: msg.into(),
         }
     }
 
-    /// Create an InternalError
+    /// Create an `InternalError`
     pub fn internal(msg: impl Into<String>) -> Self {
         Self::InternalError {
             message: msg.into(),
@@ -105,7 +105,7 @@ impl IntoResponse for ApiError {
             ApiError::NotFound { resource, message } => (
                 StatusCode::NOT_FOUND,
                 "NOT_FOUND".to_string(),
-                format!("{} not found", resource),
+                format!("{resource} not found"),
                 Some(message),
             ),
             ApiError::BadRequest { message } => (
@@ -144,7 +144,7 @@ impl IntoResponse for ApiError {
     }
 }
 
-/// Convert a typed service refusal to ApiError: 403, 404 or 409.
+/// Convert a typed service refusal to `ApiError`: 403, 404 or 409.
 impl From<&ServiceError> for ApiError {
     fn from(err: &ServiceError) -> Self {
         match err {
@@ -162,7 +162,7 @@ impl From<ServiceError> for ApiError {
     }
 }
 
-/// Convert anyhow::Error to ApiError
+/// Convert `anyhow::Error` to `ApiError`
 ///
 /// Authorization failures carry a typed `ServiceError` and map to 403 or 404. Other errors
 /// still fall back to matching on the error text.
@@ -172,7 +172,7 @@ impl From<anyhow::Error> for ApiError {
             return ApiError::from(access);
         }
 
-        let err_str = format!("{:#}", err);
+        let err_str = format!("{err:#}");
 
         // Pattern match on error messages
         if err_str.contains("not found in database") || err_str.contains("not found") {

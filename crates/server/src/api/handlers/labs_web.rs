@@ -133,7 +133,7 @@ pub async fn get_labs_html(
             let message = if e.to_string().contains("User not found") {
                 format!("User '{}' not found", auth.username)
             } else {
-                format!("Failed to load labs: {}", e)
+                format!("Failed to load labs: {e}")
             };
             ErrorTemplate { message }.into_response()
         }
@@ -142,7 +142,7 @@ pub async fn get_labs_html(
 
 /// Stop all nodes in a lab (web UI handler, cookie auth)
 ///
-/// POST /labs/{lab_id}/stop
+/// POST /`labs/{lab_id}/stop`
 #[tracing::instrument(skip(state), fields(%lab_id))]
 pub async fn lab_stop_handler(
     auth: AuthenticatedUserFromCookie,
@@ -160,7 +160,7 @@ pub async fn lab_stop_handler(
 
 /// Start all nodes in a lab (web UI handler, cookie auth)
 ///
-/// POST /labs/{lab_id}/start
+/// POST /`labs/{lab_id}/start`
 #[tracing::instrument(skip(state), fields(%lab_id))]
 pub async fn lab_start_handler(
     auth: AuthenticatedUserFromCookie,
@@ -179,7 +179,7 @@ pub async fn lab_start_handler(
 
 /// Stop a single node in a lab (web UI handler, cookie auth)
 ///
-/// POST /labs/{lab_id}/nodes/{node_name}/stop
+/// POST /`labs/{lab_id}/nodes/{node_name}/stop`
 #[tracing::instrument(skip(state), fields(%lab_id, %node_name))]
 pub async fn node_stop_handler(
     auth: AuthenticatedUserFromCookie,
@@ -198,7 +198,7 @@ pub async fn node_stop_handler(
 
 /// Start a single node in a lab (web UI handler, cookie auth)
 ///
-/// POST /labs/{lab_id}/nodes/{node_name}/start
+/// POST /`labs/{lab_id}/nodes/{node_name}/start`
 #[tracing::instrument(skip(state), fields(%lab_id, %node_name))]
 pub async fn node_start_handler(
     auth: AuthenticatedUserFromCookie,
@@ -217,7 +217,7 @@ pub async fn node_start_handler(
 
 /// Redeploy a single node in a lab (web UI handler, cookie auth)
 ///
-/// POST /labs/{lab_id}/nodes/{node_name}/redeploy
+/// POST /`labs/{lab_id}/nodes/{node_name}/redeploy`
 #[tracing::instrument(skip(state), fields(%lab_id, %node_name))]
 pub async fn node_redeploy_handler(
     auth: AuthenticatedUserFromCookie,
@@ -252,7 +252,7 @@ pub async fn node_redeploy_handler(
         .await
         .map_err(|e| {
             tracing::error!("Redeploy failed for node '{}': {:?}", node_name, e);
-            ApiError::internal(format!("Redeploy failed: {}", e))
+            ApiError::internal(format!("Redeploy failed: {e}"))
         })?;
 
     Ok(Json(json!({
@@ -402,7 +402,7 @@ fn lab_error_fragment(error: &anyhow::Error, failure_message: &str) -> Response 
 
 /// Node detail page (web UI handler, cookie auth)
 ///
-/// GET /labs/{lab_id}/nodes/{node_name}
+/// GET /`labs/{lab_id}/nodes/{node_name`}
 #[tracing::instrument(skip(state), fields(%lab_id, %node_name))]
 pub async fn node_detail_handler(
     Path((lab_id, node_name)): Path<(String, String)>,
@@ -435,7 +435,7 @@ pub async fn node_detail_handler(
                 username: auth.username,
                 is_admin: auth.is_admin,
                 active_page: String::new(),
-                message: format!("Node '{}' not found in lab.", node_name),
+                message: format!("Node '{node_name}' not found in lab."),
             }
             .into_response();
         }
@@ -456,14 +456,11 @@ pub async fn node_detail_handler(
         }
     };
 
-    let lab_record_id = match db_lab.id {
-        Some(id) => id,
-        None => {
-            return ErrorTemplate {
-                message: "Lab missing record ID.".to_string(),
-            }
-            .into_response();
+    let Some(lab_record_id) = db_lab.id else {
+        return ErrorTemplate {
+            message: "Lab missing record ID.".to_string(),
         }
+        .into_response();
     };
 
     let db_node = match db::get_node_by_name_and_lab(&state.db, &node_name, lab_record_id).await {
@@ -474,7 +471,7 @@ pub async fn node_detail_handler(
                 username: auth.username,
                 is_admin: auth.is_admin,
                 active_page: String::new(),
-                message: format!("Node '{}' not found.", node_name),
+                message: format!("Node '{node_name}' not found."),
             }
             .into_response();
         }
@@ -518,7 +515,7 @@ pub async fn node_detail_handler(
 
 /// Handler to return the nodes table fragment for HTMX polling
 ///
-/// GET /labs/{lab_id}/nodes
+/// GET /`labs/{lab_id}/nodes`
 pub async fn lab_nodes_handler(
     Path(lab_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
@@ -540,10 +537,10 @@ pub async fn lab_nodes_handler(
 
 /// Download lab files as a zip archive
 ///
-/// GET /labs/{lab_id}/download
+/// GET /`labs/{lab_id}/download`
 ///
-/// Returns a zip containing lab-info.toml and sherpa_ssh_config, plus sherpa_known_hosts when
-/// node host keys were recorded and sherpa_ssh_key when the lab's SSH config uses the server
+/// Returns a zip containing lab-info.toml and `sherpa_ssh_config`, plus `sherpa_known_hosts` when
+/// node host keys were recorded and `sherpa_ssh_key` when the lab's SSH config uses the server
 /// key. These files allow CLI tools (sherpa ssh,
 /// sherpa console) to work with the lab. Uses the same download service as the RPC API.
 #[tracing::instrument(skip(state), fields(%lab_id))]
@@ -605,7 +602,7 @@ pub async fn lab_download_handler(
 
 /// Handler to return the destroy confirmation panel
 ///
-/// GET /labs/{lab_id}/destroy/confirm
+/// GET /`labs/{lab_id}/destroy/confirm`
 pub async fn lab_destroy_confirm_handler(
     Path(lab_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
@@ -624,7 +621,7 @@ pub async fn lab_destroy_confirm_handler(
 
 /// Handler to return the original destroy button (used by Cancel)
 ///
-/// GET /labs/{lab_id}/destroy/button
+/// GET /`labs/{lab_id}/destroy/button`
 pub async fn lab_destroy_button_handler(
     Path(lab_id): Path<String>,
     _auth: AuthenticatedUserFromCookie,
@@ -634,7 +631,7 @@ pub async fn lab_destroy_button_handler(
 
 /// Handler to initiate destroy — creates a job and redirects to the jobs page
 ///
-/// POST /labs/{lab_id}/destroy
+/// POST /`labs/{lab_id}/destroy`
 pub async fn lab_destroy_post_handler(
     Path(lab_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
@@ -654,12 +651,12 @@ pub async fn lab_destroy_post_handler(
         },
     );
 
-    let redirect_url = format!("/jobs/{}", job_id);
+    let redirect_url = format!("/jobs/{job_id}");
     let mut response = Html("").into_response();
     response.headers_mut().insert(
         header::HeaderName::from_static("hx-redirect"),
         header::HeaderValue::from_str(&redirect_url)
-            .map_err(|e| ApiError::internal(format!("Failed to create redirect header: {}", e)))?,
+            .map_err(|e| ApiError::internal(format!("Failed to create redirect header: {e}")))?,
     );
 
     Ok(response)
@@ -671,7 +668,7 @@ pub async fn lab_destroy_post_handler(
 
 /// Handler to render the job progress page
 ///
-/// GET /jobs/{job_id}
+/// GET /`jobs/{job_id`}
 pub async fn job_page_handler(
     Path(job_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
@@ -721,7 +718,7 @@ pub async fn job_page_handler(
 
 /// Handler to stream job progress via SSE
 ///
-/// GET /jobs/{job_id}/stream
+/// GET /`jobs/{job_id}/stream`
 pub async fn job_stream_handler(
     Path(job_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
@@ -745,19 +742,16 @@ pub async fn job_stream_handler(
     }
 
     // Consume the pending job
-    let job = match state.pending_jobs.remove(&job_id) {
-        Some((_, job)) => job,
-        None => {
-            return sse::Sse::new(destroy_progress_stream(
-                tokio::sync::mpsc::unbounded_channel().1,
-                {
-                    let (tx, rx) = tokio::sync::oneshot::channel();
-                    let _ = tx.send(Err(anyhow::anyhow!("Job not found or already consumed")));
-                    rx
-                },
-            ))
-            .into_response();
-        }
+    let Some((_, job)) = state.pending_jobs.remove(&job_id) else {
+        return sse::Sse::new(destroy_progress_stream(
+            tokio::sync::mpsc::unbounded_channel().1,
+            {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                let _ = tx.send(Err(anyhow::anyhow!("Job not found or already consumed")));
+                rx
+            },
+        ))
+        .into_response();
     };
 
     let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -837,14 +831,14 @@ pub async fn lab_create_post_handler(
             Ok(json_val) => json_val,
             Err(e) => {
                 return ErrorTemplate {
-                    message: format!("Failed to convert manifest: {}", e),
+                    message: format!("Failed to convert manifest: {e}"),
                 }
                 .into_response();
             }
         },
         Err(e) => {
             return ErrorTemplate {
-                message: format!("Invalid TOML: {}", e),
+                message: format!("Invalid TOML: {e}"),
             }
             .into_response();
         }
@@ -881,7 +875,7 @@ pub async fn lab_create_post_handler(
         },
     );
 
-    let redirect_url = format!("/jobs/{}", job_id);
+    let redirect_url = format!("/jobs/{job_id}");
     let mut response = Html("").into_response();
     if let Ok(val) = header::HeaderValue::from_str(&redirect_url) {
         response
