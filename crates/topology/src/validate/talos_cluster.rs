@@ -215,9 +215,9 @@ nodes = [
     fn a_manifest_without_clusters_is_valid() {
         validate_talos_clusters(&manifest(
             r#"
-name = "lab"
-nodes = [{ name = "talos", model = "talos_linux" }]
-"#,
+            name = "lab"
+            nodes = [{ name = "talos", model = "talos_linux" }]
+            "#,
         ))
         .unwrap();
     }
@@ -299,7 +299,11 @@ nodes = [{ name = "talos", model = "talos_linux" }]
             ));
         }
         let toml = format!(
-            "name = \"lab\"\ntalos_clusters = [{}]\nnodes = [{}]\n",
+            r#"
+            name = "lab"
+            talos_clusters = [{}]
+            nodes = [{}]
+            "#,
             clusters.join(", "),
             nodes.join(", ")
         );
@@ -319,7 +323,11 @@ nodes = [{ name = "talos", model = "talos_linux" }]
             ));
         }
         format!(
-            "name = \"lab\"\ntalos_clusters = [{}]\nnodes = [{}]\n",
+            r#"
+            name = "lab"
+            talos_clusters = [{}]
+            nodes = [{}]
+            "#,
             clusters.join(", "),
             nodes.join(", ")
         )

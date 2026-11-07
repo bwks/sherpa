@@ -81,8 +81,7 @@ pub fn check_performance_tuning(node: &NodeExpanded, image: &NodeConfig) -> Resu
 
     if tuning.disk_io == Some(DiskIo::Native) && tuning.disk_cache != Some(DiskCache::None) {
         bail!(
-            "Manifest - node: '{name}' sets `disk_io = \"native\"`, which needs \
-             `disk_cache = \"none\"`"
+            r#"Manifest - node: '{name}' sets `disk_io = "native"`, which needs `disk_cache = "none"`"#
         );
     }
 
@@ -299,7 +298,7 @@ mod tests {
             ..PerformanceTuning::default()
         };
         let message = error(&node(None, tuning), &ubuntu());
-        assert!(message.contains("`disk_cache = \"none\"`"), "{message}");
+        assert!(message.contains(r#"`disk_cache = "none"`"#), "{message}");
     }
 
     #[test]

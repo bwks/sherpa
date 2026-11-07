@@ -237,8 +237,10 @@ mod tests {
         let both = writer
             .conn
             .execute(
-                "UPDATE node_image SET \"default\" = 1 WHERE model = 'ubuntu_linux' \
-                 AND version = 'second'",
+                r#"
+                UPDATE node_image SET "default" = 1
+                WHERE model = 'ubuntu_linux' AND version = 'second'
+                "#,
                 (),
             )
             .await;

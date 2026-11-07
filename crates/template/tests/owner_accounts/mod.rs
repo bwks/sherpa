@@ -242,9 +242,14 @@ fn junos_owner_is_a_super_user_with_every_key() {
     .render()
     .unwrap();
     assert!(output.contains(
-        "        user alice {\n            class super-user;\n            authentication {\n                \
-         ssh-rsa \"ssh-rsa OWNERKEY1\"; ## SECRET-DATA\n                \
-         ssh-ed25519 \"OWNERKEY2\"; ## SECRET-DATA\n            }\n        }\n"
+        r#"        user alice {
+            class super-user;
+            authentication {
+                ssh-rsa "ssh-rsa OWNERKEY1"; ## SECRET-DATA
+                ssh-ed25519 "OWNERKEY2"; ## SECRET-DATA
+            }
+        }
+"#
     ));
     assert!(!output.contains("Rand0mSecret"));
 }
@@ -289,7 +294,7 @@ fn sonic_owner_has_a_locked_password_and_sudo_without_one() {
     );
     assert!(output.contains("'alice ALL=(ALL) NOPASSWD: ALL' >/etc/sudoers.d/alice\n"));
     // No password: the account stays locked.
-    assert!(!output.contains("\"alice:"));
+    assert!(!output.contains(r#""alice:"#));
 }
 
 #[test]
@@ -365,10 +370,16 @@ fn panos_owner_is_a_superuser_with_its_own_hash_and_key() {
     .render()
     .unwrap();
     assert!(output.contains(
-        "      <entry name=\"alice\">\n        <phash>$5$owner$hash</phash>\n        \
-         <permissions>\n          <role-based>\n            <superuser>yes</superuser>\n          \
-         </role-based>\n        </permissions>\n        <public-key>OWNERKEY1</public-key>\n      \
-         </entry>\n    </users>"
+        r#"      <entry name="alice">
+        <phash>$5$owner$hash</phash>
+        <permissions>
+          <role-based>
+            <superuser>yes</superuser>
+          </role-based>
+        </permissions>
+        <public-key>OWNERKEY1</public-key>
+      </entry>
+    </users>"#
     ));
 }
 

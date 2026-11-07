@@ -728,7 +728,7 @@ mod tests {
 
     fn compute_value(html: &str, label: &str) -> String {
         let after = &html[html.find(label).expect(label)..];
-        let start = after.find("font-mono\">").expect("value") + "font-mono\">".len();
+        let start = after.find(r#"font-mono">"#).expect("value") + r#"font-mono">"#.len();
         after[start..start + after[start..].find('<').expect("end")]
             .trim()
             .to_string()

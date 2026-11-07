@@ -157,7 +157,10 @@ nodes = []
         let path = env::temp_dir().join(format!("sherpa-description-{}.toml", process::id()));
         let path = path.to_str().unwrap();
         for description in [
-            Some("Lab purpose: \"routing\"\nUnicode: café"),
+            Some(
+                r#"Lab purpose: "routing"
+Unicode: café"#,
+            ),
             Some(""),
             None,
         ] {
@@ -383,16 +386,20 @@ nodes = [
     #[test]
     fn node_level_cluster_fields_are_rejected() {
         let toml = r#"
-name = "lab"
-nodes = [{ name = "cp1", model = "talos_linux", cluster = "k8s", cluster_role = "control_plane" }]
-"#;
+            name = "lab"
+            nodes = [{ name = "cp1", model = "talos_linux", cluster = "k8s", cluster_role = "control_plane" }]
+            "#;
         let error = toml::from_str::<Manifest>(toml).unwrap_err().to_string();
         assert!(error.contains("unknown field `cluster`"), "{error}");
     }
 
     #[test]
     fn the_old_clusters_section_is_rejected() {
-        let toml = "name = \"lab\"\nclusters = [{ name = \"k8s\" }]\nnodes = []\n";
+        let toml = r#"
+            name = "lab"
+            clusters = [{ name = "k8s" }]
+            nodes = []
+            "#;
         let error = toml::from_str::<Manifest>(toml).unwrap_err().to_string();
         assert!(error.contains("unknown field `clusters`"), "{error}");
     }

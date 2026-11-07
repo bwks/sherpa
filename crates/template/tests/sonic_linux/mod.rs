@@ -10,11 +10,10 @@ use crate::helpers;
 // Expected configs
 // ============================================================================
 
-const EXPECTED_SONIC_USER: &str = "\
-#!/bin/bash
+const EXPECTED_SONIC_USER: &str = r#"#!/bin/bash
 
 /usr/sbin/useradd sherpa
-/usr/bin/echo \"sherpa:Everest1953!\" | chpasswd
+/usr/bin/echo "sherpa:Everest1953!" | chpasswd
 /usr/bin/mkdir -p /home/sherpa/.ssh
 /usr/bin/echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ' >/home/sherpa/.ssh/authorized_keys
 /usr/bin/chmod 700 /home/sherpa/.ssh
@@ -25,7 +24,7 @@ const EXPECTED_SONIC_USER: &str = "\
 /usr/sbin/usermod -aG sudo,admin,docker sherpa
 
 
-exit 0";
+exit 0"#;
 
 // file_map() uses json!().to_string() which produces compact JSON.
 // HTTP_PORT=8080, NODE_CONFIGS_DIR="configs"

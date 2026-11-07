@@ -1580,7 +1580,7 @@ fn build_cloud_init_scripts(
         // The user's primary group: SUSE has no group named after the user.
         let quoted_user = shell_quote(user);
         runcmd.push(format!(
-            "chown -R {quoted_user}:\"$(id -gn {quoted_user})\" {}",
+            r#"chown -R {quoted_user}:"$(id -gn {quoted_user})" {}"#,
             shell_quote(NODE_USER_SCRIPTS_DIR)
         ));
         for script in user_scripts {
@@ -1732,7 +1732,7 @@ fn build_windows_env_commands(env_vars: &[String]) -> Vec<String> {
             // Escape single quotes for PowerShell: ' → ''
             let escaped_value = value.replace('\'', "''");
             commands.push(format!(
-                "powershell -Command \"[System.Environment]::SetEnvironmentVariable('{key}', '{escaped_value}', 'Machine')\""
+                r#"powershell -Command "[System.Environment]::SetEnvironmentVariable('{key}', '{escaped_value}', 'Machine')""#
             ));
         }
     }
@@ -1756,12 +1756,12 @@ fn build_windows_private_file_acls(
         }
         if file.path.contains(['"', '%']) {
             bail!(
-                "Windows file path '{}' contains '\"' or '%', which cannot be used in a path on a Windows node",
+                r#"Windows file path '{}' contains '"' or '%', which cannot be used in a path on a Windows node"#,
                 file.path
             );
         }
         commands.push(format!(
-            "icacls \"{}\" /inheritance:r /grant {WINDOWS_ADMINISTRATORS_SID}:F /grant {WINDOWS_SYSTEM_SID}:F",
+            r#"icacls "{}" /inheritance:r /grant {WINDOWS_ADMINISTRATORS_SID}:F /grant {WINDOWS_SYSTEM_SID}:F"#,
             file.path
         ));
     }
@@ -2045,7 +2045,7 @@ fn windows_startup_scripts(
         });
 
         runcmd.push(format!(
-            "powershell -ExecutionPolicy Bypass -File \"{target_path}\""
+            r#"powershell -ExecutionPolicy Bypass -File "{target_path}""#
         ));
     }
     Ok((write_files, runcmd))
@@ -2102,7 +2102,7 @@ fn windows_cloudbase_init(
 
     let mut runcmd = build_windows_private_file_acls(&write_files)
         .with_context(|| format!("Failed to write files for node '{}'", node.name))?;
-    runcmd.push("powershell -Command \"Restart-Service sshd\"".to_string());
+    runcmd.push(r#"powershell -Command "Restart-Service sshd""#.to_string());
     let (script_files, script_runcmd) = windows_startup_scripts(node)?;
     write_files.extend(script_files);
     runcmd.extend(script_runcmd);
@@ -4430,7 +4430,7 @@ mod tests {
         assert_eq!(commands.len(), 1);
         assert_eq!(
             commands[0],
-            "powershell -Command \"[System.Environment]::SetEnvironmentVariable('EDITOR', 'vim', 'Machine')\""
+            r#"powershell -Command "[System.Environment]::SetEnvironmentVariable('EDITOR', 'vim', 'Machine')""#
         );
     }
 

@@ -54,8 +54,8 @@ mod tests {
             let json = serde_json::to_value(platform).unwrap();
             assert_eq!(json.as_str().unwrap(), platform.to_string());
         }
-        assert!(serde_json::from_str::<PtxPlatform>("\"BX\"").is_err());
-        assert!(serde_json::from_str::<PtxPlatform>("\"bz\"").is_err());
+        assert!(serde_json::from_str::<PtxPlatform>(r#""BX""#).is_err());
+        assert!(serde_json::from_str::<PtxPlatform>(r#""bz""#).is_err());
     }
 
     #[test]

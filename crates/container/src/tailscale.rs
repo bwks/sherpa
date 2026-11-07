@@ -78,7 +78,7 @@ fn container_config(
         // Install them before starting the daemon, on every container start.
         entrypoint: Some(vec!["sh".into(), "-ec".into()]),
         cmd: Some(vec![
-            "socket=\"$1\"; shift; mkdir -p \"$(dirname \"$socket\")\"; chmod 0700 /var/lib/tailscale; for tool in iptables-nft ip6tables-nft; do $tool -t mangle -N SHERPA-TAILNET; done; for route in \"$@\"; do case $route in *:*) tool=ip6tables-nft;; *) tool=iptables-nft;; esac; $tool -t mangle -A SHERPA-TAILNET -d \"$route\" -j RETURN; done; for tool in iptables-nft ip6tables-nft; do $tool -t mangle -A SHERPA-TAILNET -j DROP; $tool -t mangle -I FORWARD 1 -i tailscale0 -j SHERPA-TAILNET; done; exec tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=\"$socket\"".into(),
+            r#"socket="$1"; shift; mkdir -p "$(dirname "$socket")"; chmod 0700 /var/lib/tailscale; for tool in iptables-nft ip6tables-nft; do $tool -t mangle -N SHERPA-TAILNET; done; for route in "$@"; do case $route in *:*) tool=ip6tables-nft;; *) tool=iptables-nft;; esac; $tool -t mangle -A SHERPA-TAILNET -d "$route" -j RETURN; done; for tool in iptables-nft ip6tables-nft; do $tool -t mangle -A SHERPA-TAILNET -j DROP; $tool -t mangle -I FORWARD 1 -i tailscale0 -j SHERPA-TAILNET; done; exec tailscaled --state=/var/lib/tailscale/tailscaled.state --socket="$socket""#.into(),
             "gateway".into(),
             settings.socket_path.clone(),
         ].into_iter().chain(config.routes.iter().cloned()).collect()),
@@ -266,7 +266,7 @@ async fn wait_for_socket(
 }
 
 fn enrollment_command(routes: &[String], settings: &TailscaleGatewaySettings) -> Vec<String> {
-    let script = "umask 077; trap 'rm -f /run/enrollment-key' EXIT; cat > /run/enrollment-key; tailscale \"$1\" up --auth-key=file:/run/enrollment-key --timeout=\"$3\" --accept-dns=false --accept-routes=false --snat-subnet-routes=true --stateful-filtering=true --advertise-routes=\"$2\"";
+    let script = r#"umask 077; trap 'rm -f /run/enrollment-key' EXIT; cat > /run/enrollment-key; tailscale "$1" up --auth-key=file:/run/enrollment-key --timeout="$3" --accept-dns=false --accept-routes=false --snat-subnet-routes=true --stateful-filtering=true --advertise-routes="$2""#;
     vec![
         "sh".into(),
         "-c".into(),
@@ -788,8 +788,8 @@ mod tests {
             socket_path: "/run/overridden/status.sock".into(),
             ..Default::default()
         };
-        let own_output = "{\"BackendState\":\"Running\",\"TailscaleIPs\":[\"100.64.0.1\"],\"Self\":{\"AllowedIPs\":[\"192.0.2.0/24\"]}}\n";
-        let capabilities = ["\"https://tailscale.com/cap/file-sharing\""; 10].join(",");
+        let own_output = r#"{"BackendState":"Running","TailscaleIPs":["100.64.0.1"],"Self":{"AllowedIPs":["192.0.2.0/24"]}}"#;
+        let capabilities = [r#""https://tailscale.com/cap/file-sharing""#; 10].join(",");
         let peers = (0..3000)
             .map(|index| {
                 format!(r#""nodekey:{index:064x}":{{"HostName":"device-{index}","DNSName":"device-{index}.example.ts.net.","OS":"linux","Online":true,"Capabilities":[{capabilities}],"AllowedIPs":["100.64.0.2/32"]}}"#)
@@ -797,7 +797,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join(",");
         let full_output = format!(
-            "{},\"Peer\":{{{peers}}}}}\n",
+            r#"{},"Peer":{{{peers}}}}}"#,
             own_output.trim_end().strip_suffix('}').unwrap()
         );
         assert!(full_output.len() > 1024 * 1024);
@@ -841,7 +841,7 @@ mod tests {
                     r#"{"Id":"gateway-id","State":{"Running":true},"Config":{"Labels":{"sh.erpa.tailscale.lab":"test1234","sh.erpa.role":"tailnet-gateway"}}}"#
                 } else if request.contains("/containers/gateway-id/exec") {
                     let body = String::from_utf8(body).unwrap();
-                    own_only = body.contains("\"--peers=false\"")
+                    own_only = body.contains(r#""--peers=false""#)
                         && body.contains("--socket=/run/overridden/status.sock");
                     r#"{"Id":"status-id"}"#
                 } else if request.contains("/exec/status-id/start") {

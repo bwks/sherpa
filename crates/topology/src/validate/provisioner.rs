@@ -170,16 +170,16 @@ mod tests {
     fn manifest(model: &str, provisioner: &str) -> Manifest {
         toml::from_str(&format!(
             r#"
-name = "lab"
+            name = "lab"
 
-[[nodes]]
-name = "dev01"
-model = "{model}"
+            [[nodes]]
+            name = "dev01"
+            model = "{model}"
 
-[[nodes.provisioners]]
-type = "ssh"
-{provisioner}
-"#
+            [[nodes.provisioners]]
+            type = "ssh"
+            {provisioner}
+            "#
         ))
         .unwrap()
     }
@@ -193,14 +193,30 @@ type = "ssh"
 
     fn container(model: &str, files: &str) -> Manifest {
         toml::from_str(&format!(
-            "name = \"lab\"\n[[nodes]]\nname = \"db01\"\nmodel = \"{model}\"\n\
-             [[nodes.provisioners]]\ntype = \"container\"\n{files}"
+            r#"
+            name = "lab"
+
+            [[nodes]]
+            name = "db01"
+            model = "{model}"
+
+            [[nodes.provisioners]]
+            type = "container"
+            {files}
+            "#
         ))
         .unwrap()
     }
 
     fn secret(name: &str, mode: u32) -> String {
-        format!("[[nodes.provisioners.files]]\nsrc = \"a.txt\"\nname = \"{name}\"\nmode = {mode}\n")
+        format!(
+            r#"
+            [[nodes.provisioners.files]]
+            src = "a.txt"
+            name = "{name}"
+            mode = {mode}
+            "#
+        )
     }
 
     #[test]
@@ -240,7 +256,12 @@ type = "ssh"
                 "two secret files",
             ),
             (
-                "[[nodes.provisioners.files]]\nsrc = \" \"\nname = \"token\"\n".to_string(),
+                r#"
+                [[nodes.provisioners.files]]
+                src = " "
+                name = "token"
+                "#
+                .to_string(),
                 "empty src",
             ),
         ] {
@@ -254,18 +275,29 @@ type = "ssh"
 
     #[test]
     fn ssh_provisioners_are_still_rejected_on_containers() {
-        let error = rejection("mongo_db", "scripts = [\"./setup.sh\"]");
+        let error = rejection("mongo_db", r#"scripts = ["./setup.sh"]"#);
         assert!(error.contains("Linux and BSD VMs"), "{error}");
     }
 
     fn file(dst: &str, mode: u32) -> String {
-        format!("[[nodes.provisioners.files]]\nsrc = \"a.txt\"\ndst = \"{dst}\"\nmode = {mode}\n")
+        format!(
+            r#"
+            [[nodes.provisioners.files]]
+            src = "a.txt"
+            dst = "{dst}"
+            mode = {mode}
+            "#
+        )
     }
 
     #[test]
     fn linux_and_bsd_vms_accept_valid_provisioners() {
         let provisioner = format!(
-            "env_files = [\"~/a.env\", \"b.env\"]\nscripts = [\"./setup.sh\"]\n{}{}",
+            r#"
+            env_files = ["~/a.env", "b.env"]
+            scripts = ["./setup.sh"]
+            {}{}
+            "#,
             file("~/.config/app/token", 600),
             file("/tmp/token", 640)
         );
@@ -282,9 +314,16 @@ type = "ssh"
 
     #[test]
     fn nodes_without_provisioners_pass() {
-        let manifest: Manifest =
-            toml::from_str("name = \"lab\"\n[[nodes]]\nname = \"r1\"\nmodel = \"cisco_iosv\"\n")
-                .unwrap();
+        let manifest: Manifest = toml::from_str(
+            r#"
+            name = "lab"
+
+            [[nodes]]
+            name = "r1"
+            model = "cisco_iosv"
+            "#,
+        )
+        .unwrap();
         validate_provisioners(&manifest).unwrap();
     }
 
@@ -296,7 +335,7 @@ type = "ssh"
             "windows_server",
             "nanos_unikernel",
         ] {
-            let error = rejection(model, "scripts = [\"./setup.sh\"]");
+            let error = rejection(model, r#"scripts = ["./setup.sh"]"#);
             assert!(error.contains("dev01"), "{error}");
             assert!(error.contains("Linux and BSD VMs"), "{error}");
         }
@@ -341,10 +380,14 @@ type = "ssh"
     fn empty_sources_and_scripts_are_rejected() {
         let error = rejection(
             "ubuntu_linux",
-            "[[nodes.provisioners.files]]\nsrc = \"\"\ndst = \"~/token\"\n",
+            r#"
+            [[nodes.provisioners.files]]
+            src = ""
+            dst = "~/token"
+            "#,
         );
         assert!(error.contains("src"), "{error}");
-        let error = rejection("ubuntu_linux", "scripts = [\" \"]");
+        let error = rejection("ubuntu_linux", r#"scripts = [" "]"#);
         assert!(error.contains("script"), "{error}");
     }
 
@@ -352,18 +395,18 @@ type = "ssh"
     fn env_file_names_must_be_unique_on_a_node() {
         let error = rejection(
             "ubuntu_linux",
-            "env_files = [\"~/one/dev.env\", \"~/two/dev.env\"]",
+            r#"env_files = ["~/one/dev.env", "~/two/dev.env"]"#,
         );
         assert!(error.contains("dev.env"), "{error}");
         for env_file in ["~/", "~/my dev.env", "~/dev$1.env"] {
-            let error = rejection("ubuntu_linux", &format!("env_files = [\"{env_file}\"]"));
+            let error = rejection("ubuntu_linux", &format!(r#"env_files = ["{env_file}"]"#));
             assert!(error.contains("env file"), "{env_file}: {error}");
         }
     }
 
     #[test]
     fn provision_concurrency_must_be_at_least_one() {
-        let mut manifest = manifest("ubuntu_linux", "scripts = [\"a.sh\"]");
+        let mut manifest = manifest("ubuntu_linux", r#"scripts = ["a.sh"]"#);
         manifest.provision_concurrency = Some(1);
         validate_provisioners(&manifest).unwrap();
         manifest.provision_concurrency = Some(0);

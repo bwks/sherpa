@@ -89,7 +89,7 @@ mod tests {
     fn test_bridge_kind_serde_roundtrip() {
         let kind = BridgeKind::SharedBridge;
         let json = serde_json::to_string(&kind).expect("serializes");
-        assert_eq!(json, "\"shared_bridge\"");
+        assert_eq!(json, r#""shared_bridge""#);
         let back: BridgeKind = serde_json::from_str(&json).expect("deserializes");
         assert_eq!(back, BridgeKind::SharedBridge);
     }

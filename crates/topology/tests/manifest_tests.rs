@@ -62,42 +62,42 @@ password = "secret123"
 "#;
 
 const MANIFEST_WITH_TEXT_FILES: &str = r#"
-name = "text-files-lab"
+    name = "text-files-lab"
 
-[[nodes]]
-name = "dev01"
-model = "ubuntu_linux"
+    [[nodes]]
+    name = "dev01"
+    model = "ubuntu_linux"
 
-[[nodes.text_files]]
-src = "/home/user/.config/app.json"
-dst = "/etc/app/config.json"
-user = "root"
-group = "root"
-permissions = 644
+    [[nodes.text_files]]
+    src = "/home/user/.config/app.json"
+    dst = "/etc/app/config.json"
+    user = "root"
+    group = "root"
+    permissions = 644
 
-[[nodes.text_files]]
-src = "relative/path.txt"
-dst = "/opt/data/path.txt"
-user = "sherpa"
-group = "sherpa"
-permissions = 755
-"#;
+    [[nodes.text_files]]
+    src = "relative/path.txt"
+    dst = "/opt/data/path.txt"
+    user = "sherpa"
+    group = "sherpa"
+    permissions = 755
+    "#;
 
 const MANIFEST_WITH_TEXT_FILES_UNKNOWN_FIELD: &str = r#"
-name = "bad-lab"
+    name = "bad-lab"
 
-[[nodes]]
-name = "dev01"
-model = "ubuntu_linux"
+    [[nodes]]
+    name = "dev01"
+    model = "ubuntu_linux"
 
-[[nodes.text_files]]
-src = "/tmp/file.txt"
-dst = "/etc/file.txt"
-user = "root"
-group = "root"
-permissions = 644
-unknown_field = "bad"
-"#;
+    [[nodes.text_files]]
+    src = "/tmp/file.txt"
+    dst = "/etc/file.txt"
+    user = "root"
+    group = "root"
+    permissions = 644
+    unknown_field = "bad"
+    "#;
 
 const MANIFEST_WITH_VOLUMES: &str = r#"
 name = "vol-lab"
@@ -240,8 +240,8 @@ nodes = [
 #[test]
 fn test_parse_missing_nodes() {
     let toml_str = r#"
-name = "test-lab"
-"#;
+        name = "test-lab"
+        "#;
     let result = toml::from_str::<Manifest>(toml_str);
     assert!(result.is_err());
 }
@@ -266,7 +266,14 @@ fn test_parse_node_rejects_management_addresses() {
         r#"ipv6_address = "fd00::10""#,
     ] {
         let toml_str = format!(
-            "name = \"test-lab\"\n\n[[nodes]]\nname = \"dev01\"\nmodel = \"ubuntu_linux\"\n{field}\n"
+            r#"
+            name = "test-lab"
+
+            [[nodes]]
+            name = "dev01"
+            model = "ubuntu_linux"
+            {field}
+            "#
         );
         let error = toml::from_str::<Manifest>(&toml_str).unwrap_err();
         assert!(error.to_string().contains("unknown field"), "{error}");
@@ -353,7 +360,17 @@ fn test_write_load_roundtrip() {
 #[test]
 fn test_write_file_keeps_every_field() {
     let input = format!(
-        "{FULL_MANIFEST}\n[[talos_clusters]]\nname = \"k8s\"\ncontrollers = [\"router1\"]\n\n[tailscale]\nenabled = true\nauth_key_env = \"TS_KEY\"\n"
+        r#"
+        {FULL_MANIFEST}
+
+        [[talos_clusters]]
+        name = "k8s"
+        controllers = ["router1"]
+
+        [tailscale]
+        enabled = true
+        auth_key_env = "TS_KEY"
+        "#
     );
     let manifest: Manifest = toml::from_str(&input).expect("parses full manifest");
 

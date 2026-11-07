@@ -4,7 +4,7 @@ use bollard::query_parameters::{InspectContainerOptions, ListNetworksOptions};
 use jato::{Auth, ConnectOptions, Exit, Hop, HostKeyPolicy, Node, Session};
 use reqwest::{Client, StatusCode};
 use serde_json::json;
-use shared::data::{DbUser, NodeConfig, NodeModel, NodeState};
+use shared::data::{DbUser, LabNodeActionResponse, NodeConfig, NodeModel, NodeState};
 use shared::error::RpcErrorCode;
 use shared::konst::SSH_PORT;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
@@ -467,8 +467,12 @@ async fn test_container_lab_down_and_resume() -> Result<()> {
                 )
                 .await?;
             ensure!(
-                response.get("error").is_none()
-                    && !response["result"].to_string().contains("\"success\":false"),
+                response.get("error").is_none(),
+                "{method} failed: {response}"
+            );
+            let result: LabNodeActionResponse = serde_json::from_value(response["result"].clone())?;
+            ensure!(
+                result.results.iter().all(|node| node.success),
                 "{method} should succeed for every node: {response}"
             );
         }
