@@ -131,7 +131,7 @@ async fn inspect_lab_inner(
             int_a: link.int_a,
             node_b_name: node_name_from_id(&db_nodes, &link.node_b),
             int_b: link.int_b,
-            kind: link.kind.to_string(),
+            kind: link.kind,
         })
         .collect();
 

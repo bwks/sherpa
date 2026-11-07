@@ -10,9 +10,9 @@ use super::container::ContainerImage;
 use super::provider::VmProviders;
 
 use crate::konst::{
-    OTEL_DEFAULT_ENDPOINT, OTEL_DEFAULT_PROTOCOL, OTEL_DEFAULT_SAMPLE_RATIO,
-    OTEL_DEFAULT_SERVICE_NAME, SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD,
-    SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_WS_PORT, SHERPA_USERNAME,
+    OTEL_DEFAULT_ENDPOINT, OTEL_DEFAULT_SAMPLE_RATIO, OTEL_DEFAULT_SERVICE_NAME,
+    SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_SERVER_HTTP_PORT,
+    SHERPA_SERVER_WS_PORT, SHERPA_USERNAME,
 };
 use crate::util::path_to_string;
 
@@ -40,6 +40,8 @@ impl Default for ZtpServer {
 pub struct ServerConnection {
     /// WebSocket URL (e.g., ws://localhost:3030/ws)
     pub url: Option<String>,
+    /// The server's HTTP port, which serves its certificate to trust on first connect
+    pub http_port: u16,
     /// Connection timeout in seconds
     pub timeout_secs: u64,
     /// Validate server TLS certificates against system CA store
@@ -56,6 +58,7 @@ impl Default for ServerConnection {
     fn default() -> Self {
         Self {
             url: None,
+            http_port: SHERPA_SERVER_HTTP_PORT,
             timeout_secs: 3,
             validate_certs: true,
             ca_cert_path: None,
@@ -64,33 +67,29 @@ impl Default for ServerConnection {
     }
 }
 
-/// TLS configuration for server
+/// TLS configuration for server. A field left out of the config file takes its value from
+/// `TlsConfig::default()`, so a `[tls]` section that sets only `san` keeps TLS on.
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(default)]
 pub struct TlsConfig {
     /// Enable TLS for WebSocket connections
-    #[serde(default)]
     pub enabled: bool,
 
     /// Path to server certificate (PEM format)
     /// If not provided, uses /opt/sherpa/.certs/server.crt
-    #[serde(default)]
     pub cert_path: Option<String>,
 
     /// Path to server private key (PEM format)
     /// If not provided, uses /opt/sherpa/.certs/server.key
-    #[serde(default)]
     pub key_path: Option<String>,
 
     /// Auto-generate self-signed certificate if none exists
-    #[serde(default)]
     pub auto_generate_cert: bool,
 
     /// Certificate validity in days (for auto-generated certs)
-    #[serde(default)]
     pub cert_validity_days: u32,
 
     /// Subject Alternative Names for certificate (e.g., DNS names, IPs)
-    #[serde(default)]
     pub san: Vec<String>,
 }
 
@@ -117,8 +116,6 @@ pub struct OtelConfig {
     pub enabled: bool,
     /// OTLP collector endpoint
     pub endpoint: String,
-    /// OTLP transport protocol: "grpc" or "http"
-    pub protocol: String,
     /// Service name reported to the collector
     pub service_name: String,
     /// Trace sampling ratio 0.0..=1.0 (1.0 = sample everything)
@@ -130,7 +127,6 @@ impl Default for OtelConfig {
         Self {
             enabled: false,
             endpoint: OTEL_DEFAULT_ENDPOINT.to_owned(),
-            protocol: OTEL_DEFAULT_PROTOCOL.to_owned(),
             service_name: OTEL_DEFAULT_SERVICE_NAME.to_owned(),
             sample_ratio: OTEL_DEFAULT_SAMPLE_RATIO,
         }
@@ -149,8 +145,6 @@ pub struct ClientConfig {
     pub server_ipv6: Option<Ipv6Addr>,
     #[serde(default = "default_ws_port")]
     pub ws_port: u16,
-    #[serde(default = "default_http_port")]
-    pub http_port: u16,
     #[serde(default)]
     pub server_connection: ServerConnection,
     #[serde(default)]
@@ -164,7 +158,6 @@ impl Default for ClientConfig {
             server_ipv4: default_server_ipv4(),
             server_ipv6: None,
             ws_port: default_ws_port(),
-            http_port: default_http_port(),
             server_connection: ServerConnection::default(),
             tls: TlsConfig::default(),
         }
@@ -391,6 +384,27 @@ mod tests {
     }
 
     #[test]
+    fn the_client_reads_the_server_http_port_from_its_connection_settings() {
+        assert_eq!(
+            ServerConnection::default().http_port,
+            SHERPA_SERVER_HTTP_PORT
+        );
+        let config: ClientConfig =
+            toml::from_str("http_port = 9000\n[server_connection]\nhttp_port = 8443\n")
+                .expect("parses");
+        assert_eq!(config.server_connection.http_port, 8443);
+    }
+
+    #[test]
+    fn a_tls_section_missing_fields_takes_their_defaults() {
+        let tls: TlsConfig = serde_json::from_str(r#"{"san": ["lab.example"]}"#).expect("parses");
+        assert!(tls.enabled);
+        assert!(tls.auto_generate_cert);
+        assert_eq!(tls.cert_validity_days, 365);
+        assert_eq!(tls.san, ["lab.example"]);
+    }
+
+    #[test]
     fn test_tls_config_default() {
         let tls = TlsConfig::default();
         assert!(tls.enabled);
@@ -406,7 +420,6 @@ mod tests {
         let config = ClientConfig::default();
         assert_eq!(config.server_ipv4, Ipv4Addr::new(127, 0, 0, 1));
         assert_eq!(config.ws_port, SHERPA_SERVER_WS_PORT);
-        assert_eq!(config.http_port, SHERPA_SERVER_HTTP_PORT);
         assert!(config.server_ipv6.is_none());
     }
 
@@ -417,7 +430,15 @@ mod tests {
         let back: ClientConfig = toml::from_str(&toml_str).expect("deserializes");
         assert_eq!(back.server_ipv4, config.server_ipv4);
         assert_eq!(back.ws_port, config.ws_port);
-        assert_eq!(back.http_port, config.http_port);
+    }
+
+    #[test]
+    fn an_otel_section_from_an_older_release_still_loads() {
+        let otel: OtelConfig =
+            toml::from_str("enabled = true\nprotocol = \"grpc\"\n").expect("parses");
+        assert!(otel.enabled);
+        let written = toml::to_string_pretty(&otel).expect("serializes");
+        assert!(!written.contains("protocol"), "{written}");
     }
 
     #[test]
@@ -425,7 +446,6 @@ mod tests {
         let otel = OtelConfig::default();
         assert!(!otel.enabled);
         assert_eq!(otel.endpoint, "http://localhost:4317");
-        assert_eq!(otel.protocol, "grpc");
         assert_eq!(otel.service_name, "sherpad");
         assert!((otel.sample_ratio - 1.0).abs() < f64::EPSILON);
     }
@@ -435,7 +455,6 @@ mod tests {
         let otel = OtelConfig {
             enabled: true,
             endpoint: "http://collector:4317".to_string(),
-            protocol: "http".to_string(),
             service_name: "test-service".to_string(),
             sample_ratio: 0.5,
         };
@@ -443,7 +462,6 @@ mod tests {
         let back: OtelConfig = toml::from_str(&toml_str).expect("deserializes");
         assert!(back.enabled);
         assert_eq!(back.endpoint, "http://collector:4317");
-        assert_eq!(back.protocol, "http");
         assert_eq!(back.service_name, "test-service");
         assert!((back.sample_ratio - 0.5).abs() < f64::EPSILON);
     }

@@ -558,7 +558,6 @@ pub const VAULT_ZTP_CONFIG_MOUNT: &str = "/vault/config/config.hcl";
 
 // OpenTelemetry defaults
 pub const OTEL_DEFAULT_ENDPOINT: &str = "http://localhost:4317";
-pub const OTEL_DEFAULT_PROTOCOL: &str = "grpc";
 pub const OTEL_DEFAULT_SERVICE_NAME: &str = "sherpad";
 pub const OTEL_DEFAULT_SAMPLE_RATIO: f64 = 1.0;
 

@@ -479,12 +479,7 @@ pub(crate) fn from_user(user: &DbUser) -> Result<Option<GuestAccount>> {
     let mut seen = HashSet::new();
     let mut ssh_keys = Vec::new();
     for key in &user.ssh_keys {
-        ensure!(
-            !key.trim().contains(['\n', '\r']),
-            "SSH public keys must occupy a single line"
-        );
         validate_ssh_key(key).context("Invalid SSH public key registered for lab owner")?;
-        // Parsing also checks the wire format, unlike the existing format validator.
         let parsed = PublicKey::from_openssh(key.trim())
             .context("Invalid SSH public key registered for lab owner")?;
         let encoded = parsed

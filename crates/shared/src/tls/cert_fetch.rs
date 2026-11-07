@@ -7,13 +7,11 @@ use anyhow::{Context, Result};
 use std::time::Duration;
 use url::Url;
 
-use crate::konst::SHERPA_SERVER_HTTP_PORT;
-
 /// Fetch server certificate from the /cert endpoint via HTTP
 ///
 /// # Arguments
 /// * `server_url` - The WebSocket server URL (ws:// or wss://)
-/// * `http_port` - Optional HTTP port for the /cert endpoint. If `None`, defaults to `SHERPA_SERVER_HTTP_PORT`.
+/// * `http_port` - The server's HTTP port, which serves the /cert endpoint.
 ///
 /// # Returns
 /// The certificate in PEM format
@@ -22,14 +20,12 @@ use crate::konst::SHERPA_SERVER_HTTP_PORT;
 /// - Network errors (connection failed, timeout, etc.)
 /// - Server returned non-200 status
 /// - Invalid PEM format received
-pub async fn fetch_server_certificate(server_url: &str, http_port: Option<u16>) -> Result<String> {
+pub async fn fetch_server_certificate(server_url: &str, http_port: u16) -> Result<String> {
     // Parse the WebSocket URL to extract host
     let ws_url =
         Url::parse(server_url).with_context(|| format!("Invalid server URL: {}", server_url))?;
 
     let host = ws_url.host_str().context("Server URL missing host")?;
-
-    let http_port = http_port.unwrap_or(SHERPA_SERVER_HTTP_PORT);
 
     // Construct HTTP URL for certificate endpoint
     let cert_url = format!("http://{}:{}/cert", host, http_port);
@@ -96,72 +92,45 @@ pub async fn fetch_server_certificate(server_url: &str, http_port: Option<u16>) 
     }
 }
 
-/// Parse a WebSocket URL and extract host:port for certificate lookup
-///
-/// # Arguments
-/// * `server_url` - The WebSocket server URL (ws:// or wss://)
-///
-/// # Returns
-/// A string in the format "host:port" for use in trust store lookups
-pub fn _parse_server_address(server_url: &str) -> Result<String> {
-    let ws_url =
-        Url::parse(server_url).with_context(|| format!("Invalid server URL: {}", server_url))?;
-
-    let host = ws_url.host_str().context("Server URL missing host")?;
-
-    let port = ws_url
-        .port()
-        .or_else(|| match ws_url.scheme() {
-            "ws" => Some(80),
-            "wss" => Some(443),
-            _ => None,
-        })
-        .context("Unable to determine server port")?;
-
-    Ok(format!("{}:{}", host, port))
-}
-
 #[cfg(test)]
 mod tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
     use super::*;
+    use crate::konst::SHERPA_SERVER_HTTP_PORT;
 
-    #[test]
-    fn test_parse_server_address() {
-        // WSS with explicit port
-        let addr = _parse_server_address("wss://192.168.1.100:3030/ws").unwrap();
-        assert_eq!(addr, "192.168.1.100:3030");
+    const SELF_SIGNED: &str = include_str!("testdata/self_signed.crt");
 
-        // WS with explicit port
-        let addr = _parse_server_address("ws://localhost:3030/ws").unwrap();
-        assert_eq!(addr, "localhost:3030");
-
-        // WSS with default port
-        let addr = _parse_server_address("wss://example.com/ws").unwrap();
-        assert_eq!(addr, "example.com:443");
-
-        // WS with default port
-        let addr = _parse_server_address("ws://example.com/ws").unwrap();
-        assert_eq!(addr, "example.com:80");
-
-        // Hostname with port
-        let addr = _parse_server_address("wss://sherpa.example.com:8443/ws").unwrap();
-        assert_eq!(addr, "sherpa.example.com:8443");
+    /// Answer one request on a free local port with the test certificate, and return the port.
+    fn serve_certificate_once() -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request).unwrap();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{SELF_SIGNED}",
+                SELF_SIGNED.len()
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+        port
     }
 
-    #[test]
-    fn test_parse_invalid_url() {
-        let result = _parse_server_address("not a url");
-        assert!(result.is_err());
-
-        let result = _parse_server_address("http://example.com");
-        assert!(result.is_err()); // HTTP scheme is not handled, only ws/wss
+    #[tokio::test]
+    async fn the_certificate_is_fetched_from_the_configured_http_port() {
+        let port = serve_certificate_once();
+        let pem = fetch_server_certificate("wss://127.0.0.1:3030/ws", port)
+            .await
+            .unwrap();
+        assert_eq!(pem, SELF_SIGNED);
     }
 
     #[tokio::test]
     async fn test_fetch_certificate_invalid_url() {
-        let result = fetch_server_certificate("not a valid url", None).await;
+        let result = fetch_server_certificate("not a valid url", SHERPA_SERVER_HTTP_PORT).await;
         assert!(result.is_err());
     }
-
-    // Note: Integration tests with real server would go in tests/ directory
 }

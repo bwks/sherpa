@@ -47,16 +47,23 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool> {
 
     let argon2 = Argon2::default();
 
-    // verify_password returns Result<(), Error>, we convert to bool
+    // Only a mismatch is a wrong password; a hash argon2 cannot check is an error to report.
     match argon2.verify_password(password.as_bytes(), &parsed_hash) {
         Ok(()) => Ok(true),
-        Err(_) => Ok(false),
+        Err(argon2::password_hash::Error::Password) => Ok(false),
+        Err(error) => Err(anyhow!("Cannot check the password hash: {error}")),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hash_argon2_cannot_check_is_an_error_not_a_wrong_password() {
+        let scrypt = "$scrypt$ln=4,r=8,p=1$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaA";
+        assert!(verify_password("TestPass123!", scrypt).is_err());
+    }
 
     #[test]
     fn test_hash_password_valid() {

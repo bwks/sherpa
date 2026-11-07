@@ -446,7 +446,7 @@ fn display_up_results(response: &UpResponse) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::{NodeModel, NodeState};
+    use shared::data::{NodeKind, NodeModel, NodeState};
     use shared::util::base64_decode;
     use std::io::Write;
     use tempfile::NamedTempFile;
@@ -718,7 +718,7 @@ mod tests {
     fn node_info(name: &str, ssh_port: Option<u16>) -> NodeInfo {
         NodeInfo {
             name: name.to_string(),
-            kind: "virtual_machine".to_string(),
+            kind: NodeKind::VirtualMachine,
             model: NodeModel::UbuntuLinux,
             status: NodeState::Running,
             ip_address: None,

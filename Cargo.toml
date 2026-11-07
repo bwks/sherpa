@@ -63,6 +63,7 @@ serde_json = "1.0.128"
 ssh-key = { version = "0.6.7", features = ["rsa", "ed25519"] }
 strum = "0.27"
 tempfile = "3.25.0"
+gethostname = "1.1.0"
 thiserror = "2.0.17"
 tokio = "1.49.0"
 tokio-tungstenite = "0.28"

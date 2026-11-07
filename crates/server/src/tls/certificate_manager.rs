@@ -2,10 +2,11 @@ use anyhow::{Context, Result};
 use axum_server::tls_rustls::RustlsConfig;
 use shared::data::TlsConfig;
 use shared::konst::{SHERPA_SERVER_CERT_PATH, SHERPA_SERVER_KEY_PATH};
+use shared::tls::compute_fingerprint;
 use std::path::{Path, PathBuf};
 
 use super::generator::generate_self_signed_certificate;
-use super::loader::build_rustls_config;
+use super::loader::{build_rustls_config, load_certificates};
 
 /// Manages TLS certificates for the Sherpa server
 pub struct CertificateManager {
@@ -92,7 +93,20 @@ impl CertificateManager {
             .context("Failed to build Rustls configuration")?;
 
         tracing::info!("Successfully loaded TLS configuration");
+        tracing::info!(
+            fingerprint = %self.fingerprint()?,
+            "TLS certificate fingerprint (SHA-256), which clients ask users to check on first connect"
+        );
         Ok(rustls_config)
+    }
+
+    /// The SHA-256 fingerprint of the server certificate, as `sherpa` shows it on first connect.
+    pub fn fingerprint(&self) -> Result<String> {
+        let certificates = load_certificates(&self.cert_path)?;
+        let certificate = certificates
+            .first()
+            .with_context(|| format!("No certificate in {}", self.cert_path.display()))?;
+        compute_fingerprint(certificate)
     }
 
     /// Get the certificate file path
@@ -111,6 +125,7 @@ impl CertificateManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::tls::extract_cert_info;
     use tempfile::TempDir;
 
     #[test]
@@ -150,5 +165,23 @@ mod tests {
         assert!(result.is_ok());
         assert!(cert_path.exists());
         assert!(key_path.exists());
+    }
+
+    #[tokio::test]
+    async fn the_logged_fingerprint_is_the_one_clients_are_asked_to_check() {
+        let temp_dir = TempDir::new().unwrap();
+        let cert_path = temp_dir.path().join("server.crt");
+        let config = TlsConfig {
+            cert_path: Some(cert_path.display().to_string()),
+            key_path: Some(temp_dir.path().join("server.key").display().to_string()),
+            san: vec!["IP:127.0.0.1".to_string()],
+            ..TlsConfig::default()
+        };
+        let manager = CertificateManager::new(&config).unwrap();
+        manager.ensure_certificates(&config.san).await.unwrap();
+
+        let pem = std::fs::read_to_string(&cert_path).unwrap();
+        let shown = extract_cert_info("wss://127.0.0.1:3030/ws", &pem).unwrap();
+        assert_eq!(manager.fingerprint().unwrap(), shown.fingerprint);
     }
 }

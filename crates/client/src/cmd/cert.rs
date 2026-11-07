@@ -108,7 +108,7 @@ pub fn cert_show(server_url: &str) -> Result<()> {
 }
 
 /// Manually fetch and trust a certificate
-pub async fn cert_trust(server_url: &str) -> Result<()> {
+pub async fn cert_trust(server_url: &str, http_port: u16) -> Result<()> {
     let trust_store = TrustStore::new().context("Failed to initialize trust store")?;
 
     // Normalize the input to a full URL
@@ -130,7 +130,7 @@ pub async fn cert_trust(server_url: &str) -> Result<()> {
     println!();
 
     // Fetch certificate from server
-    let cert_pem = fetch_server_certificate(&normalized_url, None)
+    let cert_pem = fetch_server_certificate(&normalized_url, http_port)
         .await
         .context("Failed to fetch server certificate")?;
 

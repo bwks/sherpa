@@ -1,15 +1,18 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use base64::{Engine, engine::general_purpose};
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 use ssh_key::{Algorithm, HashAlg, LineEnding, PrivateKey, PublicKey};
+use tempfile::NamedTempFile;
 use tracing::instrument;
 
 use std::collections::HashSet;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+use std::fs::Permissions;
+use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader, ErrorKind, Write};
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -63,6 +66,13 @@ pub struct SshConfigCleanReport {
     pub server_validation_available: bool,
     pub server_validation_message: Option<String>,
 }
+
+/// The lock file that serialises Sherpa's changes to the SSH config files.
+const SSH_LOCK_FILE: &str = "sherpa_lab_hosts.lock";
+
+/// Mode of a generated private key: sherpad and the `sherpa` group read it.
+#[cfg(unix)]
+const PRIVATE_KEY_MODE: u32 = 0o640;
 
 /// Read an SSH public key file and return a String.
 pub fn get_ssh_public_key(path: &str) -> Result<SshPublicKey> {
@@ -168,19 +178,26 @@ pub fn generate_ssh_keypair(directory: &str, keyname: &str, algorithm: Algorithm
     let private_key_path = &format!("{directory}/{keyname}");
     let public_key_path = &format!("{directory}/{keyname}.pub");
 
-    // Create the SSH Public/Private keypair
     create_file(public_key_path, public_key_ssh.to_string())?;
-    create_file(private_key_path, private_key_pem.to_string())?;
+    write_private_key(Path::new(private_key_path), &private_key_pem)
+}
 
-    // Update permissions of private key file to be read-only.
+/// Write a private key that only its owner and group can read. The mode is set on the open
+/// file before the key goes in, so the key is never readable by others, even for a moment and
+/// even when the file already existed with a wider mode.
+fn write_private_key(path: &Path, key: &str) -> Result<()> {
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
     #[cfg(unix)]
-    {
-        let metadata = std::fs::metadata(private_key_path)?;
-        let mut perms = metadata.permissions();
-        perms.set_mode(0o640);
-        std::fs::set_permissions(private_key_path, perms)?;
-    }
-
+    options.mode(PRIVATE_KEY_MODE);
+    let mut file = options
+        .open(path)
+        .with_context(|| format!("Error creating file: {}", path.display()))?;
+    #[cfg(unix)]
+    file.set_permissions(Permissions::from_mode(PRIVATE_KEY_MODE))
+        .with_context(|| format!("Error setting the mode of {}", path.display()))?;
+    file.write_all(key.as_bytes())
+        .with_context(|| format!("Error writing {}", path.display()))?;
     Ok(())
 }
 
@@ -231,24 +248,120 @@ fn sherpa_index_path(ssh_dir: &Path) -> PathBuf {
     ssh_dir.join(SHERPA_SSH_INDEX_FILE)
 }
 
+/// The path of an `Include` line, unquoting a path written in double quotes.
 fn parse_include_target(line: &str) -> Option<Result<String>> {
     let trimmed = line.trim();
     if trimmed.is_empty() || trimmed.starts_with('#') {
         return None;
     }
 
-    let parts: Vec<&str> = trimmed.split_whitespace().collect();
-    if parts.first() != Some(&"Include") {
+    let Some(target) = trimmed
+        .strip_prefix("Include")
+        .filter(|rest| rest.starts_with(char::is_whitespace))
+    else {
         return Some(Err(anyhow!("Line is not an Include directive")));
-    }
+    };
+    let target = target.trim();
 
-    if parts.len() != 2 {
-        return Some(Err(anyhow!(
-            "Include directive must contain exactly one path"
-        )));
-    }
+    let target = match target
+        .strip_prefix('"')
+        .and_then(|quoted| quoted.strip_suffix('"'))
+    {
+        Some(unquoted) if !unquoted.contains('"') => unquoted,
+        Some(_) => {
+            return Some(Err(anyhow!(
+                "Include directive must contain exactly one path"
+            )));
+        }
+        None if target.contains(char::is_whitespace) || target.contains('"') => {
+            return Some(Err(anyhow!(
+                "Include directive must contain exactly one path"
+            )));
+        }
+        None => target,
+    };
 
-    Some(Ok(parts[1].to_string()))
+    Some(Ok(target.to_string()))
+}
+
+/// The `Include` line for a path, quoted when the path holds whitespace, as ssh reads it.
+fn include_directive(path: &str) -> Result<String> {
+    if path.contains('"') {
+        bail!("ssh cannot include a path with a double quote: {path}");
+    }
+    if path.contains(char::is_whitespace) {
+        Ok(format!("Include \"{path}\""))
+    } else {
+        Ok(format!("Include {path}"))
+    }
+}
+
+/// Whether `content` has an `Include` line for `path`, quoted or not.
+fn has_include(content: &str, path: &str) -> bool {
+    content
+        .lines()
+        .any(|line| matches!(parse_include_target(line), Some(Ok(target)) if target == path))
+}
+
+/// Replace a file's contents in one step: write a temporary file beside it with the old file's
+/// mode, then rename it over the old one, so a crash or a full disk never leaves it cut short.
+/// A symlinked file (a dotfiles manager's) is followed, so the link stays in place.
+fn replace_file(path: &Path, contents: &str) -> Result<()> {
+    let target = match std::fs::canonicalize(path) {
+        Ok(real) => real,
+        Err(error) if error.kind() == ErrorKind::NotFound => path.to_path_buf(),
+        Err(error) => {
+            return Err(error).with_context(|| format!("Failed to resolve {}", path.display()));
+        }
+    };
+    let folder = target
+        .parent()
+        .with_context(|| format!("{} has no parent folder", target.display()))?;
+    let mut temporary = NamedTempFile::new_in(folder)
+        .with_context(|| format!("Failed to create a file in {}", folder.display()))?;
+    if let Ok(metadata) = std::fs::metadata(&target) {
+        temporary
+            .as_file()
+            .set_permissions(metadata.permissions())
+            .with_context(|| format!("Failed to copy the mode of {}", target.display()))?;
+    }
+    temporary
+        .write_all(contents.as_bytes())
+        .and_then(|()| temporary.as_file().sync_all())
+        .with_context(|| format!("Failed to write {}", target.display()))?;
+    temporary
+        .persist(&target)
+        .with_context(|| format!("Failed to replace {}", target.display()))?;
+    Ok(())
+}
+
+/// Hold the lock that serialises Sherpa's changes to the SSH config files; it is released when
+/// the returned file is dropped.
+fn lock_ssh_dir(ssh_dir: &Path) -> Result<File> {
+    let path = ssh_dir.join(SSH_LOCK_FILE);
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .with_context(|| format!("Failed to open {}", path.display()))?;
+    file.lock()
+        .with_context(|| format!("Failed to lock {}", path.display()))?;
+    Ok(file)
+}
+
+/// Create the SSH folder, owner only, if it does not exist.
+fn create_ssh_dir(ssh_dir: &Path) -> Result<()> {
+    if !ssh_dir.exists() {
+        std::fs::create_dir_all(ssh_dir)
+            .with_context(|| format!("Failed to create {}", ssh_dir.display()))?;
+        #[cfg(unix)]
+        {
+            std::fs::set_permissions(ssh_dir, PermissionsExt::from_mode(0o700))
+                .with_context(|| format!("Failed to set permissions on {}", ssh_dir.display()))?;
+        }
+    }
+    Ok(())
 }
 
 fn read_lab_info_for_include(include_path: &Path) -> Result<LabInfo> {
@@ -393,6 +506,11 @@ fn clean_stale_lab_ssh_includes_at(
     active_lab_ids: Option<&HashSet<String>>,
     server_validation_message: Option<String>,
 ) -> Result<SshConfigCleanReport> {
+    let _lock = if ssh_dir.exists() {
+        Some(lock_ssh_dir(ssh_dir)?)
+    } else {
+        None
+    };
     let inspection =
         inspect_lab_ssh_includes_at(ssh_dir, active_lab_ids, server_validation_message.clone())?;
 
@@ -434,8 +552,7 @@ fn clean_stale_lab_ssh_includes_at(
         .collect::<Vec<_>>()
         .join("\n");
 
-    std::fs::write(&inspection.index_path, format!("{}\n", new_content))
-        .with_context(|| format!("Failed to write {}", inspection.index_path.display()))?;
+    replace_file(&inspection.index_path, &format!("{new_content}\n"))?;
 
     let removed = inspection
         .entries
@@ -460,32 +577,21 @@ fn clean_stale_lab_ssh_includes_at(
 }
 
 /// Ensure ssh_dir/config has a permanent Include line for ssh_dir/sherpa_lab_hosts.
-/// Creates the config and sherpa_lab_hosts files if they don't exist.
-fn ensure_sherpa_include_in_ssh_config_at(ssh_dir: &std::path::Path) -> Result<std::path::PathBuf> {
+/// Creates the config and sherpa_lab_hosts files if they don't exist. The caller holds the
+/// SSH folder lock.
+fn ensure_sherpa_include_in_ssh_config_at(ssh_dir: &Path) -> Result<PathBuf> {
     let ssh_config_path = ssh_dir.join("config");
     let sherpa_configs_path = ssh_dir.join(SHERPA_SSH_INDEX_FILE);
 
-    // Ensure ssh_dir exists
-    if !ssh_dir.exists() {
-        std::fs::create_dir_all(ssh_dir)
-            .with_context(|| format!("Failed to create {}", ssh_dir.display()))?;
-        #[cfg(unix)]
-        {
-            std::fs::set_permissions(ssh_dir, PermissionsExt::from_mode(0o700))
-                .with_context(|| format!("Failed to set permissions on {}", ssh_dir.display()))?;
-        }
-    }
-
     // Ensure sherpa_lab_hosts exists
     if !sherpa_configs_path.exists() {
-        std::fs::write(
+        replace_file(
             &sherpa_configs_path,
-            format!("{}\n", SHERPA_SSH_INDEX_HEADER),
-        )
-        .with_context(|| format!("Failed to create {}", sherpa_configs_path.display()))?;
+            &format!("{SHERPA_SSH_INDEX_HEADER}\n"),
+        )?;
     }
 
-    let include_line = format!("Include {}", sherpa_configs_path.display());
+    let index_path = sherpa_configs_path.display().to_string();
 
     // Read existing config or start fresh
     let existing = if ssh_config_path.exists() {
@@ -496,64 +602,60 @@ fn ensure_sherpa_include_in_ssh_config_at(ssh_dir: &std::path::Path) -> Result<s
     };
 
     // Already has the Include — done
-    if existing.lines().any(|line| line.trim() == include_line) {
+    if has_include(&existing, &index_path) {
         return Ok(sherpa_configs_path);
     }
 
     // Prepend the Include line (must come before Host blocks)
-    let new_content = format!("{}\n{}", include_line, existing);
-    std::fs::write(&ssh_config_path, new_content)
-        .with_context(|| format!("Failed to write {}", ssh_config_path.display()))?;
+    let include_line = include_directive(&index_path)?;
+    replace_file(&ssh_config_path, &format!("{include_line}\n{existing}"))?;
 
     Ok(sherpa_configs_path)
 }
 
 /// Add an Include line for a lab's sherpa_ssh_config to the sherpa_lab_hosts index.
-fn add_lab_ssh_include_at(ssh_dir: &std::path::Path, lab_ssh_config_path: &str) -> Result<()> {
+fn add_lab_ssh_include_at(ssh_dir: &Path, lab_ssh_config_path: &str) -> Result<()> {
+    let include_line = include_directive(lab_ssh_config_path)?;
+    create_ssh_dir(ssh_dir)?;
+    let _lock = lock_ssh_dir(ssh_dir)?;
     let sherpa_configs_path = ensure_sherpa_include_in_ssh_config_at(ssh_dir)?;
 
     let existing = std::fs::read_to_string(&sherpa_configs_path)
         .with_context(|| format!("Failed to read {}", sherpa_configs_path.display()))?;
 
-    let include_line = format!("Include {}", lab_ssh_config_path);
-
     // Already present — idempotent
-    if existing.lines().any(|line| line.trim() == include_line) {
+    if has_include(&existing, lab_ssh_config_path) {
         return Ok(());
     }
 
-    let new_content = format!("{}{}\n", existing, include_line);
-    std::fs::write(&sherpa_configs_path, new_content)
-        .with_context(|| format!("Failed to write {}", sherpa_configs_path.display()))?;
+    replace_file(&sherpa_configs_path, &format!("{existing}{include_line}\n"))?;
 
     Ok(())
 }
 
 /// Remove an Include line for a lab's sherpa_ssh_config from the sherpa_lab_hosts index.
-fn remove_lab_ssh_include_at(ssh_dir: &std::path::Path, lab_ssh_config_path: &str) -> Result<()> {
+fn remove_lab_ssh_include_at(ssh_dir: &Path, lab_ssh_config_path: &str) -> Result<()> {
     let sherpa_configs_path = ssh_dir.join(SHERPA_SSH_INDEX_FILE);
 
     if !sherpa_configs_path.exists() {
         return Ok(());
     }
 
+    let _lock = lock_ssh_dir(ssh_dir)?;
     let content = std::fs::read_to_string(&sherpa_configs_path)
         .with_context(|| format!("Failed to read {}", sherpa_configs_path.display()))?;
 
-    let include_line = format!("Include {}", lab_ssh_config_path);
-
-    if !content.lines().any(|line| line.trim() == include_line) {
+    if !has_include(&content, lab_ssh_config_path) {
         return Ok(());
     }
 
-    let new_content: String = content
+    let new_content = content
         .lines()
-        .filter(|line| line.trim() != include_line)
+        .filter(|line| !has_include(line, lab_ssh_config_path))
         .collect::<Vec<_>>()
         .join("\n");
 
-    std::fs::write(&sherpa_configs_path, format!("{}\n", new_content))
-        .with_context(|| format!("Failed to write {}", sherpa_configs_path.display()))?;
+    replace_file(&sherpa_configs_path, &format!("{new_content}\n"))?;
 
     Ok(())
 }
@@ -601,6 +703,21 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_generated_private_key_is_group_readable_only() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let key = dir.path().join("lab_key");
+        std::fs::write(&key, "old").unwrap();
+        std::fs::set_permissions(&key, Permissions::from_mode(0o644)).unwrap();
+
+        generate_ssh_keypair(dir.path().to_str().unwrap(), "lab_key", Algorithm::Ed25519).unwrap();
+
+        let mode = std::fs::metadata(&key).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o640);
+        assert!(PrivateKey::from_openssh(std::fs::read_to_string(&key).unwrap()).is_ok());
+    }
 
     // ========================================================================
     // SSH Include management tests
@@ -829,6 +946,87 @@ loopback_network = "127.127.1.0/24"
         std::fs::write(&ssh_config_path, "Host test\n").unwrap();
         std::fs::write(lab_dir.join(LAB_FILE_NAME), valid_lab_info_toml(lab_id)).unwrap();
         ssh_config_path.to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn a_lab_folder_with_a_space_is_included_quoted_and_kept_by_clean() {
+        let tmp = TempDir::new().unwrap();
+        let ssh_dir = tmp.path().join(".ssh");
+        let include_path = create_lab_files(tmp.path(), "my labs", "lab-space");
+        add_lab_ssh_include_at(&ssh_dir, &include_path).unwrap();
+
+        let content = read_file(&ssh_dir.join(SHERPA_SSH_INDEX_FILE));
+        assert!(
+            content.contains(&format!("Include \"{include_path}\"")),
+            "{content}"
+        );
+
+        let active = HashSet::from(["lab-space".to_string()]);
+        let report = clean_stale_lab_ssh_includes_at(&ssh_dir, Some(&active), None).unwrap();
+        assert!(report.removed.is_empty(), "{:?}", report.removed);
+        assert_eq!(report.kept[0].status, SshConfigEntryStatus::Valid);
+
+        remove_lab_ssh_include_at(&ssh_dir, &include_path).unwrap();
+        assert!(!read_file(&ssh_dir.join(SHERPA_SSH_INDEX_FILE)).contains("my labs"));
+    }
+
+    #[test]
+    fn a_path_ssh_cannot_quote_is_refused() {
+        let tmp = TempDir::new().unwrap();
+        let ssh_dir = tmp.path().join(".ssh");
+        assert!(add_lab_ssh_include_at(&ssh_dir, "/tmp/a\"b/sherpa_ssh_config").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_ssh_config_keeps_its_link_and_mode() {
+        let tmp = TempDir::new().unwrap();
+        let ssh_dir = tmp.path().join(".ssh");
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+        let dotfiles = tmp.path().join("dotfiles_ssh_config");
+        std::fs::write(&dotfiles, "Host myserver\n").unwrap();
+        std::fs::set_permissions(&dotfiles, Permissions::from_mode(0o600)).unwrap();
+        std::os::unix::fs::symlink(&dotfiles, ssh_dir.join("config")).unwrap();
+
+        add_lab_ssh_include_at(&ssh_dir, "/tmp/lab1/sherpa_ssh_config").unwrap();
+
+        assert!(
+            std::fs::symlink_metadata(ssh_dir.join("config"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(read_file(&dotfiles).contains("Include "));
+        let mode = std::fs::metadata(&dotfiles).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn concurrent_adds_keep_every_lab() {
+        let tmp = TempDir::new().unwrap();
+        let ssh_dir = tmp.path().join(".ssh");
+        std::thread::scope(|scope| {
+            for lab in 0..16 {
+                let ssh_dir = &ssh_dir;
+                scope.spawn(move || {
+                    add_lab_ssh_include_at(ssh_dir, &format!("/tmp/lab{lab}/sherpa_ssh_config"))
+                        .unwrap();
+                });
+            }
+        });
+        let content = read_file(&ssh_dir.join(SHERPA_SSH_INDEX_FILE));
+        for lab in 0..16 {
+            assert!(
+                content.contains(&format!("/tmp/lab{lab}/sherpa_ssh_config")),
+                "{content}"
+            );
+        }
+        assert_eq!(
+            read_file(&ssh_dir.join("config"))
+                .matches("Include ")
+                .count(),
+            1
+        );
     }
 
     #[test]

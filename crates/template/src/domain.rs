@@ -41,6 +41,15 @@ pub struct DomainTemplate {
     pub watchdog: Option<WatchdogAction>,
 }
 
+impl DomainTemplate {
+    /// Whether a disk is on the SCSI bus, which needs the domain's virtio-scsi controller.
+    fn has_scsi_disk(&self) -> bool {
+        self.disks
+            .iter()
+            .any(|disk| disk.target_bus == DiskBuses::Scsi)
+    }
+}
+
 /// A node's performance tuning, as the domain renders it. The default renders no tuning.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DomainTuning {

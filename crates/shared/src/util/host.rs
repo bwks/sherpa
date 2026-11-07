@@ -4,27 +4,23 @@ use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 
 use anyhow::{Context, Result, anyhow};
+use gethostname::gethostname;
 
 #[cfg(feature = "netinfo")]
 use getifaddrs::{Address, Interfaces, getifaddrs};
 
 /// Returns the short hostname of the machine.
 pub fn get_hostname() -> Result<String> {
-    let output = std::process::Command::new("hostname")
-        .arg("-s")
-        .output()
-        .context("Failed to execute 'hostname -s'")?;
-
-    if !output.status.success() {
-        return Err(anyhow!("hostname -s exited with status {}", output.status));
+    let hostname = gethostname();
+    let hostname = hostname
+        .to_str()
+        .context("The hostname is not valid UTF-8")?;
+    // The short name, as `hostname -s` gives it: the name up to its first dot.
+    let short = hostname.split('.').next().unwrap_or_default().trim();
+    if short.is_empty() {
+        return Err(anyhow!("The hostname is empty"));
     }
-
-    let hostname = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if hostname.is_empty() {
-        return Err(anyhow!("hostname -s returned empty output"));
-    }
-
-    Ok(hostname)
+    Ok(short.to_string())
 }
 
 /// Returns the fully qualified domain name (FQDN) of the machine.

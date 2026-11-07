@@ -113,7 +113,7 @@ pub enum DiskTargets {
     Hdi,
     Hdj,
 
-    // Sata, USB
+    // SATA, SCSI, USB
     Sda,
     Sdb,
     Sdc,
@@ -195,7 +195,7 @@ impl DiskTargets {
                 9 => Ok(DiskTargets::Hdj),
                 _ => bail!("Unsupported disk target index: {index}"),
             },
-            DiskBuses::Sata | DiskBuses::Usb => match index {
+            DiskBuses::Sata | DiskBuses::Scsi | DiskBuses::Usb => match index {
                 0 => Ok(DiskTargets::Sda),
                 1 => Ok(DiskTargets::Sdb),
                 2 => Ok(DiskTargets::Sdc),
@@ -221,7 +221,6 @@ impl DiskTargets {
                 9 => Ok(DiskTargets::Vdj),
                 _ => bail!("Unsupported disk target index: {index}"),
             },
-            _ => bail!("Unsupported disk target bus: {disk_bus}"),
         }
     }
 }
@@ -328,7 +327,19 @@ mod tests {
     }
 
     #[test]
-    fn test_disk_targets_scsi_unsupported_returns_err() {
-        assert!(DiskTargets::target(&DiskBuses::Scsi, 0).is_err());
+    fn scsi_disks_are_named_like_sata_disks() {
+        assert_eq!(
+            DiskTargets::target(&DiskBuses::Scsi, 0)
+                .unwrap()
+                .to_string(),
+            "sda"
+        );
+        assert_eq!(
+            DiskTargets::target(&DiskBuses::Scsi, 9)
+                .unwrap()
+                .to_string(),
+            "sdj"
+        );
+        assert!(DiskTargets::target(&DiskBuses::Scsi, 10).is_err());
     }
 }

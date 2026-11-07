@@ -38,7 +38,8 @@ use crate::validate::{
 };
 use shared::data;
 use shared::data::{
-    LabSubnets, LinkImpairment, NodeCpuPins, NodeSshUsername, NodeState, StatusKind,
+    LabSubnets, LinkImpairment, NodeCpuPins, NodeKind, NodeSshUsername, NodeState, RecordId,
+    StatusKind,
 };
 use shared::konst::{
     BRIDGE_MEMBER_HOST_VETH_PREFIX, CONTAINER_DNSMASQ_CAPABILITIES, CONTAINER_DNSMASQ_NAME,
@@ -477,12 +478,17 @@ pub async fn up_lab(
     guest_account::require_ssh_key(&db_user)?;
 
     // Check if lab already exists (CRITICAL ERROR - fail fast)
-    if let Ok(lab) = db::get_lab(&db, lab_id).await {
-        bail!(
-            "Lab already exists. Please use a different lab ID or destroy the existing lab first.\n Lab name: {}\n Lab id: {}",
-            lab.name,
+    if let Some(lab) = db::find_lab(&db, lab_id)
+        .await
+        .context("Failed to check for an existing lab")?
+    {
+        return Err(lab_id_taken(
             lab_id,
-        );
+            &lab.name,
+            &lab.user,
+            &manifest.name,
+            db_user.id.as_ref(),
+        ));
     }
 
     let _ = progress.send_status("Loading configuration".to_string(), StatusKind::Info);
@@ -2460,14 +2466,9 @@ pub async fn up_lab(
                 };
                 let _ = progress.send_status(message, StatusKind::Done);
                 connected_nodes.insert(node.name.clone());
-                let kind = lab_node_data
-                    .iter()
-                    .find(|n| n.name == node.name)
-                    .map(|n| format!("{:?}", n.kind))
-                    .unwrap_or_else(|| "Unknown".to_string());
                 node_info_list.push(data::NodeInfo {
                     name: node.name.clone(),
-                    kind,
+                    kind: node.model.kind(),
                     model: node.model,
                     status: NodeState::Unknown,
                     ip_address: node.ipv4_address.map(|i| i.to_string()),
@@ -2587,7 +2588,7 @@ pub async fn up_lab(
                         connected_nodes.insert(container.name.clone());
                         node_info_list.push(data::NodeInfo {
                             name: container.name.clone(),
-                            kind: "Container".to_string(),
+                            kind: NodeKind::Container,
                             model: container.model,
                             status: NodeState::Unknown,
                             ip_address: mgmt_ipv4,
@@ -2665,7 +2666,7 @@ pub async fn up_lab(
 
                 node_info_list.push(data::NodeInfo {
                     name: container.name.clone(),
-                    kind: "Container".to_string(),
+                    kind: NodeKind::Container,
                     model: container.model,
                     status: NodeState::Running,
                     ip_address: mgmt_ipv4,
@@ -2718,7 +2719,7 @@ pub async fn up_lab(
 
                             node_info_list.push(data::NodeInfo {
                                 name: vm.name.clone(),
-                                kind: "VirtualMachine".to_string(),
+                                kind: NodeKind::VirtualMachine,
                                 model: vm.model,
                                 status: NodeState::Running,
                                 ip_address: Some(vm_data.ipv4_address.to_string()),
@@ -2778,7 +2779,7 @@ pub async fn up_lab(
 
                         node_info_list.push(data::NodeInfo {
                             name: uk.name.clone(),
-                            kind: "Unikernel".to_string(),
+                            kind: NodeKind::Unikernel,
                             model: uk.model,
                             status: NodeState::Running,
                             ip_address: mgmt_ip,
@@ -3109,9 +3110,47 @@ pub async fn up_lab(
     }
 }
 
+/// The error for an `up` whose lab ID is in use. Either this lab is still deployed, or another
+/// lab has the same ID: IDs are a hash of the owner and the lab name, so two owners' labs can
+/// collide. The other lab belongs to someone else, so it is not named.
+fn lab_id_taken(
+    lab_id: &str,
+    existing_name: &str,
+    existing_owner: &RecordId,
+    lab_name: &str,
+    owner: Option<&RecordId>,
+) -> anyhow::Error {
+    if existing_name == lab_name && owner == Some(existing_owner) {
+        anyhow!(
+            "Lab already exists. Please use a different lab ID or destroy the existing lab first.\n Lab name: {lab_name}\n Lab id: {lab_id}"
+        )
+    } else {
+        anyhow!(
+            "Lab '{lab_name}' gets the lab ID {lab_id}, which another lab already uses. \
+             Lab IDs come from the owner and the lab name, and these collide; rename the lab."
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_lab_id_another_lab_uses_is_reported_without_naming_it() {
+        let alice = RecordId::new("user", "alice".to_string());
+        let bob = RecordId::new("user", "bob".to_string());
+
+        let redeployed = lab_id_taken("ab12cd34", "core", &alice, "core", Some(&alice));
+        assert!(
+            redeployed.to_string().contains("destroy the existing lab"),
+            "{redeployed}"
+        );
+
+        let collision = lab_id_taken("ab12cd34", "x", &bob, "core", Some(&alice)).to_string();
+        assert!(collision.contains("rename the lab"), "{collision}");
+        assert!(!collision.contains("'x'"), "{collision}");
+    }
 
     #[test]
     fn test_skipped_vm_is_ready_before_polling() {

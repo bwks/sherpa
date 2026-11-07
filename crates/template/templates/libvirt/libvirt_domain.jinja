@@ -148,7 +148,7 @@
     </disk>
     {%         else %}
     <disk type='file' device='disk'>
-      <driver name='{{ disk.driver_name }}' type='{{ disk.driver_format }}'{% if let Some(cache) = tuning.disk_cache %} cache='{{ cache }}'{% endif %}{% if let Some(io) = tuning.disk_io %} io='{{ io }}'{% endif %}{% if tuning.io_thread_cpuset.is_some() %} iothread='1'{% endif %}/>
+      <driver name='{{ disk.driver_name }}' type='{{ disk.driver_format }}'{% if let Some(cache) = tuning.disk_cache %} cache='{{ cache }}'{% endif %}{% if let Some(io) = tuning.disk_io %} io='{{ io }}'{% endif %}{% if tuning.io_thread_cpuset.is_some() && disk.target_bus == DiskBuses::Virtio %} iothread='1'{% endif %}/>
       <source file='{{ disk.src_file }}'/>
       <target dev='{{ disk.target_dev }}' bus='{{ disk.target_bus }}'/>
     </disk>
@@ -159,6 +159,15 @@
     <controller type='usb' index='0' model='qemu-xhci'>
       <alias name='usb'/>
     </controller>
+    {% if self.has_scsi_disk() %}
+    {%   if tuning.io_thread_cpuset.is_some() %}
+    <controller type='scsi' index='0' model='virtio-scsi'>
+      <driver iothread='1'/>
+    </controller>
+    {%   else %}
+    <controller type='scsi' index='0' model='virtio-scsi'/>
+    {%   endif %}
+    {% endif %}
 
     <graphics type='vnc' port='{{ vnc_port }}' autoport='no'/>
     <video>
