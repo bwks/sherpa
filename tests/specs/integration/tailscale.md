@@ -23,16 +23,16 @@ full tailnet peer inventory exceeds the Docker exec output limit. They also cove
 configuration defaults, partial overrides, rejected settings, configurable gateway commands,
 and command/stop timeout overrides.
 
-## Deferred: live enrollment in the test environments
+## Live enrollment in the test environments
 
-Decision, 2026-10-16: the code suite in [`tests/environments/`](../../environments/README.md)
-runs `live_gateway_daemon_smoke` but skips
-`live_tailnet_enrollment_stop_reenroll_cleanup`. That test joins a real tailnet and needs
-`SHERPA_TEST_TAILSCALE_AUTH_KEY` plus a disposable Docker network
-(`SHERPA_TEST_TAILSCALE_NETWORK`, `_IPV4`, optional `_IPV6`, `_ROUTES`). Enabling it means
-passing an ephemeral test-tailnet key through the environment at run time, never in
-TOML, letting the harness create the network and addresses, and removing the
-`skip_tests` entry. Tracked in `PROJECT.md` under Tailnet access.
+The code suite in [`tests/environments/`](../../environments/README.md) always runs
+`live_gateway_daemon_smoke`. It runs `live_tailnet_enrollment_stop_reenroll_cleanup` when the
+run starts with `SHERPA_TEST_TAILSCALE_AUTH_KEY` set on the host, and skips it otherwise. The
+key travels in the run's settings file, never in TOML configuration or on a command line, and
+is redacted from the logs. The harness creates the disposable Docker network, sets
+`SHERPA_TEST_TAILSCALE_NETWORK`, `_IPV4` and `_ROUTES` for the container tests only, and
+removes the network afterwards. How to start such a run is in
+[`tests/README.md`](../../README.md#vm-code-suite).
 
 ## Docker Smoke Test
 

@@ -76,6 +76,11 @@ SCCACHE_BINARY = "tools/sccache"
 # in every run: crates that generate code embed their output path, and a path that changes
 # with the run changes their cache keys and those of every crate depending on them.
 CARGO_TARGET_DIR = "/var/tmp/sherpa-release-test-target"
+# The live tailnet test joins a real tailnet, so it runs only when the host passed a key. Its
+# gateway gets a disposable Docker network, created and removed around the integration tests.
+TAILNET_TEST = "tailscale::tests::live_tailnet_enrollment_stop_reenroll_cleanup"
+TAILNET_SUBNET = "172.31.250.0/24"
+TAILNET_GATEWAY_IPV4 = "172.31.250.10"
 THP_BOOT_RULE = Path("/etc/tmpfiles.d/sherpa-thp.conf")
 
 
@@ -183,12 +188,32 @@ def validate_upgrade_evidence(evidence, baseline, candidate):
 # The first release whose sherpad embeds its database; older ones ran SurrealDB in a container.
 EMBEDDED_DATABASE_VERSION = (0, 5, 0)
 LEGACY_DB_CONTAINER = "sherpa-db"
+# The first release whose installer makes the database directory 0750; older ones made it 0775.
+PRIVATE_DATABASE_DIRECTORY_VERSION = (0, 5, 13)
+
+
+def release_numbers(version):
+    """The numbers of a Sherpa release such as v0.5.0, for comparing releases."""
+    return tuple(int(part) for part in version.removeprefix("v").split("-", 1)[0].split("."))
 
 
 def embeds_database(version):
     """Whether a Sherpa release such as v0.5.0 keeps its database inside sherpad."""
-    numbers = tuple(int(part) for part in version.removeprefix("v").split("-", 1)[0].split("."))
-    return numbers >= EMBEDDED_DATABASE_VERSION
+    return release_numbers(version) >= EMBEDDED_DATABASE_VERSION
+
+
+def database_directory_mode(version):
+    """The mode a Sherpa release's installer gives /opt/sherpa/db."""
+    return 0o750 if release_numbers(version) >= PRIVATE_DATABASE_DIRECTORY_VERSION else 0o775
+
+
+def tailnet_test_environment(credentials, network):
+    """The live tailnet test's settings, or None when the run has no tailnet key."""
+    key = credentials.get("tailnet_auth_key")
+    if not key:
+        return None
+    return {"SHERPA_TEST_TAILSCALE_AUTH_KEY": key, "SHERPA_TEST_TAILSCALE_NETWORK": network,
+            "SHERPA_TEST_TAILSCALE_IPV4": TAILNET_GATEWAY_IPV4, "SHERPA_TEST_TAILSCALE_ROUTES": TAILNET_SUBNET}
 
 
 def ubuntu_version(version):
@@ -234,8 +259,9 @@ class Guest:
         self.marker = self.workspace / ".owner"
         self.base = Path("/opt/sherpa")
         self.passwords = [self.credentials["db_password"], self.credentials["admin_password"]]
-        if "build_cache_password" in self.credentials:
-            self.passwords.append(self.credentials["build_cache_password"])
+        for key in ("build_cache_password", "tailnet_auth_key"):
+            if key in self.credentials:
+                self.passwords.append(self.credentials[key])
 
     def guard(self, baseline=False):
         identity = self.config["identity"]
@@ -364,7 +390,8 @@ class Guest:
             require(link.is_symlink() and link.resolve() == path, f"Invalid {binary} symlink")
             _, output = self.command([str(path), "--version"])
             validate_binary_version(binary, self.config[selection]["version"], output)
-        for directory, permissions in (("", 0o775), ("db", 0o775), ("config", 0o775), ("env", 0o750)):
+        database_mode = database_directory_mode(self.config[selection]["version"])
+        for directory, permissions in (("", 0o775), ("db", database_mode), ("config", 0o775), ("env", 0o750)):
             path = self.base / directory
             require(path.is_dir() and path.stat().st_mode & 0o777 == permissions,
                     f"Invalid permissions for {path}")
@@ -956,35 +983,47 @@ class Guest:
                               "-f", str(self.workspace / name)])
         environment = self.cargo_environment(root=True)
         environment.update(assignment.split("=", 1) for assignment in tests["environment"])
-        skips = [argument for name in tests["skip_tests"] for argument in ("--skip", name)]
-        self.record_results("configuration", {"skip_tests": tests["skip_tests"],
-                                              "environment": tests["environment"]})
+        network = f"sherpa-test-tailnet-{self.config['identity']['nonce'][:8]}"
+        tailnet = tailnet_test_environment(self.credentials, network)
+        skipped = tests["skip_tests"] if tailnet else [*tests["skip_tests"], TAILNET_TEST]
+        skips = [argument for name in skipped for argument in ("--skip", name)]
+        self.record_results("configuration", {"skip_tests": skipped, "environment": tests["environment"],
+                                              "tailnet": "live" if tailnet else "skipped: no tailnet key"})
+        if not tailnet:
+            print("Live tailnet test skipped: the run has no tailnet key", flush=True)
         executables = tomllib.loads((self.workspace / TEST_EXECUTABLES_FILE).read_text())
         before = self.inventory()
+        if tailnet:
+            self.command(["docker", "network", "create", "--subnet", TAILNET_SUBNET, network])
         failed = []
-        for crate in tests["integration_crates"]:
-            # Run each executable the way `cargo test` does: from its package directory, and on
-            # to the next one when it fails.
-            code, outputs = 0, []
-            crate_executables = executables[crate]
-            for index, (path, directory) in enumerate(zip(crate_executables["paths"],
-                                                          crate_executables["directories"])):
-                run_environment = {**environment, "CARGO_MANIFEST_DIR": directory, "CARGO_PKG_NAME": crate}
-                run_code, run_output = self.logged(
-                    f"integration-{crate}-{index}",
-                    [path, "--ignored", "--test-threads=1", "--show-output", *skips],
-                    self.timeouts["tests"], env=run_environment, cwd=directory)
-                code = code or run_code
-                outputs.append(run_output)
-            output = "\n".join(outputs)
-            summary = summarize_tests(output)
-            problems = test_problems(code, summary)
-            self.record_results(f"integration-{crate}", {**summary, "status": "failed" if problems else "passed",
-                                                          "problems": problems})
-            print(f"{'FAIL' if problems else 'PASS'} {crate}: {summary['passed']} passed, "
-                  f"{summary['failed']} failed{': ' + '; '.join(problems) if problems else ''}", flush=True)
-            if problems:
-                failed.append(crate)
+        try:
+            for crate in tests["integration_crates"]:
+                # Run each executable the way `cargo test` does: from its package directory, and on
+                # to the next one when it fails. Only the container tests get the tailnet key.
+                code, outputs = 0, []
+                crate_executables = executables[crate]
+                crate_environment = {**environment, **tailnet} if tailnet and crate == "container" else environment
+                for index, (path, directory) in enumerate(zip(crate_executables["paths"],
+                                                              crate_executables["directories"])):
+                    run_environment = {**crate_environment, "CARGO_MANIFEST_DIR": directory, "CARGO_PKG_NAME": crate}
+                    run_code, run_output = self.logged(
+                        f"integration-{crate}-{index}",
+                        [path, "--ignored", "--test-threads=1", "--show-output", *skips],
+                        self.timeouts["tests"], env=run_environment, cwd=directory)
+                    code = code or run_code
+                    outputs.append(run_output)
+                output = "\n".join(outputs)
+                summary = summarize_tests(output)
+                problems = test_problems(code, summary)
+                self.record_results(f"integration-{crate}", {**summary, "status": "failed" if problems else "passed",
+                                                              "problems": problems})
+                print(f"{'FAIL' if problems else 'PASS'} {crate}: {summary['passed']} passed, "
+                      f"{summary['failed']} failed{': ' + '; '.join(problems) if problems else ''}", flush=True)
+                if problems:
+                    failed.append(crate)
+        finally:
+            if tailnet:
+                self.command(["docker", "network", "rm", network], check=False)
         leftovers = leftover_resources(before, self.inventory())
         self.record_results("leftovers", {kind: names for kind, names in leftovers.items()})
         for kind, names in leftovers.items():
@@ -1395,11 +1434,35 @@ class GuestTests(unittest.TestCase):
             self.assertEqual(section, "build_cache")
             self.assertEqual((values["status"], values["hits"], values["misses"]), ("1083 hits, 8 misses", 1083, 8))
 
+    def test_the_live_tailnet_test_runs_only_with_a_key(self):
+        self.assertIsNone(tailnet_test_environment({}, "net"))
+        self.assertIsNone(tailnet_test_environment({"tailnet_auth_key": ""}, "net"))
+        settings = tailnet_test_environment({"tailnet_auth_key": "tskey-test"}, "net")
+        self.assertEqual(settings["SHERPA_TEST_TAILSCALE_AUTH_KEY"], "tskey-test")
+        self.assertEqual(settings["SHERPA_TEST_TAILSCALE_NETWORK"], "net")
+        self.assertEqual(settings["SHERPA_TEST_TAILSCALE_ROUTES"], TAILNET_SUBNET)
+        self.assertTrue(settings["SHERPA_TEST_TAILSCALE_IPV4"].startswith(TAILNET_SUBNET.rsplit(".", 1)[0] + "."))
+
+    def test_the_tailnet_key_is_redacted_from_guest_logs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "guest.toml"
+            config.write_text(toml_document({
+                "guest": {}, "timeouts": {},
+                "credentials": {"db_password": "db", "admin_password": "admin", "tailnet_auth_key": "tskey-test"}}))
+            guest = Guest(config)
+        self.assertIn("tskey-test", guest.passwords)
+
     def test_releases_from_0_5_0_embed_the_database(self):
         for version in ("v0.5.0", "0.5.1", "v1.0.0", "v0.10.0"):
             self.assertTrue(embeds_database(version), version)
         for version in ("v0.4.18", "0.3.80", "v0.4.99"):
             self.assertFalse(embeds_database(version), version)
+
+    def test_releases_from_0_5_13_keep_the_database_directory_private(self):
+        for version in ("v0.5.13", "0.5.14", "v0.10.0", "v1.0.0"):
+            self.assertEqual(database_directory_mode(version), 0o750, version)
+        for version in ("v0.5.12", "0.5.0", "v0.4.18"):
+            self.assertEqual(database_directory_mode(version), 0o775, version)
 
     def test_embedded_database_install_has_no_database_settings(self):
         guest = Guest.__new__(Guest)

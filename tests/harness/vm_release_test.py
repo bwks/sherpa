@@ -42,6 +42,8 @@ UPGRADE_STEPS = ("baseline", "install-baseline", "initialize", "authenticate",
 CODE_STEPS = ("baseline", "install", "initialize", "authenticate", "source", "toolchain",
               "test-images", "build-tests", "unit-tests", "integration-tests")
 RERUN_STEPS = ("source", "test-images", "build-tests", "unit-tests", "integration-tests")
+# A tailnet auth key in this variable when a code run starts enables the live tailnet test.
+TAILNET_KEY_VARIABLE = "SHERPA_TEST_TAILSCALE_AUTH_KEY"
 # Older host servers can give concurrent `sherpa up` requests the same subnet; serialize it.
 UP_LOCK = ROOT / ".tmp" / "sherpa-up.lock"
 
@@ -264,7 +266,7 @@ class Runner:
                 raise ValueError("Refusing cleanup: guest payload identity changed")
             runner.remote_directory = validate["workspace"]
             runner.secrets = [data["credentials"][key] for key in ("db_password", "admin_password",
-                                                                   "build_cache_password")
+                                                                   "build_cache_password", "tailnet_auth_key")
                               if key in data["credentials"]]
         return runner
 
@@ -556,6 +558,10 @@ class Runner:
                 payload["credentials"]["build_cache_password"] = cache_password
                 payload["build_cache"] = {"endpoint": build_cache.endpoint(settings, build_cache.server_address()),
                                           **settings["sccache"]}
+            tailnet_key = os.environ.get(TAILNET_KEY_VARIABLE, "")
+            if tailnet_key:
+                self.secrets.append(tailnet_key)
+                payload["credentials"]["tailnet_auth_key"] = tailnet_key
         payload_path = self.directory / "guest.toml"
         payload_path.write_text(encode_toml(payload))
         payload_path.chmod(0o600)

@@ -21,9 +21,11 @@ function loadTheme(preferences = {}, systemDark = false) {
       [Symbol.iterator]: () => classes[Symbol.iterator](),
     },
   };
+  const listeners = {};
   const context = {
     document: {
       documentElement: root,
+      addEventListener: (name, callback) => { listeners[name] = callback; },
     },
     window: {
       matchMedia: () => ({
@@ -38,7 +40,10 @@ function loadTheme(preferences = {}, systemDark = false) {
     },
   };
   vm.runInNewContext(themeScript, context);
-  return { classes, storage, media, window: context.window };
+  // A click on an element inside a `data-theme-toggle` button, or anywhere else.
+  const click = (onToggle) =>
+    listeners.click({ target: { closest: (selector) => (onToggle && selector === "[data-theme-toggle]" ? {} : null) } });
+  return { classes, storage, media, clickToggle: () => click(true), clickElsewhere: () => click(false) };
 }
 
 test("new visitors get the system light/dark preference", () => {
@@ -65,7 +70,10 @@ test("dark mode follows the system until explicitly overridden", () => {
   const page = loadTheme();
   page.media.change({ matches: true });
   assert.ok(page.classes.has("dark"));
-  page.window.toggleTheme();
+  page.clickElsewhere();
+  assert.ok(page.classes.has("dark"));
+  assert.ok(!page.storage.has("theme"));
+  page.clickToggle();
   assert.equal(page.storage.get("theme"), "light");
   page.media.change({ matches: true });
   assert.ok(!page.classes.has("dark"));
