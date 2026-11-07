@@ -74,22 +74,6 @@ pub fn is_process_running(pid: Pid) -> bool {
     kill(pid, None).is_ok()
 }
 
-/// Check for stale PID file and clean it up if process is not running
-#[allow(dead_code)]
-pub fn check_stale_pidfile(path: &str) -> Result<bool> {
-    match read_pid(path)? {
-        Some(pid) => {
-            if !is_process_running(pid) {
-                remove_pid(path)?;
-                Ok(true) // Was stale
-            } else {
-                Ok(false) // Not stale, process is running
-            }
-        }
-        None => Ok(false), // No PID file
-    }
-}
-
 /// Verify server is not already running, cleaning up stale PID files if necessary
 pub fn verify_not_running() -> Result<()> {
     if let Some(pid) = read_pid(SHERPAD_PID_FILE_PATH)? {
@@ -174,28 +158,5 @@ mod tests {
 
         // PID 99999 should not exist
         assert!(!is_process_running(Pid::from_raw(99999)));
-    }
-
-    #[test]
-    fn test_check_stale_pidfile() {
-        let temp_dir = TempDir::new().unwrap();
-        let pid_file = temp_dir.path().join("test.pid");
-        let pid_path = pid_file.to_str().unwrap();
-
-        // Write a fake PID that doesn't exist
-        fs::write(pid_path, "99999").unwrap();
-
-        // Should detect and remove stale file
-        let was_stale = check_stale_pidfile(pid_path).unwrap();
-        assert!(was_stale);
-        assert!(!Path::new(pid_path).exists());
-
-        // Write current PID (which is running)
-        write_pid(pid_path).unwrap();
-
-        // Should not be stale
-        let was_stale = check_stale_pidfile(pid_path).unwrap();
-        assert!(!was_stale);
-        assert!(Path::new(pid_path).exists());
     }
 }

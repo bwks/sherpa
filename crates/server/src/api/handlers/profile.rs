@@ -1,6 +1,5 @@
 //! The signed-in user's profile: password and SSH keys.
 
-use askama::Template;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -59,11 +58,9 @@ pub async fn profile_handler(
         username: auth.username.clone(),
         is_admin: auth.is_admin,
         active_page: "profile".to_string(),
-        ssh_keys_html: SshKeysListTemplate {
+        ssh_keys_list: SshKeysListTemplate {
             ssh_keys: user.ssh_keys,
-        }
-        .render()
-        .unwrap_or_else(|_| String::from("Error rendering SSH keys")),
+        },
     }
     .into_response()
 }

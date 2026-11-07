@@ -3,7 +3,7 @@ use axum_server::tls_rustls::RustlsConfig;
 use shared::data::TlsConfig;
 use shared::konst::{SHERPA_SERVER_CERT_PATH, SHERPA_SERVER_KEY_PATH};
 use shared::tls::compute_fingerprint;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use super::generator::generate_self_signed_certificate;
 use super::loader::{build_rustls_config, load_certificates};
@@ -108,18 +108,6 @@ impl CertificateManager {
             .with_context(|| format!("No certificate in {}", self.cert_path.display()))?;
         compute_fingerprint(certificate)
     }
-
-    /// Get the certificate file path
-    #[allow(dead_code)]
-    pub fn cert_path(&self) -> &Path {
-        &self.cert_path
-    }
-
-    /// Get the private key file path
-    #[allow(dead_code)]
-    pub fn key_path(&self) -> &Path {
-        &self.key_path
-    }
 }
 
 #[cfg(test)]
@@ -127,22 +115,6 @@ mod tests {
     use super::*;
     use shared::tls::extract_cert_info;
     use tempfile::TempDir;
-
-    #[test]
-    fn test_certificate_manager_new() {
-        let config = TlsConfig {
-            enabled: true,
-            cert_path: Some("/tmp/test.crt".to_string()),
-            key_path: Some("/tmp/test.key".to_string()),
-            auto_generate_cert: true,
-            cert_validity_days: 365,
-            san: vec![],
-        };
-
-        let manager = CertificateManager::new(&config).unwrap();
-        assert_eq!(manager.cert_path(), Path::new("/tmp/test.crt"));
-        assert_eq!(manager.key_path(), Path::new("/tmp/test.key"));
-    }
 
     #[tokio::test]
     async fn test_ensure_certificates_generates_if_missing() {

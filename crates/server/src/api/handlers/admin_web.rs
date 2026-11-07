@@ -1,7 +1,6 @@
 //! The web UI's admin pages: dashboard, labs, tools and users.
 
 use super::labs_api::run_detached;
-use askama::Template;
 use axum::extract::{Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -240,18 +239,12 @@ pub async fn admin_user_edit_handler(
         tracing::debug!("Admin is editing their own account");
     }
 
-    // Render SSH keys list
-    let ssh_keys_html = AdminSshKeysListTemplate {
+    let ssh_keys_list = AdminSshKeysListTemplate {
         target_username: target_username.clone(),
         ssh_keys: target_user.ssh_keys.clone(),
         success_message: String::new(),
         is_error: false,
-    }
-    .render()
-    .map_err(|e| {
-        tracing::error!("Failed to render SSH keys template: {:?}", e);
-        ApiError::internal("Failed to render page")
-    })?;
+    };
 
     Ok(AdminUserEditTemplate {
         username: admin.username,
@@ -259,7 +252,7 @@ pub async fn admin_user_edit_handler(
         active_page: "admin_users".to_string(),
         target_user,
         is_self,
-        ssh_keys_html,
+        ssh_keys_list,
     }
     .into_response())
 }

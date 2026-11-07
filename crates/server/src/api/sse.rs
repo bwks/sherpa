@@ -5,13 +5,45 @@ use axum::extract::ws::Message;
 use axum::response::sse::Event;
 use futures::stream::Stream;
 use serde::Serialize;
-use shared::data::{DestroyResponse, StatusKind, UpResponse};
+use shared::data::{DestroyResponse, StatusKind, StatusMessage, UpResponse};
 use tokio::sync::mpsc;
 
 use crate::templates::{
     CreateSummaryFailedFragment, CreateSummarySuccessFragment, DestroyProgressLineFragment,
     DestroySummaryErrorsFragment, DestroySummaryFailedFragment, DestroySummarySuccessFragment,
 };
+
+/// A `progress` event for one status message from the operation, as a progress line. `None`
+/// for a message that is not a status, or a line that cannot be rendered.
+fn progress_event(text: &str) -> Option<Event> {
+    let status: StatusMessage = match serde_json::from_str(text) {
+        Ok(status) => status,
+        Err(error) => {
+            tracing::debug!(%error, "Progress message is not a status; not shown");
+            return None;
+        }
+    };
+    let html = render_fragment(&DestroyProgressLineFragment {
+        emoji: status_emoji(&status.kind).to_string(),
+        message: status.message,
+    });
+    if html.is_empty() {
+        return None;
+    }
+    Some(Event::default().event("progress").data(html))
+}
+
+/// Render an SSE fragment. A fragment that cannot be rendered is logged and sent empty: the
+/// stream has started, so there is no error response left to give.
+fn render_fragment(template: &impl Template) -> String {
+    match template.render() {
+        Ok(html) => html,
+        Err(error) => {
+            tracing::error!(%error, "Failed to render an SSE fragment");
+            String::new()
+        }
+    }
+}
 
 /// Map a `StatusKind` to its corresponding emoji character.
 fn status_emoji(kind: &StatusKind) -> &'static str {
@@ -37,29 +69,9 @@ pub fn destroy_progress_stream(
         // Drain all progress messages from the channel
         while let Some(msg) = rx.recv().await {
             if let Message::Text(text) = msg
-                && let Ok(server_msg) = serde_json::from_str::<serde_json::Value>(&text)
+                && let Some(event) = progress_event(&text)
             {
-                let kind_str = server_msg
-                    .get("kind")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("info");
-                let kind = match kind_str {
-                    "progress" => StatusKind::Progress,
-                    "done" => StatusKind::Done,
-                    "waiting" => StatusKind::Waiting,
-                    _ => StatusKind::Info,
-                };
-                let message = server_msg
-                    .get("message")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let emoji = status_emoji(&kind);
-
-                let template = DestroyProgressLineFragment { emoji: emoji.to_string(), message: message.to_string() };
-                if let Ok(html) = template.render() {
-                    let event = Event::default().event("progress").data(html);
-                    yield Ok(event);
-                }
+                yield Ok(event);
             }
         }
 
@@ -67,16 +79,14 @@ pub fn destroy_progress_stream(
         let summary_html = match result_rx.await {
             Ok(Ok(ref response)) => render_summary(response),
             Ok(Err(e)) => {
-                let template = DestroySummaryFailedFragment {
-                    message: format!("{}", e),
-                };
-                template.render().unwrap_or_default()
+                render_fragment(&DestroySummaryFailedFragment {
+                    message: format!("{e:#}"),
+                })
             }
             Err(_) => {
-                let template = DestroySummaryFailedFragment {
+                render_fragment(&DestroySummaryFailedFragment {
                     message: "Lost connection to destroy operation".to_string(),
-                };
-                template.render().unwrap_or_default()
+                })
             }
         };
 
@@ -139,29 +149,9 @@ pub fn up_progress_stream(
         // Drain all progress messages from the channel
         while let Some(msg) = rx.recv().await {
             if let Message::Text(text) = msg
-                && let Ok(server_msg) = serde_json::from_str::<serde_json::Value>(&text)
+                && let Some(event) = progress_event(&text)
             {
-                let kind_str = server_msg
-                    .get("kind")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("info");
-                let kind = match kind_str {
-                    "progress" => StatusKind::Progress,
-                    "done" => StatusKind::Done,
-                    "waiting" => StatusKind::Waiting,
-                    _ => StatusKind::Info,
-                };
-                let message = server_msg
-                    .get("message")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let emoji = status_emoji(&kind);
-
-                let template = DestroyProgressLineFragment { emoji: emoji.to_string(), message: message.to_string() };
-                if let Ok(html) = template.render() {
-                    let event = Event::default().event("progress").data(html);
-                    yield Ok(event);
-                }
+                yield Ok(event);
             }
         }
 
@@ -169,16 +159,14 @@ pub fn up_progress_stream(
         let summary_html = match result_rx.await {
             Ok(Ok(ref response)) => render_up_summary(response),
             Ok(Err(e)) => {
-                let template = CreateSummaryFailedFragment {
-                    message: format!("{:#}", e),
-                };
-                template.render().unwrap_or_default()
+                render_fragment(&CreateSummaryFailedFragment {
+                    message: format!("{e:#}"),
+                })
             }
             Err(_) => {
-                let template = CreateSummaryFailedFragment {
+                render_fragment(&CreateSummaryFailedFragment {
                     message: "Lost connection to create operation".to_string(),
-                };
-                template.render().unwrap_or_default()
+                })
             }
         };
 
@@ -201,7 +189,7 @@ fn render_up_summary(response: &UpResponse) -> String {
             interfaces: response.summary.interfaces_created,
             total_time_secs: response.total_time_secs,
         };
-        template.render().unwrap_or_default()
+        render_fragment(&template)
     } else {
         let errors: Vec<String> = response
             .errors
@@ -211,7 +199,7 @@ fn render_up_summary(response: &UpResponse) -> String {
         let template = CreateSummaryFailedFragment {
             message: errors.join("; "),
         };
-        template.render().unwrap_or_default()
+        render_fragment(&template)
     }
 }
 
@@ -227,12 +215,30 @@ fn render_summary(response: &DestroyResponse) -> String {
                 + response.summary.libvirt_networks_destroyed.len(),
             interfaces: response.summary.interfaces_deleted.len(),
         };
-        template.render().unwrap_or_default()
+        render_fragment(&template)
     } else {
         let template = DestroySummaryErrorsFragment {
             lab_name: response.lab_name.clone(),
             errors: response.errors.clone(),
         };
-        template.render().unwrap_or_default()
+        render_fragment(&template)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_status_message_is_a_progress_line() {
+        let text = r#"{"type":"status","message":"Creating VM: r1","timestamp":"2026-11-07T00:00:00Z","kind":"progress"}"#;
+        let event = progress_event(text).unwrap();
+        assert!(format!("{event:?}").contains("Creating VM: r1"));
+    }
+
+    #[test]
+    fn a_message_that_is_not_a_status_is_not_shown() {
+        let text = r#"{"type":"rpc_response","id":"1","result":{}}"#;
+        assert!(progress_event(text).is_none());
     }
 }

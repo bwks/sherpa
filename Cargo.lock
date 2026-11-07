@@ -297,6 +297,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "askama_web"
+version = "0.14.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1acadd534892f9ef8c3809b47997e3cd857fad735edceff77a88be1c8236920"
+dependencies = [
+ "askama",
+ "askama_web_derive",
+ "axum-core",
+ "bytes",
+ "http",
+ "tracing",
+]
+
+[[package]]
+name = "askama_web_derive"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34921de3d57974069bad483fdfe0ec65d88c4ff892edd1ab4d8b03be0dda1b9b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "asn1-rs"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5023,7 +5048,7 @@ version = "0.5.12"
 dependencies = [
  "anyhow",
  "askama",
- "async-compression",
+ "askama_web",
  "async-stream",
  "axum",
  "axum-server",
@@ -5053,7 +5078,6 @@ dependencies = [
  "rustls",
  "rustls-pemfile",
  "serde",
- "serde_derive",
  "serde_json",
  "shared",
  "ssh-key 0.6.7",
@@ -5062,12 +5086,10 @@ dependencies = [
  "template",
  "time",
  "tokio",
- "tokio-test",
  "tokio-tungstenite",
  "tokio-util",
  "toml",
  "topology",
- "tower",
  "tower-http",
  "tracing",
  "tracing-opentelemetry",
@@ -5664,17 +5686,6 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
-]
-
-[[package]]
-name = "tokio-test"
-version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f6d24790a10a7af737693a3e8f1d03faef7e6ca0cc99aae5066f533766de545"
-dependencies = [
- "futures-core",
- "tokio",
- "tokio-stream",
 ]
 
 [[package]]

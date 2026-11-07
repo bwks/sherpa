@@ -548,6 +548,61 @@ async fn test_db_reflects_user_operations() -> Result<()> {
     Ok(())
 }
 
+// ── Account pages ──
+
+/// GET a web page with a session cookie.
+async fn web_get(server: &TestServer, token: &str, path: &str) -> Result<Response> {
+    Ok(Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?
+        .get(format!("http://{}{path}", server.addr))
+        .header(header::COOKIE, format!("{AUTH_COOKIE_NAME}={token}"))
+        .send()
+        .await?)
+}
+
+#[tokio::test]
+async fn account_pages_render_their_ssh_key_lists() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let admin_token = ws.login_admin().await?;
+    db::create_user(
+        &server.db,
+        "keyowner".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        false,
+        vec![TEST_SSH_PUBLIC_KEY.to_owned()],
+    )
+    .await?;
+    let user_token = ws.login("keyowner", TEST_ADMIN_PASSWORD).await?;
+    let key_body = TEST_SSH_PUBLIC_KEY
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or_default();
+
+    for (token, path, list) in [
+        (&user_token, "/profile", r#"<div id="ssh-keys-list">"#),
+        (
+            &admin_token,
+            "/admin/users/keyowner",
+            r#"<div id="admin-ssh-keys-list""#,
+        ),
+    ] {
+        let response = web_get(&server, token, path).await?;
+        ensure!(
+            response.status() == StatusCode::OK,
+            "GET {path}: {}",
+            response.status()
+        );
+        let body = response.text().await?;
+        ensure!(
+            body.contains(list) && body.contains(key_body),
+            "GET {path} did not render the SSH key list: {body}"
+        );
+    }
+    Ok(())
+}
+
 // ── User deletion rules on every transport ──
 
 /// IPv4-only lab networks for tests that seed lab records directly.

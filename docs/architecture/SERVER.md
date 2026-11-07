@@ -234,7 +234,9 @@ flowchart TB
 
 The browser UI is not a separate frontend application. It is server-rendered HTML:
 
-- Askama template structs are defined in `crates/server/src/templates.rs`.
+- Askama template structs are defined in `crates/server/src/templates.rs`. Each derives `askama_web::WebTemplate`, so a handler returns it as the response: a template that fails to render is logged and answered with a 500. The error pages wrap themselves in `WebTemplate` to keep their 404 or 403 status.
+- A page that contains a partial also swapped on its own by HTMX (the SSH key lists) holds the partial's template as a field and renders it in place, so the partial's render errors fail the page.
+- SSE progress streams (`api/sse.rs`) render fragments with `render_fragment`. The stream has already started, so a fragment that fails to render is logged and sent empty.
 - Template files live in `crates/server/templates/`.
 - Static assets are embedded from `crates/server/web/static/` using `rust_embed`.
 - HTMX is used for form submissions, partial updates, node-table polling, lab-grid updates, and progress pages.
@@ -285,13 +287,11 @@ flowchart TB
     get["GET /ws"] --> wshandler["handler.rs::ws_handler"]
     wshandler -->|upgrades connection| inner["handle_socket_inner"]
     inner --> split["split WebSocket sender/receiver"]
-    split --> conn["create Connection { id, sender, subscribed_logs }"]
+    split --> conn["create Connection { id, sender }"]
     conn --> insert["insert into AppState.connections"]
     insert --> metric["increment ws connection metric"]
     metric --> connected["send ConnectedMsg"]
     connected --> msgloop["loop over incoming ClientMessage"]
-    msgloop --> subs["SubscribeLogs / UnsubscribeLogs"]
-    msgloop --> pong["Pong"]
     msgloop --> rpcreq["RpcRequest { id, method, params }"]
     rpcreq --> dispatch["spawn rpc::dispatch(...)"]
     dispatch --> lookup["find the method in rpc::METHODS"]

@@ -1,6 +1,7 @@
 use askama::Template;
+use askama_web::WebTemplate;
 use axum::http::StatusCode;
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{IntoResponse, Response};
 use shared::data::{
     BridgeInfo, DbUser, DestroyError, DeviceInfo, LabInfo, LabState, LabSummary, LinkInfo,
     NodeConfig, NodeKind,
@@ -17,7 +18,7 @@ mod filters {
     }
 }
 /// Main dashboard page template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "user/dashboard.html.jinja")]
 pub struct DashboardTemplate {
     pub username: String,
@@ -29,21 +30,8 @@ pub struct DashboardTemplate {
     pub libvirt_ok: bool,
 }
 
-impl IntoResponse for DashboardTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// User labs list full page template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "user/labs.html.jinja")]
 pub struct LabsListTemplate {
     pub username: String,
@@ -51,77 +39,25 @@ pub struct LabsListTemplate {
     pub active_page: String,
 }
 
-impl IntoResponse for LabsListTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Labs grid partial template - displays all labs
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "user/partials/labs-grid.html.jinja")]
 pub struct LabsGridTemplate {
     pub labs: Vec<LabSummary>,
 }
 
-impl IntoResponse for LabsGridTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Empty state partial template - shown when no labs exist
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "user/partials/empty-state.html.jinja")]
 pub struct EmptyStateTemplate {
     pub username: String,
 }
 
-impl IntoResponse for EmptyStateTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Error partial template - displays error messages
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "user/partials/error.html.jinja")]
 pub struct ErrorTemplate {
     pub message: String,
-}
-
-impl IntoResponse for ErrorTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
 }
 
 // ============================================================================
@@ -129,7 +65,7 @@ impl IntoResponse for ErrorTemplate {
 // ============================================================================
 
 /// Login page template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "auth/login.html.jinja")]
 pub struct LoginPageTemplate {
     pub error: String,
@@ -138,75 +74,23 @@ pub struct LoginPageTemplate {
     pub allow_signup: bool,
 }
 
-impl IntoResponse for LoginPageTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Login error partial template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "auth/login-error.html.jinja")]
 pub struct LoginErrorTemplate {
     pub message: String,
 }
 
-impl IntoResponse for LoginErrorTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Signup page template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "auth/signup.html.jinja")]
 pub struct SignupPageTemplate {}
 
-impl IntoResponse for SignupPageTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Signup error partial template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "auth/signup-error.html.jinja")]
 pub struct SignupErrorTemplate {
     pub message: String,
-}
-
-impl IntoResponse for SignupErrorTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
 }
 
 // ============================================================================
@@ -216,7 +100,6 @@ impl IntoResponse for SignupErrorTemplate {
 /// 404 Not Found error page template
 #[derive(Template)]
 #[template(path = "error/404.html.jinja")]
-#[allow(dead_code)]
 pub struct Error404Template {
     pub username: String,
     pub is_admin: bool,
@@ -226,21 +109,13 @@ pub struct Error404Template {
 
 impl IntoResponse for Error404Template {
     fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => (StatusCode::NOT_FOUND, Html(html)).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
+        (StatusCode::NOT_FOUND, WebTemplate(self)).into_response()
     }
 }
 
 /// 403 Forbidden error page template
 #[derive(Template)]
 #[template(path = "error/403.html.jinja")]
-#[allow(dead_code)]
 pub struct Error403Template {
     pub username: String,
     pub is_admin: bool,
@@ -250,14 +125,7 @@ pub struct Error403Template {
 
 impl IntoResponse for Error403Template {
     fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => (StatusCode::FORBIDDEN, Html(html)).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
+        (StatusCode::FORBIDDEN, WebTemplate(self)).into_response()
     }
 }
 
@@ -272,14 +140,7 @@ pub struct Admin403Template {
 
 impl IntoResponse for Admin403Template {
     fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => (StatusCode::FORBIDDEN, Html(html)).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
+        (StatusCode::FORBIDDEN, WebTemplate(self)).into_response()
     }
 }
 
@@ -288,7 +149,7 @@ impl IntoResponse for Admin403Template {
 // ============================================================================
 
 /// Lab detail page template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "user/lab-detail.html.jinja")]
 pub struct LabDetailTemplate {
     pub username: String,
@@ -307,25 +168,12 @@ pub struct LabDetailTemplate {
     pub bridge_count: usize,
 }
 
-impl IntoResponse for LabDetailTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 // ============================================================================
 // Node Detail Template
 // ============================================================================
 
 /// Node detail page template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "user/node-detail.html.jinja")]
 pub struct NodeDetailTemplate {
     pub username: String,
@@ -358,124 +206,47 @@ fn resource_display(value: Option<u16>, kind: &NodeKind) -> String {
     }
 }
 
-impl IntoResponse for NodeDetailTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 // ============================================================================
 // Profile Management Templates
 // ============================================================================
 
 /// User profile page template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "user/profile.html.jinja")]
 pub struct ProfileTemplate {
     pub username: String,
     pub is_admin: bool,
     pub active_page: String,
-    pub ssh_keys_html: String,
-}
-
-impl IntoResponse for ProfileTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
+    /// Rendered in place, and on its own for HTMX swaps.
+    pub ssh_keys_list: SshKeysListTemplate,
 }
 
 /// SSH keys list partial template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "user/partials/ssh-keys-list.html.jinja")]
 pub struct SshKeysListTemplate {
     pub ssh_keys: Vec<String>,
 }
 
-impl IntoResponse for SshKeysListTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Password update success message template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "user/partials/password-success.html.jinja")]
 pub struct PasswordSuccessTemplate {
     pub message: String,
 }
 
-impl IntoResponse for PasswordSuccessTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Password update error message template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "user/partials/password-error.html.jinja")]
 pub struct PasswordErrorTemplate {
     pub message: String,
 }
 
-impl IntoResponse for PasswordErrorTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// SSH key operation error message template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "user/partials/ssh-key-error.html.jinja")]
 pub struct SshKeyErrorTemplate {
     pub message: String,
-}
-
-impl IntoResponse for SshKeyErrorTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
 }
 
 // ============================================================================
@@ -483,7 +254,7 @@ impl IntoResponse for SshKeyErrorTemplate {
 // ============================================================================
 
 /// Admin users page template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "admin/users.html.jinja")]
 pub struct AdminUsersTemplate {
     pub username: String,
@@ -492,21 +263,8 @@ pub struct AdminUsersTemplate {
     pub users: Vec<UserSummary>,
 }
 
-impl IntoResponse for AdminUsersTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Admin labs list page template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "admin/labs.html.jinja")]
 pub struct AdminLabsTemplate {
     pub username: String,
@@ -523,21 +281,8 @@ pub struct AdminLabSummary {
     pub node_count: usize,
 }
 
-impl IntoResponse for AdminLabsTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Admin user edit page template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "admin/user-edit.html.jinja")]
 pub struct AdminUserEditTemplate {
     pub username: String,
@@ -545,24 +290,12 @@ pub struct AdminUserEditTemplate {
     pub active_page: String,
     pub target_user: DbUser,
     pub is_self: bool,
-    pub ssh_keys_html: String,
-}
-
-impl IntoResponse for AdminUserEditTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
+    /// Rendered in place, and on its own for HTMX swaps.
+    pub ssh_keys_list: AdminSshKeysListTemplate,
 }
 
 /// Admin SSH keys list partial template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "admin/partials/ssh-keys-list.html.jinja")]
 pub struct AdminSshKeysListTemplate {
     pub target_username: String,
@@ -571,57 +304,18 @@ pub struct AdminSshKeysListTemplate {
     pub is_error: bool,
 }
 
-impl IntoResponse for AdminSshKeysListTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Admin password update success message template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "admin/partials/password-success.html.jinja")]
 pub struct AdminPasswordSuccessTemplate {
     pub target_username: String,
 }
 
-impl IntoResponse for AdminPasswordSuccessTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Admin password update error message template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "admin/partials/password-error.html.jinja")]
 pub struct AdminPasswordErrorTemplate {
     pub error_message: String,
-}
-
-impl IntoResponse for AdminPasswordErrorTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
 }
 
 // ============================================================================
@@ -629,9 +323,8 @@ impl IntoResponse for AdminPasswordErrorTemplate {
 // ============================================================================
 
 /// Admin images list page template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "admin/images.html.jinja")]
-#[allow(dead_code)]
 pub struct AdminImagesListTemplate {
     pub username: String,
     pub is_admin: bool,
@@ -639,23 +332,9 @@ pub struct AdminImagesListTemplate {
     pub configs: Vec<ImageSummary>,
 }
 
-impl IntoResponse for AdminImagesListTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Admin image detail page template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "admin/image-detail.html.jinja")]
-#[allow(dead_code)]
 pub struct AdminImageDetailTemplate {
     pub username: String,
     pub is_admin: bool,
@@ -663,23 +342,9 @@ pub struct AdminImageDetailTemplate {
     pub config: NodeConfig,
 }
 
-impl IntoResponse for AdminImageDetailTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Admin image edit page template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "admin/image-edit.html.jinja")]
-#[allow(dead_code)]
 pub struct AdminImageEditTemplate {
     pub username: String,
     pub is_admin: bool,
@@ -695,23 +360,9 @@ pub struct AdminImageEditTemplate {
     pub interface_types: Vec<String>,
 }
 
-impl IntoResponse for AdminImageEditTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Admin image versions list page template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "admin/image-versions.html.jinja")]
-#[allow(dead_code)]
 pub struct AdminImageVersionsTemplate {
     pub username: String,
     pub is_admin: bool,
@@ -721,23 +372,9 @@ pub struct AdminImageVersionsTemplate {
     pub versions: Vec<NodeConfig>,
 }
 
-impl IntoResponse for AdminImageVersionsTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Admin image upload page template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "admin/image-upload.html.jinja")]
-#[allow(dead_code)]
 pub struct AdminImageUploadTemplate {
     pub username: String,
     pub is_admin: bool,
@@ -745,37 +382,11 @@ pub struct AdminImageUploadTemplate {
     pub models: Vec<String>,
 }
 
-impl IntoResponse for AdminImageUploadTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Error notification returned by admin image form requests.
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "admin/partials/notification-error.html.jinja", escape = "html")]
 pub struct AdminNotificationErrorTemplate {
     pub message: String,
-}
-
-impl IntoResponse for AdminNotificationErrorTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
 }
 
 // ============================================================================
@@ -783,7 +394,7 @@ impl IntoResponse for AdminNotificationErrorTemplate {
 // ============================================================================
 
 /// Admin tools page template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "admin/tools.html.jinja")]
 pub struct AdminToolsTemplate {
     pub username: String,
@@ -791,25 +402,12 @@ pub struct AdminToolsTemplate {
     pub active_page: String,
 }
 
-impl IntoResponse for AdminToolsTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 // ============================================================================
 // Lab Create Templates
 // ============================================================================
 
 /// Lab creation page template
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "user/lab-create.html.jinja")]
 pub struct LabCreateTemplate {
     pub username: String,
@@ -817,19 +415,6 @@ pub struct LabCreateTemplate {
     pub active_page: String,
     pub generated_name: String,
     pub models: Vec<String>,
-}
-
-impl IntoResponse for LabCreateTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
 }
 
 /// Create success summary fragment
@@ -859,7 +444,7 @@ pub struct CreateSummaryFailedFragment {
 // ============================================================================
 
 /// Nodes table partial for HTMX polling
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "user/partials/nodes-table.html.jinja")]
 pub struct NodesTableFragment {
     pub lab_id: String,
@@ -867,45 +452,19 @@ pub struct NodesTableFragment {
     pub device_count: usize,
 }
 
-impl IntoResponse for NodesTableFragment {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 // ============================================================================
 // Lab Destroy Fragment Templates
 // ============================================================================
 
 /// Destroy button fragment — the red "Destroy Lab" button
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "user/partials/destroy-button.html.jinja")]
 pub struct LabDestroyButtonFragment {
     pub lab_id: String,
 }
 
-impl IntoResponse for LabDestroyButtonFragment {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Destroy confirmation fragment — warning panel with confirm/cancel buttons
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "user/partials/destroy-confirm.html.jinja")]
 pub struct LabDestroyConfirmFragment {
     pub lab_id: String,
@@ -913,25 +472,12 @@ pub struct LabDestroyConfirmFragment {
     pub device_count: usize,
 }
 
-impl IntoResponse for LabDestroyConfirmFragment {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 // ============================================================================
 // Job Page Template
 // ============================================================================
 
 /// Full-page job progress view — SSE-connected page for streaming operation progress
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "user/job.html.jinja")]
 pub struct JobPageTemplate {
     pub username: String,
@@ -940,19 +486,6 @@ pub struct JobPageTemplate {
     pub job_id: String,
     pub lab_name: String,
     pub action: String,
-}
-
-impl IntoResponse for JobPageTemplate {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
 }
 
 // ============================================================================
@@ -1000,6 +533,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use askama::{NO_VALUES, Template};
+    use axum::http::header::CONTENT_TYPE;
     use shared::data::{NodeKind, NodeModel, NodeState};
 
     use super::filters::initial;
@@ -1065,6 +599,40 @@ mod tests {
     // ========================================================================
     // Template render tests
     // ========================================================================
+
+    #[test]
+    fn an_error_page_keeps_its_status() {
+        let response = Error404Template {
+            username: "testuser".to_string(),
+            is_admin: false,
+            active_page: String::new(),
+            message: "Lab not found".to_string(),
+        }
+        .into_response();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert!(
+            response.headers()[CONTENT_TYPE]
+                .to_str()
+                .unwrap()
+                .starts_with("text/html")
+        );
+    }
+
+    #[test]
+    fn the_profile_page_renders_its_ssh_key_list_in_place() {
+        let html = ProfileTemplate {
+            username: "testuser".to_string(),
+            is_admin: false,
+            active_page: "profile".to_string(),
+            ssh_keys_list: SshKeysListTemplate {
+                ssh_keys: vec!["ssh-ed25519 AAAAkey testuser".to_string()],
+            },
+        }
+        .render()
+        .expect("template should render");
+        assert!(html.contains(r#"<div id="ssh-keys-list">"#));
+        assert!(html.contains("ssh-ed25519 AAAAkey testuser"));
+    }
 
     #[test]
     fn test_dashboard_template_renders() {
