@@ -1,6 +1,7 @@
 // Server-side implementation of the lab startup operation
 // This is a port of the client's up.rs command with streaming progress support
 
+use bollard::secret::ContainerStateStatusEnum;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
@@ -9,6 +10,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, anyhow, bail};
 use askama::Template;
 use serde_json;
+use tokio::task::JoinHandle;
 
 use opentelemetry::KeyValue;
 
@@ -43,14 +45,15 @@ use shared::data::{
 };
 use shared::konst::{
     BRIDGE_MEMBER_HOST_VETH_PREFIX, CONTAINER_DNSMASQ_CAPABILITIES, CONTAINER_DNSMASQ_NAME,
-    CONTAINER_DNSMASQ_REPO, CONTAINER_SECRETS_DIR, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR,
-    DNSMASQ_LEASES_FILE, KVM_OUI, LAB_CERTS_DIR, LAB_FILE_NAME, LAB_SUBNET_ALLOCATION_ATTEMPTS,
-    MANAGEMENT_GATEWAY_HOST_OFFSET, MANAGEMENT_NODE_HOST_OFFSETS, MTU_JUMBO_NET, NODE_CONFIGS_DIR,
-    READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH, SHERPA_LAB_MANIFEST_FILE,
-    SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX, SHERPA_LOOPBACK_PREFIX_IPV6,
-    SHERPA_MANAGEMENT_IP_INDEX, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
-    SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR,
-    SHERPA_SSH_PRIVATE_KEY_PATH, SSH_PORT, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
+    CONTAINER_DNSMASQ_REPO, CONTAINER_HOST_VETH_PREFIX, CONTAINER_SECRETS_DIR, DNSMASQ_CONFIG_FILE,
+    DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI, LAB_CERTS_DIR, LAB_FILE_NAME,
+    LAB_SUBNET_ALLOCATION_ATTEMPTS, MANAGEMENT_GATEWAY_HOST_OFFSET, MANAGEMENT_NODE_HOST_OFFSETS,
+    MTU_JUMBO_NET, NODE_CONFIGS_DIR, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH,
+    SHERPA_LAB_MANIFEST_FILE, SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX,
+    SHERPA_LOOPBACK_PREFIX_IPV6, SHERPA_MANAGEMENT_IP_INDEX,
+    SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_IPV6,
+    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR, SHERPA_SSH_PRIVATE_KEY_PATH, SSH_PORT,
+    TAP_PREFIX, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::effective_data_interface_count;
@@ -747,7 +750,7 @@ pub async fn up_lab(
         );
         for domain in qemu_conn.list_all_domains(0)? {
             anyhow::ensure!(
-                !libvirt::is_lab_device(&domain.get_name()?, lab_id),
+                !util::is_lab_resource(&domain.get_name()?, lab_id),
                 "Existing VM for this lab ID must be cleaned before startup"
             );
         }
@@ -1283,7 +1286,10 @@ pub async fn up_lab(
                 // 15-char interface name limit.
                 p2p_container_veths.push(P2pContainerVeth {
                     node_name: nsd.name.clone(),
-                    host_veth: format!("cd{}i{}-{}", nsd.index, iface.index, lab_id),
+                    host_veth: format!(
+                        "{CONTAINER_HOST_VETH_PREFIX}{}i{}-{lab_id}",
+                        nsd.index, iface.index
+                    ),
                     host_alias: format!(
                         "{}-p2p-disabled-host-{}::{}",
                         lab_id, nsd.name, iface.name
@@ -2183,9 +2189,7 @@ pub async fn up_lab(
                 })
                 .collect();
 
-            for task in tasks {
-                task.await.context("VM creation task failed")??;
-            }
+            join_all_tasks(tasks, "VM creation").await?;
 
             let _ =
                 progress.send_status("All VMs created successfully".to_string(), StatusKind::Done);
@@ -2214,9 +2218,7 @@ pub async fn up_lab(
                 })
                 .collect();
 
-            for task in tasks {
-                task.await.context("Unikernel creation task failed")??;
-            }
+            join_all_tasks(tasks, "Unikernel creation").await?;
 
             let _ = progress.send_status(
                 "All unikernels created successfully".to_string(),
@@ -2587,6 +2589,28 @@ pub async fn up_lab(
                             ip_address: mgmt_ipv4,
                             ssh_port: None,
                         });
+                    } else {
+                        // Starting it again would fail on its name, so the node is reported
+                        // failed and the rest of the lab carries on.
+                        tracing::warn!(
+                            lab_id = %lab_id,
+                            node_name = %container.name,
+                            "Container exited right after starting"
+                        );
+                        let _ = progress.send_status(
+                            format!("Node {} - Exited right after starting", container.name),
+                            StatusKind::Waiting,
+                        );
+                        errors.push(exited_container_error(&container.name, &container_name));
+                        connected_nodes.insert(container.name.clone());
+                        node_info_list.push(data::NodeInfo {
+                            name: container.name.clone(),
+                            kind: NodeKind::Container,
+                            model: container.model,
+                            status: NodeState::Stopped,
+                            ip_address: mgmt_ipv4,
+                            ssh_port: None,
+                        });
                     }
                     continue;
                 }
@@ -2797,6 +2821,44 @@ pub async fn up_lab(
                 operation
                     .sleep(Duration::from_secs(READINESS_SLEEP))
                     .await?;
+            }
+        }
+
+        // A container counts as ready once it starts, so one that exited since is caught here.
+        for container in &container_nodes {
+            if container.skip_ready_check.unwrap_or(false) {
+                continue;
+            }
+            let Some(info) = node_info_list
+                .iter_mut()
+                .find(|info| info.name == container.name && info.status == NodeState::Running)
+            else {
+                continue;
+            };
+            let container_name = format!("{}-{}", container.name, lab_id);
+            match container::container_status(&docker_conn, &container_name).await {
+                Ok(Some(ContainerStateStatusEnum::RUNNING)) => {
+                    tracing::debug!(node_name = %container.name, "Container still running");
+                }
+                Ok(_) => {
+                    tracing::warn!(
+                        lab_id = %lab_id,
+                        node_name = %container.name,
+                        "Container exited after starting"
+                    );
+                    errors.push(exited_container_error(&container.name, &container_name));
+                    info.status = NodeState::Stopped;
+                    if let Some(node_data) = lab_node_data.iter().find(|n| n.name == container.name)
+                    {
+                        let record_id = db::get_node_id(&node_data.record)?;
+                        db::update_node_state(&db, record_id, NodeState::Stopped).await?;
+                    }
+                }
+                Err(error) => tracing::warn!(
+                    node_name = %container.name,
+                    error = %error,
+                    "Cannot check whether the container is still running"
+                ),
             }
         }
 
@@ -3125,9 +3187,79 @@ fn lab_id_taken(
     }
 }
 
+/// The non-critical error for a container node whose process exited after it started.
+fn exited_container_error(node_name: &str, container_name: &str) -> data::UpError {
+    data::UpError {
+        phase: "NodeReadiness".to_string(),
+        message: format!(
+            "Node {node_name} exited right after starting; see `docker logs {container_name}` on the server"
+        ),
+        is_critical: false,
+    }
+}
+
+/// Wait for every task, then report the failures together.
+///
+/// Stopping at the first failure would drop the other handles, which detaches their tasks:
+/// they would go on creating domains while the rollback that follows removes the lab.
+async fn join_all_tasks(tasks: Vec<JoinHandle<Result<()>>>, what: &str) -> Result<()> {
+    let mut failures = Vec::new();
+    for task in tasks {
+        match task.await {
+            Ok(Ok(())) => tracing::debug!("{what} task finished"),
+            Ok(Err(error)) => failures.push(format!("{error:#}")),
+            Err(error) => failures.push(format!("task failed: {error}")),
+        }
+    }
+    if failures.is_empty() {
+        return Ok(());
+    }
+    bail!("{what} failed: {}", failures.join("; "))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn a_failed_task_is_reported_only_after_every_task_ended() {
+        let slow_finished = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&slow_finished);
+        let tasks = vec![
+            tokio::spawn(async { Err(anyhow!("domain r1 failed")) }),
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                flag.store(true, Ordering::SeqCst);
+                Ok(())
+            }),
+            tokio::spawn(async { Err(anyhow!("domain r3 failed")) }),
+        ];
+
+        let error = join_all_tasks(tasks, "VM creation")
+            .await
+            .expect_err("failures hidden");
+
+        assert!(
+            slow_finished.load(Ordering::SeqCst),
+            "returned before the slow task ended"
+        );
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("r1") && message.contains("r3"),
+            "{message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn tasks_that_all_succeed_pass() {
+        let tasks = vec![
+            tokio::spawn(async { Ok(()) }),
+            tokio::spawn(async { Ok(()) }),
+        ];
+        join_all_tasks(tasks, "VM creation").await.unwrap();
+    }
 
     #[test]
     fn a_lab_id_another_lab_uses_is_reported_without_naming_it() {

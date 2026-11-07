@@ -22,6 +22,9 @@ use tracing::instrument;
 
 static LAB_LEASES: OnceLock<DashMap<String, Arc<RwLock<()>>>> = OnceLock::new();
 static LAB_CANCELLATIONS: OnceLock<DashMap<String, Cancellation>> = OnceLock::new();
+/// Destroys waiting for or holding each lab's write lease. An operation that starts while one
+/// is pending, such as one queued behind a requested stop, is cancelled at once.
+static PENDING_DESTROYS: OnceLock<DashMap<String, usize>> = OnceLock::new();
 
 /// Why a lab's operations are being stopped.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,6 +52,7 @@ pub struct LabOperation {
 /// Exclusive access to a lab after its operations have stopped. Held while the lab is destroyed.
 pub struct StoppedLab {
     lab_id: String,
+    reason: StopReason,
     _lease: OwnedRwLockWriteGuard<()>,
 }
 
@@ -95,6 +99,12 @@ impl LabOperation {
 
 impl Drop for StoppedLab {
     fn drop(&mut self) {
+        if self.reason == StopReason::Destroy {
+            pending_destroys().remove_if_mut(&self.lab_id, |_, count| {
+                *count -= 1;
+                *count == 0
+            });
+        }
         // Operations started after the lab is gone get a fresh token.
         cancellations().remove(&self.lab_id);
     }
@@ -106,6 +116,10 @@ fn leases() -> &'static DashMap<String, Arc<RwLock<()>>> {
 
 fn cancellations() -> &'static DashMap<String, Cancellation> {
     LAB_CANCELLATIONS.get_or_init(DashMap::new)
+}
+
+fn pending_destroys() -> &'static DashMap<String, usize> {
+    PENDING_DESTROYS.get_or_init(DashMap::new)
 }
 
 fn lease(lab_id: &str) -> Arc<RwLock<()>> {
@@ -124,6 +138,14 @@ pub async fn begin(lab_id: &str) -> LabOperation {
         .entry(lab_id.to_owned())
         .or_default()
         .clone();
+    // A requested stop that ended before a waiting destroy has already removed the token the
+    // destroy cancelled, so this operation must yield to that destroy here.
+    if pending_destroys()
+        .get(lab_id)
+        .is_some_and(|count| *count > 0)
+    {
+        cancel.cancel(StopReason::Destroy);
+    }
     LabOperation {
         lab_id: lab_id.to_owned(),
         cancel,
@@ -137,6 +159,9 @@ pub async fn begin(lab_id: &str) -> LabOperation {
 /// the lab's resources are removed; a requested stop drops it straight away.
 #[instrument(level = "debug")]
 pub async fn stop(lab_id: &str, reason: StopReason) -> (bool, StoppedLab) {
+    if reason == StopReason::Destroy {
+        *pending_destroys().entry(lab_id.to_owned()).or_default() += 1;
+    }
     cancellations()
         .entry(lab_id.to_owned())
         .or_default()
@@ -150,6 +175,7 @@ pub async fn stop(lab_id: &str, reason: StopReason) -> (bool, StoppedLab) {
         was_running,
         StoppedLab {
             lab_id: lab_id.to_owned(),
+            reason,
             _lease: guard,
         },
     )
@@ -183,6 +209,37 @@ mod tests {
         drop(operation);
         let (was_running, _stopped) = tokio::time::timeout(WAIT, stopping).await.unwrap().unwrap();
         assert!(was_running);
+    }
+
+    #[tokio::test]
+    async fn an_operation_queued_behind_a_requested_stop_yields_to_a_destroy() {
+        let lab = "lab-ops-queued";
+        let running = begin(lab).await;
+        let requested = tokio::spawn(stop(lab, StopReason::Request));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        // Queued behind the requested stop, then a destroy queues behind both.
+        let queued = tokio::spawn(begin(lab));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let destroying = tokio::spawn(stop(lab, StopReason::Destroy));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        drop(running);
+        let (_, stopped) = tokio::time::timeout(WAIT, requested)
+            .await
+            .unwrap()
+            .unwrap();
+        drop(stopped);
+        let queued = tokio::time::timeout(WAIT, queued).await.unwrap().unwrap();
+
+        assert_eq!(queued.stop_reason(), Some(StopReason::Destroy));
+        drop(queued);
+        let (_, destroyed) = tokio::time::timeout(WAIT, destroying)
+            .await
+            .unwrap()
+            .unwrap();
+        drop(destroyed);
+        // Once the destroy is done, new operations run again.
+        assert_eq!(begin(lab).await.stop_reason(), None);
     }
 
     #[tokio::test]

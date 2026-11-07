@@ -59,19 +59,21 @@ async fn scan_cycle(state: &AppState, awaiting_host_key: &mut HashSet<String>) -
     let (vm_states, container_states) =
         tokio::join!(query_libvirt_states(qemu), query_docker_states(docker),);
 
+    // A runtime that did not answer is unknown this cycle, not empty: treating it as empty
+    // would mark every one of its nodes stopped.
     let vm_states = match vm_states {
-        Ok(states) => states,
+        Ok(states) => Some(states),
         Err(e) => {
             tracing::error!(error = %e, "Failed to query libvirt states");
-            HashMap::new()
+            None
         }
     };
 
     let container_states = match container_states {
-        Ok(states) => states,
+        Ok(states) => Some(states),
         Err(e) => {
             tracing::error!(error = %e, "Failed to query Docker states");
-            HashMap::new()
+            None
         }
     };
 
@@ -86,7 +88,14 @@ async fn scan_cycle(state: &AppState, awaiting_host_key: &mut HashSet<String>) -
     }
 
     for lab in &labs {
-        if let Err(e) = scan_lab(state, lab, &vm_states, &container_states, awaiting_host_key).await
+        if let Err(e) = scan_lab(
+            state,
+            lab,
+            vm_states.as_ref(),
+            container_states.as_ref(),
+            awaiting_host_key,
+        )
+        .await
         {
             tracing::warn!(
                 lab_id = %lab.lab_id,
@@ -104,8 +113,8 @@ async fn scan_cycle(state: &AppState, awaiting_host_key: &mut HashSet<String>) -
 async fn scan_lab(
     state: &AppState,
     lab: &DbLab,
-    vm_states: &HashMap<String, u32>,
-    container_states: &HashMap<String, ContainerSummaryStateEnum>,
+    vm_states: Option<&HashMap<String, u32>>,
+    container_states: Option<&HashMap<String, ContainerSummaryStateEnum>>,
     awaiting_host_key: &mut HashSet<String>,
 ) -> Result<()> {
     let lab_record_id = lab.id.as_ref().context("Lab missing record ID")?;
@@ -149,7 +158,13 @@ async fn scan_lab(
         let has_ssh = image.is_some_and(|img| img.model.has_ssh());
 
         let runtime_name = format!("{}-{}", node.name, lab.lab_id);
-        let detected_state = detect_node_state(&runtime_name, &kind, vm_states, container_states);
+        let Some(detected_state) =
+            detect_node_state(&runtime_name, &kind, vm_states, container_states)
+        else {
+            tracing::debug!(node = %node.name, "Runtime not queried this cycle; keeping its state");
+            current_node_states.push(node.state);
+            continue;
+        };
 
         if detected_state != node.state {
             tracing::info!(
@@ -272,22 +287,23 @@ async fn read_host_key(state: &AppState, node: &DbNode) -> Result<bool> {
     }
 }
 
-/// Determine the actual node state from runtime data.
+/// Determine the actual node state from runtime data. `None` when the node's runtime could not
+/// be queried this cycle (its states are `None`), so the recorded state stands.
 fn detect_node_state(
     runtime_name: &str,
     kind: &NodeKind,
-    vm_states: &HashMap<String, u32>,
-    container_states: &HashMap<String, ContainerSummaryStateEnum>,
-) -> NodeState {
-    match kind {
-        NodeKind::VirtualMachine | NodeKind::Unikernel => match vm_states.get(runtime_name) {
+    vm_states: Option<&HashMap<String, u32>>,
+    container_states: Option<&HashMap<String, ContainerSummaryStateEnum>>,
+) -> Option<NodeState> {
+    let state = match kind {
+        NodeKind::VirtualMachine | NodeKind::Unikernel => match vm_states?.get(runtime_name) {
             Some(&state_code) if state_code == VIR_DOMAIN_RUNNING => NodeState::Running,
             Some(&state_code) if state_code == VIR_DOMAIN_SHUTOFF => NodeState::Stopped,
             Some(&state_code) if state_code == VIR_DOMAIN_PAUSED => NodeState::Stopped,
             Some(_) => NodeState::Unknown,
             None => NodeState::Stopped,
         },
-        NodeKind::Container => match container_states.get(runtime_name) {
+        NodeKind::Container => match container_states?.get(runtime_name) {
             Some(status) => match status {
                 ContainerSummaryStateEnum::RUNNING => NodeState::Running,
                 ContainerSummaryStateEnum::EXITED | ContainerSummaryStateEnum::DEAD => {
@@ -301,7 +317,8 @@ fn detect_node_state(
             },
             None => NodeState::Stopped,
         },
-    }
+    };
+    Some(state)
 }
 
 /// Query libvirt for all domain states. Must run in spawn_blocking since
@@ -398,6 +415,52 @@ mod tests {
     }
 
     #[test]
+    fn a_runtime_that_could_not_be_queried_leaves_its_nodes_undecided() {
+        let container_states = HashMap::from([(
+            "r1-abc12345".to_string(),
+            ContainerSummaryStateEnum::RUNNING,
+        )]);
+        // libvirt did not answer: its nodes are undecided, not stopped.
+        assert_eq!(
+            detect_node_state(
+                "vm1-abc12345",
+                &NodeKind::VirtualMachine,
+                None,
+                Some(&container_states)
+            ),
+            None
+        );
+        assert_eq!(
+            detect_node_state(
+                "uk1-abc12345",
+                &NodeKind::Unikernel,
+                None,
+                Some(&container_states)
+            ),
+            None
+        );
+        // Docker answered, so its nodes are still decided.
+        assert_eq!(
+            detect_node_state(
+                "r1-abc12345",
+                &NodeKind::Container,
+                None,
+                Some(&container_states)
+            ),
+            Some(NodeState::Running)
+        );
+        assert_eq!(
+            detect_node_state(
+                "r1-abc12345",
+                &NodeKind::Container,
+                Some(&HashMap::new()),
+                None
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn test_detect_vm_running() {
         let mut vm_states = HashMap::new();
         vm_states.insert("router1-abc12345".to_string(), VIR_DOMAIN_RUNNING);
@@ -406,10 +469,10 @@ mod tests {
         let state = detect_node_state(
             "router1-abc12345",
             &NodeKind::VirtualMachine,
-            &vm_states,
-            &container_states,
+            Some(&vm_states),
+            Some(&container_states),
         );
-        assert_eq!(state, NodeState::Running);
+        assert_eq!(state, Some(NodeState::Running));
     }
 
     #[test]
@@ -421,10 +484,10 @@ mod tests {
         let state = detect_node_state(
             "router1-abc12345",
             &NodeKind::VirtualMachine,
-            &vm_states,
-            &container_states,
+            Some(&vm_states),
+            Some(&container_states),
         );
-        assert_eq!(state, NodeState::Stopped);
+        assert_eq!(state, Some(NodeState::Stopped));
     }
 
     #[test]
@@ -436,10 +499,10 @@ mod tests {
         let state = detect_node_state(
             "router1-abc12345",
             &NodeKind::VirtualMachine,
-            &vm_states,
-            &container_states,
+            Some(&vm_states),
+            Some(&container_states),
         );
-        assert_eq!(state, NodeState::Stopped);
+        assert_eq!(state, Some(NodeState::Stopped));
     }
 
     #[test]
@@ -450,10 +513,10 @@ mod tests {
         let state = detect_node_state(
             "router1-abc12345",
             &NodeKind::VirtualMachine,
-            &vm_states,
-            &container_states,
+            Some(&vm_states),
+            Some(&container_states),
         );
-        assert_eq!(state, NodeState::Stopped);
+        assert_eq!(state, Some(NodeState::Stopped));
     }
 
     #[test]
@@ -465,10 +528,10 @@ mod tests {
         let state = detect_node_state(
             "uk1-abc12345",
             &NodeKind::Unikernel,
-            &vm_states,
-            &container_states,
+            Some(&vm_states),
+            Some(&container_states),
         );
-        assert_eq!(state, NodeState::Running);
+        assert_eq!(state, Some(NodeState::Running));
     }
 
     #[test]
@@ -483,10 +546,10 @@ mod tests {
         let state = detect_node_state(
             "switch1-abc12345",
             &NodeKind::Container,
-            &vm_states,
-            &container_states,
+            Some(&vm_states),
+            Some(&container_states),
         );
-        assert_eq!(state, NodeState::Running);
+        assert_eq!(state, Some(NodeState::Running));
     }
 
     #[test]
@@ -501,10 +564,10 @@ mod tests {
         let state = detect_node_state(
             "switch1-abc12345",
             &NodeKind::Container,
-            &vm_states,
-            &container_states,
+            Some(&vm_states),
+            Some(&container_states),
         );
-        assert_eq!(state, NodeState::Stopped);
+        assert_eq!(state, Some(NodeState::Stopped));
     }
 
     #[test]
@@ -519,10 +582,10 @@ mod tests {
         let state = detect_node_state(
             "switch1-abc12345",
             &NodeKind::Container,
-            &vm_states,
-            &container_states,
+            Some(&vm_states),
+            Some(&container_states),
         );
-        assert_eq!(state, NodeState::Stopped);
+        assert_eq!(state, Some(NodeState::Stopped));
     }
 
     #[test]
@@ -537,10 +600,10 @@ mod tests {
         let state = detect_node_state(
             "switch1-abc12345",
             &NodeKind::Container,
-            &vm_states,
-            &container_states,
+            Some(&vm_states),
+            Some(&container_states),
         );
-        assert_eq!(state, NodeState::Created);
+        assert_eq!(state, Some(NodeState::Created));
     }
 
     #[test]
@@ -555,10 +618,10 @@ mod tests {
         let state = detect_node_state(
             "switch1-abc12345",
             &NodeKind::Container,
-            &vm_states,
-            &container_states,
+            Some(&vm_states),
+            Some(&container_states),
         );
-        assert_eq!(state, NodeState::Starting);
+        assert_eq!(state, Some(NodeState::Starting));
     }
 
     #[test]
@@ -573,10 +636,10 @@ mod tests {
         let state = detect_node_state(
             "switch1-abc12345",
             &NodeKind::Container,
-            &vm_states,
-            &container_states,
+            Some(&vm_states),
+            Some(&container_states),
         );
-        assert_eq!(state, NodeState::Stopped);
+        assert_eq!(state, Some(NodeState::Stopped));
     }
 
     #[test]
@@ -587,10 +650,10 @@ mod tests {
         let state = detect_node_state(
             "switch1-abc12345",
             &NodeKind::Container,
-            &vm_states,
-            &container_states,
+            Some(&vm_states),
+            Some(&container_states),
         );
-        assert_eq!(state, NodeState::Stopped);
+        assert_eq!(state, Some(NodeState::Stopped));
     }
 
     #[test]
@@ -605,9 +668,9 @@ mod tests {
         let state = detect_node_state(
             "switch1-abc12345",
             &NodeKind::Container,
-            &vm_states,
-            &container_states,
+            Some(&vm_states),
+            Some(&container_states),
         );
-        assert_eq!(state, NodeState::Unknown);
+        assert_eq!(state, Some(NodeState::Unknown));
     }
 }

@@ -577,15 +577,15 @@ flowchart TB
     end
     volumes --> listnetworks
     subgraph dockernets["destroy_docker_networks"]
-        listnetworks["container::list_networks"] --> deletenetworks["delete networks containing lab_id"]
+        listnetworks["container::list_networks"] --> deletenetworks["delete networks named name-lab_id"]
     end
     deletenetworks --> listlibvirtnets
     subgraph libvirtnets["destroy_libvirt_networks"]
-        listlibvirtnets["list libvirt networks"] --> undefinenets["destroy/undefine networks containing lab_id"]
+        listlibvirtnets["list libvirt networks"] --> undefinenets["destroy/undefine networks named name-lab_id"]
     end
     undefinenets --> findifaces
     subgraph interfaces["destroy_interfaces"]
-        findifaces["network::find_interfaces_fuzzy(lab_id)"] --> deleteifaces["delete known Sherpa-created bridge/veth/tap interfaces"]
+        findifaces["network::list_interface_names"] --> deleteifaces["delete the lab's Sherpa-created bridge/veth/tap interfaces"]
     end
     deleteifaces --> deletelab
     subgraph database["cleanup_database"]
@@ -597,15 +597,21 @@ flowchart TB
 
 Destruction uses name-based matching for many runtime resources because the runtime backends are external systems and the database may not be fully reliable after partial failures. This is why consistent naming with `lab_id` embedded in resource names is part of the architecture.
 
-Domains and disks are matched by their whole name, with `libvirt::is_lab_device` and
-`libvirt::is_lab_volume`: a domain is `<node>-<lab_id>`, and a disk adds one of
-`shared::konst::LAB_VOLUME_SUFFIXES`. A substring match would also take another lab's VMs and
-disks when one of its node names contains this lab's ID. A new kind of disk needs its suffix in
+Every resource is matched by its whole name. Everything Sherpa creates for a lab is named
+`<name>-<lab_id>` (domains and containers, Docker and libvirt networks, bridges, taps and veths),
+and `shared::util::is_lab_resource` checks that form; `libvirt::is_lab_volume` adds one of
+`shared::konst::LAB_VOLUME_SUFFIXES` for disks. A substring match would also take another lab's
+resources when one of its names contains this lab's ID. Redeploy removes a container node's
+data networks with `container_networks::is_node_network` (`<node>-brs<n>-<lab_id>` or
+`<node>-iso<n>-<lab_id>`), so node `r1` never takes the networks of node `r1-x`. A new kind of disk needs its suffix in
 `LAB_VOLUME_SUFFIXES`, or destroy leaves it behind. The startup guard in `up` and the disks
 `inspect` lists use the same rules.
 
 The lab name comes from the lab's database record, so destroy also works when `up` was stopped
 before it wrote the lab info file.
+
+When any resource fails to go, `cleanup_lab_metadata` keeps the lab's database record and
+folder, so its owner can destroy it again; both are removed only once everything else is gone.
 
 ### Operation lifecycle and stopping operations
 
@@ -636,6 +642,12 @@ before writing lab files. They are never dropped mid-step, because disk and VM s
 The first reason wins if both happen. Without this, an orphaned `up` kept polling destroyed
 VMs, held its image leases, and recreated the lab directory with cluster credentials after
 destroy.
+
+A requested stop removes the lab's token when it releases the lease, so an operation queued
+behind it would start with a fresh token ahead of a destroy waiting behind both. `stop` counts
+pending destroys per lab, and `begin` cancels a new operation with `Destroy` while one is
+pending. `redeploy` and `resume` check access before taking the lease, and again once they hold
+it, so a lab destroyed while they waited is not rebuilt.
 
 The CLI (`cmd/interrupt.rs`) waits for `up`, `redeploy` and `resume` while listening for
 Ctrl-C. On Ctrl-C it asks whether to stop the operation on the server too, defaulting to no; a
@@ -691,6 +703,10 @@ flowchart LR
 ```
 
 Services check owner-or-admin access first, then inspect node kind and call the right runtime backend: Docker for containers and libvirt for VMs/unikernels. The service returns a `LabNodeActionResponse` describing what changed and what failed.
+
+Both are idempotent per node. A VM already stopped or running is reported as such. A container
+is checked first (`container::container_status`): `down` pauses only a running container, and
+`resume` unpauses a paused one, starts an exited or created one, and leaves a running one.
 
 `down` routes each node (`shutdown_route`): VMs are asked to shut down (`domain.shutdown()`:
 libvirt uses the guest agent when present, otherwise the ACPI power button); Talos cluster
@@ -780,6 +796,9 @@ flowchart TB
     scancycle -.->|"scan failure: log, do not kill server"| wait
 ```
 
+A runtime that cannot be queried in a cycle (libvirtd or Docker restarting) is unknown for that
+cycle: its nodes keep their recorded state. Treating it as empty would mark every node Stopped.
+
 A VM that changes to Running joins `awaiting_host_key`, an in-memory set kept across cycles,
 because libvirt reports it running before its SSH server answers. Its key is read every
 cycle until it answers or stops. A running VM with a key is not read again, so the scanner
@@ -868,6 +887,13 @@ what each phase does.
 `up`, `redeploy` and `resume` poll each VM's readiness port (`node_ops::vm_ready_port`: the
 manifest's `ready_port`, else the model's) with `node_ops::check_vm_ready`. Unikernels use
 `check_unikernel_ready`, and containers are ready once running.
+
+A container that is not running right after it starts is reported as a failed node, a
+non-critical `NodeReadiness` error, and is not started again (that would fail on its name and
+roll back the whole lab). Once readiness ends, `up` checks every started container again, so
+one that exited since is reported too and its node marked `Stopped`. VM and unikernel creation
+tasks are all awaited before a failure is reported, so none is still creating a domain while
+the rollback removes the lab.
 
 ```mermaid
 flowchart TB

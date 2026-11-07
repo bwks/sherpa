@@ -4,10 +4,12 @@ use tracing::instrument;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
+use crate::services::error::ServiceError;
 use shared::data::{
     BridgeKind, ImpairmentDirection, LinkImpairment, UpdateImpairmentRequest,
     UpdateImpairmentResponse,
 };
+use shared::validators::validate_link_impairment;
 
 /// Update link impairment on a running P2p link
 ///
@@ -26,6 +28,7 @@ pub async fn update_impairment(
     state: &AppState,
 ) -> Result<UpdateImpairmentResponse> {
     let lab_id = &request.lab_id;
+    let impairment = requested_impairment(&request)?;
 
     // Get all links for this lab and find the one with the matching index
     let lab = require_lab_access(ctx, &state.db, lab_id).await?;
@@ -56,14 +59,6 @@ pub async fn update_impairment(
         ));
     }
 
-    let impairment = LinkImpairment {
-        delay_us: request.delay * 1000,
-        jitter_us: request.jitter * 1000,
-        loss_percent: request.loss_percent,
-        reorder_percent: request.reorder_percent,
-        corrupt_percent: request.corrupt_percent,
-    };
-
     // Traffic from A to B leaves the host through B's end, so its netem goes on tap_b.
     let (to_b, to_a) = match request.direction {
         ImpairmentDirection::Both => (true, true),
@@ -72,10 +67,23 @@ pub async fn update_impairment(
     };
     if to_b {
         set_netem(&db_link.tap_b, &impairment).await?;
+    }
+    if to_a && let Err(error) = set_netem(&db_link.tap_a, &impairment).await {
+        // Put the other direction back, so the kernel matches the database again.
+        if to_b && let Err(restore) = set_netem(&db_link.tap_b, &db_link.impairment_a_to_b).await {
+            tracing::error!(
+                lab_id = %lab_id,
+                link_index = request.link_index,
+                error = %restore,
+                "Failed to restore the src to dst impairment; it no longer matches the database"
+            );
+        }
+        return Err(error);
+    }
+    if to_b {
         db_link.impairment_a_to_b = impairment;
     }
     if to_a {
-        set_netem(&db_link.tap_a, &impairment).await?;
         db_link.impairment_b_to_a = impairment;
     }
     tracing::info!(
@@ -129,6 +137,31 @@ pub async fn update_impairment(
     })
 }
 
+/// The impairment a request asks for, with delays in microseconds as netem takes them.
+fn requested_impairment(request: &UpdateImpairmentRequest) -> Result<LinkImpairment, ServiceError> {
+    validate_link_impairment(
+        request.delay,
+        request.jitter,
+        request.loss_percent,
+        request.reorder_percent,
+        request.corrupt_percent,
+    )
+    .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+    Ok(LinkImpairment {
+        delay_us: millis_to_micros(request.delay, "delay")?,
+        jitter_us: millis_to_micros(request.jitter, "jitter")?,
+        loss_percent: request.loss_percent,
+        reorder_percent: request.reorder_percent,
+        corrupt_percent: request.corrupt_percent,
+    })
+}
+
+/// `ms` milliseconds of the impairment `field` in microseconds.
+fn millis_to_micros(ms: u32, field: &str) -> Result<u32, ServiceError> {
+    ms.checked_mul(1000)
+        .ok_or_else(|| ServiceError::Invalid(format!("Impairment {field} of {ms} ms is too long")))
+}
+
 /// Replace the netem impairment on a host end, or remove it when `impairment` is clear.
 #[instrument(skip(impairment), fields(%iface_name), level = "debug")]
 async fn set_netem(iface_name: &str, impairment: &LinkImpairment) -> Result<()> {
@@ -150,4 +183,42 @@ async fn set_netem(iface_name: &str, impairment: &LinkImpairment) -> Result<()> 
     network::tc::update_netem(ifindex, impairment)
         .await
         .context(format!("Failed to apply netem on {iface_name}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request(delay: u32, loss_percent: f32) -> UpdateImpairmentRequest {
+        UpdateImpairmentRequest {
+            lab_id: "abc12345".to_owned(),
+            link_index: 1,
+            direction: ImpairmentDirection::Both,
+            delay,
+            jitter: 0,
+            loss_percent,
+            reorder_percent: 0.0,
+            corrupt_percent: 0.0,
+        }
+    }
+
+    #[test]
+    fn a_requested_impairment_is_converted_to_microseconds() {
+        let impairment = requested_impairment(&request(274_877, 12.5)).unwrap();
+        assert_eq!(impairment.delay_us, 274_877_000);
+        assert!((impairment.loss_percent - 12.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn delays_netem_cannot_hold_and_bad_percentages_are_invalid() {
+        for bad in [
+            request(274_878, 0.0),
+            request(u32::MAX, 0.0),
+            request(0, 100.5),
+            request(0, -1.0),
+        ] {
+            let error = requested_impairment(&bad).expect_err("accepted");
+            assert!(matches!(error, ServiceError::Invalid(_)), "{error}");
+        }
+    }
 }

@@ -37,9 +37,9 @@ use shared::data::{
     DbBridge, DbNode, NodeState, RecordId, RedeployRequest, RedeployResponse, StatusKind,
 };
 use shared::konst::{
-    BRIDGE_MEMBER_HOST_VETH_PREFIX, CONTAINER_SECRETS_DIR, KVM_OUI, LAB_CERTS_DIR, LAB_FILE_NAME,
-    MTU_JUMBO_NET, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_LABS_PATH,
-    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR, TFTP_DIR, ZTP_DIR,
+    BRIDGE_MEMBER_HOST_VETH_PREFIX, CONTAINER_HOST_VETH_PREFIX, CONTAINER_SECRETS_DIR, KVM_OUI,
+    LAB_CERTS_DIR, LAB_FILE_NAME, MTU_JUMBO_NET, READINESS_SLEEP, READINESS_TIMEOUT,
+    SHERPA_LABS_PATH, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::effective_data_interface_count;
@@ -80,13 +80,15 @@ pub async fn redeploy_node(
     let lab_id = &request.lab_id;
     let node_name = &request.node_name;
     require_lab_starter(ctx)?;
-    let db_lab = require_lab_owner(ctx, &state.db, lab_id).await?;
+    require_lab_owner(ctx, &state.db, lab_id).await?;
     let owner = db::get_user(&state.db, &ctx.username)
         .await
         .context("Failed to look up the lab owner")?;
     guest_account::require_ssh_key(&owner)?;
     // Destroying the lab stops this operation; see `lab_operations`.
     let operation = lab_operations::begin(lab_id).await;
+    // Check again under the lease: a destroy that finished while this waited has removed the lab.
+    let db_lab = require_lab_owner(ctx, &state.db, lab_id).await?;
     let locks = REDEPLOY_LOCKS.get_or_init(DashMap::new);
     locks.retain(|_, lock| lock.strong_count() > 0);
     let lab_lock = {
@@ -296,12 +298,6 @@ pub async fn redeploy_node(
             .as_ref()
             .map(|account| account.username.as_str()),
     );
-    // The rebuilt node gets a new host key, recorded again once it is ready.
-    db::update_node_host_key(&db, node_record_id.clone(), None).await?;
-
-    // Update node state to Starting
-    db::update_node_state(&db, node_record_id.clone(), NodeState::Starting).await?;
-
     let _ = progress.send_status(
         format!("Context loaded for node: {}", node_name),
         StatusKind::Done,
@@ -332,6 +328,12 @@ pub async fn redeploy_node(
     )
     .await
     .context("CPU pinning validation failed")?;
+
+    // Every check has passed, so the node is torn down now. Until then a refused redeploy
+    // leaves it, its state and its host key as they were.
+    // The rebuilt node gets a new host key, recorded again once it is ready.
+    db::update_node_host_key(&db, node_record_id.clone(), None).await?;
+    db::update_node_state(&db, node_record_id.clone(), NodeState::Starting).await?;
 
     // ========================================================================
     // Stage 2: Destroy existing node
@@ -564,7 +566,7 @@ pub async fn redeploy_node(
                         continue;
                     }
                     p2p_container_veths.push(P2pContainerVeth {
-                        host_veth: format!("cd{}i{}-{}", node_idx, idx, lab_id),
+                        host_veth: format!("{CONTAINER_HOST_VETH_PREFIX}{node_idx}i{idx}-{lab_id}"),
                         host_alias: format!("{}-p2p-disabled-host-{}::{}", lab_id, node_name, idx),
                         interface_idx: idx,
                         node_model: target_node.model,

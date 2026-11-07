@@ -17,8 +17,8 @@ use anyhow::Result;
 
 use network::{
     NetnsVethState, apply_netem, attach_p2p_redirect, create_bridge, create_tap,
-    create_veth_in_netns, create_veth_pair, delete_interface, enslave_to_bridge,
-    find_interfaces_fuzzy, get_ifindex, remove_netem, set_link_down, update_netem,
+    create_veth_in_netns, create_veth_pair, delete_interface, enslave_to_bridge, get_ifindex,
+    list_interface_names, remove_netem, set_link_down, update_netem,
 };
 use shared::data::LinkImpairment;
 
@@ -153,6 +153,15 @@ fn interface_mtu(name: &str) -> Option<u32> {
 // Bridge
 // ============================================================================
 
+/// The host's interfaces whose names contain `part`.
+async fn interfaces_containing(part: &str) -> Result<Vec<String>> {
+    let names = list_interface_names().await?;
+    Ok(names
+        .into_iter()
+        .filter(|name| name.contains(part))
+        .collect())
+}
+
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
 async fn test_create_bridge() -> Result<()> {
@@ -164,7 +173,7 @@ async fn test_create_bridge() -> Result<()> {
     create_bridge(name, alias).await?;
 
     // Verify bridge exists via fuzzy search
-    let found = find_interfaces_fuzzy(name).await?;
+    let found = interfaces_containing(name).await?;
     assert!(
         found.iter().any(|n| n == name),
         "Bridge {name} should exist, found: {found:?}"
@@ -174,7 +183,7 @@ async fn test_create_bridge() -> Result<()> {
     delete_interface(name).await?;
 
     // Verify gone
-    let found = find_interfaces_fuzzy(name).await?;
+    let found = interfaces_containing(name).await?;
     assert!(
         !found.iter().any(|n| n == name),
         "Bridge should be gone after deletion"
@@ -246,14 +255,14 @@ async fn test_create_veth_pair() -> Result<()> {
     create_veth_pair(src, dst, "test-src-alias", "test-dst-alias").await?;
 
     // Verify both ends exist
-    let found = find_interfaces_fuzzy("st-veth0").await?;
+    let found = interfaces_containing("st-veth0").await?;
     assert!(found.iter().any(|n| n == src), "src veth should exist");
     assert!(found.iter().any(|n| n == dst), "dst veth should exist");
 
     // Cleanup — deleting one end removes both
     delete_interface(src).await?;
 
-    let found = find_interfaces_fuzzy("st-veth0").await?;
+    let found = interfaces_containing("st-veth0").await?;
     assert!(!found.iter().any(|n| n == src), "src should be gone");
     assert!(
         !found.iter().any(|n| n == dst),
@@ -402,15 +411,15 @@ async fn test_delete_nonexistent_interface_succeeds() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_find_interfaces_fuzzy_no_matches() -> Result<()> {
-    let found = find_interfaces_fuzzy("st-zzz-nonexistent").await?;
+async fn test_interfaces_containing_no_matches() -> Result<()> {
+    let found = interfaces_containing("st-zzz-nonexistent").await?;
     assert!(found.is_empty(), "Should find no matches");
     Ok(())
 }
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_find_interfaces_fuzzy_multiple_matches() -> Result<()> {
+async fn test_interfaces_containing_multiple_matches() -> Result<()> {
     let br1 = "st-fz-br1";
     let br2 = "st-fz-br2";
 
@@ -421,7 +430,7 @@ async fn test_find_interfaces_fuzzy_multiple_matches() -> Result<()> {
     create_bridge(br2, "fuzzy-test-2").await?;
 
     // Both should match "st-fz-"
-    let found = find_interfaces_fuzzy("st-fz-").await?;
+    let found = interfaces_containing("st-fz-").await?;
     assert!(
         found.len() >= 2,
         "Should find at least 2 matches, got: {found:?}"
@@ -453,7 +462,7 @@ async fn test_create_tap() -> Result<()> {
 
     create_tap(name, "test-tap-alias").await?;
 
-    let found = find_interfaces_fuzzy(name).await?;
+    let found = interfaces_containing(name).await?;
     assert!(
         found.iter().any(|n| n == name),
         "Tap {name} should exist, found: {found:?}"
@@ -472,7 +481,7 @@ async fn test_create_tap() -> Result<()> {
 
     delete_interface(name).await?;
 
-    let found = find_interfaces_fuzzy(name).await?;
+    let found = interfaces_containing(name).await?;
     assert!(
         !found.iter().any(|n| n == name),
         "Tap should be gone after deletion"

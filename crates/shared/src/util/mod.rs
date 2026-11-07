@@ -7,6 +7,7 @@ mod file_system;
 mod host;
 mod interface;
 mod ip;
+mod lab_name;
 mod mac;
 mod output;
 mod random;
@@ -47,6 +48,7 @@ pub use ip::{
 };
 #[cfg(feature = "netinfo")]
 pub use ip::{get_interface_networks, get_interface_networks_v6};
+pub use lab_name::is_lab_resource;
 pub use mac::random_mac;
 pub use output::{
     confirm, display_destroy_results, term_msg_highlight, term_msg_surround, term_msg_underline,

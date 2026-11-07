@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, anyhow};
+use bollard::secret::ContainerStateStatusEnum;
 use futures::future::join_all;
 use opentelemetry::KeyValue;
 use shared::data::{
@@ -69,9 +70,11 @@ pub async fn start_lab_nodes(
     let start = Instant::now();
 
     require_lab_starter(ctx)?;
-    let db_lab = require_lab_access(ctx, &state.db, lab_id).await?;
+    require_lab_access(ctx, &state.db, lab_id).await?;
     // Destroying the lab stops this operation; see `lab_operations`.
     let operation = lab_operations::begin(lab_id).await;
+    // Check again under the lease: a destroy that finished while this waited has removed the lab.
+    let db_lab = require_lab_access(ctx, &state.db, lab_id).await?;
 
     let credential = super::tailscale::resume_credential(
         db_lab.tailscale_container_id.is_some(),
@@ -533,22 +536,59 @@ async fn start_vm(device_name: &str, node_name: &str, state: &AppState) -> NodeA
     }
 }
 
+/// What `resume` does to a container in `status`.
+#[derive(Debug, PartialEq, Eq)]
+enum ContainerResume {
+    Unpause,
+    Start,
+    AlreadyRunning,
+    Cannot(String),
+}
+
+fn container_resume_step(status: Option<ContainerStateStatusEnum>) -> ContainerResume {
+    match status {
+        Some(ContainerStateStatusEnum::PAUSED) => ContainerResume::Unpause,
+        Some(ContainerStateStatusEnum::EXITED | ContainerStateStatusEnum::CREATED) => {
+            ContainerResume::Start
+        }
+        Some(ContainerStateStatusEnum::RUNNING) => ContainerResume::AlreadyRunning,
+        Some(other) => {
+            ContainerResume::Cannot(format!("Cannot resume a container that is {other}"))
+        }
+        None => ContainerResume::Cannot("Docker reports no state for the container".to_string()),
+    }
+}
+
 async fn start_container_node(
     device_name: &str,
     node_name: &str,
     state: &AppState,
 ) -> NodeActionResult {
-    match container::unpause_container(&state.docker, device_name).await {
-        Ok(()) => NodeActionResult {
-            name: node_name.to_string(),
-            success: true,
-            message: "Unpaused".to_string(),
-        },
-        Err(e) => NodeActionResult {
-            name: node_name.to_string(),
-            success: false,
-            message: format!("Failed to unpause: {:#}", e),
-        },
+    let result = |success: bool, message: String| NodeActionResult {
+        name: node_name.to_string(),
+        success,
+        message,
+    };
+    // As for VMs, a running node is left alone and a stopped one is started.
+    let status = match container::container_status(&state.docker, device_name).await {
+        Ok(status) => status,
+        Err(e) => return result(false, format!("Failed to check the container: {e:#}")),
+    };
+    match container_resume_step(status) {
+        ContainerResume::Unpause => {
+            match container::unpause_container(&state.docker, device_name).await {
+                Ok(()) => result(true, "Unpaused".to_string()),
+                Err(e) => result(false, format!("Failed to unpause: {e:#}")),
+            }
+        }
+        ContainerResume::Start => {
+            match container::start_container(&state.docker, device_name).await {
+                Ok(()) => result(true, "Started".to_string()),
+                Err(e) => result(false, format!("Failed to start: {e:#}")),
+            }
+        }
+        ContainerResume::AlreadyRunning => result(true, "Already running".to_string()),
+        ContainerResume::Cannot(reason) => result(false, reason),
     }
 }
 
@@ -620,6 +660,32 @@ async fn reattach_p2p_ebpf_for_nodes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resume_unpauses_starts_or_leaves_a_container() {
+        use ContainerResume::*;
+        assert_eq!(
+            container_resume_step(Some(ContainerStateStatusEnum::PAUSED)),
+            Unpause
+        );
+        assert_eq!(
+            container_resume_step(Some(ContainerStateStatusEnum::EXITED)),
+            Start
+        );
+        assert_eq!(
+            container_resume_step(Some(ContainerStateStatusEnum::CREATED)),
+            Start
+        );
+        assert_eq!(
+            container_resume_step(Some(ContainerStateStatusEnum::RUNNING)),
+            AlreadyRunning
+        );
+        assert!(matches!(
+            container_resume_step(Some(ContainerStateStatusEnum::DEAD)),
+            Cannot(_)
+        ));
+        assert!(matches!(container_resume_step(None), Cannot(_)));
+    }
     use shared::konst::TALOS_API_PORT;
 
     fn manifest(text: &str) -> Manifest {

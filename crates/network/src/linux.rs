@@ -225,13 +225,13 @@ pub async fn delete_interface(name: &str) -> Result<()> {
     }
 }
 
-/// The names of all interfaces whose name contains `fuzzy_name`.
+/// The names of every interface on the host.
 ///
 /// # Errors
 ///
 /// Fails when netlink cannot list the interfaces.
-#[instrument(fields(%fuzzy_name), level = "debug")]
-pub async fn find_interfaces_fuzzy(fuzzy_name: &str) -> Result<Vec<String>> {
+#[instrument(level = "debug")]
+pub async fn list_interface_names() -> Result<Vec<String>> {
     let handle = setup_netlink().await?;
 
     let mut links = handle.link().get().execute();
@@ -239,12 +239,9 @@ pub async fn find_interfaces_fuzzy(fuzzy_name: &str) -> Result<Vec<String>> {
     let mut interfaces = Vec::new();
 
     while let Some(link) = links.try_next().await.context("Error listing interfaces")? {
-        // Extract the interface name from attributes
         for attr in link.attributes {
             if let LinkAttribute::IfName(name) = attr {
-                if name.contains(fuzzy_name) {
-                    interfaces.push(name);
-                }
+                interfaces.push(name);
                 break;
             }
         }

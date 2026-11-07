@@ -10,16 +10,17 @@ use container::tailscale::{gateway_name, is_gateway, remove_gateway};
 use container::{
     Docker, delete_network, kill_container, list_containers, list_networks, remove_container,
 };
-use libvirt::{delete_disk, is_lab_device, list_lab_volumes};
-use network::{delete_interface, find_interfaces_fuzzy};
+use libvirt::{delete_disk, list_lab_volumes};
+use network::{delete_interface, list_interface_names};
 use shared::data::{
     DestroyError, DestroyResponse, DestroySummary, StatusKind, TailscaleGatewaySettings,
 };
 use shared::konst::{
-    BRIDGE_MEMBER_HOST_VETH_PREFIX, BRIDGE_PREFIX, SHERPA_LABS_PATH, SHERPA_SECRETS_DIR,
-    SHERPA_STORAGE_POOL, TAP_PREFIX,
+    BRIDGE_MEMBER_HOST_VETH_PREFIX, BRIDGE_PREFIX, CONTAINER_HOST_VETH_PREFIX, SHERPA_LABS_PATH,
+    SHERPA_SECRETS_DIR, SHERPA_STORAGE_POOL, TAP_PREFIX,
 };
 use shared::util::dir_exists;
+use shared::util::is_lab_resource;
 
 use tracing::instrument;
 
@@ -287,8 +288,8 @@ pub async fn destroy_lab(
 }
 
 /// Finish database and filesystem cleanup after infrastructure teardown.
-/// Keep metadata when Tailscale resources remain; the database future is only
-/// polled once their cleanup succeeds.
+/// Keep metadata when any resource failed to go, so the lab can be destroyed again; the
+/// database future is only polled once every resource is gone.
 #[instrument(skip(database_cleanup, summary, errors, progress), fields(%lab_id), level = "debug")]
 pub(crate) async fn cleanup_lab_metadata(
     lab_id: &str,
@@ -303,10 +304,8 @@ pub(crate) async fn cleanup_lab_metadata(
             let _ = progress.send_status(message, kind);
         }
     };
-    if errors
-        .iter()
-        .any(|error| matches!(error.resource_type.as_str(), "tailscale" | "vm" | "disk"))
-    {
+    // Something the lab owns is still there, so keep the record that lets its owner retry.
+    if !errors.is_empty() {
         tracing::warn!(lab_id = %lab_id, "Retaining lab ownership and saved configuration after resource cleanup failure");
         send_status(
             "Resource cleanup failed; lab ownership and saved configuration retained for a cleanup retry."
@@ -373,6 +372,33 @@ pub(crate) fn destroy_lab_secrets(lab_id: &str, root: &Path, errors: &mut Vec<De
     }
 }
 
+/// The name of a container in the lab `lab_id`, given its Docker names, or `None` when it is
+/// another lab's or not Sherpa's. Docker names start with `/`.
+fn lab_container_name<'a>(names: &'a [String], lab_id: &str) -> Option<&'a str> {
+    names
+        .iter()
+        .map(|name| name.trim_start_matches('/'))
+        .find(|name| is_lab_resource(name, lab_id))
+}
+
+/// Whether `interface` is one of the lab's host interfaces that Sherpa deletes itself: the
+/// bridges, taps and veths it creates outside libvirt and Docker. Only one end of a veth needs
+/// deleting.
+fn is_lab_interface(interface: &str, lab_id: &str) -> bool {
+    let sherpa_made = [
+        format!("{BRIDGE_PREFIX}i"),
+        format!("{BRIDGE_PREFIX}s"),
+        format!("{TAP_PREFIX}a"),
+        format!("{TAP_PREFIX}b"),
+        BRIDGE_MEMBER_HOST_VETH_PREFIX.to_owned(),
+        CONTAINER_HOST_VETH_PREFIX.to_owned(),
+    ];
+    sherpa_made
+        .iter()
+        .any(|prefix| interface.starts_with(prefix.as_str()))
+        && is_lab_resource(interface, lab_id)
+}
+
 /// Destroy all containers for a lab
 #[instrument(skip(docker, settings, summary, errors), fields(%lab_id), level = "debug")]
 pub(crate) async fn destroy_containers(
@@ -388,8 +414,9 @@ pub(crate) async fn destroy_containers(
                 .iter()
                 .filter(|c| {
                     c.names
-                        .as_ref()
-                        .is_some_and(|names| names.iter().any(|name| name.contains(lab_id)))
+                        .as_deref()
+                        .and_then(|names| lab_container_name(names, lab_id))
+                        .is_some()
                 })
                 .collect();
 
@@ -399,59 +426,52 @@ pub(crate) async fn destroy_containers(
                 "Found containers to destroy"
             );
 
-            for container in containers {
-                if let Some(names) = &container.names {
-                    // Check if any container name contains the lab_id
-                    if names.iter().any(|name| name.contains(lab_id)) {
-                        // From docs: for historical reasons, container names start with a '/'
-                        // Extract the actual container name (remove leading /)
-                        if let Some(container_name) = names.first() {
-                            let name = container_name.trim_start_matches('/');
-                            // Gateways are removed below after verifying exact ownership.
-                            if container.labels.as_ref().is_some_and(is_gateway) {
-                                continue;
-                            }
-                            tracing::debug!(
-                                lab_id = %lab_id,
-                                container_name = %name,
-                                "Destroying container"
-                            );
-                            // Best-effort kill — container may not be running
-                            // (e.g. created but never started during a partial failure).
-                            if let Err(e) = kill_container(docker, name).await {
-                                tracing::debug!(
-                                    lab_id = %lab_id,
-                                    container_name = %name,
-                                    error = ?e,
-                                    "Kill container failed (may not be running), proceeding to remove"
-                                );
-                            }
+            for container in lab_containers {
+                let Some(name) = container
+                    .names
+                    .as_deref()
+                    .and_then(|names| lab_container_name(names, lab_id))
+                else {
+                    continue;
+                };
+                // Gateways are removed below after verifying exact ownership.
+                if container.labels.as_ref().is_some_and(is_gateway) {
+                    continue;
+                }
+                tracing::debug!(
+                    lab_id = %lab_id,
+                    container_name = %name,
+                    "Destroying container"
+                );
+                // Best-effort kill — container may not be running
+                // (e.g. created but never started during a partial failure).
+                if let Err(e) = kill_container(docker, name).await {
+                    tracing::debug!(
+                        lab_id = %lab_id,
+                        container_name = %name,
+                        error = ?e,
+                        "Kill container failed (may not be running), proceeding to remove"
+                    );
+                }
 
-                            match remove_container(docker, name).await {
-                                Ok(_) => {
-                                    summary.containers_destroyed.push(name.to_string());
-                                    tracing::info!(
-                                        lab_id = %lab_id,
-                                        container_name = %name,
-                                        "Container destroyed"
-                                    );
-                                }
-                                Err(e) => {
-                                    summary.containers_failed.push(name.to_string());
-                                    errors.push(DestroyError::new(
-                                        "container",
-                                        name,
-                                        format!("{:?}", e),
-                                    ));
-                                    tracing::error!(
-                                        lab_id = %lab_id,
-                                        container_name = %name,
-                                        error = ?e,
-                                        "Failed to remove container"
-                                    );
-                                }
-                            }
-                        }
+                match remove_container(docker, name).await {
+                    Ok(_) => {
+                        summary.containers_destroyed.push(name.to_string());
+                        tracing::info!(
+                            lab_id = %lab_id,
+                            container_name = %name,
+                            "Container destroyed"
+                        );
+                    }
+                    Err(e) => {
+                        summary.containers_failed.push(name.to_string());
+                        errors.push(DestroyError::new("container", name, format!("{:?}", e)));
+                        tracing::error!(
+                            lab_id = %lab_id,
+                            container_name = %name,
+                            error = ?e,
+                            "Failed to remove container"
+                        );
                     }
                 }
             }
@@ -528,7 +548,7 @@ pub(crate) fn destroy_vms_and_disks(
             }
         };
 
-        if !is_lab_device(&vm_name, lab_id) {
+        if !is_lab_resource(&vm_name, lab_id) {
             continue;
         }
 
@@ -600,7 +620,7 @@ pub(crate) async fn destroy_docker_networks(
         Ok(container_networks) => {
             for network in container_networks {
                 if let Some(network_name) = network.name
-                    && network_name.contains(lab_id)
+                    && is_lab_resource(&network_name, lab_id)
                 {
                     match delete_network(docker, &network_name).await {
                         Ok(_) => {
@@ -681,7 +701,7 @@ pub(crate) fn destroy_libvirt_networks(
             }
         };
 
-        if network_name.contains(lab_id) {
+        if is_lab_resource(&network_name, lab_id) {
             match (|| -> Result<()> {
                 let is_active = network.is_active().unwrap_or(false);
                 if is_active {
@@ -720,18 +740,10 @@ pub(crate) async fn destroy_interfaces(
     summary: &mut DestroySummary,
     errors: &mut Vec<DestroyError>,
 ) {
-    match find_interfaces_fuzzy(lab_id).await {
-        Ok(lab_interfaces) => {
-            for interface in lab_interfaces {
-                // Only delete interfaces created outside of Libvirt/Docker
-                // Only 1 side of the veth interface needs to be deleted
-                if interface.starts_with(&format!("{}i", BRIDGE_PREFIX))
-                    || interface.starts_with(&format!("{}s", BRIDGE_PREFIX))
-                    || interface.starts_with(&format!("{}a", TAP_PREFIX))
-                    || interface.starts_with(&format!("{}b", TAP_PREFIX))
-                    || interface.starts_with(BRIDGE_MEMBER_HOST_VETH_PREFIX)
-                    || interface.starts_with("cd")
-                {
+    match list_interface_names().await {
+        Ok(interfaces) => {
+            for interface in interfaces {
+                if is_lab_interface(&interface, lab_id) {
                     match delete_interface(&interface).await {
                         Ok(_) => {
                             summary.interfaces_deleted.push(interface.clone());
@@ -792,6 +804,49 @@ mod tests {
     /// A libvirt URI whose socket does not exist, so connecting always fails.
     const UNREACHABLE_QEMU_URI: &str = "qemu+unix:///system?socket=/nonexistent/sherpa-test.sock";
 
+    const LAB_ID: &str = "fecb1a12";
+
+    #[test]
+    fn containers_are_the_labs_only_by_whole_name() {
+        let names = |name: &str| vec![format!("/{name}")];
+        assert_eq!(
+            lab_container_name(&names("r1-fecb1a12"), LAB_ID),
+            Some("r1-fecb1a12")
+        );
+        assert_eq!(
+            lab_container_name(&names("sherpa-router-fecb1a12"), LAB_ID),
+            Some("sherpa-router-fecb1a12")
+        );
+        // Another lab's node that is named after this lab's ID.
+        assert_eq!(
+            lab_container_name(&names("fecb1a12-0a1b2c3d"), LAB_ID),
+            None
+        );
+        assert_eq!(lab_container_name(&names("r1-fecb1a12x"), LAB_ID), None);
+    }
+
+    #[test]
+    fn only_the_labs_own_host_interfaces_are_deleted() {
+        for name in [
+            "tpa3-fecb1a12",
+            "tpb3-fecb1a12",
+            "bri1-fecb1a12",
+            "brs2-fecb1a12",
+            "cd1i2-fecb1a12",
+        ] {
+            assert!(is_lab_interface(name, LAB_ID), "{name}");
+        }
+        for name in [
+            // Another lab's, though they contain this lab's ID.
+            "tpa3-0a1b2c3d",
+            "tpafecb1a12-x",
+            // This lab's, but libvirt or Docker remove them.
+            "brm-fecb1a12",
+            "vnet3",
+        ] {
+            assert!(!is_lab_interface(name, LAB_ID), "{name}");
+        }
+    }
     #[test]
     fn lab_secrets_are_removed_with_the_lab() {
         let root = tempdir().unwrap();
@@ -1059,8 +1114,16 @@ mod tests {
         assert_gateway_cleanup_can_be_retried(false, true).await;
     }
     #[tokio::test]
-    async fn vm_and_disk_cleanup_failures_retain_metadata_until_retry() {
-        for resource_type in ["vm", "disk"] {
+    async fn any_resource_cleanup_failure_retains_metadata_until_retry() {
+        for resource_type in [
+            "vm",
+            "disk",
+            "container",
+            "docker_network",
+            "libvirt_network",
+            "interface",
+            "secrets",
+        ] {
             let root = tempdir().unwrap();
             let lab_dir = root.path().join("lab");
             fs::create_dir(&lab_dir).unwrap();

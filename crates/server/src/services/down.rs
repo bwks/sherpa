@@ -1,3 +1,4 @@
+use bollard::secret::ContainerStateStatusEnum;
 use std::net::Ipv4Addr;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -392,28 +393,61 @@ async fn shutdown_vm(
     }
 }
 
+/// Whether `down` pauses a container in `status`, or it is already down.
+fn container_down_step(status: Option<ContainerStateStatusEnum>) -> Result<(), &'static str> {
+    match status {
+        Some(ContainerStateStatusEnum::RUNNING) => Ok(()),
+        Some(ContainerStateStatusEnum::PAUSED) => Err("Already paused"),
+        _ => Err("Not running"),
+    }
+}
+
 async fn shutdown_container(
     device_name: &str,
     node_name: &str,
     state: &AppState,
 ) -> NodeActionResult {
+    let result = |success: bool, message: String| NodeActionResult {
+        name: node_name.to_string(),
+        success,
+        message,
+    };
+    // Pausing a container that is not running fails, so a second down would report errors.
+    let status = match container::container_status(&state.docker, device_name).await {
+        Ok(status) => status,
+        Err(e) => return result(false, format!("Failed to check the container: {e:#}")),
+    };
+    if let Err(already) = container_down_step(status) {
+        return result(true, already.to_string());
+    }
     match container::pause_container(&state.docker, device_name).await {
-        Ok(()) => NodeActionResult {
-            name: node_name.to_string(),
-            success: true,
-            message: "Paused".to_string(),
-        },
-        Err(e) => NodeActionResult {
-            name: node_name.to_string(),
-            success: false,
-            message: format!("Failed to pause: {:#}", e),
-        },
+        Ok(()) => result(true, "Paused".to_string()),
+        Err(e) => result(false, format!("Failed to pause: {e:#}")),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_running_container_is_paused() {
+        assert_eq!(
+            container_down_step(Some(ContainerStateStatusEnum::RUNNING)),
+            Ok(())
+        );
+        assert_eq!(
+            container_down_step(Some(ContainerStateStatusEnum::PAUSED)),
+            Err("Already paused")
+        );
+        for status in [
+            Some(ContainerStateStatusEnum::EXITED),
+            Some(ContainerStateStatusEnum::CREATED),
+            None,
+        ] {
+            assert_eq!(container_down_step(status), Err("Not running"));
+        }
+    }
 
     #[test]
     fn nodes_are_routed_by_kind_model_and_cluster_role() {

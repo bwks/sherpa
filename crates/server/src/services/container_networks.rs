@@ -33,6 +33,27 @@ pub(crate) fn isolated_network_name(node_name: &str, interface_idx: u8, lab_id: 
     format!("{node_name}-iso{interface_idx}-{lab_id}")
 }
 
+/// Whether the Docker network `network` is one of `node_name`'s data networks in the lab
+/// `lab_id`: `<node>-brs<n>-<lab_id>` or `<node>-iso<n>-<lab_id>`.
+///
+/// The whole name is checked, so redeploying node `r1` never takes the networks of a node
+/// named `r1-x`.
+pub(crate) fn is_node_network(network: &str, node_name: &str, lab_id: &str) -> bool {
+    let Some(middle) = network
+        .strip_prefix(node_name)
+        .and_then(|rest| rest.strip_prefix('-'))
+        .and_then(|rest| rest.strip_suffix(lab_id))
+        .and_then(|rest| rest.strip_suffix('-'))
+    else {
+        return false;
+    };
+    ["brs", "iso"].iter().any(|kind| {
+        middle
+            .strip_prefix(kind)
+            .is_some_and(|index| !index.is_empty() && index.bytes().all(|b| b.is_ascii_digit()))
+    })
+}
+
 /// The Docker attachment for one container data interface.
 pub(crate) fn data_attachment(
     node_name: &str,
@@ -157,6 +178,22 @@ mod tests {
                 peer_side: data::PeerSide::B,
             }),
         )
+    }
+
+    #[test]
+    fn a_nodes_networks_are_matched_by_whole_name() {
+        assert!(is_node_network("r1-brs1-fe4edfdc", "r1", "fe4edfdc"));
+        assert!(is_node_network("r1-iso12-fe4edfdc", "r1", "fe4edfdc"));
+        // Node r1-x's networks, and other names that only share the ends.
+        assert!(!is_node_network("r1-x-brs1-fe4edfdc", "r1", "fe4edfdc"));
+        assert!(!is_node_network("r1-brs-fe4edfdc", "r1", "fe4edfdc"));
+        assert!(!is_node_network("r1-brsx1-fe4edfdc", "r1", "fe4edfdc"));
+        assert!(!is_node_network("r1-brs1-0a1b2c3d", "r1", "fe4edfdc"));
+        assert!(!is_node_network(
+            "sherpa-management-fe4edfdc",
+            "r1",
+            "fe4edfdc"
+        ));
     }
 
     #[test]

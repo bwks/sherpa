@@ -1034,76 +1034,23 @@ async fn handle_link_update_impairment(
         }
     };
 
-    let lab_id = match params.get("lab_id").and_then(|v| v.as_str()) {
-        Some(id) => id.to_string(),
-        None => {
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::InvalidParams,
-                    message: RPC_MSG_INVALID_PARAMS_LAB_ID.to_string(),
-                    context: None,
-                }),
-            };
-        }
-    };
-
-    let link_index = match params.get("link_index").and_then(|v| v.as_u64()) {
-        Some(idx) => idx as u16,
-        None => {
+    // Numbers out of range for their field are refused here, never wrapped.
+    let request: data::UpdateImpairmentRequest = match serde_json::from_value(params) {
+        Ok(request) => request,
+        Err(e) => {
             return ServerMessage::RpcResponse {
                 id,
                 result: None,
                 error: Some(RpcError {
                     code: RpcErrorCode::InvalidParams,
                     message: RPC_MSG_INVALID_PARAMS_IMPAIRMENT.to_string(),
-                    context: None,
+                    context: Some(e.to_string()),
                 }),
             };
         }
     };
 
-    let direction = match params.get("direction") {
-        None => data::ImpairmentDirection::Both,
-        Some(value) => match serde_json::from_value(value.clone()) {
-            Ok(direction) => direction,
-            Err(e) => {
-                return ServerMessage::RpcResponse {
-                    id,
-                    result: None,
-                    error: Some(RpcError {
-                        code: RpcErrorCode::InvalidParams,
-                        message: RPC_MSG_INVALID_PARAMS_IMPAIRMENT.to_string(),
-                        context: Some(format!(
-                            "direction must be both, src_to_dst or dst_to_src: {e}"
-                        )),
-                    }),
-                };
-            }
-        },
-    };
-
-    let request = data::UpdateImpairmentRequest {
-        lab_id,
-        link_index,
-        direction,
-        delay: params.get("delay").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-        jitter: params.get("jitter").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-        loss_percent: params
-            .get("loss_percent")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as f32,
-        reorder_percent: params
-            .get("reorder_percent")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as f32,
-        corrupt_percent: params
-            .get("corrupt_percent")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as f32,
-    };
-
+    let link_index = request.link_index;
     match impairment::update_impairment(&auth_ctx, request, state).await {
         Ok(response) => match serde_json::to_value(&response) {
             Ok(result) => {
