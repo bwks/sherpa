@@ -183,12 +183,23 @@ def validate_upgrade_evidence(evidence, baseline, candidate):
 # The first release whose sherpad embeds its database; older ones ran SurrealDB in a container.
 EMBEDDED_DATABASE_VERSION = (0, 5, 0)
 LEGACY_DB_CONTAINER = "sherpa-db"
+# The first release whose installer makes the database directory 0750; older ones made it 0775.
+PRIVATE_DATABASE_DIRECTORY_VERSION = (0, 5, 13)
+
+
+def release_numbers(version):
+    """The numbers of a Sherpa release such as v0.5.0, for comparing releases."""
+    return tuple(int(part) for part in version.removeprefix("v").split("-", 1)[0].split("."))
 
 
 def embeds_database(version):
     """Whether a Sherpa release such as v0.5.0 keeps its database inside sherpad."""
-    numbers = tuple(int(part) for part in version.removeprefix("v").split("-", 1)[0].split("."))
-    return numbers >= EMBEDDED_DATABASE_VERSION
+    return release_numbers(version) >= EMBEDDED_DATABASE_VERSION
+
+
+def database_directory_mode(version):
+    """The mode a Sherpa release's installer gives /opt/sherpa/db."""
+    return 0o750 if release_numbers(version) >= PRIVATE_DATABASE_DIRECTORY_VERSION else 0o775
 
 
 def ubuntu_version(version):
@@ -364,7 +375,8 @@ class Guest:
             require(link.is_symlink() and link.resolve() == path, f"Invalid {binary} symlink")
             _, output = self.command([str(path), "--version"])
             validate_binary_version(binary, self.config[selection]["version"], output)
-        for directory, permissions in (("", 0o775), ("db", 0o750), ("config", 0o775), ("env", 0o750)):
+        database_mode = database_directory_mode(self.config[selection]["version"])
+        for directory, permissions in (("", 0o775), ("db", database_mode), ("config", 0o775), ("env", 0o750)):
             path = self.base / directory
             require(path.is_dir() and path.stat().st_mode & 0o777 == permissions,
                     f"Invalid permissions for {path}")
@@ -1400,6 +1412,12 @@ class GuestTests(unittest.TestCase):
             self.assertTrue(embeds_database(version), version)
         for version in ("v0.4.18", "0.3.80", "v0.4.99"):
             self.assertFalse(embeds_database(version), version)
+
+    def test_releases_from_0_5_13_keep_the_database_directory_private(self):
+        for version in ("v0.5.13", "0.5.14", "v0.10.0", "v1.0.0"):
+            self.assertEqual(database_directory_mode(version), 0o750, version)
+        for version in ("v0.5.12", "0.5.0", "v0.4.18"):
+            self.assertEqual(database_directory_mode(version), 0o775, version)
 
     def test_embedded_database_install_has_no_database_settings(self):
         guest = Guest.__new__(Guest)
