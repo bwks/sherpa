@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.14] - 2026-11-08
+
+### Features
+
+- Show the lab description in every interface by @bwks ([ee780a7](https://github.com/bwks/sherpa/commit/ee780a79925fc662f199c0d0cac337fbc9ac06e7))
+
+### Miscellaneous
+
+- Merge pull request #492 from bwks/feat/lab-description
+
+feat: show the lab description in every interface by @bwks in [#492](https://github.com/bwks/sherpa/pull/492) ([79f0f21](https://github.com/bwks/sherpa/commit/79f0f21207f264c2bdc57436163ba95ba35c2776))
+- Merge pull request #491 from bwks/changelog/v0.5.13
+
+chore(release): update changelog for v0.5.13 by @github-actions[bot] in [#491](https://github.com/bwks/sherpa/pull/491) ([ff8085d](https://github.com/bwks/sherpa/commit/ff8085d2a58f11a2d923a96f65407b5fd8dc78e6))
 ## [0.5.13] - 2026-11-07
 
 ### Bug Fixes
