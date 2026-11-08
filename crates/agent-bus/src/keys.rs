@@ -8,7 +8,7 @@ use anyhow::{Result, anyhow, ensure};
 use nkeys::{KeyPair, KeyPairType};
 
 /// The environment variable that holds the agent's seed.
-const SEED_VARIABLE: &str = "AGENT_BUS_SEED";
+pub const SEED_VARIABLE: &str = "AGENT_BUS_SEED";
 
 /// A new user key pair: the public key goes in the agents file, the seed to its agent.
 pub struct NewKey {

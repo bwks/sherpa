@@ -324,6 +324,7 @@ mod tests {
             kind: Kind::Task,
             text: text.to_owned(),
             usage: None,
+            github: false,
         }
     }
 

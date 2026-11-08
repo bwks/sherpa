@@ -15,6 +15,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
 use crate::channel::Channel;
+use crate::keys::SEED_VARIABLE;
 use crate::message::{Kind, Message, Usage, check_agent_name};
 
 const CLAUDE: &str = "claude";
@@ -22,22 +23,39 @@ const CLAUDE: &str = "claude";
 const TOKEN_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 /// Removed from Claude Code's environment, so it can only use the subscription.
 const API_KEY_VARIABLE: &str = "ANTHROPIC_API_KEY";
-/// The agent's bus key. Claude Code runs commands from network messages with root, so it never
-/// gets the seed.
-const SEED_VARIABLE: &str = "AGENT_BUS_SEED";
+/// GitHub tokens. Claude Code only has them for a task that was given GitHub access, so without
+/// it `curl` with the token cannot work around the deny list either.
+const GITHUB_TOKEN_VARIABLES: [&str; 3] = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN"];
 /// Permission checks are skipped: the guest is a disposable lab VM and the agent has root in it.
 /// These are still refused. Committing, pushing and GitHub are the user's to decide; the host
 /// agent asks them.
 const DISALLOWED_TOOLS: &str = "Bash(git commit:*),Bash(git push:*),Bash(git reset:*),Bash(gh:*)";
+/// The refused commands for a task given GitHub access: it may commit, push and open pull
+/// requests, but merging and destructive operations stay with the user.
+///
+/// With the token present this list is a guardrail, not a security boundary: it matches command
+/// text, and a command written another way (`curl` with the token, a script, an alias) is not
+/// caught. The token's own scopes are the boundary.
+const GITHUB_DISALLOWED_TOOLS: &str = "Bash(gh pr merge:*),Bash(gh api:*),Bash(gh repo delete:*),\
+Bash(gh release:*),Bash(git reset:*),Bash(git push*--force*),Bash(git push* -f),\
+Bash(git push* -f *),Bash(git push* --delete*),Bash(git push* -d),Bash(git push* -d *),\
+Bash(git push* :*),Bash(git push* +*),Bash(git branch* -D*)";
 /// A reply line starting with this asks the host agent, and through it the user, a question.
 const QUESTION_PREFIX: &str = "QUESTION:";
 /// The longest progress message, in characters.
 const PROGRESS_CHARS: usize = 300;
 const RULES: &str = "You are a guest agent in a Sherpa lab VM. A host agent sends you tasks over \
-a message bus; you do the work in this checkout and report back. Follow AGENTS.md. Do not commit, \
-push, merge, open pull requests or run gh, and do not add dependencies. If you need a decision \
-before you can go on, end your reply with one line starting with `QUESTION:` and stop; the answer \
-comes as your next message. Otherwise end with a short summary of what you did and the results.";
+a message bus; you do the work in this checkout and report back. Follow AGENTS.md. Do not add \
+dependencies. If you need a decision before you can go on, end your reply with one line starting \
+with `QUESTION:` and stop; the answer comes as your next message. Otherwise end with a short \
+summary of what you did and the results.";
+/// Added to the rules for a task without GitHub access.
+const RULES_NO_GITHUB: &str = " This task has no GitHub access. Do not commit, push, merge, open \
+pull requests or run gh.";
+/// Added to the rules for a task with GitHub access.
+const RULES_GITHUB: &str = " This task may use GitHub. Do only what the task asks. Commit \
+messages end with the Co-Authored-By line the task gives, and have no session links and no \
+\"Generated with\" footers. Never merge pull requests or delete anything; the user does that.";
 
 /// What a line of Claude Code's `stream-json` output means for the host.
 #[derive(Debug, PartialEq)]
@@ -87,6 +105,13 @@ struct TokenUsage {
     cache_creation: u64,
     #[serde(default, rename = "cache_read_input_tokens")]
     cache_read: u64,
+}
+
+/// A Claude session, and whether its task may use GitHub.
+#[derive(Debug, Clone, PartialEq)]
+struct Session {
+    id: String,
+    github: bool,
 }
 
 /// Where replies about one task go.
@@ -155,6 +180,7 @@ impl Reply<'_> {
                 kind,
                 text,
                 usage,
+                github: false,
             })
             .await
     }
@@ -165,22 +191,14 @@ async fn work(
     reply: &Reply<'_>,
     message: &Message,
     workdir: &Path,
-    sessions: &mut HashMap<String, String>,
+    sessions: &mut HashMap<String, Session>,
 ) -> Result<()> {
-    let mut command = Command::new(CLAUDE);
-    command
-        .args(["-p", "--output-format", "stream-json", "--verbose"])
-        .arg("--dangerously-skip-permissions")
-        .arg(format!("--disallowedTools={DISALLOWED_TOOLS}"))
-        .args(["--append-system-prompt", RULES])
-        .current_dir(workdir)
-        .env_remove(API_KEY_VARIABLE)
-        .env_remove(SEED_VARIABLE)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped());
-    match (sessions.get(&message.task), message.kind) {
+    let known = sessions.get(&message.task);
+    let github = task_github(message, known);
+    let mut command = claude_command(workdir, github);
+    match (known, message.kind) {
         (Some(session), _) => {
-            command.args(["--resume", session]);
+            command.args(["--resume", &session.id]);
         }
         (None, Kind::Answer) => {
             bail!(
@@ -212,7 +230,13 @@ async fn work(
         for update in interpret(&line) {
             match update {
                 Update::Session(session) => {
-                    sessions.insert(message.task.clone(), session);
+                    sessions.insert(
+                        message.task.clone(),
+                        Session {
+                            id: session,
+                            github,
+                        },
+                    );
                 }
                 Update::Text(said) => {
                     if let Some(earlier) = text.replace(said) {
@@ -231,7 +255,13 @@ async fn work(
                     failed,
                     usage,
                 } => {
-                    sessions.insert(message.task.clone(), session);
+                    sessions.insert(
+                        message.task.clone(),
+                        Session {
+                            id: session,
+                            github,
+                        },
+                    );
                     if let Some(last) = text.take()
                         && !repeats_result(&last, &result)
                     {
@@ -248,6 +278,41 @@ async fn work(
     let kind = outcome(&text, failed);
     eprintln!("{}", usage_line(&message.task, kind, &usage));
     reply.send(kind, text, Some(usage)).await
+}
+
+/// Whether a task may use GitHub: a task says so itself, and an answer has the flag of the task
+/// it answers, whatever the answer says.
+fn task_github(message: &Message, session: Option<&Session>) -> bool {
+    match message.kind {
+        Kind::Answer => session.is_some_and(|session| session.github),
+        _ => message.github,
+    }
+}
+
+/// The Claude Code command for a task: its tool limits, its rules and its environment.
+fn claude_command(workdir: &Path, github: bool) -> Command {
+    let (disallowed, rules) = if github {
+        (GITHUB_DISALLOWED_TOOLS, format!("{RULES}{RULES_GITHUB}"))
+    } else {
+        (DISALLOWED_TOOLS, format!("{RULES}{RULES_NO_GITHUB}"))
+    };
+    let mut command = Command::new(CLAUDE);
+    command
+        .args(["-p", "--output-format", "stream-json", "--verbose"])
+        .arg("--dangerously-skip-permissions")
+        .arg(format!("--disallowedTools={disallowed}"))
+        .args(["--append-system-prompt", &rules])
+        .current_dir(workdir)
+        .env_remove(API_KEY_VARIABLE)
+        .env_remove(SEED_VARIABLE)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped());
+    if !github {
+        for variable in GITHUB_TOKEN_VARIABLES {
+            command.env_remove(variable);
+        }
+    }
+    command
 }
 
 /// The guest log line for a finished run: its totals and cache hit ratio.
@@ -365,6 +430,110 @@ fn shorten(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn removed(command: &Command) -> Vec<String> {
+        command
+            .as_std()
+            .get_envs()
+            .filter(|(_, value)| value.is_none())
+            .map(|(key, _)| key.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    fn args(command: &Command) -> Vec<String> {
+        command
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    fn task_message(kind: Kind, github: bool) -> Message {
+        Message {
+            task: "t1".to_owned(),
+            from: "host".to_owned(),
+            to: "dev".to_owned(),
+            kind,
+            text: String::new(),
+            usage: None,
+            github,
+        }
+    }
+
+    #[test]
+    fn a_task_without_github_loses_the_tokens_and_keeps_the_full_deny_list() {
+        let command = claude_command(Path::new("/work"), false);
+        let removed = removed(&command);
+        for variable in [
+            "ANTHROPIC_API_KEY",
+            "AGENT_BUS_SEED",
+            "GH_TOKEN",
+            "GITHUB_TOKEN",
+            "GH_ENTERPRISE_TOKEN",
+        ] {
+            assert!(removed.iter().any(|name| name == variable), "{variable}");
+        }
+        let args = args(&command);
+        assert!(args.contains(&format!("--disallowedTools={DISALLOWED_TOOLS}")));
+        assert!(args.iter().any(|arg| arg.contains("no GitHub access")));
+    }
+
+    #[test]
+    fn a_task_with_github_keeps_the_tokens_and_a_narrower_deny_list() {
+        let command = claude_command(Path::new("/work"), true);
+        let removed = removed(&command);
+        for variable in GITHUB_TOKEN_VARIABLES {
+            assert!(!removed.iter().any(|name| name == variable), "{variable}");
+        }
+        for variable in ["ANTHROPIC_API_KEY", "AGENT_BUS_SEED"] {
+            assert!(removed.iter().any(|name| name == variable), "{variable}");
+        }
+        let args = args(&command);
+        assert!(args.contains(&format!("--disallowedTools={GITHUB_DISALLOWED_TOOLS}")));
+        assert!(args.iter().any(|arg| arg.contains("Co-Authored-By")));
+        for refused in [
+            "gh pr merge",
+            "gh api",
+            "gh repo delete",
+            "gh release",
+            "git reset",
+            "--force",
+            "-f)",
+            "--delete",
+            "git push* :*",
+            "git branch* -D",
+        ] {
+            assert!(GITHUB_DISALLOWED_TOOLS.contains(refused), "{refused}");
+        }
+        for allowed in [
+            "Bash(git commit",
+            "Bash(git push:*)",
+            "Bash(gh:*)",
+            "gh pr create",
+        ] {
+            assert!(!GITHUB_DISALLOWED_TOOLS.contains(allowed), "{allowed}");
+        }
+    }
+
+    #[test]
+    fn an_answer_inherits_the_flag_of_its_task_and_cannot_set_it() {
+        let with = Session {
+            id: "s".to_owned(),
+            github: true,
+        };
+        let without = Session {
+            id: "s".to_owned(),
+            github: false,
+        };
+        assert!(task_github(&task_message(Kind::Task, true), None));
+        assert!(!task_github(&task_message(Kind::Task, false), None));
+        assert!(task_github(&task_message(Kind::Answer, false), Some(&with)));
+        assert!(!task_github(
+            &task_message(Kind::Answer, true),
+            Some(&without)
+        ));
+        assert!(!task_github(&task_message(Kind::Answer, true), None));
+    }
 
     #[test]
     fn claude_events_become_session_progress_and_outcome() {

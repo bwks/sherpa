@@ -37,6 +37,17 @@ pub struct Message {
     /// What the run cost. Only the outcome messages (completed, question, failed) carry it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
+    /// Whether the task may use GitHub. Only a task sets it; an answer has the flag of its task.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub github: bool,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "the signature serde's skip_serializing_if requires"
+)]
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// What one Claude Code run used, from the `result` event of its `stream-json` output.
@@ -110,11 +121,31 @@ mod tests {
             kind: Kind::Question,
             text: "Add the dependency?".to_owned(),
             usage: None,
+            github: false,
         };
         let json = serde_json::to_value(&message).unwrap();
         assert_eq!(json["kind"], "question");
         assert!(json.get("usage").is_none());
+        assert!(json.get("github").is_none());
         assert_eq!(serde_json::from_value::<Message>(json).unwrap(), message);
+    }
+
+    #[test]
+    fn github_round_trips_and_defaults_to_false() {
+        let message = Message {
+            task: "1a2b3c4d".to_owned(),
+            from: "host".to_owned(),
+            to: "dev".to_owned(),
+            kind: Kind::Task,
+            text: "Open a PR".to_owned(),
+            usage: None,
+            github: true,
+        };
+        let json = serde_json::to_value(&message).unwrap();
+        assert_eq!(json["github"], true);
+        assert_eq!(serde_json::from_value::<Message>(json).unwrap(), message);
+        let old = r#"{"task":"t","from":"a","to":"b","kind":"task","text":"x"}"#;
+        assert!(!serde_json::from_str::<Message>(old).unwrap().github);
     }
 
     #[test]
@@ -135,6 +166,7 @@ mod tests {
                 duration_api_ms: 1200,
                 total_cost_usd: 0.25,
             }),
+            github: false,
         };
         let json = serde_json::to_value(&message).unwrap();
         assert_eq!(json["usage"]["cache_read"], 60);

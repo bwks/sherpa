@@ -67,6 +67,10 @@ enum Command {
         /// The task this answers; a new task gets a new ID
         #[arg(long)]
         answer: Option<String>,
+        /// Let the task use GitHub (commit, push, pull requests). An answer has the flag of its
+        /// task.
+        #[arg(long, conflicts_with = "answer")]
+        github: bool,
         /// The task, or the answer
         text: String,
     },
@@ -139,8 +143,20 @@ async fn main() -> Result<()> {
             from,
             to,
             answer,
+            github,
             text,
-        } => send(&server, &seed_from_environment()?, from, to, answer, text).await,
+        } => {
+            send(
+                &server,
+                &seed_from_environment()?,
+                from,
+                to,
+                answer,
+                github,
+                text,
+            )
+            .await
+        }
         Command::Listen { server, agent } => {
             listen(&server, &seed_from_environment()?, &agent).await
         }
@@ -175,6 +191,7 @@ async fn send(
     from: String,
     to: String,
     answer: Option<String>,
+    github: bool,
     text: String,
 ) -> Result<()> {
     check_agent_name(&from)?;
@@ -192,6 +209,7 @@ async fn send(
             kind,
             text,
             usage: None,
+            github,
         })
         .await?;
     println!("{task}");

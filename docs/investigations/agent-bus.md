@@ -40,10 +40,25 @@ output in its context.
   `claude setup-token`, given on stdin when it starts. `ANTHROPIC_API_KEY` is removed from
   Claude Code's environment, so it can never fall back to API billing.
 - Claude Code runs with `--dangerously-skip-permissions`: permission checks are skipped
-  because the guest is a disposable lab VM where the agent has root. `git commit`, `git push`,
-  `git reset` and `gh` are still refused (`--disallowedTools`), so committing, pushing and
-  pull requests stay with the host agent. Its instructions say to follow `AGENTS.md` and to ask
-  instead of adding dependencies.
+  because the guest is a disposable lab VM where the agent has root. Its instructions say to
+  follow `AGENTS.md` and to ask instead of adding dependencies.
+- GitHub access is given per task. `agent-bus send --github` sets `github` on the task message
+  (default false, left out of the JSON when false).
+  - Without it, `GH_TOKEN`, `GITHUB_TOKEN` and `GH_ENTERPRISE_TOKEN` are removed from Claude
+    Code's environment, with `ANTHROPIC_API_KEY` and `AGENT_BUS_SEED`, so `curl` with the token
+    cannot get round the deny list. `git commit`, `git push`, `git reset` and `gh` are refused
+    (`--disallowedTools`), and the rules say the task has no GitHub access.
+  - With it, the token stays and the deny list is narrower: `gh pr merge`, `gh api`,
+    `gh repo delete`, `gh release`, `git reset`, `git push` with `--force`, `-f`,
+    `--force-with-lease`, `--delete`, `-d`, a `+` refspec or `:branch`, and `git branch -D`.
+    Merging and destructive operations stay with the user. With the token present this list is a
+    guardrail, not a security boundary: it matches command text, and the token's own scopes are
+    the boundary. The rules say to do only what the task asks, to end commit messages with the
+    Co-Authored-By line the task gives, and to leave out session links and "Generated with"
+    footers.
+  - An answer resumes the session with the flag of its original task, which is stored with the
+    session. An answer can never turn GitHub on (`--github` cannot be combined with `--answer`,
+    and a `github` field on an answer is ignored).
 
 ## Authentication
 
