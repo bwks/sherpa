@@ -50,7 +50,7 @@ use shared::konst::{
     SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
     SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD,
     SHERPA_PASSWORD_HASH, SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
-    SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL,
+    SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_READY_HANDSHAKE_TIMEOUT,
     TALOS_API_PORT, TELNET_PORT, TFTP_DIR, VAULT_API_PORT, VAULT_CLUSTER_PORT,
     VAULT_ZTP_CONFIG_MOUNT, WINDOWS_ADMINISTRATORS_SID, WINDOWS_AUTHORIZED_KEYS_DIR,
@@ -1961,6 +1961,7 @@ fn linux_cloud_init(
     dir: &str,
 ) -> Result<()> {
     let NodeZtp {
+        sherpa_user,
         mgmt_net,
         node_ipv4_address,
         mac_address,
@@ -1968,7 +1969,7 @@ fn linux_cloud_init(
         guest_account,
         ..
     } = *ztp;
-    let mut cloud_init_user = template::CloudInitUser::sherpa()?;
+    let mut cloud_init_user = template::CloudInitUser::sherpa(&sherpa_user.ssh_public_key);
     let (admin_group, shell) = cloud_init_user_settings(node.model, &node_image.os_variant);
     cloud_init_user.groups = vec![admin_group.to_owned()];
     shell.clone_into(&mut cloud_init_user.shell);
@@ -2059,6 +2060,7 @@ fn windows_cloudbase_init(
     dir: &str,
 ) -> Result<()> {
     let NodeZtp {
+        sherpa_user,
         mgmt_net,
         node_ipv4_address,
         mac_address,
@@ -2066,9 +2068,8 @@ fn windows_cloudbase_init(
         guest_account,
         ..
     } = *ztp;
-    let mut users = vec![template::CloudbaseInitUser::sherpa()?];
-
-    let ssh_key = util::get_ssh_public_key(SHERPA_SSH_PUBLIC_KEY_PATH)?;
+    let ssh_key = &sherpa_user.ssh_public_key;
+    let mut users = vec![template::CloudbaseInitUser::sherpa(ssh_key)];
     let ssh_key_str = format!("{} {}", ssh_key.algorithm, ssh_key.key);
 
     // Every account reads its own keys file, private to Administrators and SYSTEM.
@@ -2143,6 +2144,7 @@ fn windows_cloudbase_init(
 /// Cloud-init for Alpine: `wheel` with doas, and the lab DNS written to `resolv.conf`.
 fn alpine_cloud_init(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>, dir: &str) -> Result<()> {
     let NodeZtp {
+        sherpa_user,
         mgmt_net,
         node_ipv4_address,
         mac_address,
@@ -2150,7 +2152,7 @@ fn alpine_cloud_init(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>, dir: &str
         guest_account,
         ..
     } = *ztp;
-    let mut cloud_init_user = template::CloudInitUser::sherpa()?;
+    let mut cloud_init_user = template::CloudInitUser::sherpa(&sherpa_user.ssh_public_key);
     cloud_init_user.shell = "/bin/sh".to_string();
     cloud_init_user.groups = vec!["wheel".to_string()];
 
@@ -2746,7 +2748,15 @@ fn mikrotik_config_disk(
 
     util::copy_file(&src_disk, &dst_disk)?;
     util::copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
-    util::copy_to_dos_image(SHERPA_SSH_PUBLIC_KEY_PATH, &dst_disk, "/")?;
+    let sherpa_key_file = format!("{dir}/{SHERPA_SSH_PUBLIC_KEY_FILE}");
+    util::create_file(
+        &sherpa_key_file,
+        format!(
+            "{} {}\n",
+            sherpa_user.ssh_public_key.algorithm, sherpa_user.ssh_public_key.key
+        ),
+    )?;
+    util::copy_to_dos_image(&sherpa_key_file, &dst_disk, "/")?;
     for (path, content) in owner_key_files {
         util::create_file(&path, content)?;
         util::copy_to_dos_image(&path, &dst_disk, "/")?;
@@ -4779,6 +4789,57 @@ mod tests {
                 assert!(personal_file.is_none());
                 assert_eq!(json["passwd"]["users"].as_array().unwrap().len(), 1);
             }
+        }
+    }
+
+    #[test]
+    fn cloud_init_gives_the_sherpa_account_the_labs_key() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().to_str().unwrap();
+        let user = ignition_test_user();
+        let network = nocloud_test_network();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let progress = ProgressSender::new(tx);
+        let dns = util::default_dns(&network.v4.prefix).unwrap();
+        let ztp = NodeZtp {
+            lab_dir: root,
+            tftp_dir: root,
+            images_dir: root,
+            sherpa_user: &user,
+            dns: &dns,
+            mgmt_net: &network,
+            progress: &progress,
+            node_ipv4_address: "192.0.2.10".parse().unwrap(),
+            mac_address: "52:54:00:00:00:01",
+            node_name_with_lab: "vm-test",
+            cert_paths: None,
+            guest_account: None,
+        };
+        for model in [
+            data::NodeModel::UbuntuLinux,
+            data::NodeModel::AlpineLinux,
+            data::NodeModel::WindowsServer,
+        ] {
+            let node = topology::NodeExpanded {
+                name: model.to_string(),
+                model,
+                ..Default::default()
+            };
+            let image = data::NodeConfig::get_model(model);
+            let node_dir = format!("{root}/{model}");
+            match model {
+                data::NodeModel::WindowsServer => {
+                    windows_cloudbase_init(&node, &ztp, &node_dir).unwrap();
+                }
+                data::NodeModel::AlpineLinux => alpine_cloud_init(&node, &ztp, &node_dir).unwrap(),
+                _ => linux_cloud_init(&node, &image, &ztp, &node_dir).unwrap(),
+            }
+            let user_data =
+                fs::read_to_string(format!("{node_dir}/{CLOUD_INIT_USER_DATA}")).unwrap();
+            assert!(
+                user_data.contains("ssh-ed25519 legacy-key-fixture"),
+                "{model}: {user_data}"
+            );
         }
     }
 

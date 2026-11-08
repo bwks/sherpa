@@ -70,10 +70,6 @@ pub struct SshConfigCleanReport {
 /// The lock file that serialises Sherpa's changes to the SSH config files.
 const SSH_LOCK_FILE: &str = "sherpa_lab_hosts.lock";
 
-/// Mode of a generated private key: sherpad and the `sherpa` group read it.
-#[cfg(unix)]
-const PRIVATE_KEY_MODE: u32 = 0o640;
-
 /// Read an SSH public key file and return a String.
 ///
 /// # Errors
@@ -161,12 +157,19 @@ pub fn ssh_key_fingerprint(public_key: &str) -> Result<String> {
     Ok(key.fingerprint(HashAlg::Sha256).to_string())
 }
 
-/// Generate an SSH RSA keypair.
+/// Generate an SSH key pair: `keyname` in `directory`, with `mode` (ignored off Unix), and
+/// `keyname.pub` beside it.
 ///
 /// # Errors
 ///
 /// Fails when the algorithm is not RSA, Ed25519 or ECDSA, or the key files cannot be written.
-pub fn generate_ssh_keypair(directory: &str, keyname: &str, algorithm: &Algorithm) -> Result<()> {
+#[instrument(level = "debug", fields(mode = format_args!("{mode:o}")))]
+pub fn generate_ssh_keypair(
+    directory: &str,
+    keyname: &str,
+    algorithm: &Algorithm,
+    mode: u32,
+) -> Result<()> {
     let mut rng = OsRng;
 
     // Generate a new private key based on the algorithm
@@ -197,22 +200,23 @@ pub fn generate_ssh_keypair(directory: &str, keyname: &str, algorithm: &Algorith
     let public_key_path = &format!("{directory}/{keyname}.pub");
 
     create_file(public_key_path, public_key_ssh.clone())?;
-    write_private_key(Path::new(private_key_path), &private_key_pem)
+    write_private_key(Path::new(private_key_path), &private_key_pem, mode)
 }
 
-/// Write a private key that only its owner and group can read. The mode is set on the open
-/// file before the key goes in, so the key is never readable by others, even for a moment and
-/// even when the file already existed with a wider mode.
-fn write_private_key(path: &Path, key: &str) -> Result<()> {
+/// Write a private key with `mode`. The mode is set on the open file before the key goes in,
+/// so the key is never readable by others, even for a moment and even when the file already
+/// existed with a wider mode.
+#[instrument(level = "debug", skip(key), fields(mode = format_args!("{mode:o}")))]
+fn write_private_key(path: &Path, key: &str, mode: u32) -> Result<()> {
     let mut options = OpenOptions::new();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
-    options.mode(PRIVATE_KEY_MODE);
+    options.mode(mode);
     let mut file = options
         .open(path)
         .with_context(|| format!("Error creating file: {}", path.display()))?;
     #[cfg(unix)]
-    file.set_permissions(Permissions::from_mode(PRIVATE_KEY_MODE))
+    file.set_permissions(Permissions::from_mode(mode))
         .with_context(|| format!("Error setting the mode of {}", path.display()))?;
     file.write_all(key.as_bytes())
         .with_context(|| format!("Error writing {}", path.display()))?;
@@ -699,6 +703,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::konst::{LAB_SSH_PRIVATE_KEY_MODE, SHERPA_SSH_PRIVATE_KEY_MODE};
 
     #[cfg(unix)]
     #[test]
@@ -708,11 +713,45 @@ mod tests {
         std::fs::write(&key, "old").unwrap();
         std::fs::set_permissions(&key, Permissions::from_mode(0o644)).unwrap();
 
-        generate_ssh_keypair(dir.path().to_str().unwrap(), "lab_key", &Algorithm::Ed25519).unwrap();
+        generate_ssh_keypair(
+            dir.path().to_str().unwrap(),
+            "lab_key",
+            &Algorithm::Ed25519,
+            SHERPA_SSH_PRIVATE_KEY_MODE,
+        )
+        .unwrap();
 
         let mode = std::fs::metadata(&key).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o640);
         assert!(PrivateKey::from_openssh(std::fs::read_to_string(&key).unwrap()).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_lab_private_key_is_readable_by_its_owner_only() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let key = dir.path().join("lab_key");
+        std::fs::write(&key, "old").unwrap();
+        std::fs::set_permissions(&key, Permissions::from_mode(0o644)).unwrap();
+
+        generate_ssh_keypair(
+            dir.path().to_str().unwrap(),
+            "lab_key",
+            &Algorithm::Rsa { hash: None },
+            LAB_SSH_PRIVATE_KEY_MODE,
+        )
+        .unwrap();
+
+        let mode = std::fs::metadata(&key).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        let private_key = PrivateKey::from_openssh(std::fs::read_to_string(&key).unwrap()).unwrap();
+        let public_key = std::fs::read_to_string(dir.path().join("lab_key.pub")).unwrap();
+        assert_eq!(
+            PublicKey::from_openssh(public_key.trim())
+                .unwrap()
+                .key_data(),
+            private_key.public_key().key_data()
+        );
     }
 
     // ========================================================================

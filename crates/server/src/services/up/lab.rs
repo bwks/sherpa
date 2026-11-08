@@ -29,6 +29,7 @@ use crate::daemon::state::AppState;
 use crate::services::clean;
 use crate::services::guest_account;
 use crate::services::lab_operations::{self, LabOperation, StopReason};
+use crate::services::lab_ssh_key::{LabSshKeyPaths, create_lab_ssh_key};
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
 use crate::services::ssh_config::{self, LabSshFiles};
@@ -44,10 +45,9 @@ use shared::konst::{READINESS_TIMEOUT, SHERPA_LABS_PATH};
 use shared::util;
 use topology::validate::{check_client_read_files, check_lab_description};
 
-/// What setup (phase 1) gives the later phases: the sherpa user, the libvirt connection, the
-/// owner's record, and every node image.
+/// What setup (phase 1) gives the later phases: the libvirt connection, the owner's record,
+/// and every node image.
 struct Setup {
-    sherpa_user: data::User,
     qemu_conn: Arc<QemuConnection>,
     db_user: data::DbUser,
     node_images: Vec<data::NodeConfig>,
@@ -65,7 +65,6 @@ struct LabUp<'a> {
     username: &'a str,
     /// Holds the disk image leases until every domain exists.
     plan: LabPlan,
-    sherpa_user: &'a data::User,
     node_secrets: &'a BTreeMap<String, Vec<data::SecretFile>>,
     tailscale_auth_key: Option<&'a TailnetAuthKey>,
     tailnet_enabled: bool,
@@ -74,9 +73,12 @@ struct LabUp<'a> {
     errors: Vec<data::UpError>,
 }
 
-/// The lab's management network and what was made on it (phase 4).
+/// The lab's management network and what was made on it, and the lab's SSH key with the
+/// sherpa account that logs in with it (phase 4).
 struct LabNetwork {
     lab_info: data::LabInfo,
+    ssh_key: LabSshKeyPaths,
+    sherpa_user: data::User,
     mgmt_net: data::SherpaNetwork,
     dns: data::Dns,
     tailnet_status: Option<TailnetStatus>,
@@ -152,7 +154,6 @@ pub async fn up_lab(
 
     let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
     let Setup {
-        sherpa_user,
         qemu_conn,
         db_user,
         node_images,
@@ -199,7 +200,6 @@ pub async fn up_lab(
         },
         username: &ctx.username,
         plan,
-        sherpa_user: &sherpa_user,
         node_secrets: &node_secrets,
         tailscale_auth_key: tailscale_auth_key.as_ref(),
         tailnet_enabled,
@@ -260,7 +260,6 @@ async fn set_up(
 
     tracing::info!(lab_id = %lab_id, lab_name = %lab_name, "Connecting to lab infrastructure services");
 
-    let sherpa_user = util::sherpa_user().context("Failed to get sherpa user")?;
     tracing::info!(lab_id = %lab_id, "Connected to Docker daemon");
 
     let qemu_conn = Arc::new(
@@ -301,7 +300,6 @@ async fn set_up(
         .context("Failed to list node configs from database")?;
 
     Ok(Setup {
-        sherpa_user,
         qemu_conn,
         db_user,
         node_images,
@@ -430,6 +428,13 @@ impl LabUp<'_> {
         };
 
         write_lab_files(self.build.lab_dir, &lab_info, self.manifest)?;
+        let ssh_key = create_lab_ssh_key(self.build.lab_dir)?;
+        let sherpa_user =
+            util::sherpa_user(&ssh_key.public).context("Failed to get sherpa user")?;
+        let _ = self
+            .build
+            .progress
+            .send_status("Lab SSH key created".to_string(), StatusKind::Done);
         let mgmt_net = management_network(&records.subnets)?;
         let dns = util::default_dns_dual_stack(&lab_net, &ipv6_management_subnet)?;
         create_management_networks(&self.build, &records.subnets).await?;
@@ -463,6 +468,8 @@ impl LabUp<'_> {
         self.phase_done("LabNetworkSetup");
         Ok(LabNetwork {
             lab_info,
+            ssh_key,
+            sherpa_user,
             mgmt_net,
             dns,
             tailnet_status,
@@ -555,7 +562,7 @@ impl LabUp<'_> {
                 mgmt_net: &network.mgmt_net,
                 dns: &network.dns,
                 subnets: &records.subnets,
-                sherpa_user: self.sherpa_user,
+                sherpa_user: &network.sherpa_user,
                 personal_account: self.plan.personal_account.as_ref(),
                 talos_clusters: self.manifest.talos_clusters.as_deref().unwrap_or_default(),
             },
@@ -638,7 +645,12 @@ impl LabUp<'_> {
             data::UpPhase::SshConfig,
             "Generating SSH config".to_string(),
         )?;
-        let ssh_private_key = write_ssh_files(&self.build, &built.ztp_records, &network.lab_info)?;
+        let ssh_private_key = write_ssh_files(
+            &self.build,
+            &built.ztp_records,
+            &network.lab_info,
+            &network.ssh_key,
+        )?;
         let container_link_networks = container_data_attachments(
             self.build.lab_id,
             &records.node_setup_data,

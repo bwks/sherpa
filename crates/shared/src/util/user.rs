@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow};
 
 use super::ssh::get_ssh_public_key;
 use crate::data::User;
-use crate::konst::{SHERPA_PASSWORD, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_USERNAME};
+use crate::konst::{SHERPA_PASSWORD, SHERPA_USERNAME};
 
 /// Get the username of the current user from environment variables.
 ///
@@ -30,14 +30,15 @@ pub fn normalize_username(username: &str) -> String {
     username.trim().to_lowercase()
 }
 
-/// Returns the default sherpa user and set sudo to True.
+/// The `sherpa` account on a lab's nodes, with sudo, logging in with the public key at
+/// `public_key_path`: the lab's own key, or the server's for labs created before lab keys.
 ///
 /// # Errors
 ///
-/// Fails when Sherpa's SSH public key cannot be read.
-pub fn sherpa_user() -> Result<User> {
+/// Fails when the SSH public key cannot be read.
+pub fn sherpa_user(public_key_path: &str) -> Result<User> {
     let username = SHERPA_USERNAME;
-    let ssh_public_key = get_ssh_public_key(SHERPA_SSH_PUBLIC_KEY_PATH)?;
+    let ssh_public_key = get_ssh_public_key(public_key_path)?;
     Ok(User {
         username: username.to_owned(),
         password: Some(SHERPA_PASSWORD.to_owned()),
@@ -65,6 +66,31 @@ mod tests {
     #[test]
     fn test_get_username_failure_when_both_unset() {
         assert!(username_from(None, None).is_err());
+    }
+
+    #[test]
+    fn the_sherpa_user_logs_in_with_the_given_public_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sherpa_ssh_key.pub");
+        std::fs::write(
+            &path,
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICwUP1LOygXU4kLJLDSCQ68zDWZKYS3scLybuYvujhPD lab\n",
+        )
+        .unwrap();
+        let user = sherpa_user(path.to_str().unwrap()).unwrap();
+        assert_eq!(user.username, SHERPA_USERNAME);
+        assert!(user.sudo);
+        assert_eq!(
+            user.ssh_public_key.key,
+            "AAAAC3NzaC1lZDI1NTE5AAAAICwUP1LOygXU4kLJLDSCQ68zDWZKYS3scLybuYvujhPD"
+        );
+    }
+
+    #[test]
+    fn the_sherpa_user_needs_its_public_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("missing.pub");
+        assert!(sherpa_user(path.to_str().unwrap()).is_err());
     }
 
     #[test]
