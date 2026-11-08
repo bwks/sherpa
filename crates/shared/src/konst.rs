@@ -176,6 +176,9 @@ pub const SHERPA_SSH_INDEX_FILE: &str = "sherpa_lab_hosts";
 pub const SHERPA_SSH_INDEX_HEADER: &str = "# Sherpa lab SSH configs - managed by sherpa CLI";
 pub const SHERPA_DOMAIN_NAME: &str = "sherpa.lab.local";
 pub const LAB_FILE_NAME: &str = "lab-info.toml";
+/// The folder beside a lab's `manifest.toml` holding every file the CLI generates for it;
+/// see `util::LabFolder`.
+pub const LAB_STATE_DIR: &str = ".sherpa";
 pub const BRIDGE_PREFIX: &str = "br";
 pub const TAP_PREFIX: &str = "tp";
 /// Host side of a P2p container's private bridge member veth; it joins the bridge.

@@ -37,9 +37,11 @@ sherpa_known_hosts
 !.claude/skills/
 .ruff_cache
 __pycache__/
-lab-info.toml
 # Lab files and credentials written by `sherpa up` and `sherpa download`, removed by
 # `sherpa destroy`
+.sherpa/
+# The same files as older clients left them loose, until a command moves them into .sherpa/
+lab-info.toml
 lab-ca.crt
 kubeconfig-*
 talosconfig-*

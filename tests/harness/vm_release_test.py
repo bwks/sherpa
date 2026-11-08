@@ -335,7 +335,7 @@ class Runner:
         return self.command(label, command, timeout, cwd=self.directory, check=check)
 
     def ssh(self, label, command, timeout, check=True):
-        return self.command(label, ["ssh", "-F", str(self.directory / "sherpa_ssh_config"),
+        return self.command(label, ["ssh", "-F", str(self.directory / ".sherpa" / "ssh" / "config"),
                                   *ssh_jump_options(self.config["host"]["ssh_destination"]),
                                   "-o", "BatchMode=yes", "-o",
                                   f"ConnectTimeout={self.config['timeouts']['connect']}",
@@ -448,7 +448,7 @@ class Runner:
                                               "list", "--all", "--name"])
         if f"{self.node_name}-{self.lab_id}" in names.splitlines():
             raise ValueError("Refusing to provision: generated domain already exists")
-        # A failed up call can leave resources before lab-info.toml is written.
+        # A failed up call can leave resources before .sherpa/lab-info.toml is written.
         self.report["run"]["retained"] = True
         self.report["run"]["resource_state"] = "provisioning"
         self.save()
@@ -463,7 +463,7 @@ class Runner:
                 self.report["run"]["readiness_timed_out"] = "[NodeReadiness]" in up_output
                 self.save()
         finally:
-            info_path = self.directory / "lab-info.toml"
+            info_path = self.directory / ".sherpa" / "lab-info.toml"
             if info_path.exists():
                 info = tomllib.loads(info_path.read_text())
                 check_lab(info, self.lab_name, self.lab_id)
@@ -475,7 +475,7 @@ class Runner:
             # A failed up can have created the domain without writing local SSH files.
             self.bind_vm(required=False)
         _, expanded = self.command("ssh-settings", ["ssh", "-G", "-F",
-                       str(self.directory / "sherpa_ssh_config"), f"{self.node_name}.{self.lab_id}"],
+                       str(self.directory / ".sherpa" / "ssh" / "config"), f"{self.node_name}.{self.lab_id}"],
                        self.config["timeouts"]["command"])
         settings = dict(line.split(" ", 1) for line in expanded.splitlines() if " " in line)
         self.jump_host = self.config["host"]["ssh_destination"] or settings["proxyjump"]
@@ -574,7 +574,7 @@ class Runner:
             files.append(str(self.directory / "baseline"))
         if "tests" in payload:
             files.append(str(self.directory / "source.tar.gz"))
-        self.command("upload", ["scp", "-r", "-F", str(self.directory / "sherpa_ssh_config"), "-o",
+        self.command("upload", ["scp", "-r", "-F", str(self.directory / ".sherpa" / "ssh" / "config"), "-o",
                                "BatchMode=yes", *ssh_jump_options(self.config["host"]["ssh_destination"]),
                                *files, f"{self.node_name}.{self.lab_id}:{remote}/"],
                      self.config["timeouts"]["download"])
@@ -640,7 +640,7 @@ class Runner:
             try:
                 self.step("diagnostics")
                 if self.report["run"]["scenario"] == "upgrade":
-                    self.command("upgrade-evidence", ["scp", "-F", str(self.directory / "sherpa_ssh_config"),
+                    self.command("upgrade-evidence", ["scp", "-F", str(self.directory / ".sherpa" / "ssh" / "config"),
                                  "-o", "BatchMode=yes", *ssh_jump_options(self.config["host"]["ssh_destination"]),
                                  f"{self.node_name}.{self.lab_id}:{self.remote_directory}/upgrade-state.toml",
                                  str(self.directory)], self.config["timeouts"]["command"])
@@ -652,7 +652,7 @@ class Runner:
                     self.collect_test_results()
                 for mode in ("keep-data", "remove-data", "remove-all"):
                     if mode in self.report["run"]["completed_steps"]:
-                        self.command("inventory-" + mode, ["scp", "-F", str(self.directory / "sherpa_ssh_config"),
+                        self.command("inventory-" + mode, ["scp", "-F", str(self.directory / ".sherpa" / "ssh" / "config"),
                                      "-o", "BatchMode=yes", *ssh_jump_options(self.config["host"]["ssh_destination"]),
                                      f"{self.node_name}.{self.lab_id}:"
                                      f"{self.remote_directory}/resources-{mode}.toml", str(self.directory)],
@@ -666,7 +666,7 @@ class Runner:
 
     def collect_test_results(self):
         target = f"{self.node_name}.{self.lab_id}"
-        options = ["-F", str(self.directory / "sherpa_ssh_config"), "-o", "BatchMode=yes",
+        options = ["-F", str(self.directory / ".sherpa" / "ssh" / "config"), "-o", "BatchMode=yes",
                    *ssh_jump_options(self.config["host"]["ssh_destination"])]
         code, _ = self.command("test-results", ["scp", *options, f"{target}:{self.remote_directory}/test-results.toml",
                                str(self.directory)], self.config["timeouts"]["command"], check=False)
@@ -700,7 +700,7 @@ class Runner:
             guest_script = self.directory / "vm_release_guest.py"
             guest_script.write_bytes((HARNESS / "vm_release_guest.py").read_bytes())
             self.report["scripts"]["vm_release_guest_py"] = sha256(guest_script)
-            self.command("upload-rerun", ["scp", "-F", str(self.directory / "sherpa_ssh_config"), "-o",
+            self.command("upload-rerun", ["scp", "-F", str(self.directory / ".sherpa" / "ssh" / "config"), "-o",
                          "BatchMode=yes", *ssh_jump_options(self.config["host"]["ssh_destination"]),
                          str(payload_path), str(guest_script), str(self.directory / "source.tar.gz"),
                          f"{self.node_name}.{self.lab_id}:{self.remote_directory}/"],
@@ -734,7 +734,7 @@ class Runner:
     def cleanup(self):
         if not self.lab_id or not self.guest_uuid:
             raise ValueError("Cannot verify provisioned lab ownership; retain it for inspection")
-        info_path = self.directory / "lab-info.toml"
+        info_path = self.directory / ".sherpa" / "lab-info.toml"
         if info_path.exists():
             check_lab(tomllib.loads(info_path.read_text()), self.lab_name, self.lab_id)
         else:
@@ -777,7 +777,7 @@ class Runner:
         self.report["run"]["resource_state"] = "removed"
         self.report["run"]["cleanup_verified"] = True
         # Delete only local test credentials, retaining logs, inputs and the run receipt.
-        for name in ("guest.toml", "sherpa_ssh_key"):
+        for name in ("guest.toml", ".sherpa/ssh/key"):
             (self.directory / name).unlink(missing_ok=True)
 
     def run(self, scenario):
@@ -1032,7 +1032,8 @@ class HarnessTests(unittest.TestCase):
             config["runner"]["output_directory"] = directory
             runner = Runner(config)
             runner.lab_id, runner.guest_uuid = "12345678", str(uuid.uuid4())
-            (runner.directory / "lab-info.toml").write_text(
+            (runner.directory / ".sherpa").mkdir()
+            (runner.directory / ".sherpa" / "lab-info.toml").write_text(
                 f'id = "12345678"\nname = "{runner.lab_name}"\n')
             (runner.directory / "manifest.toml").write_text(
                 f'name = "{runner.lab_name}"\n[[nodes]]\nname = "{runner.node_name}"\n')

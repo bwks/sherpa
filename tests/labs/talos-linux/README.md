@@ -42,7 +42,8 @@ Before the labs:
 
 Both labs:
 
-- `sherpa up` writes `kubeconfig-k8s` and `talosconfig-k8s`, readable only by the owner;
+- `sherpa up` writes `.sherpa/k8s/kubeconfig-k8s` and `.sherpa/talos/talosconfig-k8s`, readable
+  only by the owner;
 - every node is Ready, and `talosctl health` passes;
 - a workload spread one pod per worker answers through a single node's NodePort from every pod,
   which proves pod networking across nodes;

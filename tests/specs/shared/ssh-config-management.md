@@ -35,10 +35,11 @@
 ## SSH config inspection and cleanup
 
 **What to test:**
-- Inspection reports valid entries when `sherpa_ssh_config` exists, sibling `lab-info.toml` parses, and lab ID is in active server lab set `[unit]` **P0**
-- Inspection reports stale entries when included `sherpa_ssh_config` path is missing `[unit]` **P0**
-- Inspection reports stale entries when sibling `lab-info.toml` is missing `[unit]` **P0**
-- Inspection reports broken entries when sibling `lab-info.toml` is invalid TOML or cannot parse as `LabInfo` `[unit]` **P0**
+- Inspection reports valid entries when `.sherpa/ssh/config` exists, the lab's `.sherpa/lab-info.toml` parses, and lab ID is in active server lab set `[unit]` **P0**
+- Inspection reports stale entries when included `.sherpa/ssh/config` path is missing `[unit]` **P0**
+- Inspection reports broken entries when the Include target is not a lab's `.sherpa/ssh/config`, such as an old-layout `sherpa_ssh_config` `[unit]` **P0**
+- Inspection reports stale entries when `.sherpa/lab-info.toml` is missing `[unit]` **P0**
+- Inspection reports broken entries when `.sherpa/lab-info.toml` is invalid TOML or cannot parse as `LabInfo` `[unit]` **P0**
 - Inspection reports stale entries when lab ID from `lab-info.toml` is absent from active server lab set `[unit]` **P0**
 - Inspection reports unknown entries when local files are valid but server validation is unavailable `[unit]` **P1**
 - Cleanup removes stale missing-path entries from `sherpa_lab_hosts` `[unit]` **P0**
@@ -46,8 +47,9 @@
 - Cleanup removes broken malformed Include lines and invalid lab-info entries `[unit]` **P0**
 - Cleanup removes duplicate Include lines while preserving the first valid copy `[unit]` **P1**
 - Cleanup preserves header, comments, and valid entries `[unit]` **P0**
-- Cleanup does not delete local lab files (`sherpa_ssh_config`, `sherpa_ssh_key`, `lab-info.toml`) `[unit]` **P0**
+- Cleanup does not delete local lab files (`.sherpa/`) `[unit]` **P0**
 - Include add/remove uses exact trimmed line matching, not substring matching `[unit]` **P0**
+- Replacing an Include points the old path's line at the new path in place, changes nothing when the old path is absent, and drops the old line when the new path is already included `[unit]` **P0**
 
 ---
 
@@ -65,5 +67,5 @@
 ## Client-side absolute IdentityFile path
 
 **What to test:**
-- Client rewrites relative `IdentityFile sherpa_ssh_key` to absolute path before writing `[unit]` **P0**
+- Client rewrites relative `IdentityFile sherpa_ssh_key` and `UserKnownHostsFile sherpa_known_hosts` to the absolute `.sherpa/ssh/key` and `.sherpa/ssh/known_hosts` before writing `.sherpa/ssh/config` `[unit]` **P0**
 - Server-side SSH config retains relative IdentityFile (not modified) `[unit]` **P1**

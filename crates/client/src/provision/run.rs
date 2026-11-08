@@ -8,7 +8,8 @@ use futures::stream::{self, StreamExt};
 use jato::{PromptCache, SshConfig};
 
 use shared::data::{ProvisionResult, ProvisionStatus};
-use shared::konst::{PROVISION_CONCURRENCY, READINESS_TIMEOUT, SHERPA_SSH_CONFIG_FILE};
+use shared::konst::{PROVISION_CONCURRENCY, READINESS_TIMEOUT};
+use shared::util::LabFolder;
 use shared::util::render_provision_table;
 use topology::validate::validate_provisioners;
 use topology::{Manifest, Node, Provisioner};
@@ -54,7 +55,7 @@ pub async fn provision_lab(
     }
     validate_provisioners(manifest)?;
 
-    let config_path = manifest_dir.join(SHERPA_SSH_CONFIG_FILE);
+    let config_path = LabFolder::new(manifest_dir).ssh_config();
     let ssh_config = if nodes.is_empty() {
         None
     } else {

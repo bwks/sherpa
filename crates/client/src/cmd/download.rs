@@ -1,10 +1,10 @@
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
 use shared::data::{ClientConfig, DownloadLabResponse};
-use shared::konst::LAB_FILE_NAME;
-use shared::util::{Emoji, file_exists, get_cwd, term_msg_surround};
+use shared::util::{Emoji, LabFolder, get_cwd, term_msg_surround};
 
 use crate::lab_files::{LabFiles, register_ssh_config, save_lab_files};
 use crate::token::load_token;
@@ -22,10 +22,11 @@ pub async fn download(
 
     // Check for existing lab files before connecting to server
     let cwd = get_cwd().context("Failed to determine working directory")?;
-    let lab_info_path = format!("{cwd}/{LAB_FILE_NAME}");
-    if file_exists(&lab_info_path) && !force {
+    let folder = LabFolder::new(Path::new(&cwd));
+    if folder.lab_info().exists() && !force {
         bail!(
-            "Lab files already exist in this directory ({LAB_FILE_NAME}).\nUse --force to overwrite."
+            "Lab files already exist in this directory ({}).\nUse --force to overwrite.",
+            LabFolder::new(Path::new("")).lab_info().display()
         );
     }
 
@@ -58,7 +59,7 @@ pub async fn download(
 
     let data: DownloadLabResponse = response.into_result("Download failed")?;
 
-    let ssh_config = save_lab_files(&cwd, &LabFiles::from(&data))?;
+    let ssh_config = save_lab_files(&folder, &LabFiles::from(&data))?;
     register_ssh_config(&ssh_config);
 
     println!("\n{} Lab files downloaded successfully", Emoji::Success);

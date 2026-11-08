@@ -236,8 +236,8 @@ still probe workers' API port, which works because the VIP is up in an existing 
 | `download` | Returns each cluster's talosconfig and kubeconfig (`DownloadLabResponse::clusters`). |
 | `destroy` | Stops an `up` still bootstrapping or waiting for the cluster first (`lab_operations`), so credentials are never written after the cluster directory is removed with the lab directory. |
 
-The client writes `kubeconfig-<cluster>` and `talosconfig-<cluster>` (owner only) on `up` and
-`download` (`crates/client/src/cluster_credentials.rs`).
+The client writes `.sherpa/k8s/kubeconfig-<cluster>` and `.sherpa/talos/talosconfig-<cluster>`
+(owner only) on `up` and `download` (`crates/client/src/cluster_credentials.rs`).
 
 ## Limits
 

@@ -351,7 +351,7 @@ class LabRun:
 
     def ssh_arguments(self, node, remote_command=None):
         """SSH to a node; with no remote command the node's CLI reads stdin."""
-        arguments = ["ssh", "-F", "sherpa_ssh_config", "-o", "BatchMode=yes", "-o", "LogLevel=ERROR",
+        arguments = ["ssh", "-F", ".sherpa/ssh/config", "-o", "BatchMode=yes", "-o", "LogLevel=ERROR",
                      f"{node}.{self.lab_id}"]
         return arguments + [remote_command] if remote_command is not None else arguments
 
@@ -414,8 +414,8 @@ class LabRun:
     def up(self):
         self.started = True
         self.sherpa("sherpa up", ["up"], UP_TIMEOUT)
-        info = tomllib.loads((self.directory / "lab-info.toml").read_text())
-        require(info["name"] == self.name, f"lab-info.toml names {info['name']}, not {self.name}")
+        info = tomllib.loads((self.directory / ".sherpa" / "lab-info.toml").read_text())
+        require(info["name"] == self.name, f".sherpa/lab-info.toml names {info['name']}, not {self.name}")
         self.lab_id = info["id"]
 
     def checks(self):
@@ -471,7 +471,7 @@ class LabRun:
                 self.wait_for_ssh(node)
                 self.find_guest_interfaces(node)
                 self.command(f"copy frame tool to {node}",
-                             ["scp", "-F", "sherpa_ssh_config", "-o", "BatchMode=yes", "-o",
+                             ["scp", "-F", ".sherpa/ssh/config", "-o", "BatchMode=yes", "-o",
                               "LogLevel=ERROR", str(FRAME_TOOL), f"{node}.{self.lab_id}:/tmp/l2frames.py"])
         for link in LINUX_LINKS:
             for node, interface, address in ((link.src, link.src_interface, link.src_address),
@@ -687,7 +687,7 @@ class LabRun:
         """Destroy the lab and check nothing is left. Returns a failure, or None."""
         if not self.started:
             return None
-        if not (self.directory / "lab-info.toml").exists():
+        if not (self.directory / ".sherpa" / "lab-info.toml").exists():
             # `sherpa up` failed early; destroy whatever it created, found by the manifest's lab name.
             self.sherpa("sherpa destroy (after failed up)", ["destroy", "--yes"], UP_TIMEOUT, check=False)
             return None

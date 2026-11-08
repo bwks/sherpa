@@ -3,7 +3,7 @@
 Provisioners get secrets onto lab nodes without the server storing them. There are two types:
 
 - `ssh`, for Linux and BSD VMs: the `sherpa` CLI runs it on the node once it is ready, with the
-  lab's `sherpa_ssh_config`, through the server as an SSH jump host. The server only forwards the
+  lab's `.sherpa/ssh/config`, through the server as an SSH jump host. The server only forwards the
   encrypted stream.
 - `container`, for containers: the CLI sends the files to the server outside the manifest, and
   the server keeps them in RAM and mounts them read-only at `/run/secrets` before the container
@@ -56,7 +56,7 @@ so nothing is lost by not serializing it.
 | `ssh.rs` | The SSH provisioner: `wait_for_node` (connect, retrying failures at the node until the account exists, then `cloud-init status --wait`), then files, env files and scripts over that one connection. Client files are read before the node is changed |
 | `output.rs` | `NodeOutput`: one node's progress lines and script output, each line prefixed with the node's name and written whole |
 | `remote.rs` | Pure builders of the POSIX `sh` commands run on the node |
-| `transport.rs` | `SshTarget` (a node's route in `sherpa_ssh_config`) and `NodeSession` (one Jato connection): run a command, run one with stdin and its output shown, copy a file over SFTP |
+| `transport.rs` | `SshTarget` (a node's route in `.sherpa/ssh/config`) and `NodeSession` (one Jato connection): run a command, run one with stdin and its output shown, copy a file over SFTP |
 
 `transport.rs` connects with the Jato library through `crate::ssh_client`, the same code as
 `sherpa ssh` (see [`SSH_CLIENT.md`](SSH_CLIENT.md)); no `ssh` or `scp` program is run.
@@ -68,7 +68,7 @@ so nothing is lost by not serializing it.
   cloud-init has not created the account yet. A host key problem, the Sherpa server refusing
   the login, or a local file or SSH config that cannot be read fails at once. All steps then share the connection.
 - **Unknown nodes fail at once.** A `<node>.<lab-id>` alias with no `Host` block in
-  `sherpa_ssh_config`, such as a node added to the manifest after the lab was created, would
+  `.sherpa/ssh/config`, such as a node added to the manifest after the lab was created, would
   resolve as in `ssh` to a direct connection to the alias as a hostname and fail its DNS
   lookup until the ready timeout. `SshTarget::new` refuses a route with no jump host instead,
   as every lab node is reached through the server.
@@ -130,7 +130,7 @@ nothing needs to be `'static` or `Send`.
   last line without a newline is shown when the command ends. Each node ends with a
   `provisioned` or `failed` line.
 - **Host key refresh.** `HostKeyRefresh` clones share a `tokio::sync::Mutex`, so nodes whose
-  key is unknown at once refresh `sherpa_known_hosts` one at a time and never write it
+  key is unknown at once refresh `.sherpa/ssh/known_hosts` one at a time and never write it
   together. The file is replaced in one step (`write_secret_file` writes a temporary file and
   renames it), so a connection reading it sees the old keys or the new ones, never half.
 

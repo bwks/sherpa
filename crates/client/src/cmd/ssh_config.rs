@@ -7,9 +7,11 @@ use tracing::instrument;
 use shared::data::{ClientConfig, ListLabsResponse};
 use shared::util::{
     Emoji, SshConfigEntryStatus, SshConfigInspectionEntry, clean_stale_lab_ssh_includes,
-    inspect_lab_ssh_includes, render_ssh_config_inspection_table, term_msg_surround,
+    get_user_ssh_dir, inspect_lab_ssh_includes, render_ssh_config_inspection_table,
+    term_msg_surround,
 };
 
+use crate::lab_folder_migration::migrate_registered_lab_folders;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -102,6 +104,21 @@ async fn fetch_active_lab_ids(server_url: &str, config: &ClientConfig) -> Server
     }
 }
 
+/// Move the files of every registered lab an older client left loose into its `.sherpa` folder,
+/// so its Include names `.sherpa/ssh/config` before the index is inspected.
+#[instrument(level = "debug")]
+fn migrate_registered_labs() -> Result<()> {
+    let report = inspect_lab_ssh_includes(None, None)
+        .context("Failed to read the Sherpa SSH config includes")?;
+    let include_paths: Vec<String> = report
+        .entries
+        .into_iter()
+        .map(|entry| entry.include_path)
+        .collect();
+    migrate_registered_lab_folders(&get_user_ssh_dir()?, &include_paths);
+    Ok(())
+}
+
 fn entry_word(count: usize) -> &'static str {
     if count == 1 { "entry" } else { "entries" }
 }
@@ -125,6 +142,8 @@ fn count_entries_with_status(
 #[instrument(skip(config), fields(%server_url))]
 pub async fn ssh_config_inspect(server_url: &str, config: &ClientConfig) -> Result<()> {
     term_msg_surround("Inspect Sherpa SSH config includes");
+
+    migrate_registered_labs()?;
 
     let validation = fetch_active_lab_ids(server_url, config).await;
     print_server_validation_warning(&validation);
@@ -165,6 +184,8 @@ pub async fn ssh_config_inspect(server_url: &str, config: &ClientConfig) -> Resu
 #[instrument(skip(config), fields(%server_url))]
 pub async fn ssh_config_clean(server_url: &str, config: &ClientConfig) -> Result<()> {
     term_msg_surround("Clean Sherpa SSH config includes");
+
+    migrate_registered_labs()?;
 
     let validation = fetch_active_lab_ids(server_url, config).await;
     print_server_validation_warning(&validation);

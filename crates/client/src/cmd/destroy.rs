@@ -1,22 +1,19 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use std::fs;
 use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use shared::data::{ClientConfig, DestroyResponse, InspectResponse, NodeInfo};
-use shared::konst::{
-    LAB_FILE_NAME, SHERPA_KNOWN_HOSTS_FILE, SHERPA_LAB_CA_FILE, SHERPA_MANIFEST_FILE,
-    SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
-};
+use shared::konst::SHERPA_SSH_CONFIG_FILE;
 use shared::util::{
-    Emoji, confirm, display_destroy_results, get_cwd, remove_lab_ssh_include,
-    render_lab_info_table, render_nodes_table, term_msg_surround,
+    Emoji, LabFolder, confirm, display_destroy_results, get_cwd, get_user_ssh_dir,
+    remove_lab_ssh_include_at, render_lab_info_table, render_nodes_table, term_msg_surround,
 };
-use topology::Manifest;
 
 use super::outcome::ensure_lab_destroyed;
 use super::progress::print_status;
+use crate::lab_folder_migration::legacy_lab_files;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -116,7 +113,7 @@ pub async fn destroy(
         return ensure_lab_destroyed(&destroy_data, "sherpa destroy");
     }
 
-    remove_local_lab_state(&inspect_data);
+    remove_local_lab_state();
 
     ensure_lab_destroyed(&destroy_data, "sherpa destroy")
 }
@@ -152,118 +149,101 @@ fn show_lab_to_destroy(inspect_data: &InspectResponse) {
     }
 }
 
-/// Remove the lab's Include from `~/.ssh/sherpa_lab_hosts` and the files saved for it in the
-/// current folder. Failures only warn: the lab itself is gone.
-fn remove_local_lab_state(inspect_data: &InspectResponse) {
-    // Remove this lab's Include from ~/.ssh/sherpa_lab_hosts, then the files saved for it.
-    match get_cwd() {
-        Ok(cwd) => {
-            let dir = Path::new(&cwd);
-            let ssh_config = dir.join(SHERPA_SSH_CONFIG_FILE);
-            match remove_lab_ssh_include(&ssh_config.to_string_lossy()) {
-                Ok(()) => {
-                    println!(
-                        "\n{} SSH config removed from ~/.ssh/sherpa_lab_hosts",
-                        Emoji::Success
-                    );
-                }
-                Err(e) => {
-                    println!(
-                        "\n{} Warning: Failed to clean up ~/.ssh/sherpa_lab_hosts: {}",
-                        Emoji::Warning,
-                        e
-                    );
-                }
-            }
-            let devices: Vec<String> = inspect_data
-                .devices
-                .iter()
-                .map(|device| device.name.clone())
-                .chain(inspect_data.inactive_devices.iter().cloned())
-                .collect();
-            let clusters = manifest_cluster_names(dir);
-            remove_local_lab_files(&local_lab_files(dir, &devices, &clusters));
-        }
+/// Remove the lab's Include from `~/.ssh/sherpa_lab_hosts` and its files from the current
+/// folder. Failures only warn: the lab itself is gone.
+fn remove_local_lab_state() {
+    let cwd = match get_cwd() {
+        Ok(cwd) => cwd,
         Err(e) => {
             println!(
-                "\n{} Warning: Could not determine working directory: {}",
-                Emoji::Warning,
-                e
+                "\n{} Warning: Could not determine working directory: {e}",
+                Emoji::Warning
             );
+            return;
         }
-    }
-}
-
-/// The files `sherpa up` and `sherpa download` save in a lab's folder `dir`: its SSH access,
-/// lab CA and `lab-info.toml`, and the Vault and Keycloak credentials of its `devices` and the
-/// credentials of its Talos `clusters`, which are named after their node or cluster.
-fn local_lab_files(dir: &Path, devices: &[String], clusters: &[String]) -> Vec<PathBuf> {
-    let fixed = [
-        SHERPA_SSH_CONFIG_FILE,
-        SHERPA_SSH_PRIVATE_KEY_FILE,
-        SHERPA_KNOWN_HOSTS_FILE,
-        SHERPA_LAB_CA_FILE,
-        LAB_FILE_NAME,
-    ]
-    .map(ToString::to_string);
-    let credentials = devices.iter().flat_map(|device| {
-        [
-            format!("vault-{device}.toml"),
-            format!("keycloak-{device}.toml"),
-        ]
-    });
-    let cluster_files = clusters.iter().flat_map(|cluster| {
-        [
-            format!("kubeconfig-{cluster}"),
-            format!("talosconfig-{cluster}"),
-        ]
-    });
-    fixed
-        .into_iter()
-        .chain(credentials)
-        .chain(cluster_files)
-        .map(|name| dir.join(name))
-        .collect()
-}
-
-/// The Talos cluster names of the manifest in `dir`, or none when it has no manifest that loads.
-fn manifest_cluster_names(dir: &Path) -> Vec<String> {
-    let path = dir.join(SHERPA_MANIFEST_FILE);
-    if !path.exists() {
-        return Vec::new();
-    }
-    match Manifest::load_file(&path.to_string_lossy()) {
-        Ok(manifest) => manifest
-            .talos_clusters
-            .unwrap_or_default()
-            .into_iter()
-            .map(|cluster| cluster.name)
-            .collect(),
+    };
+    let ssh_dir = match get_user_ssh_dir() {
+        Ok(ssh_dir) => ssh_dir,
         Err(e) => {
             println!(
-                "\n{} Warning: Kubernetes credentials kept: {} does not load: {e:#}",
-                Emoji::Warning,
-                path.display()
+                "\n{} Warning: Failed to clean up ~/.ssh/sherpa_lab_hosts: {e:#}",
+                Emoji::Warning
             );
-            Vec::new()
+            return;
         }
+    };
+    println!();
+    for warning in remove_lab_files(Path::new(&cwd), &ssh_dir) {
+        println!("{} Warning: {warning}", Emoji::Warning);
     }
 }
 
-/// Delete each of `files` that exists, reporting each one deleted or failed.
-fn remove_local_lab_files(files: &[PathBuf]) {
-    for path in files {
-        match fs::remove_file(path) {
-            Ok(()) => println!("{} Deleted {}", Emoji::Success, path.display()),
-            Err(e) if e.kind() == ErrorKind::NotFound => {
-                tracing::debug!(path = %path.display(), "No local lab file to delete");
-            }
-            Err(e) => println!(
-                "{} Warning: Failed to delete {}: {e}",
-                Emoji::Warning,
-                path.display()
-            ),
+/// Remove `lab_dir`'s lab from `ssh_dir/sherpa_lab_hosts` and delete its local files; the
+/// warnings for what could not be done.
+///
+/// This works whether or not the folder was migrated to `.sherpa` (a failed migration does not
+/// stop destroy): the Include of either the new `.sherpa/ssh/config` or the old
+/// `sherpa_ssh_config` is removed, `.sherpa` is deleted whole, and the files an older client left
+/// loose are deleted by their exact generated names. Nothing else in the folder is touched.
+#[tracing::instrument(level = "debug", fields(lab_dir = %lab_dir.display(), ssh_dir = %ssh_dir.display()))]
+fn remove_lab_files(lab_dir: &Path, ssh_dir: &Path) -> Vec<String> {
+    let folder = LabFolder::new(lab_dir);
+    let mut warnings = Vec::new();
+    let includes = [folder.ssh_config(), lab_dir.join(SHERPA_SSH_CONFIG_FILE)];
+    let mut include_failed = false;
+    for include in includes {
+        if let Err(e) = remove_lab_ssh_include_at(ssh_dir, &include.to_string_lossy()) {
+            include_failed = true;
+            warnings.push(format!("Failed to clean up ~/.ssh/sherpa_lab_hosts: {e:#}"));
         }
+    }
+    if !include_failed {
+        println!(
+            "{} SSH config removed from ~/.ssh/sherpa_lab_hosts",
+            Emoji::Success
+        );
+    }
+    match remove_state_dir(&folder) {
+        Ok(true) => println!(
+            "{} Deleted {}",
+            Emoji::Success,
+            folder.state_dir().display()
+        ),
+        Ok(false) => tracing::debug!("No .sherpa folder to delete"),
+        Err(e) => warnings.push(format!("{e:#}")),
+    }
+    for file in legacy_lab_files(lab_dir) {
+        match fs::remove_file(&file) {
+            Ok(()) => println!("{} Deleted {}", Emoji::Success, file.display()),
+            Err(e) => warnings.push(format!("Failed to delete {}: {e}", file.display())),
+        }
+    }
+    warnings
+}
+
+/// Delete `folder`'s `.sherpa` folder and everything in it, and nothing else; whether there was
+/// one. A symlink at `.sherpa` is refused, so nothing it points to is deleted.
+#[tracing::instrument(level = "debug", fields(folder = %folder.root().display()))]
+fn remove_state_dir(folder: &LabFolder) -> Result<bool> {
+    let state_dir = folder.state_dir();
+    match fs::symlink_metadata(&state_dir) {
+        Ok(metadata) if metadata.file_type().is_symlink() => bail!(
+            "{} is a symlink, so it was not deleted",
+            state_dir.display()
+        ),
+        Ok(metadata) if !metadata.is_dir() => {
+            bail!(
+                "{} is not a folder, so it was not deleted",
+                state_dir.display()
+            )
+        }
+        Ok(_) => {
+            fs::remove_dir_all(&state_dir)
+                .with_context(|| format!("Failed to delete {}", state_dir.display()))?;
+            Ok(true)
+        }
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e).with_context(|| format!("Failed to read {}", state_dir.display())),
     }
 }
 
@@ -284,33 +264,152 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::*;
+    use crate::lab_folder_migration::migrate_lab_folder;
+
+    fn names(dir: &Path) -> BTreeSet<String> {
+        fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect()
+    }
 
     #[test]
-    fn destroy_removes_only_the_files_sherpa_saved_for_the_lab() {
+    fn destroy_removes_the_sherpa_folder_and_nothing_else() {
         let dir = tempfile::tempdir().unwrap();
-        let saved = [
-            "sherpa_ssh_config",
-            "sherpa_ssh_key",
-            "sherpa_known_hosts",
-            "lab-ca.crt",
-            "lab-info.toml",
-            "vault-vault01.toml",
-            "keycloak-kc01.toml",
-            "kubeconfig-k8s",
-            "talosconfig-k8s",
-        ];
-        let kept = ["manifest.toml", "kubeconfig-prod", "vault-notes.txt"];
-        for name in saved.iter().chain(&kept) {
+        let folder = LabFolder::new(dir.path());
+        for path in [
+            folder.ssh_config(),
+            folder.ssh_key(),
+            folder.lab_info(),
+            folder.lab_ca(),
+            folder.vault("vault01"),
+            folder.kubeconfig("k8s"),
+            // A file Sherpa did not write, such as the dev lab's direct SSH config.
+            folder.ssh_dir().join("direct_config"),
+        ] {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, "x").unwrap();
+        }
+        let kept = ["manifest.toml", "kubeconfig-prod", "lab-notes.txt"];
+        for name in kept {
             fs::write(dir.path().join(name), "x").unwrap();
         }
 
-        let devices = ["vault01".to_string(), "kc01".to_string()];
-        remove_local_lab_files(&local_lab_files(dir.path(), &devices, &["k8s".to_string()]));
+        assert!(remove_state_dir(&folder).unwrap());
 
-        let left: BTreeSet<String> = fs::read_dir(dir.path())
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
-            .collect();
-        assert_eq!(left, kept.iter().map(ToString::to_string).collect());
+        assert_eq!(names(dir.path()), kept.map(ToString::to_string).into());
+        assert!(
+            !remove_state_dir(&folder).unwrap(),
+            "nothing left to delete"
+        );
+    }
+
+    /// An old-layout lab folder registered in `ssh_dir`, with a `.sherpa` folder whose `ssh`
+    /// is a file, so migrating it fails.
+    fn conflicting_old_layout(lab: &Path, ssh_dir: &Path) {
+        for (name, content) in [
+            ("sherpa_ssh_config", "Host dev\n"),
+            ("sherpa_ssh_key", "k"),
+            ("sherpa_known_hosts", "h"),
+            ("lab-info.toml", "x"),
+            ("manifest.toml", "mine"),
+            ("notes.txt", "mine"),
+        ] {
+            fs::write(lab.join(name), content).unwrap();
+        }
+        fs::create_dir_all(lab.join(".sherpa")).unwrap();
+        fs::write(lab.join(".sherpa/ssh"), "in the way").unwrap();
+        fs::create_dir_all(ssh_dir).unwrap();
+        fs::write(
+            ssh_dir.join("sherpa_lab_hosts"),
+            format!(
+                "Include {}\nInclude /other/lab/.sherpa/ssh/config\n",
+                lab.join("sherpa_ssh_config").display()
+            ),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn destroy_cleans_up_after_a_failed_migration() {
+        let lab = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let ssh_dir = home.path().join(".ssh");
+        conflicting_old_layout(lab.path(), &ssh_dir);
+        assert!(migrate_lab_folder(lab.path(), &ssh_dir).is_err());
+
+        let warnings = remove_lab_files(lab.path(), &ssh_dir);
+
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(
+            names(lab.path()),
+            ["manifest.toml", "notes.txt"]
+                .map(ToString::to_string)
+                .into()
+        );
+        assert_eq!(
+            fs::read_to_string(ssh_dir.join("sherpa_lab_hosts")).unwrap(),
+            "Include /other/lab/.sherpa/ssh/config\n"
+        );
+    }
+
+    #[test]
+    fn destroy_removes_the_new_include_too() {
+        let lab = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let ssh_dir = home.path().join(".ssh");
+        fs::create_dir_all(&ssh_dir).unwrap();
+        let config = LabFolder::new(lab.path()).ssh_config();
+        fs::write(
+            ssh_dir.join("sherpa_lab_hosts"),
+            format!("Include {}\nInclude /other/config\n", config.display()),
+        )
+        .unwrap();
+
+        let warnings = remove_lab_files(lab.path(), &ssh_dir);
+        assert!(warnings.is_empty(), "{warnings:?}");
+
+        assert_eq!(
+            fs::read_to_string(ssh_dir.join("sherpa_lab_hosts")).unwrap(),
+            "Include /other/config\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn destroy_after_a_failed_migration_still_refuses_a_symlinked_sherpa_folder() {
+        let lab = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        fs::write(elsewhere.path().join("precious"), "x").unwrap();
+        let ssh_dir = home.path().join(".ssh");
+        fs::write(lab.path().join("sherpa_ssh_key"), "k").unwrap();
+        std::os::unix::fs::symlink(elsewhere.path(), lab.path().join(".sherpa")).unwrap();
+        assert!(migrate_lab_folder(lab.path(), &ssh_dir).is_err());
+
+        let warnings = remove_lab_files(lab.path(), &ssh_dir);
+
+        assert!(
+            warnings.iter().any(|w| w.contains("symlink")),
+            "{warnings:?}"
+        );
+        assert!(elsewhere.path().join("precious").is_file());
+        assert!(fs::symlink_metadata(lab.path().join(".sherpa")).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn destroy_refuses_a_symlinked_sherpa_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        fs::write(elsewhere.path().join("precious"), "x").unwrap();
+        let link = dir.path().join(".sherpa");
+        std::os::unix::fs::symlink(elsewhere.path(), &link).unwrap();
+
+        let error = remove_state_dir(&LabFolder::new(dir.path())).unwrap_err();
+
+        assert!(error.to_string().contains("symlink"), "{error}");
+        assert!(elsewhere.path().join("precious").is_file());
+        assert!(fs::symlink_metadata(&link).is_ok());
     }
 }

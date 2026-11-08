@@ -26,10 +26,10 @@ SSH provisioners do not run on Windows nodes, so the toolchain is installed over
 node is up. `provision/setup.ps1` installs Rust from the devbox's mise config:
 
 ```bash
-ssh -F sherpa_ssh_config win.<lab-id> 'powershell -NoProfile -Command -' < provision/setup.ps1
+ssh -F .sherpa/ssh/config win.<lab-id> 'powershell -NoProfile -Command -' < provision/setup.ps1
 ```
 
-`<lab-id>` is the `id` in `lab-info.toml`. Expect about 5 minutes for Windows to be ready and a
+`<lab-id>` is the `id` in `.sherpa/lab-info.toml`. Expect about 5 minutes for Windows to be ready and a
 few minutes for Rust.
 
 ## Build and test the client
@@ -38,14 +38,14 @@ Send the working tree, including uncommitted changes, from a checkout:
 
 ```bash
 git ls-files -co --exclude-standard -z | tar --null -T - -czf /tmp/sherpa-src.tgz
-scp -F sherpa_ssh_config /tmp/sherpa-src.tgz win.<lab-id>:sherpa-src.tgz
-ssh -F sherpa_ssh_config win.<lab-id> 'powershell -NoProfile -Command "Remove-Item -Recurse -Force sherpa -ErrorAction SilentlyContinue; New-Item -ItemType Directory sherpa | Out-Null; tar -xzf sherpa-src.tgz -C sherpa"'
+scp -F .sherpa/ssh/config /tmp/sherpa-src.tgz win.<lab-id>:sherpa-src.tgz
+ssh -F .sherpa/ssh/config win.<lab-id> 'powershell -NoProfile -Command "Remove-Item -Recurse -Force sherpa -ErrorAction SilentlyContinue; New-Item -ItemType Directory sherpa | Out-Null; tar -xzf sherpa-src.tgz -C sherpa"'
 ```
 
 Then build, lint and test the client:
 
 ```bash
-ssh -F sherpa_ssh_config win.<lab-id> 'powershell -NoProfile -Command "cd sherpa; mise exec rust -- cargo clippy -p sherpa --all-targets -- -D warnings; mise exec rust -- cargo test -p sherpa"'
+ssh -F .sherpa/ssh/config win.<lab-id> 'powershell -NoProfile -Command "cd sherpa; mise exec rust -- cargo clippy -p sherpa --all-targets -- -D warnings; mise exec rust -- cargo test -p sherpa"'
 ```
 
 Only the client is built here: the server, `libvirt` and `network` crates are Linux only.
