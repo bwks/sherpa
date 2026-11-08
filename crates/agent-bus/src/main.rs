@@ -17,12 +17,13 @@ mod config;
 mod guest;
 mod keys;
 mod message;
+mod state;
 
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 
-use anyhow::Result;
-use clap::{Parser, Subcommand};
+use anyhow::{Result, bail};
+use clap::{ArgGroup, Parser, Subcommand};
 
 use bus::Bus;
 use channel::Channel;
@@ -55,9 +56,10 @@ enum Command {
     },
     /// Send a task, or an answer to a guest agent's question
     Send {
-        /// The bus, for example `nats://172.31.3.1:4222`
-        #[arg(long, env = "AGENT_BUS_URL")]
-        server: String,
+        /// The bus, for example `nats://192.0.2.1:4222`. Without it: `AGENT_BUS_URL`, then
+        /// where `bus start` recorded the bus
+        #[arg(long)]
+        server: Option<String>,
         /// The sending agent
         #[arg(long, default_value = "host")]
         from: String,
@@ -76,9 +78,10 @@ enum Command {
     },
     /// Cancel a task on a guest agent, whether it is running or queued
     Cancel {
-        /// The bus, for example `nats://172.31.3.1:4222`
-        #[arg(long, env = "AGENT_BUS_URL")]
-        server: String,
+        /// The bus, for example `nats://192.0.2.1:4222`. Without it: `AGENT_BUS_URL`, then
+        /// where `bus start` recorded the bus
+        #[arg(long)]
+        server: Option<String>,
         /// The sending agent
         #[arg(long, default_value = "host")]
         from: String,
@@ -90,15 +93,16 @@ enum Command {
     },
     /// Print each message sent to an agent, as one JSON line
     Listen {
-        /// The bus, for example `nats://172.31.3.1:4222`
-        #[arg(long, env = "AGENT_BUS_URL")]
-        server: String,
+        /// The bus, for example `nats://192.0.2.1:4222`. Without it: `AGENT_BUS_URL`, then
+        /// where `bus start` recorded the bus
+        #[arg(long)]
+        server: Option<String>,
         /// The agent whose messages to print
         agent: String,
     },
     /// Run a guest agent: take each task to Claude Code and reply with its progress and result
     Guest {
-        /// The bus, for example `nats://172.31.3.1:4222`
+        /// The bus, for example `nats://192.0.2.1:4222`
         #[arg(long, env = "AGENT_BUS_URL")]
         server: String,
         /// This agent's name
@@ -123,10 +127,15 @@ enum KeyAction {
 #[derive(Subcommand)]
 enum BusAction {
     /// Start the bus container, listening on one host address
+    #[command(group(ArgGroup::new("address").required(true).args(["lab", "listen"])))]
     Start {
-        /// The address to listen on, such as a lab's management bridge address
+        /// The lab to serve: a lab directory holding `lab-info.toml`. The bus listens on the
+        /// lab's management gateway, which is where its guests find it
         #[arg(long)]
-        listen: Ipv4Addr,
+        lab: Option<PathBuf>,
+        /// The address to listen on instead of a lab's
+        #[arg(long)]
+        listen: Option<Ipv4Addr>,
         /// The agents file (TOML): each agent's name, public key and role. The server's
         /// permissions are rendered from it. Run as the host: `AGENT_BUS_SEED` is the host's seed
         #[arg(long)]
@@ -146,8 +155,25 @@ async fn main() -> Result<()> {
             KeyAction::New => new_key(),
         },
         Command::Bus { action } => match action {
-            BusAction::Start { listen, agents } => {
-                bus::start(&Bus::standard(listen)?, &agents, &seed_from_environment()?).await
+            BusAction::Start {
+                lab,
+                listen,
+                agents,
+            } => {
+                let (listen, lab) = match (lab, listen) {
+                    (Some(dir), _) => {
+                        let (gateway, record) = state::lab_gateway(&dir)?;
+                        (gateway, Some(record))
+                    }
+                    (None, Some(listen)) => (listen, None),
+                    (None, None) => bail!("Give --lab or --listen"),
+                };
+                bus::start(
+                    &Bus::standard(listen, lab)?,
+                    &agents,
+                    &seed_from_environment()?,
+                )
+                .await
             }
             BusAction::Stop => bus::stop().await,
             BusAction::Status => bus::status().await,
@@ -160,6 +186,7 @@ async fn main() -> Result<()> {
             github,
             text,
         } => {
+            let server = find_server(server)?;
             send(
                 &server,
                 &seed_from_environment()?,
@@ -176,8 +203,12 @@ async fn main() -> Result<()> {
             from,
             to,
             task,
-        } => cancel(&server, &seed_from_environment()?, from, to, task).await,
+        } => {
+            let server = find_server(server)?;
+            cancel(&server, &seed_from_environment()?, from, to, task).await
+        }
         Command::Listen { server, agent } => {
+            let server = find_server(server)?;
             listen(&server, &seed_from_environment()?, &agent).await
         }
         Command::Guest {
@@ -190,6 +221,15 @@ async fn main() -> Result<()> {
             guest::run(&channel, &name, &reply_to, &workdir).await
         }
     }
+}
+
+/// The bus to connect to: `--server`, then `AGENT_BUS_URL`, then where `bus start` recorded it.
+fn find_server(flag: Option<String>) -> Result<String> {
+    state::find_server(
+        flag,
+        std::env::var(state::SERVER_ENV).ok(),
+        &Bus::record_path()?,
+    )
 }
 
 /// Print a new key pair. This is the only place a seed is printed.

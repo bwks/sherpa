@@ -28,7 +28,7 @@ output in its context.
 
 | Part | What it is |
 |---|---|
-| Bus | NATS 2.15 with JetStream, in the container `sherpa-agent-bus` on the host (`agent-bus bus start --listen <address> --agents <file>`), on the host's network. It listens on one address: the dev lab's management bridge, which is the guest's default gateway. Stored messages live in the volume `sherpa-agent-bus-data` |
+| Bus | NATS 2.15 with JetStream, in the container `sherpa-agent-bus` on the host (`agent-bus bus start --lab <lab dir> --agents <file>`), on the host's network. It listens on one address: the lab's management bridge, which is the guest's default gateway. Stored messages live in the volume `sherpa-agent-bus-data` |
 | Inboxes | One stream, `AGENTS`, on `agents.>`. Each agent reads `agents.<name>` through a durable consumer, so a message waits until its agent reads it, and a restarted reader goes on where it stopped. The host creates the stream and the consumers when it starts the bus |
 | Messages | JSON: task ID, sender, receiver, kind and text. The kinds are `task`, `answer`, `progress`, `question`, `completed` and `failed`, named after A2A's task states |
 | Host agent | `agent-bus send --to dev "<task>"` prints the task ID; `--answer <task>` answers a question. `agent-bus listen host`, run under Claude Code's Monitor, turns each message into a notification |
@@ -117,21 +117,27 @@ shows up as `Bus connection event: server error: nats: Permissions Violation for
 
 ### Starting the bus
 
-`agent-bus bus start --listen <address> --agents <file>`, with the host's seed in
-`AGENT_BUS_SEED`:
+`agent-bus bus start --lab <lab dir> --agents <file>`, with the host's seed in
+`AGENT_BUS_SEED`. Exactly one of `--lab` and `--listen <address>` is required: `--lab` reads
+`lab-info.toml` in the lab directory and listens on its `ipv4_gateway`, and `--listen` gives an
+address directly. A missing file, or one without a gateway, is an error that names the path.
 
-1. Read and validate the agents file, and check the seed belongs to the host's key.
-2. Write the config to `$XDG_STATE_HOME/agent-bus/nats.conf` (default
+1. Read the lab's gateway, if `--lab` was given.
+2. Read and validate the agents file, and check the seed belongs to the host's key.
+3. Write the config to `$XDG_STATE_HOME/agent-bus/nats.conf` (default
    `~/.local/state/agent-bus/`), outside the repository, mode 0644 in a 0755 directory so the
    container's user can read it. It is rewritten on every start.
-3. Pull the pinned image if needed, then **replace** the container: stop and remove the old one
+4. Pull the pinned image if needed, then **replace** the container: stop and remove the old one
    if present, and create it with the config bind-mounted read-only (`-c`). The config can change,
    so an existing container is never just started. Messages live in the volume, so replacing
    is safe.
-4. Wait for the server, connect as the host, and create the `AGENTS` stream and a durable consumer
+5. Wait for the server, connect as the host, and create the `AGENTS` stream and a durable consumer
    for every agent in the file, the host included (it reads its replies through one). Only the
    host may do this. The other agents bind to their consumer and fail with a clear error if it is
    missing, for example when the agent is not in the agents file the bus was started with.
+6. Record where the bus is in `$XDG_STATE_HOME/agent-bus/bus.toml`, next to `nats.conf`, written
+   atomically: the URL, and the lab's ID and name when `--lab` was used. `bus stop` removes it,
+   and `bus status` prints it.
 
 Adding an agent: generate a key, add it to the agents file, and run `bus start` again.
 
@@ -174,16 +180,26 @@ On the host, with the dev lab up:
 1. Make a key for the host and one for each guest: `agent-bus key new`. It prints the public key
    and the seed. Store each seed in your secret store straight away; it is not shown again.
 2. Write the agents file with the names, public keys and roles.
-3. Start the bus on the dev lab's management bridge, `ipv4_gateway` in the lab's
-   `lab-info.toml`, with the host's seed in `AGENT_BUS_SEED`, supplied from the secret store. With the pass-cli env
-   file `~/.config/mise/sherpa.env` (it holds `AGENT_BUS_HOST_SEED` and `AGENT_BUS_DEV_SEED`):
-   `pass-cli run --env-file ~/.config/mise/sherpa.env -- sh -c 'AGENT_BUS_SEED=$AGENT_BUS_HOST_SEED agent-bus bus start --listen <address> --agents <file>'`.
+3. Start the bus for the dev lab, with the host's seed in `AGENT_BUS_SEED`, supplied from the
+   secret store. `--lab` takes the lab directory and listens on the gateway in its
+   `lab-info.toml`, so no address is written down. With the pass-cli env file
+   `~/.config/mise/sherpa.env` (it holds `AGENT_BUS_HOST_SEED` and `AGENT_BUS_DEV_SEED`), the
+   mise task runs:
+   `pass-cli run --env-file ~/.config/mise/sherpa.env -- sh -c 'AGENT_BUS_SEED=$AGENT_BUS_HOST_SEED agent-bus bus start --lab <lab dir> --agents <file>'`.
 4. Start the guest agent. `dev/agent-bus/start-guest.sh` runs in the guest, reads two lines from
    stdin, the Claude token and then the guest's seed (sent over SSH stdin, never as an argument), builds the binary and starts the agent in
    the background; its log is `~/agent-bus-dev.log`. From the host, pipe both to it over the
    lab's SSH config.
-5. Listen for replies with `agent-bus listen --server nats://<address>:4222 host`, and send tasks
-   with `agent-bus send`, both with `AGENT_BUS_SEED` set to the host's seed, as above.
+5. Listen for replies with `agent-bus listen host`, and send tasks with `agent-bus send`, both
+   with `AGENT_BUS_SEED` set to the host's seed, as above. No address is needed: `send`,
+   `listen` and `cancel` find the bus in this order, and stop at the first that is set:
+   1. `--server <url>`
+   2. the environment variable `AGENT_BUS_URL`
+   3. the state file `bus start` wrote, `$XDG_STATE_HOME/agent-bus/bus.toml`
+
+   If none is set they fail and say to run `bus start` or set one. The state file is the host's;
+   the guest agent runs in a lab guest and still takes `--server`, which
+   `dev/agent-bus/start-guest.sh` builds from the guest's default gateway.
 
 The `nats` CLI can inspect the bus with `--nkey <seed file>`; that needs a seed on disk, so
 prefer `agent-bus listen`, or a seed in a process substitution.
@@ -233,7 +249,10 @@ crate. The tests are unit tests for the queue and cancel decisions, and ignored 
 
 1. More than one task at a time, and more than one guest.
 2. Starting the guest agent with the guest, for example from its provisioning.
-3. Whether A2A belongs on top of the bus or replaces it, for agents that are not Claude Code
+3. Several labs at once. The bus is one container on one address, so serving more labs needs a
+   bus per lab (a container name, volume, port and state file for each), or a bus listening on
+   more than one address.
+4. Whether A2A belongs on top of the bus or replaces it, for agents that are not Claude Code
    (#439).
 
 ## Lost replies: two readers on one inbox

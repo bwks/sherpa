@@ -25,6 +25,7 @@ use crate::agents::Agents;
 use crate::channel::Channel;
 use crate::config;
 use crate::keys::public_key_of;
+use crate::state::{self, BusRecord, LabRecord};
 
 /// The bus container.
 const CONTAINER_NAME: &str = "sherpa-agent-bus";
@@ -36,6 +37,8 @@ const DATA_DIR: &str = "/data";
 /// Where the rendered server config is mounted, read-only.
 const CONFIG_TARGET: &str = "/etc/agent-bus/nats.conf";
 const CONFIG_FILE: &str = "nats.conf";
+/// Where `start` records the bus, next to the config.
+const RECORD_FILE: &str = "bus.toml";
 const STATE_SUBDIR: &str = "agent-bus";
 const PORT: u16 = 4222;
 /// How often, and how long, `start` waits for the server to accept connections.
@@ -50,24 +53,39 @@ pub struct Bus {
     pub port: u16,
     /// Where the server config is written; outside the repository.
     pub config_path: PathBuf,
+    /// Where `start` records where the bus is.
+    pub record_path: PathBuf,
+    /// The lab the bus serves, when started for one.
+    pub lab: Option<LabRecord>,
 }
 
 impl Bus {
     /// The bus as users run it: the standard container, volume and port, listening on
-    /// `listen`, with its config under `$XDG_STATE_HOME/agent-bus/`.
+    /// `listen`, with its config and record under `$XDG_STATE_HOME/agent-bus/`.
     ///
     /// # Errors
     ///
     /// Fails when neither `XDG_STATE_HOME` nor `HOME` gives a state directory.
-    pub fn standard(listen: Ipv4Addr) -> Result<Self> {
-        let state = state_dir(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"))?;
+    pub fn standard(listen: Ipv4Addr, lab: Option<LabRecord>) -> Result<Self> {
+        let state = standard_state_dir()?;
         Ok(Self {
             container: CONTAINER_NAME.to_owned(),
             volume: VOLUME.to_owned(),
             listen,
             port: PORT,
             config_path: state.join(CONFIG_FILE),
+            record_path: state.join(RECORD_FILE),
+            lab,
         })
+    }
+
+    /// Where `start` records the bus and the other commands look for it.
+    ///
+    /// # Errors
+    ///
+    /// Fails when neither `XDG_STATE_HOME` nor `HOME` gives a state directory.
+    pub fn record_path() -> Result<PathBuf> {
+        Ok(standard_state_dir()?.join(RECORD_FILE))
     }
 
     fn url(&self) -> String {
@@ -112,7 +130,17 @@ pub async fn start(bus: &Bus, agents_path: &Path, host_seed: &str) -> Result<()>
 
     let channel = connect_when_ready(bus, host_seed).await?;
     let outcomes = channel.create_inboxes(&agents).await?;
+    state::write(
+        &bus.record_path,
+        &BusRecord {
+            url: bus.url(),
+            lab: bus.lab.clone(),
+        },
+    )?;
     println!("Bus listening on {}", bus.url());
+    if let Some(lab) = &bus.lab {
+        println!("Serving lab {} ({})", lab.name, lab.id);
+    }
     for (agent, change) in outcomes {
         println!("Inbox ready: {agent} ({change})");
     }
@@ -128,6 +156,7 @@ pub async fn stop() -> Result<()> {
     let docker = docker_connection()?;
     stop_container(&docker, CONTAINER_NAME).await?;
     remove_container(&docker, CONTAINER_NAME).await?;
+    state::remove(&Bus::record_path()?)?;
     println!("Removed {CONTAINER_NAME}; stored messages are kept in {VOLUME}");
     Ok(())
 }
@@ -144,6 +173,16 @@ pub async fn status() -> Result<()> {
         Ok(Some(state)) => println!("{CONTAINER_NAME}: {state}"),
         Ok(None) => println!("{CONTAINER_NAME}: state unknown"),
         Err(error) => println!("{CONTAINER_NAME}: not created ({error:#})"),
+    }
+    match state::read(&Bus::record_path()?)? {
+        Some(record) => {
+            println!("URL: {}", record.url);
+            match record.lab {
+                Some(lab) => println!("Lab: {} ({})", lab.name, lab.id),
+                None => println!("Lab: none (started with --listen)"),
+            }
+        }
+        None => println!("URL: not recorded (run `agent-bus bus start`)"),
     }
     Ok(())
 }
@@ -191,6 +230,10 @@ async fn connect_when_ready(bus: &Bus, seed: &str) -> Result<Channel> {
         Some(error) => Err(error).context("The bus did not accept the host's connection"),
         None => bail!("The bus did not accept the host's connection"),
     }
+}
+
+fn standard_state_dir() -> Result<PathBuf> {
+    state_dir(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"))
 }
 
 /// The directory for the bus's state: `$XDG_STATE_HOME/agent-bus`, or
@@ -268,7 +311,9 @@ mod tests {
             volume: "sherpa-agent-bus-test-data".to_owned(),
             listen: Ipv4Addr::new(172, 31, 3, 1),
             port: 4222,
+            record_path: config_path.with_file_name(RECORD_FILE),
             config_path,
+            lab: None,
         }
     }
 
@@ -569,17 +614,39 @@ mod tests {
             .local_addr()
             .unwrap()
             .port();
+        // The bus is started for a lab whose gateway is the loopback address.
+        let lab_dir = dir.join("lab");
+        std::fs::create_dir_all(&lab_dir).unwrap();
+        std::fs::write(
+            lab_dir.join("lab-info.toml"),
+            "id = \"abc123\"\nname = \"it\"\nuser = \"sherpa\"\n\
+             ipv4_network = \"127.0.0.0/24\"\nipv4_gateway = \"127.0.0.1\"\n\
+             ipv4_router = \"127.0.0.2\"\nloopback_network = \"127.0.1.0/24\"\n",
+        )
+        .unwrap();
+        let (gateway, lab) = state::lab_gateway(&lab_dir).unwrap();
         let bus = Bus {
             container: format!("sherpa-agent-bus-test-{id}"),
             volume: format!("sherpa-agent-bus-test-{id}-data"),
-            listen: Ipv4Addr::LOCALHOST,
+            listen: gateway,
             port,
             config_path: dir.join("state").join(CONFIG_FILE),
+            record_path: dir.join("state").join(RECORD_FILE),
+            lab: Some(lab),
         };
         let agents = Agents::parse(&text).unwrap();
 
         let result = async {
             start(&bus, &agents_path, &host.seed).await?;
+            // With no --server and no AGENT_BUS_URL, the recorded bus is found and connects.
+            let found = state::find_server(None, None, &bus.record_path)?;
+            ensure!(found == bus.url(), "the recorded URL is {found}");
+            let recorded = state::read(&bus.record_path)?.context("no bus record")?;
+            ensure!(
+                recorded.lab.is_some_and(|lab| lab.name == "it"),
+                "the lab was not recorded"
+            );
+            Channel::connect(&found, &host.seed).await?;
             exercise(&bus, &agents, &host, &dev).await?;
 
             // Every message a guest sends reaches a host listener: progress, then the outcome

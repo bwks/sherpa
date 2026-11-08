@@ -104,6 +104,7 @@ dependencies = [
  "nkeys",
  "serde",
  "serde_json",
+ "shared",
  "tokio",
  "toml",
  "uuid",

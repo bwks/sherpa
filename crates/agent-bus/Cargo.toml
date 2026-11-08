@@ -18,6 +18,9 @@ nkeys = { workspace = true }
 bollard = { workspace = true }
 container = { path = "../container" }
 
+# The lab-info.toml a lab writes
+shared = { path = "../shared" }
+
 # CLI
 clap = { workspace = true, features = ["env"] }
 
