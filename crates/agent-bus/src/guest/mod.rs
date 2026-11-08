@@ -21,7 +21,7 @@ mod claude;
 mod engine;
 mod lock;
 mod record;
-mod run;
+pub mod run;
 mod state;
 mod stream;
 

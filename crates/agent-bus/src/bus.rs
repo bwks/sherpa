@@ -304,6 +304,19 @@ pub async fn unenroll(bus: &Bus, agents_path: &Path, name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Every agent of the recorded bus: the agents file's, then the enrolled guests, as `start`
+/// renders them. `host_seed` must be the host's.
+///
+/// # Errors
+///
+/// Fails when the agents file or the registry is not valid, or `host_seed` is not the host's.
+pub fn agents(bus: &Bus, agents_path: &Path, host_seed: &str) -> Result<Agents> {
+    let fixed = load_agents(agents_path, Some(host_seed))?;
+    let merged = registry::merge(fixed, &Registry::load(&bus.registry_path())?)?;
+    warn_shadowed(&merged.shadowed, agents_path);
+    Ok(merged.agents)
+}
+
 /// Read the agents file at `path` and, given a seed, check that it is the host's.
 fn load_agents(path: &Path, host_seed: Option<&str>) -> Result<Agents> {
     let agents = Agents::load(path)?;
@@ -531,16 +544,25 @@ mod tests {
     use async_nats::connection::State;
     use async_nats::{Client, ConnectOptions, Event};
     use bollard::query_parameters::RemoveVolumeOptions;
+    use tokio::sync::watch;
+    use tokio::task::JoinHandle;
     use tokio::time::timeout;
 
     use super::*;
 
+    use crate::agents::Role;
     use crate::channel::Inbox;
     use crate::files::{DIR_MODE, PRIVATE_FILE_MODE};
+    use crate::files::{millis, now_ms};
+    use crate::guest::run::heartbeat;
     use crate::keys::{NewKey, generate};
     use crate::listen::{Journal, serve};
     use crate::message::{Kind, Message, TaskUsage, Usage};
     use crate::report;
+    use crate::status::{Heartbeat, Observed, Online, Row, Running, STALE, Status, row};
+
+    /// The heartbeat's beat in the offline test, not the production `HEARTBEAT`.
+    const BEAT: Duration = Duration::from_millis(200);
 
     fn test_bus(state_dir: PathBuf) -> Bus {
         Bus {
@@ -696,6 +718,258 @@ mod tests {
                 .is_ok_and(|connected| connected.is_err()),
             "an unknown key connected"
         );
+        Ok(())
+    }
+
+    /// A guest writes its status and the host reads it with the inbox's state; a guest may write
+    /// no other agent's status and read none.
+    async fn status_on_bus(bus: &Bus, host: &NewKey, dev: &NewKey) -> Result<()> {
+        let wait = Duration::from_secs(15);
+        let host_channel = Channel::connect(&bus.url(), &host.seed).await?;
+        let dev_channel = Channel::connect(&bus.url(), &dev.seed).await?;
+        let names = ["host", "dev", "other"];
+
+        // No status yet for dev (the earlier steps wrote none).
+        let none = host_channel
+            .statuses(names)
+            .await?
+            .context("bus start created no status bucket")?;
+        ensure!(none.is_empty(), "statuses before any was written: {none:?}");
+
+        let now = now_ms();
+        let status = Status {
+            online: true,
+            at_ms: now,
+            running: Some(Running {
+                task: "t1".to_owned(),
+                since_ms: now - 30_000,
+            }),
+            queued: 2,
+        };
+        dev_channel.put_status("dev", &status).await?;
+        host_channel.send(&message("host", "dev", "queued")).await?;
+        let found = host_channel.statuses(names).await?.unwrap_or_default();
+        ensure!(
+            found.len() == 1 && found[0].0 == "dev" && found[0].1.status == status,
+            "the host read {found:?}"
+        );
+        let stored = found[0].1.stored_ms;
+        ensure!(
+            stored.abs_diff(now_ms()) < 10_000,
+            "the bus's time {stored} is not now"
+        );
+        let state = host_channel
+            .inbox_state("dev")
+            .await?
+            .context("dev has no inbox")?;
+        let shown = row(
+            &Observed {
+                name: "dev".to_owned(),
+                role: Role::Guest,
+                inbox: Some(state),
+                heartbeat: Some(found[0].1.clone()),
+            },
+            now_ms(),
+            STALE,
+        );
+        ensure!(shown.online == Online::Yes, "{shown:?}");
+        ensure!(
+            shown.running.as_ref().is_some_and(|running| running.task == "t1"
+                && (30..40).contains(&running.age_secs)),
+            "{shown:?}"
+        );
+        ensure!(
+            shown.local_queue == Some(2)
+                && shown.inbox_unread == Some(1)
+                && shown.queued == Some(3),
+            "{shown:?}"
+        );
+        ensure!(
+            host_channel.inbox_state("nobody").await?.is_none(),
+            "an inbox for an agent that has none"
+        );
+
+        status_refusals(&host_channel, &dev_channel, &status).await?;
+
+        // The last status, written as a guest stops, takes it offline at once.
+        dev_channel
+            .put_status(
+                "dev",
+                &Status {
+                    online: false,
+                    ..status
+                },
+            )
+            .await?;
+        let found = host_channel.statuses(names).await?.unwrap_or_default();
+        let last = row(
+            &Observed {
+                name: "dev".to_owned(),
+                role: Role::Guest,
+                inbox: None,
+                heartbeat: found.first().map(|(_, heartbeat)| heartbeat.clone()),
+            },
+            now_ms(),
+            STALE,
+        );
+        ensure!(
+            last.online == Online::No && last.running.is_none(),
+            "{last:?}"
+        );
+
+        // Drain dev's inbox for the later steps.
+        let mut inbox = dev_channel.inbox("dev").await?;
+        let delivery = timeout(wait, inbox.next())
+            .await
+            .context("no message for dev")??
+            .context("the inbox closed")?;
+        delivery.ack().await
+    }
+
+    /// The heartbeat as the guest agent runs it, against the bus, with a short beat and a short
+    /// stale threshold so the test does not wait 35 s. A guest that stops cleanly writes a last,
+    /// offline status and is offline at once, even against the production threshold. A guest
+    /// that is killed writes nothing more: it shows online until its last status is older than
+    /// the threshold, then offline.
+    async fn offline_detection(bus: &Bus, host: &NewKey, dev: &NewKey) -> Result<()> {
+        let stale = Duration::from_secs(2);
+        let wait = Duration::from_secs(15);
+        let host_channel = Channel::connect(&bus.url(), &host.seed).await?;
+
+        // A clean stop: the engine is gone, the heartbeat writes its last status and returns.
+        let (status, beating) = start_heartbeat(bus, dev, &host_channel).await?;
+        let beat = dev_status(&host_channel).await?;
+        let shown = dev_row(&beat, stale);
+        ensure!(
+            shown.online == Online::Yes,
+            "a beating guest is not online: {shown:?}"
+        );
+        drop(status);
+        timeout(wait, beating)
+            .await
+            .context("the heartbeat did not end with the engine")??;
+        let last = dev_status(&host_channel).await?;
+        ensure!(
+            !last.status.online,
+            "no offline status was written: {last:?}"
+        );
+        let shown = dev_row(&last, STALE);
+        ensure!(
+            shown.online == Online::No && shown.last_active_age_secs.is_some_and(|age| age < 5),
+            "a guest that stopped is not offline at once: {shown:?}"
+        );
+
+        // A kill: the heartbeat ends without its last status, and its connection goes.
+        let (status, beating) = start_heartbeat(bus, dev, &host_channel).await?;
+        beating.abort();
+        ensure!(
+            beating.await.is_err_and(|error| error.is_cancelled()),
+            "the heartbeat was not killed"
+        );
+        // A write in flight as it was killed has landed by now.
+        tokio::time::sleep(BEAT).await;
+        let last = dev_status(&host_channel).await?;
+        ensure!(
+            last.status.online,
+            "a killed guest wrote an offline status: {last:?}"
+        );
+        let shown = dev_row(&last, stale);
+        ensure!(
+            shown.online == Online::Yes,
+            "a status younger than the threshold is not online: {shown:?}"
+        );
+        let stale_at = Duration::from_millis(last.stored_ms.saturating_add(millis(stale)));
+        let until = stale_at.saturating_sub(Duration::from_millis(now_ms()));
+        tokio::time::sleep(until + Duration::from_millis(500)).await;
+        let after = dev_status(&host_channel).await?;
+        ensure!(
+            after == last,
+            "a killed heartbeat still wrote: {after:?} after {last:?}"
+        );
+        let shown = dev_row(&after, stale);
+        ensure!(
+            shown.online == Online::No && shown.running.is_none(),
+            "a stale status is not offline: {shown:?}"
+        );
+        drop(status);
+        Ok(())
+    }
+
+    /// Start dev's heartbeat, beating every `BEAT`, and wait until the bus has an online status
+    /// from it. The sender is the engine's end: dropping it stops the heartbeat cleanly.
+    async fn start_heartbeat(
+        bus: &Bus,
+        dev: &NewKey,
+        host_channel: &Channel,
+    ) -> Result<(watch::Sender<Status>, JoinHandle<()>)> {
+        let channel = Channel::connect(&bus.url(), &dev.seed).await?;
+        let (status, receiver) = watch::channel(Status {
+            online: true,
+            ..Status::default()
+        });
+        let started = now_ms();
+        let beating = tokio::spawn(async move {
+            heartbeat(&channel, "dev", receiver, BEAT).await;
+        });
+        timeout(Duration::from_secs(15), async {
+            loop {
+                if let Ok(beat) = dev_status(host_channel).await
+                    && beat.status.online
+                    && beat.status.at_ms >= started
+                {
+                    return;
+                }
+                tokio::time::sleep(BEAT).await;
+            }
+        })
+        .await
+        .context("the heartbeat wrote no online status")?;
+        Ok((status, beating))
+    }
+
+    /// dev's last status, as the host reads it.
+    async fn dev_status(host_channel: &Channel) -> Result<Heartbeat> {
+        let found = host_channel.statuses(["dev"]).await?.unwrap_or_default();
+        found
+            .into_iter()
+            .next()
+            .map(|(_, beat)| beat)
+            .context("dev has no status")
+    }
+
+    /// dev's row from its status alone, with `stale` as the threshold.
+    fn dev_row(beat: &Heartbeat, stale: Duration) -> Row {
+        row(
+            &Observed {
+                name: "dev".to_owned(),
+                role: Role::Guest,
+                inbox: None,
+                heartbeat: Some(beat.clone()),
+            },
+            now_ms(),
+            stale,
+        )
+    }
+
+    /// A guest may write no other agent's status, and read none.
+    async fn status_refusals(host: &Channel, dev: &Channel, status: &Status) -> Result<()> {
+        let wait = Duration::from_secs(15);
+        let names = ["host", "dev", "other"];
+        // dev cannot write another agent's status, or read any.
+        let forged = timeout(wait, dev.put_status("other", status)).await;
+        ensure!(
+            !matches!(forged, Ok(Ok(()))),
+            "a guest wrote another agent's status"
+        );
+        let found = host.statuses(names).await?.unwrap_or_default();
+        ensure!(found.len() == 1, "a forged status was stored: {found:?}");
+        ensure!(
+            timeout(wait, dev.statuses(names))
+                .await
+                .is_ok_and(|read| read.is_err()),
+            "a guest read the status bucket"
+        );
+
         Ok(())
     }
 
@@ -1078,6 +1352,12 @@ mod tests {
             );
             Channel::connect(&found, &host.seed).await?;
             exercise(&bus, &agents, &host, &dev).await?;
+
+            // A guest writes its own status, which the host reads; no one else's.
+            status_on_bus(&bus, &host, &dev).await?;
+
+            // A guest that stops is offline at once; one that is killed, once its status is stale.
+            offline_detection(&bus, &host, &dev).await?;
 
             // Every message a guest sends reaches a host listener: progress, then the outcome
             // with its usage.

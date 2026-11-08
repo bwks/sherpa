@@ -5,7 +5,9 @@
 //! The bus has one account, so each agent's permissions are what keeps it to its own inbox:
 //!
 //! - A guest may publish to the host's inbox, and use its own consumer: read its info, pull
-//!   messages and acknowledge them. It may create no stream or consumer and send to no one else.
+//!   messages and acknowledge them. It may also publish its own status, under its name in the
+//!   status bucket (`status`); it cannot read the bucket. It may create no stream or consumer
+//!   and send to no one else.
 //! - The host may publish to every inbox and use the `JetStream` API, which it needs to create
 //!   the stream and the consumers.
 //!
@@ -26,6 +28,7 @@ use serde::Serialize;
 use crate::agents::Agents;
 use crate::channel::{STREAM, SUBJECT_PREFIX};
 use crate::files::{private_dir, write_atomic};
+use crate::status::BUCKET;
 
 /// The mode of the config file and its directory: they hold nothing secret, and the container's
 /// user, whoever the image runs as, must be able to read them. The directory itself is
@@ -112,7 +115,8 @@ fn host_user(agents: &Agents) -> User {
     )
 }
 
-/// The user for the guest `name`: it may send to the host and use its own consumer.
+/// The user for the guest `name`: it may send to the host, use its own consumer and write its
+/// own status.
 fn guest_user(key: &str, name: &str, agents: &Agents) -> User {
     user(
         key,
@@ -121,6 +125,7 @@ fn guest_user(key: &str, name: &str, agents: &Agents) -> User {
             format!("$JS.API.CONSUMER.INFO.{STREAM}.{name}"),
             format!("$JS.API.CONSUMER.MSG.NEXT.{STREAM}.{name}"),
             format!("$JS.ACK.{STREAM}.{name}.>"),
+            format!("$KV.{BUCKET}.{name}"),
         ],
     )
 }
@@ -199,12 +204,50 @@ mod tests {
                 "agents.host",
                 "$JS.API.CONSUMER.INFO.AGENTS.dev",
                 "$JS.API.CONSUMER.MSG.NEXT.AGENTS.dev",
-                "$JS.ACK.AGENTS.dev.>"
+                "$JS.ACK.AGENTS.dev.>",
+                "$KV.AGENT_STATUS.dev"
             ])
         );
         assert_eq!(
             guest["permissions"]["subscribe"]["allow"],
             serde_json::json!(["_INBOX.>"])
+        );
+    }
+
+    #[test]
+    fn a_guest_may_write_only_its_own_status_and_read_none() {
+        let fixture = fixture();
+        let config = rendered(&fixture);
+        let guest = user_of(&config, &fixture.dev);
+        let publish: Vec<&str> = guest["permissions"]["publish"]["allow"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|subject| subject.as_str().unwrap())
+            .collect();
+        let status: Vec<&str> = publish
+            .iter()
+            .copied()
+            .filter(|subject| subject.contains(BUCKET))
+            .collect();
+        // Its own key, exactly: no wildcard, and not another guest's or the host's.
+        assert_eq!(status, ["$KV.AGENT_STATUS.dev"]);
+        // Reading a status goes through the JetStream API, which a guest may use only for its
+        // own consumer.
+        assert!(
+            publish
+                .iter()
+                .filter(|subject| subject.starts_with("$JS.API."))
+                .all(|subject| subject.ends_with(".AGENTS.dev")),
+            "{publish:?}"
+        );
+        let test_key = Agents::parse(&fixture.text).unwrap().guests[1].key.clone();
+        let other = user_of(&config, &test_key);
+        assert!(
+            other["permissions"]["publish"]["allow"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("$KV.AGENT_STATUS.test"))
         );
     }
 

@@ -4,12 +4,14 @@
 use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::path::Path;
+use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::sync::watch;
+use tokio::time::{MissedTickBehavior, interval};
 use tokio::try_join;
 
 use super::base::{Base, Inputs};
@@ -24,6 +26,7 @@ use super::stream::{Update, interpret, outcome, priming_line, repeats_result, us
 use crate::channel::{Channel, Inbox};
 use crate::files::now_ms;
 use crate::message::{Kind, Message, TaskUsage, Usage, api_time_of_run, check_agent_name};
+use crate::status::{HEARTBEAT, Running, Status};
 
 /// The Claude subscription token, from `claude setup-token`.
 const TOKEN_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN";
@@ -103,6 +106,11 @@ struct Engine<'a> {
     queue: VecDeque<Message>,
     /// The task Claude Code works on now.
     running: Option<String>,
+    /// When the running task started.
+    running_since_ms: u64,
+    /// What the heartbeat writes to the bus: whether a task runs, and the queue. It changes with
+    /// the state file, in `save`.
+    status: watch::Sender<Status>,
     /// The session, runs and totals of each task.
     tasks: HashMap<String, TaskRecord>,
     /// The primed base session of each rules variant and model: by whether it allows GitHub,
@@ -187,12 +195,17 @@ async fn start(
         engine.resume(file)?;
     }
     engine.prune_results();
+    let status = engine.status.subscribe();
     eprintln!("Guest agent '{name}' is waiting for tasks");
     let work = async {
         try_join!(
             read_inbox(inbox, incoming_tx, stop_rx),
             forward(channel, outgoing_rx),
-            engine.serve()
+            engine.serve(),
+            async {
+                heartbeat(channel, name, status, HEARTBEAT).await;
+                Ok(())
+            }
         )
         .map(|_| ())
     };
@@ -245,6 +258,44 @@ async fn forward(channel: &Channel, mut outgoing: UnboundedReceiver<Message>) ->
         channel.send(&message).await?;
     }
     Ok(())
+}
+
+/// Write the agent's status to the bus on every change and `every` (`HEARTBEAT`), until the
+/// engine is gone; then once more, marked offline. A status the bus does not take is reported, once
+/// until it takes one again, and the agent goes on: the status is for the host's view, the
+/// tasks do not depend on it.
+pub async fn heartbeat(
+    channel: &Channel,
+    name: &str,
+    mut status: watch::Receiver<Status>,
+    every: Duration,
+) {
+    let mut beat = interval(every);
+    beat.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let mut failing = false;
+    loop {
+        let closed = tokio::select! {
+            _ = beat.tick() => false,
+            changed = status.changed() => changed.is_err(),
+        };
+        let mut current = status.borrow_and_update().clone();
+        current.online = !closed;
+        current.at_ms = now_ms();
+        match (channel.put_status(name, &current).await, failing) {
+            (Ok(()), true) => {
+                eprintln!("The bus takes the status again");
+                failing = false;
+            }
+            (Err(error), false) => {
+                eprintln!("{error:#}: the host does not see this agent's status");
+                failing = true;
+            }
+            _ => {}
+        }
+        if closed {
+            return;
+        }
+    }
 }
 
 /// Resolves when the agent is told to stop.
@@ -312,6 +363,11 @@ impl<'a> Engine<'a> {
             stop,
             queue: VecDeque::new(),
             running: None,
+            running_since_ms: 0,
+            status: watch::Sender::new(Status {
+                online: true,
+                ..Status::default()
+            }),
             tasks: HashMap::new(),
             bases: HashMap::new(),
             results: ResultLog::standard(),
@@ -373,9 +429,18 @@ impl<'a> Engine<'a> {
         }
     }
 
-    /// Write the state file. A write that fails is reported and the agent goes on: the state
-    /// in memory is still right, only a restart would lose it.
+    /// Write the state file, and update the status. A write that fails is reported and the
+    /// agent goes on: the state in memory is still right, only a restart would lose it.
     fn save(&self) {
+        self.status.send_replace(Status {
+            online: true,
+            at_ms: 0,
+            running: self.running.as_ref().map(|task| Running {
+                task: task.clone(),
+                since_ms: self.running_since_ms,
+            }),
+            queued: u64::try_from(self.queue.len()).unwrap_or(u64::MAX),
+        });
         if let Some(store) = &self.store
             && let Err(error) = store.save(&self.snapshot())
         {
@@ -433,6 +498,7 @@ impl<'a> Engine<'a> {
                 message.kind, message.task, message.from
             );
             self.running = Some(message.task.clone());
+            self.running_since_ms = now_ms();
             self.save();
             let result = self.work(&message).await;
             // Each way out of `work` has reported the task, so it is no longer running.
@@ -840,8 +906,8 @@ mod tests {
     use super::*;
 
     use std::fs;
-    use std::time::Duration;
 
+    use tokio::sync::oneshot;
     use tokio::time::timeout;
 
     use crate::keys::generate;
@@ -946,12 +1012,23 @@ ask*)
 esac
 "#;
 
+    /// A guest agent's engine started by `Harness::spawn`, and its ends.
+    struct Spawned {
+        input: UnboundedSender<Message>,
+        output: UnboundedReceiver<Message>,
+        stop: watch::Sender<bool>,
+        done: tokio::task::JoinHandle<Result<()>>,
+        status: oneshot::Receiver<watch::Receiver<Status>>,
+    }
+
     struct Harness {
         dir: std::path::PathBuf,
         input: Option<UnboundedSender<Message>>,
         output: UnboundedReceiver<Message>,
         stop: watch::Sender<bool>,
         done: tokio::task::JoinHandle<Result<()>>,
+        /// The engine's status, once it has started.
+        status: oneshot::Receiver<watch::Receiver<Status>>,
     }
 
     impl Harness {
@@ -964,25 +1041,26 @@ esac
             let program = dir.join("fake-claude");
             std::fs::write(&program, FAKE_CLAUDE).unwrap();
             std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-            let (input, output, stop, done) = Self::spawn(&dir);
+            let Spawned {
+                input,
+                output,
+                stop,
+                done,
+                status,
+            } = Self::spawn(&dir);
             Self {
                 dir,
                 input: Some(input),
                 output,
                 stop,
                 done,
+                status,
             }
         }
 
         /// A guest agent on `dir`, keeping its state in `dir/state/`.
-        fn spawn(
-            dir: &Path,
-        ) -> (
-            UnboundedSender<Message>,
-            UnboundedReceiver<Message>,
-            watch::Sender<bool>,
-            tokio::task::JoinHandle<Result<()>>,
-        ) {
+        fn spawn(dir: &Path) -> Spawned {
+            let (status_tx, status) = oneshot::channel();
             let (input, incoming) = unbounded_channel();
             let (outgoing, output) = unbounded_channel();
             let (stop, stop_rx) = watch::channel(false);
@@ -997,18 +1075,32 @@ esac
                 let mut engine = Engine::new(setup, "dev", "host", incoming, outgoing, stop_rx);
                 engine.results = Some(ResultLog::new(work.join("results.jsonl")));
                 engine.resume(StateFile::new(work.join("state").join("guest-dev.toml")))?;
+                let _ = status_tx.send(engine.status.subscribe());
                 engine.serve().await
             });
-            (input, output, stop, done)
+            Spawned {
+                input,
+                output,
+                stop,
+                done,
+                status,
+            }
         }
 
         /// Start the guest agent again on the same checkout and state file, as a deploy does.
         fn restart(&mut self) {
-            let (input, output, stop, done) = Self::spawn(&self.dir);
+            let Spawned {
+                input,
+                output,
+                stop,
+                done,
+                status,
+            } = Self::spawn(&self.dir);
             self.input = Some(input);
             self.output = output;
             self.stop = stop;
             self.done = done;
+            self.status = status;
         }
 
         fn saved(&self) -> Saved {
@@ -1171,6 +1263,56 @@ esac
             assert_ne!(message.task, "t4", "{message:?}");
         }
         assert!(!harness.dir.join("never.claude").exists());
+    }
+
+    #[tokio::test]
+    #[ignore = "starts real processes and signals them; run with -- --ignored"]
+    async fn the_status_follows_the_running_task_and_the_queue() {
+        let mut harness = Harness::start("status");
+        let mut status = timeout(Duration::from_secs(10), &mut harness.status)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (status.borrow().running.clone(), status.borrow().queued),
+            (None, 0)
+        );
+        let before = now_ms();
+        harness.send(Kind::Task, "t1", "hang-a");
+        harness.send(Kind::Task, "t2", "next");
+        harness.pids("hang-a").await;
+        let current = timeout(
+            Duration::from_secs(10),
+            status.wait_for(|status| status.queued == 1 && status.running.is_some()),
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .clone();
+        let running = current.running.unwrap();
+        assert_eq!(running.task, "t1");
+        assert!(running.since_ms >= before && running.since_ms <= now_ms());
+        assert!(current.online);
+
+        // The queued task runs once the running one is canceled, and the queue empties.
+        harness.send(Kind::Cancel, "t1", "");
+        timeout(
+            Duration::from_secs(10),
+            status.wait_for(|status| {
+                status.queued == 0 && status.running.as_ref().is_none_or(|r| r.task != "t1")
+            }),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        // Once the engine stops, the status ends: the heartbeat writes its last one, offline.
+        harness.stop.send_replace(true);
+        timeout(Duration::from_secs(10), async {
+            while status.changed().await.is_ok() {}
+        })
+        .await
+        .unwrap();
     }
 
     #[tokio::test]

@@ -31,8 +31,9 @@ tracked in issue #494.
 | Server config | `nats.conf`, rendered from the agents file and the registry of enrolled guests. Its directory is bind-mounted read-only at `/etc/agent-bus/` (`-c /etc/agent-bus/nats.conf`), and SIGHUP reloads it. | `src/config.rs` |
 | Registry | `enrolled.toml`: the guests `enroll` added, with their public keys. Host-managed, never edited by hand. | `src/registry.rs` |
 | Stream | One JetStream stream, `AGENTS`, on `agents.>`, keeping messages for 7 days (`max_age`). | `src/channel.rs` |
+| Status bucket | A JetStream key-value bucket, `AGENT_STATUS` (stream `KV_AGENT_STATUS`), one key per guest, history 1, kept 7 days. Each guest agent's heartbeat. See [Agent status](#agent-status). | `src/channel.rs`, `src/status.rs` |
 | Inboxes | One durable pull consumer per agent, named after it, filtered on `agents.<name>`, with `max_waiting = 1`. A message waits until its agent reads and acknowledges it, and a restarted reader goes on where it stopped. | `src/channel.rs` |
-| Host commands | `key new`, `bus start/stop/status`, `enroll`, `unenroll`, `send`, `cancel`, `listen`, `usage`, `show`. | `src/main.rs`, `src/bus.rs`, `src/listen.rs` |
+| Host commands | `key new`, `bus start/stop/status`, `enroll`, `unenroll`, `send`, `cancel`, `listen`, `usage`, `show`, `agents`. | `src/main.rs`, `src/bus.rs`, `src/listen.rs`, `src/table.rs` |
 | Starting a guest | `dev/agent-bus/start-agent.sh` on the host enrolls a node's agent and pipes its seed over SSH to `dev/agent-bus/start-guest.sh` in the guest. | `dev/agent-bus/` |
 | Guest agent | `agent-bus guest`: reads its inbox, queues tasks, runs them one at a time through Claude Code, and replies. | `src/guest/` |
 | Claude Code | `claude -p` with `stream-json` output, one process (and process group) per run, in the guest's checkout. | `src/guest/claude.rs` |
@@ -455,7 +456,7 @@ The bus has one account, so these lists are what separate the agents.
 | Role | Publish allowed | Subscribe allowed |
 |---|---|---|
 | host | `agents.>`, `$JS.API.>`, `$JS.ACK.AGENTS.>` | `_INBOX.>` |
-| guest `<name>` | `agents.<host>`, `$JS.API.CONSUMER.INFO.AGENTS.<name>`, `$JS.API.CONSUMER.MSG.NEXT.AGENTS.<name>`, `$JS.ACK.AGENTS.<name>.>` | `_INBOX.>` |
+| guest `<name>` | `agents.<host>`, `$JS.API.CONSUMER.INFO.AGENTS.<name>`, `$JS.API.CONSUMER.MSG.NEXT.AGENTS.<name>`, `$JS.ACK.AGENTS.<name>.>`, `$KV.AGENT_STATUS.<name>` | `_INBOX.>` |
 
 The diagram shows the same lists for a host and one guest, `dev`. Replies to requests, and pulled
 messages, come back on `_INBOX.>`, which is why every agent may subscribe to it and to nothing
@@ -471,6 +472,7 @@ flowchart LR
     devapi["$JS.API.CONSUMER.INFO and<br/>MSG.NEXT on AGENTS.dev"]
     allacks["$JS.ACK.AGENTS.>"]
     devack["$JS.ACK.AGENTS.dev.>"]
+    devstatus["$KV.AGENT_STATUS.dev<br/>(its own status)"]
     replies["_INBOX.>"]
     host -->|publish| allinboxes
     host -->|publish| jsapi
@@ -478,12 +480,15 @@ flowchart LR
     dev -->|publish| hostinbox
     dev -->|publish| devapi
     dev -->|publish| devack
+    dev -->|publish| devstatus
     host -.->|subscribe| replies
     dev -.->|subscribe| replies
 ```
 
-So a guest can read and acknowledge its own inbox and send to the host, and nothing else: it
-cannot send to another guest, read another inbox, or create or change a stream or consumer. Only
+So a guest can read and acknowledge its own inbox, send to the host and write its own status,
+and nothing else: it cannot send to another guest, read another inbox, write another agent's
+status, read any status (that takes the JetStream API), or create or change a stream or
+consumer. Only
 the host creates the stream and the consumers. A denied publish does not fail the call:
 nats-server drops it and sends an asynchronous `Permissions Violation` error, and the call times
 out. Every client prints the connection's events (`Channel::connect`), so a denial shows up as
@@ -492,6 +497,70 @@ out. Every client prints the connection's events (`Channel::connect`), so a deni
 `usage` and `show` read the host's inbox history through an ephemeral pull consumer, which the
 host's `$JS.API.>` already allows. An ordered push consumer would need `$JS.FC` publish rights for
 flow control, so a pull consumer is used and nothing is widened.
+
+## Agent status
+
+`agent-bus agents [--json]`, run as the host, shows every agent of the recorded bus: the host
+from the agents file, then every guest (the agents file's, then the enrolled ones, as `bus start`
+merges them, `bus::agents`). For each it shows whether it is online, its running task and how
+long it has run, how many tasks wait for it, and when it was last active, as a `tabled` modern
+table (`src/table.rs`), or with `--json` as a JSON array of the same rows with the parts of each
+figure apart (`status::Row`). Nothing is consumed: the host reads each inbox consumer's info and
+each guest's status.
+
+### Why a heartbeat
+
+The guest agent acknowledges each message as soon as it reads it and keeps tasks in its own
+queue (see [A task's lifecycle](#a-tasks-lifecycle)), so the bus never knows which task runs or
+how many wait in the guest: only the guest can say. JetStream offers two signals of its own, and
+neither says whether a guest agent is working:
+
+- **The inbox consumer's waiting pull requests** (`num_waiting`). A reader holds one pull
+  request (`max_waiting = 1`). It shows a reader is attached, not that the agent is alive: a
+  guest agent that hangs, or whose engine has stopped while its connection stays up, keeps the
+  pull request until it expires, and the request comes back after every expiry for as long as the
+  client runs. Any other reader of the inbox looks the same.
+- **The consumer's last delivery** (`delivered.last_active`). It moves only when a message is
+  delivered, so an idle guest that is fine looks as inactive as one that is gone.
+
+So each guest agent writes its status to the key-value bucket `AGENT_STATUS`, under its name:
+
+| Field | Meaning |
+|---|---|
+| `online` | true; false only in the last status, written as the agent stops |
+| `at_ms` | when the guest wrote it, by the guest's clock |
+| `running` | the running task's ID and when it started (`since_ms`, guest clock), or none |
+| `queued` | tasks and answers in the guest's local queue |
+
+The engine updates the status on every change of its state (in `save`, beside the state file)
+and a heartbeat task (`guest::run::heartbeat`) writes it on every change and every 10 s
+(`status::HEARTBEAT`). When the engine ends (stopped, or the inbox closed) the heartbeat writes it
+once more with `online = false`, so a clean stop shows at once. The beat is a parameter of `heartbeat`
+and the stale threshold one of `status::row`, so the real-bus test
+(`bus::tests::offline_detection`) runs both short: a clean stop is offline at once, and a killed
+heartbeat, which writes no last status, is offline once its status is older than the threshold. A write that fails is reported
+once until one succeeds again; the agent goes on, since tasks do not depend on it. The write is
+a plain JetStream publish to `$KV.AGENT_STATUS.<name>`, so the guest needs that one subject and
+no JetStream API call. The host creates the bucket with the stream (`Channel::create_inboxes`,
+run by `bus start` and `enroll`).
+
+### What each column means
+
+| Column | Guest | Host |
+|---|---|---|
+| Online | `yes` while its last status says online and the bus stored it at most 35 s ago (`status::STALE`, three missed heartbeats and slack); `no` otherwise. `unreported` when there is no status but a reader holds its inbox: a guest agent from before the heartbeat, or another reader. | `yes` while a listener holds its inbox (`num_waiting`), `no` otherwise. The host has no agent process to report. |
+| Running task, running for | the task in its status, only while online; a stale status's task is not running now, and a restarted guest reports it failed | `-` |
+| Queued | the inbox's unread and unacknowledged messages (`num_pending + num_ack_pending`) plus the guest's local queue from its last status | `-`: what waits in the host's inbox is guests' progress and outcomes for a listener, not tasks. Its count is in the JSON's `inbox_unread`. |
+| Last active | when the bus stored its last status | when a message was last delivered from its inbox |
+
+The ages are taken against the host's clock from times the bus stamps: the bus runs on the
+host, so they agree. A running task's age is the guest's own `at_ms - since_ms` plus the time
+since the bus stored the status, so a guest clock set wrong does not skew it. Every name in the
+JSON is in `status::Row`: `queued` is `inbox_unread` plus `local_queue` for a guest and `null`
+for the host, and `reader_attached`
+is the inbox's pull request, kept for diagnosis (a guest with a reader but a stale status is
+hung or cut off). A bus prepared by an older `agent-bus` has no bucket: `agents` says so and
+shows every guest without a status until `bus start` runs again.
 
 ## Guest execution
 

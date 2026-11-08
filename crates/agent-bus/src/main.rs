@@ -25,6 +25,8 @@ mod model;
 mod registry;
 mod report;
 mod state;
+mod status;
+mod table;
 
 use std::io::{self, IsTerminal};
 use std::net::Ipv4Addr;
@@ -36,9 +38,11 @@ use clap::{ArgGroup, Parser, Subcommand};
 
 use bus::Bus;
 use channel::Channel;
+use files::now_ms;
 use keys::seed_from_environment;
 use message::{Kind, Message, check_agent_name, new_task_id};
 use model::{DEFAULT_MODEL, model_id};
+use status::{Observed, STALE};
 
 #[derive(Parser)]
 #[command(
@@ -162,6 +166,18 @@ enum Command {
         host: String,
         /// The task to print
         task: String,
+    },
+    /// Show every agent of the recorded bus, the host and each guest: whether it is online, the
+    /// task it runs and for how long, how many tasks wait for it, and when it was last active.
+    /// Run as the host: `AGENT_BUS_SEED` is the host's seed
+    Agents {
+        /// The bus, for example `nats://192.0.2.1:4222`. Without it: `AGENT_BUS_URL`, then
+        /// where `bus start` recorded the bus
+        #[arg(long)]
+        server: Option<String>,
+        /// Print the agents as JSON instead of a table
+        #[arg(long)]
+        json: bool,
     },
     /// Run a guest agent: take each task to Claude Code and reply with its progress and result
     Guest {
@@ -291,6 +307,10 @@ async fn main() -> Result<()> {
         Command::Show { server, host, task } => {
             let server = find_server(server)?;
             show(&server, &seed_from_environment()?, &host, &task).await
+        }
+        Command::Agents { server, json } => {
+            let server = find_server(server)?;
+            agents(&server, &seed_from_environment()?, json).await
         }
         Command::Guest {
             server,
@@ -442,6 +462,47 @@ async fn show(server: &str, seed: &str, host: &str, task: &str) -> Result<()> {
     let messages = channel.history(host).await?;
     for message in report::task_messages(&messages, task) {
         println!("{}", serde_json::to_string(message)?);
+    }
+    Ok(())
+}
+
+/// Print every agent of the recorded bus, as a table or as JSON. Nothing is consumed: the host
+/// reads each inbox consumer's info and each guest's status.
+async fn agents(server: &str, seed: &str, json: bool) -> Result<()> {
+    let (bus, agents_path) = Bus::recorded()?;
+    let agents = bus::agents(&bus, &agents_path, seed)?;
+    let channel = Channel::connect(server, seed).await?;
+    let names = || agents.all().map(|agent| agent.name.as_str());
+    let statuses = channel.statuses(names()).await?;
+    if statuses.is_none() {
+        eprintln!(
+            "The bus has no status bucket: it was prepared by an older agent-bus. Run \
+             `agent-bus bus start` again to create it"
+        );
+    }
+    let mut statuses = statuses.unwrap_or_default();
+    let mut observed = Vec::new();
+    for agent in agents.all() {
+        let heartbeat = statuses
+            .iter()
+            .position(|(name, _)| *name == agent.name)
+            .map(|index| statuses.swap_remove(index).1);
+        observed.push(Observed {
+            name: agent.name.clone(),
+            role: agent.role,
+            inbox: channel.inbox_state(&agent.name).await?,
+            heartbeat,
+        });
+    }
+    let now = now_ms();
+    let rows: Vec<status::Row> = observed
+        .iter()
+        .map(|agent| status::row(agent, now, STALE))
+        .collect();
+    if json {
+        println!("{}", serde_json::to_string_pretty(&rows)?);
+    } else {
+        println!("{}", table::agents(&rows));
     }
     Ok(())
 }

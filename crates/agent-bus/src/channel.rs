@@ -9,13 +9,16 @@ use std::fmt;
 use std::time::Duration;
 
 use anyhow::{Context, Result, ensure};
-use async_nats::jetstream::context::ConsumerInfoErrorKind;
+use async_nats::jetstream::ErrorCode;
+use async_nats::jetstream::context::{ConsumerInfoErrorKind, GetStreamErrorKind};
+use async_nats::jetstream::kv::{self, Operation};
 use async_nats::jetstream::{self, consumer, stream};
 use async_nats::{ConnectOptions, Event};
 use futures_util::StreamExt;
 
 use crate::keys::public_key_of;
 use crate::message::{Message, check_agent_name};
+use crate::status::{BUCKET, Heartbeat, InboxState, Status};
 
 /// The stream holding every inbox.
 pub const STREAM: &str = "AGENTS";
@@ -101,8 +104,8 @@ impl Channel {
         })
     }
 
-    /// Create the inbox stream and an inbox consumer for every agent in `names`. This is the
-    /// host's job: only the host may do it. It is safe to repeat.
+    /// Create the inbox stream, the status bucket, and an inbox consumer for every agent in
+    /// `names`. This is the host's job: only the host may do it. It is safe to repeat.
     ///
     /// # Errors
     ///
@@ -121,6 +124,16 @@ impl Channel {
             })
             .await
             .context("Unable to create the inbox stream")?;
+        self.jetstream
+            .create_or_update_key_value(kv::Config {
+                bucket: BUCKET.to_owned(),
+                description: "The status of each guest agent, under its name".to_owned(),
+                history: 1,
+                max_age: RETENTION,
+                ..Default::default()
+            })
+            .await
+            .context("Unable to create the status bucket")?;
         let mut outcomes = Vec::new();
         for name in names {
             let wanted = consumer_config(name)?;
@@ -268,6 +281,109 @@ impl Channel {
         result
     }
 
+    /// Store `status` as `agent`'s, and wait until the bus has stored it. This is a plain
+    /// publish to the bucket's subject for `agent`, the only status subject a guest may publish
+    /// to; it needs no `JetStream` API call.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the name is invalid, or the bus does not store the status (no status bucket:
+    /// the bus was prepared by an older `agent-bus`).
+    pub async fn put_status(&self, agent: &str, status: &Status) -> Result<()> {
+        let subject = status_subject(agent)?;
+        let payload = serde_json::to_vec(status).context("Unable to encode the status")?;
+        self.jetstream
+            .publish(subject, payload.into())
+            .await
+            .context("Unable to send the status")?
+            .await
+            .context("The bus did not store the status")?;
+        Ok(())
+    }
+
+    /// The last status each agent in `names` stored, by name. `None` when the bus has no status
+    /// bucket. A status that is not one is left out, and reported. This is for the host.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the bucket cannot be read.
+    pub async fn statuses<'a>(
+        &self,
+        names: impl IntoIterator<Item = &'a str>,
+    ) -> Result<Option<Vec<(String, Heartbeat)>>> {
+        match self.jetstream.get_stream(format!("KV_{BUCKET}")).await {
+            Ok(_) => {}
+            Err(error)
+                if matches!(error.kind(), GetStreamErrorKind::JetStream(ref inner)
+                    if inner.error_code() == ErrorCode::STREAM_NOT_FOUND) =>
+            {
+                return Ok(None);
+            }
+            Err(error) => return Err(error).context("Unable to open the status bucket"),
+        }
+        let store = self
+            .jetstream
+            .get_key_value(BUCKET)
+            .await
+            .context("Unable to open the status bucket")?;
+        let mut found = Vec::new();
+        for name in names {
+            let entry = store
+                .entry(name)
+                .await
+                .with_context(|| format!("Unable to read the status of '{name}'"))?;
+            let Some(entry) = entry.filter(|entry| entry.operation == Operation::Put) else {
+                continue;
+            };
+            match serde_json::from_slice::<Status>(&entry.value) {
+                Ok(status) => found.push((
+                    name.to_owned(),
+                    Heartbeat {
+                        status,
+                        stored_ms: unix_ms(entry.created.unix_timestamp_nanos()),
+                    },
+                )),
+                Err(error) => {
+                    eprintln!("Skipping the status of '{name}', which is not one: {error}");
+                }
+            }
+        }
+        Ok(Some(found))
+    }
+
+    /// What the bus says about `agent`'s inbox consumer; `None` when it has none. This is for
+    /// the host.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the name is invalid or the consumer cannot be read.
+    pub async fn inbox_state(&self, agent: &str) -> Result<Option<InboxState>> {
+        check_agent_name(agent)?;
+        let stream = self
+            .jetstream
+            .get_stream(STREAM)
+            .await
+            .context("Unable to open the inbox stream")?;
+        let info = match stream.consumer_info(agent).await {
+            Ok(info) => info,
+            Err(error) if error.kind() == ConsumerInfoErrorKind::NotFound => return Ok(None),
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("Unable to read the inbox of '{agent}'"));
+            }
+        };
+        Ok(Some(InboxState {
+            unread: info
+                .num_pending
+                .saturating_add(u64::try_from(info.num_ack_pending).unwrap_or(u64::MAX)),
+            reader_attached: info.num_waiting > 0,
+            last_delivered_ms: info
+                .delivered
+                .last_active
+                .map(|at| unix_ms(at.unix_timestamp_nanos())),
+        }))
+    }
+
     /// Replace `agent`'s inbox with one made the way an earlier version made it, without
     /// `max_waiting`. This is for testing the upgrade.
     #[cfg(test)]
@@ -406,6 +522,17 @@ fn report(event: &Event) {
     }
 }
 
+/// The subject of `agent`'s status in the status bucket.
+pub fn status_subject(agent: &str) -> Result<String> {
+    check_agent_name(agent)?;
+    Ok(format!("$KV.{BUCKET}.{agent}"))
+}
+
+/// Nanoseconds since the Unix epoch as milliseconds; 0 before it.
+fn unix_ms(nanos: i128) -> u64 {
+    u64::try_from(nanos / 1_000_000).unwrap_or(0)
+}
+
 /// The subject of `agent`'s inbox.
 fn inbox_subject(agent: &str) -> Result<String> {
     check_agent_name(agent)?;
@@ -420,6 +547,18 @@ mod tests {
     fn each_agent_has_its_own_subject_inside_the_stream() {
         assert_eq!(inbox_subject("dev").unwrap(), "agents.dev");
         assert!(inbox_subject("dev.>").is_err());
+    }
+
+    #[test]
+    fn each_agent_has_its_own_status_key() {
+        assert_eq!(status_subject("dev").unwrap(), "$KV.AGENT_STATUS.dev");
+        assert!(status_subject("dev.*").is_err());
+    }
+
+    #[test]
+    fn bus_times_become_milliseconds() {
+        assert_eq!(unix_ms(1_700_000_000_123_456_789), 1_700_000_000_123);
+        assert_eq!(unix_ms(-5), 0);
     }
 
     fn existing(max_waiting: i64, filter: &str) -> consumer::Config {
