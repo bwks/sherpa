@@ -1,5 +1,5 @@
 use anyhow::Result;
-use db::{LabOrigin, create_lab, create_link, create_user, list_links_by_lab, upsert_node_image};
+use db::{LabDetails, create_lab, create_link, create_user, list_links_by_lab, upsert_node_image};
 use shared::data::{BridgeKind, NodeConfig, NodeModel};
 
 use crate::helper::{create_test_node_with_model, ipv4_lab_networks, setup_db, test_link};
@@ -20,7 +20,7 @@ async fn test_list_links_by_lab_empty() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -47,7 +47,7 @@ async fn test_list_links_by_lab_filters_correctly() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let lab2 = create_lab(
@@ -61,7 +61,7 @@ async fn test_list_links_by_lab_filters_correctly() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let _config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;

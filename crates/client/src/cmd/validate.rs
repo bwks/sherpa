@@ -6,10 +6,10 @@ use shared::util;
 use shared::validators::effective_data_interface_count;
 use topology::validate::{
     check_cpu_pin_overlap, check_device_count, check_duplicate_device,
-    check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
-    check_no_p2p_field, check_node_names, check_performance_tuning, check_ptx_platform,
-    check_text_file_modes, check_watchdog, validate_provisioners, validate_tailscale,
-    validate_talos_clusters,
+    check_duplicate_interface_link, check_interface_bounds, check_lab_description,
+    check_link_impairments, check_no_p2p_field, check_node_names, check_performance_tuning,
+    check_ptx_platform, check_text_file_modes, check_watchdog, validate_provisioners,
+    validate_tailscale, validate_talos_clusters,
 };
 use topology::{Manifest, process_manifest_bridges, process_manifest_links};
 
@@ -46,6 +46,10 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     println!("→ Checking provisioners...");
     validate_provisioners(&manifest)?;
     println!("  ✓ Provisioners are valid");
+
+    println!("→ Checking the description...");
+    check_lab_description(manifest.description.as_deref())?;
+    println!("  ✓ Description is valid");
 
     println!("→ Checking text files...");
     check_text_file_modes(&manifest.nodes)?;

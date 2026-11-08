@@ -836,7 +836,7 @@ async fn deleting_a_user_who_owns_labs_is_refused_on_all_transports() -> Result<
         "c0ffee01",
         &carol,
         &ipv4_lab_networks(),
-        &db::LabOrigin::default(),
+        &db::LabDetails::default(),
     )
     .await?;
 

@@ -38,6 +38,9 @@ pub struct DbLab {
     /// The folder `sherpa up` ran in, on that machine.
     #[serde(default)]
     pub client_folder: Option<String>,
+    /// The lab's description, from its manifest.
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

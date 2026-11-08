@@ -17,11 +17,11 @@ use shared::konst::SHERPA_MANAGEMENT_NETWORK_NAME;
 use shared::util;
 use shared::validators::effective_data_interface_count;
 
-/// Who a lab belongs to, what it is called, and where it was started from.
+/// Who a lab belongs to, what it is called, and what the user said about it.
 pub(super) struct LabOwner<'a> {
     pub(super) lab_name: &'a str,
     pub(super) user: &'a data::DbUser,
-    pub(super) origin: &'a db::LabOrigin,
+    pub(super) details: &'a db::LabDetails,
 }
 
 /// The lab's record and subnets, and its nodes: their records, kinds and interface plans.
@@ -54,8 +54,15 @@ pub(super) async fn create_node_records(
 
     tracing::info!(lab_id = %lab_id, lab_name = %owner.lab_name, "Creating database records");
 
-    let (lab_record, networks) =
-        reserve_lab_networks(db, config, owner.lab_name, lab_id, owner.user, owner.origin).await?;
+    let (lab_record, networks) = reserve_lab_networks(
+        db,
+        config,
+        owner.lab_name,
+        lab_id,
+        owner.user,
+        owner.details,
+    )
+    .await?;
 
     let lab_record_id = db::get_lab_id(&lab_record).context("Failed to get lab record ID")?;
 

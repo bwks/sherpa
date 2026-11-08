@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{
-    LabOrigin, create_lab, create_link, create_node, create_user, list_links_by_lab,
+    LabDetails, create_lab, create_link, create_node, create_user, list_links_by_lab,
     update_link_impairments, upsert_node_image,
 };
 use shared::data::{BridgeKind, DbLink, LinkImpairment, NodeConfig, NodeModel, RecordId};
@@ -22,7 +22,7 @@ async fn impairments_are_set_and_the_rest_of_the_link_is_kept() -> Result<()> {
             "172.31.8.1",
             "172.31.8.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let image = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;

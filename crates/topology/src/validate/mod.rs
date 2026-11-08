@@ -5,6 +5,7 @@
 //! generate data.
 
 mod client_files;
+mod description;
 mod device;
 mod link;
 mod performance_tuning;
@@ -16,6 +17,7 @@ mod text_files;
 mod watchdog;
 
 pub use client_files::check_client_read_files;
+pub use description::check_lab_description;
 pub use device::{check_device_count, check_duplicate_device, check_node_names};
 pub use link::{
     check_duplicate_interface_link, check_interface_bounds, check_link_impairments,

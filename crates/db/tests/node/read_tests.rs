@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{
-    LabOrigin, count_nodes_by_lab, create_lab, create_node, create_user, get_node,
+    LabDetails, count_nodes_by_lab, create_lab, create_node, create_user, get_node,
     get_node_by_name_and_lab, list_nodes_by_lab, upsert_node_image,
 };
 use shared::data::{NodeConfig, NodeModel, RecordId};
@@ -40,7 +40,7 @@ async fn test_get_node_by_name_and_lab_success() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -79,7 +79,7 @@ async fn test_get_node_by_name_and_lab_not_found() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -111,7 +111,7 @@ async fn test_list_nodes_by_lab_empty() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -138,7 +138,7 @@ async fn test_list_nodes_by_lab_filters_correctly() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let lab2 = create_lab(
@@ -152,7 +152,7 @@ async fn test_list_nodes_by_lab_filters_correctly() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -210,7 +210,7 @@ async fn test_count_nodes_by_lab_zero() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -237,7 +237,7 @@ async fn test_count_nodes_by_lab_accurate() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let lab2 = create_lab(
@@ -251,7 +251,7 @@ async fn test_count_nodes_by_lab_accurate() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;

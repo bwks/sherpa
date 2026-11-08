@@ -49,7 +49,7 @@ async fn seed_lab(server: &TestServer, owner: &DbUser, index: usize) -> Result<S
         &lab_id,
         owner,
         &ipv4_lab_networks(index),
-        &db::LabOrigin::default(),
+        &db::LabDetails::default(),
     )
     .await?;
     Ok(lab_id)

@@ -30,7 +30,7 @@
             <tbody>
                 {% for lab in labs %}
                 <tr class="border-b border-border last:border-b-0 hover:bg-hover transition-colors" id="lab-row-{{ lab.lab_id }}">
-                    <td class="p-4 text-sm text-body font-mono font-medium">{{ lab.name }}</td>
+                    <td class="p-4 text-sm text-body font-medium"><span class="font-mono">{{ lab.name }}</span>{% if let Some(description) = lab.description %}<p class="mt-1 text-xs font-normal text-muted line-clamp-2 max-w-md" title="{{ description }}">{{ description }}</p>{% endif %}</td>
                     <td class="p-4 text-sm text-body">{{ lab.lab_id }}</td>
                     <td class="p-4 text-sm text-body">{{ lab.owner_username }}</td>
                     <td class="p-4 text-sm text-body text-center">{{ lab.node_count }}</td>

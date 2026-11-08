@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use db::{
-    Database, LabOrigin, count_nodes_by_lab, create_bridge, create_lab, create_link, create_node,
+    Database, LabDetails, count_nodes_by_lab, create_bridge, create_lab, create_link, create_node,
     create_user, delete_lab, delete_node_image, delete_user, find_node_image_by_model_kind_version,
     get_lab, get_user, list_bridges, list_links_by_lab, list_nodes_by_lab, upsert_node_image,
 };
@@ -42,7 +42,7 @@ async fn test_delete_lab_cascade_removes_nodes_links_bridges() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let lab_rid = lab.id.clone().expect("lab has id");
@@ -145,7 +145,7 @@ async fn test_bridge_members_are_removed_with_their_lab() -> Result<()> {
             "172.31.2.1",
             "172.31.2.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let lab_rid = lab.id.clone().expect("lab has id");
@@ -217,7 +217,7 @@ async fn test_delete_user_is_rejected_while_they_own_labs() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let lab_rid = lab.id.clone().expect("lab has id");
@@ -263,7 +263,7 @@ async fn test_list_nodes_by_lab_isolation() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let lab_b = create_lab(
@@ -277,7 +277,7 @@ async fn test_list_nodes_by_lab_isolation() -> Result<()> {
             "172.31.2.1",
             "172.31.2.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -325,7 +325,7 @@ async fn test_list_links_by_lab_isolation() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let lab_b = create_lab(
@@ -339,7 +339,7 @@ async fn test_list_links_by_lab_isolation() -> Result<()> {
             "172.31.2.1",
             "172.31.2.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -391,7 +391,7 @@ async fn test_list_labs_by_user_isolation() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     create_lab(
@@ -405,7 +405,7 @@ async fn test_list_labs_by_user_isolation() -> Result<()> {
             "172.31.2.1",
             "172.31.2.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     create_lab(
@@ -419,7 +419,7 @@ async fn test_list_labs_by_user_isolation() -> Result<()> {
             "172.31.3.1",
             "172.31.3.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -452,7 +452,7 @@ async fn lab_fixture(db: &Database, lab_id: &str, octet: u8) -> Result<DbLab> {
             &format!("172.31.{octet}.1"),
             &format!("172.31.{octet}.2"),
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await
 }
@@ -473,7 +473,7 @@ async fn test_delete_lab_cascades_through_every_level() -> Result<()> {
             "172.31.12.1",
             "172.31.12.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let lab_rid = lab.id.clone().expect("lab has id");

@@ -60,7 +60,8 @@ async fn inspect_lab_inner(
         .context("Unable to load lab file. Is the lab running?")?;
     let mut lab_info = LabInfo::from_str(&lab_file).context("Failed to parse lab info file")?;
     // The database record is authoritative, and lab files written before it was recorded lack
-    // where the lab was started from.
+    // the description and where the lab was started from.
+    lab_info.description = db_lab.description.clone();
     lab_info.client_host = db_lab.client_host.clone();
     lab_info.client_folder = db_lab.client_folder.clone();
 

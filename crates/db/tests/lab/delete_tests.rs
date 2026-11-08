@@ -1,5 +1,5 @@
 use anyhow::Result;
-use db::{LabOrigin, create_lab, create_user, delete_lab, get_lab, list_labs, upsert_node_image};
+use db::{LabDetails, create_lab, create_user, delete_lab, get_lab, list_labs, upsert_node_image};
 use shared::data::{NodeConfig, NodeModel};
 
 use crate::helper::{create_test_node_with_model, ipv4_lab_networks, setup_db};
@@ -20,7 +20,7 @@ async fn test_delete_lab_success() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -61,7 +61,7 @@ async fn test_delete_lab_decreases_count() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let lab2 = create_lab(
@@ -75,7 +75,7 @@ async fn test_delete_lab_decreases_count() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -106,7 +106,7 @@ async fn test_delete_lab_with_cascade_in_schema() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 

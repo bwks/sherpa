@@ -407,7 +407,9 @@ async fn test_container_lab_up_and_inspect() -> Result<()> {
 
     // lab_id must be exactly 8 characters
     let lab_name = format!("tc{:06}", std::process::id() % 1_000_000);
-    let manifest = container_manifest(&lab_name);
+    let description = "Practice BGP.\nTwo routers, café";
+    let mut manifest = container_manifest(&lab_name);
+    manifest["description"] = json!(description);
 
     let checks: Result<()> = async {
         let statuses = lab_up(
@@ -428,6 +430,20 @@ async fn test_container_lab_up_and_inspect() -> Result<()> {
         ensure!(
             inspect_resp.get("result").is_some(),
             "inspect should succeed: {inspect_resp}"
+        );
+        // The description goes from the manifest into the lab's record and back out.
+        ensure!(
+            inspect_resp["result"]["lab_info"]["description"] == description,
+            "inspect should return the description: {inspect_resp}"
+        );
+        let labs = ws.rpc_call("labs.list", json!({ "token": token })).await?;
+        ensure!(
+            labs["result"]["labs"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|lab| lab["id"] == lab_name.as_str() && lab["description"] == description),
+            "labs.list should return the description: {labs}"
         );
         Ok(())
     }
@@ -734,7 +750,7 @@ async fn test_lab_up_rejects_duplicate_lab_id() -> Result<()> {
         lab_id,
         &admin_user,
         &ipv4_lab_networks("10.0.0.0/24", "10.0.1.0/24", "10.0.1.1", "10.0.1.254"),
-        &db::LabOrigin::default(),
+        &db::LabDetails::default(),
     )
     .await?;
 
@@ -1019,7 +1035,7 @@ async fn redeploy_only_allows_current_owner_on_all_transports() -> Result<()> {
                 &format!("10.200.{index}.1"),
                 &format!("10.200.{index}.2"),
             ),
-            &db::LabOrigin::default(),
+            &db::LabDetails::default(),
         )
         .await?;
         for (username, token) in callers {

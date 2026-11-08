@@ -3,7 +3,7 @@ mod delete;
 mod read;
 mod update;
 
-pub use create::{LabNetworks, LabOrigin, create_lab, validate_lab_id};
+pub use create::{LabDetails, LabNetworks, create_lab, validate_lab_id};
 pub use delete::delete_lab;
 pub use read::{
     count_labs_by_user, find_lab, get_lab, get_used_ipv6_loopback_networks,

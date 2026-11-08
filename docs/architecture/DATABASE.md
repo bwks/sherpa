@@ -151,19 +151,26 @@ table, copy the rows, drop the old one, rename.
 | 7 | `0007_interfaces_used_once.sql`: triggers refuse a link or bridge member on a node interface already used by a link or bridge, a link from an interface to itself, and an interface twice in one bridge. They check new rows only, so a database that holds a repeat still opens |
 | 8 | `0008_static_triggers.sql`: drops the enum rule triggers, which earlier releases rebuilt from the Rust enums on every start, and creates the admin protection triggers as fixed text |
 | 9 | `0009_drop_dedicated_management_interface.sql`: drops `node_image.dedicated_management_interface`. Index 0 of every model's interface table is its management interface, so the flag changed nothing |
+| 10 | `0010_lab_description.sql`: `lab.description`, the manifest's optional `description` (see below) |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
 
-### Where a lab was started
+### What the user said about a lab
+
+`lab.description` holds the manifest's optional `description`. `topology::validate::check_lab_description`,
+which the client and the server both run, refuses one over 1000 characters or with control
+characters other than line breaks and tabs.
 
 `lab.client_host` and `lab.client_folder` record the hostname of the machine `sherpa up` ran on
 and the folder it ran in. The CLI sends them in the `up` request (`client_host`, `client_folder`);
 `server::validate::validate_lab_origin` refuses an empty value, one over its length limit (253 and
-4096 characters) or one with control characters, and `create_lab` stores them through
-`db::LabOrigin`. Labs started from the web UI or the API, and labs created before version 3, have
-neither (`NULL`). `inspect` reads them from the record into `LabInfo`, so the CLI's lab table and
-the web UI's lab page show them.
+4096 characters) or one with control characters. Labs started from the web UI or the API, and
+labs created before version 3, have neither (`NULL`).
+
+`create_lab` stores all three through `db::LabDetails`. `inspect` reads them from the record into
+`LabInfo`, so the CLI's lab table and the web UI's lab page show them. The description is also in
+each lab's `LabSummary`, so the web UI's labs tables and the `labs.list` API show it too.
 
 ### Enum values and triggers
 

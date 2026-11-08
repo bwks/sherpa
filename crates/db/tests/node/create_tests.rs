@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{
-    LabOrigin, count_nodes_by_lab, create_lab, create_node, create_user, get_node,
+    LabDetails, count_nodes_by_lab, create_lab, create_node, create_user, get_node,
     get_node_by_name_and_lab, upsert_node_image,
 };
 use shared::data::{NodeConfig, NodeModel};
@@ -24,7 +24,7 @@ async fn test_create_node_success() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -64,7 +64,7 @@ async fn test_create_node_with_lab() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -101,7 +101,7 @@ async fn test_create_node_duplicate_name_per_lab_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -156,7 +156,7 @@ async fn test_create_node_duplicate_index_per_lab_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -211,7 +211,7 @@ async fn test_create_node_same_name_different_labs_succeeds() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let lab2 = create_lab(
@@ -225,7 +225,7 @@ async fn test_create_node_same_name_different_labs_succeeds() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -273,7 +273,7 @@ async fn test_create_node_with_index_boundaries() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -319,7 +319,7 @@ async fn test_create_node_increments_count() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -367,7 +367,7 @@ async fn test_create_node_can_retrieve_by_name_and_lab() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -408,7 +408,7 @@ async fn test_create_node_can_retrieve_by_id() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;

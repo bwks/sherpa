@@ -6,5 +6,5 @@ name = "testbox"
 model = "ubuntu_linux"
 version = "24.04-20260926"
 cpu_count = 16
-memory = 32768
+memory = 30720
 boot_disk_size = 100

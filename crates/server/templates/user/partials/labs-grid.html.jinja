@@ -14,7 +14,7 @@
         <tbody>
             {% for lab in labs %}
             <tr class="border-b border-border last:border-b-0 hover:bg-hover transition-colors" id="lab-row-{{ lab.id }}">
-                <td class="p-4 text-sm font-medium"><a href="/labs/{{ lab.id }}" class="text-accent hover:text-accent-hover hover:underline">{{ lab.name }}</a></td>
+                <td class="p-4 text-sm font-medium"><a href="/labs/{{ lab.id }}" class="text-accent hover:text-accent-hover hover:underline">{{ lab.name }}</a>{% if let Some(description) = lab.description %}<p class="mt-1 text-xs font-normal text-muted line-clamp-2 max-w-md" title="{{ description }}">{{ description }}</p>{% endif %}</td>
                 <td class="p-4 text-sm text-muted font-mono">{{ lab.id }}</td>
                 <td class="p-4 text-sm">
                     {% call badges::lab_state(lab.status) %}

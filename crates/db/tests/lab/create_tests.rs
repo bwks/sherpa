@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{
-    LabNetworks, LabOrigin, create_lab, create_user, get_lab, list_labs, update_lab_state,
+    LabDetails, LabNetworks, create_lab, create_user, get_lab, list_labs, update_lab_state,
     validate_lab_id,
 };
 use shared::data::LabState;
@@ -26,7 +26,7 @@ async fn test_create_lab_success() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -39,10 +39,11 @@ async fn test_create_lab_success() -> Result<()> {
 }
 
 #[tokio::test]
-async fn create_lab_stores_where_it_was_started() -> Result<()> {
+async fn create_lab_stores_its_description_and_where_it_was_started() -> Result<()> {
     let db = setup_db().await?;
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
-    let origin = LabOrigin {
+    let details = LabDetails {
+        description: Some("Practice BGP.\nTwo routers.".to_string()),
         client_host: Some("dev01".to_string()),
         client_folder: Some("/home/alice/labs/core".to_string()),
     };
@@ -58,19 +59,24 @@ async fn create_lab_stores_where_it_was_started() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &origin,
+        &details,
     )
     .await?;
     assert_eq!(created.client_host.as_deref(), Some("dev01"));
+    assert_eq!(created.description, details.description);
 
     let stored = get_lab(&db, "lab-0003").await?;
+    assert_eq!(
+        stored.description.as_deref(),
+        Some("Practice BGP.\nTwo routers.")
+    );
     assert_eq!(stored.client_host.as_deref(), Some("dev01"));
     assert_eq!(
         stored.client_folder.as_deref(),
         Some("/home/alice/labs/core")
     );
 
-    // A lab started from the web UI or the API has neither.
+    // A lab without a description, started from the web UI or the API, has none of them.
     let other = create_lab(
         &db,
         "Web",
@@ -82,9 +88,10 @@ async fn create_lab_stores_where_it_was_started() -> Result<()> {
             "172.31.2.1",
             "172.31.2.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
+    assert!(other.description.is_none());
     assert!(other.client_host.is_none());
     assert!(other.client_folder.is_none());
 
@@ -111,7 +118,7 @@ async fn test_create_lab_with_user() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -139,7 +146,7 @@ async fn test_create_lab_duplicate_lab_id_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -155,7 +162,7 @@ async fn test_create_lab_duplicate_lab_id_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await;
 
@@ -188,7 +195,7 @@ async fn test_create_lab_duplicate_name_per_user_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -204,7 +211,7 @@ async fn test_create_lab_duplicate_name_per_user_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await;
 
@@ -241,7 +248,7 @@ async fn test_create_lab_same_name_different_users_succeeds() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let lab2 = create_lab(
@@ -255,7 +262,7 @@ async fn test_create_lab_same_name_different_users_succeeds() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -284,7 +291,7 @@ async fn test_create_lab_invalid_lab_id_too_short() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await;
 
@@ -316,7 +323,7 @@ async fn test_create_lab_invalid_lab_id_too_long() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await;
 
@@ -348,7 +355,7 @@ async fn test_create_lab_invalid_lab_id_chars() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await;
 
@@ -396,7 +403,7 @@ async fn test_create_lab_increases_count() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -436,7 +443,7 @@ async fn test_create_lab_duplicate_management_network_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let result = create_lab(
@@ -450,7 +457,7 @@ async fn test_create_lab_duplicate_management_network_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await;
     assert!(
@@ -469,7 +476,7 @@ async fn test_create_lab_duplicate_management_network_fails() -> Result<()> {
             "172.31.3.1",
             "172.31.3.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await;
     assert!(result.is_err(), "A loopback subnet must belong to one lab");
@@ -494,7 +501,7 @@ async fn test_create_lab_stores_and_reserves_ipv6() -> Result<()> {
         "lab-0111",
         &user,
         &networks,
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     assert_eq!(lab.management_network_v6, networks.management_network_v6);
@@ -513,7 +520,7 @@ async fn test_create_lab_stores_and_reserves_ipv6() -> Result<()> {
         "lab-0112",
         &user,
         &clash,
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await;
     assert!(
@@ -540,7 +547,7 @@ async fn test_labs_without_ipv6_do_not_conflict() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     create_lab(
@@ -554,7 +561,7 @@ async fn test_labs_without_ipv6_do_not_conflict() -> Result<()> {
             "172.31.2.1",
             "172.31.2.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     create_lab(
@@ -563,7 +570,7 @@ async fn test_labs_without_ipv6_do_not_conflict() -> Result<()> {
         "lab-0123",
         &user,
         &dual_stack_networks(3),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     assert_eq!(list_labs(&db).await?.len(), 3);

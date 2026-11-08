@@ -42,7 +42,7 @@ use shared::data;
 use shared::data::{LabSubnets, RecordId, StatusKind, TailnetAuthKey, TailnetStatus};
 use shared::konst::{READINESS_TIMEOUT, SHERPA_LABS_PATH};
 use shared::util;
-use topology::validate::check_client_read_files;
+use topology::validate::{check_client_read_files, check_lab_description};
 
 /// What setup (phase 1) gives the later phases: the sherpa user, the libvirt connection, the
 /// owner's record, and every node image.
@@ -129,7 +129,8 @@ pub async fn up_lab(
         client_host.as_deref(),
         client_folder.as_deref(),
     )?;
-    let origin = db::LabOrigin {
+    let details = db::LabDetails {
+        description: manifest.description.clone(),
         client_host,
         client_folder,
     };
@@ -194,7 +195,7 @@ pub async fn up_lab(
         owner: LabOwner {
             lab_name: &manifest.name,
             user: &db_user,
-            origin: &origin,
+            details: &details,
         },
         username: &ctx.username,
         plan,
@@ -220,8 +221,9 @@ pub async fn up_lab(
     result
 }
 
-/// The request's manifest, checked before anything else: host access, the files the client
-/// read, provisioners, container secret files, and where the lab was started from.
+/// The request's manifest, checked before anything else: host access, the description, the
+/// files the client read, provisioners, container secret files, and where the lab was started
+/// from.
 fn check_up_request(
     ctx: &AuthContext,
     manifest: serde_json::Value,
@@ -232,6 +234,8 @@ fn check_up_request(
     let manifest: topology::Manifest =
         serde_json::from_value(manifest).context("Failed to deserialize manifest")?;
     require_host_access(ctx, &manifest.nodes)?;
+    check_lab_description(manifest.description.as_deref())
+        .context("Manifest validation failed: description")?;
     check_client_read_files(&manifest.nodes).context("Manifest validation failed: files")?;
     reject_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
     validate_node_secrets(&manifest, node_secrets)
@@ -420,8 +424,9 @@ impl LabUp<'_> {
             ipv6_network: Some(ipv6_management_subnet),
             ipv6_gateway: Some(gateway_ipv6),
             ipv6_router: Some(router_ipv6),
-            client_host: self.owner.origin.client_host.clone(),
-            client_folder: self.owner.origin.client_folder.clone(),
+            description: self.owner.details.description.clone(),
+            client_host: self.owner.details.client_host.clone(),
+            client_folder: self.owner.details.client_folder.clone(),
         };
 
         write_lab_files(self.build.lab_dir, &lab_info, self.manifest)?;
