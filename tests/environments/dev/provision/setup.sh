@@ -3,6 +3,9 @@
 # Builds the Sherpa dev server: toolchains, the sherpa and sherpa-docs checkouts, and a Sherpa
 # server installed with the checkout's own installer. Runs as the node's login user through the
 # SSH provisioner; safe to run again with `sherpa provision`.
+#
+# With SHERPA_DEV_SERVER=no (provision/worker.env, used by tests/environments/agent) it builds a
+# worker for a guest agent instead: the same toolchains and checkouts, and no Sherpa server.
 
 set -euo pipefail
 
@@ -14,6 +17,8 @@ SHERPA_BASE="/opt/sherpa"
 ACCOUNT_ENV="${HOME}/.env.d/sherpa-account.env"
 SHERPA_ACCOUNT="dev"
 SERVER_IP=""
+# Login shells load ~/.env.d/, so a value from an env file in the manifest arrives here.
+SHERPA_DEV_SERVER="${SHERPA_DEV_SERVER:-yes}"
 # System libraries and compilers. Developer tools come from mise, set in provision/mise.toml.
 APT_PACKAGES=(
     build-essential pkg-config libvirt-dev clang llvm libelf-dev
@@ -204,11 +209,22 @@ EOF
 }
 
 main() {
+    case "${SHERPA_DEV_SERVER}" in
+        yes | no) ;;
+        *)
+            echo "SHERPA_DEV_SERVER must be yes or no, not '${SHERPA_DEV_SERVER}'" >&2
+            exit 1
+            ;;
+    esac
     apt_install
     install_tools
     setup_git
     clone_repos
     install_docs_tools
+    if [ "${SHERPA_DEV_SERVER}" = "no" ]; then
+        log "Done. Worker only: no Sherpa server installed"
+        return 0
+    fi
     SERVER_IP="$(ip -4 -json route get 1.1.1.1 | jq -r '.[0].prefsrc')"
     install_sherpa_server
     create_account_settings

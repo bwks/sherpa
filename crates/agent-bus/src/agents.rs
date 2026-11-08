@@ -99,7 +99,11 @@ impl Agents {
     }
 
     /// Parse and validate the text of an agents file. Names must be valid and unique, keys must
-    /// be user public keys and unique, and there must be exactly one host.
+    /// be user public keys, and there must be exactly one host, whose key no guest may use.
+    ///
+    /// Guests may share a key. Agents that share a key can read and act on each other's inboxes,
+    /// because the bus authorizes keys, not names, so sharing is for testing only, until
+    /// enrollment (#494) gives every agent its own key.
     ///
     /// # Errors
     ///
@@ -107,7 +111,6 @@ impl Agents {
     pub fn parse(text: &str) -> Result<Self> {
         let file: File = toml::from_str(text).map_err(|error| parse_error(text, &error))?;
         let mut names = HashSet::new();
-        let mut keys = HashSet::new();
         for agent in &file.agent {
             check_agent_name(&agent.name)?;
             check_public_key(&agent.key)
@@ -115,11 +118,6 @@ impl Agents {
             ensure!(
                 names.insert(agent.name.as_str()),
                 "Agent '{}' is listed twice",
-                agent.name
-            );
-            ensure!(
-                keys.insert(agent.key.as_str()),
-                "The key of agent '{}' is already used by another agent",
                 agent.name
             );
         }
@@ -131,6 +129,13 @@ impl Agents {
         let (Some(host), None) = (hosts.next(), hosts.next()) else {
             bail!("The agents file must list exactly one agent with the role 'host'");
         };
+        if let Some(guest) = guests.iter().find(|guest| guest.key == host.key) {
+            bail!(
+                "Guest '{}' uses the key of the host '{}'; the host's key must never be shared",
+                guest.name,
+                host.name
+            );
+        }
         Ok(Self { host, guests })
     }
 
@@ -199,14 +204,33 @@ mod tests {
     }
 
     #[test]
-    fn keys_must_be_unique_user_public_keys() {
+    fn the_host_key_is_never_shared_with_a_guest() {
         let shared = key();
         let same = [
-            entry("host", &shared, "host"),
             entry("dev", &shared, "guest"),
+            entry("host", &shared, "host"),
         ]
         .concat();
-        assert!(Agents::parse(&same).is_err());
+        let error = format!("{:#}", Agents::parse(&same).unwrap_err());
+        assert!(error.contains("Guest 'dev' uses the key of the host 'host'"));
+    }
+
+    #[test]
+    fn guests_may_share_a_key() {
+        let shared = key();
+        let file = [
+            entry("host", &key(), "host"),
+            entry("dev", &shared, "guest"),
+            entry("agent-2", &shared, "guest"),
+        ]
+        .concat();
+        let agents = Agents::parse(&file).unwrap();
+        assert_eq!(agents.guests.len(), 2);
+        assert_eq!(agents.guests[0].key, agents.guests[1].key);
+    }
+
+    #[test]
+    fn keys_must_be_user_public_keys() {
         let junk = [entry("host", &key(), "host"), entry("dev", "UABC", "guest")].concat();
         assert!(Agents::parse(&junk).is_err());
     }

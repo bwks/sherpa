@@ -3,15 +3,20 @@
 
 use std::collections::VecDeque;
 
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::message::{Kind, Message};
+use crate::model::model_id;
 
-/// A Claude session, and whether its task may use GitHub.
+/// A Claude session, whether its task may use GitHub, and the model it runs on.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(super) struct Session {
     pub(super) id: String,
     pub(super) github: bool,
+    /// `None` in a state file from before tasks chose their model: the guest's default then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) model: Option<String>,
 }
 
 /// What a message arriving at the guest agent means, given what it is doing.
@@ -76,6 +81,26 @@ pub(super) fn task_github(message: &Message, session: Option<&Session>) -> bool 
     }
 }
 
+/// The model a task runs on: the one the task names, or `default`, the guest's own. An answer
+/// runs on the model of the task it answers, whatever the answer says.
+///
+/// # Errors
+///
+/// Fails when the task names a model that is neither an alias nor a full ID.
+pub(super) fn task_model(
+    message: &Message,
+    session: Option<&Session>,
+    default: &str,
+) -> Result<String> {
+    match (message.kind, &message.model) {
+        (Kind::Answer, _) => Ok(session
+            .and_then(|session| session.model.clone())
+            .unwrap_or_else(|| default.to_owned())),
+        (_, Some(model)) => model_id(model),
+        (_, None) => Ok(default.to_owned()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,6 +115,7 @@ mod tests {
             usage: None,
             task_usage: None,
             github,
+            model: None,
         }
     }
 
@@ -105,10 +131,12 @@ mod tests {
         let with = Session {
             id: "s".to_owned(),
             github: true,
+            model: None,
         };
         let without = Session {
             id: "s".to_owned(),
             github: false,
+            model: None,
         };
         assert!(task_github(&task_message(Kind::Task, true), None));
         assert!(!task_github(&task_message(Kind::Task, false), None));
@@ -118,6 +146,46 @@ mod tests {
             Some(&without)
         ));
         assert!(!task_github(&task_message(Kind::Answer, true), None));
+    }
+
+    fn with_model(kind: Kind, model: Option<&str>) -> Message {
+        Message {
+            model: model.map(str::to_owned),
+            ..task_message(kind, false)
+        }
+    }
+
+    #[test]
+    fn a_task_runs_on_its_model_or_the_guests_default() {
+        let default = "claude-opus-5-5";
+        let task = |model| task_model(&with_model(Kind::Task, model), None, default).unwrap();
+        assert_eq!(task(None), default);
+        assert_eq!(task(Some("sonnet")), "claude-sonnet-5-5");
+        assert_eq!(task(Some("claude-haiku-5-5")), "claude-haiku-5-5");
+        assert!(task_model(&with_model(Kind::Task, Some("gpt")), None, default).is_err());
+    }
+
+    #[test]
+    fn an_answer_runs_on_the_model_of_its_task_and_cannot_change_it() {
+        let default = "claude-opus-5-5";
+        let session = Session {
+            id: "s".to_owned(),
+            github: false,
+            model: Some("claude-sonnet-5-5".to_owned()),
+        };
+        for asked in [None, Some("haiku"), Some("not a model")] {
+            let answer = with_model(Kind::Answer, asked);
+            assert_eq!(
+                task_model(&answer, Some(&session), default).unwrap(),
+                "claude-sonnet-5-5"
+            );
+            // A session from before tasks chose their model ran on the default.
+            let old = Session {
+                model: None,
+                ..session.clone()
+            };
+            assert_eq!(task_model(&answer, Some(&old), default).unwrap(), default);
+        }
     }
 
     #[test]

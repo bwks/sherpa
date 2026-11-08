@@ -14,6 +14,10 @@ installation is never the thing under test.
 toolchains and checkouts provisioned on top of Ubuntu 24.04. The rules below apply to it only
 where they make sense; it is not disposable and installs more than cloud-init needs.
 
+[agent](agent/README.md) is not a test environment either: it is a long-lived worker lab for one
+more guest agent on the agent bus (`sherpa-agent-2`, node `agent-2`), provisioned from dev's
+`provision/` files without a Sherpa server. Its README says how to copy it for another worker.
+
 [dev-windows](dev-windows/README.md) is not a test environment either: it is a disposable
 Windows 11 `devbox_windows` node for building and testing the client's Windows code, which the
 Linux dev server cannot compile.

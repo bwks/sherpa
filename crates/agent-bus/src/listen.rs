@@ -235,6 +235,7 @@ mod tests {
             usage: None,
             task_usage: None,
             github: false,
+            model: None,
         }
     }
 

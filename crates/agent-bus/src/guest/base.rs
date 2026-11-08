@@ -1,6 +1,9 @@
 //! Base sessions: a primed Claude session that new tasks fork from, so the task text comes after
-//! a prefix the prompt cache already holds. One base per rules variant (GitHub or not), because a
-//! fork keeps its base's system prompt. Pure logic, except reading the checkout's inputs.
+//! a prefix the prompt cache already holds. One base per rules variant (GitHub or not) and model,
+//! because a fork keeps its base's system prompt and model. Pure logic, except reading AGENTS.md.
+//!
+//! The git branch and HEAD are not inputs: a commit would otherwise re-prime every base. The
+//! git status in a base's context can be out of date, and the rules say so.
 //!
 //! A base is kept in the guest agent's state file, so its times are wall-clock milliseconds and
 //! its inputs are one hash, which compares the same after a restart.
@@ -12,7 +15,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use tokio::fs;
-use tokio::process::Command;
 
 const AGENTS_FILE: &str = "AGENTS.md";
 /// The prompt cache keeps a prefix for an hour after it was last used. A base idle for longer is
@@ -28,8 +30,6 @@ pub(super) struct Inputs {
     rules: u64,
     /// Hash of AGENTS.md, or `None` when the checkout has none.
     agents: Option<u64>,
-    branch: String,
-    head: String,
     /// The model: a fork keeps its base's model, so another model needs its own base.
     model: String,
     /// The day (UTC, days since the epoch): the date is in Claude's context.
@@ -37,34 +37,23 @@ pub(super) struct Inputs {
 }
 
 impl Inputs {
-    pub(super) fn new(
-        rules: &str,
-        model: &str,
-        agents: Option<&[u8]>,
-        branch: &str,
-        head: &str,
-        day: u64,
-    ) -> Self {
+    pub(super) fn new(rules: &str, model: &str, agents: Option<&[u8]>, day: u64) -> Self {
         Self {
             rules: hash_of(rules.as_bytes()),
             agents: agents.map(hash_of),
-            branch: branch.to_owned(),
-            head: head.to_owned(),
             model: model.to_owned(),
             day,
         }
     }
 
-    /// The inputs of the checkout in `workdir` now. What cannot be read (no git, no AGENTS.md)
-    /// is left empty, which only matters as a change.
+    /// The inputs of the checkout in `workdir` now. An AGENTS.md that cannot be read is left
+    /// out, which only matters as a change.
     pub(super) async fn current(workdir: &Path, rules: &str, model: &str) -> Self {
         let agents = fs::read(workdir.join(AGENTS_FILE)).await.ok();
-        let branch = git(workdir, &["rev-parse", "--abbrev-ref", "HEAD"]).await;
-        let head = git(workdir, &["rev-parse", "HEAD"]).await;
         let day = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |since| since.as_secs() / SECONDS_PER_DAY);
-        Self::new(rules, model, agents.as_deref(), &branch, &head, day)
+        Self::new(rules, model, agents.as_deref(), day)
     }
 
     /// One hash of all the inputs, as hex: what the state file keeps. A TOML integer is signed,
@@ -81,6 +70,10 @@ impl Inputs {
 pub(super) struct Base {
     /// The rules variant: whether the base allows GitHub.
     pub(super) github: bool,
+    /// The model it runs on. Empty in a state file from before bases were kept per model; such
+    /// a base matches no model and is replaced.
+    #[serde(default)]
+    pub(super) model: String,
     pub(super) session: String,
     /// The digest of the inputs it was primed from.
     pub(super) inputs: String,
@@ -92,9 +85,16 @@ pub(super) struct Base {
 }
 
 impl Base {
-    pub(super) fn new(github: bool, session: String, inputs: &Inputs, now_ms: u64) -> Self {
+    pub(super) fn new(
+        github: bool,
+        model: &str,
+        session: String,
+        inputs: &Inputs,
+        now_ms: u64,
+    ) -> Self {
         Self {
             github,
+            model: model.to_owned(),
             session,
             inputs: inputs.digest(),
             primed_at_ms: now_ms,
@@ -120,19 +120,6 @@ fn hash_of(bytes: &[u8]) -> u64 {
     hasher.finish()
 }
 
-/// The trimmed output of a git command, empty when it fails.
-async fn git(workdir: &Path, args: &[&str]) -> String {
-    Command::new("git")
-        .args(args)
-        .current_dir(workdir)
-        .output()
-        .await
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
-        .unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,11 +130,11 @@ mod tests {
     const NOW: u64 = 1_800_000_000_000;
 
     fn inputs() -> Inputs {
-        Inputs::new("rules", "m", Some(b"agents"), "main", "abc", 100)
+        Inputs::new("rules", "m", Some(b"agents"), 100)
     }
 
     fn base(now: u64) -> Base {
-        Base::new(false, "b1".to_owned(), &inputs(), now)
+        Base::new(false, "m", "b1".to_owned(), &inputs(), now)
     }
 
     #[test]
@@ -162,13 +149,11 @@ mod tests {
         let now = NOW;
         let base = base(now);
         for changed in [
-            Inputs::new("other rules", "m", Some(b"agents"), "main", "abc", 100),
-            Inputs::new("rules", "m", Some(b"agents changed"), "main", "abc", 100),
-            Inputs::new("rules", "m", None, "main", "abc", 100),
-            Inputs::new("rules", "m", Some(b"agents"), "feat", "abc", 100),
-            Inputs::new("rules", "m", Some(b"agents"), "main", "def", 100),
-            Inputs::new("rules", "m", Some(b"agents"), "main", "abc", 101),
-            Inputs::new("rules", "other", Some(b"agents"), "main", "abc", 100),
+            Inputs::new("other rules", "m", Some(b"agents"), 100),
+            Inputs::new("rules", "m", Some(b"agents changed"), 100),
+            Inputs::new("rules", "m", None, 100),
+            Inputs::new("rules", "m", Some(b"agents"), 101),
+            Inputs::new("rules", "other", Some(b"agents"), 100),
         ] {
             assert!(base.needs_rebuild(&changed, now), "{changed:?}");
         }
@@ -204,5 +189,42 @@ mod tests {
     fn a_clock_that_went_back_does_not_rebuild() {
         let base = base(NOW);
         assert!(!base.needs_rebuild(&inputs(), NOW - 60_000));
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let status = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+            .args(args)
+            .current_dir(dir)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?}");
+    }
+
+    #[tokio::test]
+    #[ignore = "runs git in a temporary checkout; run with -- --ignored"]
+    async fn a_commit_or_another_branch_keeps_the_base() {
+        let dir = std::env::temp_dir().join(format!("agent-bus-base-git-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(AGENTS_FILE), "rules of the checkout").unwrap();
+        git(&dir, &["init", "-q", "-b", "main"]);
+        git(&dir, &["add", "."]);
+        git(&dir, &["commit", "-q", "-m", "one"]);
+        let before = Inputs::current(&dir, "rules", "m").await;
+        let base = Base::new(false, "m", "b1".to_owned(), &before, NOW);
+
+        std::fs::write(dir.join("file"), "change").unwrap();
+        git(&dir, &["add", "."]);
+        git(&dir, &["commit", "-q", "-m", "two"]);
+        git(&dir, &["checkout", "-q", "-b", "feat"]);
+        let after = Inputs::current(&dir, "rules", "m").await;
+        assert_eq!(after, before);
+        assert!(!base.needs_rebuild(&after, NOW));
+
+        // AGENTS.md is still an input.
+        std::fs::write(dir.join(AGENTS_FILE), "other rules").unwrap();
+        assert!(base.needs_rebuild(&Inputs::current(&dir, "rules", "m").await, NOW));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -16,7 +16,7 @@ use super::base::{Base, Inputs};
 use super::claude::{
     CLAUDE, Group, Launch, PRIME_CONFIRM, PRIME_PROMPT, claude_command, rules, terminate,
 };
-use super::engine::{Control, Session, canceled_text, classify, task_github};
+use super::engine::{Control, Session, canceled_text, classify, task_github, task_model};
 use super::lock::InstanceLock;
 use super::record::ResultLog;
 use super::state::{ApiMark, Queued, Saved, StateFile, TaskRecord, prune, restart};
@@ -28,12 +28,13 @@ use crate::message::{Kind, Message, TaskUsage, Usage, api_time_of_run, check_age
 /// The Claude subscription token, from `claude setup-token`.
 const TOKEN_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
-/// Where replies about one task go.
+/// Where replies about one task go, and the model it runs on, when known.
 struct Reply {
     outgoing: UnboundedSender<Message>,
     task: String,
     from: String,
     to: String,
+    model: Option<String>,
 }
 
 /// How a run of Claude Code ended.
@@ -83,6 +84,7 @@ struct RunState {
 struct Setup<'a> {
     program: &'a str,
     workdir: &'a Path,
+    /// The model of a task that names none.
     model: &'a str,
 }
 
@@ -91,6 +93,7 @@ struct Setup<'a> {
 struct Engine<'a> {
     program: &'a str,
     workdir: &'a Path,
+    /// The model of a task that names none.
     model: &'a str,
     name: &'a str,
     reply_to: &'a str,
@@ -102,8 +105,9 @@ struct Engine<'a> {
     running: Option<String>,
     /// The session, runs and totals of each task.
     tasks: HashMap<String, TaskRecord>,
-    /// The primed base session of each rules variant, by whether it allows GitHub.
-    bases: HashMap<bool, Base>,
+    /// The primed base session of each rules variant and model: by whether it allows GitHub,
+    /// and the model.
+    bases: HashMap<(bool, String), Base>,
     results: Option<ResultLog>,
     /// Where the state is kept; `None` keeps it in memory only.
     store: Option<StateFile>,
@@ -249,6 +253,26 @@ async fn stopped(stop: &mut watch::Receiver<bool>) {
     let _ = stop.wait_for(|stop| *stop).await;
 }
 
+/// Log what a finished run used, and send its outcome.
+fn report(reply: &Reply, model: &str, finished: Finished) -> Result<()> {
+    let kind = outcome(&finished.text, finished.failed);
+    eprintln!(
+        "{}",
+        usage_line(
+            &reply.task,
+            kind,
+            model,
+            &finished.usage,
+            &finished.task_usage
+        )
+    );
+    reply.send(
+        kind,
+        finished.text,
+        Some((finished.usage, finished.task_usage)),
+    )
+}
+
 impl Reply {
     fn send(&self, kind: Kind, text: String, usage: Option<(Usage, TaskUsage)>) -> Result<()> {
         let (usage, task_usage) = usage.unzip();
@@ -262,6 +286,7 @@ impl Reply {
                 usage,
                 task_usage,
                 github: false,
+                model: self.model.clone(),
             })
             .map_err(|_| anyhow!("The bus connection is closed"))
     }
@@ -310,7 +335,7 @@ impl<'a> Engine<'a> {
         }
         if let Some(task) = restart.interrupted {
             eprintln!("Task {task} was running when the guest agent stopped: reporting it failed");
-            self.reply(&task).send(
+            self.reply(&task, None).send(
                 Kind::Failed,
                 "The guest agent restarted while this task ran".to_owned(),
                 None,
@@ -335,7 +360,7 @@ impl<'a> Engine<'a> {
     /// What the state file keeps.
     fn snapshot(&self) -> Saved {
         let mut bases: Vec<Base> = self.bases.values().cloned().collect();
-        bases.sort_by_key(|base| base.github);
+        bases.sort_by(|a, b| (a.github, &a.model).cmp(&(b.github, &b.model)));
         Saved {
             running: self.running.clone(),
             queue: self.queue.iter().map(Queued::of).collect(),
@@ -367,12 +392,13 @@ impl<'a> Engine<'a> {
         Ok(())
     }
 
-    fn reply(&self, task: &str) -> Reply {
+    fn reply(&self, task: &str, model: Option<&str>) -> Reply {
         Reply {
             outgoing: self.outgoing.clone(),
             task: task.to_owned(),
             from: self.name.to_owned(),
             to: self.reply_to.to_owned(),
+            model: model.map(str::to_owned),
         }
     }
 
@@ -430,8 +456,11 @@ impl<'a> Engine<'a> {
                 Ok(Finish::Done | Finish::Canceled) => self.save(),
                 Err(error) => {
                     self.save();
-                    self.reply(&message.task)
-                        .send(Kind::Failed, format!("{error:#}"), None)?;
+                    self.reply(&message.task, None).send(
+                        Kind::Failed,
+                        format!("{error:#}"),
+                        None,
+                    )?;
                 }
             }
         }
@@ -450,14 +479,14 @@ impl<'a> Engine<'a> {
                 self.queue.retain(|queued| queued.task != message.task);
                 self.save();
                 eprintln!("Canceled queued task {}", message.task);
-                self.reply(&message.task).send(
+                self.reply(&message.task, None).send(
                     Kind::Canceled,
                     "Canceled before it started".to_owned(),
                     None,
                 )?;
             }
             Control::CancelUnknown => {
-                self.reply(&message.task).send(
+                self.reply(&message.task, None).send(
                     Kind::Failed,
                     format!(
                         "Task {} is neither running nor queued: nothing to cancel",
@@ -509,6 +538,7 @@ impl<'a> Engine<'a> {
         update: Update,
         message: &Message,
         github: bool,
+        model: &str,
         reply: &Reply,
         run: &mut RunState,
     ) -> Result<()> {
@@ -517,6 +547,7 @@ impl<'a> Engine<'a> {
                 self.tasks.entry(message.task.clone()).or_default().session = Some(Session {
                     id: session,
                     github,
+                    model: Some(model.to_owned()),
                 });
                 self.save();
             }
@@ -542,6 +573,7 @@ impl<'a> Engine<'a> {
                 self.tasks.entry(message.task.clone()).or_default().session = Some(Session {
                     id: session,
                     github,
+                    model: Some(model.to_owned()),
                 });
                 self.save();
                 if let Some(last) = run.text.take()
@@ -560,12 +592,14 @@ impl<'a> Engine<'a> {
         Ok(())
     }
 
-    /// The launch for a new task: a fork of the base session for its rules, primed first when
-    /// there is none or it is out of date. When priming fails the task gets a fresh session.
-    async fn fork_of_base(&mut self, github: bool, task: &str) -> Launch {
-        let inputs = Inputs::current(self.workdir, &rules(github), self.model).await;
+    /// The launch for a new task: a fork of the base session for its rules and model, primed
+    /// first when there is none or it is out of date. When priming fails the task gets a fresh
+    /// session.
+    async fn fork_of_base(&mut self, github: bool, model: &str, task: &str) -> Launch {
+        let inputs = Inputs::current(self.workdir, &rules(github), model).await;
         let now = now_ms();
-        if let Some(base) = self.bases.get_mut(&github)
+        let key = (github, model.to_owned());
+        if let Some(base) = self.bases.get_mut(&key)
             && !base.needs_rebuild(&inputs, now)
         {
             base.touch(now);
@@ -573,14 +607,14 @@ impl<'a> Engine<'a> {
             self.save();
             return Launch::Fork(session);
         }
-        if self.bases.remove(&github).is_some() {
+        if self.bases.remove(&key).is_some() {
             self.save();
         }
-        match self.prime(github, task).await {
+        match self.prime(github, model, task).await {
             Ok(session) => {
                 self.bases.insert(
-                    github,
-                    Base::new(github, session.clone(), &inputs, now_ms()),
+                    key,
+                    Base::new(github, model, session.clone(), &inputs, now_ms()),
                 );
                 self.save();
                 Launch::Fork(session)
@@ -596,11 +630,11 @@ impl<'a> Engine<'a> {
 
     /// Make a base session with two turns: the priming prompt in a new session, then a resume of
     /// that session. Both runs are counted in the totals of `task`, the task that needed them.
-    async fn prime(&mut self, github: bool, task: &str) -> Result<String> {
+    async fn prime(&mut self, github: bool, model: &str, task: &str) -> Result<String> {
         let session = self
-            .priming_run(github, task, &Launch::Fresh, PRIME_PROMPT)
+            .priming_run(github, model, task, &Launch::Fresh, PRIME_PROMPT)
             .await?;
-        self.priming_run(github, task, &Launch::Resume(session), PRIME_CONFIRM)
+        self.priming_run(github, model, task, &Launch::Resume(session), PRIME_CONFIRM)
             .await
     }
 
@@ -608,11 +642,12 @@ impl<'a> Engine<'a> {
     async fn priming_run(
         &mut self,
         github: bool,
+        model: &str,
         task: &str,
         launch: &Launch,
         prompt: &str,
     ) -> Result<String> {
-        let mut command = claude_command(self.program, self.workdir, self.model, github, launch);
+        let mut command = claude_command(self.program, self.workdir, model, github, launch);
         let mut child = command.spawn().context("Unable to start Claude Code")?;
         let mut group = Group::new(child.id());
         let mut stdin = child.stdin.take().context("Claude Code has no input")?;
@@ -655,19 +690,21 @@ impl<'a> Engine<'a> {
             finished.with_context(|| format!("Claude Code exited ({status}) without a result"))?;
         self.count(task, &session, &mut usage);
         self.save();
-        eprintln!("{}", priming_line(task, github, &session, &usage));
+        eprintln!("{}", priming_line(task, github, model, &session, &usage));
         ensure!(!failed, "The priming run failed: {text}");
         Ok(session)
     }
 
-    /// Run Claude Code on one task or answer, forwarding its progress and its outcome. A new
-    /// task forks the base session; if that fails it runs in a fresh session instead.
+    /// Run Claude Code on one task or answer, on the task's model, forwarding its progress and
+    /// its outcome. A new task forks the base session; if that fails it runs in a fresh session
+    /// instead.
     async fn work(&mut self, message: &Message) -> Result<Finish> {
         let known = self
             .tasks
             .get(&message.task)
             .and_then(|record| record.session.clone());
         let github = task_github(message, known.as_ref());
+        let model = task_model(message, known.as_ref(), self.model)?;
         let launch = match (known, message.kind) {
             (Some(session), _) => Launch::Resume(session.id),
             (None, Kind::Answer) => {
@@ -676,18 +713,21 @@ impl<'a> Engine<'a> {
                     message.task
                 )
             }
-            (None, _) => self.fork_of_base(github, &message.task).await,
+            (None, _) => self.fork_of_base(github, &model, &message.task).await,
         };
-        match self.attempt(message, github, &launch).await? {
+        match self.attempt(message, github, &model, &launch).await? {
             Attempt::Done(finish) => Ok(finish),
             Attempt::ForkFailed(reason) => {
                 eprintln!(
                     "Unable to fork the base session for task {}: {reason}: running it in a fresh session",
                     message.task
                 );
-                self.bases.remove(&github);
+                self.bases.remove(&(github, model.clone()));
                 self.save();
-                match self.attempt(message, github, &Launch::Fresh).await? {
+                match self
+                    .attempt(message, github, &model, &Launch::Fresh)
+                    .await?
+                {
                     Attempt::Done(finish) => Ok(finish),
                     Attempt::ForkFailed(reason) => bail!(reason),
                 }
@@ -701,10 +741,11 @@ impl<'a> Engine<'a> {
         &mut self,
         message: &Message,
         github: bool,
+        model: &str,
         launch: &Launch,
     ) -> Result<Attempt> {
-        let reply = self.reply(&message.task);
-        let mut command = claude_command(self.program, self.workdir, self.model, github, launch);
+        let reply = self.reply(&message.task, Some(model));
+        let mut command = claude_command(self.program, self.workdir, model, github, launch);
         let run_number = {
             let record = self.tasks.entry(message.task.clone()).or_default();
             record.runs = record.runs.saturating_add(1);
@@ -768,7 +809,7 @@ impl<'a> Engine<'a> {
             };
             self.record(&message.task, run_number, &line);
             for update in interpret(&line) {
-                self.apply(update, message, github, &reply, &mut run)?;
+                self.apply(update, message, github, model, &reply, &mut run)?;
             }
         }
         let status = child.wait().await.context("Claude Code did not exit")?;
@@ -789,16 +830,7 @@ impl<'a> Engine<'a> {
         let finished = run
             .finished
             .with_context(|| format!("Claude Code exited ({status}) without a result"))?;
-        let kind = outcome(&finished.text, finished.failed);
-        eprintln!(
-            "{}",
-            usage_line(&message.task, kind, &finished.usage, &finished.task_usage)
-        );
-        reply.send(
-            kind,
-            finished.text,
-            Some((finished.usage, finished.task_usage)),
-        )?;
+        report(&reply, model, finished)?;
         Ok(Attempt::Done(Finish::Done))
     }
 }
@@ -824,6 +856,7 @@ mod tests {
             usage: None,
             task_usage: None,
             github: false,
+            model: None,
         }
     }
 
@@ -1000,8 +1033,13 @@ esac
         }
 
         fn send(&self, kind: Kind, task: &str, text: &str) {
+            self.send_on(kind, task, text, None);
+        }
+
+        fn send_on(&self, kind: Kind, task: &str, text: &str, model: Option<&str>) {
             let mut message = queued(kind, task);
             message.text = text.to_owned();
+            message.model = model.map(str::to_owned);
             self.input.as_ref().unwrap().send(message).unwrap();
         }
 
@@ -1205,6 +1243,60 @@ esac
 
         // The priming runs are in the first task's totals, and the second task is not charged.
         assert_eq!(harness_runs(&second), 1);
+    }
+
+    #[tokio::test]
+    #[ignore = "starts real processes; run with -- --ignored"]
+    async fn each_model_has_its_own_base_and_an_answer_keeps_its_tasks_model() {
+        let mut harness = Harness::start("models");
+        harness.send(Kind::Task, "t1", "plain-a");
+        let reply = harness.outcome().await;
+        assert_eq!(reply.model.as_deref(), Some("test-model"));
+        harness.send_on(Kind::Task, "t2", "ask-b", Some("sonnet"));
+        let reply = harness.outcome().await;
+        assert_eq!((reply.kind, reply.task.as_str()), (Kind::Question, "t2"));
+        assert_eq!(reply.model.as_deref(), Some("claude-sonnet-5-5"));
+        // Back on the default model: its base is still there.
+        harness.send(Kind::Task, "t3", "plain-c");
+        assert_eq!(harness.outcome().await.kind, Kind::Completed);
+        // An answer cannot move its task to another model.
+        harness.send_on(Kind::Answer, "t2", "go on", Some("haiku"));
+        let reply = harness.outcome().await;
+        assert_eq!((reply.kind, reply.task.as_str()), (Kind::Completed, "t2"));
+        assert_eq!(reply.model.as_deref(), Some("claude-sonnet-5-5"));
+        // A task naming a model that is not one fails without running.
+        harness.send_on(Kind::Task, "t4", "plain-d", Some("gpt"));
+        let reply = harness.outcome().await;
+        assert_eq!((reply.kind, reply.task.as_str()), (Kind::Failed, "t4"));
+        assert!(reply.text.contains("Model 'gpt'"), "{}", reply.text);
+
+        let runs = started_with(&harness);
+        assert_eq!(runs.len(), 8, "{runs:?}");
+        let on = |run: &str, model: &str| run.contains(&format!("--model {model} "));
+        // t1: the default model's base is primed, then forked.
+        for run in &runs[0..3] {
+            assert!(on(run, "test-model"), "{run}");
+        }
+        assert!(!runs[0].contains("--resume"), "{}", runs[0]);
+        // t2: sonnet primes its own base, then forks it.
+        for run in &runs[3..6] {
+            assert!(on(run, "claude-sonnet-5-5"), "{run}");
+        }
+        assert!(!runs[3].contains("--resume"), "{}", runs[3]);
+        assert!(runs[5].contains("--fork-session"), "{}", runs[5]);
+        // t3 forks the default model's base without priming again.
+        assert!(on(&runs[6], "test-model"), "{}", runs[6]);
+        assert!(runs[6].contains("--fork-session"), "{}", runs[6]);
+        // The answer resumes t2 on sonnet.
+        assert!(on(&runs[7], "claude-sonnet-5-5"), "{}", runs[7]);
+        assert!(!runs[7].contains("--fork-session"), "{}", runs[7]);
+
+        let saved = harness.saved();
+        let mut bases: Vec<&str> = saved.bases.iter().map(|base| base.model.as_str()).collect();
+        bases.sort_unstable();
+        assert_eq!(bases, ["claude-sonnet-5-5", "test-model"]);
+        let session = saved.tasks["t2"].session.as_ref().unwrap();
+        assert_eq!(session.model.as_deref(), Some("claude-sonnet-5-5"));
     }
 
     fn harness_runs(message: &Message) -> u64 {

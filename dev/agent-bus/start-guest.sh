@@ -3,10 +3,12 @@
 # lines on stdin: the token from `claude setup-token`, then the agent's NKey seed (from
 # `agent-bus key new`). Neither is a command-line argument or written to disk. The seed is
 # exported to the agent process only, and the agent keeps it from Claude Code.
-# The bus runs on the host at the guest's default gateway, the lab's management bridge.
+# The bus runs on the host at the guest's default gateway, the lab's management bridge. A guest
+# in another lab, such as tests/environments/agent, sets AGENT_BUS_URL to where the bus listens.
 #
 #   start-guest.sh [name]      # name defaults to dev
 #   AGENT_BUS_MODEL=<id>       # optional: the Claude model, default the binary's own
+#   AGENT_BUS_URL=<url>        # optional: the bus, default nats://<default gateway>:4222
 set -euo pipefail
 
 NAME="${1:-dev}"
@@ -22,6 +24,7 @@ unset ANTHROPIC_API_KEY
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GATEWAY="$(ip -4 route show default | awk '{print $3; exit}')"
+URL="${AGENT_BUS_URL:-nats://${GATEWAY}:4222}"
 MODEL_ARGS=()
 if [ -n "${AGENT_BUS_MODEL:-}" ]; then
     MODEL_ARGS=(--model "${AGENT_BUS_MODEL}")
@@ -59,7 +62,7 @@ if pgrep -f "${PATTERN}" > /dev/null; then
         fi
     fi
 fi
-AGENT_BUS_SEED="${SEED}" nohup target/release/agent-bus guest --server "nats://${GATEWAY}:4222" --name "${NAME}" \
+AGENT_BUS_SEED="${SEED}" nohup target/release/agent-bus guest --server "${URL}" --name "${NAME}" \
     --workdir "${REPO}" "${MODEL_ARGS[@]}" > "${LOG}" 2>&1 < /dev/null &
 unset SEED
 sleep 2

@@ -58,6 +58,8 @@ pub(super) struct Queued {
     pub(super) kind: Kind,
     #[serde(default)]
     pub(super) github: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) model: Option<String>,
     pub(super) text: String,
 }
 
@@ -81,7 +83,8 @@ pub(super) struct Saved {
 pub(super) struct Restart {
     pub(super) tasks: HashMap<String, TaskRecord>,
     pub(super) queue: VecDeque<Message>,
-    pub(super) bases: HashMap<bool, Base>,
+    /// By rules variant (whether it allows GitHub) and model.
+    pub(super) bases: HashMap<(bool, String), Base>,
     /// The task that was running when the agent stopped without reporting it: it is reported
     /// failed, and its session kept for an answer.
     pub(super) interrupted: Option<String>,
@@ -100,6 +103,7 @@ impl Queued {
             from: message.from.clone(),
             kind: message.kind,
             github: message.github,
+            model: message.model.clone(),
             text: message.text.clone(),
         }
     }
@@ -115,6 +119,7 @@ impl Queued {
             usage: None,
             task_usage: None,
             github: self.github,
+            model: self.model,
         }
     }
 }
@@ -208,7 +213,7 @@ pub(super) fn restart(saved: Saved, name: &str, now_ms: u64) -> Restart {
         bases: saved
             .bases
             .into_iter()
-            .map(|base| (base.github, base))
+            .map(|base| ((base.github, base.model.clone()), base))
             .collect(),
         interrupted: saved.running,
     }
@@ -251,6 +256,7 @@ mod tests {
             from: "host".to_owned(),
             kind,
             github: false,
+            model: None,
             text: text.to_owned(),
         }
     }
@@ -262,13 +268,14 @@ mod tests {
             session: Some(Session {
                 id: "s".to_owned(),
                 github: false,
+                model: None,
             }),
             ..TaskRecord::default()
         }
     }
 
-    fn inputs(head: &str) -> Inputs {
-        Inputs::new("rules", "m", Some(b"agents"), "main", head, 100)
+    fn inputs(agents: &str) -> Inputs {
+        Inputs::new("rules", "m", Some(agents.as_bytes()), 100)
     }
 
     fn full() -> Saved {
@@ -281,6 +288,7 @@ mod tests {
                 session: Some(Session {
                     id: "sess-1".to_owned(),
                     github: true,
+                    model: Some("claude-sonnet-5-5".to_owned()),
                 }),
                 api: Some(ApiMark {
                     session: "sess-1".to_owned(),
@@ -308,12 +316,16 @@ mod tests {
         Saved {
             running: Some("t2".to_owned()),
             queue: vec![
-                queued("t3", Kind::Task, "line one\nline \"two\"\n"),
+                Queued {
+                    model: Some("haiku".to_owned()),
+                    ..queued("t3", Kind::Task, "line one\nline \"two\"\n")
+                },
                 queued("t1", Kind::Answer, "go on"),
             ],
             bases: vec![
-                Base::new(false, "base-0".to_owned(), &inputs("abc"), NOW),
-                Base::new(true, "base-1".to_owned(), &inputs("abc"), NOW),
+                Base::new(false, "m", "base-0".to_owned(), &inputs("abc"), NOW),
+                Base::new(true, "m", "base-1".to_owned(), &inputs("abc"), NOW),
+                Base::new(true, "other", "base-2".to_owned(), &inputs("abc"), NOW),
             ],
             tasks,
         }
@@ -398,6 +410,8 @@ mod tests {
             [("t3", Kind::Task, "dev"), ("t1", Kind::Answer, "dev")]
         );
         assert_eq!(restart.queue[0].text, "line one\nline \"two\"\n");
+        assert_eq!(restart.queue[0].model.as_deref(), Some("haiku"));
+        assert_eq!(restart.queue[1].model, None);
     }
 
     #[test]
@@ -425,11 +439,13 @@ mod tests {
     #[test]
     fn bases_are_reused_while_their_inputs_match() {
         let restart = restart_of(full());
-        assert_eq!(restart.bases.len(), 2);
-        let base = &restart.bases[&true];
+        // One per rules variant and model.
+        assert_eq!(restart.bases.len(), 3);
+        assert_eq!(restart.bases[&(true, "other".to_owned())].session, "base-2");
+        let base = &restart.bases[&(true, "m".to_owned())];
         assert_eq!(base.session, "base-1");
         assert!(!base.needs_rebuild(&inputs("abc"), NOW + 60_000));
-        // A new commit since it was primed: rebuilt.
+        // AGENTS.md changed since it was primed: rebuilt.
         assert!(base.needs_rebuild(&inputs("def"), NOW + 60_000));
         // Idle across a long restart: rebuilt, the cache has expired.
         assert!(base.needs_rebuild(&inputs("abc"), NOW + DAY));

@@ -19,6 +19,7 @@ mod guest;
 mod keys;
 mod listen;
 mod message;
+mod model;
 mod report;
 mod state;
 
@@ -33,6 +34,7 @@ use bus::Bus;
 use channel::Channel;
 use keys::seed_from_environment;
 use message::{Kind, Message, check_agent_name, new_task_id};
+use model::{DEFAULT_MODEL, model_id};
 
 #[derive(Parser)]
 #[command(
@@ -77,6 +79,10 @@ enum Command {
         /// task.
         #[arg(long, conflicts_with = "answer")]
         github: bool,
+        /// The model the task runs on: opus, sonnet, haiku or a full ID such as
+        /// claude-sonnet-5-5. Without it, the guest's own. An answer runs on its task's model.
+        #[arg(long, conflicts_with = "answer", value_parser = model_id)]
+        model: Option<String>,
         /// The task, or the answer
         text: String,
     },
@@ -153,8 +159,8 @@ enum Command {
         /// The directory Claude Code works in
         #[arg(long)]
         workdir: PathBuf,
-        /// The model Claude Code runs on
-        #[arg(long, default_value = guest::DEFAULT_MODEL)]
+        /// The model Claude Code runs on when a task names none: opus, sonnet, haiku or a full ID
+        #[arg(long, default_value = DEFAULT_MODEL, value_parser = model_id)]
         model: String,
     },
 }
@@ -187,6 +193,12 @@ enum BusAction {
     Stop,
     /// Show whether the bus container is running
     Status,
+}
+
+/// What a new task may do and runs on. An answer carries neither: it has its task's.
+struct Options {
+    github: bool,
+    model: Option<String>,
 }
 
 #[tokio::main]
@@ -226,6 +238,7 @@ async fn main() -> Result<()> {
             to,
             answer,
             github,
+            model,
             text,
         } => {
             let server = find_server(server)?;
@@ -235,7 +248,7 @@ async fn main() -> Result<()> {
                 from,
                 to,
                 answer,
-                github,
+                Options { github, model },
                 text,
             )
             .await
@@ -318,7 +331,7 @@ async fn send(
     from: String,
     to: String,
     answer: Option<String>,
-    github: bool,
+    options: Options,
     text: String,
 ) -> Result<()> {
     check_agent_name(&from)?;
@@ -337,7 +350,8 @@ async fn send(
             text,
             usage: None,
             task_usage: None,
-            github,
+            github: options.github,
+            model: options.model,
         })
         .await?;
     println!("{task}");
@@ -359,6 +373,7 @@ async fn cancel(server: &str, seed: &str, from: String, to: String, task: String
             usage: None,
             task_usage: None,
             github: false,
+            model: None,
         })
         .await
 }

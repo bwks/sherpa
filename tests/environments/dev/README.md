@@ -49,6 +49,10 @@ is up. It is safe to run again with `sherpa provision`. It:
    (`ProxyJump dev@<server>`), so lab tests and SSH provisioners need both, as on any Sherpa
    server.
 
+With `SHERPA_DEV_SERVER=no` in the environment the script stops after step 5. The
+[agent worker lab](../agent/README.md) sets it with `provision/worker.env` and shares these
+files through a link, so do not move or rename them without updating it.
+
 Nothing is prompted for. Login shells load `~/.env.d/`, so `sherpa login` works there without
 prompts too.
 

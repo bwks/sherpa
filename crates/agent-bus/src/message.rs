@@ -48,6 +48,11 @@ pub struct Message {
     /// Whether the task may use GitHub. Only a task sets it; an answer has the flag of its task.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub github: bool,
+    /// The model the task runs on: an alias or a full ID, set by a task. An answer runs on the
+    /// model of its task, whatever it says. The guest's replies carry the model they ran on.
+    /// Without it the guest uses its own default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// What one Claude Code run used, from the `result` event of its `stream-json` output.
@@ -204,11 +209,13 @@ mod tests {
             usage: None,
             task_usage: None,
             github: false,
+            model: None,
         };
         let json = serde_json::to_value(&message).unwrap();
         assert_eq!(json["kind"], "question");
         assert!(json.get("usage").is_none());
         assert!(json.get("github").is_none());
+        assert!(json.get("model").is_none());
         assert_eq!(serde_json::from_value::<Message>(json).unwrap(), message);
     }
 
@@ -223,12 +230,41 @@ mod tests {
             usage: None,
             task_usage: None,
             github: true,
+            model: None,
         };
         let json = serde_json::to_value(&message).unwrap();
         assert_eq!(json["github"], true);
         assert_eq!(serde_json::from_value::<Message>(json).unwrap(), message);
         let old = r#"{"task":"t","from":"a","to":"b","kind":"task","text":"x"}"#;
         assert!(!serde_json::from_str::<Message>(old).unwrap().github);
+    }
+
+    #[test]
+    fn the_model_round_trips_and_is_absent_when_unset() {
+        let message = Message {
+            task: "1a2b3c4d".to_owned(),
+            from: "host".to_owned(),
+            to: "dev".to_owned(),
+            kind: Kind::Task,
+            text: "Run the tests".to_owned(),
+            usage: None,
+            task_usage: None,
+            github: false,
+            model: Some("claude-sonnet-5-5".to_owned()),
+        };
+        let json = serde_json::to_value(&message).unwrap();
+        assert_eq!(json["model"], "claude-sonnet-5-5");
+        assert_eq!(serde_json::from_value::<Message>(json).unwrap(), message);
+
+        let unset = Message {
+            model: None,
+            ..message
+        };
+        let json = serde_json::to_value(&unset).unwrap();
+        assert!(json.get("model").is_none());
+        assert_eq!(serde_json::from_value::<Message>(json).unwrap(), unset);
+        let old = r#"{"task":"t","from":"a","to":"b","kind":"task","text":"x"}"#;
+        assert_eq!(serde_json::from_str::<Message>(old).unwrap().model, None);
     }
 
     #[test]
@@ -267,6 +303,7 @@ mod tests {
                 ..TaskUsage::default()
             }),
             github: false,
+            model: None,
         };
         let json = serde_json::to_value(&message).unwrap();
         assert_eq!(json["usage"]["cache_read"], 60);

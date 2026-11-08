@@ -5,9 +5,10 @@ use shared::util::render_modern_table;
 
 use crate::message::{Kind, Message, TaskUsage, cache_hit_permille};
 
-const HEADERS: [&str; 7] = [
+const HEADERS: [&str; 8] = [
     "Task",
     "Agent",
+    "Model",
     "Runs",
     "Cost (not billed)",
     "Cache hit",
@@ -15,13 +16,16 @@ const HEADERS: [&str; 7] = [
     "State",
 ];
 /// The columns of numbers, which are right-aligned: runs, cost, cache hit and tokens.
-const NUMBER_COLUMNS: [usize; 4] = [2, 3, 4, 5];
+const NUMBER_COLUMNS: [usize; 4] = [3, 4, 5, 6];
 
 /// One task in the report.
 #[derive(Debug, PartialEq)]
 pub struct Row {
     pub task: String,
     pub agent: String,
+    /// The model the task ran on, from its outcome messages. `None` for a task from before the
+    /// guest named it.
+    pub model: Option<String>,
     /// The task's totals as of its last outcome message that carried them. `None` for a task
     /// from before usage was tracked.
     pub usage: Option<TaskUsage>,
@@ -56,6 +60,7 @@ pub fn rows(messages: &[Message], agent: Option<&str>, all: bool) -> Vec<Row> {
             rows.push(Row {
                 task: message.task.clone(),
                 agent: message.from.clone(),
+                model: None,
                 usage: None,
                 state: message.kind,
             });
@@ -65,6 +70,9 @@ pub fn rows(messages: &[Message], agent: Option<&str>, all: bool) -> Vec<Row> {
             continue;
         };
         row.state = message.kind;
+        if message.model.is_some() {
+            row.model.clone_from(&message.model);
+        }
         if let Some(usage) = &message.task_usage {
             row.usage = Some(usage.clone());
         }
@@ -95,16 +103,23 @@ pub fn table(rows: &[Row]) -> String {
             line(
                 &row.task,
                 &row.agent,
+                row.model.as_deref().unwrap_or("n/a"),
                 row.usage.as_ref(),
                 &format!("{:?}", row.state).to_lowercase(),
             )
         })
         .collect();
-    cells.push(line("total", "", Some(&total), ""));
+    cells.push(line("total", "", "", Some(&total), ""));
     render_modern_table(&HEADERS, &cells, &NUMBER_COLUMNS)
 }
 
-fn line(task: &str, agent: &str, usage: Option<&TaskUsage>, state: &str) -> Vec<String> {
+fn line(
+    task: &str,
+    agent: &str,
+    model: &str,
+    usage: Option<&TaskUsage>,
+    state: &str,
+) -> Vec<String> {
     let na = || "n/a".to_owned();
     let (runs, cost, hit, tokens) = match usage {
         Some(usage) => (
@@ -121,6 +136,7 @@ fn line(task: &str, agent: &str, usage: Option<&TaskUsage>, state: &str) -> Vec<
     vec![
         task.to_owned(),
         agent.to_owned(),
+        model.to_owned(),
         runs,
         cost,
         hit,
@@ -143,6 +159,7 @@ mod tests {
             usage: None,
             task_usage: usage,
             github: false,
+            model: None,
         }
     }
 
@@ -173,6 +190,40 @@ mod tests {
         assert_eq!(rows[1].task, "b");
         assert_eq!(rows[1].state, Kind::Failed);
         assert_eq!(rows[1].usage, None);
+    }
+
+    #[test]
+    fn the_model_column_shows_the_model_each_task_ran_on() {
+        let on = |task: &str, model: Option<&str>| Message {
+            model: model.map(str::to_owned),
+            ..outcome(task, "dev", Kind::Completed, Some(used(1, 0.04, 1, 1)))
+        };
+        let messages = [
+            on("a", Some("claude-sonnet-5-5")),
+            // A reply without a model does not clear the one known.
+            on("a", None),
+            on("b", Some("claude-haiku-5-5")),
+            on("old", None),
+        ];
+        let rows = rows(&messages, None, false);
+        let models: Vec<Option<&str>> = rows.iter().map(|row| row.model.as_deref()).collect();
+        assert_eq!(
+            models,
+            [Some("claude-sonnet-5-5"), Some("claude-haiku-5-5"), None]
+        );
+        let table = table(&rows);
+        assert!(table.contains("Model"), "{table}");
+        for (task, model) in [
+            ("a", "claude-sonnet-5-5"),
+            ("b", "claude-haiku-5-5"),
+            ("old", "n/a"),
+        ] {
+            let line = table
+                .lines()
+                .find(|line| line.contains(&format!(" {task} ")))
+                .unwrap_or_default();
+            assert!(line.contains(model), "{line}");
+        }
     }
 
     #[test]
@@ -217,8 +268,11 @@ mod tests {
 
     #[test]
     fn the_cells_of_a_task_without_usage_show_n_a() {
-        let cells = line("t", "dev", None, "failed");
-        assert_eq!(cells, ["t", "dev", "n/a", "n/a", "n/a", "n/a", "failed"]);
+        let cells = line("t", "dev", "n/a", None, "failed");
+        assert_eq!(
+            cells,
+            ["t", "dev", "n/a", "n/a", "n/a", "n/a", "n/a", "failed"]
+        );
         assert_eq!(table(&[]), "No usage recorded");
     }
 

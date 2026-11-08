@@ -335,6 +335,7 @@ mod tests {
             usage: None,
             task_usage: None,
             github: false,
+            model: None,
         }
     }
 
@@ -402,6 +403,31 @@ mod tests {
                 .is_ok_and(|connected| connected.is_err()),
             "an unknown key connected"
         );
+        Ok(())
+    }
+
+    /// `dev` and `agent-2` share one key: each, connected with it, reads its own inbox.
+    async fn shared_key(bus: &Bus, host: &NewKey, shared: &NewKey) -> Result<()> {
+        let wait = Duration::from_secs(15);
+        let host_channel = Channel::connect(&bus.url(), &host.seed).await?;
+        host_channel.send(&message("host", "dev", "to dev")).await?;
+        host_channel
+            .send(&message("host", "agent-2", "to agent-2"))
+            .await?;
+        for (name, text) in [("dev", "to dev"), ("agent-2", "to agent-2")] {
+            let channel = Channel::connect(&bus.url(), &shared.seed).await?;
+            let mut inbox = channel.inbox(name).await?;
+            let delivery = timeout(wait, inbox.next())
+                .await
+                .with_context(|| format!("no message for {name}"))??
+                .context("the inbox closed")?;
+            ensure!(delivery.message.text == text, "wrong message for {name}");
+            delivery.ack().await?;
+            ensure!(
+                host_channel.waiting(name).await? == 0,
+                "the acknowledgement of {name} was not taken"
+            );
+        }
         Ok(())
     }
 
@@ -738,8 +764,9 @@ mod tests {
         let text = format!(
             "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n\
              [[agent]]\nname = \"dev\"\nkey = \"{}\"\nrole = \"guest\"\n\
-             [[agent]]\nname = \"other\"\nkey = \"{}\"\nrole = \"guest\"\n",
-            host.public_key, dev.public_key, other.public_key
+             [[agent]]\nname = \"other\"\nkey = \"{}\"\nrole = \"guest\"\n\
+             [[agent]]\nname = \"agent-2\"\nkey = \"{}\"\nrole = \"guest\"\n",
+            host.public_key, dev.public_key, other.public_key, dev.public_key
         );
         let id = std::process::id();
         let dir = std::env::temp_dir().join(format!("agent-bus-it-{id}"));
@@ -785,6 +812,9 @@ mod tests {
             );
             Channel::connect(&found, &host.seed).await?;
             exercise(&bus, &agents, &host, &dev).await?;
+
+            // Two guests sharing one key each read their own inbox.
+            shared_key(&bus, &host, &dev).await?;
 
             // Every message a guest sends reaches a host listener: progress, then the outcome
             // with its usage.

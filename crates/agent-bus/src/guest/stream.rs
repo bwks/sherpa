@@ -68,14 +68,24 @@ struct TokenUsage {
     cache_read: u64,
 }
 
-/// The guest log line for a finished run: the run, then the task so far.
-pub(super) fn usage_line(task: &str, kind: Kind, run: &Usage, so_far: &TaskUsage) -> String {
+/// The guest log line for a finished run: the task's model, the run, then the task so far.
+pub(super) fn usage_line(
+    task: &str,
+    kind: Kind,
+    model: &str,
+    run: &Usage,
+    so_far: &TaskUsage,
+) -> String {
     let ratio = |permille: Option<u64>| match permille {
         Some(permille) => format!("{}.{}%", permille / 10, permille % 10),
         None => "n/a".to_owned(),
     };
     format!(
-        "Task {task} {kind:?}: run: input {} output {} cache_creation {} cache_read {}          cache_hit {} turns {} duration {}ms api {}ms api_equivalent_cost ${:.4} (not billed);          session_cost ${:.4}; task so far: {} runs input {} output {} cache_creation {}          cache_read {} cache_hit {} turns {} duration {}ms api {}ms api_equivalent_cost ${:.4}",
+        "Task {task} {kind:?} on {model}: run: input {} output {} cache_creation {} \
+         cache_read {} cache_hit {} turns {} duration {}ms api {}ms api_equivalent_cost ${:.4} \
+         (not billed); session_cost ${:.4}; task so far: {} runs input {} output {} \
+         cache_creation {} cache_read {} cache_hit {} turns {} duration {}ms api {}ms \
+         api_equivalent_cost ${:.4}",
         run.input,
         run.output,
         run.cache_creation,
@@ -109,10 +119,17 @@ pub(super) fn usage_line(task: &str, kind: Kind, run: &Usage, so_far: &TaskUsage
 
 /// The guest log line for a priming run: the run that builds a base session. Its cost is counted
 /// in the task that triggered it, which is named here.
-pub(super) fn priming_line(task: &str, github: bool, session: &str, run: &Usage) -> String {
+pub(super) fn priming_line(
+    task: &str,
+    github: bool,
+    model: &str,
+    session: &str,
+    run: &Usage,
+) -> String {
     let variant = if github { "GitHub" } else { "no-GitHub" };
     format!(
-        "Task {task}: priming run for the {variant} base session {session}, counted in the task: \
+        "Task {task}: priming run for the {variant} {model} base session {session}, counted in \
+         the task: \
          input {} output {} cache_creation {} cache_read {} turns {} api_equivalent_cost ${:.4} \
          (not billed)",
         run.input, run.output, run.cache_creation, run.cache_read, run.num_turns, run.cost_usd,
@@ -330,7 +347,12 @@ mod tests {
         let mut task = TaskUsage::default();
         task.add(&finished(RUN_1));
         task.add(&run);
-        let line = usage_line("562a9215", Kind::Question, &run, &task);
+        let line = usage_line("562a9215", Kind::Question, "claude-sonnet-5-5", &run, &task);
+        assert!(
+            line.starts_with("Task 562a9215 Question on claude-sonnet-5-5: run:"),
+            "{line}"
+        );
+        assert!(!line.contains("  "), "{line}");
         assert!(line.contains("run: input 4 output 15"), "{line}");
         assert!(line.contains("session_cost $0.0558"), "{line}");
         assert!(
@@ -360,7 +382,7 @@ mod tests {
         assert!(!failed);
         assert_eq!(*usage, Usage::default());
         assert!(
-            usage_line("t", Kind::Completed, usage, &TaskUsage::default())
+            usage_line("t", Kind::Completed, "m", usage, &TaskUsage::default())
                 .contains("cache_hit n/a")
         );
     }
@@ -404,11 +426,14 @@ mod tests {
             cost_usd: 0.038,
             ..Usage::default()
         };
-        let line = priming_line("t1", false, "base-1", &run);
+        let line = priming_line("t1", false, "claude-haiku-5-5", "base-1", &run);
         assert!(line.contains("priming run"), "{line}");
-        assert!(line.contains("no-GitHub base session base-1"), "{line}");
+        assert!(
+            line.contains("no-GitHub claude-haiku-5-5 base session base-1"),
+            "{line}"
+        );
         assert!(line.contains("Task t1"), "{line}");
         assert!(line.contains("cache_creation 9148"), "{line}");
-        assert!(priming_line("t1", true, "b", &run).contains("GitHub base"));
+        assert!(priming_line("t1", true, "m", "b", &run).contains("GitHub m base"));
     }
 }

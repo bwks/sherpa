@@ -105,7 +105,8 @@ Adding an agent means adding it to the agents file and running `bus start` again
 environment variable `AGENT_BUS_URL`, the URL in `bus.toml` (`state::find_server`). With none,
 they fail and say to run `bus start` or set one. The guest agent runs in the lab guest, where
 there is no `bus.toml`: it takes `--server` (or `AGENT_BUS_URL`), which `dev/agent-bus/start-guest.sh`
-builds from the guest's default gateway.
+builds from the guest's default gateway, or takes from `AGENT_BUS_URL` for a guest in another
+lab.
 
 ### One reader per inbox
 
@@ -129,6 +130,7 @@ Every message is one JSON object, published to `agents.<to>` and stored by JetSt
 | `usage` | object, optional | What this run of Claude Code used. Only on outcome messages that had a `result` event. |
 | `task_usage` | object, optional | What the task has used so far, this run included. Sent with `usage`. |
 | `github` | bool, optional | Whether the task may use GitHub. Only `task` sets it. Left out of the JSON when false; a missing field reads as false. |
+| `model` | string, optional | On a `task`: the model to run on, an alias (`opus`, `sonnet`, `haiku`) or a full ID such as `claude-sonnet-5-5`. Without it the guest's own default. Ignored on an `answer`. On the guest's replies for a run: the full ID it ran on. Left out of the JSON when unset. |
 
 | Kind | Direction | Meaning |
 |---|---|---|
@@ -362,16 +364,19 @@ key = "UB..."
 role = "guest"
 ```
 
-Names follow the agent name rule, keys must be user public keys, names and keys are unique,
-there is exactly one `host`, and unknown fields are refused. A TOML parse error gives the line
+Names follow the agent name rule and are unique, keys must be user public keys, there is
+exactly one `host`, no guest may use the host's key, and unknown fields are refused. Guests may
+share a key, for testing only (see Limits). A TOML parse error gives the line
 number and the parser's message with every word of 40 characters or more replaced by
 `<hidden>`, so a seed pasted into the file is not echoed.
 
 ### The rendered config
 
 `bus start` renders the nats-server config from the agents file as JSON, which nats-server
-accepts, from serde structs (`src/config.rs`). It holds one `authorization.users` entry per agent:
-its public key and its publish and subscribe allow lists. There is no field a seed could go in.
+accepts, from serde structs (`src/config.rs`). It holds one `authorization.users` entry per
+distinct key, the host first and then the guests in the order each key first appears: the public
+key and its publish and subscribe allow lists. Guests sharing a key get one entry with the guest
+lists of all of them, the host's inbox once and then each guest's three consumer subjects. There is no field a seed could go in.
 The bus has one account, so these lists are what separate the agents.
 
 | Role | Publish allowed | Subscribe allowed |
@@ -449,8 +454,9 @@ claude -p --output-format stream-json --verbose
 
 - **Prompt.** The task or answer text goes in on stdin, which is then closed, so the tool lists
   cannot swallow it as an argument.
-- **Model.** `claude-opus-5-5` unless `--model` is given (`start-guest.sh` passes
-  `AGENT_BUS_MODEL` when it is set).
+- **Model.** The task's `model`, or the guest's default: `claude-opus-5-5` unless `--model` is
+  given (`start-guest.sh` passes `AGENT_BUS_MODEL` when it is set). See
+  [Model per task](#model-per-task).
 - **Process.** It runs in the checkout, in its own process group (`process_group(0)`), with
   `kill_on_drop`. Stdout is read line by line; stderr goes to the guest agent's log.
 - **Environment.** `ANTHROPIC_API_KEY` and `AGENT_BUS_SEED` are always removed. Without GitHub
@@ -461,8 +467,10 @@ claude -p --output-format stream-json --verbose
 - **Rules.** The appended system prompt says it is a guest agent, to follow `AGENTS.md`, not to
   add dependencies, to end with a `QUESTION:` line when it needs a decision and otherwise with a
   short summary, that the git status in its context may be stale, and never to use `git stash`,
-  `git restore`, `git clean` or `git checkout -- <path>`. A GitHub sentence follows
-  (below).
+  `git restore`, `git clean` or `git checkout -- <path>`. It also says to give each subagent
+  the cheapest model that fits (haiku for searches, reading files and lookups; sonnet for
+  routine edits, builds, tests and docs; opus only for design, hard debugging and review) and to
+  do small things itself rather than spawn one. A GitHub sentence follows (below).
 
 The outcome is read from the `result` event: `is_error` true (or missing) is `failed`, a line
 starting `QUESTION:` (after leading spaces) is `question`, anything else is `completed`. A run
@@ -492,6 +500,21 @@ before. The patterns match command text and cannot tell `git checkout <branch>` 
 `git checkout <path>`, so a bare `git checkout <path>` is not caught; `git checkout <branch>`
 keeps working.
 
+### Model per task
+
+`agent-bus send --model <alias or id>` sets `model` on a task. `send` and the guest both turn it
+into a full ID with `model::model_id`, the one place the aliases map to the current IDs:
+`opus` is `claude-opus-5-5`, `sonnet` is `claude-sonnet-5-5`, `haiku` is `claude-haiku-5-5`. A
+full ID is `claude-` followed by lowercase letters, digits, hyphens and dots; anything else is
+refused by `send`, and a task that names one anyway is reported `failed` without running. The
+guest's `--model` takes the same values.
+
+Like the GitHub flag, an answer cannot change it: `--model` conflicts with `--answer`, and the
+guest runs an answer on the model stored with the task's session (`engine::task_model`). A
+session saved before tasks chose their model runs on the guest's default. The guest's replies
+for a run carry the full ID, the guest log's usage line starts `Task <id> <kind> on <model>`, and
+`agent-bus usage` has a Model column.
+
 ### Base sessions and forking
 
 Claude Code's last prompt cache breakpoint comes after the first user message, which holds the
@@ -499,15 +522,19 @@ task text. So every new session writes the whole prefix (system prompt, `AGENTS.
 environment block) to the cache again. To avoid that, a new task forks a primed base session, and
 its text comes after a prefix that is already cached (`src/guest/base.rs`, `Engine::fork_of_base`).
 
-- **One base per rules variant**, GitHub and no-GitHub, because a fork keeps its base's system
-  prompt.
+- **One base per rules variant and model**: GitHub or no-GitHub, and each model a task runs
+  on, because a fork keeps its base's system prompt and model. The bases are kept by
+  `(github, model)`, so a task on another model primes its own base and leaves the others in
+  place.
 - **Priming** is two runs, done lazily when a task needs a base: a fresh session with "You are a
   guest agent. Tasks will follow, one per session. Reply with exactly: ready.", then a resume of
   it with "Confirm once more: reply with exactly: ready." The base is the session the second run
   ends in. A fork is then the third turn, after Claude Code's context has settled.
-- **Inputs.** A base records a hash of its inputs: the rules text, `AGENTS.md`, the git branch,
-  `HEAD`, the model and the UTC day. It is rebuilt when the hash differs, or when it has not been
-  used for 55 minutes, inside the cache's 1 hour lifetime. Each fork counts as a use.
+- **Inputs.** A base records a hash of its inputs: the rules text, `AGENTS.md`, the model and
+  the UTC day. It is rebuilt when the hash differs, or when it has not been used for 55 minutes,
+  inside the cache's 1 hour lifetime. Each fork counts as a use. The git branch and `HEAD` are
+  not inputs, so a commit does not re-prime every base; the git status in a base's context can
+  be out of date, and the rules say so.
 - **Tasks** start with `--resume <base> --fork-session`. A base is never resumed directly by a
   task. Answers resume the task's own forked session.
 - **Accounting.** Both priming runs are counted in the `task_usage` of the task that needed them
@@ -521,7 +548,7 @@ The flowchart shows how a new task gets its session.
 
 ```mermaid
 flowchart TD
-    task["new task, rules variant"] --> check{"base for the variant,<br/>same inputs hash,<br/>used within 55 min?"}
+    task["new task, rules variant, model"] --> check{"base for the variant and model,<br/>same inputs hash,<br/>used within 55 min?"}
     check -->|yes| fork
     check -->|no| p1["priming run 1<br/>fresh session"]
     p1 -->|ok| p2["priming run 2<br/>--resume run 1's session"]
@@ -546,8 +573,9 @@ before guests moved to Opus 5.5:
 | Fork of a base primed with two turns | Opus 5.5 | 32 to 39 tokens | 22,691 tokens | about $0.005 |
 
 Priming costs about one fresh session and one resume, once per base per inputs change or idle
-hour. Priming a new Opus 5.5 base cost about $0.13, once (task c9488976). The git status in a base's context is from when it was primed, which is why the rules tell
-Claude to run `git status` itself when it matters.
+hour. Priming a new Opus 5.5 base cost about $0.13, once (task c9488976). The git status in a
+base's context is from when it was primed, which is why the rules tell Claude to run
+`git status` itself when it matters.
 
 ## Usage and cost
 
@@ -583,8 +611,9 @@ one line per priming run. Every `result` event line is also appended unchanged t
 holds for the host's inbox (7 days) through an ephemeral pull consumer with no acknowledgement
 (`Channel::history`: deliver all, 256 per fetch, removed after use or after 30 s idle), so the
 host's inbox is neither consumed nor changed. It prints one row per task that had an outcome
-(`question`, `completed`, `failed`, `canceled`): task, agent, runs, cost, cache hit, tokens (the
-four kinds added) and the kind of its last outcome, then a total row, as a `tabled` modern table
+(`question`, `completed`, `failed`, `canceled`): task, agent, model (from its outcomes'
+`model`, `n/a` before guests sent it), runs, cost, cache hit, tokens (the four kinds added) and
+the kind of its last outcome, then a total row, as a `tabled` modern table
 (`src/report.rs`). A task's figures are the `task_usage` of its last outcome that carried one.
 Tasks with no usage are left out unless `--all` is given. `agent-bus show <task>` prints every
 kept message of one task, oldest first, one JSON line each, the same way, from the bus rather than
@@ -635,9 +664,9 @@ a TOML integer (signed) cannot always hold, so it is kept as 16 hex digits.
 | Key | Contents |
 |---|---|
 | `running` | The task Claude Code was working on, if any. |
-| `[[queue]]` | The waiting tasks and answers, in order: `task`, `from`, `kind`, `github`, `text`. |
-| `[[bases]]` | Each primed base: `github`, `session`, `inputs` (hash), `primed_at_ms`, `last_used_ms`. |
-| `[tasks.<id>]` | Each task: `runs` (for `results.jsonl`), `finished_at_ms`, `session` (`id`, `github`), `api` (`session`, `api_ms`), and `usage`, its `task_usage` totals. |
+| `[[queue]]` | The waiting tasks and answers, in order: `task`, `from`, `kind`, `github`, `model` (when set), `text`. |
+| `[[bases]]` | Each primed base: `github`, `model`, `session`, `inputs` (hash), `primed_at_ms`, `last_used_ms`. A base saved without `model` matches no task's model and is replaced. |
+| `[tasks.<id>]` | Each task: `runs` (for `results.jsonl`), `finished_at_ms`, `session` (`id`, `github`, `model`), `api` (`session`, `api_ms`), and `usage`, its `task_usage` totals. |
 
 It is written after every change: a task queued, started, finished or canceled, a session
 recorded, a base primed, used or dropped, a run counted. A failed write is logged and the agent
@@ -703,8 +732,20 @@ In order:
    Run only one: a second is refused. After a restart, `agent-bus listen host --since <duration>`
    first prints what the journal got in that time, covering anything printed while no Monitor
    was reading.
-6. **Tasks.** `agent-bus send --to dev "<task>"`, `send --to dev --answer <task> "<answer>"`,
+6. **Tasks.** `agent-bus send --to dev [--model sonnet] "<task>"`,
+   `send --to dev --answer <task> "<answer>"`,
    `agent-bus cancel --to dev <task>`.
+
+More guests run in worker labs, one VM per guest agent, each its own lab:
+`tests/environments/agent` (lab `sherpa-agent-2`, node and agent `agent-2`), brought up from a
+lab directory outside the repository, with dev's provisioning and no Sherpa server. The bus
+stays on the host, started with `--lab` on dev's lab, so it listens only on dev's gateway. A
+worker's guest agent is started the same way as dev's, from the worker lab's SSH config, with
+its own name and `AGENT_BUS_URL=nats://<dev's gateway>:4222`, which `start-guest.sh` uses in
+place of the guest's own default gateway. Its key goes in the agents file and `bus start` runs
+again before it starts. Whether the host's firewall lets a worker reach dev's gateway is still
+to be confirmed by a test after the first bring-up; the test and the steps are in
+`tests/environments/agent/README.md`.
 
 Checking health:
 
@@ -726,9 +767,16 @@ but that puts a seed on disk; prefer `agent-bus listen` and `show`.
 - **The host is all-powerful.** The host key can read and write every inbox and is the only key
   that can change the stream. A guest key reaches that guest's inbox and the host's, so a
   compromised guest can flood the host's inbox.
-- **No transport encryption.** The bus is reachable only on one lab's management bridge.
-- **One lab per bus.** One container, one address, one state file. Serving several labs needs a
-  bus per lab or a bus on several addresses.
+- **Guests may share a key, for testing only.** The agents file lets several guests list the same
+  key (the host's key must stay its own). nats-server allows one user per key, so the rendered
+  config gives a shared key the union of its agents' permissions: agents sharing a key can read
+  and act on each other's inboxes. This lasts until enrollment (#494) gives every agent its own
+  key.
+- **No transport encryption.** The bus listens only on one lab's management bridge address.
+- **One lab per bus.** One container, one address, one state file. Worker labs reach the bus at
+  dev's gateway through the host (unconfirmed, see Operating it), so the bus depends on dev's
+  lab, and a new dev lab means a new address for every worker. If the host's firewall refuses
+  that path, serving several labs needs a bus per lab or a bus on several addresses.
 - **One task at a time per guest.** The rest wait in its queue.
 - **Removing an agent** from the agents file and running `bus start` drops its access; its
   consumer and messages stay in the stream.

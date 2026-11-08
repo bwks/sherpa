@@ -14,8 +14,6 @@ use tokio::time::timeout;
 use crate::keys::SEED_VARIABLE;
 
 pub(super) const CLAUDE: &str = "claude";
-/// The model guests run Claude Code on unless told otherwise.
-pub const DEFAULT_MODEL: &str = "claude-opus-5-5";
 /// How long Claude Code's process group has to exit after SIGTERM before SIGKILL.
 const KILL_GRACE: Duration = Duration::from_secs(2);
 /// Removed from Claude Code's environment, so it can only use the subscription.
@@ -56,7 +54,10 @@ with `QUESTION:` and stop; the answer comes as your next message. Otherwise end 
 summary of what you did and the results. The git status in your context may be out of date; run \
 git status yourself when it matters. Never use git stash, git restore, git clean or \
 git checkout -- <path>: the working tree is the only copy of uncommitted work. To see how things \
-were before, use `git show HEAD:<path>` or `git diff`.";
+were before, use `git show HEAD:<path>` or `git diff`. When you delegate to subagents, give each \
+the cheapest model that fits: haiku for searches, reading files and simple lookups; sonnet for \
+routine edits, builds, tests and docs; opus only for design, hard debugging and review. Do small \
+things yourself rather than spawning a subagent.";
 /// What a base session is primed with. Nothing is done with the reply.
 pub(super) const PRIME_PROMPT: &str = "You are a guest agent. Tasks will follow, one per session. \
 Reply with exactly: ready.";
@@ -304,11 +305,6 @@ mod tests {
     }
 
     #[test]
-    fn the_default_model_is_opus_5_5() {
-        assert_eq!(DEFAULT_MODEL, "claude-opus-5-5");
-    }
-
-    #[test]
     fn a_fresh_run_and_a_base_have_no_session_arguments() {
         let args = launched(&Launch::Fresh);
         assert!(!args.iter().any(|arg| arg == "--resume"));
@@ -377,6 +373,21 @@ mod tests {
             assert!(rules.contains("Never use git stash"));
             assert!(rules.contains("git show HEAD:<path>"));
             assert!(rules.contains("git diff"));
+        }
+    }
+
+    #[test]
+    fn the_rules_send_subagents_to_the_cheapest_model_that_fits() {
+        for github in [false, true] {
+            let rules = rules(github);
+            for expected in [
+                "haiku for searches",
+                "sonnet for routine edits",
+                "opus only for design",
+                "Do small things yourself",
+            ] {
+                assert!(rules.contains(expected), "{expected}");
+            }
         }
     }
 

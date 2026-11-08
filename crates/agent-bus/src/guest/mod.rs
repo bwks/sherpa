@@ -25,5 +25,4 @@ mod run;
 mod state;
 mod stream;
 
-pub use claude::DEFAULT_MODEL;
 pub use run::run;
