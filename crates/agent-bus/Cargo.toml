@@ -22,7 +22,10 @@ container = { path = "../container" }
 clap = { workspace = true, features = ["env"] }
 
 # Async runtime
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process", "io-util"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process", "io-util", "signal", "sync", "time"] }
+
+# Signals to Claude Code's process group
+nix = { workspace = true, features = ["signal", "process"] }
 
 # Serialization
 serde = { workspace = true, features = ["derive"] }

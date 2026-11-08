@@ -74,6 +74,20 @@ enum Command {
         /// The task, or the answer
         text: String,
     },
+    /// Cancel a task on a guest agent, whether it is running or queued
+    Cancel {
+        /// The bus, for example `nats://172.31.3.1:4222`
+        #[arg(long, env = "AGENT_BUS_URL")]
+        server: String,
+        /// The sending agent
+        #[arg(long, default_value = "host")]
+        from: String,
+        /// The agent running the task
+        #[arg(long)]
+        to: String,
+        /// The task to cancel
+        task: String,
+    },
     /// Print each message sent to an agent, as one JSON line
     Listen {
         /// The bus, for example `nats://172.31.3.1:4222`
@@ -157,6 +171,12 @@ async fn main() -> Result<()> {
             )
             .await
         }
+        Command::Cancel {
+            server,
+            from,
+            to,
+            task,
+        } => cancel(&server, &seed_from_environment()?, from, to, task).await,
         Command::Listen { server, agent } => {
             listen(&server, &seed_from_environment()?, &agent).await
         }
@@ -214,6 +234,24 @@ async fn send(
         .await?;
     println!("{task}");
     Ok(())
+}
+
+/// Ask a guest agent to cancel a task. The outcome comes back as a `canceled` or `failed` message.
+async fn cancel(server: &str, seed: &str, from: String, to: String, task: String) -> Result<()> {
+    check_agent_name(&from)?;
+    check_agent_name(&to)?;
+    let channel = Channel::connect(server, seed).await?;
+    channel
+        .send(&Message {
+            task,
+            from,
+            to,
+            kind: Kind::Cancel,
+            text: String::new(),
+            usage: None,
+            github: false,
+        })
+        .await
 }
 
 /// Print each message sent to `agent` as one JSON line, until the bus closes.

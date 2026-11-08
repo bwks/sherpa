@@ -32,7 +32,7 @@ output in its context.
 | Inboxes | One stream, `AGENTS`, on `agents.>`. Each agent reads `agents.<name>` through a durable consumer, so a message waits until its agent reads it, and a restarted reader goes on where it stopped. The host creates the stream and the consumers when it starts the bus |
 | Messages | JSON: task ID, sender, receiver, kind and text. The kinds are `task`, `answer`, `progress`, `question`, `completed` and `failed`, named after A2A's task states |
 | Host agent | `agent-bus send --to dev "<task>"` prints the task ID; `--answer <task>` answers a question. `agent-bus listen host`, run under Claude Code's Monitor, turns each message into a notification |
-| Guest agent | `agent-bus guest` runs each task through `claude -p` with `stream-json` output in the checkout, one at a time. Tool calls and text become progress; a reply line starting `QUESTION:` makes the outcome a question; an answer resumes the task's Claude session |
+| Guest agent | `agent-bus guest` runs each task through `claude -p` with `stream-json` output in the checkout, one at a time (see Cancel and the queue). Tool calls and text become progress; a reply line starting `QUESTION:` makes the outcome a question; an answer resumes the task's Claude session |
 
 ### Guest rules
 
@@ -188,6 +188,31 @@ On the host, with the dev lab up:
 The `nats` CLI can inspect the bus with `--nkey <seed file>`; that needs a seed on disk, so
 prefer `agent-bus listen`, or a seed in a process substitution.
 
+## Cancel and the queue
+
+`agent-bus cancel --to <agent> <task>` sends a `cancel` message (`task` names the task). The guest
+agent answers with `canceled` (after A2A's canceled state), or with `failed` when the task is
+neither running nor queued.
+
+While a task runs, the guest agent keeps reading its inbox, alongside Claude Code's output. Tasks
+and answers that arrive meanwhile wait in a local queue and run afterwards, in arrival order. A
+cancel is acted on at once:
+
+- **Running task:** Claude Code is started in its own process group, and the group is signalled:
+  SIGTERM, then SIGKILL after a grace period (`KILL_GRACE`, 2 s), and a final SIGKILL to the group
+  for any command that ignored SIGTERM after Claude Code left. The commands it started (cargo,
+  sleep, bash) die with it. `canceled` carries the last progress. The Claude session is kept, so a
+  later answer to the task resumes it. The queue then goes on.
+- **Queued task:** dropped from the queue; `canceled` is sent.
+- **Unknown task:** `failed` with "neither running nor queued". This includes a task that already
+  finished or is waiting for an answer.
+
+The guest agent's own shutdown (SIGTERM or SIGINT) stops the running group the same way, reports
+the task `failed` ("the guest agent stopped"), and exits, so restarting it does not leave Claude
+Code running. Dropping the group on any other path kills it too. The signals come from the `nix`
+crate. The tests are unit tests for the queue and cancel decisions, and ignored tests with a fake
+`claude` (`cargo test -p agent-bus guest -- --ignored`).
+
 ## Limits of the proof of concept
 
 - **The host can read and write every inbox,** and holds the only key that can change the
@@ -197,7 +222,7 @@ prefer `agent-bus listen`, or a seed in a process substitution.
   lab's bridge.
 - **Removing an agent** means removing it from the agents file and running `bus start`, which
   drops its connection. Its consumer and messages stay in the stream.
-- **One task at a time,** and no way to cancel one.
+- **One task at a time.** Others wait in the guest agent's memory queue, which a restart loses.
 - **Sessions live in the guest agent's memory.** Restarting it loses them, so an answer to an
   earlier question fails, and the failure is reported to the host.
 - **Starting the guest agent needs the user.** Claude Code's auto mode refuses to let the host
@@ -206,7 +231,7 @@ prefer `agent-bus listen`, or a seed in a process substitution.
 
 ## Next steps
 
-1. Cancelling a task, and more than one guest.
+1. More than one task at a time, and more than one guest.
 2. Starting the guest agent with the guest, for example from its provisioning.
 3. Whether A2A belongs on top of the bus or replaces it, for agents that are not Claude Code
    (#439).

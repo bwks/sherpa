@@ -23,6 +23,10 @@ pub enum Kind {
     Completed,
     /// The task could not be done.
     Failed,
+    /// Host to guest: stop the task named in `task`, running or queued.
+    Cancel,
+    /// Guest to host: the task was canceled, after A2A's canceled state.
+    Canceled,
 }
 
 /// One message on the bus.
@@ -38,16 +42,8 @@ pub struct Message {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
     /// Whether the task may use GitHub. Only a task sets it; an answer has the flag of its task.
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub github: bool,
-}
-
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "the signature serde's skip_serializing_if requires"
-)]
-fn is_false(value: &bool) -> bool {
-    !*value
 }
 
 /// What one Claude Code run used, from the `result` event of its `stream-json` output.
