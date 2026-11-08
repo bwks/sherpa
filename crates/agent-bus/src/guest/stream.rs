@@ -107,6 +107,18 @@ pub(super) fn usage_line(task: &str, kind: Kind, run: &Usage, so_far: &TaskUsage
     )
 }
 
+/// The guest log line for a priming run: the run that builds a base session. Its cost is counted
+/// in the task that triggered it, which is named here.
+pub(super) fn priming_line(task: &str, github: bool, session: &str, run: &Usage) -> String {
+    let variant = if github { "GitHub" } else { "no-GitHub" };
+    format!(
+        "Task {task}: priming run for the {variant} base session {session}, counted in the task: \
+         input {} output {} cache_creation {} cache_read {} turns {} api_equivalent_cost ${:.4} \
+         (not billed)",
+        run.input, run.output, run.cache_creation, run.cache_read, run.num_turns, run.cost_usd,
+    )
+}
+
 /// Whether Claude's last text is its result again, as progress shortens it.
 pub(super) fn repeats_result(last: &str, result: &str) -> bool {
     last == shorten(result.trim())
@@ -383,5 +395,20 @@ mod tests {
         assert_eq!(shorten("short"), "short");
         let long = "é".repeat(PROGRESS_CHARS + 5);
         assert_eq!(shorten(&long).chars().count(), PROGRESS_CHARS + 1);
+    }
+
+    #[test]
+    fn the_priming_line_is_marked_and_names_the_task_it_is_counted_in() {
+        let run = Usage {
+            cache_creation: 9148,
+            cost_usd: 0.038,
+            ..Usage::default()
+        };
+        let line = priming_line("t1", false, "base-1", &run);
+        assert!(line.contains("priming run"), "{line}");
+        assert!(line.contains("no-GitHub base session base-1"), "{line}");
+        assert!(line.contains("Task t1"), "{line}");
+        assert!(line.contains("cache_creation 9148"), "{line}");
+        assert!(priming_line("t1", true, "b", &run).contains("GitHub base"));
     }
 }

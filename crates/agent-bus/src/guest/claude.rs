@@ -14,6 +14,8 @@ use tokio::time::timeout;
 use crate::keys::SEED_VARIABLE;
 
 pub(super) const CLAUDE: &str = "claude";
+/// The model guests run Claude Code on unless told otherwise.
+pub const DEFAULT_MODEL: &str = "claude-opus-5-5";
 /// How long Claude Code's process group has to exit after SIGTERM before SIGKILL.
 const KILL_GRACE: Duration = Duration::from_secs(2);
 /// Removed from Claude Code's environment, so it can only use the subscription.
@@ -39,14 +41,21 @@ const RULES: &str = "You are a guest agent in a Sherpa lab VM. A host agent send
 a message bus; you do the work in this checkout and report back. Follow AGENTS.md. Do not add \
 dependencies. If you need a decision before you can go on, end your reply with one line starting \
 with `QUESTION:` and stop; the answer comes as your next message. Otherwise end with a short \
-summary of what you did and the results.";
+summary of what you did and the results. The git status in your context may be out of date; run \
+git status yourself when it matters.";
+/// What a base session is primed with. Nothing is done with the reply.
+pub(super) const PRIME_PROMPT: &str = "You are a guest agent. Tasks will follow, one per session. \
+Reply with exactly: ready.";
+/// The second priming turn, a resume of the base. Claude Code seems to rearrange its context
+/// after the first turn and settle after the second, so a fork should come after both.
+pub(super) const PRIME_CONFIRM: &str = "Confirm once more: reply with exactly: ready.";
 /// Added to the rules for a task without GitHub access.
 const RULES_NO_GITHUB: &str = " This task has no GitHub access. Do not commit, push, merge, open \
 pull requests or run gh.";
 /// Added to the rules for a task with GitHub access.
 const RULES_GITHUB: &str = " This task may use GitHub. Do only what the task asks. Commit \
-messages end with the Co-Authored-By line the task gives, and have no session links and no \
-\"Generated with\" footers. Never merge pull requests or delete anything; the user does that.";
+messages end with the Co-Authored-By line from your own attribution instructions, never one \
+copied from the task text, and have no session links and no \"Generated with\" footers. Never merge pull requests or delete anything; the user does that.";
 
 /// Claude Code's process group. Dropping it while armed kills everything in the group, so no
 /// path out of a run can leave Claude Code or the commands it started behind.
@@ -98,19 +107,58 @@ pub(super) async fn terminate(child: &mut Child, group: &mut Group) {
     group.disarm();
 }
 
-/// The Claude Code command for a task: its tool limits, its rules and its environment.
-pub(super) fn claude_command(program: &str, workdir: &Path, github: bool) -> Command {
-    let (disallowed, rules) = if github {
-        (GITHUB_DISALLOWED_TOOLS, format!("{RULES}{RULES_GITHUB}"))
+/// How a Claude Code run relates to the sessions before it.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum Launch {
+    /// A new session: a base session being primed, or a task whose fork failed.
+    Fresh,
+    /// A new task: a copy of the base session with this id, so the task text comes after the
+    /// base's cached prefix. The base itself is never resumed.
+    Fork(String),
+    /// An answer: the task's own session with this id.
+    Resume(String),
+}
+
+/// The rules Claude Code is given, with or without GitHub access.
+pub(super) fn rules(github: bool) -> String {
+    if github {
+        format!("{RULES}{RULES_GITHUB}")
     } else {
-        (DISALLOWED_TOOLS, format!("{RULES}{RULES_NO_GITHUB}"))
+        format!("{RULES}{RULES_NO_GITHUB}")
+    }
+}
+
+/// The Claude Code command for a run: its tool limits, its rules, its session and its environment.
+pub(super) fn claude_command(
+    program: &str,
+    workdir: &Path,
+    model: &str,
+    github: bool,
+    launch: &Launch,
+) -> Command {
+    let disallowed = if github {
+        GITHUB_DISALLOWED_TOOLS
+    } else {
+        DISALLOWED_TOOLS
     };
+    let rules = rules(github);
     let mut command = Command::new(program);
     command
         .args(["-p", "--output-format", "stream-json", "--verbose"])
+        .args(["--model", model])
         .arg("--dangerously-skip-permissions")
         .arg(format!("--disallowedTools={disallowed}"))
-        .args(["--append-system-prompt", &rules])
+        .args(["--append-system-prompt", &rules]);
+    match launch {
+        Launch::Fresh => {}
+        Launch::Fork(base) => {
+            command.args(["--resume", base, "--fork-session"]);
+        }
+        Launch::Resume(session) => {
+            command.args(["--resume", session]);
+        }
+    }
+    command
         .current_dir(workdir)
         // Its own process group, so a cancel reaches the commands it started too.
         .process_group(0)
@@ -131,6 +179,8 @@ pub(super) fn claude_command(program: &str, workdir: &Path, github: bool) -> Com
 mod tests {
     use super::*;
 
+    const MODEL: &str = "test-model";
+
     fn removed(command: &Command) -> Vec<String> {
         command
             .as_std()
@@ -150,7 +200,7 @@ mod tests {
 
     #[test]
     fn a_task_without_github_loses_the_tokens_and_keeps_the_full_deny_list() {
-        let command = claude_command(CLAUDE, Path::new("/work"), false);
+        let command = claude_command(CLAUDE, Path::new("/work"), MODEL, false, &Launch::Fresh);
         let removed = removed(&command);
         for variable in [
             "ANTHROPIC_API_KEY",
@@ -168,7 +218,7 @@ mod tests {
 
     #[test]
     fn a_task_with_github_keeps_the_tokens_and_a_narrower_deny_list() {
-        let command = claude_command(CLAUDE, Path::new("/work"), true);
+        let command = claude_command(CLAUDE, Path::new("/work"), MODEL, true, &Launch::Fresh);
         let removed = removed(&command);
         for variable in GITHUB_TOKEN_VARIABLES {
             assert!(!removed.iter().any(|name| name == variable), "{variable}");
@@ -178,7 +228,12 @@ mod tests {
         }
         let args = args(&command);
         assert!(args.contains(&format!("--disallowedTools={GITHUB_DISALLOWED_TOOLS}")));
-        assert!(args.iter().any(|arg| arg.contains("Co-Authored-By")));
+        let rules = args
+            .iter()
+            .find(|arg| arg.contains("Co-Authored-By"))
+            .unwrap();
+        assert!(rules.contains("from your own attribution instructions"));
+        assert!(rules.contains("never one copied from the task text"));
         for refused in [
             "gh pr merge",
             "gh api",
@@ -200,6 +255,72 @@ mod tests {
             "gh pr create",
         ] {
             assert!(!GITHUB_DISALLOWED_TOOLS.contains(allowed), "{allowed}");
+        }
+    }
+
+    fn launched(launch: &Launch) -> Vec<String> {
+        args(&claude_command(
+            CLAUDE,
+            Path::new("/work"),
+            MODEL,
+            false,
+            launch,
+        ))
+    }
+
+    #[test]
+    fn the_model_reaches_every_command_line() {
+        for launch in [
+            Launch::Fresh,
+            Launch::Fork("base-1".to_owned()),
+            Launch::Resume("task-1".to_owned()),
+        ] {
+            for github in [false, true] {
+                let args = args(&claude_command(
+                    CLAUDE,
+                    Path::new("/work"),
+                    MODEL,
+                    github,
+                    &launch,
+                ));
+                let at = args.iter().position(|arg| arg == "--model").unwrap();
+                assert_eq!(args[at + 1], MODEL);
+            }
+        }
+    }
+
+    #[test]
+    fn the_default_model_is_opus_5_5() {
+        assert_eq!(DEFAULT_MODEL, "claude-opus-5-5");
+    }
+
+    #[test]
+    fn a_fresh_run_and_a_base_have_no_session_arguments() {
+        let args = launched(&Launch::Fresh);
+        assert!(!args.iter().any(|arg| arg == "--resume"));
+        assert!(!args.iter().any(|arg| arg == "--fork-session"));
+    }
+
+    #[test]
+    fn a_new_task_forks_the_base_session() {
+        let args = launched(&Launch::Fork("base-1".to_owned()));
+        let at = args.iter().position(|arg| arg == "--resume").unwrap();
+        assert_eq!(args[at + 1], "base-1");
+        assert_eq!(args[at + 2], "--fork-session");
+    }
+
+    #[test]
+    fn an_answer_resumes_its_own_session_without_forking() {
+        let args = launched(&Launch::Resume("task-1".to_owned()));
+        let at = args.iter().position(|arg| arg == "--resume").unwrap();
+        assert_eq!(args[at + 1], "task-1");
+        assert!(!args.iter().any(|arg| arg == "--fork-session"));
+    }
+
+    #[test]
+    fn the_rules_tell_the_agent_its_git_status_may_be_old() {
+        for github in [false, true] {
+            assert!(rules(github).contains("run git status yourself"));
         }
     }
 }

@@ -145,6 +145,9 @@ enum Command {
         /// The directory Claude Code works in
         #[arg(long)]
         workdir: PathBuf,
+        /// The model Claude Code runs on
+        #[arg(long, default_value = guest::DEFAULT_MODEL)]
+        model: String,
     },
 }
 
@@ -267,9 +270,10 @@ async fn main() -> Result<()> {
             name,
             reply_to,
             workdir,
+            model,
         } => {
             let channel = Channel::connect(&server, &seed_from_environment()?).await?;
-            guest::run(&channel, &name, &reply_to, &workdir).await
+            guest::run(&channel, &name, &reply_to, &workdir, &model).await
         }
     }
 }

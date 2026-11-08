@@ -4,6 +4,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::path::Path;
+use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -12,10 +13,13 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::sync::watch;
 use tokio::try_join;
 
-use super::claude::{CLAUDE, Group, claude_command, terminate};
+use super::base::{Base, Inputs};
+use super::claude::{
+    CLAUDE, Group, Launch, PRIME_CONFIRM, PRIME_PROMPT, claude_command, rules, terminate,
+};
 use super::engine::{Control, Session, canceled_text, classify, task_github};
 use super::record::ResultLog;
-use super::stream::{Update, interpret, outcome, repeats_result, usage_line};
+use super::stream::{Update, interpret, outcome, priming_line, repeats_result, usage_line};
 use crate::channel::{Channel, Inbox};
 use crate::message::{Kind, Message, TaskUsage, Usage, api_time_of_run, check_agent_name};
 
@@ -36,6 +40,13 @@ enum Finish {
     Canceled,
     /// The guest agent is shutting down.
     Stopped,
+}
+
+/// How one attempt at a task ended.
+enum Attempt {
+    Done(Finish),
+    /// Forking the base session failed, before the task did anything: the reason.
+    ForkFailed(String),
 }
 
 /// One event while a task runs: Claude's output, the inbox, or the shutdown.
@@ -74,10 +85,19 @@ struct RunState {
     finished: Option<Finished>,
 }
 
+/// Where and how Claude Code runs.
+#[derive(Clone, Copy)]
+struct Setup<'a> {
+    program: &'a str,
+    workdir: &'a Path,
+    model: &'a str,
+}
+
 /// The guest agent's state: the tasks waiting, and the Claude sessions of tasks so far.
 struct Engine<'a> {
     program: &'a str,
     workdir: &'a Path,
+    model: &'a str,
     name: &'a str,
     reply_to: &'a str,
     incoming: UnboundedReceiver<Message>,
@@ -85,6 +105,8 @@ struct Engine<'a> {
     stop: watch::Receiver<bool>,
     queue: VecDeque<Message>,
     sessions: HashMap<String, Session>,
+    /// The primed base session of each rules variant, by whether it allows GitHub.
+    bases: HashMap<bool, Base>,
     /// The runs so far of each task, for the record of result events.
     runs: HashMap<String, u32>,
     /// What each task has used, over the runs that sent a result event.
@@ -100,7 +122,13 @@ struct Engine<'a> {
 ///
 /// Fails when a name is invalid, the subscription token is not set, or the bus fails. A task
 /// that fails is reported to `reply_to` instead.
-pub async fn run(channel: &Channel, name: &str, reply_to: &str, workdir: &Path) -> Result<()> {
+pub async fn run(
+    channel: &Channel,
+    name: &str,
+    reply_to: &str,
+    workdir: &Path,
+    model: &str,
+) -> Result<()> {
     check_agent_name(name)?;
     check_agent_name(reply_to)?;
     ensure!(
@@ -114,8 +142,11 @@ pub async fn run(channel: &Channel, name: &str, reply_to: &str, workdir: &Path) 
     let (incoming_tx, incoming_rx) = unbounded_channel();
     let (outgoing_tx, outgoing_rx) = unbounded_channel();
     let engine = Engine::new(
-        CLAUDE,
-        workdir,
+        Setup {
+            program: CLAUDE,
+            workdir,
+            model,
+        },
         name,
         reply_to,
         incoming_rx,
@@ -203,8 +234,7 @@ impl Reply {
 
 impl<'a> Engine<'a> {
     fn new(
-        program: &'a str,
-        workdir: &'a Path,
+        setup: Setup<'a>,
         name: &'a str,
         reply_to: &'a str,
         incoming: UnboundedReceiver<Message>,
@@ -212,8 +242,9 @@ impl<'a> Engine<'a> {
         stop: watch::Receiver<bool>,
     ) -> Self {
         Self {
-            program,
-            workdir,
+            program: setup.program,
+            workdir: setup.workdir,
+            model: setup.model,
             name,
             reply_to,
             incoming,
@@ -221,6 +252,7 @@ impl<'a> Engine<'a> {
             stop,
             queue: VecDeque::new(),
             sessions: HashMap::new(),
+            bases: HashMap::new(),
             runs: HashMap::new(),
             totals: HashMap::new(),
             results: ResultLog::standard(),
@@ -394,25 +426,139 @@ impl<'a> Engine<'a> {
         Ok(())
     }
 
-    /// Run Claude Code on one task or answer, forwarding its progress and its outcome. Messages
-    /// that arrive meanwhile are queued, or cancel the task.
-    async fn work(&mut self, message: &Message) -> Result<Finish> {
-        let reply = self.reply(&message.task);
-        let known = self.sessions.get(&message.task);
-        let github = task_github(message, known);
-        let mut command = claude_command(self.program, self.workdir, github);
-        match (known, message.kind) {
-            (Some(session), _) => {
-                command.args(["--resume", &session.id]);
+    /// The launch for a new task: a fork of the base session for its rules, primed first when
+    /// there is none or it is out of date. When priming fails the task gets a fresh session.
+    async fn fork_of_base(&mut self, github: bool, task: &str) -> Launch {
+        let inputs = Inputs::current(self.workdir, &rules(github), self.model).await;
+        let now = Instant::now();
+        if let Some(base) = self.bases.get_mut(&github)
+            && !base.needs_rebuild(&inputs, now)
+        {
+            base.touch(now);
+            return Launch::Fork(base.session.clone());
+        }
+        self.bases.remove(&github);
+        match self.prime(github, task).await {
+            Ok(session) => {
+                self.bases
+                    .insert(github, Base::new(session.clone(), inputs, Instant::now()));
+                Launch::Fork(session)
             }
+            Err(error) => {
+                eprintln!(
+                    "Unable to prime a base session: {error:#}: task {task} runs in a fresh session"
+                );
+                Launch::Fresh
+            }
+        }
+    }
+
+    /// Make a base session with two turns: the priming prompt in a new session, then a resume of
+    /// that session. Both runs are counted in the totals of `task`, the task that needed them.
+    async fn prime(&mut self, github: bool, task: &str) -> Result<String> {
+        let session = self
+            .priming_run(github, task, &Launch::Fresh, PRIME_PROMPT)
+            .await?;
+        self.priming_run(github, task, &Launch::Resume(session), PRIME_CONFIRM)
+            .await
+    }
+
+    /// One priming run of Claude Code with `prompt`. Returns the session it ended in.
+    async fn priming_run(
+        &mut self,
+        github: bool,
+        task: &str,
+        launch: &Launch,
+        prompt: &str,
+    ) -> Result<String> {
+        let mut command = claude_command(self.program, self.workdir, self.model, github, launch);
+        let mut child = command.spawn().context("Unable to start Claude Code")?;
+        let mut group = Group::new(child.id());
+        let mut stdin = child.stdin.take().context("Claude Code has no input")?;
+        stdin
+            .write_all(prompt.as_bytes())
+            .await
+            .context("Unable to give Claude Code the priming prompt")?;
+        drop(stdin);
+        let stdout = child.stdout.take().context("Claude Code has no output")?;
+        let mut lines = BufReader::new(stdout).lines();
+        let mut finished = None;
+        loop {
+            let line = tokio::select! {
+                line = lines.next_line() => line.context("Unable to read Claude Code's output")?,
+                () = stopped(&mut self.stop) => {
+                    terminate(&mut child, &mut group).await;
+                    bail!("The guest agent is stopping");
+                }
+            };
+            let Some(line) = line else {
+                break;
+            };
+            // Run 0 in the record: the priming runs come before the task's first.
+            self.record(task, 0, &line);
+            for update in interpret(&line) {
+                if let Update::Finished {
+                    session,
+                    text,
+                    failed,
+                    usage,
+                } = update
+                {
+                    finished = Some((session, text, failed, usage));
+                }
+            }
+        }
+        let status = child.wait().await.context("Claude Code did not exit")?;
+        group.disarm();
+        let (session, text, failed, mut usage) =
+            finished.with_context(|| format!("Claude Code exited ({status}) without a result"))?;
+        self.count(task, &session, &mut usage);
+        eprintln!("{}", priming_line(task, github, &session, &usage));
+        ensure!(!failed, "The priming run failed: {text}");
+        Ok(session)
+    }
+
+    /// Run Claude Code on one task or answer, forwarding its progress and its outcome. A new
+    /// task forks the base session; if that fails it runs in a fresh session instead.
+    async fn work(&mut self, message: &Message) -> Result<Finish> {
+        let known = self.sessions.get(&message.task).cloned();
+        let github = task_github(message, known.as_ref());
+        let launch = match (known, message.kind) {
+            (Some(session), _) => Launch::Resume(session.id),
             (None, Kind::Answer) => {
                 bail!(
                     "No session for task {}: an answer must follow a question",
                     message.task
                 )
             }
-            (None, _) => {}
+            (None, _) => self.fork_of_base(github, &message.task).await,
+        };
+        match self.attempt(message, github, &launch).await? {
+            Attempt::Done(finish) => Ok(finish),
+            Attempt::ForkFailed(reason) => {
+                eprintln!(
+                    "Unable to fork the base session for task {}: {reason}: running it in a fresh session",
+                    message.task
+                );
+                self.bases.remove(&github);
+                match self.attempt(message, github, &Launch::Fresh).await? {
+                    Attempt::Done(finish) => Ok(finish),
+                    Attempt::ForkFailed(reason) => bail!(reason),
+                }
+            }
         }
+    }
+
+    /// One run of Claude Code for a task. Messages that arrive meanwhile are queued, or cancel
+    /// the task.
+    async fn attempt(
+        &mut self,
+        message: &Message,
+        github: bool,
+        launch: &Launch,
+    ) -> Result<Attempt> {
+        let reply = self.reply(&message.task);
+        let mut command = claude_command(self.program, self.workdir, self.model, github, launch);
         let run_number = {
             let runs = self.runs.entry(message.task.clone()).or_insert(0);
             *runs = runs.saturating_add(1);
@@ -459,7 +605,7 @@ impl<'a> Engine<'a> {
                             run.finished
                                 .map(|finished| (finished.usage, finished.task_usage)),
                         )?;
-                        return Ok(Finish::Canceled);
+                        return Ok(Attempt::Done(Finish::Canceled));
                     }
                     continue;
                 }
@@ -471,7 +617,7 @@ impl<'a> Engine<'a> {
                         run.finished
                             .map(|finished| (finished.usage, finished.task_usage)),
                     )?;
-                    return Ok(Finish::Stopped);
+                    return Ok(Attempt::Done(Finish::Stopped));
                 }
             };
             self.record(&message.task, run_number, &line);
@@ -481,6 +627,19 @@ impl<'a> Engine<'a> {
         }
         let status = child.wait().await.context("Claude Code did not exit")?;
         group.disarm();
+        // A fork that fails leaves no turn behind: the task can still run in a fresh session.
+        if matches!(launch, Launch::Fork(_))
+            && run
+                .finished
+                .as_ref()
+                .is_none_or(|finished| finished.failed && finished.usage.num_turns == 0)
+        {
+            let reason = run.finished.map_or_else(
+                || format!("Claude Code exited ({status}) without a result"),
+                |finished| finished.text,
+            );
+            return Ok(Attempt::ForkFailed(reason));
+        }
         let finished = run
             .finished
             .with_context(|| format!("Claude Code exited ({status}) without a result"))?;
@@ -494,7 +653,7 @@ impl<'a> Engine<'a> {
             finished.text,
             Some((finished.usage, finished.task_usage)),
         )?;
-        Ok(Finish::Done)
+        Ok(Attempt::Done(Finish::Done))
     }
 }
 
@@ -519,12 +678,65 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_priming_run_is_counted_in_the_task_that_needed_it() {
+        let (_input, incoming) = unbounded_channel();
+        let (outgoing, _output) = unbounded_channel();
+        let (_stop, stop_rx) = watch::channel(false);
+        let setup = Setup {
+            program: CLAUDE,
+            workdir: Path::new("/work"),
+            model: "test-model",
+        };
+        let mut engine = Engine::new(setup, "dev", "host", incoming, outgoing, stop_rx);
+        // The priming runs, in the base session; then the task's own run in its fork.
+        let mut priming = Usage {
+            cache_creation: 9148,
+            cost_usd: 0.038,
+            duration_api_ms: 1500,
+            ..Usage::default()
+        };
+        engine.count("t1", "base", &mut priming);
+        let mut confirm = Usage {
+            cache_read: 18775,
+            cost_usd: 0.017,
+            duration_api_ms: 1000,
+            ..Usage::default()
+        };
+        engine.count("t1", "base", &mut confirm);
+        let mut task_run = Usage {
+            cache_read: 22361,
+            cost_usd: 0.002,
+            duration_api_ms: 900,
+            ..Usage::default()
+        };
+        let total = engine.count("t1", "fork", &mut task_run);
+        assert_eq!(total.runs, 3);
+        assert_eq!(total.cache_creation, 9148);
+        assert_eq!(total.cache_read, 18775 + 22361);
+        assert!((total.cost_usd - 0.057).abs() < 1e-9);
+        // The fork is another session: its API time is not reduced by the base's.
+        assert_eq!(task_run.duration_api_ms, 900);
+        assert_eq!(total.duration_api_ms, 3400);
+        // Another task is not charged for it.
+        let mut other = Usage::default();
+        assert_eq!(engine.count("t2", "fork-2", &mut other).runs, 1);
+    }
+
     // ---- integration: a fake claude, real processes and signals ----
 
     /// A stand-in for `claude`: prints stream-json, and for a prompt starting `hang` starts
     /// `sleep 300` and waits, writing the pids of both to files named after the prompt.
     const FAKE_CLAUDE: &str = r#"#!/bin/bash
 read -r prompt
+echo "$*" >> args.log
+case "$*" in
+*--fork-session*)
+    case "$prompt" in
+    nofork*) exit 1 ;;
+    esac
+    ;;
+esac
 echo '{"type":"system","subtype":"init","session_id":"sess-1"}'
 case "$prompt" in
 tool*)
@@ -572,8 +784,12 @@ esac
             let work = dir.clone();
             let program = program.to_string_lossy().into_owned();
             let done = tokio::spawn(async move {
-                let mut engine =
-                    Engine::new(&program, &work, "dev", "host", incoming, outgoing, stop_rx);
+                let setup = Setup {
+                    program: &program,
+                    workdir: &work,
+                    model: "test-model",
+                };
+                let mut engine = Engine::new(setup, "dev", "host", incoming, outgoing, stop_rx);
                 engine.results = Some(ResultLog::new(work.join("results.jsonl")));
                 engine.serve().await
             });
@@ -681,8 +897,12 @@ esac
         // Each result event is recorded with its task and run: t1's answer is its second run.
         let record = std::fs::read_to_string(harness.dir.join("results.jsonl")).unwrap();
         let lines: Vec<&str> = record.lines().collect();
-        assert_eq!(lines.len(), 2, "{record}");
-        assert!(lines[1].contains(r#""task":"t1""#) && lines[1].contains(r#""run":2"#));
+        assert_eq!(lines.len(), 4, "{record}");
+        // The first two are the priming runs, which t1 triggered: run 0.
+        for line in &lines[..2] {
+            assert!(line.contains(r#""task":"t1""#) && line.contains(r#""run":0"#));
+        }
+        assert!(lines[3].contains(r#""task":"t1""#) && lines[3].contains(r#""run":2"#));
 
         // A task that is neither running nor queued.
         harness.send(Kind::Cancel, "nope", "");
@@ -735,5 +955,67 @@ esac
             "{}",
             reply.text
         );
+    }
+
+    /// The arguments each fake claude run was started with, one line per run.
+    fn started_with(harness: &Harness) -> Vec<String> {
+        std::fs::read_to_string(harness.dir.join("args.log"))
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[tokio::test]
+    #[ignore = "starts real processes; run with -- --ignored"]
+    async fn tasks_fork_a_primed_base_and_answers_resume_their_own_session() {
+        let mut harness = Harness::start("fork");
+        harness.send(Kind::Task, "t1", "plain-a");
+        assert_eq!(harness.outcome().await.kind, Kind::Completed);
+        harness.send(Kind::Task, "t2", "plain-b");
+        let second = harness.outcome().await;
+        assert_eq!((second.kind, second.task.as_str()), (Kind::Completed, "t2"));
+        harness.send(Kind::Answer, "t1", "go on");
+        assert_eq!(harness.outcome().await.kind, Kind::Completed);
+
+        let runs = started_with(&harness);
+        assert_eq!(runs.len(), 5, "{runs:?}");
+        // Priming: a fresh session, then a resume of it. Then each task forks that base.
+        assert!(!runs[0].contains("--resume"), "{}", runs[0]);
+        assert!(runs[1].contains("--resume sess-1"), "{}", runs[1]);
+        assert!(!runs[1].contains("--fork-session"), "{}", runs[1]);
+        for fork in &runs[2..4] {
+            assert!(fork.contains("--resume sess-1 --fork-session"), "{fork}");
+        }
+        // The answer resumes the task's session, without forking.
+        assert!(runs[4].contains("--resume sess-1"), "{}", runs[4]);
+        assert!(!runs[4].contains("--fork-session"), "{}", runs[4]);
+
+        // The priming runs are in the first task's totals, and the second task is not charged.
+        assert_eq!(harness_runs(&second), 1);
+    }
+
+    fn harness_runs(message: &Message) -> u64 {
+        message.task_usage.as_ref().map_or(0, |usage| usage.runs)
+    }
+
+    #[tokio::test]
+    #[ignore = "starts real processes; run with -- --ignored"]
+    async fn a_failed_fork_runs_the_task_in_a_fresh_session() {
+        let mut harness = Harness::start("forkfail");
+        harness.send(Kind::Task, "t1", "nofork-a");
+        let reply = harness.outcome().await;
+        assert_eq!((reply.kind, reply.task.as_str()), (Kind::Completed, "t1"));
+        let runs = started_with(&harness);
+        assert_eq!(runs.len(), 4, "{runs:?}");
+        assert!(runs[2].contains("--fork-session"), "{}", runs[2]);
+        assert!(!runs[3].contains("--resume"), "{}", runs[3]);
+        // The base was dropped, so the next task primes a new one.
+        harness.send(Kind::Task, "t2", "plain-b");
+        assert_eq!(harness.outcome().await.kind, Kind::Completed);
+        let runs = started_with(&harness);
+        assert!(!runs[4].contains("--resume"), "{}", runs[4]);
+        assert!(runs[5].contains("--resume sess-1"), "{}", runs[5]);
+        assert!(runs[6].contains("--fork-session"), "{}", runs[6]);
     }
 }

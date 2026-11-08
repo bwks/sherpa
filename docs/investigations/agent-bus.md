@@ -213,6 +213,50 @@ go to the same API), so nothing was widened; a guest cannot do it. An ordered (p
 would have needed `$JS.FC` publish rights for flow control, which is why a pull consumer is used.
 The task's figures are the `task_usage` of its last message that carried one.
 
+## Prompt cache
+
+Measured (Claude Code 2.1.319): a new session's first request is byte-identical across sessions
+except `metadata`. Claude Code's last cache breakpoint is at the end of the `# Environment`
+block, which comes **after** the task text in the first user message. So every new task text is a
+new prefix, and about 9.2k tokens are written again. Proof: two tasks with exactly the same text.
+The first wrote 9,148 tokens and read 13,213 ($0.0380); the second wrote 0 and read 22,361
+($0.0023).
+
+Design: each new task is forked from a primed base session, so the task text comes after a
+prefix that is already cached.
+
+- **Base sessions.** The guest primes one with two turns, run the way tasks run: a fixed prompt
+  ("You are a guest agent. Tasks will follow, one per session. Reply with exactly: ready."), then
+  a resume of that session with "Confirm once more: reply with exactly: ready." There is one base
+  per rules variant, GitHub and no-GitHub, because a fork keeps its base's system prompt
+  (`--system-prompt-snapshot`). A base is primed lazily, on the first task that needs it.
+- **Why two turns.** Measured live with one priming turn: a fork wrote about 3,770 tokens and
+  read 18,775 ($0.0170, against $0.038 for a fresh session). That matches the second turn of any
+  session: the first answer of task 562a9215 wrote 3,777, and its third turn wrote only 37.
+  Claude Code seems to rearrange its context blocks after the first turn and settle after the
+  second. So the base gets a second turn, and a fork is then a third. The third-turn saving
+  (a fork writing about 37 tokens) is still to be confirmed.
+- **Tasks** start with `--resume <base> --fork-session` and the task text as the new message.
+  Answers resume the task's own forked session, as before. A base is never resumed directly.
+- **Rebuilds.** A base is built again when its inputs change: the rules text, the hash of
+  `AGENTS.md`, the git branch, `HEAD`, and the date (UTC day); or when it has been unused for 55
+  minutes, so the 1 hour cache TTL has not run out. Each fork uses the cached prefix and so
+  counts as a use. A stale base that slips through costs one cache write.
+- **Stale context.** The base's git status is from when it was primed, so the rules say: "The git
+  status in your context may be out of date; run git status yourself when it matters."
+- **Accounting.** Both priming runs' usage is added to the `task_usage` of the task that triggered
+  it (so `runs` counts them), and the guest log marks each with a "priming run" line. The record
+  of result events keeps them as run 0 of that task. Whether a fork's `duration_api_ms` starts from
+  its base's total is not measured; the run's API time is taken as reported, since a fork is a
+  different session.
+- **Fallback.** If the fork fails (no result, or a failed result with no turns, for example a
+  missing base session) or the priming fails, the guest logs it, drops the base and runs the task
+  in a fresh session, as before.
+
+The tests are unit tests for the rebuild rules, the command lines and the priming accounting,
+and ignored tests with a fake `claude` (`cargo test -p agent-bus -- --ignored`) for the fork,
+the answer and the fallback. The saving itself needs a real Claude Code run to confirm.
+
 ## Running it
 
 On the host, with the dev lab up:
@@ -230,6 +274,12 @@ On the host, with the dev lab up:
    stdin, the Claude token and then the guest's seed (sent over SSH stdin, never as an argument), builds the binary and starts the agent in
    the background; its log is `~/agent-bus-dev.log`. From the host, pipe both to it over the
    lab's SSH config.
+
+   Guests run Claude Code on `claude-opus-5-5`, the default of `agent-bus guest --model <id>`.
+   To use another model, set `AGENT_BUS_MODEL=<id>` for `start-guest.sh`, or pass `--model`. The
+   model is one of a base session's inputs, so a different model gets its own base and never
+   forks one primed on another model. Guests sign commits with the Co-Authored-By line from
+   their own attribution instructions, never one copied from the task text.
 5. Listen for replies with `agent-bus listen host`, and send tasks with `agent-bus send`, both
    with `AGENT_BUS_SEED` set to the host's seed, as above. No address is needed: `send`,
    `listen` and `cancel` find the bus in this order, and stop at the first that is set:

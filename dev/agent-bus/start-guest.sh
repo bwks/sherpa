@@ -6,6 +6,7 @@
 # The bus runs on the host at the guest's default gateway, the lab's management bridge.
 #
 #   start-guest.sh [name]      # name defaults to dev
+#   AGENT_BUS_MODEL=<id>       # optional: the Claude model, default the binary's own
 set -euo pipefail
 
 NAME="${1:-dev}"
@@ -21,13 +22,17 @@ unset ANTHROPIC_API_KEY
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GATEWAY="$(ip -4 route show default | awk '{print $3; exit}')"
+MODEL_ARGS=()
+if [ -n "${AGENT_BUS_MODEL:-}" ]; then
+    MODEL_ARGS=(--model "${AGENT_BUS_MODEL}")
+fi
 LOG="${HOME}/agent-bus-${NAME}.log"
 
 cd "${REPO}"
 cargo build --release --quiet -p agent-bus
 pkill -f "[a]gent-bus guest .*--name ${NAME} " || true
 AGENT_BUS_SEED="${SEED}" nohup target/release/agent-bus guest --server "nats://${GATEWAY}:4222" --name "${NAME}" \
-    --workdir "${REPO}" > "${LOG}" 2>&1 < /dev/null &
+    --workdir "${REPO}" "${MODEL_ARGS[@]}" > "${LOG}" 2>&1 < /dev/null &
 unset SEED
 sleep 2
 if pgrep -f "[a]gent-bus guest .*--name ${NAME} " > /dev/null; then
