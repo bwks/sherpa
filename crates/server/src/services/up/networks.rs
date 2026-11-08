@@ -214,11 +214,20 @@ pub(super) async fn reserve_lab_networks(
     lab_name: &str,
     lab_id: &str,
     user: &data::DbUser,
-    origin: &db::LabOrigin,
+    details: &db::LabDetails,
 ) -> Result<(data::DbLab, LabSubnets)> {
     for attempt in 1..=LAB_SUBNET_ALLOCATION_ATTEMPTS {
         let networks = allocate_lab_networks(db, config).await?;
-        match db::create_lab(db, lab_name, lab_id, user, &lab_networks(&networks), origin).await {
+        match db::create_lab(
+            db,
+            lab_name,
+            lab_id,
+            user,
+            &lab_networks(&networks),
+            details,
+        )
+        .await
+        {
             Ok(lab) => {
                 tracing::info!(
                     lab_id = %lab_id,

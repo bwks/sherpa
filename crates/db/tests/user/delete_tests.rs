@@ -1,6 +1,6 @@
 /// DELETE operation tests for user
 use anyhow::Result;
-use db::{LabOrigin, create_lab, create_user, delete_lab, delete_user, get_user, list_users};
+use db::{LabDetails, create_lab, create_user, delete_lab, delete_user, get_user, list_users};
 use shared::data::RecordId;
 
 use crate::{ipv4_lab_networks, setup_db};
@@ -80,7 +80,7 @@ async fn test_delete_user_with_labs_is_rejected() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -114,7 +114,7 @@ async fn test_delete_user_with_multiple_labs_is_rejected() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     create_lab(
@@ -128,7 +128,7 @@ async fn test_delete_user_with_multiple_labs_is_rejected() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     create_lab(
@@ -142,7 +142,7 @@ async fn test_delete_user_with_multiple_labs_is_rejected() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -172,7 +172,7 @@ async fn test_delete_user_with_labs_needs_manual_cleanup() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 

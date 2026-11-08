@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{
-    LabNetworks, LabOrigin, count_labs_by_user, create_lab, create_user, find_lab, get_lab,
+    LabDetails, LabNetworks, count_labs_by_user, create_lab, create_user, find_lab, get_lab,
     get_used_ipv6_loopback_networks, get_used_ipv6_management_networks, get_used_loopback_networks,
     get_used_management_networks, list_labs, list_labs_by_user,
 };
@@ -23,7 +23,7 @@ async fn test_get_lab_by_lab_id() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -64,7 +64,7 @@ async fn test_list_labs() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     create_lab(
@@ -78,7 +78,7 @@ async fn test_list_labs() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     create_lab(
@@ -92,7 +92,7 @@ async fn test_list_labs() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -132,7 +132,7 @@ async fn test_list_labs_by_user() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     create_lab(
@@ -146,7 +146,7 @@ async fn test_list_labs_by_user() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     create_lab(
@@ -160,7 +160,7 @@ async fn test_list_labs_by_user() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -190,7 +190,7 @@ async fn test_list_labs_returns_all_fields() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -225,7 +225,7 @@ async fn test_count_labs_by_user() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     create_lab(
@@ -239,7 +239,7 @@ async fn test_count_labs_by_user() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     create_lab(
@@ -253,7 +253,7 @@ async fn test_count_labs_by_user() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     create_lab(
@@ -267,7 +267,7 @@ async fn test_count_labs_by_user() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -302,7 +302,7 @@ async fn test_get_used_management_networks() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     create_lab(
@@ -316,7 +316,7 @@ async fn test_get_used_management_networks() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -347,7 +347,7 @@ async fn find_lab_returns_none_for_a_missing_lab() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -380,7 +380,7 @@ async fn every_network_a_lab_holds_is_reported_as_used() -> Result<()> {
         "nets0009",
         &user,
         &networks,
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 

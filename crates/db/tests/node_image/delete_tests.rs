@@ -1,7 +1,7 @@
 /// DELETE operation tests for `node_image`
 use anyhow::Result;
 use db::{
-    LabOrigin, count_node_images, create_lab, create_user, delete_node_image,
+    LabDetails, count_node_images, create_lab, create_user, delete_node_image,
     find_node_image_by_id, upsert_node_image,
 };
 use shared::data::{NodeModel, RecordId};
@@ -110,7 +110,7 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
 

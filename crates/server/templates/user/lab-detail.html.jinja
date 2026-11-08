@@ -28,6 +28,9 @@
             </a>
         {% endmatch %}
     </div>
+    {% if let Some(description) = lab_info.description %}
+    <p class="mb-4 text-sm text-body whitespace-pre-line break-words">{{ description }}</p>
+    {% endif %}
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">Name</span>

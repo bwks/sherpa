@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{
-    LabOrigin, create_lab, create_node, create_user, get_node, list_pinned_nodes, list_vnc_ports,
+    LabDetails, create_lab, create_node, create_user, get_node, list_pinned_nodes, list_vnc_ports,
     update_node_host_key, update_node_mgmt_ipv4, update_node_mgmt_ipv6, update_node_mgmt_mac,
     update_node_resources, update_node_state, upsert_node_image,
 };
@@ -21,7 +21,7 @@ async fn lab_with_nodes(db: &db::Database, count: u16) -> Result<Vec<shared::dat
             "172.31.1.1",
             "172.31.1.2",
         ),
-        &LabOrigin::default(),
+        &LabDetails::default(),
     )
     .await?;
     let image = upsert_node_image(db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;

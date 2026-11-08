@@ -227,6 +227,7 @@ pub(crate) fn lab_from_row(row: &Row) -> Result<DbLab> {
         status: cells.enumeration("status")?,
         client_host: cells.optional_text("client_host")?,
         client_folder: cells.optional_text("client_folder")?,
+        description: cells.optional_text("description")?,
     })
 }
 
@@ -249,6 +250,7 @@ pub(crate) fn lab_values(lab: &DbLab, key: &str) -> Result<Vec<Value>> {
         enum_text(&lab.status, "status")?.into(),
         lab.client_host.as_deref().into(),
         lab.client_folder.as_deref().into(),
+        lab.description.as_deref().into(),
     ])
 }
 

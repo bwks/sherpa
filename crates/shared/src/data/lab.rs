@@ -93,6 +93,9 @@ pub struct LabInfo {
     #[serde(default)]
     #[schemars(with = "Option<String>")]
     pub ipv6_router: Option<Ipv6Addr>,
+    /// The lab's description, from its manifest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// The hostname of the machine `sherpa up` ran on. Labs started from the web UI or the API
     /// have none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -269,6 +272,9 @@ pub struct LabSummary {
     pub id: String,
     /// Human-readable lab name
     pub name: String,
+    /// The lab's description, from its manifest
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// Number of nodes in the lab
     pub node_count: usize,
     /// Current status of the lab
@@ -303,6 +309,7 @@ mod tests {
             ipv6_network: None,
             ipv6_gateway: None,
             ipv6_router: None,
+            description: Some("Practice BGP.\nTwo routers.".to_string()),
             client_host: Some("dev01".to_string()),
             client_folder: Some("/home/alice/labs/core".to_string()),
         }

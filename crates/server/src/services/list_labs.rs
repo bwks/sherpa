@@ -61,6 +61,7 @@ pub async fn list_labs(
         lab_summaries.push(LabSummary {
             id: lab.lab_id.clone(),
             name: lab.name.clone(),
+            description: lab.description.clone(),
             node_count,
             status: lab.status,
         });

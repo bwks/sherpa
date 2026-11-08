@@ -337,6 +337,9 @@ pub fn render_lab_info_table(lab_info: &LabInfo) -> String {
         ("IPv4 Router", lab_info.ipv4_router.to_string()),
         ("Loopback Network", lab_info.loopback_network.to_string()),
     ];
+    if let Some(description) = &lab_info.description {
+        rows.insert(2, ("Description", description.clone()));
+    }
     let optional = [
         (
             "IPv6 Management Network",
@@ -956,6 +959,7 @@ mod tests {
             ipv6_network: None,
             ipv6_gateway: None,
             ipv6_router: None,
+            description: None,
             client_host: None,
             client_folder: None,
         };
@@ -1000,12 +1004,18 @@ mod tests {
             ipv6_network: None,
             ipv6_gateway: None,
             ipv6_router: None,
+            description: Some("Practice BGP between two routers.".to_string()),
             client_host: Some("dev01".to_string()),
             client_folder: Some("/home/alice/labs/core".to_string()),
         };
 
         let table = render_lab_info_table(&lab_info);
 
+        assert!(table.contains("Description"), "{table}");
+        assert!(
+            table.contains("Practice BGP between two routers."),
+            "{table}"
+        );
         assert!(table.contains("Client Host"), "{table}");
         assert!(table.contains("dev01"), "{table}");
         assert!(table.contains("Client Folder"), "{table}");

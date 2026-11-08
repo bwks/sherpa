@@ -269,6 +269,7 @@ pub struct AdminLabsTemplate {
 pub struct AdminLabSummary {
     pub lab_id: String,
     pub name: String,
+    pub description: Option<String>,
     pub owner_username: String,
     pub node_count: usize,
 }
@@ -773,6 +774,7 @@ mod tests {
             labs: vec![LabSummary {
                 id: "a10736e8".to_string(),
                 name: "test-lab".to_string(),
+                description: Some("Practice <BGP> routing".to_string()),
                 status: LabState::Unknown,
                 node_count: 2,
             }],
@@ -780,6 +782,8 @@ mod tests {
         let html = tpl.render().expect("template should render");
         assert!(html.contains("test-lab"));
         assert!(html.contains("a10736e8"));
+        // Shown under the name, escaped.
+        assert!(html.contains("Practice &#60;BGP&#62; routing"), "{html}");
     }
 
     #[test]
@@ -867,12 +871,14 @@ mod tests {
             labs: vec![AdminLabSummary {
                 lab_id: "abc12345".to_string(),
                 name: "my-lab".to_string(),
+                description: Some("Practice BGP routing".to_string()),
                 owner_username: "alice".to_string(),
                 node_count: 3,
             }],
         };
         let html = tpl.render().expect("template should render");
         assert!(html.contains("my-lab"));
+        assert!(html.contains("Practice BGP routing"));
         assert!(html.contains("abc12345"));
         assert!(html.contains("alice"));
     }

@@ -121,6 +121,7 @@ pub async fn admin_labs_list_handler(
         lab_summaries.push(crate::templates::AdminLabSummary {
             lab_id: lab.lab_id,
             name: lab.name,
+            description: lab.description,
             owner_username,
             node_count,
         });
