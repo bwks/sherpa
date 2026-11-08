@@ -9,7 +9,7 @@ are the Jato library (`bwks/jato-lib`) with its `terminal` feature, so the clien
 ## Connecting
 
 `cmd::ssh::ssh` first runs the existing checks: the node is in the manifest, the lab files
-exist, the alias is in `sherpa_ssh_config`, and the shared key has safe permissions. Then:
+exist, the alias is in `sherpa_ssh_config`, and the lab's `sherpa_ssh_key` has safe permissions. Then:
 
 1. `jato::SshConfig::load_file("sherpa_ssh_config")` reads the lab's configuration, as
    `ssh -F` does, and `route(alias)` resolves the node and its `ProxyJump` to the Sherpa

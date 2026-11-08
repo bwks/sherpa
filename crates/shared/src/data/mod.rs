@@ -71,8 +71,8 @@ pub use interface::{
 };
 pub use lab::{
     BridgeInterface, InterfaceData, InterfaceState, LabIdentity, LabInfo, LabIsolatedNetwork,
-    LabLinkData, LabNodeData, LabReservedNetwork, LabState, LabSummary, ListLabsResponse,
-    NodeInterface, NodeSetupData, NodeSshUsername, PeerInterface, PeerSide,
+    LabLinkData, LabNodeData, LabReservedNetwork, LabSshKey, LabState, LabSummary,
+    ListLabsResponse, NodeInterface, NodeSetupData, NodeSshUsername, PeerInterface, PeerSide,
 };
 pub use mapping::{CloneDisk, NodeDisk, QemuCommand};
 pub use network::{BridgeKind, LabSubnets, NetworkV4, NetworkV6, SherpaNetwork};

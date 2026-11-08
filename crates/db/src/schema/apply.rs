@@ -79,10 +79,10 @@ pub async fn apply_schema(db: &Database) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use shared::data::{DiskBuses, NodeConfig, NodeModel, ZtpMethod};
+    use shared::data::{DiskBuses, LabSshKey, NodeConfig, NodeModel, ZtpMethod};
 
     use super::*;
-    use crate::{list_node_images, open_in_memory, upsert_node_image};
+    use crate::{find_lab, list_node_images, open_in_memory, upsert_node_image};
 
     async fn version(db: &Database) -> usize {
         let conn = db.reader().await.unwrap();
@@ -427,6 +427,37 @@ mod tests {
         .unwrap();
         assert_eq!(columns, 0);
         assert_eq!(list_node_images(&db).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn labs_created_before_lab_keys_keep_the_server_key() {
+        let db = open_in_memory().await.unwrap();
+        {
+            let writer = db.writer().await.unwrap();
+            for batch in TABLES.iter().chain(&migrations::ALL[..9]) {
+                writer.conn.execute_batch(batch).await.unwrap();
+            }
+            writer
+                .conn
+                .execute_batch(
+                    "PRAGMA user_version = 10;
+                     INSERT INTO user (id, username, password_hash, is_admin, ssh_keys,
+                         created_at, updated_at)
+                     VALUES ('u1', 'alice', 'x', 0, '[]', '2026-01-01T00:00:00Z',
+                         '2026-01-01T00:00:00Z');
+                     INSERT INTO lab (id, lab_id, name, user, loopback_network,
+                         management_network, gateway_ipv4, router_ipv4, status)
+                     VALUES ('l1', 'lab-0001', 'Old', 'u1', '127.127.1.0/24', '172.31.1.0/24',
+                         '172.31.1.1', '172.31.1.2', 'running');",
+                )
+                .await
+                .unwrap();
+        }
+
+        apply_schema(&db).await.unwrap();
+
+        let lab = find_lab(&db, "lab-0001").await.unwrap().unwrap();
+        assert_eq!(lab.ssh_key, LabSshKey::Server);
     }
 
     #[tokio::test]

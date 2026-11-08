@@ -844,6 +844,7 @@ mod tests {
     use shared::data::{SecretContent, SecretFile};
     use shared::konst::LAB_FILE_NAME;
 
+    use crate::services::lab_ssh_key::create_lab_ssh_key;
     use crate::services::node_secrets::write_node_secrets;
 
     /// A libvirt URI whose socket does not exist, so connecting always fails.
@@ -1254,5 +1255,30 @@ mod tests {
         .await;
         assert!(!database_deleted.load(Ordering::SeqCst));
         assert!(lab_dir.exists());
+    }
+
+    #[tokio::test]
+    async fn the_labs_ssh_key_is_deleted_with_the_lab_folder() {
+        let root = tempdir().unwrap();
+        let lab_dir = root.path().join("test1234");
+        fs::create_dir(&lab_dir).unwrap();
+        let key = create_lab_ssh_key(lab_dir.to_str().unwrap()).unwrap();
+        let mut summary = DestroySummary::default();
+        let mut errors = Vec::new();
+
+        cleanup_lab_metadata(
+            "test1234",
+            lab_dir.to_str().unwrap(),
+            async { Ok(()) },
+            &mut summary,
+            &mut errors,
+            None,
+        )
+        .await;
+
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(summary.lab_directory_deleted);
+        assert!(!Path::new(&key.private).exists());
+        assert!(!Path::new(&key.public).exists());
     }
 }

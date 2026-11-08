@@ -152,6 +152,7 @@ table, copy the rows, drop the old one, rename.
 | 8 | `0008_static_triggers.sql`: drops the enum rule triggers, which earlier releases rebuilt from the Rust enums on every start, and creates the admin protection triggers as fixed text |
 | 9 | `0009_drop_dedicated_management_interface.sql`: drops `node_image.dedicated_management_interface`. Index 0 of every model's interface table is its management interface, so the flag changed nothing |
 | 10 | `0010_lab_description.sql`: `lab.description`, the manifest's optional `description` (see below) |
+| 11 | `0011_lab_ssh_key.sql`: `lab.ssh_key`, the key pair the `sherpa` account on the lab's nodes logs in with: `lab` for the lab's own, `server` (the default, for every lab created before) for the server's shared key. See [`SERVER.md`](SERVER.md#lab-ssh-keys) |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.

@@ -121,12 +121,13 @@ on IOS and ASA it accepts any password.
 | FRR | `adduser`, `authorized_keys`, `/etc/sudoers.d` | `frr`, `frrvty` groups, passwordless sudo | `*`, which Alpine's sshd without PAM accepts for key logins where it refuses a locked account |
 
 The `sherpa` key on MikroTik is imported by the image itself: a scheduler imports
-`sata1/sherpa_ssh_key.pub` for `sherpa`.
+`sata1/sherpa_ssh_key.pub` for `sherpa`. The file is the lab's public key (see
+[`SERVER.md`](SERVER.md#lab-ssh-keys)), written into the node's folder and copied to the disk.
 
 ### Cisco ISE
 
 ISE's ZTP config has a single administrator, `sherpa`, and one `public_key`. With a personal
-account it takes the owner's first RSA key instead of the server's `sherpa` key, so the owner
+account it takes the owner's first RSA key instead of the lab's `sherpa` key, so the owner
 logs in as `sherpa` with their own key, and the `ssh_usernames` entry for the node is `sherpa`.
 Sherpa's own key no longer works on that node.
 
