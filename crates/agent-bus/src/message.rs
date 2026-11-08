@@ -26,7 +26,7 @@ pub enum Kind {
 }
 
 /// One message on the bus.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Message {
     /// The task this message belongs to.
     pub task: String,
@@ -34,6 +34,44 @@ pub struct Message {
     pub to: String,
     pub kind: Kind,
     pub text: String,
+    /// What the run cost. Only the outcome messages (completed, question, failed) carry it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Usage>,
+}
+
+/// What one Claude Code run used, from the `result` event of its `stream-json` output.
+///
+/// The token counts are the run's totals across all its turns. The cache hit ratio is
+/// `cache_read / (input + cache_creation + cache_read)`: see [`Usage::cache_hit_permille`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct Usage {
+    /// Input tokens that were neither read from nor written to the prompt cache.
+    pub input: u64,
+    pub output: u64,
+    /// Input tokens written to the prompt cache: a cache miss that pays to fill the cache.
+    pub cache_creation: u64,
+    /// Input tokens read from the prompt cache: a cache hit.
+    pub cache_read: u64,
+    pub num_turns: u64,
+    /// Wall-clock time of the run, in milliseconds.
+    pub duration_ms: u64,
+    /// Time spent in API calls, in milliseconds.
+    pub duration_api_ms: u64,
+    /// The API-equivalent cost of the run, in US dollars. It is NOT billed: guest agents run on
+    /// the Claude subscription. Read it as a measure of efficiency, not as money spent.
+    pub total_cost_usd: f64,
+}
+
+impl Usage {
+    /// The share of input tokens served from the prompt cache, in tenths of a percent, rounded down (0 to
+    /// 1000), or `None` when the run had no input tokens or the arithmetic overflows.
+    pub fn cache_hit_permille(&self) -> Option<u64> {
+        let total = self
+            .input
+            .checked_add(self.cache_creation)?
+            .checked_add(self.cache_read)?;
+        self.cache_read.checked_mul(1000)?.checked_div(total)
+    }
 }
 
 /// A new task ID: eight hexadecimal digits.
@@ -71,10 +109,54 @@ mod tests {
             to: "dev".to_owned(),
             kind: Kind::Question,
             text: "Add the dependency?".to_owned(),
+            usage: None,
         };
         let json = serde_json::to_value(&message).unwrap();
         assert_eq!(json["kind"], "question");
+        assert!(json.get("usage").is_none());
         assert_eq!(serde_json::from_value::<Message>(json).unwrap(), message);
+    }
+
+    #[test]
+    fn usage_round_trips_on_the_wire() {
+        let message = Message {
+            task: "1a2b3c4d".to_owned(),
+            from: "dev".to_owned(),
+            to: "host".to_owned(),
+            kind: Kind::Completed,
+            text: "Done".to_owned(),
+            usage: Some(Usage {
+                input: 10,
+                output: 20,
+                cache_creation: 30,
+                cache_read: 60,
+                num_turns: 2,
+                duration_ms: 1500,
+                duration_api_ms: 1200,
+                total_cost_usd: 0.25,
+            }),
+        };
+        let json = serde_json::to_value(&message).unwrap();
+        assert_eq!(json["usage"]["cache_read"], 60);
+        assert_eq!(serde_json::from_value::<Message>(json).unwrap(), message);
+    }
+
+    #[test]
+    fn cache_hit_permille_is_cache_read_over_all_input() {
+        let usage = Usage {
+            input: 10,
+            cache_creation: 30,
+            cache_read: 60,
+            ..Usage::default()
+        };
+        assert_eq!(usage.cache_hit_permille(), Some(600));
+        assert_eq!(Usage::default().cache_hit_permille(), None);
+        let overflow = Usage {
+            cache_read: u64::MAX,
+            input: 1,
+            ..Usage::default()
+        };
+        assert_eq!(overflow.cache_hit_permille(), None);
     }
 
     #[test]

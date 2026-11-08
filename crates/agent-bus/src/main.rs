@@ -143,6 +143,7 @@ async fn send(
             to,
             kind,
             text,
+            usage: None,
         })
         .await?;
     println!("{task}");
