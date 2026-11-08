@@ -2,7 +2,7 @@
 //! channel, over NATS with `JetStream`.
 //!
 //! The host runs the bus in a container (`bus start`). The host agent sends tasks (`send`) and
-//! follows the replies (`listen`, one JSON line per message). A guest agent (`guest`) takes each
+//! follows the replies (`listen`, one JSON line per message, kept in a journal first). A guest agent (`guest`) takes each
 //! task to Claude Code and sends back its progress, questions and result.
 //!
 //! Every agent authenticates with an `NKey`. `key new` makes a key pair; the public keys go in the
@@ -14,14 +14,17 @@ mod agents;
 mod bus;
 mod channel;
 mod config;
+mod files;
 mod guest;
 mod keys;
+mod listen;
 mod message;
 mod report;
 mod state;
 
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::{Result, bail};
 use clap::{ArgGroup, Parser, Subcommand};
@@ -92,12 +95,17 @@ enum Command {
         /// The task to cancel
         task: String,
     },
-    /// Print each message sent to an agent, as one JSON line
+    /// Print each message sent to an agent, as one JSON line. Each is first kept in the journal
+    /// `$XDG_STATE_HOME/agent-bus/listen-<agent>.jsonl`, then printed, then acknowledged
     Listen {
         /// The bus, for example `nats://192.0.2.1:4222`. Without it: `AGENT_BUS_URL`, then
         /// where `bus start` recorded the bus
         #[arg(long)]
         server: Option<String>,
+        /// First print the journal's messages received this long ago or later, such as `30m`
+        /// (units s, m, h, d), then listen
+        #[arg(long, value_parser = listen::parse_since)]
+        since: Option<Duration>,
         /// The agent whose messages to print
         agent: String,
     },
@@ -241,9 +249,13 @@ async fn main() -> Result<()> {
             let server = find_server(server)?;
             cancel(&server, &seed_from_environment()?, from, to, task).await
         }
-        Command::Listen { server, agent } => {
+        Command::Listen {
+            server,
+            since,
+            agent,
+        } => {
             let server = find_server(server)?;
-            listen(&server, &seed_from_environment()?, &agent).await
+            listen::listen(&server, &seed_from_environment()?, &agent, since).await
         }
         Command::Usage {
             server,
@@ -349,17 +361,6 @@ async fn cancel(server: &str, seed: &str, from: String, to: String, task: String
             github: false,
         })
         .await
-}
-
-/// Print each message sent to `agent` as one JSON line, until the bus closes.
-async fn listen(server: &str, seed: &str, agent: &str) -> Result<()> {
-    let channel = Channel::connect(server, seed).await?;
-    let mut inbox = channel.inbox(agent).await?;
-    while let Some(delivery) = inbox.next().await? {
-        println!("{}", serde_json::to_string(&delivery.message)?);
-        delivery.ack().await?;
-    }
-    Ok(())
 }
 
 /// Print what each task cost, from the messages kept in `host`'s inbox stream. Nothing is

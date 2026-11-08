@@ -31,7 +31,7 @@ tracked in issue #494.
 | Server config | `nats.conf`, rendered from the agents file and bind-mounted read-only at `/etc/agent-bus/nats.conf` (`-c`). | `src/config.rs` |
 | Stream | One JetStream stream, `AGENTS`, on `agents.>`, keeping messages for 7 days (`max_age`). | `src/channel.rs` |
 | Inboxes | One durable pull consumer per agent, named after it, filtered on `agents.<name>`, with `max_waiting = 1`. A message waits until its agent reads and acknowledges it, and a restarted reader goes on where it stopped. | `src/channel.rs` |
-| Host commands | `key new`, `bus start/stop/status`, `send`, `cancel`, `listen`, `usage`, `show`. | `src/main.rs` |
+| Host commands | `key new`, `bus start/stop/status`, `send`, `cancel`, `listen`, `usage`, `show`. | `src/main.rs`, `src/listen.rs` |
 | Guest agent | `agent-bus guest`: reads its inbox, queues tasks, runs them one at a time through Claude Code, and replies. | `src/guest/` |
 | Claude Code | `claude -p` with `stream-json` output, one process (and process group) per run, in the guest's checkout. | `src/guest/claude.rs` |
 
@@ -216,8 +216,14 @@ sequenceDiagram
     B->>H: listen host prints one JSON line
 ```
 
-`agent-bus listen host`, run under Claude Code's Monitor on the host, prints each message as one
-JSON line and acknowledges it, so each becomes a notification for the host agent. The guest
+`agent-bus listen host`, run under Claude Code's Monitor on the host, appends each message to
+its journal, then prints it as one JSON line, then acknowledges it, so each becomes a
+notification for the host agent (`src/listen.rs`). A message the bus has delivered and the
+listener acknowledged is never delivered again, so if the Monitor was gone when it was printed,
+the journal is where it is left: `agent-bus listen host --since 30m` prints the journal's
+messages from the last 30 minutes (units `s`, `m`, `h`, `d`), then listens live. A message that
+cannot be journaled is neither printed nor acknowledged, and the listener exits; the bus delivers
+it to the next listener. The guest
 agent acknowledges each inbox message as soon as it reads it, before running it: a task runs far
 longer than the bus waits for an acknowledgement, and must not be delivered twice.
 
@@ -454,7 +460,8 @@ claude -p --output-format stream-json --verbose
   the agent has root in it. The deny list still refuses some commands.
 - **Rules.** The appended system prompt says it is a guest agent, to follow `AGENTS.md`, not to
   add dependencies, to end with a `QUESTION:` line when it needs a decision and otherwise with a
-  short summary, and that the git status in its context may be stale. A GitHub sentence follows
+  short summary, that the git status in its context may be stale, and never to use `git stash`,
+  `git restore`, `git clean` or `git checkout -- <path>`. A GitHub sentence follows
   (below).
 
 The outcome is read from the `result` event: `is_error` true (or missing) is `failed`, a line
@@ -470,12 +477,20 @@ with the task's session (`engine::task_github`).
 | | Without `github` | With `github` |
 |---|---|---|
 | Tokens | `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` removed | Kept |
-| Denied | `git commit`, `git push`, `git reset`, `gh` | `gh pr merge`, `gh api`, `gh repo delete`, `gh release`, `git reset`, `git push` with `--force`, `-f`, `--delete`, `-d`, a `+` refspec or `:branch`, and `git branch -D` |
+| Denied | `git commit`, `git push`, `git reset`, `gh`, and the discarding commands below | `gh pr merge`, `gh api`, `gh repo delete`, `gh release`, `git reset`, `git push` with `--force`, `-f`, `--delete`, `-d`, a `+` refspec or `:branch`, `git branch -D`, and the discarding commands below |
 | Rules add | The task has no GitHub access: no commit, push, merge, pull request or `gh`. | Do only what the task asks; commit messages end with the Co-Authored-By line from its own attribution instructions, never one copied from the task; no session links or "Generated with" footers; never merge or delete. |
 
 With the token present the deny list is a guardrail, not a security boundary: it matches command
 text, so a command written another way (`curl` with the token, a script) is not caught. The
 token's own scopes are the boundary.
+
+Both lists also refuse the commands that throw away uncommitted work, because the guest's working
+tree is the only copy of a branch's uncommitted changes: `git stash`, `git restore`, `git clean`,
+and `git checkout` with `--`, `.`, `./…`, `-f` or `--force`. The rules say the same for both
+kinds of task, and point at `git show HEAD:<path>` and `git diff` for seeing how things were
+before. The patterns match command text and cannot tell `git checkout <branch>` from
+`git checkout <path>`, so a bare `git checkout <path>` is not caught; `git checkout <branch>`
+keeps working.
 
 ### Base sessions and forking
 
@@ -572,27 +587,44 @@ host's inbox is neither consumed nor changed. It prints one row per task that ha
 four kinds added) and the kind of its last outcome, then a total row, as a `tabled` modern table
 (`src/report.rs`). A task's figures are the `task_usage` of its last outcome that carried one.
 Tasks with no usage are left out unless `--all` is given. `agent-bus show <task>` prints every
-kept message of one task, oldest first, one JSON line each, the same way; it is how the host
-catches up on an outcome its listener missed.
+kept message of one task, oldest first, one JSON line each, the same way, from the bus rather than
+the listener's journal.
 
 ## Files and state
 
 The state directory is `$XDG_STATE_HOME/agent-bus/`, or `~/.local/state/agent-bus/` when
-`XDG_STATE_HOME` is unset or relative. The host and the guest each have their own.
+`XDG_STATE_HOME` is unset or relative. The host and the guest each have their own. On both it is
+0700: every command that writes into it creates it, or tightens an existing one, with
+`files::private_dir` (`src/files.rs`). `nats.conf` stays 0644 in it: the file itself is
+bind-mounted, so the container opens it by its mount path and never looks up the host directory;
+the file's own mode is what the container's user needs (the pinned image runs as root, but a
+non-root user would read it too). The real-bus test starts the bus with its config in a 0700
+directory.
 
 | Where | File | Mode | Contents | Written by |
 |---|---|---|---|---|
-| Host | `<state>/nats.conf` | 0644, directory 0755 | The rendered server config as JSON: public keys and allow lists. Rewritten on every `bus start`. Readable by the container's user. | `config::write` |
-| Host | `<state>/bus.toml` | default (umask) | `url`, and `[lab]` with `id` and `name` when started with `--lab`. Written to `bus.toml.<pid>.tmp` and renamed. Removed by `bus stop`. | `state::write` |
+| Host | `<state>/nats.conf` | 0644, directory 0700 | The rendered server config as JSON: public keys and allow lists. Rewritten on every `bus start`. Readable by the container's user. | `config::write` |
+| Host | `<state>/bus.toml` | 0600, directory 0700 | `url`, and `[lab]` with `id` and `name` when started with `--lab`. Written with `files::write_private` (below). Removed by `bus stop`. | `state::write` |
+| Host | `<state>/listen-<agent>.jsonl` | 0600, directory 0700 | The listener's journal: one line per message received, `{"at_ms":..,"message":{..}}`, the message as `listen` prints it. Appended and in the file before the message is printed and acknowledged. Pruned to 7 days (below). | `listen::Journal` |
 | Host | the agents file | the user's | Names, public keys, roles. Only read. | the user |
 | Host | Docker volume `sherpa-agent-bus-data` | Docker's | JetStream's store: the `AGENTS` stream and the consumers. | nats-server |
-| Guest | `<state>/guest-<name>.toml` | 0600, directory 0700 | The guest agent's state (below). Written to `guest-<name>.toml.tmp`, synced, renamed over the file, then the directory synced. A file that cannot be read or parsed is moved to `guest-<name>.toml.corrupt-<unix seconds>` and the agent starts fresh. | `guest::state` |
+| Guest | `<state>/guest-<name>.toml` | 0600, directory 0700 | The guest agent's state (below). Written with `files::write_private` (below). A file that cannot be read or parsed is moved to `guest-<name>.toml.corrupt-<unix seconds>` and the agent starts fresh. | `guest::state` |
 | Guest | `<state>/guest-<name>.lock` | 0600, directory 0700 | The PID of the agent holding the lock. Never removed. | `guest::lock` |
-| Guest | `<state>/results.jsonl` | 0600, directory 0700 | One JSON line per `result` event: `task`, `session`, `run` (0 for priming, then 1, 2, ...), `at_ms`, and `raw`, the event line unchanged. Append only; nothing prunes it. | `guest::record` |
+| Guest | `<state>/results.jsonl` | 0600, directory 0700 | One JSON line per `result` event: `task`, `session`, `run` (0 for priming, then 1, 2, ...), `at_ms`, and `raw`, the event line unchanged. Appended; pruned to 7 days (below). | `guest::record` |
 | Guest | `~/agent-bus-<name>.log` | default (umask) | The guest agent's stdout and stderr, Claude Code's stderr included. Truncated on each start. | `start-guest.sh` |
 
 Claude Code keeps its sessions in its own files; the guest agent only records which session is
 whose.
+
+`results.jsonl` and the listener's journal are pruned to the stream's retention, 7 days
+(`files::JsonLines`): lines whose `at_ms` is older are dropped, and a line without one (cut short
+by a crash) is kept. Each is pruned when its program starts, and again before an append once a
+day has passed since the last prune; a file that is not appended to does not grow. The file is
+read whole and rewritten only when a line is dropped, with `files::write_private`, which every
+rewritten state file goes through: to `<file>.<pid>.tmp`, mode 0600 whatever the umask, synced,
+renamed over the file, then the directory synced. Pruning and appending happen in the same task (the
+guest's engine, the listener's loop), so no append is lost to the rename. A failed prune is
+logged and the append goes on.
 
 ### The guest state file
 
@@ -668,7 +700,9 @@ In order:
    does not let the host agent start an agent that runs commands from network messages unless a
    permission rule allows that one command.
 5. **The listener.** `agent-bus listen host` with the host's seed, under Claude Code's Monitor.
-   Run only one: a second is refused.
+   Run only one: a second is refused. After a restart, `agent-bus listen host --since <duration>`
+   first prints what the journal got in that time, covering anything printed while no Monitor
+   was reading.
 6. **Tasks.** `agent-bus send --to dev "<task>"`, `send --to dev --answer <task> "<answer>"`,
    `agent-bus cancel --to dev <task>`.
 
@@ -677,7 +711,9 @@ Checking health:
 - `agent-bus bus status`: the container's state, the recorded URL and the lab.
 - The `bus start` output: one `Inbox ready` line per agent.
 - `agent-bus usage`: what each recent task cost, and its last outcome.
-- `agent-bus show <task>`: every kept message of one task, for an outcome the listener missed.
+- `agent-bus listen host --since 1h`, or `<state>/listen-host.jsonl` on the host: what the
+  listener received, for an outcome the host agent missed.
+- `agent-bus show <task>`: every message of one task the bus still keeps.
 - The guest log, `~/agent-bus-<name>.log` in the guest: the lock and state paths, each task and
   answer taken, one usage line per run, priming lines, and any `Bus connection event`, such as a
   permission violation.
@@ -698,10 +734,9 @@ but that puts a seed on disk; prefer `agent-bus listen` and `show`.
   consumer and messages stay in the stream.
 - **Windows left.** A message is acknowledged before it reaches the state file's queue, so a
   crash between the two loses it. The inputs hash uses Rust's `DefaultHasher`, which is not
-  promised to be stable across Rust releases; a change costs one rebuild of each base.
-  `results.jsonl` grows without limit.
-- **Host and guest on one machine** would share the state directory name, and the host sets it to
-  0755 while the guest sets it to 0700. They run on different machines.
+  promised to be stable across Rust releases; a change costs one rebuild of each base. The
+  listener's journal is written without `fsync`, so it survives the listener being killed, not a
+  host crash.
 
 Open work, including more than one task at a time and more guests, starting the guest agent from
 provisioning, several labs, and whether A2A belongs on top of the bus (#439), is tracked in issue

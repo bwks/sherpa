@@ -12,7 +12,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::sync::watch;
 use tokio::try_join;
 
-use super::base::{Base, Inputs, now_ms};
+use super::base::{Base, Inputs};
 use super::claude::{
     CLAUDE, Group, Launch, PRIME_CONFIRM, PRIME_PROMPT, claude_command, rules, terminate,
 };
@@ -22,6 +22,7 @@ use super::record::ResultLog;
 use super::state::{ApiMark, Queued, Saved, StateFile, TaskRecord, prune, restart};
 use super::stream::{Update, interpret, outcome, priming_line, repeats_result, usage_line};
 use crate::channel::{Channel, Inbox};
+use crate::files::now_ms;
 use crate::message::{Kind, Message, TaskUsage, Usage, api_time_of_run, check_agent_name};
 
 /// The Claude subscription token, from `claude setup-token`.
@@ -181,6 +182,7 @@ async fn start(
     if let Some(file) = store {
         engine.resume(file)?;
     }
+    engine.prune_results();
     eprintln!("Guest agent '{name}' is waiting for tasks");
     let work = async {
         try_join!(
@@ -316,6 +318,18 @@ impl<'a> Engine<'a> {
         }
         self.save();
         Ok(())
+    }
+
+    /// Drop the result records older than the stream's retention. A failure is reported and the
+    /// agent goes on; the next append tries again a day later.
+    fn prune_results(&mut self) {
+        if let Some(log) = &mut self.results {
+            match log.prune(now_ms()) {
+                Ok(0) => {}
+                Ok(dropped) => eprintln!("Pruned {dropped} old result records"),
+                Err(error) => eprintln!("{error:#}"),
+            }
+        }
     }
 
     /// What the state file keeps.
@@ -462,9 +476,9 @@ impl<'a> Engine<'a> {
 
     /// Keep a `result` event line in the record. Other lines are not kept; a record that cannot
     /// be written is reported and the task goes on.
-    fn record(&self, task: &str, run_number: u32, line: &str) {
-        if let (Some(log), Some(session)) = (&self.results, ResultLog::result_session(line))
-            && let Err(error) = log.append(task, &session, run_number, line)
+    fn record(&mut self, task: &str, run_number: u32, line: &str) {
+        if let (Some(log), Some(session)) = (&mut self.results, ResultLog::result_session(line))
+            && let Err(error) = log.append(task, &session, run_number, line, now_ms())
         {
             eprintln!("Unable to record the result event: {error:#}");
         }

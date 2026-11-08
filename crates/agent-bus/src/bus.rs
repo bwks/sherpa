@@ -4,7 +4,6 @@
 //! only that lab's guests and the host reach it. Every agent authenticates with an `NKey`, and the
 //! server config that says what each may do is rendered from the agents file (see `config`).
 
-use std::ffi::OsString;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -24,6 +23,7 @@ use futures_util::TryStreamExt;
 use crate::agents::Agents;
 use crate::channel::Channel;
 use crate::config;
+use crate::files::standard_state_dir;
 use crate::keys::public_key_of;
 use crate::state::{self, BusRecord, LabRecord};
 
@@ -39,7 +39,6 @@ const CONFIG_TARGET: &str = "/etc/agent-bus/nats.conf";
 const CONFIG_FILE: &str = "nats.conf";
 /// Where `start` records the bus, next to the config.
 const RECORD_FILE: &str = "bus.toml";
-const STATE_SUBDIR: &str = "agent-bus";
 const PORT: u16 = 4222;
 /// How often, and how long, `start` waits for the server to accept connections.
 const CONNECT_ATTEMPTS: u32 = 20;
@@ -232,27 +231,6 @@ async fn connect_when_ready(bus: &Bus, seed: &str) -> Result<Channel> {
     }
 }
 
-/// The state directory of this user, from the environment.
-pub(crate) fn standard_state_dir() -> Result<PathBuf> {
-    state_dir(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"))
-}
-
-/// The directory for the bus's state: `$XDG_STATE_HOME/agent-bus`, or
-/// `~/.local/state/agent-bus`. A relative `XDG_STATE_HOME` is ignored, as the spec says.
-fn state_dir(xdg_state_home: Option<OsString>, home: Option<OsString>) -> Result<PathBuf> {
-    let base = match xdg_state_home.map(PathBuf::from) {
-        Some(path) if path.is_absolute() => path,
-        _ => {
-            let home = home
-                .map(PathBuf::from)
-                .filter(|path| path.is_absolute())
-                .context("Neither XDG_STATE_HOME nor HOME is set to an absolute path")?;
-            home.join(".local").join("state")
-        }
-    };
-    Ok(base.join(STATE_SUBDIR))
-}
-
 fn container_config(bus: &Bus) -> ContainerCreateBody {
     ContainerCreateBody {
         image: Some(IMAGE.to_owned()),
@@ -303,7 +281,11 @@ mod tests {
     use tokio::time::timeout;
 
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    use crate::files::{DIR_MODE, PRIVATE_FILE_MODE};
     use crate::keys::{NewKey, generate};
+    use crate::listen::{Journal, serve};
     use crate::message::{Kind, Message, TaskUsage, Usage};
     use crate::report;
 
@@ -341,26 +323,6 @@ mod tests {
         );
         assert_eq!(mounts[1].target.as_deref(), Some(CONFIG_TARGET));
         assert_eq!(mounts[1].read_only, Some(true));
-    }
-
-    #[test]
-    fn the_state_dir_follows_xdg_and_falls_back_to_home() {
-        let dir = |xdg: Option<&str>, home: Option<&str>| {
-            state_dir(xdg.map(OsString::from), home.map(OsString::from))
-        };
-        assert_eq!(
-            dir(Some("/x/state"), Some("/home/u")).unwrap(),
-            PathBuf::from("/x/state/agent-bus")
-        );
-        assert_eq!(
-            dir(None, Some("/home/u")).unwrap(),
-            PathBuf::from("/home/u/.local/state/agent-bus")
-        );
-        assert_eq!(
-            dir(Some("relative"), Some("/home/u")).unwrap(),
-            PathBuf::from("/home/u/.local/state/agent-bus")
-        );
-        assert!(dir(None, None).is_err());
     }
 
     fn message(from: &str, to: &str, text: &str) -> Message {
@@ -512,6 +474,101 @@ mod tests {
                 "messages are left in the host's inbox"
             );
         }
+        Ok(())
+    }
+
+    /// `agent-bus listen` keeps each message in its journal and acknowledges it; a restarted
+    /// listener with `--since` prints them from the journal, and the bus delivers none again.
+    async fn listener_journal(bus: &Bus, host: &NewKey, dev: &NewKey, dir: &Path) -> Result<()> {
+        let wait = Duration::from_secs(15);
+        let path = dir.join("state").join("listen-host.jsonl");
+        let dev_channel = Channel::connect(&bus.url(), &dev.seed).await?;
+        let host_channel = Channel::connect(&bus.url(), &host.seed).await?;
+        let listener = {
+            let channel = Channel::connect(&bus.url(), &host.seed).await?;
+            let journal = Journal::new(path.clone());
+            tokio::spawn(async move {
+                serve(&channel, "host", journal, None, &mut std::io::sink()).await
+            })
+        };
+        for n in 0..3 {
+            let mut reply = message("dev", "host", &format!("journal {n}"));
+            reply.task = "journal1".to_owned();
+            dev_channel.send(&reply).await?;
+        }
+        let journaled = |path: &Path| {
+            std::fs::read_to_string(path).map_or(0, |text| {
+                text.lines()
+                    .filter(|line| line.contains("journal1"))
+                    .count()
+            })
+        };
+        timeout(wait, async {
+            while journaled(&path) < 3 {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .context("the listener did not journal the messages")?;
+        // Journaled before acknowledged: wait for the last acknowledgement to be taken.
+        timeout(wait, async {
+            while host_channel.waiting("host").await.unwrap_or(1) > 0 {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .context("the listener did not acknowledge the messages")?;
+        listener.abort();
+        let _ = listener.await;
+        ensure!(
+            std::fs::metadata(&path)?.permissions().mode() & 0o777 == PRIVATE_FILE_MODE,
+            "the journal is not private"
+        );
+        ensure!(
+            std::fs::metadata(path.parent().context("no directory")?)?
+                .permissions()
+                .mode()
+                & 0o777
+                == DIR_MODE,
+            "the state directory is not private"
+        );
+        // A restarted listener catches up from the journal, and nothing is delivered again.
+        let texts: Vec<String> = Journal::new(path.clone())
+            .since(0)?
+            .into_iter()
+            .filter(|message| message.task == "journal1")
+            .map(|message| message.text)
+            .collect();
+        ensure!(
+            texts == ["journal 0", "journal 1", "journal 2"],
+            "wrong journal: {texts:?}"
+        );
+        let mut printed = Vec::new();
+        let channel = Channel::connect(&bus.url(), &host.seed).await?;
+        let restarted = timeout(
+            Duration::from_secs(2),
+            serve(
+                &channel,
+                "host",
+                Journal::new(path.clone()),
+                Some(Duration::from_hours(1)),
+                &mut printed,
+            ),
+        )
+        .await;
+        ensure!(
+            restarted.is_err(),
+            "the restarted listener stopped: {restarted:?}"
+        );
+        let printed = String::from_utf8(printed)?;
+        ensure!(
+            printed.matches("journal1").count() == 3,
+            "the restarted listener printed {printed}"
+        );
+        ensure!(
+            journaled(&path) == 3,
+            "a message was delivered again after the restart"
+        );
         Ok(())
     }
 
@@ -735,6 +792,9 @@ mod tests {
 
             // `usage` reads the kept outcomes without consuming the host's inbox.
             usage_history(&bus, &host, &dev).await?;
+
+            // `listen` journals each message before acknowledging it.
+            listener_journal(&bus, &host, &dev, &dir).await?;
 
             // A task waits through a restart: the container is replaced, the volume is kept.
             let host_channel = Channel::connect(&bus.url(), &host.seed).await?;

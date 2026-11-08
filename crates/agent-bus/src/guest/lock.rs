@@ -10,7 +10,7 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process;
 
@@ -18,10 +18,7 @@ use anyhow::{Context, Result, anyhow};
 use nix::errno::Errno;
 use nix::fcntl::{Flock, FlockArg};
 
-/// The mode of the directory: private to the user, as the state file's.
-const DIR_MODE: u32 = 0o700;
-/// The mode of the file: private to the user.
-const FILE_MODE: u32 = 0o600;
+use crate::files::{PRIVATE_FILE_MODE, private_dir};
 
 /// The held lock. Dropping it releases it.
 #[derive(Debug)]
@@ -39,16 +36,14 @@ impl InstanceLock {
     /// when the file cannot be created, locked or written.
     pub(super) fn acquire(path: &Path) -> Result<Self> {
         let dir = path.parent().context("The lock file has no directory")?;
-        fs::create_dir_all(dir).with_context(|| format!("Unable to create {}", dir.display()))?;
-        fs::set_permissions(dir, fs::Permissions::from_mode(DIR_MODE))
-            .with_context(|| format!("Unable to set the mode of {}", dir.display()))?;
+        private_dir(dir)?;
         // Not truncated on open: until it is locked, the PID in it is the holder's.
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
-            .mode(FILE_MODE)
+            .mode(PRIVATE_FILE_MODE)
             .open(path)
             .with_context(|| format!("Unable to open {}", path.display()))?;
         let mut lock = match Flock::lock(file, FlockArg::LockExclusiveNonblock) {

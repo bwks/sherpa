@@ -114,15 +114,6 @@ impl Base {
     }
 }
 
-/// The time now, in milliseconds since the Unix epoch; 0 for a clock before it.
-pub(super) fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| {
-            u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
-        })
-}
-
 fn hash_of(bytes: &[u8]) -> u64 {
     let mut hasher = DefaultHasher::new();
     bytes.hash(&mut hasher);

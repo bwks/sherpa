@@ -25,8 +25,17 @@ const API_KEY_VARIABLE: &str = "ANTHROPIC_API_KEY";
 const GITHUB_TOKEN_VARIABLES: [&str; 3] = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN"];
 /// Permission checks are skipped: the guest is a disposable lab VM and the agent has root in it.
 /// These are still refused. Committing, pushing and GitHub are the user's to decide; the host
-/// agent asks them.
-const DISALLOWED_TOOLS: &str = "Bash(git commit:*),Bash(git push:*),Bash(git reset:*),Bash(gh:*)";
+/// agent asks them. Commands that throw away uncommitted work (stash, restore, clean, and checkout
+/// of paths) are refused as well: the working tree is the only copy of a branch's uncommitted
+/// changes.
+///
+/// The patterns match command text, so they cannot tell `git checkout <branch>` from
+/// `git checkout <path>`. Only the forms that name paths unambiguously are refused: `--`, `.`,
+/// and `-f`/`--force`. `git checkout <branch>` keeps working.
+const DISALLOWED_TOOLS: &str = "Bash(git commit:*),Bash(git push:*),Bash(git reset:*),Bash(gh:*),\
+Bash(git stash:*),Bash(git restore:*),Bash(git clean:*),Bash(git checkout*-- *),\
+Bash(git checkout* --),Bash(git checkout* .),Bash(git checkout* ./*),Bash(git checkout*--force*),\
+Bash(git checkout* -f),Bash(git checkout* -f *)";
 /// The refused commands for a task given GitHub access: it may commit, push and open pull
 /// requests, but merging and destructive operations stay with the user.
 ///
@@ -36,13 +45,18 @@ const DISALLOWED_TOOLS: &str = "Bash(git commit:*),Bash(git push:*),Bash(git res
 const GITHUB_DISALLOWED_TOOLS: &str = "Bash(gh pr merge:*),Bash(gh api:*),Bash(gh repo delete:*),\
 Bash(gh release:*),Bash(git reset:*),Bash(git push*--force*),Bash(git push* -f),\
 Bash(git push* -f *),Bash(git push* --delete*),Bash(git push* -d),Bash(git push* -d *),\
-Bash(git push* :*),Bash(git push* +*),Bash(git branch* -D*)";
+Bash(git push* :*),Bash(git push* +*),Bash(git branch* -D*),Bash(git stash:*),\
+Bash(git restore:*),Bash(git clean:*),Bash(git checkout*-- *),Bash(git checkout* --),\
+Bash(git checkout* .),Bash(git checkout* ./*),Bash(git checkout*--force*),Bash(git checkout* -f),\
+Bash(git checkout* -f *)";
 const RULES: &str = "You are a guest agent in a Sherpa lab VM. A host agent sends you tasks over \
 a message bus; you do the work in this checkout and report back. Follow AGENTS.md. Do not add \
 dependencies. If you need a decision before you can go on, end your reply with one line starting \
 with `QUESTION:` and stop; the answer comes as your next message. Otherwise end with a short \
 summary of what you did and the results. The git status in your context may be out of date; run \
-git status yourself when it matters.";
+git status yourself when it matters. Never use git stash, git restore, git clean or \
+git checkout -- <path>: the working tree is the only copy of uncommitted work. To see how things \
+were before, use `git show HEAD:<path>` or `git diff`.";
 /// What a base session is primed with. Nothing is done with the reply.
 pub(super) const PRIME_PROMPT: &str = "You are a guest agent. Tasks will follow, one per session. \
 Reply with exactly: ready.";
@@ -315,6 +329,55 @@ mod tests {
         let at = args.iter().position(|arg| arg == "--resume").unwrap();
         assert_eq!(args[at + 1], "task-1");
         assert!(!args.iter().any(|arg| arg == "--fork-session"));
+    }
+
+    /// Refused in both deny lists: they throw away uncommitted work.
+    const DISCARDING: [&str; 10] = [
+        "Bash(git stash:*)",
+        "Bash(git restore:*)",
+        "Bash(git clean:*)",
+        "Bash(git checkout*-- *)",
+        "Bash(git checkout* --)",
+        "Bash(git checkout* .)",
+        "Bash(git checkout* ./*)",
+        "Bash(git checkout*--force*)",
+        "Bash(git checkout* -f)",
+        "Bash(git checkout* -f *)",
+    ];
+
+    fn patterns(list: &str) -> Vec<&str> {
+        list.split(',').collect()
+    }
+
+    #[test]
+    fn both_deny_lists_refuse_commands_that_discard_uncommitted_work() {
+        for list in [DISALLOWED_TOOLS, GITHUB_DISALLOWED_TOOLS] {
+            let patterns = patterns(list);
+            for refused in DISCARDING {
+                assert!(patterns.contains(&refused), "{refused}");
+            }
+        }
+    }
+
+    #[test]
+    fn both_deny_lists_leave_checkout_of_a_branch_alone() {
+        for list in [DISALLOWED_TOOLS, GITHUB_DISALLOWED_TOOLS] {
+            for pattern in patterns(list) {
+                assert_ne!(pattern, "Bash(git checkout:*)");
+                assert_ne!(pattern, "Bash(git checkout*)");
+                assert_ne!(pattern, "Bash(git checkout *)");
+            }
+        }
+    }
+
+    #[test]
+    fn the_rules_forbid_stash_and_point_at_show_and_diff() {
+        for github in [false, true] {
+            let rules = rules(github);
+            assert!(rules.contains("Never use git stash"));
+            assert!(rules.contains("git show HEAD:<path>"));
+            assert!(rules.contains("git diff"));
+        }
     }
 
     #[test]

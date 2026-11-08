@@ -21,11 +21,12 @@ use serde::Serialize;
 
 use crate::agents::{Agent, Agents, Role};
 use crate::channel::{STREAM, SUBJECT_PREFIX};
+use crate::files::private_dir;
 
-/// The mode of the config file and its directory: the container's user must be able to read
-/// it, and it holds nothing secret.
+/// The mode of the config file: it holds nothing secret, and the container's user, whoever the
+/// image runs as, must be able to read it. The file itself is bind-mounted, so the container
+/// never looks up the state directory, which stays 0700.
 const FILE_MODE: u32 = 0o644;
-const DIR_MODE: u32 = 0o755;
 
 #[derive(Debug, Serialize)]
 struct Config {
@@ -70,7 +71,8 @@ pub fn render(agents: &Agents) -> Result<String> {
     serde_json::to_string_pretty(&config).context("Unable to render the nats-server configuration")
 }
 
-/// Write the rendered configuration to `path`, replacing the file, readable by everyone.
+/// Write the rendered configuration to `path`, replacing the file, readable by everyone, in a
+/// directory private to the user.
 ///
 /// # Errors
 ///
@@ -78,9 +80,7 @@ pub fn render(agents: &Agents) -> Result<String> {
 pub fn write(path: &Path, agents: &Agents) -> Result<()> {
     let text = render(agents)?;
     if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).with_context(|| format!("Unable to create {}", dir.display()))?;
-        fs::set_permissions(dir, fs::Permissions::from_mode(DIR_MODE))
-            .with_context(|| format!("Unable to set the mode of {}", dir.display()))?;
+        private_dir(dir)?;
     }
     let mut file = fs::OpenOptions::new()
         .write(true)

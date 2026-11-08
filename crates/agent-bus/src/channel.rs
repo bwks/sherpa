@@ -22,8 +22,9 @@ use crate::message::{Message, check_agent_name};
 pub const STREAM: &str = "AGENTS";
 /// Each agent's inbox is `agents.<name>`.
 pub const SUBJECT_PREFIX: &str = "agents";
-/// How long an unread message is kept.
-const MAX_AGE: Duration = Duration::from_hours(7 * 24);
+/// How long the stream keeps a message, read or not. Files that follow the messages (the
+/// guest's task records, `results.jsonl`, the listener's journal) keep them as long.
+pub const RETENTION: Duration = Duration::from_hours(7 * 24);
 
 /// How long the bus keeps the consumer that reads the history after its last use.
 const HISTORY_INACTIVE: Duration = Duration::from_secs(30);
@@ -113,7 +114,7 @@ impl Channel {
             .get_or_create_stream(stream::Config {
                 name: STREAM.to_owned(),
                 subjects: vec![format!("{SUBJECT_PREFIX}.>")],
-                max_age: MAX_AGE,
+                max_age: RETENTION,
                 ..Default::default()
             })
             .await

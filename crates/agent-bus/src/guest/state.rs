@@ -9,27 +9,18 @@
 //! which they need to run.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::fs::{self, File, OpenOptions};
-use std::io::{ErrorKind, Write};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use super::base::Base;
 use super::engine::Session;
-use crate::bus::standard_state_dir;
+use crate::channel::RETENTION;
+use crate::files::{millis, private_dir, standard_state_dir, write_private};
 use crate::message::{Kind, Message, TaskUsage};
-
-/// The mode of the directory: private to the user.
-const DIR_MODE: u32 = 0o700;
-/// The mode of the file: private to the user.
-const FILE_MODE: u32 = 0o600;
-/// How long a finished task's session is kept: the stream's retention, after which the host
-/// cannot have a question of it left to answer.
-const RETENTION: Duration = Duration::from_hours(7 * 24);
 
 /// Where a task's session's API time stood after its last run. The figure counts the whole
 /// session, so a run's own is the increase.
@@ -190,37 +181,8 @@ impl StateFile {
             .path
             .parent()
             .context("The state file has no directory")?;
-        fs::create_dir_all(dir).with_context(|| format!("Unable to create {}", dir.display()))?;
-        fs::set_permissions(dir, fs::Permissions::from_mode(DIR_MODE))
-            .with_context(|| format!("Unable to set the mode of {}", dir.display()))?;
-        let mut temporary = self.path.as_os_str().to_owned();
-        temporary.push(".tmp");
-        let temporary = PathBuf::from(temporary);
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(FILE_MODE)
-            .open(&temporary)
-            .with_context(|| format!("Unable to open {}", temporary.display()))?;
-        // `mode` is masked by the umask and ignored for a file that exists.
-        fs::set_permissions(&temporary, fs::Permissions::from_mode(FILE_MODE))
-            .with_context(|| format!("Unable to set the mode of {}", temporary.display()))?;
-        file.write_all(text.as_bytes())
-            .and_then(|()| file.sync_all())
-            .with_context(|| format!("Unable to write {}", temporary.display()))?;
-        fs::rename(&temporary, &self.path).with_context(|| {
-            format!(
-                "Unable to move {} to {}",
-                temporary.display(),
-                self.path.display()
-            )
-        })?;
-        // The rename is durable once the directory is flushed; without it the old state stays.
-        if let Err(error) = File::open(dir).and_then(|dir| dir.sync_all()) {
-            eprintln!("Unable to flush {}: {error}", dir.display());
-        }
-        Ok(())
+        private_dir(dir)?;
+        write_private(&self.path, &text)
     }
 }
 
@@ -252,15 +214,15 @@ pub(super) fn restart(saved: Saved, name: &str, now_ms: u64) -> Restart {
     }
 }
 
-/// Drop the tasks that finished longer ago than the stream keeps messages, unless `keep` says a
+/// Drop the tasks that finished longer ago than the stream keeps messages (after which the host
+/// cannot have a question of theirs left to answer), unless `keep` says a
 /// task is still needed (queued or running).
 pub(super) fn prune(
     tasks: &mut HashMap<String, TaskRecord>,
     now_ms: u64,
     keep: impl Fn(&str) -> bool,
 ) {
-    let retention = u64::try_from(RETENTION.as_millis()).unwrap_or(u64::MAX);
-    let cutoff = now_ms.saturating_sub(retention);
+    let cutoff = now_ms.saturating_sub(millis(RETENTION));
     tasks.retain(|task, record| keep(task) || record.finished_at_ms.is_none_or(|at| at >= cutoff));
 }
 
@@ -269,7 +231,9 @@ mod tests {
     use super::*;
 
     use std::env;
+    use std::os::unix::fs::PermissionsExt;
 
+    use crate::files::{DIR_MODE, PRIVATE_FILE_MODE};
     use crate::guest::base::Inputs;
 
     const NOW: u64 = 1_800_000_000_000;
@@ -387,7 +351,7 @@ mod tests {
         assert_eq!(file.load(NOW), full());
 
         let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode(file.path()), FILE_MODE);
+        assert_eq!(mode(file.path()), PRIVATE_FILE_MODE);
         assert_eq!(mode(&dir.join("agent-bus")), DIR_MODE);
         fs::remove_dir_all(&dir).unwrap();
     }

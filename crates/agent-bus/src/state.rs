@@ -6,12 +6,14 @@
 
 use std::fs;
 use std::net::Ipv4Addr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::str::FromStr;
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use shared::data::LabInfo;
+
+use crate::files::{private_dir, write_private};
 
 /// The environment variable that names the bus.
 pub const SERVER_ENV: &str = "AGENT_BUS_URL";
@@ -64,7 +66,7 @@ pub fn lab_gateway(lab_dir: &Path) -> Result<(Ipv4Addr, LabRecord)> {
     ))
 }
 
-/// Write the record to `path`, atomically: a reader sees the old file or the new one.
+/// Write the record to `path`, mode 0600, atomically: a reader sees the old file or the new one.
 ///
 /// # Errors
 ///
@@ -72,17 +74,9 @@ pub fn lab_gateway(lab_dir: &Path) -> Result<(Ipv4Addr, LabRecord)> {
 pub fn write(path: &Path, record: &BusRecord) -> Result<()> {
     let text = toml::to_string_pretty(record).context("Unable to render the bus record")?;
     if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).with_context(|| format!("Unable to create {}", dir.display()))?;
+        private_dir(dir)?;
     }
-    let mut temporary = path.as_os_str().to_owned();
-    temporary.push(format!(".{}.tmp", std::process::id()));
-    let temporary = PathBuf::from(temporary);
-    fs::write(&temporary, text)
-        .with_context(|| format!("Unable to write {}", temporary.display()))?;
-    fs::rename(&temporary, path).with_context(|| {
-        let _ = fs::remove_file(&temporary);
-        format!("Unable to replace {}", path.display())
-    })
+    write_private(path, &text)
 }
 
 /// Read the record at `path`; `None` when there is no file.
@@ -139,6 +133,11 @@ pub fn find_server(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+
+    use crate::files::PRIVATE_FILE_MODE;
 
     const LAB_INFO: &str = r#"
 id = "abc123"
@@ -214,6 +213,21 @@ loopback_network = "198.51.100.0/24"
         remove(&path).unwrap();
         remove(&path).unwrap();
         assert_eq!(read(&path).unwrap(), None);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_record_is_private_whatever_the_old_mode() {
+        let dir = scratch("mode");
+        let path = dir.join("bus.toml");
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        write(&path, &record("nats://192.0.2.1:4222")).unwrap();
+        assert_eq!(mode(&path), PRIVATE_FILE_MODE);
+        // A record left 0664 by an older version, as the umask made it, is replaced by a 0600 one.
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o664)).unwrap();
+        write(&path, &record("nats://192.0.2.9:4222")).unwrap();
+        assert_eq!(mode(&path), PRIVATE_FILE_MODE);
+        assert_eq!(read(&path).unwrap(), Some(record("nats://192.0.2.9:4222")));
         fs::remove_dir_all(&dir).unwrap();
     }
 
