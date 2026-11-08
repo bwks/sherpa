@@ -29,7 +29,7 @@ is up. It is safe to run again with `sherpa provision`. It:
 2. installs [mise](https://mise.jdx.dev) and the tools in `provision/mise.toml`, which the
    provisioner copies to `~/.config/mise/config.toml`: Rust stable with `rustfmt`, `clippy` and
    `llvm-tools`, nightly with `rust-src`, `bpf-linker` 0.10.2 for the eBPF program (0.12 needs a
-   system LLVM that Ubuntu 24.04 does not ship), `gh`, `shellcheck`, `bats` and `uv`. mise follows the
+   system LLVM that Ubuntu 24.04 does not ship), `gh`, `shellcheck`, `bats`, `uv`, Claude Code and the `nats` CLI. mise follows the
    repository's `rust-toolchain.toml` files, and login shells put its tools on the `PATH`;
 3. sets up git to authenticate with `GH_TOKEN` through `gh`, committing as the token's GitHub
    account with its no-reply address;
