@@ -7,6 +7,7 @@ mod file_system;
 mod host;
 mod interface;
 mod ip;
+mod lab_folder;
 mod lab_name;
 mod mac;
 mod output;
@@ -48,6 +49,9 @@ pub use ip::{
 };
 #[cfg(feature = "netinfo")]
 pub use ip::{get_interface_networks, get_interface_networks_v6};
+pub use lab_folder::{
+    LabFolder, keycloak_file_name, kubeconfig_file_name, talosconfig_file_name, vault_file_name,
+};
 pub use lab_name::is_lab_resource;
 pub use mac::random_mac;
 pub use output::{
@@ -58,8 +62,9 @@ pub use sanitizers::dasher;
 pub use ssh::{
     SshConfigCleanReport, SshConfigEntryStatus, SshConfigInspectionEntry,
     SshConfigInspectionReport, add_lab_ssh_include, clean_stale_lab_ssh_includes,
-    generate_ssh_keypair, get_ssh_public_key, inspect_lab_ssh_includes, pub_ssh_key_to_md5_hash,
-    pub_ssh_key_to_sha256_hash, remove_lab_ssh_include, ssh_key_fingerprint,
+    generate_ssh_keypair, get_ssh_public_key, get_user_ssh_dir, inspect_lab_ssh_includes,
+    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, remove_lab_ssh_include,
+    remove_lab_ssh_include_at, replace_lab_ssh_include, ssh_key_fingerprint,
 };
 pub use table::{
     CertificateTableInfo, render_backup_table, render_bridges_table, render_certificates_table,

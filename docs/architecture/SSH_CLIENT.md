@@ -9,9 +9,10 @@ are the Jato library (`bwks/jato-lib`) with its `terminal` feature, so the clien
 ## Connecting
 
 `cmd::ssh::ssh` first runs the existing checks: the node is in the manifest, the lab files
-exist, the alias is in `sherpa_ssh_config`, and the shared key has safe permissions. Then:
+exist, the alias is in `.sherpa/ssh/config`, and the lab's key `.sherpa/ssh/key` has safe
+permissions. Then:
 
-1. `jato::SshConfig::load_file("sherpa_ssh_config")` reads the lab's configuration, as
+1. `jato::SshConfig::load_file(".sherpa/ssh/config")` reads the lab's configuration, as
    `ssh -F` does, and `route(alias)` resolves the node and its `ProxyJump` to the Sherpa
    server.
 2. `ssh_client::connect` connects along the route (keepalives every 30 s, 3 missed), with a
@@ -27,7 +28,7 @@ for provisioners, which failures are worth retrying (`retryable`).
 
 The server hop has no `StrictHostKeyChecking` in the lab config, so Jato uses OpenSSH's
 default, `ask` (`HostKeyPolicy::Ask`), against `~/.ssh/known_hosts`. A lab node whose key the
-server recorded has `StrictHostKeyChecking yes` and the lab's `sherpa_known_hosts` file
+server recorded has `StrictHostKeyChecking yes` and the lab's `.sherpa/ssh/known_hosts` file
 (`HostKeyPolicy::Strict`), so it is never asked about. Other nodes have
 `StrictHostKeyChecking no`, so their keys are not checked. See "Node readiness" in
 [`SERVER.md`](SERVER.md) for how keys are recorded.

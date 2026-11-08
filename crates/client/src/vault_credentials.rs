@@ -4,8 +4,9 @@ use anyhow::{Context, Result};
 use serde_derive::Serialize;
 
 use shared::data::VaultInfo;
-use shared::util::Emoji;
+use shared::util::{Emoji, LabFolder};
 
+use crate::lab_files::ensure_lab_subdir;
 use crate::private_key::write_secret_file;
 
 /// A Vault node's credentials file, `vault-<node>.toml`.
@@ -24,13 +25,19 @@ pub(crate) struct VaultFile {
     pub path: PathBuf,
 }
 
-/// Write each Vault node's address, root token and unseal key into `dir` as
-/// `vault-<node>.toml`, readable only by the current user.
-#[tracing::instrument(level = "debug", skip(vaults), fields(dir = %dir.display(), vaults = vaults.len()))]
-pub(crate) fn write_vault_credentials(dir: &Path, vaults: &[VaultInfo]) -> Result<Vec<VaultFile>> {
+/// Write each Vault node's address, root token and unseal key into `folder` as
+/// `.sherpa/vault/vault-<node>.toml`, readable only by the current user.
+#[tracing::instrument(level = "debug", skip_all, fields(folder = %folder.root().display(), vaults = vaults.len()))]
+pub(crate) fn write_vault_credentials(
+    folder: &LabFolder,
+    vaults: &[VaultInfo],
+) -> Result<Vec<VaultFile>> {
+    if !vaults.is_empty() {
+        ensure_lab_subdir(folder, &folder.vault_dir())?;
+    }
     let mut written = Vec::with_capacity(vaults.len());
     for vault in vaults {
-        let path = dir.join(format!("vault-{}.toml", vault.name));
+        let path = folder.vault(&vault.name);
         let content = toml::to_string(&VaultCredentialsFile {
             address: &vault.address,
             root_token: &vault.root_token,
@@ -84,8 +91,8 @@ mod tests {
             root_token: "hvs.root".to_owned(),
             unseal_key: "oQ==".to_owned(),
         }];
-        let written = write_vault_credentials(dir.path(), &vaults).unwrap();
-        let path = dir.path().join("vault-vault01.toml");
+        let written = write_vault_credentials(&LabFolder::new(dir.path()), &vaults).unwrap();
+        let path = dir.path().join(".sherpa/vault/vault-vault01.toml");
         assert_eq!(
             written,
             [VaultFile {

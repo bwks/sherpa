@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use shared::data::{ClientConfig, NodeInfo, StatusMessage, UpResponse};
 use shared::util::{
-    Emoji, base64_encode, base64_encode_bytes, get_cwd, get_ssh_public_key, load_file,
+    Emoji, LabFolder, base64_encode, base64_encode_bytes, get_cwd, get_ssh_public_key, load_file,
     render_lab_info_table, render_nodes_table, render_tailnet_table, term_msg_surround,
     term_msg_underline,
 };
@@ -138,7 +138,10 @@ pub async fn up(
     let up_data: UpResponse = up_response.into_result("Lab creation failed")?;
 
     // The lab exists now, so a file that cannot be saved is only a warning.
-    match save_lab_files(&client_folder, &LabFiles::from(&up_data)) {
+    match save_lab_files(
+        &LabFolder::new(Path::new(&client_folder)),
+        &LabFiles::from(&up_data),
+    ) {
         Ok(ssh_config) => register_ssh_config(&ssh_config),
         Err(e) => println!(
             "\n{} Warning: Not all lab files were saved: {e:#}\n   Run: sherpa download {lab_id} --force",

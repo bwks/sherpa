@@ -182,7 +182,7 @@ mod tests {
         });
         assert!(!retryable(&unreadable, &node()));
         let config = anyhow::Error::new(Error::SshConfig {
-            context: "sherpa_ssh_config".into(),
+            context: ".sherpa/ssh/config".into(),
             message: "bad ProxyJump".into(),
         });
         assert!(!retryable(&config, &node()));
@@ -197,7 +197,7 @@ mod tests {
         Error::HostKeyChanged {
             node,
             fingerprint: "SHA256:abc".into(),
-            known_hosts: PathBuf::from("/home/me/lab/sherpa_known_hosts"),
+            known_hosts: PathBuf::from("/home/me/lab/.sherpa/ssh/known_hosts"),
             line: 1,
         }
     }
@@ -207,7 +207,7 @@ mod tests {
             node,
             fingerprint: "SHA256:abc".into(),
             key: "ssh-ed25519 AAAAC3".into(),
-            known_hosts: vec![PathBuf::from("/home/me/lab/sherpa_known_hosts")],
+            known_hosts: vec![PathBuf::from("/home/me/lab/.sherpa/ssh/known_hosts")],
         }
     }
 

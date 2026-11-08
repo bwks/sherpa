@@ -15,6 +15,7 @@ Do not document user-facing behaviour here; document it there.
 | [`GUEST_PROVISIONING.md`](GUEST_PROVISIONING.md) | How a VM node's login, environment variables, text files, scripts and certificates reach the guest: cloud-init staging, Ignition, native tools per OS, per-OS cloud-init adjustments. |
 | [`PROVISIONERS.md`](PROVISIONERS.md) | Client-side provisioners: the never-serialized manifest field, validation and server refusal, the SSH provisioner's remote steps and transport, and when the CLI runs them. |
 | [`LAB_CA.md`](LAB_CA.md) | The per-lab CA and node certificates, their delivery and client copy, Vault over TLS with Sherpa's init and unseal, and Keycloak's HTTPS and the realm Sherpa makes. |
+| [`LAB_FOLDER.md`](LAB_FOLDER.md) | The files the CLI generates for a lab in `.sherpa/` beside the manifest: layout and modes, the SSH config rewrite, destroy, and the temporary migration from the old loose layout. |
 | [`SSH_CLIENT.md`](SSH_CLIENT.md) | `sherpa ssh` through the Jato library: connecting through the server, the host key prompt, raw terminal pass-through, `~.`, resizes and exit codes. |
 | [`SERVER.md`](SERVER.md) | Server startup, daemon manager, routing, auth, services, TLS, scanner, destroy flow, source map. |
 | [`API.md`](API.md) | API transports (REST, WebSocket RPC, CLI), generated spec and OpenAPI, auth levels, streaming, error format. |

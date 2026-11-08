@@ -37,7 +37,7 @@ POLL_INTERVAL = 10
 PING_ATTEMPTS = 5
 
 # OpenSSH options for lab nodes: no prompts, and no host key notices mixed into command output.
-SSH_OPTIONS = ("-F", "sherpa_ssh_config", "-o", "BatchMode=yes", "-o", "LogLevel=ERROR")
+SSH_OPTIONS = ("-F", ".sherpa/ssh/config", "-o", "BatchMode=yes", "-o", "LogLevel=ERROR")
 # Root inside the lab: the FRR image has sudo, Alpine has doas.
 AS_ROOT = 'if command -v sudo >/dev/null; then as_root="sudo -n"; else as_root="doas -n"; fi; '
 # A redeployed node has new MAC addresses. Its peers would wait out their stale neighbour
@@ -213,8 +213,8 @@ class LabRun:
     def up(self):
         self.started = True
         self.sherpa("sherpa up", ["up"], UP_TIMEOUT)
-        info = tomllib.loads((self.directory / "lab-info.toml").read_text())
-        require(info["name"] == self.name, f"lab-info.toml names {info['name']}, not {self.name}")
+        info = tomllib.loads((self.directory / ".sherpa" / "lab-info.toml").read_text())
+        require(info["name"] == self.name, f".sherpa/lab-info.toml names {info['name']}, not {self.name}")
         self.lab_id = info["id"]
 
     def checks(self):
@@ -263,7 +263,7 @@ class LabRun:
         """Destroy the lab and check nothing is left. Returns a failure, or None."""
         if not self.started:
             return None
-        if not (self.directory / "lab-info.toml").exists():
+        if not (self.directory / ".sherpa" / "lab-info.toml").exists():
             # `sherpa up` failed early; destroy whatever it created, found by the manifest's lab name.
             self.sherpa("sherpa destroy (after failed up)", ["destroy", "--yes"], UP_TIMEOUT, check=False)
             return None

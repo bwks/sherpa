@@ -16,6 +16,7 @@ use crate::daemon::state::AppState;
 use crate::services::guest_account::{self, GuestAccount};
 use crate::services::image_lifecycle::{ImageLease, lease_image, validate_disk_method};
 use crate::services::lab_operations::LabOperation;
+use crate::services::lab_ssh_key::LabSshKeyPaths;
 use crate::services::node_resources;
 use crate::services::progress::ProgressSender;
 use crate::services::talos;
@@ -150,7 +151,9 @@ pub(super) async fn load_redeploy<'a>(
             &lab_ca,
         )?);
     }
-    let sherpa_user = util::sherpa_user().context("Failed to get sherpa user")?;
+    // A lab created before lab keys keeps the server's key: the other nodes still take it.
+    let ssh_key = LabSshKeyPaths::of(db_lab.ssh_key, &lab_dir);
+    let sherpa_user = util::sherpa_user(&ssh_key.public).context("Failed to get sherpa user")?;
     let (ipv4, ipv6) = node_management_addresses(&db_node, &mgmt_net)?;
     target_node.ipv6_address = ipv6;
 

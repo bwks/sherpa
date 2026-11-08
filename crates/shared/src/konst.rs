@@ -162,6 +162,12 @@ pub const SHERPA_PASSWORD_HASH: &str = "$6$rounds=4096$amTfvavVzUSS6wQS$4jB1NvmL
 pub const SHERPA_PASSWORD_HASH_SHA256: &str =
     "$5$mhhcowfq$qKK.CiKWZxuOfadgSyOawx6srN3knX4jRgfa8hZxcB0";
 pub const SHERPA_SSH_PRIVATE_KEY_FILE: &str = "sherpa_ssh_key";
+/// The public half of `SHERPA_SSH_PRIVATE_KEY_FILE`, in the server's SSH folder or a lab folder.
+pub const SHERPA_SSH_PUBLIC_KEY_FILE: &str = "sherpa_ssh_key.pub";
+/// Mode of the server's private key: sherpad and the `sherpa` group read it.
+pub const SHERPA_SSH_PRIVATE_KEY_MODE: u32 = 0o640;
+/// Mode of a lab's private key: only sherpad reads it.
+pub const LAB_SSH_PRIVATE_KEY_MODE: u32 = 0o600;
 pub const SHERPA_SSH_CONFIG_FILE: &str = "sherpa_ssh_config";
 pub const SHERPA_KNOWN_HOSTS_FILE: &str = "sherpa_known_hosts";
 /// The lab CA certificate, saved in the lab folder for clients to trust lab nodes.
@@ -170,6 +176,9 @@ pub const SHERPA_SSH_INDEX_FILE: &str = "sherpa_lab_hosts";
 pub const SHERPA_SSH_INDEX_HEADER: &str = "# Sherpa lab SSH configs - managed by sherpa CLI";
 pub const SHERPA_DOMAIN_NAME: &str = "sherpa.lab.local";
 pub const LAB_FILE_NAME: &str = "lab-info.toml";
+/// The folder beside a lab's `manifest.toml` holding every file the CLI generates for it;
+/// see `util::LabFolder`.
+pub const LAB_STATE_DIR: &str = ".sherpa";
 pub const BRIDGE_PREFIX: &str = "br";
 pub const TAP_PREFIX: &str = "tp";
 /// Host side of a P2p container's private bridge member veth; it joins the bridge.

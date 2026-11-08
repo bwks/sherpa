@@ -23,7 +23,7 @@
 - SSH config and private key written locally on success `[integration]` **P1**
 - SSH private key is restricted to mode 0600 on Unix and a protected current-user-only DACL on Windows `[unit]` **P0**
 - Failed private key permission hardening removes the insecure local key `[unit]` **P0**
-- lab-info.toml written on success `[integration]` **P1**
+- `.sherpa/lab-info.toml` written on success `[integration]` **P1**
 - Results displayed in table format `[integration]` **P2**
 - 15-minute extended timeout used for long operations `[unit]` **P1**
 
@@ -51,9 +51,11 @@
 - `--yes` flag skips confirmation `[unit]` **P0**
 - Streaming progress messages during destruction `[integration]` **P1**
 - Local SSH config and key files cleaned up after destruction `[integration]` **P1**
+- The lab folder's `.sherpa/` is deleted whole and nothing else in the lab folder is touched `[unit]` **P0**
+- A symlinked `.sherpa` is refused, and what it points to is kept `[unit]` **P0**
 - Missing auth token produces login prompt `[integration]` **P0**
 
-**Existing coverage:** None
+**Existing coverage:** `remove_state_dir` unit tests in `cmd/destroy.rs`
 
 ---
 
@@ -148,7 +150,7 @@
 **What to test:**
 - Device name mapped to correct loopback IP `[unit]` **P0**
 - "boot-server" maps to device ID 255 `[unit]` **P1**
-- Missing lab-info.toml produces clear error `[unit]` **P0**
+- Missing `.sherpa/lab-info.toml` produces clear error `[unit]` **P0**
 - Unknown device name produces error `[unit]` **P0**
 - Telnet command invoked with correct address `[integration]` **P1**
 
@@ -179,6 +181,9 @@
 - Downloaded SSH private key uses mode 0600 on Unix `[unit]` **P0**
 - Downloaded SSH private key uses a protected current-user-only DACL on Windows `[unit]` **P0**
 - Permission hardening failure removes the downloaded private key and returns an error `[unit]` **P0**
+- Every file is saved under `.sherpa/` (0700 folders, secrets 0600); nothing is left loose in the lab folder `[unit]` **P0**
+- The saved `.sherpa/ssh/config` resolves `IdentityFile` and `UserKnownHostsFile` to `.sherpa/ssh/` `[unit]` **P0**
+- A symlinked `.sherpa` is refused `[unit]` **P0**
 
 ---
 
@@ -190,7 +195,8 @@
 - `sherpa ssh-config inspect` marks server-backed validation unavailable when token/server access fails, while still reporting local file problems `[unit]` **P1**
 - `sherpa ssh-config clean` removes stale and broken Include entries from `sherpa_lab_hosts` `[unit]` **P0**
 - `sherpa ssh-config clean` is idempotent on repeated runs `[unit]` **P0**
-- `sherpa ssh-config clean` does not delete local lab files (`sherpa_ssh_config`, `sherpa_ssh_key`, `lab-info.toml`) `[unit]` **P0**
+- `sherpa ssh-config clean` does not delete local lab files (`.sherpa/`) `[unit]` **P0**
+- `sherpa ssh-config inspect` and `clean` first move the files of each lab an old-layout Include names into its `.sherpa/` `[unit]` **P1**
 
 **Existing coverage:** CLI parse tests for `sherpa ssh-config inspect` and `sherpa ssh-config clean`
 
@@ -220,3 +226,20 @@
 - Admin-only commands fail for non-admin users `[integration]` **P0**
 
 **Existing coverage:** None
+
+---
+
+## Lab folder migration (`lab_folder_migration`, temporary)
+
+Every command that uses the lab folder first moves the files older clients left loose into
+`.sherpa/`.
+
+**What to test:**
+- An old layout moves into `.sherpa/`, its SSH config points at `.sherpa/ssh/`, and the `~/.ssh/sherpa_lab_hosts` Include is swapped in place `[unit]` **P0**
+- Migrated folders are 0700 and secrets 0600 `[unit]` **P0**
+- A migrated folder is left as it is (idempotent) `[unit]` **P0**
+- A partial migration is finished; a loose file replaces its `.sherpa/` copy `[unit]` **P0**
+- A folder that is not a lab's, and the user's own files in a lab folder, are untouched `[unit]` **P0**
+- A symlinked `.sherpa` is refused and nothing moves `[unit]` **P0**
+
+**Existing coverage:** unit tests in `crates/client/src/lab_folder_migration.rs`

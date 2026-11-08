@@ -60,11 +60,11 @@ def environment_node(manifest):
 
 
 def lab_id(directory, manifest):
-    path = directory / "lab-info.toml"
+    path = directory / ".sherpa" / "lab-info.toml"
     require(path.is_file(), f"No lab is up for {directory.name}; run: test_env.py up {directory.name}")
     info = tomllib.loads(path.read_text())
     require(info.get("name") == manifest["name"],
-            f"lab-info.toml belongs to lab {info.get('name')!r}, not {manifest['name']!r}")
+            f".sherpa/lab-info.toml belongs to lab {info.get('name')!r}, not {manifest['name']!r}")
     return info["id"]
 
 
@@ -75,7 +75,7 @@ def run(command, directory):
 
 
 def ssh_options(directory):
-    return ["-F", str(directory / "sherpa_ssh_config"), "-o", "BatchMode=yes",
+    return ["-F", str(directory / ".sherpa" / "ssh" / "config"), "-o", "BatchMode=yes",
             "-o", f"ConnectTimeout={CONNECT_TIMEOUT}"]
 
 

@@ -82,20 +82,21 @@ it from the files Sherpa generates for the lab.
 
 ### Connecting
 
-`sherpa up` writes `sherpa_ssh_config`, which routes through a ProxyJump to the Sherpa server.
+`sherpa up` writes `.sherpa/ssh/config`, which routes through a ProxyJump to the Sherpa server.
 After every `sherpa up`, write a direct config from it:
 
 ```
 cd tests/environments/dev
 python3 direct_ssh_config.py
-ssh -F sherpa_ssh_direct_config dev
+ssh -F .sherpa/ssh/direct_config dev
 ```
 
-`direct_ssh_config.py` resolves each node from `sherpa_ssh_config` and the lab's `lab-info.toml`,
-and writes `sherpa_ssh_direct_config` with no ProxyJump and a shared master connection, so each
-command after the first takes milliseconds. The master socket lives in `$XDG_RUNTIME_DIR`. Both
-generated files are gitignored. Close the master connection with
-`ssh -F sherpa_ssh_direct_config -O exit dev`.
+`direct_ssh_config.py` resolves each node from `.sherpa/ssh/config` and `.sherpa/lab-info.toml`,
+and writes `.sherpa/ssh/direct_config` with no ProxyJump and a shared master connection, so each
+command after the first takes milliseconds. The master socket lives in `$XDG_RUNTIME_DIR`. The
+generated files are gitignored, and `sherpa destroy` deletes them with `.sherpa/`. Close the
+master connection with
+`ssh -F .sherpa/ssh/direct_config -O exit dev`.
 
 Do not add SSH config to `~/.ssh` or mount the guest on the host; use the generated config.
 
@@ -103,7 +104,7 @@ Do not add SSH config to `~/.ssh` or mount the guest on the host; use the genera
 
 Everything runs in the guest, as its login user `sherpa`, which has passwordless `sudo`. The
 tools from mise are on the `PATH` of login shells, so run commands through one:
-`ssh -F sherpa_ssh_direct_config dev 'bash -lc "cargo --version"'`.
+`ssh -F .sherpa/ssh/direct_config dev 'bash -lc "cargo --version"'`.
 
 - **Code:** the checkouts are `~/code/rust/sherpa` and `~/code/rust/sherpa-docs`. They are the
   only working copies: commit and push from there. Git authenticates through `gh` with
@@ -144,7 +145,7 @@ the task from another directory. It enrolls `dev` with a fresh key and pipes the
 
 ```
 cd tests/environments/dev
-ssh -F sherpa_ssh_direct_config -O exit dev
+ssh -F .sherpa/ssh/direct_config -O exit dev
 sherpa destroy
 ```
 

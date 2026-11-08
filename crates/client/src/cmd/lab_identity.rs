@@ -1,14 +1,14 @@
-//! Which lab the current folder holds. `lab-info.toml`, written by `sherpa up` and `sherpa
-//! download`, and `manifest.toml` must name the same lab when both are present, so every
+//! Which lab the current folder holds. `.sherpa/lab-info.toml`, written by `sherpa up` and
+//! `sherpa download`, and `manifest.toml` must name the same lab when both are present, so every
 //! command acts on the same one.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail, ensure};
 
 use shared::data::{LabIdentity, LabInfo};
-use shared::konst::{LAB_FILE_NAME, SHERPA_MANIFEST_FILE};
-use shared::util::{get_id, load_file};
+use shared::konst::SHERPA_MANIFEST_FILE;
+use shared::util::{LabFolder, get_id, load_file};
 use topology::Manifest;
 
 /// The lab of the current folder, from `lab-info.toml` or `manifest.toml`.
@@ -51,12 +51,18 @@ fn identity_of(manifest: &Manifest) -> Result<LabIdentity> {
     })
 }
 
-/// The lab `lab-info.toml` in the current folder names, if there is one that parses.
+/// `.sherpa/lab-info.toml`, relative to the current folder.
+fn lab_info_file() -> PathBuf {
+    LabFolder::new(Path::new("")).lab_info()
+}
+
+/// The lab `.sherpa/lab-info.toml` in the current folder names, if there is one that parses.
 fn lab_info_identity() -> Option<LabIdentity> {
-    if !Path::new(LAB_FILE_NAME).exists() {
+    let path = lab_info_file();
+    if !path.exists() {
         return None;
     }
-    match load_file(LAB_FILE_NAME).and_then(|content| content.parse::<LabInfo>()) {
+    match load_file(&path.to_string_lossy()).and_then(|content| content.parse::<LabInfo>()) {
         Ok(lab_info) => Some(LabIdentity {
             name: lab_info.name,
             id: lab_info.id,
@@ -77,20 +83,25 @@ fn agreed_identity(
         (Some(lab_info), Some(manifest)) => {
             ensure!(
                 lab_info.id == manifest.id,
-                "{LAB_FILE_NAME} is for lab {}-{}, but {SHERPA_MANIFEST_FILE} is for lab {}-{}; \
-                 destroy lab {}-{} or remove {LAB_FILE_NAME} before using this folder for lab {}",
+                "{} is for lab {}-{}, but {SHERPA_MANIFEST_FILE} is for lab {}-{}; \
+                 destroy lab {}-{} or remove {} before using this folder for lab {}",
+                lab_info_file().display(),
                 lab_info.name,
                 lab_info.id,
                 manifest.name,
                 manifest.id,
                 lab_info.name,
                 lab_info.id,
+                lab_info_file().display(),
                 manifest.name
             );
             Ok(lab_info)
         }
         (Some(lab), None) | (None, Some(lab)) => Ok(lab),
-        (None, None) => bail!("This folder has no {SHERPA_MANIFEST_FILE} or {LAB_FILE_NAME}"),
+        (None, None) => bail!(
+            "This folder has no {SHERPA_MANIFEST_FILE} or {}",
+            lab_info_file().display()
+        ),
     }
 }
 
@@ -126,8 +137,8 @@ mod tests {
         let error = agreed_identity(Some(lab("a", "1")), Some(lab("b", "2"))).unwrap_err();
         assert_eq!(
             error.to_string(),
-            "lab-info.toml is for lab a-1, but manifest.toml is for lab b-2; destroy lab a-1 \
-             or remove lab-info.toml before using this folder for lab b"
+            ".sherpa/lab-info.toml is for lab a-1, but manifest.toml is for lab b-2; destroy lab \
+             a-1 or remove .sherpa/lab-info.toml before using this folder for lab b"
         );
     }
 

@@ -32,8 +32,12 @@ LAB_NAMES = ("single", "ha")
 TALOS_VERSION = "1.14.4"
 CLUSTER = "k8s"
 UTIL_NODE = "util"
-KUBECONFIG = f"kubeconfig-{CLUSTER}"
-TALOSCONFIG = f"talosconfig-{CLUSTER}"
+# Cluster credentials: where `sherpa up` writes them in the lab folder, and the plain names
+# `scp` gives them in the util node's home directory.
+REMOTE_KUBECONFIG = f"kubeconfig-{CLUSTER}"
+REMOTE_TALOSCONFIG = f"talosconfig-{CLUSTER}"
+KUBECONFIG = f".sherpa/k8s/{REMOTE_KUBECONFIG}"
+TALOSCONFIG = f".sherpa/talos/{REMOTE_TALOSCONFIG}"
 # Host offset of the first Talos cluster VIP in a lab management subnet (TALOS_VIP_HOST_OFFSETS).
 FIRST_VIP_HOST_OFFSET = 11
 # Host offsets of the first Cilium cluster's Gateway and Hubble UI (TALOS_LOAD_BALANCER_HOST_OFFSETS).
@@ -55,7 +59,7 @@ ECHO_REQUESTS = 60
 
 
 # OpenSSH options for lab nodes: no prompts, and no host key notices mixed into command output.
-SSH_OPTIONS = ("-F", "sherpa_ssh_config", "-o", "BatchMode=yes", "-o", "LogLevel=ERROR")
+SSH_OPTIONS = ("-F", ".sherpa/ssh/config", "-o", "BatchMode=yes", "-o", "LogLevel=ERROR")
 
 
 class TestFailure(Exception):
@@ -265,11 +269,11 @@ class LabRun:
                             timeout, check, stdin)
 
     def kubectl(self, label, arguments, timeout=COMMAND_TIMEOUT, check=True, stdin=None):
-        return self.util(label, shlex.join(["kubectl", "--kubeconfig", KUBECONFIG, *arguments]),
+        return self.util(label, shlex.join(["kubectl", "--kubeconfig", REMOTE_KUBECONFIG, *arguments]),
                          timeout, check, stdin)
 
     def talosctl(self, label, arguments, timeout=COMMAND_TIMEOUT, check=True):
-        return self.util(label, shlex.join(["talosctl", "--talosconfig", TALOSCONFIG, *arguments]),
+        return self.util(label, shlex.join(["talosctl", "--talosconfig", REMOTE_TALOSCONFIG, *arguments]),
                          timeout, check)
 
     # -- lab ---------------------------------------------------------------------------------
@@ -300,8 +304,8 @@ class LabRun:
     def up(self):
         self.started = True
         self.up_output = self.sherpa("sherpa up", ["up"], UP_TIMEOUT).output
-        info = tomllib.loads((self.directory / "lab-info.toml").read_text())
-        require(info["name"] == self.name, f"lab-info.toml names {info['name']}, not {self.name}")
+        info = tomllib.loads((self.directory / ".sherpa" / "lab-info.toml").read_text())
+        require(info["name"] == self.name, f".sherpa/lab-info.toml names {info['name']}, not {self.name}")
         self.lab_id = info["id"]
         self.ipv4_network = info["ipv4_network"]
         for name in (KUBECONFIG, TALOSCONFIG):
@@ -470,7 +474,7 @@ class LabRun:
         """Destroy the lab and check nothing is left. Returns a failure, or None."""
         if not self.started:
             return None
-        if not (self.directory / "lab-info.toml").exists():
+        if not (self.directory / ".sherpa" / "lab-info.toml").exists():
             # `sherpa up` failed early; destroy whatever it created, found by the manifest's lab name.
             self.sherpa("sherpa destroy (after failed up)", ["destroy", "--yes"], UP_TIMEOUT, check=False)
             return None

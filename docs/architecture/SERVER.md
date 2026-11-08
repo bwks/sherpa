@@ -524,7 +524,7 @@ flowchart TB
     end
     createnode --> labfiles
     subgraph phase4["4. LabNetworkSetup"]
-        labfiles["create /opt/sherpa/labs/{lab_id}<br/>write lab info file<br/>save manifest.toml for redeploy"] --> mgmtnets["libvirt NAT management network<br/>Docker bridge management network"] --> tailscale["tailscale::provision when the lab joins a tailnet"]
+        labfiles["create /opt/sherpa/labs/{lab_id}<br/>write lab info file<br/>save manifest.toml for redeploy<br/>lab_ssh_key::create_lab_ssh_key: the lab's SSH key pair, 0600"] --> mgmtnets["libvirt NAT management network<br/>Docker bridge management network"] --> tailscale["tailscale::provision when the lab joins a tailnet"]
     end
     tailscale --> links
     subgraph phase5["5. LinkCreation"]
@@ -556,7 +556,7 @@ flowchart TB
     end
     isodown --> ssh
     subgraph phase12["12. SshConfig"]
-        ssh["ssh_config::save_lab_ssh_files<br/>read the SSH private key for the client<br/>build container network attachments"]
+        ssh["ssh_config::save_lab_ssh_files<br/>read the lab's SSH private key for the client<br/>build container network attachments"]
     end
     ssh --> secrets
     subgraph phase13["13. NodeReadiness"]
@@ -718,7 +718,7 @@ flowchart TB
     request["redeploy_node (node.rs)"] --> owner["require_lab_owner in the service<br/>(owner only, admins included), owner has an SSH key<br/>lab_operations::begin, require_lab_owner again<br/>the lab's redeploy lock"]
     owner --> load
     subgraph stage1["1. load_redeploy (context.rs): nothing is changed"]
-        load["manifest checks: host access, client files, provisioners, secrets<br/>node and image from the DB; same model; unikernels refused<br/>lease the image, check the disk method<br/>lab info, management network, DNS, lab CA, Talos worker config<br/>saved management addresses, owner account and node login<br/>performance tuning, watchdog, platform, CPU pins"]
+        load["manifest checks: host access, client files, provisioners, secrets<br/>node and image from the DB; same model; unikernels refused<br/>lease the image, check the disk method<br/>lab info, management network, DNS, lab CA, Talos worker config<br/>the sherpa account with the lab's SSH key (lab.ssh_key)<br/>saved management addresses, owner account and node login<br/>performance tuning, watchdog, platform, CPU pins"]
     end
     load --> starting["clear the host key, node Starting"]
     starting --> destroy
@@ -999,10 +999,40 @@ them with `lab-info.toml`: `sherpa_ssh_config`, in which a node with a recorded 
 `StrictHostKeyChecking yes` and `UserKnownHostsFile sherpa_known_hosts` (others keep `no` and
 `/dev/null`), and `sherpa_known_hosts` (template `ssh/known_hosts.jinja`), one line per key under
 the name OpenSSH looks up: the address on port 22, else `[address]:port`. `up`'s response, the
-download service and `node.host_keys` carry the known_hosts file, and the client rewrites the
-relative `UserKnownHostsFile` path to an absolute one, as it does for `IdentityFile`
-(`client::lab_files`). When a node's key is unknown or changed, the client fetches the lab's
+download service and `node.host_keys` carry the known_hosts file, and the client saves it as
+`.sherpa/ssh/known_hosts` and rewrites the relative `UserKnownHostsFile` path to that absolute
+one, as it does for `IdentityFile` (`client::lab_files`, see [`LAB_FOLDER.md`](LAB_FOLDER.md)). When a node's key is unknown or changed, the client fetches the lab's
 keys with `node.host_keys`, warns about a changed key, and connects again (`SSH_CLIENT.md`).
+
+### Lab SSH keys
+
+Nodes that cannot take their owner's keys (no personal account, or a model that has none) are
+reached as `sherpa` with a key pair, the `IdentityFile sherpa_ssh_key` hosts of
+`sherpa_ssh_config`. Each lab has its own pair, so one lab's key opens no other lab's nodes.
+`services::lab_ssh_key` holds the rules:
+
+- **Recorded on the lab.** `lab.ssh_key` (`shared::data::LabSshKey`, migration 11) is `lab`
+  for a lab with its own key and `server` for one created before. `db::create_lab` always
+  writes `lab`. `LabSshKeyPaths::of(kind, lab_dir)` maps it to the key files:
+  `{lab_dir}/sherpa_ssh_key` and `.pub`, or the server's `/opt/sherpa/ssh/sherpa_ssh_key`.
+- **`up`** makes the pair in phase 4 (`create_lab_ssh_key`), once the lab folder exists, and
+  builds the `sherpa` account (`util::sherpa_user`) from its public key for every node's
+  configuration. It is RSA like the server key, as some network operating systems take no
+  other kind, and the private key is `0600` (`konst::LAB_SSH_PRIVATE_KEY_MODE`; the server key
+  is `0640` for the `sherpa` group). A failed `up` rolls the folder back with the key.
+- **Node configuration** takes the key only from the `sherpa_user` it is given: the template
+  crate's `CloudInitUser::sherpa` and `CloudbaseInitUser::sherpa` take the public key, and the
+  MikroTik config disk gets `sherpa_ssh_key.pub` written from it. Nothing outside `init` and
+  `lab_ssh_key` reads the server key path.
+- **`redeploy`** builds the account from `lab.ssh_key`, so a lab created before keeps the server
+  key on the redeployed node: its other nodes still take only that key, and the client holds
+  one key per lab (`.sherpa/ssh/key`). `resume` changes no node configuration.
+- **`up`'s response and `download`** return the private key only when the SSH config uses it
+  (`LabSshFiles::uses_lab_key`), and only to the owner or an admin (`require_lab_access`). A lab
+  with its own key whose file is missing is an error (`read_private_key`), never the server key.
+  The response and file names are unchanged: the client saves the key as `.sherpa/ssh/key`
+  (see [`LAB_FOLDER.md`](LAB_FOLDER.md)).
+- **`destroy` and `clean`** delete the key with the lab folder (`cleanup_lab_metadata`).
 
 ### Runtime resource model for a lab
 
@@ -1255,6 +1285,7 @@ Open implementation seams (handler-driven auth, inconsistent service authorizati
 | Node/lab stop/start | `crates/server/src/services/down.rs`, `resume.rs` |
 | Redeploy | `crates/server/src/services/redeploy/` |
 | Inspect/list/download | `crates/server/src/services/inspect.rs`, `list_labs.rs`, `download.rs` |
+| Lab SSH keys | `crates/server/src/services/lab_ssh_key.rs` |
 | Image management | `crates/server/src/services/import.rs`, `container_pull.rs`, `delete.rs` |
 | Link impairment | `crates/server/src/services/impairment.rs` |
 | Scanner | `crates/server/src/services/scanner.rs` |
