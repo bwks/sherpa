@@ -42,7 +42,7 @@ POLL_INTERVAL = 10
 PING_ATTEMPTS = 5
 
 # OpenSSH options for lab nodes: no prompts, and no host key notices mixed into command output.
-SSH_OPTIONS = ("-F", "sherpa_ssh_config", "-o", "BatchMode=yes", "-o", "LogLevel=ERROR")
+SSH_OPTIONS = ("-F", ".sherpa/ssh/config", "-o", "BatchMode=yes", "-o", "LogLevel=ERROR")
 
 
 class TestFailure(Exception):
@@ -221,8 +221,8 @@ class LabRun:
     def up(self):
         self.started = True
         self.sherpa("sherpa up", ["up"], UP_TIMEOUT)
-        info = tomllib.loads((self.directory / "lab-info.toml").read_text())
-        require(info["name"] == self.name, f"lab-info.toml names {info['name']}, not {self.name}")
+        info = tomllib.loads((self.directory / ".sherpa" / "lab-info.toml").read_text())
+        require(info["name"] == self.name, f".sherpa/lab-info.toml names {info['name']}, not {self.name}")
         self.lab_id = info["id"]
 
     def checks(self):
@@ -259,7 +259,7 @@ class LabRun:
         outcome = self.node(f"{node} host key on disk", node,
                             "cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub")
         on_disk = outcome.stdout.strip()
-        known_hosts = (self.directory / "sherpa_known_hosts").read_text().splitlines()
+        known_hosts = (self.directory / ".sherpa" / "ssh" / "known_hosts").read_text().splitlines()
         pinned = [line.split(None, 1)[1] for line in known_hosts if line.strip()]
         require(on_disk and on_disk in pinned,
                 f"{node}: the pinned host key is not the key on disk ({on_disk!r})")
@@ -327,7 +327,7 @@ class LabRun:
         """Destroy the lab and check nothing is left. Returns a failure, or None."""
         if not self.started:
             return None
-        if not (self.directory / "lab-info.toml").exists():
+        if not (self.directory / ".sherpa" / "lab-info.toml").exists():
             # `sherpa up` failed early; destroy whatever it created, found by the manifest's lab name.
             self.sherpa("sherpa destroy (after failed up)", ["destroy", "--yes"], UP_TIMEOUT, check=False)
             return None

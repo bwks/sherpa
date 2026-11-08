@@ -59,7 +59,7 @@ cloud-init skips `ca_certs` on distros where the module is not supported, such a
 ## Client copy
 
 `UpResponse.lab_ca` and `DownloadLabResponse.lab_ca` carry `ca.crt`. The client writes it as
-`lab-ca.crt` (`konst::SHERPA_LAB_CA_FILE`) in the lab folder (`lab_files::write_lab_ca`).
+`.sherpa/ca/lab-ca.crt` (`LabFolder::lab_ca`) in the lab folder (`lab_files::write_lab_ca`).
 `download` reads it from the lab's `certs` directory, and sends an empty string for labs created
 before the lab CA.
 
@@ -96,7 +96,7 @@ and its credentials file is replaced. `down` pauses containers, so Vault stays u
 `down` and `resume`.
 
 `UpResponse.vaults` and `DownloadLabResponse.vaults` carry each Vault's `VaultInfo` (address,
-root token, unseal key). The client writes them as `vault-<node>.toml` (0600) and prints the
+root token, unseal key). The client writes them as `.sherpa/vault/vault-<node>.toml` (0600) and prints the
 `VAULT_ADDR`/`VAULT_CACERT` exports (`client::vault_credentials`). After `redeploy`, the
 client's `download --force` writes the new credentials.
 
@@ -124,5 +124,5 @@ the admin API (no realm import file, which would be JSON):
 A create that conflicts (HTTP 409) is left as it is. The users and passwords are saved before
 they are created, in `<lab>/keycloak/<node>.toml` (0600), and reused, so a redeployed Keycloak
 gets the same passwords. `UpResponse.keycloaks` and `DownloadLabResponse.keycloaks` carry
-them (`KeycloakInfo`); the client writes `keycloak-<node>.toml` (0600) with the address,
+them (`KeycloakInfo`); the client writes `.sherpa/keycloak/keycloak-<node>.toml` (0600) with the address,
 realm, issuer, account console and users (`client::keycloak_credentials`).

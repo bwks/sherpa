@@ -28,8 +28,8 @@ Linux dev server cannot compile.
   README. An image without a verified checksum is not a test baseline.
 - Install nothing beyond what cloud-init needs for guest access. Docker and libvirt
   must come from Sherpa's installer, so the installer is tested too.
-- `sherpa up` writes `lab-info.toml`, `sherpa_ssh_config` and `sherpa_ssh_key`
-  into the environment directory. Git ignores them; never commit them.
+- `sherpa up` writes its lab files (`lab-info.toml`, the SSH config and key) into
+  `.sherpa/` in the environment directory. Git ignores it; never commit it.
 
 ## Environment check
 

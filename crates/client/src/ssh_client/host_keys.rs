@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use tokio::sync::Mutex;
 
 use shared::data::{ClientConfig, NodeHostKeysResponse, ServerConnection};
+use shared::util::LabFolder;
 
 use crate::lab_files::write_known_hosts;
 use crate::token::load_token;
@@ -64,8 +65,7 @@ impl HostKeyRefresh {
         rpc_client.close().await.ok();
         let keys: NodeHostKeysResponse =
             response?.into_result("The Sherpa server could not read the host key")?;
-        let lab_dir = self.lab_dir.to_string_lossy();
-        write_known_hosts(&lab_dir, &keys.known_hosts)?;
+        write_known_hosts(&LabFolder::new(&self.lab_dir), &keys.known_hosts)?;
         Ok(keys)
     }
 }

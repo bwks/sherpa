@@ -1,5 +1,5 @@
 //! SSH transport for provisioners, through the Jato SSH library: connecting to a node through
-//! the Sherpa server as the lab's `sherpa_ssh_config` says, running commands and copying
+//! the Sherpa server as the lab's `.sherpa/ssh/config` says, running commands and copying
 //! files over SFTP. No `ssh` or `scp` program is run.
 //!
 //! Only the jump to the Sherpa server may ask for a passphrase or password, and answers are
@@ -221,7 +221,7 @@ mod tests {
 
     fn lab_ssh_config() -> SshConfig {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("sherpa_ssh_config");
+        let path = dir.path().join("config");
         fs::write(&path, LAB_SSH_CONFIG).unwrap();
         SshConfig::load_file(&path).unwrap()
     }

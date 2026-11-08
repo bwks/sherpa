@@ -9,11 +9,8 @@ use jato::{ConnectOptions, PromptCache, SshConfig};
 use topology::Manifest;
 
 use shared::data::{ClientConfig, LabInfo};
-use shared::konst::{
-    LAB_FILE_NAME, SHERPA_DOMAIN_NAME, SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_SSH_PRIVATE_KEY_FILE, SSH_PROMPT_AUTH_TIMEOUT,
-};
-use shared::util::term_msg_surround;
+use shared::konst::{SHERPA_DOMAIN_NAME, SHERPA_MANIFEST_FILE, SSH_PROMPT_AUTH_TIMEOUT};
+use shared::util::{LabFolder, term_msg_surround};
 
 use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, restrict_secret_permissions};
 use crate::ssh_client::{self, HostKeyRefresh, PromptScope};
@@ -63,8 +60,9 @@ pub async fn ssh(
     server_url: &str,
     client_config: &ClientConfig,
 ) -> Result<()> {
-    let qualified_name = load_ssh_connection(name, lab_id, Path::new("."))?;
-    let config = SshConfig::load_file(SHERPA_SSH_CONFIG_FILE)
+    let lab_dir = Path::new("");
+    let qualified_name = load_ssh_connection(name, lab_id, lab_dir)?;
+    let config = SshConfig::load_file(LabFolder::new(lab_dir).ssh_config())
         .context("Failed to read the lab SSH config")?;
     let route = config
         .route(&qualified_name)
@@ -73,7 +71,7 @@ pub async fn ssh(
 
     let mut options = ConnectOptions::default();
     options.auth_timeout = Duration::from_secs(SSH_PROMPT_AUTH_TIMEOUT);
-    let refresh = HostKeyRefresh::new(lab_id, server_url, client_config, Path::new("."));
+    let refresh = HostKeyRefresh::new(lab_id, server_url, client_config, lab_dir);
     let session = ssh_client::connect(
         &route,
         &options,
@@ -114,16 +112,10 @@ fn load_ssh_connection(name: &str, lab_id: &str, lab_dir: &Path) -> Result<Strin
         Err(error) if error.kind() == ErrorKind::NotFound => {}
         Err(error) => return Err(error).context("Failed to load lab manifest"),
     }
-    let lab_info: LabInfo =
-        read_lab_connection_file(&lab_dir.join(LAB_FILE_NAME), lab_id)?.parse()?;
-    let ssh_config = read_lab_connection_file(&lab_dir.join(SHERPA_SSH_CONFIG_FILE), lab_id)?;
-    prepare_ssh_connection(
-        name,
-        lab_id,
-        &lab_info,
-        &ssh_config,
-        &lab_dir.join(SHERPA_SSH_PRIVATE_KEY_FILE),
-    )
+    let folder = LabFolder::new(lab_dir);
+    let lab_info: LabInfo = read_lab_connection_file(&folder.lab_info(), lab_id)?.parse()?;
+    let ssh_config = read_lab_connection_file(&folder.ssh_config(), lab_id)?;
+    prepare_ssh_connection(name, lab_id, &lab_info, &ssh_config, &folder.ssh_key())
 }
 
 fn read_lab_connection_file(path: &Path, lab_id: &str) -> Result<String> {
@@ -184,6 +176,12 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
 
+    /// Write `content` to `path`, making its folders.
+    fn write(path: &Path, content: &str) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    }
+
     fn lab_info() -> LabInfo {
         "id='abcd1234'\nname='test'\nuser='alice'\nipv4_network='192.0.2.0/24'\nipv4_gateway='192.0.2.1'\nipv4_router='192.0.2.2'\nloopback_network='127.127.0.0/24'\n[[ssh_usernames]]\nnode_name='vm'\nusername='alice'".parse().unwrap()
     }
@@ -196,7 +194,10 @@ mod tests {
             "name='test'\nnodes=[{name='oma01',model='omarchy_linux'}]\n",
         )
         .unwrap();
-        fs::write(dir.path().join(LAB_FILE_NAME), lab_info().to_string()).unwrap();
+        write(
+            &LabFolder::new(dir.path()).lab_info(),
+            &lab_info().to_string(),
+        );
         let error = load_ssh_connection("oma1", "abcd1234", dir.path()).unwrap_err();
         assert_eq!(error.to_string(), "Node 'oma1' not found in manifest.toml");
     }
@@ -216,12 +217,14 @@ mod tests {
     #[test]
     fn downloaded_files_work_without_a_manifest() {
         let dir = tempdir().unwrap();
-        fs::write(dir.path().join(LAB_FILE_NAME), lab_info().to_string()).unwrap();
-        fs::write(
-            dir.path().join(SHERPA_SSH_CONFIG_FILE),
+        write(
+            &LabFolder::new(dir.path()).lab_info(),
+            &lab_info().to_string(),
+        );
+        write(
+            &LabFolder::new(dir.path()).ssh_config(),
             "Host vm.abcd1234 vm.abcd1234.sherpa.lab.local\n    User alice\n",
-        )
-        .unwrap();
+        );
         for name in ["vm", "vm.abcd1234", "vm.abcd1234.sherpa.lab.local"] {
             assert_eq!(
                 load_ssh_connection(name, "abcd1234", dir.path()).unwrap(),
@@ -238,7 +241,10 @@ mod tests {
             "name='test'\nnodes=[{name='vm',model='omarchy_linux'}]\n",
         )
         .unwrap();
-        fs::write(dir.path().join(LAB_FILE_NAME), lab_info().to_string()).unwrap();
+        write(
+            &LabFolder::new(dir.path()).lab_info(),
+            &lab_info().to_string(),
+        );
         for name in ["vm", "vm.abcd1234", "vm.abcd1234.sherpa.lab.local"] {
             let error = load_ssh_connection(name, "abcd1234", dir.path()).unwrap_err();
             assert!(
@@ -290,6 +296,20 @@ mod tests {
         );
         assert!(!error.to_string().contains("sherpa up"));
         assert!(error.downcast_ref::<IoError>().is_some());
+    }
+
+    #[test]
+    fn loose_files_of_the_old_layout_are_not_read() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("lab-info.toml"), lab_info().to_string()).unwrap();
+        fs::write(dir.path().join("sherpa_ssh_config"), "Host vm.abcd1234\n").unwrap();
+        let error = load_ssh_connection("vm", "abcd1234", dir.path()).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Lab connection files are missing"),
+            "{error:#}"
+        );
     }
 
     #[test]

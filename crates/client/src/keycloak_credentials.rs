@@ -1,11 +1,12 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use serde_derive::Serialize;
 
 use shared::data::{KeycloakInfo, KeycloakUser};
-use shared::util::Emoji;
+use shared::util::{Emoji, LabFolder};
 
+use crate::lab_files::ensure_lab_subdir;
 use crate::private_key::write_secret_file;
 
 /// A Keycloak node's realm users file, `keycloak-<node>.toml`.
@@ -28,16 +29,19 @@ pub(crate) struct KeycloakFile {
     pub path: PathBuf,
 }
 
-/// Write each Keycloak node's realm, issuer and users into `dir` as `keycloak-<node>.toml`,
-/// readable only by the current user.
-#[tracing::instrument(level = "debug", skip(keycloaks), fields(dir = %dir.display(), keycloaks = keycloaks.len()))]
+/// Write each Keycloak node's realm, issuer and users into `folder` as
+/// `.sherpa/keycloak/keycloak-<node>.toml`, readable only by the current user.
+#[tracing::instrument(level = "debug", skip_all, fields(folder = %folder.root().display(), keycloaks = keycloaks.len()))]
 pub(crate) fn write_keycloak_credentials(
-    dir: &Path,
+    folder: &LabFolder,
     keycloaks: &[KeycloakInfo],
 ) -> Result<Vec<KeycloakFile>> {
+    if !keycloaks.is_empty() {
+        ensure_lab_subdir(folder, &folder.keycloak_dir())?;
+    }
     let mut written = Vec::with_capacity(keycloaks.len());
     for keycloak in keycloaks {
-        let path = dir.join(format!("keycloak-{}.toml", keycloak.name));
+        let path = folder.keycloak(&keycloak.name);
         let issuer = format!("{}/realms/{}", keycloak.address, keycloak.realm);
         let content = toml::to_string(&KeycloakCredentialsFile {
             address: &keycloak.address,
@@ -89,8 +93,8 @@ mod tests {
                 password: "s3cret".to_owned(),
             }],
         }];
-        let written = write_keycloak_credentials(dir.path(), &keycloaks).unwrap();
-        let path = dir.path().join("keycloak-kc01.toml");
+        let written = write_keycloak_credentials(&LabFolder::new(dir.path()), &keycloaks).unwrap();
+        let path = dir.path().join(".sherpa/keycloak/keycloak-kc01.toml");
         assert_eq!(
             written,
             [KeycloakFile {

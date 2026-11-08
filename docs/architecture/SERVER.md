@@ -999,9 +999,9 @@ them with `lab-info.toml`: `sherpa_ssh_config`, in which a node with a recorded 
 `StrictHostKeyChecking yes` and `UserKnownHostsFile sherpa_known_hosts` (others keep `no` and
 `/dev/null`), and `sherpa_known_hosts` (template `ssh/known_hosts.jinja`), one line per key under
 the name OpenSSH looks up: the address on port 22, else `[address]:port`. `up`'s response, the
-download service and `node.host_keys` carry the known_hosts file, and the client rewrites the
-relative `UserKnownHostsFile` path to an absolute one, as it does for `IdentityFile`
-(`client::lab_files`). When a node's key is unknown or changed, the client fetches the lab's
+download service and `node.host_keys` carry the known_hosts file, and the client saves it as
+`.sherpa/ssh/known_hosts` and rewrites the relative `UserKnownHostsFile` path to that absolute
+one, as it does for `IdentityFile` (`client::lab_files`, see [`LAB_FOLDER.md`](LAB_FOLDER.md)). When a node's key is unknown or changed, the client fetches the lab's
 keys with `node.host_keys`, warns about a changed key, and connects again (`SSH_CLIENT.md`).
 
 ### Lab SSH keys
@@ -1026,11 +1026,12 @@ reached as `sherpa` with a key pair, the `IdentityFile sherpa_ssh_key` hosts of
   `lab_ssh_key` reads the server key path.
 - **`redeploy`** builds the account from `lab.ssh_key`, so a lab created before keeps the server
   key on the redeployed node: its other nodes still take only that key, and the client holds
-  one `sherpa_ssh_key` per lab. `resume` changes no node configuration.
+  one key per lab (`.sherpa/ssh/key`). `resume` changes no node configuration.
 - **`up`'s response and `download`** return the private key only when the SSH config uses it
   (`LabSshFiles::uses_lab_key`), and only to the owner or an admin (`require_lab_access`). A lab
   with its own key whose file is missing is an error (`read_private_key`), never the server key.
-  The response and file names are unchanged, so clients need nothing new.
+  The response and file names are unchanged: the client saves the key as `.sherpa/ssh/key`
+  (see [`LAB_FOLDER.md`](LAB_FOLDER.md)).
 - **`destroy` and `clean`** delete the key with the lab folder (`cleanup_lab_metadata`).
 
 ### Runtime resource model for a lab

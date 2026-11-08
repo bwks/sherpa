@@ -23,9 +23,9 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 - A run always destroys its labs, including on failure, Ctrl-C and SIGTERM, unless
   `--keep-failed` is given. After destroying a lab it checks nothing was left behind.
 - Pin every version: node images, and tool downloads with SHA-256 checksums.
-- Files `sherpa up` and `sherpa download` write (SSH key and config, `lab-info.toml`, cluster
-  credentials) are git-ignored by the root `.gitignore`, including when a lab is run by hand
-  inside its folder. Lab manifests are the exception and are tracked.
+- Files `sherpa up` and `sherpa download` write, all in the lab folder's `.sherpa/` (SSH key and
+  config, `lab-info.toml`, cluster credentials), are git-ignored by the root `.gitignore`,
+  including when a lab is run by hand inside its folder. Lab manifests are the exception and are tracked.
 - Each runner has a `--self-test` mode for its pure logic, which runs in seconds.
 
 Lab tests are started by hand. How and when end-to-end tests run is being planned in

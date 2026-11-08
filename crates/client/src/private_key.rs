@@ -99,6 +99,35 @@ pub(crate) fn restrict_secret_permissions(path: &Path, what: &str) -> Result<()>
     Ok(())
 }
 
+/// Make `path` a folder only the current user can enter, creating it (its parent must exist)
+/// or tightening an existing one. A symlink or a file at `path` is refused, so nothing is
+/// written through a link into another folder.
+#[tracing::instrument(level = "debug", fields(path = %path.display()))]
+pub(crate) fn ensure_private_dir(path: &Path) -> Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            bail!(
+                "{} is a symlink; Sherpa keeps lab files only in a real folder",
+                path.display()
+            );
+        }
+        Ok(metadata) if !metadata.is_dir() => {
+            bail!("{} is not a folder", path.display());
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            fs::create_dir(path).with_context(|| format!("Failed to create {}", path.display()))?;
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("Failed to read {}", path.display()));
+        }
+    }
+    #[cfg(unix)]
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+        .with_context(|| format!("Failed to restrict {} to its owner", path.display()))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(unix)]
@@ -107,7 +136,10 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
-    use super::{SSH_PRIVATE_KEY_ERROR_LABEL, restrict_secret_permissions, write_secret_file};
+    use super::{
+        SSH_PRIVATE_KEY_ERROR_LABEL, ensure_private_dir, restrict_secret_permissions,
+        write_secret_file,
+    };
 
     #[cfg(unix)]
     #[test]
@@ -237,5 +269,40 @@ mod tests {
         let error = write_secret_file(&missing, "config", "kubeconfig")
             .expect_err("missing directory should fail");
         assert!(error.to_string().contains("Failed to write kubeconfig"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_private_dir_is_created_or_tightened_to_its_owner() {
+        let temp_dir = tempfile::tempdir().expect("create temp directory");
+        let created = temp_dir.path().join("new");
+        ensure_private_dir(&created).expect("create");
+        let open = temp_dir.path().join("open");
+        fs::create_dir(&open).expect("create open folder");
+        fs::set_permissions(&open, fs::Permissions::from_mode(0o755)).expect("open up");
+        ensure_private_dir(&open).expect("tighten");
+        for dir in [created, open] {
+            let mode = fs::metadata(&dir).expect("stat").permissions().mode() & 0o777;
+            assert_eq!(mode, 0o700, "{}", dir.display());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_or_file_is_refused_as_a_private_dir() {
+        let temp_dir = tempfile::tempdir().expect("create temp directory");
+        let elsewhere = temp_dir.path().join("elsewhere");
+        fs::create_dir(&elsewhere).expect("create target");
+        fs::set_permissions(&elsewhere, fs::Permissions::from_mode(0o755)).expect("open up");
+        let link = temp_dir.path().join("link");
+        std::os::unix::fs::symlink(&elsewhere, &link).expect("create symlink");
+        let error = ensure_private_dir(&link).expect_err("symlink refused");
+        assert!(error.to_string().contains("symlink"), "{error}");
+        let mode = fs::metadata(&elsewhere).expect("stat").permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755, "the link's target is untouched");
+
+        let file = temp_dir.path().join("file");
+        fs::write(&file, "").expect("write file");
+        assert!(ensure_private_dir(&file).is_err());
     }
 }
