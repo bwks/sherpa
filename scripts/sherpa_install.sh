@@ -558,7 +558,7 @@ install_binaries() {
             if cp "${SHERPA_ARTIFACT_DIR}/${asset}" "${tmp_dir}/${asset}"; then
                 downloaded=true
             fi
-        elif curl -sfL -o "${tmp_dir}/${asset}" "${url}"; then
+        elif curl -fsSL --connect-timeout 15 --retry 3 --retry-all-errors -o "${tmp_dir}/${asset}" "${url}"; then
             downloaded=true
         fi
 
