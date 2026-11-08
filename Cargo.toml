@@ -54,6 +54,7 @@ futures = "0.3.31"
 futures-util = "0.3.31"
 ipnet = "2.11.0"
 jiff = { version = "0.2.20", features = ["serde"] }
+nkeys = "0.4.5"
 rand = "0.8.5"
 regex = "1"
 rpassword = "7.3"

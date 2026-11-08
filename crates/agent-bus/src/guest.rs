@@ -22,6 +22,9 @@ const CLAUDE: &str = "claude";
 const TOKEN_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 /// Removed from Claude Code's environment, so it can only use the subscription.
 const API_KEY_VARIABLE: &str = "ANTHROPIC_API_KEY";
+/// The agent's bus key. Claude Code runs commands from network messages with root, so it never
+/// gets the seed.
+const SEED_VARIABLE: &str = "AGENT_BUS_SEED";
 /// Permission checks are skipped: the guest is a disposable lab VM and the agent has root in it.
 /// These are still refused. Committing, pushing and GitHub are the user's to decide; the host
 /// agent asks them.
@@ -172,6 +175,7 @@ async fn work(
         .args(["--append-system-prompt", RULES])
         .current_dir(workdir)
         .env_remove(API_KEY_VARIABLE)
+        .env_remove(SEED_VARIABLE)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped());
     match (sessions.get(&message.task), message.kind) {

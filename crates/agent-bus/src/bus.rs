@@ -1,13 +1,16 @@
 //! The bus itself: a NATS server with `JetStream`, in a container on the host.
 //!
 //! It uses the host's network and listens on one address, such as a lab's management bridge, so
-//! only that lab's guests and the host reach it. It has no authentication yet.
+//! only that lab's guests and the host reach it. Every agent authenticates with an `NKey`, and the
+//! server config that says what each may do is rendered from the agents file (see `config`).
 
+use std::ffi::OsString;
 use std::net::Ipv4Addr;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail, ensure};
 use bollard::Docker;
-use bollard::errors::Error as DockerError;
 use bollard::models::{
     ContainerCreateBody, ContainerStateStatusEnum, HostConfig, Mount, MountTypeEnum, RestartPolicy,
     RestartPolicyNameEnum,
@@ -18,6 +21,11 @@ use container::{
 };
 use futures_util::TryStreamExt;
 
+use crate::agents::Agents;
+use crate::channel::Channel;
+use crate::config;
+use crate::keys::public_key_of;
+
 /// The bus container.
 const CONTAINER_NAME: &str = "sherpa-agent-bus";
 /// `nats:2.15-alpine`, nats-server 2.15.2.
@@ -25,38 +33,89 @@ const IMAGE: &str = "nats@sha256:afae2fdbe2e326c65e1246cb83b9d05d319188734f3bd57
 /// The volume holding `JetStream`'s stored messages; it outlives the container.
 const VOLUME: &str = "sherpa-agent-bus-data";
 const DATA_DIR: &str = "/data";
+/// Where the rendered server config is mounted, read-only.
+const CONFIG_TARGET: &str = "/etc/agent-bus/nats.conf";
+const CONFIG_FILE: &str = "nats.conf";
+const STATE_SUBDIR: &str = "agent-bus";
 const PORT: u16 = 4222;
-/// The HTTP status Docker answers a create with when the name is taken.
-const CONFLICT: u16 = 409;
+/// How often, and how long, `start` waits for the server to accept connections.
+const CONNECT_ATTEMPTS: u32 = 20;
+const CONNECT_DELAY: Duration = Duration::from_millis(500);
 
-/// Start the bus listening on `listen`, creating its container the first time.
+/// Where and how the bus runs.
+pub struct Bus {
+    pub container: String,
+    pub volume: String,
+    pub listen: Ipv4Addr,
+    pub port: u16,
+    /// Where the server config is written; outside the repository.
+    pub config_path: PathBuf,
+}
+
+impl Bus {
+    /// The bus as users run it: the standard container, volume and port, listening on
+    /// `listen`, with its config under `$XDG_STATE_HOME/agent-bus/`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when neither `XDG_STATE_HOME` nor `HOME` gives a state directory.
+    pub fn standard(listen: Ipv4Addr) -> Result<Self> {
+        let state = state_dir(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"))?;
+        Ok(Self {
+            container: CONTAINER_NAME.to_owned(),
+            volume: VOLUME.to_owned(),
+            listen,
+            port: PORT,
+            config_path: state.join(CONFIG_FILE),
+        })
+    }
+
+    fn url(&self) -> String {
+        format!("nats://{}:{}", self.listen, self.port)
+    }
+}
+
+/// Start the bus for the agents in `agents_path`, and prepare it. This renders the server
+/// config, replaces any existing bus container (the config may have changed; the messages live
+/// in the volume), then connects as the host with `host_seed` and creates the inbox stream and
+/// every agent's inbox.
 ///
 /// # Errors
 ///
-/// Fails when Docker cannot pull the image or create or start the container.
-pub async fn start(listen: Ipv4Addr) -> Result<()> {
+/// Fails when the agents file is not valid, `host_seed` is not the host's key, or Docker or the
+/// bus fails.
+pub async fn start(bus: &Bus, agents_path: &Path, host_seed: &str) -> Result<()> {
+    let agents = Agents::load(agents_path)?;
+    ensure!(
+        public_key_of(host_seed)? == agents.host.key,
+        "AGENT_BUS_SEED is not the seed of the host '{}' in the agents file",
+        agents.host.name
+    );
+    config::write(&bus.config_path, &agents)?;
+    println!("Wrote {}", bus.config_path.display());
+
     let docker = docker_connection()?;
     pull_image(&docker).await?;
-    match docker
+    remove(&docker, &bus.container).await?;
+    docker
         .create_container(
             Some(CreateContainerOptions {
-                name: Some(CONTAINER_NAME.to_owned()),
+                name: Some(bus.container.clone()),
                 ..Default::default()
             }),
-            container_config(listen),
+            container_config(bus),
         )
         .await
-    {
-        Ok(_) => println!("Created {CONTAINER_NAME}"),
-        Err(DockerError::DockerResponseServerError { status_code, .. })
-            if status_code == CONFLICT =>
-        {
-            println!("{CONTAINER_NAME} exists; starting it as it was created");
-        }
-        Err(error) => return Err(error).context("Unable to create the bus container"),
+        .context("Unable to create the bus container")?;
+    println!("Created {}", bus.container);
+    start_container(&docker, &bus.container).await?;
+
+    let channel = connect_when_ready(bus, host_seed).await?;
+    let outcomes = channel.create_inboxes(&agents).await?;
+    println!("Bus listening on {}", bus.url());
+    for (agent, change) in outcomes {
+        println!("Inbox ready: {agent} ({change})");
     }
-    start_container(&docker, CONTAINER_NAME).await?;
-    println!("Bus listening on nats://{listen}:{PORT}");
     Ok(())
 }
 
@@ -108,14 +167,58 @@ async fn pull_image(docker: &Docker) -> Result<()> {
     Ok(())
 }
 
-fn container_config(listen: Ipv4Addr) -> ContainerCreateBody {
+/// Stop the container `name` if it runs, then remove it. A container that does not exist is
+/// already removed.
+async fn remove(docker: &Docker, name: &str) -> Result<()> {
+    if let Ok(Some(ContainerStateStatusEnum::RUNNING)) = container_status(docker, name).await {
+        stop_container(docker, name).await?;
+    }
+    remove_container(docker, name).await
+}
+
+/// Connect as the host, waiting for the freshly started server to accept connections.
+async fn connect_when_ready(bus: &Bus, seed: &str) -> Result<Channel> {
+    let url = bus.url();
+    let mut last = None;
+    for _ in 0..CONNECT_ATTEMPTS {
+        match Channel::connect(&url, seed).await {
+            Ok(channel) => return Ok(channel),
+            Err(error) => last = Some(error),
+        }
+        tokio::time::sleep(CONNECT_DELAY).await;
+    }
+    match last {
+        Some(error) => Err(error).context("The bus did not accept the host's connection"),
+        None => bail!("The bus did not accept the host's connection"),
+    }
+}
+
+/// The directory for the bus's state: `$XDG_STATE_HOME/agent-bus`, or
+/// `~/.local/state/agent-bus`. A relative `XDG_STATE_HOME` is ignored, as the spec says.
+fn state_dir(xdg_state_home: Option<OsString>, home: Option<OsString>) -> Result<PathBuf> {
+    let base = match xdg_state_home.map(PathBuf::from) {
+        Some(path) if path.is_absolute() => path,
+        _ => {
+            let home = home
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .context("Neither XDG_STATE_HOME nor HOME is set to an absolute path")?;
+            home.join(".local").join("state")
+        }
+    };
+    Ok(base.join(STATE_SUBDIR))
+}
+
+fn container_config(bus: &Bus) -> ContainerCreateBody {
     ContainerCreateBody {
         image: Some(IMAGE.to_owned()),
         cmd: Some(vec![
+            "-c".to_owned(),
+            CONFIG_TARGET.to_owned(),
             "--addr".to_owned(),
-            listen.to_string(),
+            bus.listen.to_string(),
             "--port".to_owned(),
-            PORT.to_string(),
+            bus.port.to_string(),
             "--jetstream".to_owned(),
             "--store_dir".to_owned(),
             DATA_DIR.to_owned(),
@@ -126,12 +229,21 @@ fn container_config(listen: Ipv4Addr) -> ContainerCreateBody {
                 name: Some(RestartPolicyNameEnum::UNLESS_STOPPED),
                 maximum_retry_count: None,
             }),
-            mounts: Some(vec![Mount {
-                target: Some(DATA_DIR.to_owned()),
-                source: Some(VOLUME.to_owned()),
-                typ: Some(MountTypeEnum::VOLUME),
-                ..Default::default()
-            }]),
+            mounts: Some(vec![
+                Mount {
+                    target: Some(DATA_DIR.to_owned()),
+                    source: Some(bus.volume.clone()),
+                    typ: Some(MountTypeEnum::VOLUME),
+                    ..Default::default()
+                },
+                Mount {
+                    target: Some(CONFIG_TARGET.to_owned()),
+                    source: Some(bus.config_path.display().to_string()),
+                    typ: Some(MountTypeEnum::BIND),
+                    read_only: Some(true),
+                    ..Default::default()
+                },
+            ]),
             ..Default::default()
         }),
         ..Default::default()
@@ -140,16 +252,367 @@ fn container_config(listen: Ipv4Addr) -> ContainerCreateBody {
 
 #[cfg(test)]
 mod tests {
+    use std::net::TcpListener;
+    use std::time::Duration;
+
+    use bollard::query_parameters::RemoveVolumeOptions;
+    use tokio::time::timeout;
+
     use super::*;
+    use crate::keys::{NewKey, generate};
+    use crate::message::{Kind, Message, Usage};
+
+    fn test_bus(config_path: PathBuf) -> Bus {
+        Bus {
+            container: "sherpa-agent-bus-test".to_owned(),
+            volume: "sherpa-agent-bus-test-data".to_owned(),
+            listen: Ipv4Addr::new(172, 31, 3, 1),
+            port: 4222,
+            config_path,
+        }
+    }
 
     #[test]
-    fn the_bus_listens_only_on_the_given_address_with_jetstream() {
-        let config = container_config(Ipv4Addr::new(172, 31, 3, 1));
+    fn the_bus_listens_only_on_the_given_address_with_jetstream_and_its_config() {
+        let bus = test_bus(PathBuf::from("/home/u/.local/state/agent-bus/nats.conf"));
+        let config = container_config(&bus);
         let command = config.cmd.unwrap();
-        assert_eq!(command[..4], ["--addr", "172.31.3.1", "--port", "4222"]);
+        assert_eq!(command[..2], ["-c", CONFIG_TARGET]);
+        assert_eq!(command[2..6], ["--addr", "172.31.3.1", "--port", "4222"]);
         assert!(command.contains(&"--jetstream".to_owned()));
         let host = config.host_config.unwrap();
         assert_eq!(host.network_mode.as_deref(), Some("host"));
-        assert_eq!(host.mounts.unwrap()[0].source.as_deref(), Some(VOLUME));
+        let mounts = host.mounts.unwrap();
+        assert_eq!(
+            mounts[0].source.as_deref(),
+            Some("sherpa-agent-bus-test-data")
+        );
+        assert_eq!(mounts[1].typ, Some(MountTypeEnum::BIND));
+        assert_eq!(
+            mounts[1].source.as_deref(),
+            Some("/home/u/.local/state/agent-bus/nats.conf")
+        );
+        assert_eq!(mounts[1].target.as_deref(), Some(CONFIG_TARGET));
+        assert_eq!(mounts[1].read_only, Some(true));
+    }
+
+    #[test]
+    fn the_state_dir_follows_xdg_and_falls_back_to_home() {
+        let dir = |xdg: Option<&str>, home: Option<&str>| {
+            state_dir(xdg.map(OsString::from), home.map(OsString::from))
+        };
+        assert_eq!(
+            dir(Some("/x/state"), Some("/home/u")).unwrap(),
+            PathBuf::from("/x/state/agent-bus")
+        );
+        assert_eq!(
+            dir(None, Some("/home/u")).unwrap(),
+            PathBuf::from("/home/u/.local/state/agent-bus")
+        );
+        assert_eq!(
+            dir(Some("relative"), Some("/home/u")).unwrap(),
+            PathBuf::from("/home/u/.local/state/agent-bus")
+        );
+        assert!(dir(None, None).is_err());
+    }
+
+    fn message(from: &str, to: &str, text: &str) -> Message {
+        Message {
+            task: "1a2b3c4d".to_owned(),
+            from: from.to_owned(),
+            to: to.to_owned(),
+            kind: Kind::Task,
+            text: text.to_owned(),
+            usage: None,
+        }
+    }
+
+    /// What the integration test shows, run against a started bus.
+    async fn exercise(bus: &Bus, agents: &Agents, host: &NewKey, dev: &NewKey) -> Result<()> {
+        let url = bus.url();
+        let wait = Duration::from_secs(15);
+        let host_channel = Channel::connect(&url, &host.seed).await?;
+        let dev_channel = Channel::connect(&url, &dev.seed).await?;
+
+        // The host's task reaches the guest, which reads and acknowledges it.
+        host_channel.send(&message("host", "dev", "first")).await?;
+        let mut dev_inbox = dev_channel.inbox("dev").await?;
+        let delivery = timeout(wait, dev_inbox.next())
+            .await
+            .context("no message for dev")??
+            .context("the inbox closed")?;
+        ensure!(delivery.message.text == "first", "wrong message");
+        delivery.ack().await?;
+        ensure!(
+            host_channel.waiting("dev").await? == 0,
+            "the guest's acknowledgement was not taken"
+        );
+
+        // The guest's reply reaches the host.
+        dev_channel.send(&message("dev", "host", "reply")).await?;
+        let mut host_inbox = host_channel.inbox("host").await?;
+        let reply = timeout(wait, host_inbox.next())
+            .await
+            .context("no message for host")??
+            .context("the inbox closed")?;
+        ensure!(reply.message.text == "reply", "wrong reply");
+        reply.ack().await?;
+
+        // The guest cannot send to another agent. The message must not arrive.
+        let denied = timeout(wait, dev_channel.send(&message("dev", "other", "no"))).await;
+        ensure!(
+            !matches!(denied, Ok(Ok(()))),
+            "a guest sent to another agent"
+        );
+        ensure!(
+            host_channel.waiting("other").await? == 0,
+            "a message reached another agent's inbox"
+        );
+        // It cannot read another agent's inbox either.
+        ensure!(
+            timeout(wait, dev_channel.inbox("other"))
+                .await
+                .is_ok_and(|inbox| inbox.is_err()),
+            "a guest opened another agent's inbox"
+        );
+        // It cannot create the stream or the consumers.
+        ensure!(
+            timeout(wait, dev_channel.create_inboxes(agents))
+                .await
+                .is_ok_and(|created| created.is_err()),
+            "a guest created the stream"
+        );
+
+        // A seed that is not in the agents file is refused.
+        let stranger = generate()?;
+        ensure!(
+            timeout(wait, Channel::connect(&url, &stranger.seed))
+                .await
+                .is_ok_and(|connected| connected.is_err()),
+            "an unknown key connected"
+        );
+        Ok(())
+    }
+
+    /// A guest sends progress messages and then a completed one with usage; a host listener
+    /// must get every one, also after it restarts.
+    async fn reply_burst(bus: &Bus, host: &NewKey, dev: &NewKey) -> Result<()> {
+        let wait = Duration::from_secs(15);
+        let mut host_channel = Channel::connect(&bus.url(), &host.seed).await?;
+        let dev_channel = Channel::connect(&bus.url(), &dev.seed).await?;
+        let mut inbox = host_channel.inbox("host").await?;
+        for round in 0..2 {
+            let task = format!("burst{round}");
+            for n in 0..4 {
+                let mut progress = message("dev", "host", &format!("progress {n}"));
+                progress.task.clone_from(&task);
+                progress.kind = Kind::Progress;
+                dev_channel.send(&progress).await?;
+            }
+            let mut done = message("dev", "host", "done");
+            done.task.clone_from(&task);
+            done.kind = Kind::Completed;
+            done.usage = Some(Usage {
+                input: 3,
+                output: 120,
+                cache_creation: 900,
+                cache_read: 4000,
+                num_turns: 2,
+                duration_ms: 5000,
+                duration_api_ms: 4000,
+                total_cost_usd: 0.0123,
+            });
+            dev_channel.send(&done).await?;
+            for n in 0..5 {
+                let delivery = timeout(wait, inbox.next())
+                    .await
+                    .with_context(|| format!("message {n} of {task} never reached the host"))??
+                    .context("the inbox closed")?;
+                ensure!(delivery.message.task == task, "wrong task");
+                delivery.ack().await?;
+            }
+            // A second reader would take some of the messages, so the bus refuses it.
+            let second = Channel::connect(&bus.url(), &host.seed).await?;
+            ensure!(
+                second.inbox("host").await.is_err(),
+                "a second reader was attached to the host's inbox"
+            );
+            // The listener dies with a pull request outstanding, and the guest sends meanwhile.
+            drop(inbox);
+            drop(host_channel);
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let mut late = message("dev", "host", "late");
+            late.task.clone_from(&task);
+            late.kind = Kind::Progress;
+            dev_channel.send(&late).await?;
+            host_channel = Channel::connect(&bus.url(), &host.seed).await?;
+            inbox = host_channel.inbox("host").await?;
+            let delivery = timeout(wait, inbox.next())
+                .await
+                .context("a message sent while the listener was gone never arrived")??
+                .context("the inbox closed")?;
+            ensure!(delivery.message.text == "late", "wrong message");
+            delivery.ack().await?;
+            // The listener restarts: nothing is left, nothing is delivered again.
+            drop(inbox);
+            inbox = host_channel.inbox("host").await?;
+            ensure!(
+                host_channel.waiting("host").await? == 0,
+                "messages are left in the host's inbox"
+            );
+        }
+        Ok(())
+    }
+
+    /// An inbox made by an earlier version (no `max_waiting`) is upgraded by `bus start`: what
+    /// was acknowledged stays gone and what was not is delivered exactly once.
+    async fn upgrade_old_inbox(
+        bus: &Bus,
+        agents_path: &Path,
+        host: &NewKey,
+        other: &NewKey,
+    ) -> Result<()> {
+        let wait = Duration::from_secs(15);
+        let host_channel = Channel::connect(&bus.url(), &host.seed).await?;
+        let other_channel = Channel::connect(&bus.url(), &other.seed).await?;
+        host_channel.make_inbox_old("other").await?;
+        for n in 1..=5 {
+            host_channel
+                .send(&message("host", "other", &format!("m{n}")))
+                .await?;
+        }
+        let mut inbox = other_channel.inbox("other").await?;
+        for expected in ["m1", "m2"] {
+            let delivery = timeout(wait, inbox.next())
+                .await
+                .context("no message for other")??
+                .context("the inbox closed")?;
+            ensure!(delivery.message.text == expected, "wrong message");
+            delivery.ack().await?;
+        }
+        // m3 is delivered but never acknowledged; m4 and m5 are not read at all.
+        let unacked = timeout(wait, inbox.next())
+            .await
+            .context("no third message")??
+            .context("the inbox closed")?;
+        ensure!(unacked.message.text == "m3", "wrong message");
+        drop(unacked);
+        drop(inbox);
+        drop(other_channel);
+        drop(host_channel);
+
+        start(bus, agents_path, &host.seed).await?;
+
+        let other_channel = Channel::connect(&bus.url(), &other.seed).await?;
+        let mut inbox = other_channel.inbox("other").await?;
+        for expected in ["m3", "m4", "m5"] {
+            let delivery = timeout(wait, inbox.next())
+                .await
+                .with_context(|| format!("{expected} did not arrive after the upgrade"))??
+                .context("the inbox closed")?;
+            ensure!(
+                delivery.message.text == expected,
+                "expected {expected}, got {}",
+                delivery.message.text
+            );
+            delivery.ack().await?;
+        }
+        // Nothing else comes: not the acknowledged messages, not a second copy.
+        ensure!(
+            timeout(Duration::from_secs(3), inbox.next()).await.is_err(),
+            "a message was delivered again after the upgrade"
+        );
+        drop(inbox);
+        let host_channel = Channel::connect(&bus.url(), &host.seed).await?;
+        ensure!(
+            host_channel.waiting("other").await? == 0,
+            "messages are left in the inbox"
+        );
+        // The upgraded inbox has the new setting: a second reader is refused.
+        let mut first = other_channel.inbox("other").await?;
+        // The reader asks the bus for messages only once it waits for one.
+        let _ = timeout(Duration::from_secs(1), first.next()).await;
+        let second = Channel::connect(&bus.url(), &other.seed).await?;
+        ensure!(
+            second.inbox("other").await.is_err(),
+            "the upgraded inbox accepts a second reader"
+        );
+        drop(first);
+        Ok(())
+    }
+
+    /// Needs Docker. Starts a throwaway bus on 127.0.0.1 and shows what a guest may and may not
+    /// do, then that restarting the bus replaces the container and keeps the messages.
+    /// Run with `cargo test -p agent-bus -- --ignored`.
+    #[tokio::test]
+    #[ignore = "needs Docker"]
+    async fn a_guest_is_held_to_its_own_inbox_on_a_real_bus() {
+        let (host, dev, other) = (
+            generate().unwrap(),
+            generate().unwrap(),
+            generate().unwrap(),
+        );
+        let text = format!(
+            "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n\
+             [[agent]]\nname = \"dev\"\nkey = \"{}\"\nrole = \"guest\"\n\
+             [[agent]]\nname = \"other\"\nkey = \"{}\"\nrole = \"guest\"\n",
+            host.public_key, dev.public_key, other.public_key
+        );
+        let id = std::process::id();
+        let dir = std::env::temp_dir().join(format!("agent-bus-it-{id}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let agents_path = dir.join("agents.toml");
+        std::fs::write(&agents_path, &text).unwrap();
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let bus = Bus {
+            container: format!("sherpa-agent-bus-test-{id}"),
+            volume: format!("sherpa-agent-bus-test-{id}-data"),
+            listen: Ipv4Addr::LOCALHOST,
+            port,
+            config_path: dir.join("state").join(CONFIG_FILE),
+        };
+        let agents = Agents::parse(&text).unwrap();
+
+        let result = async {
+            start(&bus, &agents_path, &host.seed).await?;
+            exercise(&bus, &agents, &host, &dev).await?;
+
+            // Every message a guest sends reaches a host listener: progress, then the outcome
+            // with its usage.
+            reply_burst(&bus, &host, &dev).await?;
+
+            // A task waits through a restart: the container is replaced, the volume is kept.
+            let host_channel = Channel::connect(&bus.url(), &host.seed).await?;
+            host_channel.send(&message("host", "dev", "kept")).await?;
+            drop(host_channel);
+            start(&bus, &agents_path, &host.seed).await?;
+            let dev_channel = Channel::connect(&bus.url(), &dev.seed).await?;
+            let mut inbox = dev_channel.inbox("dev").await?;
+            let delivery = timeout(Duration::from_secs(15), inbox.next())
+                .await
+                .context("no message for dev after the restart")??
+                .context("the inbox closed")?;
+            ensure!(delivery.message.text == "kept", "the message was lost");
+            delivery.ack().await?;
+            drop(inbox);
+            drop(dev_channel);
+
+            // An inbox made by an earlier version is upgraded without losing or replaying.
+            upgrade_old_inbox(&bus, &agents_path, &host, &other).await
+        }
+        .await;
+
+        // Clean up whatever happened.
+        let docker = docker_connection().unwrap();
+        let _ = remove_container(&docker, &bus.container).await;
+        let _ = docker
+            .remove_volume(&bus.volume, None::<RemoveVolumeOptions>)
+            .await;
+        let _ = std::fs::remove_dir_all(&dir);
+        result.unwrap();
     }
 }
