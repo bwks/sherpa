@@ -314,10 +314,70 @@ cancel is acted on at once:
   finished or is waiting for an answer.
 
 The guest agent's own shutdown (SIGTERM or SIGINT) stops the running group the same way, reports
-the task `failed` ("the guest agent stopped"), and exits, so restarting it does not leave Claude
-Code running. Dropping the group on any other path kills it too. The signals come from the `nix`
+the task `failed` ("the guest agent stopped"), writes its final state (see below) and exits, so
+restarting it does not leave Claude Code running. Dropping the group on any other path kills it too. The signals come from the `nix`
 crate. The tests are unit tests for the queue and cancel decisions, and ignored tests with a fake
 `claude` (`cargo test -p agent-bus guest -- --ignored`).
+
+## State across restarts
+
+The guest agent is restarted on every deploy. Claude Code keeps its sessions on disk, so only the
+guest agent's own state needs keeping: it is in `$XDG_STATE_HOME/agent-bus/guest-<name>.toml`
+(`~/.local/state/agent-bus/` without `XDG_STATE_HOME`), mode 0600 in the 0700 directory.
+
+- **Format.** TOML, like the project's other files. It holds everything cleanly except a `u64`
+  hash (a TOML integer is signed), so the bases' inputs hash is kept as hex. Times are
+  milliseconds since the Unix epoch.
+- **Content.** `running`, the task Claude Code was working on; `[[queue]]`, the waiting tasks and
+  answers in order (task, sender, kind, GitHub flag and text, which they need to run);
+  `[[bases]]`, each primed base with its rules variant, session, inputs hash, and when it was
+  primed and last used; `[tasks.<id>]`, each task's session ID and GitHub flag, run count, when
+  its last run ended, and its `task_usage` totals with the session's API time mark. No secrets,
+  and no other message text.
+- **Writes.** After every change (a task queued, started, finished or canceled, a session
+  recorded, a base primed, used or dropped, a run counted), to `<file>.tmp`, flushed, then renamed
+  over the file, so a crash leaves the old state or the new one. A failed write is logged and the
+  agent goes on.
+- **One agent per name.** First, before it connects to the bus, subscribes to its inbox or loads
+  the state, the guest agent takes an exclusive, non-blocking `flock` on `guest-<name>.lock` next to the state file, writes
+  its PID in it, and holds it for its lifetime. If the lock is held it exits with an error naming
+  that PID. The kernel drops the lock when the holder exits, however it exits, so a file left by
+  a dead agent does not block; the file is never removed (removing it would let two agents lock
+  two files of one name). The descriptor is close-on-exec, so Claude Code does not inherit it.
+  Found in a live test: `start-guest.sh` sent `pkill` and started the new agent at once, so the
+  new one loaded `running` before the old one, still stopping, had cleared it, and the host got
+  two failures for one task ("restarted while this task ran" from the new agent, then "the task
+  was interrupted" from the old). `start-guest.sh` now waits up to 15 s (the agent's own kill
+  grace is 2 s) for the old agent to exit, then SIGKILLs it and waits 5 s more, and refuses to
+  start a second agent if it is still there. A later live check found the lock was taken only
+  after connecting: a second agent pointed at a bad server failed with "Connection refused"
+  instead of the lock error. The lock now comes before the connection, so a duplicate fails at
+  once and never touches the bus.
+- **Start.** A missing file is a fresh start. A file that cannot be read or parsed is logged,
+  moved to `<file>.corrupt-<unix seconds>`, and the agent starts fresh. The queue runs first, in
+  its order, before new inbox messages. A `running` task means the agent died without its
+  shutdown path (SIGKILL, a crash, power loss): it is reported `failed` with "The guest agent
+  restarted while this task ran", and its session is kept, so an answer resumes it. After a clean
+  shutdown the task was already reported, so `running` is empty and nothing is reported twice.
+  Bases come back as they were, and the next fork checks them as usual: reused if their inputs
+  hash matches and they were used within 55 minutes, rebuilt otherwise.
+- **Cleanup.** Tasks whose last run ended more than 7 days ago (the stream's retention) are
+  dropped on start and after each task, unless an answer for them is queued.
+- **Shutdown.** After the running group is stopped and the task reported, messages that reached
+  the agent but not its queue are queued, and the final state is written. Once stopping, the
+  inbox reader no longer acknowledges messages, so the bus delivers them again after the restart.
+- **Windows left.** A message is acknowledged before it is written to the queue; a crash between
+  the two loses it. The inputs hash uses Rust's `DefaultHasher`, which is not promised to be
+  stable across Rust releases; a change only costs one rebuild of each base.
+
+The tests are unit tests for the round trip, the atomic write, the restart decisions, a corrupt
+file, the cleanup and the lock (a second lock fails, the lock is free after drop, and with the lock held and an
+unreachable server the guest fails with the lock error), an
+ignored test that a lock held by a SIGKILLed process does not block, and ignored fake-`claude`
+tests: a clean stop clears `running`; a stop while a task runs (the host gets exactly one
+`failed` for it across both agents, the queued task runs after the restart, and an answer to a
+question asked before it resumes its session); and a kill without the shutdown path (the task
+is failed on restart).
 
 ## Limits of the proof of concept
 
@@ -328,9 +388,7 @@ crate. The tests are unit tests for the queue and cancel decisions, and ignored 
   lab's bridge.
 - **Removing an agent** means removing it from the agents file and running `bus start`, which
   drops its connection. Its consumer and messages stay in the stream.
-- **One task at a time.** Others wait in the guest agent's memory queue, which a restart loses.
-- **Sessions live in the guest agent's memory.** Restarting it loses them, so an answer to an
-  earlier question fails, and the failure is reported to the host.
+- **One task at a time.** Others wait in the guest agent's queue, kept in its state file.
 - **Starting the guest agent needs the user.** Claude Code's auto mode refuses to let the host
   agent start an agent that edits files and runs commands from network messages, unless a
   permission rule allows that one command.

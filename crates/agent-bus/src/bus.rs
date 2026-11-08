@@ -232,7 +232,8 @@ async fn connect_when_ready(bus: &Bus, seed: &str) -> Result<Channel> {
     }
 }
 
-fn standard_state_dir() -> Result<PathBuf> {
+/// The state directory of this user, from the environment.
+pub(crate) fn standard_state_dir() -> Result<PathBuf> {
     state_dir(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"))
 }
 

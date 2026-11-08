@@ -272,8 +272,8 @@ async fn main() -> Result<()> {
             workdir,
             model,
         } => {
-            let channel = Channel::connect(&server, &seed_from_environment()?).await?;
-            guest::run(&channel, &name, &reply_to, &workdir, &model).await
+            let seed = seed_from_environment()?;
+            guest::run(&server, &seed, &name, &reply_to, &workdir, &model).await
         }
     }
 }

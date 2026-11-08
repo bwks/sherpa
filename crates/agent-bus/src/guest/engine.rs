@@ -3,10 +3,12 @@
 
 use std::collections::VecDeque;
 
+use serde::{Deserialize, Serialize};
+
 use crate::message::{Kind, Message};
 
 /// A Claude session, and whether its task may use GitHub.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(super) struct Session {
     pub(super) id: String,
     pub(super) github: bool,

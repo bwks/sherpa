@@ -4,7 +4,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::path::Path;
-use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -13,12 +12,14 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::sync::watch;
 use tokio::try_join;
 
-use super::base::{Base, Inputs};
+use super::base::{Base, Inputs, now_ms};
 use super::claude::{
     CLAUDE, Group, Launch, PRIME_CONFIRM, PRIME_PROMPT, claude_command, rules, terminate,
 };
 use super::engine::{Control, Session, canceled_text, classify, task_github};
+use super::lock::InstanceLock;
 use super::record::ResultLog;
+use super::state::{ApiMark, Queued, Saved, StateFile, TaskRecord, prune, restart};
 use super::stream::{Update, interpret, outcome, priming_line, repeats_result, usage_line};
 use crate::channel::{Channel, Inbox};
 use crate::message::{Kind, Message, TaskUsage, Usage, api_time_of_run, check_agent_name};
@@ -64,15 +65,6 @@ struct Finished {
     task_usage: TaskUsage,
 }
 
-/// What a task has used over its runs, and where its session's API time stood after the last.
-#[derive(Default)]
-struct TaskTotals {
-    usage: TaskUsage,
-    /// The session and its `duration_api_ms` as the last run reported them. The figure counts
-    /// the whole session, so a run's own is the increase.
-    api: Option<(String, u64)>,
-}
-
 /// What one run has produced so far.
 #[derive(Default)]
 struct RunState {
@@ -93,7 +85,8 @@ struct Setup<'a> {
     model: &'a str,
 }
 
-/// The guest agent's state: the tasks waiting, and the Claude sessions of tasks so far.
+/// The guest agent's state: the tasks waiting, the one running, and what is known of each task.
+/// All of it but the channels is kept in the state file after every change.
 struct Engine<'a> {
     program: &'a str,
     workdir: &'a Path,
@@ -104,26 +97,28 @@ struct Engine<'a> {
     outgoing: UnboundedSender<Message>,
     stop: watch::Receiver<bool>,
     queue: VecDeque<Message>,
-    sessions: HashMap<String, Session>,
+    /// The task Claude Code works on now.
+    running: Option<String>,
+    /// The session, runs and totals of each task.
+    tasks: HashMap<String, TaskRecord>,
     /// The primed base session of each rules variant, by whether it allows GitHub.
     bases: HashMap<bool, Base>,
-    /// The runs so far of each task, for the record of result events.
-    runs: HashMap<String, u32>,
-    /// What each task has used, over the runs that sent a result event.
-    totals: HashMap<String, TaskTotals>,
     results: Option<ResultLog>,
+    /// Where the state is kept; `None` keeps it in memory only.
+    store: Option<StateFile>,
 }
 
-/// Take tasks from `name`'s inbox until the bus closes or the agent is told to stop (SIGTERM or
-/// SIGINT), and reply to `reply_to`. Stopping also stops the running Claude Code and everything
-/// it started.
+/// Take tasks from `name`'s inbox on the bus at `server`, authenticating with `seed`, until the
+/// bus closes or the agent is told to stop (SIGTERM or SIGINT), and reply to `reply_to`.
+/// Stopping also stops the running Claude Code and everything it started.
 ///
 /// # Errors
 ///
-/// Fails when a name is invalid, the subscription token is not set, or the bus fails. A task
-/// that fails is reported to `reply_to` instead.
+/// Fails when a name is invalid, another guest agent of this name is running, the subscription
+/// token is not set, or the bus fails. A task that fails is reported to `reply_to` instead.
 pub async fn run(
-    channel: &Channel,
+    server: &str,
+    seed: &str,
     name: &str,
     reply_to: &str,
     workdir: &Path,
@@ -131,17 +126,47 @@ pub async fn run(
 ) -> Result<()> {
     check_agent_name(name)?;
     check_agent_name(reply_to)?;
+    let store = StateFile::standard(name)
+        .inspect_err(|error| {
+            eprintln!("{error:#}: the guest agent's state is not kept across restarts");
+        })
+        .ok();
+    // Boxed: the running agent is a large future.
+    Box::pin(start(server, seed, name, reply_to, workdir, model, store)).await
+}
+
+/// `run`, with the state kept in `store`, or in memory only when it is `None`.
+async fn start(
+    server: &str,
+    seed: &str,
+    name: &str,
+    reply_to: &str,
+    workdir: &Path,
+    model: &str,
+    store: Option<StateFile>,
+) -> Result<()> {
+    // Taken first, before the bus, the inbox and the state, and held until this returns: a
+    // second agent of this name fails at once, and never touches the bus or loads the state.
+    let _lock = match &store {
+        Some(file) => {
+            let lock = InstanceLock::acquire(&file.path().with_extension("lock"))?;
+            eprintln!("Guest agent lock: {}", lock.path().display());
+            Some(lock)
+        }
+        None => None,
+    };
     ensure!(
         env::var_os(TOKEN_VARIABLE).is_some(),
         "Set {TOKEN_VARIABLE}: guest agents use the Claude subscription, never API billing"
     );
+    let channel = &Channel::connect(server, seed).await?;
     let inbox = channel.inbox(name).await?;
     let mut terminate = signal(SignalKind::terminate()).context("Unable to watch for SIGTERM")?;
     let mut interrupt = signal(SignalKind::interrupt()).context("Unable to watch for SIGINT")?;
     let (stop_tx, stop_rx) = watch::channel(false);
     let (incoming_tx, incoming_rx) = unbounded_channel();
     let (outgoing_tx, outgoing_rx) = unbounded_channel();
-    let engine = Engine::new(
+    let mut engine = Engine::new(
         Setup {
             program: CLAUDE,
             workdir,
@@ -153,6 +178,9 @@ pub async fn run(
         outgoing_tx,
         stop_rx.clone(),
     );
+    if let Some(file) = store {
+        engine.resume(file)?;
+    }
     eprintln!("Guest agent '{name}' is waiting for tasks");
     let work = async {
         try_join!(
@@ -193,6 +221,11 @@ async fn read_inbox(
         let Some(delivery) = delivery else {
             return Ok(());
         };
+        // Once stopping, a message is left unacknowledged, to be delivered again after the
+        // restart, rather than handed to an engine that may no longer keep it.
+        if *stop.borrow() {
+            return Ok(());
+        }
         delivery.ack().await?;
         if incoming.send(delivery.message).is_err() {
             return Ok(());
@@ -251,12 +284,73 @@ impl<'a> Engine<'a> {
             outgoing,
             stop,
             queue: VecDeque::new(),
-            sessions: HashMap::new(),
+            running: None,
+            tasks: HashMap::new(),
             bases: HashMap::new(),
-            runs: HashMap::new(),
-            totals: HashMap::new(),
             results: ResultLog::standard(),
+            store: None,
         }
+    }
+
+    /// Take up the state saved in `file`, and keep the state there from now on. A task that was
+    /// running when the agent stopped without reporting it is reported failed; its session is
+    /// kept, so an answer can resume it.
+    fn resume(&mut self, file: StateFile) -> Result<()> {
+        let now = now_ms();
+        eprintln!("Guest agent state: {}", file.path().display());
+        let restart = restart(file.load(now), self.name, now);
+        self.tasks = restart.tasks;
+        self.queue = restart.queue;
+        self.bases = restart.bases;
+        self.store = Some(file);
+        if !self.queue.is_empty() {
+            eprintln!("Resuming {} queued tasks and answers", self.queue.len());
+        }
+        if let Some(task) = restart.interrupted {
+            eprintln!("Task {task} was running when the guest agent stopped: reporting it failed");
+            self.reply(&task).send(
+                Kind::Failed,
+                "The guest agent restarted while this task ran".to_owned(),
+                None,
+            )?;
+        }
+        self.save();
+        Ok(())
+    }
+
+    /// What the state file keeps.
+    fn snapshot(&self) -> Saved {
+        let mut bases: Vec<Base> = self.bases.values().cloned().collect();
+        bases.sort_by_key(|base| base.github);
+        Saved {
+            running: self.running.clone(),
+            queue: self.queue.iter().map(Queued::of).collect(),
+            bases,
+            tasks: self
+                .tasks
+                .iter()
+                .map(|(task, record)| (task.clone(), record.clone()))
+                .collect(),
+        }
+    }
+
+    /// Write the state file. A write that fails is reported and the agent goes on: the state
+    /// in memory is still right, only a restart would lose it.
+    fn save(&self) {
+        if let Some(store) = &self.store
+            && let Err(error) = store.save(&self.snapshot())
+        {
+            eprintln!("Unable to save the guest agent's state: {error:#}");
+        }
+    }
+
+    /// Take the messages that reached the engine but not the queue, so the final state keeps
+    /// them.
+    fn drain_incoming(&mut self) -> Result<()> {
+        while let Ok(message) = self.incoming.try_recv() {
+            self.control(&message, None)?;
+        }
+        Ok(())
     }
 
     fn reply(&self, task: &str) -> Reply {
@@ -273,6 +367,8 @@ impl<'a> Engine<'a> {
     async fn serve(mut self) -> Result<()> {
         loop {
             if *self.stop.borrow() {
+                self.drain_incoming()?;
+                self.save();
                 return Ok(());
             }
             let message = if let Some(message) = self.queue.pop_front() {
@@ -283,6 +379,7 @@ impl<'a> Engine<'a> {
                     () = stopped(&mut self.stop) => None,
                 };
                 let Some(message) = message else {
+                    self.save();
                     return Ok(());
                 };
                 if classify(&message, None, &self.queue) != Control::Queue {
@@ -295,10 +392,30 @@ impl<'a> Engine<'a> {
                 "{:?} {} from '{}'",
                 message.kind, message.task, message.from
             );
-            match self.work(&message).await {
-                Ok(Finish::Stopped) => return Ok(()),
-                Ok(Finish::Done | Finish::Canceled) => {}
+            self.running = Some(message.task.clone());
+            self.save();
+            let result = self.work(&message).await;
+            // Each way out of `work` has reported the task, so it is no longer running.
+            self.running = None;
+            let now = now_ms();
+            self.tasks
+                .entry(message.task.clone())
+                .or_default()
+                .finished_at_ms = Some(now);
+            let queue = &self.queue;
+            prune(&mut self.tasks, now, |task| {
+                queue.iter().any(|queued| queued.task == task)
+            });
+            match result {
+                Ok(Finish::Stopped) => {
+                    // The group is stopped and the task reported: the final state.
+                    self.drain_incoming()?;
+                    self.save();
+                    return Ok(());
+                }
+                Ok(Finish::Done | Finish::Canceled) => self.save(),
                 Err(error) => {
+                    self.save();
                     self.reply(&message.task)
                         .send(Kind::Failed, format!("{error:#}"), None)?;
                 }
@@ -310,10 +427,14 @@ impl<'a> Engine<'a> {
     /// a cancel for the running task, which the caller must carry out.
     fn control(&mut self, message: &Message, running: Option<&str>) -> Result<bool> {
         match classify(message, running, &self.queue) {
-            Control::Queue => self.queue.push_back(message.clone()),
+            Control::Queue => {
+                self.queue.push_back(message.clone());
+                self.save();
+            }
             Control::CancelRunning => return Ok(true),
             Control::CancelQueued => {
                 self.queue.retain(|queued| queued.task != message.task);
+                self.save();
                 eprintln!("Canceled queued task {}", message.task);
                 self.reply(&message.task).send(
                     Kind::Canceled,
@@ -352,17 +473,20 @@ impl<'a> Engine<'a> {
     /// Add a finished run to its task's totals, and turn the event's session-wide API time into
     /// the run's own. Returns the task's totals including this run.
     fn count(&mut self, task: &str, session: &str, usage: &mut Usage) -> TaskUsage {
-        let totals = self.totals.entry(task.to_owned()).or_default();
+        let record = self.tasks.entry(task.to_owned()).or_default();
         let reported = usage.duration_api_ms;
-        let previous = totals
+        let previous = record
             .api
             .as_ref()
-            .filter(|(known, _)| known == session)
-            .map(|(_, api_ms)| *api_ms);
+            .filter(|mark| mark.session == session)
+            .map(|mark| mark.api_ms);
         usage.duration_api_ms = api_time_of_run(reported, previous);
-        totals.api = Some((session.to_owned(), reported));
-        totals.usage.add(usage);
-        totals.usage.clone()
+        record.api = Some(ApiMark {
+            session: session.to_owned(),
+            api_ms: reported,
+        });
+        record.usage.add(usage);
+        record.usage.clone()
     }
 
     /// Forward one update from Claude Code and keep what the outcome needs.
@@ -376,13 +500,11 @@ impl<'a> Engine<'a> {
     ) -> Result<()> {
         match update {
             Update::Session(session) => {
-                self.sessions.insert(
-                    message.task.clone(),
-                    Session {
-                        id: session,
-                        github,
-                    },
-                );
+                self.tasks.entry(message.task.clone()).or_default().session = Some(Session {
+                    id: session,
+                    github,
+                });
+                self.save();
             }
             Update::Text(said) => {
                 if let Some(earlier) = run.text.replace(said) {
@@ -403,13 +525,11 @@ impl<'a> Engine<'a> {
                 mut usage,
             } => {
                 let task_usage = self.count(&message.task, &session, &mut usage);
-                self.sessions.insert(
-                    message.task.clone(),
-                    Session {
-                        id: session,
-                        github,
-                    },
-                );
+                self.tasks.entry(message.task.clone()).or_default().session = Some(Session {
+                    id: session,
+                    github,
+                });
+                self.save();
                 if let Some(last) = run.text.take()
                     && !repeats_result(&last, &result)
                 {
@@ -430,18 +550,25 @@ impl<'a> Engine<'a> {
     /// there is none or it is out of date. When priming fails the task gets a fresh session.
     async fn fork_of_base(&mut self, github: bool, task: &str) -> Launch {
         let inputs = Inputs::current(self.workdir, &rules(github), self.model).await;
-        let now = Instant::now();
+        let now = now_ms();
         if let Some(base) = self.bases.get_mut(&github)
             && !base.needs_rebuild(&inputs, now)
         {
             base.touch(now);
-            return Launch::Fork(base.session.clone());
+            let session = base.session.clone();
+            self.save();
+            return Launch::Fork(session);
         }
-        self.bases.remove(&github);
+        if self.bases.remove(&github).is_some() {
+            self.save();
+        }
         match self.prime(github, task).await {
             Ok(session) => {
-                self.bases
-                    .insert(github, Base::new(session.clone(), inputs, Instant::now()));
+                self.bases.insert(
+                    github,
+                    Base::new(github, session.clone(), &inputs, now_ms()),
+                );
+                self.save();
                 Launch::Fork(session)
             }
             Err(error) => {
@@ -513,6 +640,7 @@ impl<'a> Engine<'a> {
         let (session, text, failed, mut usage) =
             finished.with_context(|| format!("Claude Code exited ({status}) without a result"))?;
         self.count(task, &session, &mut usage);
+        self.save();
         eprintln!("{}", priming_line(task, github, &session, &usage));
         ensure!(!failed, "The priming run failed: {text}");
         Ok(session)
@@ -521,7 +649,10 @@ impl<'a> Engine<'a> {
     /// Run Claude Code on one task or answer, forwarding its progress and its outcome. A new
     /// task forks the base session; if that fails it runs in a fresh session instead.
     async fn work(&mut self, message: &Message) -> Result<Finish> {
-        let known = self.sessions.get(&message.task).cloned();
+        let known = self
+            .tasks
+            .get(&message.task)
+            .and_then(|record| record.session.clone());
         let github = task_github(message, known.as_ref());
         let launch = match (known, message.kind) {
             (Some(session), _) => Launch::Resume(session.id),
@@ -541,6 +672,7 @@ impl<'a> Engine<'a> {
                     message.task
                 );
                 self.bases.remove(&github);
+                self.save();
                 match self.attempt(message, github, &Launch::Fresh).await? {
                     Attempt::Done(finish) => Ok(finish),
                     Attempt::ForkFailed(reason) => bail!(reason),
@@ -560,9 +692,9 @@ impl<'a> Engine<'a> {
         let reply = self.reply(&message.task);
         let mut command = claude_command(self.program, self.workdir, self.model, github, launch);
         let run_number = {
-            let runs = self.runs.entry(message.task.clone()).or_insert(0);
-            *runs = runs.saturating_add(1);
-            *runs
+            let record = self.tasks.entry(message.task.clone()).or_default();
+            record.runs = record.runs.saturating_add(1);
+            record.runs
         };
         let mut child = command.spawn().context("Unable to start Claude Code")?;
         let mut group = Group::new(child.id());
@@ -661,9 +793,12 @@ impl<'a> Engine<'a> {
 mod tests {
     use super::*;
 
+    use std::fs;
     use std::time::Duration;
 
     use tokio::time::timeout;
+
+    use crate::keys::generate;
 
     fn queued(kind: Kind, task: &str) -> Message {
         Message {
@@ -755,6 +890,9 @@ hang*)
     echo $$ > "$prompt.claude"
     wait
     ;;
+ask*)
+    echo '{"type":"result","is_error":false,"result":"QUESTION: which one?","session_id":"sess-1"}'
+    ;;
 *)
     echo '{"type":"result","is_error":false,"result":"done","session_id":"sess-1"}'
     ;;
@@ -774,15 +912,35 @@ esac
             use std::os::unix::fs::PermissionsExt;
             let dir =
                 env::temp_dir().join(format!("agent-bus-cancel-{label}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).unwrap();
             let program = dir.join("fake-claude");
             std::fs::write(&program, FAKE_CLAUDE).unwrap();
             std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let (input, output, stop, done) = Self::spawn(&dir);
+            Self {
+                dir,
+                input: Some(input),
+                output,
+                stop,
+                done,
+            }
+        }
+
+        /// A guest agent on `dir`, keeping its state in `dir/state/`.
+        fn spawn(
+            dir: &Path,
+        ) -> (
+            UnboundedSender<Message>,
+            UnboundedReceiver<Message>,
+            watch::Sender<bool>,
+            tokio::task::JoinHandle<Result<()>>,
+        ) {
             let (input, incoming) = unbounded_channel();
             let (outgoing, output) = unbounded_channel();
             let (stop, stop_rx) = watch::channel(false);
-            let work = dir.clone();
-            let program = program.to_string_lossy().into_owned();
+            let work = dir.to_owned();
+            let program = dir.join("fake-claude").to_string_lossy().into_owned();
             let done = tokio::spawn(async move {
                 let setup = Setup {
                     program: &program,
@@ -791,15 +949,40 @@ esac
                 };
                 let mut engine = Engine::new(setup, "dev", "host", incoming, outgoing, stop_rx);
                 engine.results = Some(ResultLog::new(work.join("results.jsonl")));
+                engine.resume(StateFile::new(work.join("state").join("guest-dev.toml")))?;
                 engine.serve().await
             });
-            Self {
-                dir,
-                input: Some(input),
-                output,
-                stop,
-                done,
+            (input, output, stop, done)
+        }
+
+        /// Start the guest agent again on the same checkout and state file, as a deploy does.
+        fn restart(&mut self) {
+            let (input, output, stop, done) = Self::spawn(&self.dir);
+            self.input = Some(input);
+            self.output = output;
+            self.stop = stop;
+            self.done = done;
+        }
+
+        fn saved(&self) -> Saved {
+            StateFile::new(self.dir.join("state").join("guest-dev.toml")).load(now_ms())
+        }
+
+        /// Wait until the state file has the session of `task`: Claude Code names it before
+        /// the fake writes its pids, but the engine may not have read that line yet.
+        async fn session_saved(&self, task: &str) {
+            for _ in 0..100 {
+                if self
+                    .saved()
+                    .tasks
+                    .get(task)
+                    .is_some_and(|record| record.session.is_some())
+                {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
+            panic!("the session of {task} was never saved");
         }
 
         fn send(&self, kind: Kind, task: &str, text: &str) {
@@ -819,6 +1002,21 @@ esac
                     return message;
                 }
             }
+        }
+
+        /// Every reply that is not progress, until the agent's side of the channel closes:
+        /// call it once the agent has stopped.
+        async fn rest(&mut self) -> Vec<Message> {
+            let mut rest = Vec::new();
+            while let Some(message) = timeout(Duration::from_secs(10), self.output.recv())
+                .await
+                .expect("the reply channel did not close in time")
+            {
+                if message.kind != Kind::Progress {
+                    rest.push(message);
+                }
+            }
+            rest
         }
 
         /// The pids a hanging prompt wrote, once it has.
@@ -1017,5 +1215,189 @@ esac
         assert!(!runs[4].contains("--resume"), "{}", runs[4]);
         assert!(runs[5].contains("--resume sess-1"), "{}", runs[5]);
         assert!(runs[6].contains("--fork-session"), "{}", runs[6]);
+    }
+
+    #[tokio::test]
+    #[ignore = "starts real processes and signals them; run with -- --ignored"]
+    async fn a_restart_keeps_the_queue_and_the_sessions() {
+        let mut harness = Harness::start("restart");
+        // A task that asks a question, answered after the restart.
+        harness.send(Kind::Task, "t0", "ask-a");
+        let reply = harness.outcome().await;
+        assert_eq!((reply.kind, reply.task.as_str()), (Kind::Question, "t0"));
+
+        // Two tasks; the agent is stopped while the first runs.
+        harness.send(Kind::Task, "t1", "hang-r");
+        harness.send(Kind::Task, "t2", "plain-r");
+        let (claude, _) = harness.pids("hang-r").await;
+        harness.session_saved("t1").await;
+        harness.stop.send_replace(true);
+        timeout(Duration::from_secs(5), &mut harness.done)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(gone(claude).await, "the fake claude is still running");
+        // The stopped agent's replies: t1 failed, once, and nothing else.
+        let before: Vec<(Kind, String)> = harness
+            .rest()
+            .await
+            .into_iter()
+            .map(|reply| (reply.kind, reply.task))
+            .collect();
+        assert_eq!(before, [(Kind::Failed, "t1".to_owned())]);
+
+        // The final state: t2 waits, nothing runs, and every task's session is kept.
+        let saved = harness.saved();
+        assert_eq!(saved.running, None);
+        let queued: Vec<&str> = saved.queue.iter().map(|q| q.task.as_str()).collect();
+        assert_eq!(queued, ["t2"]);
+        assert_eq!(saved.bases.len(), 1);
+        for task in ["t0", "t1"] {
+            assert!(saved.tasks[task].session.is_some(), "{task}: {saved:?}");
+        }
+        let t0_runs = saved.tasks["t0"].usage.runs;
+
+        // Started again: t1 was reported already, so the next outcome is t2's, which forks the
+        // kept base rather than priming a new one.
+        harness.restart();
+        let reply = harness.outcome().await;
+        assert_eq!((reply.kind, reply.task.as_str()), (Kind::Completed, "t2"));
+        assert_eq!(harness_runs(&reply), 1);
+
+        // The answer to the question asked before the restart resumes t0's session, and its
+        // totals go on from before.
+        harness.send(Kind::Answer, "t0", "go on");
+        let reply = harness.outcome().await;
+        assert_eq!((reply.kind, reply.task.as_str()), (Kind::Completed, "t0"));
+        assert_eq!(harness_runs(&reply), t0_runs + 1);
+        // Priming twice, then t0, t1, t2 forked, then the answer resumed.
+        let runs = started_with(&harness);
+        assert_eq!(runs.len(), 6, "{runs:?}");
+        assert!(runs[4].contains("--fork-session"), "{}", runs[4]);
+        assert!(runs[5].contains("--resume sess-1"), "{}", runs[5]);
+        assert!(!runs[5].contains("--fork-session"), "{}", runs[5]);
+
+        // The restarted agent never reported t1: across both, the host got one failure for it.
+        harness.input = None;
+        timeout(Duration::from_secs(5), &mut harness.done)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let after = harness.rest().await;
+        assert!(after.iter().all(|reply| reply.task != "t1"), "{after:?}");
+    }
+
+    #[tokio::test]
+    #[ignore = "starts real processes and signals them; run with -- --ignored"]
+    async fn a_clean_stop_clears_the_running_task() {
+        let mut harness = Harness::start("clean");
+        harness.send(Kind::Task, "t1", "hang-c");
+        harness.pids("hang-c").await;
+        harness.session_saved("t1").await;
+        assert_eq!(harness.saved().running.as_deref(), Some("t1"));
+        harness.stop.send_replace(true);
+        timeout(Duration::from_secs(5), &mut harness.done)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        // Reported by the agent that stopped, and no longer running in the file, so a restart
+        // has nothing to report.
+        let reply = harness.outcome().await;
+        assert_eq!((reply.kind, reply.task.as_str()), (Kind::Failed, "t1"));
+        assert!(
+            reply.text.contains("task was interrupted"),
+            "{}",
+            reply.text
+        );
+        assert_eq!(harness.saved().running, None);
+        harness.restart();
+        harness.input = None;
+        timeout(Duration::from_secs(5), &mut harness.done)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let after = harness.rest().await;
+        assert!(after.is_empty(), "{after:?}");
+    }
+
+    #[tokio::test]
+    #[ignore = "starts real processes and signals them; run with -- --ignored"]
+    async fn a_task_running_when_the_agent_died_is_failed_on_restart() {
+        let mut harness = Harness::start("died");
+        harness.send(Kind::Task, "t1", "hang-d");
+        harness.send(Kind::Task, "t2", "plain-d");
+        let (claude, sleep) = harness.pids("hang-d").await;
+        harness.session_saved("t1").await;
+        // Killed without its shutdown path: nothing is reported, the file says t1 runs.
+        harness.done.abort();
+        let _ = (&mut harness.done).await;
+        assert!(gone(claude).await, "the fake claude is still running");
+        assert!(gone(sleep).await, "its sleep is still running");
+        assert_eq!(harness.saved().running.as_deref(), Some("t1"));
+
+        harness.restart();
+        let reply = harness.outcome().await;
+        assert_eq!((reply.kind, reply.task.as_str()), (Kind::Failed, "t1"));
+        assert!(
+            reply
+                .text
+                .contains("guest agent restarted while this task ran"),
+            "{}",
+            reply.text
+        );
+        let reply = harness.outcome().await;
+        assert_eq!((reply.kind, reply.task.as_str()), (Kind::Completed, "t2"));
+        // Its session is kept: an answer resumes it.
+        harness.send(Kind::Answer, "t1", "go on");
+        let reply = harness.outcome().await;
+        assert_eq!(
+            (reply.kind, reply.task.as_str()),
+            (Kind::Completed, "t1"),
+            "{}",
+            reply.text
+        );
+        assert_eq!(harness.saved().running, None);
+    }
+
+    #[tokio::test]
+    async fn the_lock_is_checked_before_the_bus_is_reached() {
+        let dir = env::temp_dir().join(format!("agent-bus-lock-first-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let state = dir.join("state").join("guest-dev.toml");
+        let seed = generate().unwrap().seed;
+        // Port 1 on loopback: nothing listens, so connecting is refused.
+        let server = "nats://127.0.0.1:1";
+        let attempt = || {
+            start(
+                server,
+                &seed,
+                "dev",
+                "host",
+                &dir,
+                "model",
+                Some(StateFile::new(state.clone())),
+            )
+        };
+
+        let lock = InstanceLock::acquire(&state.with_extension("lock")).unwrap();
+        let error = format!("{:#}", Box::pin(attempt()).await.unwrap_err());
+        assert!(
+            error.contains("Another guest agent of this name is running"),
+            "{error}"
+        );
+        assert!(!state.exists(), "the state was written");
+
+        // With the lock free the same start gets past it, to the token or the bus.
+        drop(lock);
+        let error = format!("{:#}", Box::pin(attempt()).await.unwrap_err());
+        assert!(
+            !error.contains("Another guest agent of this name is running"),
+            "{error}"
+        );
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

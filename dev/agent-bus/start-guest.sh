@@ -30,7 +30,35 @@ LOG="${HOME}/agent-bus-${NAME}.log"
 
 cd "${REPO}"
 cargo build --release --quiet -p agent-bus
-pkill -f "[a]gent-bus guest .*--name ${NAME} " || true
+# Stop the old agent and wait until it has exited before starting the new one: the two must
+# never share the state file. A stopping agent stops its Claude Code within its own kill grace,
+# so it gets longer than that before SIGKILL. The new agent also refuses to start while another
+# of its name holds the lock.
+PATTERN="[a]gent-bus guest .*--name ${NAME} "
+STOP_TIMEOUT=15
+
+# Wait up to $1 seconds for every agent of this name to exit. True once none is left.
+wait_gone() {
+    local deadline=$((SECONDS + $1))
+    while pgrep -f "${PATTERN}" > /dev/null; do
+        if [ "${SECONDS}" -ge "${deadline}" ]; then
+            return 1
+        fi
+        sleep 0.2
+    done
+}
+
+if pgrep -f "${PATTERN}" > /dev/null; then
+    pkill -f "${PATTERN}" || true
+    if ! wait_gone "${STOP_TIMEOUT}"; then
+        echo "Guest agent '${NAME}' did not stop within ${STOP_TIMEOUT}s: sending SIGKILL" >&2
+        pkill -KILL -f "${PATTERN}" || true
+        if ! wait_gone 5; then
+            echo "Unable to stop guest agent '${NAME}' (PIDs: $(pgrep -f "${PATTERN}" | tr '\n' ' ')): not starting a second one" >&2
+            exit 1
+        fi
+    fi
+fi
 AGENT_BUS_SEED="${SEED}" nohup target/release/agent-bus guest --server "nats://${GATEWAY}:4222" --name "${NAME}" \
     --workdir "${REPO}" "${MODEL_ARGS[@]}" > "${LOG}" 2>&1 < /dev/null &
 unset SEED
