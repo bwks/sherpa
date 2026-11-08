@@ -21,6 +21,7 @@ Do not document user-facing behaviour here; document it there.
 | [`OTEL.md`](OTEL.md) | OpenTelemetry tracing and metrics instrumentation and exported metric names. |
 | [`TALOS.md`](TALOS.md) | Talos Linux nodes and Kubernetes clusters: NoCloud delivery, cluster plan, secrets, machine configs, Cilium, Keycloak login and Vault secrets, bootstrap, lifecycle. |
 | [`ZTP_ISO.md`](ZTP_ISO.md) | The ISO 9660 writer for node config media: callers and labels, the primary, Rock Ridge and Joliet trees, sector layout, limits. |
+| [`STATE_MACHINES.md`](STATE_MACHINES.md) | Lifecycles held in enums, flags, strings and side effects: node and lab state, the scanner, operation leases, up/destroy/redeploy stages, provisioning, sessions, jobs, streams, TLS trust, links, images, ZTP settings. States, transitions, who sets and reads them, with diagrams. |
 | [`VALIDATION.md`](VALIDATION.md) | Where validators live (`shared::validators`, `topology::validate`, crate `validate` modules) and how client and server checks relate. |
 
 Proposals for architecture changes that are not yet implemented live in [`../prds/`](../prds/).
