@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use super::base::Base;
 use super::engine::Session;
 use crate::channel::RETENTION;
-use crate::files::{millis, private_dir, standard_state_dir, write_private};
+use crate::files::{PRIVATE_FILE_MODE, millis, private_dir, standard_state_dir, write_atomic};
 use crate::message::{Kind, Message, TaskUsage};
 
 /// Where a task's session's API time stood after its last run. The figure counts the whole
@@ -187,7 +187,7 @@ impl StateFile {
             .parent()
             .context("The state file has no directory")?;
         private_dir(dir)?;
-        write_private(&self.path, &text)
+        write_atomic(&self.path, &text, PRIVATE_FILE_MODE)
     }
 }
 
@@ -238,7 +238,7 @@ mod tests {
     use std::env;
     use std::os::unix::fs::PermissionsExt;
 
-    use crate::files::{DIR_MODE, PRIVATE_FILE_MODE};
+    use crate::files::DIR_MODE;
     use crate::guest::base::Inputs;
 
     const NOW: u64 = 1_800_000_000_000;

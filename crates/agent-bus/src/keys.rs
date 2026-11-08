@@ -77,7 +77,7 @@ fn checked_seed(value: Option<String>) -> Result<String> {
         .map(|seed| seed.trim().to_owned())
         .filter(|seed| !seed.is_empty())
         .ok_or_else(|| {
-            anyhow!("Set {SEED_VARIABLE} to this agent's NKey seed (see `agent-bus key new`)")
+            anyhow!("Set {SEED_VARIABLE} to this agent's NKey seed (see `agent-bus enroll` for a guest, `agent-bus key new` for the host)")
         })?;
     public_key_of(&seed)?;
     Ok(seed)

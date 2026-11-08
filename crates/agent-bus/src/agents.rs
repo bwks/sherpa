@@ -1,5 +1,7 @@
-//! The agents file: which agents may use the bus, and in which role. It is TOML and holds only
-//! public keys, so it is not secret.
+//! The agents file: the user's list of agents that may use the bus, and in which role. It is
+//! TOML and holds only public keys, so it is not secret. It holds the host, and optionally guests
+//! with fixed keys; guests started with `agent-bus enroll` are kept in the registry instead (see
+//! `registry`), and the agents file wins a name clash.
 //!
 //! ```toml
 //! [[agent]]
@@ -18,7 +20,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::keys::check_public_key;
 use crate::message::check_agent_name;
@@ -27,7 +29,7 @@ use crate::message::check_agent_name;
 const MIN_KEY_LENGTH: usize = 40;
 
 /// What an agent may do on the bus.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
     /// Sends tasks to every agent and reads its own inbox
@@ -36,8 +38,8 @@ pub enum Role {
     Guest,
 }
 
-/// One entry of the agents file.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+/// One entry of the agents file, or of the registry.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Agent {
     pub name: String,
@@ -60,10 +62,10 @@ struct File {
     agent: Vec<Agent>,
 }
 
-/// Describe a TOML error without quoting the file: `toml`'s own display shows the offending
-/// line, which could be a seed pasted in the wrong place. Its message can quote a value too, so
-/// anything the length of a key is hidden.
-fn parse_error(text: &str, error: &toml::de::Error) -> anyhow::Error {
+/// Describe a TOML error in `what` (such as "the agents file") without quoting the file:
+/// `toml`'s own display shows the offending line, which could be a seed pasted in the wrong
+/// place. Its message can quote a value too, so anything the length of a key is hidden.
+pub fn parse_error(what: &str, text: &str, error: &toml::de::Error) -> anyhow::Error {
     let line = error.span().map_or(0, |span| {
         text.get(..span.start)
             .map_or(0, |before| before.matches('\n').count())
@@ -81,9 +83,37 @@ fn parse_error(text: &str, error: &toml::de::Error) -> anyhow::Error {
         })
         .collect::<Vec<_>>();
     anyhow!(
-        "Unable to parse the agents file at line {line}: {}",
+        "Unable to parse {what} at line {line}: {}",
         message.join(" ")
     )
+}
+
+/// Check every entry's name and key, and that no name or key is used twice. Every agent has its
+/// own key: the bus authorizes keys, not names, so agents sharing one could act on each other's
+/// inboxes.
+///
+/// # Errors
+///
+/// Fails, naming the agent, on the first entry that breaks a rule. No error repeats a key.
+pub fn check_entries<'a>(agents: impl IntoIterator<Item = &'a Agent>) -> Result<()> {
+    let mut names = HashSet::new();
+    let mut keys = HashSet::new();
+    for agent in agents {
+        check_agent_name(&agent.name)?;
+        check_public_key(&agent.key)
+            .with_context(|| format!("The key of agent '{}' is not valid", agent.name))?;
+        ensure!(
+            names.insert(agent.name.as_str()),
+            "Agent '{}' is listed twice",
+            agent.name
+        );
+        ensure!(
+            keys.insert(agent.key.as_str()),
+            "Agent '{}' uses the key of another agent; every agent needs its own key",
+            agent.name
+        );
+    }
+    Ok(())
 }
 
 impl Agents {
@@ -99,28 +129,15 @@ impl Agents {
     }
 
     /// Parse and validate the text of an agents file. Names must be valid and unique, keys must
-    /// be user public keys, and there must be exactly one host, whose key no guest may use.
-    ///
-    /// Guests may share a key. Agents that share a key can read and act on each other's inboxes,
-    /// because the bus authorizes keys, not names, so sharing is for testing only, until
-    /// enrollment (#494) gives every agent its own key.
+    /// be user public keys used by one agent each, and there must be exactly one host.
     ///
     /// # Errors
     ///
     /// Fails when the text is not valid TOML or breaks one of those rules.
     pub fn parse(text: &str) -> Result<Self> {
-        let file: File = toml::from_str(text).map_err(|error| parse_error(text, &error))?;
-        let mut names = HashSet::new();
-        for agent in &file.agent {
-            check_agent_name(&agent.name)?;
-            check_public_key(&agent.key)
-                .with_context(|| format!("The key of agent '{}' is not valid", agent.name))?;
-            ensure!(
-                names.insert(agent.name.as_str()),
-                "Agent '{}' is listed twice",
-                agent.name
-            );
-        }
+        let file: File =
+            toml::from_str(text).map_err(|error| parse_error("the agents file", text, &error))?;
+        check_entries(&file.agent)?;
         let (hosts, guests): (Vec<Agent>, Vec<Agent>) = file
             .agent
             .into_iter()
@@ -129,14 +146,12 @@ impl Agents {
         let (Some(host), None) = (hosts.next(), hosts.next()) else {
             bail!("The agents file must list exactly one agent with the role 'host'");
         };
-        if let Some(guest) = guests.iter().find(|guest| guest.key == host.key) {
-            bail!(
-                "Guest '{}' uses the key of the host '{}'; the host's key must never be shared",
-                guest.name,
-                host.name
-            );
-        }
         Ok(Self { host, guests })
+    }
+
+    /// Whether `name` is an agent of this list, the host or a guest.
+    pub fn has(&self, name: &str) -> bool {
+        self.all().any(|agent| agent.name == name)
     }
 
     /// Every agent: the host first, then the guests.
@@ -204,29 +219,37 @@ mod tests {
     }
 
     #[test]
-    fn the_host_key_is_never_shared_with_a_guest() {
+    fn no_two_agents_share_a_key() {
         let shared = key();
-        let same = [
+        let with_host = [
             entry("dev", &shared, "guest"),
             entry("host", &shared, "host"),
         ]
         .concat();
-        let error = format!("{:#}", Agents::parse(&same).unwrap_err());
-        assert!(error.contains("Guest 'dev' uses the key of the host 'host'"));
-    }
-
-    #[test]
-    fn guests_may_share_a_key() {
-        let shared = key();
-        let file = [
+        let error = format!("{:#}", Agents::parse(&with_host).unwrap_err());
+        assert!(
+            error.contains("'host' uses the key of another agent"),
+            "{error}"
+        );
+        assert!(!error.contains(&shared));
+        let guests = [
             entry("host", &key(), "host"),
             entry("dev", &shared, "guest"),
             entry("agent-2", &shared, "guest"),
         ]
         .concat();
+        let error = format!("{:#}", Agents::parse(&guests).unwrap_err());
+        assert!(
+            error.contains("'agent-2' uses the key of another agent"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn has_finds_the_host_and_the_guests() {
+        let file = [entry("host", &key(), "host"), entry("dev", &key(), "guest")].concat();
         let agents = Agents::parse(&file).unwrap();
-        assert_eq!(agents.guests.len(), 2);
-        assert_eq!(agents.guests[0].key, agents.guests[1].key);
+        assert!(agents.has("host") && agents.has("dev") && !agents.has("agent-2"));
     }
 
     #[test]

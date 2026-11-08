@@ -43,15 +43,33 @@ apt_install() {
     return 1
 }
 
+# Runs a command up to 5 times, 30s apart, logging each failure. GitHub release downloads, which
+# the mise installer and `mise install` make, sometimes answer with an HTTP 504.
+retry() {
+    local attempt
+    for attempt in 1 2 3 4 5; do
+        if "$@"; then
+            return 0
+        fi
+        log "'$*' failed (attempt ${attempt}), retrying in 30s"
+        sleep 30
+    done
+    return 1
+}
+
+run_mise_installer() {
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 https://mise.run | sh
+}
+
 # Installs mise and the tools in ~/.config/mise/config.toml, which the provisioner copies from
 # provision/mise.toml, and puts them on the PATH of login shells and of this script.
 install_tools() {
     if [ ! -x "${MISE}" ]; then
         log "Installing mise"
-        curl -fsSL https://mise.run | sh
+        retry run_mise_installer
     fi
     log "Installing tools with mise"
-    "${MISE}" install --yes
+    retry "${MISE}" install --yes
     local profile="${HOME}/.profile"
     # The provisioner's ~/.env.d loader goes in ~/.bash_profile when it exists, so does this.
     if [ -f "${HOME}/.bash_profile" ]; then

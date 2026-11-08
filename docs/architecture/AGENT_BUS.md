@@ -28,10 +28,12 @@ tracked in issue #494.
 |---|---|---|
 | Bus container | `sherpa-agent-bus`, image `nats:2.15-alpine` pinned by digest (nats-server 2.15.2), run with JetStream on the host's network. It listens on one address, port 4222: with `--lab`, the lab's management gateway (`ipv4_gateway` in `lab-info.toml`), which is also each guest's default gateway. Restart policy `unless-stopped`. | `src/bus.rs` |
 | Store | The Docker volume `sherpa-agent-bus-data`, mounted at `/data` (`--store_dir`). It outlives the container. | `src/bus.rs` |
-| Server config | `nats.conf`, rendered from the agents file and bind-mounted read-only at `/etc/agent-bus/nats.conf` (`-c`). | `src/config.rs` |
+| Server config | `nats.conf`, rendered from the agents file and the registry of enrolled guests. Its directory is bind-mounted read-only at `/etc/agent-bus/` (`-c /etc/agent-bus/nats.conf`), and SIGHUP reloads it. | `src/config.rs` |
+| Registry | `enrolled.toml`: the guests `enroll` added, with their public keys. Host-managed, never edited by hand. | `src/registry.rs` |
 | Stream | One JetStream stream, `AGENTS`, on `agents.>`, keeping messages for 7 days (`max_age`). | `src/channel.rs` |
 | Inboxes | One durable pull consumer per agent, named after it, filtered on `agents.<name>`, with `max_waiting = 1`. A message waits until its agent reads and acknowledges it, and a restarted reader goes on where it stopped. | `src/channel.rs` |
-| Host commands | `key new`, `bus start/stop/status`, `send`, `cancel`, `listen`, `usage`, `show`. | `src/main.rs`, `src/listen.rs` |
+| Host commands | `key new`, `bus start/stop/status`, `enroll`, `unenroll`, `send`, `cancel`, `listen`, `usage`, `show`. | `src/main.rs`, `src/bus.rs`, `src/listen.rs` |
+| Starting a guest | `dev/agent-bus/start-agent.sh` on the host enrolls a node's agent and pipes its seed over SSH to `dev/agent-bus/start-guest.sh` in the guest. | `dev/agent-bus/` |
 | Guest agent | `agent-bus guest`: reads its inbox, queues tasks, runs them one at a time through Claude Code, and replies. | `src/guest/` |
 | Claude Code | `claude -p` with `stream-json` output, one process (and process group) per run, in the guest's checkout. | `src/guest/claude.rs` |
 
@@ -44,6 +46,8 @@ flowchart LR
         hostagent["Host agent<br/>Claude Code"]
         cmds["agent-bus send, cancel,<br/>listen, usage, show"]
         start["agent-bus bus start"]
+        enroll["agent-bus enroll, unenroll"]
+        registry["enrolled.toml<br/>enrolled guests' public keys"]
         conf["nats.conf<br/>public keys, permissions"]
         subgraph ctr["container sherpa-agent-bus, host network"]
             nats["nats-server + JetStream<br/>stream AGENTS<br/>on lab gateway:4222"]
@@ -59,7 +63,11 @@ flowchart LR
     cmds <-->|"NATS, NKey auth"| nats
     start -->|"Docker API"| ctr
     start --> conf
-    conf -.->|"read-only bind mount"| nats
+    enroll --> registry
+    registry --> conf
+    enroll --> conf
+    enroll -->|"SIGHUP, Docker API"| ctr
+    conf -.->|"read-only bind mount<br/>of its directory"| nats
     nats --- vol
     gagent <-->|"NATS, NKey auth<br/>to default gateway"| nats
     gagent -->|"prompt on stdin"| claude
@@ -76,15 +84,20 @@ Exactly one of `--lab` and `--listen <ipv4>` is required (`src/main.rs`, `src/st
    address, and its `id` and `name` are recorded. A missing file, or one without a gateway, is an
    error naming the path.
 2. Load and validate the agents file, and check that the seed's public key is the host's key.
-3. Write `nats.conf` (see [Files and state](#files-and-state)).
+   Under the registry lock, load the registry and merge it with the agents file (see
+   [Enrollment](#enrollment)).
+3. Write `nats/nats.conf` (see [Files and state](#files-and-state)).
 4. Pull the pinned image if Docker does not have it, then replace the container: stop and remove
    any existing `sherpa-agent-bus`, create it, start it. An existing container is never just
    restarted, because the config may have changed. The messages are in the volume, so replacing
    the container loses nothing.
+   A `nats.conf` left in the state directory by a version that mounted the file itself is
+   removed.
 5. Connect as the host (20 attempts, 500 ms apart), create or check the `AGENTS` stream, and
-   bring each agent's inbox, the host's included, to the wanted consumer config.
-6. Record the URL (and the lab) in `bus.toml`, and print one `Inbox ready: <agent> (<change>)`
-   line per agent.
+   bring each agent's inbox, the host's and every enrolled guest's included, to the wanted
+   consumer config.
+6. Record the URL, the agents file's absolute path (and the lab) in `bus.toml`, and print one
+   `Inbox ready: <agent> (<change>)` line per agent.
 
 Each inbox is reported as `created`, `updated`, `recreated from sequence N` or `unchanged`
 (`Channel::ensure_inbox`). A missing consumer is created. A different filter subject is updated
@@ -97,16 +110,21 @@ the error names the sequence to create it from.
 `bus stop` stops and removes the container and removes `bus.toml`; the volume and its messages
 stay. `bus status` prints the container's state, the recorded URL and the lab.
 
-Adding an agent means adding it to the agents file and running `bus start` again.
+Adding a guest means starting it: `start-agent.sh` enrolls it on the running bus (see
+[Enrollment](#enrollment)). `bus start` is needed again only when the agents file changes.
 
 ### Finding the bus
+
+`enroll` and `unenroll` use the whole record: the URL, and the agents file `bus start` was
+given. A record without the agents file, written before enrollment, makes them fail and say to
+run `bus start` again.
 
 `send`, `cancel`, `listen`, `usage` and `show` take the first of: `--server <url>`, the
 environment variable `AGENT_BUS_URL`, the URL in `bus.toml` (`state::find_server`). With none,
 they fail and say to run `bus start` or set one. The guest agent runs in the lab guest, where
 there is no `bus.toml`: it takes `--server` (or `AGENT_BUS_URL`), which `dev/agent-bus/start-guest.sh`
-builds from the guest's default gateway, or takes from `AGENT_BUS_URL` for a guest in another
-lab.
+builds from the guest's default gateway for a guest in the bus's lab. A guest in any other lab
+is given `AGENT_BUS_URL`, the bus's URL, since its own default gateway has no bus on it.
 
 ### One reader per inbox
 
@@ -334,23 +352,30 @@ the bus has no TLS.
 
 | Thing | Where it lives | Secret |
 |---|---|---|
-| Public key (`U...`) | The agents file, and the rendered `nats.conf` | No |
-| Seed (`SU...`) | The user's secret store, then the one agent's environment as `AGENT_BUS_SEED` | Yes |
+| Public key (`U...`) | The agents file (the host, and any fixed guests), the registry (enrolled guests), and the rendered `nats.conf` | No |
+| Host seed (`SU...`) | The user's secret store, then the environment of one host command as `AGENT_BUS_SEED` | Yes |
+| Enrolled guest seed (`SU...`) | Nowhere at rest: `enroll` prints it into a pipe, which ends in the guest agent's environment as `AGENT_BUS_SEED` | Yes |
 
-`agent-bus key new` generates a pair and is the only place a seed is printed. The seed is read
-only from `AGENT_BUS_SEED` (trimmed, and checked to be a user seed), never from a command-line
-flag or a file. It is never written to a file or a log, and no error repeats it: key errors say
-what is wrong without quoting the value. The guest agent removes `AGENT_BUS_SEED` from Claude
-Code's environment, because Claude Code runs commands from network messages with root.
+Every agent has its own key: no two entries of the agents file and the registry together may
+share one, because the bus authorizes keys, not names. Seeds are printed in two places only:
+`agent-bus key new`, for the host's key (or a fixed guest's), and `agent-bus enroll`. A seed is
+read only from `AGENT_BUS_SEED` (trimmed, and checked to be a user seed), never from a
+command-line flag or a file. It is never written to a file or a log, and no error repeats it:
+key errors say what is wrong without quoting the value. The guest agent removes
+`AGENT_BUS_SEED` from Claude Code's environment, because Claude Code runs commands from network
+messages with root.
 
-On the host, the seed comes from the secret store into the environment of one command. In the
-guest, `start-guest.sh` reads it from stdin (sent over SSH, never as an argument), exports it to
-the agent process only, and unsets its own copy.
+On the host, the host's seed comes from the secret store into the environment of one command.
+A guest's seed is made by `enroll` each time the guest starts and goes straight down a pipe:
+`start-agent.sh` pipes it over SSH stdin, never as an argument, and in the guest
+`start-guest.sh` reads it from stdin, exports it to the agent process only, and unsets its own
+copy. The user stores only the host's seed.
 
 ### The agents file
 
-TOML, holding no secrets, passed with `bus start --agents <path>` (`src/agents.rs`). One
-`[[agent]]` per agent:
+TOML, holding no secrets, written by the user and passed with `bus start --agents <path>`
+(`src/agents.rs`). It holds the host and, optionally, guests with fixed keys made with
+`key new`; enrolled guests are not in it. One `[[agent]]` per agent:
 
 ```toml
 [[agent]]
@@ -364,19 +389,67 @@ key = "UB..."
 role = "guest"
 ```
 
-Names follow the agent name rule and are unique, keys must be user public keys, there is
-exactly one `host`, no guest may use the host's key, and unknown fields are refused. Guests may
-share a key, for testing only (see Limits). A TOML parse error gives the line
+Names follow the agent name rule and are unique, keys must be user public keys used by one
+agent each, there is exactly one `host`, and unknown fields are refused. A TOML parse error gives
+the line
 number and the parser's message with every word of 40 characters or more replaced by
 `<hidden>`, so a seed pasted into the file is not echoed.
 
+### Enrollment
+
+`agent-bus enroll <name>` gives a guest a fresh key on the running bus, with the host's seed in
+`AGENT_BUS_SEED` (`bus::enroll`). It reads `bus.toml` for the URL and the agents file, and:
+
+1. checks the name, loads the agents file and checks the host's seed, and refuses a name the
+   agents file lists;
+2. checks that the bus container runs and mounts this state directory's `nats/` directory; a
+   container started by an older version, which mounted the file itself, would never see the new
+   config, so `enroll` says to run `bus start` again;
+3. takes the registry lock (`<state>/enroll.lock`, an exclusive `flock`, waited for);
+4. connects as the host and creates the guest's inbox, so a failure there changes no key;
+5. generates a user key pair, and records the name, role `guest` and public key in the registry,
+   replacing the guest's previous key;
+6. merges the agents file and the registry, checks the result, saves the registry (0600,
+   atomically) and writes `nats.conf` (atomically);
+7. sends the container SIGHUP (Docker's kill with signal `HUP`), and connects with the new seed
+   until the bus accepts it (20 attempts, 500 ms apart), which shows the reload took;
+8. prints the seed, and only the seed, on stdout. Progress goes to stderr.
+
+`enroll` refuses to run when stdout is a terminal, so the seed lands in a pipe, not on a screen
+or in a scrollback. If it fails after step 5, the registry has the new key and no seed was
+printed; running `bus start` again renders and loads the config from the registry.
+
+`agent-bus unenroll <name>` removes the guest's key from the registry, renders the config and
+reloads a running bus (`bus::unenroll`). It needs no seed. A name the agents file lists is
+refused, and a name that is not enrolled changes nothing. If the bus is not running, only the
+files change, and the next `bus start` leaves the guest out. The guest's inbox and messages stay
+in the stream.
+
+**Which wins.** The agents file wins a name clash. `enroll` and `unenroll` refuse its names,
+including the host's. A registry entry whose name the agents file lists later is left out of the
+config, with a warning from every command that renders it. An enrolled key that the agents file
+also uses is an error.
+
+**Reloading.** nats-server 2.15 reloads its config on SIGHUP. This was checked on a throwaway
+bus in the pinned image, with the config's directory bind-mounted: with users `a` and `b`
+connected, the config was rewritten with `a` and a new user `c` and the container sent HUP. The
+server logged `Reloaded: authorization nkey users`; `a`'s connection stayed up, `b` was
+disconnected and refused on reconnect, and `c` connected. Rewriting a bind-mounted single file by
+renaming over it leaves the container reading the old file, so the config's directory is mounted
+instead. A guest's permissions depend only on its own name and the host's, so a reload never
+changes those of a guest that stays: only the guest whose key changed is disconnected.
+`enrolled_guests_get_their_own_keys_and_old_keys_are_refused` (`src/bus.rs`, ignored, needs
+Docker) checks the same with the real code: two enrolled guests connect; re-enrolling one refuses
+its old key and drops its connection while the other stays connected and keeps reading; once
+unenrolled, its key is refused; a `bus start` after that still has the enrolled guest.
+
 ### The rendered config
 
-`bus start` renders the nats-server config from the agents file as JSON, which nats-server
-accepts, from serde structs (`src/config.rs`). It holds one `authorization.users` entry per
-distinct key, the host first and then the guests in the order each key first appears: the public
-key and its publish and subscribe allow lists. Guests sharing a key get one entry with the guest
-lists of all of them, the host's inbox once and then each guest's three consumer subjects. There is no field a seed could go in.
+`bus start`, `enroll` and `unenroll` render the nats-server config from the merged agents as
+JSON, which nats-server accepts, from serde structs (`src/config.rs`). It holds one
+`authorization.users` entry per agent, the host first, then the agents file's guests, then the
+enrolled guests: the public key and its publish and subscribe allow lists. There is no field a
+seed could go in.
 The bus has one account, so these lists are what separate the agents.
 
 | Role | Publish allowed | Subscribe allowed |
@@ -624,20 +697,22 @@ the listener's journal.
 The state directory is `$XDG_STATE_HOME/agent-bus/`, or `~/.local/state/agent-bus/` when
 `XDG_STATE_HOME` is unset or relative. The host and the guest each have their own. On both it is
 0700: every command that writes into it creates it, or tightens an existing one, with
-`files::private_dir` (`src/files.rs`). `nats.conf` stays 0644 in it: the file itself is
-bind-mounted, so the container opens it by its mount path and never looks up the host directory;
-the file's own mode is what the container's user needs (the pinned image runs as root, but a
-non-root user would read it too). The real-bus test starts the bus with its config in a 0700
-directory.
+`files::private_dir` (`src/files.rs`). The server config's directory `nats/` in it is 0755 and
+`nats.conf` 0644: the `nats/` directory itself is bind-mounted, so the container opens it by its
+mount path and never looks up the state directory; their own modes are what the container's
+user needs (the pinned image runs as root, but a non-root user would read them too). The
+real-bus tests start the bus with its state in a 0700 directory.
 
 | Where | File | Mode | Contents | Written by |
 |---|---|---|---|---|
-| Host | `<state>/nats.conf` | 0644, directory 0700 | The rendered server config as JSON: public keys and allow lists. Rewritten on every `bus start`. Readable by the container's user. | `config::write` |
-| Host | `<state>/bus.toml` | 0600, directory 0700 | `url`, and `[lab]` with `id` and `name` when started with `--lab`. Written with `files::write_private` (below). Removed by `bus stop`. | `state::write` |
+| Host | `<state>/nats/nats.conf` | 0644, `nats/` 0755, state directory 0700 | The rendered server config as JSON: public keys and allow lists. Rewritten, with `files::write_atomic` (below), on every `bus start`, `enroll` and `unenroll`. Readable by the container's user. | `config::write` |
+| Host | `<state>/enrolled.toml` | 0600, directory 0700 | The registry of enrolled guests, in the agents file's format, guests only, with a header saying it is managed by agent-bus. Written with `files::write_atomic`. A missing file is an empty registry. | `registry::Registry::save` |
+| Host | `<state>/enroll.lock` | 0600, directory 0700 | Empty; the exclusive `flock` that `bus start`, `enroll` and `unenroll` hold while they change the registry or render the config. Never removed. | `registry::lock` |
+| Host | `<state>/bus.toml` | 0600, directory 0700 | `url`, `agents` (the agents file's absolute path), and `[lab]` with `id` and `name` when started with `--lab`. Written with `files::write_atomic`. Removed by `bus stop`. | `state::write` |
 | Host | `<state>/listen-<agent>.jsonl` | 0600, directory 0700 | The listener's journal: one line per message received, `{"at_ms":..,"message":{..}}`, the message as `listen` prints it. Appended and in the file before the message is printed and acknowledged. Pruned to 7 days (below). | `listen::Journal` |
-| Host | the agents file | the user's | Names, public keys, roles. Only read. | the user |
+| Host | the agents file | the user's | The host's and any fixed guests' names, public keys and roles. Only read. | the user |
 | Host | Docker volume `sherpa-agent-bus-data` | Docker's | JetStream's store: the `AGENTS` stream and the consumers. | nats-server |
-| Guest | `<state>/guest-<name>.toml` | 0600, directory 0700 | The guest agent's state (below). Written with `files::write_private` (below). A file that cannot be read or parsed is moved to `guest-<name>.toml.corrupt-<unix seconds>` and the agent starts fresh. | `guest::state` |
+| Guest | `<state>/guest-<name>.toml` | 0600, directory 0700 | The guest agent's state (below). Written with `files::write_atomic` (below). A file that cannot be read or parsed is moved to `guest-<name>.toml.corrupt-<unix seconds>` and the agent starts fresh. | `guest::state` |
 | Guest | `<state>/guest-<name>.lock` | 0600, directory 0700 | The PID of the agent holding the lock. Never removed. | `guest::lock` |
 | Guest | `<state>/results.jsonl` | 0600, directory 0700 | One JSON line per `result` event: `task`, `session`, `run` (0 for priming, then 1, 2, ...), `at_ms`, and `raw`, the event line unchanged. Appended; pruned to 7 days (below). | `guest::record` |
 | Guest | `~/agent-bus-<name>.log` | default (umask) | The guest agent's stdout and stderr, Claude Code's stderr included. Truncated on each start. | `start-guest.sh` |
@@ -649,9 +724,10 @@ whose.
 (`files::JsonLines`): lines whose `at_ms` is older are dropped, and a line without one (cut short
 by a crash) is kept. Each is pruned when its program starts, and again before an append once a
 day has passed since the last prune; a file that is not appended to does not grow. The file is
-read whole and rewritten only when a line is dropped, with `files::write_private`, which every
-rewritten state file goes through: to `<file>.<pid>.tmp`, mode 0600 whatever the umask, synced,
-renamed over the file, then the directory synced. Pruning and appending happen in the same task (the
+read whole and rewritten only when a line is dropped, with `files::write_atomic`, which every
+rewritten file goes through: to `<file>.<pid>.tmp`, with the file's mode (0600 for state files,
+0644 for `nats.conf`) whatever the umask, synced, renamed over the file, then the directory
+synced. Pruning and appending happen in the same task (the
 guest's engine, the listener's loop), so no append is lost to the rename. A failed prune is
 logged and the append goes on.
 
@@ -701,32 +777,61 @@ files of one name. The descriptor is close-on-exec, so Claude Code does not inhe
 ## Operating it
 
 The host keeps `mise` tasks for these steps in its own mise configuration, outside this
-repository; they load the seeds and the Claude token from the user's secret store (a `pass-cli`
-env file) into the one command that needs them, so no secret is typed or written down. They
-live in the user's own mise config, not in the repo, and each one injects its seed itself:
+repository; they load the host's seed and the Claude token from the user's secret store (a
+`pass-cli` env file) into the one command that needs them, so no secret is typed or written down.
+The only bus secret stored is the host's seed: guests get a fresh key each time they start.
 
 | Task | What it does |
 |---|---|
 | `agent-bus:bus` | `agent-bus bus start --lab` with the dev lab and the agents file |
+| `agent-bus:agent <lab dir> <node>` | `~/.local/bin/agent-bus-start-agent <lab dir> <node>`: enrolls the node's guest agent and starts it |
 | `agent-bus:send` | `agent-bus send`: a task, or an answer with `--answer` |
 | `agent-bus:listen` | `agent-bus listen host` |
 | `agent-bus:cancel` | `agent-bus cancel` |
 | `agent-bus:usage` | `agent-bus usage` |
 | `agent-bus:show` | `agent-bus show <task>` |
-| `agent-bus:guest` | pipes the Claude token and the dev guest's seed over SSH stdin into `start-guest.sh` |
+
+`agent-bus:agent` replaces the per-agent tasks that piped a stored seed for each guest. It holds
+no secret itself; `<load secrets>` stands for however the other tasks load the host's
+`AGENT_BUS_SEED` and `CLAUDE_CODE_OAUTH_TOKEN` from the secret store. The host has no checkout and builds nothing: build `agent-bus` in the dev guest and
+install the binary and the script on the host as `~/.local/bin/agent-bus` and
+`~/.local/bin/agent-bus-start-agent` (from `dev/agent-bus/start-agent.sh`). The script uses
+`agent-bus` on PATH, or the binary named by `AGENT_BUS_BIN`, and fails if it is missing or not
+executable:
+
+```toml
+[tasks."agent-bus:agent"]
+description = "Enroll a lab node's guest agent on the bus and start it"
+usage = '''
+arg "<lab_dir>" help="The lab directory, holding lab-info.toml and sherpa_ssh_config"
+arg "<node>" help="The node, which is also the agent's name"
+'''
+run = '<load secrets> ~/.local/bin/agent-bus-start-agent "$usage_lab_dir" "$usage_node"'
+```
+
+Run it as `mise run agent-bus:agent <lab dir> <node>`, for example
+`mise run agent-bus:agent ~/labs/sherpa-agent-2 agent-2`.
 
 In order:
 
-1. **Keys, once.** `agent-bus key new` for the host and for each guest. Store each seed in the
-   secret store straight away; it is not shown again. Write the agents file with the public keys.
+1. **The host's key, once.** `agent-bus key new`; store the seed in the secret store straight
+   away, as it is not shown again. Write the agents file with the host's public key. Guests need
+   no key made by hand.
 2. **The lab.** Bring up the dev lab (`tests/environments/dev/README.md`).
-3. **The bus.** `agent-bus bus start --lab <lab dir> --agents <file>` with the host's seed. The
-   guest's inbox exists only after this, so it comes before the guest agent and the listener.
-4. **The guest agent.** Pipe two lines, the Claude token then the guest's seed, over the lab's
-   SSH config to `dev/agent-bus/start-guest.sh [name]` in the guest. It builds the release
-   binary, stops any agent of that name, and starts `agent-bus guest` in the background with
-   `--server nats://<default gateway>:4222`. Starting it needs the user: Claude Code's auto mode
-   does not let the host agent start an agent that runs commands from network messages unless a
+3. **The bus.** `agent-bus bus start --lab <lab dir> --agents <file>` with the host's seed. It
+   comes before the guest agents and the listener.
+4. **The guest agents.** `mise run agent-bus:agent <lab dir> <node>` for each, on the host
+   (`dev/agent-bus/start-agent.sh`). The script finds the node's SSH alias, `<node>` or
+   `<node>.<lab id>`, in the lab's `sherpa_ssh_config` (with `id` from `lab-info.toml`), and the
+   bus's URL in `bus.toml`. It uses the installed `agent-bus` binary, checks the guest answers over
+   SSH, then pipes two lines over SSH stdin to `dev/agent-bus/start-guest.sh <node>` in the
+   guest, with `AGENT_BUS_URL` set to the bus's URL: the Claude token, then the seed straight
+   from `agent-bus enroll <node>`. The seed never sits in a variable, a command line, a file or a
+   log, and `ssh` runs without the secrets in its environment. If `enroll` fails, the guest
+   script gets no seed and exits before it touches the running agent. In the guest,
+   `start-guest.sh` builds the release binary, stops any agent of that name, and starts
+   `agent-bus guest` in the background. Starting it needs the user: Claude Code's auto mode does
+   not let the host agent start an agent that runs commands from network messages unless a
    permission rule allows that one command.
 5. **The listener.** `agent-bus listen host` with the host's seed, under Claude Code's Monitor.
    Run only one: a second is refused. After a restart, `agent-bus listen host --since <duration>`
@@ -736,21 +841,30 @@ In order:
    `send --to dev --answer <task> "<answer>"`,
    `agent-bus cancel --to dev <task>`.
 
+Restarting a guest agent is the same command: it enrolls the agent again, so the key the old
+process had is refused from then on. To retire a guest, stop its agent and run
+`agent-bus unenroll <name>`.
+
+**Moving from stored guest keys.** Guests listed in the agents file keep their fixed keys and
+cannot be enrolled. To move one to enrollment, remove it from the agents file, run `bus start`
+again, then start it with `agent-bus:agent`. Guests may no longer share a key: an agents file
+that lists one key twice is refused.
+
 More guests run in worker labs, one VM per guest agent, each its own lab:
 `tests/environments/agent` (lab `sherpa-agent-2`, node and agent `agent-2`), brought up from a
 lab directory outside the repository, with dev's provisioning and no Sherpa server. The bus
 stays on the host, started with `--lab` on dev's lab, so it listens only on dev's gateway. A
-worker's guest agent is started the same way as dev's, from the worker lab's SSH config, with
-its own name and `AGENT_BUS_URL=nats://<dev's gateway>:4222`, which `start-guest.sh` uses in
-place of the guest's own default gateway. Its key goes in the agents file and `bus start` runs
-again before it starts. Whether the host's firewall lets a worker reach dev's gateway is still
-to be confirmed by a test after the first bring-up; the test and the steps are in
+worker's guest agent is started the same way, `mise run agent-bus:agent <worker lab dir>
+<node>`: `start-agent.sh` always passes the URL from `bus.toml` as `AGENT_BUS_URL`, which
+`start-guest.sh` uses in place of the guest's own default gateway. A worker on its own bridge
+reaches dev's gateway with no firewall change; the check and its result are in
 `tests/environments/agent/README.md`.
 
 Checking health:
 
 - `agent-bus bus status`: the container's state, the recorded URL and the lab.
 - The `bus start` output: one `Inbox ready` line per agent.
+- `<state>/enrolled.toml`: the enrolled guests and their public keys.
 - `agent-bus usage`: what each recent task cost, and its last outcome.
 - `agent-bus listen host --since 1h`, or `<state>/listen-host.jsonl` on the host: what the
   listener received, for an outcome the host agent missed.
@@ -767,19 +881,20 @@ but that puts a seed on disk; prefer `agent-bus listen` and `show`.
 - **The host is all-powerful.** The host key can read and write every inbox and is the only key
   that can change the stream. A guest key reaches that guest's inbox and the host's, so a
   compromised guest can flood the host's inbox.
-- **Guests may share a key, for testing only.** The agents file lets several guests list the same
-  key (the host's key must stay its own). nats-server allows one user per key, so the rendered
-  config gives a shared key the union of its agents' permissions: agents sharing a key can read
-  and act on each other's inboxes. This lasts until enrollment (#494) gives every agent its own
-  key.
 - **No transport encryption.** The bus listens only on one lab's management bridge address.
-- **One lab per bus.** One container, one address, one state file. Worker labs reach the bus at
-  dev's gateway through the host (unconfirmed, see Operating it), so the bus depends on dev's
-  lab, and a new dev lab means a new address for every worker. If the host's firewall refuses
-  that path, serving several labs needs a bus per lab or a bus on several addresses.
+- **One lab per bus.** One container, one address, one state file. Guests in other labs reach the
+  bus at the bus lab's gateway through the host, with no firewall change (checked), so one bus
+  serves them all. The bus depends on that lab, though: a new dev lab means a new address, and
+  every guest outside it must be restarted with the new `AGENT_BUS_URL`.
 - **One task at a time per guest.** The rest wait in its queue.
-- **Removing an agent** from the agents file and running `bus start` drops its access; its
-  consumer and messages stay in the stream.
+- **Removing an agent**: `unenroll` for an enrolled guest, or removing a fixed one from the
+  agents file and running `bus start`, drops its access; its consumer and messages stay in the
+  stream.
+- **Enrolling cuts off the running agent.** `enroll` refuses the previous key at once, so an
+  agent whose `start-agent.sh` fails after enrolling (the guest unreachable mid-way, say) stays
+  disconnected until the script is run again. The script checks SSH first to make that rare.
+- **The registry is trusted as written.** Anyone who can write the host's state directory can
+  enroll a key; it is 0700 for that reason.
 - **Windows left.** A message is acknowledged before it reaches the state file's queue, so a
   crash between the two loses it. The inputs hash uses Rust's `DefaultHasher`, which is not
   promised to be stable across Rust releases; a change costs one rebuild of each base. The

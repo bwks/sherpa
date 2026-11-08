@@ -2,10 +2,15 @@
 //!
 //! It uses the host's network and listens on one address, such as a lab's management bridge, so
 //! only that lab's guests and the host reach it. Every agent authenticates with an `NKey`, and the
-//! server config that says what each may do is rendered from the agents file (see `config`).
+//! server config that says what each may do is rendered from the agents file and the registry
+//! of enrolled guests (see `config` and `registry`).
+//!
+//! `enroll` and `unenroll` change the registry, render the config again and send the server
+//! SIGHUP. nats-server reloads its users on SIGHUP: a client whose user is gone is disconnected
+//! and refused, and every other client stays connected.
 
-use std::net::Ipv4Addr;
-use std::path::{Path, PathBuf};
+use std::net::{Ipv4Addr, SocketAddrV4};
+use std::path::{self, Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
@@ -14,7 +19,10 @@ use bollard::models::{
     ContainerCreateBody, ContainerStateStatusEnum, HostConfig, Mount, MountTypeEnum, RestartPolicy,
     RestartPolicyNameEnum,
 };
-use bollard::query_parameters::{CreateContainerOptions, CreateImageOptionsBuilder};
+use bollard::query_parameters::{
+    CreateContainerOptions, CreateImageOptionsBuilder, InspectContainerOptions,
+    KillContainerOptionsBuilder,
+};
 use container::{
     container_status, docker_connection, remove_container, start_container, stop_container,
 };
@@ -24,7 +32,9 @@ use crate::agents::Agents;
 use crate::channel::Channel;
 use crate::config;
 use crate::files::standard_state_dir;
-use crate::keys::public_key_of;
+use crate::keys::{self, public_key_of};
+use crate::message::check_agent_name;
+use crate::registry::{self, Registry};
 use crate::state::{self, BusRecord, LabRecord};
 
 /// The bus container.
@@ -34,13 +44,21 @@ const IMAGE: &str = "nats@sha256:afae2fdbe2e326c65e1246cb83b9d05d319188734f3bd57
 /// The volume holding `JetStream`'s stored messages; it outlives the container.
 const VOLUME: &str = "sherpa-agent-bus-data";
 const DATA_DIR: &str = "/data";
-/// Where the rendered server config is mounted, read-only.
-const CONFIG_TARGET: &str = "/etc/agent-bus/nats.conf";
+/// The directory, in the state directory, that holds the server config. It is bind-mounted
+/// read-only at `CONFIG_DIR_TARGET`, so a config replaced by a rename reaches the container.
+const CONFIG_DIR: &str = "nats";
+const CONFIG_DIR_TARGET: &str = "/etc/agent-bus";
 const CONFIG_FILE: &str = "nats.conf";
-/// Where `start` records the bus, next to the config.
+/// Where the server config used to be: a single bind-mounted file, which a rename never reached.
+const OLD_CONFIG_FILE: &str = "nats.conf";
+/// Where `start` records the bus.
 const RECORD_FILE: &str = "bus.toml";
+/// The registry of enrolled guests, and the lock taken while it or the config changes.
+const REGISTRY_FILE: &str = "enrolled.toml";
+const LOCK_FILE: &str = "enroll.lock";
 const PORT: u16 = 4222;
-/// How often, and how long, `start` waits for the server to accept connections.
+/// How often, and how long, `start` waits for the server to accept connections, and `enroll`
+/// for the reloaded server to accept the new key.
 const CONNECT_ATTEMPTS: u32 = 20;
 const CONNECT_DELAY: Duration = Duration::from_millis(500);
 
@@ -50,41 +68,104 @@ pub struct Bus {
     pub volume: String,
     pub listen: Ipv4Addr,
     pub port: u16,
-    /// Where the server config is written; outside the repository.
-    pub config_path: PathBuf,
-    /// Where `start` records where the bus is.
-    pub record_path: PathBuf,
+    /// The state directory: the server config, the record and the registry; outside the
+    /// repository.
+    pub state_dir: PathBuf,
     /// The lab the bus serves, when started for one.
     pub lab: Option<LabRecord>,
 }
 
 impl Bus {
     /// The bus as users run it: the standard container, volume and port, listening on
-    /// `listen`, with its config and record under `$XDG_STATE_HOME/agent-bus/`.
+    /// `listen`, with its files under `$XDG_STATE_HOME/agent-bus/`.
     ///
     /// # Errors
     ///
     /// Fails when neither `XDG_STATE_HOME` nor `HOME` gives a state directory.
     pub fn standard(listen: Ipv4Addr, lab: Option<LabRecord>) -> Result<Self> {
-        let state = standard_state_dir()?;
         Ok(Self {
             container: CONTAINER_NAME.to_owned(),
             volume: VOLUME.to_owned(),
             listen,
             port: PORT,
-            config_path: state.join(CONFIG_FILE),
-            record_path: state.join(RECORD_FILE),
+            state_dir: standard_state_dir()?,
             lab,
         })
     }
 
-    /// Where `start` records the bus and the other commands look for it.
+    /// The standard bus as `bus start` recorded it, and the agents file it was started with.
+    ///
+    /// # Errors
+    ///
+    /// Fails when there is no state directory or no usable record.
+    pub fn recorded() -> Result<(Self, PathBuf)> {
+        Self::from_record(CONTAINER_NAME, VOLUME, standard_state_dir()?)
+    }
+
+    /// The bus recorded in `state_dir`, run as `container` with `volume`, and its agents file.
+    fn from_record(container: &str, volume: &str, state_dir: PathBuf) -> Result<(Self, PathBuf)> {
+        let path = state_dir.join(RECORD_FILE);
+        let Some(record) = state::read(&path)? else {
+            bail!(
+                "No bus recorded in {}: run `agent-bus bus start` first",
+                path.display()
+            );
+        };
+        let Some(agents) = record.agents else {
+            bail!(
+                "{} does not name the agents file: the bus was started by an older agent-bus; run `agent-bus bus start` again",
+                path.display()
+            );
+        };
+        let address: SocketAddrV4 = record
+            .url
+            .strip_prefix("nats://")
+            .and_then(|address| address.parse().ok())
+            .with_context(|| {
+                format!(
+                    "The URL {} in {} is not nats://<ipv4>:<port>",
+                    record.url,
+                    path.display()
+                )
+            })?;
+        let bus = Self {
+            container: container.to_owned(),
+            volume: volume.to_owned(),
+            listen: *address.ip(),
+            port: address.port(),
+            state_dir,
+            lab: record.lab,
+        };
+        Ok((bus, agents))
+    }
+
+    /// Where `start` records the standard bus and the other commands look for it.
     ///
     /// # Errors
     ///
     /// Fails when neither `XDG_STATE_HOME` nor `HOME` gives a state directory.
-    pub fn record_path() -> Result<PathBuf> {
+    pub fn standard_record_path() -> Result<PathBuf> {
         Ok(standard_state_dir()?.join(RECORD_FILE))
+    }
+
+    fn config_dir(&self) -> PathBuf {
+        self.state_dir.join(CONFIG_DIR)
+    }
+
+    fn config_path(&self) -> PathBuf {
+        self.config_dir().join(CONFIG_FILE)
+    }
+
+    fn record_path(&self) -> PathBuf {
+        self.state_dir.join(RECORD_FILE)
+    }
+
+    fn registry_path(&self) -> PathBuf {
+        self.state_dir.join(REGISTRY_FILE)
+    }
+
+    fn lock_path(&self) -> PathBuf {
+        self.state_dir.join(LOCK_FILE)
     }
 
     fn url(&self) -> String {
@@ -92,24 +173,25 @@ impl Bus {
     }
 }
 
-/// Start the bus for the agents in `agents_path`, and prepare it. This renders the server
-/// config, replaces any existing bus container (the config may have changed; the messages live
-/// in the volume), then connects as the host with `host_seed` and creates the inbox stream and
-/// every agent's inbox.
+/// Start the bus for the agents in `agents_path` and the enrolled guests, and prepare it. This
+/// renders the server config, replaces any existing bus container (the config may have changed;
+/// the messages live in the volume), then connects as the host with `host_seed` and creates the
+/// inbox stream and every agent's inbox.
 ///
 /// # Errors
 ///
-/// Fails when the agents file is not valid, `host_seed` is not the host's key, or Docker or the
-/// bus fails.
+/// Fails when the agents file or the registry is not valid, `host_seed` is not the host's key,
+/// or Docker or the bus fails.
 pub async fn start(bus: &Bus, agents_path: &Path, host_seed: &str) -> Result<()> {
-    let agents = Agents::load(agents_path)?;
-    ensure!(
-        public_key_of(host_seed)? == agents.host.key,
-        "AGENT_BUS_SEED is not the seed of the host '{}' in the agents file",
-        agents.host.name
-    );
-    config::write(&bus.config_path, &agents)?;
-    println!("Wrote {}", bus.config_path.display());
+    let fixed = load_agents(agents_path, Some(host_seed))?;
+    let agents_path = path::absolute(agents_path)
+        .with_context(|| format!("Unable to resolve {}", agents_path.display()))?;
+    let _lock = registry::lock(&bus.lock_path())?;
+    let merged = registry::merge(fixed, &Registry::load(&bus.registry_path())?)?;
+    warn_shadowed(&merged.shadowed, &agents_path);
+    let agents = merged.agents;
+    config::write(&bus.config_path(), &agents)?;
+    println!("Wrote {}", bus.config_path().display());
 
     let docker = docker_connection()?;
     pull_image(&docker).await?;
@@ -126,13 +208,17 @@ pub async fn start(bus: &Bus, agents_path: &Path, host_seed: &str) -> Result<()>
         .context("Unable to create the bus container")?;
     println!("Created {}", bus.container);
     start_container(&docker, &bus.container).await?;
+    state::remove(&bus.state_dir.join(OLD_CONFIG_FILE))?;
 
-    let channel = connect_when_ready(bus, host_seed).await?;
-    let outcomes = channel.create_inboxes(&agents).await?;
+    let channel = connect_when_ready(&bus.url(), host_seed).await?;
+    let outcomes = channel
+        .create_inboxes(agents.all().map(|agent| agent.name.as_str()))
+        .await?;
     state::write(
-        &bus.record_path,
+        &bus.record_path(),
         &BusRecord {
             url: bus.url(),
+            agents: Some(agents_path),
             lab: bus.lab.clone(),
         },
     )?;
@@ -146,6 +232,169 @@ pub async fn start(bus: &Bus, agents_path: &Path, host_seed: &str) -> Result<()>
     Ok(())
 }
 
+/// Enroll the guest `name` on the running bus and return its new seed. A fresh key pair replaces
+/// the guest's previous key in the registry, the config is rendered again and the bus reloads
+/// it, so the previous key is refused from then on. The guest's inbox is created first, so a
+/// failure there changes no key. The seed is only returned: it is never written or logged.
+/// Progress goes to stderr, so stdout can carry the seed alone.
+///
+/// # Errors
+///
+/// Fails when the name is not valid or the agents file lists it, `host_seed` is not the host's
+/// key, the bus is not running or not reloadable, or the reloaded bus does not accept the new
+/// key.
+pub async fn enroll(bus: &Bus, agents_path: &Path, name: &str, host_seed: &str) -> Result<String> {
+    check_agent_name(name)?;
+    let fixed = load_agents(agents_path, Some(host_seed))?;
+    refuse_fixed(&fixed, agents_path, name, "enrolled")?;
+    let docker = docker_connection()?;
+    ensure!(
+        reloadable(&docker, bus).await?,
+        "The bus container {} is not running: start it with `agent-bus bus start`",
+        bus.container
+    );
+    let _lock = registry::lock(&bus.lock_path())?;
+    let host = Channel::connect(&bus.url(), host_seed).await?;
+    for (agent, change) in host.create_inboxes([name]).await? {
+        eprintln!("Inbox ready: {agent} ({change})");
+    }
+    let key = keys::generate()?;
+    let mut registry = Registry::load(&bus.registry_path())?;
+    let previous = registry.enroll(name, &key.public_key);
+    apply(bus, &docker, fixed, agents_path, &registry, true).await?;
+    connect_when_ready(&bus.url(), &key.seed)
+        .await
+        .context("The reloaded bus refused the new key: run `agent-bus bus start` to render and load the config again")?;
+    if previous.is_some() {
+        eprintln!("Enrolled '{name}' with a new key; its previous key is refused");
+    } else {
+        eprintln!("Enrolled '{name}'");
+    }
+    Ok(key.seed)
+}
+
+/// Remove the enrolled guest `name`: its key leaves the registry and the config, and a running
+/// bus reloads, which disconnects and refuses it. Its inbox and messages stay in the stream. A
+/// name that is not enrolled changes nothing.
+///
+/// # Errors
+///
+/// Fails when the name is not valid or the agents file lists it, the registry cannot be changed,
+/// or the running bus cannot be reloaded.
+pub async fn unenroll(bus: &Bus, agents_path: &Path, name: &str) -> Result<()> {
+    check_agent_name(name)?;
+    let fixed = load_agents(agents_path, None)?;
+    refuse_fixed(&fixed, agents_path, name, "unenrolled")?;
+    let docker = docker_connection()?;
+    let running = reloadable(&docker, bus).await?;
+    let _lock = registry::lock(&bus.lock_path())?;
+    let mut registry = Registry::load(&bus.registry_path())?;
+    if registry.unenroll(name).is_none() {
+        eprintln!("'{name}' is not enrolled; nothing changed");
+        return Ok(());
+    }
+    apply(bus, &docker, fixed, agents_path, &registry, running).await?;
+    if running {
+        eprintln!("Unenrolled '{name}': the bus no longer accepts its key");
+    } else {
+        eprintln!(
+            "Unenrolled '{name}'; the bus is not running, and will not accept its key when started"
+        );
+    }
+    Ok(())
+}
+
+/// Read the agents file at `path` and, given a seed, check that it is the host's.
+fn load_agents(path: &Path, host_seed: Option<&str>) -> Result<Agents> {
+    let agents = Agents::load(path)?;
+    if let Some(seed) = host_seed {
+        ensure!(
+            public_key_of(seed)? == agents.host.key,
+            "AGENT_BUS_SEED is not the seed of the host '{}' in the agents file",
+            agents.host.name
+        );
+    }
+    Ok(agents)
+}
+
+/// The agents file wins over the registry: a name it lists is never enrolled or unenrolled.
+fn refuse_fixed(fixed: &Agents, agents_path: &Path, name: &str, action: &str) -> Result<()> {
+    ensure!(
+        !fixed.has(name),
+        "'{name}' is in the agents file {}, which wins over enrollment, so it cannot be {action}: remove it from there first",
+        agents_path.display()
+    );
+    Ok(())
+}
+
+fn warn_shadowed(shadowed: &[String], agents_path: &Path) {
+    for name in shadowed {
+        eprintln!(
+            "Enrolled guest '{name}' is left out: the agents file {} lists that name, and it wins",
+            agents_path.display()
+        );
+    }
+}
+
+/// Save `registry`, render the config from it and the agents file, and reload the bus if
+/// `reload`. The merge is checked before anything is written.
+async fn apply(
+    bus: &Bus,
+    docker: &Docker,
+    fixed: Agents,
+    agents_path: &Path,
+    registry: &Registry,
+    reload: bool,
+) -> Result<()> {
+    let merged = registry::merge(fixed, registry)?;
+    warn_shadowed(&merged.shadowed, agents_path);
+    registry.save(&bus.registry_path())?;
+    config::write(&bus.config_path(), &merged.agents)?;
+    if reload {
+        docker
+            .kill_container(
+                &bus.container,
+                Some(KillContainerOptionsBuilder::default().signal("HUP").build()),
+            )
+            .await
+            .with_context(|| format!("Unable to send SIGHUP to {}", bus.container))?;
+    }
+    Ok(())
+}
+
+/// Whether the bus container runs and reads the config this bus writes. `false` when it is not
+/// running; an error when it runs with another config, such as one started by an older
+/// agent-bus, which mounted the config file itself and would never see the new one.
+async fn reloadable(docker: &Docker, bus: &Bus) -> Result<bool> {
+    if !matches!(
+        container_status(docker, &bus.container).await,
+        Ok(Some(ContainerStateStatusEnum::RUNNING))
+    ) {
+        return Ok(false);
+    }
+    let details = docker
+        .inspect_container(&bus.container, None::<InspectContainerOptions>)
+        .await
+        .with_context(|| format!("Unable to inspect {}", bus.container))?;
+    let source = bus.config_dir().display().to_string();
+    let mounted = details
+        .host_config
+        .and_then(|host| host.mounts)
+        .unwrap_or_default()
+        .iter()
+        .any(|mount| {
+            mount.target.as_deref() == Some(CONFIG_DIR_TARGET)
+                && mount.source.as_deref() == Some(source.as_str())
+        });
+    ensure!(
+        mounted,
+        "The running bus {} does not read {}: it was started by an older agent-bus or from another state directory; run `agent-bus bus start` again",
+        bus.container,
+        source
+    );
+    Ok(true)
+}
+
 /// Stop and remove the bus container. The stored messages stay in their volume.
 ///
 /// # Errors
@@ -155,7 +404,7 @@ pub async fn stop() -> Result<()> {
     let docker = docker_connection()?;
     stop_container(&docker, CONTAINER_NAME).await?;
     remove_container(&docker, CONTAINER_NAME).await?;
-    state::remove(&Bus::record_path()?)?;
+    state::remove(&Bus::standard_record_path()?)?;
     println!("Removed {CONTAINER_NAME}; stored messages are kept in {VOLUME}");
     Ok(())
 }
@@ -173,7 +422,7 @@ pub async fn status() -> Result<()> {
         Ok(None) => println!("{CONTAINER_NAME}: state unknown"),
         Err(error) => println!("{CONTAINER_NAME}: not created ({error:#})"),
     }
-    match state::read(&Bus::record_path()?)? {
+    match state::read(&Bus::standard_record_path()?)? {
         Some(record) => {
             println!("URL: {}", record.url);
             match record.lab {
@@ -214,20 +463,19 @@ async fn remove(docker: &Docker, name: &str) -> Result<()> {
     remove_container(docker, name).await
 }
 
-/// Connect as the host, waiting for the freshly started server to accept connections.
-async fn connect_when_ready(bus: &Bus, seed: &str) -> Result<Channel> {
-    let url = bus.url();
+/// Connect with `seed`, waiting for a freshly started or reloaded server to accept it.
+async fn connect_when_ready(url: &str, seed: &str) -> Result<Channel> {
     let mut last = None;
     for _ in 0..CONNECT_ATTEMPTS {
-        match Channel::connect(&url, seed).await {
+        match Channel::connect(url, seed).await {
             Ok(channel) => return Ok(channel),
             Err(error) => last = Some(error),
         }
         tokio::time::sleep(CONNECT_DELAY).await;
     }
     match last {
-        Some(error) => Err(error).context("The bus did not accept the host's connection"),
-        None => bail!("The bus did not accept the host's connection"),
+        Some(error) => Err(error).context("The bus did not accept the connection"),
+        None => bail!("The bus did not accept the connection"),
     }
 }
 
@@ -236,7 +484,7 @@ fn container_config(bus: &Bus) -> ContainerCreateBody {
         image: Some(IMAGE.to_owned()),
         cmd: Some(vec![
             "-c".to_owned(),
-            CONFIG_TARGET.to_owned(),
+            format!("{CONFIG_DIR_TARGET}/{CONFIG_FILE}"),
             "--addr".to_owned(),
             bus.listen.to_string(),
             "--port".to_owned(),
@@ -259,8 +507,8 @@ fn container_config(bus: &Bus) -> ContainerCreateBody {
                     ..Default::default()
                 },
                 Mount {
-                    target: Some(CONFIG_TARGET.to_owned()),
-                    source: Some(bus.config_path.display().to_string()),
+                    target: Some(CONFIG_DIR_TARGET.to_owned()),
+                    source: Some(bus.config_dir().display().to_string()),
                     typ: Some(MountTypeEnum::BIND),
                     read_only: Some(true),
                     ..Default::default()
@@ -275,38 +523,42 @@ fn container_config(bus: &Bus) -> ContainerCreateBody {
 #[cfg(test)]
 mod tests {
     use std::net::TcpListener;
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
+    use async_nats::connection::State;
+    use async_nats::{Client, ConnectOptions, Event};
     use bollard::query_parameters::RemoveVolumeOptions;
     use tokio::time::timeout;
 
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
+    use crate::channel::Inbox;
     use crate::files::{DIR_MODE, PRIVATE_FILE_MODE};
     use crate::keys::{NewKey, generate};
     use crate::listen::{Journal, serve};
     use crate::message::{Kind, Message, TaskUsage, Usage};
     use crate::report;
 
-    fn test_bus(config_path: PathBuf) -> Bus {
+    fn test_bus(state_dir: PathBuf) -> Bus {
         Bus {
             container: "sherpa-agent-bus-test".to_owned(),
             volume: "sherpa-agent-bus-test-data".to_owned(),
             listen: Ipv4Addr::new(172, 31, 3, 1),
             port: 4222,
-            record_path: config_path.with_file_name(RECORD_FILE),
-            config_path,
+            state_dir,
             lab: None,
         }
     }
 
     #[test]
     fn the_bus_listens_only_on_the_given_address_with_jetstream_and_its_config() {
-        let bus = test_bus(PathBuf::from("/home/u/.local/state/agent-bus/nats.conf"));
+        let bus = test_bus(PathBuf::from("/home/u/.local/state/agent-bus"));
         let config = container_config(&bus);
         let command = config.cmd.unwrap();
-        assert_eq!(command[..2], ["-c", CONFIG_TARGET]);
+        assert_eq!(command[..2], ["-c", "/etc/agent-bus/nats.conf"]);
         assert_eq!(command[2..6], ["--addr", "172.31.3.1", "--port", "4222"]);
         assert!(command.contains(&"--jetstream".to_owned()));
         let host = config.host_config.unwrap();
@@ -317,12 +569,50 @@ mod tests {
             Some("sherpa-agent-bus-test-data")
         );
         assert_eq!(mounts[1].typ, Some(MountTypeEnum::BIND));
+        // The directory is mounted, not the file, so a config replaced by a rename reaches the
+        // container when it reloads.
         assert_eq!(
             mounts[1].source.as_deref(),
-            Some("/home/u/.local/state/agent-bus/nats.conf")
+            Some("/home/u/.local/state/agent-bus/nats")
         );
-        assert_eq!(mounts[1].target.as_deref(), Some(CONFIG_TARGET));
+        assert_eq!(mounts[1].target.as_deref(), Some(CONFIG_DIR_TARGET));
         assert_eq!(mounts[1].read_only, Some(true));
+        assert_eq!(
+            bus.config_path(),
+            PathBuf::from("/home/u/.local/state/agent-bus/nats/nats.conf")
+        );
+    }
+
+    #[test]
+    fn the_recorded_bus_gives_the_address_and_the_agents_file() {
+        let dir = std::env::temp_dir().join(format!("agent-bus-recorded-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let state_dir = dir.join("agent-bus");
+        let error = Bus::from_record("c", "v", state_dir.clone()).err().unwrap();
+        assert!(format!("{error:#}").contains("bus start"), "{error:#}");
+        let mut record = BusRecord {
+            url: "nats://192.0.2.1:4300".to_owned(),
+            agents: None,
+            lab: None,
+        };
+        state::write(&state_dir.join(RECORD_FILE), &record).unwrap();
+        // A record from before enrollment does not name the agents file.
+        let error = Bus::from_record("c", "v", state_dir.clone()).err().unwrap();
+        assert!(
+            format!("{error:#}").contains("older agent-bus"),
+            "{error:#}"
+        );
+        record.agents = Some(PathBuf::from("/home/u/agents.toml"));
+        state::write(&state_dir.join(RECORD_FILE), &record).unwrap();
+        let (bus, agents) = Bus::from_record("c", "v", state_dir.clone()).unwrap();
+        assert_eq!(bus.url(), "nats://192.0.2.1:4300");
+        assert_eq!(bus.container, "c");
+        assert_eq!(agents, PathBuf::from("/home/u/agents.toml"));
+        assert_eq!(bus.registry_path(), state_dir.join("enrolled.toml"));
+        record.url = "tls://example:4222".to_owned();
+        state::write(&state_dir.join(RECORD_FILE), &record).unwrap();
+        assert!(Bus::from_record("c", "v", state_dir).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     fn message(from: &str, to: &str, text: &str) -> Message {
@@ -389,9 +679,12 @@ mod tests {
         );
         // It cannot create the stream or the consumers.
         ensure!(
-            timeout(wait, dev_channel.create_inboxes(agents))
-                .await
-                .is_ok_and(|created| created.is_err()),
+            timeout(
+                wait,
+                dev_channel.create_inboxes(agents.all().map(|agent| agent.name.as_str()))
+            )
+            .await
+            .is_ok_and(|created| created.is_err()),
             "a guest created the stream"
         );
 
@@ -403,31 +696,6 @@ mod tests {
                 .is_ok_and(|connected| connected.is_err()),
             "an unknown key connected"
         );
-        Ok(())
-    }
-
-    /// `dev` and `agent-2` share one key: each, connected with it, reads its own inbox.
-    async fn shared_key(bus: &Bus, host: &NewKey, shared: &NewKey) -> Result<()> {
-        let wait = Duration::from_secs(15);
-        let host_channel = Channel::connect(&bus.url(), &host.seed).await?;
-        host_channel.send(&message("host", "dev", "to dev")).await?;
-        host_channel
-            .send(&message("host", "agent-2", "to agent-2"))
-            .await?;
-        for (name, text) in [("dev", "to dev"), ("agent-2", "to agent-2")] {
-            let channel = Channel::connect(&bus.url(), &shared.seed).await?;
-            let mut inbox = channel.inbox(name).await?;
-            let delivery = timeout(wait, inbox.next())
-                .await
-                .with_context(|| format!("no message for {name}"))??
-                .context("the inbox closed")?;
-            ensure!(delivery.message.text == text, "wrong message for {name}");
-            delivery.ack().await?;
-            ensure!(
-                host_channel.waiting(name).await? == 0,
-                "the acknowledgement of {name} was not taken"
-            );
-        }
         Ok(())
     }
 
@@ -764,9 +1032,8 @@ mod tests {
         let text = format!(
             "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n\
              [[agent]]\nname = \"dev\"\nkey = \"{}\"\nrole = \"guest\"\n\
-             [[agent]]\nname = \"other\"\nkey = \"{}\"\nrole = \"guest\"\n\
-             [[agent]]\nname = \"agent-2\"\nkey = \"{}\"\nrole = \"guest\"\n",
-            host.public_key, dev.public_key, other.public_key, dev.public_key
+             [[agent]]\nname = \"other\"\nkey = \"{}\"\nrole = \"guest\"\n",
+            host.public_key, dev.public_key, other.public_key
         );
         let id = std::process::id();
         let dir = std::env::temp_dir().join(format!("agent-bus-it-{id}"));
@@ -794,8 +1061,7 @@ mod tests {
             volume: format!("sherpa-agent-bus-test-{id}-data"),
             listen: gateway,
             port,
-            config_path: dir.join("state").join(CONFIG_FILE),
-            record_path: dir.join("state").join(RECORD_FILE),
+            state_dir: dir.join("state"),
             lab: Some(lab),
         };
         let agents = Agents::parse(&text).unwrap();
@@ -803,18 +1069,15 @@ mod tests {
         let result = async {
             start(&bus, &agents_path, &host.seed).await?;
             // With no --server and no AGENT_BUS_URL, the recorded bus is found and connects.
-            let found = state::find_server(None, None, &bus.record_path)?;
+            let found = state::find_server(None, None, &bus.record_path())?;
             ensure!(found == bus.url(), "the recorded URL is {found}");
-            let recorded = state::read(&bus.record_path)?.context("no bus record")?;
+            let recorded = state::read(&bus.record_path())?.context("no bus record")?;
             ensure!(
                 recorded.lab.is_some_and(|lab| lab.name == "it"),
                 "the lab was not recorded"
             );
             Channel::connect(&found, &host.seed).await?;
             exercise(&bus, &agents, &host, &dev).await?;
-
-            // Two guests sharing one key each read their own inbox.
-            shared_key(&bus, &host, &dev).await?;
 
             // Every message a guest sends reaches a host listener: progress, then the outcome
             // with its usage.
@@ -848,6 +1111,191 @@ mod tests {
         .await;
 
         // Clean up whatever happened.
+        let docker = docker_connection().unwrap();
+        let _ = remove_container(&docker, &bus.container).await;
+        let _ = docker
+            .remove_volume(&bus.volume, None::<RemoveVolumeOptions>)
+            .await;
+        let _ = std::fs::remove_dir_all(&dir);
+        result.unwrap();
+    }
+
+    /// A connection with `seed` that counts how often it is disconnected.
+    async fn watched(url: &str, seed: &str) -> Result<(Client, Arc<AtomicUsize>)> {
+        let drops = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&drops);
+        let client = ConnectOptions::with_nkey(seed.to_owned())
+            .event_callback(move |event| {
+                let counter = Arc::clone(&counter);
+                async move {
+                    if matches!(event, Event::Disconnected) {
+                        counter.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
+            })
+            .connect(url)
+            .await?;
+        Ok((client, drops))
+    }
+
+    /// The host sends `text` to `name`, and `inbox` gets it.
+    async fn delivered(host: &Channel, inbox: &mut Inbox, name: &str, text: &str) -> Result<()> {
+        host.send(&message("host", name, text)).await?;
+        let delivery = timeout(Duration::from_secs(15), inbox.next())
+            .await
+            .with_context(|| format!("no message for {name}"))??
+            .context("the inbox closed")?;
+        ensure!(delivery.message.text == text, "wrong message for {name}");
+        delivery.ack().await
+    }
+
+    /// Whether the bus refuses `seed`.
+    async fn refused(url: &str, seed: &str) -> bool {
+        timeout(Duration::from_secs(15), Channel::connect(url, seed))
+            .await
+            .is_ok_and(|connected| connected.is_err())
+    }
+
+    /// What the enrollment test shows, run against a started bus.
+    async fn enrollment(bus: &Bus, agents_path: &Path, host: &NewKey) -> Result<()> {
+        let url = bus.url();
+        let host_channel = Channel::connect(&url, &host.seed).await?;
+
+        // Two guests are enrolled; each connects with its own seed and reads its own inbox.
+        let old_a = enroll(bus, agents_path, "worker-a", &host.seed).await?;
+        let b = enroll(bus, agents_path, "worker-b", &host.seed).await?;
+        ensure!(
+            public_key_of(&old_a)? != public_key_of(&b)?,
+            "two guests got one key"
+        );
+        let (a_client, a_drops) = watched(&url, &old_a).await?;
+        let (b_client, b_drops) = watched(&url, &b).await?;
+        let b_channel = Channel::connect(&url, &b).await?;
+        let mut b_inbox = b_channel.inbox("worker-b").await?;
+        delivered(&host_channel, &mut b_inbox, "worker-b", "before").await?;
+        {
+            let a_channel = Channel::connect(&url, &old_a).await?;
+            let mut a_inbox = a_channel.inbox("worker-a").await?;
+            delivered(&host_channel, &mut a_inbox, "worker-a", "first key").await?;
+        }
+
+        // Re-enrolling worker-a: its old key is refused and its connection dropped, while
+        // worker-b stays connected and keeps reading on the connection it had.
+        let new_a = enroll(bus, agents_path, "worker-a", &host.seed).await?;
+        ensure!(
+            public_key_of(&new_a)? != public_key_of(&old_a)?,
+            "re-enrolling kept the key"
+        );
+        ensure!(
+            refused(&url, &old_a).await,
+            "the previous key still connects"
+        );
+        timeout(Duration::from_secs(10), async {
+            while a_drops.load(Ordering::SeqCst) == 0 {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .context("the previous key's connection was not dropped")?;
+        drop(a_client);
+        delivered(&host_channel, &mut b_inbox, "worker-b", "after").await?;
+        ensure!(
+            b_drops.load(Ordering::SeqCst) == 0 && b_client.connection_state() == State::Connected,
+            "worker-b was disconnected by the reload"
+        );
+        {
+            let a_channel = Channel::connect(&url, &new_a).await?;
+            let mut a_inbox = a_channel.inbox("worker-a").await?;
+            delivered(&host_channel, &mut a_inbox, "worker-a", "second key").await?;
+        }
+
+        // The registry holds the public keys only, privately.
+        let registry = std::fs::read_to_string(bus.registry_path())?;
+        ensure!(
+            registry.contains(&public_key_of(&new_a)?) && registry.contains(&public_key_of(&b)?),
+            "the registry lacks a key"
+        );
+        for seed in [&old_a, &new_a, &b, &host.seed] {
+            ensure!(
+                !registry.contains(seed.as_str()),
+                "a seed reached the registry"
+            );
+        }
+        ensure!(
+            std::fs::metadata(bus.registry_path())?.permissions().mode() & 0o777
+                == PRIVATE_FILE_MODE,
+            "the registry is not private"
+        );
+
+        // Unenrolled, worker-a can no longer connect; worker-b is untouched.
+        unenroll(bus, agents_path, "worker-a").await?;
+        ensure!(
+            refused(&url, &new_a).await,
+            "an unenrolled key still connects"
+        );
+        delivered(&host_channel, &mut b_inbox, "worker-b", "after unenroll").await?;
+        ensure!(
+            b_drops.load(Ordering::SeqCst) == 0,
+            "worker-b was disconnected by the unenroll"
+        );
+        // Unenrolling again changes nothing; the agents file's names are not enrolled.
+        unenroll(bus, agents_path, "worker-a").await?;
+        ensure!(
+            enroll(bus, agents_path, "host", &host.seed).await.is_err(),
+            "the host's name was enrolled"
+        );
+        drop(b_inbox);
+        drop(b_channel);
+
+        // A restarted bus renders the enrolled guests too.
+        start(bus, agents_path, &host.seed).await?;
+        Channel::connect(&url, &b).await?;
+        ensure!(
+            refused(&url, &new_a).await,
+            "the restart brought back an unenrolled key"
+        );
+        Ok(())
+    }
+
+    /// Needs Docker. Starts a throwaway bus on 127.0.0.1 with only the host in the agents file,
+    /// and enrolls, re-enrolls and unenrolls guests on it.
+    /// Run with `cargo test -p agent-bus -- --ignored`.
+    #[tokio::test]
+    #[ignore = "needs Docker"]
+    async fn enrolled_guests_get_their_own_keys_and_old_keys_are_refused() {
+        let host = generate().unwrap();
+        let id = std::process::id();
+        let dir = std::env::temp_dir().join(format!("agent-bus-enroll-it-{id}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let agents_path = dir.join("agents.toml");
+        std::fs::write(
+            &agents_path,
+            format!(
+                "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n",
+                host.public_key
+            ),
+        )
+        .unwrap();
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let bus = Bus {
+            container: format!("sherpa-agent-bus-enroll-test-{id}"),
+            volume: format!("sherpa-agent-bus-enroll-test-{id}-data"),
+            listen: Ipv4Addr::LOCALHOST,
+            port,
+            state_dir: dir.join("state"),
+            lab: None,
+        };
+
+        let result = async {
+            start(&bus, &agents_path, &host.seed).await?;
+            enrollment(&bus, &agents_path, &host).await
+        }
+        .await;
+
         let docker = docker_connection().unwrap();
         let _ = remove_container(&docker, &bus.container).await;
         let _ = docker

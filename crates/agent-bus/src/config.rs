@@ -1,5 +1,6 @@
-//! The nats-server configuration, rendered from the agents file. nats-server accepts JSON, so it
-//! is built from structs. It holds public keys and subjects only; a seed has no way in.
+//! The nats-server configuration, rendered from the agents file and the registry of enrolled
+//! guests. nats-server accepts JSON, so it is built from structs. It holds public keys and
+//! subjects only; a seed has no way in.
 //!
 //! The bus has one account, so each agent's permissions are what keeps it to its own inbox:
 //!
@@ -9,16 +10,14 @@
 //!   the stream and the consumers.
 //!
 //! Replies to requests come back on `_INBOX.>`, so every agent may subscribe to that and nothing
-//! else.
+//! else. Every agent has its own key (`agents::check_entries`), so each is one user.
 //!
-//! nats-server allows one user per key, so guests that share a key become one user with the
-//! union of their permissions. Each of them can then read and act on the others' inboxes, so
-//! sharing a key is for testing only, until enrollment (#494) gives every agent its own key.
+//! The file is written atomically into its own directory, which the container bind-mounts: a
+//! bind-mounted single file would keep showing the container the old file after a rename.
 
 use std::fs;
-use std::io::Write;
 use std::iter;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -26,12 +25,13 @@ use serde::Serialize;
 
 use crate::agents::Agents;
 use crate::channel::{STREAM, SUBJECT_PREFIX};
-use crate::files::private_dir;
+use crate::files::{private_dir, write_atomic};
 
-/// The mode of the config file: it holds nothing secret, and the container's user, whoever the
-/// image runs as, must be able to read it. The file itself is bind-mounted, so the container
-/// never looks up the state directory, which stays 0700.
+/// The mode of the config file and its directory: they hold nothing secret, and the container's
+/// user, whoever the image runs as, must be able to read them. The directory itself is
+/// bind-mounted, so the container never looks up the state directory above it, which stays 0700.
 const FILE_MODE: u32 = 0o644;
+const DIR_MODE: u32 = 0o755;
 
 #[derive(Debug, Serialize)]
 struct Config {
@@ -61,25 +61,18 @@ struct Allow {
 }
 
 /// Render the nats-server configuration for `agents`, as JSON: the host first, then one user per
-/// distinct guest key, in the order each key first appears.
+/// guest, in order.
 ///
 /// # Errors
 ///
 /// Fails when the configuration cannot be serialized.
 pub fn render(agents: &Agents) -> Result<String> {
-    let mut guests: Vec<(&str, Vec<&str>)> = Vec::new();
-    for guest in &agents.guests {
-        if let Some((_, names)) = guests.iter_mut().find(|(key, _)| *key == guest.key) {
-            names.push(&guest.name);
-        } else {
-            guests.push((&guest.key, vec![&guest.name]));
-        }
-    }
     let users = iter::once(host_user(agents))
         .chain(
-            guests
-                .into_iter()
-                .map(|(key, names)| guest_user(key, &names, agents)),
+            agents
+                .guests
+                .iter()
+                .map(|guest| guest_user(&guest.key, &guest.name, agents)),
         )
         .collect::<Vec<_>>();
     let config = Config {
@@ -88,29 +81,24 @@ pub fn render(agents: &Agents) -> Result<String> {
     serde_json::to_string_pretty(&config).context("Unable to render the nats-server configuration")
 }
 
-/// Write the rendered configuration to `path`, replacing the file, readable by everyone, in a
-/// directory private to the user.
+/// Write the rendered configuration to `path`, atomically, readable by everyone. Its directory
+/// (the one the container mounts) is 0755, and the directory above it, the state directory,
+/// 0700.
 ///
 /// # Errors
 ///
-/// Fails when the directory or the file cannot be written.
+/// Fails when the directories or the file cannot be written.
 pub fn write(path: &Path, agents: &Agents) -> Result<()> {
     let text = render(agents)?;
     if let Some(dir) = path.parent() {
-        private_dir(dir)?;
+        if let Some(state) = dir.parent() {
+            private_dir(state)?;
+        }
+        fs::create_dir_all(dir).with_context(|| format!("Unable to create {}", dir.display()))?;
+        fs::set_permissions(dir, fs::Permissions::from_mode(DIR_MODE))
+            .with_context(|| format!("Unable to set the mode of {}", dir.display()))?;
     }
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(FILE_MODE)
-        .open(path)
-        .with_context(|| format!("Unable to write {}", path.display()))?;
-    file.write_all(text.as_bytes())
-        .with_context(|| format!("Unable to write {}", path.display()))?;
-    // `mode` is masked by the umask and ignored for a file that exists.
-    fs::set_permissions(path, fs::Permissions::from_mode(FILE_MODE))
-        .with_context(|| format!("Unable to set the mode of {}", path.display()))
+    write_atomic(path, &text, FILE_MODE)
 }
 
 fn host_user(agents: &Agents) -> User {
@@ -124,18 +112,17 @@ fn host_user(agents: &Agents) -> User {
     )
 }
 
-/// The user for a guest key and the names of every guest using it. Each of those guests may use
-/// every one of their consumers, so guests sharing a key can act on each other's inboxes.
-fn guest_user(key: &str, names: &[&str], agents: &Agents) -> User {
-    let mut publish = vec![format!("{SUBJECT_PREFIX}.{}", agents.host.name)];
-    for name in names {
-        publish.extend([
+/// The user for the guest `name`: it may send to the host and use its own consumer.
+fn guest_user(key: &str, name: &str, agents: &Agents) -> User {
+    user(
+        key,
+        vec![
+            format!("{SUBJECT_PREFIX}.{}", agents.host.name),
             format!("$JS.API.CONSUMER.INFO.{STREAM}.{name}"),
             format!("$JS.API.CONSUMER.MSG.NEXT.{STREAM}.{name}"),
             format!("$JS.ACK.{STREAM}.{name}.>"),
-        ]);
-    }
-    user(key, publish)
+        ],
+    )
 }
 
 fn user(key: &str, publish: Vec<String>) -> User {
@@ -152,9 +139,12 @@ fn user(key: &str, publish: Vec<String>) -> User {
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::fs::MetadataExt;
+
     use serde_json::Value;
 
     use super::*;
+    use crate::files::DIR_MODE as STATE_DIR_MODE;
     use crate::keys::generate;
 
     struct Fixture {
@@ -237,61 +227,16 @@ mod tests {
     fn every_agent_is_a_user_and_nothing_else_is_configured() {
         let fixture = fixture();
         let config = rendered(&fixture);
-        assert_eq!(
-            config["authorization"]["users"].as_array().unwrap().len(),
-            3
-        );
-        assert_eq!(config.as_object().unwrap().len(), 1);
-        assert_eq!(config["authorization"].as_object().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn guests_sharing_a_key_are_one_user_with_both_inboxes() {
-        let (host, shared, third) = (
-            generate().unwrap(),
-            generate().unwrap(),
-            generate().unwrap(),
-        );
-        let text = format!(
-            "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n\
-             [[agent]]\nname = \"dev\"\nkey = \"{}\"\nrole = \"guest\"\n\
-             [[agent]]\nname = \"test\"\nkey = \"{}\"\nrole = \"guest\"\n\
-             [[agent]]\nname = \"agent-2\"\nkey = \"{}\"\nrole = \"guest\"\n",
-            host.public_key, shared.public_key, third.public_key, shared.public_key
-        );
-        let agents = Agents::parse(&text).unwrap();
-        let config: Value = serde_json::from_str(&render(&agents).unwrap()).unwrap();
         let keys: Vec<&str> = config["authorization"]["users"]
             .as_array()
             .unwrap()
             .iter()
             .map(|user| user["nkey"].as_str().unwrap())
             .collect();
-        assert_eq!(
-            keys,
-            [
-                host.public_key.as_str(),
-                shared.public_key.as_str(),
-                third.public_key.as_str()
-            ]
-        );
-        let guest = user_of(&config, &shared.public_key);
-        assert_eq!(
-            guest["permissions"]["publish"]["allow"],
-            serde_json::json!([
-                "agents.host",
-                "$JS.API.CONSUMER.INFO.AGENTS.dev",
-                "$JS.API.CONSUMER.MSG.NEXT.AGENTS.dev",
-                "$JS.ACK.AGENTS.dev.>",
-                "$JS.API.CONSUMER.INFO.AGENTS.agent-2",
-                "$JS.API.CONSUMER.MSG.NEXT.AGENTS.agent-2",
-                "$JS.ACK.AGENTS.agent-2.>"
-            ])
-        );
-        assert_eq!(
-            guest["permissions"]["subscribe"]["allow"],
-            serde_json::json!(["_INBOX.>"])
-        );
+        assert_eq!(keys.len(), 3);
+        assert_eq!(keys[..2], [fixture.host.as_str(), fixture.dev.as_str()]);
+        assert_eq!(config.as_object().unwrap().len(), 1);
+        assert_eq!(config["authorization"].as_object().unwrap().len(), 1);
     }
 
     #[test]
@@ -309,15 +254,24 @@ mod tests {
     fn the_file_is_written_readable_by_the_container_user() {
         let fixture = fixture();
         let agents = Agents::parse(&fixture.text).unwrap();
-        let dir = std::env::temp_dir().join(format!("agent-bus-config-{}", std::process::id()));
-        let path = dir.join("nats.conf");
+        let root = std::env::temp_dir().join(format!("agent-bus-config-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let state = root.join("agent-bus");
+        let path = state.join("nats").join("nats.conf");
         write(&path, &agents).unwrap();
-        // A second write replaces the first, even over a file that is too strict.
+        // A second write replaces the first, even over a file that is too strict, and leaves no
+        // temporary file.
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let inode = fs::metadata(&path).unwrap().ino();
         write(&path, &agents).unwrap();
-        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, FILE_MODE);
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&path), FILE_MODE);
+        assert_eq!(mode(path.parent().unwrap()), DIR_MODE);
+        assert_eq!(mode(&state), STATE_DIR_MODE);
         assert_eq!(fs::read_to_string(&path).unwrap(), render(&agents).unwrap());
-        fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+        // Replaced by a rename: the container sees the new file through the mounted directory.
+        assert_ne!(fs::metadata(&path).unwrap().ino(), inode);
+        fs::remove_dir_all(&root).unwrap();
     }
 }

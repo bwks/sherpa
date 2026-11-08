@@ -78,8 +78,10 @@ Connect with the lab's own SSH config, which goes through the host's Sherpa serv
 
 ```
 cd ~/labs/sherpa-agent-2
-ssh -F sherpa_ssh_config agent-2
+ssh -F sherpa_ssh_config agent-2.<lab id>
 ```
+
+The SSH alias is `agent-2.<lab id>`, with `id` from `lab-info.toml`, not the bare node name.
 
 The guest's address changes with every `sherpa up`; never write it down.
 
@@ -94,33 +96,27 @@ To tear down: push any work from the guest, then `sherpa destroy` in the lab dir
 
 ## Starting its guest agent
 
-Once, on the host:
-
-1. `agent-bus key new` for `agent-2`; store the seed in the secret store straight away.
-2. Add it to the agents file:
-   ```toml
-   [[agent]]
-   name = "agent-2"
-   key = "U..."
-   role = "guest"
-   ```
-3. Run `agent-bus bus start --lab <dev lab dir> --agents <file>` again, with the host's seed. It
-   prints `Inbox ready: agent-2 (created)`. The bus stays on dev's lab.
-
-Then start the agent the same way as dev's (the `agent-bus:guest` task), with three differences:
-the SSH config is the worker lab's, the name is `agent-2`, and `AGENT_BUS_URL` points at the bus,
-because the bus does not listen on this guest's default gateway (see below). Pipe the Claude
-token and then agent-2's seed, one per line, to:
+With the bus running on dev's lab, on the host:
 
 ```
-ssh -F ~/labs/sherpa-agent-2/sherpa_ssh_config agent-2 \
-    "AGENT_BUS_URL=nats://<bus address>:4222 bash -lc '~/code/rust/sherpa/dev/agent-bus/start-guest.sh agent-2'"
+mise run agent-bus:agent ~/labs/sherpa-agent-2 agent-2
 ```
 
-`<bus address>` is the URL `agent-bus bus status` prints, which is `ipv4_gateway` in dev's
-`lab-info.toml`. It changes when dev's lab is brought up again; then run `bus start` and restart
-this agent with the new address. Its log is `~/agent-bus-agent-2.log` in the guest. Tasks go to it
-with `agent-bus send --to agent-2 "<task>"`.
+The `agent-bus:agent` task (see "Operating it" in the
+[agent bus document](../../../docs/architecture/AGENT_BUS.md#operating-it)) runs
+`~/.local/bin/agent-bus-start-agent` (installed from `dev/agent-bus/start-agent.sh`, next to the
+`agent-bus` binary built in the dev guest; the host builds nothing) with the host's seed and the Claude token from the secret store.
+It enrolls `agent-2`, giving it a fresh key and refusing any previous one, and starts the guest
+agent over the lab's SSH config, alias `agent-2.<lab id>`, with `AGENT_BUS_URL` set to the URL in
+the host's `bus.toml`, because the bus does not listen on this guest's default gateway (see
+below). No key is made by hand and nothing is added to the agents file; `agent-2` must not be
+listed there.
+
+The bus's address is `ipv4_gateway` in dev's `lab-info.toml`. It changes when dev's lab is
+brought up again; then run `bus start` and the same command again. Its log is
+`~/agent-bus-agent-2.log` in the guest. Tasks go to it with
+`agent-bus send --to agent-2 "<task>"`. To retire it, stop the agent and run
+`agent-bus unenroll agent-2` on the host.
 
 ## Reaching the bus
 
@@ -128,20 +124,24 @@ The bus listens on one address: dev's management gateway, the host's address on 
 bridge. This guest's default gateway is the host's address on its own bridge, where nothing
 listens on 4222. The guest agent connects to dev's gateway address instead; the packets go to
 the host through this lab's bridge, and because the address belongs to the host they are
-delivered locally, not forwarded between the bridges. Whether the host's firewall accepts NATS
-arriving on this bridge is not yet known.
+delivered locally, not forwarded between the bridges.
 
-**TODO: confirm after the first bring-up.** With the bus running, in the guest:
+**Checked:** from `agent-2` in lab `sherpa-agent-2`, on its own bridge, the bus at dev's gateway
+address on port 4222 answered with NATS's `INFO` line, with no firewall change. One bus on the
+host serves guests in other labs.
+
+To recheck, with the bus running, in the guest:
 
 ```
 timeout 5 bash -c 'exec 3<>/dev/tcp/<bus address>/4222; head -c 4 <&3; echo'
 ```
 
-It prints `INFO` when the bus is reachable. Then start the guest agent and run
+It prints `INFO` when the bus is reachable. Then, with the guest agent started, run
 `agent-bus send --to agent-2 "Reply with exactly: ready."` on the host: the listener prints a
-`completed` message from `agent-2` with the text `ready`. Record the result here. If the connection is refused or times out, the host's firewall
-drops input from this bridge to port 4222, and either it needs a rule for this bridge or the bus
-needs to listen on more than one address (see "One lab per bus" in the agent bus document).
+`completed` message from `agent-2` with the text `ready`. If the connection is refused or times
+out, the host's firewall has changed and drops input from this bridge to port 4222; it then needs
+a rule for this bridge, or the bus needs to listen on more than one address (see "One lab per
+bus" in the agent bus document).
 
 ## Another worker
 
@@ -155,8 +155,7 @@ link kept as a link (`cp -a tests/environments/agent tests/environments/agent-3`
 | `manifest.toml`, `[nodes.performance_tuning]` | CPUs 1–4/17–20, QEMU on 0/16, node 0 | CPUs no other lab uses (below) |
 | This README | `sherpa-agent-2`, `agent-2` | `sherpa-agent-3`, `agent-3` |
 | The lab directory on the host | `~/labs/sherpa-agent-2` | `~/labs/sherpa-agent-3` |
-| The agents file, the key and the secret store entry | `agent-2` | `agent-3` |
-| The start command | `sherpa-agent-2`, `agent-2` | `sherpa-agent-3`, `agent-3` |
+| The start command | `mise run agent-bus:agent ~/labs/sherpa-agent-2 agent-2` | `mise run agent-bus:agent ~/labs/sherpa-agent-3 agent-3` |
 
 The CPUs cannot just be copied: two labs pinned to the same cores contend for them. This host
 has no free set left for a third worker of this size, as CPUs 5–7 and 21–23 are the host's. A

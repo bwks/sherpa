@@ -1,19 +1,19 @@
 //! Where the bus is, for the commands that connect to it.
 //!
-//! `bus start` records the bus's URL (and the lab it serves, if started with `--lab`) in
-//! `$XDG_STATE_HOME/agent-bus/bus.toml`, next to the server config. `send`, `listen` and `cancel`
-//! read it when they are given no server.
+//! `bus start` records the bus's URL, the agents file it was started with, and the lab it serves
+//! if started with `--lab`, in `$XDG_STATE_HOME/agent-bus/bus.toml`. `send`, `listen` and
+//! `cancel` read the URL when they are given no server; `enroll` and `unenroll` read all of it.
 
 use std::fs;
 use std::net::Ipv4Addr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use shared::data::LabInfo;
 
-use crate::files::{private_dir, write_private};
+use crate::files::{PRIVATE_FILE_MODE, private_dir, write_atomic};
 
 /// The environment variable that names the bus.
 pub const SERVER_ENV: &str = "AGENT_BUS_URL";
@@ -29,6 +29,9 @@ pub struct LabRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BusRecord {
     pub url: String,
+    /// The agents file, as an absolute path. A record written before enrollment has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agents: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lab: Option<LabRecord>,
 }
@@ -76,7 +79,7 @@ pub fn write(path: &Path, record: &BusRecord) -> Result<()> {
     if let Some(dir) = path.parent() {
         private_dir(dir)?;
     }
-    write_private(path, &text)
+    write_atomic(path, &text, PRIVATE_FILE_MODE)
 }
 
 /// Read the record at `path`; `None` when there is no file.
@@ -135,9 +138,6 @@ mod tests {
     use super::*;
 
     use std::os::unix::fs::PermissionsExt;
-    use std::path::PathBuf;
-
-    use crate::files::PRIVATE_FILE_MODE;
 
     const LAB_INFO: &str = r#"
 id = "abc123"
@@ -160,6 +160,7 @@ loopback_network = "198.51.100.0/24"
     fn record(url: &str) -> BusRecord {
         BusRecord {
             url: url.to_owned(),
+            agents: Some(PathBuf::from("/home/u/agents.toml")),
             lab: Some(LabRecord {
                 id: "abc123".to_owned(),
                 name: "dev".to_owned(),
@@ -205,11 +206,15 @@ loopback_network = "198.51.100.0/24"
         // A second write replaces the first and leaves no temporary file.
         let without_lab = BusRecord {
             url: "nats://192.0.2.9:4222".to_owned(),
+            agents: None,
             lab: None,
         };
         write(&path, &without_lab).unwrap();
         assert_eq!(read(&path).unwrap(), Some(without_lab));
         assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+        // A record from before enrollment, with no agents file, still reads.
+        fs::write(&path, "url = \"nats://192.0.2.9:4222\"\n").unwrap();
+        assert_eq!(read(&path).unwrap().unwrap().agents, None);
         remove(&path).unwrap();
         remove(&path).unwrap();
         assert_eq!(read(&path).unwrap(), None);

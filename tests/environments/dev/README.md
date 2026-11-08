@@ -126,6 +126,20 @@ tools from mise are on the `PATH` of login shells, so run commands through one:
 Nested lab VMs run slower in the guest than on the host, so run the final check on the host
 before a release.
 
+### Its guest agent
+
+The dev server runs the guest agent `dev` on the
+[agent bus](../../../docs/architecture/AGENT_BUS.md). With the bus running, start or restart it
+from the host with the `agent-bus:agent` task described in "Operating it" there:
+
+```
+mise run agent-bus:agent <repo>/tests/environments/dev dev
+```
+
+`<repo>` is the host's checkout; give the lab directory as an absolute path, since mise may run
+the task from another directory. It enrolls `dev` with a fresh key and pipes the key and the Claude token over SSH into
+`dev/agent-bus/start-guest.sh`. No key is made or stored by hand.
+
 ### Tearing down
 
 ```

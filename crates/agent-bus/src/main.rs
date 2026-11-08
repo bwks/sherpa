@@ -5,9 +5,11 @@
 //! follows the replies (`listen`, one JSON line per message, kept in a journal first). A guest agent (`guest`) takes each
 //! task to Claude Code and sends back its progress, questions and result.
 //!
-//! Every agent authenticates with an `NKey`. `key new` makes a key pair; the public keys go in the
-//! agents file that `bus start` renders the server's permissions from, and each agent gets its
-//! seed in the environment variable `AGENT_BUS_SEED`. A seed is never a command-line value.
+//! Every agent authenticates with its own `NKey`. The host's public key goes in the agents file
+//! (`key new` makes the pair); guests are enrolled with `enroll`, which makes a fresh pair, keeps
+//! the public key in the host's registry, reloads the bus and prints the seed for a pipe. The
+//! server's permissions are rendered from both. Each agent gets its seed in the environment
+//! variable `AGENT_BUS_SEED`. A seed is never a command-line value.
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 mod agents;
@@ -20,9 +22,11 @@ mod keys;
 mod listen;
 mod message;
 mod model;
+mod registry;
 mod report;
 mod state;
 
+use std::io::{self, IsTerminal};
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -41,7 +45,8 @@ use model::{DEFAULT_MODEL, model_id};
     version,
     about = "A NATS message channel between the host agent and guest agents",
     after_help = "Commands that connect to the bus read the agent's NKey seed from the \
-                  environment variable AGENT_BUS_SEED. `agent-bus key new` makes a key pair."
+                  environment variable AGENT_BUS_SEED. `agent-bus key new` makes the host's key \
+                  pair; `agent-bus enroll` makes a guest's."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -59,6 +64,19 @@ enum Command {
     Bus {
         #[command(subcommand)]
         action: BusAction,
+    },
+    /// Give a guest agent a fresh key on the running bus, replacing its previous key, and print
+    /// only the new seed on stdout, for a pipe; stdout must not be a terminal. Run as the host:
+    /// `AGENT_BUS_SEED` is the host's seed
+    Enroll {
+        /// The guest agent; the agents file must not list it
+        name: String,
+    },
+    /// Remove an enrolled guest agent's key; the bus refuses it from then on. Its inbox and
+    /// messages are kept
+    Unenroll {
+        /// The guest agent
+        name: String,
     },
     /// Send a task, or an answer to a guest agent's question
     Send {
@@ -167,8 +185,9 @@ enum Command {
 
 #[derive(Subcommand)]
 enum KeyAction {
-    /// Generate a user key pair. The seed is printed once, here: store it in your secret
-    /// store, and give it to its agent through `AGENT_BUS_SEED`
+    /// Generate a user key pair, for the host or a guest with a fixed key in the agents file.
+    /// The seed is printed once, here: store it in your secret store, and give it to its agent
+    /// through `AGENT_BUS_SEED`. Guests normally get theirs from `enroll` instead
     New,
 }
 
@@ -184,8 +203,9 @@ enum BusAction {
         /// The address to listen on instead of a lab's
         #[arg(long)]
         listen: Option<Ipv4Addr>,
-        /// The agents file (TOML): each agent's name, public key and role. The server's
-        /// permissions are rendered from it. Run as the host: `AGENT_BUS_SEED` is the host's seed
+        /// The agents file (TOML): the host's name and public key, and any guests with fixed
+        /// keys. The server's permissions are rendered from it and the enrolled guests. Run as
+        /// the host: `AGENT_BUS_SEED` is the host's seed
         #[arg(long)]
         agents: PathBuf,
     },
@@ -208,30 +228,12 @@ async fn main() -> Result<()> {
         Command::Key { action } => match action {
             KeyAction::New => new_key(),
         },
-        Command::Bus { action } => match action {
-            BusAction::Start {
-                lab,
-                listen,
-                agents,
-            } => {
-                let (listen, lab) = match (lab, listen) {
-                    (Some(dir), _) => {
-                        let (gateway, record) = state::lab_gateway(&dir)?;
-                        (gateway, Some(record))
-                    }
-                    (None, Some(listen)) => (listen, None),
-                    (None, None) => bail!("Give --lab or --listen"),
-                };
-                bus::start(
-                    &Bus::standard(listen, lab)?,
-                    &agents,
-                    &seed_from_environment()?,
-                )
-                .await
-            }
-            BusAction::Stop => bus::stop().await,
-            BusAction::Status => bus::status().await,
-        },
+        Command::Bus { action } => bus_command(action).await,
+        Command::Enroll { name } => enroll(&name).await,
+        Command::Unenroll { name } => {
+            let (bus, agents) = Bus::recorded()?;
+            bus::unenroll(&bus, &agents, &name).await
+        }
         Command::Send {
             server,
             from,
@@ -303,12 +305,55 @@ async fn main() -> Result<()> {
     }
 }
 
+/// Run a `bus` subcommand.
+async fn bus_command(action: BusAction) -> Result<()> {
+    match action {
+        BusAction::Start {
+            lab,
+            listen,
+            agents,
+        } => {
+            let (listen, lab) = match (lab, listen) {
+                (Some(dir), _) => {
+                    let (gateway, record) = state::lab_gateway(&dir)?;
+                    (gateway, Some(record))
+                }
+                (None, Some(listen)) => (listen, None),
+                (None, None) => bail!("Give --lab or --listen"),
+            };
+            bus::start(
+                &Bus::standard(listen, lab)?,
+                &agents,
+                &seed_from_environment()?,
+            )
+            .await
+        }
+        BusAction::Stop => bus::stop().await,
+        BusAction::Status => bus::status().await,
+    }
+}
+
+/// Enroll a guest on the recorded bus and print its new seed, alone, on stdout. Refused when
+/// stdout is a terminal, so the seed does not land on the screen or in a scrollback.
+async fn enroll(name: &str) -> Result<()> {
+    if io::stdout().is_terminal() {
+        bail!(
+            "enroll prints the new seed on stdout, which is a terminal: pipe it to its agent instead (see dev/agent-bus/start-agent.sh)"
+        );
+    }
+    let seed = seed_from_environment()?;
+    let (bus, agents) = Bus::recorded()?;
+    let new_seed = bus::enroll(&bus, &agents, name, &seed).await?;
+    println!("{new_seed}");
+    Ok(())
+}
+
 /// The bus to connect to: `--server`, then `AGENT_BUS_URL`, then where `bus start` recorded it.
 fn find_server(flag: Option<String>) -> Result<String> {
     state::find_server(
         flag,
         std::env::var(state::SERVER_ENV).ok(),
-        &Bus::record_path()?,
+        &Bus::standard_record_path()?,
     )
 }
 

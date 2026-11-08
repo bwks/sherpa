@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Start this guest's agent-bus agent on the Claude subscription. Run it in the guest with two
-# lines on stdin: the token from `claude setup-token`, then the agent's NKey seed (from
-# `agent-bus key new`). Neither is a command-line argument or written to disk. The seed is
-# exported to the agent process only, and the agent keeps it from Claude Code.
+# lines on stdin: the token from `claude setup-token`, then the agent's NKey seed. On the host,
+# dev/agent-bus/start-agent.sh runs it with both, the seed straight from `agent-bus enroll`.
+# Neither is a command-line argument or written to disk. The seed is exported to the agent
+# process only, and the agent keeps it from Claude Code.
 # The bus runs on the host at the guest's default gateway, the lab's management bridge. A guest
 # in another lab, such as tests/environments/agent, sets AGENT_BUS_URL to where the bus listens.
 #

@@ -92,14 +92,14 @@ pub fn millis(duration: Duration) -> u64 {
 }
 
 /// Replace the file at `path` with `text`, atomically: a reader sees the old file or the new
-/// one. The text goes to a temporary file next to it, mode 0600 whatever the umask, flushed to
+/// one. The text goes to a temporary file next to it, with `mode` whatever the umask, flushed to
 /// disk, then renamed over it; the directory is flushed after, so the rename lasts. The
-/// directory must exist.
+/// directory must exist. State files use `PRIVATE_FILE_MODE`.
 ///
 /// # Errors
 ///
 /// Fails when the temporary file cannot be written or renamed over the file.
-pub fn write_private(path: &Path, text: &str) -> Result<()> {
+pub fn write_atomic(path: &Path, text: &str, mode: u32) -> Result<()> {
     let mut temporary = path.as_os_str().to_owned();
     temporary.push(format!(".{}.tmp", std::process::id()));
     let temporary = PathBuf::from(temporary);
@@ -107,11 +107,11 @@ pub fn write_private(path: &Path, text: &str) -> Result<()> {
         .write(true)
         .create(true)
         .truncate(true)
-        .mode(PRIVATE_FILE_MODE)
+        .mode(mode)
         .open(&temporary)
         .with_context(|| format!("Unable to open {}", temporary.display()))?;
     // `mode` is masked by the umask and ignored for a file that exists.
-    fs::set_permissions(&temporary, fs::Permissions::from_mode(PRIVATE_FILE_MODE))
+    fs::set_permissions(&temporary, fs::Permissions::from_mode(mode))
         .with_context(|| format!("Unable to set the mode of {}", temporary.display()))?;
     file.write_all(text.as_bytes())
         .and_then(|()| file.sync_all())
@@ -210,7 +210,7 @@ impl JsonLines {
         if dropped == 0 {
             return Ok(0);
         }
-        write_private(&self.path, &kept)
+        write_atomic(&self.path, &kept, PRIVATE_FILE_MODE)
             .with_context(|| format!("Unable to prune {}", self.path.display()))?;
         Ok(dropped)
     }

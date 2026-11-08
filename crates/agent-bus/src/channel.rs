@@ -14,7 +14,6 @@ use async_nats::jetstream::{self, consumer, stream};
 use async_nats::{ConnectOptions, Event};
 use futures_util::StreamExt;
 
-use crate::agents::Agents;
 use crate::keys::public_key_of;
 use crate::message::{Message, check_agent_name};
 
@@ -102,13 +101,16 @@ impl Channel {
         })
     }
 
-    /// Create the inbox stream and an inbox consumer for every agent in `agents`. This is the
+    /// Create the inbox stream and an inbox consumer for every agent in `names`. This is the
     /// host's job: only the host may do it. It is safe to repeat.
     ///
     /// # Errors
     ///
     /// Fails when the bus refuses the stream or a consumer.
-    pub async fn create_inboxes(&self, agents: &Agents) -> Result<Vec<(String, InboxChange)>> {
+    pub async fn create_inboxes<'a>(
+        &self,
+        names: impl IntoIterator<Item = &'a str>,
+    ) -> Result<Vec<(String, InboxChange)>> {
         let stream = self
             .jetstream
             .get_or_create_stream(stream::Config {
@@ -120,13 +122,13 @@ impl Channel {
             .await
             .context("Unable to create the inbox stream")?;
         let mut outcomes = Vec::new();
-        for agent in agents.all() {
-            let wanted = consumer_config(&agent.name)?;
+        for name in names {
+            let wanted = consumer_config(name)?;
             let change = self
                 .ensure_inbox(&stream, &wanted)
                 .await
-                .with_context(|| format!("Unable to prepare the inbox of '{}'", agent.name))?;
-            outcomes.push((agent.name.clone(), change));
+                .with_context(|| format!("Unable to prepare the inbox of '{name}'"))?;
+            outcomes.push((name.to_owned(), change));
         }
         Ok(outcomes)
     }
