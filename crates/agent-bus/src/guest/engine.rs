@@ -51,11 +51,17 @@ pub(super) fn classify(
     }
 }
 
-/// The text of a `canceled` reply: the progress so far.
-pub(super) fn canceled_text(last: Option<String>) -> String {
-    match last {
+/// The text of a `canceled` reply: the progress so far, and whether the run's cost is known.
+/// It is known only when Claude Code's `result` event arrived before the cancel.
+pub(super) fn canceled_text(last: Option<String>, cost_known: bool) -> String {
+    let progress = match last {
         Some(last) => format!("Canceled. Last progress: {last}"),
         None => "Canceled before Claude Code reported progress".to_owned(),
+    };
+    if cost_known {
+        progress
+    } else {
+        format!("{progress}. The cost of this run is unknown: no result event arrived")
     }
 }
 
@@ -80,6 +86,7 @@ mod tests {
             kind,
             text: String::new(),
             usage: None,
+            task_usage: None,
             github,
         }
     }
@@ -155,7 +162,11 @@ mod tests {
 
     #[test]
     fn a_canceled_reply_carries_the_progress_so_far() {
-        assert!(canceled_text(Some("Running the tests".to_owned())).contains("Running the tests"));
-        assert!(canceled_text(None).starts_with("Canceled"));
+        assert!(
+            canceled_text(Some("Running the tests".to_owned()), true).contains("Running the tests")
+        );
+        assert!(canceled_text(None, true).starts_with("Canceled"));
+        assert!(!canceled_text(None, true).contains("unknown"));
+        assert!(canceled_text(None, false).contains("cost of this run is unknown"));
     }
 }

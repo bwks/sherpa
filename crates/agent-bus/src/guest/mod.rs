@@ -8,10 +8,12 @@
 //! - `run`: the entry point, the inbox loop and the queue of tasks.
 //! - `engine`: which task a message is for, and whether it queues or cancels.
 //! - `claude`: the Claude Code command and its process group.
+//! - `record`: every `result` event Claude Code prints, kept in the state directory.
 //! - `stream`: what Claude Code's output means.
 
 mod claude;
 mod engine;
+mod record;
 mod run;
 mod stream;
 

@@ -25,6 +25,13 @@ pub const SUBJECT_PREFIX: &str = "agents";
 /// How long an unread message is kept.
 const MAX_AGE: Duration = Duration::from_hours(7 * 24);
 
+/// How long the bus keeps the consumer that reads the history after its last use.
+const HISTORY_INACTIVE: Duration = Duration::from_secs(30);
+/// How many messages one read of the history asks for.
+const HISTORY_BATCH: usize = 256;
+/// How long one read of the history waits for messages.
+const HISTORY_WAIT: Duration = Duration::from_secs(5);
+
 /// A connection to the bus.
 pub struct Channel {
     jetstream: jetstream::Context,
@@ -227,6 +234,37 @@ impl Channel {
         Ok(Inbox { messages })
     }
 
+    /// Every message still kept in the stream for `agent`, oldest first, read without consuming
+    /// the inbox: an ephemeral pull consumer with no acknowledgement reads them, and the bus drops
+    /// it after use. The host's permissions already allow this (the `JetStream` API and its own
+    /// inbox pulls), so nothing was widened. Messages that are not agent messages are skipped.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the name is invalid or the bus refuses the consumer or a read.
+    pub async fn history(&self, agent: &str) -> Result<Vec<Message>> {
+        let subject = inbox_subject(agent)?;
+        let stream = self
+            .jetstream
+            .get_stream(STREAM)
+            .await
+            .context("Unable to open the inbox stream")?;
+        let reader = stream
+            .create_consumer(consumer::pull::Config {
+                filter_subject: subject,
+                ack_policy: consumer::AckPolicy::None,
+                deliver_policy: consumer::DeliverPolicy::All,
+                inactive_threshold: HISTORY_INACTIVE,
+                ..Default::default()
+            })
+            .await
+            .context("Unable to create a consumer to read the history")?;
+        let result = read_all(&reader).await;
+        // Best effort: an unused ephemeral consumer is dropped by the bus anyway.
+        let _ = stream.delete_consumer(&reader.cached_info().name).await;
+        result
+    }
+
     /// Replace `agent`'s inbox with one made the way an earlier version made it, without
     /// `max_waiting`. This is for testing the upgrade.
     #[cfg(test)]
@@ -298,6 +336,36 @@ impl Delivery {
             .map_err(anyhow::Error::from_boxed)
             .context("Unable to acknowledge the message")
     }
+}
+
+/// Read everything `reader` has pending.
+async fn read_all(reader: &consumer::PullConsumer) -> Result<Vec<Message>> {
+    let mut pending = reader.cached_info().num_pending;
+    let mut messages = Vec::new();
+    while pending > 0 {
+        let mut batch = reader
+            .fetch()
+            .max_messages(HISTORY_BATCH)
+            .expires(HISTORY_WAIT)
+            .messages()
+            .await
+            .context("Unable to read the history")?;
+        let mut read: u64 = 0;
+        while let Some(raw) = batch.next().await {
+            let raw = raw
+                .map_err(anyhow::Error::from_boxed)
+                .context("Unable to read the history")?;
+            read = read.saturating_add(1);
+            if let Ok(message) = serde_json::from_slice::<Message>(&raw.payload) {
+                messages.push(message);
+            }
+        }
+        if read == 0 {
+            break;
+        }
+        pending = pending.saturating_sub(read);
+    }
+    Ok(messages)
 }
 
 /// The consumer behind `agent`'s inbox.

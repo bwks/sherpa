@@ -145,8 +145,38 @@ Adding an agent: generate a key, add it to the agents file, and run `bus start` 
 
 Each finished run records what Claude Code reported in its `result` event, so the host can see
 how efficient a task was. The outcome messages (`completed`, `question`, `failed`) carry it as
-`usage`; progress messages and failures that never reached a result (Claude Code did not start,
-or exited without one) carry none. The guest log also gets one line per finished run.
+`usage` (this run) and `task_usage` (the task so far, its first run and its answers). A
+`canceled` message carries them when the `result` event arrived before the cancel; otherwise the
+run is not counted and the canceled text says its cost is unknown. Progress messages and failures
+that never reached a result (Claude Code did not start, or exited without one) carry none. The
+guest log gets one line per finished run, with the run and the task total.
+
+### What Claude Code's figures mean
+
+Measured with task 562a9215: one session, three runs (the first and two resumes). The raw
+`result` events are kept in `results.jsonl` in the guest's state directory.
+
+| Event field | Scope | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|---|
+| `usage.*` | this run | 2 / 16 / 9281 / 13213 | 4 / 15 / 3777 / 18761 | 4 / 4 / 37 / 22538 |
+| `model_usage_since_last_result.<model>.costUSD` | this run | $0.0386 | $0.0171 | $0.0024 |
+| `total_cost_usd` | **session total so far** | $0.0386 | $0.0558 | $0.0582 |
+| `modelUsage` | **session total so far** | cumulative | cumulative | cumulative |
+| `duration_api_ms` | **session total so far** | 1556 | 2937 | 4218 |
+| `duration_ms`, `num_turns` | this run | 1994, 1 | 1748, 1 | 1695, 1 |
+
+(`usage.*` is input / output / cache creation / cache read.) The per-run costs add up to the
+session's $0.0582. So:
+
+- A run's cost is the sum of the `costUSD` of the entries in `model_usage_since_last_result`,
+  which is per run and per model. `total_cost_usd` is not a run's cost; it is kept as
+  `session_cost_usd`. `modelUsage` is not used.
+- A run's API time is `duration_api_ms` minus the previous run's in the same session (the first
+  run takes it as is). The arithmetic is checked: a figure that went down means the count started
+  again, and the figure is then taken as is.
+- The per-model entries keep the names Claude Code writes (`inputTokens`, `outputTokens`,
+  `cacheReadInputTokens`, `cacheCreationInputTokens`, `costUSD`, `canonicalModel`, `costBasis`;
+  `costBasis` was `list`, list prices).
 
 | Field | Claude Code field | Meaning |
 |---|---|---|
@@ -155,23 +185,33 @@ or exited without one) carry none. The guest log also gets one line per finished
 | `cache_creation` | `usage.cache_creation_input_tokens` | Input tokens written to the prompt cache (a miss) |
 | `cache_read` | `usage.cache_read_input_tokens` | Input tokens read from the prompt cache (a hit) |
 | `num_turns` | `num_turns` | Model turns in the run |
-| `duration_ms` | `duration_ms` | Wall-clock time |
-| `duration_api_ms` | `duration_api_ms` | Time in API calls |
-| `total_cost_usd` | `total_cost_usd` | API-equivalent cost, **not billed** |
+| `duration_ms` | `duration_ms` | Wall-clock time of the run |
+| `duration_api_ms` | `duration_api_ms` minus the previous run's | Time this run spent in API calls |
+| `cost_usd` | sum of the models' `costUSD` | API-equivalent cost of the run, **not billed** |
+| `session_cost_usd` | `total_cost_usd` | The session total so far, not the run's |
 
-Guest agents run on the subscription, so `total_cost_usd` is what the run would cost at API
-prices. Use it to compare tasks, not as money spent.
+`task_usage` holds `runs`, `cost_usd`, the four token kinds, `num_turns`, `duration_ms` and
+`duration_api_ms`, summed over the task's counted runs.
+
+Guest agents run on the subscription, so the cost is what the run would cost at list prices.
+Use it to compare tasks, not as money spent.
 
 The cache hit ratio is `cache_read / (input + cache_creation + cache_read)`, computed in integer
-tenths of a percent (`cache_hit_permille`) and logged as, for example, `89.9%` (rounded down). Close to 100% means
-most of the context was served from the cache. A high `cache_creation` with a low ratio means the
-prompt prefix was rebuilt, as on the first run of a session. A run that resumes a session after
-an answer should hit the cache for the earlier context unless the cache expired. The log line
-shows `n/a` when a run had no input tokens.
+tenths of a percent and shown as, for example, `89.9%` (rounded down), or `n/a` with no input
+tokens. Close to 100% means most of the context was served from the cache. A high
+`cache_creation` with a low ratio means the prompt prefix was rebuilt, as on the first run of a
+session.
 
-The field names were checked against Claude Code 2.1.319, but only from a run that was not
-logged in, so its counts were all zero. `modelUsage` (per model) was empty there, so it is not
-recorded. The parser tests use that captured event and a hand-written one with cache counts.
+### `agent-bus usage`
+
+`agent-bus usage [--agent <guest>] [--host <name>]` prints one row per task: task, agent, runs,
+cost, cache hit, tokens (all four kinds added) and final state, then a total row. It reads the
+outcome messages sent to the host that the stream still keeps (7 days), with an ephemeral pull
+consumer that needs no acknowledgement, so the host's own inbox is neither consumed nor
+changed. The host's permissions already allow it (`$JS.API.>` creates the consumer and its pulls
+go to the same API), so nothing was widened; a guest cannot do it. An ordered (push) consumer
+would have needed `$JS.FC` publish rights for flow control, which is why a pull consumer is used.
+The task's figures are the `task_usage` of its last message that carried one.
 
 ## Running it
 

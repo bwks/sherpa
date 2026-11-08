@@ -1,10 +1,12 @@
 //! What Claude Code's `stream-json` output means: progress, the session, the outcome and what
 //! the run used.
 
+use std::collections::BTreeMap;
+
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::message::{Kind, Usage};
+use crate::message::{Kind, ModelUsage, TaskUsage, Usage, cache_hit_permille};
 
 /// A reply line starting with this asks the host agent, and through it the user, a question.
 const QUESTION_PREFIX: &str = "QUESTION:";
@@ -20,6 +22,8 @@ pub(super) enum Update {
     Text(String),
     /// A tool Claude runs, and on what.
     Tool(String),
+    /// A run's `result` event. Its `usage.duration_api_ms` is still the session's total so far:
+    /// the guest takes the previous run's off (`api_time_of_run`).
     Finished {
         session: String,
         text: String,
@@ -46,6 +50,9 @@ struct ResultEvent {
     duration_api_ms: u64,
     #[serde(default)]
     total_cost_usd: f64,
+    /// Per model, for this run only. (`modelUsage` is the session's total.)
+    #[serde(default)]
+    model_usage_since_last_result: BTreeMap<String, ModelUsage>,
 }
 
 /// The `usage` of a `result` event, under Claude Code's names.
@@ -61,23 +68,42 @@ struct TokenUsage {
     cache_read: u64,
 }
 
-/// The guest log line for a finished run: its totals and cache hit ratio.
-pub(super) fn usage_line(task: &str, kind: Kind, usage: &Usage) -> String {
-    let ratio = match usage.cache_hit_permille() {
+/// The guest log line for a finished run: the run, then the task so far.
+pub(super) fn usage_line(task: &str, kind: Kind, run: &Usage, so_far: &TaskUsage) -> String {
+    let ratio = |permille: Option<u64>| match permille {
         Some(permille) => format!("{}.{}%", permille / 10, permille % 10),
         None => "n/a".to_owned(),
     };
     format!(
-        "Task {task} {kind:?}: input {} output {} cache_creation {} cache_read {} \
-         cache_hit {ratio} turns {} duration {}ms api {}ms api_equivalent_cost ${:.4} (not billed)",
-        usage.input,
-        usage.output,
-        usage.cache_creation,
-        usage.cache_read,
-        usage.num_turns,
-        usage.duration_ms,
-        usage.duration_api_ms,
-        usage.total_cost_usd,
+        "Task {task} {kind:?}: run: input {} output {} cache_creation {} cache_read {}          cache_hit {} turns {} duration {}ms api {}ms api_equivalent_cost ${:.4} (not billed);          session_cost ${:.4}; task so far: {} runs input {} output {} cache_creation {}          cache_read {} cache_hit {} turns {} duration {}ms api {}ms api_equivalent_cost ${:.4}",
+        run.input,
+        run.output,
+        run.cache_creation,
+        run.cache_read,
+        ratio(cache_hit_permille(
+            run.input,
+            run.cache_creation,
+            run.cache_read
+        )),
+        run.num_turns,
+        run.duration_ms,
+        run.duration_api_ms,
+        run.cost_usd,
+        run.session_cost_usd,
+        so_far.runs,
+        so_far.input,
+        so_far.output,
+        so_far.cache_creation,
+        so_far.cache_read,
+        ratio(cache_hit_permille(
+            so_far.input,
+            so_far.cache_creation,
+            so_far.cache_read
+        )),
+        so_far.num_turns,
+        so_far.duration_ms,
+        so_far.duration_api_ms,
+        so_far.cost_usd,
     )
 }
 
@@ -116,21 +142,30 @@ pub(super) fn interpret(line: &str) -> Vec<Update> {
             .filter_map(progress)
             .collect(),
         Some("result") => match serde_json::from_value::<ResultEvent>(event) {
-            Ok(result) => vec![Update::Finished {
-                session: result.session_id,
-                text: result.result,
-                failed: result.is_error.unwrap_or(true),
-                usage: Usage {
-                    input: result.usage.input,
-                    output: result.usage.output,
-                    cache_creation: result.usage.cache_creation,
-                    cache_read: result.usage.cache_read,
-                    num_turns: result.num_turns,
-                    duration_ms: result.duration_ms,
-                    duration_api_ms: result.duration_api_ms,
-                    total_cost_usd: result.total_cost_usd,
-                },
-            }],
+            Ok(result) => {
+                let models: Vec<ModelUsage> = result
+                    .model_usage_since_last_result
+                    .into_iter()
+                    .map(|(model, usage)| ModelUsage { model, ..usage })
+                    .collect();
+                vec![Update::Finished {
+                    session: result.session_id,
+                    text: result.result,
+                    failed: result.is_error.unwrap_or(true),
+                    usage: Usage {
+                        input: result.usage.input,
+                        output: result.usage.output,
+                        cache_creation: result.usage.cache_creation,
+                        cache_read: result.usage.cache_read,
+                        num_turns: result.num_turns,
+                        duration_ms: result.duration_ms,
+                        duration_api_ms: result.duration_api_ms,
+                        cost_usd: models.iter().map(|model| model.cost_usd).sum(),
+                        session_cost_usd: result.total_cost_usd,
+                        models,
+                    },
+                }]
+            }
             Err(error) => {
                 eprintln!("Could not parse Claude Code result event: {error}");
                 Vec::new()
@@ -177,6 +212,8 @@ fn shorten(text: &str) -> String {
 mod tests {
     use super::*;
 
+    use crate::message::api_time_of_run;
+
     #[test]
     fn claude_events_become_session_progress_and_outcome() {
         assert_eq!(
@@ -209,66 +246,111 @@ mod tests {
         );
     }
 
-    /// The `result` event of a real `claude -p --output-format stream-json --verbose` run (Claude
-    /// Code 2.1.319), trimmed to the fields used. That run was not logged in, so its counts are
-    /// zero and it is an error; the field names and nesting are as Claude Code writes them.
-    const CAPTURED_RESULT: &str = r#"{"duration_api_ms":0,"session_id":"dc1697d1-aa31-4f62-ae89-223eec6ec186","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0},"is_error":true,"num_turns":1,"result":"Not logged in · Please run /login","type":"result","duration_ms":202}"#;
+    /// The `result` events of the three runs of task 562a9215 (Claude Code 2.1.319, one session
+    /// resumed twice), trimmed to the fields used. `total_cost_usd` and `duration_api_ms` are the
+    /// session's totals so far; `usage` and `model_usage_since_last_result` are the run's own.
+    const RUN_1: &str = r#"{"duration_api_ms":1556,"session_id":"2cc3d453-311c-4686-b082-56f0c9569e34","total_cost_usd":0.0386093,"usage":{"input_tokens":2,"cache_creation_input_tokens":9281,"cache_read_input_tokens":13213,"output_tokens":16},"is_error":false,"num_turns":1,"result":"QUESTION: Which colour do you like?","type":"result","duration_ms":1994,"model_usage_since_last_result":{"claude-sonnet-5-5":{"inputTokens":2,"outputTokens":16,"cacheReadInputTokens":13213,"cacheCreationInputTokens":9281,"costUSD":0.0386093,"canonicalModel":"claude-sonnet-5-5","costBasis":"list"}}}"#;
 
-    /// The same event with the counts of a run that used the prompt cache.
-    const CACHED_RESULT: &str = r#"{"type":"result","subtype":"success","is_error":false,"duration_ms":4200,"duration_api_ms":3900,"num_turns":3,"result":"Done","session_id":"s1","total_cost_usd":0.0421,"usage":{"input_tokens":12,"cache_creation_input_tokens":3000,"cache_read_input_tokens":27000,"output_tokens":850}}"#;
+    const RUN_2: &str = r#"{"duration_api_ms":2937,"session_id":"2cc3d453-311c-4686-b082-56f0c9569e34","total_cost_usd":0.0557514,"usage":{"input_tokens":4,"cache_creation_input_tokens":3777,"cache_read_input_tokens":18761,"output_tokens":15},"is_error":false,"num_turns":1,"result":"QUESTION: Which number do you like?","type":"result","duration_ms":1748,"model_usage_since_last_result":{"claude-sonnet-5-5":{"inputTokens":4,"outputTokens":15,"cacheReadInputTokens":18761,"cacheCreationInputTokens":3777,"costUSD":0.0171421,"canonicalModel":"claude-sonnet-5-5","costBasis":"list"}}}"#;
 
-    #[test]
-    fn a_captured_result_line_gives_usage() {
-        assert_eq!(
-            interpret(CAPTURED_RESULT),
-            [Update::Finished {
-                session: "dc1697d1-aa31-4f62-ae89-223eec6ec186".to_owned(),
-                text: "Not logged in · Please run /login".to_owned(),
-                failed: true,
-                usage: Usage {
-                    num_turns: 1,
-                    duration_ms: 202,
-                    ..Usage::default()
-                },
-            }]
-        );
+    const RUN_3: &str = r#"{"duration_api_ms":4218,"session_id":"2cc3d453-311c-4686-b082-56f0c9569e34","total_cost_usd":0.0582012,"usage":{"input_tokens":4,"cache_creation_input_tokens":37,"cache_read_input_tokens":22538,"output_tokens":4},"is_error":false,"num_turns":1,"result":"done.","type":"result","duration_ms":1695,"model_usage_since_last_result":{"claude-sonnet-5-5":{"inputTokens":4,"outputTokens":4,"cacheReadInputTokens":22538,"cacheCreationInputTokens":37,"costUSD":0.0024498,"canonicalModel":"claude-sonnet-5-5","costBasis":"list"}}}"#;
+
+    fn finished(line: &str) -> Usage {
+        let updates = interpret(line);
+        let [Update::Finished { usage, .. }] = &updates[..] else {
+            panic!("not a finished run");
+        };
+        usage.clone()
     }
 
     #[test]
-    fn cache_counts_and_cost_are_read_from_the_result() {
-        let [
-            Update::Finished {
-                usage,
-                failed: false,
-                ..
-            },
-        ] = interpret(CACHED_RESULT)[..]
-        else {
-            panic!("not a finished run");
-        };
-        assert_eq!(usage.input, 12);
-        assert_eq!(usage.output, 850);
-        assert_eq!(usage.cache_creation, 3000);
-        assert_eq!(usage.cache_read, 27000);
-        assert_eq!(usage.num_turns, 3);
-        assert_eq!(usage.duration_ms, 4200);
-        assert_eq!(usage.duration_api_ms, 3900);
-        assert!((usage.total_cost_usd - 0.0421).abs() < 1e-9);
-        let line = usage_line("t1", Kind::Completed, &usage);
-        assert!(line.contains("cache_hit 89.9%"), "{line}");
+    fn a_runs_cost_is_the_sum_of_its_models_and_not_the_session_total() {
+        let first = finished(RUN_1);
+        assert_eq!(first.input, 2);
+        assert_eq!(first.output, 16);
+        assert_eq!(first.cache_creation, 9281);
+        assert_eq!(first.cache_read, 13213);
+        assert_eq!(first.num_turns, 1);
+        assert_eq!(first.duration_ms, 1994);
+        assert!((first.cost_usd - 0.038_609_3).abs() < 1e-9);
+        assert_eq!(first.models.len(), 1);
+        assert_eq!(first.models[0].model, "claude-sonnet-5-5");
+        assert_eq!(first.models[0].canonical_model, "claude-sonnet-5-5");
+        assert_eq!(first.models[0].cost_basis, "list");
+        let second = finished(RUN_2);
+        assert!((second.cost_usd - 0.017_142_1).abs() < 1e-9);
+        assert!((second.session_cost_usd - 0.055_751_4).abs() < 1e-9);
+        assert_eq!(second.cache_read, 18761);
+        // The event's API time is the session's so far.
+        assert_eq!(second.duration_api_ms, 2937);
+    }
+
+    #[test]
+    fn the_three_runs_add_up_to_the_sessions_cost() {
+        let mut task = TaskUsage::default();
+        let mut previous = None;
+        let mut api = Vec::new();
+        for line in [RUN_1, RUN_2, RUN_3] {
+            let mut run = finished(line);
+            run.duration_api_ms = api_time_of_run(run.duration_api_ms, previous);
+            previous = Some(finished(line).duration_api_ms);
+            api.push(run.duration_api_ms);
+            task.add(&run);
+        }
+        assert_eq!(task.runs, 3);
+        assert!((task.cost_usd - 0.058_201_2).abs() < 1e-9);
+        assert_eq!(format!("{:.4}", task.cost_usd), "0.0582");
+        // It equals the session total the last event reports.
+        assert!((task.cost_usd - finished(RUN_3).session_cost_usd).abs() < 1e-9);
+        assert_eq!(api, [1556, 1381, 1281]);
+        assert_eq!(task.duration_api_ms, 4218);
+        assert_eq!(task.input, 10);
+        assert_eq!(task.output, 35);
+        assert_eq!(task.cache_creation, 13095);
+        assert_eq!(task.cache_read, 54512);
+        assert_eq!(task.num_turns, 3);
+        assert_eq!(task.duration_ms, 1994 + 1748 + 1695);
+    }
+
+    #[test]
+    fn the_usage_line_shows_the_run_and_the_task() {
+        let run = finished(RUN_2);
+        let mut task = TaskUsage::default();
+        task.add(&finished(RUN_1));
+        task.add(&run);
+        let line = usage_line("562a9215", Kind::Question, &run, &task);
+        assert!(line.contains("run: input 4 output 15"), "{line}");
+        assert!(line.contains("session_cost $0.0558"), "{line}");
+        assert!(
+            line.contains("task so far: 2 runs input 6 output 31"),
+            "{line}"
+        );
         assert!(line.contains("not billed"), "{line}");
     }
 
     #[test]
+    fn a_result_with_no_models_costs_nothing() {
+        let usage = finished(
+            r#"{"type":"result","is_error":true,"result":"Not logged in","session_id":"s","total_cost_usd":0,"duration_api_ms":0,"num_turns":1,"duration_ms":202,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}"#,
+        );
+        assert_eq!(usage.models, []);
+        assert!(usage.cost_usd.abs() < f64::EPSILON);
+        assert_eq!(usage.duration_ms, 202);
+    }
+
+    #[test]
     fn a_result_without_usage_still_finishes_the_task() {
-        let [Update::Finished { usage, failed, .. }] =
-            interpret(r#"{"type":"result","is_error":false,"result":"ok","session_id":"s"}"#)[..]
-        else {
+        let updates =
+            interpret(r#"{"type":"result","is_error":false,"result":"ok","session_id":"s"}"#);
+        let [Update::Finished { usage, failed, .. }] = &updates[..] else {
             panic!("not a finished run");
         };
         assert!(!failed);
-        assert_eq!(usage, Usage::default());
-        assert!(usage_line("t", Kind::Completed, &usage).contains("cache_hit n/a"));
+        assert_eq!(*usage, Usage::default());
+        assert!(
+            usage_line("t", Kind::Completed, usage, &TaskUsage::default())
+                .contains("cache_hit n/a")
+        );
     }
 
     #[test]

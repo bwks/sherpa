@@ -14,9 +14,10 @@ use tokio::try_join;
 
 use super::claude::{CLAUDE, Group, claude_command, terminate};
 use super::engine::{Control, Session, canceled_text, classify, task_github};
+use super::record::ResultLog;
 use super::stream::{Update, interpret, outcome, repeats_result, usage_line};
 use crate::channel::{Channel, Inbox};
-use crate::message::{Kind, Message, Usage, check_agent_name};
+use crate::message::{Kind, Message, TaskUsage, Usage, api_time_of_run, check_agent_name};
 
 /// The Claude subscription token, from `claude setup-token`.
 const TOKEN_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN";
@@ -40,8 +41,25 @@ enum Finish {
 /// One event while a task runs: Claude's output, the inbox, or the shutdown.
 enum Event {
     Line(Option<String>),
-    Incoming(Option<Message>),
+    Incoming(Option<Box<Message>>),
     Stop,
+}
+
+/// A run's outcome: its text, whether it failed, what it used, and what its task has used so far.
+struct Finished {
+    text: String,
+    failed: bool,
+    usage: Usage,
+    task_usage: TaskUsage,
+}
+
+/// What a task has used over its runs, and where its session's API time stood after the last.
+#[derive(Default)]
+struct TaskTotals {
+    usage: TaskUsage,
+    /// The session and its `duration_api_ms` as the last run reported them. The figure counts
+    /// the whole session, so a run's own is the increase.
+    api: Option<(String, u64)>,
 }
 
 /// What one run has produced so far.
@@ -53,7 +71,7 @@ struct RunState {
     /// The last tool call, already sent as progress.
     tool: Option<String>,
     /// The outcome, text first, failed second.
-    finished: Option<(String, bool, Usage)>,
+    finished: Option<Finished>,
 }
 
 /// The guest agent's state: the tasks waiting, and the Claude sessions of tasks so far.
@@ -67,6 +85,11 @@ struct Engine<'a> {
     stop: watch::Receiver<bool>,
     queue: VecDeque<Message>,
     sessions: HashMap<String, Session>,
+    /// The runs so far of each task, for the record of result events.
+    runs: HashMap<String, u32>,
+    /// What each task has used, over the runs that sent a result event.
+    totals: HashMap<String, TaskTotals>,
+    results: Option<ResultLog>,
 }
 
 /// Take tasks from `name`'s inbox until the bus closes or the agent is told to stop (SIGTERM or
@@ -161,7 +184,8 @@ async fn stopped(stop: &mut watch::Receiver<bool>) {
 }
 
 impl Reply {
-    fn send(&self, kind: Kind, text: String, usage: Option<Usage>) -> Result<()> {
+    fn send(&self, kind: Kind, text: String, usage: Option<(Usage, TaskUsage)>) -> Result<()> {
+        let (usage, task_usage) = usage.unzip();
         self.outgoing
             .send(Message {
                 task: self.task.clone(),
@@ -170,6 +194,7 @@ impl Reply {
                 kind,
                 text,
                 usage,
+                task_usage,
                 github: false,
             })
             .map_err(|_| anyhow!("The bus connection is closed"))
@@ -196,6 +221,9 @@ impl<'a> Engine<'a> {
             stop,
             queue: VecDeque::new(),
             sessions: HashMap::new(),
+            runs: HashMap::new(),
+            totals: HashMap::new(),
+            results: ResultLog::standard(),
         }
     }
 
@@ -279,6 +307,32 @@ impl<'a> Engine<'a> {
         Ok(false)
     }
 
+    /// Keep a `result` event line in the record. Other lines are not kept; a record that cannot
+    /// be written is reported and the task goes on.
+    fn record(&self, task: &str, run_number: u32, line: &str) {
+        if let (Some(log), Some(session)) = (&self.results, ResultLog::result_session(line))
+            && let Err(error) = log.append(task, &session, run_number, line)
+        {
+            eprintln!("Unable to record the result event: {error:#}");
+        }
+    }
+
+    /// Add a finished run to its task's totals, and turn the event's session-wide API time into
+    /// the run's own. Returns the task's totals including this run.
+    fn count(&mut self, task: &str, session: &str, usage: &mut Usage) -> TaskUsage {
+        let totals = self.totals.entry(task.to_owned()).or_default();
+        let reported = usage.duration_api_ms;
+        let previous = totals
+            .api
+            .as_ref()
+            .filter(|(known, _)| known == session)
+            .map(|(_, api_ms)| *api_ms);
+        usage.duration_api_ms = api_time_of_run(reported, previous);
+        totals.api = Some((session.to_owned(), reported));
+        totals.usage.add(usage);
+        totals.usage.clone()
+    }
+
     /// Forward one update from Claude Code and keep what the outcome needs.
     fn apply(
         &mut self,
@@ -314,8 +368,9 @@ impl<'a> Engine<'a> {
                 session,
                 text: result,
                 failed,
-                usage,
+                mut usage,
             } => {
+                let task_usage = self.count(&message.task, &session, &mut usage);
                 self.sessions.insert(
                     message.task.clone(),
                     Session {
@@ -328,7 +383,12 @@ impl<'a> Engine<'a> {
                 {
                     reply.send(Kind::Progress, last, None)?;
                 }
-                run.finished = Some((result, failed, usage));
+                run.finished = Some(Finished {
+                    text: result,
+                    failed,
+                    usage,
+                    task_usage,
+                });
             }
         }
         Ok(())
@@ -353,6 +413,11 @@ impl<'a> Engine<'a> {
             }
             (None, _) => {}
         }
+        let run_number = {
+            let runs = self.runs.entry(message.task.clone()).or_insert(0);
+            *runs = runs.saturating_add(1);
+            *runs
+        };
         let mut child = command.spawn().context("Unable to start Claude Code")?;
         let mut group = Group::new(child.id());
         // The prompt goes in on stdin, so the tool lists cannot swallow it as an argument.
@@ -371,7 +436,7 @@ impl<'a> Engine<'a> {
                 line = lines.next_line() => {
                     Event::Line(line.context("Unable to read Claude Code's output")?)
                 }
-                incoming = self.incoming.recv(), if inbox_open => Event::Incoming(incoming),
+                incoming = self.incoming.recv(), if inbox_open => Event::Incoming(incoming.map(Box::new)),
                 () = stopped(&mut self.stop) => Event::Stop,
             };
             let line = match event {
@@ -387,8 +452,12 @@ impl<'a> Engine<'a> {
                         eprintln!("Canceled task {}", message.task);
                         reply.send(
                             Kind::Canceled,
-                            canceled_text(run.text.take().or(run.tool.take())),
-                            None,
+                            canceled_text(
+                                run.text.take().or(run.tool.take()),
+                                run.finished.is_some(),
+                            ),
+                            run.finished
+                                .map(|finished| (finished.usage, finished.task_usage)),
                         )?;
                         return Ok(Finish::Canceled);
                     }
@@ -399,23 +468,32 @@ impl<'a> Engine<'a> {
                     reply.send(
                         Kind::Failed,
                         "The guest agent stopped: the task was interrupted".to_owned(),
-                        None,
+                        run.finished
+                            .map(|finished| (finished.usage, finished.task_usage)),
                     )?;
                     return Ok(Finish::Stopped);
                 }
             };
+            self.record(&message.task, run_number, &line);
             for update in interpret(&line) {
                 self.apply(update, message, github, &reply, &mut run)?;
             }
         }
         let status = child.wait().await.context("Claude Code did not exit")?;
         group.disarm();
-        let (text, failed, usage) = run
+        let finished = run
             .finished
             .with_context(|| format!("Claude Code exited ({status}) without a result"))?;
-        let kind = outcome(&text, failed);
-        eprintln!("{}", usage_line(&message.task, kind, &usage));
-        reply.send(kind, text, Some(usage))?;
+        let kind = outcome(&finished.text, finished.failed);
+        eprintln!(
+            "{}",
+            usage_line(&message.task, kind, &finished.usage, &finished.task_usage)
+        );
+        reply.send(
+            kind,
+            finished.text,
+            Some((finished.usage, finished.task_usage)),
+        )?;
         Ok(Finish::Done)
     }
 }
@@ -436,6 +514,7 @@ mod tests {
             kind,
             text: String::new(),
             usage: None,
+            task_usage: None,
             github: false,
         }
     }
@@ -493,9 +572,10 @@ esac
             let work = dir.clone();
             let program = program.to_string_lossy().into_owned();
             let done = tokio::spawn(async move {
-                Engine::new(&program, &work, "dev", "host", incoming, outgoing, stop_rx)
-                    .serve()
-                    .await
+                let mut engine =
+                    Engine::new(&program, &work, "dev", "host", incoming, outgoing, stop_rx);
+                engine.results = Some(ResultLog::new(work.join("results.jsonl")));
+                engine.serve().await
             });
             Self {
                 dir,
@@ -597,6 +677,12 @@ esac
         harness.send(Kind::Answer, "t1", "go on");
         let reply = harness.outcome().await;
         assert_eq!((reply.kind, reply.task.as_str()), (Kind::Completed, "t1"));
+
+        // Each result event is recorded with its task and run: t1's answer is its second run.
+        let record = std::fs::read_to_string(harness.dir.join("results.jsonl")).unwrap();
+        let lines: Vec<&str> = record.lines().collect();
+        assert_eq!(lines.len(), 2, "{record}");
+        assert!(lines[1].contains(r#""task":"t1""#) && lines[1].contains(r#""run":2"#));
 
         // A task that is neither running nor queued.
         harness.send(Kind::Cancel, "nope", "");

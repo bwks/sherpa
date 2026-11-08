@@ -17,6 +17,7 @@ mod config;
 mod guest;
 mod keys;
 mod message;
+mod report;
 mod state;
 
 use std::net::Ipv4Addr;
@@ -99,6 +100,36 @@ enum Command {
         server: Option<String>,
         /// The agent whose messages to print
         agent: String,
+    },
+    /// Print what each task cost, from the outcome messages the bus still keeps for the host. The
+    /// host's inbox is not consumed
+    Usage {
+        /// The bus, for example `nats://192.0.2.1:4222`. Without it: `AGENT_BUS_URL`, then
+        /// where `bus start` recorded the bus
+        #[arg(long)]
+        server: Option<String>,
+        /// The agent whose inbox to read
+        #[arg(long, default_value = "host")]
+        host: String,
+        /// Only the tasks of this guest agent
+        #[arg(long)]
+        agent: Option<String>,
+        /// Also list tasks from before usage was tracked, with n/a for their figures
+        #[arg(long)]
+        all: bool,
+    },
+    /// Print every message of a task kept in the host's inbox stream, oldest first, as one JSON
+    /// line each. The host's inbox is not consumed
+    Show {
+        /// The bus, for example `nats://192.0.2.1:4222`. Without it: `AGENT_BUS_URL`, then
+        /// where `bus start` recorded the bus
+        #[arg(long)]
+        server: Option<String>,
+        /// The agent whose inbox to read
+        #[arg(long, default_value = "host")]
+        host: String,
+        /// The task to print
+        task: String,
     },
     /// Run a guest agent: take each task to Claude Code and reply with its progress and result
     Guest {
@@ -211,6 +242,26 @@ async fn main() -> Result<()> {
             let server = find_server(server)?;
             listen(&server, &seed_from_environment()?, &agent).await
         }
+        Command::Usage {
+            server,
+            host,
+            agent,
+            all,
+        } => {
+            let server = find_server(server)?;
+            usage(
+                &server,
+                &seed_from_environment()?,
+                &host,
+                agent.as_deref(),
+                all,
+            )
+            .await
+        }
+        Command::Show { server, host, task } => {
+            let server = find_server(server)?;
+            show(&server, &seed_from_environment()?, &host, &task).await
+        }
         Command::Guest {
             server,
             name,
@@ -269,6 +320,7 @@ async fn send(
             kind,
             text,
             usage: None,
+            task_usage: None,
             github,
         })
         .await?;
@@ -289,6 +341,7 @@ async fn cancel(server: &str, seed: &str, from: String, to: String, task: String
             kind: Kind::Cancel,
             text: String::new(),
             usage: None,
+            task_usage: None,
             github: false,
         })
         .await
@@ -301,6 +354,29 @@ async fn listen(server: &str, seed: &str, agent: &str) -> Result<()> {
     while let Some(delivery) = inbox.next().await? {
         println!("{}", serde_json::to_string(&delivery.message)?);
         delivery.ack().await?;
+    }
+    Ok(())
+}
+
+/// Print what each task cost, from the messages kept in `host`'s inbox stream. Nothing is
+/// acknowledged and the inbox is not consumed.
+async fn usage(server: &str, seed: &str, host: &str, agent: Option<&str>, all: bool) -> Result<()> {
+    if let Some(agent) = agent {
+        check_agent_name(agent)?;
+    }
+    let channel = Channel::connect(server, seed).await?;
+    let messages = channel.history(host).await?;
+    println!("{}", report::table(&report::rows(&messages, agent, all)));
+    Ok(())
+}
+
+/// Print every message of `task` kept in `host`'s inbox stream, oldest first, as one JSON line
+/// each. Nothing is acknowledged and the inbox is not consumed.
+async fn show(server: &str, seed: &str, host: &str, task: &str) -> Result<()> {
+    let channel = Channel::connect(server, seed).await?;
+    let messages = channel.history(host).await?;
+    for message in report::task_messages(&messages, task) {
+        println!("{}", serde_json::to_string(message)?);
     }
     Ok(())
 }

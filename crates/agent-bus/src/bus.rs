@@ -303,7 +303,8 @@ mod tests {
 
     use super::*;
     use crate::keys::{NewKey, generate};
-    use crate::message::{Kind, Message, Usage};
+    use crate::message::{Kind, Message, TaskUsage, Usage};
+    use crate::report;
 
     fn test_bus(config_path: PathBuf) -> Bus {
         Bus {
@@ -369,6 +370,7 @@ mod tests {
             kind: Kind::Task,
             text: text.to_owned(),
             usage: None,
+            task_usage: None,
             github: false,
         }
     }
@@ -466,7 +468,9 @@ mod tests {
                 num_turns: 2,
                 duration_ms: 5000,
                 duration_api_ms: 4000,
-                total_cost_usd: 0.0123,
+                cost_usd: 0.0123,
+                session_cost_usd: 0.0123,
+                models: Vec::new(),
             });
             dev_channel.send(&done).await?;
             for n in 0..5 {
@@ -507,6 +511,81 @@ mod tests {
                 "messages are left in the host's inbox"
             );
         }
+        Ok(())
+    }
+
+    /// The host reads the outcomes still kept in the stream, with its own permissions, and the
+    /// read leaves its inbox as it was.
+    async fn usage_history(bus: &Bus, host: &NewKey, dev: &NewKey) -> Result<()> {
+        let wait = Duration::from_secs(15);
+        let host_channel = Channel::connect(&bus.url(), &host.seed).await?;
+        let dev_channel = Channel::connect(&bus.url(), &dev.seed).await?;
+        for (kind, runs, cost_usd) in [(Kind::Question, 1, 0.04), (Kind::Completed, 2, 0.06)] {
+            let mut outcome = message("dev", "host", "outcome");
+            outcome.task = "usage1".to_owned();
+            outcome.kind = kind;
+            outcome.task_usage = Some(TaskUsage {
+                runs,
+                cost_usd,
+                input: 10,
+                output: 5,
+                cache_read: 90,
+                ..TaskUsage::default()
+            });
+            dev_channel.send(&outcome).await?;
+        }
+        let messages = timeout(wait, host_channel.history("host"))
+            .await
+            .context("the history was not read in time")??;
+        let rows = report::rows(&messages, Some("dev"), false);
+        let row = rows
+            .iter()
+            .find(|row| row.task == "usage1")
+            .context("the task is missing from the report")?;
+        ensure!(row.state == Kind::Completed, "wrong state {:?}", row.state);
+        ensure!(
+            row.usage.as_ref().is_some_and(|usage| usage.runs == 2),
+            "wrong usage {:?}",
+            row.usage
+        );
+        ensure!(
+            report::table(&rows).contains("$0.0600"),
+            "the cost is missing from the table"
+        );
+        // `show` prints the task's messages, all kinds, oldest first.
+        let shown = report::task_messages(&messages, "usage1");
+        ensure!(
+            shown.len() == 2
+                && shown.first().is_some_and(|m| m.kind == Kind::Question)
+                && shown.get(1).is_some_and(|m| m.kind == Kind::Completed),
+            "wrong messages for the task: {shown:?}"
+        );
+        // Nothing was acknowledged or consumed: the two outcomes are still in the inbox, and
+        // reading twice gives the same.
+        ensure!(
+            host_channel.waiting("host").await? >= 2,
+            "the history read consumed the host's inbox"
+        );
+        ensure!(
+            host_channel.history("host").await?.len() == messages.len(),
+            "a second read of the history differs"
+        );
+        // Drain the inbox as the other checks expect.
+        let mut inbox = host_channel.inbox("host").await?;
+        while host_channel.waiting("host").await? > 0 {
+            let delivery = timeout(wait, inbox.next())
+                .await
+                .context("the inbox ran dry")??
+                .context("the inbox closed")?;
+            delivery.ack().await?;
+        }
+        // The guest may not read the history: it cannot create a consumer.
+        ensure!(
+            timeout(wait, dev_channel.history("host"))
+                .await
+                .is_ok_and(|read| read.is_err()),
+            "a guest read the host's history"
+        );
         Ok(())
     }
 
@@ -652,6 +731,9 @@ mod tests {
             // Every message a guest sends reaches a host listener: progress, then the outcome
             // with its usage.
             reply_burst(&bus, &host, &dev).await?;
+
+            // `usage` reads the kept outcomes without consuming the host's inbox.
+            usage_history(&bus, &host, &dev).await?;
 
             // A task waits through a restart: the container is replaced, the volume is kept.
             let host_channel = Channel::connect(&bus.url(), &host.seed).await?;
