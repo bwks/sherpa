@@ -18,5 +18,8 @@ tracing = { workspace = true }
 # Libvirt
 virt = { workspace = true }
 
+# XML
+roxmltree = "0.21"
+
 [lints]
 workspace = true

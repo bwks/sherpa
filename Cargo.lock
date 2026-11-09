@@ -2908,6 +2908,7 @@ version = "0.5.18"
 dependencies = [
  "anyhow",
  "askama",
+ "roxmltree",
  "shared",
  "tracing",
  "virt",
@@ -4319,6 +4320,15 @@ checksum = "8ba9ce64a8f45d7fc86358410bb1a82e8c987504c0d4900e9141d69a9f26c885"
 dependencies = [
  "bytemuck",
  "byteorder",
+]
+
+[[package]]
+name = "roxmltree"
+version = "0.21.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9da7f59328b09405b181fee1018925fad50f157afb43c0c0f5c522c256dd5907"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]

@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use roxmltree::{Document, Node};
 use tracing::instrument;
 use virt::connect::Connect;
 use virt::domain::Domain;
@@ -178,106 +179,108 @@ fn strict_numa_node(mode: Option<i32>, nodeset: Option<&str>) -> Option<u32> {
 /// The NUMA cells in libvirt's capabilities XML (`<host><topology><cells>`), with each cell's
 /// memory and hugepage pools. Empty when the XML describes no cells.
 fn parse_numa_cells(capabilities: &str) -> Result<Vec<NumaCell>> {
-    let Some((_, cells)) = elements(capabilities, "cells").into_iter().next() else {
+    let document =
+        Document::parse(capabilities).context("The server's capabilities are not valid XML")?;
+    let Some(cells) = document
+        .descendants()
+        .find(|node| node.has_tag_name("cells"))
+    else {
         return Ok(Vec::new());
     };
-    let mut parsed = Vec::new();
-    for (attributes, body) in elements(cells, "cell") {
-        let id: u32 = attribute(attributes, "id")
-            .context("A NUMA cell in the capabilities has no id")?
-            .parse()
-            .context("A NUMA cell id in the capabilities is not a number")?;
-        let total_kib = match elements(body, "memory").into_iter().next() {
-            Some((memory_attributes, value)) => kib(memory_attributes, value)
-                .with_context(|| format!("Cannot read NUMA node {id}'s memory"))?,
-            None => 0,
-        };
-        let mut pages = Vec::new();
-        for (page_attributes, count) in elements(body, "pages") {
-            let size = kib(
-                page_attributes,
-                attribute(page_attributes, "size").unwrap_or(""),
-            )
-            .with_context(|| format!("Cannot read NUMA node {id}'s page size"))?;
-            let count: u64 = count
-                .trim()
-                .parse()
-                .with_context(|| format!("Cannot read NUMA node {id}'s page count"))?;
-            pages.push((size, count));
-        }
-        // The smallest page is the base page; the larger ones are hugepage pools.
-        let base = pages.iter().map(|(size, _)| *size).min().unwrap_or(0);
-        let hugepages_kib = pages
-            .iter()
-            .filter(|(size, _)| *size > base)
-            .map(|(size, count)| size.saturating_mul(*count))
-            .fold(0u64, u64::saturating_add);
-        parsed.push(NumaCell {
-            id,
-            total_kib,
-            hugepages_kib,
-        });
-    }
-    Ok(parsed)
+    cells
+        .children()
+        .filter(|node| node.has_tag_name("cell"))
+        .map(parse_numa_cell)
+        .collect()
 }
 
-/// A value in KiB, from an element whose `unit` attribute must be KiB, as libvirt writes it.
-fn kib(attributes: &str, value: &str) -> Result<u64> {
-    if let Some(unit) = attribute(attributes, "unit")
-        && unit != "KiB"
-    {
-        bail!("Unexpected memory unit '{unit}'");
-    }
-    value
+/// One `<cell>` of the capabilities: its id, memory and hugepage pools.
+fn parse_numa_cell(cell: Node) -> Result<NumaCell> {
+    let id: u32 = cell
+        .attribute("id")
+        .context("A NUMA cell in the capabilities has no id")?
         .trim()
         .parse()
-        .with_context(|| format!("'{}' is not a number of KiB", value.trim()))
+        .context("A NUMA cell id in the capabilities is not a number")?;
+    let total_kib = match child(cell, "memory") {
+        Some(memory) => to_kib(number(memory.text(), "memory")?, memory.attribute("unit"))
+            .with_context(|| format!("Cannot read NUMA node {id}'s memory"))?,
+        None => 0,
+    };
+    let mut pages = Vec::new();
+    for pool in cell.children().filter(|node| node.has_tag_name("pages")) {
+        let size = number(pool.attribute("size"), "page size")
+            .and_then(|size| to_kib(size, pool.attribute("unit")))
+            .with_context(|| format!("Cannot read NUMA node {id}'s page size"))?;
+        let count = number(pool.text(), "page count")
+            .with_context(|| format!("Cannot read NUMA node {id}'s page count"))?;
+        pages.push((size, count));
+    }
+    // The smallest page is the base page; the larger ones are hugepage pools.
+    let base = pages.iter().map(|(size, _)| *size).min().unwrap_or(0);
+    let hugepages_kib = pages
+        .iter()
+        .filter(|(size, _)| *size > base)
+        .map(|(size, count)| size.saturating_mul(*count))
+        .fold(0u64, u64::saturating_add);
+    Ok(NumaCell {
+        id,
+        total_kib,
+        hugepages_kib,
+    })
 }
 
-/// The attributes and body of each `<tag>` element in `xml`, in order. Elements of the same
-/// tag must not nest, which holds for the capabilities elements read here. A self-closing
-/// element has an empty body.
-fn elements<'a>(xml: &'a str, tag: &str) -> Vec<(&'a str, &'a str)> {
-    let open = format!("<{tag}");
-    let close = format!("</{tag}>");
-    let mut found = Vec::new();
-    let mut rest = xml;
-    while let Some(start) = rest.find(&open) {
-        let after_name = &rest[start + open.len()..];
-        // `<cells` must not match `<cell`, so the name ends at a space, `>` or `/`.
-        if !after_name.starts_with([' ', '>', '/', '\t', '\n', '\r']) {
-            rest = after_name;
-            continue;
-        }
-        let Some(tag_end) = after_name.find('>') else {
-            break;
-        };
-        let attributes = &after_name[..tag_end];
-        let after_tag = &after_name[tag_end + 1..];
-        if attributes.ends_with('/') {
-            found.push((attributes.trim_end_matches('/'), ""));
-            rest = after_tag;
-            continue;
-        }
-        let Some(body_end) = after_tag.find(&close) else {
-            break;
-        };
-        found.push((attributes, &after_tag[..body_end]));
-        rest = &after_tag[body_end + close.len()..];
-    }
-    found
+/// The first child element of `node` named `tag`.
+fn child<'a, 'input>(node: Node<'a, 'input>, tag: &str) -> Option<Node<'a, 'input>> {
+    node.children().find(|child| child.has_tag_name(tag))
 }
 
-/// An attribute's value, in single or double quotes.
-fn attribute<'a>(attributes: &'a str, name: &str) -> Option<&'a str> {
-    for quote in ['\'', '"'] {
-        let key = format!(" {name}={quote}");
-        if let Some(start) = attributes.find(&key) {
-            let value = &attributes[start + key.len()..];
-            return value.find(quote).map(|end| &value[..end]);
-        }
+/// A whole number from an element's text or an attribute; `what` names it in the error.
+fn number(value: Option<&str>, what: &str) -> Result<u64> {
+    let value = value.map(str::trim).unwrap_or_default();
+    if value.is_empty() {
+        bail!("The {what} has no value");
     }
-    None
+    value
+        .parse()
+        .with_context(|| format!("The {what} '{value}' is not a whole number"))
+}
+
+/// `value` in `unit`, converted to KiB and rounded down. The units are libvirt's: `b`/`bytes`,
+/// `KB`/`MB`/... in powers of 1000, and `K`/`KiB`/`M`/`MiB`/... in powers of 1024, with the
+/// letter in either case. A value without a unit is in KiB, as libvirt writes it.
+fn to_kib(value: u64, unit: Option<&str>) -> Result<u64> {
+    let Some(unit) = unit else {
+        return Ok(value);
+    };
+    let bytes_per_unit =
+        unit_bytes(unit).with_context(|| format!("Unknown memory unit '{unit}'"))?;
+    let kib = u128::from(value) * bytes_per_unit / 1024;
+    u64::try_from(kib).with_context(|| format!("{value} {unit} is too large"))
+}
+
+/// The bytes in one `unit`, or `None` when libvirt does not know the unit.
+fn unit_bytes(unit: &str) -> Option<u128> {
+    let lower = unit.to_ascii_lowercase();
+    if matches!(lower.as_str(), "b" | "byte" | "bytes") {
+        return Some(1);
+    }
+    let mut letters = lower.chars();
+    let power = match letters.next()? {
+        'k' => 1,
+        'm' => 2,
+        'g' => 3,
+        't' => 4,
+        'p' => 5,
+        'e' => 6,
+        _ => return None,
+    };
+    let base: u128 = match letters.as_str() {
+        "" | "ib" => 1024,
+        "b" => 1000,
+        _ => return None,
+    };
+    Some(base.pow(power))
 }
 
 #[cfg(test)]
@@ -362,10 +365,62 @@ mod tests {
     }
 
     #[test]
-    fn a_memory_unit_other_than_kib_is_refused() {
-        let xml = "<cells num='1'><cell id='0'><memory unit='MiB'>1</memory></cell></cells>";
-        let error = parse_numa_cells(xml).unwrap_err();
-        assert!(format!("{error:#}").contains("Unexpected memory unit 'MiB'"));
+    fn memory_in_other_units_is_converted_to_kib() {
+        let xml = "<cells num='1'><cell id='0'>\
+            <memory unit='MiB'>2</memory>\
+            <pages unit='b' size='4096'>100</pages>\
+            <pages unit='GiB' size='1'>3</pages>\
+            </cell></cells>";
+        assert_eq!(
+            parse_numa_cells(xml).unwrap(),
+            vec![NumaCell {
+                id: 0,
+                total_kib: 2048,
+                hugepages_kib: 3 * 1_048_576,
+            }]
+        );
+    }
+
+    #[test]
+    fn libvirt_units_scale_by_1000_or_1024() {
+        assert_eq!(to_kib(5, None).unwrap(), 5);
+        assert_eq!(to_kib(5, Some("KiB")).unwrap(), 5);
+        assert_eq!(to_kib(5, Some("k")).unwrap(), 5);
+        assert_eq!(to_kib(2048, Some("bytes")).unwrap(), 2);
+        assert_eq!(to_kib(1024, Some("KB")).unwrap(), 1000);
+        assert_eq!(to_kib(1, Some("G")).unwrap(), 1_048_576);
+        assert_eq!(to_kib(1, Some("gb")).unwrap(), 976_562);
+        assert_eq!(to_kib(1, Some("TiB")).unwrap(), 1_073_741_824);
+    }
+
+    #[test]
+    fn an_unknown_memory_unit_is_refused() {
+        let xml = "<cells num='1'><cell id='0'><memory unit='pages'>1</memory></cell></cells>";
+        let error = format!("{:#}", parse_numa_cells(xml).unwrap_err());
+        assert!(error.contains("NUMA node 0's memory"), "{error}");
+        assert!(error.contains("Unknown memory unit 'pages'"), "{error}");
+    }
+
+    #[test]
+    fn a_cell_without_an_id_is_refused() {
+        let xml = "<cells num='1'><cell><memory unit='KiB'>1</memory></cell></cells>";
+        let error = format!("{:#}", parse_numa_cells(xml).unwrap_err());
+        assert!(error.contains("has no id"), "{error}");
+    }
+
+    #[test]
+    fn a_page_pool_without_a_size_is_refused() {
+        let xml = "<cells num='1'><cell id='1'><pages unit='KiB'>1</pages></cell></cells>";
+        let error = format!("{:#}", parse_numa_cells(xml).unwrap_err());
+        assert!(error.contains("NUMA node 1's page size"), "{error}");
+        assert!(error.contains("page size has no value"), "{error}");
+    }
+
+    #[test]
+    fn invalid_xml_is_refused() {
+        let xml = "<capabilities><host><topology><cells num='1'><cell id='0'></cells>";
+        let error = format!("{:#}", parse_numa_cells(xml).unwrap_err());
+        assert!(error.contains("not valid XML"), "{error}");
     }
 
     #[test]
@@ -396,19 +451,5 @@ mod tests {
         assert_eq!(strict_numa_node(Some(strict), Some("")), None);
         assert_eq!(strict_numa_node(Some(strict), None), None);
         assert_eq!(strict_numa_node(None, Some("1")), None);
-    }
-
-    #[test]
-    fn elements_do_not_match_a_longer_tag_name() {
-        let xml = "<cells num='1'><cell id='0'/></cells>";
-        assert_eq!(elements(xml, "cell"), vec![(" id='0'", "")]);
-        assert_eq!(elements(xml, "cells").len(), 1);
-    }
-
-    #[test]
-    fn attributes_take_either_quote() {
-        assert_eq!(attribute(" id=\"2\" unit='KiB'", "id"), Some("2"));
-        assert_eq!(attribute(" id=\"2\" unit='KiB'", "unit"), Some("KiB"));
-        assert_eq!(attribute(" sid='2'", "id"), None);
     }
 }
