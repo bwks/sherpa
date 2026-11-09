@@ -24,6 +24,8 @@ use async_nats::jetstream::kv::{self, Operation};
 use async_nats::jetstream::{self, consumer, stream};
 use async_nats::{ConnectOptions, Event};
 use futures_util::StreamExt;
+use tracing::field::Empty;
+use tracing::{Span, instrument};
 
 use crate::keys::public_key_of;
 use crate::message::{Message, check_agent_name};
@@ -113,6 +115,7 @@ impl Channel {
     ///
     /// Fails when the seed is not a user seed, there is no CA certificate, or the bus cannot be
     /// reached or does not prove it is the bus.
+    #[instrument(skip_all, fields(url = %server.url))]
     pub async fn connect(server: &Endpoint, seed: &str) -> Result<Self> {
         let key = public_key_of(seed)?;
         let client = tls_options(ConnectOptions::with_nkey(seed.trim().to_owned()), server)?
@@ -138,6 +141,7 @@ impl Channel {
     /// # Errors
     ///
     /// Fails when the bus refuses the stream or a consumer.
+    #[instrument(skip_all)]
     pub async fn create_inboxes<'a>(
         &self,
         names: impl IntoIterator<Item = &'a str>,
@@ -175,6 +179,7 @@ impl Channel {
     }
 
     /// Bring one inbox consumer to the wanted config without losing or replaying messages.
+    #[instrument(level = "debug", skip_all, fields(agent = wanted.durable_name.as_deref().unwrap_or_default()))]
     async fn ensure_inbox(
         &self,
         stream: &stream::Stream,
@@ -230,8 +235,14 @@ impl Channel {
     /// # Errors
     ///
     /// Fails when a name is invalid or the bus does not store the message.
+    #[instrument(
+        level = "debug",
+        skip_all,
+        fields(task = %message.task, kind = ?message.kind, subject = Empty)
+    )]
     pub async fn send(&self, message: &Message) -> Result<()> {
         let subject = message_subject(&message.to, &message.from)?;
+        Span::current().record("subject", subject.as_str());
         let payload = serde_json::to_vec(message).context("Unable to encode the message")?;
         self.jetstream
             .publish(subject, payload.into())
@@ -249,6 +260,7 @@ impl Channel {
     ///
     /// Fails when the name is invalid, or the inbox does not exist: the host creates it when it
     /// starts the bus with the agent in its agents file.
+    #[instrument(skip_all, fields(%agent))]
     pub async fn inbox(&self, agent: &str) -> Result<Inbox> {
         check_agent_name(agent)?;
         let mut reader = self
@@ -287,6 +299,7 @@ impl Channel {
     /// # Errors
     ///
     /// Fails when the name is invalid or the bus refuses the consumer or a read.
+    #[instrument(level = "debug", skip_all, fields(%agent))]
     pub async fn history(&self, agent: &str) -> Result<Vec<Message>> {
         let subject = inbox_filter(agent)?;
         let stream = self
@@ -318,8 +331,10 @@ impl Channel {
     ///
     /// Fails when the name is invalid, or the bus does not store the status (no status bucket:
     /// the bus was prepared by an older `agent-bus`).
+    #[instrument(level = "debug", skip_all, fields(%agent, subject = Empty))]
     pub async fn put_status(&self, agent: &str, status: &Status) -> Result<()> {
         let subject = status_subject(agent)?;
+        Span::current().record("subject", subject.as_str());
         let payload = serde_json::to_vec(status).context("Unable to encode the status")?;
         self.jetstream
             .publish(subject, payload.into())
@@ -336,6 +351,7 @@ impl Channel {
     /// # Errors
     ///
     /// Fails when the bucket cannot be read.
+    #[instrument(level = "debug", skip_all)]
     pub async fn statuses<'a>(
         &self,
         names: impl IntoIterator<Item = &'a str>,
@@ -386,6 +402,7 @@ impl Channel {
     /// # Errors
     ///
     /// Fails when the name is invalid or the consumer cannot be read.
+    #[instrument(level = "debug", skip_all, fields(%agent))]
     pub async fn inbox_state(&self, agent: &str) -> Result<Option<InboxState>> {
         check_agent_name(agent)?;
         let stream = self
@@ -478,6 +495,7 @@ impl Inbox {
     /// # Errors
     ///
     /// Fails when the reader cannot go on: the inbox was deleted, or the bus refuses its pulls.
+    #[instrument(level = "debug", skip_all)]
     pub async fn next(&mut self) -> Result<Option<Delivery>> {
         while let Some(raw) = self.messages.next().await {
             let raw = match raw {
@@ -519,6 +537,7 @@ impl Delivery {
     /// # Errors
     ///
     /// Fails when the bus does not take the acknowledgement.
+    #[instrument(level = "debug", skip_all, fields(task = %self.message.task))]
     pub async fn ack(&self) -> Result<()> {
         self.raw
             .ack()
@@ -529,6 +548,7 @@ impl Delivery {
 }
 
 /// Read everything `reader` has pending.
+#[instrument(level = "debug", skip_all)]
 async fn read_all(reader: &consumer::PullConsumer) -> Result<Vec<Message>> {
     let mut pending = reader.cached_info().num_pending;
     let mut messages = Vec::new();

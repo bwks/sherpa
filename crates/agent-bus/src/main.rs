@@ -29,6 +29,7 @@ mod status;
 mod table;
 mod tls;
 
+use std::env;
 use std::io::{self, IsTerminal};
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
@@ -37,6 +38,8 @@ use std::time::Duration;
 use anyhow::{Result, bail};
 use async_nats::rustls::crypto::aws_lc_rs;
 use clap::{ArgGroup, Parser, Subcommand};
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::fmt::format::FmtSpan;
 
 use bus::Bus;
 use channel::{Channel, Endpoint};
@@ -246,6 +249,7 @@ async fn main() -> Result<()> {
     // The TLS connection to the bus takes rustls's process default, aws-lc-rs as in the rest
     // of the workspace. Already installed is fine.
     let _ = aws_lc_rs::default_provider().install_default();
+    init_tracing();
     let cli = Cli::parse();
     match cli.command {
         Command::Key { action } => match action {
@@ -331,6 +335,31 @@ async fn main() -> Result<()> {
             guest::run(&server, &seed, &name, &reply_to, &workdir, &model).await
         }
     }
+}
+
+/// Print spans to stderr when `RUST_LOG` is set, such as `RUST_LOG=agent_bus=debug`: one line
+/// as each span closes, with its fields and how long it took. Without `RUST_LOG` nothing is
+/// installed and the output is as it always was. stdout is left alone: `listen`, `send` and
+/// `enroll` print what scripts read there.
+fn init_tracing() {
+    let Some(directives) = env::var_os(EnvFilter::DEFAULT_ENV).filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+    let filter = match EnvFilter::try_new(directives.to_string_lossy()) {
+        Ok(filter) => filter,
+        Err(error) => {
+            eprintln!("Ignoring {}: {error}", EnvFilter::DEFAULT_ENV);
+            return;
+        }
+    };
+    let stderr = io::stderr();
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(io::stderr)
+        .with_ansi(stderr.is_terminal())
+        .with_span_events(FmtSpan::CLOSE)
+        .try_init();
 }
 
 /// Run a `bus` subcommand.
@@ -535,7 +564,72 @@ async fn agents(server: &Endpoint, seed: &str, json: bool) -> Result<()> {
 mod tests {
     use super::*;
 
+    use std::fmt::{self, Write};
+    use std::path::Path;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex};
+
     use clap::error::ErrorKind;
+    use tracing::field::{Field, Visit};
+    use tracing::span::{Attributes, Id, Record};
+    use tracing::{Event, Metadata, Subscriber};
+
+    /// A subscriber that keeps every span, with its fields, and every event as text.
+    #[derive(Clone, Default)]
+    struct Capture {
+        seen: Arc<Mutex<Vec<String>>>,
+        next_id: Arc<AtomicU64>,
+    }
+
+    /// Appends ` name=value` for each field.
+    struct Fields<'a>(&'a mut String);
+
+    impl Visit for Fields<'_> {
+        fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
+            write!(self.0, " {}={value:?}", field.name()).unwrap();
+        }
+    }
+
+    impl Capture {
+        fn keep(&self, text: String) {
+            self.seen.lock().unwrap().push(text);
+        }
+
+        fn seen(&self) -> Vec<String> {
+            self.seen.lock().unwrap().clone()
+        }
+    }
+
+    impl Subscriber for Capture {
+        fn enabled(&self, _: &Metadata<'_>) -> bool {
+            true
+        }
+
+        fn new_span(&self, span: &Attributes<'_>) -> Id {
+            let mut text = span.metadata().name().to_owned();
+            span.record(&mut Fields(&mut text));
+            self.keep(text);
+            Id::from_u64(self.next_id.fetch_add(1, Ordering::Relaxed) + 1)
+        }
+
+        fn record(&self, _: &Id, values: &Record<'_>) {
+            let mut text = "record".to_owned();
+            values.record(&mut Fields(&mut text));
+            self.keep(text);
+        }
+
+        fn record_follows_from(&self, _: &Id, _: &Id) {}
+
+        fn event(&self, event: &Event<'_>) {
+            let mut text = "event".to_owned();
+            event.record(&mut Fields(&mut text));
+            self.keep(text);
+        }
+
+        fn enter(&self, _: &Id) {}
+
+        fn exit(&self, _: &Id) {}
+    }
 
     fn send(extra: &[&str]) -> Result<Cli, clap::Error> {
         let mut args = vec!["agent-bus", "send", "--to", "dev"];
@@ -594,5 +688,66 @@ mod tests {
         assert!(!github);
         assert_eq!(model, None);
         assert_eq!(answer.as_deref(), Some("t1"));
+    }
+
+    /// Every instrumented function that takes a seed records its span without it. Each call
+    /// fails early (no CA, no agents file, a bad name), after its span is made.
+    #[tokio::test]
+    async fn a_seed_never_appears_in_a_span() {
+        let capture = Capture::default();
+        let _guard = tracing::subscriber::set_default(capture.clone());
+        let seed = keys::generate().unwrap().seed;
+        let missing = Path::new("/nonexistent/agent-bus-test");
+        let server = Endpoint {
+            url: "nats://127.0.0.1:1".to_owned(),
+            ca: missing.join("ca.pem"),
+        };
+        let bus = Bus {
+            container: "agent-bus-test".to_owned(),
+            volume: "agent-bus-test".to_owned(),
+            listen: Ipv4Addr::LOCALHOST,
+            port: 1,
+            state_dir: missing.to_owned(),
+            lab: None,
+        };
+        let agents_file = missing.join("agents.toml");
+
+        assert!(Channel::connect(&server, &seed).await.is_err());
+        assert!(bus::start(&bus, &agents_file, &seed).await.is_err());
+        assert!(
+            bus::enroll(&bus, &agents_file, "guest1", &seed)
+                .await
+                .is_err()
+        );
+        assert!(bus::agents(&bus, &agents_file, &seed).is_err());
+        assert!(
+            listen::listen(&server, &seed, "not a name", None)
+                .await
+                .is_err()
+        );
+        assert!(
+            guest::run(&server, &seed, "not a name", "host", missing, DEFAULT_MODEL)
+                .await
+                .is_err()
+        );
+
+        let spans = capture.seen();
+        for name in ["connect", "start", "enroll", "agents", "listen", "run"] {
+            assert!(
+                spans
+                    .iter()
+                    .any(|span| span.starts_with(&format!("{name} "))),
+                "no {name} span in {spans:#?}"
+            );
+        }
+        assert!(
+            spans
+                .iter()
+                .any(|span| span.contains("url=nats://127.0.0.1:1")),
+            "{spans:#?}"
+        );
+        for span in &spans {
+            assert!(!span.contains(&seed), "a span holds the seed: {span}");
+        }
     }
 }

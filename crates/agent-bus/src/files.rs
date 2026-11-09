@@ -15,6 +15,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
+use tracing::instrument;
 
 use crate::channel::RETENTION;
 
@@ -99,6 +100,7 @@ pub fn millis(duration: Duration) -> u64 {
 /// # Errors
 ///
 /// Fails when the temporary file cannot be written or renamed over the file.
+#[instrument(level = "debug", skip_all, fields(path = %path.display(), mode = format_args!("{mode:o}")))]
 pub fn write_atomic(path: &Path, text: &str, mode: u32) -> Result<()> {
     let mut temporary = path.as_os_str().to_owned();
     temporary.push(format!(".{}.tmp", std::process::id()));
@@ -151,6 +153,7 @@ impl JsonLines {
     /// # Errors
     ///
     /// Fails when the directory or the file cannot be written.
+    #[instrument(level = "debug", skip_all, fields(path = %self.path.display()))]
     pub fn append(&mut self, line: &str, now_ms: u64) -> Result<()> {
         if self
             .pruned_at_ms
@@ -186,6 +189,7 @@ impl JsonLines {
     /// # Errors
     ///
     /// Fails when the file cannot be read or rewritten.
+    #[instrument(level = "debug", skip_all, fields(path = %self.path.display()))]
     pub fn prune(&mut self, now_ms: u64) -> Result<usize> {
         self.pruned_at_ms = Some(now_ms);
         let text = match fs::read_to_string(&self.path) {

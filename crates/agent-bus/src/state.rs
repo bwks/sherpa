@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use shared::data::LabInfo;
 use shared::konst::{LAB_FILE_NAME, LAB_STATE_DIR};
 use shared::util::LabFolder;
+use tracing::instrument;
 
 use crate::files::{PRIVATE_FILE_MODE, private_dir, write_atomic};
 
@@ -45,6 +46,7 @@ pub struct BusRecord {
 /// Fails, naming the file, when it is missing or is not a lab info file with a gateway. A lab
 /// folder still in the layout from before `.sherpa/`, with a loose `lab-info.toml`, is not
 /// read: the error says to run a Sherpa command there, which moves its files.
+#[instrument(level = "debug", skip_all, fields(lab_dir = %lab_dir.display()))]
 pub fn read_lab_info(lab_dir: &Path) -> Result<LabInfo> {
     let path = LabFolder::new(lab_dir).lab_info();
     if !lab_dir.join(LAB_STATE_DIR).exists() && lab_dir.join(LAB_FILE_NAME).exists() {
@@ -86,6 +88,7 @@ pub fn lab_gateway(lab_dir: &Path) -> Result<(Ipv4Addr, LabRecord)> {
 /// # Errors
 ///
 /// Fails when the file cannot be written.
+#[instrument(level = "debug", skip_all, fields(path = %path.display()))]
 pub fn write(path: &Path, record: &BusRecord) -> Result<()> {
     let text = toml::to_string_pretty(record).context("Unable to render the bus record")?;
     if let Some(dir) = path.parent() {
@@ -99,6 +102,7 @@ pub fn write(path: &Path, record: &BusRecord) -> Result<()> {
 /// # Errors
 ///
 /// Fails when the file exists but cannot be read or parsed.
+#[instrument(level = "debug", skip_all, fields(path = %path.display()))]
 pub fn read(path: &Path) -> Result<Option<BusRecord>> {
     match fs::read_to_string(path) {
         Ok(text) => toml::from_str(&text)
@@ -114,6 +118,7 @@ pub fn read(path: &Path) -> Result<Option<BusRecord>> {
 /// # Errors
 ///
 /// Fails when the file exists and cannot be removed.
+#[instrument(level = "debug", skip_all, fields(path = %path.display()))]
 pub fn remove(path: &Path) -> Result<()> {
     match fs::remove_file(path) {
         Ok(()) => Ok(()),

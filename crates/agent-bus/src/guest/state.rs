@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 use super::base::Base;
 use super::engine::Session;
@@ -146,6 +147,7 @@ impl StateFile {
 
     /// The saved state. A missing file is a fresh start. A file that cannot be read or parsed
     /// is reported, moved aside to `<file>.corrupt-<unix seconds>`, and is a fresh start too.
+    #[instrument(level = "debug", skip_all, fields(path = %self.path.display()))]
     pub(super) fn load(&self, now_ms: u64) -> Saved {
         let parsed = match fs::read_to_string(&self.path) {
             Ok(text) => toml::from_str::<Saved>(&text).map_err(anyhow::Error::from),
@@ -180,6 +182,7 @@ impl StateFile {
     /// # Errors
     ///
     /// Fails when the state cannot be rendered or the directory or the file cannot be written.
+    #[instrument(level = "debug", skip_all, fields(path = %self.path.display()))]
     pub(super) fn save(&self, saved: &Saved) -> Result<()> {
         let text = toml::to_string(saved).context("Unable to render the guest agent's state")?;
         let dir = self

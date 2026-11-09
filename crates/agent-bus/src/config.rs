@@ -30,6 +30,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use serde::Serialize;
+use tracing::instrument;
 
 use crate::agents::Agents;
 use crate::channel::{STREAM, SUBJECT_PREFIX, inbox_prefix};
@@ -116,6 +117,7 @@ pub fn render(agents: &Agents) -> Result<String> {
 /// # Errors
 ///
 /// Fails when the directories or the file cannot be written.
+#[instrument(level = "debug", skip_all, fields(path = %path.display()))]
 pub fn write(path: &Path, agents: &Agents) -> Result<()> {
     let text = render(agents)?;
     if let Some(dir) = path.parent() {

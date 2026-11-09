@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::Serialize;
 use serde_json::Value;
+use tracing::instrument;
 
 use crate::files::{JsonLines, standard_state_dir};
 
@@ -71,6 +72,7 @@ impl ResultLog {
     /// # Errors
     ///
     /// Fails when the directory or the file cannot be written.
+    #[instrument(level = "debug", skip_all, fields(%task, %session, run))]
     pub(super) fn append(
         &mut self,
         task: &str,

@@ -42,8 +42,9 @@ rcgen = "0.13"
 time = "0.3"
 jiff = { workspace = true }
 
-# Spans on I/O functions
+# Spans on I/O functions, printed to stderr when RUST_LOG is set
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 # Task IDs
 uuid = { workspace = true }

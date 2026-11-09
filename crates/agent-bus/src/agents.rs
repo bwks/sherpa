@@ -21,6 +21,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 use crate::keys::check_public_key;
 use crate::message::check_agent_name;
@@ -122,6 +123,7 @@ impl Agents {
     /// # Errors
     ///
     /// Fails when the file cannot be read or is not valid.
+    #[instrument(level = "debug", skip_all, fields(path = %path.display()))]
     pub fn load(path: &Path) -> Result<Self> {
         let text = fs::read_to_string(path)
             .with_context(|| format!("Unable to read the agents file {}", path.display()))?;

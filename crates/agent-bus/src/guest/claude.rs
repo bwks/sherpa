@@ -10,6 +10,7 @@ use nix::sys::signal::{Signal, killpg};
 use nix::unistd::Pid;
 use tokio::process::{Child, Command};
 use tokio::time::{Instant, sleep, timeout};
+use tracing::instrument;
 
 use crate::keys::SEED_VARIABLE;
 
@@ -20,6 +21,8 @@ const KILL_GRACE: Duration = Duration::from_secs(2);
 const GROUP_POLL: Duration = Duration::from_millis(100);
 /// Removed from Claude Code's environment, so it can only use the subscription.
 const API_KEY_VARIABLE: &str = "ANTHROPIC_API_KEY";
+/// Removed so the agent's own tracing does not reach the builds and tests Claude Code runs.
+const LOG_VARIABLE: &str = "RUST_LOG";
 /// GitHub tokens. Claude Code only has them for a task that was given GitHub access, so without
 /// it `curl` with the token cannot work around the deny list either.
 const GITHUB_TOKEN_VARIABLES: [&str; 3] = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN"];
@@ -119,6 +122,7 @@ impl Drop for Group {
 
 /// Stop Claude Code and everything it started: SIGTERM to the group, SIGKILL after the grace
 /// period, and SIGKILL once more for any command that ignored SIGTERM after Claude Code left.
+#[instrument(level = "debug", skip_all, fields(pid = child.id()))]
 pub(super) async fn terminate(child: &mut Child, group: &mut Group) {
     group.signal(Signal::SIGTERM);
     if timeout(KILL_GRACE, child.wait()).await.is_err() {
@@ -134,6 +138,7 @@ pub(super) async fn terminate(child: &mut Child, group: &mut Group) {
 /// Stop what Claude Code left in its group after it exited on its own: commands it started in
 /// the background, with `&` or `nohup`. SIGTERM, then SIGKILL for whatever is still there after
 /// the grace period. The guest agent is not in the group.
+#[instrument(level = "debug", skip_all)]
 pub(super) async fn finish(group: &mut Group) {
     if group.alive() {
         eprintln!("Claude Code left commands running: stopping them");
@@ -205,6 +210,7 @@ pub(super) fn claude_command(
         .kill_on_drop(true)
         .env_remove(API_KEY_VARIABLE)
         .env_remove(SEED_VARIABLE)
+        .env_remove(LOG_VARIABLE)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped());
     if !github {
@@ -245,6 +251,7 @@ mod tests {
         for variable in [
             "ANTHROPIC_API_KEY",
             "AGENT_BUS_SEED",
+            "RUST_LOG",
             "GH_TOKEN",
             "GITHUB_TOKEN",
             "GH_ENTERPRISE_TOKEN",
@@ -263,7 +270,7 @@ mod tests {
         for variable in GITHUB_TOKEN_VARIABLES {
             assert!(!removed.iter().any(|name| name == variable), "{variable}");
         }
-        for variable in ["ANTHROPIC_API_KEY", "AGENT_BUS_SEED"] {
+        for variable in ["ANTHROPIC_API_KEY", "AGENT_BUS_SEED", "RUST_LOG"] {
             assert!(removed.iter().any(|name| name == variable), "{variable}");
         }
         let args = args(&command);

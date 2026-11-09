@@ -13,6 +13,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::sync::watch;
 use tokio::time::{MissedTickBehavior, interval};
 use tokio::try_join;
+use tracing::instrument;
 
 use super::base::{Base, Inputs};
 use super::claude::{
@@ -135,6 +136,7 @@ struct Engine<'a> {
 ///
 /// Fails when a name is invalid, another guest agent of this name is running, the subscription
 /// token is not set, or the bus fails. A task that fails is reported to `reply_to` instead.
+#[instrument(skip_all, fields(agent = %name, url = %server.url))]
 pub async fn run(
     server: &Endpoint,
     seed: &str,
@@ -270,6 +272,7 @@ async fn forward(channel: &Channel, mut outgoing: UnboundedReceiver<Message>) ->
 /// engine is gone; then once more, marked offline. A status the bus does not take is reported, once
 /// until it takes one again, and the agent goes on: the status is for the host's view, the
 /// tasks do not depend on it.
+#[instrument(skip_all, fields(agent = %name))]
 pub async fn heartbeat(
     channel: &Channel,
     name: &str,
@@ -720,6 +723,7 @@ impl<'a> Engine<'a> {
 
     /// Make a base session with two turns: the priming prompt in a new session, then a resume of
     /// that session. Both runs are counted in the totals of `task`, the task that needed them.
+    #[instrument(level = "debug", skip_all, fields(%task, %model, github))]
     async fn prime(&mut self, github: bool, model: &str, task: &str) -> Result<String> {
         let session = self
             .priming_run(github, model, task, &Launch::Fresh, PRIME_PROMPT)
@@ -729,6 +733,7 @@ impl<'a> Engine<'a> {
     }
 
     /// One priming run of Claude Code with `prompt`. Returns the session it ended in.
+    #[instrument(level = "debug", skip_all, fields(%task, %model, github, ?launch))]
     async fn priming_run(
         &mut self,
         github: bool,
@@ -788,6 +793,10 @@ impl<'a> Engine<'a> {
     /// Run Claude Code on one task or answer, on the task's model, forwarding its progress and
     /// its outcome. A new task forks the base session; if that fails it runs in a fresh session
     /// instead.
+    #[instrument(
+        skip_all,
+        fields(task = %message.task, kind = ?message.kind, from = %message.from)
+    )]
     async fn work(&mut self, message: &Message) -> Result<Finish> {
         let known = self
             .tasks
@@ -830,6 +839,11 @@ impl<'a> Engine<'a> {
 
     /// One run of Claude Code for a task. Messages that arrive meanwhile are queued, or cancel
     /// the task.
+    #[instrument(
+        level = "debug",
+        skip_all,
+        fields(task = %message.task, %model, github, ?launch)
+    )]
     async fn attempt(
         &mut self,
         message: &Message,

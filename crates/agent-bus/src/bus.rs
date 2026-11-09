@@ -30,6 +30,7 @@ use container::{
     container_status, docker_connection, remove_container, start_container, stop_container,
 };
 use futures_util::TryStreamExt;
+use tracing::instrument;
 
 use crate::agents::Agents;
 use crate::channel::{Channel, Endpoint};
@@ -214,6 +215,10 @@ impl Bus {
 ///
 /// Fails when the agents file or the registry is not valid, `host_seed` is not the host's key,
 /// or Docker or the bus fails.
+#[instrument(
+    skip_all,
+    fields(container = %bus.container, url = %bus.url(), agents = %agents_path.display())
+)]
 pub async fn start(bus: &Bus, agents_path: &Path, host_seed: &str) -> Result<()> {
     ensure!(
         !bus.listen.is_unspecified(),
@@ -297,6 +302,7 @@ pub async fn start(bus: &Bus, agents_path: &Path, host_seed: &str) -> Result<()>
 /// Fails when the name is not valid or the agents file lists it, `host_seed` is not the host's
 /// key, the bus is not running or not reloadable, or the reloaded bus does not accept the new
 /// key.
+#[instrument(skip_all, fields(agent = %name, container = %bus.container))]
 pub async fn enroll(bus: &Bus, agents_path: &Path, name: &str, host_seed: &str) -> Result<String> {
     check_agent_name(name)?;
     let fixed = load_agents(agents_path, Some(host_seed))?;
@@ -355,6 +361,7 @@ pub async fn enroll(bus: &Bus, agents_path: &Path, name: &str, host_seed: &str) 
 ///
 /// Fails when the name is not valid or the agents file lists it, the registry cannot be changed,
 /// or the running bus cannot be reloaded.
+#[instrument(skip_all, fields(agent = %name, container = %bus.container))]
 pub async fn unenroll(bus: &Bus, agents_path: &Path, name: &str) -> Result<()> {
     check_agent_name(name)?;
     let fixed = load_agents(agents_path, None)?;
@@ -383,6 +390,7 @@ pub async fn unenroll(bus: &Bus, agents_path: &Path, name: &str) -> Result<()> {
 /// # Errors
 ///
 /// As `unenroll`, and when the bus container runs but no bus is recorded.
+#[instrument(skip_all, fields(agent = %name))]
 pub async fn unenroll_standard(name: &str) -> Result<()> {
     unenroll_in(CONTAINER_NAME, VOLUME, standard_state_dir()?, name).await
 }
@@ -392,6 +400,7 @@ pub async fn unenroll_standard(name: &str) -> Result<()> {
 /// bus was stopped, or never started) only the registry changes: `bus start` renders the config
 /// from it, so the key is refused from the next start. The agents file is not known then, so
 /// its names are not refused; they are never in the registry anyway.
+#[instrument(level = "debug", skip_all, fields(agent = %name, %container))]
 async fn unenroll_in(container: &str, volume: &str, state_dir: PathBuf, name: &str) -> Result<()> {
     if let Some((bus, agents_path)) = Bus::find_record(container, volume, state_dir.clone())? {
         return unenroll(&bus, &agents_path, name).await;
@@ -425,6 +434,7 @@ async fn unenroll_in(container: &str, volume: &str, state_dir: PathBuf, name: &s
 /// # Errors
 ///
 /// Fails when the agents file or the registry is not valid, or `host_seed` is not the host's.
+#[instrument(level = "debug", skip_all, fields(agents = %agents_path.display()))]
 pub fn agents(bus: &Bus, agents_path: &Path, host_seed: &str) -> Result<Agents> {
     let fixed = load_agents(agents_path, Some(host_seed))?;
     let merged = registry::merge(fixed, &Registry::load(&bus.registry_path())?)?;
@@ -466,6 +476,7 @@ fn warn_shadowed(shadowed: &[String], agents_path: &Path) {
 
 /// Save `registry`, render the config from it and the agents file, and reload the bus if
 /// `reload`. The merge is checked before anything is written.
+#[instrument(level = "debug", skip_all, fields(container = %bus.container, reload))]
 async fn apply(
     bus: &Bus,
     docker: &Docker,
@@ -493,6 +504,7 @@ async fn apply(
 /// Whether the bus container runs and reads the config this bus writes. `false` when it is not
 /// running; an error when it runs with another config, such as one started by an older
 /// agent-bus, which mounted the config file itself and would never see the new one.
+#[instrument(level = "debug", skip_all, fields(container = %bus.container))]
 async fn reloadable(docker: &Docker, bus: &Bus) -> Result<bool> {
     if !matches!(
         container_status(docker, &bus.container).await,
@@ -528,6 +540,7 @@ async fn reloadable(docker: &Docker, bus: &Bus) -> Result<bool> {
 /// # Errors
 ///
 /// Fails when Docker cannot stop or remove the container.
+#[instrument]
 pub async fn stop() -> Result<()> {
     stop_bus(
         &docker_connection()?,
@@ -541,6 +554,7 @@ pub async fn stop() -> Result<()> {
 
 /// Stop and remove the bus container `container`, and remove its record at `record`. A
 /// container that is stopped already, or gone, is no error, so stopping again finishes the job.
+#[instrument(level = "debug", skip_all, fields(%container, record = %record.display()))]
 async fn stop_bus(docker: &Docker, container: &str, record: &Path) -> Result<()> {
     remove(docker, container).await?;
     state::remove(record)
@@ -551,6 +565,7 @@ async fn stop_bus(docker: &Docker, container: &str, record: &Path) -> Result<()>
 /// # Errors
 ///
 /// Fails when Docker cannot be reached.
+#[instrument]
 pub async fn status() -> Result<()> {
     let docker = docker_connection()?;
     match container_status(&docker, CONTAINER_NAME).await {
@@ -579,6 +594,7 @@ pub async fn status() -> Result<()> {
 }
 
 /// Pull the pinned image unless Docker already has it.
+#[instrument(level = "debug", skip_all, fields(image = IMAGE))]
 async fn pull_image(docker: &Docker) -> Result<()> {
     if docker.inspect_image(IMAGE).await.is_ok() {
         return Ok(());
@@ -599,6 +615,7 @@ async fn pull_image(docker: &Docker) -> Result<()> {
 
 /// Stop the container `name` if it runs, then remove it. A container that does not exist is
 /// already removed.
+#[instrument(level = "debug", skip_all, fields(container = %name))]
 async fn remove(docker: &Docker, name: &str) -> Result<()> {
     if let Ok(Some(ContainerStateStatusEnum::RUNNING)) = container_status(docker, name).await {
         stop_container(docker, name).await?;
@@ -607,6 +624,7 @@ async fn remove(docker: &Docker, name: &str) -> Result<()> {
 }
 
 /// Connect with `seed`, waiting for a freshly started or reloaded server to accept it.
+#[instrument(level = "debug", skip_all, fields(url = %server.url))]
 async fn connect_when_ready(server: &Endpoint, seed: &str) -> Result<Channel> {
     let mut last = None;
     for _ in 0..CONNECT_ATTEMPTS {

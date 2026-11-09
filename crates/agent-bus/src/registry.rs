@@ -19,6 +19,7 @@ use std::path::Path;
 use anyhow::{Context, Result, anyhow};
 use nix::fcntl::{Flock, FlockArg};
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 use crate::agents::{Agent, Agents, Role, check_entries, parse_error};
 use crate::files::{PRIVATE_FILE_MODE, private_dir, write_atomic};
@@ -60,6 +61,7 @@ impl Registry {
     /// # Errors
     ///
     /// Fails when the file exists and cannot be read or is not valid.
+    #[instrument(level = "debug", skip_all, fields(path = %path.display()))]
     pub fn load(path: &Path) -> Result<Self> {
         match fs::read_to_string(path) {
             Ok(text) => Self::parse(&text).with_context(|| format!("Invalid {}", path.display())),
@@ -104,6 +106,7 @@ impl Registry {
     /// # Errors
     ///
     /// Fails when the directory or the file cannot be written.
+    #[instrument(level = "debug", skip_all, fields(path = %path.display()))]
     pub fn save(&self, path: &Path) -> Result<()> {
         let text = self.render()?;
         if let Some(dir) = path.parent() {
@@ -166,6 +169,7 @@ pub fn merge(fixed: Agents, registry: &Registry) -> Result<Merged> {
 /// # Errors
 ///
 /// Fails when the file cannot be created or locked.
+#[instrument(level = "debug", skip_all, fields(path = %path.display()))]
 pub fn lock(path: &Path) -> Result<RegistryLock> {
     if let Some(dir) = path.parent() {
         private_dir(dir)?;

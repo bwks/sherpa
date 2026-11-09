@@ -1056,6 +1056,30 @@ The `nats` CLI (in the dev server's mise tools) can inspect the bus with `--nkey
 --tlsfirst --tlsca <state>/tls/ca.pem`, but that puts a seed on disk; prefer `agent-bus listen`
 and `show`.
 
+### Tracing
+
+The functions that do I/O carry `tracing` spans: connecting, publishing, inbox reads and
+acknowledgements, the status bucket, Docker calls, file writes, enrolment, bus start and stop,
+and each Claude Code run (`work`, `attempt`, `priming_run`, `terminate`). Top-level operations
+are at `info`, helpers at `debug`. Spans record names, task IDs, subjects, URLs and paths; they
+never record seeds, tokens or message text (`a_seed_never_appears_in_a_span` checks the seed).
+
+Without `RUST_LOG` no subscriber is installed and the output is unchanged. With it, `main`
+prints one line to stderr as each span closes: its parents, fields and time. stdout is never
+used, so `listen`, `send` and `enroll` stay pipeable. Colour is used only when stderr is a
+terminal, so the guest log stays plain text. Scope the filter to this crate, since async-nats,
+rustls and bollard are noisy at `debug`:
+
+- Host: `RUST_LOG=agent_bus=debug agent-bus bus start ...`.
+- Guest: the guest agent reads `RUST_LOG` from the environment `start-guest.sh` runs in, and
+  writes the lines to the guest log. At `info` that is one line per task run; at `debug` the
+  heartbeat adds a `put_status` line every 10 seconds. `start-agent.sh` does not pass
+  `RUST_LOG` over SSH (its remote command sets only `AGENT_BUS_URL` and the model), so tracing
+  a guest started from the host needs `RUST_LOG` in the guest user's login environment.
+
+`claude_command` removes `RUST_LOG` from Claude Code's environment, so the agent's tracing does
+not reach the builds and tests Claude runs.
+
 ## Limits and next steps
 
 - **The host is all-powerful.** The host key can read and write every inbox and is the only key

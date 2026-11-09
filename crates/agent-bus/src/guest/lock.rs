@@ -17,6 +17,7 @@ use std::process;
 use anyhow::{Context, Result, anyhow};
 use nix::errno::Errno;
 use nix::fcntl::{Flock, FlockArg};
+use tracing::instrument;
 
 use crate::files::{PRIVATE_FILE_MODE, private_dir};
 
@@ -34,6 +35,7 @@ impl InstanceLock {
     ///
     /// Fails when another process holds it (naming that process when its PID can be read), or
     /// when the file cannot be created, locked or written.
+    #[instrument(level = "debug", skip_all, fields(path = %path.display()))]
     pub(super) fn acquire(path: &Path) -> Result<Self> {
         let dir = path.parent().context("The lock file has no directory")?;
         private_dir(dir)?;

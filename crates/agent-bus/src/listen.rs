@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 use crate::channel::{Channel, Endpoint};
 use crate::files::{JsonLines, millis, now_ms, standard_state_dir};
@@ -87,6 +88,7 @@ impl Journal {
     /// # Errors
     ///
     /// Fails when the journal exists and cannot be read.
+    #[instrument(level = "debug", skip_all, fields(path = %self.lines.path().display()))]
     pub fn since(&self, cutoff_ms: u64) -> Result<Vec<Message>> {
         let path = self.lines.path();
         let text = match fs::read_to_string(path) {
@@ -149,6 +151,7 @@ pub fn parse_since(text: &str) -> Result<Duration> {
 ///
 /// Fails when the inbox cannot be opened or read, or a message cannot be journaled, printed or
 /// acknowledged. A message that is not acknowledged is delivered again to the next listener.
+#[instrument(skip_all, fields(%agent, url = %server.url))]
 pub async fn listen(
     server: &Endpoint,
     seed: &str,
@@ -165,6 +168,7 @@ pub async fn listen(
 /// # Errors
 ///
 /// As `listen`.
+#[instrument(level = "debug", skip_all, fields(%agent))]
 pub async fn serve(
     channel: &Channel,
     agent: &str,
