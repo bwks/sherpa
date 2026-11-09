@@ -112,6 +112,10 @@ clone_repos() {
             log "Cloning ${repo}"
             git clone "https://github.com/${repo}.git" "${dir}"
         fi
+        # mise refuses to run tools from a checkout with an untrusted mise.toml.
+        if [ -f "${dir}/mise.toml" ]; then
+            "${MISE}" trust "${dir}/mise.toml"
+        fi
     done
 }
 
