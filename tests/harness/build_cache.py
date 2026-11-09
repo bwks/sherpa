@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The VM code suite's build cache (Python 3.11+, standard library only).
+"""The VM code suite's build cache (Python 3.15+, standard library only).
 
 A Redis server runs on the Sherpa host in a container, and sccache in the test guests keeps
 compiled crates in it. The password, the generated Redis configuration and the data live under

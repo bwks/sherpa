@@ -18,7 +18,7 @@ and runs the checkout's unit and integration tests in the guest. Start it throug
 
 ## Automated install/uninstall tests
 
-The local machine needs Python 3.11 or later, curl, OpenSSH with scp, and an
+The local machine needs Python 3.15 or later (uv installs it, see `pyproject.toml`), curl, OpenSSH with scp, and an
 authenticated Sherpa CLI. Its SSH account on the configured Sherpa host must be
 able to read the image checksum and query domain UUIDs with virsh. The guest needs
 internet access for Ubuntu packages, Docker and container registries.

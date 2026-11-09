@@ -29,10 +29,15 @@ instead of repeating these instructions.
 | P2p links lab test | `python3 tests/labs/p2p-links/p2p_links_lab_test.py` | On the Sherpa server: the node images, `nicolaka/netshoot:v0.14`, Docker access, logged-in CLI | about 15–20 min |
 | Talos lab test | `python3 tests/labs/talos-linux/talos_lab_test.py` | Sherpa host with the Talos image, logged-in CLI, internet | about 25–35 min |
 | Web UI JavaScript | `node tests/web/test_theme.cjs` | Node.js | seconds |
-| Harness self-tests | `python3 tests/harness/<script>.py --self-test` | Python 3.11+ | seconds |
+| Harness self-tests | `python3 tests/harness/<script>.py --self-test` | Python 3.15+ | seconds |
 
 Nothing runs these automatically. Every suite is started by hand, and the VM suites work
 from a snapshot of the checkout, so you can keep editing and committing while they run.
+
+The Python scripts run on Python 3.15 or later, which uv installs from `pyproject.toml`; with the
+repository's `mise.toml`, `python3` in the checkout is uv's. The guest helpers,
+`tests/harness/*_guest.py`, are the exception: the harness runs them with the test VM's system
+Python, so they must keep working on the oldest release under test, Ubuntu 24.04's Python 3.12.
 
 ## Before any tests
 

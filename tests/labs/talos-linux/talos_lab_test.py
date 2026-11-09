@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end test of Sherpa-built Talos clusters through the sherpa CLI (Python 3.11+, stdlib only).
+"""End-to-end test of Sherpa-built Talos clusters through the sherpa CLI (Python 3.15+, stdlib only).
 
 Runs each lab in this folder against the server the logged-in `sherpa` CLI points at:
 `sherpa up`, then checks from the lab's util node with talosctl and kubectl, exercises the

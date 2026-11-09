@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local Sherpa VM release-test runner (Python 3.11+, standard library only)."""
+"""Local Sherpa VM release-test runner (Python 3.15+, standard library only)."""
 
 import argparse
 from contextlib import redirect_stdout

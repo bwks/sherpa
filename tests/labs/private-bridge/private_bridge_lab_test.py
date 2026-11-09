@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end test of private bridges through the sherpa CLI (Python 3.11+, stdlib only).
+"""End-to-end test of private bridges through the sherpa CLI (Python 3.15+, stdlib only).
 
 Brings up a lab with a VM and containers in one `[[bridges]]` entry, addresses every data
 connection, and checks each one with ping: after `sherpa up`, and after redeploying a

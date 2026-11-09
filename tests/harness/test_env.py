@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bring up, check and destroy Sherpa test environments (Python 3.11+, standard library only)."""
+"""Bring up, check and destroy Sherpa test environments (Python 3.15+, standard library only)."""
 
 import argparse
 import base64
