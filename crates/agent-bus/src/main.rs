@@ -506,3 +506,69 @@ async fn agents(server: &str, seed: &str, json: bool) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use clap::error::ErrorKind;
+
+    fn send(extra: &[&str]) -> Result<Cli, clap::Error> {
+        let mut args = vec!["agent-bus", "send", "--to", "dev"];
+        args.extend_from_slice(extra);
+        args.push("text");
+        Cli::try_parse_from(args)
+    }
+
+    #[test]
+    fn an_answer_refuses_a_model() {
+        let error = send(&["--answer", "t1", "--model", "opus"]).err().unwrap();
+        assert_eq!(error.kind(), ErrorKind::ArgumentConflict);
+        let text = error.to_string();
+        assert!(text.contains("--answer"), "{text}");
+        assert!(text.contains("--model"), "{text}");
+    }
+
+    #[test]
+    fn an_answer_refuses_github() {
+        let error = send(&["--answer", "t1", "--github"]).err().unwrap();
+        assert_eq!(error.kind(), ErrorKind::ArgumentConflict);
+        let text = error.to_string();
+        assert!(text.contains("--answer"), "{text}");
+        assert!(text.contains("--github"), "{text}");
+    }
+
+    #[test]
+    fn a_task_takes_a_model_and_github() {
+        let cli = send(&["--model", "haiku", "--github"]).unwrap();
+        let Command::Send {
+            github,
+            model,
+            answer,
+            ..
+        } = cli.command
+        else {
+            panic!("not a send");
+        };
+        assert!(github);
+        assert_eq!(model.as_deref(), Some("claude-haiku-5-5"));
+        assert_eq!(answer, None);
+    }
+
+    #[test]
+    fn an_answer_alone_parses() {
+        let cli = send(&["--answer", "t1"]).unwrap();
+        let Command::Send {
+            github,
+            model,
+            answer,
+            ..
+        } = cli.command
+        else {
+            panic!("not a send");
+        };
+        assert!(!github);
+        assert_eq!(model, None);
+        assert_eq!(answer.as_deref(), Some("t1"));
+    }
+}
