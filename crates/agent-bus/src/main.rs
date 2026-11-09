@@ -27,6 +27,7 @@ mod report;
 mod state;
 mod status;
 mod table;
+mod tls;
 
 use std::io::{self, IsTerminal};
 use std::net::Ipv4Addr;
@@ -34,10 +35,11 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Result, bail};
+use async_nats::rustls::crypto::aws_lc_rs;
 use clap::{ArgGroup, Parser, Subcommand};
 
 use bus::Bus;
-use channel::Channel;
+use channel::{Channel, Endpoint};
 use files::now_ms;
 use keys::seed_from_environment;
 use message::{Kind, Message, check_agent_name, new_task_id};
@@ -50,7 +52,9 @@ use status::{Observed, STALE};
     about = "A NATS message channel between the host agent and guest agents",
     after_help = "Commands that connect to the bus read the agent's NKey seed from the \
                   environment variable AGENT_BUS_SEED. `agent-bus key new` makes the host's key \
-                  pair; `agent-bus enroll` makes a guest's."
+                  pair; `agent-bus enroll` makes a guest's. Every connection is TLS, trusting \
+                  only the bus's own CA: the certificate in AGENT_BUS_CA, else the one \
+                  `bus start` made in the host's state directory."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -239,6 +243,9 @@ struct Options {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // The TLS connection to the bus takes rustls's process default, aws-lc-rs as in the rest
+    // of the workspace. Already installed is fine.
+    let _ = aws_lc_rs::default_provider().install_default();
     let cli = Cli::parse();
     match cli.command {
         Command::Key { action } => match action {
@@ -246,10 +253,7 @@ async fn main() -> Result<()> {
         },
         Command::Bus { action } => bus_command(action).await,
         Command::Enroll { name } => enroll(&name).await,
-        Command::Unenroll { name } => {
-            let (bus, agents) = Bus::recorded()?;
-            bus::unenroll(&bus, &agents, &name).await
-        }
+        Command::Unenroll { name } => bus::unenroll_standard(&name).await,
         Command::Send {
             server,
             from,
@@ -320,6 +324,10 @@ async fn main() -> Result<()> {
             model,
         } => {
             let seed = seed_from_environment()?;
+            let server = Endpoint {
+                url: server,
+                ca: tls::client_ca()?,
+            };
             guest::run(&server, &seed, &name, &reply_to, &workdir, &model).await
         }
     }
@@ -368,13 +376,17 @@ async fn enroll(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// The bus to connect to: `--server`, then `AGENT_BUS_URL`, then where `bus start` recorded it.
-fn find_server(flag: Option<String>) -> Result<String> {
-    state::find_server(
-        flag,
-        std::env::var(state::SERVER_ENV).ok(),
-        &Bus::standard_record_path()?,
-    )
+/// The bus to connect to: `--server`, then `AGENT_BUS_URL`, then where `bus start` recorded it;
+/// trusting the CA certificate in `AGENT_BUS_CA`, else the host's.
+fn find_server(flag: Option<String>) -> Result<Endpoint> {
+    Ok(Endpoint {
+        url: state::find_server(
+            flag,
+            std::env::var(state::SERVER_ENV).ok(),
+            &Bus::standard_record_path()?,
+        )?,
+        ca: tls::client_ca()?,
+    })
 }
 
 /// Print a new key pair. This is the only place a seed is printed.
@@ -391,7 +403,7 @@ fn new_key() -> Result<()> {
 
 /// Send a new task, or an answer to a task, and print the task's ID.
 async fn send(
-    server: &str,
+    server: &Endpoint,
     seed: &str,
     from: String,
     to: String,
@@ -424,7 +436,13 @@ async fn send(
 }
 
 /// Ask a guest agent to cancel a task. The outcome comes back as a `canceled` or `failed` message.
-async fn cancel(server: &str, seed: &str, from: String, to: String, task: String) -> Result<()> {
+async fn cancel(
+    server: &Endpoint,
+    seed: &str,
+    from: String,
+    to: String,
+    task: String,
+) -> Result<()> {
     check_agent_name(&from)?;
     check_agent_name(&to)?;
     let channel = Channel::connect(server, seed).await?;
@@ -445,7 +463,13 @@ async fn cancel(server: &str, seed: &str, from: String, to: String, task: String
 
 /// Print what each task cost, from the messages kept in `host`'s inbox stream. Nothing is
 /// acknowledged and the inbox is not consumed.
-async fn usage(server: &str, seed: &str, host: &str, agent: Option<&str>, all: bool) -> Result<()> {
+async fn usage(
+    server: &Endpoint,
+    seed: &str,
+    host: &str,
+    agent: Option<&str>,
+    all: bool,
+) -> Result<()> {
     if let Some(agent) = agent {
         check_agent_name(agent)?;
     }
@@ -457,7 +481,7 @@ async fn usage(server: &str, seed: &str, host: &str, agent: Option<&str>, all: b
 
 /// Print every message of `task` kept in `host`'s inbox stream, oldest first, as one JSON line
 /// each. Nothing is acknowledged and the inbox is not consumed.
-async fn show(server: &str, seed: &str, host: &str, task: &str) -> Result<()> {
+async fn show(server: &Endpoint, seed: &str, host: &str, task: &str) -> Result<()> {
     let channel = Channel::connect(server, seed).await?;
     let messages = channel.history(host).await?;
     for message in report::task_messages(&messages, task) {
@@ -468,7 +492,7 @@ async fn show(server: &str, seed: &str, host: &str, task: &str) -> Result<()> {
 
 /// Print every agent of the recorded bus, as a table or as JSON. Nothing is consumed: the host
 /// reads each inbox consumer's info and each guest's status.
-async fn agents(server: &str, seed: &str, json: bool) -> Result<()> {
+async fn agents(server: &Endpoint, seed: &str, json: bool) -> Result<()> {
     let (bus, agents_path) = Bus::recorded()?;
     let agents = bus::agents(&bus, &agents_path, seed)?;
     let channel = Channel::connect(server, seed).await?;

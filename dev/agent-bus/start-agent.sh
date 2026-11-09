@@ -14,9 +14,11 @@
 # It finds the node's SSH alias (`<node>` or `<node>.<lab id>`) in the lab's .sherpa/ssh/config
 # (with the lab id from .sherpa/lab-info.toml), and the bus's URL in the bus record that
 # `agent-bus bus start` wrote. It then runs `agent-bus enroll <node>`, which gives the agent a fresh key and refuses its previous one, and
-# pipes the Claude token and the new seed over SSH stdin into dev/agent-bus/start-guest.sh in the
-# guest. The seed only travels through that pipe: it is never in a variable, a command line, a
-# file or a log.
+# pipes the Claude token, the new seed and the bus's CA certificate over SSH stdin into
+# dev/agent-bus/start-guest.sh in the guest. The seed only travels through that pipe: it is never
+# in a variable, a command line, a file or a log. The CA certificate (not secret) is the one
+# `agent-bus bus start` made, tls/ca.pem in the host's state directory; the guest agent trusts
+# only it.
 #
 # The lab folder must be in the .sherpa/ layout of sherpa 0.5.15. A folder from an older client
 # (a loose lab-info.toml and sherpa_ssh_config) is refused: run any sherpa 0.5.15 command in it,
@@ -62,10 +64,13 @@ case "${XDG_STATE_HOME:-}" in
     *) STATE_HOME="${HOME}/.local/state" ;;
 esac
 BUS_RECORD="${STATE_HOME}/agent-bus/bus.toml"
-if [ ! -f "${BUS_RECORD}" ]; then
-    echo "${BUS_RECORD} not found: start the bus with \`agent-bus bus start\` first" >&2
-    exit 1
-fi
+BUS_CA="${STATE_HOME}/agent-bus/tls/ca.pem"
+for file in "${BUS_RECORD}" "${BUS_CA}"; do
+    if [ ! -f "${file}" ]; then
+        echo "${file} not found: start the bus with \`agent-bus bus start\` first" >&2
+        exit 1
+    fi
+done
 
 # The first top-level `key = "value"` string in a TOML file.
 toml_string() {
@@ -123,9 +128,11 @@ if ! lab_ssh true < /dev/null; then
 fi
 
 echo "Enrolling '${NODE}' on ${URL} and starting it on ${ALIAS}" >&2
-# Two lines on the guest script's stdin: the token, then the seed straight from enroll. If
-# enroll fails, the guest script gets no seed and exits without touching the running agent.
+# On the guest script's stdin: the token, then the seed straight from enroll, each on a line,
+# then the CA certificate to the end. If enroll fails, the guest script gets no seed and exits
+# without touching the running agent.
 {
     printf '%s\n' "${CLAUDE_CODE_OAUTH_TOKEN}"
-    "${AGENT_BUS}" enroll "${NODE}"
+    "${AGENT_BUS}" enroll "${NODE}" || exit 1
+    cat "${BUS_CA}"
 } | lab_ssh "${REMOTE}"

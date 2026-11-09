@@ -100,13 +100,17 @@ dependencies = [
  "clap",
  "container",
  "futures-util",
+ "jiff",
  "nix 0.30.1",
  "nkeys",
+ "rcgen",
  "serde",
  "serde_json",
  "shared",
+ "time",
  "tokio",
  "toml",
+ "tracing",
  "uuid",
 ]
 
@@ -410,6 +414,7 @@ version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "015f0a7a3b0b29701b78c76a4d4a122624c97c71fa30363381664eb729d619c7"
 dependencies = [
+ "aws-lc-rs",
  "base64",
  "bytes",
  "futures-util",

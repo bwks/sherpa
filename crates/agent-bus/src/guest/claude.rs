@@ -9,13 +9,15 @@ use nix::errno::Errno;
 use nix::sys::signal::{Signal, killpg};
 use nix::unistd::Pid;
 use tokio::process::{Child, Command};
-use tokio::time::timeout;
+use tokio::time::{Instant, sleep, timeout};
 
 use crate::keys::SEED_VARIABLE;
 
 pub(super) const CLAUDE: &str = "claude";
 /// How long Claude Code's process group has to exit after SIGTERM before SIGKILL.
 const KILL_GRACE: Duration = Duration::from_secs(2);
+/// How often `finish` looks whether the group is gone during the grace period.
+const GROUP_POLL: Duration = Duration::from_millis(100);
 /// Removed from Claude Code's environment, so it can only use the subscription.
 const API_KEY_VARIABLE: &str = "ANTHROPIC_API_KEY";
 /// GitHub tokens. Claude Code only has them for a task that was given GitHub access, so without
@@ -72,8 +74,9 @@ const RULES_GITHUB: &str = " This task may use GitHub. Do only what the task ask
 messages end with the Co-Authored-By line from your own attribution instructions, never one \
 copied from the task text, and have no session links and no \"Generated with\" footers. Never merge pull requests or delete anything; the user does that.";
 
-/// Claude Code's process group. Dropping it while armed kills everything in the group, so no
-/// path out of a run can leave Claude Code or the commands it started behind.
+/// Claude Code's process group. Dropping it while armed kills everything in the group, and a
+/// run that ends normally stops what is left of it (`finish`), so no path out of a run can leave
+/// Claude Code or the commands it started behind.
 pub(super) struct Group {
     pgid: Option<Pid>,
 }
@@ -97,6 +100,12 @@ impl Group {
         }
     }
 
+    /// Whether anything in the group is left.
+    fn alive(&self) -> bool {
+        self.pgid
+            .is_some_and(|pgid| !matches!(killpg(pgid, None), Err(Errno::ESRCH)))
+    }
+
     pub(super) fn disarm(&mut self) {
         self.pgid = None;
     }
@@ -118,6 +127,22 @@ pub(super) async fn terminate(child: &mut Child, group: &mut Group) {
     group.signal(Signal::SIGKILL);
     if let Err(error) = child.wait().await {
         eprintln!("Claude Code did not exit: {error}");
+    }
+    group.disarm();
+}
+
+/// Stop what Claude Code left in its group after it exited on its own: commands it started in
+/// the background, with `&` or `nohup`. SIGTERM, then SIGKILL for whatever is still there after
+/// the grace period. The guest agent is not in the group.
+pub(super) async fn finish(group: &mut Group) {
+    if group.alive() {
+        eprintln!("Claude Code left commands running: stopping them");
+        group.signal(Signal::SIGTERM);
+        let deadline = Instant::now() + KILL_GRACE;
+        while group.alive() && Instant::now() < deadline {
+            sleep(GROUP_POLL).await;
+        }
+        group.signal(Signal::SIGKILL);
     }
     group.disarm();
 }

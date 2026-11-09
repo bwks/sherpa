@@ -16,14 +16,14 @@ use tokio::try_join;
 
 use super::base::{Base, Inputs};
 use super::claude::{
-    CLAUDE, Group, Launch, PRIME_CONFIRM, PRIME_PROMPT, claude_command, rules, terminate,
+    CLAUDE, Group, Launch, PRIME_CONFIRM, PRIME_PROMPT, claude_command, finish, rules, terminate,
 };
 use super::engine::{Control, Session, canceled_text, classify, task_github, task_model};
 use super::lock::InstanceLock;
 use super::record::ResultLog;
 use super::state::{ApiMark, Queued, Saved, StateFile, TaskRecord, prune, restart};
 use super::stream::{Update, interpret, outcome, priming_line, repeats_result, usage_line};
-use crate::channel::{Channel, Inbox};
+use crate::channel::{Channel, Endpoint, Inbox};
 use crate::files::now_ms;
 use crate::message::{Kind, Message, TaskUsage, Usage, api_time_of_run, check_agent_name};
 use crate::status::{HEARTBEAT, Running, Status};
@@ -46,6 +46,9 @@ enum Finish {
     Canceled,
     /// The guest agent is shutting down.
     Stopped,
+    /// The guest agent began shutting down before the task's run started: the task goes back
+    /// to the queue, unreported, for the restart.
+    Postponed,
 }
 
 /// How one attempt at a task ended.
@@ -80,6 +83,9 @@ struct RunState {
     tool: Option<String>,
     /// The outcome, text first, failed second.
     finished: Option<Finished>,
+    /// Whether the run named its session, said something or used a tool: it did something, so
+    /// it is not run again.
+    progressed: bool,
 }
 
 /// Where and how Claude Code runs.
@@ -130,7 +136,7 @@ struct Engine<'a> {
 /// Fails when a name is invalid, another guest agent of this name is running, the subscription
 /// token is not set, or the bus fails. A task that fails is reported to `reply_to` instead.
 pub async fn run(
-    server: &str,
+    server: &Endpoint,
     seed: &str,
     name: &str,
     reply_to: &str,
@@ -150,7 +156,7 @@ pub async fn run(
 
 /// `run`, with the state kept in `store`, or in memory only when it is `None`.
 async fn start(
-    server: &str,
+    server: &Endpoint,
     seed: &str,
     name: &str,
     reply_to: &str,
@@ -501,8 +507,19 @@ impl<'a> Engine<'a> {
             self.running_since_ms = now_ms();
             self.save();
             let result = self.work(&message).await;
-            // Each way out of `work` has reported the task, so it is no longer running.
+            // Each way out of `work` has reported or postponed the task, so it is no longer
+            // running.
             self.running = None;
+            if matches!(result, Ok(Finish::Postponed)) {
+                eprintln!(
+                    "Task {} stays queued: the guest agent is stopping",
+                    message.task
+                );
+                self.queue.push_front(message);
+                self.drain_incoming()?;
+                self.save();
+                return Ok(());
+            }
             let now = now_ms();
             self.tasks
                 .entry(message.task.clone())
@@ -519,7 +536,7 @@ impl<'a> Engine<'a> {
                     self.save();
                     return Ok(());
                 }
-                Ok(Finish::Done | Finish::Canceled) => self.save(),
+                Ok(Finish::Done | Finish::Canceled | Finish::Postponed) => self.save(),
                 Err(error) => {
                     self.save();
                     self.reply(&message.task, None).send(
@@ -608,6 +625,9 @@ impl<'a> Engine<'a> {
         reply: &Reply,
         run: &mut RunState,
     ) -> Result<()> {
+        if !matches!(update, Update::Finished { .. }) {
+            run.progressed = true;
+        }
         match update {
             Update::Session(session) => {
                 self.tasks.entry(message.task.clone()).or_default().session = Some(Session {
@@ -660,8 +680,8 @@ impl<'a> Engine<'a> {
 
     /// The launch for a new task: a fork of the base session for its rules and model, primed
     /// first when there is none or it is out of date. When priming fails the task gets a fresh
-    /// session.
-    async fn fork_of_base(&mut self, github: bool, model: &str, task: &str) -> Launch {
+    /// session. `None` when the agent began stopping while priming: the task must not run.
+    async fn fork_of_base(&mut self, github: bool, model: &str, task: &str) -> Option<Launch> {
         let inputs = Inputs::current(self.workdir, &rules(github), model).await;
         let now = now_ms();
         let key = (github, model.to_owned());
@@ -671,7 +691,7 @@ impl<'a> Engine<'a> {
             base.touch(now);
             let session = base.session.clone();
             self.save();
-            return Launch::Fork(session);
+            return Some(Launch::Fork(session));
         }
         if self.bases.remove(&key).is_some() {
             self.save();
@@ -683,13 +703,17 @@ impl<'a> Engine<'a> {
                     Base::new(github, model, session.clone(), &inputs, now_ms()),
                 );
                 self.save();
-                Launch::Fork(session)
+                Some(Launch::Fork(session))
+            }
+            Err(error) if *self.stop.borrow() => {
+                eprintln!("Priming stopped ({error:#}): task {task} stays queued");
+                None
             }
             Err(error) => {
                 eprintln!(
                     "Unable to prime a base session: {error:#}: task {task} runs in a fresh session"
                 );
-                Launch::Fresh
+                Some(Launch::Fresh)
             }
         }
     }
@@ -751,7 +775,7 @@ impl<'a> Engine<'a> {
             }
         }
         let status = child.wait().await.context("Claude Code did not exit")?;
-        group.disarm();
+        finish(&mut group).await;
         let (session, text, failed, mut usage) =
             finished.with_context(|| format!("Claude Code exited ({status}) without a result"))?;
         self.count(task, &session, &mut usage);
@@ -779,7 +803,10 @@ impl<'a> Engine<'a> {
                     message.task
                 )
             }
-            (None, _) => self.fork_of_base(github, &model, &message.task).await,
+            (None, _) => match self.fork_of_base(github, &model, &message.task).await {
+                Some(launch) => launch,
+                None => return Ok(Finish::Postponed),
+            },
         };
         match self.attempt(message, github, &model, &launch).await? {
             Attempt::Done(finish) => Ok(finish),
@@ -810,6 +837,9 @@ impl<'a> Engine<'a> {
         model: &str,
         launch: &Launch,
     ) -> Result<Attempt> {
+        if *self.stop.borrow() {
+            return Ok(Attempt::Done(Finish::Postponed));
+        }
         let reply = self.reply(&message.task, Some(model));
         let mut command = claude_command(self.program, self.workdir, model, github, launch);
         let run_number = {
@@ -879,13 +909,15 @@ impl<'a> Engine<'a> {
             }
         }
         let status = child.wait().await.context("Claude Code did not exit")?;
-        group.disarm();
+        finish(&mut group).await;
         // A fork that fails leaves no turn behind: the task can still run in a fresh session.
+        // A run that did something and then ended without a result is the task's failure: run
+        // again, it would repeat what was done.
         if matches!(launch, Launch::Fork(_))
-            && run
-                .finished
-                .as_ref()
-                .is_none_or(|finished| finished.failed && finished.usage.num_turns == 0)
+            && match &run.finished {
+                None => !run.progressed,
+                Some(finished) => finished.failed && finished.usage.num_turns == 0,
+            }
         {
             let reason = run.finished.map_or_else(
                 || format!("Claude Code exited ({status}) without a result"),
@@ -985,6 +1017,16 @@ case "$*" in
     esac
     ;;
 esac
+case "$prompt" in
+"You are a guest agent"*)
+    if [ -e hang-prime ]; then
+        sleep 300 &
+        echo $! > prime.sleep
+        echo $$ > prime.claude
+        wait
+    fi
+    ;;
+esac
 echo '{"type":"system","subtype":"init","session_id":"sess-1"}'
 case "$prompt" in
 tool*)
@@ -1005,6 +1047,14 @@ hang*)
     ;;
 ask*)
     echo '{"type":"result","is_error":false,"result":"QUESTION: which one?","session_id":"sess-1"}'
+    ;;
+crash*)
+    exit 1
+    ;;
+bg*)
+    ( trap '' TERM; exec sleep 300 ) >/dev/null 2>&1 &
+    echo $! > "$prompt.sleep"
+    echo '{"type":"result","is_error":false,"result":"done","session_id":"sess-1"}'
     ;;
 *)
     echo '{"type":"result","is_error":false,"result":"done","session_id":"sess-1"}'
@@ -1466,6 +1516,66 @@ esac
     }
 
     #[tokio::test]
+    #[ignore = "starts real processes; run with -- --ignored"]
+    async fn a_forked_run_that_made_progress_without_a_result_fails_and_is_not_rerun() {
+        let mut harness = Harness::start("crash");
+        harness.send(Kind::Task, "t1", "crash-a");
+        let reply = harness.outcome().await;
+        assert_eq!((reply.kind, reply.task.as_str()), (Kind::Failed, "t1"));
+        assert!(reply.text.contains("without a result"), "{}", reply.text);
+        // Priming twice, then the fork, which said something and crashed: no fresh run.
+        let runs = started_with(&harness);
+        assert_eq!(runs.len(), 3, "{runs:?}");
+        assert!(runs[2].contains("--fork-session"), "{}", runs[2]);
+    }
+
+    #[tokio::test]
+    #[ignore = "starts real processes and signals them; run with -- --ignored"]
+    async fn stopping_while_priming_keeps_the_task_queued() {
+        let mut harness = Harness::start("primestop");
+        std::fs::write(harness.dir.join("hang-prime"), "").unwrap();
+        harness.send(Kind::Task, "t1", "plain-p");
+        let (claude, sleep) = harness.pids("prime").await;
+        harness.stop.send_replace(true);
+        timeout(Duration::from_secs(5), &mut harness.done)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(gone(claude).await, "the priming claude is still running");
+        assert!(gone(sleep).await, "its sleep is still running");
+        // Not reported, not run fresh: the task waits in the queue for the restart.
+        let replies = harness.rest().await;
+        assert!(replies.is_empty(), "{replies:?}");
+        assert_eq!(started_with(&harness).len(), 1);
+        let saved = harness.saved();
+        assert_eq!(saved.running, None);
+        let queued: Vec<&str> = saved.queue.iter().map(|q| q.task.as_str()).collect();
+        assert_eq!(queued, ["t1"]);
+
+        std::fs::remove_file(harness.dir.join("hang-prime")).unwrap();
+        harness.restart();
+        let reply = harness.outcome().await;
+        assert_eq!((reply.kind, reply.task.as_str()), (Kind::Completed, "t1"));
+    }
+
+    #[tokio::test]
+    #[ignore = "starts real processes and signals them; run with -- --ignored"]
+    async fn commands_left_running_after_a_normal_exit_are_stopped() {
+        let mut harness = Harness::start("background");
+        harness.send(Kind::Task, "t1", "bg-a");
+        let reply = harness.outcome().await;
+        assert_eq!((reply.kind, reply.task.as_str()), (Kind::Completed, "t1"));
+        let pid: i32 = std::fs::read_to_string(harness.dir.join("bg-a.sleep"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        // It ignores SIGTERM, so only the SIGKILL after the grace period stops it.
+        assert!(gone(pid).await, "the background command outlived the task");
+    }
+
+    #[tokio::test]
     #[ignore = "starts real processes and signals them; run with -- --ignored"]
     async fn a_restart_keeps_the_queue_and_the_sessions() {
         let mut harness = Harness::start("restart");
@@ -1618,10 +1728,13 @@ esac
         let state = dir.join("state").join("guest-dev.toml");
         let seed = generate().unwrap().seed;
         // Port 1 on loopback: nothing listens, so connecting is refused.
-        let server = "nats://127.0.0.1:1";
+        let server = Endpoint {
+            url: "nats://127.0.0.1:1".to_owned(),
+            ca: dir.join("ca.pem"),
+        };
         let attempt = || {
             start(
-                server,
+                &server,
                 &seed,
                 "dev",
                 "host",

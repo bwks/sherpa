@@ -16,7 +16,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::channel::Channel;
+use crate::channel::{Channel, Endpoint};
 use crate::files::{JsonLines, millis, now_ms, standard_state_dir};
 use crate::message::{Message, check_agent_name};
 
@@ -149,7 +149,12 @@ pub fn parse_since(text: &str) -> Result<Duration> {
 ///
 /// Fails when the inbox cannot be opened or read, or a message cannot be journaled, printed or
 /// acknowledged. A message that is not acknowledged is delivered again to the next listener.
-pub async fn listen(server: &str, seed: &str, agent: &str, since: Option<Duration>) -> Result<()> {
+pub async fn listen(
+    server: &Endpoint,
+    seed: &str,
+    agent: &str,
+    since: Option<Duration>,
+) -> Result<()> {
     let journal = Journal::standard(agent)?;
     let channel = Channel::connect(server, seed).await?;
     serve(&channel, agent, journal, since, &mut io::stdout()).await

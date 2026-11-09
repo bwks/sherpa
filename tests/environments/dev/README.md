@@ -138,8 +138,8 @@ mise run agent-bus:agent <repo>/tests/environments/dev dev
 ```
 
 `<repo>` is the host's checkout; give the lab directory as an absolute path, since mise may run
-the task from another directory. It enrolls `dev` with a fresh key and pipes the key and the Claude token over SSH into
-`dev/agent-bus/start-guest.sh`. No key is made or stored by hand.
+the task from another directory. It enrolls `dev` with a fresh key and pipes the key, the Claude token and the bus's CA
+certificate over SSH into `dev/agent-bus/start-guest.sh`. No key is made or stored by hand.
 
 ### Tearing down
 

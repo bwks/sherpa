@@ -28,7 +28,7 @@ const HEADER: &str =
     "# Guests enrolled with `agent-bus enroll`. Managed by agent-bus: do not edit.\n";
 
 /// The enrolled guests, in the order they were first enrolled.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Registry {
     agents: Vec<Agent>,
 }

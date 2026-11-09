@@ -4,15 +4,21 @@
 //!
 //! The bus has one account, so each agent's permissions are what keeps it to its own inbox:
 //!
-//! - A guest may publish to the host's inbox, and use its own consumer: read its info, pull
-//!   messages and acknowledge them. It may also publish its own status, under its name in the
+//! - A guest may publish to the host's inbox under its own name only (`agents.<host>.<name>`),
+//!   and use its own consumer: read its info, pull messages and acknowledge them. It may also publish its own status, under its name in the
 //!   status bucket (`status`); it cannot read the bucket. It may create no stream or consumer
 //!   and send to no one else.
 //! - The host may publish to every inbox and use the `JetStream` API, which it needs to create
 //!   the stream and the consumers.
 //!
-//! Replies to requests come back on `_INBOX.>`, so every agent may subscribe to that and nothing
-//! else. Every agent has its own key (`agents::check_entries`), so each is one user.
+//! Replies to requests come back under each connection's inbox prefix, `_INBOX_<public key>`
+//! (`channel::inbox_prefix`), so every agent may subscribe to its own prefix and nothing else: no
+//! agent reads another's replies. Every agent has its own key (`agents::check_entries`), so each
+//! is one user.
+//!
+//! The server takes TLS only, with the handshake first: a client that starts in plaintext is
+//! refused before it learns anything about the server. The certificate and key (see `tls`) sit in
+//! the same directory as the config.
 //!
 //! The file is written atomically into its own directory, which the container bind-mounts: a
 //! bind-mounted single file would keep showing the container the old file after a rename.
@@ -26,9 +32,13 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 
 use crate::agents::Agents;
-use crate::channel::{STREAM, SUBJECT_PREFIX};
+use crate::channel::{STREAM, SUBJECT_PREFIX, inbox_prefix};
 use crate::files::{private_dir, write_atomic};
 use crate::status::BUCKET;
+use crate::tls::{SERVER_CERT_FILE, SERVER_KEY_FILE};
+
+/// Where the container mounts the config directory, read-only.
+pub const MOUNT_DIR: &str = "/etc/agent-bus";
 
 /// The mode of the config file and its directory: they hold nothing secret, and the container's
 /// user, whoever the image runs as, must be able to read them. The directory itself is
@@ -39,6 +49,16 @@ const DIR_MODE: u32 = 0o755;
 #[derive(Debug, Serialize)]
 struct Config {
     authorization: Authorization,
+    tls: Tls,
+}
+
+/// The server's certificate and key, as the container sees them.
+#[derive(Debug, Serialize)]
+struct Tls {
+    cert_file: String,
+    key_file: String,
+    /// TLS before the server's INFO: a plaintext client never gets a word out of it.
+    handshake_first: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -64,7 +84,7 @@ struct Allow {
 }
 
 /// Render the nats-server configuration for `agents`, as JSON: the host first, then one user per
-/// guest, in order.
+/// guest, in order; and TLS, with the certificate and key in `MOUNT_DIR`.
 ///
 /// # Errors
 ///
@@ -80,6 +100,11 @@ pub fn render(agents: &Agents) -> Result<String> {
         .collect::<Vec<_>>();
     let config = Config {
         authorization: Authorization { users },
+        tls: Tls {
+            cert_file: format!("{MOUNT_DIR}/{SERVER_CERT_FILE}"),
+            key_file: format!("{MOUNT_DIR}/{SERVER_KEY_FILE}"),
+            handshake_first: true,
+        },
     };
     serde_json::to_string_pretty(&config).context("Unable to render the nats-server configuration")
 }
@@ -115,13 +140,13 @@ fn host_user(agents: &Agents) -> User {
     )
 }
 
-/// The user for the guest `name`: it may send to the host, use its own consumer and write its
-/// own status.
+/// The user for the guest `name`: it may send to the host as itself, use its own consumer and
+/// write its own status.
 fn guest_user(key: &str, name: &str, agents: &Agents) -> User {
     user(
         key,
         vec![
-            format!("{SUBJECT_PREFIX}.{}", agents.host.name),
+            format!("{SUBJECT_PREFIX}.{}.{name}", agents.host.name),
             format!("$JS.API.CONSUMER.INFO.{STREAM}.{name}"),
             format!("$JS.API.CONSUMER.MSG.NEXT.{STREAM}.{name}"),
             format!("$JS.ACK.{STREAM}.{name}.>"),
@@ -136,7 +161,7 @@ fn user(key: &str, publish: Vec<String>) -> User {
         permissions: Permissions {
             publish: Allow { allow: publish },
             subscribe: Allow {
-                allow: vec!["_INBOX.>".to_owned()],
+                allow: vec![format!("{}.>", inbox_prefix(key))],
             },
         },
     }
@@ -146,7 +171,7 @@ fn user(key: &str, publish: Vec<String>) -> User {
 mod tests {
     use std::os::unix::fs::MetadataExt;
 
-    use serde_json::Value;
+    use serde_json::{Value, json};
 
     use super::*;
     use crate::files::DIR_MODE as STATE_DIR_MODE;
@@ -201,16 +226,17 @@ mod tests {
         assert_eq!(
             guest["permissions"]["publish"]["allow"],
             serde_json::json!([
-                "agents.host",
+                "agents.host.dev",
                 "$JS.API.CONSUMER.INFO.AGENTS.dev",
                 "$JS.API.CONSUMER.MSG.NEXT.AGENTS.dev",
                 "$JS.ACK.AGENTS.dev.>",
                 "$KV.AGENT_STATUS.dev"
             ])
         );
+        // Replies come back only under its own key: no other agent's.
         assert_eq!(
             guest["permissions"]["subscribe"]["allow"],
-            serde_json::json!(["_INBOX.>"])
+            serde_json::json!([format!("_INBOX_{}.>", fixture.dev)])
         );
     }
 
@@ -262,7 +288,20 @@ mod tests {
         );
         assert_eq!(
             host["permissions"]["subscribe"]["allow"],
-            serde_json::json!(["_INBOX.>"])
+            serde_json::json!([format!("_INBOX_{}.>", fixture.host)])
+        );
+    }
+
+    #[test]
+    fn the_server_takes_tls_only_with_the_mounted_certificate() {
+        let config = rendered(&fixture());
+        assert_eq!(
+            config["tls"],
+            json!({
+                "cert_file": "/etc/agent-bus/server.pem",
+                "key_file": "/etc/agent-bus/server-key.pem",
+                "handshake_first": true,
+            })
         );
     }
 
@@ -278,7 +317,7 @@ mod tests {
             .collect();
         assert_eq!(keys.len(), 3);
         assert_eq!(keys[..2], [fixture.host.as_str(), fixture.dev.as_str()]);
-        assert_eq!(config.as_object().unwrap().len(), 1);
+        assert_eq!(config.as_object().unwrap().len(), 2);
         assert_eq!(config["authorization"].as_object().unwrap().len(), 1);
     }
 

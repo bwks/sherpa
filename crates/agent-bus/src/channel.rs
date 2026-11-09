@@ -4,12 +4,21 @@
 //! Every connection authenticates with an `NKey` seed. Only the host may create the stream and the
 //! consumers (`create_inboxes`, run by `bus start`); every other agent opens the consumer that
 //! exists for it.
+//!
+//! A message to `to` from `from` is published to `agents.<to>.<from>`, and each inbox takes
+//! `agents.<name>.>`. The bus lets a guest publish only under its own name, and a reader drops a
+//! message whose `from` is not the subject's, so a guest cannot pose as another. Each connection
+//! takes its replies under its own prefix, `_INBOX_<public key>`, the only one its user may
+//! subscribe to, so no agent reads another's replies.
 
 use std::fmt;
+use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, anyhow, ensure};
 use async_nats::jetstream::ErrorCode;
+use async_nats::jetstream::consumer::FromConsumer;
+use async_nats::jetstream::consumer::pull::MessagesErrorKind;
 use async_nats::jetstream::context::{ConsumerInfoErrorKind, GetStreamErrorKind};
 use async_nats::jetstream::kv::{self, Operation};
 use async_nats::jetstream::{self, consumer, stream};
@@ -19,10 +28,11 @@ use futures_util::StreamExt;
 use crate::keys::public_key_of;
 use crate::message::{Message, check_agent_name};
 use crate::status::{BUCKET, Heartbeat, InboxState, Status};
+use crate::tls::CA_ENV;
 
 /// The stream holding every inbox.
 pub const STREAM: &str = "AGENTS";
-/// Each agent's inbox is `agents.<name>`.
+/// Each agent's inbox is `agents.<name>.>`, one subject per sender.
 pub const SUBJECT_PREFIX: &str = "agents";
 /// How long the stream keeps a message, read or not. Files that follow the messages (the
 /// guest's task records, `results.jsonl`, the listener's journal) keep them as long.
@@ -34,6 +44,14 @@ const HISTORY_INACTIVE: Duration = Duration::from_secs(30);
 const HISTORY_BATCH: usize = 256;
 /// How long one read of the history waits for messages.
 const HISTORY_WAIT: Duration = Duration::from_secs(5);
+
+/// Where the bus is, and the CA certificate its server certificate must chain to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Endpoint {
+    /// `nats://<address>:<port>`; the address must be one the server certificate names.
+    pub url: String,
+    pub ca: PathBuf,
+}
 
 /// A connection to the bus.
 pub struct Channel {
@@ -85,20 +103,30 @@ pub struct Delivery {
 }
 
 impl Channel {
-    /// Connect to the bus at `server`, authenticating with `seed`. The connection's
-    /// asynchronous errors are printed: a permission violation is reported only there, and the
-    /// call that caused it just times out.
+    /// Connect to the bus at `server`, authenticating with `seed`. The connection is TLS from
+    /// its first byte, and the server's certificate must chain to `server.ca` and name the
+    /// URL's address; no system root is trusted. Replies come back under the key's own inbox
+    /// prefix (`inbox_prefix`). The connection's asynchronous errors are printed: a permission
+    /// violation is reported only there, and the call that caused it just times out.
     ///
     /// # Errors
     ///
-    /// Fails when the seed is not a user seed or the bus cannot be reached.
-    pub async fn connect(server: &str, seed: &str) -> Result<Self> {
-        public_key_of(seed)?;
-        let client = ConnectOptions::with_nkey(seed.trim().to_owned())
+    /// Fails when the seed is not a user seed, there is no CA certificate, or the bus cannot be
+    /// reached or does not prove it is the bus.
+    pub async fn connect(server: &Endpoint, seed: &str) -> Result<Self> {
+        let key = public_key_of(seed)?;
+        let client = tls_options(ConnectOptions::with_nkey(seed.trim().to_owned()), server)?
+            .custom_inbox_prefix(inbox_prefix(&key))
             .event_callback(|event| async move { report(&event) })
-            .connect(server)
+            .connect(&server.url)
             .await
-            .with_context(|| format!("Unable to reach the bus at {server}"))?;
+            .with_context(|| {
+                format!(
+                    "Unable to reach the bus at {} over TLS, trusting the CA {}",
+                    server.url,
+                    server.ca.display()
+                )
+            })?;
         Ok(Self {
             jetstream: jetstream::new(client),
         })
@@ -168,7 +196,7 @@ impl Channel {
             Plan::Keep => Ok(InboxChange::Unchanged),
             Plan::Update => {
                 stream
-                    .update_consumer(wanted.clone())
+                    .update_consumer(update_config(&info.config, wanted)?)
                     .await
                     .context("Unable to update the inbox")?;
                 Ok(InboxChange::Updated)
@@ -201,9 +229,9 @@ impl Channel {
     ///
     /// # Errors
     ///
-    /// Fails when the receiver's name is invalid or the bus does not store the message.
+    /// Fails when a name is invalid or the bus does not store the message.
     pub async fn send(&self, message: &Message) -> Result<()> {
-        let subject = inbox_subject(&message.to)?;
+        let subject = message_subject(&message.to, &message.from)?;
         let payload = serde_json::to_vec(message).context("Unable to encode the message")?;
         self.jetstream
             .publish(subject, payload.into())
@@ -253,13 +281,14 @@ impl Channel {
     /// Every message still kept in the stream for `agent`, oldest first, read without consuming
     /// the inbox: an ephemeral pull consumer with no acknowledgement reads them, and the bus drops
     /// it after use. The host's permissions already allow this (the `JetStream` API and its own
-    /// inbox pulls), so nothing was widened. Messages that are not agent messages are skipped.
+    /// inbox pulls), so nothing was widened. Messages that are not agent messages, or whose
+    /// sender is not the subject's, are skipped.
     ///
     /// # Errors
     ///
     /// Fails when the name is invalid or the bus refuses the consumer or a read.
     pub async fn history(&self, agent: &str) -> Result<Vec<Message>> {
-        let subject = inbox_subject(agent)?;
+        let subject = inbox_filter(agent)?;
         let stream = self
             .jetstream
             .get_stream(STREAM)
@@ -396,6 +425,29 @@ impl Channel {
         Ok(())
     }
 
+    /// Replace `agent`'s inbox with one in the shape from before per-sender subjects (filtered
+    /// on `agents.<agent>`) that was since recreated to start at the next stream sequence, as
+    /// the `max_waiting` upgrade leaves it. Returns that start sequence. This is for testing the
+    /// upgrade.
+    #[cfg(test)]
+    pub async fn make_inbox_unsplit(&self, agent: &str) -> Result<u64> {
+        let mut stream = self.jetstream.get_stream(STREAM).await?;
+        stream.delete_consumer(agent).await?;
+        let start_sequence = stream.info().await?.state.last_sequence + 1;
+        let mut old = consumer_config(agent)?;
+        old.filter_subject = format!("{SUBJECT_PREFIX}.{agent}");
+        old.deliver_policy = consumer::DeliverPolicy::ByStartSequence { start_sequence };
+        stream.create_consumer(old).await?;
+        Ok(start_sequence)
+    }
+
+    /// The config the bus holds for `agent`'s inbox. This is for testing the upgrade.
+    #[cfg(test)]
+    pub async fn inbox_config(&self, agent: &str) -> Result<consumer::Config> {
+        let stream = self.jetstream.get_stream(STREAM).await?;
+        Ok(stream.consumer_info(agent).await?.config)
+    }
+
     /// How many messages wait in `agent`'s inbox, unread or unacknowledged. This is for the host.
     ///
     /// # Errors
@@ -418,25 +470,44 @@ impl Channel {
 }
 
 impl Inbox {
-    /// Wait for the next message. A message that is not one of ours is reported, acknowledged
-    /// and skipped.
+    /// Wait for the next message. A message that is not one of ours, or whose `from` is not
+    /// the sender its subject names, is reported, acknowledged and skipped. An error the reader
+    /// recovers from (`recoverable`), such as the bus being away for a while, is reported and
+    /// reading goes on.
     ///
     /// # Errors
     ///
-    /// Fails when the bus connection fails.
+    /// Fails when the reader cannot go on: the inbox was deleted, or the bus refuses its pulls.
     pub async fn next(&mut self) -> Result<Option<Delivery>> {
         while let Some(raw) = self.messages.next().await {
-            let raw = raw.context("Unable to read the inbox")?;
+            let raw = match raw {
+                Ok(raw) => raw,
+                Err(error) if recoverable(error.kind()) => {
+                    eprintln!("Reading the inbox: {error}; still reading");
+                    continue;
+                }
+                Err(error) => {
+                    eprintln!("Reading the inbox: {error}; the reader cannot go on");
+                    return Err(error).context("Unable to read the inbox");
+                }
+            };
             match serde_json::from_slice::<Message>(&raw.payload) {
-                Ok(message) => return Ok(Some(Delivery { message, raw })),
+                Ok(message) if sent_by(raw.subject.as_str(), &message) => {
+                    return Ok(Some(Delivery { message, raw }));
+                }
+                Ok(message) => eprintln!(
+                    "Refusing a message on {} that says it is from '{}' to '{}': the sender is not \
+                     the subject's",
+                    raw.subject, message.from, message.to
+                ),
                 Err(error) => {
                     eprintln!("Skipping a message that is not an agent message: {error}");
-                    raw.ack()
-                        .await
-                        .map_err(anyhow::Error::from_boxed)
-                        .context("Unable to acknowledge a skipped message")?;
                 }
             }
+            raw.ack()
+                .await
+                .map_err(anyhow::Error::from_boxed)
+                .context("Unable to acknowledge a skipped message")?;
         }
         Ok(None)
     }
@@ -475,7 +546,9 @@ async fn read_all(reader: &consumer::PullConsumer) -> Result<Vec<Message>> {
                 .map_err(anyhow::Error::from_boxed)
                 .context("Unable to read the history")?;
             read = read.saturating_add(1);
-            if let Ok(message) = serde_json::from_slice::<Message>(&raw.payload) {
+            if let Ok(message) = serde_json::from_slice::<Message>(&raw.payload)
+                && sent_by(raw.subject.as_str(), &message)
+            {
                 messages.push(message);
             }
         }
@@ -491,7 +564,7 @@ async fn read_all(reader: &consumer::PullConsumer) -> Result<Vec<Message>> {
 fn consumer_config(agent: &str) -> Result<consumer::pull::Config> {
     Ok(consumer::pull::Config {
         durable_name: Some(agent.to_owned()),
-        filter_subject: inbox_subject(agent)?,
+        filter_subject: inbox_filter(agent)?,
         // One reader at a time. Readers of a durable consumer share its messages, so a second
         // reader (a listener that was never stopped) would silently take some of them. The
         // bus refuses the second reader's pull request instead.
@@ -514,6 +587,49 @@ fn plan(existing: &consumer::Config, wanted: &consumer::pull::Config) -> Plan {
     }
 }
 
+/// The config that updates `existing` to `wanted`: the existing config with only the settings
+/// we manage (`filter_subject`, `max_waiting`) taken from `wanted`. The bus refuses to change
+/// what is fixed when a consumer is created (where it starts, its ack and replay policies), and
+/// a recreated consumer starts at a sequence, not with the default `DeliverPolicy::All`, so
+/// everything else is sent back as the bus has it.
+///
+/// # Errors
+///
+/// Fails when the existing consumer is not a pull consumer.
+fn update_config(
+    existing: &consumer::Config,
+    wanted: &consumer::pull::Config,
+) -> Result<consumer::pull::Config> {
+    let mut updated = consumer::pull::Config::try_from_consumer_config(existing.clone())
+        .map_err(|error| anyhow!(error))
+        .context("The existing inbox is not a pull consumer")?;
+    updated.filter_subject.clone_from(&wanted.filter_subject);
+    updated.max_waiting = wanted.max_waiting;
+    Ok(updated)
+}
+
+/// `options` made to connect to `server` with TLS first, trusting only the CA certificate
+/// `server.ca`. The bus refuses a client that does not start with a TLS handshake.
+///
+/// rustls takes its crypto provider from the process default, which `main` installs.
+///
+/// # Errors
+///
+/// Fails when there is no CA certificate at `server.ca`.
+pub fn tls_options(options: ConnectOptions, server: &Endpoint) -> Result<ConnectOptions> {
+    ensure!(
+        server.ca.is_file(),
+        "No bus CA certificate at {}. On the host, `agent-bus bus start` makes it; a guest gets \
+         it from dev/agent-bus/start-agent.sh; elsewhere, set {} to a copy of the host's",
+        server.ca.display(),
+        CA_ENV
+    );
+    Ok(options
+        .tls_first()
+        .require_tls(true)
+        .add_root_certificates(server.ca.clone()))
+}
+
 /// Print a connection event that is not routine.
 fn report(event: &Event) {
     match event {
@@ -533,20 +649,113 @@ fn unix_ms(nanos: i128) -> u64 {
     u64::try_from(nanos / 1_000_000).unwrap_or(0)
 }
 
-/// The subject of `agent`'s inbox.
-fn inbox_subject(agent: &str) -> Result<String> {
+/// The prefix of the subjects the connection of the user with `public_key` takes its replies
+/// on. Its user may subscribe to `<prefix>.>` and nothing else.
+pub fn inbox_prefix(public_key: &str) -> String {
+    format!("_INBOX_{public_key}")
+}
+
+/// The subject a message to `to` from `from` is published to.
+pub fn message_subject(to: &str, from: &str) -> Result<String> {
+    check_agent_name(to)?;
+    check_agent_name(from)?;
+    Ok(format!("{SUBJECT_PREFIX}.{to}.{from}"))
+}
+
+/// The subjects of `agent`'s inbox: one per sender.
+fn inbox_filter(agent: &str) -> Result<String> {
     check_agent_name(agent)?;
-    Ok(format!("{SUBJECT_PREFIX}.{agent}"))
+    Ok(format!("{SUBJECT_PREFIX}.{agent}.>"))
+}
+
+/// Whether `message`, published to `subject`, was sent there by the agent it names: its
+/// subject is the one its `to` and `from` give. The bus lets a guest publish only under its own
+/// name, so this holds a guest's `from` to the key it connected with.
+fn sent_by(subject: &str, message: &Message) -> bool {
+    message_subject(&message.to, &message.from).is_ok_and(|expected| expected == subject)
+}
+
+/// Whether an inbox's pull stream goes on after an error of this kind. async-nats ends the
+/// stream after a deleted consumer, a push consumer, or a pull over the consumer's limits. After
+/// any other error (a missed heartbeat, a pull that could not be sent, no responders while the
+/// bus is away) it keeps pulling, and pulls again once it has reconnected.
+fn recoverable(kind: MessagesErrorKind) -> bool {
+    !matches!(
+        kind,
+        MessagesErrorKind::ConsumerDeleted
+            | MessagesErrorKind::PushBasedConsumer
+            | MessagesErrorKind::RequestLimitExceeded
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    use crate::keys::generate;
+    use crate::message::Kind;
+
+    fn message_on(from: &str, to: &str) -> Message {
+        Message {
+            task: "t1".to_owned(),
+            from: from.to_owned(),
+            to: to.to_owned(),
+            kind: Kind::Progress,
+            text: String::new(),
+            usage: None,
+            task_usage: None,
+            github: false,
+            model: None,
+        }
+    }
+
     #[test]
-    fn each_agent_has_its_own_subject_inside_the_stream() {
-        assert_eq!(inbox_subject("dev").unwrap(), "agents.dev");
-        assert!(inbox_subject("dev.>").is_err());
+    fn each_sender_has_its_own_subject_in_each_inbox() {
+        assert_eq!(message_subject("host", "dev").unwrap(), "agents.host.dev");
+        assert_eq!(inbox_filter("dev").unwrap(), "agents.dev.>");
+        assert!(inbox_filter("dev.>").is_err());
+        assert!(message_subject("host", "dev.*").is_err());
+        assert!(message_subject("host.>", "dev").is_err());
+    }
+
+    #[test]
+    fn a_message_whose_sender_is_not_the_subject_s_is_refused() {
+        assert!(sent_by("agents.host.dev", &message_on("dev", "host")));
+        // A guest that may publish only as dev claims to be another.
+        assert!(!sent_by("agents.host.dev", &message_on("other", "host")));
+        assert!(!sent_by("agents.host.dev", &message_on("dev", "other")));
+        // A subject without a sender, or with more than one.
+        assert!(!sent_by("agents.host", &message_on("dev", "host")));
+        assert!(!sent_by("agents.host.dev.x", &message_on("dev", "host")));
+    }
+
+    #[test]
+    fn each_key_has_its_own_reply_prefix() {
+        let key = generate().unwrap().public_key;
+        assert_eq!(inbox_prefix(&key), format!("_INBOX_{key}"));
+        assert_ne!(
+            inbox_prefix(&key),
+            inbox_prefix(&generate().unwrap().public_key)
+        );
+    }
+
+    #[test]
+    fn only_errors_that_end_the_pull_stream_end_the_reader() {
+        for kind in [
+            MessagesErrorKind::MissingHeartbeat,
+            MessagesErrorKind::Pull,
+            MessagesErrorKind::NoResponders,
+            MessagesErrorKind::Other,
+        ] {
+            assert!(recoverable(kind), "{kind}");
+        }
+        for kind in [
+            MessagesErrorKind::ConsumerDeleted,
+            MessagesErrorKind::PushBasedConsumer,
+            MessagesErrorKind::RequestLimitExceeded,
+        ] {
+            assert!(!recoverable(kind), "{kind}");
+        }
     }
 
     #[test]
@@ -570,9 +779,17 @@ mod tests {
     }
 
     #[test]
+    fn an_inbox_takes_every_sender_s_subject() {
+        assert_eq!(
+            consumer_config("dev").unwrap().filter_subject,
+            "agents.dev.>"
+        );
+    }
+
+    #[test]
     fn an_unchanged_consumer_is_kept_whatever_its_start_policy() {
         let wanted = consumer_config("dev").unwrap();
-        let mut current = existing(1, "agents.dev");
+        let mut current = existing(1, "agents.dev.>");
         assert_eq!(plan(&current, &wanted), Plan::Keep);
         current.deliver_policy = consumer::DeliverPolicy::ByStartSequence { start_sequence: 7 };
         assert_eq!(plan(&current, &wanted), Plan::Keep);
@@ -585,9 +802,36 @@ mod tests {
     }
 
     #[test]
+    fn an_update_keeps_where_the_consumer_starts() {
+        let wanted = consumer_config("dev").unwrap();
+        // An inbox in the old shape, recreated earlier at a start sequence.
+        let mut current = existing(1, "agents.dev");
+        current.durable_name = Some("dev".to_owned());
+        current.deliver_policy = consumer::DeliverPolicy::ByStartSequence { start_sequence: 7 };
+        current.replay_policy = consumer::ReplayPolicy::Original;
+        current.ack_policy = consumer::AckPolicy::All;
+        assert_eq!(plan(&current, &wanted), Plan::Update);
+        let updated = update_config(&current, &wanted).unwrap();
+        // What the bus fixes at creation is kept.
+        assert_eq!(
+            updated.deliver_policy,
+            consumer::DeliverPolicy::ByStartSequence { start_sequence: 7 }
+        );
+        assert_eq!(updated.replay_policy, consumer::ReplayPolicy::Original);
+        assert_eq!(updated.ack_policy, consumer::AckPolicy::All);
+        // What we manage takes the wanted value.
+        assert_eq!(updated.durable_name.as_deref(), Some("dev"));
+        assert_eq!(updated.filter_subject, "agents.dev.>");
+        assert_eq!(updated.max_waiting, 1);
+    }
+
+    #[test]
     fn a_max_waiting_difference_is_recreated() {
         let wanted = consumer_config("dev").unwrap();
-        assert_eq!(plan(&existing(512, "agents.dev"), &wanted), Plan::Recreate);
+        assert_eq!(
+            plan(&existing(512, "agents.dev.>"), &wanted),
+            Plan::Recreate
+        );
         // A difference that cannot be updated wins over one that can.
         assert_eq!(plan(&existing(512, "agents.old"), &wanted), Plan::Recreate);
     }

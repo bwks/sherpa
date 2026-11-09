@@ -49,7 +49,7 @@ pub struct Agent {
 }
 
 /// A validated agents file: exactly one host, and the guests.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Agents {
     pub host: Agent,
     pub guests: Vec<Agent>,

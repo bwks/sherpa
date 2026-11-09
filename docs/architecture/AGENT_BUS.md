@@ -29,17 +29,19 @@ tracked in issue #494.
 | Bus container | `sherpa-agent-bus`, image `nats:2.15-alpine` pinned by digest (nats-server 2.15.2), run with JetStream on the host's network. It listens on one address, port 4222: with `--lab`, the lab's management gateway (`ipv4_gateway` in `.sherpa/lab-info.toml`), which is also each guest's default gateway. Restart policy `unless-stopped`. | `src/bus.rs` |
 | Store | The Docker volume `sherpa-agent-bus-data`, mounted at `/data` (`--store_dir`). It outlives the container. | `src/bus.rs` |
 | Server config | `nats.conf`, rendered from the agents file and the registry of enrolled guests. Its directory is bind-mounted read-only at `/etc/agent-bus/` (`-c /etc/agent-bus/nats.conf`), and SIGHUP reloads it. | `src/config.rs` |
+| TLS | The bus's own private CA (not the Sherpa lab CA), made once by `bus start`, and the server certificate it signs for the listen address, in the same mounted directory as the config. The server takes TLS only, handshake first. See [TLS](#tls). | `src/tls.rs` |
 | Registry | `enrolled.toml`: the guests `enroll` added, with their public keys. Host-managed, never edited by hand. | `src/registry.rs` |
 | Stream | One JetStream stream, `AGENTS`, on `agents.>`, keeping messages for 7 days (`max_age`). | `src/channel.rs` |
 | Status bucket | A JetStream key-value bucket, `AGENT_STATUS` (stream `KV_AGENT_STATUS`), one key per guest, history 1, kept 7 days. Each guest agent's heartbeat. See [Agent status](#agent-status). | `src/channel.rs`, `src/status.rs` |
-| Inboxes | One durable pull consumer per agent, named after it, filtered on `agents.<name>`, with `max_waiting = 1`. A message waits until its agent reads and acknowledges it, and a restarted reader goes on where it stopped. | `src/channel.rs` |
+| Inboxes | One durable pull consumer per agent, named after it, filtered on `agents.<name>.>` (one subject per sender), with `max_waiting = 1`. A message waits until its agent reads and acknowledges it, and a restarted reader goes on where it stopped. | `src/channel.rs` |
 | Host commands | `key new`, `bus start/stop/status`, `enroll`, `unenroll`, `send`, `cancel`, `listen`, `usage`, `show`, `agents`. | `src/main.rs`, `src/bus.rs`, `src/listen.rs`, `src/table.rs` |
-| Starting a guest | `dev/agent-bus/start-agent.sh` on the host enrolls a node's agent and pipes its seed over SSH to `dev/agent-bus/start-guest.sh` in the guest. | `dev/agent-bus/` |
+| Starting a guest | `dev/agent-bus/start-agent.sh` on the host enrolls a node's agent and pipes its seed and the bus's CA certificate over SSH to `dev/agent-bus/start-guest.sh` in the guest. | `dev/agent-bus/` |
 | Guest agent | `agent-bus guest`: reads its inbox, queues tasks, runs them one at a time through Claude Code, and replies. | `src/guest/` |
 | Claude Code | `claude -p` with `stream-json` output, one process (and process group) per run, in the guest's checkout. | `src/guest/claude.rs` |
 
 The flowchart shows the parts and how they connect. The only path between the host and a lab
-guest is NATS on the lab's management bridge; nothing goes over SSH once the guest agent runs.
+guest is NATS over TLS on the lab's management bridge; nothing goes over SSH once the guest agent
+runs.
 
 ```mermaid
 flowchart LR
@@ -61,7 +63,7 @@ flowchart LR
         checkout["checkout"]
     end
     hostagent --> cmds
-    cmds <-->|"NATS, NKey auth"| nats
+    cmds <-->|"NATS over TLS, NKey auth"| nats
     start -->|"Docker API"| ctr
     start --> conf
     enroll --> registry
@@ -70,7 +72,7 @@ flowchart LR
     enroll -->|"SIGHUP, Docker API"| ctr
     conf -.->|"read-only bind mount<br/>of its directory"| nats
     nats --- vol
-    gagent <-->|"NATS, NKey auth<br/>to default gateway"| nats
+    gagent <-->|"NATS over TLS, NKey auth<br/>to default gateway"| nats
     gagent -->|"prompt on stdin"| claude
     claude -->|"events on stdout"| gagent
     claude --> checkout
@@ -90,14 +92,17 @@ Exactly one of `--lab` and `--listen <ipv4>` is required (`src/main.rs`, `src/st
 2. Load and validate the agents file, and check that the seed's public key is the host's key.
    Under the registry lock, load the registry and merge it with the agents file (see
    [Enrollment](#enrollment)).
-3. Write `nats/nats.conf` (see [Files and state](#files-and-state)).
+3. Write `nats/nats.conf` (see [Files and state](#files-and-state)). Then make the bus CA if
+   there is none, and issue the server certificate for the listen address if it needs it (see
+   [TLS](#tls)). A listen address of `0.0.0.0` is refused: the certificate names the one address
+   clients connect to.
 4. Pull the pinned image if Docker does not have it, then replace the container: stop and remove
    any existing `sherpa-agent-bus`, create it, start it. An existing container is never just
    restarted, because the config may have changed. The messages are in the volume, so replacing
    the container loses nothing.
    A `nats.conf` left in the state directory by a version that mounted the file itself is
    removed.
-5. Connect as the host (20 attempts, 500 ms apart), create or check the `AGENTS` stream, and
+5. Connect as the host over TLS (20 attempts, 500 ms apart), create or check the `AGENTS` stream, and
    bring each agent's inbox, the host's and every enrolled guest's included, to the wanted
    consumer config.
 6. Record the URL, the agents file's absolute path (and the lab) in `bus.toml`, and print one
@@ -111,8 +116,15 @@ floor stream sequence + 1, read before the delete: acknowledged messages stay go
 unacknowledged and unread messages are delivered again. If the create fails after the delete,
 the error names the sequence to create it from.
 
+An inbox made before messages carried their sender in the subject is filtered on
+`agents.<name>`; `bus start` updates it to `agents.<name>.>` in place. Messages stored under the
+old subject are not delivered after that, and `usage` and `show` no longer see them, so let the
+inboxes drain (and run `listen` once) before upgrading. Guests must run the same version as the
+host: an older guest publishes to `agents.<host>`, which it may no longer do.
+
 `bus stop` stops and removes the container and removes `bus.toml`; the volume and its messages
-stay. `bus status` prints the container's state, the recorded URL and the lab.
+stay. A container that is stopped already or gone is no error (`bus::remove`), so `bus stop`
+run again, or after the container was removed by hand, still removes `bus.toml`. `bus status` prints the container's state, the recorded URL and the lab.
 
 Adding a guest means starting it: `start-agent.sh` enrolls it on the running bus (see
 [Enrollment](#enrollment)). `bus start` is needed again only when the agents file changes.
@@ -121,7 +133,8 @@ Adding a guest means starting it: `start-agent.sh` enrolls it on the running bus
 
 `enroll` and `unenroll` use the whole record: the URL, and the agents file `bus start` was
 given. A record without the agents file, written before enrollment, makes them fail and say to
-run `bus start` again.
+run `bus start` again. With no record at all (the bus was stopped), `unenroll` still works: see
+[Enrollment](#enrollment).
 
 `send`, `cancel`, `listen`, `usage` and `show` take the first of: `--server <url>`, the
 environment variable `AGENT_BUS_URL`, the URL in `bus.toml` (`state::find_server`). With none,
@@ -129,6 +142,12 @@ they fail and say to run `bus start` or set one. The guest agent runs in the lab
 there is no `bus.toml`: it takes `--server` (or `AGENT_BUS_URL`), which `dev/agent-bus/start-guest.sh`
 builds from the guest's default gateway for a guest in the bus's lab. A guest in any other lab
 is given `AGENT_BUS_URL`, the bus's URL, since its own default gateway has no bus on it.
+
+Every command that connects trusts one CA certificate: the file named by `AGENT_BUS_CA`, else
+`tls/ca.pem` in the host's state directory, which `bus start` made (`tls::client_ca`). The
+commands inside `bus start` and `enroll` always use their own state directory's. A missing file
+fails before connecting, naming the path and `AGENT_BUS_CA`. The guest agent is given
+`AGENT_BUS_CA` by `start-guest.sh` (see [TLS](#tls)).
 
 ### One reader per inbox
 
@@ -140,8 +159,11 @@ behind.
 
 ## Messages
 
-Every message is one JSON object, published to `agents.<to>` and stored by JetStream before
-`send` returns (`src/message.rs`, `Channel::send`).
+Every message is one JSON object, published to `agents.<to>.<from>` and stored by JetStream
+before `send` returns (`src/message.rs`, `Channel::send`). A guest may publish only under its own
+name (see [The rendered config](#the-rendered-config)), and a reader drops, logs and
+acknowledges a message whose `to` and `from` are not its subject's (`channel::sent_by`;
+`usage` and `show` skip it too), so a guest cannot pose as another agent.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -251,6 +273,13 @@ it to the next listener. The guest
 agent acknowledges each inbox message as soon as it reads it, before running it: a task runs far
 longer than the bus waits for an acknowledgement, and must not be delivered twice.
 
+A reader (the guest agent, and `listen`) outlives a short bus outage, such as `bus start` run
+again. async-nats reconnects by itself, and its pull stream ends only after a deleted consumer,
+a push consumer, or a pull over the consumer's limits. Those end the reader with an error. Any
+other stream error (a missed heartbeat, a pull that could not be sent, no responders) is logged
+as `Reading the inbox: ...; still reading`, and the reader goes on and pulls again once
+reconnected (`channel::recoverable`).
+
 ### A question and its answer
 
 A result with a line starting `QUESTION:` makes the outcome a `question`. The host agent asks the
@@ -305,7 +334,10 @@ sequenceDiagram
 the cancel; otherwise the text says the run's cost is unknown and the run is not counted. A
 cancel for a queued task removes it from the queue and replies `canceled`. `Group` in
 `src/guest/claude.rs` also sends SIGKILL to the group when it is dropped while still armed, so
-no way out of a run leaves Claude Code behind.
+no way out of a run leaves Claude Code behind. When Claude Code exits on its own, whatever it
+left in its group (a command started with `&` or `nohup`) gets SIGTERM, then SIGKILL if it is
+still there after the same 2 s (`claude::finish`), before the outcome is sent. The guest agent is
+not in the group.
 
 ### A guest restart
 
@@ -345,14 +377,19 @@ sequenceDiagram
 
 The interrupted task's session is kept, so an answer still resumes it.
 
+A stop that comes before the task's own run started (while a base session is being primed, or
+between priming and the run) is not an interruption: the priming run is stopped, nothing is
+reported, no fresh run is started, and the task goes back to the front of the queue in the final
+state, to run after the restart (`Finish::Postponed`).
+
 ## Authentication and permissions
 
 ### NKeys
 
 Every agent has an NKey user key pair (`src/keys.rs`). On connect, the server sends a nonce, the
 client signs it with its seed, and the server checks the signature against the public keys in its
-config. No password or token goes over the wire. NKeys authenticate; they do not encrypt, and
-the bus has no TLS.
+config. No password or token goes over the wire. NKeys authenticate; they do not encrypt: TLS
+does (see [TLS](#tls)).
 
 | Thing | Where it lives | Secret |
 |---|---|---|
@@ -374,6 +411,54 @@ A guest's seed is made by `enroll` each time the guest starts and goes straight 
 `start-agent.sh` pipes it over SSH stdin, never as an argument, and in the guest
 `start-guest.sh` reads it from stdin, exports it to the agent process only, and unsets its own
 copy. The user stores only the host's seed.
+
+### TLS
+
+The bus has its own private CA, made by `bus start` with rcgen (`src/tls.rs`). It is not the
+Sherpa lab CA: the bus is a development tool, and no other certificate should be able to pose as
+it. Every connection is TLS from its first byte, and every client trusts only that CA.
+
+- **The CA.** `tls/ca.pem` and `tls/ca-key.pem` in the host's state directory, ECDSA P-256,
+  subject `CN=agent-bus CA, O=Sherpa agent-bus`, path length 0, valid about ten years. Made once,
+  when neither file exists, and reused by every later start. One file without the other is an
+  error that says to remove it to make a new CA. A new CA means every guest agent must be started
+  again to get its certificate. The CA key never leaves `tls/`, which is not mounted. A
+  certificate is signed with the CA rebuilt from its key and its fixed subject, so the CA
+  certificate is never parsed back.
+- **The server certificate.** `nats/server.pem` and `nats/server-key.pem`, next to `nats.conf`, so
+  the container sees them through the same read-only directory mount. ECDSA P-256, signed by the
+  CA, server authentication only, with one IP SAN: the listen address (the lab's gateway with
+  `--lab`), the one address the host and every guest connect to. Valid a year, from an hour
+  before it was issued so a guest whose clock lags the host's still accepts it.
+  `tls/server.toml` records the addresses it names and when it expires, so `bus start` decides
+  without parsing it. `bus start` issues it again when there is none, its key or record is
+  missing, the CA is new, the listen address changed, or it expires within 30 days, and prints
+  which. `enroll` and `unenroll` never touch it.
+- **The server.** `nats.conf` has a `tls` block with `cert_file`, `key_file` and
+  `handshake_first: true`: the server waits for a TLS ClientHello and sends nothing in
+  plaintext, not even its INFO, so a plaintext client gets no answer and is dropped. There are no
+  client certificates (no mTLS): NKeys authenticate clients over the TLS connection.
+- **The clients.** `Channel::connect` (`channel::tls_options`) connects with `tls_first` and TLS
+  required, and adds only the CA certificate as a root, so async-nats loads no system roots. The
+  server's certificate must chain to the CA and name the URL's address. A client trusting another
+  bus's CA is refused (every bus CA has the same subject, so rustls reports a bad signature). The
+  process's rustls provider is aws-lc-rs, as in the rest of the workspace: `main` installs it once
+  at startup (async-nats's `aws-lc-rs` feature, through its rustls re-export), and the Docker
+  tests install it the same way.
+- **The guests.** `start-agent.sh` sends `tls/ca.pem` down the same SSH stdin pipe as the token
+  and the seed, after them, to the end of the stream. `start-guest.sh` checks it is a PEM
+  certificate, writes it to `bus-ca.pem` in the guest's state directory (0644, replaced
+  atomically) and starts the agent with `AGENT_BUS_CA` pointing at it. No file is copied with
+  `scp`, and nothing goes on a command line.
+
+**Upgrading.** The host and the guests must be upgraded together, as with the change to
+per-sender subjects: an older client speaks plaintext, which the new bus refuses, and a new
+client refuses an older plaintext bus. Install the new `agent-bus` and
+`agent-bus-start-agent` on the host, run `bus start` again (it makes the CA and the server
+certificate, and replaces the container), then start every guest agent again with
+`agent-bus:agent`, which builds the new guest binary and gives it the CA. A `start-guest.sh`
+from this version refuses to start without the CA on stdin. Run `nats` CLI commands with
+`--tlsfirst --tlsca <state>/tls/ca.pem`.
 
 ### The agents file
 
@@ -420,14 +505,20 @@ number and the parser's message with every word of 40 characters or more replace
 8. prints the seed, and only the seed, on stdout. Progress goes to stderr.
 
 `enroll` refuses to run when stdout is a terminal, so the seed lands in a pipe, not on a screen
-or in a scrollback. If it fails after step 5, the registry has the new key and no seed was
-printed; running `bus start` again renders and loads the config from the registry.
+or in a scrollback. If step 6 or 7 fails, the seed is discarded, so `enroll` saves the previous
+registry and config again and reloads the bus: the previous key, if any, works again, and no key
+whose seed is lost stays enrolled. The error says so. If putting them back fails too, the error
+says to enroll the guest again (which replaces the key) or run `bus start`, which renders and
+loads the config from the registry.
 
 `agent-bus unenroll <name>` removes the guest's key from the registry, renders the config and
 reloads a running bus (`bus::unenroll`). It needs no seed. A name the agents file lists is
-refused, and a name that is not enrolled changes nothing. If the bus is not running, only the
-files change, and the next `bus start` leaves the guest out. The guest's inbox and messages stay
-in the stream.
+refused, and a name that is not enrolled changes nothing. If the bus is recorded but not
+running, only the files change, and the next `bus start` leaves the guest out. With no
+`bus.toml` (after `bus stop`), the agents file is not known, so only the registry changes
+(`bus::unenroll_standard`): `bus start` renders the config from it, so the key is refused from the next start.
+A container that runs without a record is refused, with a message to run `bus start` first. The
+guest's inbox and messages stay in the stream.
 
 **Which wins.** The agents file wins a name clash. `enroll` and `unenroll` refuse its names,
 including the host's. A registry entry whose name the agents file lists later is left out of the
@@ -458,25 +549,31 @@ The bus has one account, so these lists are what separate the agents.
 
 | Role | Publish allowed | Subscribe allowed |
 |---|---|---|
-| host | `agents.>`, `$JS.API.>`, `$JS.ACK.AGENTS.>` | `_INBOX.>` |
-| guest `<name>` | `agents.<host>`, `$JS.API.CONSUMER.INFO.AGENTS.<name>`, `$JS.API.CONSUMER.MSG.NEXT.AGENTS.<name>`, `$JS.ACK.AGENTS.<name>.>`, `$KV.AGENT_STATUS.<name>` | `_INBOX.>` |
+| host | `agents.>`, `$JS.API.>`, `$JS.ACK.AGENTS.>` | `_INBOX_<host key>.>` |
+| guest `<name>` | `agents.<host>.<name>`, `$JS.API.CONSUMER.INFO.AGENTS.<name>`, `$JS.API.CONSUMER.MSG.NEXT.AGENTS.<name>`, `$JS.ACK.AGENTS.<name>.>`, `$KV.AGENT_STATUS.<name>` | `_INBOX_<its key>.>` |
 
-The diagram shows the same lists for a host and one guest, `dev`. Replies to requests, and pulled
-messages, come back on `_INBOX.>`, which is why every agent may subscribe to it and to nothing
-else.
+The diagram shows the same lists for a host and one guest, `dev`. Replies to requests (JetStream
+API calls, publish acknowledgements, key-value reads) and pulled messages come back on the
+connection's inbox subjects. Each connection sets its inbox prefix to `_INBOX_<public key>`
+(`custom_inbox_prefix`, `channel::inbox_prefix`); async-nats makes every reply subject from it,
+the pull consumer's and the request multiplexer's included. Each agent may subscribe to its own
+prefix and nothing else, so no agent reads the replies another pulled. The public key is used
+rather than the name because it is what the connection authenticated with, and the client
+derives it from its seed.
 
 ```mermaid
 flowchart LR
     host(["host"])
     dev(["guest dev"])
     allinboxes["agents.> (every inbox)"]
-    hostinbox["agents.host"]
+    hostinbox["agents.host.dev"]
     jsapi["$JS.API.> (streams, consumers)"]
     devapi["$JS.API.CONSUMER.INFO and<br/>MSG.NEXT on AGENTS.dev"]
     allacks["$JS.ACK.AGENTS.>"]
     devack["$JS.ACK.AGENTS.dev.>"]
     devstatus["$KV.AGENT_STATUS.dev<br/>(its own status)"]
-    replies["_INBOX.>"]
+    hostreplies["_INBOX_(host key).>"]
+    devreplies["_INBOX_(dev key).>"]
     host -->|publish| allinboxes
     host -->|publish| jsapi
     host -->|publish| allacks
@@ -484,12 +581,13 @@ flowchart LR
     dev -->|publish| devapi
     dev -->|publish| devack
     dev -->|publish| devstatus
-    host -.->|subscribe| replies
-    dev -.->|subscribe| replies
+    host -.->|subscribe| hostreplies
+    dev -.->|subscribe| devreplies
 ```
 
-So a guest can read and acknowledge its own inbox, send to the host and write its own status,
-and nothing else: it cannot send to another guest, read another inbox, write another agent's
+So a guest can read and acknowledge its own inbox, send to the host as itself and write its own
+status, and nothing else: it cannot send to another guest, send as another agent, read another
+inbox or another agent's replies, write another agent's
 status, read any status (that takes the JetStream API), or create or change a stream or
 consumer. Only
 the host creates the stream and the consumers. A denied publish does not fail the call:
@@ -576,7 +674,7 @@ shows every guest without a status until `bus start` runs again.
    second agent of the same name fails here with the holder's PID, before it touches the bus;
 2. requires `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`): guest agents use the Claude
    subscription, never API billing;
-3. connects, and opens its inbox;
+3. connects over TLS, trusting the CA in `AGENT_BUS_CA` (see [TLS](#tls)), and opens its inbox;
 4. loads its state file, reports an interrupted task, and saves;
 5. runs three loops together until the inbox closes or SIGTERM or SIGINT arrives: the inbox
    reader, the sender of replies, and the engine that runs tasks.
@@ -685,9 +783,12 @@ its text comes after a prefix that is already cached (`src/guest/base.rs`, `Engi
 - **Accounting.** Both priming runs are counted in the `task_usage` of the task that needed them
   (`runs` includes them), the guest log has a "priming run" line for each, and `results.jsonl`
   records them as run 0 of that task.
-- **Fallback.** If priming fails, or the fork produces no `result` event or a failed one with no
-  turns (for example, the base session is gone), the guest agent logs it, drops the base, and
-  runs the task in a fresh session.
+- **Fallback.** If priming fails, or the fork produces a failed `result` with no turns, or ends
+  with no `result` and nothing done before (no session named, no text, no tool call; for example,
+  the base session is gone), the guest agent logs it, drops the base, and runs the task in a
+  fresh session. A fork that did something and then ended without a `result` is not run again,
+  which would repeat its commits or pushes: the task is reported `failed`. A stop while priming
+  starts no fresh session (see [A guest restart](#a-guest-restart)).
 
 The flowchart shows how a new task gets its session.
 
@@ -701,7 +802,8 @@ flowchart TD
     save --> fork["task run<br/>--resume base --fork-session"]
     p1 -->|fails| fresh["task run in a fresh session"]
     p2 -->|fails| fresh
-    fork -->|no result, or failed with 0 turns| drop["drop the base"]
+    fork -->|"no result and nothing done,<br/>or failed with 0 turns"| drop["drop the base"]
+    fork -->|"no result after doing something"| failed["task failed"]
     drop --> fresh
     fork -->|result| own["the task's own session<br/>answers resume it"]
     fresh --> own
@@ -778,12 +880,17 @@ real-bus tests start the bus with its state in a 0700 directory.
 | Where | File | Mode | Contents | Written by |
 |---|---|---|---|---|
 | Host | `<state>/nats/nats.conf` | 0644, `nats/` 0755, state directory 0700 | The rendered server config as JSON: public keys and allow lists. Rewritten, with `files::write_atomic` (below), on every `bus start`, `enroll` and `unenroll`. Readable by the container's user. | `config::write` |
+| Host | `<state>/tls/ca.pem` | 0644, `tls/` 0700 | The bus CA's certificate. Made once by `bus start`; the CA every client trusts. Sent to each guest by `start-agent.sh`. | `tls::ensure` |
+| Host | `<state>/tls/ca-key.pem` | 0600, `tls/` 0700 | The bus CA's private key. Never mounted or copied. | `tls::ensure` |
+| Host | `<state>/tls/server.toml` | 0600, `tls/` 0700 | The addresses the server certificate names and its expiry (`not_after`). Removed before a new certificate is written, and written after it. | `tls::ensure` |
+| Host | `<state>/nats/server.pem`, `<state>/nats/server-key.pem` | 0644 and 0600, `nats/` 0755 | The server certificate and key, read by nats-server through the mounted `nats/` directory (the pinned image runs as root, so it reads the 0600 key). | `tls::ensure` |
 | Host | `<state>/enrolled.toml` | 0600, directory 0700 | The registry of enrolled guests, in the agents file's format, guests only, with a header saying it is managed by agent-bus. Written with `files::write_atomic`. A missing file is an empty registry. | `registry::Registry::save` |
 | Host | `<state>/enroll.lock` | 0600, directory 0700 | Empty; the exclusive `flock` that `bus start`, `enroll` and `unenroll` hold while they change the registry or render the config. Never removed. | `registry::lock` |
 | Host | `<state>/bus.toml` | 0600, directory 0700 | `url`, `agents` (the agents file's absolute path), and `[lab]` with `id` and `name` when started with `--lab`. Written with `files::write_atomic`. Removed by `bus stop`. | `state::write` |
 | Host | `<state>/listen-<agent>.jsonl` | 0600, directory 0700 | The listener's journal: one line per message received, `{"at_ms":..,"message":{..}}`, the message as `listen` prints it. Appended and in the file before the message is printed and acknowledged. Pruned to 7 days (below). | `listen::Journal` |
 | Host | the agents file | the user's | The host's and any fixed guests' names, public keys and roles. Only read. | the user |
 | Host | Docker volume `sherpa-agent-bus-data` | Docker's | JetStream's store: the `AGENTS` stream and the consumers. | nats-server |
+| Guest | `<state>/bus-ca.pem` | 0644, directory 0700 | The bus CA's certificate, from the SSH stdin pipe; the agent's `AGENT_BUS_CA`. Replaced on every start. | `start-guest.sh` |
 | Guest | `<state>/guest-<name>.toml` | 0600, directory 0700 | The guest agent's state (below). Written with `files::write_atomic` (below). A file that cannot be read or parsed is moved to `guest-<name>.toml.corrupt-<unix seconds>` and the agent starts fresh. | `guest::state` |
 | Guest | `<state>/guest-<name>.lock` | 0600, directory 0700 | The PID of the agent holding the lock. Never removed. | `guest::lock` |
 | Guest | `<state>/results.jsonl` | 0600, directory 0700 | One JSON line per `result` event: `task`, `session`, `run` (0 for priming, then 1, 2, ...), `at_ms`, and `raw`, the event line unchanged. Appended; pruned to 7 days (below). | `guest::record` |
@@ -896,9 +1003,9 @@ In order:
    (`dev/agent-bus/start-agent.sh`). The script finds the node's SSH alias, `<node>` or
    `<node>.<lab id>`, in the lab's `.sherpa/ssh/config` (with `id` from `.sherpa/lab-info.toml`),
    and the bus's URL in `bus.toml`; like `bus start`, it refuses a lab folder in the old layout. It uses the installed `agent-bus` binary, checks the guest answers over
-   SSH, then pipes two lines over SSH stdin to `dev/agent-bus/start-guest.sh <node>` in the
-   guest, with `AGENT_BUS_URL` set to the bus's URL: the Claude token, then the seed straight
-   from `agent-bus enroll <node>`. The seed never sits in a variable, a command line, a file or a
+   SSH, then pipes over SSH stdin to `dev/agent-bus/start-guest.sh <node>` in the guest, with
+   `AGENT_BUS_URL` set to the bus's URL: the Claude token, then the seed straight from
+   `agent-bus enroll <node>`, each on a line, then the bus's CA certificate, `tls/ca.pem`. The seed never sits in a variable, a command line, a file or a
    log, and `ssh` runs without the secrets in its environment. If `enroll` fails, the guest
    script gets no seed and exits before it touches the running agent. In the guest,
    `start-guest.sh` builds the release binary, stops any agent of that name, and starts
@@ -934,7 +1041,7 @@ reaches dev's gateway with no firewall change; the check and its result are in
 
 Checking health:
 
-- `agent-bus bus status`: the container's state, the recorded URL and the lab.
+- `agent-bus bus status`: the container's state, the recorded URL, the lab and the CA certificate.
 - The `bus start` output: one `Inbox ready` line per agent.
 - `<state>/enrolled.toml`: the enrolled guests and their public keys.
 - `agent-bus usage`: what each recent task cost, and its last outcome.
@@ -945,19 +1052,23 @@ Checking health:
   answer taken, one usage line per run, priming lines, and any `Bus connection event`, such as a
   permission violation.
 
-The `nats` CLI (in the dev server's mise tools) can inspect the bus with `--nkey <seed file>`,
-but that puts a seed on disk; prefer `agent-bus listen` and `show`.
+The `nats` CLI (in the dev server's mise tools) can inspect the bus with `--nkey <seed file>
+--tlsfirst --tlsca <state>/tls/ca.pem`, but that puts a seed on disk; prefer `agent-bus listen`
+and `show`.
 
 ## Limits and next steps
 
 - **The host is all-powerful.** The host key can read and write every inbox and is the only key
   that can change the stream. A guest key reaches that guest's inbox and the host's, so a
   compromised guest can flood the host's inbox.
-- **No transport encryption.** The bus listens only on one lab's management bridge address.
+- **TLS without revocation.** The bus CA has no revocation list: a leaked CA key is fixed by
+  removing `tls/`, running `bus start` and starting every guest again. The CA key sits in the
+  host's state directory, protected by its 0700 mode only.
 - **One lab per bus.** One container, one address, one state file. Guests in other labs reach the
   bus at the bus lab's gateway through the host, with no firewall change (checked), so one bus
   serves them all. The bus depends on that lab, though: a new dev lab means a new address, and
-  every guest outside it must be restarted with the new `AGENT_BUS_URL`.
+  every guest outside it must be restarted with the new `AGENT_BUS_URL` (`bus start` issues the
+  server certificate for the new address from the same CA).
 - **One task at a time per guest.** The rest wait in its queue.
 - **Removing an agent**: `unenroll` for an enrolled guest, or removing a fixed one from the
   agents file and running `bus start`, drops its access; its consumer and messages stay in the
