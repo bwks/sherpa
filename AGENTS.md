@@ -56,6 +56,11 @@ keep related functionality in the same crate.
 Functional boundaries are separated into crates, found in the `crates/` directory.
 
 ### Crates and their purpose
+agent-bus:
+- Development tool, not released: a NATS message channel between the host agent and agents in
+  lab guests. See `docs/architecture/AGENT_BUS.md`; the investigation notes are in
+  `docs/investigations/agent-bus.md`.
+
 client:
 - Client binary CLI tool for interacting with the Sherpa Server. This is installed on user machines.
 

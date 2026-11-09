@@ -1,0 +1,53 @@
+[package]
+name = "agent-bus"
+version = "0.5.17"
+edition = "2024"
+description = "Development tool: a NATS message channel between the host agent and agents in lab guests"
+publish = false
+
+[dependencies]
+# Errors
+anyhow = { workspace = true }
+
+# Message bus
+# aws-lc-rs: the crypto provider the rest of the workspace uses, through async-nats's rustls
+async-nats = { workspace = true, features = ["aws-lc-rs"] }
+futures-util = { workspace = true }
+nkeys = { workspace = true }
+
+# The bus container
+bollard = { workspace = true }
+container = { path = "../container" }
+
+# The .sherpa/lab-info.toml a lab writes, and where its lab folder keeps it
+shared = { path = "../shared" }
+
+# CLI
+clap = { workspace = true, features = ["env"] }
+
+# Async runtime
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process", "io-util", "signal", "sync", "time"] }
+
+# Signals to Claude Code's process group, and the guest agent's single-instance lock
+nix = { workspace = true, features = ["signal", "process", "fs"] }
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+toml = { workspace = true }
+
+# The bus's private CA and server certificate. rcgen takes time::OffsetDateTime; every other
+# time is jiff's
+rcgen = "0.13"
+time = "0.3"
+jiff = { workspace = true }
+
+# Spans on I/O functions, printed to stderr when RUST_LOG is set
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+# Task IDs
+uuid = { workspace = true }
+
+[lints]
+workspace = true

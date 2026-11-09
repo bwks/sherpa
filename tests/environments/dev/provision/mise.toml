@@ -18,3 +18,6 @@ shellcheck = "latest"
 bats = "latest"
 # Installs mkdocs for building sherpa-docs, as a tool on the PATH.
 uv = "latest"
+# Guest agents on the agent bus (crates/agent-bus), and the bus CLI for debugging it.
+claude = "latest"
+"github:nats-io/natscli" = "0.5.1"

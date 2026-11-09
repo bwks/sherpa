@@ -20,8 +20,12 @@ if [[ ! -x "${TAILWIND_BIN}" ]]; then
     esac
 
     URL="https://github.com/tailwindlabs/tailwindcss/releases/download/v${TAILWIND_VERSION}/tailwindcss-${OS}-${ARCH}"
-    curl -sL "${URL}" -o "${TAILWIND_BIN}"
-    chmod +x "${TAILWIND_BIN}"
+    # Download to a temp file so a failed or partial download never leaves a bad binary behind.
+    TMP_BIN="$(mktemp "${TAILWIND_BIN}.XXXXXX")"
+    trap 'rm -f "${TMP_BIN}"' EXIT
+    curl -fsSL --connect-timeout 15 --retry 3 --retry-all-errors "${URL}" -o "${TMP_BIN}"
+    chmod +x "${TMP_BIN}"
+    mv "${TMP_BIN}" "${TAILWIND_BIN}"
     echo "Downloaded to ${TAILWIND_BIN}"
 fi
 

@@ -3,6 +3,9 @@
 # Builds the Sherpa dev server: toolchains, the sherpa and sherpa-docs checkouts, and a Sherpa
 # server installed with the checkout's own installer. Runs as the node's login user through the
 # SSH provisioner; safe to run again with `sherpa provision`.
+#
+# With SHERPA_DEV_SERVER=no (provision/worker.env, used by tests/environments/agent) it builds a
+# worker for a guest agent instead: the same toolchains and checkouts, and no Sherpa server.
 
 set -euo pipefail
 
@@ -14,6 +17,8 @@ SHERPA_BASE="/opt/sherpa"
 ACCOUNT_ENV="${HOME}/.env.d/sherpa-account.env"
 SHERPA_ACCOUNT="dev"
 SERVER_IP=""
+# Login shells load ~/.env.d/, so a value from an env file in the manifest arrives here.
+SHERPA_DEV_SERVER="${SHERPA_DEV_SERVER:-yes}"
 # System libraries and compilers. Developer tools come from mise, set in provision/mise.toml.
 APT_PACKAGES=(
     build-essential pkg-config libvirt-dev clang llvm libelf-dev
@@ -38,15 +43,33 @@ apt_install() {
     return 1
 }
 
+# Runs a command up to 5 times, 30s apart, logging each failure. GitHub release downloads, which
+# the mise installer and `mise install` make, sometimes answer with an HTTP 504.
+retry() {
+    local attempt
+    for attempt in 1 2 3 4 5; do
+        if "$@"; then
+            return 0
+        fi
+        log "'$*' failed (attempt ${attempt}), retrying in 30s"
+        sleep 30
+    done
+    return 1
+}
+
+run_mise_installer() {
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 https://mise.run | sh
+}
+
 # Installs mise and the tools in ~/.config/mise/config.toml, which the provisioner copies from
 # provision/mise.toml, and puts them on the PATH of login shells and of this script.
 install_tools() {
     if [ ! -x "${MISE}" ]; then
         log "Installing mise"
-        curl -fsSL https://mise.run | sh
+        retry run_mise_installer
     fi
     log "Installing tools with mise"
-    "${MISE}" install --yes
+    retry "${MISE}" install --yes
     local profile="${HOME}/.profile"
     # The provisioner's ~/.env.d loader goes in ~/.bash_profile when it exists, so does this.
     if [ -f "${HOME}/.bash_profile" ]; then
@@ -205,11 +228,22 @@ EOF
 }
 
 main() {
+    case "${SHERPA_DEV_SERVER}" in
+        yes | no) ;;
+        *)
+            echo "SHERPA_DEV_SERVER must be yes or no, not '${SHERPA_DEV_SERVER}'" >&2
+            exit 1
+            ;;
+    esac
     apt_install
     install_tools
     setup_git
     clone_repos
     install_docs_tools
+    if [ "${SHERPA_DEV_SERVER}" = "no" ]; then
+        log "Done. Worker only: no Sherpa server installed"
+        return 0
+    fi
     SERVER_IP="$(ip -4 -json route get 1.1.1.1 | jq -r '.[0].prefsrc')"
     install_sherpa_server
     create_account_settings

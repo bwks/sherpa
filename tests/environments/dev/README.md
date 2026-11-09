@@ -29,7 +29,7 @@ is up. It is safe to run again with `sherpa provision`. It:
 2. installs [mise](https://mise.jdx.dev) and the tools in `provision/mise.toml`, which the
    provisioner copies to `~/.config/mise/config.toml`: Rust stable with `rustfmt`, `clippy` and
    `llvm-tools`, nightly with `rust-src`, `bpf-linker` 0.10.2 for the eBPF program (0.12 needs a
-   system LLVM that Ubuntu 24.04 does not ship), `gh`, `shellcheck`, `bats` and `uv`. mise follows the
+   system LLVM that Ubuntu 24.04 does not ship), `gh`, `shellcheck`, `bats`, `uv`, Claude Code and the `nats` CLI. mise follows the
    repository's `rust-toolchain.toml` files, and login shells put its tools on the `PATH`;
 3. sets up git to authenticate with `GH_TOKEN` through `gh`, committing as the token's GitHub
    account with its no-reply address;
@@ -49,6 +49,10 @@ is up. It is safe to run again with `sherpa provision`. It:
    config Sherpa writes for each lab reaches its nodes through the server as the Sherpa user
    (`ProxyJump dev@<server>`), so lab tests and SSH provisioners need both, as on any Sherpa
    server.
+
+With `SHERPA_DEV_SERVER=no` in the environment the script stops after step 5. The
+[agent worker lab](../agent/README.md) sets it with `provision/worker.env` and shares these
+files through a link, so do not move or rename them without updating it.
 
 Nothing is prompted for. Login shells load `~/.env.d/`, so `sherpa login` works there without
 prompts too.
@@ -123,6 +127,20 @@ tools from mise are on the `PATH` of login shells, so run commands through one:
 
 Nested lab VMs run slower in the guest than on the host, so run the final check on the host
 before a release.
+
+### Its guest agent
+
+The dev server runs the guest agent `dev` on the
+[agent bus](../../../docs/architecture/AGENT_BUS.md). With the bus running, start or restart it
+from the host with the `agent-bus:agent` task described in "Operating it" there:
+
+```
+mise run agent-bus:agent <repo>/tests/environments/dev dev
+```
+
+`<repo>` is the host's checkout; give the lab directory as an absolute path, since mise may run
+the task from another directory. It enrolls `dev` with a fresh key and pipes the key, the Claude token and the bus's CA
+certificate over SSH into `dev/agent-bus/start-guest.sh`. No key is made or stored by hand.
 
 ### Tearing down
 

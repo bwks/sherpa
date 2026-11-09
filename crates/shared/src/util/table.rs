@@ -2,7 +2,9 @@ use tabled::{
     Table, Tabled,
     builder::Builder,
     settings::{
-        Alignment, Modify, Panel, Remove, Style, Width, object::Rows, peaker::PriorityMax,
+        Alignment, Modify, Panel, Remove, Style, Width,
+        object::{Columns, Rows},
+        peaker::PriorityMax,
         themes::BorderCorrection,
     },
 };
@@ -605,6 +607,23 @@ pub fn render_tailnet_table(status: &TailnetStatus) -> String {
                 .priority(PriorityMax::right()),
         )
         .to_string()
+}
+
+/// Renders rows of text under `headers` as a table in the modern style. Every row must have one
+/// cell per header; the numeric columns named in `right` (by index) are right-aligned.
+#[must_use]
+pub fn render_modern_table(headers: &[&str], rows: &[Vec<String>], right: &[usize]) -> String {
+    let mut builder = Builder::default();
+    builder.push_record(headers.iter().copied());
+    for row in rows {
+        builder.push_record(row.iter().map(String::as_str));
+    }
+    let mut table = builder.build();
+    table.with(Style::modern());
+    for column in right {
+        table.with(Modify::new(Columns::one(*column)).with(Alignment::right()));
+    }
+    table.to_string()
 }
 
 #[cfg(test)]
