@@ -66,7 +66,7 @@ tests. Run the crates you need:
 | container | `cargo test -p container -- --ignored --test-threads=1` | Docker, `alpine:latest` |
 | network | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p network -- --ignored --test-threads=1` | root (rtnetlink) |
 | libvirt | `cargo test -p libvirt -- --ignored --test-threads=1` | libvirtd, `sherpa-pool` |
-| sherpad | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p sherpad -- --ignored --test-threads=1` | root, Docker, libvirt, test images |
+| sherpad | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p sherpad -- --ignored --test-threads=1` | root, Docker, libvirt, test images; `SHERPA_GUEST_TEST_KEY` and `SHERPA_GUEST_TEST_ROTATED_KEY`, two different unencrypted private keys with `.pub` files beside them, and optionally `SHERPA_GUEST_TEST_MODEL` (default `ubuntu_linux`) and `SHERPA_GUEST_TEST_IMAGES_DIR`, for the personal VM account test ([spec](specs/integration/current-user.md)) |
 
 sherpad's integration tests are one test binary, `integration`
 (`crates/server/tests/integration/`), with a module per area: `auth`, `image_management`,
