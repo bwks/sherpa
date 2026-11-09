@@ -19,7 +19,7 @@ import unittest
 import uuid
 
 import build_cache
-from vm_release_test import encode_toml, sha256
+from vm_release_test import encode_toml, guest_python, guest_uv_setup, sha256
 
 
 HARNESS = Path(__file__).resolve().parent
@@ -80,9 +80,9 @@ def ssh_options(directory):
 
 
 def guest_command(node):
-    return ["sudo", "-n", "python3", f"{GUEST_DIRECTORY}/test_env_guest.py",
-            "--version", node["version"], "--cpu-count", str(node["cpu_count"]),
-            "--boot-disk-size", str(node["boot_disk_size"])]
+    return ["sudo", "-n", *guest_python(f"{GUEST_DIRECTORY}/test_env_guest.py",
+                                        "--version", node["version"], "--cpu-count", str(node["cpu_count"]),
+                                        "--boot-disk-size", str(node["boot_disk_size"]))]
 
 
 def check(directory):
@@ -93,6 +93,7 @@ def check(directory):
     run(["ssh", *options, target, shlex.join(["mkdir", "-p", GUEST_DIRECTORY])], directory)
     run(["scp", "-q", *options, *(str(HARNESS / script) for script in GUEST_SCRIPTS),
          f"{target}:{GUEST_DIRECTORY}/"], directory)
+    run(["ssh", *options, target, shlex.join(guest_uv_setup())], directory)
     run(["ssh", *options, target, shlex.join(guest_command(node))], directory)
     print(f"PASS test environment {directory.name} ({target})")
 
@@ -382,8 +383,11 @@ class HostTests(unittest.TestCase):
 
     def test_guest_command_passes_manifest_expectations(self):
         node = {"version": "24.04-20260926", "cpu_count": 8, "boot_disk_size": 100}
-        self.assertEqual(guest_command(node)[-6:],
+        command = guest_command(node)
+        self.assertEqual(command[-6:],
                          ["--version", "24.04-20260926", "--cpu-count", "8", "--boot-disk-size", "100"])
+        self.assertNotIn("python3", command)
+        self.assertEqual(command[command.index("--python") + 1], "3.15")
 
 
 if __name__ == "__main__":

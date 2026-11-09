@@ -25,9 +25,9 @@ order: a bridge member left out would rename every interface after it.
 ## Running
 
 ```sh
-python3 tests/labs/private-bridge/private_bridge_lab_test.py
-python3 tests/labs/private-bridge/private_bridge_lab_test.py --keep-failed
-python3 tests/labs/private-bridge/private_bridge_lab_test.py --self-test  # runner unit tests, seconds
+uv run tests/labs/private-bridge/private_bridge_lab_test.py
+uv run tests/labs/private-bridge/private_bridge_lab_test.py --keep-failed
+uv run tests/labs/private-bridge/private_bridge_lab_test.py --self-test  # runner unit tests, seconds
 ```
 
 Each run logs every command and its output under

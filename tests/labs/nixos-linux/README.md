@@ -20,9 +20,9 @@ Tests `nixos_linux` nodes end to end through the `sherpa` CLI. The image is buil
 ## Running
 
 ```sh
-python3 tests/labs/nixos-linux/nixos_linux_lab_test.py
-python3 tests/labs/nixos-linux/nixos_linux_lab_test.py --keep-failed
-python3 tests/labs/nixos-linux/nixos_linux_lab_test.py --self-test  # runner unit tests, seconds
+uv run tests/labs/nixos-linux/nixos_linux_lab_test.py
+uv run tests/labs/nixos-linux/nixos_linux_lab_test.py --keep-failed
+uv run tests/labs/nixos-linux/nixos_linux_lab_test.py --self-test  # runner unit tests, seconds
 ```
 
 Each run logs every command and its output under

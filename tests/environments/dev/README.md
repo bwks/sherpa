@@ -83,7 +83,7 @@ After every `sherpa up`, write a direct config from it:
 
 ```
 cd tests/environments/dev
-python3 direct_ssh_config.py
+uv run direct_ssh_config.py
 ssh -F .sherpa/ssh/direct_config dev
 ```
 

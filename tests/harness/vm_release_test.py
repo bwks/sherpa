@@ -46,6 +46,16 @@ RERUN_STEPS = ("source", "test-images", "build-tests", "unit-tests", "integratio
 TAILNET_KEY_VARIABLE = "SHERPA_TEST_TAILSCALE_AUTH_KEY"
 # Older host servers can give concurrent `sherpa up` requests the same subnet; serialize it.
 UP_LOCK = ROOT / ".tmp" / "sherpa-up.lock"
+# The guest helpers run on Python from uv, never the guest's system Python. The harness installs
+# this uv release on each guest, checked against the sha256 in the release's published
+# uv-x86_64-unknown-linux-gnu.tar.gz.sha256 file.
+UV_VERSION = "0.13.7"
+UV_SHA256 = "c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83"
+UV_URL = f"https://github.com/astral-sh/uv/releases/download/{UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz"
+GUEST_UV = "/usr/local/bin/uv"
+GUEST_PYTHON = "3.15"
+# System-wide, so root finds the interpreter whichever user installed it.
+GUEST_PYTHON_DIRECTORY = "/opt/uv/python"
 
 
 def validate_upgrade_config(config):
@@ -111,6 +121,38 @@ def archive_binary_hash(path, binary):
             raise ValueError(f"Archive must contain exactly one {binary} at its root")
         with archive.extractfile(matches[0]) as stream:
             return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def guest_uv_setup():
+    """Install the pinned uv and its Python on a guest, as root. Fails if either cannot be installed."""
+    script = f"""set -eu
+[ "$(uname -m)" = x86_64 ] || {{ echo "uv setup supports only x86_64 guests" >&2; exit 1; }}
+download=$(mktemp -d)
+trap 'rm -rf "$download"' EXIT
+curl --proto =https --tlsv1.2 -fsSL --retry 3 -o "$download/uv.tar.gz" {shlex.quote(UV_URL)}
+echo {shlex.quote(UV_SHA256 + "  ")}"$download/uv.tar.gz" | sha256sum --check --strict --quiet -
+tar -xzf "$download/uv.tar.gz" -C "$download"
+install -m 0755 "$download/uv-x86_64-unknown-linux-gnu/uv" {GUEST_UV}
+{GUEST_UV} --version | grep -qx 'uv {UV_VERSION}.*'
+export UV_PYTHON_INSTALL_DIR={GUEST_PYTHON_DIRECTORY}
+{GUEST_UV} python install --managed-python --no-bin {GUEST_PYTHON}
+{shlex.join(guest_python("python", "-c", "import sys; assert sys.version_info[:2] == (3, 15), sys.version"))}
+"""
+    return ["sudo", "-n", "sh", "-c", script]
+
+
+def guest_python(*arguments):
+    """A command that runs arguments, a helper and its arguments, on the guest's uv Python."""
+    return ["env", f"UV_PYTHON_INSTALL_DIR={GUEST_PYTHON_DIRECTORY}", GUEST_UV, "run", "--no-project",
+            "--managed-python", "--no-python-downloads", "--python", GUEST_PYTHON, *arguments]
+
+
+def disk_check(paths):
+    """A host command that fails, naming them, if any of the paths still exist. Needs no Python on the host."""
+    script = ('remaining=0; for path in "$@"; do '
+              'if [ -e "$path" ]; then echo "Remaining owned disk: $path"; remaining=1; fi; '
+              'done; exit "$remaining"')
+    return ["sh", "-c", script, "sh", *paths]
 
 
 def check_lab(info, expected_name, expected_id):
@@ -524,12 +566,15 @@ class Runner:
         if self.report["run"]["scenario"] == "upgrade":
             self.wait_guest()
         remote = self.config["guest"]["workspace_prefix"] + "-" + self.run_id
-        guard = ("from pathlib import Path; import socket; "
-                 f"assert Path('/sys/class/dmi/id/product_uuid').read_text().strip().lower() == {self.guest_uuid!r}; "
-                 f"assert socket.gethostname().split('.')[0] == {self.node_name!r}; "
-                 f"Path({remote!r}).mkdir(mode=0o700)")
-        self.ssh("create-workspace", ["sudo", "-n", "python3", "-c", guard],
+        # Plain shell: the guest's identity is checked before anything, uv included, is installed.
+        guard = ('identity=$(tr "[:upper:]" "[:lower:]" < /sys/class/dmi/id/product_uuid); '
+                 '[ "$identity" = "$1" ] || { echo "Guest UUID $identity is not $1" >&2; exit 1; }; '
+                 'name=$(hostname); name=${name%%.*}; '
+                 '[ "$name" = "$2" ] || { echo "Guest hostname $name is not $2" >&2; exit 1; }; '
+                 'mkdir -m 0700 -- "$3"')
+        self.ssh("create-workspace", ["sudo", "-n", "sh", "-c", guard, "sh", self.guest_uuid, self.node_name, remote],
                  self.config["timeouts"]["command"])
+        self.ssh("guest-uv", guest_uv_setup(), self.config["timeouts"]["download"])
         # The copied workspace belongs to the SSH login user, not to the service installation.
         self.ssh("workspace-owner", ["sudo", "-n", "chown", "--reference=.", remote],
                  self.config["timeouts"]["command"])
@@ -606,8 +651,8 @@ class Runner:
             timeout = self.config["faults"]["command_timeout"]
         command = ["sudo", "-n", "timeout", "--signal=TERM",
                    f"--kill-after={self.config['timeouts']['terminate']}", str(timeout),
-                   "python3", f"{self.remote_directory}/vm_release_guest.py",
-                   f"{self.remote_directory}/guest.toml", name]
+                   *guest_python(f"{self.remote_directory}/vm_release_guest.py",
+                                 f"{self.remote_directory}/guest.toml", name)]
         code, _ = self.ssh(label, command, timeout + self.config["timeouts"]["terminate"], check=False)
         if code:
             if code == 124:
@@ -700,6 +745,8 @@ class Runner:
             guest_script = self.directory / "vm_release_guest.py"
             guest_script.write_bytes((HARNESS / "vm_release_guest.py").read_bytes())
             self.report["scripts"]["vm_release_guest_py"] = sha256(guest_script)
+            # VMs retained before the harness ran helpers on uv have no uv yet.
+            self.ssh("guest-uv", guest_uv_setup(), self.config["timeouts"]["download"])
             self.command("upload-rerun", ["scp", "-F", str(self.directory / ".sherpa" / "ssh" / "config"), "-o",
                          "BatchMode=yes", *ssh_jump_options(self.config["host"]["ssh_destination"]),
                          str(payload_path), str(guest_script), str(self.directory / "source.tar.gz"),
@@ -754,12 +801,7 @@ class Runner:
                                                "list", "--all", "--name"])
         if f"{self.node_name}-{self.lab_id}" in names.splitlines():
             raise RuntimeError("Owned VM remains after cleanup")
-        disk_check = ("from pathlib import Path; "
-                      f"paths = {self.report['run']['owned_disks']!r}; "
-                      "remaining = [path for path in paths if Path(path).exists()]; "
-                      "print('Remaining owned disks:', remaining); "
-                      "raise SystemExit(bool(remaining))")
-        self.host("cleanup-disks", ["python3", "-c", disk_check])
+        self.host("cleanup-disks", disk_check(self.report["run"]["owned_disks"]))
         for label, command, targets in (
             ("libvirt-networks", ["virsh", "-c", self.config["host"]["libvirt_uri"], "net-list", "--all", "--name"],
              [f"sherpa-management-{self.lab_id}", f"sherpa-isolated-{self.node_name}-{self.lab_id}"]),
@@ -1283,6 +1325,54 @@ install_system_packages
                 member.size = 6
                 archive.addfile(member, io.BytesIO(b"binary"))
             self.assertEqual(archive_binary_hash(path, "sherpad"), hashlib.sha256(b"binary").hexdigest())
+
+    def test_guest_uv_setup_installs_the_pinned_release_and_python(self):
+        script = guest_uv_setup()[-1]
+        self.assertEqual(subprocess.run(["sh", "-n", "-c", script]).returncode, 0)
+        self.assertIn(UV_URL, script)
+        self.assertIn(UV_SHA256, script)
+        self.assertIn("sha256sum --check", script)
+        self.assertIn(f"python install --managed-python --no-bin {GUEST_PYTHON}", script)
+        self.assertNotIn("python3", script)
+        self.assertNotRegex(script, r"\|\s*(ba)?sh\b")
+
+    def test_guest_uv_setup_fails_on_a_checksum_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake = Path(directory)
+            (fake / "uname").write_text("#!/bin/sh\necho x86_64\n")
+            (fake / "curl").write_text('#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = -o ] && printf tampered > "$2"; shift; done\n')
+            for tool in ("uname", "curl"):
+                (fake / tool).chmod(0o755)
+            result = subprocess.run(["sh", "-c", guest_uv_setup()[-1]], capture_output=True, text=True,
+                                    env=dict(os.environ, PATH=f"{fake}:{os.environ['PATH']}"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("did NOT match", result.stderr)
+
+    def test_guest_steps_run_on_uv_python(self):
+        config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
+        with tempfile.TemporaryDirectory() as directory:
+            config["runner"]["output_directory"] = directory
+            runner = Runner(config)
+            runner.remote_directory = "/workspace"
+            with patch.object(runner, "ssh", return_value=(0, "")) as ssh, redirect_stdout(io.StringIO()):
+                runner.step("diagnostics")
+            command = ssh.call_args.args[1]
+            self.assertNotIn("python3", command)
+            self.assertEqual(command[command.index(GUEST_UV):command.index(GUEST_UV) + 3],
+                             [GUEST_UV, "run", "--no-project"])
+            self.assertEqual(command[command.index("--python") + 1], GUEST_PYTHON)
+            self.assertIn("--no-python-downloads", command)
+            self.assertEqual(command[-3:], ["/workspace/vm_release_guest.py", "/workspace/guest.toml", "diagnostics"])
+
+    def test_disk_check_needs_only_a_shell(self):
+        with tempfile.TemporaryDirectory() as directory:
+            present, missing = Path(directory) / "lab-node.qcow2", Path(directory) / "lab-node.iso"
+            present.write_text("disk")
+            self.assertEqual(subprocess.run(disk_check([str(missing)])).returncode, 0)
+            self.assertEqual(subprocess.run(disk_check([])).returncode, 0)
+            result = subprocess.run(disk_check([str(missing), str(present)]), capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, f"Remaining owned disk: {present}\n")
 
     def test_report_is_valid_toml(self):
         data = {"run": {"status": "failed", "detail": "quote\"\nline", "retained": True},

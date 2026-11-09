@@ -13,15 +13,16 @@ environment directory. Select another environment with
 
 The same runner's `code` scenario installs release archives built from the checkout
 and runs the checkout's unit and integration tests in the guest. Start it through
-`python3 tests/harness/test_env.py run`, which builds those inputs; see
+`uv run tests/harness/test_env.py run`, which builds those inputs; see
 [running tests](../../README.md#vm-code-suite).
 
 ## Automated install/uninstall tests
 
 The local machine needs Python 3.15 or later (uv installs it, see `pyproject.toml`), curl, OpenSSH with scp, and an
 authenticated Sherpa CLI. Its SSH account on the configured Sherpa host must be
-able to read the image checksum and query domain UUIDs with virsh. The guest needs
-internet access for Ubuntu packages, Docker and container registries.
+able to read the image checksum and query domain UUIDs with virsh; the host needs no Python.
+The guest needs internet access for Ubuntu packages, Docker and container registries, and for
+the pinned uv release and Python 3.15 that the harness installs to run the guest helpers.
 
 Run from the repository root:
 
@@ -147,7 +148,7 @@ faults count as a passing failure-suite result, never as a passing lifecycle run
 After a complete lifecycle run, verify the exact archives and checkout:
 
 ```sh
-python3 tests/harness/verify_release_test.py --receipt /path/to/run/result.toml --artifact-dir /path/to/release-artifacts --version v0.3.80
+uv run tests/harness/verify_release_test.py --receipt /path/to/run/result.toml --artifact-dir /path/to/release-artifacts --version v0.3.80
 ```
 
 Alternatively use `--result-file` with the reference written by the runner.
@@ -181,9 +182,9 @@ Harness regression checks do not provision a VM:
 
 ```sh
 ./tests/harness/test_install.sh --self-test
-python3 tests/harness/vm_release_guest.py --self-test
-python3 tests/harness/vm_release_faults.py --self-test
-python3 tests/harness/verify_release_test.py --self-test
+uv run tests/harness/vm_release_guest.py --self-test
+uv run tests/harness/vm_release_faults.py --self-test
+uv run tests/harness/verify_release_test.py --self-test
 ```
 
 The [VM testing checklist](../integration/vm-release-test-plan.md)
