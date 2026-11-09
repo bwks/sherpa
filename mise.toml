@@ -5,11 +5,12 @@
 # Rust follows the repository's rust-toolchain.toml files, which name the channel and its
 # components: stable at the root, nightly for the eBPF program in crates/ebpf-redirect.
 idiomatic_version_file_enable_tools = ["rust"]
+# Python comes from uv, as pyproject.toml sets it up: in the project, mise creates the uv
+# virtual environment and puts it on the PATH.
+python.uv_venv_auto = "create|source"
 
 [tools]
-# The test harness and the lab tests need Python 3.11 or later.
-python = "3.12"
-# Manages Python dependencies and virtual environments; use it for all Python work.
+# Installs Python and its dependencies for pyproject.toml; use it for all Python work.
 uv = "latest"
 # Links the eBPF program. 0.12 links a system LLVM of a version Ubuntu 24.04 does not ship.
 "cargo:bpf-linker" = "0.10.2"
