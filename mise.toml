@@ -1,0 +1,15 @@
+# Tools for working on Sherpa, installed with `mise install`. System libraries and the C
+# toolchain, such as libvirt-dev, pkg-config and clang, come from the OS package manager.
+
+[settings]
+# Rust follows the repository's rust-toolchain.toml files, which name the channel and its
+# components: stable at the root, nightly for the eBPF program in crates/ebpf-redirect.
+idiomatic_version_file_enable_tools = ["rust"]
+
+[tools]
+# The test harness and the lab tests need Python 3.11 or later.
+python = "3.12"
+# Links the eBPF program. 0.12 links a system LLVM of a version Ubuntu 24.04 does not ship.
+"cargo:bpf-linker" = "0.10.2"
+# Runs the install and update script tests in tests/bats.
+bats = "latest"
