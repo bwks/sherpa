@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.16] - 2026-11-09
+
+### Bug Fixes
+
+- Make the server SSH key 0600 and tighten existing keys on start by @bwks ([faa2ea3](https://github.com/bwks/sherpa/commit/faa2ea354760e3f15a2482fdc91db05b7d44e8a9))
+
+### Miscellaneous
+
+- Merge pull request #511 from bwks/fix/506-server-key-mode
+
+fix(server): make the server SSH key 0600 and tighten existing keys on start by @bwks in [#511](https://github.com/bwks/sherpa/pull/511) ([e466c66](https://github.com/bwks/sherpa/commit/e466c66fbab7c3f56e5ffac18624db5db4f1e8c1))
+- Merge pull request #509 from bwks/chore/gitignore-lab-files
+
+chore: group the loose SSH lab files with the older-client lab files in .gitignore by @bwks in [#509](https://github.com/bwks/sherpa/pull/509) ([36b9b95](https://github.com/bwks/sherpa/commit/36b9b956c574a605dc23e2e9ba704054ad512fd6))
+- Group the loose SSH lab files with the other older-client lab files in .gitignore [skip ci] by @bwks ([890207e](https://github.com/bwks/sherpa/commit/890207e56a4c18f5ef128528d50acde20b2f44b9))
+- Merge pull request #508 from bwks/changelog/v0.5.15
+
+chore(release): update changelog for v0.5.15 by @github-actions[bot] in [#508](https://github.com/bwks/sherpa/pull/508) ([5055a26](https://github.com/bwks/sherpa/commit/5055a26b987519e5c9e9d0ff13cf9b51195bef8c))
 ## [0.5.15] - 2026-11-08
 
 ### Features
