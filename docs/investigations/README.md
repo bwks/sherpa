@@ -7,6 +7,7 @@ has since changed, so check the code before relying on them.
 | Document | Covers |
 |---|---|
 | [`README-JUNIPER-VSRXV3.0.md`](README-JUNIPER-VSRXV3.0.md) | Juniper vSRX 3.0 boot failures on KVM: PML, SMBIOS entry point, CPU features. |
+| [`host-memory-oom.md`](host-memory-oom.md) | Host OOM kills of lab VMs: memory admission, NUMA `strict` placement, harness reporting (#514). |
 | [`private-bridges.md`](private-bridges.md) | `[[bridges]]` defects: container members not attached, interface renaming, redeploy, destroy (#345). |
 | [`state-machines.md`](state-machines.md) | Implicit state machines: invalid states each can reach today, with the sequence that reaches it, and a ranked list of which to make explicit (#474). |
 | [`talos-linux.md`](talos-linux.md) | Running Talos Linux and Kubernetes clusters in labs: image, NoCloud config delivery, multi-document configs, PKI, bootstrap (#326). |

@@ -4,8 +4,8 @@ use bollard::Docker;
 use dashmap::DashMap;
 use libvirt::Qemu;
 use shared::data::{
-    Config, OtelConfig, ScannerConfig, ServerConnection, TailscaleGatewaySettings, TlsConfig,
-    VmProviders, ZtpServer,
+    Config, HostMemorySettings, OtelConfig, ScannerConfig, ServerConnection,
+    TailscaleGatewaySettings, TlsConfig, VmProviders, ZtpServer,
 };
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -106,6 +106,7 @@ pub fn test_config() -> Result<Config> {
         otel: OtelConfig::default(),
         scanner: ScannerConfig::default(),
         tailscale: TailscaleGatewaySettings::default(),
+        host_memory: HostMemorySettings::default(),
     })
 }
 

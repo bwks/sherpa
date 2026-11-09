@@ -1,6 +1,7 @@
 //! What each node is given: vCPUs, memory and, for VMs, a VNC console port. They are decided
 //! when the node is created or redeployed and stored on the node, so nothing reads them back
 //! from the hypervisor.
+use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, TcpListener};
 
 use anyhow::{Context, Result, bail};
@@ -48,15 +49,25 @@ pub fn resources_of(node: &DbNode) -> NodeResources {
     }
 }
 
-/// Check the performance tuning of `nodes` against the server: the host CPUs and NUMA nodes it
-/// names must exist, and its pins must not overlap those of the nodes already on the server, in
-/// any lab. `replacing` is the record of a node being redeployed, whose stored pins are its own.
-#[instrument(skip(db, qemu_conn, nodes), level = "debug")]
+/// Pins another operation was admitted with, for a node that may not be stored yet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingPins {
+    /// The node's domain name, `<node>-<lab id>`.
+    pub domain: String,
+    pub pins: NodeCpuPins,
+}
+
+/// Check the performance tuning of `nodes`, in lab `lab_id`, against the server: the host CPUs
+/// and NUMA nodes it names must exist, and its pins must not overlap those of the nodes already
+/// on the server, in any lab, or those `pending` in other operations. A stored node that is one
+/// of `nodes`, as in a redeploy, is being replaced, so its stored pins are its own.
+#[instrument(skip(db, qemu_conn, nodes, pending), level = "debug")]
 pub async fn check_cpu_pins_on_server(
     db: &db::Database,
     qemu_conn: &Connect,
+    lab_id: &str,
     nodes: &[&topology::NodeExpanded],
-    replacing: Option<&RecordId>,
+    pending: &[PendingPins],
 ) -> Result<()> {
     let tuned: Vec<(&str, &PerformanceTuning)> = nodes
         .iter()
@@ -76,17 +87,65 @@ pub async fn check_cpu_pins_on_server(
         check_host_resources(name, tuning, host.cpus, host.numa_nodes)?;
         pins.push(NodeCpuPins::of(name, tuning));
     }
-    for stored in db::list_pinned_nodes(db).await? {
-        if stored.id.is_some() && stored.id.as_ref() == replacing {
+    let requested: HashSet<String> = nodes
+        .iter()
+        .map(|node| domain_name(&node.name, lab_id))
+        .collect();
+    let lab_ids: HashMap<RecordId, String> = db::list_labs(db)
+        .await?
+        .into_iter()
+        .filter_map(|lab| lab.id.map(|id| (id, lab.lab_id)))
+        .collect();
+    let stored = db::list_pinned_nodes(db).await?.into_iter().map(|node| {
+        let domain = lab_ids
+            .get(&node.lab)
+            .map(|lab_id| domain_name(&node.name, lab_id));
+        (domain, node)
+    });
+    pins.extend(other_nodes_pins(stored, pending, &requested));
+    check_cpu_pin_overlap(&pins)
+}
+
+/// The pins of the stored nodes and of the nodes `pending` in other operations, leaving out the
+/// `requested` nodes, which are being replaced, and stored nodes that are also pending, whose
+/// pending pins are the ones they will have. A stored node whose lab is unknown is kept.
+fn other_nodes_pins(
+    stored: impl IntoIterator<Item = (Option<String>, DbNode)>,
+    pending: &[PendingPins],
+    requested: &HashSet<String>,
+) -> Vec<NodeCpuPins> {
+    let pending_domains: HashSet<&str> = pending.iter().map(|p| p.domain.as_str()).collect();
+    let mut pins = Vec::new();
+    for (domain, node) in stored {
+        if let Some(domain) = &domain
+            && (requested.contains(domain) || pending_domains.contains(domain.as_str()))
+        {
             continue;
         }
         pins.push(NodeCpuPins {
-            node_name: format!("{} (already on the server)", stored.name),
-            vcpu_cpus: stored.cpu_pinning.unwrap_or_default(),
-            qemu_thread_cpus: stored.qemu_thread_cpus.unwrap_or_default(),
+            node_name: format!("{} (already on the server)", node.name),
+            vcpu_cpus: node.cpu_pinning.unwrap_or_default(),
+            qemu_thread_cpus: node.qemu_thread_cpus.unwrap_or_default(),
         });
     }
-    check_cpu_pin_overlap(&pins)
+    for entry in pending {
+        if requested.contains(&entry.domain) {
+            continue;
+        }
+        pins.push(NodeCpuPins {
+            node_name: format!(
+                "{} (being created by another operation)",
+                entry.pins.node_name
+            ),
+            ..entry.pins.clone()
+        });
+    }
+    pins
+}
+
+/// The libvirt domain name of node `node_name` in lab `lab_id`.
+pub fn domain_name(node_name: &str, lab_id: &str) -> String {
+    format!("{node_name}-{lab_id}")
 }
 
 /// VNC ports in the reserved range that no node holds, lowest first.
@@ -167,7 +226,7 @@ fn host_port_free(port: u16) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::NodeModel;
+    use shared::data::{NodeModel, NodeState};
 
     fn node(cpu_count: Option<u8>, memory: Option<u16>) -> topology::NodeExpanded {
         topology::NodeExpanded {
@@ -226,6 +285,88 @@ mod tests {
             planned_resources(&node(Some(4), Some(4096)), &image),
             NodeResources::default()
         );
+    }
+
+    fn stored(name: &str, lab_id: Option<&str>, cpus: Vec<u16>) -> (Option<String>, DbNode) {
+        let node = DbNode {
+            id: None,
+            name: name.to_string(),
+            image: RecordId::new("node_image", "x"),
+            index: 0,
+            lab: RecordId::new("lab", "x"),
+            mgmt_ipv4: None,
+            mgmt_ipv6: None,
+            mgmt_mac: None,
+            state: NodeState::Running,
+            cpu_count: None,
+            memory: None,
+            vnc_port: None,
+            ssh_host_key: None,
+            cpu_pinning: Some(cpus),
+            qemu_thread_cpus: None,
+        };
+        (lab_id.map(|lab_id| domain_name(name, lab_id)), node)
+    }
+
+    fn pending(domain: &str, node_name: &str, cpus: Vec<u16>) -> PendingPins {
+        PendingPins {
+            domain: domain.to_string(),
+            pins: NodeCpuPins {
+                node_name: node_name.to_string(),
+                vcpu_cpus: cpus,
+                qemu_thread_cpus: Vec::new(),
+            },
+        }
+    }
+
+    fn names(pins: &[NodeCpuPins]) -> Vec<&str> {
+        pins.iter().map(|pin| pin.node_name.as_str()).collect()
+    }
+
+    #[test]
+    fn pins_of_other_nodes_include_stored_and_pending_ones() {
+        let pins = other_nodes_pins(
+            [stored("a", Some("lab1"), vec![1])],
+            &[pending("b-lab2", "b", vec![2])],
+            &HashSet::new(),
+        );
+        assert_eq!(
+            names(&pins),
+            [
+                "a (already on the server)",
+                "b (being created by another operation)"
+            ]
+        );
+        assert_eq!(pins[1].vcpu_cpus, vec![2]);
+    }
+
+    #[test]
+    fn a_stored_node_that_is_also_pending_counts_once_with_its_pending_pins() {
+        let pins = other_nodes_pins(
+            [stored("a", Some("lab1"), vec![1])],
+            &[pending("a-lab1", "a", vec![3])],
+            &HashSet::new(),
+        );
+        assert_eq!(names(&pins), ["a (being created by another operation)"]);
+        assert_eq!(pins[0].vcpu_cpus, vec![3]);
+    }
+
+    #[test]
+    fn a_requested_node_does_not_overlap_its_own_stored_or_pending_pins() {
+        let requested = HashSet::from(["a-lab1".to_string()]);
+        let pins = other_nodes_pins(
+            [stored("a", Some("lab1"), vec![1])],
+            &[pending("a-lab1", "a", vec![1])],
+            &requested,
+        );
+        assert_eq!(pins, []);
+    }
+
+    #[test]
+    fn a_stored_node_whose_lab_is_unknown_is_kept() {
+        let requested = HashSet::from(["a-lab1".to_string()]);
+        let pins = other_nodes_pins([stored("a", None, vec![1])], &[], &requested);
+        assert_eq!(names(&pins), ["a (already on the server)"]);
     }
 
     #[test]

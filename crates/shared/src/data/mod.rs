@@ -39,7 +39,7 @@ pub use backup::BackupResponse;
 pub use cluster::{ClusterCni, ClusterRole};
 
 pub use config::{
-    ClientConfig, Config, OtelConfig, ScannerConfig, ServerConnection, Sherpa,
+    ClientConfig, Config, HostMemorySettings, OtelConfig, ScannerConfig, ServerConnection, Sherpa,
     TailscaleGatewaySettings, TlsConfig, ZtpServer,
 };
 pub use container::{ContainerImage, ContainerNetworkAttachment};

@@ -1,3 +1,4 @@
+pub mod admission;
 pub mod backup;
 pub mod cancel;
 pub mod clean;

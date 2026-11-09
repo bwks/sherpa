@@ -7,8 +7,8 @@ use tracing::instrument;
 
 use super::file_system::create_file;
 use crate::data::{
-    ClientConfig, Config, ContainerImage, OtelConfig, ScannerConfig, ServerConnection,
-    TailscaleGatewaySettings, TlsConfig, VmProviders, ZtpServer,
+    ClientConfig, Config, ContainerImage, HostMemorySettings, OtelConfig, ScannerConfig,
+    ServerConnection, TailscaleGatewaySettings, TlsConfig, VmProviders, ZtpServer,
 };
 use crate::konst::{
     QEMU_BIN, SHERPA_BINS_PATH, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_PATH, SHERPA_IMAGES_PATH,
@@ -120,6 +120,7 @@ pub fn default_config() -> Config {
         otel: OtelConfig::default(),
         scanner: ScannerConfig::default(),
         tailscale: TailscaleGatewaySettings::default(),
+        host_memory: HostMemorySettings::default(),
     }
 }
 

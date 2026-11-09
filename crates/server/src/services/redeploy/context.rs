@@ -13,11 +13,11 @@ use tracing::instrument;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_host_access;
 use crate::daemon::state::AppState;
+use crate::services::admission::{self, Admission};
 use crate::services::guest_account::{self, GuestAccount};
 use crate::services::image_lifecycle::{ImageLease, lease_image, validate_disk_method};
 use crate::services::lab_operations::LabOperation;
 use crate::services::lab_ssh_key::LabSshKeyPaths;
-use crate::services::node_resources;
 use crate::services::progress::ProgressSender;
 use crate::services::talos;
 use crate::services::up::process_manifest_nodes;
@@ -70,6 +70,8 @@ pub(super) struct Redeploy<'a> {
     pub(super) ready_timeout: Duration,
     /// Keeps the node's image until its disks are cloned.
     pub(super) image_guard: ImageLease,
+    /// Holds the node's memory and CPU pins against other operations until the redeploy ends.
+    pub(super) _admission: Admission,
 }
 
 /// The node's record and image, and its data interface count, as the redeploy finds them.
@@ -172,13 +174,8 @@ pub(super) async fn load_redeploy<'a>(
         StatusKind::Done,
     );
 
-    let qemu_conn = Arc::new(
-        state
-            .qemu
-            .connect()
-            .context("Failed to connect to libvirt")?,
-    );
-    check_fits_server(db, &qemu_conn, &target_node, &node_image, &node_record_id).await?;
+    let (qemu_conn, admitted) =
+        check_fits_server(state, &lab_id, &target_node, &node_image).await?;
 
     Ok(Redeploy {
         state,
@@ -205,6 +202,7 @@ pub(super) async fn load_redeploy<'a>(
         secrets,
         ready_timeout: Duration::from_secs(manifest.ready_timeout.unwrap_or(READINESS_TIMEOUT)),
         image_guard,
+        _admission: admitted,
         lab_id,
         node_name,
     })
@@ -378,16 +376,16 @@ fn node_login(
     Ok(Some(node_account.account.username))
 }
 
-/// The node's performance tuning, watchdog, platform and CPU pins must still fit the server
-/// before the node is destroyed.
+/// The node's performance tuning, watchdog, platform, CPU pins and memory must still fit the
+/// server before the node is destroyed. The node being replaced does not count against itself.
+/// Returns the libvirt connection the redeploy uses, and the node's admission.
 #[instrument(skip_all, fields(node_name = %target_node.name), level = "debug")]
 async fn check_fits_server(
-    db: &db::Database,
-    qemu_conn: &QemuConnection,
+    state: &AppState,
+    lab_id: &str,
     target_node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
-    node_record_id: &RecordId,
-) -> Result<()> {
+) -> Result<(Arc<QemuConnection>, Admission)> {
     let node_name = target_node.name.as_str();
     check_performance_tuning(target_node, node_image).context(format!(
         "Performance tuning validation failed for node: {node_name}"
@@ -396,9 +394,21 @@ async fn check_fits_server(
         .context(format!("Watchdog validation failed for node: {node_name}"))?;
     check_ptx_platform(target_node, node_image)
         .context(format!("Platform validation failed for node: {node_name}"))?;
-    node_resources::check_cpu_pins_on_server(db, qemu_conn, &[target_node], Some(node_record_id))
-        .await
-        .context("CPU pinning validation failed")
+    let qemu_conn = Arc::new(
+        state
+            .qemu
+            .connect()
+            .context("Failed to connect to libvirt")?,
+    );
+    let admitted = admission::admit_lab_nodes(
+        &state.db,
+        &qemu_conn,
+        &state.config.host_memory,
+        lab_id,
+        &[(target_node, node_image)],
+    )
+    .await?;
+    Ok((qemu_conn, admitted))
 }
 
 /// The node in the manifest, with its custom ZTP config decoded.

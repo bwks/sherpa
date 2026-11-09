@@ -515,7 +515,7 @@ flowchart TB
     end
     setup --> validation
     subgraph phase2["2. ManifestValidation"]
-        validation["topology::validate checks: duplicate device, device count, Talos clusters<br/>validate environment variables<br/>container::get_local_images<br/>validate::validate_and_resolve_node_versions (server)<br/>process_manifest_nodes, then lease node images<br/>validate disk method and guest account per node<br/>topology::process_manifest_links, process_manifest_bridges (unknown nodes fail)<br/>validate management/reserved/data interface bounds<br/>validate duplicate links"]
+        validation["topology::validate checks: duplicate device, device count, Talos clusters<br/>validate environment variables<br/>container::get_local_images<br/>validate::validate_and_resolve_node_versions (server)<br/>process_manifest_nodes, then lease node images<br/>validate disk method and guest account per node<br/>topology::process_manifest_links, process_manifest_bridges (unknown nodes fail)<br/>validate management/reserved/data interface bounds<br/>admission::admit_lab_nodes: CPU pins and memory against the server<br/>validate duplicate links"]
     end
     validation --> startguard["Guard: no disks or VMs left from an earlier attempt with this lab_id<br/>(after validation, before any resource is created)"]
     startguard --> hostnets
@@ -709,6 +709,44 @@ and unikernel image leases end once every disk and domain exists (node records a
 backing files protect the images from then on), so a long readiness wait does not block image
 pull, import or delete. Container image leases last until the containers start.
 
+### Admission: memory and CPU pins
+
+Nothing else serializes operations across labs, so `services/admission.rs` admits the nodes an
+operation will start, one request at a time, before anything is created:
+
+- `up` calls `admit_lab_nodes` in phase 2 (`up/plan.rs`), and holds the `Admission` in its
+  plan until it returns;
+- `redeploy` calls it in stage 1 (`check_fits_server` in `redeploy/context.rs`), before the
+  node is torn down, and holds it in `Redeploy`. The node being replaced does not count
+  against itself;
+- `resume` and node start call `admit_stopped_nodes` (`resume.rs`) for the target VMs and
+  unikernels that are shut off, before the Tailscale gateway is enrolled or any node starts.
+  Paused and running domains already hold their memory, and stopped nodes keep their stored
+  pins.
+
+Requests wait on a Tokio mutex, which grants the lock in arrival order. Under it, the request's
+CPU pins are checked (`node_resources::check_cpu_pins_on_server`) against the stored pinned
+nodes and against the pins in the pending ledger, and its memory against the server
+(`validate::check_memory_fits`). Admitted nodes go into the ledger, keyed by domain name
+(`<node>-<lab id>`), so the next request counts them before libvirt shows them running. Dropping
+the `Admission` when the operation ends releases them; by then libvirt counts the ones that
+run. A domain that is running and pending counts once, as pending. The ledger is in memory: a
+restart ends the operations it held.
+
+Memory is compared with what is committed, not with free memory. QEMU allocates guest memory
+as the guest touches it, so free memory at start overstates the room a lab has. The server's
+guest memory is its total (`virNodeGetInfo`) less its hugepage pools and
+`host_memory.reserve_mib`, times `host_memory.overcommit_ratio` (both in `sherpa.toml`, 4096
+MiB and 1.0 by default; the ratio is checked at startup). Against it count every running or
+paused domain's maximum memory, Sherpa's and others', the pending nodes, and the request. A VM
+with `numa_node` is also checked against that NUMA node: its memory (from the capabilities XML)
+less its hugepages and its share of the reserve, against the domains held strictly on it
+(`numatune` mode `strict` or `restrictive` with one node). Memory that is not bound to one node
+counts only against the whole server. Containers are not counted; Sherpa does not limit them,
+and the reserve covers them and QEMU's own memory. A refusal names the numbers that fell short
+and the two settings. `libvirt::host_memory` and `libvirt::list_domain_memory` read the server
+(`crates/libvirt/src/host.rs`). See `docs/investigations/host-memory-oom.md` for why.
+
 ### Redeploy architecture
 
 Redeploy is a controlled single-node replacement. It exists because updating node configuration in place is often less reliable than destroying and recreating that node.
@@ -721,7 +759,7 @@ flowchart TB
     request["redeploy_node (node.rs)"] --> owner["require_lab_owner in the service<br/>(owner only, admins included), owner has an SSH key<br/>lab_operations::begin, require_lab_owner again<br/>the lab's redeploy lock"]
     owner --> load
     subgraph stage1["1. load_redeploy (context.rs): nothing is changed"]
-        load["manifest checks: host access, client files, provisioners, secrets<br/>node and image from the DB; same model; unikernels refused<br/>lease the image, check the disk method<br/>lab info, management network, DNS, lab CA, Talos worker config<br/>the sherpa account with the lab's SSH key (lab.ssh_key)<br/>saved management addresses, owner account and node login<br/>performance tuning, watchdog, platform, CPU pins"]
+        load["manifest checks: host access, client files, provisioners, secrets<br/>node and image from the DB; same model; unikernels refused<br/>lease the image, check the disk method<br/>lab info, management network, DNS, lab CA, Talos worker config<br/>the sherpa account with the lab's SSH key (lab.ssh_key)<br/>saved management addresses, owner account and node login<br/>performance tuning, watchdog, platform<br/>admission: CPU pins and memory"]
     end
     load --> starting["clear the host key, node Starting"]
     starting --> destroy
@@ -769,6 +807,10 @@ flowchart LR
 ```
 
 Services check owner-or-admin access first, then inspect node kind and call the right runtime backend: Docker for containers and libvirt for VMs/unikernels. The service returns a `LabNodeActionResponse` describing what changed and what failed.
+
+After the access checks, and before starting anything, resume admits the stopped VMs and
+unikernels against the server's memory (see [Admission](#admission-memory-and-cpu-pins)); a
+refusal fails the whole call.
 
 Both are idempotent per node. A VM already stopped or running is reported as such. A container
 is checked first (`container::container_status`): `down` pauses only a running container, and

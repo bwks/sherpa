@@ -5,10 +5,10 @@ use tracing::instrument;
 
 use super::context::LabBuild;
 use super::nodes::{get_node_image, process_manifest_nodes};
+use crate::services::admission::{self, Admission};
 use crate::services::guest_account;
 use crate::services::guest_account::GuestAccount;
 use crate::services::image_lifecycle::{ImageLease, lease_image, validate_disk_method};
-use crate::services::node_resources;
 use crate::services::progress::ProgressSender;
 use crate::validate::{validate_and_resolve_node_versions, validate_environment_variables};
 
@@ -24,8 +24,8 @@ use topology::validate::{
 use topology::{process_manifest_bridges, process_manifest_links};
 
 /// What validation decided before anything is created: the nodes and their images, the image
-/// leases that keep those images until the nodes use them, the owner's account on the nodes, and
-/// the links and bridges.
+/// leases that keep those images until the nodes use them, the owner's account on the nodes, the
+/// links and bridges, and the nodes' admission to the server's memory and CPUs.
 pub(super) struct LabPlan {
     pub(super) node_images: Vec<data::NodeConfig>,
     pub(super) nodes_expanded: Vec<topology::NodeExpanded>,
@@ -36,6 +36,8 @@ pub(super) struct LabPlan {
     pub(super) ssh_usernames: Vec<NodeSshUsername>,
     pub(super) links_detailed: Vec<topology::LinkDetailed>,
     pub(super) bridges_detailed: Vec<topology::BridgeDetailed>,
+    /// Holds the nodes' memory and CPU pins against other operations until `up` returns.
+    pub(super) _admission: Admission,
 }
 
 /// The images the lab's nodes use, sorted and deduplicated, with their leases: disk images'
@@ -125,10 +127,14 @@ pub(super) async fn plan_lab(
         })
         .collect();
     check_cpu_pin_overlap(&manifest_pins).context("CPU pinning validation failed")?;
-    let tuned_nodes: Vec<&topology::NodeExpanded> = nodes_expanded.iter().collect();
-    node_resources::check_cpu_pins_on_server(db, qemu_conn, &tuned_nodes, None)
-        .await
-        .context("CPU pinning validation failed")?;
+    let images = nodes_expanded
+        .iter()
+        .map(|node| get_node_image(node.model, node.version.as_deref(), &node_images))
+        .collect::<Result<Vec<_>>>()?;
+    let admitted: Vec<(&topology::NodeExpanded, &data::NodeConfig)> =
+        nodes_expanded.iter().zip(&images).collect();
+    let admission =
+        admission::admit_lab_nodes(db, qemu_conn, &config.host_memory, lab_id, &admitted).await?;
 
     // Connection Validators
     if !links_detailed.is_empty() {
@@ -148,6 +154,7 @@ pub(super) async fn plan_lab(
         ssh_usernames,
         links_detailed,
         bridges_detailed,
+        _admission: admission,
     })
 }
 

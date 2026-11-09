@@ -11,7 +11,9 @@ mod size;
 mod storage;
 mod vm;
 
-pub use host::{HostCpus, host_cpus};
+pub use host::{
+    DomainMemory, HostCpus, HostMemory, NumaCell, host_cpus, host_memory, list_domain_memory,
+};
 pub use names::{is_device_volume, is_lab_volume};
 pub use network::{BridgeNetwork, IsolatedNetwork, NatNetwork, ReservedNetwork};
 pub use overlay::create_overlay;

@@ -9,9 +9,9 @@ use super::container::ContainerImage;
 use super::provider::VmProviders;
 
 use crate::konst::{
-    OTEL_DEFAULT_ENDPOINT, OTEL_DEFAULT_SAMPLE_RATIO, OTEL_DEFAULT_SERVICE_NAME,
-    SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_SERVER_HTTP_PORT,
-    SHERPA_SERVER_WS_PORT, SHERPA_USERNAME,
+    HOST_MEMORY_DEFAULT_OVERCOMMIT_RATIO, HOST_MEMORY_DEFAULT_RESERVE_MIB, OTEL_DEFAULT_ENDPOINT,
+    OTEL_DEFAULT_SAMPLE_RATIO, OTEL_DEFAULT_SERVICE_NAME, SHERPA_MANAGEMENT_NETWORK_IPV4,
+    SHERPA_PASSWORD, SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_WS_PORT, SHERPA_USERNAME,
 };
 use crate::util::path_to_string;
 
@@ -210,6 +210,27 @@ impl Default for TailscaleGatewaySettings {
     }
 }
 
+/// How much memory the server may give its VMs and unikernels: `[host_memory]` in
+/// `sherpa.toml`. Nodes that would take more are refused when they are created or started.
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct HostMemorySettings {
+    /// Memory in MiB kept back for the host and the containers, which Sherpa does not limit.
+    pub reserve_mib: u32,
+    /// How many times the memory left after the reserve guests may be given in total. 1.0
+    /// gives out no more than the server has; more relies on guests not touching all of theirs.
+    pub overcommit_ratio: f64,
+}
+
+impl Default for HostMemorySettings {
+    fn default() -> Self {
+        Self {
+            reserve_mib: HOST_MEMORY_DEFAULT_RESERVE_MIB,
+            overcommit_ratio: HOST_MEMORY_DEFAULT_OVERCOMMIT_RATIO,
+        }
+    }
+}
+
 /// Full server configuration with defaults for optional sections.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
@@ -249,6 +270,8 @@ pub struct Config {
     pub scanner: ScannerConfig,
     #[serde(default)]
     pub tailscale: TailscaleGatewaySettings,
+    #[serde(default)]
+    pub host_memory: HostMemorySettings,
 }
 
 fn default_server_ipv4() -> Ipv4Addr {
@@ -343,6 +366,21 @@ mod tests {
             Some("/run/tailscale/tailscaled.sock")
         );
         assert_eq!(settings["stop_timeout_secs"].as_integer(), Some(10));
+    }
+
+    #[test]
+    fn host_memory_settings_default_when_left_out_and_keep_partial_overrides() {
+        let mut value = toml::Value::try_from(default_config()).unwrap();
+        value.as_table_mut().unwrap().remove("host_memory");
+        let config: Config = toml::from_str(&toml::to_string(&value).unwrap()).unwrap();
+        assert_eq!(config.host_memory, HostMemorySettings::default());
+        assert_eq!(config.host_memory.reserve_mib, 4096);
+        assert!((config.host_memory.overcommit_ratio - 1.0).abs() < f64::EPSILON);
+
+        let settings: HostMemorySettings = toml::from_str("overcommit_ratio = 1.5").unwrap();
+        assert_eq!(settings.reserve_mib, 4096);
+        assert!((settings.overcommit_ratio - 1.5).abs() < f64::EPSILON);
+        assert!(toml::from_str::<HostMemorySettings>("reserve = 1").is_err());
     }
 
     #[test]
