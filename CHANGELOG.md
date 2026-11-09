@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.16] - 2026-11-09
+
+### Bug Fixes
+
+- Make the server SSH key 0600 and tighten existing keys on start by @bwks ([faa2ea3](https://github.com/bwks/sherpa/commit/faa2ea354760e3f15a2482fdc91db05b7d44e8a9))
+
+### Miscellaneous
+
+- Merge pull request #511 from bwks/fix/506-server-key-mode
+
+fix(server): make the server SSH key 0600 and tighten existing keys on start by @bwks in [#511](https://github.com/bwks/sherpa/pull/511) ([e466c66](https://github.com/bwks/sherpa/commit/e466c66fbab7c3f56e5ffac18624db5db4f1e8c1))
+- Merge pull request #509 from bwks/chore/gitignore-lab-files
+
+chore: group the loose SSH lab files with the older-client lab files in .gitignore by @bwks in [#509](https://github.com/bwks/sherpa/pull/509) ([36b9b95](https://github.com/bwks/sherpa/commit/36b9b956c574a605dc23e2e9ba704054ad512fd6))
+- Group the loose SSH lab files with the other older-client lab files in .gitignore [skip ci] by @bwks ([890207e](https://github.com/bwks/sherpa/commit/890207e56a4c18f5ef128528d50acde20b2f44b9))
+- Merge pull request #508 from bwks/changelog/v0.5.15
+
+chore(release): update changelog for v0.5.15 by @github-actions[bot] in [#508](https://github.com/bwks/sherpa/pull/508) ([5055a26](https://github.com/bwks/sherpa/commit/5055a26b987519e5c9e9d0ff13cf9b51195bef8c))
+## [0.5.15] - 2026-11-08
+
+### Features
+
+- Keep generated lab files in a .sherpa directory by @bwks ([2e46563](https://github.com/bwks/sherpa/commit/2e465636f24f3b2c92c41f8f0cabbbc60ea6e45b))
+- Per-lab SSH keys instead of the shared server key by @bwks ([16fc557](https://github.com/bwks/sherpa/commit/16fc557815f4248508774e03b6b80aeebb18d01b))
+
+### Miscellaneous
+
+- Merge pull request #507 from bwks/feat/505-sherpa-dir
+
+feat(client): keep generated lab files in a .sherpa directory by @bwks in [#507](https://github.com/bwks/sherpa/pull/507) ([5bde7a5](https://github.com/bwks/sherpa/commit/5bde7a53b426e8e0b2d64c461252d4fc0d5c2671))
+- Bump version to 0.5.15 by @bwks ([fd4f642](https://github.com/bwks/sherpa/commit/fd4f642b60adbcb3161f9bd1a1395165ff9f4548))
+- Merge pull request #504 from bwks/feat/480-per-lab-ssh-keys
+
+feat(server): per-lab SSH keys instead of the shared server key by @bwks in [#504](https://github.com/bwks/sherpa/pull/504) ([89b4045](https://github.com/bwks/sherpa/commit/89b40451cb9efcdbce260b0d788fa515a77da696))
+- Drop the version bump from this PR by @bwks ([ae80a95](https://github.com/bwks/sherpa/commit/ae80a95930c8de6ca1591e38575ca3c7d07a8978))
+- Merge pull request #493 from bwks/changelog/v0.5.14
+
+chore(release): update changelog for v0.5.14 by @github-actions[bot] in [#493](https://github.com/bwks/sherpa/pull/493) ([d5b86e9](https://github.com/bwks/sherpa/commit/d5b86e93ce22c2f2181b66496b472a70f0e4746b))
 ## [0.5.14] - 2026-11-08
 
 ### Features
