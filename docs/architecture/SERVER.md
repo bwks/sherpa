@@ -114,7 +114,7 @@ flowchart TB
     signals --> envoverrides["apply env overrides<br/>SHERPA_SERVER_IPV4<br/>SHERPA_SERVER_IPV6<br/>SHERPA_SERVER_WS_PORT<br/>SHERPA_SERVER_HTTP_PORT"]
     envoverrides --> jwt
     subgraph appstate["AppState::new(config, metrics)"]
-        jwt["load/generate JWT secret<br/>(a new one written 0600 in a 0700 directory)"] --> database["open the database file"] --> schema["apply DB schema"] --> seed["optionally seed admin user"] --> storage["restrict lab and database storage<br/>(daemon::storage::secure_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
+        jwt["load/generate JWT secret<br/>(a new one written 0600 in a 0700 directory)"] --> database["open the database file"] --> schema["apply DB schema"] --> seed["optionally seed admin user"] --> storage["restrict lab and database storage<br/>and the server SSH key<br/>(daemon::storage::secure_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
     end
     registry --> cancel["create CancellationToken for background services"]
     cancel --> scanner["if scanner enabled:<br/>spawn services::scanner::run_scanner(...)"]
@@ -163,6 +163,9 @@ every start and calls `restrict_dir` on:
   does not create these directories: one it created would not be owned by `sherpa`. The install
   and update scripts set the same owner and modes as root, and `scripts/fix-permissions.sh` keeps
   them.
+- `secure_storage` also sets the server's SSH private key, `/opt/sherpa/ssh/sherpa_ssh_key`, to
+  `0600` (`SHERPA_SSH_PRIVATE_KEY_MODE`) when it exists, with `restrict_file`; see
+  [Lab SSH keys](#lab-ssh-keys).
 
 ### Container secret files
 
@@ -1018,8 +1021,12 @@ reached as `sherpa` with a key pair, the `IdentityFile sherpa_ssh_key` hosts of
 - **`up`** makes the pair in phase 4 (`create_lab_ssh_key`), once the lab folder exists, and
   builds the `sherpa` account (`util::sherpa_user`) from its public key for every node's
   configuration. It is RSA like the server key, as some network operating systems take no
-  other kind, and the private key is `0600` (`konst::LAB_SSH_PRIVATE_KEY_MODE`; the server key
-  is `0640` for the `sherpa` group). A failed `up` rolls the folder back with the key.
+  other kind, and the private key is `0600` (`konst::LAB_SSH_PRIVATE_KEY_MODE`). A failed `up`
+  rolls the folder back with the key.
+- **The server key** is `0600` too (`konst::SHERPA_SSH_PRIVATE_KEY_MODE`): only sherpad reads
+  it. `sherpad init` sets the mode when it generates the key, and
+  `daemon::storage::secure_storage` sets it on an existing key on every start, as older
+  releases made it `0640` for the `sherpa` group.
 - **Node configuration** takes the key only from the `sherpa_user` it is given: the template
   crate's `CloudInitUser::sherpa` and `CloudbaseInitUser::sherpa` take the public key, and the
   MikroTik config disk gets `sherpa_ssh_key.pub` written from it. Nothing outside `init` and

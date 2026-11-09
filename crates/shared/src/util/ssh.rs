@@ -747,7 +747,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn a_generated_private_key_is_group_readable_only() {
+    fn the_server_private_key_is_readable_by_its_owner_only() {
         let dir = tempfile::TempDir::new().unwrap();
         let key = dir.path().join("lab_key");
         std::fs::write(&key, "old").unwrap();
@@ -762,7 +762,7 @@ mod tests {
         .unwrap();
 
         let mode = std::fs::metadata(&key).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o640);
+        assert_eq!(mode, 0o600);
         assert!(PrivateKey::from_openssh(std::fs::read_to_string(&key).unwrap()).is_ok());
     }
 
