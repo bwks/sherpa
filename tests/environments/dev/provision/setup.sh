@@ -93,10 +93,11 @@ clone_repos() {
 }
 
 # mkdocs for building sherpa-docs, as a uv tool in ~/.local/bin, at the versions in the docs'
-# requirements.txt. Running it again picks up changed versions.
+# requirements.txt. Running it again picks up changed versions. It runs on a uv-managed Python
+# 3.15, never the system python3.
 install_docs_tools() {
     log "Installing mkdocs for sherpa-docs"
-    uv tool install --quiet mkdocs --with-requirements "${CODE_DIR}/sherpa-docs/requirements.txt"
+    uv tool install --quiet --managed-python --python 3.15 mkdocs --with-requirements "${CODE_DIR}/sherpa-docs/requirements.txt"
 }
 
 install_sherpa_server() {
