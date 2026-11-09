@@ -50,10 +50,10 @@ Every link is P2p. On each Linux link the src end is `.1` and the dst end `.2`.
 ## Running
 
 ```sh
-python3 tests/labs/p2p-links/p2p_links_lab_test.py
-python3 tests/labs/p2p-links/p2p_links_lab_test.py --keep-failed
-python3 tests/labs/p2p-links/p2p_links_lab_test.py --sherpad-restart 'sudo systemctl restart sherpad'
-python3 tests/labs/p2p-links/p2p_links_lab_test.py --self-test  # runner unit tests, seconds
+uv run tests/labs/p2p-links/p2p_links_lab_test.py
+uv run tests/labs/p2p-links/p2p_links_lab_test.py --keep-failed
+uv run tests/labs/p2p-links/p2p_links_lab_test.py --sherpad-restart 'sudo systemctl restart sherpad'
+uv run tests/labs/p2p-links/p2p_links_lab_test.py --self-test  # runner unit tests, seconds
 ```
 
 Each run logs every command and its output, and keeps the captures, under

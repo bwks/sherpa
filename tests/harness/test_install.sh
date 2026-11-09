@@ -3,4 +3,4 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-exec python3 "${SCRIPT_DIR}/vm_release_test.py" "$@"
+exec uv run --project "${SCRIPT_DIR}/../.." "${SCRIPT_DIR}/vm_release_test.py" "$@"

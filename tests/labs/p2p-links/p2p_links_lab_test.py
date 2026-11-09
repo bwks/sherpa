@@ -1,5 +1,9 @@
-#!/usr/bin/env python3
-"""End-to-end test of P2p links on every pair of node kinds through the sherpa CLI (Python 3.11+, stdlib only).
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.15"
+# dependencies = []
+# ///
+"""End-to-end test of P2p links on every pair of node kinds through the sherpa CLI (Python 3.15+, stdlib only).
 
 Checks the #391 requirements for eBPF links on VM ⟷ VM, VM ⟷ container and container ⟷ container
 links: L2 transparency (raw LLDP, STP, pause, LACP, 802.1X, CDP, VLAN, QinQ and jumbo frames,

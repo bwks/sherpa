@@ -1,5 +1,9 @@
-#!/usr/bin/env python3
-"""Bring up, check and destroy Sherpa test environments (Python 3.11+, standard library only)."""
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.15"
+# dependencies = []
+# ///
+"""Bring up, check and destroy Sherpa test environments (Python 3.15+, standard library only)."""
 
 import argparse
 import base64
@@ -19,7 +23,7 @@ import unittest
 import uuid
 
 import build_cache
-from vm_release_test import encode_toml, sha256
+from vm_release_test import encode_toml, guest_python, guest_uv_setup, sha256
 
 
 HARNESS = Path(__file__).resolve().parent
@@ -29,6 +33,9 @@ GUEST_SCRIPTS = ("vm_release_guest.py", "test_env_guest.py")
 GUEST_DIRECTORY = "/tmp/sherpa-test-env"
 CONNECT_TIMEOUT = 10
 RUNS = ROOT / ".tmp" / "test-env-runs"
+# The first lines of every Python script in tests/ and dev/ that has a #! line.
+SCRIPT_HEADER = ('#!/usr/bin/env -S uv run --script\n# /// script\n# requires-python = ">=3.15"\n'
+                 '# dependencies = []\n# ///\n')
 TARGET = "x86_64-unknown-linux-gnu"
 # Release binaries are built per package, as the release workflow does, so features are not unified.
 RELEASE_PACKAGES = ("sherpad", "sherpa")
@@ -80,9 +87,9 @@ def ssh_options(directory):
 
 
 def guest_command(node):
-    return ["sudo", "-n", "python3", f"{GUEST_DIRECTORY}/test_env_guest.py",
-            "--version", node["version"], "--cpu-count", str(node["cpu_count"]),
-            "--boot-disk-size", str(node["boot_disk_size"])]
+    return ["sudo", "-n", *guest_python(f"{GUEST_DIRECTORY}/test_env_guest.py",
+                                        "--version", node["version"], "--cpu-count", str(node["cpu_count"]),
+                                        "--boot-disk-size", str(node["boot_disk_size"]))]
 
 
 def check(directory):
@@ -93,6 +100,7 @@ def check(directory):
     run(["ssh", *options, target, shlex.join(["mkdir", "-p", GUEST_DIRECTORY])], directory)
     run(["scp", "-q", *options, *(str(HARNESS / script) for script in GUEST_SCRIPTS),
          f"{target}:{GUEST_DIRECTORY}/"], directory)
+    run(["ssh", *options, target, shlex.join(guest_uv_setup())], directory)
     run(["ssh", *options, target, shlex.join(guest_command(node))], directory)
     print(f"PASS test environment {directory.name} ({target})")
 
@@ -382,8 +390,22 @@ class HostTests(unittest.TestCase):
 
     def test_guest_command_passes_manifest_expectations(self):
         node = {"version": "24.04-20260926", "cpu_count": 8, "boot_disk_size": 100}
-        self.assertEqual(guest_command(node)[-6:],
+        command = guest_command(node)
+        self.assertEqual(command[-6:],
                          ["--version", "24.04-20260926", "--cpu-count", "8", "--boot-disk-size", "100"])
+        self.assertNotIn("python3", command)
+        self.assertEqual(command[command.index("--python") + 1], "3.15")
+
+    def test_scripts_run_directly_use_uv_python(self):
+        """A script with a #! line runs on uv's Python 3.15, never on the system's python3."""
+        scripts = [path for directory in ("tests", "dev") for path in (ROOT / directory).rglob("*.py")]
+        self.assertTrue(scripts)
+        for path in scripts:
+            text = path.read_text()
+            if not text.startswith("#!"):
+                continue
+            with self.subTest(script=str(path.relative_to(ROOT))):
+                self.assertTrue(text.startswith(SCRIPT_HEADER))
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 # The VM code suite's build cache: a Redis server on the Sherpa host in which sccache in the
-# test guests keeps compiled crates. Manage it with `python3 tests/harness/test_env.py cache`;
+# test guests keeps compiled crates. Manage it with `uv run tests/harness/test_env.py cache`;
 # tests/README.md describes it. No credentials are stored here.
 
 [redis]

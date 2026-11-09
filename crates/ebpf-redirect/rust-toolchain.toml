@@ -1,2 +1,4 @@
 [toolchain]
 channel = "nightly"
+# The eBPF target has no prebuilt standard library; .cargo/config.toml builds core from source.
+components = ["rust-src"]

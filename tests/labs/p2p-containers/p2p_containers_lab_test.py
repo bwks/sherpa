@@ -1,5 +1,9 @@
-#!/usr/bin/env python3
-"""End-to-end test of P2p links on container nodes through the sherpa CLI (Python 3.11+, stdlib only).
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.15"
+# dependencies = []
+# ///
+"""End-to-end test of P2p links on container nodes through the sherpa CLI (Python 3.15+, stdlib only).
 
 Brings up three routers (cEOS, SR Linux, FRR) on a triangle of routed P2p links, with cEOS also
 the access switch for application containers on P2p links. Some of those images have no `ip`
