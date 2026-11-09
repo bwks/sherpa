@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.15"
+# dependencies = []
+# ///
 """Guest-only test-environment checks (Python 3.15+, standard library only). The harness runs this
 helper on the Python 3.15 that it installs on the guest with uv, never on the guest's system
 Python. Never invoke this helper on the Sherpa host."""

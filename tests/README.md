@@ -34,8 +34,16 @@ instead of repeating these instructions.
 Nothing runs these automatically. Every suite is started by hand, and the VM suites work
 from a snapshot of the checkout, so you can keep editing and committing while they run.
 
-The Python scripts run on Python 3.15 or later, which uv installs from `pyproject.toml`. Start
-them with `uv run`, as above, so they never use a system Python, whether or not mise is active.
+The Python scripts run on Python 3.15 or later, which uv installs. Start them with `uv run`, as
+above, so they never use a system Python, whether or not mise is active. Each script that is
+run directly starts with `#!/usr/bin/env -S uv run --script` and an inline metadata block
+(PEP 723) that requires Python 3.15 and no dependencies, so `./tests/harness/test_env.py` works
+too for the executable ones. Because of that block, `uv run` takes the Python requirement from
+the script, not from `pyproject.toml`, and runs it in its own environment in uv's cache; inside
+the checkout it still reads the `[tool.uv]` settings there, which allow only uv-managed Python.
+Sibling modules (`vm_release_test.py`, `build_cache.py`) are imported from the script's
+directory, as before. `test_env.py --self-test` fails if a script in `tests/` or `dev/` has any
+other `#!` line.
 Nothing in the harness needs Python on the Sherpa host. The guest helpers,
 `tests/harness/*_guest.py`, run on Python 3.15 from uv as well: before it runs them, the harness
 installs a pinned uv release on each test VM, checked against its published sha256

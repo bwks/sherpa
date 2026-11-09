@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.15"
+# dependencies = []
+# ///
 """Validate a local VM result against the candidate scripts and archives."""
 
 import argparse
@@ -134,7 +138,7 @@ class VerificationTests(unittest.TestCase):
             self.assertNotIn("host", exported)
             self.assertNotIn("directory", exported["run"])
             self.assertNotIn("jump_host", exported["run"])
-            validate_release(directory / "public/result.toml", directory, "v0.3.80", "a" * 40, sources=sources)
+            validate_release(directory / "public/result.toml", directory, "v0.3.80", "a" * 40, sources=sources, harness=sources)
 
     def fixture(self, directory):
         sources = directory / "scripts"
@@ -167,14 +171,14 @@ class VerificationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             receipt, report, sources = self.fixture(directory)
-            validate_release(receipt, directory, "v0.3.80", "a" * 40, sources=sources)
+            validate_release(receipt, directory, "v0.3.80", "a" * 40, sources=sources, harness=sources)
             (sources / "sherpa_install.sh").write_text("changed since testing")
             with self.assertRaises(ValueError):
-                validate_release(receipt, directory, "v0.3.80", "a" * 40, sources=sources)
+                validate_release(receipt, directory, "v0.3.80", "a" * 40, sources=sources, harness=sources)
             (sources / "sherpa_install.sh").write_text("sherpa_install.sh")
             (directory / "sherpad-x86_64-unknown-linux-gnu.tar.gz").write_bytes(b"changed archive")
             with self.assertRaises(ValueError):
-                validate_release(receipt, directory, "v0.3.80", "a" * 40, sources=sources)
+                validate_release(receipt, directory, "v0.3.80", "a" * 40, sources=sources, harness=sources)
 
     def test_failed_timed_out_skipped_or_dirty_results_fail_local_verification(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -186,11 +190,11 @@ class VerificationTests(unittest.TestCase):
                 candidate = {**report, "run": {**report["run"], key: value}}
                 receipt.write_text(encode_toml(candidate))
                 with self.subTest(key=key), self.assertRaises(ValueError):
-                    validate_release(receipt, directory, "v0.3.80", "a" * 40, sources=sources)
+                    validate_release(receipt, directory, "v0.3.80", "a" * 40, sources=sources, harness=sources)
             report["candidate"]["dirty"] = True
             receipt.write_text(encode_toml(report))
             with self.assertRaises(ValueError):
-                validate_release(receipt, directory, "v0.3.80", "a" * 40, sources=sources)
+                validate_release(receipt, directory, "v0.3.80", "a" * 40, sources=sources, harness=sources)
 
 
 if __name__ == "__main__":

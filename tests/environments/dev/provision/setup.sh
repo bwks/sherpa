@@ -17,7 +17,7 @@ SERVER_IP=""
 # System libraries and compilers. Developer tools come from mise, set in provision/mise.toml.
 APT_PACKAGES=(
     build-essential pkg-config libvirt-dev clang llvm libelf-dev
-    git jq rsync curl python3-venv
+    git jq rsync curl
 )
 
 log() {

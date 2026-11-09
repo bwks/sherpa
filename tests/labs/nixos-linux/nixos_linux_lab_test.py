@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.15"
+# dependencies = []
+# ///
 """End-to-end test of NixOS lab nodes through the sherpa CLI (Python 3.15+, stdlib only).
 
 Brings up two `nixos_linux` VMs built from images/nixos, and checks what NixOS does differently
