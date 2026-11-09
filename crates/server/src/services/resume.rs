@@ -216,7 +216,7 @@ async fn admit_stopped_vms(
         .qemu
         .connect()
         .context("Failed to connect to libvirt")?;
-    admission::admit_stopped_nodes(&conn, &state.config.host_memory, lab_id, &vm_names).await
+    admission::admit_stopped_nodes(&conn, state.config.host_memory, lab_id, &vm_names).await
 }
 
 /// Enroll the lab's Tailscale gateway again on a whole-lab resume with a key, as `down` logged

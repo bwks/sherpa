@@ -134,7 +134,7 @@ pub(super) async fn plan_lab(
     let admitted: Vec<(&topology::NodeExpanded, &data::NodeConfig)> =
         nodes_expanded.iter().zip(&images).collect();
     let admission =
-        admission::admit_lab_nodes(db, qemu_conn, &config.host_memory, lab_id, &admitted).await?;
+        admission::admit_lab_nodes(db, qemu_conn, config.host_memory, lab_id, &admitted).await?;
 
     // Connection Validators
     if !links_detailed.is_empty() {

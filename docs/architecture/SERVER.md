@@ -736,8 +736,9 @@ restart ends the operations it held.
 Memory is compared with what is committed, not with free memory. QEMU allocates guest memory
 as the guest touches it, so free memory at start overstates the room a lab has. The server's
 guest memory is its total (`virNodeGetInfo`) less its hugepage pools and
-`host_memory.reserve_mib`, times `host_memory.overcommit_ratio` (both in `sherpa.toml`, 4096
-MiB and 1.0 by default; the ratio is checked at startup). Against it count every running or
+`host_memory.reserve_mib`, times `host_memory.overcommit_percent` percent (both in
+`sherpa.toml`, 4096 MiB and 100 by default; startup refuses a percentage below 1). The limit is
+computed in whole MiB with saturating integer arithmetic, rounded down. Against it count every running or
 paused domain's maximum memory, Sherpa's and others', the pending nodes, and the request. A VM
 with `numa_node` is also checked against that NUMA node: its memory (from the capabilities XML)
 less its hugepages and its share of the reserve, against the domains held strictly on it

@@ -512,9 +512,9 @@ pub const OTEL_DEFAULT_SAMPLE_RATIO: f64 = 1.0;
 /// Memory in MiB kept back for the host (its OS, sherpad, QEMU's own use and containers, which
 /// Sherpa does not limit) when deciding whether nodes fit on the server.
 pub const HOST_MEMORY_DEFAULT_RESERVE_MIB: u32 = 4096;
-/// How many times the server's memory guests may be given in total. 1.0 never gives out more
+/// The percentage of the server's memory guests may be given in total. 100 never gives out more
 /// memory than the server has.
-pub const HOST_MEMORY_DEFAULT_OVERCOMMIT_RATIO: f64 = 1.0;
+pub const HOST_MEMORY_DEFAULT_OVERCOMMIT_PERCENT: u32 = 100;
 
 // OpenTelemetry metric names
 pub const OTEL_METRIC_WS_CONNECTIONS: &str = "sherpad.ws.connections";

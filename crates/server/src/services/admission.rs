@@ -88,7 +88,7 @@ fn ledger() -> &'static Mutex<Vec<Pending>> {
 pub async fn admit_lab_nodes(
     db: &db::Database,
     qemu_conn: &Connect,
-    settings: &HostMemorySettings,
+    settings: HostMemorySettings,
     lab_id: &str,
     nodes: &[(&topology::NodeExpanded, &NodeConfig)],
 ) -> Result<Admission> {
@@ -125,7 +125,7 @@ pub async fn admit_lab_nodes(
 #[instrument(skip(qemu_conn, settings, node_names), fields(%lab_id))]
 pub async fn admit_stopped_nodes(
     qemu_conn: &Connect,
-    settings: &HostMemorySettings,
+    settings: HostMemorySettings,
     lab_id: &str,
     node_names: &[&str],
 ) -> Result<Admission> {
@@ -142,7 +142,7 @@ pub async fn admit_stopped_nodes(
 /// Check the memory of `requests` against the server's and what is committed.
 fn check_memory(
     qemu_conn: &Connect,
-    settings: &HostMemorySettings,
+    settings: HostMemorySettings,
     requests: &[Request],
     pending: &[Pending],
     domains: &[DomainMemory],
@@ -510,10 +510,10 @@ mod tests {
         };
         let (first, second) = (node("first"), node("second"));
 
-        let held = admit_lab_nodes(&db, &conn, &settings, "admtest1", &[(&first, &image)])
+        let held = admit_lab_nodes(&db, &conn, settings, "admtest1", &[(&first, &image)])
             .await
             .unwrap();
-        let refused = admit_lab_nodes(&db, &conn, &settings, "admtest2", &[(&second, &image)])
+        let refused = admit_lab_nodes(&db, &conn, settings, "admtest2", &[(&second, &image)])
             .await
             .unwrap_err();
         let message = format!("{refused:#}");
@@ -528,7 +528,7 @@ mod tests {
         );
 
         drop(held);
-        let admitted = admit_lab_nodes(&db, &conn, &settings, "admtest2", &[(&second, &image)])
+        let admitted = admit_lab_nodes(&db, &conn, settings, "admtest2", &[(&second, &image)])
             .await
             .unwrap();
         drop(admitted);

@@ -81,7 +81,7 @@ impl AppState {
     pub async fn new(config: Config, metrics: Metrics) -> Result<Self> {
         validate_tailscale_gateway_settings(&config.tailscale)
             .context("Invalid server Tailscale settings")?;
-        check_host_memory_settings(&config.host_memory)
+        check_host_memory_settings(config.host_memory)
             .context("Invalid server host memory settings")?;
         // Load or generate JWT secret
         let jwt_secret =

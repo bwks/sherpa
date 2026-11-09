@@ -9,7 +9,7 @@ use super::container::ContainerImage;
 use super::provider::VmProviders;
 
 use crate::konst::{
-    HOST_MEMORY_DEFAULT_OVERCOMMIT_RATIO, HOST_MEMORY_DEFAULT_RESERVE_MIB, OTEL_DEFAULT_ENDPOINT,
+    HOST_MEMORY_DEFAULT_OVERCOMMIT_PERCENT, HOST_MEMORY_DEFAULT_RESERVE_MIB, OTEL_DEFAULT_ENDPOINT,
     OTEL_DEFAULT_SAMPLE_RATIO, OTEL_DEFAULT_SERVICE_NAME, SHERPA_MANAGEMENT_NETWORK_IPV4,
     SHERPA_PASSWORD, SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_WS_PORT, SHERPA_USERNAME,
 };
@@ -212,21 +212,22 @@ impl Default for TailscaleGatewaySettings {
 
 /// How much memory the server may give its VMs and unikernels: `[host_memory]` in
 /// `sherpa.toml`. Nodes that would take more are refused when they are created or started.
-#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct HostMemorySettings {
     /// Memory in MiB kept back for the host and the containers, which Sherpa does not limit.
     pub reserve_mib: u32,
-    /// How many times the memory left after the reserve guests may be given in total. 1.0
-    /// gives out no more than the server has; more relies on guests not touching all of theirs.
-    pub overcommit_ratio: f64,
+    /// The percentage of the memory left after the reserve guests may be given in total, at
+    /// least 1. 100 gives out no more than the server has; 150 gives out 1.5 times as much,
+    /// relying on guests not touching all of theirs.
+    pub overcommit_percent: u32,
 }
 
 impl Default for HostMemorySettings {
     fn default() -> Self {
         Self {
             reserve_mib: HOST_MEMORY_DEFAULT_RESERVE_MIB,
-            overcommit_ratio: HOST_MEMORY_DEFAULT_OVERCOMMIT_RATIO,
+            overcommit_percent: HOST_MEMORY_DEFAULT_OVERCOMMIT_PERCENT,
         }
     }
 }
@@ -375,12 +376,19 @@ mod tests {
         let config: Config = toml::from_str(&toml::to_string(&value).unwrap()).unwrap();
         assert_eq!(config.host_memory, HostMemorySettings::default());
         assert_eq!(config.host_memory.reserve_mib, 4096);
-        assert!((config.host_memory.overcommit_ratio - 1.0).abs() < f64::EPSILON);
+        assert_eq!(config.host_memory.overcommit_percent, 100);
 
-        let settings: HostMemorySettings = toml::from_str("overcommit_ratio = 1.5").unwrap();
+        let settings: HostMemorySettings = toml::from_str("overcommit_percent = 150").unwrap();
         assert_eq!(settings.reserve_mib, 4096);
-        assert!((settings.overcommit_ratio - 1.5).abs() < f64::EPSILON);
+        assert_eq!(settings.overcommit_percent, 150);
         assert!(toml::from_str::<HostMemorySettings>("reserve = 1").is_err());
+    }
+
+    #[test]
+    fn host_memory_overcommit_is_a_whole_percent_and_the_ratio_is_gone() {
+        assert!(toml::from_str::<HostMemorySettings>("overcommit_percent = 1.5").is_err());
+        assert!(toml::from_str::<HostMemorySettings>("overcommit_percent = -1").is_err());
+        assert!(toml::from_str::<HostMemorySettings>("overcommit_ratio = 1.5").is_err());
     }
 
     #[test]

@@ -38,7 +38,8 @@ connection drops.
 ## Changes
 
 - Server-side admission (0.5.18): committed memory against the host total and against each
-  pinned NUMA node, with a host reserve and an overcommit ratio in `sherpa.toml`. Refused by
+  pinned NUMA node, with a host reserve (`host_memory.reserve_mib`) and an overcommit percentage
+  (`host_memory.overcommit_percent`) in `sherpa.toml`. Refused by
   default. See "Admission: memory and CPU pins" in
   [`../architecture/SERVER.md`](../architecture/SERVER.md) and section 31 of
   [`../architecture/STATE_MACHINES.md`](../architecture/STATE_MACHINES.md).
