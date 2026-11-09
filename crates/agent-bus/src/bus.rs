@@ -544,6 +544,7 @@ mod tests {
     use async_nats::connection::State;
     use async_nats::{Client, ConnectOptions, Event};
     use bollard::query_parameters::RemoveVolumeOptions;
+    use shared::util::LabFolder;
     use tokio::sync::watch;
     use tokio::task::JoinHandle;
     use tokio::time::timeout;
@@ -1321,9 +1322,10 @@ mod tests {
             .port();
         // The bus is started for a lab whose gateway is the loopback address.
         let lab_dir = dir.join("lab");
-        std::fs::create_dir_all(&lab_dir).unwrap();
+        let lab_info = LabFolder::new(&lab_dir).lab_info();
+        std::fs::create_dir_all(lab_info.parent().unwrap()).unwrap();
         std::fs::write(
-            lab_dir.join("lab-info.toml"),
+            &lab_info,
             "id = \"abc123\"\nname = \"it\"\nuser = \"sherpa\"\n\
              ipv4_network = \"127.0.0.0/24\"\nipv4_gateway = \"127.0.0.1\"\n\
              ipv4_router = \"127.0.0.2\"\nloopback_network = \"127.0.1.0/24\"\n",

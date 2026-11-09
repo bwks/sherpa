@@ -26,7 +26,7 @@ tracked in issue #494.
 
 | Part | What it is | Code |
 |---|---|---|
-| Bus container | `sherpa-agent-bus`, image `nats:2.15-alpine` pinned by digest (nats-server 2.15.2), run with JetStream on the host's network. It listens on one address, port 4222: with `--lab`, the lab's management gateway (`ipv4_gateway` in `lab-info.toml`), which is also each guest's default gateway. Restart policy `unless-stopped`. | `src/bus.rs` |
+| Bus container | `sherpa-agent-bus`, image `nats:2.15-alpine` pinned by digest (nats-server 2.15.2), run with JetStream on the host's network. It listens on one address, port 4222: with `--lab`, the lab's management gateway (`ipv4_gateway` in `.sherpa/lab-info.toml`), which is also each guest's default gateway. Restart policy `unless-stopped`. | `src/bus.rs` |
 | Store | The Docker volume `sherpa-agent-bus-data`, mounted at `/data` (`--store_dir`). It outlives the container. | `src/bus.rs` |
 | Server config | `nats.conf`, rendered from the agents file and the registry of enrolled guests. Its directory is bind-mounted read-only at `/etc/agent-bus/` (`-c /etc/agent-bus/nats.conf`), and SIGHUP reloads it. | `src/config.rs` |
 | Registry | `enrolled.toml`: the guests `enroll` added, with their public keys. Host-managed, never edited by hand. | `src/registry.rs` |
@@ -81,9 +81,12 @@ flowchart LR
 `agent-bus bus start --lab <lab dir> --agents <file>`, with the host's seed in `AGENT_BUS_SEED`.
 Exactly one of `--lab` and `--listen <ipv4>` is required (`src/main.rs`, `src/state.rs`).
 
-1. With `--lab`, read `lab-info.toml` in the lab directory; its `ipv4_gateway` is the listen
-   address, and its `id` and `name` are recorded. A missing file, or one without a gateway, is an
-   error naming the path.
+1. With `--lab`, read `.sherpa/lab-info.toml` in the lab directory (`shared::util::LabFolder`);
+   its `ipv4_gateway` is the listen address, and its `id` and `name` are recorded. A missing
+   file, or one without a gateway, is an error naming the path. A lab folder in the layout from
+   before `.sherpa/` (a loose `lab-info.toml` and no `.sherpa/`) is refused, with a message to
+   run any sherpa 0.5.15 command there, which moves its files; there is no fallback to the old
+   names (see `LAB_FOLDER.md`).
 2. Load and validate the agents file, and check that the seed's public key is the host's key.
    Under the registry lock, load the registry and merge it with the agents file (see
    [Enrollment](#enrollment)).
@@ -872,7 +875,7 @@ executable:
 [tasks."agent-bus:agent"]
 description = "Enroll a lab node's guest agent on the bus and start it"
 usage = '''
-arg "<lab_dir>" help="The lab directory, holding lab-info.toml and sherpa_ssh_config"
+arg "<lab_dir>" help="The lab directory, holding .sherpa/lab-info.toml and .sherpa/ssh/config"
 arg "<node>" help="The node, which is also the agent's name"
 '''
 run = '<load secrets> ~/.local/bin/agent-bus-start-agent "$usage_lab_dir" "$usage_node"'
@@ -891,8 +894,8 @@ In order:
    comes before the guest agents and the listener.
 4. **The guest agents.** `mise run agent-bus:agent <lab dir> <node>` for each, on the host
    (`dev/agent-bus/start-agent.sh`). The script finds the node's SSH alias, `<node>` or
-   `<node>.<lab id>`, in the lab's `sherpa_ssh_config` (with `id` from `lab-info.toml`), and the
-   bus's URL in `bus.toml`. It uses the installed `agent-bus` binary, checks the guest answers over
+   `<node>.<lab id>`, in the lab's `.sherpa/ssh/config` (with `id` from `.sherpa/lab-info.toml`),
+   and the bus's URL in `bus.toml`; like `bus start`, it refuses a lab folder in the old layout. It uses the installed `agent-bus` binary, checks the guest answers over
    SSH, then pipes two lines over SSH stdin to `dev/agent-bus/start-guest.sh <node>` in the
    guest, with `AGENT_BUS_URL` set to the bus's URL: the Claude token, then the seed straight
    from `agent-bus enroll <node>`. The seed never sits in a variable, a command line, a file or a

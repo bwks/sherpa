@@ -12,6 +12,8 @@ use std::str::FromStr;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use shared::data::LabInfo;
+use shared::konst::{LAB_FILE_NAME, LAB_STATE_DIR};
+use shared::util::LabFolder;
 
 use crate::files::{PRIVATE_FILE_MODE, private_dir, write_atomic};
 
@@ -36,13 +38,23 @@ pub struct BusRecord {
     pub lab: Option<LabRecord>,
 }
 
-/// Read the lab's `lab-info.toml` in `lab_dir`.
+/// Read the lab's `.sherpa/lab-info.toml` in `lab_dir`.
 ///
 /// # Errors
 ///
-/// Fails, naming the file, when it is missing or is not a lab info file with a gateway.
+/// Fails, naming the file, when it is missing or is not a lab info file with a gateway. A lab
+/// folder still in the layout from before `.sherpa/`, with a loose `lab-info.toml`, is not
+/// read: the error says to run a Sherpa command there, which moves its files.
 pub fn read_lab_info(lab_dir: &Path) -> Result<LabInfo> {
-    let path = lab_dir.join(shared::konst::LAB_FILE_NAME);
+    let path = LabFolder::new(lab_dir).lab_info();
+    if !lab_dir.join(LAB_STATE_DIR).exists() && lab_dir.join(LAB_FILE_NAME).exists() {
+        bail!(
+            "{} has a {LAB_FILE_NAME} but no {LAB_STATE_DIR}/ folder: it is in the old lab \
+             layout. Run any sherpa 0.5.15 command in that folder (such as `sherpa inspect`) \
+             to move its files into {LAB_STATE_DIR}/, then try again",
+            lab_dir.display()
+        );
+    }
     let text = fs::read_to_string(&path)
         .with_context(|| format!("Unable to read {}: is it a lab directory?", path.display()))?;
     LabInfo::from_str(&text).with_context(|| {
@@ -149,6 +161,14 @@ ipv4_router = "192.0.2.2"
 loopback_network = "198.51.100.0/24"
 "#;
 
+    /// Write `text` as the lab info of the lab folder `dir`, returning its path.
+    fn write_lab_info(dir: &Path, text: &str) -> PathBuf {
+        let path = LabFolder::new(dir).lab_info();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, text).unwrap();
+        path
+    }
+
     fn scratch(name: &str) -> PathBuf {
         let dir =
             std::env::temp_dir().join(format!("agent-bus-state-{name}-{}", std::process::id()));
@@ -171,7 +191,12 @@ loopback_network = "198.51.100.0/24"
     #[test]
     fn the_gateway_and_lab_come_from_lab_info() {
         let dir = scratch("gateway");
-        fs::write(dir.join("lab-info.toml"), LAB_INFO).unwrap();
+        let path = write_lab_info(&dir, LAB_INFO);
+        assert!(
+            path.ends_with(".sherpa/lab-info.toml"),
+            "{}",
+            path.display()
+        );
         let (gateway, lab) = lab_gateway(&dir).unwrap();
         assert_eq!(gateway, "192.0.2.1".parse::<Ipv4Addr>().unwrap());
         assert_eq!(lab.id, "abc123");
@@ -182,17 +207,32 @@ loopback_network = "198.51.100.0/24"
     #[test]
     fn a_missing_or_gatewayless_lab_info_names_the_file() {
         let dir = scratch("missing");
-        let path = dir.join("lab-info.toml");
+        let path = dir.join(".sherpa").join("lab-info.toml");
         let error = format!("{:#}", lab_gateway(&dir).unwrap_err());
         assert!(error.contains(&path.display().to_string()), "{error}");
 
-        fs::write(
-            &path,
-            LAB_INFO.replace("ipv4_gateway = \"192.0.2.1\"\n", ""),
-        )
-        .unwrap();
+        write_lab_info(
+            &dir,
+            &LAB_INFO.replace("ipv4_gateway = \"192.0.2.1\"\n", ""),
+        );
         let error = format!("{:#}", lab_gateway(&dir).unwrap_err());
         assert!(error.contains(&path.display().to_string()), "{error}");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_loose_lab_info_is_not_read_and_says_to_migrate() {
+        let dir = scratch("loose");
+        fs::write(dir.join("lab-info.toml"), LAB_INFO).unwrap();
+        let error = format!("{:#}", lab_gateway(&dir).unwrap_err());
+        assert!(error.contains("old lab layout"), "{error}");
+        assert!(error.contains("sherpa 0.5.15"), "{error}");
+        assert!(error.contains(&dir.display().to_string()), "{error}");
+
+        // Once migrated, the loose file is gone and .sherpa/ is read.
+        fs::remove_file(dir.join("lab-info.toml")).unwrap();
+        write_lab_info(&dir, LAB_INFO);
+        assert_eq!(lab_gateway(&dir).unwrap().1.id, "abc123");
         fs::remove_dir_all(&dir).unwrap();
     }
 

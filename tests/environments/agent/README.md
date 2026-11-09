@@ -71,17 +71,17 @@ GH_TOKEN=... sherpa up
 Put the token in the environment the same way as for dev, for example with a `mise` task that
 loads it from the secret store, rather than typing it. As with dev, do not interrupt `sherpa up`:
 an interrupted `up` leaves a half-created lab that must be destroyed first. `sherpa up` writes
-`lab-info.toml`, `sherpa_ssh_config` and `sherpa_ssh_key` into the lab directory, outside the
-repository.
+`.sherpa/lab-info.toml`, `.sherpa/ssh/config` and `.sherpa/ssh/key` into the lab directory,
+outside the repository.
 
 Connect with the lab's own SSH config, which goes through the host's Sherpa server:
 
 ```
 cd ~/labs/sherpa-agent-2
-ssh -F sherpa_ssh_config agent-2.<lab id>
+ssh -F .sherpa/ssh/config agent-2.<lab id>
 ```
 
-The SSH alias is `agent-2.<lab id>`, with `id` from `lab-info.toml`, not the bare node name.
+The SSH alias is `agent-2.<lab id>`, with `id` from `.sherpa/lab-info.toml`, not the bare node name.
 
 The guest's address changes with every `sherpa up`; never write it down.
 
@@ -112,7 +112,7 @@ the host's `bus.toml`, because the bus does not listen on this guest's default g
 below). No key is made by hand and nothing is added to the agents file; `agent-2` must not be
 listed there.
 
-The bus's address is `ipv4_gateway` in dev's `lab-info.toml`. It changes when dev's lab is
+The bus's address is `ipv4_gateway` in dev's `.sherpa/lab-info.toml`. It changes when dev's lab is
 brought up again; then run `bus start` and the same command again. Its log is
 `~/agent-bus-agent-2.log` in the guest. Tasks go to it with
 `agent-bus send --to agent-2 "<task>"`. To retire it, stop the agent and run

@@ -11,12 +11,16 @@
 # AGENT_BUS_MODEL, the guest's default model, passed on to start-guest.sh, and AGENT_BUS_BIN,
 # the agent-bus binary to use (default: `agent-bus` on PATH).
 #
-# It finds the node's SSH alias (`<node>` or `<node>.<lab id>`) in the lab's sherpa_ssh_config,
-# and the bus's URL in the bus record that `agent-bus bus start` wrote. It then runs
-# `agent-bus enroll <node>`, which gives the agent a fresh key and refuses its previous one, and
+# It finds the node's SSH alias (`<node>` or `<node>.<lab id>`) in the lab's .sherpa/ssh/config
+# (with the lab id from .sherpa/lab-info.toml), and the bus's URL in the bus record that
+# `agent-bus bus start` wrote. It then runs `agent-bus enroll <node>`, which gives the agent a fresh key and refuses its previous one, and
 # pipes the Claude token and the new seed over SSH stdin into dev/agent-bus/start-guest.sh in the
 # guest. The seed only travels through that pipe: it is never in a variable, a command line, a
 # file or a log.
+#
+# The lab folder must be in the .sherpa/ layout of sherpa 0.5.15. A folder from an older client
+# (a loose lab-info.toml and sherpa_ssh_config) is refused: run any sherpa 0.5.15 command in it,
+# such as `sherpa inspect`, which moves its files into .sherpa/.
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then
@@ -40,8 +44,13 @@ if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || [ -z "${AGENT_BUS_SEED:-}" ]; then
     exit 2
 fi
 
-SSH_CONFIG="${LAB_DIR}/sherpa_ssh_config"
-LAB_INFO="${LAB_DIR}/lab-info.toml"
+SSH_CONFIG="${LAB_DIR}/.sherpa/ssh/config"
+LAB_INFO="${LAB_DIR}/.sherpa/lab-info.toml"
+if [ ! -d "${LAB_DIR}/.sherpa" ] && [ -f "${LAB_DIR}/lab-info.toml" ]; then
+    echo "${LAB_DIR} has a lab-info.toml but no .sherpa/ folder: it is in the old lab layout." >&2
+    echo "Run any sherpa 0.5.15 command in that folder (such as \`sherpa inspect\`) to move its files into .sherpa/, then try again" >&2
+    exit 1
+fi
 for file in "${SSH_CONFIG}" "${LAB_INFO}"; do
     if [ ! -f "${file}" ]; then
         echo "${file} not found: is ${LAB_DIR} a lab directory that is up?" >&2
@@ -99,11 +108,12 @@ if [ -z "${AGENT_BUS}" ] || [ ! -f "${AGENT_BUS}" ] || [ ! -x "${AGENT_BUS}" ]; 
     exit 1
 fi
 
-# The lab's SSH config names its key relative to the lab directory. ssh never gets the secrets
-# in its environment.
+# The lab's SSH config names its key and known hosts by absolute path; ssh runs from the lab
+# directory so the config's path is the one `sherpa` documents. ssh never gets the secrets in
+# its environment.
 cd "${LAB_DIR}"
 lab_ssh() {
-    env -u AGENT_BUS_SEED -u CLAUDE_CODE_OAUTH_TOKEN ssh -F sherpa_ssh_config "${ALIAS}" "$@"
+    env -u AGENT_BUS_SEED -u CLAUDE_CODE_OAUTH_TOKEN ssh -F .sherpa/ssh/config "${ALIAS}" "$@"
 }
 
 # Reach the guest before enrolling: enrolling refuses the agent's previous key at once.

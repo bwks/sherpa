@@ -1,6 +1,6 @@
 [package]
 name = "agent-bus"
-version = "0.5.14"
+version = "0.5.15"
 edition = "2024"
 description = "Development tool: a NATS message channel between the host agent and agents in lab guests"
 publish = false
@@ -18,7 +18,7 @@ nkeys = { workspace = true }
 bollard = { workspace = true }
 container = { path = "../container" }
 
-# The lab-info.toml a lab writes
+# The .sherpa/lab-info.toml a lab writes, and where its lab folder keeps it
 shared = { path = "../shared" }
 
 # CLI

@@ -212,7 +212,7 @@ enum BusAction {
     /// Start the bus container, listening on one host address
     #[command(group(ArgGroup::new("address").required(true).args(["lab", "listen"])))]
     Start {
-        /// The lab to serve: a lab directory holding `lab-info.toml`. The bus listens on the
+        /// The lab to serve: a lab directory holding `.sherpa/lab-info.toml`. The bus listens on the
         /// lab's management gateway, which is where its guests find it
         #[arg(long)]
         lab: Option<PathBuf>,
