@@ -31,8 +31,6 @@ srl-config.json
 # Dev
 .cargo/config.toml
 test_*.toml
-sherpa_ssh_*
-sherpa_known_hosts
 .claude/*
 !.claude/skills/
 .ruff_cache
@@ -42,6 +40,8 @@ __pycache__/
 .sherpa/
 # The same files as older clients left them loose, until a command moves them into .sherpa/
 lab-info.toml
+sherpa_ssh_*
+sherpa_known_hosts
 lab-ca.crt
 kubeconfig-*
 talosconfig-*
