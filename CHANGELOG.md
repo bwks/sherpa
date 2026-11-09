@@ -2,6 +2,67 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.17] - 2026-11-09
+
+### Bug Fixes
+
+- Run mkdocs on a uv-managed Python 3.15, not system python [skip ci] by @bwks ([8456581](https://github.com/bwks/sherpa/commit/845658105a8aec9c543f5f5fdba8093195cbe361))
+- Fail and retry on download errors by @bwks ([8afb201](https://github.com/bwks/sherpa/commit/8afb201553eec2393a6928f5432f5a7f2b25baa1))
+- Prune logs, private state files, listener journal, safer git by @bwks ([74db2d0](https://github.com/bwks/sherpa/commit/74db2d0af6394bf495d537c916bb80acf5a09992))
+
+### Documentation
+
+- Document implicit state machines and their invalid states [skip ci] by @bwks ([bd98840](https://github.com/bwks/sherpa/commit/bd988402851a2721c1e5ded6db8d98165b1ed335))
+- Architecture doc with diagrams [skip ci] by @bwks ([771461e](https://github.com/bwks/sherpa/commit/771461e0db48da23e91708c2097fa0bb0da6b4ba))
+
+### Features
+
+- Tracing spans on I/O and lifecycle functions by @bwks ([a10e988](https://github.com/bwks/sherpa/commit/a10e98861334516c8957eb6efea6a08f9736d856))
+- Review hardening and TLS on the bus by @bwks ([f2ed7f7](https://github.com/bwks/sherpa/commit/f2ed7f70d11aef9962ded8dc0342537626725c01))
+- Read lab files from the .sherpa directory by @bwks ([e5f69e2](https://github.com/bwks/sherpa/commit/e5f69e25571bc432066fae5feafe8b86c4107600))
+- Agents status command with guest heartbeats by @bwks ([c16cf1d](https://github.com/bwks/sherpa/commit/c16cf1d8b49f7cbdd06669b11121dd19cc2eb80e))
+- Enroll guest agents automatically, one key each by @bwks ([5f717cb](https://github.com/bwks/sherpa/commit/5f717cbd00df059497fe72ed414740a420602007))
+- Worker lab, model per task, shared test key by @bwks ([d761973](https://github.com/bwks/sherpa/commit/d761973290d25481ecb4a9825c3be434280426f8))
+- Keep guest state across restarts, one agent per name by @bwks ([8936ae4](https://github.com/bwks/sherpa/commit/8936ae4cf23e2a621a4364fd050bc91c64946115))
+- Reuse the prompt cache across tasks, and run guests on Opus 5.5 by @bwks ([776ae6f](https://github.com/bwks/sherpa/commit/776ae6f731d2c8ac4fa4c017dc1a913e94687f78))
+- Cost and usage per run and per task by @bwks ([8653162](https://github.com/bwks/sherpa/commit/865316292e9b929b72489d8007a0db775bd9ac6b))
+- Find the bus from the lab, not a hard-coded address by @bwks ([fd28a43](https://github.com/bwks/sherpa/commit/fd28a43c97a985933a6b82ebd6a35922d5a32884))
+- Cancel a running or queued task by @bwks ([3d54dff](https://github.com/bwks/sherpa/commit/3d54dffc576d85182f109b299b4edfbcb8fd99f9))
+- GitHub access only for tasks that are given it by @bwks ([c4fa9b8](https://github.com/bwks/sherpa/commit/c4fa9b82a15962a3ae179e769275d02747621922))
+- NKey authentication and per-agent permissions by @bwks ([de0136f](https://github.com/bwks/sherpa/commit/de0136f42366471003ade1dff4751f9474fc6001))
+- Skip permission checks in guests and report usage by @bwks ([4124278](https://github.com/bwks/sherpa/commit/412427826e90158afdcb705996de8fe8f6153372))
+- NATS message channel between the host agent and guest agents by @bwks ([8c1c830](https://github.com/bwks/sherpa/commit/8c1c830abf2ec61e1b778f680ee38ef8ede26ad9))
+
+### Miscellaneous
+
+- Merge pull request #495 from bwks/feat/agent-bus
+
+feat(agent-bus): NATS message channel between the host agent and guest agents, with NKey auth by @bwks in [#495](https://github.com/bwks/sherpa/pull/495) ([849c097](https://github.com/bwks/sherpa/commit/849c097660aacc0a0c90db90f2d49fbb625c96fe))
+- Bump version to 0.5.17 by @bwks ([39d8f88](https://github.com/bwks/sherpa/commit/39d8f88133514db8bf8738f413bba9b9e193d04b))
+- Merge remote-tracking branch 'origin/main' into feat/agent-bus by @bwks ([c6d4123](https://github.com/bwks/sherpa/commit/c6d412321939dbe3ce0d49d5bcb6bdaf57089834))
+- Merge pull request #497 from bwks/docs/474-state-machines
+
+docs: inventory of Sherpa's implicit state machines [skip ci] by @bwks in [#497](https://github.com/bwks/sherpa/pull/497) ([b362469](https://github.com/bwks/sherpa/commit/b3624697ca7a0544c84f97d99622c04b1f18f834))
+- Merge pull request #513 from bwks/chore/mise-toml
+
+chore: add a project mise.toml and declare toolchain components by @bwks in [#513](https://github.com/bwks/sherpa/pull/513) ([15f5ef4](https://github.com/bwks/sherpa/commit/15f5ef4f275ef1a429aa52c1aac597c359f27602))
+- Run CI on the branch head by @bwks ([3a42523](https://github.com/bwks/sherpa/commit/3a425232512552337dec46c0b3c3fef1958dae24))
+- Uv shebangs for the Python scripts, fix verify self-test by @bwks ([dbf913e](https://github.com/bwks/sherpa/commit/dbf913ef062eef1e362a380420d4cc7155b479e3))
+- Run all harness Python on uv's Python 3.15 by @bwks ([3bf92ad](https://github.com/bwks/sherpa/commit/3bf92adc7f9fc0327705100b2a9db7d8a3cd9c63))
+- Require Python 3.15 for the host-side scripts by @bwks ([c34acbc](https://github.com/bwks/sherpa/commit/c34acbcbfa58f7073574e5d14a3588b9af9f0df0))
+- Let uv own Python through pyproject.toml by @bwks ([e3e1428](https://github.com/bwks/sherpa/commit/e3e1428b54b714244d0ba753afdb5f0149fc9413))
+- Add uv to mise.toml for Python dependencies by @bwks ([8336f55](https://github.com/bwks/sherpa/commit/8336f55546321bf19957cb829feb77a280e3024e))
+- Add a project mise.toml and declare toolchain components by @bwks ([e91e12a](https://github.com/bwks/sherpa/commit/e91e12aac82f5fd18e7f882f27d649d86231ce24))
+- Bump version to 0.5.16 by @bwks ([53b4e63](https://github.com/bwks/sherpa/commit/53b4e63933d2b4070f0b8cfdbbedaec4e3ca4750))
+- Merge remote-tracking branch 'origin/main' into feat/agent-bus by @bwks ([409963d](https://github.com/bwks/sherpa/commit/409963d84de999a283d3c5346f604fdfb7b43eb4))
+- Merge pull request #512 from bwks/changelog/v0.5.16
+
+chore(release): update changelog for v0.5.16 by @github-actions[bot] in [#512](https://github.com/bwks/sherpa/pull/512) ([bf444ac](https://github.com/bwks/sherpa/commit/bf444ac3b2a564d97c358908223e667c5e9bf240))
+- Merge remote-tracking branch 'origin/main' into feat/agent-bus by @bwks ([16441e8](https://github.com/bwks/sherpa/commit/16441e877008fb07167696970fe64edebc9c7ad5))
+
+### Testing
+
+- An answer refuses --model and --github by @bwks ([5873717](https://github.com/bwks/sherpa/commit/5873717694104f23360c65e9b01d578fc272ee7c))
 ## [0.5.16] - 2026-11-09
 
 ### Bug Fixes
