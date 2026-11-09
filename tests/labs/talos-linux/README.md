@@ -23,10 +23,10 @@ run from it, inside the lab, with the credentials `sherpa up` writes.
 ## Running
 
 ```sh
-python3 tests/labs/talos-linux/talos_lab_test.py              # both labs, in parallel
-python3 tests/labs/talos-linux/talos_lab_test.py single       # one lab
-python3 tests/labs/talos-linux/talos_lab_test.py --keep-failed
-python3 tests/labs/talos-linux/talos_lab_test.py --self-test  # runner unit tests, seconds
+uv run tests/labs/talos-linux/talos_lab_test.py              # both labs, in parallel
+uv run tests/labs/talos-linux/talos_lab_test.py single       # one lab
+uv run tests/labs/talos-linux/talos_lab_test.py --keep-failed
+uv run tests/labs/talos-linux/talos_lab_test.py --self-test  # runner unit tests, seconds
 ```
 
 Each lab runs in its own process, and Ctrl-C or SIGTERM still destroys every lab. Each run logs

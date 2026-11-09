@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Send or receive a fixed set of marked L2 frames on an interface (Python 3, stdlib only).
 
 Runs inside a lab VM (as root) or a sidecar container sharing a container node's network

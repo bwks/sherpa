@@ -35,6 +35,8 @@ test_*.toml
 !.claude/skills/
 .ruff_cache
 __pycache__/
+# The uv virtual environment mise creates for pyproject.toml
+.venv/
 # Lab files and credentials written by `sherpa up` and `sherpa download`, removed by
 # `sherpa destroy`
 .sherpa/

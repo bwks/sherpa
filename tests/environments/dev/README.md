@@ -35,7 +35,8 @@ is up. It is safe to run again with `sherpa provision`. It:
    account with its no-reply address;
 4. clones `bwks/sherpa` and `bwks/sherpa-docs` into `~/code/rust/`. When they already exist it
    only fetches, so work in progress is never touched;
-5. installs `mkdocs` with uv, as a tool on the `PATH`, at the versions in sherpa-docs'
+5. installs `mkdocs` with uv on a uv-managed Python 3.15 (never the system Python), as a tool on
+   the `PATH`, at the versions in sherpa-docs'
    `requirements.txt`, so `mkdocs build` and `mkdocs serve` work in `~/code/rust/sherpa-docs`;
 6. installs a Sherpa server with the checkout's `scripts/sherpa_install.sh`;
 7. initializes the server unattended: it generates the `admin` password, a `dev` user (an
@@ -83,7 +84,7 @@ After every `sherpa up`, write a direct config from it:
 
 ```
 cd tests/environments/dev
-python3 direct_ssh_config.py
+uv run direct_ssh_config.py
 ssh -F .sherpa/ssh/direct_config dev
 ```
 

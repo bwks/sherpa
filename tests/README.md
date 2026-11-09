@@ -22,17 +22,34 @@ instead of repeating these instructions.
 | Format and lint | `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings` | Rust toolchain | about 1–5 min |
 | Unit and database tests | `cargo test --workspace` | Nothing external | about 1–3 min |
 | Other crate integration | see [Crate integration tests](#crate-integration-tests) | Docker, libvirt, sudo | minutes |
-| VM code suite | `python3 tests/harness/test_env.py run [ubuntu-2404] [ubuntu-2604]` | Sherpa host, logged-in CLI | about 40 min per release, in parallel |
+| VM code suite | `uv run tests/harness/test_env.py run [ubuntu-2404] [ubuntu-2604]` | Sherpa host, logged-in CLI | about 40 min per release, in parallel |
 | Installer suite | `./tests/harness/test_install.sh --config tests/environments/<env>/release-test.toml` | Sherpa host, logged-in CLI | about 20–30 min |
-| Private bridge lab test | `python3 tests/labs/private-bridge/private_bridge_lab_test.py` | Sherpa host with the alpine and FRR images, logged-in CLI | about 5–10 min |
-| P2p containers lab test | `python3 tests/labs/p2p-containers/p2p_containers_lab_test.py` | On the Sherpa server: the node images, Docker access, logged-in CLI | about 2–5 min |
-| P2p links lab test | `python3 tests/labs/p2p-links/p2p_links_lab_test.py` | On the Sherpa server: the node images, `nicolaka/netshoot:v0.14`, Docker access, logged-in CLI | about 15–20 min |
-| Talos lab test | `python3 tests/labs/talos-linux/talos_lab_test.py` | Sherpa host with the Talos image, logged-in CLI, internet | about 25–35 min |
+| Private bridge lab test | `uv run tests/labs/private-bridge/private_bridge_lab_test.py` | Sherpa host with the alpine and FRR images, logged-in CLI | about 5–10 min |
+| P2p containers lab test | `uv run tests/labs/p2p-containers/p2p_containers_lab_test.py` | On the Sherpa server: the node images, Docker access, logged-in CLI | about 2–5 min |
+| P2p links lab test | `uv run tests/labs/p2p-links/p2p_links_lab_test.py` | On the Sherpa server: the node images, `nicolaka/netshoot:v0.14`, Docker access, logged-in CLI | about 15–20 min |
+| Talos lab test | `uv run tests/labs/talos-linux/talos_lab_test.py` | Sherpa host with the Talos image, logged-in CLI, internet | about 25–35 min |
 | Web UI JavaScript | `node tests/web/test_theme.cjs` | Node.js | seconds |
-| Harness self-tests | `python3 tests/harness/<script>.py --self-test` | Python 3.11+ | seconds |
+| Harness self-tests | `uv run tests/harness/<script>.py --self-test` | Python 3.15+ | seconds |
 
 Nothing runs these automatically. Every suite is started by hand, and the VM suites work
 from a snapshot of the checkout, so you can keep editing and committing while they run.
+
+The Python scripts run on Python 3.15 or later, which uv installs. Start them with `uv run`, as
+above, so they never use a system Python, whether or not mise is active. Each script that is
+run directly starts with `#!/usr/bin/env -S uv run --script` and an inline metadata block
+(PEP 723) that requires Python 3.15 and no dependencies, so `./tests/harness/test_env.py` works
+too for the executable ones. Because of that block, `uv run` takes the Python requirement from
+the script, not from `pyproject.toml`, and runs it in its own environment in uv's cache; inside
+the checkout it still reads the `[tool.uv]` settings there, which allow only uv-managed Python.
+Sibling modules (`vm_release_test.py`, `build_cache.py`) are imported from the script's
+directory, as before. `test_env.py --self-test` fails if a script in `tests/` or `dev/` has any
+other `#!` line.
+Nothing in the harness needs Python on the Sherpa host. The guest helpers,
+`tests/harness/*_guest.py`, run on Python 3.15 from uv as well: before it runs them, the harness
+installs a pinned uv release on each test VM, checked against its published sha256
+(`UV_VERSION` and `UV_SHA256` in `tests/harness/vm_release_test.py`), and uv's Python 3.15 in
+`/opt/uv/python`. The VM's system Python is never used, and the run fails if uv or Python 3.15
+cannot be installed.
 
 ## Before any tests
 
@@ -103,8 +120,8 @@ sudo -n env SHERPA_OVERLAY_LIVE=1 <binary> --ignored --test-threads=1 live_overl
 Builds the checkout and tests it in fresh Ubuntu VMs created on a Sherpa server:
 
 ```sh
-python3 tests/harness/test_env.py run                  # 24.04 and 26.04
-python3 tests/harness/test_env.py run ubuntu-2604      # one release
+uv run tests/harness/test_env.py run                  # 24.04 and 26.04
+uv run tests/harness/test_env.py run ubuntu-2604      # one release
 ```
 
 It needs an authenticated `sherpa` CLI with at least four hours left on its token
@@ -127,7 +144,7 @@ with an auth key in `SHERPA_TEST_TAILSCALE_AUTH_KEY` on the host; without one it
 `test-results.toml` records why. Use an ephemeral key, from a secret manager:
 
 ```sh
-SHERPA_TEST_TAILSCALE_AUTH_KEY=<key> python3 tests/harness/test_env.py run
+SHERPA_TEST_TAILSCALE_AUTH_KEY=<key> uv run tests/harness/test_env.py run
 ```
 
 The key reaches the guest in its run settings, like the build cache password, never on a
@@ -138,8 +155,8 @@ tailnet as `tntest<pid>`, advertises `172.31.250.0/24` and logs out when the tes
 A passing VM is destroyed; a failing one is kept. Then:
 
 ```sh
-python3 tests/harness/test_env.py rerun .tmp/vm-release-tests/<run-id>    # retest a kept VM
-python3 tests/harness/vm_release_test.py --cleanup-run .tmp/vm-release-tests/<run-id>   # remove it
+uv run tests/harness/test_env.py rerun .tmp/vm-release-tests/<run-id>    # retest a kept VM
+uv run tests/harness/vm_release_test.py --cleanup-run .tmp/vm-release-tests/<run-id>   # remove it
 ```
 
 A rerun uploads the current checkout and repeats the test steps without reinstalling; it is
@@ -147,7 +164,7 @@ for debugging, not a substitute for a fresh run. Results are in `.tmp/test-env-r
 (build logs, candidate hashes) and `.tmp/vm-release-tests/<run-id>/` (`result.toml`,
 `test-results.toml`, `logs/`). Settings are in each environment's `release-test.toml`.
 
-To manage one environment by hand: `python3 tests/harness/test_env.py up | check | destroy <env>`.
+To manage one environment by hand: `uv run tests/harness/test_env.py up | check | destroy <env>`.
 
 ### Build cache
 
@@ -156,10 +173,10 @@ compiled crates between runs: sccache in each guest stores what it compiles ther
 on the next run, from either release.
 
 ```sh
-python3 tests/harness/test_env.py cache start    # start Redis in a container on this host
-python3 tests/harness/test_env.py cache status   # running state and the number of entries
-python3 tests/harness/test_env.py cache clear    # empty the cache
-python3 tests/harness/test_env.py cache stop     # remove the container; the data is kept
+uv run tests/harness/test_env.py cache start    # start Redis in a container on this host
+uv run tests/harness/test_env.py cache status   # running state and the number of entries
+uv run tests/harness/test_env.py cache clear    # empty the cache
+uv run tests/harness/test_env.py cache stop     # remove the container; the data is kept
 ```
 
 - Redis listens on the Sherpa server's address from the CLI configuration, where the guests
@@ -204,10 +221,10 @@ them from inside the lab, and always destroy them. They test whatever `sherpad` 
 runs, so install the build under test first.
 
 ```sh
-python3 tests/labs/private-bridge/private_bridge_lab_test.py  # private bridges: a VM and containers
-python3 tests/labs/p2p-containers/p2p_containers_lab_test.py  # P2p links on NOS, app and OS containers
-python3 tests/labs/p2p-links/p2p_links_lab_test.py            # P2p link requirements on every pair of node kinds
-python3 tests/labs/talos-linux/talos_lab_test.py         # Talos clusters: single and ha labs in parallel
+uv run tests/labs/private-bridge/private_bridge_lab_test.py  # private bridges: a VM and containers
+uv run tests/labs/p2p-containers/p2p_containers_lab_test.py  # P2p links on NOS, app and OS containers
+uv run tests/labs/p2p-links/p2p_links_lab_test.py            # P2p link requirements on every pair of node kinds
+uv run tests/labs/talos-linux/talos_lab_test.py         # Talos clusters: single and ha labs in parallel
 ```
 
 See [labs/README.md](labs/README.md) for the rules and each lab's README for what it checks.
@@ -215,15 +232,15 @@ See [labs/README.md](labs/README.md) for the rules and each lab's README for wha
 ## Harness self-tests
 
 ```sh
-python3 tests/harness/test_env.py --self-test
-python3 tests/harness/test_env_guest.py --self-test
-python3 tests/harness/build_cache.py --self-test
-python3 tests/harness/vm_release_test.py --self-test
-python3 tests/harness/vm_release_guest.py --self-test
-python3 tests/labs/private-bridge/private_bridge_lab_test.py --self-test
-python3 tests/labs/p2p-containers/p2p_containers_lab_test.py --self-test
-python3 tests/labs/p2p-links/p2p_links_lab_test.py --self-test
-python3 tests/labs/talos-linux/talos_lab_test.py --self-test
+uv run tests/harness/test_env.py --self-test
+uv run tests/harness/test_env_guest.py --self-test
+uv run tests/harness/build_cache.py --self-test
+uv run tests/harness/vm_release_test.py --self-test
+uv run tests/harness/vm_release_guest.py --self-test
+uv run tests/labs/private-bridge/private_bridge_lab_test.py --self-test
+uv run tests/labs/p2p-containers/p2p_containers_lab_test.py --self-test
+uv run tests/labs/p2p-links/p2p_links_lab_test.py --self-test
+uv run tests/labs/talos-linux/talos_lab_test.py --self-test
 ```
 
 Run these after changing anything in `tests/harness/` or a lab runner.
