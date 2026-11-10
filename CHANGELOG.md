@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.25] - 2026-11-10
+
+### Bug Fixes
+
+- Retry the changelog PR merge instead of falling back to auto-merge by @bwks ([f522ee7](https://github.com/bwks/sherpa/commit/f522ee75113efa14723b2207c003fc6c5365fe34))
+
+### Features
+
+- An explicit node lifecycle the scanner cannot overwrite by @bwks ([b39537b](https://github.com/bwks/sherpa/commit/b39537b6d03f182af7719bf6182782c92e32551c))
+
+### Miscellaneous
+
+- Merge pull request #543 from bwks/feat/498-node-lifecycle
+
+feat(server): an explicit node lifecycle the scanner cannot overwrite by @bwks in [#543](https://github.com/bwks/sherpa/pull/543) ([f257381](https://github.com/bwks/sherpa/commit/f2573818602522f6b0b74c49b479f73f502b4cab))
+- Merge remote-tracking branch 'origin/main' into feat/498-node-lifecycle
+
+# Conflicts:
+#	Cargo.lock
+#	crates/agent-bus/Cargo.toml
+#	crates/client/Cargo.toml
+#	crates/container/Cargo.toml
+#	crates/db/Cargo.toml
+#	crates/ebpf-redirect/Cargo.lock
+#	crates/ebpf-redirect/Cargo.toml
+#	crates/iso/Cargo.toml
+#	crates/libvirt/Cargo.toml
+#	crates/network/Cargo.toml
+#	crates/server/Cargo.toml
+#	crates/shared/Cargo.toml
+#	crates/template/Cargo.toml
+#	crates/topology/Cargo.toml by @bwks ([d8bbb01](https://github.com/bwks/sherpa/commit/d8bbb01423e57eaecfab97b6dda521490dca0bb1))
+- Merge pull request #541 from bwks/fix/release-merge-race
+
+fix(ci): retry the changelog PR merge instead of falling back to auto-merge by @bwks in [#541](https://github.com/bwks/sherpa/pull/541) ([868ace4](https://github.com/bwks/sherpa/commit/868ace4d5206023b971aa3d77fb7a25aa77aaf15))
+- Merge pull request #540 from bwks/changelog/v0.5.24
+
+chore(release): update changelog for v0.5.24 by @github-actions[bot] in [#540](https://github.com/bwks/sherpa/pull/540) ([0243d9d](https://github.com/bwks/sherpa/commit/0243d9dbc70b90908dfe48d189071cfdaffd41bd))
 ## [0.5.24] - 2026-11-10
 
 ### Features
