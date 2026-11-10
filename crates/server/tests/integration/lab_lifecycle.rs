@@ -1059,8 +1059,7 @@ async fn test_lab_up_requires_auth() -> Result<()> {
 
 #[tokio::test]
 async fn test_lab_up_rejects_duplicate_lab_id() -> Result<()> {
-    // Without libvirt, as on CI: the lab ID is refused before libvirt is reached.
-    let server = TestServer::start_without_libvirt().await?;
+    let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_lab_admin(&server).await?;
 
