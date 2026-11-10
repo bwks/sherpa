@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.27] - 2026-11-10
+
+### Bug Fixes
+
+- Refuse a lab ID in use before connecting to libvirt by @bwks ([d3abb23](https://github.com/bwks/sherpa/commit/d3abb237795e76d67cdbaf39e2beab1aa20fe414))
+
+### Features
+
+- An explicit lab lifecycle across up, destroy and clean by @bwks ([076bc17](https://github.com/bwks/sherpa/commit/076bc1731450d6e6b2dde9b9bc66441cba579c39))
+
+### Miscellaneous
+
+- Merge pull request #549 from bwks/feat/499-lab-lifecycle
+
+feat(server): an explicit lab lifecycle across up, destroy and clean by @bwks in [#549](https://github.com/bwks/sherpa/pull/549) ([20a7208](https://github.com/bwks/sherpa/commit/20a7208ba3951d20871d72f63d82be7863d09094))
+- Merge remote-tracking branch 'origin/main' into feat/499-lab-lifecycle
+
+Keeps 0.5.27 and the lab phase migration as 0015 after #503's 0014.
+Moves the new tests onto upsert_node_image's DefaultRequest argument.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com> by @bwks ([f9aa2c6](https://github.com/bwks/sherpa/commit/f9aa2c60822a565ee316b52dcfe085b17ab37ded))
+- Merge pull request #547 from bwks/chore/guest-claude-attribution
+
+chore(dev): give the guest agents the host's Claude Code attribution by @bwks in [#547](https://github.com/bwks/sherpa/pull/547) ([f83882e](https://github.com/bwks/sherpa/commit/f83882e882437ba051d760f821e6e1d189623a93))
+- Give the guest agents the host's Claude Code attribution by @bwks ([39b5388](https://github.com/bwks/sherpa/commit/39b53888971697e3c9002b6d9e7d914500dd8109))
+- Merge pull request #548 from bwks/changelog/v0.5.26
+
+chore(release): update changelog for v0.5.26 by @github-actions[bot] in [#548](https://github.com/bwks/sherpa/pull/548) ([d4f8f40](https://github.com/bwks/sherpa/commit/d4f8f4012f2723d49a1fe67a0a43983564b8176d))
+
+### Refactor
+
+- Lab detail offers the download from a handler flag by @bwks ([b28e147](https://github.com/bwks/sherpa/commit/b28e147e78750f1f2303a90dd22fc8c4926d5af8))
+- Lab detail offers start and stop from a handler flag by @bwks ([a4c67ec](https://github.com/bwks/sherpa/commit/a4c67ec30e31528841e6a80f2275689a2dfc915d))
+- Handlers choose the lab badge, templates only render it by @bwks ([1012dba](https://github.com/bwks/sherpa/commit/1012dba0b96f77c12f4a098c765ea59f216a99e1))
+- Lab phase badges decided in Rust, not in templates by @bwks ([553db71](https://github.com/bwks/sherpa/commit/553db7126d6d16666bd23ed2891e8cd4ee640aaf))
+
+### Testing
+
+- Drop the test server without libvirt by @bwks ([3354708](https://github.com/bwks/sherpa/commit/335470816227e42c6f825796e534c89c7165dd0c))
 ## [0.5.26] - 2026-11-10
 
 ### Bug Fixes
