@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.28] - 2026-11-10
+
+### Miscellaneous
+
+- Merge pull request #554 from bwks/chore/move-nixos-image
+
+chore: move the NixOS image recipe to bwks/nixos-image by @bwks in [#554](https://github.com/bwks/sherpa/pull/554) ([41942fd](https://github.com/bwks/sherpa/commit/41942fd850b78e211c68a357ce970a005253cdb4))
+- Point the NixOS references at bwks/nixos-image by @bwks ([20cdd8e](https://github.com/bwks/sherpa/commit/20cdd8e70c4c21e382167c0828a1ee87fff29ba9))
+- Move the NixOS image recipe to bwks/nixos-image by @bwks ([0406320](https://github.com/bwks/sherpa/commit/040632015eae13b7045bd790f695ea4547d0e7b6))
+## [0.5.28] - 2026-11-10
+
+### Bug Fixes
+
+- Remove a lab's lease entry once nothing holds or waits on it by @bwks ([f8444fa](https://github.com/bwks/sherpa/commit/f8444fa7588bf27b35e9d273bd296880f8091169))
+
+### Documentation
+
+- Record the models and cost behind each pull request [skip ci] by @bwks ([0ecc04d](https://github.com/bwks/sherpa/commit/0ecc04d4d2c2401f2f467a148c66a2947af56a4f))
+
+### Miscellaneous
+
+- Merge pull request #553 from bwks/fix/545-lab-lease-leak
+
+fix(server): remove a lab's lease entry once nothing holds or waits on it by @bwks in [#553](https://github.com/bwks/sherpa/pull/553) ([90e7025](https://github.com/bwks/sherpa/commit/90e7025e9cb87655501c48000c555ec6f29cc706))
+- Merge pull request #551 from bwks/docs/pr-model-cost
+
+docs: record the models and cost behind each pull request by @bwks in [#551](https://github.com/bwks/sherpa/pull/551) ([6a95490](https://github.com/bwks/sherpa/commit/6a95490be5864b659be4a0e9c961bb5527199cd8))
+- Merge pull request #552 from bwks/changelog/v0.5.27
+
+chore(release): update changelog for v0.5.27 by @github-actions[bot] in [#552](https://github.com/bwks/sherpa/pull/552) ([96a1f43](https://github.com/bwks/sherpa/commit/96a1f43648cc3fccdddfa48a49380a412ba6b89b))
 ## [0.5.27] - 2026-11-10
 
 ### Bug Fixes
