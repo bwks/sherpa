@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use shared::data::{DbNode, NodeResources, NodeState, RecordId};
 use tracing::instrument;
 use turso::Value;
@@ -6,7 +6,7 @@ use turso::Value;
 use crate::Database;
 use crate::persistence::{NODE_TABLE, enum_text, json_text, key_of, node_from_row};
 use crate::queries;
-use crate::sql::query_optional;
+use crate::sql::{query_count, query_optional};
 
 /// Set columns of one node with `sql`, whose `?1` is the node's key, and return the node.
 async fn update_columns(
@@ -111,33 +111,47 @@ pub async fn update_node_mgmt_mac(
     .await
 }
 
-/// Update a node's runtime state.
-///
-/// # Arguments
-/// * `db` - Database connection
-/// * `node_id` - `RecordId` of the node to update
-/// * `state` - The new `NodeState` to set
+/// Move a node to state `to`, only if it is still in state `from`: a compare-and-set, so a
+/// writer that read the state before another writer moved the node does not overwrite it.
+/// Which moves are allowed is decided by `shared::data::NodeState::on_operation` and
+/// `on_observation`; this only writes one.
 ///
 /// # Returns
-/// The updated `DbNode` record
+/// The updated node, or `None` when the node is no longer in state `from`.
 ///
 /// # Errors
 /// - If the node doesn't exist
 /// - If the database update fails
 #[instrument(skip(db), level = "debug")]
-pub async fn update_node_state(
+pub async fn update_node_state_from(
     db: &Database,
     node_id: RecordId,
-    state: NodeState,
-) -> Result<DbNode> {
-    update_columns(
-        db,
-        &node_id,
-        queries::node::UPDATE_STATE,
-        vec![enum_text(&state, "state")?.into()],
-        "state",
+    from: NodeState,
+    to: NodeState,
+) -> Result<Option<DbNode>> {
+    let key = key_of(&node_id, NODE_TABLE)?;
+    let writer = db.writer().await?;
+    let node = query_optional(
+        &writer.conn,
+        queries::node::UPDATE_STATE_FROM,
+        vec![
+            Value::from(key.clone()),
+            enum_text(&from, "state")?.into(),
+            enum_text(&to, "state")?.into(),
+        ],
+        node_from_row,
     )
     .await
+    .context(format!("Failed to update state for node: {node_id:?}"))?;
+    if node.is_none() {
+        let exists = query_count(&writer.conn, queries::node::COUNT_BY_ID, [key])
+            .await
+            .context(format!("Failed to look up node: {node_id:?}"))?;
+        if exists == 0 {
+            bail!("Node not found with id: {node_id:?}");
+        }
+    }
+    Ok(node)
 }
 
 /// Record the SSH host key a node offered, or clear it with `None`.

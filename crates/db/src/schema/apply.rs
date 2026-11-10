@@ -79,10 +79,10 @@ pub async fn apply_schema(db: &Database) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use shared::data::{DiskBuses, LabSshKey, NodeConfig, NodeModel, ZtpMethod};
+    use shared::data::{DiskBuses, LabSshKey, NodeConfig, NodeModel, NodeState, ZtpMethod};
 
     use super::*;
-    use crate::{find_lab, list_node_images, open_in_memory, upsert_node_image};
+    use crate::{find_lab, list_node_images, list_nodes_by_lab, open_in_memory, upsert_node_image};
 
     async fn version(db: &Database) -> usize {
         let conn = db.reader().await.unwrap();
@@ -458,6 +458,84 @@ mod tests {
 
         let lab = find_lab(&db, "lab-0001").await.unwrap().unwrap();
         assert_eq!(lab.ssh_key, LabSshKey::Server);
+    }
+
+    /// A database at the version before the node lifecycle was explicit, with one lab and a
+    /// node of each recorded state.
+    async fn database_before_the_node_lifecycle(states: &[&str]) -> Database {
+        let db = open_in_memory().await.unwrap();
+        {
+            let writer = db.writer().await.unwrap();
+            for batch in TABLES.iter().chain(&migrations::ALL[..11]) {
+                writer.conn.execute_batch(batch).await.unwrap();
+            }
+            writer
+                .conn
+                .execute_batch(
+                    "PRAGMA user_version = 12;
+                     INSERT INTO user (id, username, password_hash, is_admin, ssh_keys,
+                         created_at, updated_at)
+                     VALUES ('u1', 'alice', 'x', 0, '[]', '2026-01-01T00:00:00Z',
+                         '2026-01-01T00:00:00Z');
+                     INSERT INTO lab (id, lab_id, name, user, loopback_network,
+                         management_network, gateway_ipv4, router_ipv4, status)
+                     VALUES ('l1', 'lab-0001', 'Old', 'u1', '127.127.1.0/24', '172.31.1.0/24',
+                         '172.31.1.1', '172.31.1.2', 'running');",
+                )
+                .await
+                .unwrap();
+        }
+        let image = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux))
+            .await
+            .unwrap();
+        let image_key = image.id.unwrap().key.to_string();
+        let writer = db.writer().await.unwrap();
+        for (index, state) in (0_i64..).zip(states) {
+            writer
+                .conn
+                .execute(
+                    "INSERT INTO node (id, name, \"index\", image, lab, state) \
+                     VALUES (?1, ?1, ?2, ?3, 'l1', ?4)",
+                    (format!("n{index}"), index, image_key.as_str(), *state),
+                )
+                .await
+                .unwrap();
+        }
+        drop(writer);
+        db
+    }
+
+    #[tokio::test]
+    async fn nodes_recorded_created_are_stopped_after_the_upgrade() {
+        // `created` was the scanner's word for a container Docker had created and not started.
+        let db = database_before_the_node_lifecycle(&["created", "running", "unknown"]).await;
+
+        apply_schema(&db).await.unwrap();
+
+        let lab = find_lab(&db, "lab-0001").await.unwrap().unwrap();
+        let mut states: Vec<NodeState> = list_nodes_by_lab(&db, lab.id.unwrap())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|node| node.state)
+            .collect();
+        states.sort_by_key(ToString::to_string);
+        assert_eq!(
+            states,
+            [NodeState::Running, NodeState::Stopped, NodeState::Unknown]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_node_state_this_build_does_not_know_does_not_fail_the_listing() {
+        // M1.8: a state written by a newer build is read as unknown.
+        let db = database_before_the_node_lifecycle(&["hibernating", "running"]).await;
+        apply_schema(&db).await.unwrap();
+
+        let lab = find_lab(&db, "lab-0001").await.unwrap().unwrap();
+        let nodes = list_nodes_by_lab(&db, lab.id.unwrap()).await.unwrap();
+        assert_eq!(nodes.len(), 2);
+        assert!(nodes.iter().any(|node| node.state == NodeState::Unknown));
     }
 
     #[tokio::test]

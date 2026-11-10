@@ -20,13 +20,14 @@ use crate::auth::policy::{require_lab_owner, require_lab_starter};
 use crate::daemon::state::AppState;
 use crate::services::guest_account;
 use crate::services::lab_operations;
+use crate::services::node_lifecycle;
 use crate::services::node_resources;
 use crate::services::progress::ProgressSender;
 use crate::services::ssh_config;
 use crate::tls::lab_ca::{self, NodeIdentity};
 
 use shared::data;
-use shared::data::{NodeState, RedeployRequest, RedeployResponse, StatusKind};
+use shared::data::{OperationEvent, RedeployRequest, RedeployResponse, StatusKind};
 
 // Redeploy updates shared lab files. Serialize redeploys within each lab so one
 // node's new identity cannot overwrite another node's concurrent update.
@@ -71,15 +72,18 @@ pub async fn redeploy_node(
     let mut redeploy = load_redeploy(ctx, request, &db_lab, state, &progress, &operation).await?;
 
     // Every check has passed, so the node is torn down now. Until then a refused redeploy
-    // leaves it, its state and its host key as they were.
+    // leaves it, its state and its host key as they were. A node another operation is building
+    // is refused here.
+    node_lifecycle::record(
+        &state.db,
+        &operation,
+        &redeploy.node_record_id,
+        OperationEvent::RebuildStarted,
+    )
+    .await
+    .with_context(|| format!("Cannot redeploy node '{node_name}'"))?;
     // The rebuilt node gets a new host key, recorded again once it is ready.
     db::update_node_host_key(&state.db, redeploy.node_record_id.clone(), None).await?;
-    db::update_node_state(
-        &state.db,
-        redeploy.node_record_id.clone(),
-        NodeState::Starting,
-    )
-    .await?;
     if let Err(error) = rebuild(&mut redeploy).await {
         mark_failed(&redeploy).await;
         return Err(error);
@@ -174,13 +178,14 @@ async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<()> {
     }
 }
 
-/// Record the node as failed, so it is not left `Starting` until the scanner next looks at
-/// it. The redeploy's own error is the one returned, so a failure here is only logged.
+/// Record the node as failed, so it is not left `Building` or `Starting`. The redeploy's own
+/// error is the one returned, so a failure here is only logged.
 async fn mark_failed(redeploy: &Redeploy<'_>) {
-    if let Err(error) = db::update_node_state(
+    if let Err(error) = node_lifecycle::record(
         &redeploy.state.db,
-        redeploy.node_record_id.clone(),
-        NodeState::Failed,
+        redeploy.operation,
+        &redeploy.node_record_id,
+        OperationEvent::Failed,
     )
     .await
     {

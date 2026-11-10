@@ -726,40 +726,49 @@ impl NodeKind {
     }
 }
 
-/// Runtime state of a node in the lab lifecycle
+/// A node's place in its lifecycle. The allowed moves between states are in
+/// `node_lifecycle`: operations move a node with an `OperationEvent`, the scanner with an
+/// `Observation`. Nothing else writes it.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, EnumIter, JsonSchema,
 )]
 #[serde(rename_all = "lowercase")]
 pub enum NodeState {
-    /// Node is running and operational
-    Running,
+    /// An operation (`up` or a redeploy) is creating the node's domain or container.
+    Building,
 
-    /// Node has been created but not yet started
-    Created,
-
-    /// Node is in the process of starting
+    /// The node's domain or container is started, and the node is not ready yet.
     Starting,
 
-    /// Node has been stopped
+    /// The node is ready: its readiness check passed, or it has none.
+    Running,
+
+    /// The node's domain or container exists and is not running.
     Stopped,
 
-    /// Node failed to start or encountered an error
+    /// An operation on the node failed, or its runtime reports a fault.
     Failed,
 
-    /// Unknown or unrecognized node state
+    /// The node has a record but no domain or container.
+    Missing,
+
+    /// A state this build does not know, such as one written by a newer version, or a node
+    /// recorded before the lifecycle was explicit. Unknown text decodes to it, so one such row
+    /// does not fail a whole listing.
     #[default]
+    #[serde(other)]
     Unknown,
 }
 
 impl fmt::Display for NodeState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            NodeState::Running => write!(f, "running"),
-            NodeState::Created => write!(f, "created"),
+            NodeState::Building => write!(f, "building"),
             NodeState::Starting => write!(f, "starting"),
+            NodeState::Running => write!(f, "running"),
             NodeState::Stopped => write!(f, "stopped"),
             NodeState::Failed => write!(f, "failed"),
+            NodeState::Missing => write!(f, "missing"),
             NodeState::Unknown => write!(f, "unknown"),
         }
     }
@@ -770,11 +779,12 @@ impl std::str::FromStr for NodeState {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "running" => Ok(NodeState::Running),
-            "created" => Ok(NodeState::Created),
+            "building" => Ok(NodeState::Building),
             "starting" => Ok(NodeState::Starting),
+            "running" => Ok(NodeState::Running),
             "stopped" => Ok(NodeState::Stopped),
             "failed" => Ok(NodeState::Failed),
+            "missing" => Ok(NodeState::Missing),
             _ => Ok(NodeState::Unknown), // Graceful degradation
         }
     }
@@ -3408,5 +3418,19 @@ mod tests {
         assert_eq!(super::NodeModel::FlatcarLinux.ready_port(), SSH_PORT);
         assert_eq!(super::NodeModel::UbuntuLinux.default_boot_disk_size(), None);
         assert!(super::NodeModel::UbuntuLinux.has_ssh());
+    }
+
+    #[test]
+    fn a_node_state_this_build_does_not_know_decodes_as_unknown() {
+        // M1.8: one row written by another version must not fail a whole listing.
+        for text in ["\"created\"", "\"hibernating\""] {
+            let state: NodeState = serde_json::from_str(text).unwrap();
+            assert_eq!(state, NodeState::Unknown, "{text}");
+        }
+        for state in NodeState::iter() {
+            let text = serde_json::to_string(&state).unwrap();
+            assert_eq!(serde_json::from_str::<NodeState>(&text).unwrap(), state);
+            assert_eq!(text, format!("\"{state}\""));
+        }
     }
 }

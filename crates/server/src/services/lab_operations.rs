@@ -10,6 +10,11 @@
 //! it removes the lab, so nothing writes to it afterwards; a stopped `up` leaves the removal to
 //! the destroy. A stop requested by the user (Ctrl-C in the CLI) lets a stopped `up` roll back
 //! like a failed one.
+//!
+//! The scanner observes a lab only while no operation holds it: `try_observe` takes the write
+//! lease without waiting and without cancelling anything, so a lab with an operation running is
+//! skipped for that cycle, and an operation that starts meanwhile waits until the scanner has
+//! written what it saw.
 
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -53,6 +58,11 @@ pub struct LabOperation {
 pub struct StoppedLab {
     lab_id: String,
     reason: StopReason,
+    _lease: OwnedRwLockWriteGuard<()>,
+}
+
+/// The scanner's hold on a lab no operation holds. Node states are only observed under it.
+pub struct ObservedLab {
     _lease: OwnedRwLockWriteGuard<()>,
 }
 
@@ -151,6 +161,15 @@ pub async fn begin(lab_id: &str) -> LabOperation {
         cancel,
         _lease: lease,
     }
+}
+
+/// Hold a lab for the scanner, or `None` when an operation holds it now. Never waits.
+#[instrument(level = "debug")]
+pub fn try_observe(lab_id: &str) -> Option<ObservedLab> {
+    lease(lab_id)
+        .try_write_owned()
+        .ok()
+        .map(|lease| ObservedLab { _lease: lease })
 }
 
 /// Stop every operation on a lab and wait until they have finished.
@@ -306,5 +325,32 @@ mod tests {
         drop(operation);
         let _ = tokio::time::timeout(WAIT, request).await.unwrap().unwrap();
         let _ = tokio::time::timeout(WAIT, destroy).await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_scanner_leaves_a_lab_alone_while_an_operation_runs() {
+        // M1.1, M1.2 and M1.6: the scanner used to overwrite the states an operation wrote.
+        let operation = begin("lab-ops-observe-busy").await;
+        assert!(try_observe("lab-ops-observe-busy").is_none());
+        drop(operation);
+        assert!(try_observe("lab-ops-observe-busy").is_some());
+    }
+
+    #[tokio::test]
+    async fn an_operation_waits_while_the_scanner_observes_its_lab() {
+        let observed = try_observe("lab-ops-observe-wait").unwrap();
+        let operation = tokio::spawn(async {
+            let operation = begin("lab-ops-observe-wait").await;
+            operation.ensure_active().is_ok()
+        });
+        tokio::task::yield_now().await;
+        assert!(!operation.is_finished());
+        drop(observed);
+        assert!(
+            tokio::time::timeout(WAIT, operation)
+                .await
+                .unwrap()
+                .unwrap()
+        );
     }
 }

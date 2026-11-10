@@ -10,7 +10,7 @@ use tracing::instrument;
 
 use shared::data::{
     ClusterRole, LabNodeActionResponse, NodeActionResult, NodeConfig, NodeKind, NodeModel,
-    NodeState,
+    OperationEvent,
 };
 use shared::konst::{VM_SHUTDOWN_POLL, VM_SHUTDOWN_TIMEOUT};
 
@@ -18,6 +18,8 @@ use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
 use crate::services::lab_nodes::load_target_nodes;
+use crate::services::lab_operations;
+use crate::services::node_lifecycle;
 use crate::services::talos;
 
 /// Why unikernels are powered off without a shutdown request.
@@ -91,7 +93,11 @@ enum VmStop {
 /// for the guest to stop, and a forced power-off only if it has not. Talos cluster controllers
 /// stop after every other node. Unikernels and Talos nodes outside a Sherpa-built cluster:
 /// powered off. Containers: paused.
-/// DB node state is updated to `Stopped` once a node has stopped.
+/// DB node state is updated to `Stopped` once a node has stopped. A node an operation is
+/// building, or one with no domain or container, is refused before anything is done to it.
+///
+/// Down holds the lab's operation lease, so a destroy waits for it and the scanner leaves the
+/// lab alone while it runs.
 ///
 /// The caller must own the lab or be an admin.
 #[instrument(skip(ctx, state), fields(username = %ctx.username, %lab_id))]
@@ -103,6 +109,11 @@ pub async fn shutdown_lab_nodes(
 ) -> Result<LabNodeActionResponse> {
     let start = Instant::now();
 
+    require_lab_access(ctx, &state.db, lab_id).await?;
+    // Destroying the lab stops this operation; see `lab_operations`.
+    let operation = lab_operations::begin(lab_id).await;
+    operation.ensure_active()?;
+    // Check again under the lease: a destroy that finished while this waited has removed the lab.
     let db_lab = require_lab_access(ctx, &state.db, lab_id).await?;
 
     let lab_record_id = db_lab
@@ -133,6 +144,14 @@ pub async fn shutdown_lab_nodes(
             });
             continue;
         };
+        if let Err(refusal) = node.state.on_operation(OperationEvent::Stopped) {
+            immediate_results.push(NodeActionResult {
+                name: node.name.clone(),
+                success: false,
+                message: format!("Cannot stop: {refusal}"),
+            });
+            continue;
+        }
 
         let (method, role) = shutdown_method(lab_id, &node.name, node_image);
 
@@ -159,12 +178,15 @@ pub async fn shutdown_lab_nodes(
 
     // Collect results and update DB state
     let mut results = immediate_results;
-    for (result, node_name, node_id) in concurrent_results {
+    for (mut result, node_name, node_id) in concurrent_results {
         if result.success
             && let Some(id) = node_id
-            && let Err(e) = db::update_node_state(&state.db, id, NodeState::Stopped).await
+            && let Err(error) =
+                node_lifecycle::record(&state.db, &operation, &id, OperationEvent::Stopped).await
         {
-            tracing::warn!("Failed to update DB state for node '{}': {}", node_name, e);
+            tracing::warn!(node = %node_name, error = %error, "Failed to record the node stopped");
+            result.success = false;
+            result.message = format!("{}, but not recorded: {error:#}", result.message);
         }
         results.push(result);
     }

@@ -12,6 +12,8 @@ use super::context::{Redeploy, data_interface_indices};
 use super::links::{node_bridge_interfaces, node_links, reattach_p2p_redirects};
 use crate::services::container_networks::{self, ContainerDataInterface};
 use crate::services::keycloak;
+use crate::services::lab_operations::LabOperation;
+use crate::services::node_lifecycle;
 use crate::services::node_ops::{self, ContainerZtpResult, LabZtp};
 use crate::services::node_secrets::secrets_for_redeploy;
 use crate::services::talos;
@@ -20,7 +22,7 @@ use crate::tls::lab_ca::NodeCertPaths;
 
 use container::ContainerSpec;
 use shared::data;
-use shared::data::{DbLink, NodeState, StatusKind};
+use shared::data::{DbLink, OperationEvent, RecordId, StatusKind};
 use shared::konst::{
     BRIDGE_MEMBER_HOST_VETH_PREFIX, CONTAINER_HOST_VETH_PREFIX, CONTAINER_SECRETS_DIR,
     SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR,
@@ -133,6 +135,13 @@ pub(super) async fn redeploy_container(
     if !is_running {
         bail!("Container {container_name} is not in running state after redeploy");
     }
+    node_lifecycle::record(
+        db,
+        redeploy.operation,
+        &redeploy.node_record_id,
+        OperationEvent::Launched,
+    )
+    .await?;
 
     // Take the carrier from disabled interfaces, as for VMs.
     if has_disabled {
@@ -146,8 +155,27 @@ pub(super) async fn redeploy_container(
         reattach_p2p_redirects(lab_id, &links, redeploy.progress).await?;
     }
 
-    db::update_node_state(db, redeploy.node_record_id.clone(), NodeState::Running).await?;
-    restore_node_services(redeploy, initialises_vault).await
+    ready_after_restore(
+        db,
+        redeploy.operation,
+        &redeploy.node_record_id,
+        restore_node_services(redeploy, initialises_vault),
+    )
+    .await
+}
+
+/// Restore what the node's services keep, then record the node ready. A container whose
+/// services were not restored is never recorded running: it stays `Starting` until the
+/// redeploy records it failed.
+async fn ready_after_restore(
+    db: &db::Database,
+    operation: &LabOperation,
+    node_id: &RecordId,
+    restore: impl Future<Output = Result<()>>,
+) -> Result<()> {
+    restore.await?;
+    node_lifecycle::record(db, operation, node_id, OperationEvent::Ready).await?;
+    Ok(())
 }
 
 /// Generate the container's configuration (stage 4), with the image the node was created from
@@ -371,4 +399,58 @@ async fn restore_node_services(redeploy: &Redeploy<'_>, initialises_vault: bool)
         .await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::anyhow;
+    use shared::data::NodeState;
+
+    use super::*;
+    use crate::services::lab_operations::begin;
+    use crate::services::node_lifecycle::tests::lab_of;
+
+    async fn launched_container(lab_id: &str) -> (db::Database, RecordId) {
+        let (db, _, nodes) = lab_of(lab_id, 1).await;
+        let operation = begin(lab_id).await;
+        node_lifecycle::record(&db, &operation, &nodes[0], OperationEvent::Launched)
+            .await
+            .unwrap();
+        (db, nodes[0].clone())
+    }
+
+    #[tokio::test]
+    async fn a_container_is_not_running_before_its_services_are_restored() {
+        // M9.1: redeploy used to record the container running, then restore Vault or Keycloak.
+        let (db, node) = launched_container("rd-rest1").await;
+        let operation = begin("rd-rest1").await;
+        let restore = async {
+            let state = db::get_node(&db, node.clone()).await?.state;
+            assert_eq!(state, NodeState::Starting);
+            Err(anyhow!("Vault did not unseal"))
+        };
+
+        let error = ready_after_restore(&db, &operation, &node, restore)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("unseal"));
+        assert_eq!(
+            db::get_node(&db, node).await.unwrap().state,
+            NodeState::Starting
+        );
+    }
+
+    #[tokio::test]
+    async fn a_container_whose_services_are_restored_is_running() {
+        let (db, node) = launched_container("rd-rest2").await;
+        let operation = begin("rd-rest2").await;
+
+        ready_after_restore(&db, &operation, &node, async { Ok(()) })
+            .await
+            .unwrap();
+        assert_eq!(
+            db::get_node(&db, node).await.unwrap().state,
+            NodeState::Running
+        );
+    }
 }

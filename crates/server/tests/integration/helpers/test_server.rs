@@ -10,10 +10,12 @@ use shared::data::{
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
+use tokio_util::sync::CancellationToken;
 
 use sherpad::api::build_router;
 use sherpad::api::websocket;
 use sherpad::daemon::metrics::Metrics;
+use sherpad::daemon::run_scanner;
 use sherpad::daemon::state::AppState;
 
 /// Default admin password used for test servers
@@ -37,7 +39,19 @@ impl TestServer {
         Self::start_with_config(test_config()?).await
     }
 
-    /// Start a new test server with `config`, usually [`test_config`] with changes.
+    /// Start a new test server that also runs the background scanner, every
+    /// `interval_secs` seconds. Other test servers do not run it.
+    pub async fn start_with_scanner(interval_secs: u64) -> Result<Self> {
+        let mut config = test_config()?;
+        config.scanner = ScannerConfig {
+            enabled: true,
+            interval_secs,
+        };
+        Self::start_with_config(config).await
+    }
+
+    /// Start a new test server with `config`, usually [`test_config`] with changes. The
+    /// scanner runs only when `config.scanner` is enabled; [`test_config`] disables it.
     pub async fn start_with_config(config: Config) -> Result<Self> {
         let db = db::open_in_memory().await?;
         db::apply_schema(&db).await?;
@@ -58,6 +72,10 @@ impl TestServer {
             metrics: Metrics::noop(),
             pending_jobs: Arc::new(DashMap::new()),
         };
+
+        if state.config.scanner.enabled {
+            tokio::spawn(run_scanner(state.clone(), CancellationToken::new()));
+        }
 
         let app = build_router()
             .route("/ws", get(websocket::handler::ws_handler))
@@ -104,7 +122,10 @@ pub fn test_config() -> Result<Config> {
         server_connection: ServerConnection::default(),
         tls: TlsConfig::default(),
         otel: OtelConfig::default(),
-        scanner: ScannerConfig::default(),
+        scanner: ScannerConfig {
+            enabled: false,
+            ..ScannerConfig::default()
+        },
         tailscale: TailscaleGatewaySettings::default(),
         host_memory: HostMemorySettings::default(),
     })

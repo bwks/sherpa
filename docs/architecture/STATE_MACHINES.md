@@ -25,15 +25,15 @@ which to make them explicit, are in
 
 | # | Machine | Crate | States held in |
 |---|---|---|---|
-| 1 | [Node lifecycle](#1-node-lifecycle-nodestate) | shared, db, server | `NodeState` enum, `node.state` TEXT |
+| 1 | [Node lifecycle](#1-node-lifecycle-nodestate) | shared, db, server | `NodeState` enum and transition functions, `node.state` TEXT, compare-and-set |
 | 2 | [Lab status](#2-lab-status-labstate) | shared, db, server | `LabState` enum, `lab.status` TEXT, derived |
 | 3 | [Lab operation leases](#3-lab-operation-leases-and-cancellation) | server | `lab_operations` statics, `REDEPLOY_LOCKS` |
-| 4 | [Runtime state mappings](#4-runtime-state-mappings-libvirt-and-docker) | server | three separate match tables |
-| 5 | [Node readiness and host keys](#5-node-readiness-and-host-keys) | server, db | `ssh_host_key` Option, scanner `awaiting_host_key` set |
+| 4 | [Runtime state mappings](#4-runtime-state-mappings-libvirt-and-docker) | server | one table to `Runtime` |
+| 5 | [Node readiness and host keys](#5-node-readiness-and-host-keys) | server, db | `NodeState::Running`, `ssh_host_key` Option |
 | 6 | [`up` phases and rollback](#6-up-phases-and-rollback) | server | code order, `phases_completed`, side effects |
 | 7 | [Destroy and clean](#7-destroy-and-clean) | server | `DestroySummary` bools, `errors` list |
-| 8 | [Down and resume](#8-down-and-resume) | server | result message strings |
-| 9 | [Redeploy](#9-redeploy) | server | `NodeState` writes, side effects |
+| 8 | [Down and resume](#8-down-and-resume) | server | `StartOutcome` enum, node lifecycle events |
+| 9 | [Redeploy](#9-redeploy) | server | node lifecycle events, side effects |
 | 10 | [Talos cluster bring-up](#10-talos-cluster-bring-up) | server | files in the cluster dir, Talos itself |
 | 11 | [Vault init and unseal](#11-vault-init-and-unseal) | server | Vault status, credentials file |
 | 12 | [Keycloak realm](#12-keycloak-realm) | server | credentials file, HTTP 409 |
@@ -58,8 +58,8 @@ which to make them explicit, are in
 | 31 | [Node resource reservation](#31-node-resource-reservation) | server, db | `vnc_port`, `cpu_pinning` Options, admission ledger |
 | 32 | [Database schema version](#32-database-schema-version) | db | `PRAGMA user_version` |
 
-Machines 3 and 32 are already explicit and checked. They are here so the survey is complete,
-and because the other machines depend on them.
+Machines 3 and 32 were already explicit and checked; 1, 4 and 14 have been made so since. They
+are here so the survey is complete, and because the other machines depend on them.
 
 ---
 
@@ -67,113 +67,160 @@ and because the other machines depend on them.
 
 ### 1. Node lifecycle (`NodeState`)
 
+*Made explicit by #498; the defects it had are recorded in the investigation note, M1, M4,
+M8.2 and M9.1.*
+
 **Where.**
 
-- `NodeState` is in `crates/shared/src/data/node.rs:734`. It has six variants: `Running`,
-  `Created`, `Starting`, `Stopped`, `Failed` and `Unknown`. `Unknown` is the `#[default]`.
-- It is stored in `node.state TEXT NOT NULL`, with no CHECK constraint
-  (`crates/db/sql/schema/node.sql:11`).
-- It is written by `db::update_node_state` (`crates/db/src/node/update.rs:128`), which is a
-  plain `UPDATE ... SET state = ? WHERE id = ?`. The function has no "from" argument, so no
-  caller can say which state it expects to leave.
-- `FromStr` (`crates/shared/src/data/node.rs:771`) maps any unknown text to `Unknown`. The DB path does not use it:
-  rows decode through serde, and a value this build does not know fails the read.
+- `NodeState` is in `crates/shared/src/data/node.rs`: `Building`, `Starting`, `Running`,
+  `Stopped`, `Failed`, `Missing` and `Unknown`.
+- Every allowed move is in `crates/shared/src/data/node_lifecycle.rs`, with a table test of
+  every state against every event:
+  - `NodeState::on_operation(OperationEvent) -> Result<NodeState, Refused>`, for operations;
+  - `NodeState::on_observation(Observation) -> NodeState`, for the scanner. An observation
+    never fails; one the state does not take leaves it as it is.
+  - `can_start`, `can_stop` and `can_redeploy`, which the web templates use to choose the
+    buttons. A test checks they agree with `on_operation`.
+- It is stored in `node.state TEXT NOT NULL` (`crates/db/sql/schema/node.sql`). The only write
+  is `db::update_node_state_from(id, from, to)` (`crates/db/src/node/update.rs`), a
+  compare-and-set: `UPDATE ... WHERE id = ? AND state = ?`. It returns `None` when the node is
+  no longer in `from`.
+- The only callers of that write are in `crates/server/src/services/node_lifecycle.rs`:
+  - `record(db, &LabOperation, node, OperationEvent)`. It needs the operation's lease, so only
+    an operation holding the lab can call it.
+  - `observe(db, &ObservedLab, node, Observation)`. It needs the scanner's hold on a lab no
+    operation holds (`lab_operations::try_observe`).
 
-**States and the transitions that reach them.** None of these writes checks the node's
-current DB state.
+  Both read the node, apply the transition and write it with the compare-and-set. `record`
+  evaluates the event again against the new state when another writer moved the node first, so
+  an event is never applied to a state it was not meant for. `observe` leaves a node that moved
+  for the next cycle. After a node moves, the lab's status is derived again and written
+  (machine 2).
+- Text this build does not know decodes as `Unknown` (`#[serde(other)]`), so one row from a
+  newer version does not fail a whole listing. Migration `0013_node_lifecycle.sql` turned the
+  old `created` into `stopped`.
 
-| To | Function | file:line | What it does check |
+**States.**
+
+| State | Meaning | Who moves a node there |
+|---|---|---|
+| `Building` | an operation is creating the node's domain or container | `db::create_node` (`up` phase 3); a redeploy's teardown |
+| `Starting` | started, not ready yet | an operation's `Launched`; the scanner, for a running node it has not seen answer |
+| `Running` | ready: the readiness check passed, or the node has none | an operation's `Ready`; the scanner, once its probe answers |
+| `Stopped` | the domain or container exists and is not running | `down`; the scanner |
+| `Failed` | an operation failed, or the runtime reports a fault | an operation's `Failed`; the scanner, for a crashed domain or dead container |
+| `Missing` | no domain or container | the scanner |
+| `Unknown` | legacy or unreadable | nothing writes it |
+
+**Operation events** (`on_operation`).
+
+| Event | Sent by | Allowed from | Result |
 |---|---|---|---|
-| `Unknown` | `db::create_node`, called from `up` phase 3 | `crates/db/src/node/create.rs:55` | insert |
-| `Running` | `Readiness::start_container` (up) | `crates/server/src/services/up/readiness.rs:334` | that the container is running |
-| `Running` | `Readiness::check_vm` (up) | `up/readiness.rs:416` | that the SSH or TCP probe succeeded |
-| `Running` | `Readiness::check_unikernel` (up) | `up/readiness.rs:458` | that libvirt reports running, plus an optional port probe |
-| `Stopped` | `Readiness::recheck_containers` (up) | `up/readiness.rs:494` | the in-memory status and Docker |
-| `Stopped` | `shutdown_lab_nodes` (down) | `crates/server/src/services/down.rs:165` | that the node action succeeded ("already stopped" counts) |
-| `Running` | `start_lab_nodes` (resume) | `crates/server/src/services/resume.rs:138` | that the start action succeeded; written before readiness is awaited |
-| `Starting` | `redeploy_node` | `crates/server/src/services/redeploy/node.rs:77` | nothing |
-| `Failed` | `mark_failed` (redeploy) | `redeploy/node.rs:180` | only reached when `rebuild()` returns an error |
-| `Running` | `redeploy_container` | `redeploy/container.rs:149` | nothing |
-| `Running` | `wait_until_ready` (redeploy VM) | `redeploy/vm.rs:220` | the probe succeeded or the check is skipped |
-| any but `Failed` | `scan_lab` (scanner) | `crates/server/src/services/scanner.rs:172` | that the detected state differs from the snapshot read at the start of the cycle |
+| `RebuildStarted` | redeploy, before teardown | any but `Building` | `Building` |
+| `Launched` | `up` readiness (`up/readiness.rs`), resume after a boot or unpause, redeploy after the VM is created or the container started | any but `Missing` | `Starting` |
+| `Ready` | `up` after a probe or a skipped check, resume after the readiness wait or an unpause, redeploy after the VM probe, or after a container's Vault and Keycloak are restored | `Starting`, `Running` | `Running` |
+| `Stopped` | `down`, once the node has stopped | any but `Building` and `Missing` | `Stopped` |
+| `Failed` | `up` for a container that exited, redeploy's `mark_failed` | any but `Missing` | `Failed` |
 
-`up` writes through one helper, `Readiness::set_state` (`up/readiness.rs:247`). The rows
-above are its callers.
+`Refused` says why: "the node is being built by another operation; wait for it to finish",
+"the node has no domain or container; redeploy it", or "cannot mark ready a node that is
+stopped". `down` and `resume` check each node's state against the event before they touch its
+domain or container, and report the refusal in its result.
+
+**Observations** (`on_observation`). An observation is a `Runtime` and a `Probe`:
+
+- `Runtime` comes from the one mapping table (machine 4): `Running`, `Stopped(Off | Paused)`,
+  `Faulted("crashed" | "dead")`, `Transitional(...)` or `Absent`.
+- `Probe` is `Ready` or `NotReady` for a virtual machine with SSH, from the scanner's SSH probe
+  that cycle, and `NotProbed` for other nodes, for which running counts as ready.
+
+| From | `Running` runtime | `Stopped` | `Faulted` | `Transitional` | `Absent` |
+|---|---|---|---|---|---|
+| `Building`, `Failed` | unchanged | unchanged | unchanged | unchanged | unchanged |
+| `Running` | `Running` | `Stopped` | `Failed` | unchanged | `Missing` |
+| `Starting`, `Stopped`, `Missing`, `Unknown` | `Running` if probed ready or not probed, else `Starting` | `Stopped` | `Failed` | unchanged | `Missing` |
 
 **Who sets and who reads it.**
 
-- Set by `up`, `down`, `resume`, `redeploy` and the scanner (above). There are two kinds of
-  writer:
-  - the operations write what they intended or what their probe found;
-  - the scanner writes what libvirt and Docker report, every 30 s by default.
-  Nothing orders the two kinds against each other.
-- Read by the scanner (as the "old" value), by `LabState::derive` (machine 2), by
-  `list_labs`/`inspect` (pass-through), and by the web templates. The node table and node
-  detail compare `device.state.to_string() == "running"` as a string to show the Stop
-  button.
+- Operations set it while they hold the lab's lease: `up`, `down`, `resume` and redeploy.
+  `down` takes the lease too.
+- The scanner sets it only for a lab no operation holds, and queries libvirt and Docker again
+  under that hold, so it sees what the last operation did.
+- Read by `LabState::derive` (machine 2), by `list_labs` and `inspect` (pass-through), by the
+  CLI tables, and by the web templates through `can_start`, `can_stop` and `can_redeploy`.
 
-**What `Running` means depends on who wrote it:**
-
-- after a successful probe (up VM and unikernel, redeploy VM);
-- after the container started (up and redeploy containers);
-- after `domain.create()` returned (resume, before the readiness wait);
-- when libvirt or Docker says running (scanner).
-
-No state means "running but not ready", "being built" or "being destroyed".
+**Not covered here.** A node left `Building` by a daemon killed during `up` stays `Building`:
+no operation owns it and the scanner never moves it. That is the lab lifecycle, #499 (M6.3).
 
 ```mermaid
 stateDiagram-v2
-    state "any" as ANY
-    [*] --> Unknown : create_node (up phase 3)
-    ANY --> Running : up readiness / resume / redeploy / scanner [unchecked]
-    ANY --> Stopped : down / up recheck / scanner [unchecked]
-    ANY --> Starting : redeploy_node / scanner (Docker RESTARTING) [unchecked]
-    ANY --> Created : scanner (Docker CREATED) [unchecked]
-    ANY --> Unknown : scanner (other runtime states) [unchecked]
-    ANY --> Failed : redeploy mark_failed [unchecked]
-    Failed --> Stopped : next scan, runtime object gone
-    Failed --> Running : next scan, runtime object running
+    [*] --> Building : up inserts the node
+    Building --> Starting : Launched
+    Building --> Failed : Failed (container exited)
+    Starting --> Running : Ready / scanner, probe answered
+    Running --> Starting : Launched (resume of a node the runtime shows stopped)
+    Starting --> Stopped : down / scanner
+    Running --> Stopped : down / scanner
+    Stopped --> Starting : Launched (resume) / scanner, running but not answering
+    Stopped --> Running : scanner, running and answering
+    Failed --> Starting : Launched (resume)
+    Failed --> Stopped : down
+    Running --> Failed : Failed / scanner, crashed or dead
+    Starting --> Failed : Failed / scanner, crashed or dead
+    Stopped --> Failed : scanner, crashed or dead
+    Running --> Missing : scanner, gone
+    Starting --> Missing : scanner, gone
+    Stopped --> Missing : scanner, gone
+    Missing --> Building : RebuildStarted (redeploy)
+    Running --> Building : RebuildStarted (redeploy)
+    Stopped --> Building : RebuildStarted (redeploy)
+    Starting --> Building : RebuildStarted (redeploy)
+    Failed --> Building : RebuildStarted (redeploy)
+    note right of Building
+        down, another redeploy and the scanner
+        leave a Building node alone
+    end note
 ```
 
 ### 2. Lab status (`LabState`)
 
 **Where.**
 
-- `LabState` is in `crates/shared/src/data/lab.rs:203`. It has seven variants: `Running`,
+- `LabState` is in `crates/shared/src/data/lab.rs`. It has seven variants: `Running`,
   `Stopped`, `Partial`, `Starting`, `Failed`, `Empty` and `Unknown`.
 - It is stored in `lab.status TEXT NOT NULL` (`crates/db/sql/schema/lab.sql:16`).
 - It is not an independent machine. It is a cache of `LabState::derive(&[NodeState])`
-  (`crates/shared/src/data/lab.rs:230-251`). In priority order, `derive` gives:
+  (`crates/shared/src/data/lab.rs`). In priority order, `derive` gives:
   1. `Empty` for no nodes;
   2. `Running` if all nodes are `Running`;
   3. `Stopped` if all are `Stopped`;
-  4. `Failed` if any is `Failed`;
-  5. `Starting` if any is `Starting`;
-  6. `Partial` otherwise. That includes all-`Created` and all-`Unknown`.
+  4. `Failed` if any is `Failed` or `Missing`;
+  5. `Starting` if any is `Starting` or `Building`;
+  6. `Partial` otherwise. That includes all-`Unknown`.
 
 **Transitions.**
 
-| To | Function | file:line | What it checks |
-|---|---|---|---|
-| `Unknown` | `db::create_lab` | `crates/db/src/lab/create.rs:113` (`LabState::default()`) | insert |
-| `derive(nodes)` | `scan_lab` | `scanner.rs:210-219` | that the derived value differs from the `lab.status` read at the start of the cycle |
+| To | Function | What it checks |
+|---|---|---|
+| `Unknown` | `db::create_lab` (`LabState::default()`) | insert |
+| `derive(nodes)` | `node_lifecycle::refresh_lab_status`, after every node write by an operation or the scanner | nothing: the value is derived from the nodes read then |
+| `derive(nodes)` | the scanner, once per lab per cycle, labs with no nodes included | that the derived value differs from the stored one |
 
-No operation writes `LabState`; only the scanner does. Consequences:
+Consequences:
 
-- **The scanner is the only writer.** With `scanner.enabled = false`
-  (`crates/server/src/daemon/server.rs:240`), every lab stays `Unknown`.
-- **`Empty` is never stored.** `scan_lab` returns early for a lab with no nodes
-  (`scanner.rs:126`), so `derive(&[])` never runs in production.
-- **`Failed` is rarely seen.** It is stored only if a scan runs while a node is `Failed`, and
-  the same scan usually overwrites the node first (machine 1).
+- The lab status follows every node write, with or without the scanner. A lab `up` is building
+  is `Starting`.
+- `Empty` is stored for a lab with no nodes once the scanner has looked at it.
+- Two writers deriving at once can store the older derivation; the next write or scan corrects
+  it *(inferred)*. Deriving the status on read instead of storing it is part of #499.
 
 **Readers.**
 
-- `list_labs` (`crates/server/src/services/list_labs.rs:66`) and `inspect` pass it through.
-- The RPC `up` "already exists" message (`crates/server/src/api/websocket/rpc/labs.rs:165`).
+- `list_labs` (`crates/server/src/services/list_labs.rs`) and `inspect` pass it through.
+- The RPC `up` "already exists" message (`crates/server/src/api/websocket/rpc/labs.rs`).
 - The web templates choose the action buttons from it:
-  - `crates/server/templates/user/partials/labs-grid.html.jinja:25-60`;
-  - `crates/server/templates/user/lab-detail.html.jinja:22-27, 237-270`.
+  - `crates/server/templates/user/partials/labs-grid.html.jinja`;
+  - `crates/server/templates/user/lab-detail.html.jinja`.
 
   `Running` and `Starting` show Stop. `Partial` shows Start and Stop. Every other state,
   `Unknown` included, shows Start.
@@ -182,15 +229,12 @@ No operation writes `LabState`; only the scanner does. Consequences:
 stateDiagram-v2
     state "any" as ANY
     [*] --> Unknown : create_lab
-    ANY --> Running : scan_lab, all nodes Running [unchecked]
-    ANY --> Stopped : scan_lab, all nodes Stopped [unchecked]
-    ANY --> Failed : scan_lab, any node Failed [unchecked]
-    ANY --> Starting : scan_lab, any node Starting [unchecked]
-    ANY --> Partial : scan_lab, otherwise [unchecked]
-    note right of ANY
-        Empty is derivable but never stored:
-        scan_lab skips labs with no nodes
-    end note
+    ANY --> Running : node write or scan, all nodes Running
+    ANY --> Stopped : node write or scan, all nodes Stopped
+    ANY --> Failed : node write or scan, any node Failed or Missing
+    ANY --> Starting : node write or scan, any node Starting or Building
+    ANY --> Partial : node write or scan, otherwise
+    ANY --> Empty : scan, no nodes
 ```
 
 ### 3. Lab operation leases and cancellation
@@ -208,8 +252,10 @@ stateDiagram-v2
 - `begin` (`:134`) takes a read lease. It then cancels at once if a destroy is pending
   (`:141-148`). It is called by:
   - `up_lab` (`crates/server/src/services/up/lab.rs:145`);
-  - `start_lab_nodes` (`resume.rs:76`);
+  - `start_lab_nodes` (`resume.rs`);
+  - `shutdown_lab_nodes` (`down.rs`);
   - `redeploy_node` (`redeploy/node.rs:59`).
+- `try_observe` takes the write lease if it is free, for the scanner.
 - `stop(reason)` (`:161`) cancels the token, then waits for the write lease. It is called by:
   - `destroy_lab` (`crates/server/src/services/destroy.rs:74`, `Destroy`);
   - `clean_lab` (`crates/server/src/services/clean.rs:33`, `Destroy`);
@@ -220,10 +266,17 @@ stateDiagram-v2
   - `LabOperation::sleep` in the readiness loops;
   - `ensure_active` (`redeploy/node.rs:88`).
 
+**Who else takes part.**
+
+- `shutdown_lab_nodes` (down) takes a read lease with `begin`, like the other operations.
+- The scanner takes the write lease with `try_observe`, without waiting and without
+  cancelling anything, and skips a lab an operation holds. It holds the lease only while it
+  queries the runtimes and writes what it saw; its SSH probes run before. An operation that
+  starts meanwhile waits for it. A `stop` that finds the scanner holding the lease reports
+  `was_running`, as if an operation had held it.
+
 **Who does not take part.**
 
-- `shutdown_lab_nodes` (down, `down.rs:98`) takes no lease.
-- The scanner takes no lease.
 - `refresh_node_host_key` takes no lease.
 - Read leases are shared, so two `up`s on the same lab, or an `up` and a `resume`, run at the
   same time.
@@ -233,58 +286,52 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
     [*] --> Idle
-    Idle --> Shared : begin (up, resume, redeploy)
-    Shared --> Shared : begin (another up, resume, redeploy)
+    Idle --> Shared : begin (up, down, resume, redeploy)
+    Shared --> Shared : begin (another up, down, resume, redeploy)
     Shared --> Cancelling : stop(reason) cancels token
     Cancelling --> Exclusive : last read lease dropped
     Idle --> Exclusive : stop(reason), no operation running
     Exclusive --> Idle : StoppedLab dropped, token removed
     Shared --> Idle : last operation ends
-    note right of Shared
-        down and the scanner act on the lab
-        in every state without a lease
+    Idle --> Observed : try_observe (scanner)
+    Observed --> Idle : scanner done
+    note right of Observed
+        begin waits; try_observe on a held
+        lab fails and the scanner skips it
     end note
 ```
 
 ### 4. Runtime state mappings (libvirt and Docker)
 
-Sherpa reads libvirt's `VIR_DOMAIN_*` codes and Docker's container status. It does not have
-one mapping from those to Sherpa's states; it has three, each written separately.
+*One table since #498 (M4).*
 
-| Runtime state | Scanner `detect_node_state` (`scanner.rs:308-340`) | Resume VM `start_vm` (`resume.rs:509-545`) | Resume container `container_resume_step` (`resume.rs:580-593`) |
+Sherpa reads libvirt's `VIR_DOMAIN_*` codes and Docker's container status, and maps them to
+`shared::data::Runtime` in one place: `libvirt_runtime` and `container_runtime` in
+`crates/server/src/services/node_lifecycle.rs`, each with a test of every value. The scanner
+uses the mapping to observe nodes (machine 1); resume uses it, through `start_step`
+(`resume.rs`), to decide what to do with each node.
+
+| Runtime state | `Runtime` | Scanner records (machine 1) | Resume |
 |---|---|---|---|
-| libvirt RUNNING | `Running` | "Already running" | |
-| libvirt SHUTOFF | `Stopped` | `create()`, "Started" | |
-| libvirt PAUSED | `Stopped` | `resume()`, "Resumed" | |
-| libvirt other (BLOCKED, SHUTDOWN, CRASHED, PMSUSPENDED) | `Unknown` | "Already running", success | |
-| domain missing | `Stopped` | "Domain not found", failure | |
-| Docker RUNNING | `Running` | | already running |
-| Docker PAUSED | `Stopped` | | unpause |
-| Docker EXITED | `Stopped` | | start |
-| Docker CREATED | `Created` | | start |
-| Docker DEAD | `Stopped` | | cannot resume |
-| Docker RESTARTING | `Starting` | | cannot resume |
-| Docker REMOVING / EMPTY | `Unknown` | | cannot resume |
-| container missing | `Stopped` | | failure (no state reported, or the status check errors) |
+| libvirt RUNNING, Docker RUNNING | `Running` | `Running` once ready | already running |
+| libvirt SHUTOFF, Docker EXITED, CREATED | `Stopped(Off)` | `Stopped` | boot (`create`, `start`) |
+| libvirt PAUSED, Docker PAUSED | `Stopped(Paused)` | `Stopped` | `resume`, `unpause` |
+| libvirt CRASHED, Docker DEAD | `Faulted` | `Failed` | refused: redeploy it |
+| libvirt SHUTDOWN, BLOCKED, PMSUSPENDED, NOSTATE; Docker RESTARTING, REMOVING, EMPTY | `Transitional` | unchanged | refused: try again shortly |
+| domain or container missing | `Absent` | `Missing` | refused: redeploy it |
 
-**How the three tables differ.**
-
-- `down` pauses containers (`down.rs:427`), so a container that is down is `Stopped`.
-- The scanner also shows a container that exited, or a VM whose domain is gone, as
-  `Stopped`.
-- `resume` then works out what kind of "stopped" it has from the runtime.
-- If a runtime query fails, the scanner keeps the recorded state (`scanner.rs:62-78, 157-162`).
+- The scanner reads Docker's listing; its states are converted to the inspection's
+  `ContainerStateStatusEnum`, which resume reads, so both go through `container_runtime`.
+- Resume reports a container it cannot inspect, a missing one included, as "Failed to check the
+  container".
+- If a runtime query fails, the scanner keeps the recorded state of that runtime's nodes.
+- `down` pauses containers, so a container that is down is `Stopped(Paused)`.
 
 ### 5. Node readiness and host keys
 
-**Where.** "Ready" is not stored anywhere. It shows up indirectly, through three things:
-
-- **`NodeState::Running`**, written after a successful probe by `up` and by redeploy's VM path
-  (machine 1).
-- **`node.ssh_host_key: Option<String>`.** `Some` means the key was captured from a running
-  node.
-- **The scanner's in-memory `awaiting_host_key: HashSet<String>`** (`scanner.rs:35`). It
-  records "this node became `Running` since the last scan". It is lost on restart.
+**Where.** "Ready" is `NodeState::Running` (machine 1): every writer records it only after a
+readiness check passed or for a node that has none. The host key is
+`node.ssh_host_key: Option<String>`; `Some` means the key was captured from a running node.
 
 **Readiness waits.** The readiness wait is written four times, each with its own timeout and
 error policy:
@@ -292,23 +339,27 @@ error policy:
 | Wait | Where | On a timeout |
 |---|---|---|
 | `up` | `up/readiness.rs` | adds a non-critical error |
-| `resume` | `resume.rs:234` `wait_for_cold_booted` | changes only the message |
-| `redeploy` VM | `redeploy/vm.rs` `poll_until_ready` | leaves the node as it is |
-| scanner | `scanner.rs:290` `read_host_key` | retries next cycle |
+| `resume` | `resume.rs` `wait_for_cold_booted` | the node stays `Starting`; the message says so |
+| `redeploy` VM | `redeploy/vm.rs` `poll_until_ready` | the node stays `Starting` |
+| scanner | `scanner.rs` `probe_node` | the node stays `Starting`; probed again next cycle |
+
+`up` records a node not ready in time `Starting` too. A node left `Starting` by any of them is
+recorded `Running` by the scanner once its probe answers (virtual machines with SSH) or as
+soon as the runtime shows it running (other nodes).
 
 **Host key transitions.**
 
 | Transition | Function | file:line | Checked? |
 |---|---|---|---|
-| None → Some | `Readiness::set_state` (up) | `up/readiness.rs:244-246` | only when a key was read |
-| None → Some or changed | `record_node_host_key`, from the scanner (`scanner.rs:299`), resume (`resume.rs:409`) and `refresh_node_host_key` (`crates/server/src/services/host_keys.rs:63`) | `crates/server/src/services/ssh_config.rs:28-45` | a changed key is replaced with a warning |
+| None → Some | `Readiness::record` (up) | `up/readiness.rs` | only when a key was read |
+| None → Some or changed | `record_node_host_key`, from the scanner (`probe_node`), resume and `refresh_node_host_key` (`crates/server/src/services/host_keys.rs:63`) | `crates/server/src/services/ssh_config.rs:28-45` | a changed key is replaced with a warning |
 | None → Some | redeploy VM | `redeploy/vm.rs:249` | only when a key was read |
-| any → None | `redeploy_node` | `redeploy/node.rs:76` | unchecked |
+| any → None | `redeploy_node`, after `RebuildStarted` is recorded | `redeploy/node.rs` | the node's state allowed the rebuild |
 
-The scanner reads a key when `wants_host_key` is true (`scanner.rs:274`). That requires a
-running VM with SSH that either just started, according to `awaiting_host_key`, or has no
-key. After reading a key the scanner rewrites the lab's SSH files (`scanner.rs:257-267`). It
-takes no lease and no redeploy lock while doing so.
+The scanner probes, and so reads a key, when `wants_probe` is true: a VM with SSH that the
+runtime shows running and that is not yet `Running` or has no key. After recording a key it
+rewrites the lab's SSH files. It does so after it has released its hold on the lab, and takes
+no redeploy lock (M5.2).
 
 **Not covered here.** `WatchdogAction` (`crates/shared/src/data/watchdog.rs`) configures the
 guest's emulated hardware watchdog in the libvirt XML. It is not a Sherpa state machine.
@@ -443,35 +494,45 @@ stateDiagram-v2
 
 ### 8. Down and resume
 
-**Down.** `shutdown_lab_nodes` is at `down.rs:98`.
+**Down.** `shutdown_lab_nodes` is in `down.rs`.
 
+- It takes a read lease with `lab_operations::begin` and checks access again under it.
+- A node whose state refuses `Stopped` (`Building`, `Missing`) is reported and not touched.
 - VMs: ACPI, the Talos API, or power-off, depending on the model.
-- Containers: paused (`down.rs:427`).
-- `Stopped` is written for each node whose action succeeded (`:165`). "Already stopped" and
-  "not running" count as success.
-- A whole-lab down then stops the Tailscale gateway, which also logs it out (`down.rs:172-176,
-  229`).
-- Down takes no lease.
+- Containers: paused.
+- `Stopped` is recorded through the node lifecycle for each node whose action succeeded.
+  "Already stopped" and "not running" count as success. A recording the state refuses makes
+  that node's result a failure.
+- A whole-lab down then stops the Tailscale gateway, which also logs it out (`down.rs`).
 
-**Resume.** `start_lab_nodes` is at `resume.rs:63`.
+**Resume.** `start_lab_nodes` is in `resume.rs`.
 
-- It takes a read lease and checks access again under it (`:76-78`).
-- It re-enrolls Tailscale before any node starts (`:80-81`).
-- It starts the nodes at the same time, using the mappings in machine 4.
-- It writes `Running` for each success (`:138`).
-- It treats a node as cold-booted when `result.message == "Started"` (`:143, :147`). The
-  machine state is carried in a display string here.
-- Cold-booted **VMs** have their eBPF redirects re-attached (`:144`, `:152-165`,
-  `reattach_p2p_ebpf_for_nodes` at `:632`). Unikernels are not re-attached.
-- Nodes that report "Started" are then waited on for readiness (`:168`, `wait_for_cold_booted`
-  at `:234`).
+- It takes a read lease and checks access again under it.
+- It re-enrolls Tailscale before any node starts (M8.3).
+- A node whose state refuses `Launched` (`Building`, `Missing`) is reported and not touched.
+- It starts the nodes at the same time. `start_step` decides from the node's `Runtime`
+  (machine 4); the result is a `StartOutcome`:
+  - `ColdBooted`: recorded `Starting`;
+  - `Resumed` (unpaused): recorded `Starting`, then `Running`;
+  - `AlreadyRunning`: not recorded;
+  - `Failed(reason)`: a crashed domain, dead container, one between states, a missing domain,
+    or an error from libvirt or Docker.
+- `ColdBooted` VMs have their eBPF redirects re-attached (`reattach_p2p_ebpf_for_nodes`).
+  Unikernels are not re-attached (M8.1).
+- `ColdBooted` nodes are waited on for readiness (`wait_for_cold_booted`). Those that become
+  ready, and those with no check (containers, `skip_ready_check`), are recorded `Running`; the
+  others stay `Starting`.
 
 ```mermaid
 stateDiagram-v2
-    state "any" as ANY
-    ANY --> Stopped : down action ok, incl. already stopped [unchecked]
-    ANY --> Running : resume action ok, incl. libvirt "other" states [unchecked]
-    Running --> Running : resume readiness wait times out (message only)
+    Running --> Stopped : down, action ok
+    Starting --> Stopped : down, action ok
+    Failed --> Stopped : down, action ok
+    Stopped --> Starting : resume, ColdBooted / Resumed
+    Failed --> Starting : resume, ColdBooted / Resumed
+    Starting --> Running : resume, ready or unpaused
+    note right of Starting : readiness wait timed out: stays Starting
+    note left of Stopped : Building and Missing nodes are refused by both
 ```
 
 ### 9. Redeploy
@@ -482,38 +543,39 @@ stateDiagram-v2
 **Stages.**
 
 1. `load_redeploy` runs every check and changes nothing.
-2. Clear the host key and write `Starting` (`node.rs:76-81`).
-3. `rebuild` (`crates/server/src/services/redeploy/node.rs:138`):
+2. Record `RebuildStarted` (node `Building`; refused if another operation is building it),
+   then clear the host key (`node.rs`).
+3. `rebuild` (`crates/server/src/services/redeploy/node.rs`):
    - `destroy_node`;
    - for VMs, `recreate_vm_networks`;
    - regenerate ZTP and certificates;
-   - recreate the node (`redeploy_vm` or `redeploy_container`);
-   - re-attach P2p redirects (`vm.rs:125`, `container.rs:146`);
-   - write `Running`:
-     - containers: at `container.rs:149`, before Vault and Keycloak are restored;
-     - VMs: after the probe, at `vm.rs:220`.
-4. `ensure_active` (`node.rs:88`), then `refresh_lab_ssh_files` (`node.rs:89`).
+   - recreate the node (`redeploy_vm` or `redeploy_container`), recorded `Starting` once the
+     VM is created or the container runs;
+   - re-attach P2p redirects (`vm.rs`, `container.rs`);
+   - record `Running`:
+     - containers: after Vault and Keycloak are restored (`ready_after_restore`,
+       `container.rs`);
+     - VMs: after the probe (`wait_until_ready`, `vm.rs`).
+4. `ensure_active`, then `refresh_lab_ssh_files` (`node.rs`).
 
 **Failures.**
 
-- An error from `rebuild` writes `Failed` (`node.rs:83-86`, `:180`).
-- Errors at `:76-81`, at `ensure_active`, or in the SSH file refresh return without
+- An error from `rebuild` records `Failed` (`mark_failed`, `node.rs`).
+- Errors at stage 2, at `ensure_active`, or in the SSH file refresh return without
   `mark_failed`.
-- A VM that does not become ready in time is left as it was, and redeploy succeeds
-  (`vm.rs:199-233`). The doc comment says "left `Starting`", but the scanner usually writes
-  `Running` first.
+- A VM that does not become ready in time is left `Starting`, and redeploy succeeds
+  (`vm.rs`). The scanner records it `Running` once its probe answers.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Checked : load_redeploy (no changes)
-    Checked --> Starting : clear host key, NodeState Starting
-    Starting --> TornDown : destroy_node
-    TornDown --> Rebuilt : recreate node, reattach links
-    Rebuilt --> Running : container started / VM probe ok
-    Rebuilt --> Starting_left : VM probe timed out (returns success)
+    Checked --> Building : RebuildStarted, host key cleared
+    Building --> TornDown : destroy_node
+    TornDown --> Starting : VM created / container started
+    Starting --> Running : VM probe ok / container services restored
+    Starting --> Starting_left : VM probe timed out (returns success)
     TornDown --> Failed : rebuild error
-    Rebuilt --> Failed : reattach or service restore error
-    Running --> Failed : container service restore error
+    Starting --> Failed : reattach or service restore error
     Running --> [*]
     Failed --> [*]
     Starting_left --> [*]

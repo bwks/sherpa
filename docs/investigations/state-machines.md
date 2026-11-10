@@ -35,6 +35,42 @@ those sections.
 
 ### M1 and M2. Node lifecycle and lab status
 
+**Resolved by #498 (0.5.25).** The node states and every allowed move are explicit in
+`crates/shared/src/data/node_lifecycle.rs`. Operations write them with `node_lifecycle::record`
+under their lease, the scanner with `node_lifecycle::observe` only for a lab no operation
+holds, and every write is a compare-and-set. How it works now is in
+[`STATE_MACHINES.md` §1](../architecture/STATE_MACHINES.md#1-node-lifecycle-nodestate) and §2.
+Each item below is kept as found, with what closed it:
+
+- M1.1: `up` inserts nodes `Building`, which no observation moves; the scanner skips a lab an
+  operation holds; a lab with a `Building` node is `Starting`. Tests:
+  `a_node_being_built_is_not_seen_as_stopped`, `a_lab_with_a_node_being_built_is_starting`,
+  `a_new_node_is_building`, `the_scanner_leaves_a_lab_alone_while_an_operation_runs`,
+  `a_lab_is_starting_while_up_builds_it`, and the integration test
+  `the_scanner_records_what_docker_reports_but_not_over_up`.
+- M1.2: no observation moves a `Failed` node. Tests:
+  `a_failed_node_stays_failed_until_an_operation_moves_it`, `a_failed_node_stays_failed_across_scans`.
+- M1.3: `Running` is written only by `Ready` (a passed or skipped readiness check) or by the
+  scanner once its probe answers; started nodes are `Starting`. Tests: `running_means_ready`,
+  `a_vm_with_ssh_is_ready_only_when_its_probe_answered`.
+- M1.4: resume refuses a crashed domain and nodes between states. Test:
+  `resume_refuses_a_crashed_domain_or_a_dead_container`.
+- M1.5: `down` takes the lease, refuses `Building` nodes, and `Ready` is refused for a node
+  `down` stopped. Tests: `down_cannot_stop_a_node_an_operation_is_building`,
+  `a_stopped_node_cannot_be_marked_ready`, `an_operation_cannot_mark_ready_a_node_stopped_meanwhile`.
+- M1.6: the scanner queries the runtimes again under its hold, and writes with a
+  compare-and-set. Tests: `a_stale_observation_does_not_overwrite_a_newer_write`,
+  `a_state_write_leaves_a_node_another_writer_moved`.
+- M1.7: every node write derives and writes the lab status, and the scanner no longer skips
+  labs with no nodes. Tests: `an_operation_moves_a_node_and_its_lab_status`,
+  `the_status_of_a_lab_with_no_nodes_is_empty`. Storing the status at all is left to #499.
+- M1.8: unknown node state text decodes as `Unknown`. Tests:
+  `a_node_state_this_build_does_not_know_decodes_as_unknown`,
+  `a_node_state_this_build_does_not_know_does_not_fail_the_listing`. A client older than
+  0.5.25 still fails to decode the new states `building` and `missing`, and the server only
+  warns about a version mismatch, so the update notes for 0.5.25 in sherpa-docs
+  (`docs/install-update/update/sherpa.md`) say to update the CLI with the server.
+
 1. **Nodes and the lab show `Stopped` while `up` is still building them.**
    - Sequence:
      1. `up` phase 3 inserts the node rows as `Unknown` (`crates/db/src/node/create.rs:55`).
@@ -122,6 +158,18 @@ those sections.
    This is a small leak.
 
 ### M4. Runtime state mappings
+
+**Resolved by #498 (0.5.25).** One mapping table to `Runtime`
+(`crates/server/src/services/node_lifecycle.rs`), used by the scanner and resume. Each item
+below is kept as found, with what closed it:
+
+- M4.1: a dead container is `Faulted`, which the scanner records `Failed`, and resume refuses
+  it saying to redeploy. Tests: `every_container_status_has_one_meaning`, `a_dead_container_is_faulted`,
+  `a_crashed_or_dead_node_is_failed_not_stopped`.
+- M4.2: a missing domain or container is `Absent`, recorded `Missing`, which offers only
+  Redeploy. Tests: `a_node_with_no_runtime_object_is_missing_not_stopped`,
+  `a_node_with_no_domain_or_container_is_absent_not_stopped`,
+  `the_node_actions_offered_are_the_ones_its_state_allows`.
 
 1. **A DEAD container is shown as Startable, but cannot be started.**
    - The scanner maps DEAD to `Stopped` (`scanner.rs:327`), and the UI offers Start.
@@ -217,7 +265,8 @@ those sections.
    - Unikernels can have P2p interfaces.
    - So after `down` and `resume`, a unikernel has a new tap with no redirect, and its peer's
      redirect points at the old ifindex. That redirect behaviour is *(inferred)*.
-2. **The state is in a display string.**
+2. **The state is in a display string.** *Resolved by #498: resume returns a `StartOutcome`.
+   Test: `a_cold_boot_is_told_by_the_outcome_not_its_message`.*
    - Cold boot is detected by `result.message == "Started"` (`resume.rs:143`, `:147`).
    - Rewording the message in `start_vm` (`resume.rs:517`) or `start_container_node`
      (`resume.rs:618`) silently turns off the eBPF re-attach and the readiness wait.
@@ -228,7 +277,11 @@ those sections.
 
 ### M9. Redeploy
 
-1. **`Failed` for a container that is running.**
+1. **`Failed` for a container that is running.** *Resolved by #498: the container is recorded
+   `Starting` when it runs and `Running` only after Vault and Keycloak are restored; a failed
+   restore leaves it `Starting` until `mark_failed`. Tests:
+   `a_container_is_not_running_before_its_services_are_restored`,
+   `a_container_whose_services_are_restored_is_running`.*
    - `redeploy_container` writes `Running` (`redeploy/container.rs:149`), then restores Vault
      and Keycloak.
    - If that restore fails, `rebuild` returns an error and `mark_failed` writes `Failed`
@@ -504,7 +557,8 @@ The ranking weighs how easily a user reaches each state against what it costs: l
 silently broken dataplanes, security, or confusion. The form named for each machine is a
 direction for the fix, not a design.
 
-1. **Node lifecycle and its coordination with the scanner (M1, M2, M4, M8.2).**
+1. **Node lifecycle and its coordination with the scanner (M1, M2, M4, M8.2).** *Done in
+   #498: see M1 and M4.*
    - **Form:** a transition function over `NodeState`, with events (`Created`, `Probed`,
      `Observed(runtime)`, `StopRequested`, `RebuildFailed`) and table tests. Add a
      compare-and-set write in `db` that takes the expected source state. The scanner should
