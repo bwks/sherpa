@@ -667,7 +667,7 @@ stateDiagram-v2
 - `Expired`: the row exists, `expires_at` has passed. Refused; the sweep deletes the row.
 - `Ended`: no row. Logged out, ended by a password change or user deletion, or swept.
 
-A token that fails its signature or `exp` check, or names no session (issued before 0.5.21), is
+A token that fails its signature or `exp` check, or names no session (issued before 0.5.23), is
 refused before the session is looked at.
 
 **Transitions.**

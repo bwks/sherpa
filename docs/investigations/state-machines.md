@@ -267,7 +267,7 @@ those sections.
 
 ### M14. Sessions and tokens
 
-**Resolved by #501 (0.5.21).** Sessions are rows in a `session` table, and the states and their
+**Resolved by #501 (0.5.23).** Sessions are rows in a `session` table, and the states and their
 transitions are explicit in `crates/server/src/auth/session.rs`. How it works now is in
 [`SERVER.md`](../architecture/SERVER.md#sessions-and-identity) and
 [`STATE_MACHINES.md` §14](../architecture/STATE_MACHINES.md#14-sessions-and-tokens-server). Each

@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.22] - 2026-11-10
+
+### Features
+
+- Read-only GitHub for every task, write token in memory by @bwks ([972fa6f](https://github.com/bwks/sherpa/commit/972fa6ff1abd593f23dfeaff005ae1eaf6ef66f1))
+
+### Miscellaneous
+
+- Merge pull request #532 from bwks/feat/528-read-only-github
+
+feat(agent-bus): read-only GitHub for every task, write token in memory by @bwks in [#532](https://github.com/bwks/sherpa/pull/532) ([5bdd2aa](https://github.com/bwks/sherpa/commit/5bdd2aa495194c8038fd7804c298241808e3e9cf))
+- Merge main (0.5.20) into feat/528-read-only-github
+
+Keeps 0.5.22.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com> by @bwks ([efe6c65](https://github.com/bwks/sherpa/commit/efe6c65ef9add837c03c758c82169f1a1accec78))
+- Merge pull request #530 from bwks/changelog/v0.5.20
+
+chore(release): update changelog for v0.5.20 by @github-actions[bot] in [#530](https://github.com/bwks/sherpa/pull/530) ([dd0c732](https://github.com/bwks/sherpa/commit/dd0c73232b50d39c0ac515f7cce615fe58542388))
+## [0.5.20] - 2026-11-10
+
+### Bug Fixes
+
+- The lab create Import tab can submit by @bwks ([10ce83b](https://github.com/bwks/sherpa/commit/10ce83b94049566ef23b474a28a4babaf9c101ee))
+
+### Miscellaneous
+
+- Merge pull request #529 from bwks/fix/482-import-tab-submit
+
+fix(server): the lab create Import tab can submit by @bwks in [#529](https://github.com/bwks/sherpa/pull/529) ([aa28125](https://github.com/bwks/sherpa/commit/aa28125a9714ff9ed408cfb122abfff948913736))
+- Merge pull request #526 from bwks/chore/standard-dev-vms
+
+chore(dev): two identical dev servers, dev and agent-2 by @bwks in [#526](https://github.com/bwks/sherpa/pull/526) ([6896a0b](https://github.com/bwks/sherpa/commit/6896a0bcccbcf9bf4fc42c9900929b7977ad5089))
+- Two identical dev servers, dev and agent-2 by @bwks ([2cb2372](https://github.com/bwks/sherpa/commit/2cb23723279681579029db0b880988050d9f7a26))
+- Merge pull request #525 from bwks/changelog/v0.5.19
+
+chore(release): update changelog for v0.5.19 by @github-actions[bot] in [#525](https://github.com/bwks/sherpa/pull/525) ([0028417](https://github.com/bwks/sherpa/commit/0028417a81c164df1dd517217be4c8f80076ce3f))
 ## [0.5.19] - 2026-11-10
 
 ### Features

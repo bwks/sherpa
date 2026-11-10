@@ -7,16 +7,20 @@
 #   agent-bus-start-agent <lab dir> <node>
 #
 # It needs, in its environment, CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) and
-# AGENT_BUS_SEED, the HOST's seed; a mise task loads both from the secret store. Optional:
-# AGENT_BUS_MODEL, the guest's default model, passed on to start-guest.sh, and AGENT_BUS_BIN,
-# the agent-bus binary to use (default: `agent-bus` on PATH).
+# AGENT_BUS_SEED, the HOST's seed; a mise task loads both from the secret store. GH_TOKEN, the
+# GitHub token that can write, is optional: without it the agent runs, and its --github tasks
+# fail. Optional too: AGENT_BUS_MODEL, the guest's default model, passed on to start-guest.sh, and
+# AGENT_BUS_BIN, the agent-bus binary to use (default: `agent-bus` on PATH).
 #
 # It finds the node's SSH alias (`<node>` or `<node>.<lab id>`) in the lab's .sherpa/ssh/config
 # (with the lab id from .sherpa/lab-info.toml), and the bus's URL in the bus record that
-# `agent-bus bus start` wrote. It then runs `agent-bus enroll <node>`, which gives the agent a fresh key and refuses its previous one, and
-# pipes the Claude token, the new seed and the bus's CA certificate over SSH stdin into
-# dev/agent-bus/start-guest.sh in the guest. The seed only travels through that pipe: it is never
-# in a variable, a command line, a file or a log. The CA certificate (not secret) is the one
+# `agent-bus bus start` wrote. It then runs `agent-bus enroll <node>`, which gives the agent a
+# fresh key and refuses its previous one, and pipes the Claude token, the GitHub write token, the
+# new seed and the bus's CA certificate over SSH stdin into dev/agent-bus/start-guest.sh in the
+# guest. The seed only travels through that pipe: it is never in a variable, a command line, a
+# file or a log. The GitHub write token travels only through that pipe too: the guest agent
+# holds it in memory and gives it to --github tasks alone; the only token on the guest's disk is
+# the read-only one, from provisioning. The CA certificate (not secret) is the one
 # `agent-bus bus start` made, tls/ca.pem in the host's state directory; the guest agent trusts
 # only it.
 #
@@ -43,6 +47,13 @@ if ! [[ "${NODE}" =~ ^[a-z0-9-]{1,32}$ ]]; then
 fi
 if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || [ -z "${AGENT_BUS_SEED:-}" ]; then
     echo "Set CLAUDE_CODE_OAUTH_TOKEN and AGENT_BUS_SEED (the host's seed) in the environment" >&2
+    exit 2
+fi
+# The token is never printed, not even in an error.
+if [ -z "${GH_TOKEN:-}" ]; then
+    echo "GH_TOKEN is not set: the agent starts without a GitHub write token, and its --github tasks fail" >&2
+elif ! [[ "${GH_TOKEN}" =~ ^(github_pat_|gh[pousr]_)[A-Za-z0-9_]+$ ]]; then
+    echo "GH_TOKEN is not a GitHub token (github_pat_..., ghp_...)" >&2
     exit 2
 fi
 
@@ -117,8 +128,9 @@ fi
 # directory so the config's path is the one `sherpa` documents. ssh never gets the secrets in
 # its environment.
 cd "${LAB_DIR}"
+SECRETS=(-u AGENT_BUS_SEED -u CLAUDE_CODE_OAUTH_TOKEN -u GH_TOKEN -u GH_TOKEN_RO -u GITHUB_TOKEN)
 lab_ssh() {
-    env -u AGENT_BUS_SEED -u CLAUDE_CODE_OAUTH_TOKEN ssh -F .sherpa/ssh/config "${ALIAS}" "$@"
+    env "${SECRETS[@]}" ssh -F .sherpa/ssh/config "${ALIAS}" "$@"
 }
 
 # Reach the guest before enrolling: enrolling refuses the agent's previous key at once.
@@ -128,11 +140,13 @@ if ! lab_ssh true < /dev/null; then
 fi
 
 echo "Enrolling '${NODE}' on ${URL} and starting it on ${ALIAS}" >&2
-# On the guest script's stdin: the token, then the seed straight from enroll, each on a line,
-# then the CA certificate to the end. If enroll fails, the guest script gets no seed and exits
-# without touching the running agent.
+# On the guest script's stdin: the Claude token, the GitHub write token (an empty line when there
+# is none), then the seed straight from enroll, each on a line, then the CA certificate to the
+# end. printf is a shell builtin, so neither token is ever a process's command line. If enroll
+# fails, the guest script gets no seed and exits without touching the running agent.
 {
     printf '%s\n' "${CLAUDE_CODE_OAUTH_TOKEN}"
-    "${AGENT_BUS}" enroll "${NODE}" || exit 1
+    printf '%s\n' "${GH_TOKEN:-}"
+    env -u GH_TOKEN -u GH_TOKEN_RO -u GITHUB_TOKEN "${AGENT_BUS}" enroll "${NODE}" || exit 1
     cat "${BUS_CA}"
 } | lab_ssh "${REMOTE}"

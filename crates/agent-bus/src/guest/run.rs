@@ -1,6 +1,7 @@
 //! The guest agent's entry point and its loop: read the inbox, queue tasks, run them one at a
 //! time through Claude Code, and send back the replies.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::path::Path;
@@ -20,6 +21,7 @@ use super::claude::{
     CLAUDE, Group, Launch, PRIME_CONFIRM, PRIME_PROMPT, claude_command, finish, rules, terminate,
 };
 use super::engine::{Control, Session, canceled_text, classify, task_github, task_model};
+use super::github::{Access, GH_TOKEN_VARIABLE, WriteToken, check_environment, redact};
 use super::lock::InstanceLock;
 use super::record::ResultLog;
 use super::state::{ApiMark, Queued, Saved, StateFile, TaskRecord, prune, restart};
@@ -31,14 +33,19 @@ use crate::status::{HEARTBEAT, Running, Status};
 
 /// The Claude subscription token, from `claude setup-token`.
 const TOKEN_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN";
+/// Why a `--github` task fails on a guest agent started without a write token.
+const NO_WRITE_TOKEN: &str = "This guest agent has no GitHub write token, so it cannot run a \
+--github task: restart it with agent-bus-start-agent, with the write token in GH_TOKEN on the host";
 
 /// Where replies about one task go, and the model it runs on, when known.
-struct Reply {
+struct Reply<'a> {
     outgoing: UnboundedSender<Message>,
     task: String,
     from: String,
     to: String,
     model: Option<String>,
+    /// Replaced in every text sent.
+    write_token: Option<&'a WriteToken>,
 }
 
 /// How a run of Claude Code ended.
@@ -96,6 +103,8 @@ struct Setup<'a> {
     workdir: &'a Path,
     /// The model of a task that names none.
     model: &'a str,
+    /// The GitHub write token for `--github` tasks, if the agent was given one.
+    write_token: Option<&'a WriteToken>,
 }
 
 /// The guest agent's state: the tasks waiting, the one running, and what is known of each task.
@@ -105,6 +114,8 @@ struct Engine<'a> {
     workdir: &'a Path,
     /// The model of a task that names none.
     model: &'a str,
+    /// The GitHub write token for `--github` tasks, if the agent was given one.
+    write_token: Option<&'a WriteToken>,
     name: &'a str,
     reply_to: &'a str,
     incoming: UnboundedReceiver<Message>,
@@ -130,12 +141,14 @@ struct Engine<'a> {
 
 /// Take tasks from `name`'s inbox on the bus at `server`, authenticating with `seed`, until the
 /// bus closes or the agent is told to stop (SIGTERM or SIGINT), and reply to `reply_to`.
-/// Stopping also stops the running Claude Code and everything it started.
+/// Stopping also stops the running Claude Code and everything it started. `--github` tasks run
+/// with `write_token`; without one they fail.
 ///
 /// # Errors
 ///
 /// Fails when a name is invalid, another guest agent of this name is running, the subscription
-/// token is not set, or the bus fails. A task that fails is reported to `reply_to` instead.
+/// token is not set, the write token is also the agent's own `GH_TOKEN`, or the bus fails. A
+/// task that fails is reported to `reply_to` instead.
 #[instrument(skip_all, fields(agent = %name, url = %server.url))]
 pub async fn run(
     server: &Endpoint,
@@ -144,6 +157,7 @@ pub async fn run(
     reply_to: &str,
     workdir: &Path,
     model: &str,
+    write_token: Option<&WriteToken>,
 ) -> Result<()> {
     check_agent_name(name)?;
     check_agent_name(reply_to)?;
@@ -153,7 +167,20 @@ pub async fn run(
         })
         .ok();
     // Boxed: the running agent is a large future.
-    Box::pin(start(server, seed, name, reply_to, workdir, model, store)).await
+    Box::pin(start(
+        server,
+        seed,
+        name,
+        reply_to,
+        Setup {
+            program: CLAUDE,
+            workdir,
+            model,
+            write_token,
+        },
+        store,
+    ))
+    .await
 }
 
 /// `run`, with the state kept in `store`, or in memory only when it is `None`.
@@ -162,8 +189,7 @@ async fn start(
     seed: &str,
     name: &str,
     reply_to: &str,
-    workdir: &Path,
-    model: &str,
+    setup: Setup<'_>,
     store: Option<StateFile>,
 ) -> Result<()> {
     // Taken first, before the bus, the inbox and the state, and held until this returns: a
@@ -180,6 +206,12 @@ async fn start(
         env::var_os(TOKEN_VARIABLE).is_some(),
         "Set {TOKEN_VARIABLE}: guest agents use the Claude subscription, never API billing"
     );
+    check_environment(env::var_os(GH_TOKEN_VARIABLE).as_deref(), setup.write_token)?;
+    if setup.write_token.is_some() {
+        eprintln!("GitHub write token: held for --github tasks");
+    } else {
+        eprintln!("No GitHub write token: --github tasks will fail");
+    }
     let channel = &Channel::connect(server, seed).await?;
     let inbox = channel.inbox(name).await?;
     let mut terminate = signal(SignalKind::terminate()).context("Unable to watch for SIGTERM")?;
@@ -188,11 +220,7 @@ async fn start(
     let (incoming_tx, incoming_rx) = unbounded_channel();
     let (outgoing_tx, outgoing_rx) = unbounded_channel();
     let mut engine = Engine::new(
-        Setup {
-            program: CLAUDE,
-            workdir,
-            model,
-        },
+        setup,
         name,
         reply_to,
         incoming_rx,
@@ -314,7 +342,7 @@ async fn stopped(stop: &mut watch::Receiver<bool>) {
 }
 
 /// Log what a finished run used, and send its outcome.
-fn report(reply: &Reply, model: &str, finished: Finished) -> Result<()> {
+fn report(reply: &Reply<'_>, model: &str, finished: Finished) -> Result<()> {
     let kind = outcome(&finished.text, finished.failed);
     eprintln!(
         "{}",
@@ -333,9 +361,14 @@ fn report(reply: &Reply, model: &str, finished: Finished) -> Result<()> {
     )
 }
 
-impl Reply {
+impl Reply<'_> {
+    /// Send `text`, with the write token replaced.
     fn send(&self, kind: Kind, text: String, usage: Option<(Usage, TaskUsage)>) -> Result<()> {
         let (usage, task_usage) = usage.unzip();
+        let text = match redact(self.write_token, &text) {
+            Cow::Borrowed(_) => text,
+            Cow::Owned(redacted) => redacted,
+        };
         self.outgoing
             .send(Message {
                 task: self.task.clone(),
@@ -365,6 +398,7 @@ impl<'a> Engine<'a> {
             program: setup.program,
             workdir: setup.workdir,
             model: setup.model,
+            write_token: setup.write_token,
             name,
             reply_to,
             incoming,
@@ -466,13 +500,23 @@ impl<'a> Engine<'a> {
         Ok(())
     }
 
-    fn reply(&self, task: &str, model: Option<&str>) -> Reply {
+    fn reply(&self, task: &str, model: Option<&str>) -> Reply<'a> {
         Reply {
             outgoing: self.outgoing.clone(),
             task: task.to_owned(),
             from: self.name.to_owned(),
             to: self.reply_to.to_owned(),
             model: model.map(str::to_owned),
+            write_token: self.write_token,
+        }
+    }
+
+    /// The access a run gets: the write token for a `--github` task, which fails without one.
+    fn access(&self, github: bool) -> Result<Access<'a>> {
+        if github {
+            Ok(Access::Write(self.write_token.context(NO_WRITE_TOKEN)?))
+        } else {
+            Ok(Access::ReadOnly)
         }
     }
 
@@ -593,7 +637,13 @@ impl<'a> Engine<'a> {
     /// be written is reported and the task goes on.
     fn record(&mut self, task: &str, run_number: u32, line: &str) {
         if let (Some(log), Some(session)) = (&mut self.results, ResultLog::result_session(line))
-            && let Err(error) = log.append(task, &session, run_number, line, now_ms())
+            && let Err(error) = log.append(
+                task,
+                &session,
+                run_number,
+                &redact(self.write_token, line),
+                now_ms(),
+            )
         {
             eprintln!("Unable to record the result event: {error:#}");
         }
@@ -625,7 +675,7 @@ impl<'a> Engine<'a> {
         message: &Message,
         github: bool,
         model: &str,
-        reply: &Reply,
+        reply: &Reply<'_>,
         run: &mut RunState,
     ) -> Result<()> {
         if !matches!(update, Update::Finished { .. }) {
@@ -684,7 +734,13 @@ impl<'a> Engine<'a> {
     /// The launch for a new task: a fork of the base session for its rules and model, primed
     /// first when there is none or it is out of date. When priming fails the task gets a fresh
     /// session. `None` when the agent began stopping while priming: the task must not run.
-    async fn fork_of_base(&mut self, github: bool, model: &str, task: &str) -> Option<Launch> {
+    async fn fork_of_base(
+        &mut self,
+        access: Access<'a>,
+        model: &str,
+        task: &str,
+    ) -> Option<Launch> {
+        let github = access.github();
         let inputs = Inputs::current(self.workdir, &rules(github), model).await;
         let now = now_ms();
         let key = (github, model.to_owned());
@@ -699,7 +755,7 @@ impl<'a> Engine<'a> {
         if self.bases.remove(&key).is_some() {
             self.save();
         }
-        match self.prime(github, model, task).await {
+        match self.prime(access, model, task).await {
             Ok(session) => {
                 self.bases.insert(
                     key,
@@ -709,12 +765,18 @@ impl<'a> Engine<'a> {
                 Some(Launch::Fork(session))
             }
             Err(error) if *self.stop.borrow() => {
-                eprintln!("Priming stopped ({error:#}): task {task} stays queued");
+                let error = format!("{error:#}");
+                eprintln!(
+                    "Priming stopped ({}): task {task} stays queued",
+                    redact(self.write_token, &error)
+                );
                 None
             }
             Err(error) => {
+                let error = format!("{error:#}");
                 eprintln!(
-                    "Unable to prime a base session: {error:#}: task {task} runs in a fresh session"
+                    "Unable to prime a base session: {}: task {task} runs in a fresh session",
+                    redact(self.write_token, &error)
                 );
                 Some(Launch::Fresh)
             }
@@ -723,26 +785,30 @@ impl<'a> Engine<'a> {
 
     /// Make a base session with two turns: the priming prompt in a new session, then a resume of
     /// that session. Both runs are counted in the totals of `task`, the task that needed them.
-    #[instrument(level = "debug", skip_all, fields(%task, %model, github))]
-    async fn prime(&mut self, github: bool, model: &str, task: &str) -> Result<String> {
+    #[instrument(level = "debug", skip_all, fields(%task, %model, github = access.github()))]
+    async fn prime(&mut self, access: Access<'a>, model: &str, task: &str) -> Result<String> {
         let session = self
-            .priming_run(github, model, task, &Launch::Fresh, PRIME_PROMPT)
+            .priming_run(access, model, task, &Launch::Fresh, PRIME_PROMPT)
             .await?;
-        self.priming_run(github, model, task, &Launch::Resume(session), PRIME_CONFIRM)
+        self.priming_run(access, model, task, &Launch::Resume(session), PRIME_CONFIRM)
             .await
     }
 
     /// One priming run of Claude Code with `prompt`. Returns the session it ended in.
-    #[instrument(level = "debug", skip_all, fields(%task, %model, github, ?launch))]
+    #[instrument(
+        level = "debug",
+        skip_all,
+        fields(%task, %model, github = access.github(), ?launch)
+    )]
     async fn priming_run(
         &mut self,
-        github: bool,
+        access: Access<'a>,
         model: &str,
         task: &str,
         launch: &Launch,
         prompt: &str,
     ) -> Result<String> {
-        let mut command = claude_command(self.program, self.workdir, model, github, launch);
+        let mut command = claude_command(self.program, self.workdir, model, access, launch);
         let mut child = command.spawn().context("Unable to start Claude Code")?;
         let mut group = Group::new(child.id());
         let mut stdin = child.stdin.take().context("Claude Code has no input")?;
@@ -785,7 +851,10 @@ impl<'a> Engine<'a> {
             finished.with_context(|| format!("Claude Code exited ({status}) without a result"))?;
         self.count(task, &session, &mut usage);
         self.save();
-        eprintln!("{}", priming_line(task, github, model, &session, &usage));
+        eprintln!(
+            "{}",
+            priming_line(task, access.github(), model, &session, &usage)
+        );
         ensure!(!failed, "The priming run failed: {text}");
         Ok(session)
     }
@@ -803,6 +872,7 @@ impl<'a> Engine<'a> {
             .get(&message.task)
             .and_then(|record| record.session.clone());
         let github = task_github(message, known.as_ref());
+        let access = self.access(github)?;
         let model = task_model(message, known.as_ref(), self.model)?;
         let launch = match (known, message.kind) {
             (Some(session), _) => Launch::Resume(session.id),
@@ -812,22 +882,23 @@ impl<'a> Engine<'a> {
                     message.task
                 )
             }
-            (None, _) => match self.fork_of_base(github, &model, &message.task).await {
+            (None, _) => match self.fork_of_base(access, &model, &message.task).await {
                 Some(launch) => launch,
                 None => return Ok(Finish::Postponed),
             },
         };
-        match self.attempt(message, github, &model, &launch).await? {
+        match self.attempt(message, access, &model, &launch).await? {
             Attempt::Done(finish) => Ok(finish),
             Attempt::ForkFailed(reason) => {
                 eprintln!(
-                    "Unable to fork the base session for task {}: {reason}: running it in a fresh session",
-                    message.task
+                    "Unable to fork the base session for task {}: {}: running it in a fresh session",
+                    message.task,
+                    redact(self.write_token, &reason)
                 );
                 self.bases.remove(&(github, model.clone()));
                 self.save();
                 match self
-                    .attempt(message, github, &model, &Launch::Fresh)
+                    .attempt(message, access, &model, &Launch::Fresh)
                     .await?
                 {
                     Attempt::Done(finish) => Ok(finish),
@@ -842,12 +913,12 @@ impl<'a> Engine<'a> {
     #[instrument(
         level = "debug",
         skip_all,
-        fields(task = %message.task, %model, github, ?launch)
+        fields(task = %message.task, %model, github = access.github(), ?launch)
     )]
     async fn attempt(
         &mut self,
         message: &Message,
-        github: bool,
+        access: Access<'a>,
         model: &str,
         launch: &Launch,
     ) -> Result<Attempt> {
@@ -855,7 +926,7 @@ impl<'a> Engine<'a> {
             return Ok(Attempt::Done(Finish::Postponed));
         }
         let reply = self.reply(&message.task, Some(model));
-        let mut command = claude_command(self.program, self.workdir, model, github, launch);
+        let mut command = claude_command(self.program, self.workdir, model, access, launch);
         let run_number = {
             let record = self.tasks.entry(message.task.clone()).or_default();
             record.runs = record.runs.saturating_add(1);
@@ -919,7 +990,7 @@ impl<'a> Engine<'a> {
             };
             self.record(&message.task, run_number, &line);
             for update in interpret(&line) {
-                self.apply(update, message, github, model, &reply, &mut run)?;
+                self.apply(update, message, access.github(), model, &reply, &mut run)?;
             }
         }
         let status = child.wait().await.context("Claude Code did not exit")?;
@@ -956,6 +1027,7 @@ mod tests {
     use tokio::sync::oneshot;
     use tokio::time::timeout;
 
+    use crate::guest::github::REDACTED;
     use crate::keys::generate;
 
     fn queued(kind: Kind, task: &str) -> Message {
@@ -981,6 +1053,7 @@ mod tests {
             program: CLAUDE,
             workdir: Path::new("/work"),
             model: "test-model",
+            write_token: None,
         };
         let mut engine = Engine::new(setup, "dev", "host", incoming, outgoing, stop_rx);
         // The priming runs, in the base session; then the task's own run in its fork.
@@ -1065,6 +1138,9 @@ ask*)
 crash*)
     exit 1
     ;;
+token*)
+    echo "{\"type\":\"result\",\"is_error\":false,\"result\":\"GH_TOKEN=${GH_TOKEN:-none}\",\"session_id\":\"sess-1\"}"
+    ;;
 bg*)
     ( trap '' TERM; exec sleep 300 ) >/dev/null 2>&1 &
     echo $! > "$prompt.sleep"
@@ -1093,10 +1169,17 @@ esac
         done: tokio::task::JoinHandle<Result<()>>,
         /// The engine's status, once it has started.
         status: oneshot::Receiver<watch::Receiver<Status>>,
+        /// The GitHub write token the agent was started with.
+        write_token: Option<String>,
     }
 
     impl Harness {
         fn start(label: &str) -> Self {
+            Self::start_with(label, None)
+        }
+
+        /// A guest agent started with `write_token`.
+        fn start_with(label: &str, write_token: Option<&str>) -> Self {
             use std::os::unix::fs::PermissionsExt;
             let dir =
                 env::temp_dir().join(format!("agent-bus-cancel-{label}-{}", std::process::id()));
@@ -1111,7 +1194,7 @@ esac
                 stop,
                 done,
                 status,
-            } = Self::spawn(&dir);
+            } = Self::spawn(&dir, write_token);
             Self {
                 dir,
                 input: Some(input),
@@ -1119,11 +1202,13 @@ esac
                 stop,
                 done,
                 status,
+                write_token: write_token.map(str::to_owned),
             }
         }
 
         /// A guest agent on `dir`, keeping its state in `dir/state/`.
-        fn spawn(dir: &Path) -> Spawned {
+        fn spawn(dir: &Path, write_token: Option<&str>) -> Spawned {
+            let write_token = write_token.map(|token| WriteToken::parse(token).unwrap().unwrap());
             let (status_tx, status) = oneshot::channel();
             let (input, incoming) = unbounded_channel();
             let (outgoing, output) = unbounded_channel();
@@ -1135,6 +1220,7 @@ esac
                     program: &program,
                     workdir: &work,
                     model: "test-model",
+                    write_token: write_token.as_ref(),
                 };
                 let mut engine = Engine::new(setup, "dev", "host", incoming, outgoing, stop_rx);
                 engine.results = Some(ResultLog::new(work.join("results.jsonl")));
@@ -1159,7 +1245,7 @@ esac
                 stop,
                 done,
                 status,
-            } = Self::spawn(&self.dir);
+            } = Self::spawn(&self.dir, self.write_token.as_deref());
             self.input = Some(input);
             self.output = output;
             self.stop = stop;
@@ -1196,6 +1282,14 @@ esac
             let mut message = queued(kind, task);
             message.text = text.to_owned();
             message.model = model.map(str::to_owned);
+            self.input.as_ref().unwrap().send(message).unwrap();
+        }
+
+        /// Send a task with GitHub write access.
+        fn send_github(&self, task: &str, text: &str) {
+            let mut message = queued(Kind::Task, task);
+            message.text = text.to_owned();
+            message.github = true;
             self.input.as_ref().unwrap().send(message).unwrap();
         }
 
@@ -1735,6 +1829,77 @@ esac
         assert_eq!(harness.saved().running, None);
     }
 
+    const WRITE_TOKEN: &str = "github_pat_harnesswrite0123456789";
+
+    /// Every reply until the outcome of the current run, progress included.
+    async fn replies_until_outcome(harness: &mut Harness) -> Vec<Message> {
+        let mut replies = Vec::new();
+        loop {
+            let message = timeout(Duration::from_secs(10), harness.output.recv())
+                .await
+                .expect("no reply in time")
+                .expect("the agent stopped");
+            let done = message.kind != Kind::Progress;
+            replies.push(message);
+            if done {
+                return replies;
+            }
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "starts real processes; run with -- --ignored"]
+    async fn only_a_github_task_gets_the_write_token_and_it_never_leaves_the_agent() {
+        let mut harness = Harness::start_with("write-token", Some(WRITE_TOKEN));
+
+        harness.send(Kind::Task, "read-only", "token-ro");
+        let replies = replies_until_outcome(&mut harness).await;
+        let outcome = replies.last().unwrap();
+        assert_eq!(outcome.kind, Kind::Completed);
+        // The run saw the agent's own GH_TOKEN, whatever it is here, never the write token: it
+        // is not there before redaction either.
+        assert!(outcome.text.starts_with("GH_TOKEN="), "{}", outcome.text);
+        for reply in &replies {
+            assert!(!reply.text.contains(WRITE_TOKEN), "{}", reply.text);
+            assert!(!reply.text.contains(REDACTED), "{}", reply.text);
+        }
+
+        harness.send_github("write", "token-rw");
+        let replies = replies_until_outcome(&mut harness).await;
+        let outcome = replies.last().unwrap();
+        assert_eq!(outcome.kind, Kind::Completed);
+        // The run had the write token, and the reply carries it redacted.
+        assert_eq!(outcome.text, format!("GH_TOKEN={REDACTED}"));
+        for reply in &replies {
+            assert!(!reply.text.contains(WRITE_TOKEN), "{}", reply.text);
+        }
+
+        // Nor is it in the result records, the state or the command lines.
+        for file in ["results.jsonl", "state/guest-dev.toml", "args.log"] {
+            let kept = fs::read_to_string(harness.dir.join(file)).unwrap();
+            assert!(!kept.contains(WRITE_TOKEN), "{file}: {kept}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_github_task_fails_clearly_without_a_write_token() {
+        let mut harness = Harness::start("no-write-token");
+        harness.send_github("write", "token-rw");
+        let outcome = harness.outcome().await;
+        assert_eq!(outcome.kind, Kind::Failed);
+        assert!(
+            outcome.text.contains("no GitHub write token"),
+            "{}",
+            outcome.text
+        );
+        // Claude Code was never started for it.
+        assert!(!harness.dir.join("args.log").exists());
+
+        // A task without GitHub still runs.
+        harness.send(Kind::Task, "read-only", "plain");
+        assert_eq!(harness.outcome().await.kind, Kind::Completed);
+    }
+
     #[tokio::test]
     async fn the_lock_is_checked_before_the_bus_is_reached() {
         let dir = env::temp_dir().join(format!("agent-bus-lock-first-{}", std::process::id()));
@@ -1752,8 +1917,12 @@ esac
                 &seed,
                 "dev",
                 "host",
-                &dir,
-                "model",
+                Setup {
+                    program: CLAUDE,
+                    workdir: &dir,
+                    model: "model",
+                    write_token: None,
+                },
                 Some(StateFile::new(state.clone())),
             )
         };
