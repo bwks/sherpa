@@ -22,7 +22,9 @@ use super::claude::{
 };
 use super::engine::{Control, Session, canceled_text, classify, task_github, task_model};
 use super::github::{Access, GH_TOKEN_VARIABLE, check_environment};
+use super::ledger::{Ledger, Run};
 use super::lock::InstanceLock;
+use super::pull_request::{GH, Note, checkouts, current_branch, update};
 use super::record::ResultLog;
 use super::secrets::{Secrets, TOKEN_VARIABLE, refuse_in_environment};
 use super::state::{ApiMark, Queued, Saved, StateFile, TaskRecord, prune, restart};
@@ -100,6 +102,8 @@ struct RunState {
 #[derive(Clone, Copy)]
 struct Setup<'a> {
     program: &'a str,
+    /// The GitHub CLI, which rewrites the Generation section of pull requests.
+    gh: &'a str,
     workdir: &'a Path,
     /// The model of a task that names none.
     model: &'a str,
@@ -112,6 +116,7 @@ struct Setup<'a> {
 /// All of it but the channels is kept in the state file after every change.
 struct Engine<'a> {
     program: &'a str,
+    gh: &'a str,
     workdir: &'a Path,
     /// The model of a task that names none.
     model: &'a str,
@@ -136,6 +141,8 @@ struct Engine<'a> {
     /// and the model.
     bases: HashMap<(bool, String), Base>,
     results: Option<ResultLog>,
+    /// What each task cost and the branch it ended on; `None` without a state directory.
+    ledger: Option<Ledger>,
     /// Where the state is kept; `None` keeps it in memory only.
     store: Option<StateFile>,
 }
@@ -174,6 +181,7 @@ pub async fn run(
         reply_to,
         Setup {
             program: CLAUDE,
+            gh: GH,
             workdir,
             model,
             secrets,
@@ -233,6 +241,10 @@ async fn start(
         engine.resume(file)?;
     }
     engine.prune_results();
+    match &engine.ledger {
+        Some(ledger) => eprintln!("Generation ledger: {}", ledger.path().display()),
+        None => eprintln!("No state directory: pull requests' Generation sections are not kept"),
+    }
     let status = engine.status.subscribe();
     eprintln!("Guest agent '{name}' is waiting for tasks");
     let work = async {
@@ -343,8 +355,9 @@ async fn stopped(stop: &mut watch::Receiver<bool>) {
     let _ = stop.wait_for(|stop| *stop).await;
 }
 
-/// Log what a finished run used, and send its outcome.
-fn report(reply: &Reply<'_>, model: &str, finished: Finished) -> Result<()> {
+/// Log what a finished run used, and send its outcome, with what the Generation step did, if
+/// anything, in a paragraph before its text: a question stays on the last line.
+fn report(reply: &Reply<'_>, model: &str, finished: Finished, note: Option<Note>) -> Result<()> {
     let kind = outcome(&finished.text, finished.failed);
     eprintln!(
         "{}",
@@ -356,11 +369,11 @@ fn report(reply: &Reply<'_>, model: &str, finished: Finished) -> Result<()> {
             &finished.task_usage
         )
     );
-    reply.send(
-        kind,
-        finished.text,
-        Some((finished.usage, finished.task_usage)),
-    )
+    let text = match note {
+        Some(note) => format!("{}\n\n{}", note.text(), finished.text),
+        None => finished.text,
+    };
+    reply.send(kind, text, Some((finished.usage, finished.task_usage)))
 }
 
 impl Reply<'_> {
@@ -398,6 +411,7 @@ impl<'a> Engine<'a> {
     ) -> Self {
         Self {
             program: setup.program,
+            gh: setup.gh,
             workdir: setup.workdir,
             model: setup.model,
             secrets: setup.secrets,
@@ -416,6 +430,7 @@ impl<'a> Engine<'a> {
             tasks: HashMap::new(),
             bases: HashMap::new(),
             results: ResultLog::standard(),
+            ledger: Ledger::standard().ok(),
             store: None,
         }
     }
@@ -1031,8 +1046,65 @@ impl<'a> Engine<'a> {
         let finished = run
             .finished
             .with_context(|| format!("Claude Code exited ({status}) without a result"))?;
-        report(&reply, model, finished)?;
+        let note = self.generation(message, access, model, &finished).await;
+        report(&reply, model, finished, note)?;
         Ok(Attempt::Done(Finish::Done))
+    }
+
+    /// Record a finished run in the generation ledger and, for a `--github` task, rewrite the
+    /// Generation section of the open pull requests of the branch the run ended on, with every
+    /// task the ledger has on it. `None` for a task without GitHub, which is only recorded: the
+    /// write token is for `--github` tasks alone. Nothing here fails the task.
+    #[instrument(level = "debug", skip_all, fields(task = %message.task, github = access.github()))]
+    async fn generation(
+        &self,
+        message: &Message,
+        access: Access<'a>,
+        model: &str,
+        finished: &Finished,
+    ) -> Option<Note> {
+        let task = message.task.as_str();
+        let branch = current_branch(self.workdir).await;
+        let mut models: Vec<String> = finished
+            .usage
+            .models
+            .iter()
+            .map(|used| used.model.clone())
+            .filter(|used| !used.is_empty())
+            .collect();
+        if models.is_empty() {
+            models.push(model.to_owned());
+        }
+        let run = Run {
+            task,
+            agent: self.name,
+            branch: branch.as_ref().ok().and_then(Option::as_deref),
+            models: &models,
+            usage: &finished.task_usage,
+        };
+        let recorded = match &self.ledger {
+            Some(ledger) => ledger.record(&run, now_ms()),
+            None => Err(anyhow!(
+                "there is no state directory to keep the generation ledger in"
+            )),
+        };
+        let Access::Write(token) = access else {
+            if let Err(error) = &recorded {
+                eprintln!("Unable to record task {task} in the generation ledger: {error:#}");
+            }
+            return None;
+        };
+        let note = match (branch, recorded) {
+            (Err(error), _) | (Ok(Some(_)), Err(error)) => Note::Skipped(format!("{error:#}")),
+            (Ok(None), _) => Note::Skipped("the checkout is on a detached HEAD".to_owned()),
+            (Ok(Some(branch)), Ok(rows)) => {
+                let outcomes =
+                    update(self.gh, &checkouts(self.workdir), &branch, &rows, token).await;
+                Note::Checked { branch, outcomes }
+            }
+        };
+        eprintln!("Task {task}: {}", self.secrets.redact(&note.text()));
+        Some(note)
     }
 }
 
@@ -1082,6 +1154,7 @@ mod tests {
         let secrets = secrets(None);
         let setup = Setup {
             program: CLAUDE,
+            gh: GH,
             workdir: Path::new("/work"),
             model: "test-model",
             secrets: &secrets,
@@ -1187,6 +1260,22 @@ bg*)
 esac
 "#;
 
+    /// A stand-in for `gh`: `pr list` prints `prs.json` (no pull request without it), `pr edit
+    /// <n>` saves its stdin as `body-<n>.md` or fails when `edit-fails` exists. Every call is
+    /// logged to `gh.log` with its arguments and whether `GH_TOKEN` was set.
+    const FAKE_GH: &str = r#"#!/bin/bash
+echo "$* GH_TOKEN=${GH_TOKEN:+set}" >> gh.log
+case "$1 $2" in
+"pr list")
+    if [ -e prs.json ]; then cat prs.json; else echo '[]'; fi
+    ;;
+"pr edit")
+    if [ -e edit-fails ]; then echo "GraphQL: Resource not accessible" >&2; exit 1; fi
+    cat > "body-$3.md"
+    ;;
+esac
+"#;
+
     /// A guest agent's engine started by `Harness::spawn`, and its ends.
     struct Spawned {
         input: UnboundedSender<Message>,
@@ -1223,6 +1312,9 @@ esac
             let program = dir.join("fake-claude");
             std::fs::write(&program, FAKE_CLAUDE).unwrap();
             std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let gh = dir.join("fake-gh");
+            std::fs::write(&gh, FAKE_GH).unwrap();
+            std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
             let Spawned {
                 input,
                 output,
@@ -1250,16 +1342,19 @@ esac
             let (stop, stop_rx) = watch::channel(false);
             let work = dir.to_owned();
             let program = dir.join("fake-claude").to_string_lossy().into_owned();
+            let gh = dir.join("fake-gh").to_string_lossy().into_owned();
             let done = tokio::spawn(async move {
                 let secrets = secrets(write_token.as_deref());
                 let setup = Setup {
                     program: &program,
+                    gh: &gh,
                     workdir: &work,
                     model: "test-model",
                     secrets: &secrets,
                 };
                 let mut engine = Engine::new(setup, "dev", "host", incoming, outgoing, stop_rx);
                 engine.results = Some(ResultLog::new(work.join("results.jsonl")));
+                engine.ledger = Some(Ledger::new(work.join("state").join("generation.toml")));
                 engine.resume(StateFile::new(work.join("state").join("guest-dev.toml")))?;
                 let _ = status_tx.send(engine.status.subscribe());
                 engine.serve().await
@@ -1287,6 +1382,16 @@ esac
             self.stop = stop;
             self.done = done;
             self.status = status;
+        }
+
+        /// Make the checkout a git repository on `branch`.
+        fn checkout(&self, branch: &str) {
+            let status = std::process::Command::new("git")
+                .args(["init", "-q", "-b", branch])
+                .current_dir(&self.dir)
+                .status()
+                .unwrap();
+            assert!(status.success());
         }
 
         fn saved(&self) -> Saved {
@@ -1904,8 +2009,13 @@ esac
         let replies = replies_until_outcome(&mut harness).await;
         let outcome = replies.last().unwrap();
         assert_eq!(outcome.kind, Kind::Completed);
-        // The run had the write token, and the reply carries it redacted.
-        assert_eq!(outcome.text, format!("GH_TOKEN={REDACTED}"));
+        // The run had the write token, and the reply carries it redacted, after the line on the
+        // Generation section.
+        assert!(
+            outcome.text.ends_with(&format!("\n\nGH_TOKEN={REDACTED}")),
+            "{}",
+            outcome.text
+        );
         for reply in &replies {
             assert!(!reply.text.contains(WRITE_TOKEN), "{}", reply.text);
         }
@@ -1985,6 +2095,7 @@ esac
                 "host",
                 Setup {
                     program: CLAUDE,
+                    gh: GH,
                     workdir: &dir,
                     model: "model",
                     secrets: &secrets,
@@ -2009,5 +2120,108 @@ esac
             "{error}"
         );
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A pull request of `branch` with `body`, as `gh pr list --json` gives it.
+    fn open_pull_request(harness: &Harness, number: u64, body: &str) {
+        let prs = serde_json::json!([{
+            "number": number,
+            "url": format!("https://example.invalid/pull/{number}"),
+            "body": body,
+            "isCrossRepository": false,
+        }]);
+        fs::write(harness.dir.join("prs.json"), prs.to_string()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_github_run_writes_the_section_with_the_branchs_earlier_tasks() {
+        let mut harness = Harness::start_with("generation", Some(WRITE_TOKEN));
+        harness.checkout("feat/x");
+        open_pull_request(&harness, 7, "Body");
+
+        // A task without GitHub is recorded, and never runs gh: it has no write token.
+        harness.send(Kind::Task, "review", "plain");
+        let outcome = harness.outcome().await;
+        assert_eq!(outcome.kind, Kind::Completed);
+        assert_eq!(outcome.text, "done");
+        assert!(!harness.dir.join("gh.log").exists());
+
+        harness.send_github("write", "plain");
+        let outcome = harness.outcome().await;
+        assert_eq!(outcome.kind, Kind::Completed);
+        assert_eq!(
+            outcome.text,
+            "Generation section for branch feat/x: updated https://example.invalid/pull/7\n\ndone"
+        );
+        let body = fs::read_to_string(harness.dir.join("body-7.md")).unwrap();
+        assert!(
+            body.starts_with("Body\n\n<!-- agent-bus:generation -->"),
+            "{body}"
+        );
+        // Each task's runs include the two priming runs of its base.
+        for row in [
+            "| review | dev | test-model | 3 | $0.0000 | n/a | 0 | 0 | 0 | 0 |",
+            "| write | dev | test-model | 3 | $0.0000 | n/a | 0 | 0 | 0 | 0 |",
+        ] {
+            assert!(body.contains(row), "{row}: {body}");
+        }
+        let log = fs::read_to_string(harness.dir.join("gh.log")).unwrap();
+        assert!(
+            log.contains("pr edit 7 --body-file - GH_TOKEN=set"),
+            "{log}"
+        );
+        assert!(!log.contains(WRITE_TOKEN), "{log}");
+        assert!(!body.contains(WRITE_TOKEN), "{body}");
+        let ledger = fs::read_to_string(harness.dir.join("state").join("generation.toml")).unwrap();
+        assert!(ledger.contains("[tasks.review]"), "{ledger}");
+        assert!(!ledger.contains(WRITE_TOKEN), "{ledger}");
+    }
+
+    #[tokio::test]
+    async fn a_question_keeps_its_last_line_after_the_note() {
+        let mut harness = Harness::start_with("generation-question", Some(WRITE_TOKEN));
+        harness.checkout("feat/x");
+        harness.send_github("ask", "ask");
+        let outcome = harness.outcome().await;
+        assert_eq!(outcome.kind, Kind::Question);
+        assert_eq!(
+            outcome.text,
+            "Generation section: no open pull request for branch feat/x\n\nQUESTION: which one?"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_section_update_is_reported_and_the_task_still_completes() {
+        let mut harness = Harness::start_with("generation-fails", Some(WRITE_TOKEN));
+        harness.checkout("feat/x");
+        open_pull_request(&harness, 7, "Body");
+        fs::write(harness.dir.join("edit-fails"), "").unwrap();
+        harness.send_github("write", "plain");
+        let outcome = harness.outcome().await;
+        assert_eq!(outcome.kind, Kind::Completed);
+        assert!(
+            outcome.text.starts_with(
+                "Generation section for branch feat/x: not updated: https://example.invalid/pull/7: gh pr edit failed: GraphQL: Resource not accessible"
+            ),
+            "{}",
+            outcome.text
+        );
+        assert!(outcome.text.ends_with("\n\ndone"), "{}", outcome.text);
+    }
+
+    #[tokio::test]
+    async fn a_github_run_outside_a_checkout_says_why_and_completes() {
+        let mut harness = Harness::start_with("generation-no-branch", Some(WRITE_TOKEN));
+        harness.send_github("write", "plain");
+        let outcome = harness.outcome().await;
+        assert_eq!(outcome.kind, Kind::Completed);
+        assert!(
+            outcome
+                .text
+                .starts_with("Generation section not updated: Unable to find the branch of"),
+            "{}",
+            outcome.text
+        );
+        assert!(!harness.dir.join("gh.log").exists());
     }
 }

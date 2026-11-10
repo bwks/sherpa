@@ -12,7 +12,8 @@ them with root, without `sudo` on the host. The original design and its decision
 |---|---|---|
 | Directory | `tests/environments/dev` | `tests/environments/agent` |
 | Lab | `sherpa-dev` | `sherpa-agent-2` |
-| Node and guest agent | `dev` | `agent-2` |
+| Node | `dev` | `agent-2` |
+| Guest agent | `dev01` | `dev02` |
 | NUMA node | 1 | 0 |
 | vCPUs on host CPUs | sibling pairs 10/26 to 15/31 | sibling pairs 2/18 to 7/23 |
 | QEMU and disk I/O threads | 9/25 | 1/17 |
@@ -102,8 +103,8 @@ it changes the node if a variable they name is not set.
   store as `GH_TOKEN_RO`.
 
   The write token, `GH_TOKEN` in the secret store, never goes to the guest's disk. The host sends
-  it to the guest agent each time `agent-bus:agent` starts it, and the agent sets it only for
-  `--github` tasks (see "GitHub tokens" in the
+  it to the guest agent each time `agent-bus:agent` starts it, and the agent uses it only for
+  `--github` tasks and, after their runs, to update the pull requests' Generation section (see "GitHub tokens" in the
   [agent bus document](../../../docs/architecture/AGENT_BUS.md#github-tokens)). Pushing from a
   shell in the guest therefore fails: commit there, and push from a `--github` task.
 - `provision/sccache.env`: `RUSTC_WRAPPER=sccache`, and `SCCACHE_REDIS_ENDPOINT` and
@@ -234,13 +235,15 @@ before a release.
 
 ## Guest agents
 
-Each dev server runs one guest agent named after its node. With the bus running, start or
-restart one from the host with the `agent-bus:agent` task described in "Operating it" in the
-[agent bus document](../../../docs/architecture/AGENT_BUS.md#operating-it):
+Each dev server runs one guest agent, named apart from its node: `dev01` on `dev` and `dev02` on
+`agent-2`. With the bus running, start or restart one from the host with the `agent-bus:agent`
+task described in "Operating it" in the
+[agent bus document](../../../docs/architecture/AGENT_BUS.md#operating-it), giving the lab
+directory, the node and the agent's name:
 
 ```
-mise run agent-bus:agent ~/labs/sherpa-dev dev
-mise run agent-bus:agent ~/labs/sherpa-agent-2 agent-2
+mise run agent-bus:agent ~/labs/sherpa-dev dev dev01
+mise run agent-bus:agent ~/labs/sherpa-agent-2 agent-2 dev02
 ```
 
 Give the lab directory as an absolute path, since mise may run the task from another directory.
@@ -251,8 +254,12 @@ Claude token, the GitHub write token and the bus's CA certificate over the lab's
 in memory, never in its environment. No key is made or stored by hand, and neither agent is listed
 in the agents file. The agent is built from the guest's own checkout, so a change to the agent or
 to `start-guest.sh` reaches a guest when its checkout is pulled and its agent started again. The
-agent's log is `~/agent-bus-<node>.log` in the guest. To retire one, stop its agent and run
-`agent-bus unenroll <node>` on the host.
+agent's log is `~/agent-bus-<agent>.log` in the guest. To retire one, stop its agent and run
+`agent-bus unenroll <agent>` on the host with the host's seed, which also deletes its inbox.
+Starting a node under a new name stops the agent of its old name, as one agent runs per
+checkout; the steps for a rename, and what happens to the old name's history, are under
+"Renaming a guest agent" in the
+[agent bus document](../../../docs/architecture/AGENT_BUS.md#operating-it).
 
 ### Reaching the bus
 

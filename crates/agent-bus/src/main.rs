@@ -86,8 +86,9 @@ enum Command {
         /// The guest agent; the agents file must not list it
         name: String,
     },
-    /// Remove an enrolled guest agent's key; the bus refuses it from then on. Its inbox and
-    /// messages are kept
+    /// Remove an enrolled guest agent's key; the bus refuses it from then on. With the host's
+    /// seed in `AGENT_BUS_SEED` and the bus running, its inbox is deleted too; its messages stay
+    /// until the stream drops them
     Unenroll {
         /// The guest agent
         name: String,
@@ -270,7 +271,15 @@ async fn execute(cli: Cli) -> Result<()> {
         },
         Command::Bus { action } => bus_command(action).await,
         Command::Enroll { name } => enroll(&name).await,
-        Command::Unenroll { name } => bus::unenroll_standard(&name).await,
+        Command::Unenroll { name } => {
+            // The seed is optional: with it, the inbox is deleted too. One that is set must be
+            // valid.
+            let seed = match env::var_os(keys::SEED_VARIABLE) {
+                Some(_) => Some(seed_from_environment()?),
+                None => None,
+            };
+            bus::unenroll_standard(&name, seed.as_deref()).await
+        }
         Command::Send {
             server,
             from,

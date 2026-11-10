@@ -19,6 +19,9 @@
 # in another lab, such as tests/environments/agent, sets AGENT_BUS_URL to where the bus listens.
 #
 #   start-guest.sh [name]      # name defaults to dev
+#
+# One agent runs per checkout: any agent of this name, and any agent of another name working in
+# this checkout (an agent started under its old name before a rename), is stopped first.
 #   AGENT_BUS_MODEL=<id>       # optional: the Claude model, default the binary's own
 #   AGENT_BUS_URL=<url>        # optional: the bus, default nats://<default gateway>:4222
 set -euo pipefail
@@ -69,10 +72,12 @@ mv -f "${CA_FILE}.$$.tmp" "${CA_FILE}"
 cd "${REPO}"
 cargo build --release --quiet -p agent-bus
 # Stop the old agent and wait until it has exited before starting the new one: the two must
-# never share the state file. A stopping agent stops its Claude Code within its own kill grace,
-# so it gets longer than that before SIGKILL. The new agent also refuses to start while another
-# of its name holds the lock.
-PATTERN="[a]gent-bus guest .*--name ${NAME} "
+# never share the state file, nor the checkout. That is any agent of this name, and any agent
+# working in this checkout under another name. A stopping agent stops its Claude Code within its
+# own kill grace, so it gets longer than that before SIGKILL. The new agent also refuses to start
+# while another of its name holds the lock.
+REPO_PATTERN="$(printf '%s' "${REPO}" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
+PATTERN="[a]gent-bus guest (.*--name ${NAME} |.*--workdir ${REPO_PATTERN}"'( |$))'
 STOP_TIMEOUT=15
 
 # Wait up to $1 seconds for every agent of this name to exit. True once none is left.
@@ -87,6 +92,7 @@ wait_gone() {
 }
 
 if pgrep -f "${PATTERN}" > /dev/null; then
+    echo "Stopping guest agent(s) $(pgrep -af "${PATTERN}" | grep -o -- '--name [a-z0-9-]*' | cut -d' ' -f2 | sort -u | tr '\n' ' ')in ${REPO}" >&2
     pkill -f "${PATTERN}" || true
     if ! wait_gone "${STOP_TIMEOUT}"; then
         echo "Guest agent '${NAME}' did not stop within ${STOP_TIMEOUT}s: sending SIGKILL" >&2

@@ -10,6 +10,10 @@
 //! - `run`: the entry point, the inbox loop and the queue of tasks.
 //! - `engine`: which task a message is for, and whether it queues or cancels.
 //! - `github`: the GitHub write token, held in memory for `--github` tasks only.
+//! - `generation`: the `## Generation` section of a pull request body.
+//! - `ledger`: what each task cost and the branch it ended on, for that section.
+//! - `pull_request`: the branch a run ended on, and the open pull requests whose section is
+//!   rewritten after a `--github` run.
 //! - `secrets`: the Claude token, the write token and the bus seed, read from stdin and held in
 //!   memory only.
 //! - `base`: the primed sessions new tasks fork from, for the prompt cache.
@@ -22,8 +26,11 @@
 mod base;
 mod claude;
 mod engine;
+mod generation;
 mod github;
+mod ledger;
 mod lock;
+mod pull_request;
 mod record;
 pub mod run;
 mod secrets;

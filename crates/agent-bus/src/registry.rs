@@ -8,16 +8,14 @@
 //! entry whose name the agents file has since taken is left out of the config, with a warning.
 //!
 //! Every change to the registry, and every render of the config from it, happens under an
-//! exclusive lock on `<state>/enroll.lock` (`lock`), so two commands cannot lose each other's
+//! exclusive lock on `<state>/enroll.lock` (`files::lock_exclusive`), so two commands cannot lose each other's
 //! change.
 
-use std::fs::{self, File, OpenOptions};
+use std::fs;
 use std::io::ErrorKind;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
-use nix::fcntl::{Flock, FlockArg};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
@@ -40,12 +38,6 @@ pub struct Merged {
     pub agents: Agents,
     /// Enrolled guests left out because the agents file lists their name
     pub shadowed: Vec<String>,
-}
-
-/// The held registry lock. Dropping it releases it.
-#[derive(Debug)]
-pub struct RegistryLock {
-    _lock: Flock<File>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -162,29 +154,6 @@ pub fn merge(fixed: Agents, registry: &Registry) -> Result<Merged> {
             .map(|agent| agent.name.clone())
             .collect(),
     })
-}
-
-/// Take the registry lock at `path`, waiting for another holder to finish.
-///
-/// # Errors
-///
-/// Fails when the file cannot be created or locked.
-#[instrument(level = "debug", skip_all, fields(path = %path.display()))]
-pub fn lock(path: &Path) -> Result<RegistryLock> {
-    if let Some(dir) = path.parent() {
-        private_dir(dir)?;
-    }
-    let file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(PRIVATE_FILE_MODE)
-        .open(path)
-        .with_context(|| format!("Unable to open {}", path.display()))?;
-    let lock = Flock::lock(file, FlockArg::LockExclusive).map_err(|(_, errno)| {
-        anyhow!(errno).context(format!("Unable to lock {}", path.display()))
-    })?;
-    Ok(RegistryLock { _lock: lock })
 }
 
 #[cfg(test)]
@@ -367,18 +336,5 @@ mod tests {
         );
         assert!(error.contains("clash"), "{error}");
         assert!(!error.contains(&shared));
-    }
-
-    #[test]
-    fn the_lock_is_exclusive() {
-        let dir = scratch("lock");
-        let path = dir.join("enroll.lock");
-        let held = lock(&path).unwrap();
-        let file = OpenOptions::new().write(true).open(&path).unwrap();
-        assert!(Flock::lock(file, FlockArg::LockExclusiveNonblock).is_err());
-        drop(held);
-        let file = OpenOptions::new().write(true).open(&path).unwrap();
-        assert!(Flock::lock(file, FlockArg::LockExclusiveNonblock).is_ok());
-        fs::remove_dir_all(&dir).unwrap();
     }
 }

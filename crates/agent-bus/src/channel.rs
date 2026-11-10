@@ -430,6 +430,35 @@ impl Channel {
         }))
     }
 
+    /// Delete `agent`'s inbox, the durable consumer; its messages stay in the stream until the
+    /// retention drops them. Returns whether there was one.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the name is invalid or the bus refuses to read or delete the consumer.
+    #[instrument(skip_all, fields(%agent))]
+    pub async fn delete_inbox(&self, agent: &str) -> Result<bool> {
+        check_agent_name(agent)?;
+        let stream = self
+            .jetstream
+            .get_stream(STREAM)
+            .await
+            .context("Unable to open the inbox stream")?;
+        match stream.consumer_info(agent).await {
+            Ok(_) => {}
+            Err(error) if error.kind() == ConsumerInfoErrorKind::NotFound => return Ok(false),
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("Unable to read the inbox of '{agent}'"));
+            }
+        }
+        stream
+            .delete_consumer(agent)
+            .await
+            .with_context(|| format!("Unable to delete the inbox of '{agent}'"))?;
+        Ok(true)
+    }
+
     /// Replace `agent`'s inbox with one made the way an earlier version made it, without
     /// `max_waiting`. This is for testing the upgrade.
     #[cfg(test)]
