@@ -60,8 +60,8 @@ is up. It is safe to run again with `sherpa provision`. It:
    system LLVM that Ubuntu 24.04 does not ship), `gh`, `shellcheck`, `bats`, `uv`, `sccache`,
    Claude Code and the `nats` CLI. mise follows the repository's `rust-toolchain.toml` files, and
    login shells put its tools on the `PATH`;
-3. sets up git to authenticate with `GH_TOKEN` through `gh`, committing as the token's GitHub
-   account with its no-reply address;
+3. sets up git to authenticate with `GH_TOKEN` (the read-only token) through `gh`, committing as
+   the token's GitHub account with its no-reply address;
 4. clones `bwks/sherpa` and `bwks/sherpa-docs` into `~/code/rust/`. When they already exist it
    only fetches, so work in progress is never touched;
 5. installs `mkdocs` with uv on a uv-managed Python 3.15 (never the system Python), as a tool on
@@ -89,7 +89,20 @@ your environment when it provisions, so no secret is in the repository, on a com
 to the Sherpa server. They land in `~/.env.d/` in the guest, mode `600`. `sherpa up` stops before
 it changes the node if a variable they name is not set.
 
-- `provision/github.env`: `GH_TOKEN`, for git and `gh`.
+- `provision/github.env`: `GH_TOKEN=$GH_TOKEN_RO`, the read-only GitHub token, for git and `gh`.
+  It is the only GitHub token on the guest's disk. It can read issues, pull requests, checks and
+  CI logs, and clone and fetch; GitHub refuses it a push or any other write.
+
+  Make it a fine-grained personal access token for the account the guests commit as, with access
+  to `bwks/sherpa` and `bwks/sherpa-docs` and these repository permissions, all read-only:
+  Contents, Issues, Pull requests, Actions, Commit statuses and Metadata. Store it in the secret
+  store as `GH_TOKEN_RO`.
+
+  The write token, `GH_TOKEN` in the secret store, never goes to the guest's disk. The host sends
+  it to the guest agent each time `agent-bus:agent` starts it, and the agent sets it only for
+  `--github` tasks (see "GitHub tokens" in the
+  [agent bus document](../../../docs/architecture/AGENT_BUS.md#github-tokens)). Pushing from a
+  shell in the guest therefore fails: commit there, and push from a `--github` task.
 - `provision/sccache.env`: `RUSTC_WRAPPER=sccache`, and `SCCACHE_REDIS_ENDPOINT` and
   `SCCACHE_REDIS_PASSWORD` from your environment. Rust builds in the guest keep their compiled
   crates in the host's build cache, the Redis server that
@@ -198,7 +211,8 @@ tools from mise are on the `PATH` of login shells, so run commands through one:
 
 - **Code:** the checkouts are `~/code/rust/sherpa` and `~/code/rust/sherpa-docs`. They are the
   only working copies: commit and push from there. Git authenticates through `gh` with
-  `GH_TOKEN`.
+  `GH_TOKEN`, which is read-only in a login shell; a push needs the write token (see
+  [Secrets](#secrets)).
 - **Build and install:**
   ```
   cd ~/code/rust/sherpa
@@ -228,7 +242,7 @@ mise run agent-bus:agent ~/labs/sherpa-agent-2 agent-2
 
 Give the lab directory as an absolute path, since mise may run the task from another directory.
 The task enrolls the agent with a fresh key, refusing any previous one, and pipes the key, the
-Claude token and the bus's CA certificate over the lab's SSH config into
+Claude token, the GitHub write token and the bus's CA certificate over the lab's SSH config into
 `dev/agent-bus/start-guest.sh` in the guest, with `AGENT_BUS_URL` set to the URL in the host's
 `bus.toml`. No key is made or stored by hand, and neither agent is listed in the agents file. The
 agent's log is `~/agent-bus-<node>.log` in the guest. To retire one, stop its agent and run
