@@ -17,7 +17,7 @@ tests, code and docs go to either.
 | Image | `ubuntu_linux` `24.04-20260926`, the same as dev (see [ubuntu-2404](../ubuntu-2404/README.md)) |
 | vCPUs | 8, as 1 socket × 4 cores × 2 threads, `host-passthrough` |
 | Host CPUs | vCPUs on sibling pairs 1/17 to 4/20; QEMU and disk I/O threads on 0/16 |
-| Memory | 24 GiB, strict on NUMA node 0 |
+| Memory | 24 GiB, preferred on NUMA node 0 |
 | Disk | 150 GiB full copy, virtio, `cache = "none"`, `io = "native"` |
 | Network | 4 virtio-net queues |
 
@@ -30,9 +30,11 @@ agent builds and runs clippy and unit tests, which 8 vCPUs and 24 GiB do comfort
 run nested labs, so it needs neither dev's memory nor its disk. 150 GiB holds the toolchains,
 the checkouts and a few `target/` directories.
 
-Memory is bound strictly to node 0, where the host's own processes also live. Check with
-`numactl -H` on the host that node 0 has 24 GiB free before bringing the lab up. On another host,
-change `performance_tuning` to match `lscpu -e`.
+Memory prefers node 0, where the host's own processes also live
+(`numa_memory_mode = "preferred"`). When node 0 is full it falls back to node 1 rather than the
+host OOM killer ending the VM (#514), at the cost of slower remote memory. `numactl -H` on the
+host shows whether node 0 has 24 GiB free. On another host, change `performance_tuning` to match
+`lscpu -e`.
 
 ## Provisioning
 
@@ -160,4 +162,4 @@ link kept as a link (`cp -a tests/environments/agent tests/environments/agent-3`
 The CPUs cannot just be copied: two labs pinned to the same cores contend for them. This host
 has no free set left for a third worker of this size, as CPUs 5–7 and 21–23 are the host's. A
 third worker means smaller workers, sharing cores on purpose, or another host; decide that
-before copying. The node's memory must also fit on the NUMA node it is bound to.
+before copying. The node's memory should also fit on the NUMA node it prefers.

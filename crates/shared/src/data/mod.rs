@@ -81,7 +81,7 @@ pub use node::{
     NodeState, OsVariant, UnikernelBootMode, ZtpMethod, ZtpSettings,
 };
 pub use performance::{
-    CpuMode, CpuTopology, DiskCache, DiskIo, NodeCpuPins, PerformanceTuning, cpuset,
+    CpuMode, CpuTopology, DiskCache, DiskIo, NodeCpuPins, NumaMemoryMode, PerformanceTuning, cpuset,
 };
 pub use provider::VmProviders;
 pub use provision::{ProvisionResult, ProvisionStatus};

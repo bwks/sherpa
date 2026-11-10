@@ -24,7 +24,7 @@
   <memory unit='MiB'>{{ memory }}</memory>
   {% if let Some(node) = tuning.numa_node %}
   <numatune>
-    <memory mode='strict' nodeset='{{ node }}'/>
+    <memory mode='{{ tuning.numa_memory_mode }}' nodeset='{{ node }}'/>
   </numatune>
   {% endif %}
 

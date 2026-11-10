@@ -1246,8 +1246,10 @@ stateDiagram-v2
   (`check_cpu_pins_on_server`, `node_resources.rs:65-107`) against the stored nodes and the
   ledger, and the memory against the server (`validate::check_memory_fits`, limited by
   `host_memory.reserve_mib` and `host_memory.overcommit_percent`), then add the nodes
-  to the ledger (`admission.rs:33`). Checked: a request that does not fit is refused before
-  anything is created.
+  to the ledger (`admission.rs:33`). Memory counts against the whole server, and that of a VM
+  held strictly on a NUMA node also against that node. A VM with
+  `numa_memory_mode = "preferred"` counts against the server only, requested or running.
+  Checked: a request that does not fit is refused before anything is created.
 - **Reserve.** A VM that already has a port keeps it. Otherwise the code picks a free port,
   retrying when the unique index loses a race.
 - **Release from the ledger.** Dropping the `Admission` (`admission.rs:62`) when the operation

@@ -79,6 +79,13 @@ pub fn check_performance_tuning(node: &NodeExpanded, image: &NodeConfig) -> Resu
         }
     }
 
+    if tuning.numa_memory_mode.is_some() && tuning.numa_node.is_none() {
+        bail!(
+            "Manifest - node: '{name}' sets `numa_memory_mode` without `numa_node`; set the \
+             host NUMA node its memory is placed on, or remove `numa_memory_mode`"
+        );
+    }
+
     if tuning.disk_io == Some(DiskIo::Native) && tuning.disk_cache != Some(DiskCache::None) {
         bail!(
             r#"Manifest - node: '{name}' sets `disk_io = "native"`, which needs `disk_cache = "none"`"#
@@ -165,7 +172,8 @@ fn first_repeat(cpus: &[u16]) -> Option<u16> {
 mod tests {
     use super::*;
     use shared::data::{
-        CpuTopology, DiskBuses, DiskCache, DiskIo, InterfaceType, NodeModel, PerformanceTuning,
+        CpuTopology, DiskBuses, DiskCache, DiskIo, InterfaceType, NodeModel, NumaMemoryMode,
+        PerformanceTuning,
     };
 
     fn node(cpu_count: Option<u8>, tuning: PerformanceTuning) -> NodeExpanded {
@@ -288,6 +296,29 @@ mod tests {
         };
         let message = error(&node(None, tuning), &ubuntu());
         assert!(message.contains("`qemu_cpus` is empty"), "{message}");
+    }
+
+    #[test]
+    fn test_numa_memory_mode_needs_numa_node() {
+        let tuning = PerformanceTuning {
+            numa_memory_mode: Some(NumaMemoryMode::Preferred),
+            ..PerformanceTuning::default()
+        };
+        let message = error(&node(None, tuning), &ubuntu());
+        assert!(
+            message.contains("sets `numa_memory_mode` without `numa_node`"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn test_numa_memory_mode_with_numa_node_is_accepted() {
+        let tuning = PerformanceTuning {
+            numa_node: Some(0),
+            numa_memory_mode: Some(NumaMemoryMode::Preferred),
+            ..PerformanceTuning::default()
+        };
+        check_performance_tuning(&node(None, tuning), &ubuntu()).unwrap();
     }
 
     #[test]

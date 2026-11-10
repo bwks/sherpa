@@ -428,3 +428,38 @@ fn test_domain_memory_reports_size_state_and_strict_numa_node() {
     assert_eq!(running.memory_kib, 64 * 1024);
     assert_eq!(running.strict_numa_node, Some(0));
 }
+
+/// Defines, starts and removes a 64 MiB domain that prefers NUMA node 0, with no disks. Its
+/// memory may go to another node, so it is not bound to one, defined or running.
+#[test]
+#[ignore = "requires a libvirt daemon with KVM"]
+fn test_domain_memory_preferring_a_numa_node_is_not_bound_to_it() {
+    let conn = connect().expect("connects");
+    let name = "sherpa-test-memory-preferred";
+    cleanup_domain(&conn, name);
+    let xml = format!(
+        "<domain type='kvm'><name>{name}</name><memory unit='MiB'>64</memory>\
+         <vcpu>1</vcpu><numatune><memory mode='preferred' nodeset='0'/></numatune>\
+         <os><type arch='x86_64'>hvm</type></os><devices/></domain>"
+    );
+    let domain = Domain::define_xml(&conn, &xml).expect("defines the domain");
+
+    let find = |conn: &Connect| {
+        list_domain_memory(conn)
+            .expect("lists domain memory")
+            .into_iter()
+            .find(|entry| entry.name == name)
+            .expect("lists the test domain")
+    };
+    let defined = find(&conn);
+    assert!(!defined.active);
+    assert_eq!(defined.strict_numa_node, None);
+
+    let started = domain.create();
+    let running = started.as_ref().ok().map(|_| find(&conn));
+    cleanup_domain(&conn, name);
+    started.expect("starts the domain");
+    let running = running.expect("reads the running domain");
+    assert!(running.active);
+    assert_eq!(running.strict_numa_node, None);
+}

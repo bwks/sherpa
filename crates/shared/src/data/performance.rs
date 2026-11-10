@@ -15,8 +15,10 @@ pub struct PerformanceTuning {
     pub cpu_pinning: Option<Vec<u16>>,
     /// Host CPUs for QEMU's own threads: everything in the QEMU process except the vCPUs.
     pub qemu_cpus: Option<Vec<u16>>,
-    /// The host NUMA node the guest's memory is held on.
+    /// The host NUMA node the guest's memory is placed on.
     pub numa_node: Option<u8>,
+    /// How the guest's memory is held to `numa_node`. Left out with `numa_node` set, strict.
+    pub numa_memory_mode: Option<NumaMemoryMode>,
     pub disk_cache: Option<DiskCache>,
     pub disk_io: Option<DiskIo>,
     /// Gives the disks an I/O thread, pinned to these host CPUs.
@@ -52,6 +54,17 @@ pub struct CpuTopology {
     pub sockets: u8,
     pub cores: u8,
     pub threads: u8,
+}
+
+/// How a guest's memory is held to its NUMA node: libvirt's `<numatune><memory mode>`.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum NumaMemoryMode {
+    /// Only the node's memory. When the node is full, the kernel's OOM killer ends the guest.
+    #[default]
+    Strict,
+    /// The node's memory first, then other nodes' when it is full.
+    Preferred,
 }
 
 /// The host cache mode for a node's disks.
@@ -91,6 +104,15 @@ impl fmt::Display for DiskCache {
     }
 }
 
+impl fmt::Display for NumaMemoryMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NumaMemoryMode::Strict => write!(f, "strict"),
+            NumaMemoryMode::Preferred => write!(f, "preferred"),
+        }
+    }
+}
+
 impl fmt::Display for DiskIo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -102,6 +124,16 @@ impl fmt::Display for DiskIo {
 }
 
 impl PerformanceTuning {
+    /// The NUMA node the guest's memory must stay on: `numa_node`, when the memory is held
+    /// strictly. Memory that prefers a node may go to another, so it is not bound to one.
+    #[must_use]
+    pub fn strict_numa_node(&self) -> Option<u8> {
+        match self.numa_memory_mode.unwrap_or_default() {
+            NumaMemoryMode::Strict => self.numa_node,
+            NumaMemoryMode::Preferred => None,
+        }
+    }
+
     /// The host CPUs running QEMU's threads other than vCPUs: its own and the disk I/O thread.
     #[must_use]
     pub fn qemu_thread_cpus(&self) -> Vec<u16> {
@@ -168,6 +200,49 @@ mod tests {
         assert_eq!(tuning.disk_cache, Some(DiskCache::None));
         assert_eq!(tuning.disk_io, Some(DiskIo::IoUring));
         assert_eq!(tuning.interface_queues, Some(4));
+    }
+
+    #[test]
+    fn test_numa_memory_mode_reads_strict_and_preferred() {
+        for (value, mode) in [
+            ("strict", NumaMemoryMode::Strict),
+            ("preferred", NumaMemoryMode::Preferred),
+        ] {
+            let tuning: PerformanceTuning = serde_json::from_value(serde_json::json!({
+                "numa_node": 1,
+                "numa_memory_mode": value
+            }))
+            .unwrap();
+            assert_eq!(tuning.numa_memory_mode, Some(mode));
+            assert_eq!(mode.to_string(), value);
+        }
+        let interleave: Result<PerformanceTuning, _> =
+            serde_json::from_value(serde_json::json!({ "numa_memory_mode": "interleave" }));
+        assert!(interleave.is_err());
+    }
+
+    #[test]
+    fn test_numa_memory_mode_defaults_to_strict() {
+        assert_eq!(NumaMemoryMode::default(), NumaMemoryMode::Strict);
+    }
+
+    #[test]
+    fn test_only_strict_numa_memory_is_held_to_its_node() {
+        let tuning = |numa_node, numa_memory_mode| PerformanceTuning {
+            numa_node,
+            numa_memory_mode,
+            ..PerformanceTuning::default()
+        };
+        assert_eq!(tuning(Some(1), None).strict_numa_node(), Some(1));
+        assert_eq!(
+            tuning(Some(1), Some(NumaMemoryMode::Strict)).strict_numa_node(),
+            Some(1)
+        );
+        assert_eq!(
+            tuning(Some(1), Some(NumaMemoryMode::Preferred)).strict_numa_node(),
+            None
+        );
+        assert_eq!(tuning(None, None).strict_numa_node(), None);
     }
 
     #[test]

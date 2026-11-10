@@ -44,12 +44,16 @@ connection drops.
   [`../architecture/SERVER.md`](../architecture/SERVER.md) and section 31 of
   [`../architecture/STATE_MACHINES.md`](../architecture/STATE_MACHINES.md).
 - The NUMA node count now comes from the capabilities XML.
+- `performance_tuning.numa_memory_mode` (0.5.19): `strict` (the default when `numa_node` is set)
+  or `preferred`, rendered as `<numatune><memory mode>`. A `preferred` VM counts only against
+  the server total in admission, requested or running; only `strict` memory is held to its
+  NUMA node. The dev and agent environments use `preferred`. Settled behaviour is in
+  "Admission: memory and CPU pins" in [`../architecture/SERVER.md`](../architecture/SERVER.md)
+  and in the user docs' manifest reference (`numa_memory_mode`).
 - Provisioning trusts the project `mise.toml` in guest checkouts (separate change).
 
 ## Open
 
-- A `numa_memory_mode` setting with `preferred` for `performance_tuning`, and switching the dev
-  and agent environments to it.
 - The release test harness: run releases one at a time when the server refuses them, and
   report a guest killed by the host OOM killer (`virsh domstate --reason`, the kernel log's
   `oom-kill` line naming the domain's `machine-qemu…scope`) instead of `exited 255`.
