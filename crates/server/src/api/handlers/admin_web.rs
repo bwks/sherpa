@@ -124,6 +124,7 @@ pub async fn admin_labs_list_handler(
             description: lab.description,
             owner_username,
             node_count,
+            phase: lab.phase,
         });
     }
 

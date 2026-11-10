@@ -15,6 +15,7 @@ mod import;
 mod inspect;
 mod interface;
 mod lab;
+mod lab_lifecycle;
 mod mapping;
 mod network;
 mod node;
@@ -78,6 +79,7 @@ pub use lab::{
     LabLinkData, LabNodeData, LabReservedNetwork, LabSshKey, LabState, LabSummary,
     ListLabsResponse, NodeInterface, NodeSetupData, NodeSshUsername, PeerInterface, PeerSide,
 };
+pub use lab_lifecycle::{LabEvent, LabNotReady, LabPhase, LabRefused, LabTransition};
 pub use mapping::{CloneDisk, NodeDisk, QemuCommand};
 pub use network::{BridgeKind, LabSubnets, NetworkV4, NetworkV6, SherpaNetwork};
 pub use node::{

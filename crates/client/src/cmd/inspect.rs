@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use shared::data::{ClientConfig, InspectResponse};
 use shared::util::{
-    render_bridges_table, render_devices_table, render_lab_info_table, render_links_table,
+    Emoji, render_bridges_table, render_devices_table, render_lab_info_table, render_links_table,
     term_msg_surround, term_msg_underline,
 };
 
@@ -64,6 +64,10 @@ pub async fn inspect(
 
     let lab_info_table = render_lab_info_table(&inspect_data.lab_info);
     println!("{}", lab_info_table);
+    // A lab being created or destroyed, or left so, says what to do with it.
+    if let Err(not_ready) = inspect_data.lab_phase.ensure_ready() {
+        println!("{} Not ready: {not_ready}", Emoji::Warning);
+    }
 
     // Display active devices in table format
     if !inspect_data.devices.is_empty() {

@@ -1,5 +1,5 @@
-use anyhow::{Context, Result, anyhow};
-use shared::data::{DbLab, LabState, RecordId};
+use anyhow::{Context, Result};
+use shared::data::{DbLab, LabPhase, RecordId};
 use tracing::instrument;
 use turso::Value;
 
@@ -9,7 +9,7 @@ use crate::queries;
 use crate::sql::query_optional;
 
 /// Record the Tailscale gateway container of the lab `id`, or `None` once it is removed. Only
-/// that column is written, so a status written meanwhile is kept.
+/// that column is written, so a phase written meanwhile is kept.
 ///
 /// # Errors
 ///
@@ -35,30 +35,32 @@ pub async fn update_lab_tailscale_container(
     updated.with_context(|| format!("Lab not found: {id:?}"))
 }
 
-/// Update the status field of an existing lab
+/// Move the lab `lab_id` from phase `from` to `to`: a compare-and-set, so a writer that read
+/// the lab before another moved it does not overwrite the move.
 ///
-/// # Arguments
-/// * `db` - Database connection
-/// * `lab` - Record ID of the lab to update
-/// * `state` - New lab state
-///
-/// # Returns
-/// The updated `DbLab` record
+/// Returns the moved lab, or `None` when the lab is no longer in `from` or does not exist.
 ///
 /// # Errors
 ///
-/// Fails when the lab does not exist or the database cannot be written.
+/// Fails when the database cannot be written.
 #[instrument(skip(db), level = "debug")]
-pub async fn update_lab_state(db: &Database, lab: RecordId, state: LabState) -> Result<DbLab> {
+pub async fn update_lab_phase_from(
+    db: &Database,
+    lab_id: &str,
+    from: LabPhase,
+    to: LabPhase,
+) -> Result<Option<DbLab>> {
     let writer = db.writer().await?;
-    let updated = query_optional(
+    query_optional(
         &writer.conn,
-        queries::lab::UPDATE_STATUS,
-        [key_of(&lab, LAB_TABLE)?, enum_text(&state, "status")?],
+        queries::lab::UPDATE_PHASE_FROM,
+        vec![
+            Value::from(lab_id),
+            enum_text(&from, "phase")?.into(),
+            enum_text(&to, "phase")?.into(),
+        ],
         lab_from_row,
     )
     .await
-    .context(format!("Failed to update state for lab: {lab:?}"))?;
-
-    updated.ok_or_else(|| anyhow!("Lab not found: {lab:?}"))
+    .with_context(|| format!("Failed to move lab {lab_id} from {from} to {to}"))
 }

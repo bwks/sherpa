@@ -26,6 +26,7 @@ use crate::api::websocket;
 use crate::auth::session;
 use crate::daemon::metrics::Metrics;
 use crate::daemon::state::AppState;
+use crate::services::lab_lifecycle::{self, Recovery};
 use crate::services::scanner::run_scanner;
 use crate::tls::CertificateManager;
 use shared::data::{Config, OtelConfig};
@@ -234,6 +235,21 @@ pub async fn run_server(foreground: bool) -> Result<()> {
     let state = AppState::new(config.clone(), metrics)
         .await
         .context("Failed to initialize application state")?;
+
+    // Before anything takes requests or scans: mark the labs and nodes the operations running
+    // when the server last stopped left mid-way, since nothing will finish them.
+    let recovery = lab_lifecycle::recover(&state.db)
+        .await
+        .context("Failed to recover labs left mid-operation")?;
+    if recovery != Recovery::default() {
+        tracing::warn!(
+            interrupted_labs = recovery.interrupted_labs,
+            failed_destroys = recovery.failed_destroys,
+            failed_nodes = recovery.failed_nodes,
+            errors = recovery.errors,
+            "Recovered labs and nodes left mid-operation when the server last stopped"
+        );
+    }
 
     // Set up shutdown cancellation token for background services
     let cancel_token = CancellationToken::new();

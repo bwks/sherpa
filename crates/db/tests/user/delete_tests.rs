@@ -1,7 +1,7 @@
 /// DELETE operation tests for user
 use anyhow::Result;
-use db::{LabDetails, create_lab, create_user, delete_lab, delete_user, get_user, list_users};
-use shared::data::RecordId;
+use db::{LabDetails, create_lab, create_user, delete_lab_from, delete_user, get_user, list_users};
+use shared::data::{LabPhase, RecordId};
 
 use crate::{ipv4_lab_networks, setup_db};
 
@@ -177,7 +177,7 @@ async fn test_delete_user_with_labs_needs_manual_cleanup() -> Result<()> {
     .await?;
 
     // The schema rejects deleting a lab owner, so the lab must be deleted first
-    delete_lab(&db, &lab.lab_id).await?;
+    assert!(delete_lab_from(&db, &lab.lab_id, LabPhase::Creating).await?);
 
     // Now user can be deleted
     delete_user(&db, user_id).await?;

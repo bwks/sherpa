@@ -2,12 +2,13 @@ use anyhow::Result;
 
 use db::{
     Database, LabDetails, count_nodes_by_lab, create_bridge, create_lab, create_link, create_node,
-    create_user, delete_lab, delete_node_image, delete_user, find_node_image_by_model_kind_version,
-    get_lab, get_user, list_bridges, list_links_by_lab, list_nodes_by_lab, upsert_node_image,
+    create_user, delete_lab_from, delete_node_image, delete_user,
+    find_node_image_by_model_kind_version, get_lab, get_user, list_bridges, list_links_by_lab,
+    list_nodes_by_lab, upsert_node_image,
 };
 use shared::data::{
-    BridgeKind, BridgeMember, DbLab, DbLink, DbNode, LinkImpairment, NodeConfig, NodeModel,
-    RecordId,
+    BridgeKind, BridgeMember, DbLab, DbLink, DbNode, LabPhase, LinkImpairment, NodeConfig,
+    NodeModel, RecordId,
 };
 
 use crate::{create_test_node_with_model, ipv4_lab_networks, setup_db, test_link};
@@ -100,7 +101,7 @@ async fn test_delete_lab_cascade_removes_nodes_links_bridges() -> Result<()> {
     assert_eq!(bridges.len(), 1);
 
     // Delete lab with cascade
-    delete_lab(&db, &lab.lab_id).await?;
+    assert!(delete_lab_from(&db, &lab.lab_id, LabPhase::Creating).await?);
 
     // Verify lab is gone
     assert!(get_lab(&db, "casc0001").await.is_err());
@@ -176,7 +177,7 @@ async fn test_bridge_members_are_removed_with_their_lab() -> Result<()> {
     assert_eq!(bridges.len(), 1);
     assert_eq!(bridges[0].members, members);
 
-    delete_lab(&db, &lab.lab_id).await?;
+    assert!(delete_lab_from(&db, &lab.lab_id, LabPhase::Creating).await?);
 
     assert_eq!(count_nodes_by_lab(&db, lab_rid.clone()).await?, 0);
     assert!(list_bridges(&db, &lab_rid).await?.is_empty());
@@ -234,7 +235,7 @@ async fn test_delete_user_is_rejected_while_they_own_labs() -> Result<()> {
     assert_eq!(count_nodes_by_lab(&db, lab_rid).await?, 2);
 
     // Once the lab is gone, the user can be deleted
-    delete_lab(&db, "doom0001").await?;
+    assert!(delete_lab_from(&db, "doom0001", LabPhase::Creating).await?);
     delete_user(&db, user_id).await?;
 
     Ok(())
@@ -515,7 +516,7 @@ async fn test_delete_lab_cascades_through_every_level() -> Result<()> {
     )
     .await?;
 
-    delete_lab(&db, &lab.lab_id).await?;
+    assert!(delete_lab_from(&db, &lab.lab_id, LabPhase::Creating).await?);
 
     assert!(get_lab(&db, "fkey0002").await.is_err());
     assert_eq!(count_nodes_by_lab(&db, lab_rid.clone()).await?, 0);
@@ -551,7 +552,7 @@ async fn test_node_image_in_use_cannot_be_deleted() -> Result<()> {
     );
 
     // Once nothing uses the image, it can go.
-    delete_lab(&db, &lab.lab_id).await?;
+    assert!(delete_lab_from(&db, &lab.lab_id, LabPhase::Creating).await?);
     delete_node_image(&db, image_id).await?;
     Ok(())
 }

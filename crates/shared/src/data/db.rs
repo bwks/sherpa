@@ -1,7 +1,7 @@
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
-use super::{BridgeKind, LabSshKey, LabState, LinkImpairment, NodeState, RecordId};
+use super::{BridgeKind, LabPhase, LabSshKey, LinkImpairment, NodeState, RecordId};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DbUser {
@@ -59,8 +59,9 @@ pub struct DbLab {
     pub gateway_ipv6: Option<String>,
     pub router_ipv6: Option<String>,
     pub loopback_network_v6: Option<String>,
+    /// Which operation owns the lab, if any. Its status is derived from its nodes when read.
     #[serde(default)]
-    pub status: LabState,
+    pub phase: LabPhase,
     /// The hostname of the machine `sherpa up` ran on. Labs started from the web UI or the API
     /// have none.
     #[serde(default)]

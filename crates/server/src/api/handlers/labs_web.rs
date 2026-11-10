@@ -311,6 +311,7 @@ pub async fn lab_detail_handler(
                 lab_id: lab_id.clone(),
                 lab_info: response.lab_info,
                 lab_state: response.lab_state,
+                lab_phase: response.lab_phase,
                 devices: response.devices,
                 device_count,
                 inactive_devices: response.inactive_devices,

@@ -79,7 +79,9 @@ pub async fn apply_schema(db: &Database) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use shared::data::{DiskBuses, LabSshKey, NodeConfig, NodeModel, NodeState, ZtpMethod};
+    use shared::data::{
+        DiskBuses, LabPhase, LabSshKey, NodeConfig, NodeModel, NodeState, ZtpMethod,
+    };
 
     use super::*;
     use crate::{find_lab, list_node_images, list_nodes_by_lab, open_in_memory, upsert_node_image};
@@ -536,6 +538,46 @@ mod tests {
         let nodes = list_nodes_by_lab(&db, lab.id.unwrap()).await.unwrap();
         assert_eq!(nodes.len(), 2);
         assert!(nodes.iter().any(|node| node.state == NodeState::Unknown));
+    }
+
+    #[tokio::test]
+    async fn labs_from_before_the_lab_lifecycle_are_ready_and_their_status_is_not_stored() {
+        // #499: every lab that exists before the phase was stored had been built.
+        let db = open_in_memory().await.unwrap();
+        {
+            let writer = db.writer().await.unwrap();
+            for batch in TABLES.iter().chain(&migrations::ALL[..13]) {
+                writer.conn.execute_batch(batch).await.unwrap();
+            }
+            writer
+                .conn
+                .execute_batch(
+                    "PRAGMA user_version = 14;
+                     INSERT INTO user (id, username, password_hash, is_admin, ssh_keys,
+                         created_at, updated_at)
+                     VALUES ('u1', 'alice', 'x', 0, '[]', '2026-01-01T00:00:00Z',
+                         '2026-01-01T00:00:00Z');
+                     INSERT INTO lab (id, lab_id, name, user, loopback_network,
+                         management_network, gateway_ipv4, router_ipv4, status)
+                     VALUES ('l1', 'lab-0001', 'Old', 'u1', '127.127.1.0/24', '172.31.1.0/24',
+                         '172.31.1.1', '172.31.1.2', 'stopped');",
+                )
+                .await
+                .unwrap();
+        }
+
+        apply_schema(&db).await.unwrap();
+
+        let lab = find_lab(&db, "lab-0001").await.unwrap().unwrap();
+        assert_eq!(lab.phase, LabPhase::Ready);
+        let writer = db.writer().await.unwrap();
+        assert!(
+            writer
+                .conn
+                .execute("SELECT status FROM lab", ())
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]

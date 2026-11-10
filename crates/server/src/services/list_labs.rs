@@ -5,7 +5,7 @@ use crate::auth::context::AuthContext;
 use crate::auth::policy::require_self_or_admin;
 use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
-use shared::data::{LabSummary, ListLabsResponse};
+use shared::data::{DbLab, LabState, LabSummary, ListLabsResponse, NodeState, RecordId};
 
 /// List the labs owned by a user
 ///
@@ -40,37 +40,103 @@ pub async fn list_labs(
     // Get user's record ID
     let user_id = user.id.ok_or_else(|| anyhow::anyhow!("User has no ID"))?;
 
-    // Get all labs for this user
     let labs = db::list_labs_by_user(&state.db, user_id.clone())
         .await
         .context("Failed to list labs for user")?;
+    let node_states = db::list_node_states_by_user(&state.db, user_id)
+        .await
+        .context("Failed to list the nodes of the user's labs")?;
+    let labs = summarize_labs(labs, &node_states);
+    let total = labs.len();
+    Ok(ListLabsResponse { labs, total })
+}
 
-    // Build lab summaries — status is read directly from the lab record
-    let mut lab_summaries = Vec::new();
+/// Summarize each lab: its phase, and its status and node count from `node_states`, the state
+/// of every node of these labs with its lab's record ID.
+fn summarize_labs(labs: Vec<DbLab>, node_states: &[(RecordId, NodeState)]) -> Vec<LabSummary> {
+    labs.into_iter()
+        .map(|lab| {
+            let states: Vec<NodeState> = node_states
+                .iter()
+                .filter(|(node_lab, _)| lab.id.as_ref() == Some(node_lab))
+                .map(|(_, state)| *state)
+                .collect();
+            LabSummary {
+                id: lab.lab_id,
+                name: lab.name,
+                description: lab.description,
+                node_count: states.len(),
+                status: LabState::derive(&states),
+                phase: lab.phase,
+            }
+        })
+        .collect()
+}
 
-    for lab in labs {
-        let lab_record_id = lab
-            .id
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("Lab has no ID"))?;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::data::LabPhase;
 
-        let node_count = db::count_nodes_by_lab(&state.db, lab_record_id)
-            .await
-            .unwrap_or(0);
-
-        lab_summaries.push(LabSummary {
-            id: lab.lab_id.clone(),
-            name: lab.name.clone(),
-            description: lab.description.clone(),
-            node_count,
-            status: lab.status,
-        });
+    fn lab(key: &str, phase: LabPhase) -> DbLab {
+        DbLab {
+            id: Some(RecordId::new("lab", key.to_string())),
+            lab_id: key.to_string(),
+            name: key.to_string(),
+            user: RecordId::new("user", "alice".to_string()),
+            loopback_network: String::new(),
+            management_network: String::new(),
+            gateway_ipv4: String::new(),
+            router_ipv4: String::new(),
+            tailscale_container_id: None,
+            management_network_v6: None,
+            gateway_ipv6: None,
+            router_ipv6: None,
+            loopback_network_v6: None,
+            phase,
+            client_host: None,
+            client_folder: None,
+            description: None,
+            ssh_key: shared::data::LabSshKey::Lab,
+        }
     }
 
-    let total = lab_summaries.len();
+    #[test]
+    fn a_labs_status_is_derived_from_its_nodes_when_listed() {
+        // #499: the status is no longer stored, so it cannot be stale or missing (M1.7).
+        let labs = vec![
+            lab("ab12cd34", LabPhase::Ready),
+            lab("ef56ab78", LabPhase::Ready),
+            lab("empty001", LabPhase::Creating),
+        ];
+        let node_states = [
+            (
+                RecordId::new("lab", "ab12cd34".to_string()),
+                NodeState::Running,
+            ),
+            (
+                RecordId::new("lab", "ef56ab78".to_string()),
+                NodeState::Running,
+            ),
+            (
+                RecordId::new("lab", "ab12cd34".to_string()),
+                NodeState::Stopped,
+            ),
+        ];
 
-    Ok(ListLabsResponse {
-        labs: lab_summaries,
-        total,
-    })
+        let summaries = summarize_labs(labs, &node_states);
+
+        let shown: Vec<(&str, LabState, usize, LabPhase)> = summaries
+            .iter()
+            .map(|lab| (lab.id.as_str(), lab.status, lab.node_count, lab.phase))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("ab12cd34", LabState::Partial, 2, LabPhase::Ready),
+                ("ef56ab78", LabState::Running, 1, LabPhase::Ready),
+                ("empty001", LabState::Empty, 0, LabPhase::Creating),
+            ]
+        );
+    }
 }

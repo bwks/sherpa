@@ -32,6 +32,8 @@ pub struct UpRequest {
 pub struct UpResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tailscale: Option<TailnetStatus>,
+    /// Whether every part of the lab came up: false when any error is critical. The lab is
+    /// created either way, and can be used or destroyed.
     pub success: bool,
     pub lab_info: LabInfo,
     pub total_time_secs: u64,
@@ -138,6 +140,9 @@ pub struct NodeInfo {
 pub struct UpError {
     pub phase: String,
     pub message: String,
+    /// Critical: part of the lab failed and nothing will set it up again, such as a container
+    /// that exited or a lab service that did not come up. Not critical: it may still come right,
+    /// such as a node slow to answer, or it is advice.
     pub is_critical: bool,
 }
 

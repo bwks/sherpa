@@ -6,19 +6,20 @@ use std::mem;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use opentelemetry::KeyValue;
 use tracing::instrument;
 
 use super::context::LabBuild;
 use super::links::{LinkRecords, P2pAttachment, attach_vm_links, create_links};
 use super::networks::{
-    container_data_attachments, create_isolated_container_networks, create_management_networks,
-    create_shared_bridges, management_network, set_isolated_bridges_down, write_lab_files,
+    ReservedLab, container_data_attachments, create_isolated_container_networks,
+    create_management_networks, create_shared_bridges, management_network, reserve_lab,
+    set_isolated_bridges_down, write_lab_files,
 };
 use super::plan::{LabPlan, plan_lab};
 use super::readiness::{NodesReady, ReadinessInputs, wait_for_nodes};
-use super::records::{LabOwner, NodeRecords, create_node_records};
+use super::records::{NodeRecords, create_node_records};
 use super::runtime::{create_unikernels, create_vms};
 use super::services::{LabServices, ServiceInputs, start_lab_services};
 use super::ssh::write_ssh_files;
@@ -28,7 +29,8 @@ use crate::auth::policy::{require_host_access, require_lab_starter};
 use crate::daemon::state::AppState;
 use crate::services::clean;
 use crate::services::guest_account;
-use crate::services::lab_operations::{self, LabOperation, StopReason};
+use crate::services::lab_lifecycle;
+use crate::services::lab_operations::{self, LabHold, LabOperation, StopReason};
 use crate::services::lab_ssh_key::{LabSshKeyPaths, create_lab_ssh_key};
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
@@ -40,17 +42,18 @@ use crate::validate::{reject_provisioners, validate_lab_origin, validate_node_se
 
 use libvirt::QemuConnection;
 use shared::data;
-use shared::data::{LabSubnets, RecordId, StatusKind, TailnetAuthKey, TailnetStatus};
+use shared::data::{LabEvent, LabSubnets, StatusKind, TailnetAuthKey, TailnetStatus};
 use shared::konst::{READINESS_TIMEOUT, SHERPA_LABS_PATH};
 use shared::util;
 use topology::validate::{check_client_read_files, check_lab_description};
 
 /// What setup (phase 1) gives the later phases: the libvirt connection, the owner's record,
-/// and every node image.
+/// every node image, and the lab's reservation.
 struct Setup {
     qemu_conn: Arc<QemuConnection>,
     db_user: data::DbUser,
     node_images: Vec<data::NodeConfig>,
+    reserved: ReservedLab,
 }
 
 /// One `up`: the lab being built, what phases 1 and 2 decided, and the phases completed and
@@ -60,7 +63,8 @@ struct LabUp<'a> {
     state: &'a AppState,
     operation: &'a LabOperation,
     manifest: &'a topology::Manifest,
-    owner: LabOwner<'a>,
+    /// What the user said about the lab.
+    details: &'a db::LabDetails,
     /// The authenticated caller, who owns the lab.
     username: &'a str,
     /// Holds the disk image leases until every domain exists.
@@ -157,12 +161,14 @@ pub async fn up_lab(
         qemu_conn,
         db_user,
         node_images,
+        reserved,
     } = set_up(
         state,
         &lab_id,
         &lab_dir,
         &ctx.username,
         &manifest.name,
+        &details,
         &progress,
     )
     .await?;
@@ -183,21 +189,16 @@ pub async fn up_lab(
         config: &state.config,
         progress: &progress,
     };
-    let mut plan = plan_lab(&build, &manifest, &db_user, node_images).await?;
+    let mut plan = validate(&build, &operation, &manifest, &db_user, node_images).await?;
     // Held until `up` returns: the containers start during readiness polling.
     let _container_image_guards = mem::take(&mut plan.container_image_guards);
-    ensure_no_earlier_attempt(&qemu_conn, &lab_id, &plan.selected_images)?;
 
     let mut lab_up = LabUp {
         build,
         state,
         operation: &operation,
         manifest: &manifest,
-        owner: LabOwner {
-            lab_name: &manifest.name,
-            user: &db_user,
-            details: &details,
-        },
+        details: &details,
         username: &ctx.username,
         plan,
         node_secrets: &node_secrets,
@@ -208,17 +209,39 @@ pub async fn up_lab(
         errors: Vec::new(),
     };
 
-    // Phases 1 and 2 create nothing, so their failures return directly. From phase 3 on, a
-    // failure rolls the lab back.
-    let result = lab_up.create().await;
+    // From phase 3 on, a failure rolls the lab back.
+    let result = lab_up.create(reserved).await;
     state.metrics.operation_duration.record(
         start_time.elapsed().as_secs_f64(),
         &[KeyValue::new("operation.type", "up")],
     );
     if let Err(error) = &result {
-        roll_back_failed_up(state, &lab_id, &operation, &progress, error).await;
+        roll_back_failed_up(state, &operation, &progress, error).await;
     }
     result
+}
+
+/// Validation (phase 2): plan the lab, and refuse to start over an earlier attempt's disks or
+/// VMs. Nothing has been created yet, so a failure gives the reservation back.
+async fn validate(
+    build: &LabBuild<'_>,
+    operation: &LabOperation,
+    manifest: &topology::Manifest,
+    db_user: &data::DbUser,
+    node_images: Vec<data::NodeConfig>,
+) -> Result<LabPlan> {
+    let planned = plan_lab(build, manifest, db_user, node_images)
+        .await
+        .and_then(|plan| {
+            ensure_no_earlier_attempt(build.qemu_conn, build.lab_id, &plan.selected_images)?;
+            Ok(plan)
+        });
+    if planned.is_err()
+        && let Err(error) = lab_lifecycle::record(build.db, operation, LabEvent::Released).await
+    {
+        tracing::error!(lab_id = %build.lab_id, error = ?error, "Failed to release the lab reservation");
+    }
+    planned
 }
 
 /// The request's manifest, checked before anything else: host access, the description, the
@@ -245,8 +268,9 @@ fn check_up_request(
     Ok(manifest)
 }
 
-/// Setup (phase 1): connect to libvirt, load the owner, who must have an SSH key, refuse a lab
-/// ID already in use, and load every node image.
+/// Setup (phase 1): connect to libvirt, load the owner, who must have an SSH key, and every node
+/// image, then reserve the lab. A lab ID already in use is refused there, before anything is
+/// created.
 #[instrument(skip_all, fields(%lab_id))]
 async fn set_up(
     state: &AppState,
@@ -254,6 +278,7 @@ async fn set_up(
     lab_dir: &str,
     current_user: &str,
     lab_name: &str,
+    details: &db::LabDetails,
     progress: &ProgressSender,
 ) -> Result<Setup> {
     let _ = progress.send_phase(data::UpPhase::Setup, "Initializing connections".to_string());
@@ -278,20 +303,6 @@ async fn set_up(
         .context("Failed to get database user")?;
     guest_account::require_ssh_key(&db_user)?;
 
-    // Check if lab already exists (CRITICAL ERROR - fail fast)
-    if let Some(lab) = db::find_lab(&state.db, lab_id)
-        .await
-        .context("Failed to check for an existing lab")?
-    {
-        return Err(lab_id_taken(
-            lab_id,
-            &lab.name,
-            &lab.user,
-            lab_name,
-            db_user.id.as_ref(),
-        ));
-    }
-
     let _ = progress.send_status("Loading configuration".to_string(), StatusKind::Info);
 
     // Bulk fetch all node configs from database
@@ -299,10 +310,23 @@ async fn set_up(
         .await
         .context("Failed to list node configs from database")?;
 
+    // Last, so nothing after it in this phase can fail: the record is the reservation, and a
+    // second `up` of this lab fails here.
+    let reserved = reserve_lab(
+        &state.db,
+        &state.config,
+        lab_name,
+        lab_id,
+        &db_user,
+        details,
+    )
+    .await?;
+
     Ok(Setup {
         qemu_conn,
         db_user,
         node_images,
+        reserved,
     })
 }
 
@@ -346,8 +370,9 @@ impl LabUp<'_> {
         self.phases_completed.push(name.to_string());
     }
 
-    /// Create the lab's resources and start its nodes (phases 3 to 13).
-    async fn create(&mut self) -> Result<data::UpResponse> {
+    /// Create the lab's resources and start its nodes (phases 3 to 13), then record the lab
+    /// built.
+    async fn create(&mut self, reserved: ReservedLab) -> Result<data::UpResponse> {
         // ========================================================================
         // PHASE 3: Database Records & Data Structure Building
         // ========================================================================
@@ -357,7 +382,7 @@ impl LabUp<'_> {
         )?;
         let mut records = create_node_records(
             &self.build,
-            &self.owner,
+            reserved,
             &self.plan.nodes_expanded,
             &self.plan.node_images,
             &self.plan.links_detailed,
@@ -379,6 +404,9 @@ impl LabUp<'_> {
         let started = self
             .start_nodes(&records, &network, &links, &p2p_links, &mut built)
             .await?;
+        lab_lifecycle::record(self.build.db, self.operation, LabEvent::Built)
+            .await
+            .context("Failed to record the lab built")?;
         Ok(self.response(&records, &links, network, &built, started))
     }
 
@@ -422,9 +450,9 @@ impl LabUp<'_> {
             ipv6_network: Some(ipv6_management_subnet),
             ipv6_gateway: Some(gateway_ipv6),
             ipv6_router: Some(router_ipv6),
-            description: self.owner.details.description.clone(),
-            client_host: self.owner.details.client_host.clone(),
-            client_folder: self.owner.details.client_folder.clone(),
+            description: self.details.description.clone(),
+            client_host: self.details.client_host.clone(),
+            client_folder: self.details.client_folder.clone(),
         };
 
         write_lab_files(self.build.lab_dir, &lab_info, self.manifest)?;
@@ -798,14 +826,17 @@ impl LabUp<'_> {
 
 /// After `up` failed or was stopped, remove what it created, unless a destroy that stopped it
 /// is removing the lab already.
-#[instrument(skip_all, fields(%lab_id))]
+/// Remove what a failed `up` created, through the lab's `Destroying` phase. A rollback that
+/// leaves something behind leaves the lab `DestroyFailed`, so its owner can destroy it again.
+/// A lab being destroyed is left to the destroy.
+#[instrument(skip_all, fields(lab_id = %operation.lab_id()))]
 async fn roll_back_failed_up(
     state: &AppState,
-    lab_id: &str,
     operation: &LabOperation,
     progress: &ProgressSender,
     error: &anyhow::Error,
 ) {
+    let lab_id = operation.lab_id();
     match operation.stop_reason() {
         Some(StopReason::Destroy) => {
             // The lab is being destroyed, which removes everything this run created.
@@ -837,7 +868,7 @@ async fn roll_back_failed_up(
         }
     }
 
-    match clean::clean_lab_resources(lab_id, state).await {
+    match clean::clean_lab_resources(state, operation).await {
         Ok(clean_response) => {
             if clean_response.success {
                 tracing::info!(lab_id = %lab_id, "Auto-cleanup completed successfully");
@@ -865,48 +896,5 @@ async fn roll_back_failed_up(
             );
             let _ = progress.send_status(format!("Cleanup failed: {clean_err}"), StatusKind::Info);
         }
-    }
-}
-
-/// The error for an `up` whose lab ID is in use. Either this lab is still deployed, or another
-/// lab has the same ID: IDs are a hash of the owner and the lab name, so two owners' labs can
-/// collide. The other lab belongs to someone else, so it is not named.
-fn lab_id_taken(
-    lab_id: &str,
-    existing_name: &str,
-    existing_owner: &RecordId,
-    lab_name: &str,
-    owner: Option<&RecordId>,
-) -> anyhow::Error {
-    if existing_name == lab_name && owner == Some(existing_owner) {
-        anyhow!(
-            "Lab already exists. Please use a different lab ID or destroy the existing lab first.\n Lab name: {lab_name}\n Lab id: {lab_id}"
-        )
-    } else {
-        anyhow!(
-            "Lab '{lab_name}' gets the lab ID {lab_id}, which another lab already uses. \
-             Lab IDs come from the owner and the lab name, and these collide; rename the lab."
-        )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_lab_id_another_lab_uses_is_reported_without_naming_it() {
-        let alice = RecordId::new("user", "alice".to_string());
-        let bob = RecordId::new("user", "bob".to_string());
-
-        let redeployed = lab_id_taken("ab12cd34", "core", &alice, "core", Some(&alice));
-        assert!(
-            redeployed.to_string().contains("destroy the existing lab"),
-            "{redeployed}"
-        );
-
-        let collision = lab_id_taken("ab12cd34", "x", &bob, "core", Some(&alice)).to_string();
-        assert!(collision.contains("rename the lab"), "{collision}");
-        assert!(!collision.contains("'x'"), "{collision}");
     }
 }

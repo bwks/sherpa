@@ -32,7 +32,7 @@ are in [`../investigations/turso-migration.md`](../investigations/turso-migratio
   together run in one transaction (`writer.conn.transaction()`, committed explicitly; dropping it
   rolls back); a test checks that a transaction that fails after DDL and a `user_version` change
   leaves neither.
-- **Narrow updates.** An update writes only the columns it is for: `update_lab_state`,
+- **Narrow updates.** An update writes only the columns it is for: `update_lab_phase_from`,
   `update_lab_tailscale_container`, `update_link_impairments` and the `update_node_*` functions.
   A caller holding an older copy of the record cannot write back columns another task changed
   meanwhile. `update_user` writes the user's own fields, sets `updated_at` itself and never changes
@@ -161,6 +161,8 @@ table, copy the rows, drop the old one, rename.
 | 10 | `0010_lab_description.sql`: `lab.description`, the manifest's optional `description` (see below) |
 | 11 | `0011_lab_ssh_key.sql`: `lab.ssh_key`, the key pair the `sherpa` account on the lab's nodes logs in with: `lab` for the lab's own, `server` (the default, for every lab created before) for the server's shared key. See [`SERVER.md`](SERVER.md#lab-ssh-keys) |
 | 12 | `0012_session.sql`: the `session` table, one row per login session, with indexes on `user` and `expires_at`. Tokens issued before it name no session, so every user logs in again after the upgrade. See [`SERVER.md`](SERVER.md#sessions-and-identity) |
+| 13 | `0013_node_lifecycle.sql`: turns the node state `created` into `stopped`. See [`STATE_MACHINES.md`](STATE_MACHINES.md#1-node-lifecycle-nodestate) |
+| 15 | `0015_lab_phase.sql`: `lab.phase`, which operation owns the lab's record (`ready` for every lab created before), and drops `lab.status`: a lab's status is derived from its nodes when it is read. See [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate) |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
@@ -186,7 +188,9 @@ each lab's `LabSummary`, so the web UI's labs tables and the `labs.list` API sho
 Enum columns are checked by the types, not by the database: every value `db` writes is serialized
 from its Rust enum (`enum_text`), and every value it reads is decoded back, so a value outside the
 enum, such as one a newer release stored before a downgrade, fails when its row is read, naming the
-row. Data-fix migrations, which write enum names as literal text, each have a test that reads the
+row. The lifecycle states are the exception: `node.state` and `lab.phase` decode
+text they do not know as `unknown` (`#[serde(other)]`), so one row from a newer release does not
+fail a whole listing. Data-fix migrations, which write enum names as literal text, each have a test that reads the
 corrected rows back.
 
 Triggers enforce only rules the types cannot express. All of them are fixed text in migrations, so

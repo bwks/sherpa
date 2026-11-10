@@ -609,4 +609,50 @@ mod tests {
             .unwrap();
         drop(admitted);
     }
+
+    /// Against the real libvirt: two labs whose nodes pin the same host CPU are admitted one at
+    /// a time. While the first lab's admission is held, before any node of it is stored or
+    /// running, the second is refused; once it is released, the second is admitted. Before #518
+    /// the pins were only checked against stored nodes, so two `up`s could both pass (M6.5).
+    #[tokio::test]
+    #[ignore = "requires a libvirt daemon"]
+    async fn a_pending_node_holds_its_cpu_pins_until_released() {
+        let db = db::open_in_memory().await.unwrap();
+        db::apply_schema(&db).await.unwrap();
+        let conn = Qemu::default().connect().unwrap();
+        let settings = HostMemorySettings::default();
+        let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let node = |name: &str| topology::NodeExpanded {
+            name: name.to_string(),
+            memory: Some(256),
+            performance_tuning: Some(PerformanceTuning {
+                cpu_pinning: Some(vec![0]),
+                ..PerformanceTuning::default()
+            }),
+            ..Default::default()
+        };
+        let (first, second) = (node("first"), node("second"));
+
+        let held = admit_lab_nodes(&db, &conn, settings, "pintest1", &[(&first, &image)])
+            .await
+            .unwrap();
+        let refused = admit_lab_nodes(&db, &conn, settings, "pintest2", &[(&second, &image)])
+            .await
+            .unwrap_err();
+        let message = format!("{refused:#}");
+        assert!(
+            message.contains("CPU pinning validation failed"),
+            "{message}"
+        );
+        assert!(
+            message.contains("being created by another operation"),
+            "{message}"
+        );
+
+        drop(held);
+        let admitted = admit_lab_nodes(&db, &conn, settings, "pintest2", &[(&second, &image)])
+            .await
+            .unwrap();
+        drop(admitted);
+    }
 }

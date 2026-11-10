@@ -1,9 +1,9 @@
 use anyhow::Result;
 use db::{
-    LabDetails, LabNetworks, create_lab, create_user, get_lab, list_labs, update_lab_state,
+    LabDetails, LabNetworks, create_lab, create_user, get_lab, list_labs, update_lab_phase_from,
     validate_lab_id,
 };
-use shared::data::{LabSshKey, LabState};
+use shared::data::{LabPhase, LabSshKey};
 
 use crate::helper::{ipv4_lab_networks, setup_db};
 
@@ -61,8 +61,10 @@ async fn a_new_lab_logs_in_with_its_own_ssh_key() -> Result<()> {
     assert_eq!(created.ssh_key, LabSshKey::Lab);
     let stored = get_lab(&db, "lab-0004").await?;
     assert_eq!(stored.ssh_key, LabSshKey::Lab);
-    // Changing the lab's status keeps its key.
-    let updated = update_lab_state(&db, created.id.clone().unwrap(), LabState::Running).await?;
+    // Moving the lab to another phase keeps its key.
+    let updated = update_lab_phase_from(&db, "lab-0004", LabPhase::Creating, LabPhase::Ready)
+        .await?
+        .unwrap();
     assert_eq!(updated.ssh_key, LabSshKey::Lab);
     assert_eq!(list_labs(&db).await?[0].ssh_key, LabSshKey::Lab);
 
@@ -127,7 +129,9 @@ async fn create_lab_stores_its_description_and_where_it_was_started() -> Result<
     assert!(other.client_folder.is_none());
 
     // Updating the lab keeps them.
-    let updated = update_lab_state(&db, stored.id.clone().unwrap(), LabState::Running).await?;
+    let updated = update_lab_phase_from(&db, "lab-0003", LabPhase::Creating, LabPhase::Ready)
+        .await?
+        .unwrap();
     assert_eq!(updated.client_host.as_deref(), Some("dev01"));
 
     Ok(())

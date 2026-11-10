@@ -3,8 +3,8 @@ use askama_web::WebTemplate;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use shared::data::{
-    BridgeInfo, DbUser, DestroyError, DeviceInfo, LabInfo, LabState, LabSummary, LinkInfo,
-    NodeConfig, NodeKind,
+    BridgeInfo, DbUser, DestroyError, DeviceInfo, LabInfo, LabPhase, LabState, LabSummary,
+    LinkInfo, NodeConfig, NodeKind,
 };
 
 use crate::api::handlers::{ImageSummary, UserSummary};
@@ -150,6 +150,9 @@ pub struct LabDetailTemplate {
     pub lab_id: String,
     pub lab_info: LabInfo,
     pub lab_state: LabState,
+    /// Which operation owns the lab; while it is not ready, it is shown instead of the state and
+    /// only Destroy is offered.
+    pub lab_phase: LabPhase,
     pub devices: Vec<DeviceInfo>,
     pub device_count: usize,
     pub inactive_devices: Vec<String>,
@@ -272,6 +275,8 @@ pub struct AdminLabSummary {
     pub description: Option<String>,
     pub owner_username: String,
     pub node_count: usize,
+    /// Which operation owns the lab; a lab that is not ready can only be destroyed or cleaned.
+    pub phase: LabPhase,
 }
 
 /// Admin user edit page template
@@ -814,6 +819,7 @@ mod tests {
                 description: Some("Practice <BGP> routing".to_string()),
                 status: LabState::Unknown,
                 node_count: 2,
+                phase: LabPhase::Ready,
             }],
         };
         let html = tpl.render().expect("template should render");
@@ -821,6 +827,32 @@ mod tests {
         assert!(html.contains("a10736e8"));
         // Shown under the name, escaped.
         assert!(html.contains("Practice &#60;BGP&#62; routing"), "{html}");
+    }
+
+    #[test]
+    fn a_lab_that_is_not_ready_shows_its_phase_and_offers_no_start_or_stop() {
+        // M7.3: a lab whose destroy failed used to show `stopped` and offer Start.
+        for (phase, badge) in [
+            (LabPhase::Creating, ">Creating<"),
+            (LabPhase::Destroying, ">Destroying<"),
+            (LabPhase::DestroyFailed, ">Destroy failed<"),
+            (LabPhase::Interrupted, ">Interrupted<"),
+        ] {
+            let tpl = LabsGridTemplate {
+                labs: vec![LabSummary {
+                    id: "a10736e8".to_string(),
+                    name: "test-lab".to_string(),
+                    description: None,
+                    status: LabState::Stopped,
+                    node_count: 2,
+                    phase,
+                }],
+            };
+            let html = tpl.render().expect("template should render");
+            assert!(!html.contains("data-lab-action"), "{phase:?}: {html}");
+            assert!(html.contains(badge), "{phase:?}: {html}");
+            assert!(!html.contains(">Stopped<"), "{phase:?}: {html}");
+        }
     }
 
     #[test]
@@ -938,6 +970,7 @@ mod tests {
                 description: Some("Practice BGP routing".to_string()),
                 owner_username: "alice".to_string(),
                 node_count: 3,
+                phase: LabPhase::Ready,
             }],
         };
         let html = tpl.render().expect("template should render");
@@ -945,6 +978,28 @@ mod tests {
         assert!(html.contains("Practice BGP routing"));
         assert!(html.contains("abc12345"));
         assert!(html.contains("alice"));
+        assert!(html.contains("data-lab-action=\"start\""));
+    }
+
+    #[test]
+    fn the_admin_list_shows_a_stranded_labs_phase_and_offers_no_start_or_stop() {
+        // M6.2, M6.3 and M7.3: admins find the labs left behind, to clean them.
+        let tpl = AdminLabsTemplate {
+            username: "admin".to_string(),
+            is_admin: true,
+            active_page: "admin_labs".to_string(),
+            labs: vec![AdminLabSummary {
+                lab_id: "abc12345".to_string(),
+                name: "my-lab".to_string(),
+                description: None,
+                owner_username: "alice".to_string(),
+                node_count: 3,
+                phase: LabPhase::Interrupted,
+            }],
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains(">Interrupted<"), "{html}");
+        assert!(!html.contains("data-lab-action"), "{html}");
     }
 
     #[test]

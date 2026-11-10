@@ -1,10 +1,10 @@
 use anyhow::{Context, Result, anyhow};
-use shared::data::{DbNode, RecordId};
+use shared::data::{DbNode, NodeState, RecordId};
 use tracing::instrument;
 use turso::{Connection, Row};
 
 use crate::Database;
-use crate::persistence::{Cells, LAB_TABLE, NODE_TABLE, key_of, node_from_row};
+use crate::persistence::{Cells, LAB_TABLE, NODE_TABLE, USER_TABLE, key_of, node_from_row};
 use crate::queries;
 use crate::sql::{query_all, query_count, query_optional};
 
@@ -95,6 +95,30 @@ pub async fn list_nodes_by_lab(db: &Database, lab: RecordId) -> Result<Vec<DbNod
     )
     .await
     .context(format!("Failed to list nodes for lab: {lab:?}"))
+}
+
+/// The state of every node in `user`'s labs, each with its lab's `RecordId`, in one query. Lab
+/// statuses are derived from these when the labs are listed.
+///
+/// # Errors
+/// - If there's a database error
+#[instrument(skip(db), level = "debug")]
+pub async fn list_node_states_by_user(
+    db: &Database,
+    user: RecordId,
+) -> Result<Vec<(RecordId, NodeState)>> {
+    let conn = db.reader().await?;
+    query_all(
+        &conn,
+        queries::node::LIST_STATES_BY_USER,
+        [key_of(&user, USER_TABLE)?],
+        |row| {
+            let mut cells = Cells::new(row);
+            Ok((cells.record(LAB_TABLE, "lab")?, cells.enumeration("state")?))
+        },
+    )
+    .await
+    .context(format!("Failed to list the node states of user {user:?}"))
 }
 
 /// Count number of nodes in a specific lab

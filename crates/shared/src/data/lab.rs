@@ -10,7 +10,7 @@ use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 use tracing::instrument;
 
-use super::{BridgeKind, DbNode, NodeKind, NodeModel, NodeState};
+use super::{BridgeKind, DbNode, LabPhase, NodeKind, NodeModel, NodeState};
 
 #[derive(Clone, Debug)]
 pub enum PeerSide {
@@ -225,8 +225,10 @@ pub enum LabState {
     Failed,
     /// Lab has no nodes
     Empty,
-    /// Status cannot be determined
+    /// Status cannot be determined, or one this build does not know, such as one sent by a
+    /// newer server.
     #[default]
+    #[serde(other)]
     Unknown,
 }
 
@@ -293,8 +295,12 @@ pub struct LabSummary {
     pub description: Option<String>,
     /// Number of nodes in the lab
     pub node_count: usize,
-    /// Current status of the lab
+    /// The lab's status, derived from its nodes
     pub status: LabState,
+    /// Which operation owns the lab, if any. While it is not `ready`, the phase is what to
+    /// show instead of the status.
+    #[serde(default)]
+    pub phase: LabPhase,
 }
 
 /// Response for listing labs
@@ -518,5 +524,22 @@ mod tests {
     fn a_lab_with_a_missing_node_is_failed() {
         let states = vec![NodeState::Running, NodeState::Missing];
         assert_eq!(LabState::derive(&states), LabState::Failed);
+    }
+
+    #[test]
+    fn a_lab_status_this_build_does_not_know_decodes_as_unknown() {
+        // A status added by a newer server must not fail an older client's listing.
+        let status: LabState = serde_json::from_str("\"degraded\"").unwrap();
+        assert_eq!(status, LabState::Unknown);
+    }
+
+    #[test]
+    fn a_summary_from_a_server_without_phases_is_ready() {
+        // Servers before 0.5.27 send no phase.
+        let summary: LabSummary = serde_json::from_str(
+            r#"{"id":"ab12cd34","name":"core","node_count":1,"status":"running"}"#,
+        )
+        .unwrap();
+        assert_eq!(summary.phase, LabPhase::Ready);
     }
 }

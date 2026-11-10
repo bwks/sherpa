@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, ensure};
 use reqwest::{Client, Response, StatusCode, header};
 use serde_json::{Value, json};
-use shared::data::DbUser;
+use shared::data::{DbUser, LabPhase};
 use shared::error::RpcErrorCode;
 use shared::konst::SSH_KEYS_DOCS_URL;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
@@ -52,13 +52,15 @@ async fn seed_lab(server: &TestServer, owner: &DbUser, index: usize) -> Result<S
         &db::LabDetails::default(),
     )
     .await?;
+    // As `up` leaves it once built: operations on a lab's nodes need a ready lab.
+    db::update_lab_phase_from(&server.db, &lab_id, LabPhase::Creating, LabPhase::Ready).await?;
     Ok(lab_id)
 }
 
 /// Remove a seeded lab record if an authorized destroy did not already remove it.
 async fn remove_lab(server: &TestServer, lab_id: &str) -> Result<()> {
-    if db::find_lab(&server.db, lab_id).await?.is_some() {
-        db::delete_lab(&server.db, lab_id).await?;
+    if let Some(lab) = db::find_lab(&server.db, lab_id).await? {
+        db::delete_lab_from(&server.db, lab_id, lab.phase).await?;
     }
     Ok(())
 }

@@ -17,6 +17,7 @@ use shared::konst::{VM_SHUTDOWN_POLL, VM_SHUTDOWN_TIMEOUT};
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
+use crate::services::lab_lifecycle;
 use crate::services::lab_nodes::load_target_nodes;
 use crate::services::lab_operations;
 use crate::services::node_lifecycle;
@@ -113,8 +114,10 @@ pub async fn shutdown_lab_nodes(
     // Destroying the lab stops this operation; see `lab_operations`.
     let operation = lab_operations::begin(lab_id).await;
     operation.ensure_active()?;
-    // Check again under the lease: a destroy that finished while this waited has removed the lab.
+    // Check again under the lease: a destroy that finished while this waited has removed the lab,
+    // and only a lab `up` has built, and no destroy has started on, has nodes to operate on.
     let db_lab = require_lab_access(ctx, &state.db, lab_id).await?;
+    lab_lifecycle::require_ready(&db_lab)?;
 
     let lab_record_id = db_lab
         .id

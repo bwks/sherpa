@@ -159,11 +159,26 @@ async fn unseal_vault(
     Some(info)
 }
 
-/// A lab service that did not come up: a non-critical error of the readiness phase.
+/// A lab service that did not come up: a critical error of the readiness phase. Nothing sets it
+/// up again, so the lab is only partly created.
 fn service_error(message: String) -> data::UpError {
     data::UpError {
         phase: "NodeReadiness".to_string(),
         message,
-        is_critical: false,
+        is_critical: true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_lab_service_that_did_not_come_up_fails_the_up() {
+        // M6.1: a cluster that did not bootstrap, or a Vault or Keycloak that failed to set
+        // up, is not retried, so the lab is only partly created.
+        assert!(
+            service_error("Kubernetes cluster k1 did not become ready".to_string()).is_critical
+        );
     }
 }
