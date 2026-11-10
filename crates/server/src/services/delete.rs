@@ -55,11 +55,14 @@ pub async fn delete_image(
     let image_id = node_image
         .id
         .context("Image record has no ID; refusing filesystem deletion")?;
-    let disk_deleted = delete_files_after_database(
+    let (promoted, disk_deleted) = delete_files_after_database(
         db::delete_node_image(&state.db, image_id),
         (kind != NodeKind::Container).then_some(version_dir.as_str()),
     )
     .await?;
+    if let Some(promoted) = &promoted {
+        tracing::info!(model = %request.model, version = %promoted.version, "Made the newest remaining version the default");
+    }
 
     Ok(DeleteImageResponse {
         success: true,
@@ -68,26 +71,28 @@ pub async fn delete_image(
         version: request.version,
         disk_deleted,
         db_deleted: true,
+        new_default: promoted.map(|image| image.version),
     })
 }
 
-/// Database failure must short-circuit before touching any image files.
+/// Delete the row, then the image files. A database failure short-circuits before any file is
+/// touched. Returns what the row delete returned, and whether the files were deleted.
 #[instrument(level = "debug", skip(database_delete))]
-async fn delete_files_after_database(
-    database_delete: impl Future<Output = Result<()>>,
+async fn delete_files_after_database<T>(
+    database_delete: impl Future<Output = Result<T>>,
     version_dir: Option<&str>,
-) -> Result<bool> {
-    database_delete
+) -> Result<(T, bool)> {
+    let deleted = database_delete
         .await
         .context("Failed to delete image from database; image files retained")?;
     let Some(version_dir) = version_dir else {
-        return Ok(false);
+        return Ok((deleted, false));
     };
     match delete_dirs(version_dir) {
-        Ok(()) => Ok(true),
+        Ok(()) => Ok((deleted, true)),
         Err(error) => {
             tracing::error!(%version_dir, %error, "Failed to delete image directory");
-            Ok(false)
+            Ok((deleted, false))
         }
     }
 }
@@ -103,7 +108,7 @@ mod tests {
         let root = tempdir().unwrap();
         let image = root.path().join("disk.qcow2");
         fs::write(&image, "immutable image").unwrap();
-        let result = delete_files_after_database(
+        let result = delete_files_after_database::<()>(
             async { anyhow::bail!("referenced image") },
             Some(root.path().to_str().unwrap()),
         )
@@ -118,11 +123,11 @@ mod tests {
         let directory = root.path().join("version");
         fs::create_dir(&directory).unwrap();
         fs::write(directory.join("disk.qcow2"), "image").unwrap();
-        assert!(
+        let ((), disk_deleted) =
             delete_files_after_database(async { Ok(()) }, Some(directory.to_str().unwrap()))
                 .await
-                .unwrap()
-        );
+                .unwrap();
+        assert!(disk_deleted);
         assert!(!directory.exists());
     }
 }

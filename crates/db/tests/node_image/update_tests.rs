@@ -1,6 +1,6 @@
 /// UPDATE operation tests for `node_image`
 use anyhow::Result;
-use db::{find_node_image_by_id, update_node_image, upsert_node_image};
+use db::{DefaultRequest, find_node_image_by_id, update_node_image, upsert_node_image};
 use shared::data::{NodeModel, RecordId};
 
 use crate::{create_test_config, setup_db};
@@ -11,7 +11,7 @@ async fn test_update_node_image_success() -> Result<()> {
 
     // Create a config
     let test_config = create_test_config(NodeModel::AristaVeos);
-    let created = upsert_node_image(&db, test_config).await?;
+    let created = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
     let original_id = created.id.clone();
 
     // Modify multiple fields
@@ -21,7 +21,7 @@ async fn test_update_node_image_success() -> Result<()> {
     updated_config.data_interface_count = 24;
 
     // Update the config
-    let result = update_node_image(&db, updated_config).await?;
+    let result = update_node_image(&db, updated_config, DefaultRequest::Keep).await?;
 
     // Verify changes were applied
     assert_eq!(result.memory, 4096, "Memory should be updated");
@@ -45,7 +45,7 @@ async fn test_update_node_image_without_id_fails() -> Result<()> {
     test_config.id = None; // Explicitly remove ID
 
     // Attempt to update should fail
-    let result = update_node_image(&db, test_config).await;
+    let result = update_node_image(&db, test_config, DefaultRequest::Keep).await;
 
     assert!(result.is_err(), "Update without ID should fail");
     let err = result.unwrap_err();
@@ -66,7 +66,7 @@ async fn test_update_nonexistent_config_fails() -> Result<()> {
     test_config.id = Some(RecordId::new("node_image", "nonexistent_id_12345"));
 
     // Attempt to update should fail
-    let result = update_node_image(&db, test_config).await;
+    let result = update_node_image(&db, test_config, DefaultRequest::Keep).await;
 
     assert!(result.is_err(), "Update with nonexistent ID should fail");
     let err = result.unwrap_err();
@@ -84,7 +84,7 @@ async fn test_update_preserves_id() -> Result<()> {
 
     // Create a config
     let test_config = create_test_config(NodeModel::NokiaSrlinux);
-    let created = upsert_node_image(&db, test_config).await?;
+    let created = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
     let original_id = created.id.clone().expect("Created config should have ID");
 
     // Update multiple times
@@ -93,7 +93,7 @@ async fn test_update_preserves_id() -> Result<()> {
         updated_config.memory = 1024 * i;
         updated_config.id = original_id.clone().into();
 
-        let result = update_node_image(&db, updated_config).await?;
+        let result = update_node_image(&db, updated_config, DefaultRequest::Keep).await?;
 
         assert_eq!(
             result.id,

@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.26] - 2026-11-10
+
+### Bug Fixes
+
+- Atomic node image import and one default image per model by @bwks ([6c3df9d](https://github.com/bwks/sherpa/commit/6c3df9d409b12aabe398e53730f7fe4d8c818abc))
+
+### Miscellaneous
+
+- Merge pull request #546 from bwks/fix/503-image-import
+
+fix(server): atomic node image import and one default image per model by @bwks in [#546](https://github.com/bwks/sherpa/pull/546) ([6443b38](https://github.com/bwks/sherpa/commit/6443b38f9e0f176f9b44ba0c24d3a66c506704d7))
+- Merge pull request #544 from bwks/changelog/v0.5.25
+
+chore(release): update changelog for v0.5.25 by @github-actions[bot] in [#544](https://github.com/bwks/sherpa/pull/544) ([1af6ba1](https://github.com/bwks/sherpa/commit/1af6ba18fe10595146ba9de887fcab6d7e744737))
 ## [0.5.25] - 2026-11-10
 
 ### Bug Fixes

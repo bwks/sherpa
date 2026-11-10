@@ -93,7 +93,8 @@
 **What to test:**
 - Create node_image with model, kind, version, and 29 config fields `[integration]` **P0**
 - Unique (model, kind, version) enforced `[integration]` **P0**
-- `upsert_node_image()` creates or updates `[integration]` **P0**
+- `upsert_node_image()` creates, or keeps an existing version's settings `[integration]` **P0**
+- One default per model: first version becomes default, `Keep` never drops it, `Unset` on the default is refused, deleting the default promotes the newest version (`tests/node_image/default_tests.rs`) `[integration]` **P0**
 - Get by ID, by model+kind+version `[integration]` **P0**
 - `get_default_node_image()` returns image with default=true `[integration]` **P0**
 - `set_default_image()` changes default flag `[integration]` **P1**

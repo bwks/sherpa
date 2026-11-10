@@ -1216,49 +1216,79 @@ libvirt or Docker networks, and a DB row, all created in sequence.
 
 **Where.**
 
+- `crates/server/src/services/image_store.rs`: the disk image file's states.
+- `crates/db/src/node_image/default.rs`: the default rule.
 - `crates/server/src/services/import.rs`, `image_lifecycle.rs`, `delete.rs` and
-  `container_pull.rs`;
+  `container_pull.rs`: the operations that use them.
 - `crates/db/src/node_image/`.
 
 **State.** There is no status column. An image's state is three things together:
 
 - the `node_image` row, unique on `(model, kind, version)`;
-- the `default` flag, with at most one default per `(model, kind)` by the partial unique
-  index in `crates/db/sql/migrations/0006_one_default_node_image.sql`;
+- the `default` flag;
 - the disk file or Docker tag.
 
-Scan results are strings ("already_exists", "would_import", "imported (default)" and so on,
-`import.rs:544-587`).
+**The file.** `image_store` has one type per state:
 
-**Transitions.**
+- `StagedDisk`: bytes are written to `<file>.partial`. Dropping it removes the partial file.
+- `PlacedDisk`: the file was renamed into place. If the row cannot then be written,
+  `discard` removes the file when this import added it. A file that replaced another is kept.
+- After that, the row is written in one transaction.
 
-- Disk import: DB upsert (`import.rs:164`), then create the directory and copy (`:187-201`).
-  The copy is skipped if the file exists. The copy writes straight to the destination
-  (`crates/shared/src/util/file_system.rs:110-125`).
-- Download: written to `.partial`, then renamed (`import.rs:710-760`).
-- Default flag:
-  - The first version of a model becomes the default.
-  - Otherwise `request.default` decides (`import.rs:52-63`).
-  - The upsert replaces every column, `default` included (`crates/db/src/node_image/create.rs:24-80`).
-  - Setting a default clears the others in the same transaction.
-  - The web form refuses to unset the last default (`crates/server/src/api/handlers/images_web.rs:344-368`).
-- Delete: refused while a node references the image, or while an overlay depends on it. Then
-  the row goes, then the files (`delete.rs:28-92`).
-- Locking: `image_lifecycle.rs` keeps a per-`model/version` `RwLock`.
-  - Import, download, delete and set-default take the write side.
-  - `up` and `redeploy` take read leases.
-  - Scan and container pull take no lock.
+Disk import copies through `StagedDisk` (in `spawn_blocking`), and download streams into one.
+
+The invariant: **a row always names a complete file**. A complete file with no row is allowed.
+A crash between the rename and the row leaves one, and the scan adopts it.
+
+When an import finds a file already at the destination (`ExistingDisk`):
+
+- same size as the source: kept, and the copy is skipped;
+- different size: replaced through staging;
+- different size with lab overlays built on it (`libvirt::ensure_no_overlay_dependencies`):
+  the import is refused.
+
+Download skips the download when the file exists, since only a rename puts it there.
+
+**The default.** Each `(model, kind)` that has rows has exactly one default:
+
+- At most one: the partial unique index in
+  `crates/db/sql/migrations/0006_one_default_node_image.sql`.
+- At least one: every write that touches the flag decides it with `resolve_default`, inside
+  the transaction that writes the row (`claim_default`). A write asks for `DefaultRequest`:
+  - `Make`: take the default.
+  - `Keep`: keep the flag, and take the default if the model has none. Used by import,
+    download and pull without `--default`, and by the scan.
+  - `Unset`: give up the default. Used by the admin form when the box is unticked. Refused
+    with `LastDefaultImage` on the current default.
+- `upsert_node_image` keeps an existing row's settings, so an import does not undo admin
+  edits. Only the flag changes. Pull also refreshes the row's `repo`.
+- `update_node_image` keeps the stored model, kind and version. The form cannot rename an image.
+- `delete_node_image` promotes the remaining version with the highest `rowid`, in the same
+  transaction, when the deleted row was the default. The response carries `new_default`.
+- Migration `0014_promote_missing_default_image.sql` gives any model left without a default
+  by an earlier release its newest image.
+
+Scan results are strings ("already_exists", "would_import", "imported (default)" and so on).
+
+**Locking.** `image_lifecycle.rs` keeps a per-`model/version` `RwLock`.
+
+- Import, download, pull, delete, set-default, the admin form, and the scan (per version)
+  take the write side.
+- The scan checks the file again under the lock, so a scan that waited for a delete does not
+  record the deleted version again.
+- `up` and `redeploy` take read leases.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Absent
-    Absent --> RowOnly : import upserts row
-    RowOnly --> Tracked : copy complete
-    RowOnly --> RowOnly : copy fails (row kept)
-    Tracked --> IsDefault : set default / first version
-    IsDefault --> Tracked : another version set default / re-import with default=false
-    Tracked --> Absent : delete (unused), row then files
-    IsDefault --> Absent : delete (no replacement default)
+    Absent --> Staging : import or download starts
+    Staging --> Absent : copy fails or is cancelled (partial removed)
+    Staging --> Placed : rename
+    Placed --> Absent : row write fails (new file removed)
+    Placed --> Recorded : row written (Make, or Keep on a model with no default)
+    Absent --> Recorded : scan finds a complete file
+    Recorded --> Recorded : another version made default / re-import (settings kept)
+    Recorded --> Absent : delete (unused): row, then files; newest remaining becomes default
 ```
 
 ---

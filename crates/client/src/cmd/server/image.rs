@@ -368,7 +368,10 @@ async fn import_image(
                     "   DB Track: {}",
                     if response.db_tracked { "yes" } else { "no" }
                 );
-                println!("   Default:  {}", if default { "yes" } else { "no" });
+                println!(
+                    "   Default:  {}",
+                    if response.default { "yes" } else { "no" }
+                );
             }
         }
     }
@@ -415,6 +418,9 @@ async fn delete_image(
                     "   Disk Deleted: {}",
                     if response.disk_deleted { "yes" } else { "no" }
                 );
+                if let Some(new_default) = &response.new_default {
+                    println!("   New Default: {new_default}");
+                }
             }
         }
     }
@@ -585,7 +591,10 @@ async fn download_vm_image(
                     "   DB Track: {}",
                     if response.db_tracked { "yes" } else { "no" }
                 );
-                println!("   Default:  {}", if default { "yes" } else { "no" });
+                println!(
+                    "   Default:  {}",
+                    if response.default { "yes" } else { "no" }
+                );
             }
         }
     }

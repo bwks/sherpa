@@ -1,7 +1,7 @@
 /// DELETE operation tests for `node_image`
 use anyhow::Result;
 use db::{
-    LabDetails, count_node_images, create_lab, create_user, delete_node_image,
+    DefaultRequest, LabDetails, count_node_images, create_lab, create_user, delete_node_image,
     find_node_image_by_id, upsert_node_image,
 };
 use shared::data::{NodeModel, RecordId};
@@ -14,7 +14,7 @@ async fn test_delete_node_image_success() -> Result<()> {
 
     // Create a config
     let test_config = create_test_config(NodeModel::AristaVeos);
-    let created = upsert_node_image(&db, test_config).await?;
+    let created = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
     let created_id = created.id.clone().expect("Created config should have ID");
 
     // Delete the config
@@ -54,7 +54,7 @@ async fn test_delete_and_verify_count_decreases() -> Result<()> {
 
     // Create a config
     let test_config = create_test_config(NodeModel::CiscoAsav);
-    let created = upsert_node_image(&db, test_config).await?;
+    let created = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
     let created_id = created.id.clone().expect("Created config should have ID");
 
     // Verify count increased
@@ -116,7 +116,7 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
 
     // Create a node config
     let test_config = create_test_config(NodeModel::WindowsServer);
-    let created_config = upsert_node_image(&db, test_config).await?;
+    let created_config = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
     let config_id = created_config
         .id
         .clone()

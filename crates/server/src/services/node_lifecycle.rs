@@ -122,7 +122,10 @@ async fn write(db: &db::Database, node: &DbNode, to: NodeState) -> Result<Option
 pub(crate) mod tests {
     use super::*;
     use crate::services::lab_operations::{begin, try_observe};
-    use db::{LabDetails, LabNetworks, create_lab, create_node, create_user, upsert_node_image};
+    use db::{
+        DefaultRequest, LabDetails, LabNetworks, create_lab, create_node, create_user,
+        upsert_node_image,
+    };
     use shared::data::{LabState, NodeConfig, NodeModel, Probe, Refused};
 
     #[test]
@@ -223,9 +226,13 @@ pub(crate) mod tests {
         )
         .await
         .unwrap();
-        let image = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux))
-            .await
-            .unwrap();
+        let image = upsert_node_image(
+            &db,
+            NodeConfig::get_model(NodeModel::UbuntuLinux),
+            DefaultRequest::Keep,
+        )
+        .await
+        .unwrap();
         let mut nodes = Vec::new();
         for index in 1..=count {
             let node = create_node(

@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn a_labs_status_is_derived_from_its_nodes_when_listed() {
-        // #499: the status is no longer stored, so it cannot be stale or missing (M1.7).
+        // The status is no longer stored, so it cannot be stale or missing (M1.7).
         let labs = vec![
             lab("ab12cd34", LabPhase::Ready),
             lab("ef56ab78", LabPhase::Ready),

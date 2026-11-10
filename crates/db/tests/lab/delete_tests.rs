@@ -1,6 +1,7 @@
 use anyhow::Result;
 use db::{
-    LabDetails, create_lab, create_user, delete_lab_from, get_lab, list_labs, upsert_node_image,
+    DefaultRequest, LabDetails, create_lab, create_user, delete_lab_from, get_lab, list_labs,
+    upsert_node_image,
 };
 use shared::data::{LabPhase, NodeConfig, NodeModel};
 
@@ -102,8 +103,18 @@ async fn test_delete_lab_with_cascade_in_schema() -> Result<()> {
     .await?;
 
     // Create node configs first
-    upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
-    upsert_node_image(&db, NodeConfig::get_model(NodeModel::WindowsServer)).await?;
+    upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
+    upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::WindowsServer),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     // Create nodes
     create_test_node_with_model(&db, "node1", 1, NodeModel::UbuntuLinux, &lab).await?;

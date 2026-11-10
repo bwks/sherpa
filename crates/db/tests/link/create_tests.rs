@@ -1,7 +1,7 @@
 use anyhow::Result;
 use db::{
-    LabDetails, create_lab, create_link, create_node, create_user, list_links_by_lab,
-    upsert_node_image,
+    DefaultRequest, LabDetails, create_lab, create_link, create_node, create_user,
+    list_links_by_lab, upsert_node_image,
 };
 use shared::data::{BridgeKind, NodeConfig, NodeModel};
 
@@ -27,7 +27,12 @@ async fn test_create_link_success() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     let node1 = create_node(
         &db,
@@ -83,7 +88,12 @@ async fn test_create_link_with_lab() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::CiscoIosv),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     let node1 = create_node(
         &db,
@@ -141,7 +151,12 @@ async fn test_create_link_duplicate_peers_fails() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     let node1 = create_node(
         &db,
@@ -207,7 +222,12 @@ async fn test_create_link_different_interfaces_succeeds() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::CiscoIosv),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     let node1 = create_node(
         &db,
@@ -283,7 +303,12 @@ async fn test_create_link_with_bridge_kinds() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     let node1 = create_node(
         &db,
@@ -357,7 +382,12 @@ async fn test_create_link_increments_count() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     let node1 = create_node(
         &db,

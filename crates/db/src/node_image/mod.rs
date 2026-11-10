@@ -1,10 +1,14 @@
 mod create;
+mod default;
 mod delete;
 mod read;
 mod update;
 
 // Public exports - CREATE operations
 pub use create::upsert_node_image;
+
+// The default-image rule
+pub use default::{DefaultRequest, LastDefaultImage};
 
 // Public exports - READ operations
 pub use read::{

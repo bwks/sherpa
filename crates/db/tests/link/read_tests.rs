@@ -1,5 +1,8 @@
 use anyhow::Result;
-use db::{LabDetails, create_lab, create_link, create_user, list_links_by_lab, upsert_node_image};
+use db::{
+    DefaultRequest, LabDetails, create_lab, create_link, create_user, list_links_by_lab,
+    upsert_node_image,
+};
 use shared::data::{BridgeKind, NodeConfig, NodeModel};
 
 use crate::helper::{create_test_node_with_model, ipv4_lab_networks, setup_db, test_link};
@@ -64,7 +67,12 @@ async fn test_list_links_by_lab_filters_correctly() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let _config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let _config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     // Create nodes for lab1
     let node1_lab1 =

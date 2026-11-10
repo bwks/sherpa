@@ -612,8 +612,8 @@ mod tests {
 
     /// Against the real libvirt: two labs whose nodes pin the same host CPU are admitted one at
     /// a time. While the first lab's admission is held, before any node of it is stored or
-    /// running, the second is refused; once it is released, the second is admitted. Before #518
-    /// the pins were only checked against stored nodes, so two `up`s could both pass (M6.5).
+    /// running, the second is refused; once it is released, the second is admitted. Checking
+    /// the pins against stored nodes only would let two `up`s both pass.
     #[tokio::test]
     #[ignore = "requires a libvirt daemon"]
     async fn a_pending_node_holds_its_cpu_pins_until_released() {

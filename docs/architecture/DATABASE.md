@@ -161,7 +161,8 @@ table, copy the rows, drop the old one, rename.
 | 10 | `0010_lab_description.sql`: `lab.description`, the manifest's optional `description` (see below) |
 | 11 | `0011_lab_ssh_key.sql`: `lab.ssh_key`, the key pair the `sherpa` account on the lab's nodes logs in with: `lab` for the lab's own, `server` (the default, for every lab created before) for the server's shared key. See [`SERVER.md`](SERVER.md#lab-ssh-keys) |
 | 12 | `0012_session.sql`: the `session` table, one row per login session, with indexes on `user` and `expires_at`. Tokens issued before it name no session, so every user logs in again after the upgrade. See [`SERVER.md`](SERVER.md#sessions-and-identity) |
-| 13 | `0013_node_lifecycle.sql`: turns the node state `created` into `stopped`. See [`STATE_MACHINES.md`](STATE_MACHINES.md#1-node-lifecycle-nodestate) |
+| 13 | `0013_node_lifecycle.sql`: nodes left `created` by the scanner become `stopped`. See [`STATE_MACHINES.md`](STATE_MACHINES.md) |
+| 14 | `0014_promote_missing_default_image.sql`: a model with images and no default, left by an earlier release, gets its most recently added image as the default. Writes keep it that way; see [`STATE_MACHINES.md`](STATE_MACHINES.md#28-node-images) |
 | 15 | `0015_lab_phase.sql`: `lab.phase`, which operation owns the lab's record (`ready` for every lab created before), and drops `lab.status`: a lab's status is derived from its nodes when it is read. See [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate) |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that

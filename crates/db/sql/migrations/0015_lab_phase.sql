@@ -1,4 +1,4 @@
--- The lab lifecycle is explicit (#499). `phase` says which operation owns a lab's record:
+-- The lab lifecycle is explicit. `phase` says which operation owns a lab's record:
 -- `creating` while `up` builds it, `destroying` while a destroy removes it, `destroy_failed` when
 -- a destroy left something behind, `interrupted` when the server stopped during `up`, and
 -- `ready` otherwise. Every lab that exists before this version was built, so it is `ready`.

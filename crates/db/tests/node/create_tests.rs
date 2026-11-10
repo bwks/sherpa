@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{
-    LabDetails, count_nodes_by_lab, create_lab, create_node, create_user, get_node,
+    DefaultRequest, LabDetails, count_nodes_by_lab, create_lab, create_node, create_user, get_node,
     get_node_by_name_and_lab, upsert_node_image,
 };
 use shared::data::{NodeConfig, NodeModel};
@@ -27,7 +27,12 @@ async fn test_create_node_success() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     // Create node
     let node = create_node(
@@ -67,7 +72,12 @@ async fn test_create_node_with_lab() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::CiscoIosv),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     let node = create_node(
         &db,
@@ -104,7 +114,12 @@ async fn test_create_node_duplicate_name_per_lab_fails() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     // Create first node
     create_node(
@@ -159,7 +174,12 @@ async fn test_create_node_duplicate_index_per_lab_fails() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::CiscoIosv),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     // Create first node
     create_node(
@@ -228,7 +248,12 @@ async fn test_create_node_same_name_different_labs_succeeds() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     // Create node in lab1
     let node1 = create_node(
@@ -276,7 +301,12 @@ async fn test_create_node_with_index_boundaries() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::CiscoIosv),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     // Test minimum index (0)
     let node1 = create_node(
@@ -322,7 +352,12 @@ async fn test_create_node_increments_count() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     let initial_lab_count = count_nodes_by_lab(&db, lab.id.clone().unwrap()).await?;
 
@@ -370,7 +405,12 @@ async fn test_create_node_can_retrieve_by_name_and_lab() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::CiscoIosv),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     // Create node
     let created_node = create_node(
@@ -411,7 +451,12 @@ async fn test_create_node_can_retrieve_by_id() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     // Create node
     let created_node = create_node(

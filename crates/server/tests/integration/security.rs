@@ -2,6 +2,7 @@
 //! caller must not be able to do, on every transport.
 
 use anyhow::{Context, Result, ensure};
+use db::DefaultRequest;
 use reqwest::{Client, Method, Response, StatusCode, header};
 use serde_json::{Value, json};
 use shared::data::{NodeConfig, NodeModel};
@@ -134,7 +135,7 @@ async fn seed_matrix_image(server: &TestServer) -> Result<()> {
     let mut image = NodeConfig::get_model(NodeModel::UbuntuLinux);
     MATRIX_IMAGE_VERSION.clone_into(&mut image.version);
     image.default = true;
-    db::upsert_node_image(&server.db, image).await?;
+    db::upsert_node_image(&server.db, image, DefaultRequest::Keep).await?;
     Ok(())
 }
 

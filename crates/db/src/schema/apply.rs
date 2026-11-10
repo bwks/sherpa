@@ -84,7 +84,10 @@ mod tests {
     };
 
     use super::*;
-    use crate::{find_lab, list_node_images, list_nodes_by_lab, open_in_memory, upsert_node_image};
+    use crate::{
+        DefaultRequest, find_lab, list_node_images, list_nodes_by_lab, open_in_memory,
+        upsert_node_image,
+    };
 
     async fn version(db: &Database) -> usize {
         let conn = db.reader().await.unwrap();
@@ -102,7 +105,9 @@ mod tests {
             .execute_batch("ALTER TABLE node_image DROP COLUMN dedicated_management_interface;")
             .await
             .unwrap();
-        upsert_node_image(db, image).await.unwrap();
+        upsert_node_image(db, image, DefaultRequest::Keep)
+            .await
+            .unwrap();
         db.writer()
             .await
             .unwrap()
@@ -130,9 +135,13 @@ mod tests {
     async fn a_value_a_newer_release_stored_is_kept_and_named_when_read() {
         let db = open_in_memory().await.unwrap();
         apply_schema(&db).await.unwrap();
-        upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux))
-            .await
-            .unwrap();
+        upsert_node_image(
+            &db,
+            NodeConfig::get_model(NodeModel::UbuntuLinux),
+            DefaultRequest::Keep,
+        )
+        .await
+        .unwrap();
         // As a newer release with a model this build does not know would leave the row.
         {
             let writer = db.writer().await.unwrap();
@@ -226,13 +235,15 @@ mod tests {
     async fn a_model_has_one_default_image_per_kind() {
         let db = open_in_memory().await.unwrap();
         apply_schema(&db).await.unwrap();
-        let mut first = NodeConfig::get_model(NodeModel::UbuntuLinux);
-        first.default = true;
-        upsert_node_image(&db, first).await.unwrap();
+        let first = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        upsert_node_image(&db, first, DefaultRequest::Make)
+            .await
+            .unwrap();
         let mut second = NodeConfig::get_model(NodeModel::UbuntuLinux);
         second.version = "second".to_owned();
-        second.default = false;
-        upsert_node_image(&db, second).await.unwrap();
+        upsert_node_image(&db, second, DefaultRequest::Keep)
+            .await
+            .unwrap();
 
         // Below the db functions, which clear the old default first.
         let writer = db.writer().await.unwrap();
@@ -487,9 +498,13 @@ mod tests {
                 .await
                 .unwrap();
         }
-        let image = upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux))
-            .await
-            .unwrap();
+        let image = upsert_node_image(
+            &db,
+            NodeConfig::get_model(NodeModel::UbuntuLinux),
+            DefaultRequest::Keep,
+        )
+        .await
+        .unwrap();
         let image_key = image.id.unwrap().key.to_string();
         let writer = db.writer().await.unwrap();
         for (index, state) in (0_i64..).zip(states) {
@@ -541,8 +556,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn models_left_without_a_default_image_get_their_newest() {
+        let db = open_in_memory().await.unwrap();
+        {
+            let writer = db.writer().await.unwrap();
+            for batch in TABLES.iter().chain(&migrations::ALL[..12]) {
+                writer.conn.execute_batch(batch).await.unwrap();
+            }
+            writer
+                .conn
+                .execute("PRAGMA user_version = 13", ())
+                .await
+                .unwrap();
+        }
+        for version in ["old", "new"] {
+            let mut image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+            version.clone_into(&mut image.version);
+            upsert_node_image(&db, image, DefaultRequest::Keep)
+                .await
+                .unwrap();
+        }
+        for version in ["kept", "other"] {
+            let mut image = NodeConfig::get_model(NodeModel::FedoraLinux);
+            version.clone_into(&mut image.version);
+            upsert_node_image(&db, image, DefaultRequest::Keep)
+                .await
+                .unwrap();
+        }
+        // As an earlier release could leave it: Ubuntu has images and no default.
+        db.writer()
+            .await
+            .unwrap()
+            .conn
+            .execute(
+                r#"UPDATE node_image SET "default" = 0 WHERE model = 'ubuntu_linux'"#,
+                (),
+            )
+            .await
+            .unwrap();
+
+        apply_schema(&db).await.unwrap();
+
+        let defaults: Vec<(NodeModel, String)> = list_node_images(&db)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|image| image.default)
+            .map(|image| (image.model, image.version))
+            .collect();
+        assert_eq!(defaults.len(), 2, "{defaults:?}");
+        assert!(defaults.contains(&(NodeModel::UbuntuLinux, "new".to_owned())));
+        assert!(defaults.contains(&(NodeModel::FedoraLinux, "kept".to_owned())));
+    }
+
+    #[tokio::test]
     async fn labs_from_before_the_lab_lifecycle_are_ready_and_their_status_is_not_stored() {
-        // #499: every lab that exists before the phase was stored had been built.
+        // Every lab that exists before the phase was stored had been built.
         let db = open_in_memory().await.unwrap();
         {
             let writer = db.writer().await.unwrap();

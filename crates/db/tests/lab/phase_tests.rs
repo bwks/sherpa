@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{
-    Database, LabDetails, create_lab, create_user, delete_lab_from, find_lab,
+    Database, DefaultRequest, LabDetails, create_lab, create_user, delete_lab_from, find_lab,
     list_node_states_by_user, update_lab_phase_from, update_node_state_from, upsert_node_image,
 };
 use shared::data::{DbLab, DbUser, LabPhase, NodeConfig, NodeModel, NodeState};
@@ -92,7 +92,12 @@ async fn the_node_states_of_a_users_labs_are_read_in_one_query() -> Result<()> {
     let first = lab_for(&db, &alice, "lab-0001", 1).await?;
     let second = lab_for(&db, &alice, "lab-0002", 2).await?;
     let others = lab_for(&db, &bob, "lab-0003", 3).await?;
-    upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
     let a = create_test_node_with_model(&db, "a", 1, NodeModel::UbuntuLinux, &first).await?;
     create_test_node_with_model(&db, "b", 2, NodeModel::UbuntuLinux, &first).await?;
     create_test_node_with_model(&db, "c", 1, NodeModel::UbuntuLinux, &second).await?;
