@@ -1,6 +1,6 @@
 name = "nixos-linux"
 
-# Two NixOS VMs built from images/nixos, with the lab owner's account, a text file and one
+# Two NixOS VMs built from bwks/nixos-image, with the lab owner's account, a text file and one
 # P2p link. The checks cover what NixOS does differently from the other distros: no /bin/bash,
 # wheel instead of cloud-init sudo rules, an sshd_config cloud-init cannot edit, and per-user
 # groups.
