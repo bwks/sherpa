@@ -1,24 +1,23 @@
 use anyhow::{Context, Result, anyhow};
-use bollard::secret::ContainerStateStatusEnum;
 use futures::future::join_all;
 use opentelemetry::KeyValue;
 use shared::data::{
-    self, DbLab, LabNodeActionResponse, NodeActionResult, NodeKind, NodeState, RecordId,
-    StatusKind, TailnetAuthKey, TailnetStatus,
+    self, DbLab, Halt, LabNodeActionResponse, NodeActionResult, NodeKind, OperationEvent, RecordId,
+    Runtime, StatusKind, TailnetAuthKey, TailnetStatus,
 };
 use shared::konst::{READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_LABS_PATH, SSH_PORT};
 use shared::util::load_saved_manifest;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use topology::Manifest;
-use virt::sys::{VIR_DOMAIN_PAUSED, VIR_DOMAIN_SHUTOFF};
 
 use tracing::instrument;
 
 use super::admission::{self, Admission};
 use super::lab_nodes::load_target_nodes;
 use super::lab_operations::{self, LabOperation};
+use super::node_lifecycle;
 use super::node_ops::{self, VmReadiness};
 use super::progress::ProgressSender;
 use super::ssh_config;
@@ -36,6 +35,30 @@ enum ReadinessCheck {
     },
 }
 
+/// What resume does to a node's domain or container, by what its runtime reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartStep {
+    /// Boot it: libvirt `create`, Docker `start`.
+    Boot,
+    /// Carry on where it was paused: libvirt `resume`, Docker `unpause`.
+    Resume,
+    /// It is already running.
+    Nothing,
+}
+
+/// What starting one node did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum StartOutcome {
+    /// Booted from off: new taps, so its links are re-attached and its readiness awaited.
+    ColdBooted,
+    /// Unpaused: the guest carries on, ready as it was.
+    Resumed,
+    /// Already running: left as it is.
+    AlreadyRunning,
+    /// Not started, and why.
+    Failed(String),
+}
+
 /// A node that resume cold-booted and waits for.
 #[derive(Debug, Clone)]
 struct ReadinessTarget {
@@ -48,8 +71,11 @@ struct ReadinessTarget {
 /// Start/poweron all (or a specific) node(s) for a lab.
 ///
 /// VMs: if shutoff, calls `domain.create()` (cold boot). If paused, calls `domain.resume()`.
-/// Containers: calls `docker start`.
-/// DB node state is updated to `Running` on success.
+/// Containers: calls `docker start`, or `docker unpause` if paused. A crashed or dead node, one
+/// between states, one with no domain or container, and one another operation is building are
+/// refused.
+/// A cold-booted node is recorded `Starting`, then `Running` once it is ready; a resumed one
+/// `Running`; one already running is left as it is.
 ///
 /// Cold-booted VMs and unikernels are then polled for readiness like `up` does, using the
 /// lab's saved manifest for `ready_timeout`, `skip_ready_check` and `ready_port`. A node that
@@ -115,47 +141,41 @@ pub async fn start_lab_nodes(
             continue;
         };
 
+        if let Err(refusal) = node.state.on_operation(OperationEvent::Launched) {
+            immediate_results.push(NodeActionResult {
+                name: node.name.clone(),
+                success: false,
+                message: format!("Cannot start: {refusal}"),
+            });
+            continue;
+        }
+
         let node_name = node.name.clone();
         let node_id = node.id.clone();
         let state = state.clone();
 
-        let kind_clone = kind.clone();
         futures.push(async move {
-            let result = match kind {
+            let outcome = match kind {
                 NodeKind::VirtualMachine | NodeKind::Unikernel => {
-                    start_vm(&device_name, &node_name, &state).await
+                    start_vm(&device_name, &state).await
                 }
-                NodeKind::Container => start_container_node(&device_name, &node_name, &state).await,
+                NodeKind::Container => start_container_node(&device_name, &state).await,
             };
 
-            (result, node_name, node_id, kind_clone)
+            (outcome, node_name, node_id, kind)
         });
     }
 
     // Run all operations concurrently
     let concurrent_results = join_all(futures).await;
 
-    // Collect results and update DB state
     let mut results = immediate_results;
-    let mut cold_booted_vms: Vec<String> = vec![];
-    let mut cold_booted: Vec<(String, NodeKind)> = vec![];
-    for (result, node_name, node_id, kind) in concurrent_results {
-        if result.success
-            && let Some(id) = node_id
-            && let Err(e) = db::update_node_state(&state.db, id, NodeState::Running).await
-        {
-            tracing::warn!("Failed to update DB state for node '{}': {}", node_name, e);
-        }
-        // Track VMs that were cold-booted (new tap devices with new ifindexes)
-        if result.success && result.message == "Started" && matches!(kind, NodeKind::VirtualMachine)
-        {
-            cold_booted_vms.push(node_name.clone());
-        }
-        if result.success && result.message == "Started" {
-            cold_booted.push((node_name.clone(), kind));
-        }
-        results.push(result);
-    }
+    let cold_booted = record_outcomes(state, &operation, concurrent_results, &mut results).await;
+    let cold_booted_vms: Vec<String> = cold_booted
+        .iter()
+        .filter(|(_, kind)| *kind == NodeKind::VirtualMachine)
+        .map(|(name, _)| name.clone())
+        .collect();
 
     // Re-attach eBPF redirect on P2p links for cold-booted VMs.
     // Cold boot creates new tap devices, so the eBPF programs need re-attaching
@@ -172,7 +192,7 @@ pub async fn start_lab_nodes(
     }
 
     // Wait for cold-booted nodes after their links are restored, as `up` does.
-    wait_for_cold_booted(
+    let ready = wait_for_cold_booted(
         ResumedLab {
             lab_id,
             lab_record_id: &lab_record_id,
@@ -185,6 +205,17 @@ pub async fn start_lab_nodes(
         &mut results,
     )
     .await?;
+    // A node not ready in time stays `Starting`; the scanner records it running once it answers.
+    for node in target_nodes
+        .iter()
+        .filter(|node| ready.contains(&node.name))
+    {
+        if let Some(id) = &node.id
+            && let Err(error) = record_all(state, &operation, id, &[OperationEvent::Ready]).await
+        {
+            tracing::warn!(node = %node.name, error = %error, "Failed to record the node ready");
+        }
+    }
 
     state.metrics.operation_duration.record(
         start.elapsed().as_secs_f64(),
@@ -261,13 +292,14 @@ struct ResumedLab<'a> {
 
 /// Wait for the cold-booted VMs and unikernels to become ready, as `up` does, with the saved
 /// manifest's readiness settings. Each one's result says whether it became ready, and the host
-/// keys it offers are recorded again.
+/// keys it offers are recorded again. Returns the cold-booted nodes that are ready: those that
+/// answered, and those with no check, as containers are ready once running.
 #[instrument(skip_all, fields(lab_id = %lab.lab_id), level = "debug")]
 async fn wait_for_cold_booted(
     lab: ResumedLab<'_>,
     cold_booted: &[(String, NodeKind)],
     results: &mut [NodeActionResult],
-) -> Result<()> {
+) -> Result<HashSet<String>> {
     let ResumedLab {
         lab_id,
         lab_record_id,
@@ -278,8 +310,13 @@ async fn wait_for_cold_booted(
     } = lab;
     let manifest = load_lab_manifest(lab_id);
     let targets = readiness_targets(lab_id, nodes, cold_booted, manifest.as_ref());
+    let mut ready_nodes: HashSet<String> = cold_booted
+        .iter()
+        .map(|(name, _)| name.clone())
+        .filter(|name| !targets.iter().any(|target| &target.name == name))
+        .collect();
     if targets.is_empty() {
-        return Ok(());
+        return Ok(ready_nodes);
     }
     let timeout = ready_timeout(manifest.as_ref());
     let ready = wait_for_readiness(lab_id, &targets, timeout, state, progress, operation).await?;
@@ -292,7 +329,8 @@ async fn wait_for_cold_booted(
     if let Err(error) = save_host_keys(lab_id, lab_record_id, &ready, nodes, state).await {
         tracing::warn!(lab_id = %lab_id, error = ?error, "Failed to save resumed nodes' host keys");
     }
-    Ok(())
+    ready_nodes.extend(ready.into_keys());
+    Ok(ready_nodes)
 }
 
 /// Load the manifest saved by `up`. Labs without a readable manifest use the defaults.
@@ -519,140 +557,148 @@ async fn wait_for_readiness(
     Ok(ready)
 }
 
-async fn start_vm(device_name: &str, node_name: &str, state: &AppState) -> NodeActionResult {
+impl StartOutcome {
+    /// What the operation records for the node: a cold-booted node is ready only once it
+    /// answers, so `Ready` is recorded for it after the readiness wait.
+    fn events(&self) -> &'static [OperationEvent] {
+        match self {
+            StartOutcome::ColdBooted => &[OperationEvent::Launched],
+            StartOutcome::Resumed => &[OperationEvent::Launched, OperationEvent::Ready],
+            StartOutcome::AlreadyRunning | StartOutcome::Failed(_) => &[],
+        }
+    }
+
+    /// The node's result, as reported to the user.
+    fn result(&self, node_name: &str) -> NodeActionResult {
+        let (success, message) = match self {
+            StartOutcome::ColdBooted => (true, "Started".to_string()),
+            StartOutcome::Resumed => (true, "Resumed".to_string()),
+            StartOutcome::AlreadyRunning => (true, "Already running".to_string()),
+            StartOutcome::Failed(reason) => (false, reason.clone()),
+        };
+        NodeActionResult {
+            name: node_name.to_string(),
+            success,
+            message,
+        }
+    }
+}
+
+/// What resume does to a node whose `what` ("domain" or "container") is in `runtime`, or why
+/// it cannot start it.
+fn start_step(runtime: Runtime, what: &str) -> Result<StartStep, String> {
+    match runtime {
+        Runtime::Running => Ok(StartStep::Nothing),
+        Runtime::Stopped(Halt::Off) => Ok(StartStep::Boot),
+        Runtime::Stopped(Halt::Paused) => Ok(StartStep::Resume),
+        Runtime::Faulted(word) => Err(format!(
+            "Cannot start a node whose {what} is {word}; redeploy it"
+        )),
+        Runtime::Transitional(word) => Err(format!(
+            "Cannot start a node whose {what} is {word}; try again shortly"
+        )),
+        Runtime::Absent => Err(format!("The node has no {what}; redeploy it")),
+    }
+}
+
+/// Record what starting each node did, add each node's result to `results`, and return the
+/// cold-booted nodes: they have new taps with new ifindexes, and their readiness is awaited.
+async fn record_outcomes(
+    state: &AppState,
+    operation: &LabOperation,
+    outcomes: Vec<(StartOutcome, String, Option<RecordId>, NodeKind)>,
+    results: &mut Vec<NodeActionResult>,
+) -> Vec<(String, NodeKind)> {
+    let mut cold_booted = vec![];
+    for (outcome, node_name, node_id, kind) in outcomes {
+        let mut result = outcome.result(&node_name);
+        if let Some(id) = &node_id
+            && let Err(error) = record_all(state, operation, id, outcome.events()).await
+        {
+            tracing::warn!(node = %node_name, error = %error, "Failed to record the started node");
+            result.success = false;
+            result.message = format!("{}, but not recorded: {error:#}", result.message);
+        }
+        if outcome == StartOutcome::ColdBooted {
+            cold_booted.push((node_name, kind));
+        }
+        results.push(result);
+    }
+    cold_booted
+}
+
+/// Record `events` for node `node_id`, in order.
+async fn record_all(
+    state: &AppState,
+    operation: &LabOperation,
+    node_id: &RecordId,
+    events: &[OperationEvent],
+) -> Result<()> {
+    for event in events {
+        node_lifecycle::record(&state.db, operation, node_id, *event).await?;
+    }
+    Ok(())
+}
+
+async fn start_vm(device_name: &str, state: &AppState) -> StartOutcome {
     let qemu = state.qemu.clone();
     let device_name = device_name.to_string();
-    let node_name_owned = node_name.to_string();
 
-    match tokio::task::spawn_blocking(move || -> Result<NodeActionResult> {
-        let node_name = node_name_owned;
+    match tokio::task::spawn_blocking(move || -> Result<StartOutcome> {
         let conn = qemu.connect().context("Failed to connect to libvirt")?;
-        let domain = match virt::domain::Domain::lookup_by_name(&conn, &device_name) {
-            Ok(d) => d,
-            Err(e) => {
-                return Ok(NodeActionResult {
-                    name: node_name,
-                    success: false,
-                    message: format!("Domain not found: {e}"),
-                });
-            }
+        // A domain libvirt cannot find has no runtime object.
+        let Ok(domain) = virt::domain::Domain::lookup_by_name(&conn, &device_name) else {
+            return Ok(StartOutcome::Failed(
+                start_step(Runtime::Absent, "domain")
+                    .err()
+                    .unwrap_or_default(),
+            ));
         };
-
-        match domain.get_state() {
-            Ok((state, _reason)) => {
-                if state == VIR_DOMAIN_SHUTOFF {
-                    // Cold boot a defined-but-inactive domain
-                    match domain.create() {
-                        Ok(_) => Ok(NodeActionResult {
-                            name: node_name,
-                            success: true,
-                            message: "Started".to_string(),
-                        }),
-                        Err(e) => Ok(NodeActionResult {
-                            name: node_name,
-                            success: false,
-                            message: format!("Failed to start: {e}"),
-                        }),
-                    }
-                } else if state == VIR_DOMAIN_PAUSED {
-                    // Resume a paused domain
-                    match domain.resume() {
-                        Ok(_) => Ok(NodeActionResult {
-                            name: node_name,
-                            success: true,
-                            message: "Resumed".to_string(),
-                        }),
-                        Err(e) => Ok(NodeActionResult {
-                            name: node_name,
-                            success: false,
-                            message: format!("Failed to resume: {e}"),
-                        }),
-                    }
-                } else {
-                    // Already running or other state
-                    Ok(NodeActionResult {
-                        name: node_name,
-                        success: true,
-                        message: "Already running".to_string(),
-                    })
-                }
-            }
-            Err(e) => Ok(NodeActionResult {
-                name: node_name,
-                success: false,
-                message: format!("Failed to get state: {e}"),
-            }),
-        }
+        let code = match domain.get_state() {
+            Ok((code, _reason)) => code,
+            Err(e) => return Ok(StartOutcome::Failed(format!("Failed to get state: {e}"))),
+        };
+        let outcome = match start_step(node_lifecycle::libvirt_runtime(Some(code)), "domain") {
+            Ok(StartStep::Boot) => match domain.create() {
+                Ok(_) => StartOutcome::ColdBooted,
+                Err(e) => StartOutcome::Failed(format!("Failed to start: {e}")),
+            },
+            Ok(StartStep::Resume) => match domain.resume() {
+                Ok(_) => StartOutcome::Resumed,
+                Err(e) => StartOutcome::Failed(format!("Failed to resume: {e}")),
+            },
+            Ok(StartStep::Nothing) => StartOutcome::AlreadyRunning,
+            Err(reason) => StartOutcome::Failed(reason),
+        };
+        Ok(outcome)
     })
     .await
     {
-        Ok(Ok(result)) => result,
-        Ok(Err(e)) => NodeActionResult {
-            name: node_name.to_string(),
-            success: false,
-            message: format!("Libvirt error: {e}"),
-        },
-        Err(e) => NodeActionResult {
-            name: node_name.to_string(),
-            success: false,
-            message: format!("Task panicked: {e}"),
-        },
+        Ok(Ok(outcome)) => outcome,
+        Ok(Err(e)) => StartOutcome::Failed(format!("Libvirt error: {e}")),
+        Err(e) => StartOutcome::Failed(format!("Task panicked: {e}")),
     }
 }
 
-/// What `resume` does to a container in `status`.
-#[derive(Debug, PartialEq, Eq)]
-enum ContainerResume {
-    Unpause,
-    Start,
-    AlreadyRunning,
-    Cannot(String),
-}
-
-fn container_resume_step(status: Option<ContainerStateStatusEnum>) -> ContainerResume {
-    match status {
-        Some(ContainerStateStatusEnum::PAUSED) => ContainerResume::Unpause,
-        Some(ContainerStateStatusEnum::EXITED | ContainerStateStatusEnum::CREATED) => {
-            ContainerResume::Start
-        }
-        Some(ContainerStateStatusEnum::RUNNING) => ContainerResume::AlreadyRunning,
-        Some(other) => {
-            ContainerResume::Cannot(format!("Cannot resume a container that is {other}"))
-        }
-        None => ContainerResume::Cannot("Docker reports no state for the container".to_string()),
-    }
-}
-
-async fn start_container_node(
-    device_name: &str,
-    node_name: &str,
-    state: &AppState,
-) -> NodeActionResult {
-    let result = |success: bool, message: String| NodeActionResult {
-        name: node_name.to_string(),
-        success,
-        message,
-    };
+async fn start_container_node(device_name: &str, state: &AppState) -> StartOutcome {
     // As for VMs, a running node is left alone and a stopped one is started.
     let status = match container::container_status(&state.docker, device_name).await {
         Ok(status) => status,
-        Err(e) => return result(false, format!("Failed to check the container: {e:#}")),
+        Err(e) => return StartOutcome::Failed(format!("Failed to check the container: {e:#}")),
     };
-    match container_resume_step(status) {
-        ContainerResume::Unpause => {
+    match start_step(node_lifecycle::container_runtime(status), "container") {
+        Ok(StartStep::Resume) => {
             match container::unpause_container(&state.docker, device_name).await {
-                Ok(()) => result(true, "Unpaused".to_string()),
-                Err(e) => result(false, format!("Failed to unpause: {e:#}")),
+                Ok(()) => StartOutcome::Resumed,
+                Err(e) => StartOutcome::Failed(format!("Failed to unpause: {e:#}")),
             }
         }
-        ContainerResume::Start => {
-            match container::start_container(&state.docker, device_name).await {
-                Ok(()) => result(true, "Started".to_string()),
-                Err(e) => result(false, format!("Failed to start: {e:#}")),
-            }
-        }
-        ContainerResume::AlreadyRunning => result(true, "Already running".to_string()),
-        ContainerResume::Cannot(reason) => result(false, reason),
+        Ok(StartStep::Boot) => match container::start_container(&state.docker, device_name).await {
+            Ok(()) => StartOutcome::ColdBooted,
+            Err(e) => StartOutcome::Failed(format!("Failed to start: {e:#}")),
+        },
+        Ok(StartStep::Nothing) => StartOutcome::AlreadyRunning,
+        Err(reason) => StartOutcome::Failed(reason),
     }
 }
 
@@ -724,32 +770,56 @@ async fn reattach_p2p_ebpf_for_nodes(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::data::NodeState;
 
     #[test]
-    fn resume_unpauses_starts_or_leaves_a_container() {
-        use ContainerResume::*;
-        assert_eq!(
-            container_resume_step(Some(ContainerStateStatusEnum::PAUSED)),
-            Unpause
-        );
-        assert_eq!(
-            container_resume_step(Some(ContainerStateStatusEnum::EXITED)),
-            Start
-        );
-        assert_eq!(
-            container_resume_step(Some(ContainerStateStatusEnum::CREATED)),
-            Start
-        );
-        assert_eq!(
-            container_resume_step(Some(ContainerStateStatusEnum::RUNNING)),
-            AlreadyRunning
-        );
-        assert!(matches!(
-            container_resume_step(Some(ContainerStateStatusEnum::DEAD)),
-            Cannot(_)
-        ));
-        assert!(matches!(container_resume_step(None), Cannot(_)));
+    fn resume_boots_resumes_or_leaves_a_node_by_its_runtime() {
+        for what in ["domain", "container"] {
+            assert_eq!(
+                start_step(Runtime::Stopped(Halt::Off), what),
+                Ok(StartStep::Boot)
+            );
+            assert_eq!(
+                start_step(Runtime::Stopped(Halt::Paused), what),
+                Ok(StartStep::Resume)
+            );
+            assert_eq!(start_step(Runtime::Running, what), Ok(StartStep::Nothing));
+        }
     }
+
+    #[test]
+    fn resume_refuses_a_crashed_domain_or_a_dead_container() {
+        // M1.4: a crashed domain used to be reported "Already running" and recorded `Running`.
+        let crashed = start_step(Runtime::Faulted("crashed"), "domain").unwrap_err();
+        assert!(crashed.contains("domain is crashed"), "{crashed}");
+        assert!(crashed.contains("redeploy"), "{crashed}");
+        // M4.1: a dead container is refused, and the scanner shows it failed, not stopped.
+        let dead = start_step(Runtime::Faulted("dead"), "container").unwrap_err();
+        assert!(dead.contains("container is dead"), "{dead}");
+        let shutting = start_step(Runtime::Transitional("shutting down"), "domain").unwrap_err();
+        assert!(shutting.contains("shutting down"), "{shutting}");
+        let gone = start_step(Runtime::Absent, "domain").unwrap_err();
+        assert!(gone.contains("no domain"), "{gone}");
+    }
+
+    #[test]
+    fn a_cold_boot_is_told_by_the_outcome_not_its_message() {
+        // M8.2: resume used to compare the message with "Started" to find cold boots.
+        assert_eq!(
+            StartOutcome::ColdBooted.events(),
+            [OperationEvent::Launched]
+        );
+        assert_eq!(
+            StartOutcome::Resumed.events(),
+            [OperationEvent::Launched, OperationEvent::Ready]
+        );
+        assert_eq!(StartOutcome::AlreadyRunning.events(), []);
+        assert_eq!(StartOutcome::Failed("no".to_string()).events(), []);
+        let result = StartOutcome::ColdBooted.result("r1");
+        assert!(result.success);
+        assert!(!StartOutcome::Failed("no".to_string()).result("r1").success);
+    }
+
     use shared::konst::TALOS_API_PORT;
 
     fn manifest(text: &str) -> Manifest {

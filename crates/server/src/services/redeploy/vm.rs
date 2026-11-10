@@ -10,12 +10,13 @@ use tracing::instrument;
 
 use super::context::{Redeploy, data_interface_indices};
 use super::links::{node_bridge_interfaces, node_links, reattach_p2p_redirects};
+use crate::services::node_lifecycle;
 use crate::services::node_ops::{self, DomainParts, LabZtp, VmReadiness};
 use crate::services::node_resources;
 use crate::tls::lab_ca::NodeCertPaths;
 
 use shared::data;
-use shared::data::{DbLink, NodeState, RecordId, StatusKind};
+use shared::data::{DbLink, OperationEvent, RecordId, StatusKind};
 use shared::konst::{
     KVM_OUI, MTU_JUMBO_NET, READINESS_SLEEP, SHERPA_MANAGEMENT_NETWORK_NAME, TFTP_DIR, ZTP_DIR,
 };
@@ -121,6 +122,13 @@ pub(super) async fn redeploy_vm(
 
     let _ = progress.send_status(format!("Creating VM: {node_name}"), StatusKind::Progress);
     node_ops::create_vm(redeploy.qemu_conn.clone(), domain, progress).await?;
+    node_lifecycle::record(
+        &redeploy.state.db,
+        redeploy.operation,
+        &redeploy.node_record_id,
+        OperationEvent::Launched,
+    )
+    .await?;
 
     reattach_p2p_redirects(lab_id, &links, progress).await?;
 
@@ -197,8 +205,8 @@ fn vm_interfaces(
 }
 
 /// Wait for the VM's ready port until the manifest's ready timeout, recording the host key it
-/// offers, and record it running (stage 6). A VM that is not ready in time is left `Starting`;
-/// the redeploy still succeeds.
+/// offers, and record it running (stage 6). A VM that is not ready in time is left `Starting`,
+/// for the scanner to record running once its probe answers; the redeploy still succeeds.
 #[instrument(skip_all, fields(lab_id = %redeploy.lab_id, node_name = %redeploy.node_name), level = "debug")]
 async fn wait_until_ready(redeploy: &Redeploy<'_>) -> Result<()> {
     let node_name = redeploy.node_name.as_str();
@@ -217,10 +225,11 @@ async fn wait_until_ready(redeploy: &Redeploy<'_>) -> Result<()> {
     }
 
     if skip_ready || poll_until_ready(redeploy).await? {
-        db::update_node_state(
+        node_lifecycle::record(
             &redeploy.state.db,
-            redeploy.node_record_id.clone(),
-            NodeState::Running,
+            redeploy.operation,
+            &redeploy.node_record_id,
+            OperationEvent::Ready,
         )
         .await?;
     } else {

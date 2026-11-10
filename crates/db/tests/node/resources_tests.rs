@@ -2,7 +2,7 @@ use anyhow::Result;
 use db::{
     LabDetails, create_lab, create_node, create_user, get_node, list_pinned_nodes, list_vnc_ports,
     update_node_host_key, update_node_mgmt_ipv4, update_node_mgmt_ipv6, update_node_mgmt_mac,
-    update_node_resources, update_node_state, upsert_node_image,
+    update_node_resources, update_node_state_from, upsert_node_image,
 };
 use shared::data::{NodeConfig, NodeModel, NodeResources, NodeState};
 
@@ -130,7 +130,7 @@ async fn test_node_host_key_is_stored_and_cleared() -> Result<()> {
     assert_eq!(updated.ssh_host_key.as_deref(), Some(key));
 
     // Other updates keep the key.
-    update_node_state(&db, id.clone(), NodeState::Running).await?;
+    update_node_state_from(&db, id.clone(), NodeState::Building, NodeState::Starting).await?;
     assert_eq!(
         get_node(&db, id.clone()).await?.ssh_host_key.as_deref(),
         Some(key)

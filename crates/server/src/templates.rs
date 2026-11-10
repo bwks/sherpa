@@ -727,6 +727,43 @@ mod tests {
         .expect("template should render")
     }
 
+    #[test]
+    fn the_node_actions_offered_are_the_ones_its_state_allows() {
+        // M1.1 and M4.2: a node being built offers nothing, and a missing one only redeploy.
+        let cases = [
+            (NodeState::Running, ["stop", "redeploy"].as_slice()),
+            (NodeState::Starting, &["stop", "redeploy"]),
+            (NodeState::Stopped, &["start", "redeploy"]),
+            (NodeState::Failed, &["start", "redeploy"]),
+            (NodeState::Missing, &["redeploy"]),
+            (NodeState::Building, &[]),
+        ];
+        for (state, offered) in cases {
+            let device = DeviceInfo {
+                state,
+                ..test_device()
+            };
+            let table = NodesTableFragment {
+                lab_id: "a1b2c3d4".to_string(),
+                devices: vec![device.clone()],
+                device_count: 1,
+            }
+            .render()
+            .expect("template should render");
+            let detail = node_detail(device, NodeModel::UbuntuLinux);
+            for html in [table, detail] {
+                for action in ["start", "stop", "redeploy"] {
+                    let attribute = format!(r#"data-node-action="{action}""#);
+                    assert_eq!(
+                        html.contains(&attribute),
+                        offered.contains(&action),
+                        "{action} for a {state} node"
+                    );
+                }
+            }
+        }
+    }
+
     fn compute_value(html: &str, label: &str) -> String {
         let after = &html[html.find(label).expect(label)..];
         let start = after.find(r#"font-mono">"#).expect("value") + r#"font-mono">"#.len();

@@ -501,7 +501,8 @@ The services are not symmetrical. Some are short CRUD-style orchestrators, and s
 | | `container_pull.rs` | Docker/OCI image pull with progress |
 | | `clean.rs` | admin force-clean path |
 | Network mutation services | `impairment.rs` | update delay/jitter/loss/reorder/corrupt settings on P2P links |
-| Background service | `scanner.rs` | reconcile runtime state from Docker/libvirt into the database |
+| Background service | `scanner.rs` | observe Docker/libvirt runtime state into the node lifecycle, for labs no operation holds |
+| Node lifecycle | `node_lifecycle.rs` | the only writer of node states: `record` for operations, `observe` for the scanner, the runtime mapping table, lab status refresh |
 | Shared helpers | `node_ops.rs` | common node setup/building helpers |
 | | `progress.rs` | progress message abstraction |
 
@@ -595,7 +596,7 @@ flowchart TB
     end
     ssh --> secrets
     subgraph phase13["13. NodeReadiness"]
-        secrets["write container secret files to RAM"] --> startctr["start containers (node_ops::start_container_node)<br/>P2p containers: veths created into the container netns,<br/>then attach_ready_p2p_links for links now complete<br/>db::update_node_state Running"]
+        secrets["write container secret files to RAM"] --> startctr["start containers (node_ops::start_container_node)<br/>P2p containers: veths created into the container netns,<br/>then attach_ready_p2p_links for links now complete<br/>node_lifecycle::record Launched, Ready"]
         startctr --> ready["poll VMs with node_ops::check_vm_ready, record host keys<br/>poll unikernels with check_unikernel_ready<br/>no wait for skip_ready_check nodes or Talos cluster workers"]
         ready --> refresh["ssh_config::refresh_lab_ssh_files with recorded host keys<br/>bootstrap Kubernetes clusters"]
     end
@@ -707,8 +708,11 @@ its client disconnects and would otherwise stop the operation at an arbitrary aw
 `services/lab_operations.rs` keeps, per lab, a read/write lease and a cancellation token with
 a stop reason:
 
-- `up`, `redeploy` and `resume` call `lab_operations::begin` and hold the read lease until
-  they return;
+- `up`, `redeploy`, `resume` and `down` call `lab_operations::begin` and hold the read lease
+  until they return;
+- the scanner calls `lab_operations::try_observe`, which takes the write lease without waiting
+  and without cancelling anything; a lab an operation holds is skipped that cycle, and an
+  operation that starts meanwhile waits the few milliseconds the scanner holds it;
 - `lab_operations::stop(lab_id, reason)` cancels the token, then waits for the write lease, so
   it returns once every operation on the lab has ended.
 
@@ -802,18 +806,21 @@ flowchart TB
     subgraph rebuild["rebuild (node.rs): a failure records the node Failed"]
         destroy["2. destroy_node (teardown.rs): the VM or container, the node's ZTP directory"] --> vmnets["3. recreate_vm_networks (teardown.rs): isolated and reserved networks, VMs only"]
         vmnets --> resources["reserve_node_resources (keeps the VNC port)<br/>reissue the node certificate"]
-        resources --> ctr["container.rs: generate_container_ztp<br/>no links: Docker macvlan data networks; P2p: a veth per data interface<br/>start_container_node, veths into the netns, reattach_p2p_redirects<br/>Running; Vault unsealed, Keycloak realm made again"]
-        resources --> vm["vm.rs: generate_vm_ztp, clone_node_disks<br/>vm_interfaces from the DB links and bridges<br/>build_domain_template, create_vm, reattach_p2p_redirects<br/>isolated bridge down; wait for the ready port, host key, Running"]
+        resources --> ctr["container.rs: generate_container_ztp<br/>no links: Docker macvlan data networks; P2p: a veth per data interface<br/>start_container_node (Starting), veths into the netns, reattach_p2p_redirects<br/>Vault unsealed, Keycloak realm made again, then Running"]
+        resources --> vm["vm.rs: generate_vm_ztp, clone_node_disks<br/>vm_interfaces from the DB links and bridges<br/>build_domain_template, create_vm (Starting), reattach_p2p_redirects<br/>isolated bridge down; wait for the ready port, host key, Running"]
     end
     ctr --> ssh["ssh_config::refresh_lab_ssh_files"]
     vm --> ssh
     ssh --> stream["RedeployResponse"]
 ```
 
-A refused redeploy leaves the node, its state and its host key as they were. Once the node is
-torn down, a failure records it `Failed` rather than leaving it `Starting` until the scanner
-next runs. A VM that is not ready within the ready timeout is left `Starting` and the redeploy
-succeeds.
+A refused redeploy leaves the node, its state and its host key as they were; a node another
+operation is building is refused before teardown. Teardown records it `Building`, the started
+node `Starting`, and a ready one `Running`: a container only once Vault and Keycloak are
+restored. Once the node is torn down, a failure records it `Failed`, which the scanner never
+overwrites. A VM that is not ready within the ready timeout is left `Starting`, the redeploy
+succeeds, and the scanner records it `Running` once it answers on SSH. The node lifecycle is
+in [`STATE_MACHINES.md`](STATE_MACHINES.md#1-node-lifecycle-nodestate).
 
 The important boundary is that redeploy should preserve the lab-level network topology and only replace the selected node's runtime resources and generated files.
 
@@ -848,9 +855,20 @@ After the access checks, and before starting anything, resume admits the stopped
 unikernels against the server's memory (see [Admission](#admission-memory-and-cpu-pins)); a
 refusal fails the whole call.
 
-Both are idempotent per node. A VM already stopped or running is reported as such. A container
-is checked first (`container::container_status`): `down` pauses only a running container, and
-`resume` unpauses a paused one, starts an exited or created one, and leaves a running one.
+Both hold the lab's operation lease (`lab_operations::begin`), so a destroy waits for them and
+the scanner leaves the lab alone while they run. Both move nodes only through the node
+lifecycle (`node_lifecycle::record`): a node another operation is building (`Building`), or one
+with no domain or container (`Missing`), is refused before anything is done to it.
+
+Both are idempotent per node. A VM already stopped or running is reported as such. Resume
+reads the node's runtime through the one mapping table (`node_lifecycle::libvirt_runtime` and
+`container_runtime`) and decides with `start_step`: it boots a shut-off domain or an exited or
+created container, resumes or unpauses a paused one, leaves a running one, and refuses a
+crashed domain, a dead container, one between states and one that does not exist. Its result
+is a `StartOutcome` (`ColdBooted`, `Resumed`, `AlreadyRunning`, `Failed`), and that, not the
+message text, decides which nodes get their links re-attached and are waited for. A cold-booted
+node is recorded `Starting`, then `Running` once ready; a resumed one `Running`; a running one
+is left as it is. `down` pauses only a running container.
 
 `down` routes each node (`shutdown_route`): VMs are asked to shut down (`domain.shutdown()`:
 libvirt uses the guest agent when present, otherwise the ACPI power button); Talos cluster
@@ -867,7 +885,8 @@ manifest (`manifest.toml` in the lab directory, written by `up`) for `ready_time
 `skip_ready_check` and `ready_port`; labs without a readable saved manifest use the default
 timeout and SSH checks. VMs are probed on SSH, unikernels with `check_unikernel_ready`.
 Containers and paused nodes are not waited for. A node that is not ready within the timeout
-is reported in its result message, not as an error. The WebSocket `resume` RPC is streaming
+is reported in its result message, not as an error, and stays `Starting` until the scanner's
+probe answers. The WebSocket `resume` RPC is streaming
 and sends readiness status messages before its response; the REST and web handlers return
 the same `LabNodeActionResponse` once the wait completes.
 
@@ -899,7 +918,10 @@ Admin-only image mutations are enforced at the transport boundary. Image list/sh
 
 ### Scanner service architecture
 
-The scanner is the only long-running background service started by `run_server` today.
+The scanner is the background service `run_server` starts to keep node states in line with
+libvirt and Docker. It never creates or destroys resources, and it never writes a state an
+operation owns: it observes a lab only while no operation holds it, and moves nodes only
+through `node_lifecycle::observe`, which applies `NodeState::on_observation`.
 
 ```mermaid
 flowchart TB
@@ -911,45 +933,53 @@ flowchart TB
         wait{"sleep interval_secs between cycles"}
         stop["stop immediately"]
         subgraph scancycle["scan_cycle"]
-            libvirtstates["query_libvirt_states(qemu)<br/>spawn_blocking because libvirt calls are blocking"]
-            dockerstates["query_docker_states(docker)<br/>Bollard list_containers"]
+            snapshot["query_runtimes: libvirt (spawn_blocking) and Docker, at once"]
             listlabs["db::list_labs"]
-            subgraph eachlab["for each lab"]
-                listnodes["db::list_nodes_by_lab"]
-                images["batch load node images for NodeKind"]
-                mapstate["map runtime state to NodeState"]
-                nodestate["db::update_node_state when changed"]
-                wantskey{"wants_host_key:<br/>running VMs with SSH that started,<br/>or still await a key since they started,<br/>or have none recorded"}
-                checkready["node_ops::check_vm_ready on port 22"]
-                recordkey["record_node_host_key"]
+            subgraph eachlab["scan_lab, for each lab"]
+                listnodes["db::list_nodes_by_lab, node images for kind and SSH"]
+                wantsprobe{"wants_probe: a VM with SSH that the snapshot shows running,<br/>not yet Running or with no host key"}
+                probe["probe_node: check_vm_ready on port 22,<br/>record_node_host_key"]
+                hold{"lab_operations::try_observe:<br/>does an operation hold the lab?"}
+                fresh["under the hold: query_runtimes again,<br/>read the nodes again"]
+                observe["node_lifecycle::observe each node:<br/>runtime + probe result, compare-and-set"]
+                labstatus["refresh_lab_status"]
                 refresh["refresh_lab_ssh_files when a key was recorded"]
-                derive["derive LabState from node states"]
-                labstate["db::update_lab_state when changed"]
             end
         end
     end
     spawn --> wait
     wait -->|cancellation token triggered| stop
-    wait -->|interval elapsed| libvirtstates
-    libvirtstates --> dockerstates --> listlabs --> listnodes
-    listnodes --> images --> mapstate --> nodestate --> wantskey
-    wantskey -->|yes| checkready --> recordkey --> refresh --> derive
-    wantskey -->|no| derive
-    derive --> labstate
-    labstate -->|next cycle| wait
+    wait -->|interval elapsed| snapshot
+    snapshot --> listlabs --> listnodes --> wantsprobe
+    wantsprobe -->|yes| probe --> hold
+    wantsprobe -->|no| hold
+    hold -->|no| fresh --> observe --> labstatus --> refresh
+    hold -->|yes: skip this cycle| refresh
+    refresh -->|next lab, next cycle| wait
     scancycle -.->|"scan failure: log, do not kill server"| wait
 ```
 
+What the scanner may do to each state is in
+[`STATE_MACHINES.md`](STATE_MACHINES.md#1-node-lifecycle-nodestate). In short: a node gone
+from libvirt or Docker is `Missing`, a crashed domain or dead container `Failed`, a stopped,
+paused or exited one `Stopped`; a running one is `Running` once ready. `Building` and `Failed`
+nodes are left to the operations.
+
+The probes run before the hold, so a slow SSH server does not delay an operation that wants
+the lab. The runtimes are queried again under the hold, so what an operation did just before
+it released the lab is what the scanner sees. Each write is a compare-and-set on the state
+the scanner read, so it never overwrites a newer write.
+
 A runtime that cannot be queried in a cycle (libvirtd or Docker restarting) is unknown for that
-cycle: its nodes keep their recorded state. Treating it as empty would mark every node Stopped.
+cycle: its nodes keep their recorded state. Treating it as empty would mark every node
+`Missing`.
 
-A VM that changes to Running joins `awaiting_host_key`, an in-memory set kept across cycles,
-because libvirt reports it running before its SSH server answers. Its key is read every
-cycle until it answers or stops. A running VM with a key is not read again, so the scanner
-makes no SSH connections to settled nodes; a key that changes without a state change, as on a
-reboot from inside the guest, is read when a client finds it does not match.
-
-The scanner is reconciliation, not orchestration. It should not create or destroy resources. It observes runtime state and updates the database so UI/API consumers see reality when resources are externally stopped, started, removed, or crash.
+A running VM with SSH is probed while it is not yet `Running`, as after a readiness wait that
+timed out or a start outside Sherpa, or while it has no host key. A probe that answers
+records the key it offers and lets the node be recorded `Running`. A `Running` VM with a key
+is not probed again, so the scanner makes no SSH connections to settled nodes; a key that
+changes without a state change, as on a reboot from inside the guest, is read when a client
+finds it does not match. Other nodes have no probe: running counts as ready.
 
 ## HTTP routing architecture
 
@@ -1068,8 +1098,9 @@ keys were accepted unchecked before. The key is kept on the node's database reco
 - `redeploy` clears the node's key before teardown and records the new one when it is ready.
 - `resume` records the keys of the nodes it cold-booted, as some network operating systems
   (Cisco IOSv, IOSvL2, IOS-XE) make a new RSA key on every boot.
-- The scanner records the key of a VM that started outside these, such as from the web UI,
-  and of a running VM with no key (see the scanner section).
+- The scanner records the key of a running VM that is not yet known ready, such as one whose
+  readiness wait timed out or that started outside Sherpa, and of a running VM with no key
+  (see the scanner section).
 - The `node.host_keys` RPC (`services::host_keys`) reads one node's key on request, for a
   client whose recorded key did not match.
 
@@ -1376,5 +1407,6 @@ Open implementation seams (handler-driven auth, inconsistent service authorizati
 | Image management | `crates/server/src/services/import.rs`, `container_pull.rs`, `delete.rs` |
 | Link impairment | `crates/server/src/services/impairment.rs` |
 | Scanner | `crates/server/src/services/scanner.rs` |
+| Node lifecycle | `crates/shared/src/data/node_lifecycle.rs` (transitions), `crates/server/src/services/node_lifecycle.rs` (writes) |
 | TLS certificates | `crates/server/src/tls/` |
 | Generated API registry | `crates/shared/src/api_spec.rs` |

@@ -1,26 +1,48 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use bollard::secret::ContainerSummaryStateEnum;
-use shared::data::{DbLab, DbNode, LabState, NodeKind, NodeState, RecordId};
+use bollard::secret::ContainerStateStatusEnum;
+use shared::data::{DbLab, DbNode, NodeKind, NodeState, Observation, Probe, RecordId, Runtime};
 use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
-use virt::sys::{VIR_DOMAIN_PAUSED, VIR_DOMAIN_RUNNING, VIR_DOMAIN_SHUTOFF};
 
 use crate::daemon::state::AppState;
+use crate::services::lab_operations;
+use crate::services::node_lifecycle;
 use crate::services::node_ops::{self, VmReadiness};
 use crate::services::ssh_config;
 
+/// What libvirt and Docker reported in one query. A runtime that did not answer is `None`:
+/// unknown this time, not empty, as empty would make every one of its nodes missing.
+struct Runtimes {
+    domains: Option<HashMap<String, u32>>,
+    containers: Option<HashMap<String, ContainerStateStatusEnum>>,
+}
+
+/// A node with what the scanner needs to know about its image.
+struct ScannedNode<'a> {
+    node: &'a DbNode,
+    kind: NodeKind,
+    has_ssh: bool,
+    runtime_name: String,
+}
+
 /// Run the background scanner service.
 ///
-/// Periodically queries libvirt and Docker for actual runtime state of all
-/// nodes, then reconciles the database to match. Virtual machines that started, as from the
-/// web UI, and running ones without a recorded SSH host key, get their host key read and
-/// recorded, so the lab's `known_hosts` file follows nodes that make a new key when they
-/// boot. Exits cleanly when the cancellation token is triggered.
+/// Periodically queries libvirt and Docker for the runtime state of every node, and records
+/// what it sees through the node lifecycle (`node_lifecycle::observe`). It only observes a lab
+/// no operation holds, and queries the runtimes again under that hold, so it never overwrites a
+/// state an operation is writing. Nodes being built and failed nodes are never moved by it.
+///
+/// Virtual machines with SSH that run and are not yet known ready, or have no host key
+/// recorded, are probed on SSH first: the probe records the host key they offer, and a node
+/// whose probe answered is recorded running. So a node whose readiness wait timed out, or that
+/// was started outside Sherpa, becomes `Running` once it answers. Exits cleanly when the
+/// cancellation token is triggered.
 #[instrument(skip_all)]
 pub async fn run_scanner(state: AppState, cancel: CancellationToken) {
     let interval_secs = state.config.scanner.interval_secs;
@@ -30,14 +52,11 @@ pub async fn run_scanner(state: AppState, cancel: CancellationToken) {
     // The first tick completes immediately; skip it so we don't scan at startup
     // before everything is fully initialized.
     interval.tick().await;
-    // Started nodes whose host key is read every cycle until their SSH server answers, by
-    // runtime name.
-    let mut awaiting_host_key = HashSet::new();
 
     loop {
         tokio::select! {
             _ = interval.tick() => {
-                if let Err(e) = scan_cycle(&state, &mut awaiting_host_key).await {
+                if let Err(e) = scan_cycle(&state).await {
                     tracing::error!(error = %e, "Scanner cycle failed");
                 }
             }
@@ -49,54 +68,17 @@ pub async fn run_scanner(state: AppState, cancel: CancellationToken) {
     }
 }
 
-/// Execute a single scan cycle: query runtimes, reconcile with DB.
+/// Execute a single scan cycle: query runtimes, then scan every lab.
 #[instrument(skip_all, level = "debug")]
-async fn scan_cycle(state: &AppState, awaiting_host_key: &mut HashSet<String>) -> Result<()> {
-    // Query both runtimes concurrently
-    let qemu = state.qemu.clone();
-    let docker = state.docker.clone();
+async fn scan_cycle(state: &AppState) -> Result<()> {
+    let snapshot = query_runtimes(state).await;
 
-    let (vm_states, container_states) =
-        tokio::join!(query_libvirt_states(qemu), query_docker_states(docker),);
-
-    // A runtime that did not answer is unknown this cycle, not empty: treating it as empty
-    // would mark every one of its nodes stopped.
-    let vm_states = match vm_states {
-        Ok(states) => Some(states),
-        Err(e) => {
-            tracing::error!(error = %e, "Failed to query libvirt states");
-            None
-        }
-    };
-
-    let container_states = match container_states {
-        Ok(states) => Some(states),
-        Err(e) => {
-            tracing::error!(error = %e, "Failed to query Docker states");
-            None
-        }
-    };
-
-    // Fetch all labs from DB
     let labs = db::list_labs(&state.db)
         .await
         .context("Failed to list labs")?;
 
-    if labs.is_empty() {
-        tracing::trace!("No labs found, skipping scan");
-        return Ok(());
-    }
-
     for lab in &labs {
-        if let Err(e) = scan_lab(
-            state,
-            lab,
-            vm_states.as_ref(),
-            container_states.as_ref(),
-            awaiting_host_key,
-        )
-        .await
-        {
+        if let Err(e) = scan_lab(state, lab, &snapshot).await {
             tracing::warn!(
                 lab_id = %lab.lab_id,
                 error = %e,
@@ -108,233 +90,188 @@ async fn scan_cycle(state: &AppState, awaiting_host_key: &mut HashSet<String>) -
     Ok(())
 }
 
-/// Scan a single lab: fetch its nodes, determine actual state, update DB if changed.
+/// Scan one lab. First, outside any hold, probe the nodes `snapshot` shows running that need
+/// it. Then, holding the lab, query the runtimes again and record what is seen, and the lab's
+/// status. A lab an operation holds is skipped this cycle.
 #[instrument(skip_all, fields(lab_id = %lab.lab_id), level = "debug")]
-async fn scan_lab(
-    state: &AppState,
-    lab: &DbLab,
-    vm_states: Option<&HashMap<String, u32>>,
-    container_states: Option<&HashMap<String, ContainerSummaryStateEnum>>,
-    awaiting_host_key: &mut HashSet<String>,
-) -> Result<()> {
+async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<()> {
     let lab_record_id = lab.id.as_ref().context("Lab missing record ID")?;
 
     let nodes = db::list_nodes_by_lab(&state.db, lab_record_id.clone())
         .await
         .context("Failed to list nodes for lab")?;
+    let scanned = scanned_nodes(state, lab, &nodes).await?;
 
-    if nodes.is_empty() {
-        return Ok(());
+    let mut probes = HashMap::new();
+    let mut key_recorded = false;
+    for node in &scanned {
+        let running = snapshot.runtime_of(node) == Some(Runtime::Running);
+        if !wants_probe(node, running) {
+            continue;
+        }
+        let (probe, recorded) = probe_node(state, node.node).await;
+        key_recorded |= recorded;
+        probes.insert(node.node.name.clone(), probe);
     }
 
-    // Batch-fetch node images to determine NodeKind
+    if let Some(observed) = lab_operations::try_observe(&lab.lab_id) {
+        // Under the hold: what an operation wrote before it ended is in the database, and what
+        // it did to the runtimes is in this query.
+        let runtimes = query_runtimes(state).await;
+        let nodes = db::list_nodes_by_lab(&state.db, lab_record_id.clone())
+            .await
+            .context("Failed to list nodes for lab")?;
+        for node in scanned_nodes(state, lab, &nodes).await? {
+            let Some(runtime) = runtimes.runtime_of(&node) else {
+                tracing::debug!(node = %node.node.name, "Runtime not queried this cycle; keeping its state");
+                continue;
+            };
+            let observation = Observation {
+                runtime,
+                probe: probe_for(&node, probes.get(&node.node.name).copied()),
+            };
+            if let Err(error) =
+                node_lifecycle::observe(&state.db, &observed, node.node, observation).await
+            {
+                tracing::warn!(node = %node.node.name, error = %error, "Failed to update node state");
+            }
+        }
+        let current = db::get_lab(&state.db, &lab.lab_id).await?.status;
+        node_lifecycle::refresh_lab_status(&state.db, lab_record_id, Some(current)).await?;
+    } else {
+        tracing::debug!("An operation holds the lab; leaving it for the next cycle");
+    }
+
+    if key_recorded {
+        refresh_ssh_files(state, lab, lab_record_id).await?;
+    }
+    Ok(())
+}
+
+/// The lab's nodes, each with its kind and whether its model has SSH.
+async fn scanned_nodes<'a>(
+    state: &AppState,
+    lab: &DbLab,
+    nodes: &'a [DbNode],
+) -> Result<Vec<ScannedNode<'a>>> {
+    if nodes.is_empty() {
+        return Ok(Vec::new());
+    }
     let mut image_ids: Vec<RecordId> = nodes.iter().map(|n| n.image.clone()).collect();
     image_ids.dedup();
-
     let node_images = db::list_node_images_by_ids(&state.db, image_ids)
         .await
         .context("Failed to batch fetch node images")?;
-
-    let mut current_node_states = Vec::with_capacity(nodes.len());
-    let mut host_key_reads = Vec::new();
-
-    for node in &nodes {
-        let Some(node_id) = &node.id else {
-            tracing::warn!(node_name = %node.name, "Node missing record ID, skipping");
-            current_node_states.push(node.state);
-            continue;
-        };
-
-        // Determine NodeKind from image
-        let image = node_images
-            .iter()
-            .find(|img| img.id.as_ref() == Some(&node.image));
-        let kind = image.map_or(NodeKind::VirtualMachine, |img| img.kind.clone());
-        let has_ssh = image.is_some_and(|img| img.model.has_ssh());
-
-        let runtime_name = format!("{}-{}", node.name, lab.lab_id);
-        let Some(detected_state) =
-            detect_node_state(&runtime_name, &kind, vm_states, container_states)
-        else {
-            tracing::debug!(node = %node.name, "Runtime not queried this cycle; keeping its state");
-            current_node_states.push(node.state);
-            continue;
-        };
-
-        if detected_state != node.state {
-            tracing::info!(
-                node = %node.name,
-                lab_id = %lab.lab_id,
-                old_state = %node.state,
-                new_state = %detected_state,
-                "Node state changed"
-            );
-            if let Err(e) = db::update_node_state(&state.db, node_id.clone(), detected_state).await
-            {
-                tracing::warn!(
-                    node = %node.name,
-                    error = %e,
-                    "Failed to update node state"
-                );
+    Ok(nodes
+        .iter()
+        .map(|node| {
+            let image = node_images
+                .iter()
+                .find(|img| img.id.as_ref() == Some(&node.image));
+            ScannedNode {
+                node,
+                kind: image.map_or(NodeKind::VirtualMachine, |img| img.kind.clone()),
+                has_ssh: image.is_some_and(|img| img.model.has_ssh()),
+                runtime_name: format!("{}-{}", node.name, lab.lab_id),
             }
-        }
+        })
+        .collect())
+}
 
-        if detected_state != NodeState::Running {
-            awaiting_host_key.remove(&runtime_name);
-        } else if node.state != NodeState::Running {
-            awaiting_host_key.insert(runtime_name.clone());
-        }
-        if wants_host_key(
-            &kind,
-            has_ssh,
-            detected_state,
-            awaiting_host_key.contains(&runtime_name),
-            node.ssh_host_key.is_some(),
-        ) {
-            host_key_reads.push((node, runtime_name));
-        }
-
-        current_node_states.push(detected_state);
-    }
-
-    record_host_keys(
-        state,
-        lab,
+/// Save the lab's SSH files again, with the host keys just recorded.
+async fn refresh_ssh_files(state: &AppState, lab: &DbLab, lab_record_id: &RecordId) -> Result<()> {
+    let lab_dir = format!("{SHERPA_LABS_PATH}/{}", lab.lab_id);
+    let lab_info = ssh_config::load_lab_info(&lab_dir).await?;
+    ssh_config::refresh_lab_ssh_files(
+        &state.db,
+        &lab_dir,
         lab_record_id,
-        &host_key_reads,
-        awaiting_host_key,
+        &lab_info,
+        state.config.server_ipv4,
     )
     .await?;
-
-    // Derive and persist lab state from current node states
-    let derived_lab_state = LabState::derive(&current_node_states);
-    if derived_lab_state != lab.status {
-        tracing::info!(
-            lab_id = %lab.lab_id,
-            old_state = %lab.status,
-            new_state = %derived_lab_state,
-            "Lab state changed"
-        );
-        if let Err(e) =
-            db::update_lab_state(&state.db, lab_record_id.clone(), derived_lab_state).await
-        {
-            tracing::warn!(
-                lab_id = %lab.lab_id,
-                error = %e,
-                "Failed to update lab state"
-            );
-        }
-    }
-
     Ok(())
 }
 
-/// Read the host keys of `reads` (each node with its runtime name) and, when any was recorded,
-/// save the lab's SSH files again with them. A node whose key was recorded is no longer awaited.
-#[instrument(skip_all, fields(lab_id = %lab.lab_id), level = "debug")]
-async fn record_host_keys(
-    state: &AppState,
-    lab: &DbLab,
-    lab_record_id: &RecordId,
-    reads: &[(&DbNode, String)],
-    awaiting_host_key: &mut HashSet<String>,
-) -> Result<()> {
-    let mut recorded = false;
-    for (node, runtime_name) in reads {
-        match read_host_key(state, node).await {
-            Ok(true) => {
-                awaiting_host_key.remove(runtime_name);
-                recorded = true;
-            }
-            Ok(false) => {
-                tracing::debug!(node = %node.name, "SSH server not answering yet");
-            }
-            Err(e) => {
-                tracing::warn!(node = %node.name, error = %e, "Failed to record node host key");
-            }
-        }
-    }
-    if recorded {
-        let lab_dir = format!("{SHERPA_LABS_PATH}/{}", lab.lab_id);
-        let lab_info = ssh_config::load_lab_info(&lab_dir).await?;
-        ssh_config::refresh_lab_ssh_files(
-            &state.db,
-            &lab_dir,
-            lab_record_id,
-            &lab_info,
-            state.config.server_ipv4,
-        )
-        .await?;
-    }
-    Ok(())
+/// Whether to probe a node this cycle: a running virtual machine with SSH that is not yet
+/// known ready, or has no host key recorded.
+fn wants_probe(node: &ScannedNode<'_>, running: bool) -> bool {
+    node.kind == NodeKind::VirtualMachine
+        && node.has_ssh
+        && running
+        && (node.node.state != NodeState::Running || node.node.ssh_host_key.is_none())
 }
 
-/// Whether to read a node's SSH host key this cycle: a running virtual machine with SSH that
-/// has just started, or is still awaited since it started, or has no key recorded.
-fn wants_host_key(
-    kind: &NodeKind,
-    has_ssh: bool,
-    detected_state: NodeState,
-    started: bool,
-    has_key: bool,
-) -> bool {
-    *kind == NodeKind::VirtualMachine
-        && has_ssh
-        && detected_state == NodeState::Running
-        && (started || !has_key)
+/// What the scanner's observation says of a node's readiness: virtual machines with SSH are
+/// ready only when their probe answered this cycle; other nodes have no probe, so running
+/// counts as ready.
+fn probe_for(node: &ScannedNode<'_>, probed: Option<Probe>) -> Probe {
+    if node.kind == NodeKind::VirtualMachine && node.has_ssh {
+        probed.unwrap_or(Probe::NotReady)
+    } else {
+        Probe::NotProbed
+    }
 }
 
-/// Read the host key a running node offers on SSH and record it. Returns `false` when its
-/// SSH server does not answer yet.
+/// Probe a running node on SSH, and record the host key it offers. Returns the probe's result
+/// and whether a key was recorded.
 #[instrument(skip_all, fields(node = %node.name), level = "debug")]
-async fn read_host_key(state: &AppState, node: &DbNode) -> Result<bool> {
+async fn probe_node(state: &AppState, node: &DbNode) -> (Probe, bool) {
     let Some(ip) = &node.mgmt_ipv4 else {
         tracing::debug!("Node has no management address");
-        return Ok(false);
+        return (Probe::NotReady, false);
     };
-    match node_ops::check_vm_ready(ip, SSH_PORT).await? {
-        VmReadiness::Ready {
+    match node_ops::check_vm_ready(ip, SSH_PORT).await {
+        Ok(VmReadiness::Ready {
             host_key: Some(host_key),
-        } => {
-            ssh_config::record_node_host_key(&state.db, node, &host_key).await?;
-            Ok(true)
+        }) => match ssh_config::record_node_host_key(&state.db, node, &host_key).await {
+            Ok(_) => (Probe::Ready, true),
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to record node host key");
+                (Probe::Ready, false)
+            }
+        },
+        Ok(VmReadiness::Ready { host_key: None }) => (Probe::Ready, false),
+        Ok(VmReadiness::NotReady) => {
+            tracing::debug!("SSH server not answering yet");
+            (Probe::NotReady, false)
         }
-        VmReadiness::Ready { host_key: None } | VmReadiness::NotReady => Ok(false),
+        Err(e) => {
+            tracing::debug!(error = %e, "Probe failed");
+            (Probe::NotReady, false)
+        }
     }
 }
 
-/// Determine the actual node state from runtime data. `None` when the node's runtime could not
-/// be queried this cycle (its states are `None`), so the recorded state stands.
-fn detect_node_state(
-    runtime_name: &str,
-    kind: &NodeKind,
-    vm_states: Option<&HashMap<String, u32>>,
-    container_states: Option<&HashMap<String, ContainerSummaryStateEnum>>,
-) -> Option<NodeState> {
-    let state = match kind {
-        NodeKind::VirtualMachine | NodeKind::Unikernel => match vm_states?.get(runtime_name) {
-            Some(&state_code) if state_code == VIR_DOMAIN_RUNNING => NodeState::Running,
-            Some(&state_code) if state_code == VIR_DOMAIN_SHUTOFF => NodeState::Stopped,
-            Some(&state_code) if state_code == VIR_DOMAIN_PAUSED => NodeState::Stopped,
-            Some(_) => NodeState::Unknown,
-            None => NodeState::Stopped,
-        },
-        NodeKind::Container => match container_states?.get(runtime_name) {
-            Some(status) => match status {
-                ContainerSummaryStateEnum::RUNNING => NodeState::Running,
-                ContainerSummaryStateEnum::EXITED
-                | ContainerSummaryStateEnum::DEAD
-                | ContainerSummaryStateEnum::PAUSED => NodeState::Stopped,
-                ContainerSummaryStateEnum::CREATED => NodeState::Created,
-                ContainerSummaryStateEnum::RESTARTING => NodeState::Starting,
-                ContainerSummaryStateEnum::REMOVING | ContainerSummaryStateEnum::EMPTY => {
-                    NodeState::Unknown
-                }
-            },
-            None => NodeState::Stopped,
-        },
-    };
-    Some(state)
+/// Query libvirt and Docker at the same time.
+async fn query_runtimes(state: &AppState) -> Runtimes {
+    let (domains, containers) = tokio::join!(
+        query_libvirt_states(state.qemu.clone()),
+        query_docker_states(state.docker.clone()),
+    );
+    Runtimes {
+        domains: domains
+            .inspect_err(|e| tracing::error!(error = %e, "Failed to query libvirt states"))
+            .ok(),
+        containers: containers
+            .inspect_err(|e| tracing::error!(error = %e, "Failed to query Docker states"))
+            .ok(),
+    }
+}
+
+impl Runtimes {
+    /// What the runtime reports for `node`, or `None` when its runtime was not queried.
+    fn runtime_of(&self, node: &ScannedNode<'_>) -> Option<Runtime> {
+        let name = node.runtime_name.as_str();
+        Some(match node.kind {
+            NodeKind::VirtualMachine | NodeKind::Unikernel => {
+                node_lifecycle::libvirt_runtime(self.domains.as_ref()?.get(name).copied())
+            }
+            NodeKind::Container => {
+                node_lifecycle::container_runtime(self.containers.as_ref()?.get(name).copied())
+            }
+        })
+    }
 }
 
 /// Query libvirt for all domain states. Must run in `spawn_blocking` since
@@ -373,7 +310,7 @@ async fn query_libvirt_states(qemu: Arc<libvirt::Qemu>) -> Result<HashMap<String
 /// Query Docker for all container states.
 async fn query_docker_states(
     docker: Arc<bollard::Docker>,
-) -> Result<HashMap<String, ContainerSummaryStateEnum>> {
+) -> Result<HashMap<String, ContainerStateStatusEnum>> {
     let containers = container::list_containers(&docker)
         .await
         .context("Failed to list Docker containers")?;
@@ -387,7 +324,10 @@ async fn query_docker_states(
             }
             _ => continue,
         };
-        if let Some(status) = c.state {
+        // The listing's states are the inspection's, under another type.
+        if let Some(status) = c.state
+            && let Ok(status) = ContainerStateStatusEnum::from_str(status.as_ref())
+        {
             states.insert(name, status);
         }
     }
@@ -397,296 +337,155 @@ async fn query_docker_states(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use virt::sys::VIR_DOMAIN_RUNNING;
 
-    #[test]
-    fn started_and_keyless_running_vms_have_their_host_key_read() {
-        let vm = NodeKind::VirtualMachine;
-        // Just started, or awaited since it started.
-        assert!(wants_host_key(&vm, true, NodeState::Running, true, true));
-        // Running without a key.
-        assert!(wants_host_key(&vm, true, NodeState::Running, false, false));
-        // Running with a key, and nothing new.
-        assert!(!wants_host_key(&vm, true, NodeState::Running, false, true));
+    fn db_node(state: NodeState, has_key: bool) -> DbNode {
+        DbNode {
+            id: None,
+            name: "r1".to_string(),
+            image: RecordId::new("node_image", "x"),
+            index: 1,
+            lab: RecordId::new("lab", "x"),
+            mgmt_ipv4: Some("172.31.1.10".to_string()),
+            mgmt_ipv6: None,
+            mgmt_mac: None,
+            state,
+            cpu_count: None,
+            memory: None,
+            vnc_port: None,
+            ssh_host_key: has_key.then(|| "ssh-ed25519 AAAA".to_string()),
+            cpu_pinning: None,
+            qemu_thread_cpus: None,
+        }
+    }
+
+    fn scanned(node: &DbNode, kind: NodeKind, has_ssh: bool) -> ScannedNode<'_> {
+        ScannedNode {
+            node,
+            kind,
+            has_ssh,
+            runtime_name: "r1-abc12345".to_string(),
+        }
     }
 
     #[test]
-    fn stopped_containers_and_nodes_without_ssh_are_not_read() {
+    fn running_vms_not_known_ready_or_without_a_key_are_probed() {
         let vm = NodeKind::VirtualMachine;
-        assert!(!wants_host_key(&vm, true, NodeState::Stopped, true, false));
-        assert!(!wants_host_key(&vm, false, NodeState::Running, true, false));
-        assert!(!wants_host_key(
-            &NodeKind::Container,
-            true,
-            NodeState::Running,
-            true,
+        // Started outside Sherpa, or not ready when its readiness wait ended.
+        for state in [NodeState::Stopped, NodeState::Starting, NodeState::Unknown] {
+            let node = db_node(state, true);
+            assert!(
+                wants_probe(&scanned(&node, vm.clone(), true), true),
+                "{state}"
+            );
+        }
+        let keyless = db_node(NodeState::Running, false);
+        assert!(wants_probe(&scanned(&keyless, vm.clone(), true), true));
+        let known = db_node(NodeState::Running, true);
+        assert!(!wants_probe(&scanned(&known, vm, true), true));
+    }
+
+    #[test]
+    fn stopped_nodes_containers_and_nodes_without_ssh_are_not_probed() {
+        let node = db_node(NodeState::Starting, false);
+        assert!(!wants_probe(
+            &scanned(&node, NodeKind::VirtualMachine, true),
             false
         ));
-        assert!(!wants_host_key(
-            &NodeKind::Unikernel,
-            true,
-            NodeState::Running,
-            true,
-            false
+        assert!(!wants_probe(
+            &scanned(&node, NodeKind::VirtualMachine, false),
+            true
         ));
+        assert!(!wants_probe(
+            &scanned(&node, NodeKind::Container, true),
+            true
+        ));
+        assert!(!wants_probe(
+            &scanned(&node, NodeKind::Unikernel, true),
+            true
+        ));
+    }
+
+    #[test]
+    fn a_vm_with_ssh_is_ready_only_when_its_probe_answered() {
+        // M1.3: running in libvirt is not ready.
+        let node = db_node(NodeState::Starting, true);
+        let vm = scanned(&node, NodeKind::VirtualMachine, true);
+        assert_eq!(probe_for(&vm, None), Probe::NotReady);
+        assert_eq!(probe_for(&vm, Some(Probe::NotReady)), Probe::NotReady);
+        assert_eq!(probe_for(&vm, Some(Probe::Ready)), Probe::Ready);
+        for (kind, has_ssh) in [
+            (NodeKind::Container, true),
+            (NodeKind::Unikernel, false),
+            (NodeKind::VirtualMachine, false),
+        ] {
+            assert_eq!(
+                probe_for(&scanned(&node, kind, has_ssh), None),
+                Probe::NotProbed
+            );
+        }
     }
 
     #[test]
     fn a_runtime_that_could_not_be_queried_leaves_its_nodes_undecided() {
-        let container_states = HashMap::from([(
-            "r1-abc12345".to_string(),
-            ContainerSummaryStateEnum::RUNNING,
-        )]);
-        // libvirt did not answer: its nodes are undecided, not stopped.
+        let node = db_node(NodeState::Running, true);
+        let containers =
+            HashMap::from([("r1-abc12345".to_string(), ContainerStateStatusEnum::RUNNING)]);
+        let runtimes = Runtimes {
+            domains: None,
+            containers: Some(containers),
+        };
+        // libvirt did not answer: its nodes are undecided, not missing.
         assert_eq!(
-            detect_node_state(
-                "vm1-abc12345",
-                &NodeKind::VirtualMachine,
-                None,
-                Some(&container_states)
-            ),
+            runtimes.runtime_of(&scanned(&node, NodeKind::VirtualMachine, true)),
             None
         );
         assert_eq!(
-            detect_node_state(
-                "uk1-abc12345",
-                &NodeKind::Unikernel,
-                None,
-                Some(&container_states)
-            ),
+            runtimes.runtime_of(&scanned(&node, NodeKind::Unikernel, false)),
             None
         );
         // Docker answered, so its nodes are still decided.
         assert_eq!(
-            detect_node_state(
-                "r1-abc12345",
-                &NodeKind::Container,
-                None,
-                Some(&container_states)
-            ),
-            Some(NodeState::Running)
+            runtimes.runtime_of(&scanned(&node, NodeKind::Container, false)),
+            Some(Runtime::Running)
+        );
+    }
+
+    #[test]
+    fn a_node_with_no_domain_or_container_is_absent_not_stopped() {
+        // M4.2: missing used to be read as stopped.
+        let node = db_node(NodeState::Running, true);
+        let runtimes = Runtimes {
+            domains: Some(HashMap::from([(
+                "other-abc12345".to_string(),
+                VIR_DOMAIN_RUNNING,
+            )])),
+            containers: Some(HashMap::new()),
+        };
+        assert_eq!(
+            runtimes.runtime_of(&scanned(&node, NodeKind::VirtualMachine, true)),
+            Some(Runtime::Absent)
         );
         assert_eq!(
-            detect_node_state(
-                "r1-abc12345",
-                &NodeKind::Container,
-                Some(&HashMap::new()),
-                None
-            ),
-            None
+            runtimes.runtime_of(&scanned(&node, NodeKind::Container, false)),
+            Some(Runtime::Absent)
         );
     }
 
     #[test]
-    fn test_detect_vm_running() {
-        let mut vm_states = HashMap::new();
-        vm_states.insert("router1-abc12345".to_string(), VIR_DOMAIN_RUNNING);
-        let container_states = HashMap::new();
-
-        let state = detect_node_state(
-            "router1-abc12345",
-            &NodeKind::VirtualMachine,
-            Some(&vm_states),
-            Some(&container_states),
+    fn a_dead_container_is_faulted() {
+        // M4.1: a dead container used to look stopped, so the UI offered Start.
+        let node = db_node(NodeState::Running, true);
+        let runtimes = Runtimes {
+            domains: Some(HashMap::new()),
+            containers: Some(HashMap::from([(
+                "r1-abc12345".to_string(),
+                ContainerStateStatusEnum::DEAD,
+            )])),
+        };
+        assert_eq!(
+            runtimes.runtime_of(&scanned(&node, NodeKind::Container, false)),
+            Some(Runtime::Faulted("dead"))
         );
-        assert_eq!(state, Some(NodeState::Running));
-    }
-
-    #[test]
-    fn test_detect_vm_shutoff() {
-        let mut vm_states = HashMap::new();
-        vm_states.insert("router1-abc12345".to_string(), VIR_DOMAIN_SHUTOFF);
-        let container_states = HashMap::new();
-
-        let state = detect_node_state(
-            "router1-abc12345",
-            &NodeKind::VirtualMachine,
-            Some(&vm_states),
-            Some(&container_states),
-        );
-        assert_eq!(state, Some(NodeState::Stopped));
-    }
-
-    #[test]
-    fn test_detect_vm_paused() {
-        let mut vm_states = HashMap::new();
-        vm_states.insert("router1-abc12345".to_string(), VIR_DOMAIN_PAUSED);
-        let container_states = HashMap::new();
-
-        let state = detect_node_state(
-            "router1-abc12345",
-            &NodeKind::VirtualMachine,
-            Some(&vm_states),
-            Some(&container_states),
-        );
-        assert_eq!(state, Some(NodeState::Stopped));
-    }
-
-    #[test]
-    fn test_detect_vm_not_found() {
-        let vm_states = HashMap::new();
-        let container_states = HashMap::new();
-
-        let state = detect_node_state(
-            "router1-abc12345",
-            &NodeKind::VirtualMachine,
-            Some(&vm_states),
-            Some(&container_states),
-        );
-        assert_eq!(state, Some(NodeState::Stopped));
-    }
-
-    #[test]
-    fn test_detect_unikernel_running() {
-        let mut vm_states = HashMap::new();
-        vm_states.insert("uk1-abc12345".to_string(), VIR_DOMAIN_RUNNING);
-        let container_states = HashMap::new();
-
-        let state = detect_node_state(
-            "uk1-abc12345",
-            &NodeKind::Unikernel,
-            Some(&vm_states),
-            Some(&container_states),
-        );
-        assert_eq!(state, Some(NodeState::Running));
-    }
-
-    #[test]
-    fn test_detect_container_running() {
-        let vm_states = HashMap::new();
-        let mut container_states = HashMap::new();
-        container_states.insert(
-            "switch1-abc12345".to_string(),
-            ContainerSummaryStateEnum::RUNNING,
-        );
-
-        let state = detect_node_state(
-            "switch1-abc12345",
-            &NodeKind::Container,
-            Some(&vm_states),
-            Some(&container_states),
-        );
-        assert_eq!(state, Some(NodeState::Running));
-    }
-
-    #[test]
-    fn test_detect_container_exited() {
-        let vm_states = HashMap::new();
-        let mut container_states = HashMap::new();
-        container_states.insert(
-            "switch1-abc12345".to_string(),
-            ContainerSummaryStateEnum::EXITED,
-        );
-
-        let state = detect_node_state(
-            "switch1-abc12345",
-            &NodeKind::Container,
-            Some(&vm_states),
-            Some(&container_states),
-        );
-        assert_eq!(state, Some(NodeState::Stopped));
-    }
-
-    #[test]
-    fn test_detect_container_dead() {
-        let vm_states = HashMap::new();
-        let mut container_states = HashMap::new();
-        container_states.insert(
-            "switch1-abc12345".to_string(),
-            ContainerSummaryStateEnum::DEAD,
-        );
-
-        let state = detect_node_state(
-            "switch1-abc12345",
-            &NodeKind::Container,
-            Some(&vm_states),
-            Some(&container_states),
-        );
-        assert_eq!(state, Some(NodeState::Stopped));
-    }
-
-    #[test]
-    fn test_detect_container_created() {
-        let vm_states = HashMap::new();
-        let mut container_states = HashMap::new();
-        container_states.insert(
-            "switch1-abc12345".to_string(),
-            ContainerSummaryStateEnum::CREATED,
-        );
-
-        let state = detect_node_state(
-            "switch1-abc12345",
-            &NodeKind::Container,
-            Some(&vm_states),
-            Some(&container_states),
-        );
-        assert_eq!(state, Some(NodeState::Created));
-    }
-
-    #[test]
-    fn test_detect_container_restarting() {
-        let vm_states = HashMap::new();
-        let mut container_states = HashMap::new();
-        container_states.insert(
-            "switch1-abc12345".to_string(),
-            ContainerSummaryStateEnum::RESTARTING,
-        );
-
-        let state = detect_node_state(
-            "switch1-abc12345",
-            &NodeKind::Container,
-            Some(&vm_states),
-            Some(&container_states),
-        );
-        assert_eq!(state, Some(NodeState::Starting));
-    }
-
-    #[test]
-    fn test_detect_container_paused() {
-        let vm_states = HashMap::new();
-        let mut container_states = HashMap::new();
-        container_states.insert(
-            "switch1-abc12345".to_string(),
-            ContainerSummaryStateEnum::PAUSED,
-        );
-
-        let state = detect_node_state(
-            "switch1-abc12345",
-            &NodeKind::Container,
-            Some(&vm_states),
-            Some(&container_states),
-        );
-        assert_eq!(state, Some(NodeState::Stopped));
-    }
-
-    #[test]
-    fn test_detect_container_not_found() {
-        let vm_states = HashMap::new();
-        let container_states = HashMap::new();
-
-        let state = detect_node_state(
-            "switch1-abc12345",
-            &NodeKind::Container,
-            Some(&vm_states),
-            Some(&container_states),
-        );
-        assert_eq!(state, Some(NodeState::Stopped));
-    }
-
-    #[test]
-    fn test_detect_container_removing() {
-        let vm_states = HashMap::new();
-        let mut container_states = HashMap::new();
-        container_states.insert(
-            "switch1-abc12345".to_string(),
-            ContainerSummaryStateEnum::REMOVING,
-        );
-
-        let state = detect_node_state(
-            "switch1-abc12345",
-            &NodeKind::Container,
-            Some(&vm_states),
-            Some(&container_states),
-        );
-        assert_eq!(state, Some(NodeState::Unknown));
     }
 }

@@ -219,9 +219,9 @@ pub enum LabState {
     Stopped,
     /// Mix of running, stopped, or other states
     Partial,
-    /// At least one node is starting, none failed
+    /// At least one node is being built or starting, none failed or missing
     Starting,
-    /// At least one node has failed
+    /// At least one node has failed or is missing
     Failed,
     /// Lab has no nodes
     Empty,
@@ -246,8 +246,12 @@ impl LabState {
 
         let all_running = states.iter().all(|s| *s == NodeState::Running);
         let all_stopped = states.iter().all(|s| *s == NodeState::Stopped);
-        let any_failed = states.contains(&NodeState::Failed);
-        let any_starting = states.contains(&NodeState::Starting);
+        let any_failed = states
+            .iter()
+            .any(|s| matches!(s, NodeState::Failed | NodeState::Missing));
+        let any_starting = states
+            .iter()
+            .any(|s| matches!(s, NodeState::Starting | NodeState::Building));
 
         if all_running {
             LabState::Running
@@ -497,5 +501,22 @@ mod tests {
     fn test_lab_status_derive_mixed_unknown_and_running() {
         let states = vec![NodeState::Running, NodeState::Unknown];
         assert_eq!(LabState::derive(&states), LabState::Partial);
+    }
+
+    #[test]
+    fn a_lab_with_a_node_being_built_is_starting() {
+        // M1.1: a lab `up` is still building is not shown stopped.
+        let states = vec![NodeState::Building, NodeState::Stopped];
+        assert_eq!(LabState::derive(&states), LabState::Starting);
+        assert_eq!(
+            LabState::derive(&[NodeState::Building, NodeState::Building]),
+            LabState::Starting
+        );
+    }
+
+    #[test]
+    fn a_lab_with_a_missing_node_is_failed() {
+        let states = vec![NodeState::Running, NodeState::Missing];
+        assert_eq!(LabState::derive(&states), LabState::Failed);
     }
 }

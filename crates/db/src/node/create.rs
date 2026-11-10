@@ -52,7 +52,7 @@ pub async fn create_node(
         mgmt_ipv4: None,
         mgmt_ipv6: None,
         mgmt_mac: None,
-        state: NodeState::Unknown,
+        state: NodeState::Building,
         cpu_count: None,
         memory: None,
         vnc_port: None,

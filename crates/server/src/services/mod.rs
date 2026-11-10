@@ -16,6 +16,7 @@ pub mod import;
 pub mod inspect;
 pub mod keycloak;
 pub mod list_labs;
+pub mod node_lifecycle;
 pub mod node_ops;
 pub mod node_resources;
 pub mod node_secrets;

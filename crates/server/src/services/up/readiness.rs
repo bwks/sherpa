@@ -11,13 +11,14 @@ use tracing::instrument;
 use super::context::LabBuild;
 use super::links::{P2pAttachment, P2pContainerVeth, attach_ready_p2p_links};
 use crate::services::lab_operations::LabOperation;
+use crate::services::node_lifecycle;
 use crate::services::node_ops::{self, VmReadiness};
 use crate::services::node_secrets::write_node_secrets;
 use crate::services::talos;
 
 use container::ContainerSpec;
 use shared::data;
-use shared::data::{NodeState, StatusKind};
+use shared::data::{NodeState, OperationEvent, StatusKind};
 use shared::konst::{
     CONTAINER_SECRETS_DIR, READINESS_SLEEP, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR,
     SSH_PORT,
@@ -50,6 +51,10 @@ pub(super) struct NodesReady {
 /// Start the containers and wait for every node to become ready, until `inputs.timeout`
 /// (phase 13). A node that is not ready in time, or a container that exits, is a non-critical
 /// error: the rest of the lab is kept.
+///
+/// Every node is `Building` until here. A ready node is recorded `Running`, a node with its
+/// check skipped `Running`, a Talos cluster worker or a node not ready in time `Starting` (the
+/// scanner records it running once it answers), and a container that exits `Failed`.
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
 pub(super) async fn wait_for_nodes(
     build: &LabBuild<'_>,
@@ -76,6 +81,7 @@ pub(super) async fn wait_for_nodes(
 
     let mut readiness = Readiness {
         build,
+        operation,
         inputs,
         p2p,
         secret_mounts: write_secret_mounts(build, inputs.node_secrets)?,
@@ -83,7 +89,7 @@ pub(super) async fn wait_for_nodes(
         nodes: Vec::new(),
         errors: Vec::new(),
     };
-    readiness.skip_unpolled_nodes(&all_nodes);
+    readiness.skip_unpolled_nodes(&all_nodes).await?;
     tracing::info!(
         total_nodes = all_nodes.len(),
         timeout_secs = inputs.timeout.as_secs(),
@@ -123,7 +129,7 @@ pub(super) async fn wait_for_nodes(
             );
         }
     }
-    readiness.report(&all_nodes, started.elapsed());
+    readiness.report(&all_nodes, started.elapsed()).await?;
     Ok(NodesReady {
         nodes: readiness.nodes,
         errors: readiness.errors,
@@ -163,6 +169,7 @@ fn write_secret_mounts<'a>(
 /// Readiness polling in progress: which nodes are done, what they report, and what failed.
 struct Readiness<'a, 'b> {
     build: &'a LabBuild<'b>,
+    operation: &'a LabOperation,
     inputs: &'a ReadinessInputs<'a>,
     p2p: &'a mut P2pAttachment,
     secret_mounts: HashMap<&'a str, String>,
@@ -176,7 +183,7 @@ impl Readiness<'_, '_> {
     /// Mark the nodes that are not polled as done: VMs and unikernels with `skip_ready_check`,
     /// and Talos cluster workers, which are checked as Kubernetes nodes once their cluster is
     /// bootstrapped. Skipped containers are handled when they start.
-    fn skip_unpolled_nodes(&mut self, all_nodes: &[&topology::NodeExpanded]) {
+    async fn skip_unpolled_nodes(&mut self, all_nodes: &[&topology::NodeExpanded]) -> Result<()> {
         for node in all_nodes {
             let cluster_worker =
                 talos::readiness_waits_for_kubernetes(self.inputs.talos_clusters, &node.name);
@@ -202,13 +209,21 @@ impl Readiness<'_, '_> {
                 format!("Node {} - Ready check skipped", node.name)
             };
             let _ = self.build.progress.send_status(message, StatusKind::Done);
+            // A worker is ready once its cluster is; a skipped check counts the node ready.
+            let events: &[OperationEvent] = if cluster_worker {
+                &[OperationEvent::Launched]
+            } else {
+                &[OperationEvent::Launched, OperationEvent::Ready]
+            };
+            let state = self.record(&node.name, events, None).await?;
             self.connected(
                 node,
-                NodeState::Unknown,
+                state,
                 node.ipv4_address.map(|ip| ip.to_string()),
                 None,
             );
         }
+        Ok(())
     }
 
     /// Record `node` as done, in `state`.
@@ -230,22 +245,31 @@ impl Readiness<'_, '_> {
         });
     }
 
-    /// Record node `name`'s state, and the SSH host key it offered when given.
-    async fn set_state(&self, name: &str, state: NodeState, host_key: Option<&str>) -> Result<()> {
-        let Some(node) = self
+    /// Record `events` for node `name`, in order, with the SSH host key it offered when given,
+    /// and return its state after them.
+    async fn record(
+        &self,
+        name: &str,
+        events: &[OperationEvent],
+        host_key: Option<&str>,
+    ) -> Result<NodeState> {
+        let node = self
             .inputs
             .lab_node_data
             .iter()
             .find(|node| node.name == name)
-        else {
-            return Ok(());
-        };
+            .with_context(|| format!("Node {name} has no record"))?;
         let record_id = db::get_node_id(&node.record)?;
         if host_key.is_some() {
             db::update_node_host_key(self.build.db, record_id.clone(), host_key).await?;
         }
-        db::update_node_state(self.build.db, record_id, state).await?;
-        Ok(())
+        let mut state = NodeState::Building;
+        for event in events {
+            state = node_lifecycle::record(self.build.db, self.operation, &record_id, *event)
+                .await
+                .with_context(|| format!("Cannot record node {name}"))?;
+        }
+        Ok(state)
     }
 
     /// Start a container, then create its P2p interfaces in its network namespace and attach
@@ -313,7 +337,11 @@ impl Readiness<'_, '_> {
                     format!("Node {} - Not running, ready check skipped", container.name),
                     StatusKind::Done,
                 );
-                self.connected(container, NodeState::Unknown, mgmt_ipv4, None);
+                // The scanner records what it is once it looks.
+                let state = self
+                    .record(&container.name, &[OperationEvent::Launched], None)
+                    .await?;
+                self.connected(container, state, mgmt_ipv4, None);
             } else {
                 // Starting it again would fail on its name, so the node is reported failed and
                 // the rest of the lab carries on.
@@ -324,16 +352,24 @@ impl Readiness<'_, '_> {
                 );
                 self.errors
                     .push(exited_container_error(&container.name, &container_name));
-                self.connected(container, NodeState::Stopped, mgmt_ipv4, None);
+                let state = self
+                    .record(&container.name, &[OperationEvent::Failed], None)
+                    .await?;
+                self.connected(container, state, mgmt_ipv4, None);
             }
             return Ok(());
         }
 
         self.create_p2p_interfaces(container, &container_name)
             .await?;
-        self.set_state(&container.name, NodeState::Running, None)
+        let state = self
+            .record(
+                &container.name,
+                &[OperationEvent::Launched, OperationEvent::Ready],
+                None,
+            )
             .await?;
-        self.connected(container, NodeState::Running, mgmt_ipv4, Some(SSH_PORT));
+        self.connected(container, state, mgmt_ipv4, Some(SSH_PORT));
         Ok(())
     }
 
@@ -413,11 +449,16 @@ impl Readiness<'_, '_> {
                     format!("Node {} - Ready ({ready_label} reachable)", vm.name),
                     StatusKind::Done,
                 );
-                self.set_state(&vm.name, NodeState::Running, host_key.as_deref())
+                let state = self
+                    .record(
+                        &vm.name,
+                        &[OperationEvent::Launched, OperationEvent::Ready],
+                        host_key.as_deref(),
+                    )
                     .await?;
                 self.connected(
                     vm,
-                    NodeState::Running,
+                    state,
                     Some(record.ipv4_address.to_string()),
                     vm.model.has_ssh().then_some(SSH_PORT),
                 );
@@ -455,14 +496,19 @@ impl Readiness<'_, '_> {
             format!("Node {} - Ready (Unikernel running)", unikernel.name),
             StatusKind::Done,
         );
-        self.set_state(&unikernel.name, NodeState::Running, None)
+        let state = self
+            .record(
+                &unikernel.name,
+                &[OperationEvent::Launched, OperationEvent::Ready],
+                None,
+            )
             .await?;
-        self.connected(unikernel, NodeState::Running, mgmt_ip, None);
+        self.connected(unikernel, state, mgmt_ip, None);
         Ok(())
     }
 
     /// Check each started container again: a container counts as ready once it starts, so one
-    /// that exited since is reported here and marked stopped.
+    /// that exited since is reported here and recorded failed.
     async fn recheck_containers(&mut self) -> Result<()> {
         for container in self.inputs.container_nodes {
             if container.skip_ready_check.unwrap_or(false) {
@@ -484,15 +530,16 @@ impl Readiness<'_, '_> {
                     tracing::warn!(node_name = %container.name, "Container exited after starting");
                     self.errors
                         .push(exited_container_error(&container.name, &container_name));
+                    let state = self
+                        .record(&container.name, &[OperationEvent::Failed], None)
+                        .await?;
                     if let Some(info) = self
                         .nodes
                         .iter_mut()
                         .find(|info| info.name == container.name)
                     {
-                        info.status = NodeState::Stopped;
+                        info.status = state;
                     }
-                    self.set_state(&container.name, NodeState::Stopped, None)
-                        .await?;
                 }
                 Err(error) => tracing::warn!(
                     node_name = %container.name,
@@ -504,8 +551,14 @@ impl Readiness<'_, '_> {
         Ok(())
     }
 
-    /// Report how polling ended, with an error for each node that did not become ready.
-    fn report(&mut self, all_nodes: &[&topology::NodeExpanded], elapsed: Duration) {
+    /// Report how polling ended, with an error for each node that did not become ready. Those
+    /// are recorded `Starting`: their domains run, and the scanner records them running once
+    /// they answer.
+    async fn report(
+        &mut self,
+        all_nodes: &[&topology::NodeExpanded],
+        elapsed: Duration,
+    ) -> Result<()> {
         let ready = self.connected.len();
         let total = all_nodes.len();
         if ready == total {
@@ -518,7 +571,7 @@ impl Readiness<'_, '_> {
                 .build
                 .progress
                 .send_status("All nodes are ready!".to_string(), StatusKind::Done);
-            return;
+            return Ok(());
         }
         tracing::warn!(
             nodes_ready = ready,
@@ -533,6 +586,8 @@ impl Readiness<'_, '_> {
         for node in all_nodes {
             if !self.connected.contains(&node.name) {
                 tracing::warn!(node_name = %node.name, "Node not ready after timeout");
+                self.record(&node.name, &[OperationEvent::Launched], None)
+                    .await?;
                 self.errors.push(data::UpError {
                     phase: "NodeReadiness".to_string(),
                     message: format!("Node {} did not become ready", node.name),
@@ -540,6 +595,7 @@ impl Readiness<'_, '_> {
                 });
             }
         }
+        Ok(())
     }
 }
 

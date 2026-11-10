@@ -4,12 +4,15 @@ use bollard::query_parameters::{InspectContainerOptions, ListNetworksOptions};
 use jato::{Auth, ConnectOptions, Exit, Hop, HostKeyPolicy, Node, Session};
 use reqwest::{Client, StatusCode};
 use serde_json::json;
-use shared::data::{DbUser, LabNodeActionResponse, NodeConfig, NodeModel, NodeState};
+use shared::data::{DbUser, LabNodeActionResponse, LabState, NodeConfig, NodeModel, NodeState};
 use shared::error::RpcErrorCode;
 use shared::konst::SSH_PORT;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
+use std::collections::BTreeMap;
 use std::fs;
 use std::net::{SocketAddr, TcpStream};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::helpers::test_server::{
@@ -192,6 +195,37 @@ async fn wait_for_login(destination: &str, key: &str, timeout: Duration) -> Resu
     }
 }
 
+/// Each node's recorded state, by name.
+async fn node_states(server: &TestServer, lab_id: &str) -> Result<BTreeMap<String, NodeState>> {
+    let lab = db::get_lab(&server.db, lab_id).await?;
+    let nodes = db::list_nodes_by_lab(&server.db, lab.id.context("lab has no record ID")?).await?;
+    Ok(nodes
+        .into_iter()
+        .map(|node| (node.name, node.state))
+        .collect())
+}
+
+/// Wait until node `name` of lab `lab_id` is recorded in `state`, as the scanner records it.
+async fn wait_for_node_state(
+    server: &TestServer,
+    lab_id: &str,
+    name: &str,
+    state: NodeState,
+    timeout: Duration,
+) -> Result<()> {
+    let start = Instant::now();
+    loop {
+        let states = node_states(server, lab_id).await?;
+        if states.get(name) == Some(&state) {
+            return Ok(());
+        }
+        if start.elapsed() > timeout {
+            bail!("node {name} was not recorded {state} within {timeout:?}: {states:?}");
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
 async fn lab_up(
     ws: &mut TestWsClient,
     token: &str,
@@ -259,6 +293,17 @@ async fn a_container_that_exits_at_once_fails_its_node_not_the_lab() -> Result<(
         ensure!(
             db::find_lab(&server.db, &lab_name).await?.is_some(),
             "the lab record is gone"
+        );
+        // The row and the response agree: the exited node is failed, the other running.
+        let states = node_states(&server, &lab_name).await?;
+        ensure!(
+            states.get("dead1") == Some(&NodeState::Failed)
+                && states.get("live1") == Some(&NodeState::Running),
+            "unexpected node states: {states:?}"
+        );
+        ensure!(
+            db::get_lab(&server.db, &lab_name).await?.status == LabState::Failed,
+            "the lab status does not follow its nodes"
         );
         Ok(())
     }
@@ -399,6 +444,113 @@ async fn a_redeploy_that_fails_after_teardown_fails_its_node() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
+async fn the_scanner_records_what_docker_reports_but_not_over_up() -> Result<()> {
+    let server = TestServer::start_with_scanner(1).await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_lab_admin(&server).await?;
+    bootstrap_images(&mut ws, &token).await?;
+
+    // generic_container keeps the manifest's commands; alpine is in the dev server's Docker.
+    let mut alpine = NodeConfig::get_model(NodeModel::GenericContainer);
+    alpine.repo = Some("alpine".to_owned());
+    alpine.version = "latest".to_owned();
+    alpine.default = true;
+    db::upsert_node_image(&server.db, alpine).await?;
+
+    let lab_name = format!("sc{:06}", std::process::id() % 1_000_000);
+    let manifest = json!({
+        "name": lab_name,
+        "nodes": [
+            { "name": "live1", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+            { "name": "live2", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+        ]
+    });
+    let docker = Docker::connect_with_local_defaults()?;
+    let container = format!("live1-{lab_name}");
+
+    let checks: Result<()> = async {
+        // M1.1: while `up` runs, the scanner must not record the lab or its nodes stopped.
+        let up_done = Arc::new(AtomicBool::new(false));
+        let watcher = {
+            let db = server.db.clone();
+            let lab_name = lab_name.clone();
+            let up_done = up_done.clone();
+            tokio::spawn(async move {
+                let mut seen = Vec::new();
+                while !up_done.load(Ordering::SeqCst) {
+                    if let Ok(lab) = db::get_lab(&db, &lab_name).await {
+                        seen.push(lab.status);
+                        if let Some(id) = lab.id
+                            && let Ok(nodes) = db::list_nodes_by_lab(&db, id).await
+                        {
+                            seen.extend(nodes.iter().filter_map(|node| {
+                                matches!(node.state, NodeState::Stopped | NodeState::Missing)
+                                    .then_some(LabState::Stopped)
+                            }));
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                seen
+            })
+        };
+        let up = lab_up(
+            &mut ws,
+            &token,
+            &lab_name,
+            &manifest,
+            Duration::from_secs(180),
+        )
+        .await;
+        up_done.store(true, Ordering::SeqCst);
+        up?;
+        let seen = watcher.await?;
+        ensure!(
+            !seen.contains(&LabState::Stopped),
+            "the lab or a node was recorded stopped while up ran: {seen:?}"
+        );
+
+        let wait = Duration::from_secs(20);
+        wait_for_node_state(&server, &lab_name, "live1", NodeState::Running, wait).await?;
+        // Changes made outside Sherpa are recorded by the scanner.
+        container::stop_container(&docker, &container).await?;
+        wait_for_node_state(&server, &lab_name, "live1", NodeState::Stopped, wait).await?;
+        container::start_container(&docker, &container).await?;
+        wait_for_node_state(&server, &lab_name, "live1", NodeState::Running, wait).await?;
+        // M4.2: a container that is gone is missing, not stopped, and the lab shows it.
+        container::kill_container(&docker, &container).await?;
+        container::remove_container(&docker, &container).await?;
+        wait_for_node_state(&server, &lab_name, "live1", NodeState::Missing, wait).await?;
+        ensure!(
+            db::get_lab(&server.db, &lab_name).await?.status == LabState::Failed,
+            "a lab with a missing node should be failed"
+        );
+        // Resume refuses it with a way out.
+        let (_s, response) = ws
+            .rpc_call_streaming(
+                "resume",
+                json!({ "token": token, "lab_id": lab_name, "node_name": "live1" }),
+                Duration::from_secs(60),
+            )
+            .await?;
+        let result: LabNodeActionResponse = serde_json::from_value(response["result"].clone())
+            .with_context(|| format!("resume response: {response}"))?;
+        ensure!(
+            result
+                .results
+                .iter()
+                .any(|node| !node.success && node.message.contains("redeploy")),
+            "resume of a missing node should say to redeploy it: {response}"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
 async fn test_container_lab_up_and_inspect() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -490,6 +642,21 @@ async fn test_container_lab_down_and_resume() -> Result<()> {
             ensure!(
                 result.results.iter().all(|node| node.success),
                 "{method} should succeed for every node: {response}"
+            );
+            // No scanner runs here: the operation records the states itself.
+            let (node, lab) = if method == "down" {
+                (NodeState::Stopped, LabState::Stopped)
+            } else {
+                (NodeState::Running, LabState::Running)
+            };
+            let states = node_states(&server, &lab_name).await?;
+            ensure!(
+                states.values().all(|state| *state == node),
+                "after {method} every node should be {node}: {states:?}"
+            );
+            ensure!(
+                db::get_lab(&server.db, &lab_name).await?.status == lab,
+                "after {method} the lab should be {lab}"
             );
         }
         Ok(())

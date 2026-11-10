@@ -18,6 +18,7 @@ mod lab;
 mod mapping;
 mod network;
 mod node;
+mod node_lifecycle;
 mod performance;
 mod provider;
 mod provision;
@@ -83,6 +84,7 @@ pub use node::{
     BiosTypes, CpuArchitecture, InterfaceType, MachineType, NodeConfig, NodeKind, NodeModel,
     NodeState, OsVariant, UnikernelBootMode, ZtpMethod, ZtpSettings,
 };
+pub use node_lifecycle::{Halt, Observation, OperationEvent, Probe, Refused, Runtime};
 pub use performance::{
     CpuMode, CpuTopology, DiskCache, DiskIo, NodeCpuPins, NumaMemoryMode, PerformanceTuning, cpuset,
 };
