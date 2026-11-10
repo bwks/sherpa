@@ -43,6 +43,12 @@
         btn.classList.add("border-transparent", "text-muted");
         panel.classList.add("hidden");
       }
+      // A hidden panel's required inputs still block submit; disable them while its tab is
+      // inactive.
+      var fields = panel.querySelectorAll("input, select, textarea");
+      for (var j = 0; j < fields.length; j++) {
+        fields[j].disabled = tab !== activeTab;
+      }
     }
     document.getElementById("active-tab").value = activeTab;
   }

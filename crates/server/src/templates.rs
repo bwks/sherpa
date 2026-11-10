@@ -802,6 +802,33 @@ mod tests {
     }
 
     #[test]
+    fn test_lab_create_required_fields_sit_in_build_panel() {
+        let tpl = LabCreateTemplate {
+            username: "testuser".to_string(),
+            is_admin: false,
+            active_page: "labs".to_string(),
+            generated_name: "happy-panda".to_string(),
+            models: vec!["cisco_iosv".to_string()],
+        };
+        let html = tpl.render().expect("template should render");
+        let build = html.find("id=\"panel-build\"").expect("build panel");
+        let upload = html.find("id=\"panel-upload\"").expect("upload panel");
+        let name = html.find("id=\"lab-name\"").expect("lab name input");
+        assert!(
+            build < name && name < upload,
+            "lab name must be in the build panel"
+        );
+        // The upload panel must hold no required field, and the script must
+        // disable the inactive panel's fields so they cannot block submit.
+        let upload_end = html[upload..]
+            .find("<!-- Submit -->")
+            .expect("submit marker");
+        assert!(!html[upload..upload + upload_end].contains("required"));
+        let js = include_str!("../web/static/js/lab-create.js");
+        assert!(js.contains("fields[j].disabled = tab !== activeTab"));
+    }
+
+    #[test]
     fn test_job_page_template_renders() {
         let tpl = JobPageTemplate {
             username: "testuser".to_string(),
