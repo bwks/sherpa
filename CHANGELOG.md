@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.19] - 2026-11-10
+
+### Features
+
+- Numa_memory_mode lets a VM prefer its NUMA node by @bwks ([77b1fda](https://github.com/bwks/sherpa/commit/77b1fdaf157abac1abbd3cad342075ec24ccf85c))
+
+### Miscellaneous
+
+- Merge pull request #524 from bwks/feat/514-numa-memory-mode
+
+feat(server): numa_memory_mode lets a VM prefer its NUMA node by @bwks in [#524](https://github.com/bwks/sherpa/pull/524) ([1ec1baf](https://github.com/bwks/sherpa/commit/1ec1bafeb8c92a1101eab7aca83c20ca7c60b35e))
+- Merge pull request #523 from bwks/changelog/v0.5.18
+
+chore(release): update changelog for v0.5.18 by @github-actions[bot] in [#523](https://github.com/bwks/sherpa/pull/523) ([22a8ec4](https://github.com/bwks/sherpa/commit/22a8ec43d6b4e796de44795bc78ff343e53295cd))
 ## [0.5.18] - 2026-11-10
 
 ### Bug Fixes
