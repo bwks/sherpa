@@ -32,7 +32,7 @@ mod tls;
 use std::env;
 use std::io::{self, IsTerminal};
 use std::net::Ipv4Addr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Result, bail};
@@ -203,6 +203,11 @@ enum Command {
         /// The model Claude Code runs on when a task names none: opus, sonnet, haiku or a full ID
         #[arg(long, default_value = DEFAULT_MODEL, value_parser = model_id)]
         model: String,
+        /// Read the GitHub write token for --github tasks from the first line of stdin; an
+        /// empty line is none. It is held in memory only, and set as `GH_TOKEN` for --github tasks
+        /// alone. Without it, --github tasks fail
+        #[arg(long)]
+        github_token_stdin: bool,
     },
 }
 
@@ -326,15 +331,50 @@ async fn main() -> Result<()> {
             reply_to,
             workdir,
             model,
+            github_token_stdin,
         } => {
-            let seed = seed_from_environment()?;
-            let server = Endpoint {
-                url: server,
-                ca: tls::client_ca()?,
-            };
-            guest::run(&server, &seed, &name, &reply_to, &workdir, &model).await
+            Box::pin(run_guest(
+                server,
+                &name,
+                &reply_to,
+                &workdir,
+                &model,
+                github_token_stdin,
+            ))
+            .await
         }
     }
+}
+
+/// Run a guest agent, with the GitHub write token from stdin when `github_token_stdin` is set.
+async fn run_guest(
+    server: String,
+    name: &str,
+    reply_to: &str,
+    workdir: &Path,
+    model: &str,
+    github_token_stdin: bool,
+) -> Result<()> {
+    let seed = seed_from_environment()?;
+    let write_token = if github_token_stdin {
+        guest::read_write_token(io::stdin().lock())?
+    } else {
+        None
+    };
+    let server = Endpoint {
+        url: server,
+        ca: tls::client_ca()?,
+    };
+    guest::run(
+        &server,
+        &seed,
+        name,
+        reply_to,
+        workdir,
+        model,
+        write_token.as_ref(),
+    )
+    .await
 }
 
 /// Print spans to stderr when `RUST_LOG` is set, such as `RUST_LOG=agent_bus=debug`: one line
@@ -726,9 +766,17 @@ mod tests {
                 .is_err()
         );
         assert!(
-            guest::run(&server, &seed, "not a name", "host", missing, DEFAULT_MODEL)
-                .await
-                .is_err()
+            guest::run(
+                &server,
+                &seed,
+                "not a name",
+                "host",
+                missing,
+                DEFAULT_MODEL,
+                None
+            )
+            .await
+            .is_err()
         );
 
         let spans = capture.seen();

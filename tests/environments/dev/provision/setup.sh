@@ -80,13 +80,19 @@ install_tools() {
     eval "$("${MISE}" activate bash --shims)"
 }
 
+# git authenticates through `gh auth git-credential`, which takes GH_TOKEN from the environment
+# of each git command. GH_TOKEN here, and in ~/.env.d/github.env, is the read-only token
+# (provision/github.env fills it from GH_TOKEN_RO on the host): fetches and clones work, a push
+# is refused by GitHub. A push works only in an agent-bus --github task, whose Claude Code has the
+# write token as GH_TOKEN, sent by the host for that agent and held in its memory, never on disk.
 setup_git() {
     if [ -z "${GH_TOKEN:-}" ]; then
-        echo "GH_TOKEN is not set; bring the lab up with it in your environment" >&2
+        echo "GH_TOKEN is not set; bring the lab up with GH_TOKEN_RO (the read-only token) in your environment" >&2
         exit 1
     fi
     gh auth setup-git
-    # Commit as the token's GitHub account, with its no-reply address.
+    # Commit as the token's GitHub account, with its no-reply address. GET /user needs no
+    # permission beyond the token itself, so the read-only token is enough.
     local login id name
     login="$(gh api user --jq .login)"
     id="$(gh api user --jq .id)"
