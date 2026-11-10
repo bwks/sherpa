@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.29] - 2026-11-10
+
+### Bug Fixes
+
+- Match Generation markers only on their own lines by @bwks ([66fa12c](https://github.com/bwks/sherpa/commit/66fa12c2bbb587a9c695fead1d407095ceb6e655))
+
+### Features
+
+- Keep the PR Generation section and name agents apart from nodes by @bwks ([76c150c](https://github.com/bwks/sherpa/commit/76c150caab1021a086abc373ebc8d7198148dbd4))
+
+### Miscellaneous
+
+- Merge pull request #559 from bwks/fix/release-race-same-version
+
+ci: release each version once when two pushes race by @bwks in [#559](https://github.com/bwks/sherpa/pull/559) ([41e5c1b](https://github.com/bwks/sherpa/commit/41e5c1b5179b79669f0b588884d24d4927b35f6b))
+- Release each version once when two pushes race by @bwks ([279d76f](https://github.com/bwks/sherpa/commit/279d76ffb2385a472d0792e182720b40cb7d04be))
+- Merge pull request #558 from bwks/feat/agent-bus-generation
+
+feat(agent-bus): keep the PR Generation section and name agents apart from nodes by @bwks in [#558](https://github.com/bwks/sherpa/pull/558) ([83104c4](https://github.com/bwks/sherpa/commit/83104c4c2cbb3f76b248ac1a30b6f6ddb308cdad))
+- Merge pull request #556 from bwks/changelog/v0.5.28
+
+chore(release): update changelog for v0.5.28 by @github-actions[bot] in [#556](https://github.com/bwks/sherpa/pull/556) ([cf2eb6d](https://github.com/bwks/sherpa/commit/cf2eb6d6b7cd5cec5d52bebaa2d8d85dfc60f8a6))
+- Merge pull request #554 from bwks/chore/move-nixos-image
+
+chore: move the NixOS image recipe to bwks/nixos-image by @bwks in [#554](https://github.com/bwks/sherpa/pull/554) ([41942fd](https://github.com/bwks/sherpa/commit/41942fd850b78e211c68a357ce970a005253cdb4))
+- Point the NixOS references at bwks/nixos-image by @bwks ([20cdd8e](https://github.com/bwks/sherpa/commit/20cdd8e70c4c21e382167c0828a1ee87fff29ba9))
+- Move the NixOS image recipe to bwks/nixos-image by @bwks ([0406320](https://github.com/bwks/sherpa/commit/040632015eae13b7045bd790f695ea4547d0e7b6))
 ## [0.5.28] - 2026-11-10
 
 ### Bug Fixes
