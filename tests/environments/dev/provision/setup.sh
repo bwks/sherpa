@@ -171,6 +171,8 @@ EOF
 # keeps an existing config, SSH identity and accounts, so it runs every time.
 init_sherpa_server() {
     log "Initializing the Sherpa server"
+    # init opens the database, which a running server holds locked.
+    sudo systemctl stop sherpad
     (
         set -a
         # shellcheck source=/dev/null
