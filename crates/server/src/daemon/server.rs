@@ -23,13 +23,15 @@ use tracing_subscriber::util::SubscriberInitExt;
 use crate::api::build_router;
 use crate::api::handlers::get_certificate_handler;
 use crate::api::websocket;
+use crate::auth::session;
 use crate::daemon::metrics::Metrics;
 use crate::daemon::state::AppState;
 use crate::services::scanner::run_scanner;
 use crate::tls::CertificateManager;
 use shared::data::{Config, OtelConfig};
 use shared::konst::{
-    OTEL_METRIC_EXPORT_INTERVAL_SECS, SHERPA_CONFIG_FILE_PATH, SHERPAD_LOG_FILE_PATH,
+    OTEL_METRIC_EXPORT_INTERVAL_SECS, SESSION_SWEEP_INTERVAL_SECS, SHERPA_CONFIG_FILE_PATH,
+    SHERPAD_LOG_FILE_PATH,
 };
 use shared::util::{
     get_fqdn, get_hostname, get_non_loopback_ipv4_addresses, get_non_loopback_ipv6_addresses,
@@ -246,6 +248,13 @@ pub async fn run_server(foreground: bool) -> Result<()> {
     } else {
         tracing::info!("Scanner service is disabled");
     }
+
+    // Delete expired login sessions at startup and then periodically.
+    tokio::spawn(session::run_sweeper(
+        state.db.clone(),
+        cancel_token.child_token(),
+        Duration::from_secs(SESSION_SWEEP_INTERVAL_SECS),
+    ));
 
     // Clone state for HTTP /cert endpoints before moving into main router
     let http_state = state.clone();

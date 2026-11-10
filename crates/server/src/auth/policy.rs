@@ -190,7 +190,7 @@ mod tests {
     use topology::VolumeMount;
 
     fn ctx(username: &str, is_admin: bool) -> AuthContext {
-        AuthContext::new(username.to_owned(), is_admin)
+        AuthContext::for_test(username, is_admin)
     }
 
     fn container(name: &str, privileged: Option<bool>, volumes: Option<Vec<VolumeMount>>) -> Node {

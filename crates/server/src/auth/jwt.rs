@@ -3,68 +3,54 @@
 //! This module handles JWT secret generation, storage, token creation, and validation.
 //! The JWT secret is automatically generated on first run and stored securely.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use rand::RngCore;
 use shared::auth::jwt::Claims;
-use shared::data::ValidateResponse;
-use shared::konst::JWT_SECRET_PATH;
 use std::fs;
-use std::path::{Path, PathBuf};
-use tracing::{debug, info, warn};
+use std::path::Path;
+use tracing::{debug, info};
 
 use crate::tls::generator::write_file_with_permissions;
 
-/// Load or generate a JWT secret.
+/// The length of the JWT secret, in bytes.
+const SECRET_LENGTH: usize = 32;
+
+/// Load the JWT secret from `secret_path`, or generate one there if the file does not exist.
 ///
-/// This function:
-/// 1. Checks if the JWT secret file exists at `/opt/sherpa/.secret/jwt.secret`
-/// 2. If it exists, reads and returns it
-/// 3. If it doesn't exist:
-///    - Creates the `/opt/sherpa/.secret/` directory with 0700 permissions
-///    - Generates a new 32-byte (256-bit) random secret
-///    - Writes it to the file with 0600 permissions
-///    - Returns the secret
-///
-/// # Returns
-/// The JWT secret as a `Vec<u8>` (32 bytes)
+/// A new secret is 32 random bytes, written 0600 in a 0700 directory.
 ///
 /// # Errors
-/// Returns an error if:
-/// - Directory creation fails
-/// - File I/O operations fail
-/// - Permission setting fails
-pub fn load_or_generate_secret() -> Result<Vec<u8>> {
-    let secret_path = PathBuf::from(JWT_SECRET_PATH);
-
-    // Check if secret file exists
-    if secret_path.exists() {
-        debug!("Loading existing JWT secret from {}", JWT_SECRET_PATH);
-        let secret = fs::read(&secret_path).context("Failed to read JWT secret file")?;
-
-        if secret.len() != 32 {
-            warn!(
-                "JWT secret file has unexpected length: {} bytes (expected 32). Regenerating.",
-                secret.len()
-            );
-            return generate_and_save_secret(&secret_path);
-        }
-
-        info!("Successfully loaded JWT secret");
-        Ok(secret)
-    } else {
-        info!(
-            "JWT secret not found. Generating new secret at {}",
-            JWT_SECRET_PATH
-        );
-        generate_and_save_secret(&secret_path)
+///
+/// Fails when the file cannot be read or written, and when it exists with the wrong length. A
+/// damaged secret is not replaced: replacing it would silently end every session, so the server
+/// refuses to start and the error names the file. Deleting the file generates a new secret, which
+/// logs every user out.
+#[tracing::instrument(skip_all, fields(path = %secret_path.display()))]
+pub fn load_or_generate_secret(secret_path: &Path) -> Result<Vec<u8>> {
+    if !secret_path.exists() {
+        info!("JWT secret not found. Generating a new secret");
+        return generate_and_save_secret(secret_path);
     }
+    debug!("Loading existing JWT secret");
+    let secret = fs::read(secret_path)
+        .with_context(|| format!("Failed to read the JWT secret {}", secret_path.display()))?;
+    if secret.len() != SECRET_LENGTH {
+        bail!(
+            "The JWT secret {} is {} bytes long, not {SECRET_LENGTH}. Restore it from a backup, or \
+             delete it to generate a new one, which logs every user out",
+            secret_path.display(),
+            secret.len()
+        );
+    }
+    info!("Successfully loaded JWT secret");
+    Ok(secret)
 }
 
 /// Generate a new secret and save it to the specified path.
 fn generate_and_save_secret(secret_path: &Path) -> Result<Vec<u8>> {
     // Generate 32-byte (256-bit) random secret
-    let mut secret = vec![0u8; 32];
+    let mut secret = vec![0u8; SECRET_LENGTH];
     rand::thread_rng().fill_bytes(&mut secret);
 
     // Created 0600 in a 0700 directory, so the secret is never readable by others.
@@ -75,37 +61,20 @@ fn generate_and_save_secret(secret_path: &Path) -> Result<Vec<u8>> {
     Ok(secret)
 }
 
-/// Create a JWT token for a user.
-///
-/// # Arguments
-/// * `secret` - The JWT secret key (32 bytes)
-/// * `username` - The username to encode in the token
-/// * `is_admin` - Whether the user has admin privileges
-/// * `expiry_seconds` - Token validity period in seconds (typically 7 days)
-///
-/// # Returns
-/// A signed JWT token string
+/// Sign a token carrying `claims`.
 ///
 /// # Errors
 /// Returns an error if token encoding fails
-pub fn create_token(
-    secret: &[u8],
-    username: &str,
-    is_admin: bool,
-    expiry_seconds: i64,
-) -> Result<String> {
-    let claims = Claims::new(username.to_string(), is_admin, expiry_seconds);
-
+pub fn create_token(secret: &[u8], claims: &Claims) -> Result<String> {
     let token = encode(
         &Header::default(),
-        &claims,
+        claims,
         &EncodingKey::from_secret(secret),
     )
     .context("Failed to encode JWT token")?;
-
     debug!(
         "Created JWT token for user: {} (admin: {})",
-        username, is_admin
+        claims.sub, claims.is_admin
     );
     Ok(token)
 }
@@ -135,28 +104,6 @@ pub fn validate_token(secret: &[u8], token: &str) -> Result<Claims> {
     Ok(token_data.claims)
 }
 
-/// Whether `token` is valid, and whose it is: the answer to `auth.validate`, over RPC or REST.
-#[tracing::instrument(level = "debug", skip(secret, token))]
-pub fn token_status(secret: &[u8], token: &str) -> ValidateResponse {
-    match validate_token(secret, token) {
-        Ok(claims) => ValidateResponse {
-            valid: true,
-            username: Some(claims.sub),
-            is_admin: Some(claims.is_admin),
-            expires_at: Some(claims.exp),
-        },
-        Err(error) => {
-            debug!(error = format!("{error:#}"), "Token validation failed");
-            ValidateResponse {
-                valid: false,
-                username: None,
-                is_admin: None,
-                expires_at: None,
-            }
-        }
-    }
-}
-
 /// Validate a token's signature and claims while allowing an expired `exp` value.
 ///
 /// This is used only to recover safe diagnostic metadata from an expired token.
@@ -179,6 +126,18 @@ mod tests {
 
     use tempfile::TempDir;
 
+    /// Claims for `username`, valid for `expiry` seconds from now.
+    fn claims(username: &str, is_admin: bool, expiry: i64) -> Claims {
+        let now = jiff::Timestamp::now().as_second();
+        Claims::new(
+            username.to_owned(),
+            "session".to_owned(),
+            is_admin,
+            now,
+            now + expiry,
+        )
+    }
+
     #[test]
     fn test_create_and_validate_token() {
         let secret = b"test_secret_32_bytes_long_enough";
@@ -187,8 +146,8 @@ mod tests {
         let expiry = 3600; // 1 hour
 
         // Create token
-        let token =
-            create_token(secret, username, is_admin, expiry).expect("Failed to create token");
+        let token = create_token(secret, &claims(username, is_admin, expiry))
+            .expect("Failed to create token");
 
         // Validate token
         let claims = validate_token(secret, &token).expect("Failed to validate token");
@@ -200,7 +159,8 @@ mod tests {
     #[test]
     fn test_create_admin_token() {
         let secret = b"test_secret_32_bytes_long_enough";
-        let token = create_token(secret, "admin", true, 3600).expect("Failed to create token");
+        let token =
+            create_token(secret, &claims("admin", true, 3600)).expect("Failed to create token");
 
         let claims = validate_token(secret, &token).expect("Failed to validate token");
 
@@ -213,7 +173,8 @@ mod tests {
         let secret1 = b"test_secret_32_bytes_long_enough";
         let secret2 = b"different_secret_32bytes_exactly";
 
-        let token = create_token(secret1, "user", false, 3600).expect("Failed to create token");
+        let token =
+            create_token(secret1, &claims("user", false, 3600)).expect("Failed to create token");
 
         // Should fail with different secret
         let result = validate_token(secret2, &token);
@@ -228,6 +189,7 @@ mod tests {
         let now = jiff::Timestamp::now().as_second();
         let expired_claims = Claims {
             sub: "user".to_string(),
+            sid: "session".to_string(),
             exp: now - 100, // Expired 100 seconds ago
             iat: now - 200,
             is_admin: false,
@@ -266,9 +228,43 @@ mod tests {
     fn test_token_expiry_matches_requested() {
         let secret = b"test_secret_32_bytes_long_enough";
         let expiry = 604_800; // 7 days
-        let token = create_token(secret, "user", false, expiry).expect("Failed to create token");
+        let token =
+            create_token(secret, &claims("user", false, expiry)).expect("Failed to create token");
         let claims = validate_token(secret, &token).expect("Failed to validate token");
         assert_eq!(claims.exp - claims.iat, expiry);
+    }
+
+    #[test]
+    fn a_secret_of_the_wrong_length_refuses_startup_and_is_kept() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let secret_path = temp_dir.path().join("jwt.secret");
+        fs::write(&secret_path, b"too short").expect("write secret");
+
+        let error = load_or_generate_secret(&secret_path).expect_err("short secret accepted");
+
+        let message = format!("{error:#}");
+        assert!(
+            message.contains(&secret_path.display().to_string()),
+            "the error does not name the file: {message}"
+        );
+        assert!(message.contains("9 bytes"), "{message}");
+        assert_eq!(
+            fs::read(&secret_path).expect("read secret"),
+            b"too short",
+            "the damaged secret was replaced"
+        );
+    }
+
+    #[test]
+    fn a_secret_of_the_right_length_is_loaded() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let secret_path = temp_dir.path().join("jwt.secret");
+        fs::write(&secret_path, [7u8; 32]).expect("write secret");
+
+        assert_eq!(
+            load_or_generate_secret(&secret_path).expect("load"),
+            vec![7u8; 32]
+        );
     }
 
     #[test]

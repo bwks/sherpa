@@ -526,6 +526,8 @@ pub const OTEL_METRIC_EXPORT_INTERVAL_SECS: u64 = 60;
 // JWT Authentication constants
 pub const JWT_SECRET_PATH: &str = "/opt/sherpa/.secret/jwt.secret";
 pub const JWT_TOKEN_EXPIRY_SECONDS: i64 = 604_800; // 7 days
+/// How often sherpad deletes expired login sessions, in seconds. It also sweeps once at startup.
+pub const SESSION_SWEEP_INTERVAL_SECS: u64 = 3600;
 
 // ============================================================================
 // JSON-RPC Error Messages
@@ -536,6 +538,7 @@ pub const RPC_MSG_AUTH_REQUIRED: &str = "Authentication required";
 pub const RPC_MSG_AUTH_INVALID: &str = "Invalid username or password";
 pub const RPC_MSG_AUTH_ERROR: &str = "Authentication error";
 pub const RPC_MSG_TOKEN_CREATE_FAILED: &str = "Failed to create authentication token";
+pub const RPC_MSG_LOGOUT_FAILED: &str = "Failed to end the session";
 
 // Web UI
 /// Element on the admin users page that shows a refused user delete (`hx-retarget` value).

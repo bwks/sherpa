@@ -19,6 +19,8 @@ use crate::services::error::ServiceError;
 /// - a user who owns labs cannot be deleted until their labs are destroyed, because deleting
 ///   only the records would leave the labs' VMs, containers and networks running with nothing
 ///   to manage them. The database also rejects this (`REFERENCE ON DELETE REJECT`).
+/// - deleting a user ends all their login sessions: `session.user` is `ON DELETE CASCADE`, so
+///   their tokens stop working at once and never match a new account with the same name.
 #[instrument(skip(ctx, state), fields(admin = %ctx.username, %username))]
 pub async fn delete_user(
     ctx: &AuthContext,
@@ -131,7 +133,7 @@ mod tests {
     }
 
     fn admin(username: &str) -> AuthContext {
-        AuthContext::new(username.to_owned(), true)
+        AuthContext::for_test(username, true)
     }
 
     #[test]
@@ -141,7 +143,7 @@ mod tests {
 
     #[test]
     fn regular_users_may_not_delete_users() {
-        let ctx = AuthContext::new("bob".to_owned(), false);
+        let ctx = AuthContext::for_test("bob", false);
         assert!(matches!(
             check_user_delete(&ctx, &user("carol", false), 1, &[]),
             Err(ServiceError::Denied(_))

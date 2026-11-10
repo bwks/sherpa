@@ -14,6 +14,36 @@ pub struct DbUser {
     pub updated_at: Timestamp,
 }
 
+/// Where a session was started: the CLI's RPC login, the REST API, or the web UI.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionChannel {
+    Cli,
+    Api,
+    Web,
+}
+
+/// A login session. Every token names one; the token is accepted only while this row exists
+/// and `expires_at` has not passed.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct DbSession {
+    /// The session's key, carried in the token as `sid`.
+    pub id: String,
+    pub user: RecordId,
+    pub channel: SessionChannel,
+    pub created_at: Timestamp,
+    /// When the session expires, to the second, the same as the token's `exp`.
+    pub expires_at: Timestamp,
+}
+
+/// A session with the current name and admin flag of its user, read in one query.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DbSessionUser {
+    pub session: DbSession,
+    pub username: String,
+    pub is_admin: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DbLab {
     pub id: Option<RecordId>,

@@ -12,6 +12,7 @@ use strum::IntoEnumIterator;
 
 use crate::api::sse::{destroy_progress_stream, up_progress_stream};
 use crate::auth::policy::{require_lab_access, require_lab_owner, require_lab_starter};
+use crate::auth::session::SessionLookup;
 use crate::daemon::state::AppState;
 use crate::daemon::state::{Job, JobType};
 use crate::services::error::ServiceError;
@@ -743,22 +744,35 @@ pub async fn job_stream_handler(
 
     // Consume the pending job
     let Some((_, job)) = state.pending_jobs.remove(&job_id) else {
-        return sse::Sse::new(destroy_progress_stream(
-            tokio::sync::mpsc::unbounded_channel().1,
-            {
-                let (tx, rx) = tokio::sync::oneshot::channel();
-                let _ = tx.send(Err(anyhow::anyhow!("Job not found or already consumed")));
-                rx
-            },
-        ))
-        .into_response();
+        return failed_job_stream(anyhow::anyhow!("Job not found or already consumed"));
+    };
+
+    // The job runs as the user who created it, as they are now: a requester whose session has
+    // ended since queuing it is refused, and one whose rights changed runs with the new rights.
+    let requester = match job.resolve_requester(&state.db).await {
+        Ok(SessionLookup::Active(requester)) => requester,
+        Ok(SessionLookup::Rejected(rejection)) => {
+            tracing::warn!(
+                event = "auth.job_refused",
+                requester = %job.requester.username,
+                %job_id,
+                %rejection,
+                "Refused to start a job whose requester's session cannot be used"
+            );
+            return failed_job_stream(anyhow::anyhow!(
+                "The job was not started: {rejection} since it was queued. Log in and start it \
+                 again"
+            ));
+        }
+        Err(error) => {
+            tracing::error!(%job_id, error = ?error, "Failed to resolve the job's requester");
+            return failed_job_stream(error.context("The job was not started"));
+        }
     };
 
     let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
     let progress = ProgressSender::new(progress_tx);
 
-    // The job runs as the user who created it.
-    let requester = job.requester;
     match job.job_type {
         JobType::Destroy { lab_id } => {
             let (result_tx, result_rx) = tokio::sync::oneshot::channel();
@@ -777,6 +791,17 @@ pub async fn job_stream_handler(
             sse::Sse::new(up_progress_stream(progress_rx, result_rx)).into_response()
         }
     }
+}
+
+/// An SSE stream that reports `error` as a job's result, for a job that never started.
+fn failed_job_stream(error: anyhow::Error) -> Response {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let _ = tx.send(Err(error));
+    sse::Sse::new(destroy_progress_stream(
+        tokio::sync::mpsc::unbounded_channel().1,
+        rx,
+    ))
+    .into_response()
 }
 
 // ============================================================================

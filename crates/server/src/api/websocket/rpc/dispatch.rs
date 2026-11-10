@@ -32,6 +32,7 @@ use crate::services::progress::ProgressSender;
 pub const METHODS: &[Method] = &[
     Method::new("auth.login", Access::Public, false),
     Method::new("auth.validate", Access::Public, false),
+    Method::new("auth.logout", Access::User, false),
     Method::new("labs.list", Access::User, false),
     Method::new("inspect", Access::User, false),
     Method::new("download", Access::User, false),
@@ -195,7 +196,7 @@ async fn call(
 async fn public_call(method: &str, params: Value, state: &AppState) -> Result<Value, RpcError> {
     match method {
         "auth.login" => auth::login(params, state).await,
-        "auth.validate" => auth::validate(params, state),
+        "auth.validate" => auth::validate(params, state).await,
         _ => Err(unrouted(method)),
     }
 }
@@ -207,6 +208,7 @@ async fn user_call(
     state: &AppState,
 ) -> Result<Value, RpcError> {
     match method {
+        "auth.logout" => auth::logout(ctx, state).await,
         "labs.list" => labs::list(ctx, state).await,
         "inspect" => labs::inspect(ctx, params, state).await,
         "download" => labs::download(ctx, params, state).await,

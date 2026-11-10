@@ -62,6 +62,10 @@ Returns a JWT token valid for 7 days. Use it in subsequent requests:
 Authorization: Bearer <token>
 ```
 
+The token names a server-side login session and works only while that session exists.
+`POST /api/v1/auth/logout` (RPC `auth.logout`) ends it; a password change ends the user's other
+sessions. See [`SERVER.md`](SERVER.md#sessions-and-identity).
+
 ### Auth Levels
 
 Operations require one of three auth levels (defined per-operation in the spec):

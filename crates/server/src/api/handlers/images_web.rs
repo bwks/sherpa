@@ -423,7 +423,7 @@ pub async fn admin_image_update_handler(
 /// Handler for listing all versions of an image (GET /admin/images/{model}/versions)
 pub async fn admin_image_versions_handler(
     State(state): State<AppState>,
-    AdminUser { username }: AdminUser,
+    AdminUser { username, .. }: AdminUser,
     Path(model): Path<String>,
 ) -> Result<Response, ApiError> {
     tracing::debug!("Node config versions list request: model={}", model);

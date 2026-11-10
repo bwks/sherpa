@@ -594,6 +594,254 @@ async fn deleted_user_token_is_rejected_on_all_transports() -> Result<()> {
     Ok(())
 }
 
+// ── Sessions (M14) ──
+
+const BOB_PASSWORD: &str = "Bob-Original-Pass-1!";
+const BOB_NEW_PASSWORD: &str = "Bob-Changed-Pass-2!";
+
+/// Whether `token` still authenticates an RPC call that needs a session.
+async fn rpc_token_works(ws: &mut TestWsClient, token: &str) -> Result<bool> {
+    let response = ws.rpc_call("labs.list", json!({ "token": token })).await?;
+    if response["error"]["code"] == json!(RpcErrorCode::AuthRequired) {
+        return Ok(false);
+    }
+    ensure!(
+        response.get("error").is_none(),
+        "labs.list failed: {response}"
+    );
+    Ok(true)
+}
+
+/// Whether `token` is answered `valid` by `auth.validate`.
+async fn token_is_valid(ws: &mut TestWsClient, token: &str) -> Result<bool> {
+    let response = ws
+        .rpc_call("auth.validate", json!({ "token": token }))
+        .await?;
+    Ok(response["result"]["valid"] == json!(true))
+}
+
+/// The `sherpa_auth` token a web login response sets.
+fn cookie_token(response: &Response) -> Result<String> {
+    let cookie = header_text(response, header::SET_COOKIE);
+    let token = cookie
+        .strip_prefix(&format!("{AUTH_COOKIE_NAME}="))
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or_default()
+        .to_owned();
+    ensure!(!token.is_empty(), "login set no auth cookie: {cookie}");
+    Ok(token)
+}
+
+#[tokio::test]
+async fn rpc_logout_ends_only_that_session() -> Result<()> {
+    let server = TestServer::start().await?;
+    db::create_user(&server.db, "bob".to_owned(), BOB_PASSWORD, false, vec![]).await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let first = ws.login("bob", BOB_PASSWORD).await?;
+    let second = ws.login("bob", BOB_PASSWORD).await?;
+
+    let response = ws
+        .rpc_call("auth.logout", json!({ "token": first }))
+        .await?;
+    ensure!(
+        response.get("error").is_none(),
+        "auth.logout failed: {response}"
+    );
+    ensure!(
+        response["result"]["ended"] == json!(true),
+        "logout: {response}"
+    );
+
+    ensure!(
+        !rpc_token_works(&mut ws, &first).await?,
+        "A logged-out token still works"
+    );
+    ensure!(
+        !token_is_valid(&mut ws, &first).await?,
+        "auth.validate accepts a logged-out token"
+    );
+    ensure!(
+        rpc_token_works(&mut ws, &second).await?,
+        "Logout ended another session"
+    );
+    ensure!(
+        token_is_valid(&mut ws, &second).await?,
+        "auth.validate refuses a live token"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn rest_logout_ends_the_bearer_session() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut client = TestHttpClient::new(server.addr);
+    let response = client
+        .post_json(
+            "/api/v1/auth/login",
+            &json!({ "username": "admin", "password": TEST_ADMIN_PASSWORD }),
+        )
+        .await?;
+    let body: serde_json::Value = response.json().await?;
+    client.set_token(body["token"].as_str().unwrap_or_default().to_owned());
+
+    let response = client.post_json("/api/v1/auth/logout", &json!({})).await?;
+    ensure!(
+        response.status() == StatusCode::OK,
+        "logout: {}",
+        response.status()
+    );
+    let body: serde_json::Value = response.json().await?;
+    ensure!(body["ended"] == json!(true), "logout: {body}");
+
+    let response = client.get("/api/v1/admin/users").await?;
+    ensure!(
+        response.status() == StatusCode::UNAUTHORIZED,
+        "A logged-out token still works over REST: {}",
+        response.status()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn web_logout_ends_the_cookie_session_on_the_server() -> Result<()> {
+    let server = TestServer::start().await?;
+    let client = TestHttpClient::new(server.addr);
+    let response = client
+        .post_form(
+            "/login",
+            &[("username", "admin"), ("password", TEST_ADMIN_PASSWORD)],
+        )
+        .await?;
+    let token = cookie_token(&response)?;
+    let cookie = format!("{AUTH_COOKIE_NAME}={token}");
+
+    // The client's cookie jar sends the session with the logout.
+    let response = client.post_form("/logout", &[]).await?;
+    ensure!(
+        response.status() == StatusCode::SEE_OTHER,
+        "logout: {}",
+        response.status()
+    );
+
+    // A copy of the cookie taken before logout no longer works.
+    let response = TestHttpClient::new(server.addr)
+        .get_with_cookie("/labs", &cookie)
+        .await?;
+    let location = header_text(&response, header::LOCATION);
+    ensure!(
+        response.status().is_redirection() && location.contains("session_expired"),
+        "A logged-out cookie still works: {} {location}",
+        response.status()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn changing_your_password_ends_your_other_sessions() -> Result<()> {
+    let server = TestServer::start().await?;
+    db::create_user(&server.db, "bob".to_owned(), BOB_PASSWORD, false, vec![]).await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let current = ws.login("bob", BOB_PASSWORD).await?;
+    let other = ws.login("bob", BOB_PASSWORD).await?;
+
+    let response = ws
+        .rpc_call(
+            "user.passwd",
+            json!({
+                "token": current,
+                "username": "bob",
+                "current_password": BOB_PASSWORD,
+                "new_password": BOB_NEW_PASSWORD,
+            }),
+        )
+        .await?;
+    ensure!(
+        response.get("error").is_none(),
+        "user.passwd failed: {response}"
+    );
+
+    ensure!(
+        rpc_token_works(&mut ws, &current).await?,
+        "The session that changed it ended"
+    );
+    ensure!(
+        !rpc_token_works(&mut ws, &other).await?,
+        "Another session survived"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_admin_password_reset_ends_every_session_of_the_user() -> Result<()> {
+    let server = TestServer::start().await?;
+    db::create_user(&server.db, "bob".to_owned(), BOB_PASSWORD, false, vec![]).await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let bob = ws.login("bob", BOB_PASSWORD).await?;
+    let admin = ws.login_admin().await?;
+
+    let response = ws
+        .rpc_call(
+            "user.passwd",
+            json!({ "token": admin, "username": "bob", "new_password": BOB_NEW_PASSWORD }),
+        )
+        .await?;
+    ensure!(
+        response.get("error").is_none(),
+        "user.passwd failed: {response}"
+    );
+
+    ensure!(
+        !rpc_token_works(&mut ws, &bob).await?,
+        "Bob's session survived the reset"
+    );
+    ensure!(
+        rpc_token_works(&mut ws, &admin).await?,
+        "The admin's own session ended"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_recreated_user_does_not_inherit_the_old_accounts_tokens() -> Result<()> {
+    let server = TestServer::start().await?;
+    let bob = db::create_user(&server.db, "bob".to_owned(), BOB_PASSWORD, false, vec![]).await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login("bob", BOB_PASSWORD).await?;
+
+    db::delete_user(&server.db, db::get_user_id(&bob)?).await?;
+    db::create_user(
+        &server.db,
+        "bob".to_owned(),
+        BOB_NEW_PASSWORD,
+        false,
+        vec![],
+    )
+    .await?;
+
+    ensure!(
+        !rpc_token_works(&mut ws, &token).await?,
+        "The old account's token authenticates as the new account over RPC"
+    );
+    let mut client = TestHttpClient::new(server.addr);
+    client.set_token(token.clone());
+    let response = client.get("/api/v1/labs").await?;
+    ensure!(
+        response.status() == StatusCode::UNAUTHORIZED,
+        "The old account's token works over REST: {}",
+        response.status()
+    );
+    let response = TestHttpClient::new(server.addr)
+        .get_with_cookie("/labs", &format!("{AUTH_COOKIE_NAME}={token}"))
+        .await?;
+    let location = header_text(&response, header::LOCATION);
+    ensure!(
+        response.status().is_redirection() && location.contains("session_expired"),
+        "The old account's cookie works: {} {location}",
+        response.status()
+    );
+    Ok(())
+}
+
 // ── API spec routes ──
 
 /// Every REST binding in the published spec is a route the server serves. The request is sent

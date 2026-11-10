@@ -67,14 +67,17 @@ is up. It is safe to run again with `sherpa provision`. It:
 5. installs `mkdocs` with uv on a uv-managed Python 3.15 (never the system Python), as a tool on
    the `PATH`, at the versions in sherpa-docs' `requirements.txt`, so `mkdocs build` and
    `mkdocs serve` work in `~/code/rust/sherpa-docs`;
-6. installs a Sherpa server with the checkout's `scripts/sherpa_install.sh`;
-7. initializes the server unattended: it generates the `admin` password, a `dev` user (an
+6. installs the [beautiful-rust](https://github.com/morganlinton/BeautifulRust) Claude Code
+   plugin (the `rust-best-practices`, `rust-review` and `rust-port` skills) for the guest
+   agents, from a clone pinned to one commit in `~/.local/share/claude-marketplaces/`;
+7. installs a Sherpa server with the checkout's `scripts/sherpa_install.sh`;
+8. initializes the server unattended: it generates the `admin` password, a `dev` user (an
    administrator) with its own password, and an SSH key `~/.ssh/id_ed25519` for it, kept in
    `~/.env.d/sherpa-account.env` (mode `600`). It runs `sherpad init` with them and starts
    `sherpad`;
-8. points the guest's `sherpa` CLI at its own server, trusting the server's certificate file,
+9. points the guest's `sherpa` CLI at its own server, trusting the server's certificate file,
    and logs in as `dev`;
-9. creates a `dev` OS account with the same SSH key and trusts the guest's own host key. The SSH
+10. creates a `dev` OS account with the same SSH key and trusts the guest's own host key. The SSH
    config Sherpa writes for each lab reaches its nodes through the server as the Sherpa user
    (`ProxyJump dev@<server>`), so lab tests and SSH provisioners need both, as on any Sherpa
    server.

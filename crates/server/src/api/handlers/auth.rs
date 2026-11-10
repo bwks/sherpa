@@ -4,11 +4,10 @@ use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use jiff::Timestamp;
 use serde::Deserialize;
 use std::collections::HashMap;
 
-use crate::auth::{cookies, jwt, login};
+use crate::auth::{cookies, login, session};
 use crate::daemon::state::AppState;
 use crate::templates::{
     LoginErrorTemplate, LoginPageTemplate, SignupErrorTemplate, SignupPageTemplate,
@@ -16,19 +15,47 @@ use crate::templates::{
 
 use crate::api::errors::ApiError;
 use crate::api::extractors::{
-    CookieSessionError, trace_rejected_session, trace_validated_session, validate_cookie_session,
+    AuthenticatedUser, CookieSessionError, trace_rejected_session, trace_validated_session,
+    validate_cookie_session,
 };
 
-use shared::data::{LoginRequest, LoginResponse, ValidateRequest, ValidateResponse};
+use shared::data::{
+    LoginRequest, LoginResponse, LogoutResponse, SessionChannel, ValidateRequest, ValidateResponse,
+};
 use shared::konst::JWT_TOKEN_EXPIRY_SECONDS;
 
-/// Validate a JWT token, as the `auth.validate` RPC method does. An invalid token is answered
-/// `valid: false`, not an error.
+/// Validate a JWT token, as the `auth.validate` RPC method does. An invalid token, or one whose
+/// session has ended, is answered `valid: false`, not an error.
 pub async fn validate_token_json(
     State(state): State<AppState>,
     Json(request): Json<ValidateRequest>,
-) -> Json<ValidateResponse> {
-    Json(jwt::token_status(&state.jwt_secret, &request.token))
+) -> Result<Json<ValidateResponse>, ApiError> {
+    session::token_status(&state.db, &state.jwt_secret, &request.token)
+        .await
+        .map(Json)
+        .map_err(|error| {
+            tracing::error!(error = ?error, "Failed to check a token's session");
+            ApiError::internal("Failed to validate the token")
+        })
+}
+
+/// End the session of the token the request is made with.
+///
+/// POST `/api/v1/auth/logout`
+///
+/// The token stops working at once, on every transport. Other sessions of the same user are not
+/// affected.
+pub async fn logout_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+) -> Result<Json<LogoutResponse>, ApiError> {
+    let ended = session::logout(&state.db, &auth.session_id)
+        .await
+        .map_err(|error| {
+            tracing::error!(username = %auth.username, error = ?error, "Logout failed");
+            ApiError::internal("Failed to end the session")
+        })?;
+    Ok(Json(LogoutResponse { ended }))
 }
 
 /// Authenticate user and issue JWT token
@@ -50,20 +77,20 @@ pub async fn login(
         })?
         .ok_or_else(|| ApiError::unauthorized("Invalid username or password"))?;
 
-    // Create JWT token
-    let token = jwt::create_token(
+    let issued = session::start(
+        &state.db,
         &state.jwt_secret,
-        &user.username,
-        user.is_admin,
+        &user,
+        SessionChannel::Api,
         JWT_TOKEN_EXPIRY_SECONDS,
     )
+    .await
     .map_err(|e| {
-        tracing::error!("Failed to create JWT token: {:?}", e);
+        tracing::error!("Failed to start a session: {:?}", e);
         ApiError::internal("Failed to create authentication token")
     })?;
-
-    let now = Timestamp::now().as_second();
-    let expires_at = now + JWT_TOKEN_EXPIRY_SECONDS;
+    let now = issued.issued_at;
+    let expires_at = issued.expires_at;
 
     tracing::info!(
         event = "auth.login_succeeded",
@@ -77,7 +104,7 @@ pub async fn login(
     );
 
     Ok(Json(LoginResponse {
-        token,
+        token: issued.token,
         username: user.username,
         is_admin: user.is_admin,
         expires_at,
@@ -200,16 +227,18 @@ pub async fn login_form_handler(
         cookies::COOKIE_MAX_AGE_NORMAL
     };
 
-    // Create JWT token
-    let token = match jwt::create_token(
+    let issued = match session::start(
+        &state.db,
         &state.jwt_secret,
-        &user.username,
-        user.is_admin,
+        &user,
+        SessionChannel::Web,
         expiry_seconds,
-    ) {
-        Ok(token) => token,
+    )
+    .await
+    {
+        Ok(issued) => issued,
         Err(e) => {
-            tracing::error!("Failed to create JWT token: {:?}", e);
+            tracing::error!("Failed to start a session: {:?}", e);
             return LoginErrorTemplate {
                 message: "An error occurred during authentication".to_string(),
             }
@@ -218,10 +247,10 @@ pub async fn login_form_handler(
     };
 
     // Create auth cookie
-    let cookie_value = cookies::create_auth_cookie(&token, form.remember_me);
+    let cookie_value = cookies::create_auth_cookie(&issued.token, form.remember_me);
 
-    let issued_at = Timestamp::now().as_second();
-    let expires_at = issued_at + expiry_seconds;
+    let issued_at = issued.issued_at;
+    let expires_at = issued.expires_at;
     tracing::info!(
         event = "auth.login_succeeded",
         channel = "web",
@@ -348,14 +377,17 @@ pub async fn signup_form_handler(
         }
     };
 
-    // 3. Generate JWT token for auto-login (7-day expiry)
-    let token = match jwt::create_token(
+    // 3. Start a session for auto-login (7-day expiry)
+    let token = match session::start(
+        &state.db,
         &state.jwt_secret,
-        &user.username,
-        user.is_admin,
+        &user,
+        SessionChannel::Web,
         cookies::COOKIE_MAX_AGE_NORMAL,
-    ) {
-        Ok(token) => token,
+    )
+    .await
+    {
+        Ok(issued) => issued.token,
         Err(e) => {
             // User was created successfully but JWT generation failed
             // This is rare but possible
@@ -436,19 +468,37 @@ fn extract_validation_message(error_str: &str, context: &str) -> String {
 ///
 /// POST `/logout`
 ///
-/// Clears the authentication cookie and redirects to login page.
-pub async fn logout_handler() -> impl IntoResponse {
-    tracing::debug!("User logging out");
-
-    let clear_cookie = cookies::create_clear_cookie();
+/// Ends the cookie's session on the server, so a copy of the cookie stops working too, then
+/// clears the cookie and redirects to the login page. A cookie that is missing or no longer
+/// valid is just cleared. When the session cannot be ended, the cookie is kept and the user is
+/// told to try again, so they are not shown as logged out while the session still works.
+pub async fn logout_handler(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let cookie_header = headers
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok());
+    if let Ok(cookie_session) = validate_cookie_session(cookie_header, &state.jwt_secret)
+        && let Err(error) = session::logout(&state.db, &cookie_session.claims.sid).await
+    {
+        tracing::error!(
+            username = %cookie_session.claims.sub,
+            error = ?error,
+            "Failed to end the session at logout"
+        );
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Could not end your session on the server. Try logging out again.",
+        )
+            .into_response();
+    }
 
     (
         StatusCode::SEE_OTHER,
         [
-            (header::SET_COOKIE, clear_cookie),
+            (header::SET_COOKIE, cookies::create_clear_cookie()),
             (header::LOCATION, "/login?error=logout_success".to_string()),
         ],
     )
+        .into_response()
 }
 
 // ============================================================================
