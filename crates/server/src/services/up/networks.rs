@@ -277,7 +277,7 @@ pub(super) async fn reserve_lab(
 /// The error for an `up` whose lab ID is in use. Either this lab exists already, or another
 /// lab has the same ID: IDs are a hash of the owner and the lab name, so two owners' labs can
 /// collide. The other lab belongs to someone else, so it is not named.
-fn lab_id_taken(
+pub(super) fn lab_id_taken(
     lab_id: &str,
     existing: &data::DbLab,
     lab_name: &str,

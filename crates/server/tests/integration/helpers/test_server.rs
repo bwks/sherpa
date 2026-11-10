@@ -26,6 +26,10 @@ pub const TEST_LAB_ADMIN: &str = "labadmin";
 pub const TEST_SSH_PUBLIC_KEY: &str =
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh";
 
+/// A libvirt URI whose socket does not exist, so connecting to it always fails.
+const UNREACHABLE_LIBVIRT_URI: &str =
+    "qemu+unix:///system?socket=/nonexistent/sherpa-test/libvirt-sock";
+
 /// A test server that runs an in-process instance of sherpad
 pub struct TestServer {
     pub addr: SocketAddr,
@@ -50,15 +54,28 @@ impl TestServer {
         Self::start_with_config(config).await
     }
 
+    /// Start a new test server whose libvirt cannot be reached, as on a host without libvirt.
+    /// Operations that must answer before connecting to libvirt give the same answer on every
+    /// host only if they never try.
+    pub async fn start_without_libvirt() -> Result<Self> {
+        let qemu = Qemu {
+            uri: UNREACHABLE_LIBVIRT_URI.to_owned(),
+        };
+        Self::start_with(test_config()?, qemu).await
+    }
+
     /// Start a new test server with `config`, usually [`test_config`] with changes. The
     /// scanner runs only when `config.scanner` is enabled; [`test_config`] disables it.
     pub async fn start_with_config(config: Config) -> Result<Self> {
+        Self::start_with(config, Qemu::default()).await
+    }
+
+    async fn start_with(config: Config, qemu: Qemu) -> Result<Self> {
         let db = db::open_in_memory().await?;
         db::apply_schema(&db).await?;
         db::seed_admin_user(&db, TEST_ADMIN_PASSWORD).await?;
 
         let docker = Docker::connect_with_local_defaults()?;
-        let qemu = Qemu::default();
 
         let jwt_secret: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();
 

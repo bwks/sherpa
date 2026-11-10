@@ -234,8 +234,10 @@ Every other pair is refused with a `LabRefused`.
 
 **Who sets and reads it.**
 
-- `up` reserves the lab by inserting its record (machine 6), so a second `up` of the same lab
-  fails there with a `Conflict`, before it creates anything.
+- `up` refuses a lab ID that has a record with a `Conflict` early in setup, before it connects
+  to libvirt or reads the host, so the answer is the same on any host. It then reserves the lab
+  by inserting its record (machine 6); two `up`s of one lab that both pass the early check race
+  there, and the second fails with the same `Conflict`, before it creates anything.
 - `down`, `resume` and redeploy call `lab_lifecycle::require_ready` under their lease, after
   their access check, and refuse a lab that is not `Ready` with a `Conflict`.
 - Destroy and clean move it through `Destroying` (machine 7).
@@ -430,7 +432,7 @@ The stage is the program counter; the lab phase (machine 2) says who owns the re
 
 | Phase | Function | Creates |
 |---|---|---|
-| 1 Setup | `set_up`, ending with `reserve_lab` (`up/networks.rs`) | the lab record, `Creating`, holding its subnets. A lab ID in use fails here with a `Conflict`: "Lab already exists" (with the phase when it is not `ready`), or "rename the lab" for another owner's lab with the same ID. |
+| 1 Setup | `set_up`, ending with `reserve_lab` (`up/networks.rs`) | the lab record, `Creating`, holding its subnets. A lab ID in use fails here with a `Conflict`, first right after the owner is loaded and before libvirt is connected, and again at the reservation for a concurrent `up`: "Lab already exists" (with the phase when it is not `ready`), or "rename the lab" for another owner's lab with the same ID. |
 | 2 Validation | `validate`: `plan_lab`, `ensure_no_earlier_attempt` | image leases in memory. The earlier-attempt check looks at libvirt volumes and domains, and skips labs where every node is a container. |
 | 3 DatabaseRecords | `create_node_records` (`up/records.rs`) | node rows (`Building`), VNC ports, per-node networks |
 | 4 | `set_up_lab_network` | lab dir and files, libvirt NAT network, Docker bridge network, Tailscale gateway |

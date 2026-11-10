@@ -14,8 +14,8 @@ use super::context::LabBuild;
 use super::links::{LinkRecords, P2pAttachment, attach_vm_links, create_links};
 use super::networks::{
     ReservedLab, container_data_attachments, create_isolated_container_networks,
-    create_management_networks, create_shared_bridges, management_network, reserve_lab,
-    set_isolated_bridges_down, write_lab_files,
+    create_management_networks, create_shared_bridges, lab_id_taken, management_network,
+    reserve_lab, set_isolated_bridges_down, write_lab_files,
 };
 use super::plan::{LabPlan, plan_lab};
 use super::readiness::{NodesReady, ReadinessInputs, wait_for_nodes};
@@ -268,9 +268,12 @@ fn check_up_request(
     Ok(manifest)
 }
 
-/// Setup (phase 1): connect to libvirt, load the owner, who must have an SSH key, and every node
-/// image, then reserve the lab. A lab ID already in use is refused there, before anything is
-/// created.
+/// Setup (phase 1): load the owner, refuse a lab ID already in use, check the owner has an SSH
+/// key, connect to libvirt, load every node image, then reserve the lab.
+///
+/// The lab ID is checked before libvirt or the host is touched, so a second `up` of a lab fails
+/// fast with the same answer on any host. The reservation checks it again: two `up`s of one lab
+/// can both pass the first check, and only one record is inserted.
 #[instrument(skip_all, fields(%lab_id))]
 async fn set_up(
     state: &AppState,
@@ -285,7 +288,21 @@ async fn set_up(
 
     tracing::info!(lab_id = %lab_id, lab_name = %lab_name, "Connecting to lab infrastructure services");
 
-    tracing::info!(lab_id = %lab_id, "Connected to Docker daemon");
+    let db_user = db::get_user(&state.db, current_user)
+        .await
+        .context("Failed to get database user")?;
+    if let Some(existing) = db::find_lab(&state.db, lab_id)
+        .await
+        .context("Failed to check for an existing lab")?
+    {
+        return Err(lab_id_taken(
+            lab_id,
+            &existing,
+            lab_name,
+            db_user.id.as_ref(),
+        ));
+    }
+    guest_account::require_ssh_key(&db_user)?;
 
     let qemu_conn = Arc::new(
         state
@@ -294,14 +311,8 @@ async fn set_up(
             .context("Failed to connect to libvirt")?,
     );
     tracing::info!(lab_id = %lab_id, "Connected to libvirt/QEMU");
-    tracing::info!(lab_id = %lab_id, "Using the embedded database");
 
     tracing::debug!(lab_id = %lab_id, lab_dir = %lab_dir, user = %current_user, "Lab environment prepared");
-
-    let db_user = db::get_user(&state.db, current_user)
-        .await
-        .context("Failed to get database user")?;
-    guest_account::require_ssh_key(&db_user)?;
 
     let _ = progress.send_status("Loading configuration".to_string(), StatusKind::Info);
 
