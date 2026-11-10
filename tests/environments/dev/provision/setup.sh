@@ -20,6 +20,12 @@ APT_PACKAGES=(
     build-essential pkg-config libvirt-dev clang llvm libelf-dev
     git jq rsync curl
 )
+# Claude Code plugins for the guest agents, at a pinned commit. The marketplace is a local clone:
+# a marketplace source can name a branch or a tag but not a commit, and this repository has no
+# tags. Claude Code loads the plugin in place from the clone.
+CLAUDE_PLUGIN_REPO="https://github.com/morganlinton/BeautifulRust.git"
+CLAUDE_PLUGIN_COMMIT="edd3e86087eda07983251056508fe3b8856d85d7"
+CLAUDE_PLUGIN_DIR="${HOME}/.local/share/claude-marketplaces/BeautifulRust"
 
 log() {
     echo "==> $*"
@@ -129,6 +135,20 @@ clone_repos() {
 install_docs_tools() {
     log "Installing mkdocs for sherpa-docs"
     uv tool install --quiet --managed-python --python 3.15 mkdocs --with-requirements "${CODE_DIR}/sherpa-docs/requirements.txt"
+}
+
+# The beautiful-rust skills (rust-best-practices, rust-review, rust-port) for Claude Code, from
+# the clone checked out at CLAUDE_PLUGIN_COMMIT. Running it again moves the clone to that commit;
+# adding the marketplace and installing the plugin again are no-ops.
+install_claude_plugins() {
+    log "Installing the beautiful-rust Claude Code plugin"
+    if [ ! -d "${CLAUDE_PLUGIN_DIR}/.git" ]; then
+        git clone --quiet "${CLAUDE_PLUGIN_REPO}" "${CLAUDE_PLUGIN_DIR}"
+    fi
+    git -C "${CLAUDE_PLUGIN_DIR}" fetch --quiet origin
+    git -C "${CLAUDE_PLUGIN_DIR}" checkout --quiet --detach "${CLAUDE_PLUGIN_COMMIT}"
+    claude plugin marketplace add "${CLAUDE_PLUGIN_DIR}"
+    claude plugin install beautiful-rust@beautiful-rust
 }
 
 install_sherpa_server() {
@@ -243,6 +263,7 @@ main() {
     setup_git
     clone_repos
     install_docs_tools
+    install_claude_plugins
     SERVER_IP="$(ip -4 -json route get 1.1.1.1 | jq -r '.[0].prefsrc')"
     install_sherpa_server
     create_account_settings
