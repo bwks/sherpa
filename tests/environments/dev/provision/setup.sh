@@ -151,6 +151,20 @@ install_claude_plugins() {
     claude plugin install beautiful-rust@beautiful-rust
 }
 
+# Claude Code attribution as on the host: commits keep the default Co-Authored-By trailer, pull
+# requests get no footer and nothing links to a session. Merged into the settings, so the plugin
+# entries stay.
+configure_claude_attribution() {
+    local settings="${HOME}/.claude/settings.json"
+    log "Setting the Claude Code attribution"
+    mkdir -p "$(dirname "${settings}")"
+    if [ ! -f "${settings}" ]; then
+        echo '{}' > "${settings}"
+    fi
+    jq '.attribution = {"pr": "", "sessionUrl": false}' "${settings}" > "${settings}.tmp"
+    mv "${settings}.tmp" "${settings}"
+}
+
 install_sherpa_server() {
     if [ -x "${SHERPA_BASE}/bin/sherpad" ]; then
         log "Sherpa server already installed"
@@ -264,6 +278,7 @@ main() {
     clone_repos
     install_docs_tools
     install_claude_plugins
+    configure_claude_attribution
     SERVER_IP="$(ip -4 -json route get 1.1.1.1 | jq -r '.[0].prefsrc')"
     install_sherpa_server
     create_account_settings
