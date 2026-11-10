@@ -10,7 +10,10 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use strum::IntoEnumIterator;
 
+use db::{DefaultRequest, LastDefaultImage};
+
 use crate::daemon::state::AppState;
+use crate::services::image_lifecycle::lock_image;
 use crate::services::import;
 use crate::services::progress::ProgressSender;
 use crate::templates::{AdminImageUploadTemplate, AdminNotificationErrorTemplate};
@@ -193,8 +196,9 @@ fn parse_form_choice<T: DeserializeOwned>(value: &str, field_name: &str) -> Resu
         .map_err(|_| ApiError::bad_request(format!("Invalid {field_name}: {value}")))
 }
 
-/// The image's new configuration from the form. Its id, model, kind, management interface and
-/// boot mode are kept; checkboxes are on when present, and blank optional fields are unset.
+/// The image's new configuration from the form. Its id, model, kind, version, management
+/// interface and boot mode are kept; checkboxes are on when present, and blank optional fields
+/// are unset. The version names the image's files, so a form that sends another is ignored.
 fn updated_image_config(
     config: NodeConfig,
     form: ImageForm,
@@ -202,9 +206,9 @@ fn updated_image_config(
 ) -> NodeConfig {
     NodeConfig {
         id: config.id,
-        model: config.model, // Keep original (read-only)
-        kind: config.kind,   // Keep original (read-only)
-        version: form.version,
+        model: config.model,     // Keep original (read-only)
+        kind: config.kind,       // Keep original (read-only)
+        version: config.version, // Keep original (names the image's files)
         repo: form.repo.filter(|s| !s.trim().is_empty()),
         os_variant: choices.os_variant,
         bios: choices.bios,
@@ -231,7 +235,7 @@ fn updated_image_config(
         first_interface_index: form.first_interface_index,
         management_interface: config.management_interface, // Keep original (read-only)
         reserved_interface_count: form.reserved_interface_count,
-        default: form.default.is_some(),
+        default: config.default,     // Decided by the default rule in `db`
         boot_mode: config.boot_mode, // Keep original
     }
 }
@@ -341,34 +345,11 @@ pub async fn admin_image_update_handler(
 
     let choices = ImageFormChoices::parse(&form)?;
 
-    let form_default = form.default.is_some();
-
-    // Validate: prevent unsetting the last default for this (model, kind)
-    if config.default && !form_default {
-        // User is trying to unset default - check if this is the only default
-        let versions = db::get_node_image_versions(&state.db, &config.model, &config.kind)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to get versions for {}: {:?}", params.model, e);
-                ApiError::internal("Failed to validate default status")
-            })?;
-
-        let default_count = versions.iter().filter(|v| v.default).count();
-
-        if default_count == 1 {
-            tracing::warn!(
-                "Cannot unset default - only one default exists for {}",
-                params.model
-            );
-            return Ok(AdminNotificationErrorTemplate {
-                message: format!(
-                    "Cannot unset default - at least one version must be marked as default for {}",
-                    params.model
-                ),
-            }
-            .into_response());
-        }
-    }
+    let request_default = if form.default.is_some() {
+        DefaultRequest::Make
+    } else {
+        DefaultRequest::Unset
+    };
 
     // Validate form data
     if let Err(e) = validate_node_image_update(
@@ -385,15 +366,22 @@ pub async fn admin_image_update_handler(
         .into_response());
     }
 
+    let _image_guard = lock_image(config.model, &config.version).await;
     let updated_config = updated_image_config(config, form, choices);
 
-    // Update in database
-    db::update_node_image(&state.db, updated_config)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to update image: {:?}", e);
-            ApiError::internal(format!("Failed to update configuration: {e}"))
-        })?;
+    if let Err(error) = db::update_node_image(&state.db, updated_config, request_default).await {
+        if let Some(last_default) = error.downcast_ref::<LastDefaultImage>() {
+            tracing::warn!("{last_default}");
+            return Ok(AdminNotificationErrorTemplate {
+                message: last_default.to_string(),
+            }
+            .into_response());
+        }
+        tracing::error!("Failed to update image: {:?}", error);
+        return Err(ApiError::internal(format!(
+            "Failed to update configuration: {error}"
+        )));
+    }
 
     tracing::info!(
         "Successfully updated image: {} (version: {:?})",
@@ -785,5 +773,58 @@ mod tests {
         ));
         let fields = result.expect("should succeed");
         assert!(fields.default);
+    }
+
+    /// A choice's serde name, as the form sends it.
+    fn choice<T: Serialize>(value: &T) -> String {
+        serde_json::to_value(value)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_owned()
+    }
+
+    fn form_for(config: &NodeConfig, version: &str) -> ImageForm {
+        ImageForm {
+            version: version.to_owned(),
+            repo: None,
+            os_variant: choice(&config.os_variant),
+            bios: choice(&config.bios),
+            cpu_count: config.cpu_count,
+            cpu_architecture: choice(&config.cpu_architecture),
+            cpu_model: choice(&config.cpu_model),
+            machine_type: choice(&config.machine_type),
+            vmx_enabled: None,
+            memory: config.memory,
+            hdd_bus: choice(&config.hdd_bus),
+            cdrom: None,
+            cdrom_bus: choice(&config.cdrom_bus),
+            ztp_enable: None,
+            ztp_method: choice(&config.ztp.method),
+            ztp_username: None,
+            ztp_password: None,
+            ztp_password_auth: None,
+            data_interface_count: config.data_interface_count,
+            interface_prefix: config.interface_prefix.clone(),
+            interface_type: choice(&config.interface_type),
+            interface_mtu: config.interface_mtu,
+            first_interface_index: config.first_interface_index,
+            reserved_interface_count: config.reserved_interface_count,
+            default: None,
+        }
+    }
+
+    #[test]
+    fn the_form_cannot_change_an_images_version_or_default_flag() {
+        let mut config = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        "24.04".clone_into(&mut config.version);
+        config.default = true;
+        let form = form_for(&config, "renamed");
+        let choices = ImageFormChoices::parse(&form).unwrap();
+
+        let updated = updated_image_config(config, form, choices);
+
+        assert_eq!(updated.version, "24.04");
+        assert!(updated.default);
     }
 }

@@ -1,8 +1,8 @@
 use anyhow::Result;
 use db::{
-    LabDetails, create_lab, create_node, create_user, get_node, list_pinned_nodes, list_vnc_ports,
-    update_node_host_key, update_node_mgmt_ipv4, update_node_mgmt_ipv6, update_node_mgmt_mac,
-    update_node_resources, update_node_state_from, upsert_node_image,
+    DefaultRequest, LabDetails, create_lab, create_node, create_user, get_node, list_pinned_nodes,
+    list_vnc_ports, update_node_host_key, update_node_mgmt_ipv4, update_node_mgmt_ipv6,
+    update_node_mgmt_mac, update_node_resources, update_node_state_from, upsert_node_image,
 };
 use shared::data::{NodeConfig, NodeModel, NodeResources, NodeState};
 
@@ -24,7 +24,12 @@ async fn lab_with_nodes(db: &db::Database, count: u16) -> Result<Vec<shared::dat
         &LabDetails::default(),
     )
     .await?;
-    let image = upsert_node_image(db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let image = upsert_node_image(
+        db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
     let mut nodes = Vec::new();
     for index in 1..=count {
         nodes.push(

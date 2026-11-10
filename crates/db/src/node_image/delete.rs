@@ -3,35 +3,33 @@ use shared::data::{NodeConfig, RecordId};
 use tracing::instrument;
 
 use crate::Database;
-use crate::persistence::{NODE_IMAGE_TABLE, key_of, node_image_from_row};
+use crate::persistence::{NODE_IMAGE_TABLE, enum_text, key_of, node_image_from_row};
 use crate::queries;
 use crate::sql::{query_count, query_optional};
 
-/// Delete a `node_image` record from the database by its `RecordId`
+/// Delete a `node_image` record by its `RecordId`, and keep its model with a default.
 ///
-/// Returns an error if:
-/// - The record doesn't exist (returns "Node image not found" error)
-/// - The image is referenced by any nodes (`node.image` is `ON DELETE RESTRICT`)
-///
-/// # Arguments
-/// * `db` - Database connection
-/// * `id` - `RecordId` of the `node_image` to delete
-///
-/// # Returns
-/// `Ok(())` on successful deletion
+/// When the deleted image was its model's default, the most recently added remaining version of
+/// the model becomes the default, in the same transaction. That version is returned; `None` when
+/// the deleted image was not the default or was the model's last.
 ///
 /// # Errors
 /// - If the record doesn't exist
-/// - If the record is referenced by nodes
+/// - If the record is referenced by nodes (`node.image` is `ON DELETE RESTRICT`)
 /// - If there's a database error during deletion
 #[instrument(skip(db), level = "debug")]
-pub async fn delete_node_image(db: &Database, id: RecordId) -> Result<()> {
+pub async fn delete_node_image(db: &Database, id: RecordId) -> Result<Option<NodeConfig>> {
     let key = key_of(&id, NODE_IMAGE_TABLE)?;
-    let writer = db.writer().await?;
+    let mut writer = db.writer().await?;
+    let tx = writer
+        .conn
+        .transaction()
+        .await
+        .context("Failed to start the node_image delete transaction")?;
 
     // The foreign key refuses the delete as well; checking first gives a clearer message.
     // Both run under the write lock, so no node can start using the image in between.
-    let references = query_count(&writer.conn, queries::node::COUNT_BY_IMAGE, [key.as_str()])
+    let references = query_count(&tx, queries::node::COUNT_BY_IMAGE, [key.as_str()])
         .await
         .context("Cannot check image references before deletion")?;
     ensure!(
@@ -41,8 +39,8 @@ pub async fn delete_node_image(db: &Database, id: RecordId) -> Result<()> {
         references
     );
 
-    let deleted: Option<NodeConfig> = query_optional(
-        &writer.conn,
+    let deleted = query_optional(
+        &tx,
         queries::node_image::DELETE_BY_ID,
         [key.as_str()],
         node_image_from_row,
@@ -50,10 +48,32 @@ pub async fn delete_node_image(db: &Database, id: RecordId) -> Result<()> {
     .await
     .context(format!(
         "Failed to delete node_image: {id:?}\nNote: Deletion will fail if any nodes reference this image"
-    ))?;
+    ))?
+    .ok_or_else(|| anyhow!("Node image not found for deletion: {id:?}"))?;
 
-    // Verify the record was found and deleted
-    deleted.ok_or_else(|| anyhow!("Node image not found for deletion: {id:?}"))?;
+    let promoted = if deleted.default {
+        query_optional(
+            &tx,
+            queries::node_image::PROMOTE_NEWEST,
+            (
+                enum_text(&deleted.model, "model")?,
+                enum_text(&deleted.kind, "kind")?,
+            ),
+            node_image_from_row,
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to make another version the default for {} ({})",
+                deleted.model, deleted.kind
+            )
+        })?
+    } else {
+        None
+    };
 
-    Ok(())
+    tx.commit()
+        .await
+        .context("Failed to commit the node_image delete transaction")?;
+    Ok(promoted)
 }

@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::{create_test_node_with_model, ipv4_lab_networks, setup_db};
 use db::{
-    LabDetails, apply_schema, create_bridge, create_lab, create_link, create_user,
+    DefaultRequest, LabDetails, apply_schema, create_bridge, create_lab, create_link, create_user,
     list_links_by_lab, list_users, update_link_impairments, upsert_node_image,
 };
 use shared::data::{BridgeKind, BridgeMember, DbLink, LinkImpairment, NodeConfig, NodeModel};
@@ -47,7 +47,12 @@ async fn test_schema_creates_all_tables() -> Result<()> {
     .await?;
 
     // node_image
-    upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     // lab
     let lab = create_lab(
@@ -128,7 +133,12 @@ async fn test_link_impairments_survive_schema_reapply() -> Result<()> {
         vec![],
     )
     .await?;
-    upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
     let lab = create_lab(
         &db,
         "Impair Lab",

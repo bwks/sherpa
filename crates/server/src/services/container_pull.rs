@@ -2,11 +2,14 @@ use anyhow::{Context, Result};
 use opentelemetry::KeyValue;
 use std::time::Instant;
 
-use shared::data::{ContainerPullRequest, ContainerPullResponse, NodeConfig, NodeKind, StatusKind};
+use shared::data::{ContainerPullRequest, ContainerPullResponse, NodeConfig, StatusKind};
 
 use tracing::instrument;
 
+use db::DefaultRequest;
+
 use crate::daemon::state::AppState;
+use crate::services::image_lifecycle::lock_image;
 use crate::services::progress::ProgressSender;
 use crate::validate::validate_image_version;
 
@@ -19,6 +22,7 @@ pub async fn pull_container_image(
 ) -> Result<ContainerPullResponse> {
     let start = Instant::now();
     validate_image_version(&request.tag)?;
+    let _image_guard = lock_image(request.model, &request.tag).await;
 
     tracing::info!(
         model = %request.model,
@@ -38,35 +42,35 @@ pub async fn pull_container_image(
 
     let _ = progress.send_status("Updating database...".to_string(), StatusKind::Progress);
 
-    // Import pulled image to database
-    let existing_versions =
-        db::get_node_image_versions(&state.db, &request.model, &NodeKind::Container).await?;
-    let make_default = if existing_versions.is_empty() {
-        true
+    let request_default = if request.default {
+        DefaultRequest::Make
     } else {
-        request.default
+        DefaultRequest::Keep
     };
-    let db_config = pulled_node_image(&request, make_default);
-
-    let db_tracked = match db::upsert_node_image(&state.db, db_config).await {
-        Ok(_) => {
-            tracing::info!(
-                "Upserted node_image for model={} version={}",
-                request.model,
-                request.tag
-            );
-            true
-        }
-        Err(e) => {
-            tracing::error!(
-                "Failed to upsert node_image for model={} version={}: {:?}",
-                request.model,
-                request.tag,
-                e
-            );
-            false
-        }
-    };
+    let recorded = db::upsert_node_image(&state.db, pulled_node_image(&request), request_default)
+        .await
+        .with_context(|| {
+            format!(
+                "Pulled {}:{} but failed to record it in the database; pull again or run \
+                 'sherpa server image scan'",
+                request.repo, request.tag
+            )
+        })?;
+    // A version pulled before from another repo runs from the repo pulled now.
+    if recorded.repo.as_deref() != Some(request.repo.as_str()) {
+        let repulled = NodeConfig {
+            repo: Some(request.repo.clone()),
+            ..recorded
+        };
+        db::update_node_image(&state.db, repulled, DefaultRequest::Keep)
+            .await
+            .context("Failed to record the repo the image was pulled from")?;
+    }
+    tracing::info!(
+        model = %request.model,
+        version = %request.tag,
+        "Recorded the pulled container image"
+    );
 
     let _ = progress.send_status(
         format!(
@@ -86,18 +90,17 @@ pub async fn pull_container_image(
         model: request.model.to_string(),
         repo: request.repo,
         tag: request.tag,
-        db_tracked,
+        db_tracked: true,
         message: "Image pulled successfully".to_string(),
     })
 }
 
 /// The node image record for a pulled container image: the model's defaults, with the version
 /// and repo it was pulled from. Models without a built-in repo run the repo recorded here.
-fn pulled_node_image(request: &ContainerPullRequest, default: bool) -> NodeConfig {
+fn pulled_node_image(request: &ContainerPullRequest) -> NodeConfig {
     let mut config = NodeConfig::get_model(request.model);
     config.version.clone_from(&request.tag);
     config.repo = Some(request.repo.clone());
-    config.default = default;
     config.id = None;
     config
 }
@@ -116,12 +119,11 @@ mod tests {
             default: false,
         };
 
-        let config = pulled_node_image(&request, true);
+        let config = pulled_node_image(&request);
 
         assert_eq!(config.model, NodeModel::PostgresqlDb);
         assert_eq!(config.repo.as_deref(), Some("postgres"));
         assert_eq!(config.version, "17");
-        assert!(config.default);
         assert_eq!(config.container_repo(None).as_deref(), Some("postgres"));
     }
 }

@@ -1,7 +1,7 @@
 /// READ operation tests for `node_image`
 use anyhow::Result;
 use db::{
-    count_node_images, find_default_node_image, find_node_image_by_id,
+    DefaultRequest, count_node_images, find_default_node_image, find_node_image_by_id,
     find_node_image_by_model_kind_version, get_node_image_versions, list_node_images,
     upsert_node_image,
 };
@@ -15,7 +15,7 @@ async fn test_get_node_image_by_id() -> Result<()> {
 
     // Create a test config
     let test_config = create_test_config(NodeModel::AristaCeos);
-    let created = upsert_node_image(&db, test_config).await?;
+    let created = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
 
     let created_id = created
         .id
@@ -38,7 +38,7 @@ async fn test_get_node_config_by_model_kind() -> Result<()> {
 
     // Create a test config
     let test_config = create_test_config(NodeModel::CiscoAsav);
-    let _created = upsert_node_image(&db, test_config.clone()).await?;
+    let _created = upsert_node_image(&db, test_config.clone(), DefaultRequest::Keep).await?;
 
     // Get by model and kind
     let retrieved: Option<_> = find_node_image_by_model_kind_version(
@@ -64,7 +64,7 @@ async fn test_count_node_images() -> Result<()> {
 
     // Create a test config
     let test_config = create_test_config(NodeModel::JuniperVrouter);
-    let _created = upsert_node_image(&db, test_config).await?;
+    let _created = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
 
     let new_count = count_node_images(&db).await?;
     assert_eq!(
@@ -104,7 +104,7 @@ async fn test_list_configs_returns_all_fields() -> Result<()> {
 
     // Create a config
     let test_config = create_test_config(NodeModel::UbuntuLinux);
-    let _created = upsert_node_image(&db, test_config).await?;
+    let _created = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
 
     // List and verify all fields are populated
     let configs = list_node_images(&db).await?;
@@ -126,11 +126,14 @@ async fn test_list_configs_returns_all_fields() -> Result<()> {
 #[tokio::test]
 async fn image_versions_are_in_order_and_one_is_the_default() -> Result<()> {
     let db = setup_db().await?;
-    for (version, default) in [("2", false), ("1", true), ("3", false)] {
+    for (version, request) in [
+        ("2", DefaultRequest::Keep),
+        ("1", DefaultRequest::Make),
+        ("3", DefaultRequest::Keep),
+    ] {
         let mut image = create_test_config(NodeModel::UbuntuLinux);
         image.version = version.to_owned();
-        image.default = default;
-        upsert_node_image(&db, image).await?;
+        upsert_node_image(&db, image, request).await?;
     }
     let kind = create_test_config(NodeModel::UbuntuLinux).kind;
 
@@ -146,8 +149,7 @@ async fn image_versions_are_in_order_and_one_is_the_default() -> Result<()> {
     // A new default replaces the old one.
     let mut three = create_test_config(NodeModel::UbuntuLinux);
     three.version = "3".to_owned();
-    three.default = true;
-    upsert_node_image(&db, three).await?;
+    upsert_node_image(&db, three, DefaultRequest::Make).await?;
     let versions = get_node_image_versions(&db, &NodeModel::UbuntuLinux, &kind).await?;
     let defaults: Vec<&str> = versions
         .iter()

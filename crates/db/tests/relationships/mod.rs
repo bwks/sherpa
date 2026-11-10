@@ -1,9 +1,10 @@
 use anyhow::Result;
 
 use db::{
-    Database, LabDetails, count_nodes_by_lab, create_bridge, create_lab, create_link, create_node,
-    create_user, delete_lab, delete_node_image, delete_user, find_node_image_by_model_kind_version,
-    get_lab, get_user, list_bridges, list_links_by_lab, list_nodes_by_lab, upsert_node_image,
+    Database, DefaultRequest, LabDetails, count_nodes_by_lab, create_bridge, create_lab,
+    create_link, create_node, create_user, delete_lab, delete_node_image, delete_user,
+    find_node_image_by_model_kind_version, get_lab, get_user, list_bridges, list_links_by_lab,
+    list_nodes_by_lab, upsert_node_image,
 };
 use shared::data::{
     BridgeKind, BridgeMember, DbLab, DbLink, DbNode, LinkImpairment, NodeConfig, NodeModel,
@@ -29,7 +30,12 @@ async fn test_delete_lab_cascade_removes_nodes_links_bridges() -> Result<()> {
         vec![],
     )
     .await?;
-    upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     let lab = create_lab(
         &db,
@@ -132,7 +138,12 @@ async fn test_bridge_members_are_removed_with_their_lab() -> Result<()> {
         vec![],
     )
     .await?;
-    upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     let lab = create_lab(
         &db,
@@ -204,7 +215,12 @@ async fn test_delete_user_is_rejected_while_they_own_labs() -> Result<()> {
     )
     .await?;
     let user_id = user.id.clone().expect("user has id");
-    upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     let lab = create_lab(
         &db,
@@ -250,7 +266,12 @@ async fn test_list_nodes_by_lab_isolation() -> Result<()> {
     let db = setup_db().await?;
 
     let user = create_user(&db, "iso_user".to_string(), "TestPass123!", false, vec![]).await?;
-    upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     let lab_a = create_lab(
         &db,
@@ -312,7 +333,12 @@ async fn test_list_links_by_lab_isolation() -> Result<()> {
         vec![],
     )
     .await?;
-    upsert_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     let lab_a = create_lab(
         &db,
@@ -440,7 +466,12 @@ async fn test_list_labs_by_user_isolation() -> Result<()> {
 /// A user, the Ubuntu image and a lab, for the tests below.
 async fn lab_fixture(db: &Database, lab_id: &str, octet: u8) -> Result<DbLab> {
     let user = create_user(db, format!("owner{octet}"), "TestPass123!", false, vec![]).await?;
-    upsert_node_image(db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    upsert_node_image(
+        db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
     create_lab(
         db,
         &format!("Lab {lab_id}"),

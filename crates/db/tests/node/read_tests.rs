@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{
-    LabDetails, count_nodes_by_lab, create_lab, create_node, create_user, get_node,
+    DefaultRequest, LabDetails, count_nodes_by_lab, create_lab, create_node, create_user, get_node,
     get_node_by_name_and_lab, list_nodes_by_lab, upsert_node_image,
 };
 use shared::data::{NodeConfig, NodeModel, RecordId};
@@ -43,7 +43,12 @@ async fn test_get_node_by_name_and_lab_success() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::CiscoIosv),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     let created = create_node(
         &db,
@@ -155,7 +160,12 @@ async fn test_list_nodes_by_lab_filters_correctly() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::CiscoIosv),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     // Create nodes in lab1
     create_node(
@@ -254,7 +264,12 @@ async fn test_count_nodes_by_lab_accurate() -> Result<()> {
         &LabDetails::default(),
     )
     .await?;
-    let config = upsert_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = upsert_node_image(
+        &db,
+        NodeConfig::get_model(NodeModel::CiscoIosv),
+        DefaultRequest::Keep,
+    )
+    .await?;
 
     // Create nodes in lab1
     for i in 1_u16..=3 {

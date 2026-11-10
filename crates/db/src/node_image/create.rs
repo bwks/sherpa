@@ -4,24 +4,32 @@ use tracing::instrument;
 use turso::Connection;
 
 use crate::Database;
+use crate::node_image::default::{DefaultRequest, claim_default};
 use crate::persistence::{
     NODE_IMAGE_TABLE, enum_text, key_of, new_key, node_image_from_row, node_image_values,
 };
 use crate::queries;
 use crate::sql::query_optional;
 
-/// Upsert a `node_image` record (create if not exists, update if exists)
+/// Record `config` as an image, or keep the record its `(model, kind, version)` already has.
 ///
-/// The record is matched on its unique `(model, kind, version)`. If config.default is true,
-/// it also unsets default on the other versions of the same (model, kind) combination.
-/// It runs in one transaction under the write lock, so it is atomic.
-/// New records get a generated ID; an existing record keeps its ID.
+/// A new version is inserted with `config`'s settings. An existing version keeps its settings and
+/// its ID, so an import of a version again does not undo an admin's edits. Either way the
+/// `default` flag is decided by `request` (see [`DefaultRequest`]); `config.default` is ignored.
+/// It runs in one transaction under the write lock, so the model is never left with no default
+/// or two.
 ///
 /// # Errors
 ///
-/// Fails when the image cannot be written, as when one of its values is not one this build allows.
+/// Fails when the image cannot be written, as when one of its values is not one this build allows,
+/// and with [`LastDefaultImage`](crate::LastDefaultImage) when `request` is
+/// [`DefaultRequest::Unset`] on the model's only default.
 #[instrument(skip(db), level = "debug")]
-pub async fn upsert_node_image(db: &Database, config: NodeConfig) -> Result<NodeConfig> {
+pub async fn upsert_node_image(
+    db: &Database,
+    mut config: NodeConfig,
+    request: DefaultRequest,
+) -> Result<NodeConfig> {
     let mut writer = db.writer().await?;
     let tx = writer
         .conn
@@ -31,21 +39,6 @@ pub async fn upsert_node_image(db: &Database, config: NodeConfig) -> Result<Node
 
     let model = enum_text(&config.model, "model")?;
     let kind = enum_text(&config.kind, "kind")?;
-
-    // If setting default=true, first unset default on other versions of same (model, kind)
-    if config.default {
-        tx.execute(
-            queries::node_image::CLEAR_DEFAULT_EXCEPT_VERSION,
-            (model.as_str(), kind.as_str(), config.version.as_str()),
-        )
-        .await
-        .context(format!(
-            "Failed to unset default flag on other versions: model={}, kind={}",
-            config.model, config.kind
-        ))?;
-    }
-
-    // Try to find existing config by (model, kind, version) using the unique constraint
     let existing = query_optional(
         &tx,
         queries::node_image::FIND_BY_MODEL_KIND_VERSION,
@@ -57,25 +50,34 @@ pub async fn upsert_node_image(db: &Database, config: NodeConfig) -> Result<Node
         "Failed to query existing node_image: model={}, kind={}, version={}",
         config.model, config.kind, config.version
     ))?;
+    let is_default =
+        claim_default(&tx, config.model, &config.kind, &config.version, request).await?;
 
     let result = match existing {
-        Some(existing_config) => {
-            // Update existing record, preserving its ID
-            let record_id = existing_config
+        Some(existing) if existing.default == is_default => existing,
+        Some(mut existing) => {
+            existing.default = is_default;
+            let record_id = existing
                 .id
+                .clone()
                 .context("Existing node_image record is missing its ID")?;
             let key = key_of(&record_id, NODE_IMAGE_TABLE)?;
-            let updated = replace_node_image(&tx, &config, &key).await?;
-            updated.ok_or_else(|| {
-                anyhow!(
-                    "Database returned no record after updating node_image: model={}, kind={}, version={}",
-                    config.model,
-                    config.kind,
-                    config.version
-                )
-            })?
+            replace_node_image(&tx, &existing, &key)
+                .await?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Database returned no record after updating node_image: model={}, kind={}, version={}",
+                        existing.model,
+                        existing.kind,
+                        existing.version
+                    )
+                })?
         }
-        None => insert_node_image(&tx, &config).await?,
+        None => {
+            config.default = is_default;
+            config.id = None;
+            insert_node_image(&tx, &config).await?
+        }
     };
 
     tx.commit()
