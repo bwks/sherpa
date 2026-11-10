@@ -171,23 +171,24 @@ jobs:
         run: |
           BRANCH="changelog/${{ inputs.version }}"
 
-          # Merge directly if clean, otherwise enable auto-merge and wait
-          if ! gh pr merge "$BRANCH" --merge; then
-            gh pr merge "$BRANCH" --merge --auto
-
-            for i in $(seq 1 120); do
-              STATE=$(gh pr view "$BRANCH" --json state --jq '.state')
-              if [ "$STATE" = "MERGED" ]; then
-                echo "PR merged successfully."
-                break
-              fi
-              if [ "$i" -eq 120 ]; then
-                echo "Timed out waiting for PR to merge."
-                exit 1
-              fi
-              sleep 10
-            done
-          fi
+          # Retry the merge until it lands. Right after the PR is opened its required checks have
+          # not reported, so the merge is refused; auto-merge cannot cover that window, because
+          # GitHub refuses to enable it once the checks have reported and the PR is clean.
+          for i in $(seq 1 120); do
+            if gh pr merge "$BRANCH" --merge; then
+              echo "PR merged successfully."
+              break
+            fi
+            if [ "$(gh pr view "$BRANCH" --json state --jq '.state')" = "MERGED" ]; then
+              echo "PR merged successfully."
+              break
+            fi
+            if [ "$i" -eq 120 ]; then
+              echo "Timed out waiting for PR to merge."
+              exit 1
+            fi
+            sleep 10
+          done
 
       - name: Create and push tag
         env:
