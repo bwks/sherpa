@@ -18,7 +18,10 @@ use crate::services::error::ServiceError;
 /// - changing your own password, as an admin too, needs the current password, so a stolen
 ///   token or an unlocked session cannot lock the owner out;
 /// - an admin resetting another user's password does not need that user's password;
-/// - the new password must meet the strength rules.
+/// - the new password must meet the strength rules;
+/// - the change ends the user's sessions: all of them but the caller's own when users change
+///   their own password, and all of them when an admin resets someone else's. The hash and the
+///   sessions are written in one transaction.
 #[instrument(skip(ctx, current_password, new_password, db), fields(caller = %ctx.username, %username))]
 pub async fn change_password(
     ctx: &AuthContext,
@@ -30,7 +33,7 @@ pub async fn change_password(
     let username = normalize_username(username);
     require_self_or_admin(ctx, &username)?;
 
-    let mut user = db::find_user(db, &username)
+    let user = db::find_user(db, &username)
         .await
         .context("Failed to look up user")?
         .ok_or_else(|| ServiceError::NotFound(format!("User not found: {username}")))?;
@@ -58,16 +61,20 @@ pub async fn change_password(
             "The new password does not meet the requirements: {error}"
         ))
     })?;
-    user.password_hash =
+    let password_hash =
         password::hash_password(new_password).context("Failed to hash the new password")?;
-    db::update_user(db, user)
-        .await
-        .context("Failed to save the new password")?;
+    // Users keep the session they changed it from; an admin's reset ends all of the target's.
+    let keep = (ctx.username == user.username).then_some(ctx.session_id.as_str());
+    let sessions_ended =
+        db::change_user_password(db, db::get_user_id(&user)?, &password_hash, keep)
+            .await
+            .context("Failed to save the new password")?;
 
     tracing::info!(
         event = "user.password_changed",
         caller = %ctx.username,
         target = %username,
+        sessions_ended,
         "Password changed"
     );
     Ok(ChangePasswordResponse {
@@ -79,6 +86,10 @@ pub async fn change_password(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use shared::data::SessionChannel;
+
+    use crate::auth::session::{self, SessionLookup};
 
     const OLD_PASSWORD: &str = "Original-Pass-123!";
     const NEW_PASSWORD: &str = "Changed-Pass-456!";
@@ -95,7 +106,7 @@ mod tests {
     }
 
     fn caller(username: &str, is_admin: bool) -> AuthContext {
-        AuthContext::new(username.to_owned(), is_admin)
+        AuthContext::for_test(username, is_admin)
     }
 
     async fn password_is(db: &Database, username: &str, candidate: &str) -> bool {
@@ -149,6 +160,77 @@ mod tests {
             .await
             .expect_err("own password without the current one");
         assert!(password_is(&db, "dana", OLD_PASSWORD).await);
+    }
+
+    /// Start a session for `username`, returning its id.
+    async fn session_of(db: &Database, username: &str) -> String {
+        let user = db::get_user(db, username).await.expect("user");
+        session::start(
+            db,
+            b"test_secret_32_bytes_long_enough",
+            &user,
+            SessionChannel::Cli,
+            3600,
+        )
+        .await
+        .expect("start session")
+        .ctx
+        .session_id
+    }
+
+    async fn is_active(db: &Database, session_id: &str) -> bool {
+        matches!(
+            session::lookup(db, session_id).await.expect("lookup"),
+            SessionLookup::Active(_)
+        )
+    }
+
+    #[tokio::test]
+    async fn changing_your_own_password_ends_your_other_sessions_only() {
+        let db = database_with_users(&[("alice", false)]).await;
+        let current = session_of(&db, "alice").await;
+        let other = session_of(&db, "alice").await;
+        let alice = AuthContext::new("alice".to_owned(), false, current.clone());
+
+        change_password(&alice, "alice", Some(OLD_PASSWORD), NEW_PASSWORD, &db)
+            .await
+            .expect("changed");
+
+        assert!(is_active(&db, &current).await, "the caller's session ended");
+        assert!(!is_active(&db, &other).await, "another session survived");
+    }
+
+    #[tokio::test]
+    async fn an_admin_reset_ends_every_session_of_the_user_and_none_of_the_admins() {
+        let db = database_with_users(&[("alice", false), ("dana", true)]).await;
+        let alice_session = session_of(&db, "alice").await;
+        let dana_session = session_of(&db, "dana").await;
+        let dana = AuthContext::new("dana".to_owned(), true, dana_session.clone());
+
+        change_password(&dana, "alice", None, NEW_PASSWORD, &db)
+            .await
+            .expect("reset");
+
+        assert!(!is_active(&db, &alice_session).await);
+        assert!(is_active(&db, &dana_session).await);
+    }
+
+    #[tokio::test]
+    async fn a_refused_change_ends_no_session() {
+        let db = database_with_users(&[("alice", false)]).await;
+        let other = session_of(&db, "alice").await;
+
+        change_password(
+            &caller("alice", false),
+            "alice",
+            Some("Wrong-Pass-789!"),
+            NEW_PASSWORD,
+            &db,
+        )
+        .await
+        .expect_err("wrong current password");
+
+        assert!(is_active(&db, &other).await);
     }
 
     #[tokio::test]

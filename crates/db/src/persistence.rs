@@ -11,8 +11,8 @@ use serde::de::DeserializeOwned;
 use turso::{Row, Value};
 
 use shared::data::{
-    BridgeMember, DbBridge, DbLab, DbLink, DbNode, DbUser, LinkImpairment, NodeConfig, RecordId,
-    ZtpSettings,
+    BridgeMember, DbBridge, DbLab, DbLink, DbNode, DbSession, DbSessionUser, DbUser,
+    LinkImpairment, NodeConfig, RecordId, ZtpSettings,
 };
 use shared::konst::{SHERPA_DB_KEY_CHARSET, SHERPA_DB_KEY_LENGTH};
 
@@ -141,6 +141,13 @@ impl<'a> Cells<'a> {
             .with_context(|| format!("Failed to decode database timestamp field {field}"))
     }
 
+    /// A timestamp stored as whole Unix seconds.
+    pub(crate) fn unix_seconds(&mut self, field: &str) -> Result<Timestamp> {
+        let seconds: i64 = self.integer(field)?;
+        Timestamp::from_second(seconds)
+            .with_context(|| format!("Database field {field} is not a valid time: {seconds}"))
+    }
+
     /// A record id stored as its key in a column that refers to `table`.
     pub(crate) fn record(&mut self, table: &str, field: &str) -> Result<RecordId> {
         Ok(RecordId::new(table, self.text(field)?))
@@ -193,6 +200,41 @@ pub(crate) fn user_from_row(row: &Row) -> Result<DbUser> {
         created_at: cells.timestamp("created_at")?,
         updated_at: cells.timestamp("updated_at")?,
     })
+}
+
+pub(crate) fn session_from_row(row: &Row) -> Result<DbSession> {
+    session_from_cells(&mut Cells::new(row))
+}
+
+fn session_from_cells(cells: &mut Cells) -> Result<DbSession> {
+    Ok(DbSession {
+        id: cells.text("id")?,
+        user: cells.record(USER_TABLE, "user")?,
+        channel: cells.enumeration("channel")?,
+        created_at: cells.timestamp("created_at")?,
+        expires_at: cells.unix_seconds("expires_at")?,
+    })
+}
+
+/// A session row followed by its user's `username` and `is_admin`.
+pub(crate) fn session_user_from_row(row: &Row) -> Result<DbSessionUser> {
+    let mut cells = Cells::new(row);
+    Ok(DbSessionUser {
+        session: session_from_cells(&mut cells)?,
+        username: cells.text("username")?,
+        is_admin: cells.boolean("is_admin")?,
+    })
+}
+
+/// A session's column values in the `session` table's column order.
+pub(crate) fn session_values(session: &DbSession) -> Result<Vec<Value>> {
+    Ok(vec![
+        session.id.as_str().into(),
+        key_of(&session.user, USER_TABLE)?.into(),
+        enum_text(&session.channel, "channel")?.into(),
+        session.created_at.to_string().into(),
+        session.expires_at.as_second().into(),
+    ])
 }
 
 /// A user's column values in the `user` table's column order, under `key`.

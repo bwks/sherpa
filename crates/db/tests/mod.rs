@@ -24,6 +24,9 @@ mod node;
 /// Link CRUD operations
 mod link;
 
+/// Session CRUD operations
+mod session;
+
 /// Schema and seeding
 mod schema;
 

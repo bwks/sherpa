@@ -34,6 +34,14 @@ pub struct ValidateRequest {
     pub token: String,
 }
 
+/// Response from logout
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct LogoutResponse {
+    /// Whether the session was still active and has now ended. `false` means it had already
+    /// ended, which is not an error.
+    pub ended: bool,
+}
+
 /// Response from token validation
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ValidateResponse {

@@ -5,7 +5,7 @@ use axum::response::{IntoResponse, Redirect, Response};
 use jsonwebtoken::errors::{Error as JwtError, ErrorKind};
 use shared::auth::jwt::Claims;
 
-use crate::auth::middleware::resolve_user;
+use crate::auth::session::{self, SessionLookup};
 use crate::auth::{context::AuthContext, cookies, jwt};
 use crate::daemon::state::AppState;
 use crate::templates::Admin403Template;
@@ -238,13 +238,13 @@ pub(super) fn trace_rejected_session(path: &str, error: &CookieSessionError, act
 fn extract_and_validate_token(
     headers: &axum::http::HeaderMap,
     jwt_secret: &[u8],
-) -> Result<(String, bool), &'static str> {
+) -> Result<Claims, &'static str> {
     // Try Authorization header first
     if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok())
         && let Some(token) = auth_header.strip_prefix("Bearer ")
         && let Ok(claims) = jwt::validate_token(jwt_secret, token)
     {
-        return Ok((claims.sub, claims.is_admin));
+        return Ok(claims);
     }
 
     // Fall back to cookie
@@ -252,7 +252,7 @@ fn extract_and_validate_token(
         headers.get(header::COOKIE).and_then(|h| h.to_str().ok()),
         jwt_secret,
     ) {
-        return Ok((session.claims.sub, session.claims.is_admin));
+        return Ok(session.claims);
     }
 
     Err("Missing or invalid authentication")
@@ -267,12 +267,14 @@ fn extract_and_validate_token(
 pub struct AuthenticatedUser {
     pub username: String,
     pub is_admin: bool,
+    /// The session the token belongs to.
+    pub session_id: String,
 }
 
 impl AuthenticatedUser {
     /// Convert to `AuthContext` for service layer
     pub fn into_context(self) -> AuthContext {
-        AuthContext::new(self.username, self.is_admin)
+        AuthContext::new(self.username, self.is_admin, self.session_id)
     }
 }
 
@@ -283,18 +285,21 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let (username, _) = extract_and_validate_token(&parts.headers, &state.jwt_secret)
+        let claims = extract_and_validate_token(&parts.headers, &state.jwt_secret)
             .map_err(ApiError::unauthorized)?;
-        match resolve_user(&state.db, &username).await {
-            Ok(Some(ctx)) => Ok(AuthenticatedUser {
+        let username = claims.sub;
+        match session::lookup(&state.db, &claims.sid).await {
+            Ok(SessionLookup::Active(ctx)) => Ok(AuthenticatedUser {
                 username: ctx.username,
                 is_admin: ctx.is_admin,
+                session_id: ctx.session_id,
             }),
-            Ok(None) => {
+            Ok(SessionLookup::Rejected(rejection)) => {
                 tracing::warn!(
-                    event = "auth.user_missing",
+                    event = "auth.session_unusable",
                     %username,
-                    "Rejected a valid token for a user that no longer exists"
+                    %rejection,
+                    "Rejected a signed token whose session cannot be used"
                 );
                 Err(ApiError::unauthorized("Missing or invalid authentication"))
             }
@@ -316,17 +321,23 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
 pub struct AuthenticatedUserFromCookie {
     pub username: String,
     pub is_admin: bool,
+    /// The session the cookie's token belongs to.
+    pub session_id: String,
 }
 
 impl AuthenticatedUserFromCookie {
     /// Convert to `AuthContext` for service layer
     pub fn into_context(self) -> AuthContext {
-        AuthContext::new(self.username, self.is_admin)
+        AuthContext::new(self.username, self.is_admin, self.session_id)
     }
 
     /// `AuthContext` for the service layer, keeping the user for page rendering
     pub fn context(&self) -> AuthContext {
-        AuthContext::new(self.username.clone(), self.is_admin)
+        AuthContext::new(
+            self.username.clone(),
+            self.is_admin,
+            self.session_id.clone(),
+        )
     }
 }
 
@@ -371,14 +382,15 @@ async fn resolve_cookie_user(
     session: &ValidatedCookieSession,
     state: &AppState,
 ) -> Result<AuthContext, AuthRedirect> {
-    match resolve_user(&state.db, &session.claims.sub).await {
-        Ok(Some(ctx)) => Ok(ctx),
-        Ok(None) => {
+    match session::lookup(&state.db, &session.claims.sid).await {
+        Ok(SessionLookup::Active(ctx)) => Ok(ctx),
+        Ok(SessionLookup::Rejected(rejection)) => {
             tracing::warn!(
-                event = "auth.user_missing",
+                event = "auth.session_unusable",
                 path,
                 username = %session.claims.sub,
-                "Clearing a valid session for a user that no longer exists"
+                %rejection,
+                "Clearing a signed session cookie whose session cannot be used"
             );
             Err(AuthRedirect::InvalidSession)
         }
@@ -419,6 +431,7 @@ impl FromRequestParts<AppState> for AuthenticatedUserFromCookie {
         Ok(AuthenticatedUserFromCookie {
             username: ctx.username,
             is_admin: ctx.is_admin,
+            session_id: ctx.session_id,
         })
     }
 }
@@ -432,12 +445,14 @@ impl FromRequestParts<AppState> for AuthenticatedUserFromCookie {
 #[derive(Debug, Clone)]
 pub struct AdminUser {
     pub username: String,
+    /// The session the cookie's token belongs to.
+    pub session_id: String,
 }
 
 impl AdminUser {
     /// Convert to `AuthContext` for service layer
     pub fn into_context(self) -> AuthContext {
-        AuthContext::new(self.username, true)
+        AuthContext::new(self.username, true, self.session_id)
     }
 }
 
@@ -495,6 +510,7 @@ impl FromRequestParts<AppState> for AdminUser {
 
         Ok(AdminUser {
             username: ctx.username,
+            session_id: ctx.session_id,
         })
     }
 }
@@ -528,14 +544,22 @@ mod tests {
     }
 
     fn make_token(username: &str, is_admin: bool) -> String {
-        jwt::create_token(TEST_SECRET, username, is_admin, 3600)
-            .expect("Failed to create test token")
+        let now = jiff::Timestamp::now().as_second();
+        let claims = Claims::new(
+            username.to_owned(),
+            format!("{username}-session"),
+            is_admin,
+            now,
+            now + 3600,
+        );
+        jwt::create_token(TEST_SECRET, &claims).expect("Failed to create test token")
     }
 
     fn make_expired_token() -> String {
         let now = jiff::Timestamp::now().as_second();
         let claims = Claims {
             sub: "expired_user".to_string(),
+            sid: "expired-session".to_string(),
             exp: now - 100,
             iat: now - 200,
             is_admin: false,
@@ -560,7 +584,11 @@ mod tests {
 
         let result = extract_and_validate_token(&headers, TEST_SECRET);
         assert!(result.is_ok());
-        let (username, is_admin) = result.unwrap();
+        let Claims {
+            sub: username,
+            is_admin,
+            ..
+        } = result.unwrap();
         assert_eq!(username, "alice");
         assert!(!is_admin);
     }
@@ -573,7 +601,11 @@ mod tests {
 
         let result = extract_and_validate_token(&headers, TEST_SECRET);
         assert!(result.is_ok());
-        let (username, is_admin) = result.unwrap();
+        let Claims {
+            sub: username,
+            is_admin,
+            ..
+        } = result.unwrap();
         assert_eq!(username, "admin");
         assert!(is_admin);
     }
@@ -633,7 +665,7 @@ mod tests {
 
         let result = extract_and_validate_token(&headers, TEST_SECRET);
         assert!(result.is_ok());
-        let (username, _) = result.unwrap();
+        let Claims { sub: username, .. } = result.unwrap();
         assert_eq!(username, "bob");
     }
 
@@ -650,7 +682,11 @@ mod tests {
 
         let result = extract_and_validate_token(&headers, TEST_SECRET);
         assert!(result.is_ok());
-        let (username, is_admin) = result.unwrap();
+        let Claims {
+            sub: username,
+            is_admin,
+            ..
+        } = result.unwrap();
         assert_eq!(username, "charlie");
         assert!(is_admin);
     }
@@ -778,7 +814,11 @@ mod tests {
 
         let result = extract_and_validate_token(&headers, TEST_SECRET);
         assert!(result.is_ok());
-        let (username, is_admin) = result.unwrap();
+        let Claims {
+            sub: username,
+            is_admin,
+            ..
+        } = result.unwrap();
         assert_eq!(username, "bearer_user");
         assert!(is_admin);
     }
@@ -795,7 +835,7 @@ mod tests {
 
         let result = extract_and_validate_token(&headers, TEST_SECRET);
         assert!(result.is_ok());
-        let (username, _) = result.unwrap();
+        let Claims { sub: username, .. } = result.unwrap();
         assert_eq!(username, "cookie_user");
     }
 

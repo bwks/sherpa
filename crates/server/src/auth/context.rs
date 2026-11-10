@@ -1,18 +1,28 @@
 use serde::{Deserialize, Serialize};
 
-/// Authentication context extracted from a validated JWT token
+/// The caller of a request: the user and the login session it came through.
+///
+/// It is built from the session row (`auth::session::lookup`), so `username` and `is_admin` are
+/// the user's current values, not those at login.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthContext {
     /// Username of the authenticated user
     pub username: String,
     /// Whether the user is an admin
     pub is_admin: bool,
+    /// The session the request came through: the one logout ends, and the one a user's own
+    /// password change keeps.
+    pub session_id: String,
 }
 
 impl AuthContext {
     /// Create a new `AuthContext`
-    pub fn new(username: String, is_admin: bool) -> Self {
-        Self { username, is_admin }
+    pub fn new(username: String, is_admin: bool, session_id: String) -> Self {
+        Self {
+            username,
+            is_admin,
+            session_id,
+        }
     }
 
     /// Check if the user can access a resource owned by the specified username
@@ -35,10 +45,17 @@ impl AuthContext {
 mod tests {
     use super::*;
 
+    impl AuthContext {
+        /// A caller with a placeholder session, for policy tests that do not look at it.
+        pub(crate) fn for_test(username: &str, is_admin: bool) -> Self {
+            Self::new(username.to_owned(), is_admin, "test-session".to_owned())
+        }
+    }
+
     #[test]
     fn only_the_current_owner_can_redeploy_regardless_of_admin_role() {
         for is_admin in [false, true] {
-            let ctx = AuthContext::new("alice".to_owned(), is_admin);
+            let ctx = AuthContext::for_test("alice", is_admin);
             assert!(ctx.can_redeploy("alice"));
             assert!(!ctx.can_redeploy("bob"));
         }
@@ -46,14 +63,14 @@ mod tests {
 
     #[test]
     fn test_regular_user_can_access_own_resources() {
-        let ctx = AuthContext::new("alice".to_string(), false);
+        let ctx = AuthContext::for_test("alice", false);
         assert!(ctx.can_access("alice"));
         assert!(!ctx.can_access("bob"));
     }
 
     #[test]
     fn test_admin_can_access_all_resources() {
-        let ctx = AuthContext::new("admin".to_string(), true);
+        let ctx = AuthContext::for_test("admin", true);
         assert!(ctx.can_access("alice"));
         assert!(ctx.can_access("bob"));
         assert!(ctx.can_access("admin"));
@@ -61,7 +78,7 @@ mod tests {
 
     #[test]
     fn test_user_cannot_access_others_resources() {
-        let ctx = AuthContext::new("alice".to_string(), false);
+        let ctx = AuthContext::for_test("alice", false);
         assert!(!ctx.can_access("bob"));
         assert!(!ctx.can_access("charlie"));
     }

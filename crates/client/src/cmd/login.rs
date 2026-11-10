@@ -1,15 +1,28 @@
 //! Login command - authenticate user and save JWT token.
 
 use anyhow::{Context, Result, bail};
-use shared::data::{ClientConfig, LoginRequest, LoginResponse, ValidateResponse};
+use shared::data::{ClientConfig, LoginRequest, LoginResponse, LogoutResponse, ValidateResponse};
+use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_USER_NAME_ENV, SHERPA_USER_PASSWORD_ENV};
-use shared::util::emoji_success;
+use shared::util::{Emoji, emoji_success};
 use std::env;
 use std::io::{self, Write};
 use std::time::Duration;
 
 use crate::token;
+use crate::ws_client::messages::RpcResponse;
 use crate::ws_client::{WebSocketClient, messages::RpcRequest};
+
+/// What the server said when asked to end the session.
+#[derive(Debug)]
+enum ServerLogout {
+    /// The session was active and has ended.
+    Ended,
+    /// The session had already ended or expired.
+    AlreadyEnded,
+    /// The server could not be asked, or failed; the session may still be active.
+    Failed(anyhow::Error),
+}
 
 /// Execute the login command
 ///
@@ -87,16 +100,81 @@ pub async fn login(server_url: &str, config: &ClientConfig) -> Result<()> {
 
 /// Execute the logout command
 ///
-/// Removes the saved JWT token from ~/.sherpa/token
-pub fn logout() -> Result<()> {
+/// Ends the session on the server, so the token stops working everywhere, then removes the
+/// saved token from ~/.sherpa/token. The local token is removed even when the server cannot be
+/// reached; the command then warns that the session is still active on the server.
+///
+/// `server` is the server URL and client configuration, or why they could not be loaded.
+#[tracing::instrument(skip_all)]
+pub async fn logout(server: Result<(String, ClientConfig)>) -> Result<()> {
     if !token::token_exists() {
         println!("No active session found");
         return Ok(());
     }
+    let token = token::load_token().context("Failed to read authentication token")?;
+    let outcome = match server {
+        Ok((server_url, config)) => end_server_session(&server_url, &config, &token).await,
+        Err(error) => ServerLogout::Failed(error),
+    };
 
     token::delete_token().context("Failed to delete authentication token")?;
-    println!("{}", emoji_success("Logged out successfully"));
+    match outcome {
+        ServerLogout::Failed(error) => {
+            tracing::warn!(error = format!("{error:#}"), "Server logout failed");
+            eprintln!("{}", logout_message(&ServerLogout::Failed(error)));
+        }
+        outcome => println!("{}", logout_message(&outcome)),
+    }
     Ok(())
+}
+
+/// Ask the server to end the session of `token`.
+async fn end_server_session(server_url: &str, config: &ClientConfig, token: &str) -> ServerLogout {
+    let ws_client = WebSocketClient::new(
+        server_url.to_string(),
+        Duration::from_secs(10),
+        config.server_connection.clone(),
+    );
+    let mut rpc_client = match ws_client.connect().await {
+        Ok(client) => client,
+        Err(error) => return ServerLogout::Failed(error.context("Failed to connect to server")),
+    };
+    let request = RpcRequest::new("auth.logout", serde_json::json!({ "token": token }));
+    let outcome = match rpc_client.call(request).await {
+        Ok(response) => server_logout_outcome(response),
+        Err(error) => ServerLogout::Failed(error.context("Logout request failed")),
+    };
+    rpc_client.close().await.ok();
+    outcome
+}
+
+/// What a response to `auth.logout` means. A token the server refuses already has no session.
+fn server_logout_outcome(response: RpcResponse) -> ServerLogout {
+    if let Some(error) = &response.error
+        && error.code == RpcErrorCode::AuthRequired
+    {
+        return ServerLogout::AlreadyEnded;
+    }
+    match response.into_result::<LogoutResponse>("Logout failed") {
+        Ok(LogoutResponse { ended: true }) => ServerLogout::Ended,
+        Ok(LogoutResponse { ended: false }) => ServerLogout::AlreadyEnded,
+        Err(error) => ServerLogout::Failed(error),
+    }
+}
+
+/// What `sherpa logout` prints for `outcome`, once the local token is removed.
+fn logout_message(outcome: &ServerLogout) -> String {
+    match outcome {
+        ServerLogout::Ended => emoji_success("Logged out; the session has ended on the server"),
+        ServerLogout::AlreadyEnded => {
+            emoji_success("Logged out; the session had already ended on the server")
+        }
+        ServerLogout::Failed(error) => format!(
+            "{} Removed the local token, but could not end the session on the server: {error:#}\n   \
+             The token stays valid until it expires or your password is changed",
+            Emoji::Warning
+        ),
+    }
 }
 
 /// Execute the whoami command
@@ -169,4 +247,52 @@ fn prompt_username() -> Result<String> {
         .read_line(&mut username)
         .context("Failed to read username")?;
     Ok(username.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::ws_client::messages::RpcError;
+
+    fn response(result: Option<serde_json::Value>, code: Option<RpcErrorCode>) -> RpcResponse {
+        RpcResponse {
+            id: "1".to_owned(),
+            result,
+            error: code.map(|code| RpcError {
+                code,
+                message: "refused".to_owned(),
+                context: None,
+            }),
+        }
+    }
+
+    #[test]
+    fn an_ended_session_is_reported_as_ended() {
+        let outcome =
+            server_logout_outcome(response(Some(serde_json::json!({"ended": true})), None));
+        assert!(matches!(outcome, ServerLogout::Ended), "{outcome:?}");
+    }
+
+    #[test]
+    fn a_session_that_was_already_gone_is_not_a_failure() {
+        let outcome =
+            server_logout_outcome(response(Some(serde_json::json!({"ended": false})), None));
+        assert!(matches!(outcome, ServerLogout::AlreadyEnded), "{outcome:?}");
+        // A token the server refuses has no session left to end.
+        let outcome = server_logout_outcome(response(None, Some(RpcErrorCode::AuthRequired)));
+        assert!(matches!(outcome, ServerLogout::AlreadyEnded), "{outcome:?}");
+    }
+
+    #[test]
+    fn a_server_error_is_a_failure_and_says_the_session_may_still_work() {
+        let outcome = server_logout_outcome(response(None, Some(RpcErrorCode::InternalError)));
+        assert!(matches!(outcome, ServerLogout::Failed(_)), "{outcome:?}");
+        let message = logout_message(&outcome);
+        assert!(
+            message.contains("could not end the session on the server"),
+            "{message}"
+        );
+        assert!(message.contains("stays valid"), "{message}");
+    }
 }

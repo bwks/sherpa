@@ -310,7 +310,11 @@ impl Cli {
         let cli = Cli::parse();
         let sherpa = Sherpa::from_base_dir(sherpa_client_base_dir());
         match &cli.commands {
-            Commands::Logout => logout(),
+            Commands::Logout => {
+                let server = load_client_config_for_command(&sherpa.config_file_path, cli.insecure)
+                    .map(|config| (resolve_server_url(cli.server_url.clone(), &config), config));
+                logout(server).await
+            }
             Commands::New { force } => new(*force),
             Commands::Init { force } => init(&sherpa, *force),
             Commands::Validate => validate_manifest(SHERPA_MANIFEST_FILE),

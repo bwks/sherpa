@@ -5,6 +5,8 @@
 
 use std::fmt;
 
+use db::UserChanged;
+
 /// A service refused a request for a reason the caller can act on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServiceError {
@@ -37,12 +39,38 @@ impl ServiceError {
     pub fn find(error: &anyhow::Error) -> Option<&ServiceError> {
         error.downcast_ref::<ServiceError>()
     }
+
+    /// The error of a failed `db::update_user`: a write refused because the user changed since
+    /// it was read becomes a [`ServiceError::Conflict`] that tells the caller to try again.
+    #[must_use]
+    pub fn from_user_write(error: anyhow::Error) -> anyhow::Error {
+        match error.downcast_ref::<UserChanged>() {
+            Some(changed) => Self::Conflict(changed.to_string()).into(),
+            None => error,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use anyhow::anyhow;
+
+    #[test]
+    fn a_stale_user_write_is_a_conflict() {
+        let error = ServiceError::from_user_write(
+            UserChanged {
+                username: "alice".to_owned(),
+            }
+            .into(),
+        );
+        assert!(
+            matches!(ServiceError::find(&error), Some(ServiceError::Conflict(message)) if message.contains("try again")),
+            "{error:#}"
+        );
+        let other = ServiceError::from_user_write(anyhow!("disk full"));
+        assert!(ServiceError::find(&other).is_none());
+    }
 
     #[test]
     fn service_errors_survive_added_context() {

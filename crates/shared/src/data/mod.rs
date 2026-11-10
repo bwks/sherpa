@@ -34,7 +34,7 @@ mod watchdog;
 mod ws;
 mod ztp;
 
-pub use auth::{LoginRequest, LoginResponse, ValidateRequest, ValidateResponse};
+pub use auth::{LoginRequest, LoginResponse, LogoutResponse, ValidateRequest, ValidateResponse};
 pub use backup::BackupResponse;
 pub use cluster::{ClusterCni, ClusterRole};
 
@@ -44,7 +44,10 @@ pub use config::{
 };
 pub use container::{ContainerImage, ContainerNetworkAttachment};
 pub use cpu::{CpuFeature, CpuFeaturePolicy, CpuModels};
-pub use db::{BridgeMember, DbBridge, DbLab, DbLink, DbNode, DbUser, NodeResources};
+pub use db::{
+    BridgeMember, DbBridge, DbLab, DbLink, DbNode, DbSession, DbSessionUser, DbUser, NodeResources,
+    SessionChannel,
+};
 pub use destroy::{DestroyError, DestroyRequest, DestroyResponse, DestroySummary};
 pub use disk::{
     DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskImageCloneMethod, DiskTargets,

@@ -3,7 +3,9 @@ use bollard::Docker;
 use dashmap::DashMap;
 use libvirt::Qemu;
 use shared::data::{Config, UpRequest};
-use shared::konst::{ADMIN_USERNAME, SHERPA_ADMIN_PASSWORD_ENV, SHERPA_DB_FILE_PATH};
+use shared::konst::{
+    ADMIN_USERNAME, JWT_SECRET_PATH, SHERPA_ADMIN_PASSWORD_ENV, SHERPA_DB_FILE_PATH,
+};
 use std::env;
 use std::path::Path;
 use std::sync::Arc;
@@ -12,6 +14,7 @@ use tracing::instrument;
 use crate::api::websocket::connection::ConnectionRegistry;
 use crate::auth::context::AuthContext;
 use crate::auth::jwt;
+use crate::auth::session::{self, SessionLookup};
 use crate::daemon::metrics::Metrics;
 use crate::daemon::storage::secure_storage;
 use crate::validate::{check_host_memory_settings, validate_tailscale_gateway_settings};
@@ -26,8 +29,9 @@ pub enum JobType {
 pub struct Job {
     pub lab_name: String,
     pub job_type: JobType,
-    /// The user who created the job. The job runs as this user, and only they or an admin
-    /// may view or stream it.
+    /// The user who created the job, and the session they created it through. Only they or an
+    /// admin may view or stream it. It runs as the requester's session resolved again when it
+    /// starts ([`Job::resolve_requester`]), not as this snapshot.
     pub requester: AuthContext,
 }
 
@@ -36,6 +40,19 @@ impl Job {
     #[must_use]
     pub fn can_view(&self, ctx: &AuthContext) -> bool {
         ctx.can_access(&self.requester.username)
+    }
+
+    /// The requester as they are now, when the job starts: their session presented again
+    /// (`session::lookup`). A requester who logged out, changed their password elsewhere or was
+    /// deleted since queuing the job is refused, and one whose admin flag changed runs with the
+    /// new value.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the database cannot be read.
+    #[instrument(skip(self, db), fields(requester = %self.requester.username))]
+    pub async fn resolve_requester(&self, db: &db::Database) -> Result<SessionLookup> {
+        session::lookup(db, &self.requester.session_id).await
     }
 }
 
@@ -84,8 +101,8 @@ impl AppState {
         check_host_memory_settings(config.host_memory)
             .context("Invalid server host memory settings")?;
         // Load or generate JWT secret
-        let jwt_secret =
-            jwt::load_or_generate_secret().context("Failed to load or generate JWT secret")?;
+        let jwt_secret = jwt::load_or_generate_secret(Path::new(JWT_SECRET_PATH))
+            .context("Failed to load or generate JWT secret")?;
         tracing::info!("JWT secret loaded successfully");
 
         // Open the embedded database
@@ -176,6 +193,10 @@ pub async fn ensure_admin_account(db: &db::Database, admin_password: Option<&str
 mod tests {
     use super::*;
 
+    use shared::data::SessionChannel;
+
+    use crate::auth::session::SessionRejection;
+
     #[test]
     fn jobs_are_visible_to_their_creator_and_admins_only() {
         let job = Job {
@@ -183,10 +204,84 @@ mod tests {
             job_type: JobType::Destroy {
                 lab_id: "lab1".to_owned(),
             },
-            requester: AuthContext::new("alice".to_owned(), false),
+            requester: AuthContext::for_test("alice", false),
         };
-        assert!(job.can_view(&AuthContext::new("alice".to_owned(), false)));
-        assert!(job.can_view(&AuthContext::new("admin".to_owned(), true)));
-        assert!(!job.can_view(&AuthContext::new("bob".to_owned(), false)));
+        assert!(job.can_view(&AuthContext::for_test("alice", false)));
+        assert!(job.can_view(&AuthContext::for_test("admin", true)));
+        assert!(!job.can_view(&AuthContext::for_test("bob", false)));
+    }
+
+    const SECRET: &[u8] = b"test_secret_32_bytes_long_enough";
+    const PASSWORD: &str = "Original-Pass-123!";
+
+    /// A database holding `carol`, and a destroy job she queued through a new web session.
+    async fn job_queued_by_carol(is_admin: bool) -> (db::Database, db::DbUser, Job) {
+        let db = db::open_in_memory().await.expect("open database");
+        db::apply_schema(&db).await.expect("apply schema");
+        let carol = db::create_user(&db, "carol".to_owned(), PASSWORD, is_admin, vec![])
+            .await
+            .expect("create user");
+        let issued = session::start(&db, SECRET, &carol, SessionChannel::Web, 3600)
+            .await
+            .expect("start session");
+        let job = Job {
+            lab_name: "lab".to_owned(),
+            job_type: JobType::Destroy {
+                lab_id: "lab1".to_owned(),
+            },
+            requester: issued.ctx,
+        };
+        (db, carol, job)
+    }
+
+    #[tokio::test]
+    async fn a_job_runs_as_its_requester_when_the_session_is_active() {
+        let (db, _, job) = job_queued_by_carol(false).await;
+        match job.resolve_requester(&db).await.expect("resolve") {
+            SessionLookup::Active(ctx) => assert_eq!(ctx.username, "carol"),
+            other @ SessionLookup::Rejected(_) => {
+                panic!("expected an active requester, got {other:?}")
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_job_does_not_start_after_its_requester_logged_out() {
+        let (db, _, job) = job_queued_by_carol(false).await;
+        session::logout(&db, &job.requester.session_id)
+            .await
+            .expect("logout");
+        assert!(matches!(
+            job.resolve_requester(&db).await.expect("resolve"),
+            SessionLookup::Rejected(SessionRejection::Ended)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_job_does_not_start_after_its_requester_was_deleted() {
+        let (db, carol, job) = job_queued_by_carol(false).await;
+        db::delete_user(&db, db::get_user_id(&carol).expect("id"))
+            .await
+            .expect("delete");
+        assert!(matches!(
+            job.resolve_requester(&db).await.expect("resolve"),
+            SessionLookup::Rejected(SessionRejection::Ended)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_job_runs_with_the_requesters_current_rights() {
+        let (db, carol, job) = job_queued_by_carol(true).await;
+        assert!(job.requester.is_admin);
+        let mut demoted = carol.clone();
+        demoted.is_admin = false;
+        db::update_user(&db, demoted).await.expect("demote");
+
+        match job.resolve_requester(&db).await.expect("resolve") {
+            SessionLookup::Active(ctx) => assert!(!ctx.is_admin, "the job kept admin rights"),
+            other @ SessionLookup::Rejected(_) => {
+                panic!("expected an active requester, got {other:?}")
+            }
+        }
     }
 }

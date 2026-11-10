@@ -11,8 +11,13 @@ use serde::{Deserialize, Serialize};
 /// and authorization (admin status).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Claims {
-    /// Subject - the username of the authenticated user
+    /// Subject - the username of the authenticated user, for display. The server takes the
+    /// user from the session, not from this claim.
     pub sub: String,
+
+    /// The session this token belongs to. The server accepts the token only while the session
+    /// exists. Tokens from before sessions were added have no `sid` and are rejected.
+    pub sid: String,
 
     /// Expiration time (Unix timestamp in seconds)
     pub exp: i64,
@@ -25,22 +30,27 @@ pub struct Claims {
 }
 
 impl Claims {
-    /// Create new JWT claims for a user.
+    /// Create JWT claims for a token of session `session_id`.
     ///
     /// # Arguments
     /// * `username` - The username to encode in the token
+    /// * `session_id` - The session the token belongs to
     /// * `is_admin` - Whether the user has admin privileges
-    /// * `expiry_seconds` - How long the token should be valid (typically 7 days = 604800 seconds)
-    ///
-    /// # Returns
-    /// A new `Claims` instance with the current time as `iat` and calculated `exp`
+    /// * `issued_at` - When the token is issued, in Unix seconds
+    /// * `expires_at` - When the token and its session expire, in Unix seconds
     #[must_use]
-    pub fn new(username: String, is_admin: bool, expiry_seconds: i64) -> Self {
-        let now = jiff::Timestamp::now().as_second();
+    pub fn new(
+        username: String,
+        session_id: String,
+        is_admin: bool,
+        issued_at: i64,
+        expires_at: i64,
+    ) -> Self {
         Self {
             sub: username,
-            exp: now + expiry_seconds,
-            iat: now,
+            sid: session_id,
+            exp: expires_at,
+            iat: issued_at,
             is_admin,
         }
     }
@@ -52,35 +62,32 @@ mod tests {
 
     #[test]
     fn test_claims_new() {
-        let username = "testuser".to_string();
-        let expiry = 3600; // 1 hour
+        let claims = Claims::new("testuser".to_owned(), "sid1".to_owned(), false, 100, 3700);
 
-        let claims = Claims::new(username.clone(), false, expiry);
-
-        assert_eq!(claims.sub, username);
+        assert_eq!(claims.sub, "testuser");
+        assert_eq!(claims.sid, "sid1");
         assert!(!claims.is_admin);
-        assert!(claims.exp > claims.iat);
-        assert_eq!(claims.exp - claims.iat, expiry);
+        assert_eq!(claims.iat, 100);
+        assert_eq!(claims.exp, 3700);
     }
 
     #[test]
     fn test_claims_new_admin() {
-        let claims = Claims::new("admin".to_string(), true, 3600);
+        let claims = Claims::new("admin".to_owned(), "sid1".to_owned(), true, 0, 3600);
         assert!(claims.is_admin);
     }
 
     #[test]
     fn test_claims_serde_roundtrip() {
-        let claims = Claims::new("testuser".to_string(), true, 604_800);
+        let claims = Claims::new("testuser".to_owned(), "sid1".to_owned(), true, 0, 604_800);
         let json = serde_json::to_string(&claims).expect("serializes");
         let deserialized: Claims = serde_json::from_str(&json).expect("deserializes");
         assert_eq!(claims, deserialized);
     }
 
     #[test]
-    fn test_claims_exp_minus_iat_equals_expiry() {
-        let expiry = 604_800; // 7 days
-        let claims = Claims::new("user".to_string(), false, expiry);
-        assert_eq!(claims.exp - claims.iat, expiry);
+    fn claims_without_a_session_are_rejected() {
+        let old = r#"{"sub":"alice","exp":2000000000,"iat":1000000000,"is_admin":false}"#;
+        assert!(serde_json::from_str::<Claims>(old).is_err());
     }
 }

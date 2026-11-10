@@ -22,11 +22,12 @@ use super::handlers::{
     lab_create_post_handler, lab_destroy_button_handler, lab_destroy_confirm_handler,
     lab_destroy_post_handler, lab_detail_handler, lab_download_handler, lab_nodes_handler,
     lab_start_handler, lab_stop_handler, labs_list_page_handler, list_images_json, list_users_json,
-    login, login_form_handler, login_page_handler, logout_handler, node_detail_handler,
-    node_redeploy_handler, node_start_handler, node_stop_handler, openapi_handler, profile_handler,
-    pull_image_json, redeploy_node_json, remove_ssh_key_json, resume_lab_json, scan_images_json,
-    set_default_image_json, show_image_json, signup_form_handler, signup_page_handler,
-    update_impairment_json, update_password_handler, upload_image_multipart, validate_token_json,
+    login, login_form_handler, login_page_handler, logout_handler, logout_json,
+    node_detail_handler, node_redeploy_handler, node_start_handler, node_stop_handler,
+    openapi_handler, profile_handler, pull_image_json, redeploy_node_json, remove_ssh_key_json,
+    resume_lab_json, scan_images_json, set_default_image_json, show_image_json,
+    signup_form_handler, signup_page_handler, update_impairment_json, update_password_handler,
+    upload_image_multipart, validate_token_json,
 };
 
 #[derive(Embed)]
@@ -200,6 +201,7 @@ fn public_api_routes() -> Router<AppState> {
         .route("/api/docs", get(api_docs_handler))
         .route("/api/v1/auth/login", post(login)) // JSON login for CLI
         .route("/api/v1/auth/validate", post(validate_token_json))
+        .route("/api/v1/auth/logout", post(logout_json))
 }
 
 /// Protected API endpoints, which require authentication.

@@ -380,7 +380,11 @@ pub async fn admin_add_ssh_key_handler(
     // Save to database
     db::update_user(&state.db, user.clone())
         .await
+        .map_err(ServiceError::from_user_write)
         .map_err(|e| {
+            if ServiceError::find(&e).is_some() {
+                return ApiError::from(e);
+            }
             tracing::error!(
                 "Failed to update user '{}' in database: {:?}",
                 target_username,
@@ -448,7 +452,11 @@ pub async fn admin_delete_ssh_key_handler(
     // Save to database
     db::update_user(&state.db, user.clone())
         .await
+        .map_err(ServiceError::from_user_write)
         .map_err(|e| {
+            if ServiceError::find(&e).is_some() {
+                return ApiError::from(e);
+            }
             tracing::error!(
                 "Failed to update user '{}' in database: {:?}",
                 target_username,
