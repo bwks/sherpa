@@ -1,14 +1,19 @@
 //! `NKey` user keys. An agent proves who it is by signing the server's challenge with its seed.
-//! The seed is a secret: it is read only from the environment, and is never written to a file
-//! or a log, or put in an error message. The public key is not secret.
+//! The seed is a secret: the host's commands read it from the environment, a guest agent from its
+//! stdin (`Seed`). It is never written to a file or a log, or put in an error message. The public
+//! key is not secret.
 
 use std::env;
+use std::fmt;
 
 use anyhow::{Result, anyhow, ensure};
 use nkeys::{KeyPair, KeyPairType};
 
 /// The environment variable that holds the agent's seed.
 pub const SEED_VARIABLE: &str = "AGENT_BUS_SEED";
+
+/// A guest agent's seed, held in memory only: its `Debug` is redacted and it has no `Display`.
+pub struct Seed(String);
 
 /// A new user key pair: the public key goes in the agents file, the seed to its agent.
 pub struct NewKey {
@@ -83,6 +88,36 @@ fn checked_seed(value: Option<String>) -> Result<String> {
     Ok(seed)
 }
 
+impl fmt::Debug for Seed {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("Seed(<redacted>)")
+    }
+}
+
+impl Seed {
+    /// A user seed from `text`, trimmed. The error never repeats `text`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `text` is empty or not a user seed.
+    pub fn parse(text: &str) -> Result<Self> {
+        let text = text.trim();
+        ensure!(!text.is_empty(), "The bus seed is empty");
+        let pair = KeyPair::from_seed(text)
+            .map_err(|_| anyhow!("The bus seed is not a valid NKey seed"))?;
+        ensure!(
+            pair.key_pair_type() == KeyPairType::User,
+            "The bus seed is not a user seed (it must start with SU)"
+        );
+        Ok(Self(text.to_owned()))
+    }
+
+    /// The seed itself, to connect to the bus.
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,5 +160,27 @@ mod tests {
         let wrong = KeyPair::new_account().seed().unwrap();
         let error = public_key_of(&wrong).unwrap_err().to_string();
         assert!(!error.contains(&wrong));
+    }
+
+    #[test]
+    fn a_seed_parses_trimmed_and_never_shows_in_debug() {
+        let good = generate().unwrap().seed;
+        let seed = Seed::parse(&format!(" {good}\n")).unwrap();
+        assert_eq!(seed.expose(), good);
+        let shown = format!("{seed:?} {:?}", Some(&seed));
+        assert!(!shown.contains(&good), "{shown}");
+        assert!(shown.contains("redacted"), "{shown}");
+    }
+
+    #[test]
+    fn a_bad_seed_is_refused_without_showing_it() {
+        let account = KeyPair::new_account().seed().unwrap();
+        for bad in ["", "  ", "SUNOTAREALSEED", account.as_str()] {
+            let error = format!("{:#}", Seed::parse(bad).unwrap_err());
+            assert!(error.contains("bus seed"), "{error}");
+            if !bad.trim().is_empty() {
+                assert!(!error.contains(bad), "{error}");
+            }
+        }
     }
 }

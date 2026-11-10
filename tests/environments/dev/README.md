@@ -67,14 +67,17 @@ is up. It is safe to run again with `sherpa provision`. It:
 5. installs `mkdocs` with uv on a uv-managed Python 3.15 (never the system Python), as a tool on
    the `PATH`, at the versions in sherpa-docs' `requirements.txt`, so `mkdocs build` and
    `mkdocs serve` work in `~/code/rust/sherpa-docs`;
-6. installs a Sherpa server with the checkout's `scripts/sherpa_install.sh`;
-7. initializes the server unattended: it generates the `admin` password, a `dev` user (an
+6. installs the [beautiful-rust](https://github.com/morganlinton/BeautifulRust) Claude Code
+   plugin (the `rust-best-practices`, `rust-review` and `rust-port` skills) for the guest
+   agents, from a clone pinned to one commit in `~/.local/share/claude-marketplaces/`;
+7. installs a Sherpa server with the checkout's `scripts/sherpa_install.sh`;
+8. initializes the server unattended: it generates the `admin` password, a `dev` user (an
    administrator) with its own password, and an SSH key `~/.ssh/id_ed25519` for it, kept in
    `~/.env.d/sherpa-account.env` (mode `600`). It runs `sherpad init` with them and starts
    `sherpad`;
-8. points the guest's `sherpa` CLI at its own server, trusting the server's certificate file,
+9. points the guest's `sherpa` CLI at its own server, trusting the server's certificate file,
    and logs in as `dev`;
-9. creates a `dev` OS account with the same SSH key and trusts the guest's own host key. The SSH
+10. creates a `dev` OS account with the same SSH key and trusts the guest's own host key. The SSH
    config Sherpa writes for each lab reaches its nodes through the server as the Sherpa user
    (`ProxyJump dev@<server>`), so lab tests and SSH provisioners need both, as on any Sherpa
    server.
@@ -244,7 +247,10 @@ Give the lab directory as an absolute path, since mise may run the task from ano
 The task enrolls the agent with a fresh key, refusing any previous one, and pipes the key, the
 Claude token, the GitHub write token and the bus's CA certificate over the lab's SSH config into
 `dev/agent-bus/start-guest.sh` in the guest, with `AGENT_BUS_URL` set to the URL in the host's
-`bus.toml`. No key is made or stored by hand, and neither agent is listed in the agents file. The
+`bus.toml`. The script pipes the key and both tokens on to the agent's stdin: the agent holds them
+in memory, never in its environment. No key is made or stored by hand, and neither agent is listed
+in the agents file. The agent is built from the guest's own checkout, so a change to the agent or
+to `start-guest.sh` reaches a guest when its checkout is pulled and its agent started again. The
 agent's log is `~/agent-bus-<node>.log` in the guest. To retire one, stop its agent and run
 `agent-bus unenroll <node>` on the host.
 

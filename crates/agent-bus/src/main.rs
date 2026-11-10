@@ -8,8 +8,10 @@
 //! Every agent authenticates with its own `NKey`. The host's public key goes in the agents file
 //! (`key new` makes the pair); guests are enrolled with `enroll`, which makes a fresh pair, keeps
 //! the public key in the host's registry, reloads the bus and prints the seed for a pipe. The
-//! server's permissions are rendered from both. Each agent gets its seed in the environment
-//! variable `AGENT_BUS_SEED`. A seed is never a command-line value.
+//! server's permissions are rendered from both. The host's commands read its seed from the
+//! environment variable `AGENT_BUS_SEED`; a guest agent reads its seed, and its Claude and GitHub
+//! tokens, from stdin and holds them in memory only, never in its environment. A seed is never a
+//! command-line value.
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 mod agents;
@@ -53,8 +55,9 @@ use status::{Observed, STALE};
 #[command(
     version,
     about = "A NATS message channel between the host agent and guest agents",
-    after_help = "Commands that connect to the bus read the agent's NKey seed from the \
-                  environment variable AGENT_BUS_SEED. `agent-bus key new` makes the host's key \
+    after_help = "The host's commands read its NKey seed from the environment variable \
+                  AGENT_BUS_SEED; `agent-bus guest` reads its own from stdin. \
+                  `agent-bus key new` makes the host's key \
                   pair; `agent-bus enroll` makes a guest's. Every connection is TLS, trusting \
                   only the bus's own CA: the certificate in AGENT_BUS_CA, else the one \
                   `bus start` made in the host's state directory."
@@ -186,7 +189,13 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Run a guest agent: take each task to Claude Code and reply with its progress and result
+    /// Run a guest agent: take each task to Claude Code and reply with its progress and result.
+    /// Its secrets come on stdin, which must not be a terminal, one per line: the Claude
+    /// subscription token (from `claude setup-token`), the GitHub write token (an empty line for
+    /// none) and the agent's bus seed. They are held in memory only. The Claude token is set in
+    /// each Claude Code run's environment and the write token in a --github task's alone; without
+    /// a write token, --github tasks fail. It refuses to start with `AGENT_BUS_SEED` or
+    /// `CLAUDE_CODE_OAUTH_TOKEN` in its environment
     Guest {
         /// The bus, for example `nats://192.0.2.1:4222`
         #[arg(long, env = "AGENT_BUS_URL")]
@@ -203,11 +212,6 @@ enum Command {
         /// The model Claude Code runs on when a task names none: opus, sonnet, haiku or a full ID
         #[arg(long, default_value = DEFAULT_MODEL, value_parser = model_id)]
         model: String,
-        /// Read the GitHub write token for --github tasks from the first line of stdin; an
-        /// empty line is none. It is held in memory only, and set as `GH_TOKEN` for --github tasks
-        /// alone. Without it, --github tasks fail
-        #[arg(long)]
-        github_token_stdin: bool,
     },
 }
 
@@ -255,7 +259,11 @@ async fn main() -> Result<()> {
     // of the workspace. Already installed is fine.
     let _ = aws_lc_rs::default_provider().install_default();
     init_tracing();
-    let cli = Cli::parse();
+    execute(Cli::parse()).await
+}
+
+/// Run the command `cli` names.
+async fn execute(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Key { action } => match action {
             KeyAction::New => new_key(),
@@ -331,50 +339,30 @@ async fn main() -> Result<()> {
             reply_to,
             workdir,
             model,
-            github_token_stdin,
-        } => {
-            Box::pin(run_guest(
-                server,
-                &name,
-                &reply_to,
-                &workdir,
-                &model,
-                github_token_stdin,
-            ))
-            .await
-        }
+        } => Box::pin(run_guest(server, &name, &reply_to, &workdir, &model)).await,
     }
 }
 
-/// Run a guest agent, with the GitHub write token from stdin when `github_token_stdin` is set.
+/// Run a guest agent, with its secrets from stdin.
 async fn run_guest(
     server: String,
     name: &str,
     reply_to: &str,
     workdir: &Path,
     model: &str,
-    github_token_stdin: bool,
 ) -> Result<()> {
-    let seed = seed_from_environment()?;
-    let write_token = if github_token_stdin {
-        guest::read_write_token(io::stdin().lock())?
-    } else {
-        None
-    };
+    let stdin = io::stdin();
+    if stdin.is_terminal() {
+        bail!(
+            "agent-bus guest reads its secrets from stdin, which is a terminal: pipe them to it instead (see dev/agent-bus/start-guest.sh)"
+        );
+    }
+    let secrets = guest::read_secrets(stdin.lock())?;
     let server = Endpoint {
         url: server,
         ca: tls::client_ca()?,
     };
-    guest::run(
-        &server,
-        &seed,
-        name,
-        reply_to,
-        workdir,
-        model,
-        write_token.as_ref(),
-    )
-    .await
+    guest::run(&server, &secrets, name, reply_to, workdir, model).await
 }
 
 /// Print spans to stderr when `RUST_LOG` is set, such as `RUST_LOG=agent_bus=debug`: one line
@@ -605,11 +593,22 @@ mod tests {
     use super::*;
 
     use std::fmt::{self, Write};
+    use std::fs;
+    use std::io::Write as _;
+    use std::net::TcpListener;
+    use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
+    use std::process::{self, Stdio};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
 
+    use anyhow::{Context, ensure};
+    use bollard::query_parameters::RemoveVolumeOptions;
     use clap::error::ErrorKind;
+    use container::{docker_connection, remove_container};
+    use nix::sys::signal::{Signal, kill};
+    use nix::unistd::Pid;
+    use tokio::time::{Instant, sleep, timeout};
     use tracing::field::{Field, Visit};
     use tracing::span::{Attributes, Id, Record};
     use tracing::{Event, Metadata, Subscriber};
@@ -730,7 +729,8 @@ mod tests {
         assert_eq!(answer.as_deref(), Some("t1"));
     }
 
-    /// Every instrumented function that takes a seed records its span without it. Each call
+    /// Every instrumented function that takes a seed, or the guest's secrets, records its span
+    /// without them. Each call
     /// fails early (no CA, no agents file, a bad name), after its span is made.
     #[tokio::test]
     async fn a_seed_never_appears_in_a_span() {
@@ -765,15 +765,18 @@ mod tests {
                 .await
                 .is_err()
         );
+        let claude = "sk-ant-oat01-spantest0123456789";
+        let write = "github_pat_spantest0123456789";
+        let secrets =
+            guest::read_secrets(format!("{claude}\n{write}\n{seed}\n").as_bytes()).unwrap();
         assert!(
             guest::run(
                 &server,
-                &seed,
+                &secrets,
                 "not a name",
                 "host",
                 missing,
-                DEFAULT_MODEL,
-                None
+                DEFAULT_MODEL
             )
             .await
             .is_err()
@@ -795,7 +798,328 @@ mod tests {
             "{spans:#?}"
         );
         for span in &spans {
-            assert!(!span.contains(&seed), "a span holds the seed: {span}");
+            for secret in [seed.as_str(), claude, write] {
+                assert!(!span.contains(secret), "a span holds a secret: {span}");
+            }
         }
+    }
+
+    /// The variable that makes `guest_agent_process` run a guest agent: the command line, one
+    /// argument per line. It holds no secret.
+    const CHILD_ARGS: &str = "AGENT_BUS_TEST_GUEST_ARGS";
+    /// What the agent writes once it is connected and reading its inbox.
+    const WAITING: &str = "is waiting for tasks";
+
+    /// A stand-in for `claude` that collects, in its working directory, everything a task can
+    /// read of its agent: the agent's environment and command line, its stdin, its state files
+    /// and its log; its own environment, kept apart; and whether it may open the agent's memory.
+    const REACHING_CLAUDE: &str = r#"#!/bin/bash
+read -r prompt
+agent=$PPID
+{
+    echo "== agent environ"; tr '\0' '\n' < "/proc/$agent/environ"
+    echo "== agent cmdline"; tr '\0' ' ' < "/proc/$agent/cmdline"; echo
+    echo "== agent stdin"; timeout 2 cat "/proc/$agent/fd/0"
+    echo "== agent state"; find "$XDG_STATE_HOME" -type f -exec cat {} +
+    echo "== agent log"; cat "$AGENT_LOG"
+} > "reach.$$" 2>&1
+tr '\0' '\n' < "/proc/$$/environ" > "self-env.$$"
+if (exec 3< "/proc/$agent/mem") 2> /dev/null; then echo open; else echo denied; fi > "mem.$$"
+echo '{"type":"system","subtype":"init","session_id":"sess-1"}'
+echo '{"type":"result","is_error":false,"result":"done","session_id":"sess-1"}'
+"#;
+
+    /// Not a test on its own: the guest agent process that
+    /// `a_guest_agents_secrets_are_out_of_reach_of_its_tasks` starts, running `agent-bus guest`
+    /// as `main` does, with its secrets on stdin. Without `CHILD_ARGS` it does nothing.
+    #[tokio::test]
+    #[ignore = "the guest agent process of another test"]
+    async fn guest_agent_process() {
+        let Some(args) = env::var_os(CHILD_ARGS) else {
+            return;
+        };
+        let _ = aws_lc_rs::default_provider().install_default();
+        let cli = Cli::try_parse_from(args.to_string_lossy().lines()).unwrap();
+        execute(cli).await.unwrap();
+    }
+
+    /// The `== name` section of a `reach` file.
+    fn section<'t>(text: &'t str, name: &str) -> &'t str {
+        let start = text.find(&format!("== {name}\n")).unwrap();
+        let rest = &text[start..];
+        rest[1..].find("\n== ").map_or(rest, |end| &rest[..=end])
+    }
+
+    /// A directory for `a_guest_agents_secrets_are_out_of_reach_of_its_tasks`: the agents file
+    /// with `host` and the guest `dev`, `bin/claude` (`REACHING_CLAUDE`) and the checkout `work`.
+    fn secrets_test_dir(host: &keys::NewKey, guest: &keys::NewKey) -> PathBuf {
+        let dir = env::temp_dir().join(format!("agent-bus-secrets-{}", process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        for path in [dir.join("bin"), dir.join("work")] {
+            fs::create_dir_all(path).unwrap();
+        }
+        fs::write(
+            dir.join("agents.toml"),
+            format!(
+                "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n\
+                 [[agent]]\nname = \"dev\"\nkey = \"{}\"\nrole = \"guest\"\n",
+                host.public_key, guest.public_key
+            ),
+        )
+        .unwrap();
+        let claude = dir.join("bin").join("claude");
+        fs::write(&claude, REACHING_CLAUDE).unwrap();
+        fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).unwrap();
+        dir
+    }
+
+    /// Start the guest agent `dev` in its own process, as `start-guest.sh` does: its secrets on
+    /// stdin, never in its environment, and its output in a log a task can read.
+    fn spawn_guest_agent(
+        dir: &Path,
+        server: &Endpoint,
+        claude_token: &str,
+        seed: &str,
+    ) -> Result<process::Child> {
+        let work = dir.join("work").to_string_lossy().into_owned();
+        let args = [
+            "agent-bus",
+            "guest",
+            "--server",
+            &server.url,
+            "--name",
+            "dev",
+            "--workdir",
+            &work,
+        ]
+        .join("\n");
+        let path = format!(
+            "{}:{}",
+            dir.join("bin").display(),
+            env::var("PATH").unwrap_or_default()
+        );
+        let log = dir.join("agent-bus-dev.log");
+        let output = fs::File::create(&log)?;
+        let mut child = process::Command::new(env::current_exe()?)
+            .args([
+                "--exact",
+                "tests::guest_agent_process",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(CHILD_ARGS, &args)
+            .env(tls::CA_ENV, &server.ca)
+            .env("XDG_STATE_HOME", dir.join("guest-state"))
+            .env("AGENT_LOG", &log)
+            .env("PATH", path)
+            .env_remove(keys::SEED_VARIABLE)
+            .env_remove("CLAUDE_CODE_OAUTH_TOKEN")
+            .stdin(Stdio::piped())
+            .stdout(output.try_clone()?)
+            .stderr(output)
+            .spawn()?;
+        // Written, then closed: the agent's stdin is empty from here on.
+        child
+            .stdin
+            .take()
+            .context("no stdin")?
+            .write_all(format!("{claude_token}\n\n{seed}\n").as_bytes())?;
+        Ok(child)
+    }
+
+    /// Wait until the agent in `child` is reading its inbox, as its `log` says.
+    async fn wait_until_waiting(child: &mut process::Child, log: &Path) -> Result<()> {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while !fs::read_to_string(log)?.contains(WAITING) {
+            if let Some(status) = child.try_wait()? {
+                bail!("the agent exited ({status}): {}", fs::read_to_string(log)?);
+            }
+            if Instant::now() > deadline {
+                bail!("the agent did not start: {}", fs::read_to_string(log)?);
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
+        Ok(())
+    }
+
+    /// Send `dev` a task without --github as the host, and return its outcome. No reply may
+    /// hold any of `secrets`.
+    async fn run_task(server: &Endpoint, host_seed: &str, secrets: &[&str]) -> Result<Message> {
+        let channel = Channel::connect(server, host_seed).await?;
+        let mut inbox = channel.inbox("host").await?;
+        let task = new_task_id();
+        channel
+            .send(&Message {
+                task: task.clone(),
+                from: "host".to_owned(),
+                to: "dev".to_owned(),
+                kind: Kind::Task,
+                text: "look around".to_owned(),
+                usage: None,
+                task_usage: None,
+                github: false,
+                model: None,
+            })
+            .await?;
+        loop {
+            let delivery = timeout(Duration::from_secs(60), inbox.next())
+                .await
+                .context("no reply in time")??
+                .context("the inbox closed")?;
+            let message = delivery.message.clone();
+            delivery.ack().await?;
+            for secret in secrets {
+                ensure!(!message.text.contains(secret), "a reply has a secret");
+            }
+            if message.task == task && message.kind != Kind::Progress {
+                return Ok(message);
+            }
+        }
+    }
+
+    /// What each Claude Code run collected in `work`: nothing of its agent's holds the seed or
+    /// the Claude token, its own environment has the Claude token and not the seed, and with
+    /// `ptrace_scope` 1 or more it could not open the agent's memory.
+    fn check_what_tasks_read(work: &Path, seed: &str, claude_token: &str) -> Result<()> {
+        let ptrace_scope = fs::read_to_string("/proc/sys/kernel/yama/ptrace_scope")
+            .ok()
+            .and_then(|scope| scope.trim().parse::<u8>().ok())
+            .unwrap_or(0);
+        let mut runs = 0;
+        for entry in fs::read_dir(work)? {
+            let path = entry?.path();
+            let name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let text = fs::read_to_string(&path)?;
+            if let Some(pid) = name.strip_prefix("reach.") {
+                runs += 1;
+                ensure!(!text.contains(seed), "run {pid} read the seed: {text}");
+                ensure!(
+                    !text.contains(claude_token),
+                    "run {pid} read the Claude token from its agent: {text}"
+                );
+                // It did read each: they are just empty of secrets.
+                ensure!(section(&text, "agent environ").contains("PATH="), "{text}");
+                ensure!(
+                    section(&text, "agent cmdline").contains("guest_agent_process"),
+                    "{text}"
+                );
+                ensure!(section(&text, "agent log").contains(WAITING), "{text}");
+            } else if name.starts_with("self-env.") {
+                // The one place a task has the Claude token: its own environment, where Claude
+                // Code takes it from. Never the seed.
+                let expected = format!("CLAUDE_CODE_OAUTH_TOKEN={claude_token}");
+                ensure!(
+                    text.lines().any(|line| line == expected),
+                    "a run had no Claude token"
+                );
+                ensure!(!text.contains(seed), "a run had the seed: {text}");
+            } else if name.starts_with("mem.") && ptrace_scope >= 1 {
+                ensure!(text.trim() == "denied", "a run opened its agent's memory");
+            }
+        }
+        // Two priming runs and the task's own.
+        ensure!(runs >= 3, "only {runs} runs looked");
+        Ok(())
+    }
+
+    /// Stop the agent in `child` with SIGTERM, and kill it if it has not exited in time.
+    async fn stop_agent(mut child: process::Child) {
+        if let Ok(pid) = i32::try_from(child.id()) {
+            let _ = kill(Pid::from_raw(pid), Signal::SIGTERM);
+        }
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while matches!(child.try_wait(), Ok(None)) && Instant::now() < deadline {
+            sleep(Duration::from_millis(100)).await;
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    /// Needs Docker. Starts a throwaway bus and a guest agent in its own process, with its
+    /// secrets on stdin as `start-guest.sh` gives them, then shows that neither the seed nor
+    /// the Claude token is in the agent's environment or command line, and that a task (a
+    /// Claude Code run without --github) reads neither from anything of the agent's it can
+    /// read. The task has the Claude token in its own environment only.
+    #[tokio::test]
+    #[ignore = "needs Docker"]
+    async fn a_guest_agents_secrets_are_out_of_reach_of_its_tasks() {
+        let _ = aws_lc_rs::default_provider().install_default();
+        let (host, guest) = (keys::generate().unwrap(), keys::generate().unwrap());
+        let claude_token = format!("sk-ant-oat01-{}", uuid::Uuid::new_v4().simple());
+        let dir = secrets_test_dir(&host, &guest);
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let id = process::id();
+        let bus = Bus {
+            container: format!("sherpa-agent-bus-secrets-test-{id}"),
+            volume: format!("sherpa-agent-bus-secrets-test-{id}-data"),
+            listen: Ipv4Addr::LOCALHOST,
+            port,
+            state_dir: dir.join("bus-state"),
+            lab: None,
+        };
+        let server = Endpoint {
+            url: format!("nats://127.0.0.1:{port}"),
+            ca: bus.state_dir.join(tls::TLS_DIR).join(tls::CA_CERT_FILE),
+        };
+        let log = dir.join("agent-bus-dev.log");
+        let mut agent = None;
+
+        let result = async {
+            bus::start(&bus, &dir.join("agents.toml"), &host.seed).await?;
+            let child = agent.insert(spawn_guest_agent(
+                &dir,
+                &server,
+                &claude_token,
+                &guest.seed,
+            )?);
+            wait_until_waiting(child, &log).await?;
+
+            // The agent's environment and command line, as any process of its user reads them.
+            for file in ["environ", "cmdline"] {
+                let text = fs::read(format!("/proc/{}/{file}", child.id()))?;
+                let text = String::from_utf8_lossy(&text);
+                ensure!(!text.contains(&guest.seed), "the seed is in its {file}");
+                ensure!(
+                    !text.contains(&claude_token),
+                    "the Claude token is in its {file}"
+                );
+            }
+
+            // A task without --github: the priming runs and the task's own run each look.
+            let outcome = run_task(&server, &host.seed, &[&guest.seed, &claude_token]).await?;
+            ensure!(outcome.kind == Kind::Completed, "{outcome:?}");
+            check_what_tasks_read(&dir.join("work"), &guest.seed, &claude_token)?;
+
+            let logged = fs::read_to_string(&log)?;
+            ensure!(!logged.contains(&guest.seed), "the log has the seed");
+            ensure!(
+                !logged.contains(&claude_token),
+                "the log has the Claude token"
+            );
+            Ok(())
+        }
+        .await;
+
+        // Stop the agent, then clean up whatever happened.
+        if let Some(child) = agent {
+            stop_agent(child).await;
+        }
+        let docker = docker_connection().unwrap();
+        let _ = remove_container(&docker, &bus.container).await;
+        let _ = docker
+            .remove_volume(&bus.volume, None::<RemoveVolumeOptions>)
+            .await;
+        if result.is_ok() {
+            let _ = fs::remove_dir_all(&dir);
+        }
+        result.unwrap();
     }
 }

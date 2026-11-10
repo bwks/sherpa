@@ -2,6 +2,55 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.24] - 2026-11-10
+
+### Features
+
+- Keep the bus seed and Claude token out of the agent environment by @bwks ([f2e30cc](https://github.com/bwks/sherpa/commit/f2e30cce8c36170b616b44310b5433dbb3e8026f))
+
+### Miscellaneous
+
+- Merge pull request #538 from bwks/feat/531-seed-off-environ
+
+feat(agent-bus): keep the bus seed and Claude token out of the agent environment by @bwks in [#538](https://github.com/bwks/sherpa/pull/538) ([b5929a5](https://github.com/bwks/sherpa/commit/b5929a5b6b1dd03227151d2e774d80f60ae0d052))
+- Merge main (0.5.23) into feat/531-seed-off-environ
+
+Keeps 0.5.24.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com> by @bwks ([678c87e](https://github.com/bwks/sherpa/commit/678c87e864535f642925bc6dbd8bf0ba8cc648a3))
+- Merge pull request #537 from bwks/chore/guest-claude-plugins
+
+chore(dev): install the beautiful-rust Claude Code plugin in dev servers by @bwks in [#537](https://github.com/bwks/sherpa/pull/537) ([487e535](https://github.com/bwks/sherpa/commit/487e535bd839f0ddd51f040a02307212935ade88))
+- Install the beautiful-rust Claude Code plugin in dev servers by @bwks ([63dc3ca](https://github.com/bwks/sherpa/commit/63dc3ca5c7fbfe06de0d5b605b8b1a90b5b1c1e7))
+- Merge pull request #536 from bwks/changelog/v0.5.23
+
+chore(release): update changelog for v0.5.23 by @github-actions[bot] in [#536](https://github.com/bwks/sherpa/pull/536) ([750b78a](https://github.com/bwks/sherpa/commit/750b78afd4aeb75d4cbe7de1fed9da9d883a93aa))
+## [0.5.23] - 2026-11-10
+
+### Bug Fixes
+
+- Revoke sessions on logout, password change and user deletion by @bwks ([d6d6f4e](https://github.com/bwks/sherpa/commit/d6d6f4ee9edb8ff0063e21e6cbfd0a4d63e98aea))
+- Setup.sh can run again on a provisioned server by @bwks ([83cb353](https://github.com/bwks/sherpa/commit/83cb353e651b280ae6d754cbc740abff757a9c31))
+
+### Miscellaneous
+
+- Merge pull request #535 from bwks/fix/501-revoke-sessions
+
+fix(server): revoke sessions on logout, password change and user deletion by @bwks in [#535](https://github.com/bwks/sherpa/pull/535) ([d529542](https://github.com/bwks/sherpa/commit/d5295427d2a33f33d9499ddeaf76b071feefb501))
+- No issue number in the session migration comment by @bwks ([b96f7e4](https://github.com/bwks/sherpa/commit/b96f7e4de12a2ff9a30ad47f6b78258a6c2ddd0a))
+- Merge remote-tracking branch 'origin/main' into fix/501-revoke-sessions
+
+Brings in 0.5.22 (#529, #532). Version lines conflicted; every workspace
+crate is set to 0.5.23. Release references for the session change move
+from 0.5.21 to 0.5.23.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com> by @bwks ([e2ad3f8](https://github.com/bwks/sherpa/commit/e2ad3f8c975172d6ef066e17fb14b11071ec245e))
+- Merge pull request #534 from bwks/fix/setup-rerun-init
+
+fix(dev): setup.sh can run again on a provisioned server by @bwks in [#534](https://github.com/bwks/sherpa/pull/534) ([ecce064](https://github.com/bwks/sherpa/commit/ecce064dfd03b076f4b4a134bb625f87d9fdf566))
+- Merge pull request #533 from bwks/changelog/v0.5.22
+
+chore(release): update changelog for v0.5.22 by @github-actions[bot] in [#533](https://github.com/bwks/sherpa/pull/533) ([55bf0b3](https://github.com/bwks/sherpa/commit/55bf0b362dc7962ab7ba2ecb5f0d77d71176192b))
 ## [0.5.22] - 2026-11-10
 
 ### Features
