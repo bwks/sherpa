@@ -14,7 +14,7 @@ use crate::auth::context::AuthContext;
 use crate::auth::jwt;
 use crate::daemon::metrics::Metrics;
 use crate::daemon::storage::secure_storage;
-use crate::validate::validate_tailscale_gateway_settings;
+use crate::validate::{check_host_memory_settings, validate_tailscale_gateway_settings};
 
 /// The type of operation a job represents.
 pub enum JobType {
@@ -74,13 +74,15 @@ impl AppState {
     ///
     /// # Errors
     ///
-    /// Fails when the Tailscale gateway settings are invalid, the JWT secret cannot be loaded or
-    /// generated, the database cannot be opened or migrated, the admin account is missing (see
+    /// Fails when the Tailscale gateway or host memory settings are invalid, the JWT secret cannot
+    /// be loaded or generated, the database cannot be opened or migrated, the admin account is missing (see
     /// [`ensure_admin_account`]), or Docker cannot be reached.
     #[instrument(skip(config, metrics))]
     pub async fn new(config: Config, metrics: Metrics) -> Result<Self> {
         validate_tailscale_gateway_settings(&config.tailscale)
             .context("Invalid server Tailscale settings")?;
+        check_host_memory_settings(config.host_memory)
+            .context("Invalid server host memory settings")?;
         // Load or generate JWT secret
         let jwt_secret =
             jwt::load_or_generate_secret().context("Failed to load or generate JWT secret")?;

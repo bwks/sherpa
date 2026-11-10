@@ -16,6 +16,7 @@ use virt::sys::{VIR_DOMAIN_PAUSED, VIR_DOMAIN_SHUTOFF};
 
 use tracing::instrument;
 
+use super::admission::{self, Admission};
 use super::lab_nodes::load_target_nodes;
 use super::lab_operations::{self, LabOperation};
 use super::node_ops::{self, VmReadiness};
@@ -77,13 +78,19 @@ pub async fn start_lab_nodes(
     // Check again under the lease: a destroy that finished while this waited has removed the lab.
     let db_lab = require_lab_access(ctx, &state.db, lab_id).await?;
 
-    let tailscale =
-        resume_tailscale(state, &db_lab, node_name, tailscale_auth_key, progress).await?;
-
-    let lab_record_id = db_lab.id.ok_or_else(|| anyhow!("Lab missing record ID"))?;
+    let lab_record_id = db_lab
+        .id
+        .clone()
+        .ok_or_else(|| anyhow!("Lab missing record ID"))?;
 
     let (target_nodes, node_images) =
         load_target_nodes(&state.db, lab_record_id.clone(), lab_id, node_name).await?;
+
+    // Stopped VMs and unikernels must fit in the server's memory before any node starts.
+    let _admission = admit_stopped_vms(state, lab_id, &target_nodes, &node_images).await?;
+
+    let tailscale =
+        resume_tailscale(state, &db_lab, node_name, tailscale_auth_key, progress).await?;
 
     // Build futures for all node operations concurrently
     let mut futures = Vec::new();
@@ -185,6 +192,31 @@ pub async fn start_lab_nodes(
     );
 
     Ok(LabNodeActionResponse { results, tailscale })
+}
+
+/// Admit the target VMs and unikernels that are stopped: their memory must fit beside every
+/// running domain's and the nodes other operations are starting. Containers are not limited.
+#[instrument(skip_all, fields(%lab_id), level = "debug")]
+async fn admit_stopped_vms(
+    state: &AppState,
+    lab_id: &str,
+    target_nodes: &[data::DbNode],
+    node_images: &[data::NodeConfig],
+) -> Result<Admission> {
+    let vm_names: Vec<&str> = target_nodes
+        .iter()
+        .filter(|node| {
+            node_images.iter().any(|image| {
+                image.id.as_ref() == Some(&node.image) && image.kind != NodeKind::Container
+            })
+        })
+        .map(|node| node.name.as_str())
+        .collect();
+    let conn = state
+        .qemu
+        .connect()
+        .context("Failed to connect to libvirt")?;
+    admission::admit_stopped_nodes(&conn, state.config.host_memory, lab_id, &vm_names).await
 }
 
 /// Enroll the lab's Tailscale gateway again on a whole-lab resume with a key, as `down` logged

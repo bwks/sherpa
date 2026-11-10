@@ -1,6 +1,6 @@
 [package]
 name = "libvirt"
-version = "0.5.17"
+version = "0.5.18"
 edition = "2024"
 
 [dependencies]
@@ -17,6 +17,9 @@ tracing = { workspace = true }
 
 # Libvirt
 virt = { workspace = true }
+
+# XML
+roxmltree = "0.21"
 
 [lints]
 workspace = true

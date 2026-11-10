@@ -11,12 +11,13 @@ use std::path::Path;
 
 use anyhow::Result;
 use virt::connect::Connect;
+use virt::domain::Domain;
 use virt::network::Network;
 use virt::storage_pool::StoragePool;
 
 use libvirt::{
     BridgeNetwork, IsolatedNetwork, NatNetwork, Qemu, QemuConnection, ReservedNetwork,
-    SherpaStoragePool,
+    SherpaStoragePool, host_cpus, host_memory, list_domain_memory,
 };
 
 // ============================================================================
@@ -32,6 +33,14 @@ fn cleanup_network(conn: &Connect, name: &str) {
     if let Ok(net) = Network::lookup_by_name(conn, name) {
         let _ = net.destroy();
         let _ = net.undefine();
+    }
+}
+
+/// Stop and remove a domain by name. Ignores errors (the domain may not exist).
+fn cleanup_domain(conn: &Connect, name: &str) {
+    if let Ok(domain) = Domain::lookup_by_name(conn, name) {
+        let _ = domain.destroy();
+        let _ = domain.undefine();
     }
 }
 
@@ -362,4 +371,60 @@ fn test_create_storage_pool_starts_an_inactive_pool() {
     let _ = defined.destroy();
     let _ = defined.undefine();
     let _ = fs::remove_dir_all(pool_path);
+}
+
+// ============================================================================
+// Host and domain memory
+// ============================================================================
+
+#[test]
+#[ignore = "requires a libvirt daemon"]
+fn test_host_memory_matches_the_numa_cells() {
+    let conn = connect().expect("connects");
+    let memory = host_memory(&conn).expect("reads the host memory");
+    assert!(memory.total_kib > 0);
+    assert_ne!(memory.cells.len(), 0);
+    let cells_total: u64 = memory.cells.iter().map(|cell| cell.total_kib).sum();
+    assert!(cells_total > 0);
+    // Each cell's memory is its share of the host's; together they are within 10% of it.
+    assert!(cells_total.abs_diff(memory.total_kib) * 10 <= memory.total_kib);
+    assert!(memory.hugepages_kib <= memory.total_kib);
+    let cpus = host_cpus(&conn).expect("reads the host CPUs");
+    assert_eq!(cpus.numa_nodes as usize, memory.cells.len());
+}
+
+/// Defines, starts and removes a 64 MiB domain held strictly on NUMA node 0, with no disks.
+#[test]
+#[ignore = "requires a libvirt daemon with KVM"]
+fn test_domain_memory_reports_size_state_and_strict_numa_node() {
+    let conn = connect().expect("connects");
+    let name = "sherpa-test-memory";
+    cleanup_domain(&conn, name);
+    let xml = format!(
+        "<domain type='kvm'><name>{name}</name><memory unit='MiB'>64</memory>\
+         <vcpu>1</vcpu><numatune><memory mode='strict' nodeset='0'/></numatune>\
+         <os><type arch='x86_64'>hvm</type></os><devices/></domain>"
+    );
+    let domain = Domain::define_xml(&conn, &xml).expect("defines the domain");
+
+    let find = |conn: &Connect| {
+        list_domain_memory(conn)
+            .expect("lists domain memory")
+            .into_iter()
+            .find(|entry| entry.name == name)
+            .expect("lists the test domain")
+    };
+    let defined = find(&conn);
+    assert!(!defined.active);
+    assert_eq!(defined.memory_kib, 64 * 1024);
+    assert_eq!(defined.strict_numa_node, Some(0));
+
+    let started = domain.create();
+    let running = started.as_ref().ok().map(|_| find(&conn));
+    cleanup_domain(&conn, name);
+    started.expect("starts the domain");
+    let running = running.expect("reads the running domain");
+    assert!(running.active);
+    assert_eq!(running.memory_kib, 64 * 1024);
+    assert_eq!(running.strict_numa_node, Some(0));
 }

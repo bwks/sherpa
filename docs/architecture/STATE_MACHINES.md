@@ -55,7 +55,7 @@ which to make them explicit, are in
 | 28 | [Node images](#28-node-images) | server, db | `node_image` row, `default` flag, files |
 | 29 | [ZTP settings](#29-ztp-settings-ztp_enable-and-ztp_method) | shared, db, server, template | `ztp_enable` bool + `ztp_method` enum + model |
 | 30 | [The `ztp_config` field](#30-the-ztp_config-field) | topology, client, server | one `Option<String>` with four meanings |
-| 31 | [Node resource reservation](#31-node-resource-reservation) | server, db | `vnc_port`, `cpu_pinning` Options |
+| 31 | [Node resource reservation](#31-node-resource-reservation) | server, db | `vnc_port`, `cpu_pinning` Options, admission ledger |
 | 32 | [Database schema version](#32-database-schema-version) | db | `PRAGMA user_version` |
 
 Machines 3 and 32 are already explicit and checked. They are here so the survey is complete,
@@ -1233,19 +1233,33 @@ stateDiagram-v2
 ### 31. Node resource reservation
 
 **Where.** `reserve_node_resources`
-(`crates/server/src/services/node_resources.rs:105-160`). It reserves `vnc_port`,
+(`crates/server/src/services/node_resources.rs:166-219`). It reserves `vnc_port`,
 `cpu_count`, `memory`, `cpu_pinning` and `qemu_thread_cpus` on the node row, and
-`update_node_resources` writes all five together.
+`update_node_resources` writes all five together. Before that, the node is admitted by
+`services/admission.rs`, which holds its memory and pins in an in-memory ledger.
 
 **Transitions.**
 
+- **Admit.** `admit_lab_nodes` (`admission.rs:88`, for `up` and redeploy) and
+  `admit_stopped_nodes` (`admission.rs:126`, for resume and node start) wait on a fair, FIFO
+  Tokio mutex (`admission.rs:31`). Under it they check the pins
+  (`check_cpu_pins_on_server`, `node_resources.rs:65-107`) against the stored nodes and the
+  ledger, and the memory against the server (`validate::check_memory_fits`, limited by
+  `host_memory.reserve_mib` and `host_memory.overcommit_percent`), then add the nodes
+  to the ledger (`admission.rs:33`). Checked: a request that does not fit is refused before
+  anything is created.
 - **Reserve.** A VM that already has a port keeps it. Otherwise the code picks a free port,
   retrying when the unique index loses a race.
+- **Release from the ledger.** Dropping the `Admission` (`admission.rs:62`) when the operation
+  returns, whether it succeeded or failed. Running domains are then counted from libvirt.
 - **Release.** Only by deleting the node row.
 
-A stopped lab keeps its ports and pins. Pins are checked against every stored node
-(`check_cpu_pins_on_server`, `node_resources.rs:55-91`) in `up`'s planning phase, which runs
-before phase 3 stores them.
+A stopped lab keeps its ports and pins. Before admission, `up` checked pins in its planning
+phase and stored them in phase 3 with no lock between, so two concurrent `up`s could both pass
+(#413); the ledger closes that window for pins and memory. A stored node that is also pending
+counts once, with its pending pins, and the node a redeploy replaces does not count against
+itself (matched by domain name, `<node>-<lab id>`). The ledger does not survive a restart,
+which also ends the operations it held entries for.
 
 ### 32. Database schema version
 
