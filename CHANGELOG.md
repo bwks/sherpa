@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.20] - 2026-11-10
+
+### Bug Fixes
+
+- The lab create Import tab can submit by @bwks ([10ce83b](https://github.com/bwks/sherpa/commit/10ce83b94049566ef23b474a28a4babaf9c101ee))
+
+### Miscellaneous
+
+- Merge pull request #529 from bwks/fix/482-import-tab-submit
+
+fix(server): the lab create Import tab can submit by @bwks in [#529](https://github.com/bwks/sherpa/pull/529) ([aa28125](https://github.com/bwks/sherpa/commit/aa28125a9714ff9ed408cfb122abfff948913736))
+- Merge pull request #526 from bwks/chore/standard-dev-vms
+
+chore(dev): two identical dev servers, dev and agent-2 by @bwks in [#526](https://github.com/bwks/sherpa/pull/526) ([6896a0b](https://github.com/bwks/sherpa/commit/6896a0bcccbcf9bf4fc42c9900929b7977ad5089))
+- Two identical dev servers, dev and agent-2 by @bwks ([2cb2372](https://github.com/bwks/sherpa/commit/2cb23723279681579029db0b880988050d9f7a26))
+- Merge pull request #525 from bwks/changelog/v0.5.19
+
+chore(release): update changelog for v0.5.19 by @github-actions[bot] in [#525](https://github.com/bwks/sherpa/pull/525) ([0028417](https://github.com/bwks/sherpa/commit/0028417a81c164df1dd517217be4c8f80076ce3f))
 ## [0.5.19] - 2026-11-10
 
 ### Features
