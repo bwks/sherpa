@@ -2137,7 +2137,7 @@ impl NodeConfig {
             ..ubuntu
         }
     }
-    /// NixOS, built from Sherpa's image recipe in `images/nixos`. More memory than the other
+    /// NixOS, built from the image recipe in `bwks/nixos-image`. More memory than the other
     /// distros, because rebuilding the system runs Nix on the node.
     #[tracing::instrument(level = "debug")]
     pub fn nixos_linux() -> NodeConfig {

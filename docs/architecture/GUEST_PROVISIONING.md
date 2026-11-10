@@ -24,7 +24,7 @@ server never sees.
 Alpine has its own branch in `generate_cloud_init_ztp`; every other cloud-init model shares the
 main branch. NixOS shares it, with the adjustments below; the rest of what NixOS needs (the
 `cloud-init` command, per-user groups, `eth` interface names, cloud-init without warnings) is
-set in its image, `images/nixos/configuration.nix`. Both build `runcmd` in the same order: staged file moves, the environment loader,
+set in its image, `configuration.nix` in [bwks/nixos-image](https://github.com/bwks/nixos-image). Both build `runcmd` in the same order: staged file moves, the environment loader,
 `startup_scripts`, then `user_scripts`.
 
 ## Guest login

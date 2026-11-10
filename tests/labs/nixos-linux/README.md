@@ -1,7 +1,7 @@
 # NixOS lab test
 
 Tests `nixos_linux` nodes end to end through the `sherpa` CLI. The image is built from
-[`images/nixos`](../../../images/nixos).
+[bwks/nixos-image](https://github.com/bwks/nixos-image).
 
 | Node | Model | Connections |
 |---|---|---|
@@ -12,7 +12,7 @@ Tests `nixos_linux` nodes end to end through the `sherpa` CLI. The image is buil
 
 ## Requirements
 
-- A Sherpa server with the `nixos_linux` 26.05 image, built from `images/nixos` and imported
+- A Sherpa server with the `nixos_linux` 26.05 image, built from [bwks/nixos-image](https://github.com/bwks/nixos-image) and imported
   with `sherpa server image import --model nixos_linux --version 26.05`. The run fails early if
   it is missing.
 - The `sherpa` CLI logged in, with an SSH key registered, plus `ssh`.

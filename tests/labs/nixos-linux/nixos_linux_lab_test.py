@@ -5,7 +5,7 @@
 # ///
 """End-to-end test of NixOS lab nodes through the sherpa CLI (Python 3.15+, stdlib only).
 
-Brings up two `nixos_linux` VMs built from images/nixos, and checks what NixOS does differently
+Brings up two `nixos_linux` VMs built from bwks/nixos-image, and checks what NixOS does differently
 from the other distros: the lab owner's login with NixOS's bash, sudo through wheel, per-user
 groups for text-file ownership, cloud-init finishing cleanly, an SSH provisioner, eth interface
 names, password login allowed by the image, and a P2p link. Always destroys the lab. See README.md.
@@ -375,7 +375,7 @@ def preflight(run_root):
             image = run_logged(log, f"{model} {version} image present",
                                ["sherpa", "image", "show", model, "--version", version], run_root)
             require(image.code == 0, f"the server has no {model} {version} image "
-                    "(build it from images/nixos and import it)")
+                    "(build it from bwks/nixos-image and import it)")
 
 
 def main():
