@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.18] - 2026-11-10
+
+### Bug Fixes
+
+- Refuse nodes that do not fit in host memory (behaviour change: up, redeploy and resume now refuse; see [host_memory] in sherpa.toml) by @bwks ([3e81a7a](https://github.com/bwks/sherpa/commit/3e81a7af4b99cc087fc340557c56f9cb0cbf777f))
+- Trust the project mise.toml in guest checkouts by @bwks ([006aed2](https://github.com/bwks/sherpa/commit/006aed22835f07b0f4c6d52b5c666735d3367939))
+
+### Miscellaneous
+
+- Merge pull request #519 from bwks/fix/admission-test-portable
+
+test(server): size the admission test from the server's free guest memory by @bwks in [#519](https://github.com/bwks/sherpa/pull/519) ([48eea85](https://github.com/bwks/sherpa/commit/48eea85d70391f21ced48d5a9d75e0c98cf188b3))
+- Merge pull request #518 from bwks/fix/514-memory-admission
+
+fix(server): refuse nodes that do not fit in host memory (behaviour change: up, redeploy and resume now refuse; see [host_memory] in sherpa.toml) by @bwks in [#518](https://github.com/bwks/sherpa/pull/518) ([706cc92](https://github.com/bwks/sherpa/commit/706cc9215fa6d42a9162e3dd76074095bb36e219))
+- Merge pull request #517 from bwks/fix/guest-mise-trust
+
+fix(dev): trust the project mise.toml in guest checkouts by @bwks in [#517](https://github.com/bwks/sherpa/pull/517) ([4d54c6f](https://github.com/bwks/sherpa/commit/4d54c6f7f723e612ac1c09796f512f48d9ef6f6d))
+- Merge pull request #516 from bwks/changelog/v0.5.17
+
+chore(release): update changelog for v0.5.17 by @github-actions[bot] in [#516](https://github.com/bwks/sherpa/pull/516) ([88494e1](https://github.com/bwks/sherpa/commit/88494e10a523794048b3be173aca8cd0c01b6e02))
+
+### Refactor
+
+- Overcommit_percent instead of a float ratio by @bwks ([b0176cc](https://github.com/bwks/sherpa/commit/b0176cc56dac9dd0a49a9d97d87c9d5522ba5d55))
+- Read the capabilities XML with roxmltree by @bwks ([e227f51](https://github.com/bwks/sherpa/commit/e227f51ac4272ee8a0bee2b4c9f88731715e1be4))
+
+### Testing
+
+- Size the admission test from the server's free guest memory by @bwks ([8671785](https://github.com/bwks/sherpa/commit/86717855b6137459236568db9f8e1ef58450d174))
 ## [0.5.17] - 2026-11-09
 
 ### Bug Fixes
