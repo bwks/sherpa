@@ -1,6 +1,6 @@
 [package]
 name = "agent-bus"
-version = "0.5.29"
+version = "0.5.30"
 edition = "2024"
 description = "Development tool: a NATS message channel between the host agent and agents in lab guests"
 publish = false

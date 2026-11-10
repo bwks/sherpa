@@ -1,7 +1,7 @@
 /// UPDATE operation tests for `node_image`
 use anyhow::Result;
 use db::{DefaultRequest, find_node_image_by_id, update_node_image, upsert_node_image};
-use shared::data::{NodeModel, RecordId};
+use shared::data::{NodeModel, RecordId, Ztp};
 
 use crate::{create_test_config, setup_db};
 
@@ -120,5 +120,53 @@ async fn test_update_preserves_id() -> Result<()> {
     );
     assert_eq!(retrieved.memory, 3072, "Final memory value should be 3072");
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_update_refuses_a_ztp_method_the_model_does_not_take() -> Result<()> {
+    let db = setup_db().await?;
+    let created = upsert_node_image(
+        &db,
+        create_test_config(NodeModel::AristaVeos),
+        DefaultRequest::Keep,
+    )
+    .await?;
+    let id = created.id.clone().expect("the image has an ID");
+
+    let mut edited = created.clone();
+    edited.ztp.mode = Ztp::Volume;
+    edited.memory = 8192;
+    let error = update_node_image(&db, edited, DefaultRequest::Keep)
+        .await
+        .expect_err("the edit is refused");
+
+    assert!(
+        format!("{error:#}").contains("allows: disabled, tftp"),
+        "{error:#}"
+    );
+    let stored = find_node_image_by_id(&db, id)
+        .await?
+        .expect("the image is stored");
+    assert_eq!(stored.ztp.mode, Ztp::Tftp, "the setting is unchanged");
+    assert_eq!(stored.memory, created.memory, "nothing else is written");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_update_stores_a_ztp_setting_the_model_takes() -> Result<()> {
+    let db = setup_db().await?;
+    let created = upsert_node_image(
+        &db,
+        create_test_config(NodeModel::AristaVeos),
+        DefaultRequest::Keep,
+    )
+    .await?;
+
+    let mut edited = created;
+    edited.ztp.mode = Ztp::Disabled;
+    let stored = update_node_image(&db, edited, DefaultRequest::Keep).await?;
+
+    assert_eq!(stored.ztp.mode, Ztp::Disabled);
     Ok(())
 }

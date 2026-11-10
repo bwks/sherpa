@@ -22,7 +22,7 @@ use crate::services::progress::ProgressSender;
 use crate::services::talos;
 use crate::services::up::process_manifest_nodes;
 use crate::tls::lab_ca::{self, LabCa};
-use crate::validate::{reject_provisioners, validate_node_secrets};
+use crate::validate::{reject_provisioners, validate_node_secrets, validate_node_ztp};
 
 use libvirt::QemuConnection;
 use shared::data;
@@ -117,10 +117,8 @@ pub(super) async fn load_redeploy<'a>(
 
     let manifest = check_manifest(ctx, manifest, &node_name, secrets.as_deref())?;
     let mut target_node = manifest_node(&manifest, &node_name)?;
-    let talos_membership = find_talos_cluster(
-        manifest.talos_clusters.as_deref().unwrap_or_default(),
-        &node_name,
-    );
+    let talos_clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
+    let talos_membership = find_talos_cluster(talos_clusters, &node_name);
     talos::ensure_redeployable(&node_name, talos_membership)?;
 
     let db = &state.db;
@@ -131,7 +129,7 @@ pub(super) async fn load_redeploy<'a>(
         node_image,
         data_interface_count,
         image_guard,
-    } = load_node(state, &lab_record_id, &lab_id, &target_node).await?;
+    } = load_node(state, &lab_record_id, &lab_id, &target_node, talos_clusters).await?;
     target_node.version = Some(node_image.version.clone());
 
     let LabFiles {
@@ -233,14 +231,15 @@ fn check_manifest(
     Ok(manifest)
 }
 
-/// The node's record and image, leased, with the node's disk method checked against it. The
-/// model cannot change, and unikernels cannot be redeployed.
+/// The node's record and image, leased, with the node's ZTP setting and disk method checked
+/// against it. The model cannot change, and unikernels cannot be redeployed.
 #[instrument(skip_all, fields(%lab_id, node_name = %target_node.name), level = "debug")]
 async fn load_node(
     state: &AppState,
     lab_record_id: &RecordId,
     lab_id: &str,
     target_node: &topology::NodeExpanded,
+    talos_clusters: &[topology::TalosCluster],
 ) -> Result<LoadedNode> {
     let db = &state.db;
     let node_name = target_node.name.as_str();
@@ -267,6 +266,7 @@ async fn load_node(
         !matches!(node_image.kind, data::NodeKind::Unikernel),
         "Redeploy not supported for unikernel nodes"
     );
+    validate_node_ztp(target_node, &node_image, talos_clusters)?;
     let data_interface_count =
         effective_data_interface_count(node_name, target_node.data_interface_count, &node_image)
             .context(format!(

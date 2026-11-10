@@ -7,6 +7,7 @@ use axum::response::{Html, IntoResponse, Response};
 use serde::de::value::{Error as DeError, StrDeserializer};
 use serde::de::{DeserializeOwned, IntoDeserializer};
 use serde::{Deserialize, Serialize};
+use std::iter;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
 
@@ -16,7 +17,7 @@ use crate::daemon::state::AppState;
 use crate::services::image_lifecycle::lock_image;
 use crate::services::import;
 use crate::services::progress::ProgressSender;
-use crate::templates::{AdminImageUploadTemplate, AdminNotificationErrorTemplate};
+use crate::templates::{AdminImageUploadTemplate, AdminNotificationErrorTemplate, FormChoice};
 
 use crate::api::errors::ApiError;
 use crate::api::extractors::AdminUser;
@@ -24,7 +25,7 @@ use crate::api::extractors::AdminUser;
 use crate::validate::validate_node_image_update;
 use shared::data::{
     BiosTypes, CpuArchitecture, CpuModels, DiskBuses, ImportRequest, InterfaceType, MachineType,
-    NodeConfig, NodeModel, OsVariant, ZtpMethod, ZtpSettings,
+    NodeConfig, NodeModel, OsVariant, Ztp, ZtpSettings,
 };
 
 /// Helper struct for extracting image path parameters with optional version
@@ -169,7 +170,6 @@ struct ImageFormChoices {
     machine_type: MachineType,
     hdd_bus: DiskBuses,
     cdrom_bus: DiskBuses,
-    ztp_method: ZtpMethod,
     interface_type: InterfaceType,
 }
 
@@ -183,10 +183,22 @@ impl ImageFormChoices {
             machine_type: parse_form_choice(&form.machine_type, "machine type")?,
             hdd_bus: parse_form_choice(&form.hdd_bus, "HDD bus")?,
             cdrom_bus: parse_form_choice(&form.cdrom_bus, "CDROM bus")?,
-            ztp_method: parse_form_choice(&form.ztp_method, "ZTP method")?,
             interface_type: parse_form_choice(&form.interface_type, "interface type")?,
         })
     }
+}
+
+/// The ZTP settings the edit form offers for an image of `model`: off, then the methods the
+/// model takes, with the image's `current` setting selected.
+fn ztp_choices(model: NodeModel, current: Ztp) -> Vec<FormChoice> {
+    iter::once(Ztp::Disabled)
+        .chain(model.ztp_methods().iter().copied())
+        .map(|ztp| FormChoice {
+            value: ztp.to_string(),
+            label: ztp.to_string(),
+            selected: ztp == current,
+        })
+        .collect()
 }
 
 /// One of the form's choices, by the enum's serde name.
@@ -222,8 +234,7 @@ fn updated_image_config(
         cdrom: form.cdrom.filter(|s| !s.trim().is_empty()),
         cdrom_bus: choices.cdrom_bus,
         ztp: ZtpSettings {
-            enable: form.ztp_enable.is_some(),
-            method: choices.ztp_method,
+            mode: form.ztp,
             username: form.ztp_username.filter(|s| !s.trim().is_empty()),
             password: form.ztp_password.filter(|s| !s.trim().is_empty()),
             password_auth: form.ztp_password_auth.is_some(),
@@ -283,6 +294,7 @@ pub async fn admin_image_edit_page_handler(
         username: admin.username.clone(),
         is_admin: true,
         active_page: "admin_images".to_string(),
+        ztp_choices: ztp_choices(config.model, config.ztp.mode),
         config,
         os_variants: OsVariant::iter().map(|v| v.to_string()).collect(),
         bios_types: BiosTypes::iter().map(|v| v.to_string()).collect(),
@@ -290,7 +302,6 @@ pub async fn admin_image_edit_page_handler(
         cpu_models: CpuModels::iter().map(|v| v.to_string()).collect(),
         machine_types: MachineType::iter().map(|v| v.to_string()).collect(),
         disk_buses: DiskBuses::iter().map(|v| v.to_string()).collect(),
-        ztp_methods: ZtpMethod::iter().map(|v| v.to_string()).collect(),
         interface_types: InterfaceType::iter().map(|v| v.to_string()).collect(),
     };
 
@@ -314,8 +325,8 @@ pub struct ImageForm {
     pub hdd_bus: String,
     pub cdrom: Option<String>,
     pub cdrom_bus: String,
-    pub ztp_enable: Option<String>, // checkbox
-    pub ztp_method: String,
+    /// The ZTP setting, by the word the image stores.
+    pub ztp: Ztp,
     pub ztp_username: Option<String>,
     pub ztp_password: Option<String>,
     pub ztp_password_auth: Option<String>, // checkbox
@@ -353,6 +364,8 @@ pub async fn admin_image_update_handler(
 
     // Validate form data
     if let Err(e) = validate_node_image_update(
+        config.model,
+        form.ztp,
         form.cpu_count,
         form.memory,
         form.interface_mtu,
@@ -660,6 +673,10 @@ pub async fn admin_image_upload_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::Body;
+    use axum::extract::FromRequest;
+    use axum::extract::rejection::FormRejection;
+    use axum::http::{Method, Request};
 
     fn raw_fields(
         model: Option<&str>,
@@ -799,8 +816,7 @@ mod tests {
             hdd_bus: choice(&config.hdd_bus),
             cdrom: None,
             cdrom_bus: choice(&config.cdrom_bus),
-            ztp_enable: None,
-            ztp_method: choice(&config.ztp.method),
+            ztp: config.ztp.mode,
             ztp_username: None,
             ztp_password: None,
             ztp_password_auth: None,
@@ -826,5 +842,85 @@ mod tests {
 
         assert_eq!(updated.version, "24.04");
         assert!(updated.default);
+    }
+
+    /// The offered values, and the one selected.
+    fn offered(model: NodeModel, current: Ztp) -> (Vec<String>, Vec<String>) {
+        let choices = ztp_choices(model, current);
+        let selected = choices
+            .iter()
+            .filter(|choice| choice.selected)
+            .map(|choice| choice.value.clone())
+            .collect();
+        (
+            choices.into_iter().map(|choice| choice.value).collect(),
+            selected,
+        )
+    }
+
+    #[test]
+    fn the_ztp_choices_are_disabled_and_the_models_methods() {
+        // Two methods, one method, and a container with none.
+        assert_eq!(
+            offered(NodeModel::JuniperVsrxv3, Ztp::Cdrom),
+            (
+                vec!["disabled".to_owned(), "tftp".to_owned(), "cdrom".to_owned()],
+                vec!["cdrom".to_owned()]
+            )
+        );
+        assert_eq!(
+            offered(NodeModel::UbuntuLinux, Ztp::Disabled),
+            (
+                vec!["disabled".to_owned(), "cloud-init".to_owned()],
+                vec!["disabled".to_owned()]
+            )
+        );
+        assert_eq!(
+            offered(NodeModel::MongoDb, Ztp::Disabled),
+            (vec!["disabled".to_owned()], vec!["disabled".to_owned()])
+        );
+    }
+
+    /// The image form as a browser posts it, with `ztp` as its ZTP setting.
+    async fn posted_form(ztp: &str) -> Result<Form<ImageForm>, FormRejection> {
+        let body = format!(
+            "version=1&os_variant=linux&bios=seabios&cpu_count=1&cpu_architecture=x86_64\
+             &cpu_model=host-model&machine_type=q35&memory=1024&hdd_bus=virtio\
+             &cdrom_bus=sata&ztp={ztp}&data_interface_count=1&interface_prefix=eth\
+             &interface_type=virtio&interface_mtu=1500&first_interface_index=0\
+             &reserved_interface_count=0"
+        );
+        let request = Request::builder()
+            .method(Method::POST)
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        Form::<ImageForm>::from_request(request, &()).await
+    }
+
+    #[tokio::test]
+    async fn the_form_reads_the_ztp_word_and_refuses_any_other() {
+        for (word, ztp) in [("cloud-init", Ztp::CloudInit), ("disabled", Ztp::Disabled)] {
+            let Form(form) = posted_form(word).await.unwrap();
+            assert_eq!(form.ztp, ztp);
+        }
+        for word in ["none", "ipxe", "on", ""] {
+            assert!(
+                posted_form(word).await.is_err(),
+                "{word:?} was read as a ZTP setting"
+            );
+        }
+    }
+
+    #[test]
+    fn a_saved_form_carries_its_ztp_setting_to_the_image() {
+        let config = NodeConfig::get_model(NodeModel::JuniperVsrxv3);
+        let mut form = form_for(&config, "1");
+        form.ztp = Ztp::Tftp;
+        let choices = ImageFormChoices::parse(&form).unwrap();
+
+        let updated = updated_image_config(config, form, choices);
+
+        assert_eq!(updated.ztp.mode, Ztp::Tftp);
     }
 }

@@ -26,6 +26,7 @@ instead of repeating these instructions.
 | Installer suite | `./tests/harness/test_install.sh --config tests/environments/<env>/release-test.toml` | Sherpa host, logged-in CLI | about 20–30 min |
 | Private bridge lab test | `uv run tests/labs/private-bridge/private_bridge_lab_test.py` | Sherpa host with the alpine and FRR images, logged-in CLI | about 5–10 min |
 | P2p containers lab test | `uv run tests/labs/p2p-containers/p2p_containers_lab_test.py` | On the Sherpa server: the node images, Docker access, logged-in CLI | about 2–5 min |
+| Container ZTP lab test | `uv run tests/labs/container-ztp/container_ztp_lab_test.py` | On the Sherpa server: the node images, Docker access, logged-in CLI, internet for the FRR node's packages | about 5–15 min |
 | P2p links lab test | `uv run tests/labs/p2p-links/p2p_links_lab_test.py` | On the Sherpa server: the node images, `nicolaka/netshoot:v0.14`, Docker access, logged-in CLI | about 15–20 min |
 | Talos lab test | `uv run tests/labs/talos-linux/talos_lab_test.py` | Sherpa host with the Talos image, logged-in CLI, internet | about 25–35 min |
 | Web UI JavaScript | `node tests/web/test_theme.cjs` | Node.js | seconds |
@@ -223,6 +224,7 @@ runs, so install the build under test first.
 ```sh
 uv run tests/labs/private-bridge/private_bridge_lab_test.py  # private bridges: a VM and containers
 uv run tests/labs/p2p-containers/p2p_containers_lab_test.py  # P2p links on NOS, app and OS containers
+uv run tests/labs/container-ztp/container_ztp_lab_test.py    # ZTP on and off on the mounted-config containers
 uv run tests/labs/p2p-links/p2p_links_lab_test.py            # P2p link requirements on every pair of node kinds
 uv run tests/labs/talos-linux/talos_lab_test.py         # Talos clusters: single and ha labs in parallel
 ```

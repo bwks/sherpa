@@ -22,8 +22,9 @@ Do not document user-facing behaviour here; document it there.
 | [`P2P-ARCHITECTURE.md`](P2P-ARCHITECTURE.md) | Point-to-point link implementation: eBPF redirect, veth/tap plumbing, netem coexistence. |
 | [`OTEL.md`](OTEL.md) | OpenTelemetry tracing and metrics instrumentation and exported metric names. |
 | [`TALOS.md`](TALOS.md) | Talos Linux nodes and Kubernetes clusters: NoCloud delivery, cluster plan, secrets, machine configs, Cilium, Keycloak login and Vault secrets, bootstrap, lifecycle. |
+| [`ZTP.md`](ZTP.md) | Zero touch provisioning: the one `Ztp` setting, the methods each model takes, the validator and its callers, the manifest override, the readers, container start settings against ZTP, and migration 0016. |
 | [`ZTP_ISO.md`](ZTP_ISO.md) | The ISO 9660 writer for node config media: callers and labels, the primary, Rock Ridge and Joliet trees, sector layout, limits. |
-| [`STATE_MACHINES.md`](STATE_MACHINES.md) | Lifecycles held in enums, flags, strings and side effects: node and lab state, the scanner, operation leases, up/destroy/redeploy stages, provisioning, sessions, jobs, streams, TLS trust, links, images, ZTP settings. States, transitions, who sets and reads them, with diagrams. |
+| [`STATE_MACHINES.md`](STATE_MACHINES.md) | Lifecycles held in enums, flags, strings and side effects: node and lab state, the scanner, operation leases, up/destroy/redeploy stages, provisioning, sessions, jobs, streams, TLS trust, links, images, the ZTP setting. States, transitions, who sets and reads them, with diagrams. |
 | [`VALIDATION.md`](VALIDATION.md) | Where validators live (`shared::validators`, `topology::validate`, crate `validate` modules) and how client and server checks relate. |
 
 Proposals for architecture changes that are not yet implemented live in [`../prds/`](../prds/).

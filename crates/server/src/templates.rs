@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use shared::data::{
     BridgeInfo, DbUser, DestroyError, DeviceInfo, LabInfo, LabPhase, LabState, LabSummary,
-    LinkInfo, NodeConfig, NodeKind,
+    LinkInfo, NodeConfig, NodeKind, Ztp,
 };
 
 use crate::api::handlers::{ImageSummary, UserSummary};
@@ -206,6 +206,8 @@ pub struct NodeDetailTemplate {
     pub lab_name: String,
     pub device: DeviceInfo,
     pub node_config: NodeConfig,
+    /// The ZTP setting the node runs with: its manifest's, or else its image's.
+    pub ztp: Ztp,
     pub mgmt_mac: Option<String>,
 }
 
@@ -392,6 +394,15 @@ pub struct AdminImageDetailTemplate {
     pub config: NodeConfig,
 }
 
+/// One option of a form's list, built by the handler: the value posted, the text shown, and
+/// whether it is the current one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FormChoice {
+    pub value: String,
+    pub label: String,
+    pub selected: bool,
+}
+
 /// Admin image edit page template
 #[derive(Template, WebTemplate)]
 #[template(path = "admin/image-edit.html.jinja")]
@@ -406,7 +417,8 @@ pub struct AdminImageEditTemplate {
     pub cpu_models: Vec<String>,
     pub machine_types: Vec<String>,
     pub disk_buses: Vec<String>,
-    pub ztp_methods: Vec<String>,
+    /// The ZTP settings the image's model takes, the image's own selected.
+    pub ztp_choices: Vec<FormChoice>,
     pub interface_types: Vec<String>,
 }
 
@@ -762,6 +774,7 @@ mod tests {
             lab_name: "test-lab".to_string(),
             device: test_device(),
             node_config: NodeConfig::get_model(NodeModel::UbuntuLinux),
+            ztp: Ztp::CloudInit,
             mgmt_mac: None,
         };
         let html = tpl.render().expect("template should render");
@@ -779,6 +792,7 @@ mod tests {
             lab_name: "test-lab".to_string(),
             device,
             node_config: NodeConfig::get_model(model),
+            ztp: NodeConfig::get_model(model).ztp.mode,
             mgmt_mac: None,
         }
         .render()

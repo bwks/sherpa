@@ -455,8 +455,7 @@ pub fn render_image_detail_table(image: &NodeConfig) -> String {
             image.reserved_interface_count.to_string(),
         ),
         ("Repo", image.repo.as_deref().unwrap_or("none").to_owned()),
-        ("ZTP Enabled", image.ztp.enable.to_string()),
-        ("ZTP Method", image.ztp.method.to_string()),
+        ("ZTP", image.ztp.mode.to_string()),
         (
             "ZTP Username",
             image.ztp.username.as_deref().unwrap_or("none").to_owned(),
@@ -1071,8 +1070,10 @@ mod tests {
         assert!(table.contains("Management Interface"));
         assert!(table.contains("Reserved Interface Count"));
         assert!(table.contains("Repo"));
-        assert!(table.contains("ZTP Enabled"));
-        assert!(table.contains("ZTP Method"));
+        assert!(table.contains("│ ZTP "));
+        assert!(table.contains("cdrom"));
+        assert!(!table.contains("ZTP Enabled"));
+        assert!(!table.contains("ZTP Method"));
         assert!(table.contains("ZTP Username"));
         assert!(table.contains("ZTP Password Auth"));
 

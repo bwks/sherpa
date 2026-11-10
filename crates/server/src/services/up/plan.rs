@@ -10,11 +10,13 @@ use crate::services::guest_account;
 use crate::services::guest_account::GuestAccount;
 use crate::services::image_lifecycle::{ImageLease, lease_image, validate_disk_method};
 use crate::services::progress::ProgressSender;
-use crate::validate::{validate_and_resolve_node_versions, validate_environment_variables};
+use crate::validate::{
+    validate_and_resolve_node_versions, validate_environment_variables, validate_node_ztp,
+};
 
 use shared::data;
 use shared::data::{NodeCpuPins, NodeSshUsername, StatusKind};
-use shared::validators::effective_data_interface_count;
+use shared::validators::{effective_data_interface_count, effective_ztp};
 use topology::validate::{
     check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
@@ -105,6 +107,11 @@ pub(super) async fn plan_lab(
             node.boot_disk_size,
         )
         .with_context(|| format!("Disk provisioning validation failed for node {}", node.name))?;
+        validate_node_ztp(
+            node,
+            &image,
+            manifest.talos_clusters.as_deref().unwrap_or_default(),
+        )?;
     }
 
     let (personal_account, ssh_usernames) =
@@ -240,7 +247,10 @@ fn owner_accounts(
             let image = get_node_image(node.model, node.version.as_deref(), node_images)?;
             if guest_account::provisions_owner(node, &image) {
                 personal_nodes.push((node.name.clone(), image));
-            } else if guest_account::supports_guest_account(&image) {
+            } else if guest_account::supports_guest_account(
+                image.model,
+                effective_ztp(node.ztp, &image),
+            ) {
                 let _ = progress.send_status(
                     format!(
                         "Node '{}' has a custom ZTP config, so it gets no account for '{}'",

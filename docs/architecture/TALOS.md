@@ -25,7 +25,7 @@ SATA CD-ROM, `host-model` CPU (Talos needs x86-64-v2).
 
 ## NoCloud delivery
 
-`ZtpMethod::NoCloud` (`node_ops::generate_nocloud_ztp`) builds a `cidata` ISO from:
+`Ztp::NoCloud` (`node_ops::generate_nocloud_ztp`) builds a `cidata` ISO from:
 
 - `meta-data`: instance ID and hostname;
 - `network-config`: Sherpa's netplan v2 document (`CloudInitNetwork::ztp_interface`), a static
