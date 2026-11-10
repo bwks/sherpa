@@ -313,6 +313,7 @@ pub async fn lab_detail_handler(
                 lab_info: response.lab_info,
                 lab_state: response.lab_state,
                 phase_badge: Badge::for_unready_phase(response.lab_phase, BadgeSize::Large),
+                offers_start_stop: response.lab_phase.is_ready(),
                 devices: response.devices,
                 device_count,
                 inactive_devices: response.inactive_devices,

@@ -38,16 +38,12 @@
     <type arch='{{ cpu_architecture }}' machine='{{ machine_type }}'>hvm</type>
     {% match boot_mode %}
     {%   when UnikernelBootMode::DirectKernel %}
-    {%     match kernel_path %}
-    {%       when Some with (kpath) %}
+    {%     if let Some(kpath) = kernel_path %}
     <kernel>{{ kpath }}</kernel>
-    {%       when None %}
-    {%     endmatch %}
-    {%     match kernel_cmdline %}
-    {%       when Some with (cmdline) %}
+    {%     endif %}
+    {%     if let Some(cmdline) = kernel_cmdline %}
     <cmdline>{{ cmdline }}</cmdline>
-    {%       when None %}
-    {%     endmatch %}
+    {%     endif %}
     {%   when UnikernelBootMode::DiskBoot %}
     <boot dev='hd'/>
     {% endmatch %}

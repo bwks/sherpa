@@ -28,9 +28,7 @@
                 <td class="p-4 text-sm text-body text-center">{{ lab.node_count }}</td>
                 <td class="p-4 text-sm text-body">
                     <div class="flex items-center justify-end space-x-2">
-                        {% match row.phase_badge %}
-                        {% when Some(_) %}
-                        {% when None %}
+                        {% if row.offers_start_stop %}
                         {% match lab.status %}
                             {% when LabState::Running %}
                             <button
@@ -67,7 +65,7 @@
                                 {% call icons::play() %}
                             </button>
                         {% endmatch %}
-                        {% endmatch %}
+                        {% endif %}
                         <a href="/labs/{{ lab.id }}" class="text-muted hover:text-heading transition-colors" title="View">
                             {% call icons::eye() %}
                         </a>

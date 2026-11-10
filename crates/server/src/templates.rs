@@ -45,14 +45,17 @@ pub struct LabsGridTemplate {
 /// One lab in the labs grid.
 pub struct LabRow {
     pub lab: LabSummary,
-    /// Shown instead of the lab state, with no start or stop, until the lab is ready.
+    /// Shown instead of the lab state until the lab is ready.
     pub phase_badge: Option<Badge>,
+    /// Only a ready lab can be started or stopped; any other can only be destroyed.
+    pub offers_start_stop: bool,
 }
 
 impl From<LabSummary> for LabRow {
     fn from(lab: LabSummary) -> Self {
         Self {
             phase_badge: Badge::for_unready_phase(lab.phase, BadgeSize::Small),
+            offers_start_stop: lab.phase.is_ready(),
             lab,
         }
     }
@@ -171,8 +174,10 @@ pub struct LabDetailTemplate {
     pub lab_info: LabInfo,
     pub lab_state: LabState,
     /// Which operation owns the lab, from `Badge::for_unready_phase`; while it is `Some`, it is
-    /// shown instead of the state and only Destroy is offered.
+    /// shown instead of the state.
     pub phase_badge: Option<Badge>,
+    /// Only a ready lab can be started or stopped; any other can only be destroyed.
+    pub offers_start_stop: bool,
     pub devices: Vec<DeviceInfo>,
     pub device_count: usize,
     pub inactive_devices: Vec<String>,
@@ -1083,6 +1088,7 @@ mod tests {
             lab_info,
             lab_state,
             phase_badge: Badge::for_unready_phase(lab_phase, BadgeSize::Large),
+            offers_start_stop: lab_phase.is_ready(),
             devices: vec![],
             device_count: 0,
             inactive_devices: vec![],
@@ -1124,6 +1130,33 @@ mod tests {
             assert!(html.contains(badge), "{phase:?}: {html}");
             assert!(!html.contains(">Stopped<"), "{phase:?}: {html}");
         }
+    }
+
+    #[test]
+    fn the_lab_detail_offers_no_start_or_stop_while_the_lab_is_not_ready() {
+        for phase in [
+            LabPhase::Creating,
+            LabPhase::Destroying,
+            LabPhase::DestroyFailed,
+            LabPhase::Interrupted,
+            LabPhase::Unknown,
+        ] {
+            for state in [LabState::Running, LabState::Partial, LabState::Stopped] {
+                let html = lab_detail(state, phase);
+                assert!(
+                    !html.contains("data-lab-detail-action"),
+                    "{phase:?}: {html}"
+                );
+                assert!(html.contains("Destroy Lab"), "{phase:?}: {html}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_lab_detail_offers_start_and_stop_once_the_lab_is_ready() {
+        let html = lab_detail(LabState::Partial, LabPhase::Ready);
+        assert!(html.contains(r#"data-lab-detail-action="start""#), "{html}");
+        assert!(html.contains(r#"data-lab-detail-action="stop""#), "{html}");
     }
 
     #[test]

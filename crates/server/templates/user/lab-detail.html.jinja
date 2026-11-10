@@ -19,14 +19,11 @@
 <div class="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
     <div class="flex items-center justify-between mb-4">
         <h2 class="text-xl font-semibold text-heading">Lab Information</h2>
-        {% match lab_state %}
-            {% when LabState::Unknown %}
-            {% when LabState::Empty %}
-            {% else %}
+        {% if lab_state != LabState::Unknown && lab_state != LabState::Empty %}
             <a href="/labs/{{ lab_info.id }}/download" hx-boost="false" class="text-accent hover:text-accent-hover transition-colors" title="Download lab files for CLI use">
                 {% call icons::download() %}
             </a>
-        {% endmatch %}
+        {% endif %}
     </div>
     {% if let Some(description) = lab_info.description %}
     <p class="mb-4 text-sm text-body whitespace-pre-line break-words">{{ description }}</p>
@@ -234,9 +231,7 @@
     <a href="/labs" class="btn-cancel">
         Back to Labs
     </a>
-    {% match phase_badge %}
-    {% when Some(_) %}
-    {% when None %}
+    {% if offers_start_stop %}
     {% match lab_state %}
         {% when LabState::Running %}
         <button
@@ -278,7 +273,7 @@
             Start Lab
         </button>
     {% endmatch %}
-    {% endmatch %}
+    {% endif %}
     <div id="destroy-action">
         <button
             hx-get="/labs/{{ lab_info.id }}/destroy/confirm"
