@@ -3,14 +3,18 @@
 # stdin: the token from `claude setup-token` on one line, the GitHub write token on the next (an
 # empty line for none), the agent's NKey seed on the next, then the bus's CA certificate (PEM) to
 # the end. On the host, dev/agent-bus/start-agent.sh runs it with all four, the seed straight from
-# `agent-bus enroll`. No secret is a command-line argument or written to disk. The seed is
-# exported to the agent process only, and the agent keeps it from Claude Code. The GitHub write
-# token is never exported: it reaches the agent on its stdin, through a pipe from a shell builtin,
-# and the agent holds it in memory and sets it as GH_TOKEN for --github tasks alone. Every other
-# task has the read-only GH_TOKEN the login shell loads from ~/.env.d/github.env. Without a write
-# token the agent runs, and its --github tasks fail. The CA certificate is not secret: it is kept
-# as bus-ca.pem in the guest's agent-bus state directory and given to the agent as AGENT_BUS_CA,
-# the only CA it trusts.
+# `agent-bus enroll`.
+#
+# No secret is exported, a command-line argument or written to disk. The three secrets are read
+# into unexported variables and reach the agent on its stdin, through a pipe from the printf
+# builtin, and the agent is started without AGENT_BUS_SEED or CLAUDE_CODE_OAUTH_TOKEN in its
+# environment: a task, a process of the same user, can read /proc/<agent pid>/environ. The agent
+# holds them in memory only. It gives the Claude token to each Claude Code run's environment,
+# where Claude Code needs it, and the write token as GH_TOKEN to --github tasks alone; the seed
+# never leaves it. Every other task has the read-only GH_TOKEN the login shell loads from
+# ~/.env.d/github.env. Without a write token the agent runs, and its --github tasks fail. The CA
+# certificate is not secret: it is kept as bus-ca.pem in the guest's agent-bus state directory
+# and given to the agent as AGENT_BUS_CA, the only CA it trusts.
 # The bus runs on the host at the guest's default gateway, the lab's management bridge. A guest
 # in another lab, such as tests/environments/agent, sets AGENT_BUS_URL to where the bus listens.
 #
@@ -20,11 +24,13 @@
 set -euo pipefail
 
 NAME="${1:-dev}"
-IFS= read -r CLAUDE_CODE_OAUTH_TOKEN || true
+# Never exported, even if the login shell exported a variable of the same name.
+export -n CLAUDE_TOKEN GITHUB_WRITE_TOKEN SEED
+IFS= read -r CLAUDE_TOKEN || true
 IFS= read -r GITHUB_WRITE_TOKEN || true
 IFS= read -r SEED || true
 CA_PEM="$(cat)"
-if [ -z "${CLAUDE_CODE_OAUTH_TOKEN}" ] || [ -z "${SEED}" ]; then
+if [ -z "${CLAUDE_TOKEN}" ] || [ -z "${SEED}" ]; then
     echo "Give the Claude subscription token, the GitHub write token (or an empty line) and the agent's bus seed on stdin, one per line, then the bus's CA certificate" >&2
     exit 2
 fi
@@ -36,7 +42,6 @@ if [[ "${CA_PEM}" != "-----BEGIN CERTIFICATE-----"*"-----END CERTIFICATE-----" ]
     echo "No CA certificate after the seed on stdin: start the agent with an agent-bus-start-agent of this version" >&2
     exit 2
 fi
-export CLAUDE_CODE_OAUTH_TOKEN
 # The subscription, never API billing.
 unset ANTHROPIC_API_KEY
 
@@ -92,12 +97,14 @@ if pgrep -f "${PATTERN}" > /dev/null; then
         fi
     fi
 fi
-# The write token goes in on the agent's stdin, never in its environment: a task can read the
-# agent's /proc/<pid>/environ.
-printf '%s\n' "${GITHUB_WRITE_TOKEN}" | AGENT_BUS_SEED="${SEED}" AGENT_BUS_CA="${CA_FILE}" \
-    nohup target/release/agent-bus guest --server "${URL}" --name "${NAME}" \
-    --workdir "${REPO}" "${MODEL_ARGS[@]}" --github-token-stdin > "${LOG}" 2>&1 &
-unset SEED GITHUB_WRITE_TOKEN
+# The secrets go in on the agent's stdin, never in its environment: a task can read the agent's
+# /proc/<pid>/environ. env -u drops any copy the login shell exported; the agent refuses to start
+# with the seed or the Claude token in its environment.
+printf '%s\n%s\n%s\n' "${CLAUDE_TOKEN}" "${GITHUB_WRITE_TOKEN}" "${SEED}" |
+    AGENT_BUS_CA="${CA_FILE}" nohup env -u AGENT_BUS_SEED -u CLAUDE_CODE_OAUTH_TOKEN \
+    target/release/agent-bus guest --server "${URL}" --name "${NAME}" \
+    --workdir "${REPO}" "${MODEL_ARGS[@]}" > "${LOG}" 2>&1 &
+unset CLAUDE_TOKEN SEED GITHUB_WRITE_TOKEN
 sleep 2
 if pgrep -f "[a]gent-bus guest .*--name ${NAME} " > /dev/null; then
     echo "Guest agent '${NAME}' is running; log: ${LOG}"
