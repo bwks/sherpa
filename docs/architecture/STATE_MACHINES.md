@@ -276,25 +276,51 @@ stateDiagram-v2
 **Where.** This machine is explicit, documented and tested. It lives in
 `crates/server/src/services/lab_operations.rs`:
 
-- `LAB_LEASES`: a per-lab `RwLock<()>` (`:23`). Entries are never removed.
-- `LAB_CANCELLATIONS`: a `CancellationToken` with a first-wins `StopReason` (`:24`, `:38-42`).
-- `PENDING_DESTROYS`: a count of waiting destroys (`:27`).
-- The types are `LabOperation` (holds a read lease) and `StoppedLab` (holds the write lease).
+- `LAB_LEASES`: a per-lab `LeaseSlot`, an `Arc<RwLock<()>>` and a count of its users (`:36`,
+  `:59`). An entry exists only while something holds or waits on the lab's lock (see "Entry
+  lifetime" below).
+- `LAB_CANCELLATIONS`: a `CancellationToken` with a first-wins `StopReason` (`:37`, `:53`).
+- `PENDING_DESTROYS`: a count of waiting destroys (`:40`).
+- The types are `LabOperation` (holds a read lease), `StoppedLab` (holds the write lease) and
+  `ObservedLab` (the scanner's write lease). Each also holds a `LeaseEntry` (`:65`).
+
+**Entry lifetime.** A `LeaseEntry` is one user's share of a lab's `LAB_LEASES` entry.
+
+- `LeaseEntry::join` (`:166`) creates the entry if it is missing, adds one to its count and
+  clones its lock, all under the entry's DashMap shard lock. `begin`, `stop` and `try_observe`
+  join before they wait for or try the lock. So a waiter counts as a user, and a `begin` or
+  `stop` future dropped while it waits gives its count back when its `LeaseEntry` drops.
+- Dropping a `LeaseEntry` (`:181`) takes one off the count and removes the entry at zero. Both
+  go through the entry API, under the same shard lock as `join`. A caller is either counted
+  before the removal, or arrives after it and creates a fresh lock that nobody else holds or
+  waits on. The drop holds no other reference into the map, so it cannot deadlock with
+  another shard lock.
+- In each holder, the guard is declared before the `LeaseEntry`. Fields drop in declaration
+  order, so the lock is released before the entry can be removed. A swapped order would let a
+  new caller create a fresh lock while the old guard is still held. Tests cannot catch a
+  swapped order: while a waiter exists its own count keeps the entry, and with no waiter the
+  window lies inside one `drop`.
+- So the map holds the labs that have an operation, a destroy or a scan running or waiting.
+  It no longer holds every lab the server has seen. `LAB_CANCELLATIONS` keeps a token from
+  the first `begin` until a `StoppedLab` drops, which is bounded by the labs that exist.
+- Tests: `released_leases_leave_the_map_and_a_held_one_stays`,
+  `a_waiter_gets_the_lock_its_holder_released`,
+  `a_waiter_cancelled_mid_wait_gives_up_its_count` and
+  `racing_takes_and_releases_never_split_a_lab_across_two_locks`.
 
 **Transitions.**
 
-- `begin` (`:134`) takes a read lease. It then cancels at once if a destroy is pending
-  (`:141-148`). It is called by:
+- `begin` (`:221`) takes a read lease. It then cancels at once if a destroy is pending. It is called by:
   - `up_lab` (`crates/server/src/services/up/lab.rs:145`);
   - `start_lab_nodes` (`resume.rs`);
   - `shutdown_lab_nodes` (`down.rs`);
   - `redeploy_node` (`redeploy/node.rs:59`).
-- `try_observe` takes the write lease if it is free, for the scanner.
-- `stop(reason)` (`:161`) cancels the token, then waits for the write lease. It is called by:
+- `try_observe` (`:247`) takes the write lease if it is free, for the scanner.
+- `stop(reason)` (`:263`) cancels the token, then waits for the write lease. It is called by:
   - `destroy_lab` (`crates/server/src/services/destroy.rs:74`, `Destroy`);
   - `clean_lab` (`crates/server/src/services/clean.rs:33`, `Destroy`);
   - `cancel_lab_operations` (`crates/server/src/services/cancel.rs:23`, `Request`).
-- Dropping `StoppedLab` (`:100-111`) removes the token, so later operations get a fresh one.
+- Dropping `StoppedLab` (`:194`) removes the token, so later operations get a fresh one.
 - Operations check for cancellation only at safe points:
   - `LabUp::start_phase` (`up/lab.rs:340`);
   - `LabOperation::sleep` in the readiness loops;
@@ -324,7 +350,8 @@ phase is written only under the lease of the lab it belongs to.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Idle
+    [*] --> Idle : first LeaseEntry joins, entry created
+    Idle --> [*] : last LeaseEntry drops, entry removed
     Idle --> Shared : begin (up, down, resume, redeploy)
     Shared --> Shared : begin (another up, down, resume, redeploy)
     Shared --> Cancelling : stop(reason) cancels token

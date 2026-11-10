@@ -138,7 +138,7 @@ Each item below is kept as found, with what closed it:
 
 ### M3. Lab operation leases
 
-**M3.1 resolved by #499 (0.5.27); M3.2 by #498; M3.3 split out to #545.** How the lab phase
+**M3.1 resolved by #499 (0.5.27); M3.2 by #498; M3.3 by #545 (0.5.28).** How the lab phase
 works now is in [`STATE_MACHINES.md` §2](../architecture/STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate).
 
 - M3.1: `up` reserves the lab in phase 1 by inserting its record, `Creating`; a second `up` of
@@ -149,7 +149,13 @@ works now is in [`STATE_MACHINES.md` §2](../architecture/STATE_MACHINES.md#2-la
   `a_lab_being_created_cannot_be_built_or_released_twice`, and the integration tests
   `two_ups_of_one_lab_leave_the_first_alone` and `test_lab_up_rejects_duplicate_lab_id`.
 - M3.2: `down` takes the lease, and the scanner observes only a lab no operation holds (#498).
-- M3.3: the `LAB_LEASES` leak is tracked in #545.
+- M3.3: each `LAB_LEASES` entry counts its holders and waiters, and the last one to drop
+  removes it, under the shard lock that joining takes. See "Entry lifetime" in
+  [`STATE_MACHINES.md` §3](../architecture/STATE_MACHINES.md#3-lab-operation-leases-and-cancellation).
+  Tests: `released_leases_leave_the_map_and_a_held_one_stays`,
+  `a_waiter_gets_the_lock_its_holder_released`,
+  `a_waiter_cancelled_mid_wait_gives_up_its_count` and
+  `racing_takes_and_releases_never_split_a_lab_across_two_locks`.
 
 1. **Two `up`s with the same lab ID: the second one's rollback deletes the first one's lab.**
    - The lab ID is a hash of the username and the lab name

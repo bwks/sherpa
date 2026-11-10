@@ -15,17 +15,25 @@
 //! lease without waiting and without cancelling anything, so a lab with an operation running is
 //! skipped for that cycle, and an operation that starts meanwhile waits until the scanner has
 //! written what it saw.
+//!
+//! A lab's lock lives in `LAB_LEASES` only while something holds or waits for it. Each holder
+//! and each waiter keeps a `LeaseEntry`, which counts it as a user of the entry; the last one to
+//! drop removes the entry. The count is changed only through the map's entry API, so the check
+//! and the removal happen under the shard lock that `lease` takes to join an entry: a caller is
+//! either counted before the removal, or arrives after it and creates a fresh lock that nobody
+//! else holds or waits for.
 
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use anyhow::{Result, bail};
 use dashmap::DashMap;
+use dashmap::mapref::entry::Entry;
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
-static LAB_LEASES: OnceLock<DashMap<String, Arc<RwLock<()>>>> = OnceLock::new();
+static LAB_LEASES: OnceLock<DashMap<String, LeaseSlot>> = OnceLock::new();
 static LAB_CANCELLATIONS: OnceLock<DashMap<String, Cancellation>> = OnceLock::new();
 /// Destroys waiting for or holding each lab's write lease. An operation that starts while one
 /// is pending, such as one queued behind a requested stop, is cancelled at once.
@@ -47,23 +55,40 @@ struct Cancellation {
     reason: Arc<OnceLock<StopReason>>,
 }
 
+/// A lab's lock in `LAB_LEASES`, and how many `LeaseEntry`s hold or wait on it.
+struct LeaseSlot {
+    lock: Arc<RwLock<()>>,
+    users: usize,
+}
+
+/// One user's share of a lab's entry in `LAB_LEASES`. Dropping the last one removes the entry.
+struct LeaseEntry {
+    lab_id: String,
+    lock: Arc<RwLock<()>>,
+}
+
 /// A running operation on a lab. Dropping it ends the operation's lease.
 pub struct LabOperation {
-    lab_id: String,
     cancel: Cancellation,
+    // Fields drop in declaration order: the guard must be declared before the entry, so the lock
+    // is released before the entry can be removed and a later caller gets the same lock.
     _lease: OwnedRwLockReadGuard<()>,
+    entry: LeaseEntry,
 }
 
 /// Exclusive access to a lab after its operations have stopped. Held while the lab is destroyed.
 pub struct StoppedLab {
-    lab_id: String,
     reason: StopReason,
+    // The guard must be declared before the entry: see `LabOperation`.
     _lease: OwnedRwLockWriteGuard<()>,
+    entry: LeaseEntry,
 }
 
 /// The scanner's hold on a lab no operation holds. Node states are only observed under it.
 pub struct ObservedLab {
+    // The guard must be declared before the entry: see `LabOperation`.
     _lease: OwnedRwLockWriteGuard<()>,
+    _entry: LeaseEntry,
 }
 
 /// Proof that the caller holds a lab's operation lease: an operation's shared lease, or the
@@ -82,13 +107,13 @@ mod sealed {
 
 impl LabHold for LabOperation {
     fn lab_id(&self) -> &str {
-        &self.lab_id
+        &self.entry.lab_id
     }
 }
 
 impl LabHold for StoppedLab {
     fn lab_id(&self) -> &str {
-        &self.lab_id
+        &self.entry.lab_id
     }
 }
 
@@ -116,10 +141,13 @@ impl LabOperation {
             None => Ok(()),
             Some(StopReason::Destroy) => bail!(
                 "Lab {} is being destroyed; this operation stopped",
-                self.lab_id
+                self.entry.lab_id
             ),
             Some(StopReason::Request) => {
-                bail!("Lab {}: this operation was stopped on request", self.lab_id)
+                bail!(
+                    "Lab {}: this operation was stopped on request",
+                    self.entry.lab_id
+                )
             }
         }
     }
@@ -133,20 +161,50 @@ impl LabOperation {
     }
 }
 
+impl LeaseEntry {
+    /// Join a lab's entry in `LAB_LEASES`, creating it if no one holds or waits on the lab.
+    fn join(lab_id: &str) -> Self {
+        let mut slot = leases()
+            .entry(lab_id.to_owned())
+            .or_insert_with(|| LeaseSlot {
+                lock: Arc::new(RwLock::new(())),
+                users: 0,
+            });
+        slot.users += 1;
+        Self {
+            lab_id: lab_id.to_owned(),
+            lock: Arc::clone(&slot.lock),
+        }
+    }
+}
+
+impl Drop for LeaseEntry {
+    fn drop(&mut self) {
+        // The count is read and the entry removed under one shard lock, and no other reference
+        // into the map is held here, so this cannot deadlock against `join`.
+        if let Entry::Occupied(mut slot) = leases().entry(self.lab_id.clone()) {
+            slot.get_mut().users -= 1;
+            if slot.get().users == 0 {
+                slot.remove();
+            }
+        }
+    }
+}
+
 impl Drop for StoppedLab {
     fn drop(&mut self) {
         if self.reason == StopReason::Destroy {
-            pending_destroys().remove_if_mut(&self.lab_id, |_, count| {
+            pending_destroys().remove_if_mut(&self.entry.lab_id, |_, count| {
                 *count -= 1;
                 *count == 0
             });
         }
         // Operations started after the lab is gone get a fresh token.
-        cancellations().remove(&self.lab_id);
+        cancellations().remove(&self.entry.lab_id);
     }
 }
 
-fn leases() -> &'static DashMap<String, Arc<RwLock<()>>> {
+fn leases() -> &'static DashMap<String, LeaseSlot> {
     LAB_LEASES.get_or_init(DashMap::new)
 }
 
@@ -158,17 +216,12 @@ fn pending_destroys() -> &'static DashMap<String, usize> {
     PENDING_DESTROYS.get_or_init(DashMap::new)
 }
 
-fn lease(lab_id: &str) -> Arc<RwLock<()>> {
-    leases()
-        .entry(lab_id.to_owned())
-        .or_insert_with(|| Arc::new(RwLock::new(())))
-        .clone()
-}
-
 /// Start an operation on a lab. Waits while the lab is being destroyed.
 #[instrument(level = "debug")]
 pub async fn begin(lab_id: &str) -> LabOperation {
-    let lease = lease(lab_id).read_owned().await;
+    // The entry is taken before waiting, so a waiter cancelled mid-wait drops its count too.
+    let entry = LeaseEntry::join(lab_id);
+    let lease = Arc::clone(&entry.lock).read_owned().await;
     // Read the token after taking the lease: a destroy that has started has already cancelled it.
     let cancel = cancellations()
         .entry(lab_id.to_owned())
@@ -183,19 +236,23 @@ pub async fn begin(lab_id: &str) -> LabOperation {
         cancel.cancel(StopReason::Destroy);
     }
     LabOperation {
-        lab_id: lab_id.to_owned(),
         cancel,
         _lease: lease,
+        entry,
     }
 }
 
 /// Hold a lab for the scanner, or `None` when an operation holds it now. Never waits.
 #[instrument(level = "debug")]
 pub fn try_observe(lab_id: &str) -> Option<ObservedLab> {
-    lease(lab_id)
+    let entry = LeaseEntry::join(lab_id);
+    Arc::clone(&entry.lock)
         .try_write_owned()
         .ok()
-        .map(|lease| ObservedLab { _lease: lease })
+        .map(|lease| ObservedLab {
+            _lease: lease,
+            _entry: entry,
+        })
 }
 
 /// Stop every operation on a lab and wait until they have finished.
@@ -211,26 +268,33 @@ pub async fn stop(lab_id: &str, reason: StopReason) -> (bool, StoppedLab) {
         .entry(lab_id.to_owned())
         .or_default()
         .cancel(reason);
-    let lease = lease(lab_id);
-    let (was_running, guard) = match lease.clone().try_write_owned() {
+    let entry = LeaseEntry::join(lab_id);
+    let (was_running, guard) = match Arc::clone(&entry.lock).try_write_owned() {
         Ok(guard) => (false, guard),
-        Err(_) => (true, lease.write_owned().await),
+        Err(_) => (true, Arc::clone(&entry.lock).write_owned().await),
     };
     (
         was_running,
         StoppedLab {
-            lab_id: lab_id.to_owned(),
             reason,
             _lease: guard,
+            entry,
         },
     )
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
 
     const WAIT: Duration = Duration::from_secs(5);
+
+    /// How many holders and waiters a lab's entry counts, or 0 when it has none.
+    fn users(lab_id: &str) -> usize {
+        leases().get(lab_id).map_or(0, |slot| slot.users)
+    }
 
     #[tokio::test]
     async fn an_operation_runs_until_its_lab_is_destroyed() {
@@ -378,5 +442,114 @@ mod tests {
                 .unwrap()
                 .unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn released_leases_leave_the_map_and_a_held_one_stays() {
+        let held = begin("lab-ops-shrink-held").await;
+        let labs: Vec<String> = (0..100).map(|i| format!("lab-ops-shrink-{i}")).collect();
+        for lab in &labs {
+            drop(begin(lab).await);
+            drop(try_observe(lab));
+            drop(stop(lab, StopReason::Request).await);
+        }
+        for lab in &labs {
+            assert!(!leases().contains_key(lab), "{lab} was not removed");
+        }
+        assert!(leases().contains_key("lab-ops-shrink-held"));
+        assert!(held.ensure_active().is_ok());
+        drop(held);
+        assert!(!leases().contains_key("lab-ops-shrink-held"));
+    }
+
+    #[tokio::test]
+    async fn a_waiter_gets_the_lock_its_holder_released() {
+        let lab = "lab-ops-same-lock";
+        let (_, stopped) = stop(lab, StopReason::Request).await;
+        let lock = Arc::clone(&stopped.entry.lock);
+        let waiting = tokio::spawn(begin(lab));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!waiting.is_finished());
+        assert_eq!(users(lab), 2);
+
+        drop(stopped);
+        let operation = tokio::time::timeout(WAIT, waiting).await.unwrap().unwrap();
+        assert!(Arc::ptr_eq(&operation.entry.lock, &lock));
+        assert_eq!(users(lab), 1);
+        drop(operation);
+        assert_eq!(users(lab), 0);
+        assert!(!leases().contains_key(lab));
+    }
+
+    #[tokio::test]
+    async fn a_waiter_cancelled_mid_wait_gives_up_its_count() {
+        let lab = "lab-ops-cancelled-wait";
+        let (_, stopped) = stop(lab, StopReason::Request).await;
+        assert_eq!(users(lab), 1);
+
+        // Both futures are dropped while they wait for the lease.
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), begin(lab))
+                .await
+                .is_err()
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), stop(lab, StopReason::Request))
+                .await
+                .is_err()
+        );
+        assert_eq!(users(lab), 1);
+
+        drop(stopped);
+        assert_eq!(users(lab), 0);
+        assert!(!leases().contains_key(lab));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn racing_takes_and_releases_never_split_a_lab_across_two_locks() {
+        const LAB: &str = "lab-ops-race";
+        static READERS: AtomicUsize = AtomicUsize::new(0);
+        static WRITERS: AtomicUsize = AtomicUsize::new(0);
+
+        async fn exclusive(round: usize) {
+            assert_eq!(READERS.load(Ordering::SeqCst), 0, "round {round}");
+            assert_eq!(WRITERS.fetch_add(1, Ordering::SeqCst), 0, "round {round}");
+            tokio::task::yield_now().await;
+            WRITERS.fetch_sub(1, Ordering::SeqCst);
+        }
+
+        let mut tasks = Vec::new();
+        for _ in 0..8 {
+            tasks.push(tokio::spawn(async {
+                for _ in 0..200 {
+                    let operation = begin(LAB).await;
+                    assert_eq!(WRITERS.load(Ordering::SeqCst), 0);
+                    READERS.fetch_add(1, Ordering::SeqCst);
+                    tokio::task::yield_now().await;
+                    READERS.fetch_sub(1, Ordering::SeqCst);
+                    drop(operation);
+                }
+            }));
+        }
+        for writer in 0..4 {
+            tasks.push(tokio::spawn(async move {
+                for round in 0..100 {
+                    // Half the writers wait for the lease, half only try for it.
+                    if writer % 2 == 0 {
+                        let (_, stopped) = stop(LAB, StopReason::Request).await;
+                        exclusive(round).await;
+                        drop(stopped);
+                    } else if let Some(observed) = try_observe(LAB) {
+                        exclusive(round).await;
+                        drop(observed);
+                    }
+                }
+            }));
+        }
+        for task in tasks {
+            tokio::time::timeout(WAIT * 6, task).await.unwrap().unwrap();
+        }
+        assert_eq!(users(LAB), 0);
+        assert!(!leases().contains_key(LAB));
     }
 }
