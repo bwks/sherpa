@@ -5,14 +5,17 @@
 # ///
 """Write an SSH config that reaches the dev lab's nodes directly, without the ProxyJump.
 
-`sherpa up` writes `.sherpa/ssh/config` here, which routes every node through a ProxyJump to the
-Sherpa server. On the server itself that jump is a needless extra hop. This script resolves each
+`sherpa up` writes `.sherpa/ssh/config` in the lab directory, which routes every node through a
+ProxyJump to the Sherpa server. On the server itself that jump is a needless extra hop. This script resolves each
 node from that file with `ssh -G`, so it always follows the current lab, and writes
 `.sherpa/ssh/direct_config` with a direct connection and a shared, persistent master connection.
 The paths in it are absolute, as in Sherpa's config, and `sherpa destroy` deletes it with
 `.sherpa/`.
 
-Run it after every `sherpa up`, then: ssh -F tests/environments/dev/.sherpa/ssh/direct_config dev
+Run it after every `sherpa up`, with the lab directory (default: this script's directory):
+
+    uv run direct_ssh_config.py ~/labs/sherpa-dev
+    ssh -F ~/labs/sherpa-dev/.sherpa/ssh/direct_config dev
 """
 
 import os
@@ -22,8 +25,6 @@ import sys
 import tomllib
 
 HERE = Path(__file__).resolve().parent
-SHERPA_CONFIG = HERE / ".sherpa" / "ssh" / "config"
-DIRECT_CONFIG = HERE / ".sherpa" / "ssh" / "direct_config"
 # Unix socket paths are limited to about 108 bytes, so the master socket cannot live here.
 SOCKET_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", Path.home() / ".ssh"))
 # Settings copied from Sherpa's resolved config; the rest are set below.
@@ -41,15 +42,15 @@ DIRECT = {
 }
 
 
-def resolve(alias):
+def resolve(sherpa_config, alias):
     """The settings `ssh` uses for this alias in Sherpa's config, as (key, value) pairs."""
-    output = subprocess.run(["ssh", "-F", str(SHERPA_CONFIG), "-G", alias],
+    output = subprocess.run(["ssh", "-F", str(sherpa_config), "-G", alias],
                             check=True, capture_output=True, text=True).stdout
     return [tuple(line.split(" ", 1)) for line in output.splitlines() if " " in line]
 
 
-def node_block(name, lab_id):
-    settings = resolve(f"{name}.{lab_id}")
+def node_block(sherpa_config, name, lab_id):
+    settings = resolve(sherpa_config, f"{name}.{lab_id}")
     lines = [f"Host {name}"]
     lines += [f"    {key} {value}" for key, value in settings if key in COPIED]
     lines += [f"    {key} {value}" for key, value in DIRECT.items()]
@@ -57,15 +58,20 @@ def node_block(name, lab_id):
 
 
 def main():
-    if not SHERPA_CONFIG.is_file():
-        sys.exit(f"{SHERPA_CONFIG} not found; run `sherpa up` in {HERE} first")
-    lab_id = tomllib.loads((HERE / ".sherpa" / "lab-info.toml").read_text())["id"]
-    nodes = tomllib.loads((HERE / "manifest.toml").read_text())["nodes"]
-    blocks = [node_block(node["name"], lab_id) for node in nodes]
-    DIRECT_CONFIG.write_text("# Written by direct_ssh_config.py; do not edit.\n\n"
+    if len(sys.argv) > 2:
+        sys.exit("Usage: direct_ssh_config.py [lab dir]")
+    lab = Path(sys.argv[1]).resolve() if len(sys.argv) == 2 else HERE
+    sherpa_config = lab / ".sherpa" / "ssh" / "config"
+    direct_config = lab / ".sherpa" / "ssh" / "direct_config"
+    if not sherpa_config.is_file():
+        sys.exit(f"{sherpa_config} not found; run `sherpa up` in {lab} first")
+    lab_id = tomllib.loads((lab / ".sherpa" / "lab-info.toml").read_text())["id"]
+    nodes = tomllib.loads((lab / "manifest.toml").read_text())["nodes"]
+    blocks = [node_block(sherpa_config, node["name"], lab_id) for node in nodes]
+    direct_config.write_text("# Written by direct_ssh_config.py; do not edit.\n\n"
                              + "\n\n".join(blocks) + "\n")
-    DIRECT_CONFIG.chmod(0o600)
-    print(f"Wrote {DIRECT_CONFIG}")
+    direct_config.chmod(0o600)
+    print(f"Wrote {direct_config}")
 
 
 if __name__ == "__main__":

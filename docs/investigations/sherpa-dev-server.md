@@ -3,6 +3,12 @@
 > Status: built. Tracked in #402. The manifest settings (`[nodes.performance_tuning]`, in
 > `docs/architecture/SERVER.md`), the installer's THP setting, and the environment in
 > `tests/environments/dev` are all done.
+>
+> **Superseded sizing.** The sizing and decisions below are those of the first, single dev
+> server (14 vCPUs, 48 GiB, strict on node 1). There are now two identical dev servers, `dev`
+> on NUMA node 1 and `agent-2` on node 0, each 12 vCPUs, 32 GiB preferred on its node and
+> 300 GiB, both full Sherpa servers. Their current layout, provisioning (mise, not rustup) and
+> image seeding are in `tests/environments/dev/README.md`.
 
 ## Goal
 

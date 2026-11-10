@@ -1029,15 +1029,15 @@ cannot be enrolled. To move one to enrollment, remove it from the agents file, r
 again, then start it with `agent-bus:agent`. Guests may no longer share a key: an agents file
 that lists one key twice is refused.
 
-More guests run in worker labs, one VM per guest agent, each its own lab:
-`tests/environments/agent` (lab `sherpa-agent-2`, node and agent `agent-2`), brought up from a
-lab directory outside the repository, with dev's provisioning and no Sherpa server. The bus
-stays on the host, started with `--lab` on dev's lab, so it listens only on dev's gateway. A
-worker's guest agent is started the same way, `mise run agent-bus:agent <worker lab dir>
-<node>`: `start-agent.sh` always passes the URL from `bus.toml` as `AGENT_BUS_URL`, which
-`start-guest.sh` uses in place of the guest's own default gateway. A worker on its own bridge
-reaches dev's gateway with no firewall change; the check and its result are in
-`tests/environments/agent/README.md`.
+There are two guests, one per VM, each its own lab: `dev` and `agent-2`
+(`tests/environments/agent`, lab `sherpa-agent-2`). They are identical dev servers, each with a
+Sherpa server, so a task can go to either; both are brought up from lab directories outside the
+repository (`tests/environments/dev/README.md`). The bus stays on the host, started with `--lab`
+on dev's lab, so it listens only on dev's gateway. agent-2's guest agent is started the same way,
+`mise run agent-bus:agent <lab dir> agent-2`: `start-agent.sh` always passes the URL from
+`bus.toml` as `AGENT_BUS_URL`, which `start-guest.sh` uses in place of the guest's own default
+gateway. A guest on its own bridge reaches dev's gateway with no firewall change; the check and
+its result are in `tests/environments/dev/README.md`.
 
 Checking health:
 
