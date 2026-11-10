@@ -1,0 +1,98 @@
+# VM images seed-images.sh copies from the host's /opt/sherpa/images into a dev server and
+# imports with the guest's `sherpa server image import`. Each entry is a model and a version, as
+# in `sherpa server image list`; the disk is <model>/<version>/virtioa.qcow2 on the host.
+# The first version imported for a model becomes its default, so list the default first.
+# Container images are not here: the host keeps them in Docker, not in /opt/sherpa/images
+# (see README.md).
+
+[[images]]
+model = "alpine_linux"
+version = "3.23.0"
+
+[[images]]
+model = "arista_veos"
+version = "4.35.3F"
+
+[[images]]
+model = "cisco_asav"
+version = "9-23-1"
+
+[[images]]
+model = "cisco_cat8000v"
+version = "17.16.01a"
+
+[[images]]
+model = "cisco_cat9000v"
+version = "17.15.03"
+
+[[images]]
+model = "cisco_csr1000v"
+version = "17.03.08a"
+
+[[images]]
+model = "cisco_ftdv"
+version = "7.7.0-89"
+
+[[images]]
+model = "cisco_iosv"
+version = "159-3.m10"
+
+[[images]]
+model = "cisco_iosvl2"
+version = "20200929"
+
+[[images]]
+model = "cisco_iosxrv9000"
+version = "25.1.1"
+
+[[images]]
+model = "cisco_nexus9300v"
+version = "10.5.3.F"
+
+[[images]]
+model = "devbox_windows"
+version = "windows11-20261030"
+
+[[images]]
+model = "fedora_linux"
+version = "43-1.6"
+
+[[images]]
+model = "free_bsd"
+version = "14.2"
+
+[[images]]
+model = "juniper_vrouter"
+version = "25.2R1.9"
+
+[[images]]
+model = "juniper_vsrxv3"
+version = "23.2R2.21"
+
+[[images]]
+model = "juniper_vswitch"
+version = "25.2R1.9"
+
+[[images]]
+model = "open_bsd"
+version = "7.8"
+
+[[images]]
+model = "paloalto_panos"
+version = "11.1.6-h7"
+
+[[images]]
+model = "talos_linux"
+version = "1.14.4"
+
+[[images]]
+model = "ubuntu_linux"
+version = "24.04"
+
+[[images]]
+model = "ubuntu_linux"
+version = "26.04"
+
+[[images]]
+model = "windows_server"
+version = "2022-20261026"

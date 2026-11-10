@@ -10,13 +10,12 @@ installation is never the thing under test.
 | [ubuntu-2404](ubuntu-2404/README.md) | 24.04 LTS | `ubuntu_linux` `24.04-20260926` | 8 vCPUs, 16 GiB RAM, 100 GiB disk |
 | [ubuntu-2604](ubuntu-2604/README.md) | 26.04 LTS | `ubuntu_linux` `26.04` | 8 vCPUs, 16 GiB RAM, 100 GiB disk |
 
-[dev](dev/README.md) is not a test environment: it is a long-lived development server, with
-toolchains and checkouts provisioned on top of Ubuntu 24.04. The rules below apply to it only
-where they make sense; it is not disposable and installs more than cloud-init needs.
-
-[agent](agent/README.md) is not a test environment either: it is a long-lived worker lab for one
-more guest agent on the agent bus (`sherpa-agent-2`, node `agent-2`), provisioned from dev's
-`provision/` files without a Sherpa server. Its README says how to copy it for another worker.
+[dev](dev/README.md) and [agent](agent/README.md) are not test environments: they are two
+identical long-lived development servers (labs `sherpa-dev` and `sherpa-agent-2`), each a full
+Sherpa server with toolchains and checkouts provisioned on top of Ubuntu 24.04, and each running
+one guest agent on the agent bus. The rules below apply to them only where they make sense; they
+are not disposable and install more than cloud-init needs. Both are described in
+[dev's README](dev/README.md).
 
 [dev-windows](dev-windows/README.md) is not a test environment either: it is a disposable
 Windows 11 `devbox_windows` node for building and testing the client's Windows code, which the

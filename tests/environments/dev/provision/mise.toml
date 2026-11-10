@@ -18,6 +18,9 @@ shellcheck = "latest"
 bats = "latest"
 # Installs mkdocs for building sherpa-docs, as a tool on the PATH.
 uv = "latest"
+# Compiler cache. provision/sccache.env sets RUSTC_WRAPPER and points it at the host's build cache
+# (Redis); pinned to the release in tests/environments/build-cache.toml.
+sccache = "0.19.0"
 # Guest agents on the agent bus (crates/agent-bus), and the bus CLI for debugging it.
 claude = "latest"
 "github:nats-io/natscli" = "0.5.1"
