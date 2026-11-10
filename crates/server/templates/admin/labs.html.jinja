@@ -35,13 +35,13 @@
                     <td class="p-4 text-sm text-body">{{ lab.lab_id }}</td>
                     <td class="p-4 text-sm text-body">{{ lab.owner_username }}</td>
                     <td class="p-4 text-sm">
-                        {% let badge = Badge::phase_small(*lab.phase) %}
+                        {% let badge = lab.phase_badge %}
                         {% include "snippets/badge.html.jinja" %}
                     </td>
                     <td class="p-4 text-sm text-body text-center">{{ lab.node_count }}</td>
                     <td class="p-4 text-sm text-body">
                         <div class="flex items-center justify-end space-x-2">
-                            {% if lab.phase.is_ready() %}
+                            {% if lab.offers_start_stop %}
                             <button
                                 data-lab-action="start" data-lab-id="{{ lab.lab_id }}"
                                 class="text-accent hover:text-accent-hover transition-colors cursor-pointer"

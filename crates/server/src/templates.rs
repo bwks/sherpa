@@ -39,7 +39,23 @@ pub struct LabsListTemplate {
 #[derive(Template, WebTemplate)]
 #[template(path = "user/partials/labs-grid.html.jinja")]
 pub struct LabsGridTemplate {
-    pub labs: Vec<LabSummary>,
+    pub labs: Vec<LabRow>,
+}
+
+/// One lab in the labs grid.
+pub struct LabRow {
+    pub lab: LabSummary,
+    /// Shown instead of the lab state, with no start or stop, until the lab is ready.
+    pub phase_badge: Option<Badge>,
+}
+
+impl From<LabSummary> for LabRow {
+    fn from(lab: LabSummary) -> Self {
+        Self {
+            phase_badge: Badge::for_unready_phase(lab.phase, BadgeSize::Small),
+            lab,
+        }
+    }
 }
 
 /// Empty state partial template - shown when no labs exist
@@ -154,9 +170,9 @@ pub struct LabDetailTemplate {
     pub lab_id: String,
     pub lab_info: LabInfo,
     pub lab_state: LabState,
-    /// Which operation owns the lab; while it is not ready, it is shown instead of the state and
-    /// only Destroy is offered.
-    pub lab_phase: LabPhase,
+    /// Which operation owns the lab, from `Badge::for_unready_phase`; while it is `Some`, it is
+    /// shown instead of the state and only Destroy is offered.
+    pub phase_badge: Option<Badge>,
     pub devices: Vec<DeviceInfo>,
     pub device_count: usize,
     pub inactive_devices: Vec<String>,
@@ -279,8 +295,32 @@ pub struct AdminLabSummary {
     pub description: Option<String>,
     pub owner_username: String,
     pub node_count: usize,
-    /// Which operation owns the lab; a lab that is not ready can only be destroyed or cleaned.
-    pub phase: LabPhase,
+    /// Which operation owns the lab.
+    pub phase_badge: Badge,
+    /// Only a ready lab can be started or stopped; any other can only be destroyed or cleaned.
+    pub offers_start_stop: bool,
+}
+
+impl AdminLabSummary {
+    /// The summary of a lab in `phase`.
+    pub fn new(
+        lab_id: String,
+        name: String,
+        description: Option<String>,
+        owner_username: String,
+        node_count: usize,
+        phase: LabPhase,
+    ) -> Self {
+        Self {
+            lab_id,
+            name,
+            description,
+            owner_username,
+            node_count,
+            phase_badge: Badge::for_phase(phase, BadgeSize::Small),
+            offers_start_stop: phase.is_ready(),
+        }
+    }
 }
 
 /// Admin user edit page template
@@ -817,14 +857,14 @@ mod tests {
     #[test]
     fn test_labs_grid_template_renders_with_labs() {
         let tpl = LabsGridTemplate {
-            labs: vec![LabSummary {
+            labs: vec![LabRow::from(LabSummary {
                 id: "a10736e8".to_string(),
                 name: "test-lab".to_string(),
                 description: Some("Practice <BGP> routing".to_string()),
                 status: LabState::Unknown,
                 node_count: 2,
                 phase: LabPhase::Ready,
-            }],
+            })],
         };
         let html = tpl.render().expect("template should render");
         assert!(html.contains("test-lab"));
@@ -859,14 +899,14 @@ mod tests {
             ),
         ] {
             let tpl = LabsGridTemplate {
-                labs: vec![LabSummary {
+                labs: vec![LabRow::from(LabSummary {
                     id: "a10736e8".to_string(),
                     name: "test-lab".to_string(),
                     description: None,
                     status: LabState::Stopped,
                     node_count: 2,
                     phase,
-                }],
+                })],
             };
             let html = tpl.render().expect("template should render");
             assert!(!html.contains("data-lab-action"), "{phase:?}: {html}");
@@ -984,20 +1024,24 @@ mod tests {
             username: "admin".to_string(),
             is_admin: true,
             active_page: "admin_labs".to_string(),
-            labs: vec![AdminLabSummary {
-                lab_id: "abc12345".to_string(),
-                name: "my-lab".to_string(),
-                description: Some("Practice BGP routing".to_string()),
-                owner_username: "alice".to_string(),
-                node_count: 3,
-                phase: LabPhase::Ready,
-            }],
+            labs: vec![AdminLabSummary::new(
+                "abc12345".to_string(),
+                "my-lab".to_string(),
+                Some("Practice BGP routing".to_string()),
+                "alice".to_string(),
+                3,
+                LabPhase::Ready,
+            )],
         };
         let html = tpl.render().expect("template should render");
         assert!(html.contains("my-lab"));
         assert!(html.contains("Practice BGP routing"));
         assert!(html.contains("abc12345"));
         assert!(html.contains("alice"));
+        assert!(
+            html.contains(r#"<span class="badge-neutral">Ready</span>"#),
+            "{html}"
+        );
         assert!(html.contains("data-lab-action=\"start\""));
     }
 
@@ -1008,14 +1052,14 @@ mod tests {
             username: "admin".to_string(),
             is_admin: true,
             active_page: "admin_labs".to_string(),
-            labs: vec![AdminLabSummary {
-                lab_id: "abc12345".to_string(),
-                name: "my-lab".to_string(),
-                description: None,
-                owner_username: "alice".to_string(),
-                node_count: 3,
-                phase: LabPhase::Interrupted,
-            }],
+            labs: vec![AdminLabSummary::new(
+                "abc12345".to_string(),
+                "my-lab".to_string(),
+                None,
+                "alice".to_string(),
+                3,
+                LabPhase::Interrupted,
+            )],
         };
         let html = tpl.render().expect("template should render");
         assert!(
@@ -1038,7 +1082,7 @@ mod tests {
             lab_id: "abcd1234".to_string(),
             lab_info,
             lab_state,
-            lab_phase,
+            phase_badge: Badge::for_unready_phase(lab_phase, BadgeSize::Large),
             devices: vec![],
             device_count: 0,
             inactive_devices: vec![],

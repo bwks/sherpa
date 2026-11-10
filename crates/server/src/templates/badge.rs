@@ -38,21 +38,25 @@ pub struct Badge {
 }
 
 impl Badge {
-    /// A lab phase badge for a table row.
-    pub fn phase_small(phase: LabPhase) -> Self {
-        Self::phase(phase, BadgeSize::Small)
-    }
-
-    /// A lab phase badge for a detail page header.
-    pub fn phase_large(phase: LabPhase) -> Self {
-        Self::phase(phase, BadgeSize::Large)
-    }
-
-    fn phase(phase: LabPhase, size: BadgeSize) -> Self {
+    /// A lab phase badge drawn at `size`.
+    pub fn for_phase(phase: LabPhase, size: BadgeSize) -> Self {
         Self {
             label: phase_label(phase),
             tone: BadgeTone::for_phase(phase),
             size,
+        }
+    }
+
+    /// The phase badge a lab view shows instead of the lab state: `None` once the lab is ready,
+    /// when the state is shown and start/stop are offered.
+    pub fn for_unready_phase(phase: LabPhase, size: BadgeSize) -> Option<Self> {
+        match phase {
+            LabPhase::Ready => None,
+            LabPhase::Creating
+            | LabPhase::Destroying
+            | LabPhase::DestroyFailed
+            | LabPhase::Interrupted
+            | LabPhase::Unknown => Some(Self::for_phase(phase, size)),
         }
     }
 }
@@ -83,22 +87,32 @@ mod tests {
             (LabPhase::Unknown, "Unknown", BadgeTone::Danger),
         ] {
             assert_eq!(BadgeTone::for_phase(phase), tone, "{phase:?}");
+            for size in [BadgeSize::Small, BadgeSize::Large] {
+                assert_eq!(
+                    Badge::for_phase(phase, size),
+                    Badge { label, tone, size },
+                    "{phase:?} {size:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn only_a_lab_that_is_not_ready_gets_a_phase_badge() {
+        assert_eq!(
+            Badge::for_unready_phase(LabPhase::Ready, BadgeSize::Small),
+            None
+        );
+        for phase in [
+            LabPhase::Creating,
+            LabPhase::Destroying,
+            LabPhase::DestroyFailed,
+            LabPhase::Interrupted,
+            LabPhase::Unknown,
+        ] {
             assert_eq!(
-                Badge::phase_small(phase),
-                Badge {
-                    label,
-                    tone,
-                    size: BadgeSize::Small
-                },
-                "{phase:?}"
-            );
-            assert_eq!(
-                Badge::phase_large(phase),
-                Badge {
-                    label,
-                    tone,
-                    size: BadgeSize::Large
-                },
+                Badge::for_unready_phase(phase, BadgeSize::Large),
+                Some(Badge::for_phase(phase, BadgeSize::Large)),
                 "{phase:?}"
             );
         }

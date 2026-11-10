@@ -19,9 +19,10 @@ use crate::services::error::ServiceError;
 use crate::services::progress::ProgressSender;
 use crate::services::{destroy, down, download, inspect, list_labs, redeploy, resume, up};
 use crate::templates::{
-    DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template, ErrorTemplate,
-    JobPageTemplate, LabCreateTemplate, LabDestroyButtonFragment, LabDestroyConfirmFragment,
-    LabDetailTemplate, LabsGridTemplate, LabsListTemplate, NodeDetailTemplate, NodesTableFragment,
+    Badge, BadgeSize, DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template,
+    ErrorTemplate, JobPageTemplate, LabCreateTemplate, LabDestroyButtonFragment,
+    LabDestroyConfirmFragment, LabDetailTemplate, LabRow, LabsGridTemplate, LabsListTemplate,
+    NodeDetailTemplate, NodesTableFragment,
 };
 
 use crate::api::errors::ApiError;
@@ -124,7 +125,7 @@ pub async fn get_labs_html(
                     auth.username
                 );
                 LabsGridTemplate {
-                    labs: response.labs,
+                    labs: response.labs.into_iter().map(LabRow::from).collect(),
                 }
                 .into_response()
             }
@@ -311,7 +312,7 @@ pub async fn lab_detail_handler(
                 lab_id: lab_id.clone(),
                 lab_info: response.lab_info,
                 lab_state: response.lab_state,
-                lab_phase: response.lab_phase,
+                phase_badge: Badge::for_unready_phase(response.lab_phase, BadgeSize::Large),
                 devices: response.devices,
                 device_count,
                 inactive_devices: response.inactive_devices,
