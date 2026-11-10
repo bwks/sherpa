@@ -493,9 +493,31 @@ mod tests {
         assert_eq!(*order.lock().unwrap(), [0, 1, 2]);
     }
 
+    /// The smallest node the test below can use, in MiB.
+    const MIN_TEST_NODE_MIB: u64 = 256;
+
+    /// The memory in MiB guests may still be given on the server: what the admission allows
+    /// them, less what running domains hold. Read the way the admission reads it.
+    fn guest_memory_left(conn: &Connect, settings: HostMemorySettings) -> u64 {
+        let host = libvirt::host_memory(conn).unwrap();
+        let allowed = (host.total_kib / 1024)
+            .saturating_sub(host.hugepages_kib.div_ceil(1024))
+            .saturating_sub(u64::from(settings.reserve_mib));
+        let percent = u64::from(settings.overcommit_percent);
+        let limit = allowed / 100 * percent + allowed % 100 * percent / 100;
+        let held: u64 = libvirt::list_domain_memory(conn)
+            .unwrap()
+            .iter()
+            .filter(|domain| domain.active)
+            .map(|domain| domain.memory_kib.div_ceil(1024))
+            .sum();
+        limit.saturating_sub(held)
+    }
+
     /// Against the real libvirt: two nodes that each fit, but not together, are admitted one
-    /// at a time, and the second only once the first is released. Needs a server with less
-    /// than about 60 GiB of guest memory free, such as the dev guest; it starts nothing.
+    /// at a time, and the second only once the first is released. Each node is sized from
+    /// the server's free guest memory, just over half of it, so this works on any server; it
+    /// starts nothing. It skips, saying so, on a server with too little memory left.
     #[tokio::test]
     #[ignore = "requires a libvirt daemon"]
     async fn a_pending_node_holds_its_memory_until_released() {
@@ -503,9 +525,24 @@ mod tests {
         let conn = Qemu::default().connect().unwrap();
         let settings = HostMemorySettings::default();
         let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let left = guest_memory_left(&conn, settings);
+        let size = left / 2 + 1;
+        let Some(memory) = u16::try_from(size)
+            .ok()
+            .filter(|_| size >= MIN_TEST_NODE_MIB)
+        else {
+            eprintln!(
+                "SKIPPED a_pending_node_holds_its_memory_until_released: {left} MiB of guest \
+                 memory is left on this server, but the test needs between {} and {} MiB to \
+                 size two nodes that fit singly but not together (a node's memory is a u16)",
+                MIN_TEST_NODE_MIB * 2,
+                u64::from(u16::MAX) * 2
+            );
+            return;
+        };
         let node = |name: &str| topology::NodeExpanded {
             name: name.to_string(),
-            memory: Some(30_000),
+            memory: Some(memory),
             ..Default::default()
         };
         let (first, second) = (node("first"), node("second"));
@@ -519,11 +556,13 @@ mod tests {
         let message = format!("{refused:#}");
         assert!(message.contains("Memory admission failed"), "{message}");
         assert!(
-            message.contains("node 'second' needs 30000 MiB"),
+            message.contains(&format!("node 'second' needs {size} MiB")),
             "{message}"
         );
         assert!(
-            message.contains("nodes other operations are starting hold 30000 MiB (1)"),
+            message.contains(&format!(
+                "nodes other operations are starting hold {size} MiB (1)"
+            )),
             "{message}"
         );
 
