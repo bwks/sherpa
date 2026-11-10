@@ -13,6 +13,7 @@ use tokio::time::{Instant, sleep, timeout};
 use tracing::instrument;
 
 use super::github::{Access, GH_TOKEN_VARIABLE};
+use super::secrets::{ClaudeToken, TOKEN_VARIABLE};
 use crate::keys::SEED_VARIABLE;
 
 pub(super) const CLAUDE: &str = "claude";
@@ -200,12 +201,15 @@ pub(super) fn rules(github: bool) -> String {
 }
 
 /// The Claude Code command for a run: its tool limits, its rules, its session and its environment.
-/// A `--github` task's run has the write token as `GH_TOKEN`; any other keeps the read-only
-/// `GH_TOKEN` it inherits from the agent.
+/// Every run has the subscription token `claude` in `CLAUDE_CODE_OAUTH_TOKEN`, the only place
+/// Claude Code takes it from; the agent's own environment never has it. A `--github` task's run
+/// has the write token as `GH_TOKEN`; any other keeps the read-only `GH_TOKEN` it inherits from
+/// the agent.
 pub(super) fn claude_command(
     program: &str,
     workdir: &Path,
     model: &str,
+    claude: &ClaudeToken,
     access: Access<'_>,
     launch: &Launch,
 ) -> Command {
@@ -240,6 +244,7 @@ pub(super) fn claude_command(
         .env_remove(API_KEY_VARIABLE)
         .env_remove(SEED_VARIABLE)
         .env_remove(LOG_VARIABLE)
+        .env(TOKEN_VARIABLE, claude.expose())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped());
     for variable in OTHER_GITHUB_TOKEN_VARIABLES {
@@ -277,6 +282,11 @@ mod tests {
     }
 
     const WRITE_TOKEN: &str = "github_pat_write0123456789";
+    const CLAUDE_TOKEN: &str = "sk-ant-oat01-test0123456789";
+
+    fn claude_token() -> ClaudeToken {
+        ClaudeToken::parse(CLAUDE_TOKEN).unwrap()
+    }
 
     fn write_token() -> WriteToken {
         WriteToken::parse(WRITE_TOKEN).unwrap().unwrap()
@@ -303,6 +313,7 @@ mod tests {
             CLAUDE,
             Path::new("/work"),
             MODEL,
+            &claude_token(),
             Access::ReadOnly,
             &Launch::Fresh,
         );
@@ -318,6 +329,12 @@ mod tests {
         }
         // Inherited from the agent: the guest's read-only token.
         assert!(!touched(&command, "GH_TOKEN"));
+        // The subscription token is set for the run, never on its command line.
+        assert_eq!(
+            set_to(&command, "CLAUDE_CODE_OAUTH_TOKEN").as_deref(),
+            Some(CLAUDE_TOKEN)
+        );
+        assert!(!args(&command).iter().any(|arg| arg.contains(CLAUDE_TOKEN)));
         assert!(
             !command
                 .as_std()
@@ -340,10 +357,15 @@ mod tests {
             CLAUDE,
             Path::new("/work"),
             MODEL,
+            &claude_token(),
             Access::Write(&token),
             &Launch::Fresh,
         );
         assert_eq!(set_to(&command, "GH_TOKEN").as_deref(), Some(WRITE_TOKEN));
+        assert_eq!(
+            set_to(&command, "CLAUDE_CODE_OAUTH_TOKEN").as_deref(),
+            Some(CLAUDE_TOKEN)
+        );
         let removed = removed(&command);
         for variable in [
             "ANTHROPIC_API_KEY",
@@ -468,6 +490,7 @@ mod tests {
             CLAUDE,
             Path::new("/work"),
             MODEL,
+            &claude_token(),
             Access::ReadOnly,
             launch,
         ))
@@ -486,6 +509,7 @@ mod tests {
                     CLAUDE,
                     Path::new("/work"),
                     MODEL,
+                    &claude_token(),
                     access,
                     &launch,
                 ));

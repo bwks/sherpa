@@ -5,15 +5,12 @@
 //! guest agent inherits from its login shell. The write token never goes into the agent's own
 //! environment (a task can read `/proc/<agent pid>/environ`), a file, a log or the bus: its
 //! `Debug` is redacted, it has no `Display`, and every text the agent sends or records has it
-//! replaced by `REDACTED`.
+//! replaced by `REDACTED`. It reaches the agent on stdin with its other secrets (`secrets`).
 
-use std::borrow::Cow;
 use std::ffi::OsStr;
 use std::fmt;
-use std::io::BufRead;
 
-use anyhow::{Context, Result, bail};
-use tracing::instrument;
+use anyhow::{Result, bail};
 
 /// The variable `gh`, and through `gh auth git-credential` git, take the token from.
 pub(super) const GH_TOKEN_VARIABLE: &str = "GH_TOKEN";
@@ -22,8 +19,6 @@ pub(super) const REDACTED: &str = "[GitHub write token]";
 /// The prefixes of GitHub's tokens: fine-grained, classic, OAuth, user-to-server, server-to-server
 /// and refresh.
 const TOKEN_PREFIXES: [&str; 6] = ["github_pat_", "ghp_", "gho_", "ghu_", "ghs_", "ghr_"];
-/// Longer than any GitHub token; a longer line is not one.
-const MAX_LINE: u64 = 1024;
 
 /// The GitHub token that can write: commit, push and open pull requests. Only `--github` tasks
 /// get it.
@@ -74,15 +69,6 @@ impl WriteToken {
     pub(super) fn expose(&self) -> &str {
         &self.0
     }
-
-    /// `text` with every occurrence of the token replaced by `REDACTED`.
-    pub(super) fn redact<'t>(&self, text: &'t str) -> Cow<'t, str> {
-        if text.contains(&self.0) {
-            Cow::Owned(text.replace(&self.0, REDACTED))
-        } else {
-            Cow::Borrowed(text)
-        }
-    }
 }
 
 impl Access<'_> {
@@ -90,29 +76,6 @@ impl Access<'_> {
     pub(super) fn github(self) -> bool {
         matches!(self, Self::Write(_))
     }
-}
-
-/// `text`, with `token` replaced when there is one.
-pub(super) fn redact<'t>(token: Option<&WriteToken>, text: &'t str) -> Cow<'t, str> {
-    token.map_or(Cow::Borrowed(text), |token| token.redact(text))
-}
-
-/// The write token from the first line of `input`; `None` when the line is empty or missing.
-///
-/// # Errors
-///
-/// Fails when the input cannot be read or the line is not a GitHub token.
-#[instrument(level = "debug", skip_all)]
-pub fn read_write_token(input: impl BufRead) -> Result<Option<WriteToken>> {
-    let mut line = String::new();
-    input
-        .take(MAX_LINE)
-        .read_line(&mut line)
-        .context("Unable to read the GitHub write token from stdin")?;
-    if line.len() >= usize::try_from(MAX_LINE).unwrap_or(usize::MAX) {
-        bail!("The GitHub write token line is too long to be a GitHub token");
-    }
-    WriteToken::parse(&line)
 }
 
 /// Refuse a write token that is also the agent's own `GH_TOKEN`: every task, with or without
@@ -139,28 +102,10 @@ pub(super) fn check_environment(
 mod tests {
     use super::*;
 
-    use std::io::Cursor;
-
     const TOKEN: &str = "github_pat_11ABCDEFG0123456789_abcdefXYZ";
 
     fn token() -> WriteToken {
         WriteToken::parse(TOKEN).unwrap().unwrap()
-    }
-
-    #[test]
-    fn the_first_line_of_stdin_is_the_token_and_the_rest_is_left() {
-        let input = Cursor::new(format!("{TOKEN}\nmore\n"));
-        assert_eq!(read_write_token(input).unwrap().unwrap().expose(), TOKEN);
-        let input = Cursor::new(format!("{TOKEN}\r\n"));
-        assert_eq!(read_write_token(input).unwrap().unwrap().expose(), TOKEN);
-        let input = Cursor::new(TOKEN);
-        assert_eq!(read_write_token(input).unwrap().unwrap().expose(), TOKEN);
-    }
-
-    #[test]
-    fn an_empty_line_or_no_input_is_no_token() {
-        assert!(read_write_token(Cursor::new("\n")).unwrap().is_none());
-        assert!(read_write_token(Cursor::new("")).unwrap().is_none());
     }
 
     #[test]
@@ -188,12 +133,6 @@ mod tests {
     }
 
     #[test]
-    fn an_overlong_line_is_refused() {
-        let line = format!("ghp_{}", "a".repeat(2000));
-        assert!(read_write_token(Cursor::new(line)).is_err());
-    }
-
-    #[test]
     fn the_token_never_shows_in_debug() {
         let token = token();
         for shown in [
@@ -204,20 +143,6 @@ mod tests {
             assert!(!shown.contains(TOKEN), "{shown}");
             assert!(shown.contains("redacted"), "{shown}");
         }
-    }
-
-    #[test]
-    fn redact_replaces_every_occurrence() {
-        let token = token();
-        let text = format!("GH_TOKEN={TOKEN} and again {TOKEN}.");
-        let redacted = redact(Some(&token), &text);
-        assert!(!redacted.contains(TOKEN));
-        assert_eq!(
-            redacted,
-            format!("GH_TOKEN={REDACTED} and again {REDACTED}.")
-        );
-        assert!(matches!(redact(Some(&token), "clean"), Cow::Borrowed(_)));
-        assert_eq!(redact(None, &text), text);
     }
 
     #[test]

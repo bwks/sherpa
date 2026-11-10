@@ -21,18 +21,18 @@ use super::claude::{
     CLAUDE, Group, Launch, PRIME_CONFIRM, PRIME_PROMPT, claude_command, finish, rules, terminate,
 };
 use super::engine::{Control, Session, canceled_text, classify, task_github, task_model};
-use super::github::{Access, GH_TOKEN_VARIABLE, WriteToken, check_environment, redact};
+use super::github::{Access, GH_TOKEN_VARIABLE, check_environment};
 use super::lock::InstanceLock;
 use super::record::ResultLog;
+use super::secrets::{Secrets, TOKEN_VARIABLE, refuse_in_environment};
 use super::state::{ApiMark, Queued, Saved, StateFile, TaskRecord, prune, restart};
 use super::stream::{Update, interpret, outcome, priming_line, repeats_result, usage_line};
 use crate::channel::{Channel, Endpoint, Inbox};
 use crate::files::now_ms;
+use crate::keys::SEED_VARIABLE;
 use crate::message::{Kind, Message, TaskUsage, Usage, api_time_of_run, check_agent_name};
 use crate::status::{HEARTBEAT, Running, Status};
 
-/// The Claude subscription token, from `claude setup-token`.
-const TOKEN_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 /// Why a `--github` task fails on a guest agent started without a write token.
 const NO_WRITE_TOKEN: &str = "This guest agent has no GitHub write token, so it cannot run a \
 --github task: restart it with agent-bus-start-agent, with the write token in GH_TOKEN on the host";
@@ -45,7 +45,7 @@ struct Reply<'a> {
     to: String,
     model: Option<String>,
     /// Replaced in every text sent.
-    write_token: Option<&'a WriteToken>,
+    secrets: &'a Secrets,
 }
 
 /// How a run of Claude Code ended.
@@ -103,8 +103,9 @@ struct Setup<'a> {
     workdir: &'a Path,
     /// The model of a task that names none.
     model: &'a str,
-    /// The GitHub write token for `--github` tasks, if the agent was given one.
-    write_token: Option<&'a WriteToken>,
+    /// The Claude token, the GitHub write token for `--github` tasks if the agent was given
+    /// one, and the bus seed.
+    secrets: &'a Secrets,
 }
 
 /// The guest agent's state: the tasks waiting, the one running, and what is known of each task.
@@ -114,8 +115,8 @@ struct Engine<'a> {
     workdir: &'a Path,
     /// The model of a task that names none.
     model: &'a str,
-    /// The GitHub write token for `--github` tasks, if the agent was given one.
-    write_token: Option<&'a WriteToken>,
+    /// The Claude token and the GitHub write token for runs, and all three secrets to redact.
+    secrets: &'a Secrets,
     name: &'a str,
     reply_to: &'a str,
     incoming: UnboundedReceiver<Message>,
@@ -139,25 +140,25 @@ struct Engine<'a> {
     store: Option<StateFile>,
 }
 
-/// Take tasks from `name`'s inbox on the bus at `server`, authenticating with `seed`, until the
-/// bus closes or the agent is told to stop (SIGTERM or SIGINT), and reply to `reply_to`.
-/// Stopping also stops the running Claude Code and everything it started. `--github` tasks run
-/// with `write_token`; without one they fail.
+/// Take tasks from `name`'s inbox on the bus at `server`, authenticating with the seed in
+/// `secrets`, until the bus closes or the agent is told to stop (SIGTERM or SIGINT), and reply to
+/// `reply_to`. Stopping also stops the running Claude Code and everything it started. Every run
+/// gets the Claude token from `secrets`; `--github` tasks get its write token, and fail without
+/// one.
 ///
 /// # Errors
 ///
-/// Fails when a name is invalid, another guest agent of this name is running, the subscription
-/// token is not set, the write token is also the agent's own `GH_TOKEN`, or the bus fails. A
-/// task that fails is reported to `reply_to` instead.
+/// Fails when a name is invalid, another guest agent of this name is running, the seed or the
+/// Claude token is in the agent's own environment, the write token is also its own `GH_TOKEN`,
+/// or the bus fails. A task that fails is reported to `reply_to` instead.
 #[instrument(skip_all, fields(agent = %name, url = %server.url))]
 pub async fn run(
     server: &Endpoint,
-    seed: &str,
+    secrets: &Secrets,
     name: &str,
     reply_to: &str,
     workdir: &Path,
     model: &str,
-    write_token: Option<&WriteToken>,
 ) -> Result<()> {
     check_agent_name(name)?;
     check_agent_name(reply_to)?;
@@ -169,14 +170,13 @@ pub async fn run(
     // Boxed: the running agent is a large future.
     Box::pin(start(
         server,
-        seed,
         name,
         reply_to,
         Setup {
             program: CLAUDE,
             workdir,
             model,
-            write_token,
+            secrets,
         },
         store,
     ))
@@ -186,7 +186,6 @@ pub async fn run(
 /// `run`, with the state kept in `store`, or in memory only when it is `None`.
 async fn start(
     server: &Endpoint,
-    seed: &str,
     name: &str,
     reply_to: &str,
     setup: Setup<'_>,
@@ -202,17 +201,20 @@ async fn start(
         }
         None => None,
     };
-    ensure!(
-        env::var_os(TOKEN_VARIABLE).is_some(),
-        "Set {TOKEN_VARIABLE}: guest agents use the Claude subscription, never API billing"
-    );
-    check_environment(env::var_os(GH_TOKEN_VARIABLE).as_deref(), setup.write_token)?;
-    if setup.write_token.is_some() {
+    refuse_in_environment(
+        env::var_os(SEED_VARIABLE).as_deref(),
+        env::var_os(TOKEN_VARIABLE).as_deref(),
+    )?;
+    check_environment(
+        env::var_os(GH_TOKEN_VARIABLE).as_deref(),
+        setup.secrets.write_token(),
+    )?;
+    if setup.secrets.write_token().is_some() {
         eprintln!("GitHub write token: held for --github tasks");
     } else {
         eprintln!("No GitHub write token: --github tasks will fail");
     }
-    let channel = &Channel::connect(server, seed).await?;
+    let channel = &Channel::connect(server, setup.secrets.seed().expose()).await?;
     let inbox = channel.inbox(name).await?;
     let mut terminate = signal(SignalKind::terminate()).context("Unable to watch for SIGTERM")?;
     let mut interrupt = signal(SignalKind::interrupt()).context("Unable to watch for SIGINT")?;
@@ -365,7 +367,7 @@ impl Reply<'_> {
     /// Send `text`, with the write token replaced.
     fn send(&self, kind: Kind, text: String, usage: Option<(Usage, TaskUsage)>) -> Result<()> {
         let (usage, task_usage) = usage.unzip();
-        let text = match redact(self.write_token, &text) {
+        let text = match self.secrets.redact(&text) {
             Cow::Borrowed(_) => text,
             Cow::Owned(redacted) => redacted,
         };
@@ -398,7 +400,7 @@ impl<'a> Engine<'a> {
             program: setup.program,
             workdir: setup.workdir,
             model: setup.model,
-            write_token: setup.write_token,
+            secrets: setup.secrets,
             name,
             reply_to,
             incoming,
@@ -507,14 +509,16 @@ impl<'a> Engine<'a> {
             from: self.name.to_owned(),
             to: self.reply_to.to_owned(),
             model: model.map(str::to_owned),
-            write_token: self.write_token,
+            secrets: self.secrets,
         }
     }
 
     /// The access a run gets: the write token for a `--github` task, which fails without one.
     fn access(&self, github: bool) -> Result<Access<'a>> {
         if github {
-            Ok(Access::Write(self.write_token.context(NO_WRITE_TOKEN)?))
+            Ok(Access::Write(
+                self.secrets.write_token().context(NO_WRITE_TOKEN)?,
+            ))
         } else {
             Ok(Access::ReadOnly)
         }
@@ -641,7 +645,7 @@ impl<'a> Engine<'a> {
                 task,
                 &session,
                 run_number,
-                &redact(self.write_token, line),
+                &self.secrets.redact(line),
                 now_ms(),
             )
         {
@@ -768,7 +772,7 @@ impl<'a> Engine<'a> {
                 let error = format!("{error:#}");
                 eprintln!(
                     "Priming stopped ({}): task {task} stays queued",
-                    redact(self.write_token, &error)
+                    self.secrets.redact(&error)
                 );
                 None
             }
@@ -776,7 +780,7 @@ impl<'a> Engine<'a> {
                 let error = format!("{error:#}");
                 eprintln!(
                     "Unable to prime a base session: {}: task {task} runs in a fresh session",
-                    redact(self.write_token, &error)
+                    self.secrets.redact(&error)
                 );
                 Some(Launch::Fresh)
             }
@@ -808,7 +812,14 @@ impl<'a> Engine<'a> {
         launch: &Launch,
         prompt: &str,
     ) -> Result<String> {
-        let mut command = claude_command(self.program, self.workdir, model, access, launch);
+        let mut command = claude_command(
+            self.program,
+            self.workdir,
+            model,
+            self.secrets.claude(),
+            access,
+            launch,
+        );
         let mut child = command.spawn().context("Unable to start Claude Code")?;
         let mut group = Group::new(child.id());
         let mut stdin = child.stdin.take().context("Claude Code has no input")?;
@@ -893,7 +904,7 @@ impl<'a> Engine<'a> {
                 eprintln!(
                     "Unable to fork the base session for task {}: {}: running it in a fresh session",
                     message.task,
-                    redact(self.write_token, &reason)
+                    self.secrets.redact(&reason)
                 );
                 self.bases.remove(&(github, model.clone()));
                 self.save();
@@ -926,7 +937,14 @@ impl<'a> Engine<'a> {
             return Ok(Attempt::Done(Finish::Postponed));
         }
         let reply = self.reply(&message.task, Some(model));
-        let mut command = claude_command(self.program, self.workdir, model, access, launch);
+        let mut command = claude_command(
+            self.program,
+            self.workdir,
+            model,
+            self.secrets.claude(),
+            access,
+            launch,
+        );
         let run_number = {
             let record = self.tasks.entry(message.task.clone()).or_default();
             record.runs = record.runs.saturating_add(1);
@@ -1027,8 +1045,20 @@ mod tests {
     use tokio::sync::oneshot;
     use tokio::time::timeout;
 
-    use crate::guest::github::REDACTED;
-    use crate::keys::generate;
+    use crate::guest::github::{REDACTED, WriteToken};
+    use crate::guest::secrets::{ClaudeToken, REDACTED_CLAUDE};
+    use crate::keys::{Seed, generate};
+
+    const CLAUDE_TOKEN: &str = "sk-ant-oat01-harness0123456789";
+
+    /// The guest agent's secrets, with `write_token` if given.
+    fn secrets(write_token: Option<&str>) -> Secrets {
+        Secrets::new(
+            ClaudeToken::parse(CLAUDE_TOKEN).unwrap(),
+            write_token.and_then(|token| WriteToken::parse(token).unwrap()),
+            Seed::parse(&generate().unwrap().seed).unwrap(),
+        )
+    }
 
     fn queued(kind: Kind, task: &str) -> Message {
         Message {
@@ -1049,11 +1079,12 @@ mod tests {
         let (_input, incoming) = unbounded_channel();
         let (outgoing, _output) = unbounded_channel();
         let (_stop, stop_rx) = watch::channel(false);
+        let secrets = secrets(None);
         let setup = Setup {
             program: CLAUDE,
             workdir: Path::new("/work"),
             model: "test-model",
-            write_token: None,
+            secrets: &secrets,
         };
         let mut engine = Engine::new(setup, "dev", "host", incoming, outgoing, stop_rx);
         // The priming runs, in the base session; then the task's own run in its fork.
@@ -1141,6 +1172,10 @@ crash*)
 token*)
     echo "{\"type\":\"result\",\"is_error\":false,\"result\":\"GH_TOKEN=${GH_TOKEN:-none}\",\"session_id\":\"sess-1\"}"
     ;;
+oauth*)
+    echo "{\"type\":\"assistant\",\"session_id\":\"sess-1\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"saw ${CLAUDE_CODE_OAUTH_TOKEN:-none}\"}]}}"
+    echo "{\"type\":\"result\",\"is_error\":false,\"result\":\"CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-none} AGENT_BUS_SEED=${AGENT_BUS_SEED:-none}\",\"session_id\":\"sess-1\"}"
+    ;;
 bg*)
     ( trap '' TERM; exec sleep 300 ) >/dev/null 2>&1 &
     echo $! > "$prompt.sleep"
@@ -1208,7 +1243,7 @@ esac
 
         /// A guest agent on `dir`, keeping its state in `dir/state/`.
         fn spawn(dir: &Path, write_token: Option<&str>) -> Spawned {
-            let write_token = write_token.map(|token| WriteToken::parse(token).unwrap().unwrap());
+            let write_token = write_token.map(str::to_owned);
             let (status_tx, status) = oneshot::channel();
             let (input, incoming) = unbounded_channel();
             let (outgoing, output) = unbounded_channel();
@@ -1216,11 +1251,12 @@ esac
             let work = dir.to_owned();
             let program = dir.join("fake-claude").to_string_lossy().into_owned();
             let done = tokio::spawn(async move {
+                let secrets = secrets(write_token.as_deref());
                 let setup = Setup {
                     program: &program,
                     workdir: &work,
                     model: "test-model",
-                    write_token: write_token.as_ref(),
+                    secrets: &secrets,
                 };
                 let mut engine = Engine::new(setup, "dev", "host", incoming, outgoing, stop_rx);
                 engine.results = Some(ResultLog::new(work.join("results.jsonl")));
@@ -1882,6 +1918,37 @@ esac
     }
 
     #[tokio::test]
+    #[ignore = "starts real processes; run with -- --ignored"]
+    async fn every_run_gets_the_claude_token_and_it_never_leaves_the_agent() {
+        let mut harness = Harness::start("claude-token");
+
+        harness.send(Kind::Task, "claude-token", "oauth");
+        let replies = replies_until_outcome(&mut harness).await;
+        let outcome = replies.last().unwrap();
+        assert_eq!(outcome.kind, Kind::Completed);
+        // The run had the token in its environment, and no seed; the reply carries it redacted.
+        assert_eq!(
+            outcome.text,
+            format!("CLAUDE_CODE_OAUTH_TOKEN={REDACTED_CLAUDE} AGENT_BUS_SEED=none")
+        );
+        assert!(
+            replies
+                .iter()
+                .any(|reply| reply.text == format!("saw {REDACTED_CLAUDE}")),
+            "{replies:#?}"
+        );
+        for reply in &replies {
+            assert!(!reply.text.contains(CLAUDE_TOKEN), "{}", reply.text);
+        }
+
+        // Nor is it in the result records, the state or the command lines.
+        for file in ["results.jsonl", "state/guest-dev.toml", "args.log"] {
+            let kept = fs::read_to_string(harness.dir.join(file)).unwrap();
+            assert!(!kept.contains(CLAUDE_TOKEN), "{file}: {kept}");
+        }
+    }
+
+    #[tokio::test]
     async fn a_github_task_fails_clearly_without_a_write_token() {
         let mut harness = Harness::start("no-write-token");
         harness.send_github("write", "token-rw");
@@ -1905,7 +1972,7 @@ esac
         let dir = env::temp_dir().join(format!("agent-bus-lock-first-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let state = dir.join("state").join("guest-dev.toml");
-        let seed = generate().unwrap().seed;
+        let secrets = secrets(None);
         // Port 1 on loopback: nothing listens, so connecting is refused.
         let server = Endpoint {
             url: "nats://127.0.0.1:1".to_owned(),
@@ -1914,14 +1981,13 @@ esac
         let attempt = || {
             start(
                 &server,
-                &seed,
                 "dev",
                 "host",
                 Setup {
                     program: CLAUDE,
                     workdir: &dir,
                     model: "model",
-                    write_token: None,
+                    secrets: &secrets,
                 },
                 Some(StateFile::new(state.clone())),
             )

@@ -395,22 +395,62 @@ does (see [TLS](#tls)).
 |---|---|---|
 | Public key (`U...`) | The agents file (the host, and any fixed guests), the registry (enrolled guests), and the rendered `nats.conf` | No |
 | Host seed (`SU...`) | The user's secret store, then the environment of one host command as `AGENT_BUS_SEED` | Yes |
-| Enrolled guest seed (`SU...`) | Nowhere at rest: `enroll` prints it into a pipe, which ends in the guest agent's environment as `AGENT_BUS_SEED` | Yes |
+| Enrolled guest seed (`SU...`) | Nowhere at rest: `enroll` prints it into a pipe, which ends in the guest agent's memory (see [The guest agent's secrets](#the-guest-agents-secrets)) | Yes |
 
 Every agent has its own key: no two entries of the agents file and the registry together may
 share one, because the bus authorizes keys, not names. Seeds are printed in two places only:
-`agent-bus key new`, for the host's key (or a fixed guest's), and `agent-bus enroll`. A seed is
-read only from `AGENT_BUS_SEED` (trimmed, and checked to be a user seed), never from a
-command-line flag or a file. It is never written to a file or a log, and no error repeats it:
-key errors say what is wrong without quoting the value. The guest agent removes
-`AGENT_BUS_SEED` from Claude Code's environment, because Claude Code runs commands from network
-messages with root.
+`agent-bus key new`, for the host's key (or a fixed guest's), and `agent-bus enroll`. The host's
+commands read a seed only from `AGENT_BUS_SEED` (trimmed, and checked to be a user seed); the
+guest agent reads its own only from stdin. A seed is never a command-line flag or a file. It is
+never written to a file or a log, and no error repeats it: key errors say what is wrong without
+quoting the value.
 
 On the host, the host's seed comes from the secret store into the environment of one command.
 A guest's seed is made by `enroll` each time the guest starts and goes straight down a pipe:
 `start-agent.sh` pipes it over SSH stdin, never as an argument, and in the guest
-`start-guest.sh` reads it from stdin, exports it to the agent process only, and unsets its own
-copy. The user stores only the host's seed.
+`start-guest.sh` pipes it on to the agent's stdin; it is never in the agent's environment. The
+user stores only the host's seed.
+
+### The guest agent's secrets
+
+A guest agent holds three secrets: the Claude subscription token, the GitHub write token (see
+[GitHub tokens](#github-tokens)) and its bus seed. Its tasks run as the same user, so they can
+read `/proc/<agent pid>/environ` and `/proc/<agent pid>/cmdline`, its state files and its log.
+None of the three is in any of them:
+
+- **The path.** `start-agent.sh` sends them down the SSH stdin pipe, one per line: the Claude
+  token, the write token (an empty line for none), the seed, then the bus's CA certificate.
+  `start-guest.sh` reads each into a shell variable it never exports (`export -n` first, in case
+  the login shell exported one of the same name), then pipes the three lines, with the `printf`
+  builtin, into the stdin of `agent-bus guest`, started through `env -u AGENT_BUS_SEED -u
+  CLAUDE_CODE_OAUTH_TOKEN`, and unsets its copies. That stdin layout is the one `start-agent.sh`
+  has always sent, so a host's installed `agent-bus-start-agent` of either version works.
+- **In the agent** (`guest::secrets`). `read_secrets` reads the three lines: the Claude token must
+  be printable ASCII without spaces; the write token is empty or a GitHub token; the seed must be a
+  user seed (`keys::Seed`). A line out of order (a seed or a GitHub token where the Claude token
+  goes, say) is refused, and no error quotes a line. `agent-bus guest` refuses a terminal as stdin.
+  The secrets are held in a `Secrets` of `ClaudeToken`, `WriteToken` and `Seed`, each with a
+  redacted `Debug` and no `Display`.
+- **The startup check.** The agent refuses to start with `AGENT_BUS_SEED` or
+  `CLAUDE_CODE_OAUTH_TOKEN` in its environment, naming the variable but not the value, so an
+  agent started by an old script, or by hand with the secrets exported, fails at once.
+- **Where each goes.** The seed never leaves the agent: it only signs the bus's challenge.
+  The Claude token is set as `CLAUDE_CODE_OAUTH_TOKEN` in the environment of each Claude Code
+  run, the only place Claude Code takes it from. The write token is set as `GH_TOKEN` in a
+  `--github` run's alone.
+- **Redaction.** Every text the agent sends on the bus, every result event it records and its own
+  log lines that can carry Claude Code's text have each secret replaced: `[Claude token]`,
+  `[GitHub write token]`, `[bus seed]`.
+
+`kernel.yama.ptrace_scope = 1` on the guests keeps a task, a descendant of the agent, from
+reading the agent's memory (`/proc/<agent pid>/mem` cannot be opened). What a task can still
+reach is in [Limits](#limits).
+
+The test `a_guest_agents_secrets_are_out_of_reach_of_its_tasks` (`src/main.rs`, needs Docker)
+starts a bus and a guest agent in its own process with its secrets on stdin, checks the agent's
+`environ` and `cmdline`, and runs a task through a stand-in `claude` that collects everything of
+the agent's it can read: none holds the seed or the Claude token, and the agent's memory cannot
+be opened.
 
 ### GitHub tokens
 
@@ -426,15 +466,13 @@ the deny lists, are the boundary.
 | Write (`GH_TOKEN` on the host) | Commit, push, open pull requests | Nowhere on disk: the guest agent's memory | `--github` tasks only, as `GH_TOKEN` in their Claude Code's environment |
 
 The write token goes from the host's secret store into the environment of `start-agent.sh`, down
-the SSH stdin pipe as the second line, after the Claude token and before the seed, and in the
-guest from `start-guest.sh`'s stdin into a shell variable that is never exported. `start-guest.sh`
-pipes it, with the `printf` builtin, into the stdin of `agent-bus guest --github-token-stdin`,
-and unsets its copy. It is never in an environment the guest agent or a task can read back
-(`/proc/<pid>/environ` of the agent is readable by its tasks, which run as the same user), a
-command line, a file, a log or the bus.
+the SSH stdin pipe as the second line, after the Claude token and before the seed, and on to the
+guest agent's stdin with the other two (see [The guest agent's secrets](#the-guest-agents-secrets)).
+It is never in an environment the guest agent or a task can read back, a command line, a file, a
+log or the bus.
 
-The guest agent (`guest::github`) reads one line from stdin: empty is no token; anything that is
-not a GitHub token (`github_pat_`, `ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_` followed by letters,
+The guest agent (`guest::github`) takes the second line on stdin: empty is no token; anything that
+is not a GitHub token (`github_pat_`, `ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_` followed by letters,
 digits and `_`) is refused, a seed with its own error, and no error quotes the line. It holds the
 token as a `WriteToken`, whose `Debug` is redacted and which has no `Display`. It refuses to start
 when its own `GH_TOKEN` is the write token, since every task would have it. A guest agent started
@@ -707,14 +745,16 @@ shows every guest without a status until `bus start` runs again.
 
 ### Starting the guest agent
 
-`agent-bus guest --server <url> --name <name> --workdir <checkout> [--model <id>] [--reply-to host] [--github-token-stdin]`
-(`src/guest/run.rs`). With `--github-token-stdin` it first reads the GitHub write token from the
-first line of stdin (see [GitHub tokens](#github-tokens)). In order, it then:
+`agent-bus guest --server <url> --name <name> --workdir <checkout> [--model <id>] [--reply-to host]`
+(`src/guest/run.rs`). It first reads its secrets from stdin, which must not be a terminal: the
+Claude token (from `claude setup-token`; guest agents use the Claude subscription, never API
+billing), the GitHub write token or an empty line, and its bus seed (see
+[The guest agent's secrets](#the-guest-agents-secrets)). In order, it then:
 
 1. checks the names, and takes the instance lock (see [Files and state](#files-and-state)); a
    second agent of the same name fails here with the holder's PID, before it touches the bus;
-2. requires `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`): guest agents use the Claude
-   subscription, never API billing; and refuses a write token that is also its own `GH_TOKEN`;
+2. refuses to run with `AGENT_BUS_SEED` or `CLAUDE_CODE_OAUTH_TOKEN` in its own environment, and
+   a write token that is also its own `GH_TOKEN`;
 3. connects over TLS, trusting the CA in `AGENT_BUS_CA` (see [TLS](#tls)), and opens its inbox;
 4. loads its state file, reports an interrupted task, and saves;
 5. runs three loops together until the inbox closes or SIGTERM or SIGINT arrives: the inbox
@@ -744,8 +784,9 @@ claude -p --output-format stream-json --verbose
 - **Process.** It runs in the checkout, in its own process group (`process_group(0)`), with
   `kill_on_drop`. Stdout is read line by line; stderr goes to the guest agent's log.
 - **Environment.** `ANTHROPIC_API_KEY`, `AGENT_BUS_SEED`, `RUST_LOG`, `GITHUB_TOKEN` and
-  `GH_ENTERPRISE_TOKEN` are always removed. `GH_TOKEN` is the read-only token the agent inherited,
-  or, for a `--github` task, the write token (see [GitHub tokens](#github-tokens)).
+  `GH_ENTERPRISE_TOKEN` are always removed. `CLAUDE_CODE_OAUTH_TOKEN` is set to the Claude token
+  the agent holds in memory. `GH_TOKEN` is the read-only token the agent inherited, or, for a
+  `--github` task, the write token (see [GitHub tokens](#github-tokens)).
 - **Permissions.** Permission checks are skipped, because the guest is a disposable lab VM and
   the agent has root in it. The deny list still refuses some commands.
 - **Rules.** The appended system prompt says it is a guest agent; that content read from GitHub
@@ -1059,8 +1100,8 @@ In order:
    CA certificate, `tls/ca.pem`. The seed never sits in a variable, a command line, a file or a
    log, and `ssh` and `enroll` run without the GitHub tokens in their environment. If `enroll` fails, the guest
    script gets no seed and exits before it touches the running agent. In the guest,
-   `start-guest.sh` builds the release binary, stops any agent of that name, and starts
-   `agent-bus guest` in the background. Starting it needs the user: Claude Code's auto mode does
+   `start-guest.sh` builds the release binary from the guest's checkout, stops any agent of that
+   name, and starts `agent-bus guest` in the background, with the three secrets on its stdin. Starting it needs the user: Claude Code's auto mode does
    not let the host agent start an agent that runs commands from network messages unless a
    permission rule allows that one command.
 5. **The listener.** `agent-bus listen host` with the host's seed, under Claude Code's Monitor.
@@ -1153,13 +1194,18 @@ not reach the builds and tests Claude runs.
   agent whose `start-agent.sh` fails after enrolling (the guest unreachable mid-way, say) stays
   disconnected until the script is run again. The script checks SSH first to make that rare.
 - **What a task can read in its guest.** Tasks run as the guest agent's user, so they can read
-  `/proc/<agent pid>/environ`. The write token is kept out of it, but the agent's bus seed,
-  `AGENT_BUS_SEED`, is still there: a task can act as its guest agent on the bus. During a
-  `--github` task the write token is in that task's Claude Code environment, readable by any
-  process of the user until the task ends. If such a task prints the token, the agent redacts it
-  from what it sends and records, but Claude Code's own session transcript in `~/.claude/` keeps
-  the tool output as printed. `kernel.yama.ptrace_scope = 1` keeps tasks from reading the agent's
-  memory.
+  `/proc/<agent pid>/environ`, its command line, state and log; none holds the seed or a token
+  (see [The guest agent's secrets](#the-guest-agents-secrets)), and
+  `kernel.yama.ptrace_scope = 1` keeps them from its memory. Two exposures remain, both in Claude
+  Code's own environment, which needs them there:
+  - **The Claude token, during every task.** Each Claude Code run has `CLAUDE_CODE_OAUTH_TOKEN`
+    in its environment, so the task, and any process of the user while it runs (through
+    `/proc/<claude pid>/environ`), can read the subscription token.
+  - **The write token, during a `--github` task.** It is in that task's Claude Code environment,
+    readable by any process of the user until the task ends.
+
+  If a task prints either, the agent redacts it from what it sends and records, but Claude
+  Code's own session transcript in `~/.claude/` keeps the tool output as printed.
 - **The registry is trusted as written.** Anyone who can write the host's state directory can
   enroll a key; it is 0700 for that reason.
 - **Windows left.** A message is acknowledged before it reaches the state file's queue, so a

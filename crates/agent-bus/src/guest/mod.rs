@@ -10,6 +10,8 @@
 //! - `run`: the entry point, the inbox loop and the queue of tasks.
 //! - `engine`: which task a message is for, and whether it queues or cancels.
 //! - `github`: the GitHub write token, held in memory for `--github` tasks only.
+//! - `secrets`: the Claude token, the write token and the bus seed, read from stdin and held in
+//!   memory only.
 //! - `base`: the primed sessions new tasks fork from, for the prompt cache.
 //! - `claude`: the Claude Code command and its process group.
 //! - `lock`: one guest agent per name, so no two share a state file.
@@ -24,8 +26,9 @@ mod github;
 mod lock;
 mod record;
 pub mod run;
+mod secrets;
 mod state;
 mod stream;
 
-pub use github::read_write_token;
 pub use run::run;
+pub use secrets::read_secrets;

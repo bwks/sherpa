@@ -18,9 +18,12 @@
 # fresh key and refuses its previous one, and pipes the Claude token, the GitHub write token, the
 # new seed and the bus's CA certificate over SSH stdin into dev/agent-bus/start-guest.sh in the
 # guest. The seed only travels through that pipe: it is never in a variable, a command line, a
-# file or a log. The GitHub write token travels only through that pipe too: the guest agent
-# holds it in memory and gives it to --github tasks alone; the only token on the guest's disk is
-# the read-only one, from provisioning. The CA certificate (not secret) is the one
+# file or a log. All three secrets travel only through that pipe, and start-guest.sh pipes them
+# on to the agent's stdin: the guest agent holds them in memory, never in its environment. It
+# gives the Claude token to each Claude Code run and the GitHub write token to --github tasks
+# alone; the only GitHub token on the guest's disk is the read-only one, from provisioning. The
+# stdin layout is the same as before the agent stopped taking the seed from its environment, so
+# an installed copy of this script of either version works. The CA certificate (not secret) is the one
 # `agent-bus bus start` made, tls/ca.pem in the host's state directory; the guest agent trusts
 # only it.
 #

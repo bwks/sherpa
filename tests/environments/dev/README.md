@@ -244,7 +244,10 @@ Give the lab directory as an absolute path, since mise may run the task from ano
 The task enrolls the agent with a fresh key, refusing any previous one, and pipes the key, the
 Claude token, the GitHub write token and the bus's CA certificate over the lab's SSH config into
 `dev/agent-bus/start-guest.sh` in the guest, with `AGENT_BUS_URL` set to the URL in the host's
-`bus.toml`. No key is made or stored by hand, and neither agent is listed in the agents file. The
+`bus.toml`. The script pipes the key and both tokens on to the agent's stdin: the agent holds them
+in memory, never in its environment. No key is made or stored by hand, and neither agent is listed
+in the agents file. The agent is built from the guest's own checkout, so a change to the agent or
+to `start-guest.sh` reaches a guest when its checkout is pulled and its agent started again. The
 agent's log is `~/agent-bus-<node>.log` in the guest. To retire one, stop its agent and run
 `agent-bus unenroll <node>` on the host.
 
