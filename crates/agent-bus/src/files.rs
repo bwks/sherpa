@@ -5,6 +5,9 @@
 //! the guest, `listen-<agent>.jsonl` on the host) are 0600, one object per line with an `at_ms`
 //! field, and are pruned to the stream's retention: on start, and at most once a day before an
 //! append.
+//!
+//! Files that more than one process changes (the host's registry, the guest's generation ledger)
+//! are changed under an exclusive lock on a file beside them (`lock_exclusive`).
 
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
@@ -13,7 +16,8 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
+use nix::fcntl::{Flock, FlockArg};
 use serde::Deserialize;
 use tracing::instrument;
 
@@ -32,6 +36,12 @@ const PRUNE_EVERY: Duration = Duration::from_hours(24);
 #[derive(Deserialize)]
 struct Stamp {
     at_ms: Option<u64>,
+}
+
+/// A held exclusive lock on a file. Dropping it releases it.
+#[derive(Debug)]
+pub struct FileLock {
+    _lock: Flock<File>,
 }
 
 /// A JSON Lines file in the state directory, pruned to the stream's retention.
@@ -225,6 +235,31 @@ pub fn stamp(line: &str) -> Option<u64> {
     serde_json::from_str::<Stamp>(line).ok()?.at_ms
 }
 
+/// Take the exclusive lock on the file at `path`, created 0600 if missing (its directory too,
+/// 0700), waiting for another holder to finish. The file stays: removing it would let two
+/// processes lock two files of one name.
+///
+/// # Errors
+///
+/// Fails when the file cannot be created or locked.
+#[instrument(level = "debug", skip_all, fields(path = %path.display()))]
+pub fn lock_exclusive(path: &Path) -> Result<FileLock> {
+    if let Some(dir) = path.parent() {
+        private_dir(dir)?;
+    }
+    let file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(PRIVATE_FILE_MODE)
+        .open(path)
+        .with_context(|| format!("Unable to open {}", path.display()))?;
+    let lock = Flock::lock(file, FlockArg::LockExclusive).map_err(|(_, errno)| {
+        anyhow!(errno).context(format!("Unable to lock {}", path.display()))
+    })?;
+    Ok(FileLock { _lock: lock })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,5 +372,18 @@ mod tests {
         );
         assert_eq!(mode(&path), PRIVATE_FILE_MODE);
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn the_lock_is_exclusive() {
+        let dir = scratch("lock");
+        let path = dir.join("enroll.lock");
+        let held = lock_exclusive(&path).unwrap();
+        let file = OpenOptions::new().write(true).open(&path).unwrap();
+        assert!(Flock::lock(file, FlockArg::LockExclusiveNonblock).is_err());
+        drop(held);
+        let file = OpenOptions::new().write(true).open(&path).unwrap();
+        assert!(Flock::lock(file, FlockArg::LockExclusiveNonblock).is_ok());
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

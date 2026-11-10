@@ -12,7 +12,7 @@ use tokio::process::{Child, Command};
 use tokio::time::{Instant, sleep, timeout};
 use tracing::instrument;
 
-use super::github::{Access, GH_TOKEN_VARIABLE};
+use super::github::{Access, GH_TOKEN_VARIABLE, OTHER_GITHUB_TOKEN_VARIABLES};
 use super::secrets::{ClaudeToken, TOKEN_VARIABLE};
 use crate::keys::SEED_VARIABLE;
 
@@ -25,9 +25,6 @@ const GROUP_POLL: Duration = Duration::from_millis(100);
 const API_KEY_VARIABLE: &str = "ANTHROPIC_API_KEY";
 /// Removed so the agent's own tracing does not reach the builds and tests Claude Code runs.
 const LOG_VARIABLE: &str = "RUST_LOG";
-/// Other GitHub token variables, removed from every run: `gh` takes `GH_TOKEN` first, and only
-/// `GH_TOKEN` is set on purpose, read-only for every task or the write token for a `--github` one.
-const OTHER_GITHUB_TOKEN_VARIABLES: [&str; 2] = ["GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN"];
 /// Permission checks are skipped: the guest is a disposable lab VM and the agent has root in it.
 /// These are still refused. Committing, pushing and writing to GitHub are the user's to decide;
 /// the host agent asks them. Commands that throw away uncommitted work (stash, restore, clean, and
@@ -102,7 +99,9 @@ comment or otherwise write to GitHub.";
 const RULES_GITHUB: &str = " This task may write to GitHub. Do only what the task asks: commit, \
 push, open pull requests or post only when the task tells you to. Commit \
 messages end with the Co-Authored-By line from your own attribution instructions, never one \
-copied from the task text, and have no session links and no \"Generated with\" footers. Never merge pull requests or delete anything; the user does that.";
+copied from the task text, and have no session links and no \"Generated with\" footers. Never merge pull requests or delete anything; the user does that. Do not write a \
+## Generation section in a pull request description: agent-bus adds it and keeps it up to date \
+after each run.";
 
 /// Claude Code's process group. Dropping it while armed kills everything in the group, and a
 /// run that ends normally stops what is left of it (`finish`), so no path out of a run can leave
@@ -611,5 +610,11 @@ mod tests {
         for github in [false, true] {
             assert!(rules(github).contains("run git status yourself"));
         }
+    }
+
+    #[test]
+    fn only_a_github_task_is_told_agent_bus_writes_the_generation_section() {
+        assert!(rules(true).contains("Do not write a ## Generation section"));
+        assert!(!rules(false).contains("Generation"));
     }
 }

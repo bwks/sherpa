@@ -14,6 +14,10 @@ use anyhow::{Result, bail};
 
 /// The variable `gh`, and through `gh auth git-credential` git, take the token from.
 pub(super) const GH_TOKEN_VARIABLE: &str = "GH_TOKEN";
+/// Other GitHub token variables, removed from every run of Claude Code and `gh`: `gh` takes
+/// `GH_TOKEN` first, and only `GH_TOKEN` is set on purpose, read-only for every task or the write
+/// token for a `--github` one.
+pub(super) const OTHER_GITHUB_TOKEN_VARIABLES: [&str; 2] = ["GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN"];
 /// What the write token is replaced with in text the agent sends or records.
 pub(super) const REDACTED: &str = "[GitHub write token]";
 /// The prefixes of GitHub's tokens: fine-grained, classic, OAuth, user-to-server, server-to-server

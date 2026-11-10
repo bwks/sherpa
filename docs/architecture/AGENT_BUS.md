@@ -35,9 +35,10 @@ tracked in issue #494.
 | Status bucket | A JetStream key-value bucket, `AGENT_STATUS` (stream `KV_AGENT_STATUS`), one key per guest, history 1, kept 7 days. Each guest agent's heartbeat. See [Agent status](#agent-status). | `src/channel.rs`, `src/status.rs` |
 | Inboxes | One durable pull consumer per agent, named after it, filtered on `agents.<name>.>` (one subject per sender), with `max_waiting = 1`. A message waits until its agent reads and acknowledges it, and a restarted reader goes on where it stopped. | `src/channel.rs` |
 | Host commands | `key new`, `bus start/stop/status`, `enroll`, `unenroll`, `send`, `cancel`, `listen`, `usage`, `show`, `agents`. | `src/main.rs`, `src/bus.rs`, `src/listen.rs`, `src/table.rs` |
-| Starting a guest | `dev/agent-bus/start-agent.sh` on the host enrolls a node's agent and pipes the Claude token, the GitHub write token, its seed and the bus's CA certificate over SSH to `dev/agent-bus/start-guest.sh` in the guest. | `dev/agent-bus/` |
+| Starting a guest | `dev/agent-bus/start-agent.sh` on the host enrolls a node's agent (named after the node, or given its own name) and pipes the Claude token, the GitHub write token, its seed and the bus's CA certificate over SSH to `dev/agent-bus/start-guest.sh` in the guest. | `dev/agent-bus/` |
 | Guest agent | `agent-bus guest`: reads its inbox, queues tasks, runs them one at a time through Claude Code, and replies. | `src/guest/` |
 | Claude Code | `claude -p` with `stream-json` output, one process (and process group) per run, in the guest's checkout. | `src/guest/claude.rs` |
+| Generation section | After each run of a `--github` task, the guest agent rewrites the `## Generation` section of the open pull requests of the branch the run ended on, from its ledger of what each task cost. See [Pull request Generation section](#pull-request-generation-section). | `src/guest/generation.rs`, `src/guest/ledger.rs`, `src/guest/pull_request.rs` |
 
 The flowchart shows the parts and how they connect. The only path between the host and a lab
 guest is NATS over TLS on the lab's management bridge; nothing goes over SSH once the guest agent
@@ -479,7 +480,11 @@ when its own `GH_TOKEN` is the write token, since every task would have it. A gu
 without a write token runs; its `--github` tasks fail at once, saying it has none.
 
 The write token is set as `GH_TOKEN` only in the environment of the Claude Code process of a
-`--github` task (`claude::claude_command` with `Access::Write`). Every text the agent sends on
+`--github` task (`claude::claude_command` with `Access::Write`), and, after that task's run
+ends, in the environment of the `gh pr list` and `gh pr edit` the agent runs itself to update
+the pull requests' Generation section (`pull_request::update`, see
+[Pull request Generation section](#pull-request-generation-section)). A run of a task without
+`--github` never leads to either. Every text the agent sends on
 the bus (progress, outcomes, errors) and every result event it records has the token replaced by
 `[GitHub write token]`, and the agent's own log lines that can carry Claude Code's text are
 redacted the same way, so a task that prints it does not put it in the journal or
@@ -590,13 +595,19 @@ says to enroll the guest again (which replaces the key) or run `bus start`, whic
 loads the config from the registry.
 
 `agent-bus unenroll <name>` removes the guest's key from the registry, renders the config and
-reloads a running bus (`bus::unenroll`). It needs no seed. A name the agents file lists is
-refused, and a name that is not enrolled changes nothing. If the bus is recorded but not
-running, only the files change, and the next `bus start` leaves the guest out. With no
-`bus.toml` (after `bus stop`), the agents file is not known, so only the registry changes
-(`bus::unenroll_standard`): `bus start` renders the config from it, so the key is refused from the next start.
-A container that runs without a record is refused, with a message to run `bus start` first. The
-guest's inbox and messages stay in the stream.
+reloads a running bus (`bus::unenroll`). A name the agents file lists is refused. With the
+host's seed in `AGENT_BUS_SEED` (optional; a seed that is set must be the host's) and the bus
+running, it then deletes the guest's inbox, the durable consumer (`Channel::delete_inbox`),
+whether the name was still enrolled or not, so a retired name leaves no consumer behind. The
+messages stay in the stream until its retention drops them, so `usage` and `show` still see the
+ones sent to the host. Without the seed the inbox is kept and the command says how to delete it.
+A name that is neither enrolled nor has an inbox changes nothing. If the bus is recorded but not
+running, only the files change, and the next `bus start` leaves the guest out (it does not
+create inboxes for names it does not know; an inbox left from before stays until `unenroll` is
+run again with the bus up). With no `bus.toml` (after `bus stop`), the agents file is not known,
+so only the registry changes (`bus::unenroll_standard`): `bus start` renders the config from it,
+so the key is refused from the next start. A container that runs without a record is refused,
+with a message to run `bus start` first.
 
 **Which wins.** The agents file wins a name clash. `enroll` and `unenroll` refuse its names,
 including the host's. A registry entry whose name the agents file lists later is left out of the
@@ -954,6 +965,79 @@ Tasks with no usage are left out unless `--all` is given. `agent-bus show <task>
 kept message of one task, oldest first, one JSON line each, the same way, from the bus rather than
 the listener's journal.
 
+## Pull request Generation section
+
+AGENTS.md asks every pull request description to end with a `## Generation` section: the agent
+tasks behind it, their models and cost, and a total. The guest agent process keeps it, not the
+model: after every run of a `--github` task that sent a `result` event, before it sends the
+outcome, the engine (`Engine::generation` in `src/guest/run.rs`):
+
+1. finds the branch the checkout ended on, `git symbolic-ref --quiet --short HEAD`
+   (`pull_request::current_branch`); a detached HEAD or a git error means no branch;
+2. records the run in the ledger, every run of every task, `--github` or not (`ledger::Ledger`):
+   the task's agent, the branch when known (an unknown one keeps the branch recorded before), the
+   models (the keys of the run's `model_usage_since_last_result`, or the task's model when it
+   gave none) and the task's cumulative `task_usage`, priming runs included; it returns every
+   task the ledger has on the branch;
+3. for a `--github` task only, in the checkout and in `../sherpa-docs` beside it when that is a
+   git checkout (`pull_request::checkouts`), lists the open pull requests whose head is the
+   branch, `gh pr list --state open --head=<branch> --json number,url,body,isCrossRepository`,
+   leaves out those from forks, rewrites each body (`generation::update_body`) and, when it
+   changed, sets it with `gh pr edit <n> --body-file -`, the body on stdin.
+
+A task without `--github` is only recorded: the write token is for `--github` tasks alone, so its
+work shows up at the next `--github` run on the same branch. The docs pull request is found only
+when its branch has the same name. A task is credited to the branch its last run ended on, in
+full.
+
+Nothing here fails the task. The outcome text of a `--github` run starts with one line saying
+what happened, then a blank line, then Claude's own text, so a `QUESTION:` stays the last line:
+
+| Line | When |
+|---|---|
+| `Generation section for branch <b>: updated <url>; up to date <url>; not updated: <url>: <why>` | The pull requests of the branch were looked at; one entry each, and one per checkout whose list failed |
+| `Generation section: no open pull request for branch <b>` | None is open |
+| `Generation section not updated: <why>` | No branch (detached HEAD, not a checkout), or the ledger could not be written |
+
+The same line goes to the guest log. Each `git` and `gh` command has 60 s and is killed if it
+takes longer; `gh` runs with `GH_PROMPT_DISABLED`, and with the write token as `GH_TOKEN` and no
+other token variable in its environment (see [GitHub tokens](#github-tokens)).
+
+**The section.** Everything between `<!-- agent-bus:generation -->` and
+`<!-- /agent-bus:generation -->` is the agent's; the rest of the body is never changed. A body
+without the markers gets the section appended after a blank line. Markers out of order or more
+than once are an error, reported, and the body is left alone. The section holds:
+
+- the heading `## Generation` and a line saying the figures are agent-bus list-price cost, not
+  billed, and that work outside the bus is not measured;
+- a table: task, agent, models, runs, cost (USD, 4 decimals), cache hit (as `agent-bus usage`,
+  see [Usage and cost](#usage-and-cost)), input, output, cache read and cache write tokens, one
+  row per task, and a bold total row;
+- the same rows as TOML (`[[task]]` with `task`, `agent`, `models` and `[task.usage]`, the
+  `TaskUsage` fields) in an HTML comment, `<!-- agent-bus:generation-data ... -->`.
+
+The data comment is what is read back, with serde, never the table. Each guest VM keeps its own
+ledger, so a guest rewriting the section keeps the rows of tasks it does not know, in their
+order, replaces the rows of the tasks in its ledger (their figures are cumulative) and adds its
+new ones after. Every task ID, agent name and model, ours or read back, must be short and of
+letters, digits and `-._` (models also `:/@[]`), so nothing can break the table or close the
+comment early; a row that is not is an error. Work outside the bus (the host's own, for example)
+is added by hand outside the markers.
+
+**The ledger.** `<state>/generation.toml` in the guest, TOML, no secrets: `[tasks.<id>]` with
+`agent`, `branch`, `models`, `first_at_ms`, `updated_at_ms` and `[tasks.<id>.usage]`. It is
+shared by every guest agent of the user, whatever its name, so it survives a rename; each change
+is a read, update and atomic write under an exclusive lock on `generation.lock`
+(`files::lock_exclusive`). Entries are dropped 30 days after their last run, longer than the
+stream's 7 days, as pull requests stay open longer. A file that cannot be read is moved aside to
+`generation.toml.corrupt-<unix seconds>` and the ledger starts fresh. Without a state directory
+there is no ledger, and a `--github` run says the section was not updated.
+
+**Models.** The models of a run are the keys of `model_usage_since_last_result`, which holds
+one entry per model the run used, subagents' included. Confirmed with a real run: an Opus run
+that started one `haiku` Explore subagent had the keys `claude-haiku-5-5` and `claude-opus-5-5`
+in its `result` event (`results.jsonl`).
+
 ## Files and state
 
 The state directory is `$XDG_STATE_HOME/agent-bus/`, or `~/.local/state/agent-bus/` when
@@ -973,7 +1057,7 @@ real-bus tests start the bus with its state in a 0700 directory.
 | Host | `<state>/tls/server.toml` | 0600, `tls/` 0700 | The addresses the server certificate names and its expiry (`not_after`). Removed before a new certificate is written, and written after it. | `tls::ensure` |
 | Host | `<state>/nats/server.pem`, `<state>/nats/server-key.pem` | 0644 and 0600, `nats/` 0755 | The server certificate and key, read by nats-server through the mounted `nats/` directory (the pinned image runs as root, so it reads the 0600 key). | `tls::ensure` |
 | Host | `<state>/enrolled.toml` | 0600, directory 0700 | The registry of enrolled guests, in the agents file's format, guests only, with a header saying it is managed by agent-bus. Written with `files::write_atomic`. A missing file is an empty registry. | `registry::Registry::save` |
-| Host | `<state>/enroll.lock` | 0600, directory 0700 | Empty; the exclusive `flock` that `bus start`, `enroll` and `unenroll` hold while they change the registry or render the config. Never removed. | `registry::lock` |
+| Host | `<state>/enroll.lock` | 0600, directory 0700 | Empty; the exclusive `flock` that `bus start`, `enroll` and `unenroll` hold while they change the registry or render the config. Never removed. | `files::lock_exclusive` |
 | Host | `<state>/bus.toml` | 0600, directory 0700 | `url`, `agents` (the agents file's absolute path), and `[lab]` with `id` and `name` when started with `--lab`. Written with `files::write_atomic`. Removed by `bus stop`. | `state::write` |
 | Host | `<state>/listen-<agent>.jsonl` | 0600, directory 0700 | The listener's journal: one line per message received, `{"at_ms":..,"message":{..}}`, the message as `listen` prints it. Appended and in the file before the message is printed and acknowledged. Pruned to 7 days (below). | `listen::Journal` |
 | Host | the agents file | the user's | The host's and any fixed guests' names, public keys and roles. Only read. | the user |
@@ -982,6 +1066,8 @@ real-bus tests start the bus with its state in a 0700 directory.
 | Guest | `<state>/guest-<name>.toml` | 0600, directory 0700 | The guest agent's state (below). Written with `files::write_atomic` (below). A file that cannot be read or parsed is moved to `guest-<name>.toml.corrupt-<unix seconds>` and the agent starts fresh. | `guest::state` |
 | Guest | `<state>/guest-<name>.lock` | 0600, directory 0700 | The PID of the agent holding the lock. Never removed. | `guest::lock` |
 | Guest | `<state>/results.jsonl` | 0600, directory 0700 | One JSON line per `result` event: `task`, `session`, `run` (0 for priming, then 1, 2, ...), `at_ms`, and `raw`, the event line unchanged. Appended; pruned to 7 days (below). | `guest::record` |
+| Guest | `<state>/generation.toml` | 0600, directory 0700 | The generation ledger: per task, its agent, last branch, models and cumulative usage. Written with `files::write_atomic` under `generation.lock`; entries dropped 30 days after their last run. A file that cannot be read is moved to `generation.toml.corrupt-<unix seconds>`. See [Pull request Generation section](#pull-request-generation-section). | `guest::ledger` |
+| Guest | `<state>/generation.lock` | 0600, directory 0700 | Empty; the exclusive `flock` held while the ledger is changed. Never removed. | `files::lock_exclusive` |
 | Guest | `~/agent-bus-<name>.log` | default (umask) | The guest agent's stdout and stderr, Claude Code's stderr included. Truncated on each start. | `start-guest.sh` |
 
 Claude Code keeps its sessions in its own files; the guest agent only records which session is
@@ -1040,6 +1126,9 @@ files of one name. The descriptor is close-on-exec, so Claude Code does not inhe
 
 `start-guest.sh` also waits for the old agent: SIGTERM, up to 15 s (the agent's own kill grace is
 2 s), then SIGKILL and 5 s more, and it refuses to start a second agent if one is still there.
+It stops any agent of this name, and any agent of another name whose `--workdir` is this
+checkout: one agent per checkout, so starting a node under a new agent name stops the agent of
+its old name.
 
 ## Operating it
 
@@ -1053,7 +1142,7 @@ The only bus secret stored is the host's seed: guests get a fresh key each time 
 | Task | What it does |
 |---|---|
 | `agent-bus:bus` | `agent-bus bus start --lab` with the dev lab and the agents file |
-| `agent-bus:agent <lab dir> <node>` | `~/.local/bin/agent-bus-start-agent <lab dir> <node>`: enrolls the node's guest agent and starts it |
+| `agent-bus:agent <lab dir> <node> [agent]` | `~/.local/bin/agent-bus-start-agent <lab dir> <node> [agent]`: enrolls the node's guest agent, named `<agent>` or else after the node, and starts it |
 | `agent-bus:send` | `agent-bus send`: a task, or an answer with `--answer` |
 | `agent-bus:listen` | `agent-bus listen host` |
 | `agent-bus:cancel` | `agent-bus cancel` |
@@ -1074,13 +1163,14 @@ executable:
 description = "Enroll a lab node's guest agent on the bus and start it"
 usage = '''
 arg "<lab_dir>" help="The lab directory, holding .sherpa/lab-info.toml and .sherpa/ssh/config"
-arg "<node>" help="The node, which is also the agent's name"
+arg "<node>" help="The lab node the agent runs on"
+arg "[agent]" help="The agent's name; the node's when not given"
 '''
-run = '<load secrets> ~/.local/bin/agent-bus-start-agent "$usage_lab_dir" "$usage_node"'
+run = '<load secrets> ~/.local/bin/agent-bus-start-agent "$usage_lab_dir" "$usage_node" ${usage_agent:+"$usage_agent"}'
 ```
 
-Run it as `mise run agent-bus:agent <lab dir> <node>`, for example
-`mise run agent-bus:agent ~/labs/sherpa-agent-2 agent-2`.
+Run it as `mise run agent-bus:agent <lab dir> <node> [agent]`, for example
+`mise run agent-bus:agent ~/labs/sherpa-agent-2 agent-2 dev02`.
 
 In order:
 
@@ -1090,43 +1180,62 @@ In order:
 2. **The lab.** Bring up the dev lab (`tests/environments/dev/README.md`).
 3. **The bus.** `agent-bus bus start --lab <lab dir> --agents <file>` with the host's seed. It
    comes before the guest agents and the listener.
-4. **The guest agents.** `mise run agent-bus:agent <lab dir> <node>` for each, on the host
+4. **The guest agents.** `mise run agent-bus:agent <lab dir> <node> [agent]` for each, on the host
    (`dev/agent-bus/start-agent.sh`). The script finds the node's SSH alias, `<node>` or
    `<node>.<lab id>`, in the lab's `.sherpa/ssh/config` (with `id` from `.sherpa/lab-info.toml`),
    and the bus's URL in `bus.toml`; like `bus start`, it refuses a lab folder in the old layout. It uses the installed `agent-bus` binary, checks the guest answers over
-   SSH, then pipes over SSH stdin to `dev/agent-bus/start-guest.sh <node>` in the guest, with
+   SSH, then pipes over SSH stdin to `dev/agent-bus/start-guest.sh <agent>` in the guest, with
    `AGENT_BUS_URL` set to the bus's URL: the Claude token, the GitHub write token (or an empty
-   line), then the seed straight from `agent-bus enroll <node>`, each on a line, then the bus's
+   line), then the seed straight from `agent-bus enroll <agent>`, each on a line, then the bus's
    CA certificate, `tls/ca.pem`. The seed never sits in a variable, a command line, a file or a
    log, and `ssh` and `enroll` run without the GitHub tokens in their environment. If `enroll` fails, the guest
    script gets no seed and exits before it touches the running agent. In the guest,
    `start-guest.sh` builds the release binary from the guest's checkout, stops any agent of that
-   name, and starts `agent-bus guest` in the background, with the three secrets on its stdin. Starting it needs the user: Claude Code's auto mode does
+   name or in that checkout, and starts `agent-bus guest` in the background, with the three secrets on its stdin. Starting it needs the user: Claude Code's auto mode does
    not let the host agent start an agent that runs commands from network messages unless a
    permission rule allows that one command.
 5. **The listener.** `agent-bus listen host` with the host's seed, under Claude Code's Monitor.
    Run only one: a second is refused. After a restart, `agent-bus listen host --since <duration>`
    first prints what the journal got in that time, covering anything printed while no Monitor
    was reading.
-6. **Tasks.** `agent-bus send --to dev [--model sonnet] "<task>"`,
-   `send --to dev --answer <task> "<answer>"`,
-   `agent-bus cancel --to dev <task>`.
+6. **Tasks.** `agent-bus send --to dev01 [--model sonnet] "<task>"`,
+   `send --to dev01 --answer <task> "<answer>"`,
+   `agent-bus cancel --to dev01 <task>`.
 
 Restarting a guest agent is the same command: it enrolls the agent again, so the key the old
 process had is refused from then on. To retire a guest, stop its agent and run
-`agent-bus unenroll <name>`.
+`agent-bus unenroll <name>` with the host's seed, which also deletes its inbox.
+
+**Renaming a guest agent.** The agent's name is separate from the node's, so a VM keeps its node
+and lab and its agent takes a new name, with no rebuild. For node `dev` to run agent `dev01`:
+
+1. Let the old agent go idle with nothing queued (`agent-bus agents`). Answer or drop its open
+   questions first: an answer to an old task sent to the new name finds no session, as each
+   name has its own state file, and fails with "No session".
+2. `mise run agent-bus:agent <lab dir> dev dev01`. This enrolls `dev01`; in the guest,
+   `start-guest.sh` stops the `dev` agent (it works in the same checkout) and starts `dev01`.
+3. `agent-bus unenroll dev` on the host, with the host's seed: the old key is refused and the old
+   inbox deleted. A name in the agents file is refused instead; remove it from the file and run
+   `bus start`.
+4. In the guest, `guest-dev.toml`, `guest-dev.lock` and `~/agent-bus-dev.log` are left as they
+   were; delete them by hand when nothing is left to answer.
+
+History stays under the old name. `agent-bus usage` reads the messages kept for the host, so old
+tasks show agent `dev` (and `--agent dev` finds them) until the stream's 7 days drop them;
+nothing is rewritten. The generation ledger is shared by every name, so the old tasks' rows keep
+`dev` as their agent and still count in a pull request's Generation section.
 
 **Moving from stored guest keys.** Guests listed in the agents file keep their fixed keys and
 cannot be enrolled. To move one to enrollment, remove it from the agents file, run `bus start`
 again, then start it with `agent-bus:agent`. Guests may no longer share a key: an agents file
 that lists one key twice is refused.
 
-There are two guests, one per VM, each its own lab: `dev` and `agent-2`
-(`tests/environments/agent`, lab `sherpa-agent-2`). They are identical dev servers, each with a
+There are two guests, one per VM, each its own lab: agent `dev01` on node `dev` and agent `dev02`
+on node `agent-2` (`tests/environments/agent`, lab `sherpa-agent-2`). They are identical dev servers, each with a
 Sherpa server, so a task can go to either; both are brought up from lab directories outside the
 repository (`tests/environments/dev/README.md`). The bus stays on the host, started with `--lab`
 on dev's lab, so it listens only on dev's gateway. agent-2's guest agent is started the same way,
-`mise run agent-bus:agent <lab dir> agent-2`: `start-agent.sh` always passes the URL from
+`mise run agent-bus:agent <lab dir> agent-2 dev02`: `start-agent.sh` always passes the URL from
 `bus.toml` as `AGENT_BUS_URL`, which `start-guest.sh` uses in place of the guest's own default
 gateway. A guest on its own bridge reaches dev's gateway with no firewall change; the check and
 its result are in `tests/environments/dev/README.md`.
@@ -1188,8 +1297,9 @@ not reach the builds and tests Claude runs.
   server certificate for the new address from the same CA).
 - **One task at a time per guest.** The rest wait in its queue.
 - **Removing an agent**: `unenroll` for an enrolled guest, or removing a fixed one from the
-  agents file and running `bus start`, drops its access; its consumer and messages stay in the
-  stream.
+  agents file and running `bus start`, drops its access. `unenroll` with the host's seed also
+  deletes its consumer; `bus start` does not, so a fixed guest's consumer stays. Its messages
+  stay in the stream until the retention drops them.
 - **Enrolling cuts off the running agent.** `enroll` refuses the previous key at once, so an
   agent whose `start-agent.sh` fails after enrolling (the guest unreachable mid-way, say) stays
   disconnected until the script is run again. The script checks SSH first to make that rare.

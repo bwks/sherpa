@@ -46,12 +46,14 @@ database is Turso, embedded in sherpad as a single file (see `docs/architecture/
 - Add `[skip ci]` to the commit message of changes that contain no code, such as documentation-only
   changes.
 - Every pull request description ends with a `## Generation` section recording the AI work that
-  produced it: each model used and the cost in US dollars, as a table of the agent tasks with their
-  model and cost, and a total. Take the figures from `agent-bus usage` (shown as "Cost (not
-  billed)": list-price cost, not what was charged). Include every task that changed the pull
-  request, from implementation to review fixes, and update the section when a later task changes
-  it. A guest agent opening a pull request cannot see its own cost, so the host fills the section
-  in. Work done outside the agent bus is listed as not measured.
+  produced it: a table of the agent tasks with their models and cost in US dollars, and a total.
+  The cost is agent-bus list-price cost, not what was charged. The guest agent-bus process keeps
+  the section, not the model: after each run of a `--github` task it rewrites everything between
+  `<!-- agent-bus:generation -->` and `<!-- /agent-bus:generation -->` in the open pull requests
+  of the branch it ended on, counting every task that worked on that branch, from implementation
+  to review fixes. Agents do not write the section themselves (see "Pull request Generation
+  section" in `docs/architecture/AGENT_BUS.md`). Work done outside the agent bus is listed by
+  hand, outside the markers, as not measured.
 
 ## Configuration / Project Files
 - All configuration and project files (such as `sherpa.toml` and `manifest.toml`) are to use the 

@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Enroll a lab node's guest agent on the bus and start it, from the host. The agent is named
-# after the node. Run it on the host, where the bus runs. The host has no checkout and builds
+# Enroll a lab node's guest agent on the bus and start it, from the host. The agent's name is
+# <agent>, or the node's when none is given. Run it on the host, where the bus runs. The host has no checkout and builds
 # nothing: the agent-bus binary and this script are built and copied from the dev guest, and
 # installed as ~/.local/bin/agent-bus and ~/.local/bin/agent-bus-start-agent.
 #
-#   agent-bus-start-agent <lab dir> <node>
+#   agent-bus-start-agent <lab dir> <node> [agent]
+#
+# Starting a node under a new agent name stops the agent of its old name: start-guest.sh runs one
+# agent per checkout. Retire the old name on the host with `agent-bus unenroll <old name>`, with
+# the host's seed in AGENT_BUS_SEED so its inbox is deleted too.
 #
 # It needs, in its environment, CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) and
 # AGENT_BUS_SEED, the HOST's seed; a mise task loads both from the secret store. GH_TOKEN, the
@@ -14,7 +18,7 @@
 #
 # It finds the node's SSH alias (`<node>` or `<node>.<lab id>`) in the lab's .sherpa/ssh/config
 # (with the lab id from .sherpa/lab-info.toml), and the bus's URL in the bus record that
-# `agent-bus bus start` wrote. It then runs `agent-bus enroll <node>`, which gives the agent a
+# `agent-bus bus start` wrote. It then runs `agent-bus enroll <agent>`, which gives the agent a
 # fresh key and refuses its previous one, and pipes the Claude token, the GitHub write token, the
 # new seed and the bus's CA certificate over SSH stdin into dev/agent-bus/start-guest.sh in the
 # guest. The seed only travels through that pipe: it is never in a variable, a command line, a
@@ -32,20 +36,25 @@
 # such as `sherpa inspect`, which moves its files into .sherpa/.
 set -euo pipefail
 
-if [ "$#" -ne 2 ]; then
-    echo "Usage: $0 <lab dir> <node>" >&2
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+    echo "Usage: $0 <lab dir> <node> [agent]" >&2
     exit 2
 fi
 LAB_DIR="$1"
 NODE="$2"
+AGENT="${3:-${NODE}}"
 # Where the checkout is in the guest, relative to the home directory SSH starts in;
 # provisioning clones it there.
 GUEST_REPO="code/rust/sherpa"
 
-# The node name is the agent's name and goes into the remote command: hold it to the agent name
-# rule.
+# The node name finds the SSH alias; the agent name goes into the remote command. Hold both to
+# the agent name rule.
 if ! [[ "${NODE}" =~ ^[a-z0-9-]{1,32}$ ]]; then
-    echo "Node '${NODE}' is not a valid agent name: 1 to 32 lowercase letters, digits and hyphens" >&2
+    echo "Node '${NODE}' is not a valid node name: 1 to 32 lowercase letters, digits and hyphens" >&2
+    exit 2
+fi
+if ! [[ "${AGENT}" =~ ^[a-z0-9-]{1,32}$ ]]; then
+    echo "Agent '${AGENT}' is not a valid agent name: 1 to 32 lowercase letters, digits and hyphens" >&2
     exit 2
 fi
 if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || [ -z "${AGENT_BUS_SEED:-}" ]; then
@@ -119,7 +128,7 @@ if [ -n "${AGENT_BUS_MODEL:-}" ]; then
     fi
     MODEL_ENV="AGENT_BUS_MODEL=${AGENT_BUS_MODEL} "
 fi
-REMOTE="AGENT_BUS_URL=${URL} ${MODEL_ENV}bash -lc '${GUEST_REPO}/dev/agent-bus/start-guest.sh ${NODE}'"
+REMOTE="AGENT_BUS_URL=${URL} ${MODEL_ENV}bash -lc '${GUEST_REPO}/dev/agent-bus/start-guest.sh ${AGENT}'"
 
 AGENT_BUS="$(command -v "${AGENT_BUS_BIN:-agent-bus}" || true)"
 if [ -z "${AGENT_BUS}" ] || [ ! -f "${AGENT_BUS}" ] || [ ! -x "${AGENT_BUS}" ]; then
@@ -142,7 +151,7 @@ if ! lab_ssh true < /dev/null; then
     exit 1
 fi
 
-echo "Enrolling '${NODE}' on ${URL} and starting it on ${ALIAS}" >&2
+echo "Enrolling '${AGENT}' on ${URL} and starting it on ${ALIAS}" >&2
 # On the guest script's stdin: the Claude token, the GitHub write token (an empty line when there
 # is none), then the seed straight from enroll, each on a line, then the CA certificate to the
 # end. printf is a shell builtin, so neither token is ever a process's command line. If enroll
@@ -150,6 +159,6 @@ echo "Enrolling '${NODE}' on ${URL} and starting it on ${ALIAS}" >&2
 {
     printf '%s\n' "${CLAUDE_CODE_OAUTH_TOKEN}"
     printf '%s\n' "${GH_TOKEN:-}"
-    env -u GH_TOKEN -u GH_TOKEN_RO -u GITHUB_TOKEN "${AGENT_BUS}" enroll "${NODE}" || exit 1
+    env -u GH_TOKEN -u GH_TOKEN_RO -u GITHUB_TOKEN "${AGENT_BUS}" enroll "${AGENT}" || exit 1
     cat "${BUS_CA}"
 } | lab_ssh "${REMOTE}"

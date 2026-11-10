@@ -35,7 +35,7 @@ use tracing::instrument;
 use crate::agents::Agents;
 use crate::channel::{Channel, Endpoint};
 use crate::config;
-use crate::files::standard_state_dir;
+use crate::files::{lock_exclusive, standard_state_dir};
 use crate::keys::{self, public_key_of};
 use crate::message::check_agent_name;
 use crate::registry::{self, Registry};
@@ -229,7 +229,7 @@ pub async fn start(bus: &Bus, agents_path: &Path, host_seed: &str) -> Result<()>
     let fixed = load_agents(agents_path, Some(host_seed))?;
     let agents_path = path::absolute(agents_path)
         .with_context(|| format!("Unable to resolve {}", agents_path.display()))?;
-    let _lock = registry::lock(&bus.lock_path())?;
+    let _lock = lock_exclusive(&bus.lock_path())?;
     let merged = registry::merge(fixed, &Registry::load(&bus.registry_path())?)?;
     warn_shadowed(&merged.shadowed, &agents_path);
     let agents = merged.agents;
@@ -313,7 +313,7 @@ pub async fn enroll(bus: &Bus, agents_path: &Path, name: &str, host_seed: &str) 
         "The bus container {} is not running: start it with `agent-bus bus start`",
         bus.container
     );
-    let _lock = registry::lock(&bus.lock_path())?;
+    let _lock = lock_exclusive(&bus.lock_path())?;
     let host = Channel::connect(&bus.endpoint(), host_seed).await?;
     for (agent, change) in host.create_inboxes([name]).await? {
         eprintln!("Inbox ready: {agent} ({change})");
@@ -354,33 +354,59 @@ pub async fn enroll(bus: &Bus, agents_path: &Path, name: &str, host_seed: &str) 
 }
 
 /// Remove the enrolled guest `name`: its key leaves the registry and the config, and a running
-/// bus reloads, which disconnects and refuses it. Its inbox and messages stay in the stream. A
-/// name that is not enrolled changes nothing.
+/// bus reloads, which disconnects and refuses it. With the host's seed and the bus running, its
+/// inbox (the durable consumer) is deleted too, enrolled or not, so a retired name leaves none
+/// behind; the messages stay in the stream until its retention drops them. Without the seed the
+/// inbox is kept. A name that is neither enrolled nor has an inbox changes nothing.
 ///
 /// # Errors
 ///
-/// Fails when the name is not valid or the agents file lists it, the registry cannot be changed,
-/// or the running bus cannot be reloaded.
+/// Fails when the name is not valid or the agents file lists it, `host_seed` is not the host's,
+/// the registry cannot be changed, the running bus cannot be reloaded, or its inbox cannot be
+/// deleted.
 #[instrument(skip_all, fields(agent = %name, container = %bus.container))]
-pub async fn unenroll(bus: &Bus, agents_path: &Path, name: &str) -> Result<()> {
+pub async fn unenroll(
+    bus: &Bus,
+    agents_path: &Path,
+    name: &str,
+    host_seed: Option<&str>,
+) -> Result<()> {
     check_agent_name(name)?;
-    let fixed = load_agents(agents_path, None)?;
+    let fixed = load_agents(agents_path, host_seed)?;
     refuse_fixed(&fixed, agents_path, name, "unenrolled")?;
     let docker = docker_connection()?;
     let running = reloadable(&docker, bus).await?;
-    let _lock = registry::lock(&bus.lock_path())?;
+    let _lock = lock_exclusive(&bus.lock_path())?;
     let mut registry = Registry::load(&bus.registry_path())?;
-    if registry.unenroll(name).is_none() {
-        eprintln!("'{name}' is not enrolled; nothing changed");
-        return Ok(());
-    }
-    apply(bus, &docker, fixed, agents_path, &registry, running).await?;
-    if running {
-        eprintln!("Unenrolled '{name}': the bus no longer accepts its key");
+    if registry.unenroll(name).is_some() {
+        apply(bus, &docker, fixed, agents_path, &registry, running).await?;
+        if running {
+            eprintln!("Unenrolled '{name}': the bus no longer accepts its key");
+        } else {
+            eprintln!(
+                "Unenrolled '{name}'; the bus is not running, and will not accept its key when started"
+            );
+        }
     } else {
-        eprintln!(
-            "Unenrolled '{name}'; the bus is not running, and will not accept its key when started"
-        );
+        eprintln!("'{name}' is not enrolled");
+    }
+    match (running, host_seed) {
+        (true, Some(seed)) => {
+            let host = Channel::connect(&bus.endpoint(), seed).await?;
+            if host.delete_inbox(name).await? {
+                eprintln!(
+                    "Deleted the inbox of '{name}'; its messages stay until the stream drops them"
+                );
+            } else {
+                eprintln!("'{name}' has no inbox");
+            }
+        }
+        (true, None) => eprintln!(
+            "The inbox of '{name}' is kept: run unenroll again with the host's seed in AGENT_BUS_SEED to delete it"
+        ),
+        (false, _) => eprintln!(
+            "The bus is not running: the inbox of '{name}' is kept; unenroll it again once the bus runs to delete it"
+        ),
     }
     Ok(())
 }
@@ -391,8 +417,15 @@ pub async fn unenroll(bus: &Bus, agents_path: &Path, name: &str) -> Result<()> {
 ///
 /// As `unenroll`, and when the bus container runs but no bus is recorded.
 #[instrument(skip_all, fields(agent = %name))]
-pub async fn unenroll_standard(name: &str) -> Result<()> {
-    unenroll_in(CONTAINER_NAME, VOLUME, standard_state_dir()?, name).await
+pub async fn unenroll_standard(name: &str, host_seed: Option<&str>) -> Result<()> {
+    unenroll_in(
+        CONTAINER_NAME,
+        VOLUME,
+        standard_state_dir()?,
+        name,
+        host_seed,
+    )
+    .await
 }
 
 /// Remove the enrolled guest `name` from the bus run as `container` with `volume`, whose files
@@ -401,9 +434,15 @@ pub async fn unenroll_standard(name: &str) -> Result<()> {
 /// from it, so the key is refused from the next start. The agents file is not known then, so
 /// its names are not refused; they are never in the registry anyway.
 #[instrument(level = "debug", skip_all, fields(agent = %name, %container))]
-async fn unenroll_in(container: &str, volume: &str, state_dir: PathBuf, name: &str) -> Result<()> {
+async fn unenroll_in(
+    container: &str,
+    volume: &str,
+    state_dir: PathBuf,
+    name: &str,
+    host_seed: Option<&str>,
+) -> Result<()> {
     if let Some((bus, agents_path)) = Bus::find_record(container, volume, state_dir.clone())? {
-        return unenroll(&bus, &agents_path, name).await;
+        return unenroll(&bus, &agents_path, name, host_seed).await;
     }
     check_agent_name(name)?;
     let docker = docker_connection()?;
@@ -416,7 +455,7 @@ async fn unenroll_in(container: &str, volume: &str, state_dir: PathBuf, name: &s
          start` again, then unenroll '{name}'",
         state_dir.join(RECORD_FILE).display()
     );
-    let _lock = registry::lock(&state_dir.join(LOCK_FILE))?;
+    let _lock = lock_exclusive(&state_dir.join(LOCK_FILE))?;
     let path = state_dir.join(REGISTRY_FILE);
     let mut registry = Registry::load(&path)?;
     if registry.unenroll(name).is_none() {
@@ -1785,8 +1824,9 @@ mod tests {
             "the registry is not private"
         );
 
-        // Unenrolled, worker-a can no longer connect; worker-b is untouched.
-        unenroll(bus, agents_path, "worker-a").await?;
+        // Unenrolled, worker-a can no longer connect and its inbox is gone; worker-b is
+        // untouched.
+        unenroll_deletes_the_inbox(bus, agents_path, host, &host_channel).await?;
         ensure!(
             refused(&url, &new_a).await,
             "an unenrolled key still connects"
@@ -1796,8 +1836,16 @@ mod tests {
             b_drops.load(Ordering::SeqCst) == 0,
             "worker-b was disconnected by the unenroll"
         );
-        // Unenrolling again changes nothing; the agents file's names are not enrolled.
-        unenroll(bus, agents_path, "worker-a").await?;
+        // Unenrolling again changes nothing, with or without the seed; the agents file's names
+        // are not enrolled, and a seed that is not the host's is refused.
+        unenroll(bus, agents_path, "worker-a", None).await?;
+        unenroll(bus, agents_path, "worker-a", Some(&host.seed)).await?;
+        ensure!(
+            unenroll(bus, agents_path, "worker-a", Some(&b))
+                .await
+                .is_err(),
+            "a guest's seed was taken as the host's"
+        );
         ensure!(
             enroll(bus, agents_path, "host", &host.seed).await.is_err(),
             "the host's name was enrolled"
@@ -1816,6 +1864,29 @@ mod tests {
         );
 
         unenroll_while_stopped(bus, agents_path, host, &b).await
+    }
+
+    /// `unenroll` of `worker-a` with the host's seed deletes its inbox, and leaves `worker-b`'s.
+    async fn unenroll_deletes_the_inbox(
+        bus: &Bus,
+        agents_path: &Path,
+        host: &NewKey,
+        host_channel: &Channel,
+    ) -> Result<()> {
+        ensure!(
+            host_channel.inbox_state("worker-a").await?.is_some(),
+            "worker-a has no inbox before the unenroll"
+        );
+        unenroll(bus, agents_path, "worker-a", Some(&host.seed)).await?;
+        ensure!(
+            host_channel.inbox_state("worker-a").await?.is_none(),
+            "the unenroll kept worker-a's inbox"
+        );
+        ensure!(
+            host_channel.inbox_state("worker-b").await?.is_some(),
+            "the unenroll deleted worker-b's inbox"
+        );
+        Ok(())
     }
 
     /// An enrollment that fails, here because the config cannot be written, leaves the registry
@@ -1871,6 +1942,7 @@ mod tests {
             &bus.volume,
             bus.state_dir.clone(),
             "worker-b",
+            None,
         )
         .await?;
         ensure!(
