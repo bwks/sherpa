@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.24] - 2026-11-10
+
+### Features
+
+- Keep the bus seed and Claude token out of the agent environment by @bwks ([f2e30cc](https://github.com/bwks/sherpa/commit/f2e30cce8c36170b616b44310b5433dbb3e8026f))
+
+### Miscellaneous
+
+- Merge pull request #538 from bwks/feat/531-seed-off-environ
+
+feat(agent-bus): keep the bus seed and Claude token out of the agent environment by @bwks in [#538](https://github.com/bwks/sherpa/pull/538) ([b5929a5](https://github.com/bwks/sherpa/commit/b5929a5b6b1dd03227151d2e774d80f60ae0d052))
+- Merge main (0.5.23) into feat/531-seed-off-environ
+
+Keeps 0.5.24.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com> by @bwks ([678c87e](https://github.com/bwks/sherpa/commit/678c87e864535f642925bc6dbd8bf0ba8cc648a3))
+- Merge pull request #537 from bwks/chore/guest-claude-plugins
+
+chore(dev): install the beautiful-rust Claude Code plugin in dev servers by @bwks in [#537](https://github.com/bwks/sherpa/pull/537) ([487e535](https://github.com/bwks/sherpa/commit/487e535bd839f0ddd51f040a02307212935ade88))
+- Install the beautiful-rust Claude Code plugin in dev servers by @bwks ([63dc3ca](https://github.com/bwks/sherpa/commit/63dc3ca5c7fbfe06de0d5b605b8b1a90b5b1c1e7))
+- Merge pull request #536 from bwks/changelog/v0.5.23
+
+chore(release): update changelog for v0.5.23 by @github-actions[bot] in [#536](https://github.com/bwks/sherpa/pull/536) ([750b78a](https://github.com/bwks/sherpa/commit/750b78afd4aeb75d4cbe7de1fed9da9d883a93aa))
 ## [0.5.23] - 2026-11-10
 
 ### Bug Fixes
