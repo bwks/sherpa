@@ -19,6 +19,7 @@ use crate::auth::context::AuthContext;
 use crate::auth::policy::{require_lab_owner, require_lab_starter};
 use crate::daemon::state::AppState;
 use crate::services::guest_account;
+use crate::services::lab_lifecycle;
 use crate::services::lab_operations;
 use crate::services::node_lifecycle;
 use crate::services::node_resources;
@@ -58,8 +59,10 @@ pub async fn redeploy_node(
     guest_account::require_ssh_key(&owner)?;
     // Destroying the lab stops this operation; see `lab_operations`.
     let operation = lab_operations::begin(&lab_id).await;
-    // Check again under the lease: a destroy that finished while this waited has removed the lab.
+    // Check again under the lease: a destroy that finished while this waited has removed the lab,
+    // and only a lab `up` has built, and no destroy has started on, has nodes to operate on.
     let db_lab = require_lab_owner(ctx, &state.db, &lab_id).await?;
+    lab_lifecycle::require_ready(&db_lab)?;
     let lab_lock = lab_lock(&lab_id);
     let _lab_guard = lab_lock.lock().await;
 

@@ -3,11 +3,15 @@ use askama_web::WebTemplate;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use shared::data::{
-    BridgeInfo, DbUser, DestroyError, DeviceInfo, LabInfo, LabState, LabSummary, LinkInfo,
-    NodeConfig, NodeKind,
+    BridgeInfo, DbUser, DestroyError, DeviceInfo, LabInfo, LabPhase, LabState, LabSummary,
+    LinkInfo, NodeConfig, NodeKind,
 };
 
 use crate::api::handlers::{ImageSummary, UserSummary};
+
+mod badge;
+
+pub use badge::{Badge, BadgeSize, BadgeTone};
 
 /// Main dashboard page template
 #[derive(Template, WebTemplate)]
@@ -35,7 +39,26 @@ pub struct LabsListTemplate {
 #[derive(Template, WebTemplate)]
 #[template(path = "user/partials/labs-grid.html.jinja")]
 pub struct LabsGridTemplate {
-    pub labs: Vec<LabSummary>,
+    pub labs: Vec<LabRow>,
+}
+
+/// One lab in the labs grid.
+pub struct LabRow {
+    pub lab: LabSummary,
+    /// Shown instead of the lab state until the lab is ready.
+    pub phase_badge: Option<Badge>,
+    /// Only a ready lab can be started or stopped; any other can only be destroyed.
+    pub offers_start_stop: bool,
+}
+
+impl From<LabSummary> for LabRow {
+    fn from(lab: LabSummary) -> Self {
+        Self {
+            phase_badge: Badge::for_unready_phase(lab.phase, BadgeSize::Small),
+            offers_start_stop: lab.phase.is_ready(),
+            lab,
+        }
+    }
 }
 
 /// Empty state partial template - shown when no labs exist
@@ -150,6 +173,14 @@ pub struct LabDetailTemplate {
     pub lab_id: String,
     pub lab_info: LabInfo,
     pub lab_state: LabState,
+    /// Which operation owns the lab, from `Badge::for_unready_phase`; while it is `Some`, it is
+    /// shown instead of the state.
+    pub phase_badge: Option<Badge>,
+    /// Only a ready lab can be started or stopped; any other can only be destroyed.
+    pub offers_start_stop: bool,
+    /// Set by the handler from the lab state: a lab with no nodes, or an unknown state, has
+    /// no files to download.
+    pub offers_download: bool,
     pub devices: Vec<DeviceInfo>,
     pub device_count: usize,
     pub inactive_devices: Vec<String>,
@@ -272,6 +303,32 @@ pub struct AdminLabSummary {
     pub description: Option<String>,
     pub owner_username: String,
     pub node_count: usize,
+    /// Which operation owns the lab.
+    pub phase_badge: Badge,
+    /// Only a ready lab can be started or stopped; any other can only be destroyed or cleaned.
+    pub offers_start_stop: bool,
+}
+
+impl AdminLabSummary {
+    /// The summary of a lab in `phase`.
+    pub fn new(
+        lab_id: String,
+        name: String,
+        description: Option<String>,
+        owner_username: String,
+        node_count: usize,
+        phase: LabPhase,
+    ) -> Self {
+        Self {
+            lab_id,
+            name,
+            description,
+            owner_username,
+            node_count,
+            phase_badge: Badge::for_phase(phase, BadgeSize::Small),
+            offers_start_stop: phase.is_ready(),
+        }
+    }
 }
 
 /// Admin user edit page template
@@ -530,6 +587,7 @@ mod tests {
     use shared::data::{NodeKind, NodeModel, NodeState};
 
     use super::*;
+    use crate::api::handlers::lab_offers_download;
 
     /// Every template file under `dir`.
     fn template_files(dir: &Path) -> Vec<PathBuf> {
@@ -808,19 +866,62 @@ mod tests {
     #[test]
     fn test_labs_grid_template_renders_with_labs() {
         let tpl = LabsGridTemplate {
-            labs: vec![LabSummary {
+            labs: vec![LabRow::from(LabSummary {
                 id: "a10736e8".to_string(),
                 name: "test-lab".to_string(),
                 description: Some("Practice <BGP> routing".to_string()),
                 status: LabState::Unknown,
                 node_count: 2,
-            }],
+                phase: LabPhase::Ready,
+            })],
         };
         let html = tpl.render().expect("template should render");
         assert!(html.contains("test-lab"));
         assert!(html.contains("a10736e8"));
         // Shown under the name, escaped.
         assert!(html.contains("Practice &#60;BGP&#62; routing"), "{html}");
+    }
+
+    #[test]
+    fn a_lab_that_is_not_ready_shows_its_phase_and_offers_no_start_or_stop() {
+        // M7.3: a lab whose destroy failed used to show `stopped` and offer Start.
+        for (phase, badge) in [
+            (
+                LabPhase::Creating,
+                r#"<span class="badge-warning">Creating</span>"#,
+            ),
+            (
+                LabPhase::Destroying,
+                r#"<span class="badge-warning">Destroying</span>"#,
+            ),
+            (
+                LabPhase::DestroyFailed,
+                r#"<span class="badge-danger">Destroy failed</span>"#,
+            ),
+            (
+                LabPhase::Interrupted,
+                r#"<span class="badge-danger">Interrupted</span>"#,
+            ),
+            (
+                LabPhase::Unknown,
+                r#"<span class="badge-danger">Unknown</span>"#,
+            ),
+        ] {
+            let tpl = LabsGridTemplate {
+                labs: vec![LabRow::from(LabSummary {
+                    id: "a10736e8".to_string(),
+                    name: "test-lab".to_string(),
+                    description: None,
+                    status: LabState::Stopped,
+                    node_count: 2,
+                    phase,
+                })],
+            };
+            let html = tpl.render().expect("template should render");
+            assert!(!html.contains("data-lab-action"), "{phase:?}: {html}");
+            assert!(html.contains(badge), "{phase:?}: {html}");
+            assert!(!html.contains(">Stopped<"), "{phase:?}: {html}");
+        }
     }
 
     #[test]
@@ -932,19 +1033,153 @@ mod tests {
             username: "admin".to_string(),
             is_admin: true,
             active_page: "admin_labs".to_string(),
-            labs: vec![AdminLabSummary {
-                lab_id: "abc12345".to_string(),
-                name: "my-lab".to_string(),
-                description: Some("Practice BGP routing".to_string()),
-                owner_username: "alice".to_string(),
-                node_count: 3,
-            }],
+            labs: vec![AdminLabSummary::new(
+                "abc12345".to_string(),
+                "my-lab".to_string(),
+                Some("Practice BGP routing".to_string()),
+                "alice".to_string(),
+                3,
+                LabPhase::Ready,
+            )],
         };
         let html = tpl.render().expect("template should render");
         assert!(html.contains("my-lab"));
         assert!(html.contains("Practice BGP routing"));
         assert!(html.contains("abc12345"));
         assert!(html.contains("alice"));
+        assert!(
+            html.contains(r#"<span class="badge-neutral">Ready</span>"#),
+            "{html}"
+        );
+        assert!(html.contains("data-lab-action=\"start\""));
+    }
+
+    #[test]
+    fn the_admin_list_shows_a_stranded_labs_phase_and_offers_no_start_or_stop() {
+        // M6.2, M6.3 and M7.3: admins find the labs left behind, to clean them.
+        let tpl = AdminLabsTemplate {
+            username: "admin".to_string(),
+            is_admin: true,
+            active_page: "admin_labs".to_string(),
+            labs: vec![AdminLabSummary::new(
+                "abc12345".to_string(),
+                "my-lab".to_string(),
+                None,
+                "alice".to_string(),
+                3,
+                LabPhase::Interrupted,
+            )],
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(
+            html.contains(r#"<span class="badge-danger">Interrupted</span>"#),
+            "{html}"
+        );
+        assert!(!html.contains("data-lab-action"), "{html}");
+    }
+
+    fn lab_detail(lab_state: LabState, lab_phase: LabPhase) -> String {
+        let lab_info: LabInfo = "id='abcd1234'\nname='test-lab'\nuser='alice'\n\
+            ipv4_network='192.0.2.0/24'\nipv4_gateway='192.0.2.1'\n\
+            ipv4_router='192.0.2.2'\nloopback_network='127.127.0.0/24'"
+            .parse()
+            .expect("lab info");
+        LabDetailTemplate {
+            username: "alice".to_string(),
+            is_admin: false,
+            active_page: "labs".to_string(),
+            lab_id: "abcd1234".to_string(),
+            lab_info,
+            lab_state,
+            phase_badge: Badge::for_unready_phase(lab_phase, BadgeSize::Large),
+            offers_start_stop: lab_phase.is_ready(),
+            offers_download: lab_offers_download(lab_state),
+            devices: vec![],
+            device_count: 0,
+            inactive_devices: vec![],
+            inactive_device_count: 0,
+            links: vec![],
+            link_count: 0,
+            bridges: vec![],
+            bridge_count: 0,
+        }
+        .render()
+        .expect("template should render")
+    }
+
+    #[test]
+    fn the_lab_detail_header_shows_a_large_phase_badge_while_the_lab_is_not_ready() {
+        for (phase, badge) in [
+            (
+                LabPhase::Creating,
+                r#"<span class="badge-warning-lg">Creating</span>"#,
+            ),
+            (
+                LabPhase::Destroying,
+                r#"<span class="badge-warning-lg">Destroying</span>"#,
+            ),
+            (
+                LabPhase::DestroyFailed,
+                r#"<span class="badge-danger-lg">Destroy failed</span>"#,
+            ),
+            (
+                LabPhase::Interrupted,
+                r#"<span class="badge-danger-lg">Interrupted</span>"#,
+            ),
+            (
+                LabPhase::Unknown,
+                r#"<span class="badge-danger-lg">Unknown</span>"#,
+            ),
+        ] {
+            let html = lab_detail(LabState::Stopped, phase);
+            assert!(html.contains(badge), "{phase:?}: {html}");
+            assert!(!html.contains(">Stopped<"), "{phase:?}: {html}");
+        }
+    }
+
+    #[test]
+    fn the_lab_detail_offers_no_start_or_stop_while_the_lab_is_not_ready() {
+        for phase in [
+            LabPhase::Creating,
+            LabPhase::Destroying,
+            LabPhase::DestroyFailed,
+            LabPhase::Interrupted,
+            LabPhase::Unknown,
+        ] {
+            for state in [LabState::Running, LabState::Partial, LabState::Stopped] {
+                let html = lab_detail(state, phase);
+                assert!(
+                    !html.contains("data-lab-detail-action"),
+                    "{phase:?}: {html}"
+                );
+                assert!(html.contains("Destroy Lab"), "{phase:?}: {html}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_lab_detail_offers_the_download_only_for_a_lab_with_known_nodes() {
+        let download = r#"href="/labs/abcd1234/download""#;
+        for state in [LabState::Unknown, LabState::Empty] {
+            let html = lab_detail(state, LabPhase::Ready);
+            assert!(!html.contains(download), "{state:?}: {html}");
+        }
+        let html = lab_detail(LabState::Running, LabPhase::Ready);
+        assert!(html.contains(download), "{html}");
+    }
+
+    #[test]
+    fn the_lab_detail_offers_start_and_stop_once_the_lab_is_ready() {
+        let html = lab_detail(LabState::Partial, LabPhase::Ready);
+        assert!(html.contains(r#"data-lab-detail-action="start""#), "{html}");
+        assert!(html.contains(r#"data-lab-detail-action="stop""#), "{html}");
+    }
+
+    #[test]
+    fn the_lab_detail_header_shows_the_lab_state_once_the_lab_is_ready() {
+        let html = lab_detail(LabState::Running, LabPhase::Ready);
+        assert!(html.contains(">Running<"), "{html}");
+        assert!(!html.contains(">Ready<"), "{html}");
     }
 
     #[test]

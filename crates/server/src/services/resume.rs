@@ -15,6 +15,7 @@ use topology::Manifest;
 use tracing::instrument;
 
 use super::admission::{self, Admission};
+use super::lab_lifecycle;
 use super::lab_nodes::load_target_nodes;
 use super::lab_operations::{self, LabOperation};
 use super::node_lifecycle;
@@ -101,8 +102,10 @@ pub async fn start_lab_nodes(
     require_lab_access(ctx, &state.db, lab_id).await?;
     // Destroying the lab stops this operation; see `lab_operations`.
     let operation = lab_operations::begin(lab_id).await;
-    // Check again under the lease: a destroy that finished while this waited has removed the lab.
+    // Check again under the lease: a destroy that finished while this waited has removed the lab,
+    // and only a lab `up` has built, and no destroy has started on, has nodes to start.
     let db_lab = require_lab_access(ctx, &state.db, lab_id).await?;
+    lab_lifecycle::require_ready(&db_lab)?;
 
     let lab_record_id = db_lab
         .id
@@ -124,31 +127,13 @@ pub async fn start_lab_nodes(
 
     for node in &target_nodes {
         let device_name = format!("{}-{}", node.name, lab_id);
-
-        // Determine node kind from image
-        let node_image = node_images
-            .iter()
-            .find(|img| img.id.as_ref() == Some(&node.image));
-
-        let kind = if let Some(img) = node_image {
-            img.kind.clone()
-        } else {
-            immediate_results.push(NodeActionResult {
-                name: node.name.clone(),
-                success: false,
-                message: "Node image not found in database".to_string(),
-            });
-            continue;
+        let kind = match startable_kind(node, &node_images) {
+            Ok(kind) => kind,
+            Err(refused) => {
+                immediate_results.push(refused);
+                continue;
+            }
         };
-
-        if let Err(refusal) = node.state.on_operation(OperationEvent::Launched) {
-            immediate_results.push(NodeActionResult {
-                name: node.name.clone(),
-                success: false,
-                message: format!("Cannot start: {refusal}"),
-            });
-            continue;
-        }
 
         let node_name = node.name.clone();
         let node_id = node.id.clone();
@@ -599,6 +584,28 @@ fn start_step(runtime: Runtime, what: &str) -> Result<StartStep, String> {
         )),
         Runtime::Absent => Err(format!("The node has no {what}; redeploy it")),
     }
+}
+
+/// The kind of `node`, from its image, if it may be started: or the result that says why not,
+/// for a node with no image, or one whose state does not allow a start.
+fn startable_kind(
+    node: &data::DbNode,
+    node_images: &[data::NodeConfig],
+) -> Result<NodeKind, NodeActionResult> {
+    let refused = |message: String| NodeActionResult {
+        name: node.name.clone(),
+        success: false,
+        message,
+    };
+    let kind = node_images
+        .iter()
+        .find(|image| image.id.as_ref() == Some(&node.image))
+        .map(|image| image.kind.clone())
+        .ok_or_else(|| refused("Node image not found in database".to_string()))?;
+    node.state
+        .on_operation(OperationEvent::Launched)
+        .map_err(|refusal| refused(format!("Cannot start: {refusal}")))?;
+    Ok(kind)
 }
 
 /// Record what starting each node did, add each node's result to `results`, and return the

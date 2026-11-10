@@ -11,10 +11,11 @@ use tracing::instrument;
 use super::context::LabBuild;
 use super::links::P2pContainerVeth;
 use crate::services::container_networks;
+use crate::services::error::ServiceError;
 use crate::tls::generator::write_file_with_permissions;
 
 use shared::data;
-use shared::data::{LabSubnets, RecordId, StatusKind};
+use shared::data::{LabPhase, LabSubnets, RecordId, StatusKind};
 use shared::konst::{
     BRIDGE_MEMBER_HOST_VETH_PREFIX, LAB_FILE_NAME, LAB_SUBNET_ALLOCATION_ATTEMPTS,
     MANAGEMENT_GATEWAY_HOST_OFFSET, SHERPA_LAB_MANIFEST_FILE, SHERPA_LOOPBACK_PREFIX,
@@ -23,6 +24,13 @@ use shared::konst::{
     SHERPA_MANAGEMENT_NETWORK_NAME,
 };
 use shared::util;
+
+/// A lab `up` has reserved: its record, `Creating`, and the subnets it holds. Only the `up` that
+/// reserved the lab has one, so only it builds the lab, releases it, or rolls it back.
+pub(super) struct ReservedLab {
+    pub(super) record: data::DbLab,
+    pub(super) subnets: LabSubnets,
+}
 
 /// Write the lab info file and, for later redeploys, a copy of the manifest. The manifest can
 /// hold node secrets' paths and settings, so it is written private from the start.
@@ -202,20 +210,24 @@ pub(super) async fn networks_taken(db: &db::Database, networks: &LabSubnets) -> 
             .contains(&networks.ipv6_loopback_subnet))
 }
 
-/// Allocate subnets and create the lab record that holds them.
+/// Reserve the lab: allocate its subnets and insert its record, `Creating`, that holds them.
 ///
-/// The record's unique subnet indexes are the reservation. When a concurrent `up` takes a
-/// chosen subnet first, the insert fails, and allocation is repeated with fresh state.
-/// Any other failure is returned as is.
+/// The record is `up`'s reservation of the lab ID and the subnets: a second `up` of the same
+/// lab fails here, before it creates anything, so it has nothing to roll back. When a
+/// concurrent `up` of another lab takes a chosen subnet first, the insert fails, and allocation
+/// is repeated with fresh state. Any other failure is returned as is.
+///
+/// # Errors
+/// A `ServiceError::Conflict` when a lab already has the lab ID; any database failure.
 #[instrument(skip(db, config, user), fields(%lab_id), level = "debug")]
-pub(super) async fn reserve_lab_networks(
+pub(super) async fn reserve_lab(
     db: &db::Database,
     config: &data::Config,
     lab_name: &str,
     lab_id: &str,
     user: &data::DbUser,
     details: &db::LabDetails,
-) -> Result<(data::DbLab, LabSubnets)> {
+) -> Result<ReservedLab> {
     for attempt in 1..=LAB_SUBNET_ALLOCATION_ATTEMPTS {
         let networks = allocate_lab_networks(db, config).await?;
         match db::create_lab(
@@ -235,11 +247,17 @@ pub(super) async fn reserve_lab_networks(
                     management_subnet = %networks.management_subnet,
                     ipv6_management_subnet = %networks.ipv6_management_subnet,
                     ipv6_loopback_subnet = %networks.ipv6_loopback_subnet,
-                    "Reserved lab subnets"
+                    "Reserved the lab and its subnets"
                 );
-                return Ok((lab, networks));
+                return Ok(ReservedLab {
+                    record: lab,
+                    subnets: networks,
+                });
             }
             Err(error) => {
+                if let Some(existing) = db::find_lab(db, lab_id).await? {
+                    return Err(lab_id_taken(lab_id, &existing, lab_name, user.id.as_ref()));
+                }
                 if !networks_taken(db, &networks).await? {
                     return Err(error).context("Failed to create lab record in database");
                 }
@@ -254,6 +272,32 @@ pub(super) async fn reserve_lab_networks(
     bail!(
         "Could not reserve free subnets for lab {lab_id} after {LAB_SUBNET_ALLOCATION_ATTEMPTS} attempts"
     )
+}
+
+/// The error for an `up` whose lab ID is in use. Either this lab exists already, or another
+/// lab has the same ID: IDs are a hash of the owner and the lab name, so two owners' labs can
+/// collide. The other lab belongs to someone else, so it is not named.
+pub(super) fn lab_id_taken(
+    lab_id: &str,
+    existing: &data::DbLab,
+    lab_name: &str,
+    owner: Option<&RecordId>,
+) -> anyhow::Error {
+    let message = if existing.name == lab_name && owner == Some(&existing.user) {
+        let state = match existing.phase {
+            LabPhase::Ready => "already exists".to_string(),
+            phase => format!("already exists and is {phase}"),
+        };
+        format!(
+            "Lab {state}. Destroy the existing lab before starting it again.\n Lab name: {lab_name}\n Lab id: {lab_id}"
+        )
+    } else {
+        format!(
+            "Lab '{lab_name}' gets the lab ID {lab_id}, which another lab already uses. \
+             Lab IDs come from the owner and the lab name, and these collide; rename the lab."
+        )
+    };
+    ServiceError::Conflict(message).into()
 }
 
 /// Create a Docker macvlan network, on the node's isolated bridge, for each disabled interface of
@@ -581,5 +625,117 @@ mod tests {
         let v6 = network.v6.unwrap();
         assert_eq!(v6.first.to_string(), "fd00:b00b:0:4::1");
         assert_eq!(v6.prefix_length, 64);
+    }
+
+    async fn database_with(username: &str) -> (db::Database, data::DbUser) {
+        let db = db::open_in_memory().await.unwrap();
+        db::apply_schema(&db).await.unwrap();
+        let user = db::create_user(&db, username.to_string(), "TestPass123!", false, vec![])
+            .await
+            .unwrap();
+        (db, user)
+    }
+
+    fn config() -> data::Config {
+        toml::from_str(
+            r#"
+            name = "test"
+            vm_provider = "libvirt"
+            qemu_bin = "/usr/bin/qemu-system-x86_64"
+            images_dir = "/opt/sherpa/images"
+            containers_dir = "/opt/sherpa/containers"
+            bins_dir = "/opt/sherpa/bins"
+            "#,
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_second_up_of_a_lab_is_refused_before_it_creates_anything() {
+        // M3.1: the second `up` used to fail in phase 3, and its rollback removed the first
+        // `up`'s lab. Now the record is the reservation, taken before anything is created.
+        let (db, alice) = database_with("alice").await;
+        let details = db::LabDetails::default();
+        let first = reserve_lab(&db, &config(), "core", "ab12cd34", &alice, &details)
+            .await
+            .unwrap();
+        assert_eq!(first.record.phase, LabPhase::Creating);
+
+        let error = reserve_lab(&db, &config(), "core", "ab12cd34", &alice, &details)
+            .await
+            .err()
+            .unwrap();
+
+        assert!(
+            matches!(ServiceError::find(&error), Some(ServiceError::Conflict(_))),
+            "{error:#}"
+        );
+        assert!(
+            error.to_string().contains("already exists and is creating"),
+            "{error}"
+        );
+        let lab = db::find_lab(&db, "ab12cd34").await.unwrap().unwrap();
+        assert_eq!(lab.id, first.record.id);
+        assert_eq!(lab.phase, LabPhase::Creating);
+    }
+
+    #[test]
+    fn a_lab_id_another_lab_uses_is_reported_without_naming_it() {
+        let alice = RecordId::new("user", "alice".to_string());
+        let bob = RecordId::new("user", "bob".to_string());
+        let lab = |name: &str, user: &RecordId, phase: LabPhase| data::DbLab {
+            id: None,
+            lab_id: "ab12cd34".to_string(),
+            name: name.to_string(),
+            user: user.clone(),
+            loopback_network: String::new(),
+            management_network: String::new(),
+            gateway_ipv4: String::new(),
+            router_ipv4: String::new(),
+            tailscale_container_id: None,
+            management_network_v6: None,
+            gateway_ipv6: None,
+            router_ipv6: None,
+            loopback_network_v6: None,
+            phase,
+            client_host: None,
+            client_folder: None,
+            description: None,
+            ssh_key: data::LabSshKey::Lab,
+        };
+
+        let redeployed = lab_id_taken(
+            "ab12cd34",
+            &lab("core", &alice, LabPhase::Ready),
+            "core",
+            Some(&alice),
+        )
+        .to_string();
+        assert!(
+            redeployed.contains("Lab already exists. Destroy the existing lab"),
+            "{redeployed}"
+        );
+
+        let stranded = lab_id_taken(
+            "ab12cd34",
+            &lab("core", &alice, LabPhase::DestroyFailed),
+            "core",
+            Some(&alice),
+        )
+        .to_string();
+        assert!(
+            stranded.contains("already exists and is destroy failed"),
+            "{stranded}"
+        );
+
+        let collision = lab_id_taken(
+            "ab12cd34",
+            &lab("x", &bob, LabPhase::Ready),
+            "core",
+            Some(&alice),
+        )
+        .to_string();
+        assert!(collision.contains("rename the lab"), "{collision}");
+        assert!(!collision.contains("'x'"), "{collision}");
     }
 }

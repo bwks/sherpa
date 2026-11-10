@@ -15,6 +15,7 @@ pub mod impairment;
 pub mod import;
 pub mod inspect;
 pub mod keycloak;
+pub mod lab_lifecycle;
 pub mod list_labs;
 pub mod node_lifecycle;
 pub mod node_ops;

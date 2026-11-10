@@ -588,11 +588,7 @@ impl Readiness<'_, '_> {
                 tracing::warn!(node_name = %node.name, "Node not ready after timeout");
                 self.record(&node.name, &[OperationEvent::Launched], None)
                     .await?;
-                self.errors.push(data::UpError {
-                    phase: "NodeReadiness".to_string(),
-                    message: format!("Node {} did not become ready", node.name),
-                    is_critical: false,
-                });
+                self.errors.push(not_ready_error(&node.name));
             }
         }
         Ok(())
@@ -610,20 +606,39 @@ fn skips_readiness_before_polling(
     !is_container && (skip_ready_check || cluster_worker)
 }
 
-/// The non-critical error for a container node whose process exited after it started.
+/// The warning for a node not ready when the wait timed out. It is left `Starting`, and the
+/// scanner records it running once it answers, so the lab is still created.
+fn not_ready_error(node_name: &str) -> data::UpError {
+    data::UpError {
+        phase: "NodeReadiness".to_string(),
+        message: format!("Node {node_name} did not become ready"),
+        is_critical: false,
+    }
+}
+
+/// The critical error for a container node whose process exited after it started. The node is
+/// `Failed` and stays so until it is redeployed, so the lab is only partly created.
 fn exited_container_error(node_name: &str, container_name: &str) -> data::UpError {
     data::UpError {
         phase: "NodeReadiness".to_string(),
         message: format!(
             "Node {node_name} exited right after starting; see `docker logs {container_name}` on the server"
         ),
-        is_critical: false,
+        is_critical: true,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_up_with_a_node_that_will_not_recover_did_not_succeed() {
+        // M6.1: every error used to be a warning, so `up` reported success for a lab with a
+        // container that exited. A node that is only slow to answer still is a warning.
+        assert!(exited_container_error("r1", "r1-ab12cd34").is_critical);
+        assert!(!not_ready_error("r1").is_critical);
+    }
 
     #[test]
     fn test_skipped_vm_is_ready_before_polling() {

@@ -6,7 +6,7 @@ use tracing::instrument;
 
 use super::context::LabBuild;
 use super::links::{find_bridge_interface, find_interface_link};
-use super::networks::reserve_lab_networks;
+use super::networks::ReservedLab;
 use super::nodes::get_node_image;
 use crate::services::node_ops;
 use crate::services::node_resources;
@@ -16,13 +16,6 @@ use shared::data::{LabSubnets, RecordId, StatusKind};
 use shared::konst::SHERPA_MANAGEMENT_NETWORK_NAME;
 use shared::util;
 use shared::validators::effective_data_interface_count;
-
-/// Who a lab belongs to, what it is called, and what the user said about it.
-pub(super) struct LabOwner<'a> {
-    pub(super) lab_name: &'a str,
-    pub(super) user: &'a data::DbUser,
-    pub(super) details: &'a db::LabDetails,
-}
 
 /// The lab's record and subnets, and its nodes: their records, kinds and interface plans.
 pub(super) struct NodeRecords {
@@ -36,37 +29,27 @@ pub(super) struct NodeRecords {
     pub(super) node_setup_data: Vec<data::NodeSetupData>,
 }
 
-/// Reserve the lab's subnets with its record, record every node and its resources, plan each
-/// node's interfaces, and create the isolated and reserved networks of nodes that need them.
+/// Record every node of the lab `up` reserved, and its resources, plan each node's interfaces,
+/// and create the isolated and reserved networks of nodes that need them.
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
 pub(super) async fn create_node_records(
     build: &LabBuild<'_>,
-    owner: &LabOwner<'_>,
+    reserved: ReservedLab,
     nodes_expanded: &[topology::NodeExpanded],
     node_images: &[data::NodeConfig],
     links_detailed: &[topology::LinkDetailed],
     bridges_detailed: &[topology::BridgeDetailed],
 ) -> Result<NodeRecords> {
-    let LabBuild {
-        lab_id, db, config, ..
-    } = *build;
+    let LabBuild { lab_id, db, .. } = *build;
+    let ReservedLab {
+        record: lab_record,
+        subnets: networks,
+    } = reserved;
     let management_network = format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}");
 
-    tracing::info!(lab_id = %lab_id, lab_name = %owner.lab_name, "Creating database records");
-
-    let (lab_record, networks) = reserve_lab_networks(
-        db,
-        config,
-        owner.lab_name,
-        lab_id,
-        owner.user,
-        owner.details,
-    )
-    .await?;
+    tracing::info!(lab_id = %lab_id, lab_name = %lab_record.name, "Creating node database records");
 
     let lab_record_id = db::get_lab_id(&lab_record).context("Failed to get lab record ID")?;
-
-    tracing::info!(lab_id = %lab_id, lab_name = %owner.lab_name, "Created lab database record");
 
     let mut container_nodes: Vec<topology::NodeExpanded> = vec![];
     let mut unikernel_nodes: Vec<topology::NodeExpanded> = vec![];

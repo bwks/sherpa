@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use shared::data::{DbLab, DbUser, LabSshKey, LabState};
+use shared::data::{DbLab, DbUser, LabPhase, LabSshKey};
 use tracing::instrument;
 use turso::Connection;
 
@@ -71,10 +71,10 @@ pub fn validate_lab_id(lab_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Create a new lab holding all of its allocated subnets in one insert.
+/// Create a new lab, `Creating`, holding all of its allocated subnets in one insert.
 ///
-/// The unique subnet indexes make this the reservation: if another lab already holds
-/// any of the subnets, the insert fails and nothing is created.
+/// The row is `up`'s reservation of the lab: the unique lab ID, and the unique subnet indexes,
+/// make the insert fail when another lab already holds any of them, and nothing is created.
 ///
 /// # Errors
 /// - If `lab_id` validation fails (not 8 characters)
@@ -110,11 +110,11 @@ pub async fn create_lab(
         gateway_ipv6: networks.gateway_ipv6.clone(),
         router_ipv6: networks.router_ipv6.clone(),
         loopback_network_v6: networks.loopback_network_v6.clone(),
-        status: LabState::default(),
         client_host: details.client_host.clone(),
         client_folder: details.client_folder.clone(),
         description: details.description.clone(),
         ssh_key: LabSshKey::Lab,
+        phase: LabPhase::Creating,
     };
     let writer = db.writer().await?;
     let created = insert_lab(&writer.conn, &lab)

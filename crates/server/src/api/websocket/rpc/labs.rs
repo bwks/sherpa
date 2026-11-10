@@ -4,7 +4,6 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use shared::data::{self, TailnetAuthKey};
-use shared::error::RpcErrorCode;
 use shared::konst::{
     RPC_MSG_IMPAIRMENT_UPDATE_FAILED, RPC_MSG_INVALID_PARAMS_IMPAIRMENT,
     RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_MANIFEST,
@@ -161,23 +160,8 @@ pub(super) async fn up(
     progress: ProgressSender,
 ) -> Result<Value, RpcError> {
     let request: data::UpRequest = parse_quietly(params, RPC_MSG_INVALID_PARAMS_MANIFEST)?;
-    // A record means an earlier `up` created the lab, or one is creating it now.
-    if let Ok(existing) = db::get_lab(&state.db, &request.lab_id).await {
-        tracing::warn!(
-            lab_id = %request.lab_id,
-            user = %ctx.username,
-            status = %existing.status,
-            "Rejected up request: lab already exists in database"
-        );
-        return Err(RpcError {
-            code: RpcErrorCode::ServerError,
-            message: format!(
-                "Lab already exists with status '{}'. Destroy it before starting a new one.",
-                existing.status
-            ),
-            context: None,
-        });
-    }
+    // `up` reserves the lab ID by inserting its record, so a second `up` of the same lab fails
+    // there, before it creates anything.
     respond(
         up::up_lab(ctx, request, state, progress).await,
         RPC_MSG_LAB_UP_FAILED,

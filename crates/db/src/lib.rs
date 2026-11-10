@@ -26,9 +26,9 @@ pub use helpers::{get_image_id, get_lab_id, get_node_id, get_user_id};
 
 // Lab CRUD operations
 pub use lab::{
-    LabDetails, LabNetworks, count_labs_by_user, create_lab, delete_lab, find_lab, get_lab,
+    LabDetails, LabNetworks, count_labs_by_user, create_lab, delete_lab_from, find_lab, get_lab,
     get_used_ipv6_loopback_networks, get_used_ipv6_management_networks, get_used_loopback_networks,
-    get_used_management_networks, list_labs, list_labs_by_user, update_lab_state,
+    get_used_management_networks, list_labs, list_labs_by_user, update_lab_phase_from,
     update_lab_tailscale_container, validate_lab_id,
 };
 
@@ -42,9 +42,10 @@ pub use node_image::{
 
 // Node CRUD operations
 pub use node::{
-    count_nodes_by_lab, create_node, get_node, get_node_by_name_and_lab, list_nodes_by_lab,
-    list_pinned_nodes, list_vnc_ports, update_node_host_key, update_node_mgmt_ipv4,
-    update_node_mgmt_ipv6, update_node_mgmt_mac, update_node_resources, update_node_state_from,
+    count_nodes_by_lab, create_node, get_node, get_node_by_name_and_lab, list_node_states_by_user,
+    list_nodes_by_lab, list_pinned_nodes, list_vnc_ports, update_node_host_key,
+    update_node_mgmt_ipv4, update_node_mgmt_ipv6, update_node_mgmt_mac, update_node_resources,
+    update_node_state_from,
 };
 
 // Link CRUD operations

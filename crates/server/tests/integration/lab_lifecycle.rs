@@ -5,9 +5,11 @@ use db::DefaultRequest;
 use jato::{Auth, ConnectOptions, Exit, Hop, HostKeyPolicy, Node, Session};
 use reqwest::{Client, StatusCode};
 use serde_json::json;
-use shared::data::{DbUser, LabNodeActionResponse, LabState, NodeConfig, NodeModel, NodeState};
+use shared::data::{
+    DbUser, LabNodeActionResponse, LabPhase, LabState, NodeConfig, NodeModel, NodeState,
+};
 use shared::error::RpcErrorCode;
-use shared::konst::SSH_PORT;
+use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 use std::collections::BTreeMap;
 use std::fs;
@@ -206,6 +208,12 @@ async fn node_states(server: &TestServer, lab_id: &str) -> Result<BTreeMap<Strin
         .collect())
 }
 
+/// The status of lab `lab_id`, derived from its nodes as the server derives it when read.
+async fn lab_status(server: &TestServer, lab_id: &str) -> Result<LabState> {
+    let states: Vec<NodeState> = node_states(server, lab_id).await?.into_values().collect();
+    Ok(LabState::derive(&states))
+}
+
 /// Wait until node `name` of lab `lab_id` is recorded in `state`, as the scanner records it.
 async fn wait_for_node_state(
     server: &TestServer,
@@ -291,6 +299,15 @@ async fn a_container_that_exits_at_once_fails_its_node_not_the_lab() -> Result<(
             errors.contains("dead1") && errors.contains("exited"),
             "the exited node was not reported: {response}"
         );
+        // M6.1: a lab with a node that will not recover is only partly created.
+        ensure!(
+            response["result"]["success"] == json!(false),
+            "up reported success with a failed node: {response}"
+        );
+        ensure!(
+            db::get_lab(&server.db, &lab_name).await?.phase == LabPhase::Ready,
+            "the partly created lab is not ready to use or destroy"
+        );
         ensure!(
             db::find_lab(&server.db, &lab_name).await?.is_some(),
             "the lab record is gone"
@@ -303,7 +320,7 @@ async fn a_container_that_exits_at_once_fails_its_node_not_the_lab() -> Result<(
             "unexpected node states: {states:?}"
         );
         ensure!(
-            db::get_lab(&server.db, &lab_name).await?.status == LabState::Failed,
+            lab_status(&server, &lab_name).await? == LabState::Failed,
             "the lab status does not follow its nodes"
         );
         Ok(())
@@ -479,16 +496,16 @@ async fn the_scanner_records_what_docker_reports_but_not_over_up() -> Result<()>
             tokio::spawn(async move {
                 let mut seen = Vec::new();
                 while !up_done.load(Ordering::SeqCst) {
-                    if let Ok(lab) = db::get_lab(&db, &lab_name).await {
-                        seen.push(lab.status);
-                        if let Some(id) = lab.id
-                            && let Ok(nodes) = db::list_nodes_by_lab(&db, id).await
-                        {
-                            seen.extend(nodes.iter().filter_map(|node| {
-                                matches!(node.state, NodeState::Stopped | NodeState::Missing)
-                                    .then_some(LabState::Stopped)
-                            }));
-                        }
+                    if let Ok(lab) = db::get_lab(&db, &lab_name).await
+                        && let Some(id) = lab.id
+                        && let Ok(nodes) = db::list_nodes_by_lab(&db, id).await
+                    {
+                        let states: Vec<NodeState> = nodes.iter().map(|node| node.state).collect();
+                        seen.push(LabState::derive(&states));
+                        seen.extend(nodes.iter().filter_map(|node| {
+                            matches!(node.state, NodeState::Stopped | NodeState::Missing)
+                                .then_some(LabState::Stopped)
+                        }));
                     }
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
@@ -523,7 +540,7 @@ async fn the_scanner_records_what_docker_reports_but_not_over_up() -> Result<()>
         container::remove_container(&docker, &container).await?;
         wait_for_node_state(&server, &lab_name, "live1", NodeState::Missing, wait).await?;
         ensure!(
-            db::get_lab(&server.db, &lab_name).await?.status == LabState::Failed,
+            lab_status(&server, &lab_name).await? == LabState::Failed,
             "a lab with a missing node should be failed"
         );
         // Resume refuses it with a way out.
@@ -656,7 +673,7 @@ async fn test_container_lab_down_and_resume() -> Result<()> {
                 "after {method} every node should be {node}: {states:?}"
             );
             ensure!(
-                db::get_lab(&server.db, &lab_name).await?.status == lab,
+                lab_status(&server, &lab_name).await? == lab,
                 "after {method} the lab should be {lab}"
             );
         }
@@ -711,6 +728,143 @@ async fn test_container_lab_destroy() -> Result<()> {
     .await;
     let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
     with_cleanup(checks, cleanup)
+}
+
+/// Add the alpine `generic_container` image, which keeps the manifest's commands, and return a
+/// one-node manifest for lab `lab_name` that sleeps.
+async fn sleeping_container_lab(server: &TestServer, lab_name: &str) -> Result<serde_json::Value> {
+    let mut alpine = NodeConfig::get_model(NodeModel::GenericContainer);
+    alpine.repo = Some("alpine".to_owned());
+    "latest".clone_into(&mut alpine.version);
+    alpine.default = true;
+    db::upsert_node_image(&server.db, alpine, DefaultRequest::Keep).await?;
+    Ok(json!({
+        "name": lab_name,
+        "nodes": [
+            { "name": "box1", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+        ]
+    }))
+}
+
+/// M3.1: a second `up` of the same lab used to fail in phase 3 and roll back the first one's
+/// lab. Now it is refused at the reservation and touches nothing.
+#[tokio::test]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
+async fn two_ups_of_one_lab_leave_the_first_alone() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut first = TestWsClient::connect(&server).await?;
+    let mut second = TestWsClient::connect(&server).await?;
+    let token = first.login_lab_admin(&server).await?;
+    bootstrap_images(&mut first, &token).await?;
+    let lab_name = format!("tu{:06}", std::process::id() % 1_000_000);
+    let manifest = sleeping_container_lab(&server, &lab_name).await?;
+    let request = json!({ "token": token, "lab_id": lab_name, "manifest": manifest });
+
+    let (first_up, second_up) = tokio::join!(
+        first.rpc_call_streaming("up", request.clone(), Duration::from_secs(180)),
+        second.rpc_call_streaming("up", request.clone(), Duration::from_secs(180)),
+    );
+    let checks: Result<()> = async {
+        let responses = [first_up?.1, second_up?.1];
+        let refused: Vec<&serde_json::Value> = responses
+            .iter()
+            .filter(|response| response.get("error").is_some())
+            .collect();
+        ensure!(
+            refused.len() == 1,
+            "exactly one up should be refused: {responses:?}"
+        );
+        ensure!(
+            refused[0].to_string().contains("already exists"),
+            "the refusal does not say why: {}",
+            refused[0]
+        );
+        let lab = db::get_lab(&server.db, &lab_name).await?;
+        ensure!(lab.phase == LabPhase::Ready, "the lab is {:?}", lab.phase);
+        let docker = Docker::connect_with_local_defaults()?;
+        let container = docker
+            .inspect_container(&format!("box1-{lab_name}"), None::<InspectContainerOptions>)
+            .await?;
+        ensure!(
+            container.state.and_then(|state| state.running) == Some(true),
+            "the refused up removed the first up's container"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut first, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
+/// M7.2: the second of two destroys used to fail on the record the first had removed.
+#[tokio::test]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
+async fn two_destroys_of_one_lab_both_succeed() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut first = TestWsClient::connect(&server).await?;
+    let mut second = TestWsClient::connect(&server).await?;
+    let token = first.login_lab_admin(&server).await?;
+    bootstrap_images(&mut first, &token).await?;
+    let lab_name = format!("td{:06}", std::process::id() % 1_000_000);
+    let manifest = sleeping_container_lab(&server, &lab_name).await?;
+    lab_up(
+        &mut first,
+        &token,
+        &lab_name,
+        &manifest,
+        Duration::from_secs(180),
+    )
+    .await?;
+
+    let request = json!({ "token": token, "lab_id": lab_name });
+    let (first_destroy, second_destroy) = tokio::join!(
+        first.rpc_call_streaming("destroy", request.clone(), Duration::from_secs(300)),
+        second.rpc_call_streaming("destroy", request.clone(), Duration::from_secs(300)),
+    );
+    let checks: Result<()> = async {
+        for (_, response) in [first_destroy?, second_destroy?] {
+            ensure!(
+                response.get("error").is_none() && response["result"]["success"] == json!(true),
+                "a destroy failed: {response}"
+            );
+        }
+        ensure!(
+            db::find_lab(&server.db, &lab_name).await?.is_none(),
+            "the lab record is left"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut first, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
+/// M7.1: a lab folder with no record could not be removed through the API.
+#[tokio::test]
+#[ignore = "requires root, to write the server's labs folder"]
+async fn admin_clean_removes_a_lab_folder_with_no_record() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let admin_token = ws.login_admin().await?;
+    let lab_id = format!("tf{:06}", std::process::id() % 1_000_000);
+    let lab_dir = std::path::Path::new(SHERPA_LABS_PATH).join(&lab_id);
+    fs::create_dir_all(&lab_dir)?;
+    fs::write(lab_dir.join("lab-info.toml"), "left by a destroy")?;
+
+    let response = ws
+        .rpc_call("clean", json!({ "token": admin_token, "lab_id": lab_id }))
+        .await?;
+
+    let left = lab_dir.exists();
+    if left {
+        fs::remove_dir_all(&lab_dir)?;
+    }
+    ensure!(
+        response.get("error").is_none() && response["result"]["success"] == json!(true),
+        "clean failed: {response}"
+    );
+    ensure!(!left, "clean left the lab folder");
+    Ok(())
 }
 
 /// Concurrent `up` requests must get distinct subnets.
@@ -952,8 +1106,13 @@ async fn test_lab_up_rejects_duplicate_lab_id() -> Result<()> {
     let error_message = error.get("message").and_then(|m| m.as_str()).unwrap_or("");
 
     assert!(
-        error_message.contains("Lab already exists with status"),
+        error_message.contains("already exists") || error_message.contains("already uses"),
         "Expected lab-already-exists error, got: {error_message}"
+    );
+    // M3.1: the refused `up` must not roll back the lab that holds the ID.
+    assert!(
+        db::find_lab(&server.db, lab_id).await?.is_some(),
+        "the refused up removed the existing lab"
     );
 
     Ok(())
@@ -1207,6 +1366,8 @@ async fn redeploy_only_allows_current_owner_on_all_transports() -> Result<()> {
             &db::LabDetails::default(),
         )
         .await?;
+        // As `up` leaves it once built: a redeploy needs a ready lab.
+        db::update_lab_phase_from(&server.db, &lab_id, LabPhase::Creating, LabPhase::Ready).await?;
         for (username, token) in callers {
             check_redeploy_rpc(&mut ws, &lab_id, &owner.username, username, token).await?;
             check_redeploy_http(&http, &server, &lab_id, &owner.username, username, token).await?;
@@ -1217,7 +1378,7 @@ async fn redeploy_only_allows_current_owner_on_all_transports() -> Result<()> {
                 .is_empty(),
             "Authorization checks created node resources"
         );
-        db::delete_lab(&server.db, &lab_id).await?;
+        db::delete_lab_from(&server.db, &lab_id, LabPhase::Ready).await?;
     }
     Ok(())
 }

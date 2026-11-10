@@ -26,7 +26,7 @@ which to make them explicit, are in
 | # | Machine | Crate | States held in |
 |---|---|---|---|
 | 1 | [Node lifecycle](#1-node-lifecycle-nodestate) | shared, db, server | `NodeState` enum and transition functions, `node.state` TEXT, compare-and-set |
-| 2 | [Lab status](#2-lab-status-labstate) | shared, db, server | `LabState` enum, `lab.status` TEXT, derived |
+| 2 | [Lab phase and status](#2-lab-phase-and-status-labphase-and-labstate) | shared, db, server | `LabPhase` enum and transition function, `lab.phase` TEXT, compare-and-set; `LabState` derived on read |
 | 3 | [Lab operation leases](#3-lab-operation-leases-and-cancellation) | server | `lab_operations` statics, `REDEPLOY_LOCKS` |
 | 4 | [Runtime state mappings](#4-runtime-state-mappings-libvirt-and-docker) | server | one table to `Runtime` |
 | 5 | [Node readiness and host keys](#5-node-readiness-and-host-keys) | server, db | `NodeState::Running`, `ssh_host_key` Option |
@@ -58,7 +58,7 @@ which to make them explicit, are in
 | 31 | [Node resource reservation](#31-node-resource-reservation) | server, db | `vnc_port`, `cpu_pinning` Options, admission ledger |
 | 32 | [Database schema version](#32-database-schema-version) | db | `PRAGMA user_version` |
 
-Machines 3 and 32 were already explicit and checked; 1, 4 and 14 have been made so since. They
+Machines 3 and 32 were already explicit and checked; 1, 2, 4 and 14 have been made so since. They
 are here so the survey is complete, and because the other machines depend on them.
 
 ---
@@ -94,8 +94,7 @@ M8.2 and M9.1.*
   Both read the node, apply the transition and write it with the compare-and-set. `record`
   evaluates the event again against the new state when another writer moved the node first, so
   an event is never applied to a state it was not meant for. `observe` leaves a node that moved
-  for the next cycle. After a node moves, the lab's status is derived again and written
-  (machine 2).
+  for the next cycle. The lab's status is derived from its nodes when it is read (machine 2).
 - Text this build does not know decodes as `Unknown` (`#[serde(other)]`), so one row from a
   newer version does not fail a whole listing. Migration `0013_node_lifecycle.sql` turned the
   old `created` into `stopped`.
@@ -146,11 +145,11 @@ domain or container, and report the refusal in its result.
   `down` takes the lease too.
 - The scanner sets it only for a lab no operation holds, and queries libvirt and Docker again
   under that hold, so it sees what the last operation did.
-- Read by `LabState::derive` (machine 2), by `list_labs` and `inspect` (pass-through), by the
-  CLI tables, and by the web templates through `can_start`, `can_stop` and `can_redeploy`.
-
-**Not covered here.** A node left `Building` by a daemon killed during `up` stays `Building`:
-no operation owns it and the scanner never moves it. That is the lab lifecycle, #499 (M6.3).
+- Read by `LabState::derive` (machine 2), by `list_labs` and `inspect`, by the CLI tables, and
+  by the web templates through `can_start`, `can_stop` and `can_redeploy`.
+- At startup, before the server takes requests, `lab_lifecycle::recover` records `Failed` for
+  every node still `Building`: the `up` or redeploy building it ended with the server
+  (machine 2).
 
 ```mermaid
 stateDiagram-v2
@@ -182,59 +181,94 @@ stateDiagram-v2
     end note
 ```
 
-### 2. Lab status (`LabState`)
+### 2. Lab phase and status (`LabPhase` and `LabState`)
+
+*Made explicit by #499; the defects it had are recorded in the investigation note, M3.1, M6
+and M7.*
+
+A lab has two values. The **phase** is stored and says which operation owns the lab's record.
+The **status** says how healthy its nodes are, and is derived from them each time it is read.
 
 **Where.**
 
-- `LabState` is in `crates/shared/src/data/lab.rs`. It has seven variants: `Running`,
-  `Stopped`, `Partial`, `Starting`, `Failed`, `Empty` and `Unknown`.
-- It is stored in `lab.status TEXT NOT NULL` (`crates/db/sql/schema/lab.sql:16`).
-- It is not an independent machine. It is a cache of `LabState::derive(&[NodeState])`
-  (`crates/shared/src/data/lab.rs`). In priority order, `derive` gives:
-  1. `Empty` for no nodes;
-  2. `Running` if all nodes are `Running`;
-  3. `Stopped` if all are `Stopped`;
-  4. `Failed` if any is `Failed` or `Missing`;
-  5. `Starting` if any is `Starting` or `Building`;
-  6. `Partial` otherwise. That includes all-`Unknown`.
+- `LabPhase` is in `crates/shared/src/data/lab_lifecycle.rs`: `Creating`, `Ready`, `Destroying`,
+  `DestroyFailed`, `Interrupted` and `Unknown`. Every allowed move is in the same file, with a
+  table test of every phase against every event:
+  - `LabPhase::on_event(LabEvent) -> Result<LabTransition, LabRefused>`. A `LabTransition` is
+    `To(phase)`, or `Removed` for a move that deletes the record.
+  - `ensure_ready() -> Result<(), LabNotReady>`: only `Ready` takes operations on the lab's
+    nodes. The refusal's message says what to do. `is_ready()` is the same test for the web
+    templates.
+- It is stored in `lab.phase TEXT NOT NULL` (migration `0015_lab_phase.sql`, which also dropped
+  the old `lab.status`). Labs that existed before are `ready`. Text this build does not know
+  decodes as `Unknown` (`#[serde(other)]`), which allows only destroy and clean.
+- Writes are compare-and-sets: `db::update_lab_phase_from(lab_id, from, to)` (`UPDATE ... WHERE
+  lab_id = ? AND phase = ?`) and `db::delete_lab_from(lab_id, from)`. `db::create_lab` inserts
+  `Creating`.
+- The only caller of those writes is `lab_lifecycle::record(db, hold, LabEvent)` in
+  `crates/server/src/services/lab_lifecycle.rs`. `hold` is a `LabHold` (machine 3): an
+  operation's `LabOperation` or a destroy's `StoppedLab`, so only code holding the lab's lease
+  writes its phase, and only for that lab. `record` reads the lab, applies the event, and writes
+  with the compare-and-set; a lost race reads the lab again.
+- `LabState` is in `crates/shared/src/data/lab.rs`: `LabState::derive(&[NodeState])`, in
+  priority order `Empty` (no nodes), `Running` (all), `Stopped` (all), `Failed` (any `Failed`
+  or `Missing`), `Starting` (any `Starting` or `Building`), else `Partial`. Nothing stores it:
+  `list_labs` reads every node state of the user's labs in one query
+  (`db::list_node_states_by_user`), and `inspect` derives it from the nodes it reads. Unknown
+  text decodes as `Unknown`.
 
-**Transitions.**
+**Phases and events.**
 
-| To | Function | What it checks |
-|---|---|---|
-| `Unknown` | `db::create_lab` (`LabState::default()`) | insert |
-| `derive(nodes)` | `node_lifecycle::refresh_lab_status`, after every node write by an operation or the scanner | nothing: the value is derived from the nodes read then |
-| `derive(nodes)` | the scanner, once per lab per cycle, labs with no nodes included | that the derived value differs from the stored one |
+| Event | Sent by | From | To |
+|---|---|---|---|
+| (insert) | `up` phase 1, `reserve_lab` | | `Creating` |
+| `Built` | `up`, once phase 13 is done | `Creating` | `Ready` |
+| `Released` | `up`, when phase 2 fails | `Creating` | record removed |
+| `DestroyStarted` | destroy, clean, a failed `up`'s rollback (`tear_down_lab`) | any | `Destroying` |
+| `DestroyFailed` | `tear_down_lab`, when anything was left | `Destroying` | `DestroyFailed` |
+| `Destroyed` | `tear_down_lab`, once resources and folder are gone | `Destroying` | record removed |
+| `OwnerLost` | `recover`, at startup | `Creating` | `Interrupted` |
+| `OwnerLost` | `recover`, at startup | `Destroying` | `DestroyFailed` |
 
-Consequences:
+Every other pair is refused with a `LabRefused`.
 
-- The lab status follows every node write, with or without the scanner. A lab `up` is building
-  is `Starting`.
-- `Empty` is stored for a lab with no nodes once the scanner has looked at it.
-- Two writers deriving at once can store the older derivation; the next write or scan corrects
-  it *(inferred)*. Deriving the status on read instead of storing it is part of #499.
+**Who sets and reads it.**
 
-**Readers.**
-
-- `list_labs` (`crates/server/src/services/list_labs.rs`) and `inspect` pass it through.
-- The RPC `up` "already exists" message (`crates/server/src/api/websocket/rpc/labs.rs`).
-- The web templates choose the action buttons from it:
-  - `crates/server/templates/user/partials/labs-grid.html.jinja`;
-  - `crates/server/templates/user/lab-detail.html.jinja`.
-
-  `Running` and `Starting` show Stop. `Partial` shows Start and Stop. Every other state,
-  `Unknown` included, shows Start.
+- `up` refuses a lab ID that has a record with a `Conflict` early in setup, before it connects
+  to libvirt or reads the host, so the answer is the same on any host. It then reserves the lab
+  by inserting its record (machine 6); two `up`s of one lab that both pass the early check race
+  there, and the second fails with the same `Conflict`, before it creates anything.
+- `down`, `resume` and redeploy call `lab_lifecycle::require_ready` under their lease, after
+  their access check, and refuse a lab that is not `Ready` with a `Conflict`.
+- Destroy and clean move it through `Destroying` (machine 7).
+- At startup, `daemon/server.rs` calls `lab_lifecycle::recover` before the scanner starts and
+  before any listener binds. Nothing runs then, so a lab still `Creating` or `Destroying` has
+  lost its owner: `recover` takes each lab's lease and records `OwnerLost`, and records `Failed`
+  for every node still `Building`. It removes nothing; the user destroys or redeploys. After it,
+  no lab is `Creating` or `Destroying` and no node is `Building` without an operation.
+- `list_labs` and `inspect` return the phase beside the status (`LabSummary.phase`,
+  `InspectResponse.lab_phase`, both `ready` when a server before 0.5.27 sends none).
+- The web templates show the phase instead of the status while the lab is not ready, and then
+  offer only Destroy (`labs-grid`, `lab-detail`, and the admin labs list). `sherpa inspect` and
+  `sherpa destroy` print the refusal message for a lab that is not ready.
+- The scanner does not read or write the phase. It observes the nodes of any lab no operation
+  holds; a lab whose destroy failed has its missing nodes recorded `Missing`.
 
 ```mermaid
 stateDiagram-v2
     state "any" as ANY
-    [*] --> Unknown : create_lab
-    ANY --> Running : node write or scan, all nodes Running
-    ANY --> Stopped : node write or scan, all nodes Stopped
-    ANY --> Failed : node write or scan, any node Failed or Missing
-    ANY --> Starting : node write or scan, any node Starting or Building
-    ANY --> Partial : node write or scan, otherwise
-    ANY --> Empty : scan, no nodes
+    [*] --> Creating : up reserves the lab (insert)
+    Creating --> Ready : Built
+    Creating --> [*] : Released (phase 2 failed)
+    ANY --> Destroying : DestroyStarted (destroy, clean, rollback)
+    Destroying --> [*] : Destroyed (record removed last)
+    Destroying --> DestroyFailed : DestroyFailed (something left)
+    Creating --> Interrupted : OwnerLost (startup)
+    Destroying --> DestroyFailed : OwnerLost (startup)
+    note right of Ready
+        only Ready takes down, resume and redeploy;
+        the other phases take only destroy and clean
+    end note
 ```
 
 ### 3. Lab operation leases and cancellation
@@ -275,11 +309,16 @@ stateDiagram-v2
   starts meanwhile waits for it. A `stop` that finds the scanner holding the lease reports
   `was_running`, as if an operation had held it.
 
+**Proof of the lease.** `LabHold` is a sealed trait implemented by `LabOperation` and
+`StoppedLab`, with `lab_id()`. The lab lifecycle (machine 2) takes one to write a phase, so a
+phase is written only under the lease of the lab it belongs to.
+
 **Who does not take part.**
 
 - `refresh_node_host_key` takes no lease.
 - Read leases are shared, so two `up`s on the same lab, or an `up` and a `resume`, run at the
-  same time.
+  same time. The lab phase (machine 2) keeps them apart: the second `up` fails to reserve the
+  lab, and `resume` refuses a lab that is not `Ready`.
 - Redeploys also hold a second, per-lab `Mutex` from `REDEPLOY_LOCKS`
   (`redeploy/node.rs:33, 62-63, 124-135`). It serializes redeploys with each other only.
 
@@ -381,62 +420,71 @@ stateDiagram-v2
 
 **Where.** `crates/server/src/services/up/lab.rs`, with these types:
 
-- `LabUp`, holding `phases_completed: Vec<String>` (`:73`) and `errors`;
-- `UpPhase` labels (`crates/shared/src/data/up.rs`).
+- `LabUp`, holding `phases_completed: Vec<String>` and `errors`;
+- `UpPhase` labels (`crates/shared/src/data/up.rs`);
+- `ReservedLab` (`up/networks.rs`): the lab's record and subnets. Only the `up` that inserted the
+  record has one, and phase 3 consumes it.
 
-The stage is the program counter. `phases_completed` is reported in the response and never
-read back. Progress is otherwise recorded only by what exists: DB rows, libvirt objects,
-containers, bridges, kernel interfaces and files.
+The stage is the program counter; the lab phase (machine 2) says who owns the record.
+`phases_completed` is reported in the response and never read back.
 
 **Stages.**
 
 | Phase | Function | Creates |
 |---|---|---|
-| 1 Setup | `set_up` (`up/lab.rs:251`) | nothing. Refuses if `find_lab` returns a record (`:283`). |
-| 2 Validation | `plan_lab`, `ensure_no_earlier_attempt` (`:187-188`, `:314`) | image leases in memory. The earlier-attempt check only looks at libvirt volumes and domains, and skips labs where every node is a container (`:319-324`). |
-| 3 DatabaseRecords | `create_node_records` (`up/records.rs`), `reserve_lab_networks` (`up/networks.rs:211`) | lab row, node rows, VNC ports, per-node networks |
-| 4 | `set_up_lab_network` (`up/lab.rs:389`) | lab dir and files, libvirt NAT network, Docker bridge network, Tailscale gateway |
+| 1 Setup | `set_up`, ending with `reserve_lab` (`up/networks.rs`) | the lab record, `Creating`, holding its subnets. A lab ID in use fails here with a `Conflict`, first right after the owner is loaded and before libvirt is connected, and again at the reservation for a concurrent `up`: "Lab already exists" (with the phase when it is not `ready`), or "rename the lab" for another owner's lab with the same ID. |
+| 2 Validation | `validate`: `plan_lab`, `ensure_no_earlier_attempt` | image leases in memory. The earlier-attempt check looks at libvirt volumes and domains, and skips labs where every node is a container. |
+| 3 DatabaseRecords | `create_node_records` (`up/records.rs`) | node rows (`Building`), VNC ports, per-node networks |
+| 4 | `set_up_lab_network` | lab dir and files, libvirt NAT network, Docker bridge network, Tailscale gateway |
 | 5 to 7 | `link_nodes`, `create_isolated_container_networks`, `create_shared_bridges` | link rows, Docker macvlan networks, host bridges, bridge rows |
-| 8 | `configure_nodes` (`up/ztp.rs:75`) | ZTP files, lab CA (`up/ztp.rs:89`), node certificates, management addresses |
+| 8 | `configure_nodes` (`up/ztp.rs`) | ZTP files, lab CA, node certificates, management addresses |
 | 9 | `start_boot_container` | dnsmasq files and container |
 | 10 to 12 | disk clone, `create_vms`/`create_unikernels`, `attach_vm_links`, SSH files | volumes, domains, eBPF redirects, netem |
-| 13 | `wait_for_nodes`, `start_lab_services` | containers, veths, node state and host keys, Talos, Vault, Keycloak |
+| 13 | `wait_for_nodes`, `start_lab_services`, then `Built` | containers, veths, node state and host keys, Talos, Vault, Keycloak; the lab `Ready` |
 
 **Transitions out of the sequence.**
 
-- **A failure in phase 1 or 2** returns without cleanup (`up/lab.rs:211-212`).
-- **A failure or a cancellation from phase 3 on** calls `roll_back_failed_up` (`:218-219`,
-  `:790`):
-  - for `StopReason::Destroy`, it does nothing (`:797-802`);
-  - otherwise it calls `clean_lab_resources(lab_id)` (`:828`), which removes everything
-    named for the lab ID.
-- **Timeouts and not-ready nodes in phase 13** are pushed to `errors` as non-critical, and
-  `up` returns `Ok`. `success = critical_errors == 0` (`:745-747`). Nothing in the code
-  constructs an `UpError` with `is_critical: true`, so `success` is always true when `up`
-  returns `Ok`.
+- **A failure in phase 1** returns. If it came from the reservation, nothing was created.
+- **A failure in phase 2** records `Released`, which removes the record this `up` inserted.
+- **A failure or a cancellation from phase 3 on** calls `roll_back_failed_up`:
+  - for `StopReason::Destroy`, it does nothing: the destroy holds the lab next and removes it;
+  - otherwise it calls `clean_lab_resources(state, operation)`, which runs `tear_down_lab`
+    (machine 7): the lab goes `Destroying`, then is removed, or is left `DestroyFailed` when
+    anything is left behind, where its owner can destroy it again.
+- **The daemon stops mid-way**: startup recovery marks the lab `Interrupted` and its `Building`
+  nodes `Failed` (machine 2).
+- **Errors in phase 13** are collected in `errors`, and `up` returns `Ok` with the lab `Ready`.
+  `success` is false when any is critical:
+  - critical: a container that exited (its node is `Failed`), and a lab service that did not
+    come up: a Talos cluster not ready, a Keycloak realm or a Vault that failed to set up.
+    Nothing sets them up again.
+  - not critical: a node whose readiness wait timed out (it stays `Starting` and the scanner
+    records it running once it answers), and Tailscale warnings.
+
+  The client fails `sherpa up` with "only partly created" when `success` is false.
 
 **Who sets and reads.**
 
-- The RPC, REST and web handlers start `up` in detached tasks.
-- The client reads `UpResponse.success` and `errors` (`crates/client/src/cmd/up.rs:167`).
+- The RPC, REST and web handlers start `up` in detached tasks. None checks the lab first; the
+  reservation does.
+- The client reads `UpResponse.success` and `errors` (`crates/client/src/cmd/up.rs`).
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Setup
-    Setup --> Validated : no lab row, no earlier volumes/domains
-    Setup --> [*] : error, nothing created
-    Validated --> Building : phase 3 creates lab row
-    Validated --> [*] : error, nothing created
-    Building --> Building : phases 4 to 12 (cancellation checked between phases)
+    [*] --> Reserved : phase 1 inserts the record, Creating
+    [*] --> [*] : phase 1 fails, lab ID in use (nothing created)
+    Reserved --> Validated : phase 2
+    Reserved --> [*] : phase 2 fails, Released
+    Validated --> Building : phases 3 to 12 (cancellation checked between phases)
     Building --> Waiting : phase 13
-    Waiting --> Up : Ok, success=true (non-critical errors allowed)
+    Waiting --> Up : Built, lab Ready (success false if any error is critical)
     Building --> RollingBack : error or Request stop
     Waiting --> RollingBack : error or Request stop
     Building --> LeftForDestroy : Destroy stop
     Waiting --> LeftForDestroy : Destroy stop
-    RollingBack --> [*] : clean_lab_resources succeeded
-    RollingBack --> Stranded : clean_lab_resources had errors, lab row kept
-    Building --> Stranded : daemon killed (nothing rolls back)
+    RollingBack --> [*] : tear_down_lab removed everything
+    RollingBack --> DestroyFailed : something left, record kept
+    Building --> Interrupted : daemon stopped; marked at startup
     Up --> [*]
     LeftForDestroy --> [*]
 ```
@@ -445,51 +493,49 @@ stateDiagram-v2
 
 **Where.**
 
-- `crates/server/src/services/destroy.rs`: `destroy_lab` (`:52`), `destroy_lab_resources`
-  (`:150`), `cleanup_lab_metadata` (`:339`).
-- `crates/server/src/services/clean.rs`: `clean_lab` (`:26`), `clean_lab_resources` (`:42`).
+- `crates/server/src/services/destroy.rs`: `destroy_lab`, `tear_down_lab`,
+  `destroy_lab_resources`, `cleanup_lab_metadata`.
+- `crates/server/src/services/clean.rs`: `clean_lab`, `clean_lab_resources`.
 
-**State.** Progress is held only in the response. `DestroySummary` has per-resource lists and
-the bools `database_records_deleted` and `lab_directory_deleted`. Alongside it is
-`errors: Vec<DestroyError>`. Nothing is persisted: no "destroying" or "destroy failed" state
-exists.
+**State.** The lab phase (machine 2) holds where a destroy is: `Destroying` while it runs,
+`DestroyFailed` when it left something. The response holds the detail: `DestroySummary` has
+per-resource lists and the bools `database_records_deleted` and `lab_directory_deleted`, beside
+`errors: Vec<DestroyError>`.
 
-**Stages.** Each stage runs whether or not the ones before it failed:
+**Stages.** `tear_down_lab`, under the lab's lease:
 
-1. containers and secrets;
-2. VMs;
-3. disks (skipped after a VM error);
-4. Docker networks;
-5. libvirt networks;
-6. host interfaces;
-7. `cleanup_lab_metadata`.
-
-`cleanup_lab_metadata` does three things in order:
-
-- If `errors` is not empty, it keeps the lab row and directory and returns (`:353-361`).
-- Otherwise it deletes the row (`:368`).
-- Only if the row was deleted does it remove the directory (`:381-401`).
+1. if the lab has a record, record `DestroyStarted`: the lab is `Destroying`;
+2. containers and secrets; VMs; disks (skipped after a VM error); Docker networks; libvirt
+   networks; host interfaces. Each runs whether or not the ones before it failed;
+3. `cleanup_lab_metadata`:
+   - if `errors` is not empty, keep the folder and the record;
+   - otherwise remove the lab folder; if that fails, keep the record;
+   - then record `Destroyed`, which removes the record. The record goes last, so whatever is
+     left is still reachable through it;
+4. if `errors` is not empty and the lab has a record, record `DestroyFailed`.
 
 **Entry checks.**
 
-- `destroy_lab` calls `require_lab_access` (`:60`), then `stop(Destroy)` (`:74`). It does not
-  check the lab again once it holds the lease.
-- `clean_lab` requires an admin and the lease. It is documented to work on a lab that is not
-  in the database (`clean.rs:19-24`). However, its `cleanup_database` calls `db::delete_lab`,
-  and that fails when there is no row (`crates/db/src/lab/delete.rs:38`).
+- `destroy_lab` calls `require_lab_access`, then `stop(Destroy)`, then reads the lab again. A lab
+  another destroy removed while this one waited is reported as destroyed, with success.
+- `clean_lab` requires an admin and the lease. It works on a lab with no record: the resources
+  and the folder named for the lab ID are removed, and that is a success.
+- `up`'s rollback calls `clean_lab_resources` under its own lease (machine 6).
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Tearing : destroy_lab (owner, lease) / clean_lab (admin, lease)
-    Tearing --> Tearing : each resource step, errors collected
-    Tearing --> Retained : errors not empty, row and dir kept
-    Tearing --> RowDeleted : no errors, delete_lab ok
-    Tearing --> Retained : delete_lab fails (also when no row exists)
-    RowDeleted --> Gone : dir removed or absent
-    RowDeleted --> DirOrphaned : remove_dir_all fails
-    Retained --> Tearing : destroy or clean again
-    DirOrphaned --> DirOrphaned : clean (delete_lab fails, dir kept), destroy refused (no row)
-    Gone --> [*]
+    [*] --> Destroying : destroy_lab (owner, lease) / clean_lab (admin, lease) / up rollback
+    Destroying --> Destroying : each resource step, errors collected
+    Destroying --> DestroyFailed : errors, folder and record kept
+    Destroying --> FolderGone : no errors, folder removed
+    Destroying --> DestroyFailed : folder cannot be removed, record kept
+    FolderGone --> [*] : Destroyed, record removed
+    FolderGone --> DestroyFailed : record removal fails
+    DestroyFailed --> Destroying : destroy or clean again
+    note right of Destroying
+        a lab with no record (clean only) skips the phase
+        and ends when its resources and folder are gone
+    end note
 ```
 
 ### 8. Down and resume

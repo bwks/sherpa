@@ -118,13 +118,14 @@ pub async fn admin_labs_list_handler(
             0
         };
 
-        lab_summaries.push(crate::templates::AdminLabSummary {
-            lab_id: lab.lab_id,
-            name: lab.name,
-            description: lab.description,
+        lab_summaries.push(crate::templates::AdminLabSummary::new(
+            lab.lab_id,
+            lab.name,
+            lab.description,
             owner_username,
             node_count,
-        });
+            lab.phase,
+        ));
     }
 
     lab_summaries.sort_by(|a, b| a.name.cmp(&b.name));

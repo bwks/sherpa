@@ -266,11 +266,11 @@ pub(crate) fn lab_from_row(row: &Row) -> Result<DbLab> {
         gateway_ipv6: cells.optional_text("gateway_ipv6")?,
         router_ipv6: cells.optional_text("router_ipv6")?,
         loopback_network_v6: cells.optional_text("loopback_network_v6")?,
-        status: cells.enumeration("status")?,
         client_host: cells.optional_text("client_host")?,
         client_folder: cells.optional_text("client_folder")?,
         description: cells.optional_text("description")?,
         ssh_key: cells.enumeration("ssh_key")?,
+        phase: cells.enumeration("phase")?,
     })
 }
 
@@ -290,11 +290,11 @@ pub(crate) fn lab_values(lab: &DbLab, key: &str) -> Result<Vec<Value>> {
         lab.gateway_ipv6.as_deref().into(),
         lab.router_ipv6.as_deref().into(),
         lab.loopback_network_v6.as_deref().into(),
-        enum_text(&lab.status, "status")?.into(),
         lab.client_host.as_deref().into(),
         lab.client_folder.as_deref().into(),
         lab.description.as_deref().into(),
         enum_text(&lab.ssh_key, "ssh_key")?.into(),
+        enum_text(&lab.phase, "phase")?.into(),
     ])
 }
 
@@ -535,7 +535,7 @@ pub(crate) fn node_image_values(image: &NodeConfig, key: &str) -> Result<Vec<Val
 
 #[cfg(test)]
 mod tests {
-    use shared::data::{LabState, NodeKind, NodeModel};
+    use shared::data::{LabPhase, NodeKind, NodeModel};
 
     use super::*;
 
@@ -571,7 +571,7 @@ mod tests {
             decode_enum::<NodeModel>(model, "model").unwrap(),
             NodeModel::AristaCeos
         );
-        assert!(enum_text(&LabState::default(), "status").is_ok());
+        assert!(enum_text(&LabPhase::default(), "phase").is_ok());
     }
 
     #[test]

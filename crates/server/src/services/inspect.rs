@@ -1,7 +1,8 @@
 use anyhow::{Context, Result, anyhow};
 use libvirt::is_device_volume;
 use shared::data::{
-    BridgeInfo, DbNode, DeviceInfo, InspectResponse, LabInfo, LinkInfo, NodeConfig, RecordId,
+    BridgeInfo, DbLab, DbNode, DeviceInfo, InspectResponse, LabInfo, LabState, LinkInfo,
+    NodeConfig, NodeState, RecordId,
 };
 use shared::konst::{LAB_FILE_NAME, SHERPA_LABS_PATH, SHERPA_STORAGE_POOL};
 use shared::util::load_file;
@@ -49,21 +50,13 @@ async fn inspect_lab_inner(
 
     let lab_record_id = db_lab
         .id
+        .clone()
         .ok_or_else(|| anyhow::anyhow!("Lab missing record ID"))?;
 
     tracing::debug!("inspect_lab: user+lab DB lookups took {:?}", t0.elapsed());
     let t1 = Instant::now();
 
-    // Load lab info from filesystem
-    let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
-    let lab_file = load_file(&format!("{lab_dir}/{LAB_FILE_NAME}"))
-        .context("Unable to load lab file. Is the lab running?")?;
-    let mut lab_info = LabInfo::from_str(&lab_file).context("Failed to parse lab info file")?;
-    // The database record is authoritative, and lab files written before it was recorded lack
-    // the description and where the lab was started from.
-    lab_info.description = db_lab.description.clone();
-    lab_info.client_host = db_lab.client_host.clone();
-    lab_info.client_folder = db_lab.client_folder.clone();
+    let lab_info = load_lab_info(state, lab_id, &db_lab).await?;
 
     tracing::debug!("inspect_lab: load lab file took {:?}", t1.elapsed());
     let t2 = Instant::now();
@@ -150,6 +143,8 @@ async fn inspect_lab_inner(
         })
         .collect();
 
+    let node_states: Vec<NodeState> = db_nodes.iter().map(|node| node.state).collect();
+
     // Process each node
     let mut devices = Vec::new();
 
@@ -164,11 +159,61 @@ async fn inspect_lab_inner(
     Ok(InspectResponse {
         tailscale,
         lab_info,
-        lab_state: db_lab.status,
+        lab_state: LabState::derive(&node_states),
+        lab_phase: db_lab.phase,
         devices,
         inactive_devices: Vec::new(), // Keep field for API compatibility
         links,
         bridges,
+    })
+}
+
+/// The lab's details: from its lab file, or from its record when it has none, as for a lab `up`
+/// has not written its files for yet, or whose files a destroy removed. Either way it can still
+/// be inspected and destroyed.
+async fn load_lab_info(state: &AppState, lab_id: &str, db_lab: &DbLab) -> Result<LabInfo> {
+    let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
+    let mut lab_info = match load_file(&format!("{lab_dir}/{LAB_FILE_NAME}")) {
+        Ok(lab_file) => LabInfo::from_str(&lab_file).context("Failed to parse lab info file")?,
+        Err(error) => {
+            tracing::debug!(error = %error, "No lab file; describing the lab from its record");
+            let owner = db::find_user_by_id(&state.db, db_lab.user.clone())
+                .await
+                .context("Failed to look up the lab owner")?
+                .map_or_else(|| "unknown".to_string(), |user| user.username);
+            lab_info_from_record(db_lab, owner)?
+        }
+    };
+    // The database record is authoritative, and lab files written before it was recorded lack
+    // the description and where the lab was started from.
+    lab_info.description.clone_from(&db_lab.description);
+    lab_info.client_host.clone_from(&db_lab.client_host);
+    lab_info.client_folder.clone_from(&db_lab.client_folder);
+    Ok(lab_info)
+}
+
+/// A lab's details from its record alone, for a lab with no lab file: the networks it reserved,
+/// its owner, and what the user said about it.
+fn lab_info_from_record(lab: &DbLab, owner: String) -> Result<LabInfo> {
+    Ok(LabInfo {
+        ssh_usernames: Vec::new(),
+        id: lab.lab_id.clone(),
+        name: lab.name.clone(),
+        user: owner,
+        ipv4_network: lab.management_network.parse()?,
+        ipv4_gateway: lab.gateway_ipv4.parse()?,
+        ipv4_router: lab.router_ipv4.parse()?,
+        loopback_network: lab.loopback_network.parse()?,
+        ipv6_network: lab
+            .management_network_v6
+            .as_deref()
+            .map(str::parse)
+            .transpose()?,
+        ipv6_gateway: lab.gateway_ipv6.as_deref().map(str::parse).transpose()?,
+        ipv6_router: lab.router_ipv6.as_deref().map(str::parse).transpose()?,
+        description: lab.description.clone(),
+        client_host: lab.client_host.clone(),
+        client_folder: lab.client_folder.clone(),
     })
 }
 
@@ -212,7 +257,7 @@ fn node_name_from_id(nodes: &[DbNode], rid: &RecordId) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::{NodeModel, NodeState};
+    use shared::data::{LabPhase, LabSshKey, NodeModel};
 
     fn db_node(name: &str) -> DbNode {
         DbNode {
@@ -248,5 +293,47 @@ mod tests {
         assert_eq!(device.cpu_count, Some(16));
         assert_eq!(device.memory, Some(32768));
         assert_eq!(device.disks, vec!["dev01-a1b2c3d4-hdd.qcow2"]);
+    }
+
+    #[test]
+    fn a_lab_without_files_is_described_from_its_record() {
+        // M6.3: `up` stopped before it wrote the lab's files; `sherpa destroy` inspects first.
+        let lab = DbLab {
+            id: Some(RecordId::new("lab", "l1")),
+            lab_id: "ab12cd34".to_string(),
+            name: "core".to_string(),
+            user: RecordId::new("user", "alice"),
+            loopback_network: "127.127.1.0/24".to_string(),
+            management_network: "172.31.1.0/24".to_string(),
+            gateway_ipv4: "172.31.1.1".to_string(),
+            router_ipv4: "172.31.1.2".to_string(),
+            tailscale_container_id: None,
+            management_network_v6: Some("fd00:b00b:0:1::/64".to_string()),
+            gateway_ipv6: Some("fd00:b00b:0:1::1".to_string()),
+            router_ipv6: None,
+            loopback_network_v6: None,
+            phase: LabPhase::Interrupted,
+            client_host: Some("dev01".to_string()),
+            client_folder: None,
+            description: Some("BGP".to_string()),
+            ssh_key: LabSshKey::Lab,
+        };
+
+        let info = lab_info_from_record(&lab, "alice".to_string()).unwrap();
+
+        assert_eq!(info.id, "ab12cd34");
+        assert_eq!(info.user, "alice");
+        assert_eq!(info.ipv4_network.to_string(), "172.31.1.0/24");
+        assert_eq!(info.ipv4_router.to_string(), "172.31.1.2");
+        assert_eq!(info.loopback_network.to_string(), "127.127.1.0/24");
+        assert_eq!(
+            info.ipv6_gateway
+                .map(|gateway| gateway.to_string())
+                .as_deref(),
+            Some("fd00:b00b:0:1::1")
+        );
+        assert!(info.ipv6_router.is_none());
+        assert_eq!(info.client_host.as_deref(), Some("dev01"));
+        assert_eq!(info.description.as_deref(), Some("BGP"));
     }
 }

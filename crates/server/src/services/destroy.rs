@@ -13,7 +13,7 @@ use container::{
 use libvirt::{delete_disk, list_lab_volumes};
 use network::{delete_interface, list_interface_names};
 use shared::data::{
-    DestroyError, DestroyResponse, DestroySummary, StatusKind, TailscaleGatewaySettings,
+    DestroyError, DestroyResponse, DestroySummary, LabEvent, StatusKind, TailscaleGatewaySettings,
 };
 use shared::konst::{
     BRIDGE_MEMBER_HOST_VETH_PREFIX, BRIDGE_PREFIX, CONTAINER_HOST_VETH_PREFIX, SHERPA_LABS_PATH,
@@ -27,7 +27,8 @@ use tracing::instrument;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
-use crate::services::lab_operations::{self, StopReason};
+use crate::services::lab_lifecycle;
+use crate::services::lab_operations::{self, LabHold, StopReason};
 use crate::services::node_secrets::remove_lab_secrets;
 use crate::services::progress::ProgressSender;
 
@@ -71,7 +72,7 @@ pub async fn destroy_lab(
         "Stopping operations in progress on this lab...".to_string(),
         StatusKind::Progress,
     );
-    let (was_running, _stopped) = lab_operations::stop(lab_id, StopReason::Destroy).await;
+    let (was_running, stopped) = lab_operations::stop(lab_id, StopReason::Destroy).await;
     if was_running {
         tracing::info!(lab_id = %lab_id, "Stopped operations in progress before destruction");
         let _ = progress.send_status(
@@ -80,31 +81,28 @@ pub async fn destroy_lab(
         );
     }
 
+    // Read the lab again under the lease: a destroy that held it before this one may have
+    // removed it, which is what this destroy was asked to do.
+    let lab_name = lab.name.clone();
+    if db::find_lab(&state.db, lab_id).await?.is_none() {
+        tracing::info!(lab_id = %lab_id, "Lab already destroyed");
+        let _ = progress.send_status("Lab already destroyed".to_string(), StatusKind::Done);
+        return Ok(DestroyResponse {
+            success: true,
+            lab_id: lab_id.to_string(),
+            lab_name,
+            summary: DestroySummary {
+                database_records_deleted: true,
+                lab_directory_deleted: true,
+                ..DestroySummary::default()
+            },
+            errors: Vec::new(),
+        });
+    }
+
     let mut summary = DestroySummary::default();
     let mut errors = Vec::new();
-
-    // The lab record has the name; the lab info file may not exist if `up` was stopped early.
-    let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
-    let lab_name = lab.name.clone();
-
-    tracing::debug!(
-        lab_id = %lab_id,
-        lab_name = %lab_name,
-        lab_dir = %lab_dir,
-        "Loaded lab information"
-    );
-
-    destroy_lab_resources(lab_id, state, &mut summary, &mut errors, Some(&progress)).await;
-
-    cleanup_lab_metadata(
-        lab_id,
-        &lab_dir,
-        cleanup_database(lab_id, &state.db),
-        &mut summary,
-        &mut errors,
-        Some(&progress),
-    )
-    .await;
+    tear_down_lab(state, &stopped, &mut summary, &mut errors, Some(&progress)).await;
 
     // Determine overall success
     let success = errors.is_empty();
@@ -141,6 +139,54 @@ pub async fn destroy_lab(
         summary,
         errors,
     })
+}
+
+/// Remove the lab `hold` is on: move its record to `Destroying`, remove its resources and its
+/// folder, and then its record. When anything is left behind, the record stays, `DestroyFailed`,
+/// so the lab can be destroyed again. A lab with no record, which only an admin clean reaches,
+/// has its resources and folder removed.
+#[instrument(skip(state, hold, summary, errors, progress), fields(lab_id = %hold.lab_id()))]
+pub(crate) async fn tear_down_lab(
+    state: &AppState,
+    hold: &impl LabHold,
+    summary: &mut DestroySummary,
+    errors: &mut Vec<DestroyError>,
+    progress: Option<&ProgressSender>,
+) {
+    let lab_id = hold.lab_id();
+    let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
+    let recorded = match db::find_lab(&state.db, lab_id).await {
+        Ok(None) => false,
+        Ok(Some(_)) => {
+            if let Err(error) =
+                lab_lifecycle::record(&state.db, hold, LabEvent::DestroyStarted).await
+            {
+                errors.push(DestroyError::new("database", lab_id, format!("{error:#}")));
+            }
+            true
+        }
+        Err(error) => {
+            errors.push(DestroyError::new("database", lab_id, format!("{error:#}")));
+            true
+        }
+    };
+
+    destroy_lab_resources(lab_id, state, summary, errors, progress).await;
+
+    let remove_record = async {
+        if recorded {
+            lab_lifecycle::record(&state.db, hold, LabEvent::Destroyed).await?;
+        }
+        Ok(())
+    };
+    cleanup_lab_metadata(lab_id, &lab_dir, remove_record, summary, errors, progress).await;
+
+    if recorded
+        && !errors.is_empty()
+        && let Err(error) = lab_lifecycle::record(&state.db, hold, LabEvent::DestroyFailed).await
+    {
+        tracing::error!(lab_id = %lab_id, error = ?error, "Failed to record that the destroy failed");
+    }
 }
 
 /// Remove the lab's infrastructure: containers and their secret files, VMs and disks, Docker
@@ -332,9 +378,12 @@ fn report_step(
     }
 }
 
-/// Finish database and filesystem cleanup after infrastructure teardown.
-/// Keep metadata when any resource failed to go, so the lab can be destroyed again; the
-/// database future is only polled once every resource is gone.
+/// Finish filesystem and database cleanup after infrastructure teardown.
+///
+/// Keep everything when any resource failed to go, so the lab can be destroyed again. Otherwise
+/// remove the lab folder, then the record: the record goes last, so a folder that cannot be
+/// removed keeps the record its owner destroys again. The database future is only polled once
+/// the folder is gone.
 #[instrument(skip(database_cleanup, summary, errors, progress), fields(%lab_id), level = "debug")]
 pub(crate) async fn cleanup_lab_metadata(
     lab_id: &str,
@@ -360,6 +409,24 @@ pub(crate) async fn cleanup_lab_metadata(
         return;
     }
 
+    tracing::info!(lab_id = %lab_id, lab_dir = %lab_dir, "Deleting lab directory");
+    send_status(
+        "Deleting lab directory...".to_string(),
+        StatusKind::Progress,
+    );
+    if dir_exists(lab_dir) {
+        if let Err(e) = fs::remove_dir_all(lab_dir) {
+            errors.push(DestroyError::new("filesystem", lab_dir, format!("{e:?}")));
+            tracing::error!(lab_id = %lab_id, lab_dir = %lab_dir, error = ?e, "Failed to delete lab directory; keeping the lab record");
+            return;
+        }
+        tracing::info!(lab_id = %lab_id, lab_dir = %lab_dir, "Lab directory deleted");
+    } else {
+        tracing::debug!(lab_id = %lab_id, lab_dir = %lab_dir, "Lab directory already removed");
+    }
+    summary.lab_directory_deleted = true;
+    send_status("Lab directory deleted".to_string(), StatusKind::Done);
+
     tracing::info!(lab_id = %lab_id, "Cleaning up database records");
     send_status(
         "Cleaning up database records...".to_string(),
@@ -372,39 +439,9 @@ pub(crate) async fn cleanup_lab_metadata(
             tracing::info!(lab_id = %lab_id, "Database cleanup successful");
         }
         Err(e) => {
-            summary.database_records_deleted = false;
-            errors.push(DestroyError::new("database", lab_id, format!("{e:?}")));
+            errors.push(DestroyError::new("database", lab_id, format!("{e:#}")));
             tracing::error!(lab_id = %lab_id, error = ?e, "Database cleanup failed");
         }
-    }
-
-    if !summary.database_records_deleted {
-        return;
-    }
-
-    tracing::info!(lab_id = %lab_id, lab_dir = %lab_dir, "Deleting lab directory");
-    send_status(
-        "Deleting lab directory...".to_string(),
-        StatusKind::Progress,
-    );
-    if dir_exists(lab_dir) {
-        match fs::remove_dir_all(lab_dir) {
-            Ok(()) => {
-                summary.lab_directory_deleted = true;
-                send_status("Lab directory deleted".to_string(), StatusKind::Done);
-                tracing::info!(lab_id = %lab_id, lab_dir = %lab_dir, "Lab directory deleted");
-            }
-            Err(e) => {
-                summary.lab_directory_deleted = false;
-                errors.push(DestroyError::new("filesystem", lab_dir, format!("{e:?}")));
-                tracing::error!(lab_id = %lab_id, lab_dir = %lab_dir, error = ?e, "Failed to delete lab directory");
-            }
-        }
-    } else {
-        // Directory doesn't exist - consider it success (idempotent)
-        summary.lab_directory_deleted = true;
-        send_status("Lab directory deleted".to_string(), StatusKind::Done);
-        tracing::debug!(lab_id = %lab_id, lab_dir = %lab_dir, "Lab directory already removed");
     }
 }
 
@@ -818,17 +855,9 @@ pub(crate) async fn destroy_interfaces(
     }
 }
 
-/// Delete a lab's database records in one write: the schema removes its nodes, links and bridges
-/// with it.
-pub(crate) async fn cleanup_database(lab_id: &str, db: &db::Database) -> Result<()> {
-    db::delete_lab(db, lab_id)
-        .await
-        .context("Failed to delete lab")?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
+    use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
 
@@ -1280,5 +1309,76 @@ mod tests {
         assert!(summary.lab_directory_deleted);
         assert!(!Path::new(&key.private).exists());
         assert!(!Path::new(&key.public).exists());
+    }
+
+    #[tokio::test]
+    async fn the_lab_folder_goes_before_the_lab_record() {
+        // M7.1: the record used to go first, and a folder that then could not be removed was
+        // left with no record, which neither destroy nor clean could reach.
+        let root = tempdir().unwrap();
+        let lab_dir = root.path().join("lab");
+        fs::create_dir(&lab_dir).unwrap();
+        fs::write(lab_dir.join(LAB_FILE_NAME), "saved lab info").unwrap();
+        let folder_gone_first = AtomicBool::new(false);
+        let mut summary = DestroySummary::default();
+        let mut errors = Vec::new();
+
+        cleanup_lab_metadata(
+            "lab",
+            lab_dir.to_str().unwrap(),
+            async {
+                folder_gone_first.store(!lab_dir.exists(), Ordering::SeqCst);
+                Ok(())
+            },
+            &mut summary,
+            &mut errors,
+            None,
+        )
+        .await;
+
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(folder_gone_first.load(Ordering::SeqCst));
+        assert!(summary.lab_directory_deleted && summary.database_records_deleted);
+    }
+
+    #[tokio::test]
+    async fn a_lab_folder_that_cannot_be_removed_keeps_the_lab_record() {
+        // M7.1: the owner can destroy the lab again only while its record exists.
+        let root = tempdir().unwrap();
+        let lab_dir = root.path().join("lab");
+        fs::create_dir(&lab_dir).unwrap();
+        fs::write(lab_dir.join(LAB_FILE_NAME), "saved lab info").unwrap();
+        fs::set_permissions(&lab_dir, fs::Permissions::from_mode(0o555)).unwrap();
+        if fs::write(lab_dir.join("probe"), "").is_ok() {
+            // Running as root: permissions do not stop the removal, so there is nothing to test.
+            return;
+        }
+        let database_deleted = AtomicBool::new(false);
+        let mut summary = DestroySummary::default();
+        let mut errors = Vec::new();
+
+        cleanup_lab_metadata(
+            "lab",
+            lab_dir.to_str().unwrap(),
+            async {
+                database_deleted.store(true, Ordering::SeqCst);
+                Ok(())
+            },
+            &mut summary,
+            &mut errors,
+            None,
+        )
+        .await;
+
+        fs::set_permissions(&lab_dir, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(!database_deleted.load(Ordering::SeqCst));
+        assert!(!summary.database_records_deleted);
+        assert_eq!(
+            errors
+                .iter()
+                .map(|e| e.resource_type.as_str())
+                .collect::<Vec<_>>(),
+            ["filesystem"]
+        );
     }
 }

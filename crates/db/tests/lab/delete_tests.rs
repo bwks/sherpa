@@ -1,9 +1,9 @@
 use anyhow::Result;
 use db::{
-    DefaultRequest, LabDetails, create_lab, create_user, delete_lab, get_lab, list_labs,
+    DefaultRequest, LabDetails, create_lab, create_user, delete_lab_from, get_lab, list_labs,
     upsert_node_image,
 };
-use shared::data::{NodeConfig, NodeModel};
+use shared::data::{LabPhase, NodeConfig, NodeModel};
 
 use crate::helper::{create_test_node_with_model, ipv4_lab_networks, setup_db};
 
@@ -28,22 +28,11 @@ async fn test_delete_lab_success() -> Result<()> {
     .await?;
 
     // Delete lab
-    delete_lab(&db, &lab.lab_id).await?;
+    assert!(delete_lab_from(&db, &lab.lab_id, LabPhase::Creating).await?);
 
     // Verify it's gone
     let result = get_lab(&db, "lab-0001").await;
     assert!(result.is_err(), "Lab should not exist after deletion");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_delete_nonexistent_lab_fails() -> Result<()> {
-    let db = setup_db().await?;
-
-    let result = delete_lab(&db, "invalid").await;
-
-    assert!(result.is_err(), "Should error on nonexistent lab");
 
     Ok(())
 }
@@ -84,7 +73,7 @@ async fn test_delete_lab_decreases_count() -> Result<()> {
 
     let count_before = list_labs(&db).await?.len();
 
-    delete_lab(&db, &lab2.lab_id).await?;
+    assert!(delete_lab_from(&db, &lab2.lab_id, LabPhase::Creating).await?);
 
     let count_after = list_labs(&db).await?.len();
 
@@ -132,7 +121,7 @@ async fn test_delete_lab_with_cascade_in_schema() -> Result<()> {
     create_test_node_with_model(&db, "node2", 2, NodeModel::WindowsServer, &lab).await?;
 
     // Delete just the lab (schema CASCADE should handle nodes)
-    delete_lab(&db, &lab.lab_id).await?;
+    assert!(delete_lab_from(&db, &lab.lab_id, LabPhase::Creating).await?);
 
     // Verify lab is gone
     let result = get_lab(&db, "lab-0009").await;

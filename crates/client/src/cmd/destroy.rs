@@ -122,6 +122,9 @@ pub async fn destroy(
 fn show_lab_to_destroy(inspect_data: &InspectResponse) {
     // Display lab details
     println!("{}", render_lab_info_table(&inspect_data.lab_info));
+    if let Err(not_ready) = inspect_data.lab_phase.ensure_ready() {
+        println!("{} Not ready: {not_ready}", Emoji::Warning);
+    }
 
     // Convert DeviceInfo to NodeInfo for table rendering
     let nodes: Vec<NodeInfo> = inspect_data

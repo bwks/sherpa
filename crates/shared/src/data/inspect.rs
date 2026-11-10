@@ -2,7 +2,7 @@ use super::TailnetStatus;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::data::{BridgeKind, LabInfo, LabState, NodeKind, NodeModel, NodeState};
+use crate::data::{BridgeKind, LabInfo, LabPhase, LabState, NodeKind, NodeModel, NodeState};
 
 /// Request type for inspecting a lab
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -17,6 +17,10 @@ pub struct InspectResponse {
     pub tailscale: Option<TailnetStatus>,
     pub lab_info: LabInfo,
     pub lab_state: LabState,
+    /// Which operation owns the lab, if any. Servers before 0.5.27 send none: their labs are
+    /// `ready`.
+    #[serde(default)]
+    pub lab_phase: LabPhase,
     pub devices: Vec<DeviceInfo>,
     pub inactive_devices: Vec<String>,
     pub links: Vec<LinkInfo>,

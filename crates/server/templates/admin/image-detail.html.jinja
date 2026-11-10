@@ -69,14 +69,12 @@
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">OS Variant:</span>
                 <span class="text-sm text-body font-medium">{{ config.os_variant }}</span>
             </div>
-            {% match config.repo %}
-            {% when Some with (repo_value) %}
+            {% if let Some(repo_value) = config.repo %}
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Repository:</span>
                 <span class="text-sm text-body font-medium">{{ repo_value }}</span>
             </div>
-            {% when None %}
-            {% endmatch %}
+            {% endif %}
         </div>
     </div>
 
@@ -127,14 +125,12 @@
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">CD-ROM Bus:</span>
                 <span class="text-sm text-body font-medium">{{ config.cdrom_bus }}</span>
             </div>
-            {% match config.cdrom %}
-            {% when Some with (cdrom_value) %}
+            {% if let Some(cdrom_value) = config.cdrom %}
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">CD-ROM:</span>
                 <span class="text-sm text-body font-medium">{{ cdrom_value }}</span>
             </div>
-            {% when None %}
-            {% endmatch %}
+            {% endif %}
         </div>
     </div>
 
@@ -154,22 +150,18 @@
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Password Auth:</span>
                 <span class="text-sm text-body font-medium">{% if config.ztp.password_auth %}Enabled{% else %}Disabled{% endif %}</span>
             </div>
-            {% match config.ztp.username %}
-            {% when Some with (username_value) %}
+            {% if let Some(username_value) = config.ztp.username %}
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">ZTP Username:</span>
                 <span class="text-sm text-body font-medium">{{ username_value }}</span>
             </div>
-            {% when None %}
-            {% endmatch %}
-            {% match config.ztp.password %}
-            {% when Some with (password_value) %}
+            {% endif %}
+            {% if let Some(password_value) = config.ztp.password %}
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">ZTP Password:</span>
                 <span class="text-sm text-body font-medium">{{ password_value }}</span>
             </div>
-            {% when None %}
-            {% endmatch %}
+            {% endif %}
         </div>
     </div>
 

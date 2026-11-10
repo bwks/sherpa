@@ -1,0 +1,15 @@
+{# Renders `badge`, a `templates::Badge` whose label, tone and size Rust decided. #}
+{% match badge.size %}
+{% when BadgeSize::Small %}
+{% match badge.tone %}
+{% when BadgeTone::Neutral %}<span class="badge-neutral">{{ badge.label }}</span>
+{% when BadgeTone::Warning %}<span class="badge-warning">{{ badge.label }}</span>
+{% when BadgeTone::Danger %}<span class="badge-danger">{{ badge.label }}</span>
+{% endmatch %}
+{% when BadgeSize::Large %}
+{% match badge.tone %}
+{% when BadgeTone::Neutral %}<span class="badge-neutral-lg">{{ badge.label }}</span>
+{% when BadgeTone::Warning %}<span class="badge-warning-lg">{{ badge.label }}</span>
+{% when BadgeTone::Danger %}<span class="badge-danger-lg">{{ badge.label }}</span>
+{% endmatch %}
+{% endmatch %}

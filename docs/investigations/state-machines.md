@@ -61,9 +61,10 @@ Each item below is kept as found, with what closed it:
 - M1.6: the scanner queries the runtimes again under its hold, and writes with a
   compare-and-set. Tests: `a_stale_observation_does_not_overwrite_a_newer_write`,
   `a_state_write_leaves_a_node_another_writer_moved`.
-- M1.7: every node write derives and writes the lab status, and the scanner no longer skips
-  labs with no nodes. Tests: `an_operation_moves_a_node_and_its_lab_status`,
-  `the_status_of_a_lab_with_no_nodes_is_empty`. Storing the status at all is left to #499.
+- M1.7: every node write derived and wrote the lab status, and the scanner stopped skipping labs
+  with no nodes. Since #499 the status is not stored: it is derived from the nodes when read.
+  Tests: `an_operation_moves_a_node_and_its_lab_status`,
+  `a_labs_status_is_derived_from_its_nodes_when_listed`.
 - M1.8: unknown node state text decodes as `Unknown`. Tests:
   `a_node_state_this_build_does_not_know_decodes_as_unknown`,
   `a_node_state_this_build_does_not_know_does_not_fail_the_listing`. A client older than
@@ -137,6 +138,19 @@ Each item below is kept as found, with what closed it:
 
 ### M3. Lab operation leases
 
+**M3.1 resolved by #499 (0.5.27); M3.2 by #498; M3.3 split out to #545.** How the lab phase
+works now is in [`STATE_MACHINES.md` §2](../architecture/STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate).
+
+- M3.1: `up` reserves the lab in phase 1 by inserting its record, `Creating`; a second `up` of
+  the same lab fails there with a `Conflict` and creates nothing, so it has nothing to roll back.
+  The rollback runs only with the `ReservedLab` the inserting `up` holds. The RPC pre-check is
+  gone. Tests: `a_second_up_of_a_lab_is_refused_before_it_creates_anything`,
+  `an_up_whose_lab_is_already_built_cannot_release_it`,
+  `a_lab_being_created_cannot_be_built_or_released_twice`, and the integration tests
+  `two_ups_of_one_lab_leave_the_first_alone` and `test_lab_up_rejects_duplicate_lab_id`.
+- M3.2: `down` takes the lease, and the scanner observes only a lab no operation holds (#498).
+- M3.3: the `LAB_LEASES` leak is tracked in #545.
+
 1. **Two `up`s with the same lab ID: the second one's rollback deletes the first one's lab.**
    - The lab ID is a hash of the username and the lab name
      (`crates/shared/src/util/random.rs:21-34`). Running `sherpa up` twice for the same
@@ -194,6 +208,36 @@ below is kept as found, with what closed it:
 
 ### M6. `up` phases and rollback
 
+**Resolved by #499 (0.5.27), except M6.4, closed by #498, and M6.5, closed by #518 (0.5.18).** How `up` works now is in
+[`STATE_MACHINES.md` §6](../architecture/STATE_MACHINES.md#6-up-phases-and-rollback). Each item
+below is kept as found, with what closed it:
+
+- M6.1: a container that exited and a lab service that did not come up (Talos, Vault,
+  Keycloak) are critical, so `success` is false and `sherpa up` fails with "only partly created".
+  A readiness timeout and Tailscale warnings stay warnings. Tests:
+  `an_up_with_a_node_that_will_not_recover_did_not_succeed`,
+  `a_lab_service_that_did_not_come_up_fails_the_up`, and the integration test
+  `a_container_that_exits_at_once_fails_its_node_not_the_lab`.
+- M6.2: the rollback runs `tear_down_lab`, which moves the lab through `Destroying` and leaves
+  it `DestroyFailed` when anything is left. The UI and `sherpa inspect` show the phase and the
+  owner destroys the lab again. Tests: `a_destroyed_lab_loses_its_record_and_a_failed_one_keeps_it`,
+  `a_half_destroyed_lab_is_not_ready`.
+- M6.3: at startup `lab_lifecycle::recover` marks a lab left `Creating` `Interrupted`, one left
+  `Destroying` `DestroyFailed`, and every node left `Building` `Failed`, before the server takes
+  requests. Nothing is removed automatically. `inspect` describes a lab with no lab file from its
+  record, so `sherpa destroy` reaches it. Tests: `recovery_leaves_no_lab_or_node_without_an_owner`,
+  `a_lab_left_mid_operation_by_a_restart_is_marked_not_left`,
+  `a_lab_without_files_is_described_from_its_record`.
+- M6.4: closed by #498: readiness records each node and reports the state it recorded. The
+  integration test `a_container_that_exits_at_once_fails_its_node_not_the_lab` checks the row
+  and the response agree.
+- M6.5: closed by #518 (0.5.18). `up` checks the pins in `admission::admit_lab_nodes`
+  (`up/plan.rs`), under the server-wide FIFO admission queue, against the stored nodes and the
+  pending pins of every admitted operation, which stay in the ledger until that operation drops
+  its `Admission`. Tests: `pins_of_other_nodes_include_stored_and_pending_ones`
+  (`node_resources.rs`), `the_queue_admits_one_request_at_a_time_in_arrival_order`, and, against
+  libvirt, `a_pending_node_holds_its_cpu_pins_until_released` (`admission.rs`, added by #499).
+
 1. **`success: true` for a lab that is only partly up.**
    - Every `UpError` is constructed with `is_critical: false`:
      - `up/lab.rs:455`;
@@ -230,6 +274,22 @@ below is kept as found, with what closed it:
      different leases, so nothing serializes them. The timing is *(inferred)*.
 
 ### M7. Destroy and clean
+
+**Resolved by #499 (0.5.27).** How destroy and clean work now is in
+[`STATE_MACHINES.md` §7](../architecture/STATE_MACHINES.md#7-destroy-and-clean).
+
+- M7.1: the lab folder is removed before the record, so a folder that cannot be removed keeps
+  the record, `DestroyFailed`, and the owner destroys the lab again. `clean` succeeds on a lab
+  with no record and removes its folder. Tests: `the_lab_folder_goes_before_the_lab_record`,
+  `a_lab_folder_that_cannot_be_removed_keeps_the_lab_record`,
+  `a_lab_is_removed_only_from_the_phase_it_was_read_in`, and the integration test
+  `admin_clean_removes_a_lab_folder_with_no_record`.
+- M7.2: `destroy_lab` reads the lab again under the lease and reports a lab another destroy
+  removed as destroyed. Integration test: `two_destroys_of_one_lab_both_succeed`.
+- M7.3: a half-destroyed lab is `DestroyFailed`; the web UI shows that and offers only Destroy,
+  and `down`, `resume` and redeploy refuse it. Tests: `operations_on_nodes_need_a_ready_lab`,
+  `a_lab_that_is_not_ready_shows_its_phase_and_offers_no_start_or_stop`,
+  `the_admin_list_shows_a_stranded_labs_phase_and_offers_no_start_or_stop`.
 
 1. **A lab directory with no row cannot be removed through the API.**
    - Sequence:
@@ -580,7 +640,8 @@ direction for the fix, not a design.
      - `Failed` cannot be seen (M1.2);
      - `Running` means four different things (M1.3);
      - one mapping table instead of three removes M4.1.
-2. **Lab lifecycle across `up`, destroy and clean (M6, M7, M3.1).**
+2. **Lab lifecycle across `up`, destroy and clean (M6, M7, M3.1).** *Done in #499: see M3, M6
+   and M7.*
    - **Form:** a stored lab phase, separate from the derived status:
      `Creating → Ready → Destroying → DestroyFailed`. `up` moves it out of `Creating`, and
      destroy and clean move it through `Destroying`.

@@ -116,7 +116,8 @@ flowchart TB
     subgraph appstate["AppState::new(config, metrics)"]
         jwt["load JWT secret, or generate it if missing<br/>(a new one written 0600 in a 0700 directory;<br/>a file of the wrong length stops startup)"] --> database["open the database file"] --> schema["apply DB schema"] --> seed["optionally seed admin user"] --> storage["restrict lab and database storage<br/>and the server SSH key<br/>(daemon::storage::secure_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
     end
-    registry --> cancel["create CancellationToken for background services"]
+    registry --> recover["services::lab_lifecycle::recover:<br/>labs left Creating become Interrupted,<br/>left Destroying become DestroyFailed,<br/>nodes left Building become Failed"]
+    recover --> cancel["create CancellationToken for background services"]
     cancel --> scanner["if scanner enabled:<br/>spawn services::scanner::run_scanner(...)"]
     scanner --> sweeper["spawn auth::session::run_sweeper<br/>(deletes expired sessions at startup, then hourly)"]
     sweeper --> router
@@ -133,7 +134,7 @@ flowchart TB
     plain6 --> serveplain["serve with graceful shutdown future"]
 ```
 
-In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), `apply_env_overrides`, builds `AppState`, the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
+In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
 
 `auth::jwt::load_or_generate_secret` generates the JWT secret only when the file is missing. A file that exists with a length other than 32 bytes stops startup with an error naming the file: replacing it would silently end every session. Deleting the file generates a new secret, which logs every user out.
 
@@ -502,7 +503,8 @@ The services are not symmetrical. Some are short CRUD-style orchestrators, and s
 | | `clean.rs` | admin force-clean path |
 | Network mutation services | `impairment.rs` | update delay/jitter/loss/reorder/corrupt settings on P2P links |
 | Background service | `scanner.rs` | observe Docker/libvirt runtime state into the node lifecycle, for labs no operation holds |
-| Node lifecycle | `node_lifecycle.rs` | the only writer of node states: `record` for operations, `observe` for the scanner, the runtime mapping table, lab status refresh |
+| Node lifecycle | `node_lifecycle.rs` | the only writer of node states: `record` for operations, `observe` for the scanner, the runtime mapping table |
+| Lab lifecycle | `lab_lifecycle.rs` | the only writer of lab phases (`record`, under the lab's lease), `require_ready` for operations on nodes, and startup `recover` |
 | Shared helpers | `node_ops.rs` | common node setup/building helpers |
 | | `progress.rs` | progress message abstraction |
 
@@ -645,7 +647,10 @@ can be retried once libvirt is back.
 flowchart TB
     destroylab["destroy_lab(&AuthContext, lab_id, &AppState, ProgressSender)"] --> access["require_lab_access: load lab, check owner or admin"]
     access --> stopops["lab_operations::stop: cancel up/redeploy/resume on this lab and wait for them to end"]
-    stopops --> listcontainers
+    stopops --> reread{"lab still recorded?"}
+    reread -->|no: another destroy removed it| already["Return success: already destroyed"]
+    reread -->|yes| started["lab_lifecycle::record DestroyStarted: the lab is Destroying"]
+    started --> listcontainers
     subgraph containers["destroy_containers"]
         listcontainers["container::list_containers"] --> kill["kill matching lab containers if running"] --> removecontainers["remove matching lab containers"]
     end
@@ -666,12 +671,13 @@ flowchart TB
     subgraph interfaces["destroy_interfaces"]
         findifaces["network::list_interface_names"] --> deleteifaces["delete the lab's Sherpa-created bridge/veth/tap interfaces"]
     end
-    deleteifaces --> deletelab
-    subgraph database["cleanup_database"]
-        deletelab["db::delete_lab: the schema deletes its nodes, links and bridges"]
-    end
-    deletelab --> removedir["remove lab directory"]
-    removedir --> response["Return DestroyResponse { success, summary, errors }"]
+    deleteifaces --> anyerror{"any resource error?"}
+    anyerror -->|no| removedir["remove lab directory"]
+    removedir -->|removed| deletelab["lab_lifecycle::record Destroyed:<br/>db::delete_lab_from, the schema deletes its nodes, links and bridges"]
+    removedir -->|failed| failed
+    anyerror -->|yes| failed["lab_lifecycle::record DestroyFailed:<br/>record and folder kept for a retry"]
+    deletelab --> response["Return DestroyResponse { success, summary, errors }"]
+    failed --> response
 ```
 
 Destruction uses name-based matching for many runtime resources because the runtime backends are external systems and the database may not be fully reliable after partial failures. This is why consistent naming with `lab_id` embedded in resource names is part of the architecture.
@@ -689,8 +695,14 @@ data networks with `container_networks::is_node_network` (`<node>-brs<n>-<lab_id
 The lab name comes from the lab's database record, so destroy also works when `up` was stopped
 before it wrote the lab info file.
 
-When any resource fails to go, `cleanup_lab_metadata` keeps the lab's database record and
-folder, so its owner can destroy it again; both are removed only once everything else is gone.
+`destroy::tear_down_lab` runs these steps for destroy, admin clean and the rollback of a failed
+`up`, under the lab's lease, and moves the lab's phase through `Destroying` (see
+[`STATE_MACHINES.md`](STATE_MACHINES.md#7-destroy-and-clean)). When any resource fails to go,
+`cleanup_lab_metadata` keeps the lab's database record and folder, and the lab is left
+`DestroyFailed`, so its owner can destroy it again. Otherwise the folder goes first and the record
+last, so a folder that cannot be removed still has a record to destroy it through. A destroy that
+waited behind another and finds the lab gone reports success. Admin clean also works on a lab with
+no record: it removes the resources and the folder named for the lab ID.
 
 The five teardown steps are `destroy::destroy_lab_resources` (`destroy_compute`: containers,
 secret files, VMs and disks; then `destroy_networking`: Docker networks, libvirt networks,
@@ -942,7 +954,6 @@ flowchart TB
                 hold{"lab_operations::try_observe:<br/>does an operation hold the lab?"}
                 fresh["under the hold: query_runtimes again,<br/>read the nodes again"]
                 observe["node_lifecycle::observe each node:<br/>runtime + probe result, compare-and-set"]
-                labstatus["refresh_lab_status"]
                 refresh["refresh_lab_ssh_files when a key was recorded"]
             end
         end
@@ -953,7 +964,7 @@ flowchart TB
     snapshot --> listlabs --> listnodes --> wantsprobe
     wantsprobe -->|yes| probe --> hold
     wantsprobe -->|no| hold
-    hold -->|no| fresh --> observe --> labstatus --> refresh
+    hold -->|no| fresh --> observe --> refresh
     hold -->|yes: skip this cycle| refresh
     refresh -->|next lab, next cycle| wait
     scancycle -.->|"scan failure: log, do not kill server"| wait

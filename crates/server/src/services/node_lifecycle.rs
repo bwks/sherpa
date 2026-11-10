@@ -11,14 +11,12 @@
 //!
 //! Each write is a compare-and-set on the state the node was read in. When another writer moved
 //! the node in between, the event is evaluated again against the new state, so it is never
-//! applied to a state it was not meant for. After a node moves, its lab's status is derived
-//! again and written, so the lab status follows every write, scanner or not.
+//! applied to a state it was not meant for. A lab's status is derived from its nodes when it is
+//! read, so it follows every write, scanner or not.
 
 use anyhow::{Context, Result, bail};
 use bollard::secret::ContainerStateStatusEnum;
-use shared::data::{
-    DbNode, Halt, LabState, NodeState, Observation, OperationEvent, RecordId, Runtime,
-};
+use shared::data::{DbNode, Halt, NodeState, Observation, OperationEvent, RecordId, Runtime};
 use tracing::instrument;
 use virt::sys::{
     VIR_DOMAIN_BLOCKED, VIR_DOMAIN_CRASHED, VIR_DOMAIN_NOSTATE, VIR_DOMAIN_PAUSED,
@@ -110,45 +108,14 @@ pub async fn observe(
     Ok(write(db, node, to).await?.map(|moved| moved.state))
 }
 
-/// Derive a lab's status from its nodes and write it when it changed from `current`.
-///
-/// # Errors
-/// When the database fails.
-#[instrument(skip(db), level = "debug")]
-pub async fn refresh_lab_status(
-    db: &db::Database,
-    lab: &RecordId,
-    current: Option<LabState>,
-) -> Result<LabState> {
-    let states: Vec<NodeState> = db::list_nodes_by_lab(db, lab.clone())
-        .await
-        .context("Failed to list the lab's nodes")?
-        .iter()
-        .map(|node| node.state)
-        .collect();
-    let derived = LabState::derive(&states);
-    if current != Some(derived) {
-        db::update_lab_state(db, lab.clone(), derived)
-            .await
-            .context("Failed to update the lab status")?;
-    }
-    Ok(derived)
-}
-
-/// Write state `to` for `node` if it is still in the state it was read in, then its lab's
-/// status. `None` when another writer moved it first.
+/// Write state `to` for `node` if it is still in the state it was read in. `None` when another
+/// writer moved it first.
 async fn write(db: &db::Database, node: &DbNode, to: NodeState) -> Result<Option<DbNode>> {
     if to == node.state {
         return Ok(Some(node.clone()));
     }
     let node_id = node.id.clone().context("Node missing record ID")?;
-    let moved = db::update_node_state_from(db, node_id, node.state, to).await?;
-    if moved.is_some()
-        && let Err(error) = refresh_lab_status(db, &node.lab, None).await
-    {
-        tracing::warn!(node = %node.name, error = ?error, "Failed to update the lab status");
-    }
-    Ok(moved)
+    db::update_node_state_from(db, node_id, node.state, to).await
 }
 
 #[cfg(test)]
@@ -159,7 +126,7 @@ pub(crate) mod tests {
         DefaultRequest, LabDetails, LabNetworks, create_lab, create_node, create_user,
         upsert_node_image,
     };
-    use shared::data::{NodeConfig, NodeModel, Probe, Refused};
+    use shared::data::{LabState, NodeConfig, NodeModel, Probe, Refused};
 
     #[test]
     fn every_libvirt_state_has_one_meaning() {
@@ -282,8 +249,16 @@ pub(crate) mod tests {
         (db, lab.id.unwrap(), nodes)
     }
 
+    /// The lab's status, derived from its nodes as every reader derives it.
     async fn lab_status(db: &db::Database, lab_id: &str) -> LabState {
-        db::get_lab(db, lab_id).await.unwrap().status
+        let lab = db::get_lab(db, lab_id).await.unwrap();
+        let states: Vec<NodeState> = db::list_nodes_by_lab(db, lab.id.unwrap())
+            .await
+            .unwrap()
+            .iter()
+            .map(|node| node.state)
+            .collect();
+        LabState::derive(&states)
     }
 
     #[tokio::test]
@@ -370,8 +345,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn a_lab_is_starting_while_up_builds_it() {
         // M1.1: nothing the scanner sees moves a node `up` is building.
-        let (db, lab, nodes) = lab_of("lc-obs02", 2).await;
-        refresh_lab_status(&db, &lab, None).await.unwrap();
+        let (db, _, nodes) = lab_of("lc-obs02", 2).await;
         let observed = try_observe("lc-obs02").unwrap();
         let gone = Observation {
             runtime: Runtime::Absent,
@@ -414,18 +388,5 @@ pub(crate) mod tests {
             );
         }
         assert_eq!(lab_status(&db, "lc-obs03").await, LabState::Failed);
-    }
-
-    #[tokio::test]
-    async fn the_status_of_a_lab_with_no_nodes_is_empty() {
-        // M1.7: `Empty` used to be derivable but never stored.
-        let (db, lab, _) = lab_of("lc-empty", 0).await;
-        assert_eq!(
-            refresh_lab_status(&db, &lab, Some(LabState::Unknown))
-                .await
-                .unwrap(),
-            LabState::Empty
-        );
-        assert_eq!(lab_status(&db, "lc-empty").await, LabState::Empty);
     }
 }

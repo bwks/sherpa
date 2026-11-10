@@ -66,6 +66,32 @@ pub struct ObservedLab {
     _lease: OwnedRwLockWriteGuard<()>,
 }
 
+/// Proof that the caller holds a lab's operation lease: an operation's shared lease, or the
+/// exclusive one a destroy holds. A lab's phase is only written under one, and only for the lab
+/// it is on. Sealed: only the lease types of this module implement it.
+pub trait LabHold: sealed::Sealed {
+    /// The lab the lease is on.
+    fn lab_id(&self) -> &str;
+}
+
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for super::LabOperation {}
+    impl Sealed for super::StoppedLab {}
+}
+
+impl LabHold for LabOperation {
+    fn lab_id(&self) -> &str {
+        &self.lab_id
+    }
+}
+
+impl LabHold for StoppedLab {
+    fn lab_id(&self) -> &str {
+        &self.lab_id
+    }
+}
+
 impl Cancellation {
     fn cancel(&self, reason: StopReason) {
         // The first reason wins: a destroy that follows a requested stop finds it set.

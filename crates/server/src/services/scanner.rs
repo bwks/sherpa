@@ -91,8 +91,8 @@ async fn scan_cycle(state: &AppState) -> Result<()> {
 }
 
 /// Scan one lab. First, outside any hold, probe the nodes `snapshot` shows running that need
-/// it. Then, holding the lab, query the runtimes again and record what is seen, and the lab's
-/// status. A lab an operation holds is skipped this cycle.
+/// it. Then, holding the lab, query the runtimes again and record what is seen. A lab an
+/// operation holds is skipped this cycle.
 #[instrument(skip_all, fields(lab_id = %lab.lab_id), level = "debug")]
 async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<()> {
     let lab_record_id = lab.id.as_ref().context("Lab missing record ID")?;
@@ -136,8 +136,6 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
                 tracing::warn!(node = %node.node.name, error = %error, "Failed to update node state");
             }
         }
-        let current = db::get_lab(&state.db, &lab.lab_id).await?.status;
-        node_lifecycle::refresh_lab_status(&state.db, lab_record_id, Some(current)).await?;
     } else {
         tracing::debug!("An operation holds the lab; leaving it for the next cycle");
     }

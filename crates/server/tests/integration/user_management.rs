@@ -1,6 +1,7 @@
 use anyhow::{Result, ensure};
 use reqwest::{Client, Method, Response, StatusCode, header};
 use serde_json::json;
+use shared::data::LabPhase;
 use shared::error::RpcErrorCode;
 use shared::util::ssh_key_fingerprint;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
@@ -880,7 +881,7 @@ async fn deleting_a_user_who_owns_labs_is_refused_on_all_transports() -> Result<
     );
 
     // Once the lab is gone, the delete succeeds.
-    db::delete_lab(&server.db, "c0ffee01").await?;
+    db::delete_lab_from(&server.db, "c0ffee01", LabPhase::Creating).await?;
     let response = ws
         .rpc_call(
             "user.delete",
