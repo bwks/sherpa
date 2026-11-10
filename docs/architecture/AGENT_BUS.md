@@ -983,7 +983,10 @@ outcome, the engine (`Engine::generation` in `src/guest/run.rs`):
    git checkout (`pull_request::checkouts`), lists the open pull requests whose head is the
    branch, `gh pr list --state open --head=<branch> --json number,url,body,isCrossRepository`,
    leaves out those from forks, rewrites each body (`generation::update_body`) and, when it
-   changed, sets it with `gh pr edit <n> --body-file -`, the body on stdin.
+   changed, sets it with `gh pr edit <n> --body-file -`, the body on stdin. The body is written
+   while `gh` runs. A `gh` that is refused can exit before reading it, and the write then fails
+   with a broken pipe; the failure reported is `gh`'s own stderr, and the write error only when
+   `gh` succeeded or failed with nothing on stderr.
 
 A task without `--github` is only recorded: the write token is for `--github` tasks alone, so its
 work shows up at the next `--github` run on the same branch. The docs pull request is found only
