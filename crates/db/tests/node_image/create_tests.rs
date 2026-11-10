@@ -1,6 +1,6 @@
 /// CREATE operation tests for `node_image`
 use anyhow::Result;
-use db::{list_node_images, upsert_node_image};
+use db::{DefaultRequest, list_node_images, upsert_node_image};
 use shared::data::NodeModel;
 
 use crate::{create_test_config, setup_db};
@@ -11,7 +11,7 @@ async fn test_create_and_list_node_images() -> Result<()> {
 
     // Create a test config
     let test_config = create_test_config(NodeModel::AristaVeos);
-    let created = upsert_node_image(&db, test_config.clone()).await?;
+    let created = upsert_node_image(&db, test_config.clone(), DefaultRequest::Keep).await?;
 
     assert_eq!(created.model, NodeModel::AristaVeos);
     assert!(created.id.is_some(), "Created config should have an ID");
@@ -38,13 +38,13 @@ async fn test_upsert_node_image() -> Result<()> {
 
     // First upsert - should create
     let test_config = create_test_config(NodeModel::NokiaSrlinux);
-    let first_upsert = upsert_node_image(&db, test_config.clone()).await?;
+    let first_upsert = upsert_node_image(&db, test_config.clone(), DefaultRequest::Keep).await?;
 
     assert_eq!(first_upsert.model, NodeModel::NokiaSrlinux);
     let first_id = first_upsert.id.clone();
 
     // Second upsert - should return existing
-    let second_upsert = upsert_node_image(&db, test_config).await?;
+    let second_upsert = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
 
     assert_eq!(second_upsert.model, NodeModel::NokiaSrlinux);
     assert_eq!(

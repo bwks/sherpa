@@ -80,6 +80,10 @@ pub struct ImportResponse {
     pub image_path: String,
     /// Whether the image was tracked in the database
     pub db_tracked: bool,
+    /// Whether the version is its model's default after the import. A model's first version
+    /// becomes its default, and the default stays the default unless another is asked for.
+    #[serde(default)]
+    pub default: bool,
 }
 
 /// Request type for scanning on-disk images
@@ -138,6 +142,10 @@ pub struct DeleteImageResponse {
     pub disk_deleted: bool,
     /// Whether the database record was deleted
     pub db_deleted: bool,
+    /// The version that became the model's default because the deleted one was the default.
+    /// `None` when the deleted version was not the default, or was the model's last.
+    #[serde(default)]
+    pub new_default: Option<String>,
 }
 
 /// Request type for setting the default version of an image

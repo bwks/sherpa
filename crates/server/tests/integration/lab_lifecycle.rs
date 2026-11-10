@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail, ensure};
 use bollard::Docker;
 use bollard::query_parameters::{InspectContainerOptions, ListNetworksOptions};
+use db::DefaultRequest;
 use jato::{Auth, ConnectOptions, Exit, Hop, HostKeyPolicy, Node, Session};
 use reqwest::{Client, StatusCode};
 use serde_json::json;
@@ -262,7 +263,7 @@ async fn a_container_that_exits_at_once_fails_its_node_not_the_lab() -> Result<(
     alpine.repo = Some("alpine".to_owned());
     alpine.version = "latest".to_owned();
     alpine.default = true;
-    db::upsert_node_image(&server.db, alpine).await?;
+    db::upsert_node_image(&server.db, alpine, DefaultRequest::Keep).await?;
 
     let lab_name = format!("tx{:06}", std::process::id() % 1_000_000);
     let manifest = json!({
@@ -326,7 +327,7 @@ async fn admin_clean_removes_a_running_lab() -> Result<()> {
     alpine.repo = Some("alpine".to_owned());
     alpine.version = "latest".to_owned();
     alpine.default = true;
-    db::upsert_node_image(&server.db, alpine).await?;
+    db::upsert_node_image(&server.db, alpine, DefaultRequest::Keep).await?;
 
     let lab_name = format!("tk{:06}", std::process::id() % 1_000_000);
     let manifest = json!({
@@ -398,7 +399,7 @@ async fn a_redeploy_that_fails_after_teardown_fails_its_node() -> Result<()> {
     alpine.repo = Some("alpine".to_owned());
     alpine.version = "latest".to_owned();
     alpine.default = true;
-    db::upsert_node_image(&server.db, alpine).await?;
+    db::upsert_node_image(&server.db, alpine, DefaultRequest::Keep).await?;
 
     let lab_name = format!("tf{:06}", std::process::id() % 1_000_000);
     let manifest = json!({
@@ -455,7 +456,7 @@ async fn the_scanner_records_what_docker_reports_but_not_over_up() -> Result<()>
     alpine.repo = Some("alpine".to_owned());
     alpine.version = "latest".to_owned();
     alpine.default = true;
-    db::upsert_node_image(&server.db, alpine).await?;
+    db::upsert_node_image(&server.db, alpine, DefaultRequest::Keep).await?;
 
     let lab_name = format!("sc{:06}", std::process::id() % 1_000_000);
     let manifest = json!({

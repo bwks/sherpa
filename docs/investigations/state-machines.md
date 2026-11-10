@@ -484,6 +484,10 @@ item below is kept as found, with what closed it:
 
 ### M28. Node images
 
+**Fixed (#503).** Items 1 to 3 and the four defects below are fixed. How images work now is in
+[`docs/architecture/STATE_MACHINES.md`, section 28](../architecture/STATE_MACHINES.md#28-node-images).
+The `file:line` references below are to the code before the fix.
+
 1. **A tracked image with no file, or a truncated one.**
    - `import_disk_image` upserts the row (`crates/server/src/services/import.rs:164`) before
      copying (`:187-201`). A failed copy leaves the row.
@@ -505,6 +509,13 @@ item below is kept as found, with what closed it:
 3. **A scan can re-add an image while it is being deleted.**
    - Delete removes the row, then the files. `scan_images` takes no lock.
    - A scan between the two steps re-imports the files *(inferred, timing)*.
+4. **Found while fixing it.**
+   - Download and container pull reported success with `db_tracked = false` when the row could
+     not be written (`import.rs:879-897`, `container_pull.rs:51-67`).
+   - An import of an existing version replaced every column, so it undid an admin's edits.
+   - The admin form saved `version` from the request (`images_web.rs:207`), so a crafted POST
+     could rename a row away from its files. The form also took no image lock.
+   - Container pull took no image lock.
 
 ### M29 and M30. ZTP settings and `ztp_config`
 

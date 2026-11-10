@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
+use db::{Database, DefaultRequest};
 use futures_util::{Stream, StreamExt};
 use opentelemetry::KeyValue;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tokio::io::AsyncWriteExt;
 
@@ -11,12 +14,13 @@ use shared::data::{
     ShowImageResponse, StatusKind,
 };
 use shared::konst::{SHERPA_IMAGES_PATH, TALOS_IMAGE_FACTORY_URL, TALOS_VANILLA_SCHEMATIC_YAML};
-use shared::util::{copy_file, create_dir, file_exists, image_filename};
+use shared::util::{file_exists, image_filename};
 
 use tracing::instrument;
 
 use crate::daemon::state::AppState;
 use crate::services::image_lifecycle::lock_image;
+use crate::services::image_store::{ExistingDisk, ImagePaths, PlacedDisk, StagedDisk};
 use crate::services::progress::ProgressSender;
 use crate::validate::validate_image_version;
 
@@ -50,23 +54,29 @@ pub async fn import_image(
         anyhow::bail!("Source file does not exist: {}", request.src);
     }
 
-    // If this is the first image for this model+kind, mark it as default
-    let existing_versions = db::get_node_image_versions(&state.db, &request.model, &kind).await?;
-    let make_default = if existing_versions.is_empty() {
-        true
+    let request_default = if request.default {
+        DefaultRequest::Make
     } else {
-        request.default
+        DefaultRequest::Keep
     };
-
     let mut db_config = config;
     db_config.version.clone_from(&request.version);
-    db_config.default = make_default;
     db_config.id = None;
 
     let result = match kind {
-        NodeKind::Container => import_container_image(&request, db_config, state, &progress).await,
+        NodeKind::Container => {
+            import_container_image(&request, db_config, request_default, state, &progress).await
+        }
         NodeKind::VirtualMachine | NodeKind::Unikernel => {
-            import_disk_image(&request, db_config, state, &progress).await
+            import_disk_image(
+                &request,
+                db_config,
+                request_default,
+                &state.db,
+                &ImagePaths::installed(),
+                &progress,
+            )
+            .await
         }
     };
 
@@ -87,6 +97,7 @@ pub async fn import_image(
 async fn import_container_image(
     request: &ImportRequest,
     db_config: NodeConfig,
+    request_default: DefaultRequest,
     state: &AppState,
     progress: &ProgressSender,
 ) -> Result<ImportResponse> {
@@ -122,7 +133,7 @@ async fn import_container_image(
     let _ = progress.send_status("Updating database...".to_string(), StatusKind::Progress);
 
     let kind = db_config.kind.clone();
-    db::upsert_node_image(&state.db, db_config)
+    let recorded = db::upsert_node_image(&state.db, db_config, request_default)
         .await
         .context(format!(
             "Failed to register container model '{}' in database",
@@ -144,70 +155,129 @@ async fn import_container_image(
         version: request.version.clone(),
         image_path: format!("loaded from {}", request.src),
         db_tracked: true,
+        default: recorded.default,
     })
 }
 
-/// Record `db_config` and copy a VM or unikernel disk image into the images directory, unless
-/// the version already has one.
+/// Place a VM or unikernel disk image in the images directory, then record `db_config`.
+///
+/// The image is copied to a staging file and renamed into place before the row is written, so a
+/// row never names a missing or partial file (see [`image_store`](crate::services::image_store)).
+/// A file already at the destination is kept when it has the source's size, replaced when it does
+/// not, and left alone with an error when lab overlays are built on it.
 #[instrument(skip_all, fields(model = %request.model, version = %request.version), level = "debug")]
 async fn import_disk_image(
     request: &ImportRequest,
     db_config: NodeConfig,
-    state: &AppState,
+    request_default: DefaultRequest,
+    database: &Database,
+    paths: &ImagePaths,
     progress: &ProgressSender,
 ) -> Result<ImportResponse> {
-    let _ = progress.send_status("Updating database...".to_string(), StatusKind::Progress);
-
     let kind = db_config.kind.clone();
     let filename = image_filename(&kind, db_config.boot_mode.as_ref());
+    let version_dir = paths.version_dir(request.model, &request.version);
+    let version_disk = version_dir.join(filename);
 
-    db::upsert_node_image(&state.db, db_config)
+    let source_len = tokio::fs::metadata(&request.src)
         .await
-        .context(format!(
-            "Failed to register node model '{}' in database. Ensure the server is up to date.",
-            request.model
-        ))?;
+        .with_context(|| format!("Failed to read source file {}", request.src))?
+        .len();
+    let existing_len = match tokio::fs::metadata(&version_disk).await {
+        Ok(metadata) => Some(metadata.len()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("Failed to read {}", version_disk.display()));
+        }
+    };
 
+    let placed = match ExistingDisk::compare(source_len, existing_len) {
+        ExistingDisk::Same => {
+            let _ = progress.send_status(
+                "Image already exists on disk with the same size, skipping copy".to_string(),
+                StatusKind::Info,
+            );
+            None
+        }
+        existing => {
+            if existing == ExistingDisk::Different {
+                libvirt::ensure_no_overlay_dependencies(&paths.storage_pool, &version_dir)
+                .with_context(|| {
+                    format!(
+                        "{} differs from the source and lab disks are built on it; destroy those \
+                         labs or import the image as a new version",
+                        version_disk.display()
+                    )
+                })?;
+                let _ = progress.send_status(
+                    "Image on disk differs from the source, replacing it".to_string(),
+                    StatusKind::Info,
+                );
+            }
+            Some(copy_disk_into_place(request, &version_dir, &version_disk, progress).await?)
+        }
+    };
+
+    let _ = progress.send_status("Updating database...".to_string(), StatusKind::Progress);
+    let recorded = match db::upsert_node_image(database, db_config, request_default).await {
+        Ok(recorded) => recorded,
+        Err(error) => {
+            if let Some(placed) = placed {
+                placed.discard();
+            }
+            return Err(error.context(format!(
+                "Failed to register node model '{}' in database. Ensure the server is up to date.",
+                request.model
+            )));
+        }
+    };
     tracing::info!(
-        "Upserted node_image for model={} version={}",
-        request.model,
-        request.version
+        model = %request.model,
+        version = %request.version,
+        default = recorded.default,
+        "Recorded the imported image"
     );
-
     let _ = progress.send_status("Image tracked in database".to_string(), StatusKind::Done);
-
-    // Copy image file
-    let images_dir = SHERPA_IMAGES_PATH.to_owned();
-    let model_dir = format!("{images_dir}/{}", request.model);
-    let version_dir = format!("{model_dir}/{}", request.version);
-    let version_disk = format!("{version_dir}/{filename}");
-
-    create_dir(&version_dir).context("Failed to create version directory")?;
-
-    if file_exists(&version_disk) {
-        let _ = progress.send_status(
-            "Image already exists on disk, skipping copy".to_string(),
-            StatusKind::Info,
-        );
-        tracing::info!("Image already exists at {}, skipping copy", version_disk);
-    } else {
-        let _ = progress.send_status(
-            format!("Copying image to {version_disk}..."),
-            StatusKind::Progress,
-        );
-        tracing::info!("Copying image from {} to {}", request.src, version_disk);
-        copy_file(&request.src, &version_disk).context("Failed to copy image file")?;
-        let _ = progress.send_status("Image copy complete".to_string(), StatusKind::Done);
-    }
 
     Ok(ImportResponse {
         success: true,
         model: request.model,
         kind,
         version: request.version.clone(),
-        image_path: version_disk,
+        image_path: version_disk.to_string_lossy().into_owned(),
         db_tracked: true,
+        default: recorded.default,
     })
+}
+
+/// Copy the import's source to a staging file in `version_dir` and rename it onto `version_disk`.
+async fn copy_disk_into_place(
+    request: &ImportRequest,
+    version_dir: &Path,
+    version_disk: &Path,
+    progress: &ProgressSender,
+) -> Result<PlacedDisk> {
+    tokio::fs::create_dir_all(version_dir)
+        .await
+        .with_context(|| format!("Failed to create {}", version_dir.display()))?;
+    let _ = progress.send_status(
+        format!("Copying image to {}...", version_disk.display()),
+        StatusKind::Progress,
+    );
+    tracing::info!(src = %request.src, dest = %version_disk.display(), "Copying image");
+    let staged = StagedDisk::new(version_disk);
+    let source = PathBuf::from(&request.src);
+    // The blocking task owns the stage, so a cancelled request still removes the partial file
+    // once the copy stops.
+    let placed = tokio::task::spawn_blocking(move || {
+        staged.copy_from(&source)?;
+        staged.place()
+    })
+    .await
+    .context("The image copy task failed")??;
+    let _ = progress.send_status("Image copy complete".to_string(), StatusKind::Done);
+    Ok(placed)
 }
 
 /// List images from the database with optional filtering by model and/or kind
@@ -305,32 +375,30 @@ struct ScanTally {
     total_imported: usize,
 }
 
-/// One model during a scan: its config, and whether the next version imported for it becomes
-/// its default (true while the model has no records and nothing has been imported for it yet).
+/// One model during a scan: its config, and whether it has a default image yet.
 struct ModelScan {
     model: NodeModel,
     kind: NodeKind,
     config: NodeConfig,
-    set_default: bool,
+    /// Whether the model has a default, or a version this scan imported or would import became it.
+    has_default: bool,
     /// What the import log calls the record.
     label: &'static str,
 }
 
 impl ModelScan {
-    /// Start scanning `model`, from the versions already recorded for it.
-    async fn new(state: &AppState, model: NodeModel, label: &'static str) -> Result<Self> {
+    /// Start scanning `model`, from its current default.
+    async fn new(database: &Database, model: NodeModel, label: &'static str) -> Result<Self> {
         let config = NodeConfig::get_model(model);
         let kind = config.kind.clone();
-        // Check if any existing records exist for this model.
-        // If none exist, the first imported version should become the default.
-        let existing_versions = db::get_node_image_versions(&state.db, &model, &kind)
+        let default = db::find_default_node_image(database, &model, &kind)
             .await
-            .context("Failed to query existing node_image versions")?;
+            .context("Failed to query the model's default image")?;
         Ok(Self {
             model,
             kind,
             config,
-            set_default: existing_versions.is_empty(),
+            has_default: default.is_some(),
             label,
         })
     }
@@ -396,7 +464,7 @@ async fn scan_disk_images(
             continue;
         }
 
-        let mut scan = ModelScan::new(state, model, "node_image").await?;
+        let mut scan = ModelScan::new(&state.db, model, "node_image").await?;
         let model_dir = format!("{images_dir}/{dir_name}");
         scan_version_dirs(state, &mut scan, &model_dir, request.dry_run, tally).await?;
     }
@@ -457,7 +525,15 @@ async fn scan_version_dirs(
             continue;
         }
 
-        scan_version(state, scan, version, dry_run, tally).await?;
+        scan_version(
+            &state.db,
+            scan,
+            version,
+            Some(PathBuf::from(disk_path)),
+            dry_run,
+            tally,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -494,7 +570,7 @@ async fn scan_container_images(
             continue;
         };
 
-        let mut scan = ModelScan::new(state, model, "container node_image").await?;
+        let mut scan = ModelScan::new(&state.db, model, "container node_image").await?;
         let prefix = format!("{repo}:");
         for tag in &docker_tags {
             // Match tags like "localrepo/arista_ceos:4.32.0F"
@@ -502,9 +578,10 @@ async fn scan_container_images(
                 continue;
             };
             scan_version(
-                state,
+                &state.db,
                 &mut scan,
                 version.to_string(),
+                None,
                 request.dry_run,
                 tally,
             )
@@ -515,20 +592,30 @@ async fn scan_container_images(
 }
 
 /// Record one version a scan found: already tracked, would be imported (dry run), or imported.
-/// Only the first version imported for a model without records becomes its default.
+/// A version becomes the default only when its model has none.
+///
+/// A disk image is checked again under the image's lock, so a scan that waited for a delete of
+/// the same version finds its file gone and does not record it again. `disk` is `None` for a
+/// container image.
 async fn scan_version(
-    state: &AppState,
+    database: &Database,
     scan: &mut ModelScan,
     version: String,
+    disk: Option<PathBuf>,
     dry_run: bool,
     tally: &mut ScanTally,
 ) -> Result<()> {
-    // Check if record already exists with this version
+    let _image_guard = lock_image(scan.model, &version).await;
+    if let Some(disk) = &disk
+        && !tokio::fs::try_exists(disk).await.unwrap_or(false)
+    {
+        tracing::debug!(model = %scan.model, %version, "Image removed while the scan waited");
+        return Ok(());
+    }
     let existing =
-        db::find_node_image_by_model_kind_version(&state.db, &scan.model, &scan.kind, &version)
+        db::find_node_image_by_model_kind_version(database, &scan.model, &scan.kind, &version)
             .await
             .context("Failed to check existing node_image")?;
-
     if existing.is_some() {
         tally
             .scanned
@@ -536,16 +623,13 @@ async fn scan_version(
         return Ok(());
     }
 
-    let make_default = scan.set_default;
-    // Only the first version gets default
-    scan.set_default = false;
-
     if dry_run {
-        let status = if make_default {
-            "would_import (default)"
-        } else {
+        let status = if scan.has_default {
             "would_import"
+        } else {
+            "would_import (default)"
         };
+        scan.has_default = true;
         tally
             .scanned
             .push(scan.scanned(version, status.to_string()));
@@ -555,20 +639,20 @@ async fn scan_version(
 
     let mut db_config = scan.config.clone();
     db_config.version.clone_from(&version);
-    db_config.default = make_default;
     db_config.id = None;
 
-    let status = match db::upsert_node_image(&state.db, db_config).await {
-        Ok(_) => {
+    let status = match db::upsert_node_image(database, db_config, DefaultRequest::Keep).await {
+        Ok(recorded) => {
             tracing::info!(
                 "Scanned and imported {} for model={} version={} default={}",
                 scan.label,
                 scan.model,
                 version,
-                make_default
+                recorded.default
             );
+            scan.has_default = true;
             tally.total_imported += 1;
-            if make_default {
+            if recorded.default {
                 "imported (default)".to_string()
             } else {
                 "imported".to_string()
@@ -609,7 +693,7 @@ pub async fn set_default_image(
     .await
     .context("Failed to look up image in database")?;
 
-    let Some(mut node_image) = node_image else {
+    let Some(node_image) = node_image else {
         anyhow::bail!(
             "Image not found for model '{}' with version '{}'. Use 'server image list' to see available images.",
             request.model,
@@ -617,10 +701,7 @@ pub async fn set_default_image(
         );
     };
 
-    // Set as default — update_node_image already unsets other defaults
-    node_image.default = true;
-
-    db::update_node_image(&state.db, node_image)
+    db::update_node_image(&state.db, node_image, DefaultRequest::Make)
         .await
         .context("Failed to update image as default")?;
 
@@ -702,67 +783,56 @@ fn talos_image_url(schematic_id: &str, version: &str) -> String {
     format!("{TALOS_IMAGE_FACTORY_URL}/image/{schematic_id}/v{version}/nocloud-amd64.qcow2")
 }
 
-/// Stream a download into `dest` and return its size.
+/// Stream a download into a staging file for `dest`, rename it into place, and return the placed
+/// image and its size.
 ///
-/// The bytes go to `{dest}.partial`, renamed to `dest` only when the whole body arrived and,
-/// when the server sent a length, matches it. An interrupted download leaves nothing at `dest`
-/// for a later run to take as a complete image.
+/// The rename happens only when the whole body arrived and, when the server sent a length, matches
+/// it. An interrupted download leaves nothing at `dest` for a later run to take as a complete image.
 async fn write_download<S, B, E>(
     mut body: S,
-    dest: &str,
+    dest: &Path,
     expected_size: Option<u64>,
     progress: &ProgressSender,
-) -> Result<u64>
+) -> Result<(PlacedDisk, u64)>
 where
     S: Stream<Item = std::result::Result<B, E>> + Unpin,
     B: AsRef<[u8]>,
     E: std::error::Error + Send + Sync + 'static,
 {
-    let partial = format!("{dest}.partial");
-    let written = async {
-        let mut file = tokio::fs::File::create(&partial)
+    let staged = StagedDisk::new(dest);
+    let mut file = tokio::fs::File::create(staged.partial_path())
+        .await
+        .with_context(|| format!("Failed to create file {}", staged.partial_path().display()))?;
+    let mut downloaded: u64 = 0;
+    let mut last_reported: u64 = 0;
+    while let Some(chunk) = body.next().await {
+        let chunk = chunk.context("Failed to read response chunk")?;
+        let chunk = chunk.as_ref();
+        file.write_all(chunk)
             .await
-            .with_context(|| format!("Failed to create file {partial}"))?;
-        let mut downloaded: u64 = 0;
-        let mut last_reported: u64 = 0;
-        while let Some(chunk) = body.next().await {
-            let chunk = chunk.context("Failed to read response chunk")?;
-            let chunk = chunk.as_ref();
-            file.write_all(chunk)
-                .await
-                .context("Failed to write chunk to disk")?;
-            downloaded += chunk.len() as u64;
-            if downloaded - last_reported >= DOWNLOAD_REPORT_INTERVAL {
-                last_reported = downloaded;
-                let _ = progress.send_status(
-                    download_progress(downloaded, expected_size),
-                    StatusKind::Progress,
-                );
-            }
-        }
-        file.sync_all()
-            .await
-            .context("Failed to flush image file")?;
-        if let Some(expected) = expected_size
-            && downloaded != expected
-        {
-            anyhow::bail!("Download ended after {downloaded} of {expected} bytes");
-        }
-        tokio::fs::rename(&partial, dest)
-            .await
-            .with_context(|| format!("Failed to move {partial} to {dest}"))?;
-        Ok(downloaded)
-    }
-    .await;
-    if written.is_err() {
-        match tokio::fs::remove_file(&partial).await {
-            Ok(()) => tracing::debug!(path = %partial, "Removed incomplete download"),
-            Err(error) => {
-                tracing::debug!(path = %partial, %error, "No incomplete download to remove");
-            }
+            .context("Failed to write chunk to disk")?;
+        downloaded += chunk.len() as u64;
+        if downloaded - last_reported >= DOWNLOAD_REPORT_INTERVAL {
+            last_reported = downloaded;
+            let _ = progress.send_status(
+                download_progress(downloaded, expected_size),
+                StatusKind::Progress,
+            );
         }
     }
-    written
+    file.sync_all()
+        .await
+        .context("Failed to flush image file")?;
+    drop(file);
+    if let Some(expected) = expected_size
+        && downloaded != expected
+    {
+        anyhow::bail!("Download ended after {downloaded} of {expected} bytes");
+    }
+    let placed = tokio::task::spawn_blocking(move || staged.place())
+        .await
+        .context("The image rename task failed")??;
+    Ok((placed, downloaded))
 }
 
 /// A progress line for `downloaded` bytes of `total`, when known.
@@ -805,32 +875,22 @@ pub async fn download_image(
     let download_url =
         resolve_download_url(&request.model, &request.version, request.url.as_deref()).await?;
 
-    let images_dir = SHERPA_IMAGES_PATH.to_owned();
-    let model_dir = format!("{images_dir}/{}", request.model);
-    let version_dir = format!("{model_dir}/{}", request.version);
     let filename = image_filename(&kind, config.boot_mode.as_ref());
-    let version_disk = format!("{version_dir}/{filename}");
+    let version_dir = ImagePaths::installed().version_dir(request.model, &request.version);
+    let version_disk = version_dir.join(filename);
+    tokio::fs::create_dir_all(&version_dir)
+        .await
+        .with_context(|| format!("Failed to create {}", version_dir.display()))?;
 
-    // Create version directory
-    create_dir(&version_dir).context("Failed to create version directory")?;
-
-    // Skip download if file already exists
-    if file_exists(&version_disk) {
-        tracing::info!(
-            "Image already exists at {}, skipping download",
-            version_disk
-        );
+    // A file at the destination was renamed there whole, by an earlier download or import.
+    let placed = if tokio::fs::try_exists(&version_disk).await.unwrap_or(false) {
+        tracing::info!(path = %version_disk.display(), "Image already exists, skipping download");
         let _ = progress.send_status(
             "Image already exists, skipping download".to_string(),
             StatusKind::Info,
         );
+        None
     } else {
-        tracing::info!(
-            "Downloading image from {} to {}",
-            download_url,
-            version_disk
-        );
-
         let _ = progress.send_status(
             format!(
                 "Downloading {} {} from {}...",
@@ -838,11 +898,9 @@ pub async fn download_image(
             ),
             StatusKind::Progress,
         );
-
         let response = reqwest::get(&download_url)
             .await
             .context(format!("Failed to download image from {download_url}"))?;
-
         if !response.status().is_success() {
             anyhow::bail!(
                 "Failed to download image: HTTP {} from {}",
@@ -850,52 +908,43 @@ pub async fn download_image(
                 download_url
             );
         }
-
         let total_size = response.content_length();
-        let downloaded = write_download(
+        let (placed, downloaded) = write_download(
             response.bytes_stream(),
             &version_disk,
             total_size,
             &progress,
         )
         .await?;
-
-        tracing::info!("Download complete: {}", version_disk);
-
+        tracing::info!(path = %placed.path().display(), "Download complete");
         let _ = progress.send_status(
             format!("Download complete: {} MB", megabytes(downloaded)),
             StatusKind::Done,
         );
-    }
-
-    let _ = progress.send_status("Updating database...".to_string(), StatusKind::Progress);
-
-    // Upsert node_image record in the database
-    let mut db_config = config;
-    db_config.version = request.version.clone();
-    db_config.default = request.default;
-    db_config.id = None;
-
-    let db_tracked = match db::upsert_node_image(&state.db, db_config).await {
-        Ok(_) => {
-            tracing::info!(
-                "Upserted node_image for model={} version={}",
-                request.model,
-                request.version
-            );
-            true
-        }
-        Err(e) => {
-            tracing::error!(
-                "Failed to upsert node_image for model={} version={}: {:?}",
-                request.model,
-                request.version,
-                e
-            );
-            false
-        }
+        Some(placed)
     };
 
+    let _ = progress.send_status("Updating database...".to_string(), StatusKind::Progress);
+    let request_default = if request.default {
+        DefaultRequest::Make
+    } else {
+        DefaultRequest::Keep
+    };
+    let mut db_config = config;
+    db_config.version.clone_from(&request.version);
+    db_config.id = None;
+    let recorded = match db::upsert_node_image(&state.db, db_config, request_default).await {
+        Ok(recorded) => recorded,
+        Err(error) => {
+            if let Some(placed) = placed {
+                placed.discard();
+            }
+            return Err(error.context(format!(
+                "Failed to record {} {} in the database",
+                request.model, request.version
+            )));
+        }
+    };
     let _ = progress.send_status("Image tracked in database".to_string(), StatusKind::Done);
 
     Ok(ImportResponse {
@@ -903,8 +952,9 @@ pub async fn download_image(
         model: request.model,
         kind,
         version: request.version,
-        image_path: version_disk,
-        db_tracked,
+        image_path: version_disk.to_string_lossy().into_owned(),
+        db_tracked: true,
+        default: recorded.default,
     })
 }
 
@@ -912,7 +962,6 @@ pub async fn download_image(
 mod tests {
     use super::*;
     use futures_util::stream;
-    use shared::util::file_exists;
     use std::io;
 
     fn quiet_progress() -> ProgressSender {
@@ -927,14 +976,15 @@ mod tests {
     #[tokio::test]
     async fn a_complete_download_lands_at_its_path() {
         let dir = tempfile::tempdir().unwrap();
-        let dest = dir.path().join("disk.qcow2").to_string_lossy().into_owned();
+        let dest = dir.path().join("disk.qcow2");
         let body = chunks(vec![Ok(b"abc".to_vec()), Ok(b"def".to_vec())]);
 
-        let size = write_download(body, &dest, Some(6), &quiet_progress())
+        let (placed, size) = write_download(body, &dest, Some(6), &quiet_progress())
             .await
             .unwrap();
 
         assert_eq!(size, 6);
+        assert_eq!(placed.path(), dest);
         assert_eq!(std::fs::read(&dest).unwrap(), b"abcdef");
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
@@ -942,7 +992,7 @@ mod tests {
     #[tokio::test]
     async fn an_interrupted_download_leaves_nothing_to_reuse() {
         let dir = tempfile::tempdir().unwrap();
-        let dest = dir.path().join("disk.qcow2").to_string_lossy().into_owned();
+        let dest = dir.path().join("disk.qcow2");
         let body = chunks(vec![
             Ok(b"abc".to_vec()),
             Err(io::Error::other("connection reset")),
@@ -954,14 +1004,14 @@ mod tests {
                 .is_err()
         );
 
-        assert!(!file_exists(&dest));
+        assert!(!dest.exists());
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 
     #[tokio::test]
     async fn a_body_shorter_than_its_content_length_is_refused() {
         let dir = tempfile::tempdir().unwrap();
-        let dest = dir.path().join("disk.qcow2").to_string_lossy().into_owned();
+        let dest = dir.path().join("disk.qcow2");
         let body = chunks(vec![Ok(b"abc".to_vec())]);
 
         let error = write_download(body, &dest, Some(10), &quiet_progress())
@@ -969,7 +1019,7 @@ mod tests {
             .unwrap_err();
 
         assert!(error.to_string().contains("3 of 10 bytes"), "{error}");
-        assert!(!file_exists(&dest));
+        assert!(!dest.exists());
     }
 
     #[tokio::test]
@@ -1069,5 +1119,224 @@ mod tests {
         assert_eq!(megabytes(1_572_864), "1.5");
         assert_eq!(megabytes(1_048_575), "1.0");
         assert_eq!(megabytes(10 * 1_048_576), "10.0");
+    }
+
+    /// A disk import of `model` version `version` from `source`.
+    fn disk_import(source: &Path, version: &str) -> (ImportRequest, NodeConfig) {
+        let request = ImportRequest {
+            model: NodeModel::UbuntuLinux,
+            version: version.to_owned(),
+            src: source.to_string_lossy().into_owned(),
+            default: false,
+        };
+        let mut config = NodeConfig::get_model(request.model);
+        config.version = request.version.clone();
+        (request, config)
+    }
+
+    fn test_paths(root: &Path) -> ImagePaths {
+        let paths = ImagePaths {
+            images: root.join("images"),
+            storage_pool: root.join("pool"),
+        };
+        std::fs::create_dir_all(&paths.storage_pool).unwrap();
+        paths
+    }
+
+    fn disk_path(paths: &ImagePaths, version: &str) -> PathBuf {
+        let config = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        paths
+            .version_dir(config.model, version)
+            .join(image_filename(&config.kind, config.boot_mode.as_ref()))
+    }
+
+    async fn schema_db() -> Database {
+        let database = db::open_in_memory().await.unwrap();
+        db::apply_schema(&database).await.unwrap();
+        database
+    }
+
+    async fn import_disk(
+        database: &Database,
+        paths: &ImagePaths,
+        source: &Path,
+        version: &str,
+    ) -> Result<ImportResponse> {
+        let (request, config) = disk_import(source, version);
+        import_disk_image(
+            &request,
+            config,
+            DefaultRequest::Keep,
+            database,
+            paths,
+            &quiet_progress(),
+        )
+        .await
+    }
+
+    async fn recorded(database: &Database, version: &str) -> Option<NodeConfig> {
+        let config = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        db::find_node_image_by_model_kind_version(database, &config.model, &config.kind, version)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_imported_disk_is_in_place_and_recorded_as_the_first_default() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = test_paths(root.path());
+        let source = root.path().join("source.qcow2");
+        std::fs::write(&source, b"whole image").unwrap();
+        let database = schema_db().await;
+
+        let response = import_disk(&database, &paths, &source, "1").await.unwrap();
+
+        assert!(response.default);
+        assert_eq!(
+            std::fs::read(disk_path(&paths, "1")).unwrap(),
+            b"whole image"
+        );
+        assert!(recorded(&database, "1").await.unwrap().default);
+        let version_dir = paths.version_dir(NodeModel::UbuntuLinux, "1");
+        assert_eq!(std::fs::read_dir(version_dir).unwrap().count(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_disk_import_whose_row_cannot_be_written_leaves_no_image() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = test_paths(root.path());
+        let source = root.path().join("source.qcow2");
+        std::fs::write(&source, b"whole image").unwrap();
+        // No schema: the row write fails.
+        let database = db::open_in_memory().await.unwrap();
+
+        assert!(import_disk(&database, &paths, &source, "1").await.is_err());
+
+        let version_dir = paths.version_dir(NodeModel::UbuntuLinux, "1");
+        assert_eq!(std::fs::read_dir(version_dir).unwrap().count(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_disk_import_whose_source_is_unreadable_records_nothing() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = test_paths(root.path());
+        let database = schema_db().await;
+
+        let missing = root.path().join("missing.qcow2");
+        assert!(import_disk(&database, &paths, &missing, "1").await.is_err());
+
+        assert!(recorded(&database, "1").await.is_none());
+        assert!(!disk_path(&paths, "1").exists());
+    }
+
+    #[tokio::test]
+    async fn a_truncated_disk_left_by_an_earlier_import_is_replaced() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = test_paths(root.path());
+        let source = root.path().join("source.qcow2");
+        std::fs::write(&source, b"whole image").unwrap();
+        let disk = disk_path(&paths, "1");
+        std::fs::create_dir_all(disk.parent().unwrap()).unwrap();
+        std::fs::write(&disk, b"whole").unwrap();
+        let database = schema_db().await;
+
+        import_disk(&database, &paths, &source, "1").await.unwrap();
+
+        assert_eq!(std::fs::read(&disk).unwrap(), b"whole image");
+    }
+
+    #[tokio::test]
+    async fn a_disk_of_the_source_size_is_kept() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = test_paths(root.path());
+        let source = root.path().join("source.qcow2");
+        std::fs::write(&source, b"new image").unwrap();
+        let disk = disk_path(&paths, "1");
+        std::fs::create_dir_all(disk.parent().unwrap()).unwrap();
+        std::fs::write(&disk, b"old image").unwrap();
+        let database = schema_db().await;
+
+        import_disk(&database, &paths, &source, "1").await.unwrap();
+
+        assert_eq!(std::fs::read(&disk).unwrap(), b"old image");
+        assert!(recorded(&database, "1").await.is_some());
+    }
+
+    /// A QCOW2 header, backed by `backing` when given.
+    fn qcow2_header(backing: Option<&Path>) -> Vec<u8> {
+        let mut bytes = vec![0; 65536];
+        bytes[..4].copy_from_slice(b"QFI\xfb");
+        bytes[4..8].copy_from_slice(&3_u32.to_be_bytes());
+        bytes[20..24].copy_from_slice(&16_u32.to_be_bytes());
+        bytes[24..32].copy_from_slice(&(2_u64 << 30).to_be_bytes());
+        bytes[100..104].copy_from_slice(&104_u32.to_be_bytes());
+        if let Some(backing) = backing {
+            let name = backing.to_str().unwrap().as_bytes();
+            bytes[8..16].copy_from_slice(&128_u64.to_be_bytes());
+            bytes[16..20].copy_from_slice(&u32::try_from(name.len()).unwrap().to_be_bytes());
+            bytes[128..128 + name.len()].copy_from_slice(name);
+        }
+        bytes
+    }
+
+    #[tokio::test]
+    async fn a_differing_disk_that_lab_disks_are_built_on_is_not_replaced() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = test_paths(root.path());
+        let source = root.path().join("source.qcow2");
+        std::fs::write(&source, b"another image").unwrap();
+        let disk = disk_path(&paths, "1");
+        std::fs::create_dir_all(disk.parent().unwrap()).unwrap();
+        let base = qcow2_header(None);
+        std::fs::write(&disk, &base).unwrap();
+        std::fs::write(
+            paths.storage_pool.join("node.qcow2"),
+            qcow2_header(Some(&disk)),
+        )
+        .unwrap();
+        let database = schema_db().await;
+
+        let error = import_disk(&database, &paths, &source, "1")
+            .await
+            .unwrap_err();
+
+        assert!(format!("{error:#}").contains("new version"), "{error:#}");
+        assert_eq!(std::fs::read(&disk).unwrap(), base);
+        assert!(recorded(&database, "1").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_scan_that_waited_for_a_delete_does_not_record_the_deleted_image() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = test_paths(root.path());
+        let disk = disk_path(&paths, "scan-race");
+        std::fs::create_dir_all(disk.parent().unwrap()).unwrap();
+        std::fs::write(&disk, b"image").unwrap();
+        let database = schema_db().await;
+        let mut scan = ModelScan::new(&database, NodeModel::UbuntuLinux, "node_image")
+            .await
+            .unwrap();
+        let mut tally = ScanTally::default();
+
+        // A delete holds the image's lock; it removes the files while the scan waits.
+        let delete = lock_image(NodeModel::UbuntuLinux, "scan-race").await;
+        let scanning = scan_version(
+            &database,
+            &mut scan,
+            "scan-race".to_owned(),
+            Some(disk.clone()),
+            false,
+            &mut tally,
+        );
+        let deleting = async {
+            tokio::task::yield_now().await;
+            std::fs::remove_file(&disk).unwrap();
+            drop(delete);
+        };
+        let (scanned, ()) = tokio::join!(scanning, deleting);
+        scanned.unwrap();
+
+        assert!(recorded(&database, "scan-race").await.is_none());
+        assert_eq!(tally.total_imported, 0);
     }
 }

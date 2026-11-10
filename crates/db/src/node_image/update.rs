@@ -5,29 +5,30 @@ use tracing::instrument;
 use crate::Database;
 use crate::helpers::get_image_id;
 use crate::node_image::create::replace_node_image;
-use crate::persistence::{NODE_IMAGE_TABLE, enum_text, key_of};
+use crate::node_image::default::{DefaultRequest, claim_default};
+use crate::persistence::{NODE_IMAGE_TABLE, key_of, node_image_from_row};
 use crate::queries;
+use crate::sql::query_optional;
 
-/// Update an existing `node_image` record in the database
+/// Update the settings of an existing `node_image` record.
 ///
-/// This performs a full replacement of all fields. The `NodeConfig` must have
-/// a valid `id` field set. If config.default is true, it also unsets default on the other
-/// versions of the same (model, kind), in the same transaction.
-///
-/// # Arguments
-/// * `db` - Database connection
-/// * `config` - `NodeConfig` with updated fields and a valid `id`
-///
-/// # Returns
-/// The updated `NodeConfig` on success
+/// Every setting is replaced with `config`'s, except the record's identity: its model, kind and
+/// version are kept as stored, since they name the image's files. The `default` flag is decided
+/// by `request` (see [`DefaultRequest`]); `config.default` is ignored. It runs in one transaction
+/// under the write lock.
 ///
 /// # Errors
-/// - If the config has no ID
-/// - If the record doesn't exist in the database
-/// - If there's a database error during the update
+///
+/// - If the config has no ID, or no record has it.
+/// - With [`LastDefaultImage`](crate::LastDefaultImage) when `request` is
+///   [`DefaultRequest::Unset`] on the model's only default.
+/// - If there's a database error during the update.
 #[instrument(skip(db), level = "debug")]
-pub async fn update_node_image(db: &Database, config: NodeConfig) -> Result<NodeConfig> {
-    // Extract and validate the ID
+pub async fn update_node_image(
+    db: &Database,
+    config: NodeConfig,
+    request: DefaultRequest,
+) -> Result<NodeConfig> {
     let id = get_image_id(&config)?;
     let key = key_of(&id, NODE_IMAGE_TABLE)?;
 
@@ -38,40 +39,28 @@ pub async fn update_node_image(db: &Database, config: NodeConfig) -> Result<Node
         .await
         .context("Failed to start the node_image update transaction")?;
 
-    // If setting default=true, unset default on other versions of same (model, kind)
-    if config.default {
-        tx.execute(
-            queries::node_image::CLEAR_DEFAULT_EXCEPT_ID,
-            (
-                enum_text(&config.model, "model")?,
-                enum_text(&config.kind, "kind")?,
-                key.as_str(),
-            ),
-        )
-        .await
-        .context(format!(
-            "Error unsetting default flag on other versions:\n model: {}\n kind: {}\n",
-            config.model, config.kind
-        ))?;
-    }
+    let stored = query_optional(
+        &tx,
+        queries::node_image::FIND_BY_ID,
+        [key.as_str()],
+        node_image_from_row,
+    )
+    .await
+    .context(format!("Failed to read node_image {id:?} for update"))?
+    .ok_or_else(|| anyhow!("Node image not found for update: {id:?}"))?;
 
-    // Replace all fields
+    let default = claim_default(&tx, stored.model, &stored.kind, &stored.version, request).await?;
+    let config = NodeConfig {
+        model: stored.model,
+        kind: stored.kind,
+        version: stored.version,
+        default,
+        ..config
+    };
+
     let updated = replace_node_image(&tx, &config, &key)
-        .await
-        .context(format!(
-            "Failed to update node_image:\n id: {:?}\n model: {}\n kind: {}\n",
-            id, config.model, config.kind
-        ))?;
-
-    // Return result or error if not found; dropping the transaction rolls it back
-    let updated = updated.ok_or_else(|| {
-        anyhow!(
-            "Node image not found for update:\n id: {:?}\n model: {}\n kind: {}\n",
-            id,
-            config.model,
-            config.kind
-        )
-    })?;
+        .await?
+        .ok_or_else(|| anyhow!("Node image not found for update: {id:?}"))?;
 
     tx.commit()
         .await

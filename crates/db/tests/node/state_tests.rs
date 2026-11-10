@@ -1,7 +1,7 @@
 use anyhow::Result;
 use db::{
-    LabDetails, create_lab, create_node, create_user, get_node, update_node_state_from,
-    upsert_node_image,
+    DefaultRequest, LabDetails, create_lab, create_node, create_user, get_node,
+    update_node_state_from, upsert_node_image,
 };
 use shared::data::{DbNode, NodeConfig, NodeModel, NodeState, RecordId};
 
@@ -23,7 +23,12 @@ async fn one_node(db: &db::Database) -> Result<DbNode> {
         &LabDetails::default(),
     )
     .await?;
-    let image = upsert_node_image(db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let image = upsert_node_image(
+        db,
+        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        DefaultRequest::Keep,
+    )
+    .await?;
     create_node(db, "node1", 1, image.id.unwrap(), lab.id.unwrap()).await
 }
 
