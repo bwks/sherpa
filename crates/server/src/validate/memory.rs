@@ -27,8 +27,8 @@ pub struct CommittedMemory<'a> {
 ///
 /// Guests may have the server's memory, less its hugepage pools and the host reserve, times the
 /// overcommit percentage. A NUMA node's guests may have its memory, less its hugepages and its
-/// share of the reserve, times the percentage; only memory held strictly on that node counts against it,
-/// because memory that is not bound may be placed on any node.
+/// share of the reserve, times the percentage. Only memory held strictly on that node counts
+/// against it: memory that is not bound, or only prefers a node, may be placed on any node.
 ///
 /// # Errors
 ///
@@ -135,9 +135,10 @@ fn check_numa_node_fits(
              hugepages and its {reserve_share} MiB share of the host reserve, at an overcommit \
              of {percent}%, guests may have {limit} MiB. VMs held strictly on NUMA node \
              {numa_node} hold {held} MiB: {holder_list}. Memory held on one NUMA node cannot \
-             use another node's. Choose another `numa_node`, stop or destroy those nodes, or an \
-             admin can lower `host_memory.reserve_mib` or raise `host_memory.overcommit_percent` \
-             in sherpa.toml.",
+             use another node's. Choose another `numa_node`, set \
+             `numa_memory_mode = \"preferred\"` to let the node's memory spill to other NUMA \
+             nodes, stop or destroy those nodes, or an admin can lower \
+             `host_memory.reserve_mib` or raise `host_memory.overcommit_percent` in sherpa.toml.",
             needing(&wanted),
             needed - left,
         );
@@ -386,6 +387,7 @@ mod tests {
             "NUMA node 0 has 81920 MiB",
             "2048 MiB share of the host reserve",
             "VMs held strictly on NUMA node 0 hold 61440 MiB: agent (61440 MiB)",
+            r#"`numa_memory_mode = "preferred"`"#,
             "`host_memory.reserve_mib`",
         ] {
             assert!(message.contains(expected), "{expected:?} not in: {message}");

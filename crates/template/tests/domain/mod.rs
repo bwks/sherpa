@@ -3,7 +3,7 @@ use askama::Template;
 use shared::data::{
     BiosTypes, ConnectionTypes, CpuArchitecture, CpuModels, CpuTopology, DiskBuses, DiskCache,
     DiskDevices, DiskDrivers, DiskFormats, DiskIo, DiskTargets, Interface, InterfaceType,
-    MachineType, NodeDisk, WatchdogAction,
+    MachineType, NodeDisk, NumaMemoryMode, WatchdogAction,
 };
 use template::{DomainTemplate, DomainTuning};
 
@@ -275,6 +275,18 @@ fn test_domain_holds_memory_on_a_numa_node() {
     let xml = domain.render().expect("renders domain XML");
     assert!(
         xml.contains("<numatune>\n    <memory mode='strict' nodeset='1'/>\n  </numatune>"),
+        "{xml}"
+    );
+}
+
+#[test]
+fn test_domain_prefers_a_numa_node_for_its_memory() {
+    let mut domain = base_domain_template();
+    domain.tuning.numa_node = Some(1);
+    domain.tuning.numa_memory_mode = NumaMemoryMode::Preferred;
+    let xml = domain.render().expect("renders domain XML");
+    assert!(
+        xml.contains("<numatune>\n    <memory mode='preferred' nodeset='1'/>\n  </numatune>"),
         "{xml}"
     );
 }

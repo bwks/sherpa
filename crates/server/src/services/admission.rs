@@ -20,7 +20,7 @@ use tracing::instrument;
 use virt::connect::Connect;
 
 use libvirt::DomainMemory;
-use shared::data::{HostMemorySettings, NodeConfig, NodeCpuPins, NodeKind};
+use shared::data::{HostMemorySettings, NodeConfig, NodeCpuPins, NodeKind, PerformanceTuning};
 
 use super::node_resources::{
     PendingPins, check_cpu_pins_on_server, domain_name, planned_resources,
@@ -169,15 +169,18 @@ fn check_memory(
     .context("Memory admission failed")
 }
 
-/// What each node asks for: VMs and unikernels their memory, VMs their NUMA node, which holds
-/// their memory strictly, and every tuned node its CPU pins.
+/// What each node asks for: VMs and unikernels their memory, VMs held strictly to a NUMA node
+/// that node, and every tuned node its CPU pins. A VM that only prefers its NUMA node claims
+/// memory on the whole server, since the kernel may place it on any node.
 fn lab_requests(lab_id: &str, nodes: &[(&topology::NodeExpanded, &NodeConfig)]) -> Vec<Request> {
     nodes
         .iter()
         .map(|(node, image)| {
             let tuning = node.performance_tuning.as_ref();
             let numa_node = if image.kind == NodeKind::VirtualMachine {
-                tuning.and_then(|tuning| tuning.numa_node).map(u32::from)
+                tuning
+                    .and_then(PerformanceTuning::strict_numa_node)
+                    .map(u32::from)
             } else {
                 None
             };
@@ -287,7 +290,7 @@ mod tests {
 
     use super::*;
     use libvirt::Qemu;
-    use shared::data::{NodeModel, PerformanceTuning};
+    use shared::data::{NodeModel, NumaMemoryMode};
 
     fn running(name: &str, mib: u64, numa_node: Option<u32>) -> DomainMemory {
         DomainMemory {
@@ -426,6 +429,40 @@ mod tests {
         assert_eq!(unikernel_memory.numa_node, None);
         assert_eq!(requests[2].memory, None);
         assert_eq!(requests[2].pins, None);
+    }
+
+    #[test]
+    fn a_vm_preferring_a_numa_node_claims_memory_on_the_server_only() {
+        let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let vm = |numa_memory_mode| topology::NodeExpanded {
+            name: "vm".to_string(),
+            memory: Some(8192),
+            performance_tuning: Some(PerformanceTuning {
+                numa_node: Some(1),
+                numa_memory_mode,
+                ..PerformanceTuning::default()
+            }),
+            ..Default::default()
+        };
+        let preferred = vm(Some(NumaMemoryMode::Preferred));
+        let strict = vm(Some(NumaMemoryMode::Strict));
+        let requests = lab_requests("lab1", &[(&preferred, &image)]);
+        assert_eq!(
+            requests[0].memory,
+            Some(MemoryClaim {
+                name: "vm".to_string(),
+                memory_mib: 8192,
+                numa_node: None,
+            })
+        );
+        let requests = lab_requests("lab1", &[(&strict, &image)]);
+        assert_eq!(
+            requests[0]
+                .memory
+                .as_ref()
+                .and_then(|claim| claim.numa_node),
+            Some(1)
+        );
     }
 
     #[test]

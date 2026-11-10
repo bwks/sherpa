@@ -12,12 +12,14 @@ its decisions are in [the investigation note](../../../docs/investigations/sherp
 | Image | `ubuntu_linux` `24.04-20260926` (see [ubuntu-2404](../ubuntu-2404/README.md)) |
 | vCPUs | 14, as 1 socket × 7 cores × 2 threads, `host-passthrough` |
 | Host CPUs | vCPUs on sibling pairs 9/25 to 15/31; QEMU and disk I/O threads on 8/24 |
-| Memory | 48 GiB, strict on NUMA node 1 |
+| Memory | 48 GiB, preferred on NUMA node 1 |
 | Disk | 300 GiB full copy, virtio, `cache = "none"`, `io = "native"` |
 | Network | 4 virtio-net queues |
 
 The CPU numbers fit a host with two 8-core, 2-thread sockets where CPUs 8–15 and 24–31 are NUMA
-node 1. On another host, change `performance_tuning` to match `lscpu -e`.
+node 1. Memory prefers node 1 (`numa_memory_mode = "preferred"`) and falls back to node 0 when
+node 1 is full, rather than the host OOM killer ending the VM (#514). On another host, change
+`performance_tuning` to match `lscpu -e`.
 
 ## Provisioning
 

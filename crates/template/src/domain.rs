@@ -3,7 +3,7 @@ use askama::Template;
 use shared::data::{
     BiosTypes, CloneDisk, ConnectionTypes, CpuArchitecture, CpuFeature, CpuModels, CpuTopology,
     DiskBuses, DiskCache, DiskDevices, DiskIo, Interface, InterfaceType, MachineType, NodeDisk,
-    PerformanceTuning, QemuCommand, UnikernelBootMode, WatchdogAction, cpuset,
+    NumaMemoryMode, PerformanceTuning, QemuCommand, UnikernelBootMode, WatchdogAction, cpuset,
 };
 
 #[derive(Debug, Template)]
@@ -60,6 +60,8 @@ pub struct DomainTuning {
     /// The cpuset of the disks' I/O thread. Set, the domain has one I/O thread for its disks.
     pub io_thread_cpuset: Option<String>,
     pub numa_node: Option<u8>,
+    /// How the memory is held to `numa_node`.
+    pub numa_memory_mode: NumaMemoryMode,
     pub disk_cache: Option<DiskCache>,
     pub disk_io: Option<DiskIo>,
     /// Queues on the data interfaces.
@@ -88,6 +90,7 @@ impl DomainTuning {
             qemu_cpuset: tuning.qemu_cpus.as_deref().map(cpuset),
             io_thread_cpuset: tuning.disk_io_thread_cpus.as_deref().map(cpuset),
             numa_node: tuning.numa_node,
+            numa_memory_mode: tuning.numa_memory_mode.unwrap_or_default(),
             disk_cache: tuning.disk_cache,
             disk_io: tuning.disk_io,
             interface_queues: tuning.interface_queues,
@@ -155,6 +158,7 @@ mod tests {
         assert_eq!(domain.qemu_cpuset.as_deref(), Some("8,24"));
         assert_eq!(domain.io_thread_cpuset.as_deref(), Some("8"));
         assert_eq!(domain.numa_node, Some(1));
+        assert_eq!(domain.numa_memory_mode, NumaMemoryMode::Strict);
         assert_eq!(domain.interface_queues, Some(4));
         assert_eq!(domain.management_interface_queues, Some(4));
         assert!(domain.has_cputune());
@@ -167,6 +171,18 @@ mod tests {
         let untuned = DomainTuning::from_tuning(None, &InterfaceType::Virtio);
         assert_eq!(untuned, DomainTuning::default());
         assert!(!untuned.has_cputune());
+    }
+
+    #[test]
+    fn test_domain_tuning_takes_the_numa_memory_mode() {
+        let tuning = PerformanceTuning {
+            numa_node: Some(0),
+            numa_memory_mode: Some(NumaMemoryMode::Preferred),
+            ..PerformanceTuning::default()
+        };
+        let domain = DomainTuning::from_tuning(Some(&tuning), &InterfaceType::Virtio);
+        assert_eq!(domain.numa_node, Some(0));
+        assert_eq!(domain.numa_memory_mode, NumaMemoryMode::Preferred);
     }
 
     fn base_unikernel_template(boot_mode: UnikernelBootMode) -> UnikernelDomainTemplate {

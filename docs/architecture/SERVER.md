@@ -740,10 +740,13 @@ guest memory is its total (`virNodeGetInfo`) less its hugepage pools and
 `sherpa.toml`, 4096 MiB and 100 by default; startup refuses a percentage below 1). The limit is
 computed in whole MiB with saturating integer arithmetic, rounded down. Against it count every running or
 paused domain's maximum memory, Sherpa's and others', the pending nodes, and the request. A VM
-with `numa_node` is also checked against that NUMA node: its memory (from the capabilities XML)
-less its hugepages and its share of the reserve, against the domains held strictly on it
-(`numatune` mode `strict` or `restrictive` with one node). Memory that is not bound to one node
-counts only against the whole server. Containers are not counted; Sherpa does not limit them,
+held strictly on a NUMA node (`numa_node`, with `numa_memory_mode` `strict` or left out;
+`PerformanceTuning::strict_numa_node`) is also checked against that node: its memory (from the
+capabilities XML) less its hugepages and its share of the reserve, against the domains held
+strictly on it (`numatune` mode `strict` or `restrictive` with one node). Memory that is not
+bound to one node, including a VM with `numa_memory_mode = "preferred"`, whose memory falls
+back to other nodes when its node is full, counts only against the whole server, both as a
+request and once it runs. Containers are not counted; Sherpa does not limit them,
 and the reserve covers them and QEMU's own memory. A refusal names the numbers that fell short
 and the two settings. `libvirt::host_memory` and `libvirt::list_domain_memory` read the server
 (`crates/libvirt/src/host.rs`). See `docs/investigations/host-memory-oom.md` for why.
@@ -1128,7 +1131,8 @@ hypervisor, by `services::node_resources`:
 A node's `[nodes.performance_tuning]` (`shared::data::PerformanceTuning`) reaches the domain as
 `template::DomainTuning`, built in `node_ops::build_domain_template`. The domain then renders:
 - `<cputune>` with `vcpupin`, `emulatorpin` and `iothreadpin`;
-- `<numatune>`;
+- `<numatune>`, with `<memory mode>` from `numa_memory_mode` (`strict` by default, or
+  `preferred`);
 - `<iothreads>`;
 - the CPU mode and `<topology>`;
 - the disk driver's `cache`, `io` and `iothread`;
@@ -1137,7 +1141,8 @@ A node's `[nodes.performance_tuning]` (`shared::data::PerformanceTuning`) reache
 The checks run in three places:
 - **`topology::validate::check_performance_tuning`** (client `validate` and server `up` and
   `redeploy`): the node's own settings against its image. VMs only; topology and pinning
-  match `cpu_count`; I/O threads need virtio disks; queues need virtio interfaces.
+  match `cpu_count`; I/O threads need virtio disks; queues need virtio interfaces;
+  `numa_memory_mode` needs `numa_node`.
 - **`topology::validate::check_cpu_pin_overlap`**: a host CPU pinned to a vCPU belongs to one
   node, and no node runs QEMU or I/O threads on it. QEMU and I/O threads may share CPUs.
 - **`node_resources::check_cpu_pins_on_server`** (`up` and `redeploy`, before anything is

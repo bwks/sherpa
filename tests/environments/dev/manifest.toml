@@ -11,12 +11,15 @@ boot_disk_size = 300
 boot_disk_clone_method = "copy"
 
 # NUMA node 1: vCPUs on sibling pairs 9/25 to 15/31, QEMU and disk I/O on 8/24.
+# Memory prefers node 1 and falls back to node 0 when node 1 is full, instead of the host
+# OOM killer ending the VM.
 [nodes.performance_tuning]
 cpu_mode = "host-passthrough"
 cpu_topology = { sockets = 1, cores = 7, threads = 2 }
 cpu_pinning = [9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31]
 qemu_cpus = [8, 24]
 numa_node = 1
+numa_memory_mode = "preferred"
 disk_cache = "none"
 disk_io = "native"
 disk_io_thread_cpus = [8, 24]
