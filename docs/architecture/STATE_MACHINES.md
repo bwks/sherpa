@@ -38,7 +38,7 @@ which to make them explicit, are in
 | 11 | [Vault init and unseal](#11-vault-init-and-unseal) | server | Vault status, credentials file |
 | 12 | [Keycloak realm](#12-keycloak-realm) | server | credentials file, HTTP 409 |
 | 13 | [Tailscale gateway](#13-tailscale-gateway) | server, container | `tailscale_container_id` Option, Docker objects |
-| 14 | [Sessions and tokens](#14-sessions-and-tokens-server) | server, shared | JWT `exp`, `user` row |
+| 14 | [Sessions and tokens](#14-sessions-and-tokens-server) | server, db, shared | `SessionState` over the `session` row |
 | 15 | [Web jobs](#15-web-jobs) | server | `pending_jobs` map entry |
 | 16 | [WebSocket RPC and SSE streams](#16-websocket-rpc-and-sse-streams) | server, client | connection registry, channels |
 | 17 | [Daemon process](#17-daemon-process) | server | PID file, process liveness |
@@ -649,53 +649,58 @@ stateDiagram-v2
 
 ### 14. Sessions and tokens (server)
 
+*Made explicit by #501; the defects it had are recorded in the investigation note, M14.*
+
 **Where.**
 
-- JWT claims `{sub, is_admin, iat, exp}` (`crates/shared/src/auth/jwt.rs:13-42`).
-- The secret, in `crates/server/src/auth/jwt.rs:37-76`.
-- `resolve_user` (`crates/server/src/auth/middleware.rs:16-21`).
-- Login and logout handlers (`crates/server/src/api/handlers/auth.rs`).
+- `SessionState`, `SessionEvent`, `transition` and `state_of` in `crates/server/src/auth/session.rs`,
+  with the operations behind each event in the same file. Its module doc has the transition table.
+- One row per session in the `session` table (`crates/db/sql/migrations/0012_session.sql`,
+  `crates/db/src/session/`).
+- JWT claims `{sub, sid, is_admin, iat, exp}` (`crates/shared/src/auth/jwt.rs`); `sid` names the row.
+- The secret, in `crates/server/src/auth/jwt.rs` (`load_or_generate_secret`).
 
-There is no session table, token ID, revocation list or per-user token version.
+**States** *(explicit, `SessionState`)*:
 
-**States** *(implicit)*:
+- `Active`: the row exists and `expires_at` is in the future. The only state whose token is
+  accepted.
+- `Expired`: the row exists, `expires_at` has passed. Refused; the sweep deletes the row.
+- `Ended`: no row. Logged out, ended by a password change or user deletion, or swept.
 
-- no session;
-- token valid for an existing user;
-- token valid for a deleted user;
-- token valid for a re-created user of the same name;
-- expired;
-- signature invalid.
+A token that fails its signature or `exp` check, or names no session (issued before 0.5.21), is
+refused before the session is looked at.
 
 **Transitions.**
 
-| Transition | Function | file:line | Checked? |
-|---|---|---|---|
-| none → valid | `login`, `login_form_handler`, signup | `auth.rs:41`, `:175` | checks the password |
-| valid → (cookie cleared) | `logout_handler` | `auth.rs:440-452` | only clears the cookie; the token stays valid until `exp` |
-| valid → user gone | `delete_user` | `crates/server/src/services/user_delete.rs:60` | takes effect on the next lookup |
-| valid → expired | time | `JWT_TOKEN_EXPIRY_SECONDS` = 7 days (`crates/shared/src/konst.rs:510`) | — |
-| all → signature invalid | `load_or_generate_secret` regenerates a secret file of the wrong length | `crates/server/src/auth/jwt.rs:45-51` | unchecked; logs a warning |
+| Transition | Function | Checked? |
+|---|---|---|
+| none → `Active` | `session::start`, from every login route and signup | checks the password |
+| `Active` → `Active` (use) | `session::lookup`, from every extractor, `authenticate_request`, `auth.validate` and web job start | `transition(state, Use)` refuses `Expired` and `Ended` |
+| `Active`, `Expired` → `Ended` (logout) | `session::logout`, from web `/logout`, REST `auth/logout`, RPC `auth.logout` | idempotent: ending an ended session is not an error |
+| `Active`, `Expired` → `Ended` (password changed) | `db::change_user_password`, from `services::user_password` | every session of the user but the caller's own; one transaction with the new hash |
+| `Active`, `Expired` → `Ended` (user deleted) | `db::delete_user`; `session.user` is `ON DELETE CASCADE` | — |
+| `Active` → `Expired` | time passes `expires_at` | read from the clock by `state_of` |
+| `Expired` → `Ended` (sweep) | `session::sweep`, from `session::run_sweeper` at startup and hourly | deletes `expires_at <= now`, the rows `state_of` calls `Expired`; a test checks they agree |
+| startup refused | `load_or_generate_secret` with a secret file of the wrong length | the server does not start, so no session ends silently |
 
 **Readers.**
 
-- `authenticate_request` (RPC), and the `AuthenticatedUser` and `AuthenticatedUserFromCookie`
-  extractors (`crates/server/src/api/extractors.rs`).
-- `resolve_user` looks the user up **by username** (`middleware.rs:17`), and reads `is_admin`
-  from the row.
-- A password change (`crates/server/src/services/user_password.rs:61`) rewrites the hash and
-  does not touch tokens.
+- `AuthenticatedUser`, `AuthenticatedUserFromCookie` and `AdminUser` (`crates/server/src/api/extractors.rs`)
+  and `authenticate_request` (RPC) build `AuthContext` from `session::lookup`: the user's current
+  name and `is_admin`, and the `session_id`.
+- `Job::resolve_requester` (`crates/server/src/daemon/state.rs`) presents the requester's session
+  again when a web job starts.
 
 ```mermaid
 stateDiagram-v2
-    state "any" as ANY
-    [*] --> Valid : login (password checked)
-    Valid --> Valid : logout clears cookie only
-    Valid --> Valid : password changed
-    Valid --> UserGone : user deleted
-    UserGone --> Valid : user re-created with the same name
-    Valid --> Expired : exp passes
-    ANY --> BadSignature : secret file regenerated at startup [unchecked]
+    [*] --> Active : login (password checked)
+    Active --> Active : use
+    Active --> Expired : expires_at passes
+    Active --> Ended : logout / password changed (other sessions) / user deleted
+    Expired --> Ended : sweep / logout / password changed / user deleted
+    Ended --> [*]
+    note right of Expired : use refused (expired)
+    note right of Ended : use refused (ended); a re-created user gets new sessions only
 ```
 
 ### 15. Web jobs
@@ -711,7 +716,11 @@ stateDiagram-v2
 |---|---|---|---|
 | absent → pending | destroy and create POST handlers | `crates/server/src/api/handlers/labs_web.rs:645`, `:869` | destroy checks lab access first; create leaves it to `up` |
 | pending → consumed | `job_stream_handler` removes the entry once, after an ownership check | `labs_web.rs:729-745` | checked |
-| consumed → running | `tokio::spawn` | `labs_web.rs:765`, `:773` | — |
+| consumed → running | `tokio::spawn` | `labs_web.rs` | the requester's session must still be active |
+
+The job runs as its requester's session presented again when it is consumed
+(`Job::resolve_requester`, see [14](#14-sessions-and-tokens-server)): a session that ended or expired
+while the job was pending stops it from running, and a changed admin flag applies.
 
 Nothing removes a pending job except the stream handler. There is no expiry. A consumed job
 cannot be re-attached: a reload shows "Job not found or already completed"
@@ -940,7 +949,9 @@ The client can tell only absent from present.
 **Transitions.**
 
 - `login` saves the token and overwrites any earlier one (`crates/client/src/cmd/login.rs:67`).
-- `logout` deletes the file (`login.rs:91-100`). It does not tell the server.
+- `logout` asks the server to end the session (`auth.logout`), then deletes the file
+  (`crates/client/src/cmd/login.rs`). If the server cannot be reached it still deletes the file
+  and warns that the session stays active on the server.
 - Expiry is learned only from the server's `AuthRequired` error
   (`crates/client/src/ws_client/messages.rs:72-74`).
 - `whoami` asks the server to validate the token and prints the expiry it reports

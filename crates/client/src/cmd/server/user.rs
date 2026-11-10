@@ -446,7 +446,8 @@ async fn change_password(
             println!(
                 "{}",
                 emoji_success(&format!(
-                    "Password changed successfully for user '{}'",
+                    "Password changed successfully for user '{}'. Their other login sessions \
+                     have ended",
                     response.username
                 ))
             );
@@ -533,8 +534,8 @@ fn username_from_token(token: &str) -> Result<String> {
     let payload = general_purpose::URL_SAFE_NO_PAD
         .decode(payload)
         .context("Failed to decode the login token")?;
-    let claims: Claims =
-        serde_json::from_slice(&payload).context("Failed to parse the login token")?;
+    let claims: Claims = serde_json::from_slice(&payload)
+        .context("Failed to parse the login token; run: sherpa login")?;
     Ok(claims.sub)
 }
 
@@ -562,7 +563,7 @@ mod tests {
 
     #[test]
     fn the_username_is_read_from_a_base64url_token() {
-        let claims = br#"{"sub":"dev","exp":1,"iat":1,"is_admin":false,"x":"??>>~~"}"#;
+        let claims = br#"{"sub":"dev","sid":"s","exp":1,"iat":1,"is_admin":false,"x":"??>>~~"}"#;
         let payload = general_purpose::URL_SAFE_NO_PAD.encode(claims);
         assert!(payload.contains(['-', '_']), "{payload}");
         let token = format!("header.{payload}.signature");

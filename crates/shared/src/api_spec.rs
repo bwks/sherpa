@@ -11,10 +11,10 @@ use crate::data::{
     DestroyResponse, DownloadImageRequest, GetUserInfoRequest, GetUserInfoResponse, ImportRequest,
     ImportResponse, InspectRequest, InspectResponse, LabNodeActionResponse, ListImagesRequest,
     ListImagesResponse, ListUsersRequest, ListUsersResponse, LoginRequest, LoginResponse,
-    RedeployRequest, RedeployResponse, RemoveSshKeyRequest, ScanImagesRequest, ScanImagesResponse,
-    SetDefaultImageRequest, SetDefaultImageResponse, ShowImageRequest, ShowImageResponse,
-    UpRequest, UpResponse, UpdateImpairmentRequest, UpdateImpairmentResponse, UserSshKeysResponse,
-    ValidateRequest, ValidateResponse,
+    LogoutResponse, RedeployRequest, RedeployResponse, RemoveSshKeyRequest, ScanImagesRequest,
+    ScanImagesResponse, SetDefaultImageRequest, SetDefaultImageResponse, ShowImageRequest,
+    ShowImageResponse, UpRequest, UpResponse, UpdateImpairmentRequest, UpdateImpairmentResponse,
+    UserSshKeysResponse, ValidateRequest, ValidateResponse,
 };
 
 /// Top-level unified API specification
@@ -186,6 +186,20 @@ const OPERATIONS: &[Operation] = &[
         rpc_method: "auth.validate",
         rpc_streaming: false,
         cli_command: "sherpa whoami",
+    },
+    Operation {
+        name: "auth.logout",
+        description: "End the session of the token the request is made with",
+        category: Category::Auth,
+        auth: AuthRequirement::Authenticated,
+        request_schema: None,
+        response_schema: Some("LogoutResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/auth/logout",
+        stream_type: None,
+        rpc_method: "auth.logout",
+        rpc_streaming: false,
+        cli_command: "sherpa logout",
     },
     // Lab operations
     Operation {
@@ -598,6 +612,7 @@ fn build_schemas() -> BTreeMap<String, serde_json::Value> {
     // Auth
     add_schema::<LoginRequest>(&mut schemas);
     add_schema::<LoginResponse>(&mut schemas);
+    add_schema::<LogoutResponse>(&mut schemas);
     add_schema::<ValidateRequest>(&mut schemas);
     add_schema::<ValidateResponse>(&mut schemas);
 
@@ -833,9 +848,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_build_spec_has_27_operations() {
+    fn test_build_spec_has_28_operations() {
         let spec = build_spec();
-        assert_eq!(spec.operations.len(), 27);
+        assert_eq!(spec.operations.len(), 28);
     }
 
     #[test]
@@ -845,6 +860,7 @@ mod tests {
         // Should have schemas for all referenced request/response types
         assert!(spec.schemas.contains_key("LoginRequest"));
         assert!(spec.schemas.contains_key("LoginResponse"));
+        assert!(spec.schemas.contains_key("LogoutResponse"));
         assert!(spec.schemas.contains_key("UpRequest"));
         assert!(spec.schemas.contains_key("DestroyResponse"));
         assert!(spec.schemas.contains_key("InspectResponse"));
@@ -884,6 +900,7 @@ mod tests {
         // These are the RPC methods from the WebSocket handler
         let expected = vec![
             "auth.login",
+            "auth.logout",
             "auth.validate",
             "up",
             "destroy",

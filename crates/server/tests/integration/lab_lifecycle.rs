@@ -837,11 +837,12 @@ async fn current_user_vm_login_sudo_resume_and_owner_redeploy() -> Result<()> {
     let checks: Result<()> = async {
         let mut no_keys = owner.clone();
         no_keys.ssh_keys.clear();
-        db::update_user(&server.db, no_keys).await?;
+        // `update_user` refuses a stale read, so each restore carries the version just written.
+        owner.updated_at = db::update_user(&server.db, no_keys).await?.updated_at;
         let (_, rejected) = ws.rpc_call_streaming("up", json!({ "token": owner_token, "lab_id": lab_id, "manifest": manifest }), timeout).await?;
         ensure!(rejected.get("error").is_some(), "Startup accepted an owner without keys");
         ensure!(db::get_lab(&server.db, &lab_id).await.is_err(), "Rejected startup created a lab record");
-        db::update_user(&server.db, owner.clone()).await?;
+        owner = db::update_user(&server.db, owner.clone()).await?;
         let (_, response) = ws.rpc_call_streaming("up", json!({ "token": owner_token, "lab_id": lab_id, "manifest": manifest, "username": "admin" }), timeout).await?;
         ensure!(response.get("error").is_none(), "Startup failed: {response}");
         ensure!(response["result"]["lab_info"]["user"] == username, "Client-spoofed username selected lab owner");
@@ -859,7 +860,7 @@ async fn current_user_vm_login_sudo_resume_and_owner_redeploy() -> Result<()> {
         ensure!(ssh_login(&destination, &private_key).await?, "Denied admin redeploy affected the running guest");
         let mut no_keys = owner.clone();
         no_keys.ssh_keys.clear();
-        db::update_user(&server.db, no_keys).await?;
+        owner.updated_at = db::update_user(&server.db, no_keys).await?.updated_at;
         let (_, rejected) = ws.rpc_call_streaming("redeploy", json!({ "token": owner_token, "lab_id": lab_id, "node_name": "vm", "manifest": manifest }), timeout).await?;
         ensure!(rejected.get("error").is_some(), "Missing keys were accepted during redeploy");
         ensure!(ssh_login(&destination, &private_key).await?, "Rejected redeploy tore down existing guest");

@@ -109,7 +109,8 @@ pub async fn update_password_handler(
     }
 
     PasswordSuccessTemplate {
-        message: "Password updated successfully".to_string(),
+        message: "Password updated successfully. Your other sessions have been logged out."
+            .to_string(),
     }
     .into_response()
 }
@@ -160,7 +161,16 @@ pub async fn add_ssh_key_handler(
     // 4. Add SSH key to user
     user.ssh_keys.push(form.ssh_key.clone());
 
-    if let Err(e) = db::update_user(&state.db, user).await {
+    if let Err(e) = db::update_user(&state.db, user)
+        .await
+        .map_err(ServiceError::from_user_write)
+    {
+        if let Some(refusal @ ServiceError::Conflict(_)) = ServiceError::find(&e) {
+            return SshKeyErrorTemplate {
+                message: refusal.to_string(),
+            }
+            .into_response();
+        }
         tracing::error!(
             "Failed to add SSH key for user '{}': {:?}",
             auth.username,
@@ -216,7 +226,16 @@ pub async fn delete_ssh_key_handler(
     // 3. Remove SSH key
     user.ssh_keys.remove(index);
 
-    if let Err(e) = db::update_user(&state.db, user).await {
+    if let Err(e) = db::update_user(&state.db, user)
+        .await
+        .map_err(ServiceError::from_user_write)
+    {
+        if let Some(refusal @ ServiceError::Conflict(_)) = ServiceError::find(&e) {
+            return SshKeyErrorTemplate {
+                message: refusal.to_string(),
+            }
+            .into_response();
+        }
         tracing::error!(
             "Failed to delete SSH key for user '{}': {:?}",
             auth.username,

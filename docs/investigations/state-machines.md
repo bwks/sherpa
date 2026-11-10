@@ -267,6 +267,33 @@ those sections.
 
 ### M14. Sessions and tokens
 
+**Resolved by #501 (0.5.21).** Sessions are rows in a `session` table, and the states and their
+transitions are explicit in `crates/server/src/auth/session.rs`. How it works now is in
+[`SERVER.md`](../architecture/SERVER.md#sessions-and-identity) and
+[`STATE_MACHINES.md` §14](../architecture/STATE_MACHINES.md#14-sessions-and-tokens-server). Each
+item below is kept as found, with what closed it:
+
+- M14.1: logout (web, REST, RPC and `sherpa logout`) deletes the session; a password change
+  deletes the user's other sessions, or all of them on an admin reset. Tests:
+  `auth::session` tests `a_token_used_after_logout_is_refused` and
+  `a_token_used_after_a_password_change_is_refused`, and the integration tests
+  `rpc_logout_ends_only_that_session`, `rest_logout_ends_the_bearer_session`,
+  `web_logout_ends_the_cookie_session_on_the_server`,
+  `changing_your_password_ends_your_other_sessions` and
+  `an_admin_password_reset_ends_every_session_of_the_user`.
+- M14.2: sessions belong to the user's id and are deleted with the user (`ON DELETE CASCADE`).
+  Tests: `a_token_of_a_deleted_user_does_not_work_for_a_new_user_of_the_same_name` and the
+  integration test `a_recreated_user_does_not_inherit_the_old_accounts_tokens`.
+- M14.3: a web job presents its requester's session again when it starts
+  (`Job::resolve_requester`). Tests in `daemon::state`: refused after logout and after deletion,
+  runs with a demoted user's current rights.
+- M14.4: a secret file of the wrong length stops startup with an error naming the file. Test:
+  `a_secret_of_the_wrong_length_refuses_startup_and_is_kept`.
+- M14.5: `update_user` is compare-and-set on `updated_at` (`db::UserChanged`, a `Conflict` to
+  callers), and a password change writes only the hash. Tests:
+  `test_update_from_a_stale_read_is_refused`, `a_password_change_keeps_concurrent_ssh_key_edits`
+  and `a_key_edit_from_a_stale_read_is_a_conflict_and_keeps_the_other_edit`.
+
 1. **A token outlives logout and password changes.**
    - `logout_handler` only clears the cookie (`crates/server/src/api/handlers/auth.rs:440-452`).
    - `change_password` only rewrites the hash
@@ -504,7 +531,7 @@ direction for the fix, not a design.
      redeploy. It should collect errors per link instead of stopping at the first. Test it
      with a fake `network` layer.
    - **Why:** each defect breaks the dataplane silently while every node shows `Running`.
-4. **Sessions (M14).**
+4. **Sessions (M14).** *Done in #501: a session table, see M14.*
    - **Form:** tokens that name the user by ID, plus a per-user token version, or a session
      table, checked in `resolve_user`. Logout, password change and user deletion move the
      version on. Re-resolve web jobs when they start.

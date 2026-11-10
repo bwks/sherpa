@@ -38,7 +38,7 @@ flowchart TB
         router["api/router.rs<br/>HTML routes: pages, forms, HTMX fragments<br/>REST routes: /api/v1/...<br/>WebSocket route: /ws<br/>static assets: rust_embed catch-all"]
     end
     subgraph boundary["Request/Auth/Response boundary"]
-        boundaryfiles["api/handlers/<br/>api/extractors.rs<br/>api/websocket/rpc/<br/>auth/{jwt,cookies,middleware,context}.rs"]
+        boundaryfiles["api/handlers/<br/>api/extractors.rs<br/>api/websocket/rpc/<br/>auth/{jwt,cookies,middleware,context,session}.rs"]
         boundaryduties["Responsibilities:<br/>parse path/query/body/form/multipart data<br/>authenticate cookies, bearer tokens, or RPC params.token<br/>pass the caller's AuthContext to services<br/>construct service request structs<br/>convert service results into HTML, JSON, SSE, or RPC responses"]
     end
     subgraph servicelayer["Service layer"]
@@ -114,11 +114,13 @@ flowchart TB
     signals --> envoverrides["apply env overrides<br/>SHERPA_SERVER_IPV4<br/>SHERPA_SERVER_IPV6<br/>SHERPA_SERVER_WS_PORT<br/>SHERPA_SERVER_HTTP_PORT"]
     envoverrides --> jwt
     subgraph appstate["AppState::new(config, metrics)"]
-        jwt["load/generate JWT secret<br/>(a new one written 0600 in a 0700 directory)"] --> database["open the database file"] --> schema["apply DB schema"] --> seed["optionally seed admin user"] --> storage["restrict lab and database storage<br/>and the server SSH key<br/>(daemon::storage::secure_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
+        jwt["load JWT secret, or generate it if missing<br/>(a new one written 0600 in a 0700 directory;<br/>a file of the wrong length stops startup)"] --> database["open the database file"] --> schema["apply DB schema"] --> seed["optionally seed admin user"] --> storage["restrict lab and database storage<br/>and the server SSH key<br/>(daemon::storage::secure_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
     end
     registry --> cancel["create CancellationToken for background services"]
     cancel --> scanner["if scanner enabled:<br/>spawn services::scanner::run_scanner(...)"]
-    scanner --> router["build Axum router and add /ws route"]
+    scanner --> sweeper["spawn auth::session::run_sweeper<br/>(deletes expired sessions at startup, then hourly)"]
+    sweeper --> router
+    router["build Axum router and add /ws route"]
     router --> tls{"TLS enabled?"}
     tls -->|yes| sans["compute certificate SANs if none configured"]
     sans --> ensurecert["ensure certificate/key exist"]
@@ -131,7 +133,9 @@ flowchart TB
     plain6 --> serveplain["serve with graceful shutdown future"]
 ```
 
-In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), `apply_env_overrides`, builds `AppState` and the scanner, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
+In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), `apply_env_overrides`, builds `AppState`, the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
+
+`auth::jwt::load_or_generate_secret` generates the JWT secret only when the file is missing. A file that exists with a length other than 32 bytes stops startup with an error naming the file: replacing it would silently end every session. Deleting the file generates a new secret, which logs every user out.
 
 Shutdown uses SIGINT/SIGTERM. The handlers are registered once, before the server binds any listener, so a registration failure stops startup with an error instead of leaving a server that cannot shut down gracefully. On shutdown, the server cancels the background-service token. With TLS, it also asks the `axum_server::Handle` to perform graceful shutdown with a short timeout. The OpenTelemetry guard flushes traces/metrics when dropped.
 
@@ -359,8 +363,8 @@ flowchart TB
     restext["AuthenticatedUser<br/>api/extractors.rs"]
     authreq["authenticate_request<br/>auth/middleware.rs"]
     jwt["jwt::validate_token<br/>auth/jwt.rs"]
-    resolve["auth::middleware::resolve_user (DB)"]
-    ctx["AuthContext<br/>username + is_admin"]
+    resolve["auth::session::lookup<br/>session row + its user (DB)"]
+    ctx["AuthContext<br/>username + is_admin + session_id"]
     service["service<br/>auth/policy.rs check"]
     browser --> cookieext
     rest --> restext
@@ -373,15 +377,42 @@ flowchart TB
     ctx --> service
 ```
 
-### Identity comes from the database
+### Sessions and identity
 
-The JWT proves who the caller is; it does not decide what they may do. After the token is validated, every extractor and the RPC `authenticate_request` look the subject up in the user table with `auth::middleware::resolve_user`:
+Every token names a login session, and identity comes from the session's row, not from the
+token. The JWT carries `sid`, the key of a row in the `session` table, besides `sub`, `iat`,
+`exp` and `is_admin`. After the signature and expiry check, every extractor, the RPC
+`authenticate_request` and `auth.validate` present the session with `auth::session::lookup`,
+which reads the session and its user in one query:
 
-- The `is_admin` flag in `AuthContext` comes from the user record, not the token. Demoting an admin takes effect on their next request, not when their seven-day token expires.
-- A valid token for a user that no longer exists is rejected: REST returns 401, HTML routes clear the cookie and redirect with `session_expired`, and RPC returns `AuthRequired`.
+- A token is accepted only while its session is active: the row exists and its `expires_at` has
+  not passed. Otherwise REST returns 401, HTML routes clear the cookie and redirect with
+  `session_expired`, RPC returns `AuthRequired`, and `auth.validate` answers `valid: false`.
+- `username` and `is_admin` in `AuthContext` come from the user row. Demoting an admin takes
+  effect on their next request, not when their token expires.
+- Sessions belong to a user's id, not their name, so a token of a deleted user never works for a
+  new account with the same name.
 - If the lookup itself fails, REST returns 500 and HTML routes return 503.
 
-The token still carries `is_admin`, and the UI may use it for display, but no authorization decision reads it.
+The token still carries `sub` and `is_admin`, and the UI and CLI may use them for display, but no
+authorization decision reads them.
+
+The session states (`Active`, `Expired`, `Ended`), the events that move them and the code behind
+each are defined in one place, `auth/session.rs`, with a table test. What ends a session:
+
+| Event | Effect | Code |
+|---|---|---|
+| Logout: web `POST /logout`, REST `POST /api/v1/auth/logout`, RPC `auth.logout` (`sherpa logout`) | ends that session only | `session::logout` |
+| Users change their own password | ends their other sessions, keeps the one they used | `db::change_user_password`, from `services::user_password` |
+| An admin resets another user's password | ends all of that user's sessions | the same |
+| The user is deleted | ends all their sessions | `session.user` is `ON DELETE CASCADE` |
+| `expires_at` passes | refused at once; the row is deleted by the next sweep | `session::run_sweeper`, at startup and every `SESSION_SWEEP_INTERVAL_SECS` (an hour) |
+
+A password change writes the new hash and deletes the sessions in one transaction. Web logout
+ends the cookie's session before it clears the cookie; if the session cannot be ended it returns
+503 and keeps the cookie, so the user is not shown as logged out while the token still works.
+A session lasts `JWT_TOKEN_EXPIRY_SECONDS` (7 days), or 30 days for a web login with "remember me";
+the token's `exp` and the row's `expires_at` are the same second.
 
 ### Services enforce authorization
 
@@ -417,14 +448,15 @@ The service always checks again, so the rule is still enforced if a transport fo
 
 ### Web jobs
 
-Web UI create and destroy run as jobs: the POST queues a `Job` in `AppState::pending_jobs` and redirects to `/jobs/{id}`. The job records its `requester` (`AuthContext`). The job page and `/jobs/{id}/stream` serve the job only to its requester or an admin; another user gets 403, and the job is left for its owner. The job runs as its requester.
+Web UI create and destroy run as jobs: the POST queues a `Job` in `AppState::pending_jobs` and redirects to `/jobs/{id}`. The job records its `requester` (`AuthContext`, with the session it was queued through). The job page and `/jobs/{id}/stream` serve the job only to its requester or an admin; another user gets 403, and the job is left for its owner. When the stream starts the job, `Job::resolve_requester` presents the requester's session again: if it has ended or expired since the job was queued (logout, a password change, the user deleted), the job does not run and the stream reports why; otherwise it runs as the requester with their current admin flag.
 
 ### Other rules
 
 - Browser page access uses cookie-only extractors.
 - REST API access uses bearer-or-cookie extractors.
 - WebSocket RPC access requires `params.token`.
-- Password changes go through `services::user_password::change_password` on every transport (web profile, web admin reset, REST, RPC). Users change only their own password and admins may reset anyone's. Changing your own password, as an admin too, needs the current password, so a stolen token cannot lock the owner out; `sherpa server user passwd` prompts for it. An admin resetting another user's password does not.
+- Password changes go through `services::user_password::change_password` on every transport (web profile, web admin reset, REST, RPC). Users change only their own password and admins may reset anyone's. Changing your own password, as an admin too, needs the current password, so a stolen token cannot lock the owner out; `sherpa server user passwd` prompts for it. An admin resetting another user's password does not. A change ends the user's other sessions (see [Sessions and identity](#sessions-and-identity)).
+- Edits of a user row are compare-and-set: `db::update_user` writes only if the row's `updated_at` is still the one it read, and otherwise fails with `db::UserChanged`. `ServiceError::from_user_write` turns that into a `Conflict` ("reload and try again"), so of two concurrent SSH-key edits the second is refused instead of overwriting the first. A password change writes only the hash (`db::change_user_password`), so it cannot undo a concurrent key edit.
 - User info operations allow admins to target anyone and regular users to target themselves. These checks are still in the transports, not in services.
 - Logins on every route go through `auth::login::check_credentials`. An unknown username is checked against a dummy hash, so it takes as long as a wrong password and response times do not show which usernames exist.
 - `auth::policy::require_host_access` refuses `up` and `redeploy` manifests from non-admins whose nodes are `privileged` or bind-mount host paths (`volumes`). Either is root on the host.

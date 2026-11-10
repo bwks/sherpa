@@ -12,11 +12,14 @@ mod persistence;
 mod queries;
 pub mod schema;
 pub mod seed;
+pub mod session;
 mod sql;
 pub mod user;
 
 pub use connect::{Database, open, open_in_memory};
-pub use shared::data::{DbBridge, DbLab, DbLink, DbNode, DbUser, NodeConfig};
+pub use shared::data::{
+    DbBridge, DbLab, DbLink, DbNode, DbSession, DbSessionUser, DbUser, NodeConfig, SessionChannel,
+};
 
 // Helper functions for extracting IDs safely
 pub use helpers::{get_image_id, get_lab_id, get_node_id, get_user_id};
@@ -51,9 +54,12 @@ pub use seed::admin_user::seed_admin_user;
 
 // User CRUD operations
 pub use user::{
-    create_admin_user, create_user, delete_user, find_user, find_user_by_id, get_user, list_users,
-    update_user,
+    UserChanged, change_user_password, create_admin_user, create_user, delete_user, find_user,
+    find_user_by_id, get_user, list_users, update_user,
 };
+
+// Session operations
+pub use session::{create_session, delete_expired_sessions, delete_session, find_session};
 
 // Bridge CRUD operations
 pub use bridge::{create_bridge, list_bridges};

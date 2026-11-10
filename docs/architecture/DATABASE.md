@@ -36,7 +36,10 @@ are in [`../investigations/turso-migration.md`](../investigations/turso-migratio
   `update_lab_tailscale_container`, `update_link_impairments` and the `update_node_*` functions.
   A caller holding an older copy of the record cannot write back columns another task changed
   meanwhile. `update_user` writes the user's own fields, sets `updated_at` itself and never changes
-  `created_at`. A link is created with its impairments in one statement (`create_link` takes a
+  `created_at`. It is also compare-and-set: it writes only if the row's `updated_at` is still the
+  one in the `DbUser` it was given, and otherwise fails with `UserChanged`, so an edit made from a
+  stale read cannot undo a concurrent one. `change_user_password` writes only the hash and
+  `updated_at`, and ends the user's other sessions in the same transaction. A link is created with its impairments in one statement (`create_link` takes a
   `DbLink`).
 - **Exclusive file.** While `sherpad` has the file open, no other process can open it, including
   the `sqlite3` command; Turso's multi-process mode is experimental. Inspection therefore runs
@@ -117,8 +120,12 @@ constraints; uniqueness is `UNIQUE` constraints; references are foreign keys:
 
 - `lab.user` and `node.image` are `ON DELETE RESTRICT`: an owner with labs, or an image in use,
   cannot be deleted.
-- `node.lab`, `link.lab`, `link.node_a`, `link.node_b`, `bridge.lab`, `bridge_member.bridge` and
-  `bridge_member.node` are `ON DELETE CASCADE`. Deleting a lab is one `DELETE`.
+- `node.lab`, `link.lab`, `link.node_a`, `link.node_b`, `bridge.lab`, `bridge_member.bridge`,
+  `bridge_member.node` and `session.user` are `ON DELETE CASCADE`. Deleting a lab is one
+  `DELETE`, and deleting a user ends their login sessions.
+- `session` holds one row per login session (`db::session`). `expires_at` is whole Unix seconds,
+  the token's `exp`, so the sweep compares integers. What each row means and what ends it is in
+  [`SERVER.md`](SERVER.md#sessions-and-identity).
 
 ### Versions
 
@@ -153,6 +160,7 @@ table, copy the rows, drop the old one, rename.
 | 9 | `0009_drop_dedicated_management_interface.sql`: drops `node_image.dedicated_management_interface`. Index 0 of every model's interface table is its management interface, so the flag changed nothing |
 | 10 | `0010_lab_description.sql`: `lab.description`, the manifest's optional `description` (see below) |
 | 11 | `0011_lab_ssh_key.sql`: `lab.ssh_key`, the key pair the `sherpa` account on the lab's nodes logs in with: `lab` for the lab's own, `server` (the default, for every lab created before) for the server's shared key. See [`SERVER.md`](SERVER.md#lab-ssh-keys) |
+| 12 | `0012_session.sql`: the `session` table, one row per login session, with indexes on `user` and `expires_at`. Tokens issued before it name no session, so every user logs in again after the upgrade. See [`SERVER.md`](SERVER.md#sessions-and-identity) |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
