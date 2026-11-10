@@ -1005,8 +1005,10 @@ other token variable in its environment (see [GitHub tokens](#github-tokens)).
 
 **The section.** Everything between `<!-- agent-bus:generation -->` and
 `<!-- /agent-bus:generation -->` is the agent's; the rest of the body is never changed. A body
-without the markers gets the section appended after a blank line. Markers out of order or more
-than once are an error, reported, and the body is left alone. The section holds:
+without the markers gets the section appended after a blank line. A marker counts only on a line
+of its own (surrounding whitespace and CRLF allowed) outside a fenced code block, so a description
+that quotes the markers inline or in a code block is not taken for the section. Markers out of
+order or more than once are an error, reported, and the body is left alone. The section holds:
 
 - the heading `## Generation` and a line saying the figures are agent-bus list-price cost, not
   billed, and that work outside the bus is not measured;

@@ -32,6 +32,13 @@ Output | Cache read | Cache write |\n|---|---|---|--:|--:|--:|--:|--:|--:|--:|";
 const MAX_ID: usize = 64;
 const MAX_MODELS: usize = 16;
 
+/// An open fenced code block, as in `CommonMark`: three or more backticks or tildes after at
+/// most three spaces. Holds its character and how many times it repeats.
+struct Fence {
+    mark: char,
+    len: usize,
+}
+
 /// One task in the section.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(super) struct Row {
@@ -81,18 +88,76 @@ pub(super) fn update_body(body: &str, ours: &[Row]) -> Result<String> {
 }
 
 /// Where the section is in `body`, from the start of its first marker to the end of its last;
-/// `None` when it has no markers.
+/// `None` when it has no markers. A marker counts only when it is a line of its own, apart from
+/// surrounding whitespace, and is not inside a fenced code block, so a description that quotes
+/// the markers is not taken for the section.
 fn section_range(body: &str) -> Result<Option<Range<usize>>> {
-    let starts: Vec<usize> = body.match_indices(START).map(|(at, _)| at).collect();
-    let ends: Vec<usize> = body.match_indices(END).map(|(at, _)| at).collect();
+    let mut starts = Vec::new();
+    let mut ends = Vec::new();
+    let mut fence: Option<Fence> = None;
+    let mut offset = 0;
+    for line in body.split_inclusive('\n') {
+        let at = offset;
+        offset += line.len();
+        if let Some(open) = &fence {
+            if open.is_closed_by(line) {
+                fence = None;
+            }
+            continue;
+        }
+        if let Some(open) = Fence::opened_by(line) {
+            fence = Some(open);
+            continue;
+        }
+        let text = line.trim();
+        let text_at = at + (line.len() - line.trim_start().len());
+        if text == START {
+            starts.push(text_at);
+        } else if text == END {
+            ends.push(text_at);
+        }
+    }
     match (starts.as_slice(), ends.as_slice()) {
         ([], []) => Ok(None),
         ([start], [end]) if start < end => Ok(Some(*start..end + END.len())),
         _ => bail!(
             "The pull request body has its Generation markers out of order or more than once: \
-             {START} must be followed by {END}, once each. Fix the body by hand"
+             {START} must be followed by {END}, once each, each on a line of its own. Fix the \
+             body by hand"
         ),
     }
+}
+
+impl Fence {
+    /// The fence `line` opens, if it opens one.
+    fn opened_by(line: &str) -> Option<Self> {
+        let (mark, len, rest) = fence_run(line)?;
+        // A backtick fence's info string cannot hold a backtick: "```a```" is inline code.
+        if mark == '`' && rest.contains('`') {
+            return None;
+        }
+        Some(Self { mark, len })
+    }
+
+    /// Whether `line` closes this fence: a run of the same character at least as long, with
+    /// nothing but whitespace after it.
+    fn is_closed_by(&self, line: &str) -> bool {
+        fence_run(line).is_some_and(|(mark, len, rest)| {
+            mark == self.mark && len >= self.len && rest.trim().is_empty()
+        })
+    }
+}
+
+/// The fence character of `line`, how many times it repeats, and the rest of the line, when
+/// the line starts, after at most three spaces, with three or more backticks or tildes.
+fn fence_run(line: &str) -> Option<(char, usize, &str)> {
+    let text = line.trim_start_matches(' ');
+    if line.len() - text.len() > 3 {
+        return None;
+    }
+    let mark = text.chars().next().filter(|c| *c == '`' || *c == '~')?;
+    let len = text.len() - text.trim_start_matches(mark).len();
+    (len >= 3).then(|| (mark, len, &text[len..]))
 }
 
 /// The rows in the data comment of `section`; none when it has no data comment.
@@ -387,6 +452,58 @@ mod tests {
             let error = update_body(&body, &[first()]).unwrap_err().to_string();
             assert!(error.contains("markers"), "{error}");
         }
+    }
+
+    #[test]
+    fn markers_mentioned_inline_are_left_alone_and_the_section_is_appended() {
+        let body = format!(
+            "The guest rewrites everything between `{START}` and `{END}` in the open pull \
+             requests.\n"
+        );
+        let updated = update_body(&body, &[first()]).unwrap();
+        assert!(
+            updated.starts_with(&format!("{}\n\n{START}\n", body.trim_end())),
+            "{updated}"
+        );
+        assert!(updated.ends_with(&format!("{END}\n")), "{updated}");
+        assert_eq!(update_body(&updated, &[first()]).unwrap(), updated);
+    }
+
+    #[test]
+    fn markers_in_a_fenced_code_block_are_ignored() {
+        for fence in ["```", "~~~", "````toml"] {
+            let close = &fence[..fence
+                .find(|c: char| c.is_alphabetic())
+                .unwrap_or(fence.len())];
+            let body = format!("Example:\n\n{fence}\n{START}\nrows\n{END}\n{close}\n");
+            let updated = update_body(&body, &[first()]).unwrap();
+            assert!(
+                updated.starts_with(&format!("{}\n\n{START}\n", body.trim_end())),
+                "{updated}"
+            );
+            assert_eq!(updated.matches(START).count(), 2, "{updated}");
+        }
+    }
+
+    #[test]
+    fn a_section_after_an_inline_mention_is_found_and_replaced() {
+        let mention = format!("Kept between `{START}` and `{END}`.\r\n\r\n");
+        let body = format!("{mention}  {START}\r\n## Generation\r\nby hand\r\n{END} \r\nAfter\r\n");
+        let updated = update_body(&body, &[first()]).unwrap();
+        assert!(!updated.contains("by hand"), "{updated}");
+        assert!(
+            updated.starts_with(&format!("{mention}  {START}\n")),
+            "{updated}"
+        );
+        assert!(
+            updated.ends_with(&format!("{END} \r\nAfter\r\n")),
+            "{updated}"
+        );
+        assert!(
+            table(&updated)
+                .iter()
+                .any(|line| line.starts_with("| 3f9a1c2e |"))
+        );
     }
 
     #[test]
