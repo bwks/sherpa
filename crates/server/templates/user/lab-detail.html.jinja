@@ -19,7 +19,7 @@
 <div class="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
     <div class="flex items-center justify-between mb-4">
         <h2 class="text-xl font-semibold text-heading">Lab Information</h2>
-        {% if lab_state != LabState::Unknown && lab_state != LabState::Empty %}
+        {% if offers_download %}
             <a href="/labs/{{ lab_info.id }}/download" hx-boost="false" class="text-accent hover:text-accent-hover transition-colors" title="Download lab files for CLI use">
                 {% call icons::download() %}
             </a>

@@ -28,7 +28,7 @@ use crate::templates::{
 use crate::api::errors::ApiError;
 use crate::api::extractors::AuthenticatedUserFromCookie;
 
-use shared::data::{LabNodeActionResponse, NodeModel, RedeployRequest, UpRequest};
+use shared::data::{LabNodeActionResponse, LabState, NodeModel, RedeployRequest, UpRequest};
 use shared::konst::{
     LAB_FILE_NAME, SHERPA_KNOWN_HOSTS_FILE, SHERPA_LABS_PATH, SHERPA_SSH_CONFIG_FILE,
     SHERPA_SSH_PRIVATE_KEY_FILE,
@@ -314,6 +314,7 @@ pub async fn lab_detail_handler(
                 lab_state: response.lab_state,
                 phase_badge: Badge::for_unready_phase(response.lab_phase, BadgeSize::Large),
                 offers_start_stop: response.lab_phase.is_ready(),
+                offers_download: lab_offers_download(response.lab_state),
                 devices: response.devices,
                 device_count,
                 inactive_devices: response.inactive_devices,
@@ -332,6 +333,20 @@ pub async fn lab_detail_handler(
             &e,
             "An error occurred loading the lab.",
         ),
+    }
+}
+
+/// Whether the lab detail page offers the lab files for download.
+///
+/// A lab with no nodes, or one whose state cannot be determined, has nothing to download.
+pub(crate) fn lab_offers_download(lab_state: LabState) -> bool {
+    match lab_state {
+        LabState::Running
+        | LabState::Stopped
+        | LabState::Partial
+        | LabState::Starting
+        | LabState::Failed => true,
+        LabState::Empty | LabState::Unknown => false,
     }
 }
 
@@ -912,4 +927,29 @@ pub async fn lab_create_post_handler(
     }
 
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_lab_detail_offers_the_download_only_for_a_lab_with_known_nodes() {
+        for (state, expected) in [
+            (LabState::Running, true),
+            (LabState::Stopped, true),
+            (LabState::Partial, true),
+            (LabState::Starting, true),
+            (LabState::Failed, true),
+            (LabState::Empty, false),
+            (LabState::Unknown, false),
+        ] {
+            assert_eq!(lab_offers_download(state), expected, "{state:?}");
+        }
+        assert_eq!(
+            LabState::iter().count(),
+            7,
+            "a new LabState needs a case here"
+        );
+    }
 }

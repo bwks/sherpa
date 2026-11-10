@@ -178,6 +178,9 @@ pub struct LabDetailTemplate {
     pub phase_badge: Option<Badge>,
     /// Only a ready lab can be started or stopped; any other can only be destroyed.
     pub offers_start_stop: bool,
+    /// Set by the handler from the lab state: a lab with no nodes, or an unknown state, has
+    /// no files to download.
+    pub offers_download: bool,
     pub devices: Vec<DeviceInfo>,
     pub device_count: usize,
     pub inactive_devices: Vec<String>,
@@ -584,6 +587,7 @@ mod tests {
     use shared::data::{NodeKind, NodeModel, NodeState};
 
     use super::*;
+    use crate::api::handlers::lab_offers_download;
 
     /// Every template file under `dir`.
     fn template_files(dir: &Path) -> Vec<PathBuf> {
@@ -1089,6 +1093,7 @@ mod tests {
             lab_state,
             phase_badge: Badge::for_unready_phase(lab_phase, BadgeSize::Large),
             offers_start_stop: lab_phase.is_ready(),
+            offers_download: lab_offers_download(lab_state),
             devices: vec![],
             device_count: 0,
             inactive_devices: vec![],
@@ -1150,6 +1155,17 @@ mod tests {
                 assert!(html.contains("Destroy Lab"), "{phase:?}: {html}");
             }
         }
+    }
+
+    #[test]
+    fn the_lab_detail_offers_the_download_only_for_a_lab_with_known_nodes() {
+        let download = r#"href="/labs/abcd1234/download""#;
+        for state in [LabState::Unknown, LabState::Empty] {
+            let html = lab_detail(state, LabPhase::Ready);
+            assert!(!html.contains(download), "{state:?}: {html}");
+        }
+        let html = lab_detail(LabState::Running, LabPhase::Ready);
+        assert!(html.contains(download), "{html}");
     }
 
     #[test]
