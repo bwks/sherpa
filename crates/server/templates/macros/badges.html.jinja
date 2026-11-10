@@ -39,15 +39,6 @@
     {% endif %}
 {% endmacro %}
 
-{# Lab phase badge: shown instead of the lab state while the lab is not ready #}
-{% macro lab_phase(phase) %}
-    {% if phase.to_string() == "creating" || phase.to_string() == "destroying" %}
-    <span class="badge-warning">{{ phase.to_string()|capitalize }}</span>
-    {% else %}
-    <span class="badge-danger">{{ phase.to_string()|capitalize }}</span>
-    {% endif %}
-{% endmacro %}
-
 {# Lab state badge (large — for detail page headers) #}
 {% macro lab_state_lg(state) %}
     {% if state.to_string() == "running" %}
@@ -60,14 +51,5 @@
     <span class="badge-neutral-lg">Stopped</span>
     {% else %}
     <span class="badge-neutral-lg">{{ state.to_string()|capitalize }}</span>
-    {% endif %}
-{% endmacro %}
-
-{# Lab phase badge (large — for detail page headers) #}
-{% macro lab_phase_lg(phase) %}
-    {% if phase.to_string() == "creating" || phase.to_string() == "destroying" %}
-    <span class="badge-warning-lg">{{ phase.to_string()|capitalize }}</span>
-    {% else %}
-    <span class="badge-danger-lg">{{ phase.to_string()|capitalize }}</span>
     {% endif %}
 {% endmacro %}

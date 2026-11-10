@@ -1,6 +1,5 @@
 {% extends "layouts/base.html.jinja" %}
 {% import "macros/icons.html.jinja" as icons %}
-{% import "macros/badges.html.jinja" as badges %}
 
 {% block title %}Lab Management - Sherpa Labs{% endblock %}
 
@@ -36,11 +35,8 @@
                     <td class="p-4 text-sm text-body">{{ lab.lab_id }}</td>
                     <td class="p-4 text-sm text-body">{{ lab.owner_username }}</td>
                     <td class="p-4 text-sm">
-                        {% if lab.phase.is_ready() %}
-                        <span class="badge-neutral">Ready</span>
-                        {% else %}
-                        {% call badges::lab_phase(lab.phase) %}
-                        {% endif %}
+                        {% let badge = Badge::phase_small(*lab.phase) %}
+                        {% include "snippets/badge.html.jinja" %}
                     </td>
                     <td class="p-4 text-sm text-body text-center">{{ lab.node_count }}</td>
                     <td class="p-4 text-sm text-body">

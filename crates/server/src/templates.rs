@@ -9,6 +9,10 @@ use shared::data::{
 
 use crate::api::handlers::{ImageSummary, UserSummary};
 
+mod badge;
+
+pub use badge::{Badge, BadgeSize, BadgeTone};
+
 /// Main dashboard page template
 #[derive(Template, WebTemplate)]
 #[template(path = "user/dashboard.html.jinja")]
@@ -833,10 +837,26 @@ mod tests {
     fn a_lab_that_is_not_ready_shows_its_phase_and_offers_no_start_or_stop() {
         // M7.3: a lab whose destroy failed used to show `stopped` and offer Start.
         for (phase, badge) in [
-            (LabPhase::Creating, ">Creating<"),
-            (LabPhase::Destroying, ">Destroying<"),
-            (LabPhase::DestroyFailed, ">Destroy failed<"),
-            (LabPhase::Interrupted, ">Interrupted<"),
+            (
+                LabPhase::Creating,
+                r#"<span class="badge-warning">Creating</span>"#,
+            ),
+            (
+                LabPhase::Destroying,
+                r#"<span class="badge-warning">Destroying</span>"#,
+            ),
+            (
+                LabPhase::DestroyFailed,
+                r#"<span class="badge-danger">Destroy failed</span>"#,
+            ),
+            (
+                LabPhase::Interrupted,
+                r#"<span class="badge-danger">Interrupted</span>"#,
+            ),
+            (
+                LabPhase::Unknown,
+                r#"<span class="badge-danger">Unknown</span>"#,
+            ),
         ] {
             let tpl = LabsGridTemplate {
                 labs: vec![LabSummary {
@@ -998,8 +1018,75 @@ mod tests {
             }],
         };
         let html = tpl.render().expect("template should render");
-        assert!(html.contains(">Interrupted<"), "{html}");
+        assert!(
+            html.contains(r#"<span class="badge-danger">Interrupted</span>"#),
+            "{html}"
+        );
         assert!(!html.contains("data-lab-action"), "{html}");
+    }
+
+    fn lab_detail(lab_state: LabState, lab_phase: LabPhase) -> String {
+        let lab_info: LabInfo = "id='abcd1234'\nname='test-lab'\nuser='alice'\n\
+            ipv4_network='192.0.2.0/24'\nipv4_gateway='192.0.2.1'\n\
+            ipv4_router='192.0.2.2'\nloopback_network='127.127.0.0/24'"
+            .parse()
+            .expect("lab info");
+        LabDetailTemplate {
+            username: "alice".to_string(),
+            is_admin: false,
+            active_page: "labs".to_string(),
+            lab_id: "abcd1234".to_string(),
+            lab_info,
+            lab_state,
+            lab_phase,
+            devices: vec![],
+            device_count: 0,
+            inactive_devices: vec![],
+            inactive_device_count: 0,
+            links: vec![],
+            link_count: 0,
+            bridges: vec![],
+            bridge_count: 0,
+        }
+        .render()
+        .expect("template should render")
+    }
+
+    #[test]
+    fn the_lab_detail_header_shows_a_large_phase_badge_while_the_lab_is_not_ready() {
+        for (phase, badge) in [
+            (
+                LabPhase::Creating,
+                r#"<span class="badge-warning-lg">Creating</span>"#,
+            ),
+            (
+                LabPhase::Destroying,
+                r#"<span class="badge-warning-lg">Destroying</span>"#,
+            ),
+            (
+                LabPhase::DestroyFailed,
+                r#"<span class="badge-danger-lg">Destroy failed</span>"#,
+            ),
+            (
+                LabPhase::Interrupted,
+                r#"<span class="badge-danger-lg">Interrupted</span>"#,
+            ),
+            (
+                LabPhase::Unknown,
+                r#"<span class="badge-danger-lg">Unknown</span>"#,
+            ),
+        ] {
+            let html = lab_detail(LabState::Stopped, phase);
+            assert!(html.contains(badge), "{phase:?}: {html}");
+            assert!(!html.contains(">Stopped<"), "{phase:?}: {html}");
+        }
+    }
+
+    #[test]
+    fn the_lab_detail_header_shows_the_lab_state_once_the_lab_is_ready() {
+        let html = lab_detail(LabState::Running, LabPhase::Ready);
+        assert!(html.contains(">Running<"), "{html}");
+        assert!(!html.contains(">Ready<"), "{html}");
     }
 
     #[test]
