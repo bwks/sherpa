@@ -41,6 +41,11 @@ jobs:
     name: Release
     needs: check-version
     if: needs.check-version.outputs.should_release == 'true'
+    # Two pushes at the same version can both pass check-version before either has tagged it.
+    # Releases queue rather than overlap, and release.yml checks the tag again when its turn comes.
+    concurrency:
+      group: release
+      cancel-in-progress: false
     uses: ./.github/workflows/release.yml
     with:
       version: ${{ needs.check-version.outputs.version }}

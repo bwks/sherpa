@@ -15,8 +15,29 @@ permissions:
   pull-requests: write
 
 jobs:
+  tag-check:
+    name: Check the version is not tagged yet
+    runs-on: ubuntu-latest
+    outputs:
+      free: ${{ steps.tag.outputs.free }}
+    steps:
+      - name: Look for the tag on the remote
+        id: tag
+        run: |
+          # A release of the same version that ran before this one, queued behind it in the
+          # release concurrency group, has tagged it already: then there is nothing to do.
+          if git ls-remote --exit-code --tags "https://github.com/${{ github.repository }}.git" \
+              "refs/tags/${{ inputs.version }}" > /dev/null; then
+            echo "${{ inputs.version }} is already tagged; nothing to release."
+            echo "free=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "free=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build-app:
     name: Build ${{ matrix.binary }} (${{ matrix.target }})
+    needs: tag-check
+    if: needs.tag-check.outputs.free == 'true'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -95,7 +116,8 @@ jobs:
 
   release:
     name: Create Release
-    needs: build-app
+    needs: [tag-check, build-app]
+    if: needs.tag-check.outputs.free == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
