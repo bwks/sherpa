@@ -259,7 +259,8 @@ Run these after changing anything in `tests/harness/` or a lab runner.
 | Talos nodes or clusters | The Talos lab test, against a server running the change |
 | Before a release, or periodically | The VM code suite on both releases |
 
-These are guidelines, not gates: none of them blocks a commit, a version bump or a merge.
+These are guidelines, not gates: none of them blocks a commit, a merge or a release. The release
+pull request lists the "Before a release" row as a checklist item (`docs/architecture/RELEASE.md`).
 
 ## Known issues
 
