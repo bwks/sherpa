@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.33] - 2026-11-11
+
+### Miscellaneous
+
+- Merge pull request #571 from bwks/chore/567-workspace-version
+
+ci: one workspace version, released by a release PR by @bwks in [#571](https://github.com/bwks/sherpa/pull/571) ([b3382a7](https://github.com/bwks/sherpa/commit/b3382a7737088dba5d713f59c3e93af7486378a7))
+- Revert "chore: temporary version bump to test the Version check"
+
+This reverts commit 04c369f6b34e480ffcdf78bdcf5f19c4464b0c3b.
+
+Co-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com> by @bwks ([63ce07b](https://github.com/bwks/sherpa/commit/63ce07b0cb44f597c2fb24fc6442ec245982c4bf))
+- Temporary version bump to test the Version check by @bwks ([04c369f](https://github.com/bwks/sherpa/commit/04c369f6b34e480ffcdf78bdcf5f19c4464b0c3b))
+- One workspace version, released by a release PR by @bwks ([02671f6](https://github.com/bwks/sherpa/commit/02671f6497fe21530f0671b2ff92ec11bd49f7eb))
+- Merge pull request #572 from bwks/refactor/550-template-decisions
+
+refactor(server): templates only render; handlers decide with enums by @bwks in [#572](https://github.com/bwks/sherpa/pull/572) ([690b6bc](https://github.com/bwks/sherpa/commit/690b6bc12433a3f607276ed9443312d037611c70))
+- Merge pull request #570 from bwks/changelog/v0.5.32
+
+chore(release): update changelog for v0.5.32 by @github-actions[bot] in [#570](https://github.com/bwks/sherpa/pull/570) ([ce50aca](https://github.com/bwks/sherpa/commit/ce50acacc3f0364203af5084ee35a9bf55236899))
+
+### Refactor
+
+- Templates only render; handlers decide with enums by @bwks ([0983761](https://github.com/bwks/sherpa/commit/09837611092bcc72df2f8e1c73f3198e0c0313e9))
 ## [0.5.32] - 2026-11-11
 
 ### Bug Fixes
