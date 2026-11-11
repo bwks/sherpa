@@ -351,7 +351,12 @@ nodes = [
             r#""none""#,
         ] {
             let toml_str = format!(
-                "name = \"my-lab\"\n\nnodes = [\n  {{ name = \"dev01\", model = \"frr_linux\", ztp = {value} }},\n]\n"
+                r#"name = "my-lab"
+
+nodes = [
+  {{ name = "dev01", model = "frr_linux", ztp = {value} }},
+]
+"#
             );
             let error = toml::from_str::<Manifest>(&toml_str)
                 .expect_err("the manifest is refused")

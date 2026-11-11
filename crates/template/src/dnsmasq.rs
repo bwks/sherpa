@@ -30,7 +30,7 @@ impl DnsmasqTemplate {
             Ztp::Tftp => vec![format!("{tag},67,{}", record.config_file)],
             Ztp::Http => {
                 let url = format!(
-                    "\"http://{}:8080/{NODE_CONFIGS_DIR}/{}\"",
+                    r#""http://{}:8080/{NODE_CONFIGS_DIR}/{}""#,
                     self.tftp_server_ipv4, record.config_file
                 );
                 vec![format!("{tag},67,{url}"), format!("{tag},239,{url}")]
