@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.30] - 2026-11-11
+
+### Features
+
+- One validated ZTP setting, honoured by containers by @bwks ([df7c0f7](https://github.com/bwks/sherpa/commit/df7c0f76fb119fbdd9f253f907d985a9199cf525))
+
+### Miscellaneous
+
+- Merge pull request #562 from bwks/feat/476-502-ztp
+
+feat: one validated ZTP setting, honoured by containers by @bwks in [#562](https://github.com/bwks/sherpa/pull/562) ([436fa33](https://github.com/bwks/sherpa/commit/436fa3383ae2732d96532858238186ddd1003d15))
+- Merge pull request #560 from bwks/changelog/v0.5.29
+
+chore(release): update changelog for v0.5.29 by @github-actions[bot] in [#560](https://github.com/bwks/sherpa/pull/560) ([4685ce8](https://github.com/bwks/sherpa/commit/4685ce84fcda9d52962f34a97dd3188aefef3c9a))
+
+### Refactor
+
+- Raw strings instead of escaped quotes by @bwks ([cb16864](https://github.com/bwks/sherpa/commit/cb16864e8d9da1c1b919b950a046465b1fbc9e84))
 ## [0.5.29] - 2026-11-10
 
 ### Bug Fixes
