@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.31] - 2026-11-11
+
+### Bug Fixes
+
+- Report gh's error, not the broken pipe, when it ends without reading the body by @bwks ([8f21944](https://github.com/bwks/sherpa/commit/8f219448b9de1fef87cd406f086667282927a5e1))
+
+### Miscellaneous
+
+- Merge pull request #563 from bwks/fix/agent-bus-gh-broken-pipe
+
+fix(agent-bus): report gh's error, not the broken pipe, when it ends without reading the body by @bwks in [#563](https://github.com/bwks/sherpa/pull/563) ([260514c](https://github.com/bwks/sherpa/commit/260514cc21c91c576ee0b92aed500d7f33da6391))
+- Merge remote-tracking branch 'origin/main' into fix/agent-bus-gh-broken-pipe
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com> by @bwks ([49083b2](https://github.com/bwks/sherpa/commit/49083b205a40b9d964a50b40de585f8732574610))
+- Merge pull request #564 from bwks/changelog/v0.5.30
+
+chore(release): update changelog for v0.5.30 by @github-actions[bot] in [#564](https://github.com/bwks/sherpa/pull/564) ([361e046](https://github.com/bwks/sherpa/commit/361e046f9cb58cea95cc47af6c3da3b06999e6ff))
 ## [0.5.30] - 2026-11-11
 
 ### Features
