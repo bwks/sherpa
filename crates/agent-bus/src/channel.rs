@@ -40,12 +40,10 @@ pub const SUBJECT_PREFIX: &str = "agents";
 /// guest's task records, `results.jsonl`, the listener's journal) keep them as long.
 pub const RETENTION: Duration = Duration::from_hours(7 * 24);
 
-/// How long the bus keeps the consumer that reads the history after its last use.
-const HISTORY_INACTIVE: Duration = Duration::from_secs(30);
-/// How many messages one read of the history asks for.
-const HISTORY_BATCH: usize = 256;
-/// How long one read of the history waits for messages.
-const HISTORY_WAIT: Duration = Duration::from_secs(5);
+/// The durable consumer the recorder reads: every message on `agents.>`, each acknowledged
+/// once it is in the record. Agent names are lowercase letters, digits and hyphens, so no
+/// agent's inbox can take this name.
+pub const RECORDER: &str = "_record";
 
 /// Where the bus is, and the CA certificate its server certificate must chain to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,6 +94,17 @@ enum Plan {
     Keep,
     Update,
     Recreate,
+}
+
+/// Where a delivered message is in the stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Position {
+    /// The stream sequence: unique to the message, the same each time it is delivered.
+    pub seq: u64,
+    /// When the stream stored it, in milliseconds since the Unix epoch.
+    pub at_ms: u64,
+    /// How many messages the consumer had left to deliver after this one.
+    pub pending: u64,
 }
 
 /// A message read from an inbox; acknowledge it once handled.
@@ -230,6 +239,26 @@ impl Channel {
         }
     }
 
+    /// Create the recorder's consumer, `RECORDER`, on the inbox stream, or bring it to the wanted
+    /// config without losing or replaying messages. A new one starts at the oldest message the
+    /// stream keeps, so the first command that catches the record up records them all. This is the host's job, run
+    /// by `bus start` after `create_inboxes`. It is safe to repeat.
+    ///
+    /// # Errors
+    ///
+    /// Fails when there is no inbox stream or the bus refuses the consumer.
+    #[instrument(skip_all)]
+    pub async fn create_recorder(&self) -> Result<InboxChange> {
+        let stream = self
+            .jetstream
+            .get_stream(STREAM)
+            .await
+            .context("Unable to open the inbox stream")?;
+        self.ensure_inbox(&stream, &recorder_config())
+            .await
+            .context("Unable to prepare the recorder's consumer")
+    }
+
     /// Put `message` in its receiver's inbox, and wait until the bus has stored it.
     ///
     /// # Errors
@@ -263,64 +292,63 @@ impl Channel {
     #[instrument(skip_all, fields(%agent))]
     pub async fn inbox(&self, agent: &str) -> Result<Inbox> {
         check_agent_name(agent)?;
-        let mut reader = self
-            .jetstream
-            .get_consumer_from_stream::<consumer::pull::Config, _, _>(agent, STREAM)
-            .await
-            .with_context(|| {
-                format!(
+        let (inbox, _) = self
+            .reader(
+                agent,
+                &format!(
                     "Unable to open the inbox of '{agent}'. It exists only for an agent in the \
                      agents file the bus was started with, and only while the bus is running"
-                )
-            })?;
-        let info = reader
-            .info()
-            .await
-            .with_context(|| format!("Unable to read the inbox of '{agent}'"))?;
-        ensure!(
-            info.num_waiting == 0,
-            "Another reader is attached to the inbox of '{agent}': readers share its messages, \
-             so each would get only some. Stop the other reader (for example an earlier \
-             `agent-bus listen {agent}`) and try again"
-        );
-        let messages = reader
-            .messages()
-            .await
-            .with_context(|| format!("Unable to read the inbox of '{agent}'"))?;
-        Ok(Inbox { messages })
+                ),
+            )
+            .await?;
+        Ok(inbox)
     }
 
-    /// Every message still kept in the stream for `agent`, oldest first, read without consuming
-    /// the inbox: an ephemeral pull consumer with no acknowledgement reads them, and the bus drops
-    /// it after use. The host's permissions already allow this (the `JetStream` API and its own
-    /// inbox pulls), so nothing was widened. Messages that are not agent messages, or whose
-    /// sender is not the subject's, are skipped.
+    /// Open the recorder's consumer, and say how many messages wait in it, unread or
+    /// unacknowledged. Like an inbox, it takes one reader at a time.
     ///
     /// # Errors
     ///
-    /// Fails when the name is invalid or the bus refuses the consumer or a read.
-    #[instrument(level = "debug", skip_all, fields(%agent))]
-    pub async fn history(&self, agent: &str) -> Result<Vec<Message>> {
-        let subject = inbox_filter(agent)?;
-        let stream = self
+    /// Fails when there is no recorder consumer (the bus was started by an older agent-bus) or
+    /// another reader is attached.
+    #[instrument(skip_all)]
+    pub async fn recorder(&self) -> Result<(Inbox, u64)> {
+        self.reader(
+            RECORDER,
+            &format!(
+                "Unable to open the recorder's consumer '{RECORDER}'. `agent-bus bus start` \
+                 creates it; run it again if the bus was started by an older agent-bus"
+            ),
+        )
+        .await
+    }
+
+    /// Open the durable consumer `name` as its only reader, and say how many messages wait in
+    /// it. `missing` is the error when it cannot be opened.
+    async fn reader(&self, name: &str, missing: &str) -> Result<(Inbox, u64)> {
+        let mut reader = self
             .jetstream
-            .get_stream(STREAM)
+            .get_consumer_from_stream::<consumer::pull::Config, _, _>(name, STREAM)
             .await
-            .context("Unable to open the inbox stream")?;
-        let reader = stream
-            .create_consumer(consumer::pull::Config {
-                filter_subject: subject,
-                ack_policy: consumer::AckPolicy::None,
-                deliver_policy: consumer::DeliverPolicy::All,
-                inactive_threshold: HISTORY_INACTIVE,
-                ..Default::default()
-            })
+            .with_context(|| missing.to_owned())?;
+        let info = reader
+            .info()
             .await
-            .context("Unable to create a consumer to read the history")?;
-        let result = read_all(&reader).await;
-        // Best effort: an unused ephemeral consumer is dropped by the bus anyway.
-        let _ = stream.delete_consumer(&reader.cached_info().name).await;
-        result
+            .with_context(|| format!("Unable to read the consumer '{name}'"))?;
+        ensure!(
+            info.num_waiting == 0,
+            "Another reader is attached to '{name}': readers share its messages, so each would \
+             get only some. Stop the other reader (for example an earlier `agent-bus listen \
+             {name}`) and try again"
+        );
+        let waiting = info
+            .num_pending
+            .saturating_add(u64::try_from(info.num_ack_pending).unwrap_or(u64::MAX));
+        let messages = reader
+            .messages()
+            .await
+            .with_context(|| format!("Unable to read the consumer '{name}'"))?;
+        Ok((Inbox { messages }, waiting))
     }
 
     /// Store `status` as `agent`'s, and wait until the bus has stored it. This is a plain
@@ -561,6 +589,24 @@ impl Inbox {
 }
 
 impl Delivery {
+    /// Where the message is in the stream, from its delivery's metadata.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the delivery has no `JetStream` metadata.
+    pub fn position(&self) -> Result<Position> {
+        let info = self
+            .raw
+            .info()
+            .map_err(|error| anyhow!(error))
+            .context("The message has no stream position")?;
+        Ok(Position {
+            seq: info.stream_sequence,
+            at_ms: unix_ms(info.published.unix_timestamp_nanos()),
+            pending: info.pending,
+        })
+    }
+
     /// Tell the bus this message is handled, so it is not delivered again.
     ///
     /// # Errors
@@ -576,39 +622,6 @@ impl Delivery {
     }
 }
 
-/// Read everything `reader` has pending.
-#[instrument(level = "debug", skip_all)]
-async fn read_all(reader: &consumer::PullConsumer) -> Result<Vec<Message>> {
-    let mut pending = reader.cached_info().num_pending;
-    let mut messages = Vec::new();
-    while pending > 0 {
-        let mut batch = reader
-            .fetch()
-            .max_messages(HISTORY_BATCH)
-            .expires(HISTORY_WAIT)
-            .messages()
-            .await
-            .context("Unable to read the history")?;
-        let mut read: u64 = 0;
-        while let Some(raw) = batch.next().await {
-            let raw = raw
-                .map_err(anyhow::Error::from_boxed)
-                .context("Unable to read the history")?;
-            read = read.saturating_add(1);
-            if let Ok(message) = serde_json::from_slice::<Message>(&raw.payload)
-                && sent_by(raw.subject.as_str(), &message)
-            {
-                messages.push(message);
-            }
-        }
-        if read == 0 {
-            break;
-        }
-        pending = pending.saturating_sub(read);
-    }
-    Ok(messages)
-}
-
 /// The consumer behind `agent`'s inbox.
 fn consumer_config(agent: &str) -> Result<consumer::pull::Config> {
     Ok(consumer::pull::Config {
@@ -620,6 +633,20 @@ fn consumer_config(agent: &str) -> Result<consumer::pull::Config> {
         max_waiting: 1,
         ..Default::default()
     })
+}
+
+/// The recorder's consumer: every subject of the stream, from its oldest message. One reader
+/// at a time, as an inbox, and one message in flight, so messages are recorded in stream order
+/// even when one is delivered again.
+fn recorder_config() -> consumer::pull::Config {
+    consumer::pull::Config {
+        durable_name: Some(RECORDER.to_owned()),
+        filter_subject: format!("{SUBJECT_PREFIX}.>"),
+        deliver_policy: consumer::DeliverPolicy::All,
+        max_waiting: 1,
+        max_ack_pending: 1,
+        ..Default::default()
+    }
 }
 
 /// Compare an existing consumer with the wanted one. Only the settings we choose are compared;
@@ -833,6 +860,19 @@ mod tests {
             consumer_config("dev").unwrap().filter_subject,
             "agents.dev.>"
         );
+    }
+
+    #[test]
+    fn the_recorder_reads_every_subject_from_the_start_one_message_at_a_time() {
+        let config = recorder_config();
+        assert_eq!(config.durable_name.as_deref(), Some("_record"));
+        assert_eq!(config.filter_subject, "agents.>");
+        assert_eq!(config.deliver_policy, consumer::DeliverPolicy::All);
+        assert_eq!(config.max_waiting, 1);
+        assert_eq!(config.max_ack_pending, 1);
+        // No agent can have the recorder's name, so no inbox takes it.
+        assert!(check_agent_name(RECORDER).is_err());
+        assert_eq!(plan(&existing(1, "agents.>"), &config), Plan::Keep);
     }
 
     #[test]

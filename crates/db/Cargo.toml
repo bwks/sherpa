@@ -20,15 +20,14 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 rand = { workspace = true }
 
-# Database. Pinned exactly: Turso is pre-1.0. Default features install mimalloc as the
-# process's global allocator, so they stay off.
-turso = { version = "=0.8.3", default-features = false }
+# Database. The workspace pins it exactly, without default features (see the root Cargo.toml).
+turso = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 
 [build-dependencies]
 # build.rs prepares every SQL statement in sql/queries/ against the schema in sql/schema/.
 anyhow = { workspace = true }
-turso = { version = "=0.8.3", default-features = false }
+turso = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
 
 [dev-dependencies]

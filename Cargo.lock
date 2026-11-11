@@ -112,6 +112,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "turso",
  "uuid",
 ]
 

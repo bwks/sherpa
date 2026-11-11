@@ -79,8 +79,9 @@ Functional boundaries are separated into crates, found in the `crates/` director
 ### Crates and their purpose
 agent-bus:
 - Development tool, not released: a NATS message channel between the host agent and agents in
-  lab guests. See `docs/architecture/AGENT_BUS.md`; the investigation notes are in
-  `docs/investigations/agent-bus.md`.
+  lab guests, with the host's record of every message in an embedded Turso file. See
+  `docs/architecture/AGENT_BUS.md`; the investigation notes are in
+  `docs/investigations/agent-bus.md` and `docs/investigations/agent-bus-database.md`.
 
 client:
 - Client binary CLI tool for interacting with the Sherpa Server. This is installed on user machines.
@@ -276,7 +277,7 @@ Use these preferred libraries for the listed functions.
 - `clap` - CLI utilities.
 - `reqwest` - Web client.
 - `axum` - Web server.
-- `turso` - Database, embedded. Only the `db` crate uses it.
+- `turso` - Database, embedded. Used by the `db` crate, and by `agent-bus` for the host's record.
 - `anyhow` - Errors.
 - `serde` - Serialization/Deserialization.
 - `tabled` - Display information in the terminal

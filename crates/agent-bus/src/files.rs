@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
+use nix::errno::Errno;
 use nix::fcntl::{Flock, FlockArg};
 use serde::Deserialize;
 use tracing::instrument;
@@ -236,28 +237,65 @@ pub fn stamp(line: &str) -> Option<u64> {
 }
 
 /// Take the exclusive lock on the file at `path`, created 0600 if missing (its directory too,
-/// 0700), waiting for another holder to finish. The file stays: removing it would let two
-/// processes lock two files of one name.
+/// 0700), waiting for another holder to finish, and write this process's PID into it for
+/// `lock_holder`. The file stays: removing it would let two processes lock two files of one
+/// name.
 ///
 /// # Errors
 ///
 /// Fails when the file cannot be created or locked.
 #[instrument(level = "debug", skip_all, fields(path = %path.display()))]
 pub fn lock_exclusive(path: &Path) -> Result<FileLock> {
+    let lock = Flock::lock(lock_file(path)?, FlockArg::LockExclusive).map_err(|(_, errno)| {
+        anyhow!(errno).context(format!("Unable to lock {}", path.display()))
+    })?;
+    held(lock, path)
+}
+
+/// As `lock_exclusive`, without waiting: `None` when another holds the lock.
+///
+/// # Errors
+///
+/// Fails when the file cannot be created, or locking fails other than by being held.
+#[instrument(level = "debug", skip_all, fields(path = %path.display()))]
+pub fn try_lock_exclusive(path: &Path) -> Result<Option<FileLock>> {
+    match Flock::lock(lock_file(path)?, FlockArg::LockExclusiveNonblock) {
+        Ok(lock) => held(lock, path).map(Some),
+        Err((_, Errno::EWOULDBLOCK)) => Ok(None),
+        Err((_, errno)) => {
+            Err(anyhow!(errno).context(format!("Unable to lock {}", path.display())))
+        }
+    }
+}
+
+/// The process that holds, or last held, the lock at `path`, as it wrote itself into the file;
+/// `None` when the file is missing or names no process.
+pub fn lock_holder(path: &Path) -> Option<u32> {
+    fs::read_to_string(path).ok()?.trim().parse().ok()
+}
+
+/// The lock just taken on the file at `path`, with this process's PID written into the file.
+fn held(lock: Flock<File>, path: &Path) -> Result<FileLock> {
+    let mut file: &File = &lock;
+    file.set_len(0)
+        .and_then(|()| file.write_all(format!("{}\n", std::process::id()).as_bytes()))
+        .with_context(|| format!("Unable to write the holder into {}", path.display()))?;
+    Ok(FileLock { _lock: lock })
+}
+
+/// The lock file at `path`, opened for locking: created 0600 if missing, its directory too,
+/// 0700.
+fn lock_file(path: &Path) -> Result<File> {
     if let Some(dir) = path.parent() {
         private_dir(dir)?;
     }
-    let file = OpenOptions::new()
+    OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(false)
         .mode(PRIVATE_FILE_MODE)
         .open(path)
-        .with_context(|| format!("Unable to open {}", path.display()))?;
-    let lock = Flock::lock(file, FlockArg::LockExclusive).map_err(|(_, errno)| {
-        anyhow!(errno).context(format!("Unable to lock {}", path.display()))
-    })?;
-    Ok(FileLock { _lock: lock })
+        .with_context(|| format!("Unable to open {}", path.display()))
 }
 
 #[cfg(test)]
@@ -384,6 +422,38 @@ mod tests {
         drop(held);
         let file = OpenOptions::new().write(true).open(&path).unwrap();
         assert!(Flock::lock(file, FlockArg::LockExclusiveNonblock).is_ok());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_held_lock_is_not_waited_for() {
+        let dir = scratch("try-lock");
+        let path = dir.join("record.lock");
+        let held = try_lock_exclusive(&path).unwrap();
+        assert!(held.is_some());
+        assert_eq!(mode(&path), PRIVATE_FILE_MODE);
+        assert!(try_lock_exclusive(&path).unwrap().is_none());
+        drop(held);
+        assert!(try_lock_exclusive(&path).unwrap().is_some());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_lock_names_its_holder() {
+        let dir = scratch("holder");
+        let path = dir.join("record.lock");
+        // A stale or foreign file names nobody.
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(&path, "not a pid").unwrap();
+        assert_eq!(lock_holder(&path), None);
+        let lock = try_lock_exclusive(&path).unwrap().unwrap();
+        assert_eq!(lock_holder(&path), Some(std::process::id()));
+        drop(lock);
+        fs::write(&path, "").unwrap();
+        let lock = lock_exclusive(&path).unwrap();
+        assert_eq!(lock_holder(&path), Some(std::process::id()));
+        drop(lock);
+        assert_eq!(lock_holder(&dir.join("missing.lock")), None);
         fs::remove_dir_all(&dir).unwrap();
     }
 }

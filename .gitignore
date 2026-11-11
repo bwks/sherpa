@@ -24,6 +24,8 @@ dev.sh
 !lab.sql
 # The db crate's schema and queries, which its build script checks.
 !/crates/db/sql/**/*.sql
+# agent-bus's record schema and queries, which its unit tests check.
+!/crates/agent-bus/sql/**/*.sql
 .idea/
 .opencode/
 srl-config.json
