@@ -232,6 +232,11 @@ fn gh_command(gh: &str, checkout: &Path, token: &WriteToken) -> Command {
 
 /// Run `command` to its end within `COMMAND_TIMEOUT`, with `input` on its stdin, and collect
 /// its output. `what` names it in errors.
+///
+/// The input is written while the command runs, so neither waits on the other. A command may
+/// end without reading it, as `gh` does when it is refused, and the write then fails with a
+/// broken pipe. The command's own result says why, so the write error is returned only when
+/// the command succeeded or failed without a word on stderr.
 async fn run(command: &mut Command, input: Option<&str>, what: &str) -> Result<Output> {
     command
         .stdin(if input.is_some() {
@@ -245,20 +250,32 @@ async fn run(command: &mut Command, input: Option<&str>, what: &str) -> Result<O
     let mut child = command
         .spawn()
         .with_context(|| format!("Unable to start {what}"))?;
-    if let Some(input) = input {
-        let mut stdin = child
-            .stdin
-            .take()
-            .with_context(|| format!("{what} has no input"))?;
-        stdin
-            .write_all(input.as_bytes())
-            .await
-            .with_context(|| format!("Unable to write to {what}"))?;
+    let stdin = child.stdin.take();
+    let write = async {
+        match (stdin, input) {
+            (Some(mut stdin), Some(input)) => stdin.write_all(input.as_bytes()).await,
+            _ => Ok(()),
+        }
+    };
+    let (written, output) = timeout(COMMAND_TIMEOUT, async {
+        tokio::join!(write, child.wait_with_output())
+    })
+    .await
+    .with_context(|| format!("{what} took longer than {}s", COMMAND_TIMEOUT.as_secs()))?;
+    let output = output.with_context(|| format!("{what} did not finish"))?;
+    match written {
+        Ok(()) => Ok(output),
+        Err(_) if !output.status.success() && !output.stderr.is_empty() => Ok(output),
+        Err(error) if output.status.success() => {
+            Err(error).with_context(|| format!("Unable to write to {what}"))
+        }
+        Err(error) => Err(error).with_context(|| {
+            format!(
+                "Unable to write to {what}, which ended with {}",
+                output.status
+            )
+        }),
     }
-    timeout(COMMAND_TIMEOUT, child.wait_with_output())
-        .await
-        .with_context(|| format!("{what} took longer than {}s", COMMAND_TIMEOUT.as_secs()))?
-        .with_context(|| format!("{what} did not finish"))
 }
 
 /// The start of a command's stderr, on one line.
@@ -290,8 +307,9 @@ mod tests {
     const TOKEN: &str = "github_pat_pullrequest0123456789";
 
     /// A stand-in for `gh`: `pr list` prints `prs.json` from the checkout; `pr edit <n>` saves
-    /// its stdin as `body-<n>.md`, or fails when `edit-fails` exists. Every call is logged, with
-    /// whether it had the token, to `gh.log` in the checkout.
+    /// its stdin as `body-<n>.md`, or, without reading it, fails when `edit-fails` exists, fails
+    /// saying nothing when `edit-fails-silently` exists and succeeds when `edit-ignores-body`
+    /// exists. Every call is logged, with whether it had the token, to `gh.log` in the checkout.
     const FAKE_GH: &str = r#"#!/bin/bash
 echo "$* token=$([ "$GH_TOKEN" = "github_pat_pullrequest0123456789" ] && echo yes || echo no) other=${GITHUB_TOKEN:-none}" >> gh.log
 case "$1 $2" in
@@ -301,6 +319,8 @@ case "$1 $2" in
     ;;
 "pr edit")
     if [ -e edit-fails ]; then echo "GraphQL: not allowed" >&2; exit 1; fi
+    if [ -e edit-fails-silently ]; then exit 1; fi
+    if [ -e edit-ignores-body ]; then exit 0; fi
     cat > "body-$3.md"
     ;;
 *)
@@ -457,6 +477,55 @@ esac
             "{outcomes:?}"
         );
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The outcome of editing pull request 7, whose body is far larger than a pipe holds, with
+    /// the fake `gh` told what to do by the file `marker`: every write of the body to a `gh`
+    /// that ends without reading it fails with a broken pipe.
+    async fn edit_without_reading_the_body(name: &str, marker: &str) -> Vec<Outcome> {
+        let dir = scratch(name);
+        let gh = fake_gh(&dir);
+        let body = "x".repeat(4 << 20);
+        let prs = serde_json::json!([
+            {"number": 7, "url": "https://example.invalid/pull/7", "body": body, "isCrossRepository": false},
+        ]);
+        fs::write(dir.join("prs.json"), prs.to_string()).unwrap();
+        fs::write(dir.join(marker), "").unwrap();
+        let outcomes = update(&gh, slice::from_ref(&dir), "feat/x", &rows(), &token()).await;
+        fs::remove_dir_all(&dir).unwrap();
+        outcomes
+    }
+
+    #[tokio::test]
+    async fn a_gh_that_fails_before_reading_the_body_is_reported_not_the_broken_pipe() {
+        let outcomes = edit_without_reading_the_body("fails-early", "edit-fails").await;
+        assert!(
+            matches!(&outcomes[..], [Outcome::Failed(why)]
+                if why == "https://example.invalid/pull/7: gh pr edit failed: GraphQL: not allowed"),
+            "{outcomes:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_broken_pipe_is_reported_when_gh_gives_no_reason() {
+        let outcomes = edit_without_reading_the_body("fails-silently", "edit-fails-silently").await;
+        assert!(
+            matches!(&outcomes[..], [Outcome::Failed(why)]
+                if why.contains("Unable to write to gh pr edit")
+                    && why.contains("exit status: 1")
+                    && why.contains("Broken pipe")),
+            "{outcomes:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_broken_pipe_is_reported_when_gh_succeeds_without_reading_the_body() {
+        let outcomes = edit_without_reading_the_body("ignores-body", "edit-ignores-body").await;
+        assert!(
+            matches!(&outcomes[..], [Outcome::Failed(why)]
+                if why.contains("Unable to write to gh pr edit") && why.contains("Broken pipe")),
+            "{outcomes:?}"
+        );
     }
 
     #[test]
