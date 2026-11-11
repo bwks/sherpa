@@ -8,14 +8,16 @@ use super::nodes::{get_node_image, process_manifest_nodes};
 use crate::services::admission::{self, Admission};
 use crate::services::guest_account;
 use crate::services::guest_account::GuestAccount;
-use crate::services::image_lifecycle::{ImageLease, lease_image, validate_disk_method};
+use crate::services::image_lifecycle::{
+    ImageLease, check_container_image, lease_image, validate_disk_method,
+};
 use crate::services::progress::ProgressSender;
 use crate::validate::{
     validate_and_resolve_node_versions, validate_environment_variables, validate_node_ztp,
 };
 
 use shared::data;
-use shared::data::{NodeCpuPins, NodeSshUsername, StatusKind};
+use shared::data::{NodeCpuPins, NodeKind, NodeSshUsername, StatusKind};
 use shared::validators::{effective_data_interface_count, effective_ztp};
 use topology::validate::{
     check_cpu_pin_overlap, check_device_count, check_duplicate_device,
@@ -79,18 +81,9 @@ pub(super) async fn plan_lab(
     check_manifest_nodes(manifest)?;
 
     // Version & Image Validators (CRITICAL ERROR - fail fast on validation failure)
-    // Fetch local Docker images for validation
-    let docker_images = container::get_local_images(docker_conn)
-        .await
-        .context("Failed to list local Docker images")?;
-
-    let validated_nodes = validate_and_resolve_node_versions(
-        &manifest.nodes,
-        &node_images,
-        &config.images_dir,
-        &docker_images,
-    )
-    .context("Manifest validation failed: version/image validation")?;
+    let validated_nodes =
+        validate_and_resolve_node_versions(&manifest.nodes, &node_images, &config.images_dir)
+            .context("Manifest validation failed: version/image validation")?;
 
     let nodes_expanded = process_manifest_nodes(&validated_nodes);
     let ImageLeases {
@@ -112,6 +105,16 @@ pub(super) async fn plan_lab(
             &image,
             manifest.talos_clusters.as_deref().unwrap_or_default(),
         )?;
+        if image.kind == NodeKind::Container {
+            let repo = node.image.as_deref().with_context(|| {
+                format!(
+                    "Container node '{}' has no image after validation",
+                    node.name
+                )
+            })?;
+            check_container_image(docker_conn, &node.name, node.model, repo, &image.version)
+                .await?;
+        }
     }
 
     let (personal_account, ssh_usernames) =

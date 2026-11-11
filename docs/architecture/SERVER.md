@@ -550,7 +550,7 @@ flowchart TB
     end
     setup --> validation
     subgraph phase2["2. ManifestValidation"]
-        validation["topology::validate checks: duplicate device, device count, Talos clusters<br/>validate environment variables<br/>container::get_local_images<br/>validate::validate_and_resolve_node_versions (server)<br/>process_manifest_nodes, then lease node images<br/>validate disk method and guest account per node<br/>topology::process_manifest_links, process_manifest_bridges (unknown nodes fail)<br/>validate management/reserved/data interface bounds<br/>admission::admit_lab_nodes: CPU pins and memory against the server<br/>validate duplicate links"]
+        validation["topology::validate checks: duplicate device, device count, Talos clusters<br/>validate environment variables<br/>validate::validate_and_resolve_node_versions (server): versions, container image repos<br/>process_manifest_nodes, then lease node images<br/>validate disk method and guest account per node<br/>check_container_image: Docker has each container image<br/>topology::process_manifest_links, process_manifest_bridges (unknown nodes fail)<br/>validate management/reserved/data interface bounds<br/>admission::admit_lab_nodes: CPU pins and memory against the server<br/>validate duplicate links"]
     end
     validation --> startguard["Guard: no disks or VMs left from an earlier attempt with this lab_id<br/>(after validation, before any resource is created)"]
     startguard --> hostnets
@@ -811,7 +811,7 @@ flowchart TB
     request["redeploy_node (node.rs)"] --> owner["require_lab_owner in the service<br/>(owner only, admins included), owner has an SSH key<br/>lab_operations::begin, require_lab_owner again<br/>the lab's redeploy lock"]
     owner --> load
     subgraph stage1["1. load_redeploy (context.rs): nothing is changed"]
-        load["manifest checks: host access, client files, provisioners, secrets<br/>node and image from the DB; same model; unikernels refused<br/>lease the image, check the disk method<br/>lab info, management network, DNS, lab CA, Talos worker config<br/>the sherpa account with the lab's SSH key (lab.ssh_key)<br/>saved management addresses, owner account and node login<br/>performance tuning, watchdog, platform<br/>admission: CPU pins and memory"]
+        load["manifest checks: host access, client files, provisioners, secrets<br/>node and image from the DB; same model; unikernels refused<br/>resolve and check the container image<br/>lease the image, check the disk method<br/>lab info, management network, DNS, lab CA, Talos worker config<br/>the sherpa account with the lab's SSH key (lab.ssh_key)<br/>saved management addresses, owner account and node login<br/>performance tuning, watchdog, platform<br/>admission: CPU pins and memory"]
     end
     load --> starting["clear the host key, node Starting"]
     starting --> destroy
@@ -927,6 +927,29 @@ flowchart LR
 ```
 
 Admin-only image mutations are enforced at the transport boundary. Image list/show require authentication but not admin privileges. Long-running import/pull/download paths use `ProgressSender` so REST, WebSocket, and UI callers can receive progress without service-specific transport code.
+
+#### Container image reference
+
+A container node runs one image reference from pull to create, `container::image_reference(repo,
+tag)`, which is `{repo}:{tag}` with the repo kept as written:
+
+- **Pull** (`container_pull.rs`) pulls `repo:tag` and records `repo` on the version's
+  `node_image` row. A tar import or an image scan records the model's built-in repo
+  (`NodeConfig::get_model`).
+- **Resolve** (`validate::validate_and_resolve_node_versions`) sets the node's `image` to
+  `NodeConfig::container_repo`: the manifest's `image`, else the row's repo. Models with a built-in
+  repo follow the same rule; the built-in repo is only what their rows start with. A node with
+  neither fails, naming both fixes.
+- **Check** (`image_lifecycle::check_container_image`) asks Docker for the reference with Bollard
+  `inspect_image`. Docker resolves it, so `docker.io/library/nats:2.11`, which Docker tags
+  `nats:2.11`, is found. Sherpa does not parse or rewrite references. `up` checks after leasing
+  the images, and a redeploy checks in stage 1, before the node is torn down.
+- **Create** (`up/readiness.rs`, `redeploy/container.rs`) creates the container from the same
+  reference. The container ZTP start settings in `node_ops.rs` set a model's environment, user,
+  command and mounts, never its image.
+
+The image scan still matches Docker's tag list against each model's built-in repo, so it finds
+images Docker tags under that name only.
 
 ### Scanner service architecture
 

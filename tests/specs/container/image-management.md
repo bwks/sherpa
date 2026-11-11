@@ -23,6 +23,10 @@
 **What to test:**
 - `list_images()` returns available Docker images `[integration]` **P0**
 - `get_local_images()` returns locally available images `[integration]` **P0**
+- `image_exists()` finds an official image by its full (`docker.io/library/<name>:<tag>`) and
+  short (`<name>:<tag>`) reference, and not a tag that was never pulled `[integration]` **P0**
+- `image_reference()` keeps the repo as written for full, short and third-party references
+  `[unit]` **P0**
 - Empty Docker daemon returns empty list `[integration]` **P1**
 
 ---

@@ -68,6 +68,18 @@ async fn bootstrap_images(ws: &mut TestWsClient, token: &str) -> Result<()> {
     Ok(())
 }
 
+/// The ID of container `name` and the image reference it was created from.
+async fn container_image(docker: &Docker, name: &str) -> Result<(Option<String>, Option<String>)> {
+    let container = docker
+        .inspect_container(name, None::<InspectContainerOptions>)
+        .await
+        .with_context(|| format!("container {name} was not created"))?;
+    Ok((
+        container.id,
+        container.config.and_then(|config| config.image),
+    ))
+}
+
 /// IPv4-only lab networks for tests that seed lab records directly.
 fn ipv4_lab_networks(
     loopback_network: &str,
@@ -395,6 +407,104 @@ async fn admin_clean_removes_a_running_lab() -> Result<()> {
         ensure!(
             db::find_lab(&server.db, &lab_name).await?.is_none(),
             "clean left the lab record"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker, internet access to pull an image and host network administration rights (CAP_NET_ADMIN)"]
+async fn an_official_docker_hub_image_pulled_by_its_full_name_brings_a_container_node_up()
+-> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_lab_admin(&server).await?;
+    let admin_token = ws.login_admin().await?;
+
+    // Docker tags this image `busybox:1.36`, not by the full name it was pulled as.
+    let repo = "docker.io/library/busybox";
+    let (_statuses, response) = ws
+        .rpc_call_streaming(
+            "image.pull",
+            json!({
+                "token": admin_token,
+                "model": "generic_container",
+                "repo": repo,
+                "tag": "1.36",
+                "default": true,
+            }),
+            Duration::from_secs(300),
+        )
+        .await?;
+    ensure!(
+        response.get("error").is_none(),
+        "image.pull failed: {response}"
+    );
+
+    let lab_name = format!("tb{:06}", std::process::id() % 1_000_000);
+    let manifest = json!({
+        "name": lab_name,
+        "nodes": [
+            { "name": "box1", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+        ]
+    });
+
+    let checks: Result<()> = async {
+        lab_up(
+            &mut ws,
+            &token,
+            &lab_name,
+            &manifest,
+            Duration::from_secs(180),
+        )
+        .await?;
+        let docker = Docker::connect_with_local_defaults()?;
+        let container = format!("box1-{lab_name}");
+        let (_, image) = container_image(&docker, &container).await?;
+        ensure!(
+            image.as_deref() == Some("docker.io/library/busybox:1.36"),
+            "the container did not start from the image that was pulled and checked: {image:?}"
+        );
+
+        // A redeploy resolves, checks and creates the same reference.
+        let (_statuses, response) = ws
+            .rpc_call_streaming(
+                "redeploy",
+                json!({ "token": token, "lab_id": lab_name, "node_name": "box1", "manifest": manifest }),
+                Duration::from_secs(180),
+            )
+            .await?;
+        ensure!(
+            response.get("error").is_none(),
+            "the redeploy failed: {response}"
+        );
+        let (redeployed_id, image) = container_image(&docker, &container).await?;
+        ensure!(
+            image.as_deref() == Some("docker.io/library/busybox:1.36"),
+            "the redeployed container did not start from the checked image: {image:?}"
+        );
+
+        // An image Docker does not have refuses the redeploy before the node is torn down.
+        let mut missing = manifest.clone();
+        missing["nodes"][0]["image"] = json!("sherpa-test/no-such-image");
+        let (_statuses, response) = ws
+            .rpc_call_streaming(
+                "redeploy",
+                json!({ "token": token, "lab_id": lab_name, "node_name": "box1", "manifest": missing }),
+                Duration::from_secs(180),
+            )
+            .await?;
+        ensure!(
+            response.to_string().contains("sherpa-test/no-such-image:1.36"),
+            "the redeploy was not refused for the missing image: {response}"
+        );
+        let (kept_id, _) = container_image(&docker, &container).await?;
+        ensure!(
+            kept_id == redeployed_id,
+            "the refused redeploy replaced the container"
         );
         Ok(())
     }

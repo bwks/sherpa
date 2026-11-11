@@ -15,14 +15,18 @@ use crate::auth::policy::require_host_access;
 use crate::daemon::state::AppState;
 use crate::services::admission::{self, Admission};
 use crate::services::guest_account::{self, GuestAccount};
-use crate::services::image_lifecycle::{ImageLease, lease_image, validate_disk_method};
+use crate::services::image_lifecycle::{
+    ImageLease, check_container_image, lease_image, validate_disk_method,
+};
 use crate::services::lab_operations::LabOperation;
 use crate::services::lab_ssh_key::LabSshKeyPaths;
 use crate::services::progress::ProgressSender;
 use crate::services::talos;
 use crate::services::up::process_manifest_nodes;
 use crate::tls::lab_ca::{self, LabCa};
-use crate::validate::{reject_provisioners, validate_node_secrets, validate_node_ztp};
+use crate::validate::{
+    reject_provisioners, validate_container_repo, validate_node_secrets, validate_node_ztp,
+};
 
 use libvirt::QemuConnection;
 use shared::data;
@@ -129,7 +133,14 @@ pub(super) async fn load_redeploy<'a>(
         node_image,
         data_interface_count,
         image_guard,
-    } = load_node(state, &lab_record_id, &lab_id, &target_node, talos_clusters).await?;
+    } = load_node(
+        state,
+        &lab_record_id,
+        &lab_id,
+        &mut target_node,
+        talos_clusters,
+    )
+    .await?;
     target_node.version = Some(node_image.version.clone());
 
     let LabFiles {
@@ -232,13 +243,15 @@ fn check_manifest(
 }
 
 /// The node's record and image, leased, with the node's ZTP setting and disk method checked
-/// against it. The model cannot change, and unikernels cannot be redeployed.
+/// against it, and a container's image resolved and checked as `up` does: the target node's
+/// `image` is set to the repo it is created from. The model cannot change, and unikernels cannot
+/// be redeployed.
 #[instrument(skip_all, fields(%lab_id, node_name = %target_node.name), level = "debug")]
 async fn load_node(
     state: &AppState,
     lab_record_id: &RecordId,
     lab_id: &str,
-    target_node: &topology::NodeExpanded,
+    target_node: &mut topology::NodeExpanded,
     talos_clusters: &[topology::TalosCluster],
 ) -> Result<LoadedNode> {
     let db = &state.db;
@@ -274,6 +287,23 @@ async fn load_node(
             ))?;
 
     let image_guard = lease_image(node_image.model, &node_image.version).await;
+    if node_image.kind == data::NodeKind::Container {
+        let repo = validate_container_repo(
+            node_name,
+            node_image.model,
+            &node_image.version,
+            node_image.container_repo(target_node.image.as_deref()),
+        )?;
+        check_container_image(
+            &state.docker,
+            node_name,
+            node_image.model,
+            &repo,
+            &node_image.version,
+        )
+        .await?;
+        target_node.image = Some(repo);
+    }
     validate_disk_method(
         target_node.boot_disk_clone_method,
         &node_image,

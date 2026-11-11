@@ -25,7 +25,7 @@ pub use network::{
 };
 
 // Re-export image operations
-pub use image::{get_local_images, load_image, pull_image};
+pub use image::{get_local_images, image_exists, image_reference, load_image, pull_image};
 
 // Re-export Docker type for convenience
 pub use bollard::Docker;
