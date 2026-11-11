@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.34] - 2026-11-11
+
+### Bug Fixes
+
+- Re-attach P2p links after any event that recreates a link end by @bwks ([2c5d07f](https://github.com/bwks/sherpa/commit/2c5d07fa3f57390d8feff74f7db5c662ec48df8a))
+
+### Documentation
+
+- Drop Dioxus frontend from the backlog [skip ci] by @bwks ([cae5adf](https://github.com/bwks/sherpa/commit/cae5adf8080efce00be34200651719cc27ec0885))
+
+### Features
+
+- Keep a host record of every message in Turso by @bwks ([0ddedec](https://github.com/bwks/sherpa/commit/0ddedec2131c77646e97451859107a70819ad2f5))
 ## [0.5.33] - 2026-11-11
 
 ### CI
