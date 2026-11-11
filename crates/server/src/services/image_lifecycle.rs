@@ -2,6 +2,7 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
 use anyhow::{Context, Result, ensure};
+use bollard::Docker;
 use dashmap::DashMap;
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tracing::instrument;
@@ -65,6 +66,31 @@ pub(crate) fn validate_disk_method(
     libvirt::read_qcow2_metadata(&path)?
         .overlay_capacity(size_gb)
         .context("VM boot image is ineligible for overlay provisioning")?;
+    Ok(())
+}
+
+/// Check that Docker has the image container node `node_name` is created from: `repo` at
+/// `version`, the reference the image was pulled as and the container is created with. Docker
+/// resolves the reference, so an official Docker Hub image is found by its full name
+/// (`docker.io/library/nats:2.11`) or its short one (`nats:2.11`). Run before any resource
+/// creation or redeploy teardown.
+#[instrument(level = "debug", skip(docker))]
+pub(crate) async fn check_container_image(
+    docker: &Docker,
+    node_name: &str,
+    model: NodeModel,
+    repo: &str,
+    version: &str,
+) -> Result<()> {
+    let reference = container::image_reference(repo, version);
+    let found = container::image_exists(docker, &reference)
+        .await
+        .with_context(|| format!("Cannot check the container image of node '{node_name}'"))?;
+    ensure!(
+        found,
+        "Container image not found in local Docker for node '{node_name}': {reference}\n\
+         Hint: Pull the image with: sherpa server image pull --model {model} --repo {reference}"
+    );
     Ok(())
 }
 

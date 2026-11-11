@@ -4,6 +4,7 @@ use futures_util::StreamExt;
 use tracing::instrument;
 
 use crate::connect::docker_connection;
+use crate::image::reference::image_reference;
 
 /// Pull a container image from an OCI registry into the local Docker daemon, like
 /// `docker pull`.
@@ -21,7 +22,7 @@ where
 {
     let docker = docker_connection()?;
 
-    let image_location = format!("{repo}:{tag}");
+    let image_location = image_reference(repo, tag);
 
     tracing::info!(image = %image_location, "Pulling container image");
     on_progress(&format!("Pulling {image_location}..."));

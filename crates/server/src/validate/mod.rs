@@ -22,5 +22,5 @@ pub use node_secrets::{validate_node_secrets, validate_secret_files};
 pub use performance_tuning::check_host_resources;
 pub use provisioner::reject_provisioners;
 pub use tailscale_gateway::validate_tailscale_gateway_settings;
-pub use version::validate_and_resolve_node_versions;
+pub use version::{validate_and_resolve_node_versions, validate_container_repo};
 pub use ztp::validate_node_ztp;

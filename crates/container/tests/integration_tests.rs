@@ -17,9 +17,9 @@ use std::time::Duration;
 
 use container::{
     ContainerSpec, create_docker_bridge_network, delete_network, docker_connection, exec_container,
-    exec_container_detached, exec_container_with_retry, get_local_images, kill_container,
-    list_containers, list_networks, load_image, pause_container, pull_image, remove_container,
-    run_container, start_container, stop_container, unpause_container,
+    exec_container_detached, exec_container_with_retry, get_local_images, image_exists,
+    kill_container, list_containers, list_networks, load_image, pause_container, pull_image,
+    remove_container, run_container, start_container, stop_container, unpause_container,
 };
 use shared::data::ContainerNetworkAttachment;
 
@@ -372,6 +372,29 @@ async fn test_get_local_images() -> Result<()> {
         "alpine should be in local images, got: {images:?}"
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon and internet access to pull an image"]
+async fn an_official_image_is_found_by_its_full_and_short_name() -> Result<()> {
+    let docker = docker_connection()?;
+    pull_image("docker.io/library/busybox", "1.36", |_| {}).await?;
+
+    for reference in [
+        "docker.io/library/busybox:1.36",
+        "library/busybox:1.36",
+        "busybox:1.36",
+    ] {
+        ensure!(
+            image_exists(&docker, reference).await?,
+            "{reference} was not found"
+        );
+    }
+    ensure!(
+        !image_exists(&docker, "docker.io/library/busybox:sherpa-no-such-tag").await?,
+        "a tag that was never pulled was found"
+    );
     Ok(())
 }
 

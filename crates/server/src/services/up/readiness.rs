@@ -313,7 +313,7 @@ impl Readiness<'_, '_> {
             self.build.docker_conn,
             ContainerSpec {
                 name: container_name.clone(),
-                image: format!("{image_name}:{version}"),
+                image: container::image_reference(image_name, version),
                 env_vars: container.environment_variables.clone().unwrap_or_default(),
                 volumes,
                 capabilities: node_ops::model_capabilities(container.model),

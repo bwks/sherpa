@@ -99,7 +99,7 @@ pub enum ServerImageCommands {
         /// Version of the image (required for known-repo containers and VMs)
         #[arg(short, long)]
         version: Option<String>,
-        /// Full container image reference (e.g., registry.io/account/image:version)
+        /// Container image reference with its tag (e.g., nats:2.11 or registry.io/account/image:version)
         #[arg(short, long)]
         repo: Option<String>,
         /// VM image download URL
@@ -500,7 +500,7 @@ async fn pull_container_image(
             (repo.to_string(), tag.to_string())
         } else {
             bail!(
-                "--repo is required for model '{model}'. Provide the full image reference (e.g., registry.io/account/image:version)"
+                "--repo is required for model '{model}'. Provide the image reference with its tag (e.g., nats:2.11 or registry.io/account/image:version)"
             )
         }
     };
@@ -606,14 +606,16 @@ async fn download_vm_image(
     Ok(())
 }
 
-/// The repository and tag of an image `reference` written as `registry/image:tag`. The tag
-/// follows the last `:` and cannot contain a `/`, so a registry port such as
-/// `localhost:5000/img` is not taken for a tag.
+/// The repository and tag of an image `reference` written as `image:tag` or
+/// `registry/image:tag`. The tag follows the last `:` and cannot contain a `/`, so a registry
+/// port such as `localhost:5000/img` is not taken for a tag. The repository is kept as written:
+/// Docker resolves a short Docker Hub name such as `nats` itself.
 fn split_image_reference(reference: &str) -> Result<(&str, &str)> {
     let invalid = || {
         format!(
-            "Image reference '{reference}' must be registry/image:tag, such as \
-             ghcr.io/nokia/srlinux:1.2.3; digests (@sha256:...) are not supported"
+            "Image reference '{reference}' must be image:tag, such as nats:2.11, or \
+             registry/image:tag, such as ghcr.io/nokia/srlinux:1.2.3; digests (@sha256:...) are \
+             not supported"
         )
     };
     let (repo, tag) = reference.rsplit_once(':').with_context(invalid)?;
@@ -648,6 +650,28 @@ mod tests {
             split_image_reference("localhost:5000/img:1").unwrap(),
             ("localhost:5000/img", "1")
         );
+    }
+
+    #[test]
+    fn an_official_docker_hub_image_reference_splits_at_its_tag() {
+        assert_eq!(
+            split_image_reference("nats:2.11").unwrap(),
+            ("nats", "2.11")
+        );
+        assert_eq!(
+            split_image_reference("docker.io/library/nats:2.11").unwrap(),
+            ("docker.io/library/nats", "2.11")
+        );
+    }
+
+    #[test]
+    fn a_refused_image_reference_names_the_short_and_full_forms() {
+        let message = split_image_reference("nats").unwrap_err().to_string();
+        assert!(
+            message.contains("image:tag, such as nats:2.11"),
+            "{message}"
+        );
+        assert!(message.contains("registry/image:tag"), "{message}");
     }
 
     #[test]

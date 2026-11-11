@@ -63,11 +63,8 @@ pub(super) async fn redeploy_container(
     );
 
     let container_name = format!("{node_name}-{lab_id}");
-    let container_image = format!(
-        "{}:{}",
-        ztp_result.image,
-        redeploy.target_node.version.as_deref().unwrap_or("latest")
-    );
+    let container_image =
+        container::image_reference(&ztp_result.image, &redeploy.node_image.version);
 
     let db = &redeploy.state.db;
     let db_links = db::list_links_by_lab(db, redeploy.lab_record_id.clone()).await?;
@@ -178,15 +175,12 @@ async fn ready_after_restore(
     Ok(())
 }
 
-/// Generate the container's configuration (stage 4), with the image the node was created from
-/// when the manifest names none, as validated on `sherpa up`.
+/// Generate the container's configuration (stage 4), with the image stage 1 resolved and
+/// checked.
 fn configure_container(
     redeploy: &mut Redeploy<'_>,
     cert_paths: &NodeCertPaths,
 ) -> Result<ContainerZtpResult> {
-    if redeploy.target_node.image.is_none() {
-        redeploy.target_node.image = redeploy.node_image.container_repo(None);
-    }
     node_ops::generate_container_ztp(
         &mut redeploy.target_node,
         &redeploy.node_image,

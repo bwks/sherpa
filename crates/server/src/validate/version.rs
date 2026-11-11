@@ -6,32 +6,33 @@ use shared::data::{NodeConfig, NodeKind, NodeModel, UnikernelBootMode};
 use shared::util::image_filename;
 use topology::Node;
 
-/// Validate and resolve node versions, checking that images exist
+/// Validate and resolve node versions and images
 ///
 /// This function performs three key validations:
 /// 1. Resolves version from `node_image` if not set in manifest
 /// 2. Validates version exists in database for the model
-/// 3. Verifies image/disk exists based on node kind
+/// 3. Resolves a container node's image repo, or verifies a VM's or unikernel's disk exists
+///
+/// Whether Docker has a container node's image is asked of Docker by the caller, with the
+/// image and version resolved here.
 ///
 /// # Arguments
 /// * `nodes` - List of nodes from manifest
 /// * `node_images` - Pre-fetched list of all node configs from DB
 /// * `images_dir` - Base directory for VM images
-/// * `docker_images` - List of local Docker images (format: "repo:tag")
 ///
 /// # Returns
-/// Updated nodes with version field populated
+/// Updated nodes with version populated, and for containers the image repo they run
 ///
 /// # Errors
 /// Returns error if:
 /// - Version not found in `node_image` for model
-/// - Container image not found in local Docker
+/// - Container node has no image repo
 /// - VM disk file not found on filesystem
 pub fn validate_and_resolve_node_versions(
     nodes: &[Node],
     node_images: &[NodeConfig],
     images_dir: &str,
-    docker_images: &[String],
 ) -> Result<Vec<Node>> {
     let mut validated_nodes = Vec::new();
 
@@ -86,16 +87,12 @@ pub fn validate_and_resolve_node_versions(
                     .iter()
                     .find(|c| c.model == node.model && c.version == resolved_version)
                     .and_then(|c| c.container_repo(node.image.as_deref()));
-                if updated_node.image.is_none() {
-                    updated_node.image.clone_from(&repo);
-                }
-                validate_container_image(
+                updated_node.image = Some(validate_container_repo(
                     &node.name,
                     node.model,
-                    repo.as_deref(),
                     &resolved_version,
-                    docker_images,
-                )?;
+                    repo,
+                )?);
             }
             NodeKind::VirtualMachine | NodeKind::Unikernel => {
                 validate_disk_image(
@@ -149,40 +146,21 @@ fn validate_version_in_db(
     }
 }
 
-/// Validate container image exists in local Docker
-fn validate_container_image(
+/// The image repo container node `node_name` runs at `version`, as resolved by
+/// `NodeConfig::container_repo`; an error naming both fixes when it has none.
+pub fn validate_container_repo(
     node_name: &str,
     model: NodeModel,
-    repo: Option<&str>,
     version: &str,
-    docker_images: &[String],
-) -> Result<()> {
-    // Build expected image name
-    let expected_image = match repo {
-        Some(r) => format!("{r}:{version}"),
-        None => {
-            bail!(
-                "Container node '{node_name}' (model: {model}) has no image repo configured: set \
-                 `image` on the node in the manifest, or pull the image with `sherpa server image \
-                 pull --model {model} --repo <image>:{version}`"
-            );
-        }
-    };
-
-    // Check if image exists locally
-    if docker_images.contains(&expected_image) {
-        tracing::debug!(
-            node = %node_name,
-            image = %expected_image,
-            "Container image found in local Docker"
-        );
-        Ok(())
-    } else {
-        bail!(
-            "Container image not found in local Docker for node '{node_name}': {expected_image}\n\
-            Hint: Pull the image with: docker pull {expected_image}"
-        );
-    }
+    repo: Option<String>,
+) -> Result<String> {
+    repo.with_context(|| {
+        format!(
+            "Container node '{node_name}' (model: {model}) has no image repo configured: set \
+             `image` on the node in the manifest, or pull the image with `sherpa server image \
+             pull --model {model} --repo <image>:{version}`"
+        )
+    })
 }
 
 /// Validate disk image file exists on filesystem for VMs and unikernels.
@@ -294,57 +272,14 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_container_image_found() {
-        let docker_images = vec![
-            "test-repo:1.0.0".to_string(),
-            "test-repo:2.0.0".to_string(),
-            "other-repo:1.0.0".to_string(),
-        ];
+    fn test_validate_container_repo_without_a_repo_names_both_fixes() {
+        let error =
+            validate_container_repo("test-node", NodeModel::AristaCeos, "1.0.0", None).unwrap_err();
 
-        let result = validate_container_image(
-            "test-node",
-            NodeModel::AristaCeos,
-            Some("test-repo"),
-            "1.0.0",
-            &docker_images,
-        );
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_validate_container_image_not_found() {
-        let docker_images = vec![
-            "test-repo:1.0.0".to_string(),
-            "other-repo:1.0.0".to_string(),
-        ];
-
-        let result = validate_container_image(
-            "test-node",
-            NodeModel::AristaCeos,
-            Some("test-repo"),
-            "2.0.0",
-            &docker_images,
-        );
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("not found in local Docker"));
-        assert!(error_msg.contains("docker pull"));
-    }
-
-    #[test]
-    fn test_validate_container_image_no_repo() {
-        let docker_images = vec![];
-
-        let result = validate_container_image(
-            "test-node",
-            NodeModel::AristaCeos,
-            None,
-            "1.0.0",
-            &docker_images,
-        );
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("no image repo configured"));
+        let message = error.to_string();
+        assert!(message.contains("no image repo configured"), "{message}");
+        assert!(message.contains("`image`"), "{message}");
+        assert!(message.contains("--repo <image>:1.0.0"), "{message}");
     }
 
     // ============================================================================
@@ -433,9 +368,7 @@ mod tests {
             create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
         config.default = true;
 
-        let docker_images = vec!["test-repo:4.32.0F".to_string()];
-        let result =
-            validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images", &docker_images);
+        let result = validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images");
 
         assert!(result.is_ok());
         let resolved = result.unwrap();
@@ -455,15 +388,10 @@ mod tests {
         let explicit_config =
             create_test_node_image(NodeModel::AristaCeos, "4.31.0F", NodeKind::Container);
 
-        let docker_images = vec![
-            "test-repo:4.32.0F".to_string(),
-            "test-repo:4.31.0F".to_string(),
-        ];
         let result = validate_and_resolve_node_versions(
             &nodes,
             &[default_config, explicit_config],
             "/tmp/images",
-            &docker_images,
         );
 
         assert!(result.is_ok());
@@ -480,16 +408,8 @@ mod tests {
             create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
         default.default = true;
 
-        let docker_images = vec![
-            "test-repo:4.30.0F".to_string(),
-            "test-repo:4.32.0F".to_string(),
-        ];
-        let result = validate_and_resolve_node_versions(
-            &nodes,
-            &[non_default, default],
-            "/tmp/images",
-            &docker_images,
-        );
+        let result =
+            validate_and_resolve_node_versions(&nodes, &[non_default, default], "/tmp/images");
 
         assert!(result.is_ok());
         let resolved = result.unwrap();
@@ -502,7 +422,7 @@ mod tests {
         // Provide configs for a different model
         let config = create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
 
-        let result = validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images", &[]);
+        let result = validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images");
 
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
@@ -519,28 +439,11 @@ mod tests {
         )];
         let config = create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
 
-        let docker_images = vec!["test-repo:4.32.0F".to_string()];
-        let result =
-            validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images", &docker_images);
+        let result = validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images");
 
         assert!(result.is_err());
         let error_msg = format!("{:#}", result.unwrap_err());
         assert!(error_msg.contains("9.99.0F"));
-    }
-
-    #[test]
-    fn test_resolve_container_image_missing_from_docker_fails() {
-        let nodes = vec![create_test_node("ceos1", NodeModel::AristaCeos, None)];
-        let mut config =
-            create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
-        config.default = true;
-
-        // Empty docker images list
-        let result = validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images", &[]);
-
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("not found in local Docker"));
     }
 
     #[test]
@@ -554,16 +457,7 @@ mod tests {
         default.default = true;
         let other = create_test_node_image(NodeModel::AristaCeos, "4.31.0F", NodeKind::Container);
 
-        let docker_images = vec![
-            "test-repo:4.32.0F".to_string(),
-            "test-repo:4.31.0F".to_string(),
-        ];
-        let result = validate_and_resolve_node_versions(
-            &nodes,
-            &[default, other],
-            "/tmp/images",
-            &docker_images,
-        );
+        let result = validate_and_resolve_node_versions(&nodes, &[default, other], "/tmp/images");
 
         assert!(result.is_ok());
         let resolved = result.unwrap();
@@ -588,13 +482,7 @@ mod tests {
             generic_image("24.04", None, false),
         ];
 
-        let resolved = validate_and_resolve_node_versions(
-            &[node],
-            &images,
-            "/tmp/images",
-            &["ubuntu:24.04".to_string()],
-        )
-        .unwrap();
+        let resolved = validate_and_resolve_node_versions(&[node], &images, "/tmp/images").unwrap();
 
         assert_eq!(resolved[0].image.as_deref(), Some("ubuntu"));
     }
@@ -612,13 +500,7 @@ mod tests {
             generic_image("24.04", Some("ubuntu"), false),
         ];
 
-        let resolved = validate_and_resolve_node_versions(
-            &nodes,
-            &images,
-            "/tmp/images",
-            &["ubuntu:24.04".to_string()],
-        )
-        .unwrap();
+        let resolved = validate_and_resolve_node_versions(&nodes, &images, "/tmp/images").unwrap();
 
         assert_eq!(resolved[0].image.as_deref(), Some("ubuntu"));
     }
@@ -630,13 +512,8 @@ mod tests {
         config.repo = None;
         config.default = true;
 
-        let error = validate_and_resolve_node_versions(
-            &nodes,
-            &[config],
-            "/tmp/images",
-            &["postgres:17".to_string()],
-        )
-        .unwrap_err();
+        let error =
+            validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images").unwrap_err();
 
         let message = format!("{error:#}");
         assert!(message.contains("`image`"), "{message}");
@@ -654,14 +531,59 @@ mod tests {
             create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
         config.default = true;
 
-        let resolved = validate_and_resolve_node_versions(
-            &nodes,
-            &[config],
-            "/tmp/images",
-            &["test-repo:4.32.0F".to_string()],
-        )
-        .unwrap();
+        let resolved =
+            validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images").unwrap();
 
         assert_eq!(resolved[0].image.as_deref(), Some("test-repo"));
+    }
+
+    /// The image a container node of `model` resolves to when its version was pulled from
+    /// `repo`.
+    fn resolved_image(model: NodeModel, repo: &str, manifest_image: Option<&str>) -> String {
+        let mut node = create_test_node("node1", model, Some("2.11"));
+        node.image = manifest_image.map(str::to_string);
+        let mut config = create_test_node_image(model, "2.11", NodeKind::Container);
+        config.repo = Some(repo.to_string());
+        config.default = true;
+
+        let resolved = validate_and_resolve_node_versions(&[node], &[config], "/tmp/images")
+            .unwrap()
+            .remove(0);
+
+        assert_eq!(resolved.version.as_deref(), Some("2.11"));
+        resolved.image.unwrap()
+    }
+
+    #[test]
+    fn test_resolve_container_keeps_an_official_image_pulled_by_its_full_name() {
+        assert_eq!(
+            resolved_image(NodeModel::NatsBus, "docker.io/library/nats", None),
+            "docker.io/library/nats"
+        );
+    }
+
+    #[test]
+    fn test_resolve_container_keeps_an_official_image_pulled_by_its_short_name() {
+        assert_eq!(resolved_image(NodeModel::NatsBus, "nats", None), "nats");
+    }
+
+    #[test]
+    fn test_resolve_container_keeps_a_third_party_registry_path() {
+        assert_eq!(
+            resolved_image(
+                NodeModel::NokiaSrlinux,
+                "registry.example:5000/mirror/srlinux",
+                None
+            ),
+            "registry.example:5000/mirror/srlinux"
+        );
+    }
+
+    #[test]
+    fn test_resolve_container_with_a_built_in_repo_runs_the_manifest_image() {
+        assert_eq!(
+            resolved_image(NodeModel::NatsBus, "nats", Some("mirror.example/nats")),
+            "mirror.example/nats"
+        );
     }
 }

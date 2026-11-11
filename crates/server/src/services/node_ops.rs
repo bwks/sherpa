@@ -30,24 +30,21 @@ use shared::konst::{
     CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG,
     CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG, CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA,
     CLOUD_INIT_NETWORK_CONFIG, CLOUD_INIT_USER_DATA, CONTAINER_ARISTA_CEOS_COMMANDS,
-    CONTAINER_ARISTA_CEOS_ENV_VARS, CONTAINER_ARISTA_CEOS_REPO, CONTAINER_DISK_NAME,
-    CONTAINER_FORGEJO_COMMANDS, CONTAINER_FORGEJO_REPO, CONTAINER_FRR_ENV_VARS, CONTAINER_FRR_REPO,
-    CONTAINER_GITLAB_CE_COMMANDS, CONTAINER_GITLAB_CE_REPO, CONTAINER_GITLAB_CE_SHM_SIZE,
+    CONTAINER_ARISTA_CEOS_ENV_VARS, CONTAINER_DISK_NAME, CONTAINER_FORGEJO_COMMANDS,
+    CONTAINER_FRR_ENV_VARS, CONTAINER_GITLAB_CE_COMMANDS, CONTAINER_GITLAB_CE_SHM_SIZE,
     CONTAINER_HASHICORP_VAULT_CAPABILITIES, CONTAINER_HASHICORP_VAULT_COMMANDS,
-    CONTAINER_HASHICORP_VAULT_ENV_VARS, CONTAINER_HASHICORP_VAULT_REPO,
-    CONTAINER_JUNIPER_CEVOLVED_REPO, CONTAINER_KEYCLOAK_COMMANDS, CONTAINER_KEYCLOAK_REPO,
-    CONTAINER_KEYCLOAK_USER, CONTAINER_MONGO_DB_COMMANDS, CONTAINER_MONGO_DB_REPO,
-    CONTAINER_NATS_COMMANDS, CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_COMMANDS,
-    CONTAINER_NOKIA_SRLINUX_ENV_VARS, CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_NOKIA_SRLINUX_USER,
-    CONTAINER_SURREAL_DB_COMMANDS, CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT,
-    FRR_ZTP_DAEMONS_MOUNT, FRR_ZTP_STARTUP_MOUNT, JUNIPER_CEVOLVED_CONFIG_DIR, JUNIPER_ZTP_CONFIG,
-    JUNIPER_ZTP_CONFIG_TGZ, KEYCLOAK_HTTPS_PORT, KVM_OUI, MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR,
-    NODE_CERTS_DIR_WINDOWS, NODE_CLOUD_INIT_SUDO_RULE, NODE_CONFIGS_DIR, NODE_DOAS_CONF_FILE,
-    NODE_NIXOS_SHELL, NODE_PASSWD_FILE, NODE_STAGING_DIR, NODE_STARTUP_SCRIPTS_DIR,
-    NODE_USER_ENV_FILE, NODE_USER_SCRIPTS_DIR, NOKIA_SRLINUX_ZTP_VOLUME_MOUNT,
-    PALOALTO_BOOTSTRAP_CONFIG, PALOALTO_BOOTSTRAP_VOLUME_ID, PALOALTO_ZTP_CONFIG,
-    SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
-    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
+    CONTAINER_HASHICORP_VAULT_ENV_VARS, CONTAINER_KEYCLOAK_COMMANDS, CONTAINER_KEYCLOAK_USER,
+    CONTAINER_MONGO_DB_COMMANDS, CONTAINER_NATS_COMMANDS, CONTAINER_NOKIA_SRLINUX_COMMANDS,
+    CONTAINER_NOKIA_SRLINUX_ENV_VARS, CONTAINER_NOKIA_SRLINUX_USER, CONTAINER_SURREAL_DB_COMMANDS,
+    CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT, FRR_ZTP_DAEMONS_MOUNT, FRR_ZTP_STARTUP_MOUNT,
+    JUNIPER_CEVOLVED_CONFIG_DIR, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KEYCLOAK_HTTPS_PORT,
+    KVM_OUI, MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS,
+    NODE_CLOUD_INIT_SUDO_RULE, NODE_CONFIGS_DIR, NODE_DOAS_CONF_FILE, NODE_NIXOS_SHELL,
+    NODE_PASSWD_FILE, NODE_STAGING_DIR, NODE_STARTUP_SCRIPTS_DIR, NODE_USER_ENV_FILE,
+    NODE_USER_SCRIPTS_DIR, NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG,
+    PALOALTO_BOOTSTRAP_VOLUME_ID, PALOALTO_ZTP_CONFIG, SHERPA_BLANK_DISK_DIR,
+    SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV,
+    SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
     SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD,
     SHERPA_PASSWORD_HASH, SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
     SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
@@ -488,8 +485,9 @@ fn container_model_setup(
     }
 }
 
-/// The settings a container of its model needs to start at all: its image, environment, user
-/// and command, and for Vault its own config. Other models keep the manifest's settings.
+/// The settings a container of its model needs to start at all: its environment, user and
+/// command, and for Vault its own config. Other models keep the manifest's settings. The image
+/// is the one the node resolved to and Docker was checked for; no model replaces it.
 fn container_start_settings(
     node: &mut topology::NodeExpanded,
     node_image: &data::NodeConfig,
@@ -502,39 +500,19 @@ fn container_start_settings(
         data::NodeModel::JuniperCevolved => cevolved_start(node, node_image, setup)?,
         data::NodeModel::FrrLinux => frr_start(node, setup),
         data::NodeModel::GitlabCe => {
-            app_container(
-                node,
-                setup,
-                CONTAINER_GITLAB_CE_REPO,
-                CONTAINER_GITLAB_CE_COMMANDS,
-            );
+            app_container(node, setup, CONTAINER_GITLAB_CE_COMMANDS);
             // GitLab CE requires a larger /dev/shm for bundled PostgreSQL
             if setup.shm_size.is_none() {
                 setup.shm_size = Some(CONTAINER_GITLAB_CE_SHM_SIZE * 1024 * 1024);
             }
             node.shm_size = setup.shm_size;
         }
-        data::NodeModel::SurrealDb => app_container(
-            node,
-            setup,
-            CONTAINER_SURREAL_DB_REPO,
-            CONTAINER_SURREAL_DB_COMMANDS,
-        ),
-        data::NodeModel::MongoDb => app_container(
-            node,
-            setup,
-            CONTAINER_MONGO_DB_REPO,
-            CONTAINER_MONGO_DB_COMMANDS,
-        ),
+        data::NodeModel::SurrealDb => app_container(node, setup, CONTAINER_SURREAL_DB_COMMANDS),
+        data::NodeModel::MongoDb => app_container(node, setup, CONTAINER_MONGO_DB_COMMANDS),
         data::NodeModel::NatsBus => {
-            app_container(node, setup, CONTAINER_NATS_REPO, CONTAINER_NATS_COMMANDS);
+            app_container(node, setup, CONTAINER_NATS_COMMANDS);
         }
-        data::NodeModel::ForgejoForge => app_container(
-            node,
-            setup,
-            CONTAINER_FORGEJO_REPO,
-            CONTAINER_FORGEJO_COMMANDS,
-        ),
+        data::NodeModel::ForgejoForge => app_container(node, setup, CONTAINER_FORGEJO_COMMANDS),
         data::NodeModel::HashicorpVault => vault_container(node, ztp, setup)?,
         data::NodeModel::KeycloakServer => keycloak_container(node, ztp, setup)?,
         model => tracing::debug!(%model, "Container keeps the manifest's settings"),
@@ -598,9 +576,8 @@ fn add_container_volumes(
     }
 }
 
-/// cEOS start settings: its image, privileged, its environment and the init command.
+/// cEOS start settings: privileged, its environment and the init command.
 fn arista_ceos_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup) {
-    setup.image = CONTAINER_ARISTA_CEOS_REPO.to_string();
     setup.privileged = true;
     setup.env_vars = CONTAINER_ARISTA_CEOS_ENV_VARS
         .iter()
@@ -612,7 +589,6 @@ fn arista_ceos_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSet
         .collect();
 
     // Update node fields for consistency
-    node.image = Some(setup.image.clone());
     node.privileged = Some(setup.privileged);
     node.environment_variables = Some(setup.env_vars.clone());
     node.commands = Some(setup.commands.clone());
@@ -665,9 +641,8 @@ fn arista_ceos_volume_ztp(
     Ok(())
 }
 
-/// SR Linux start settings: its image, privileged, its own user, environment and command.
+/// SR Linux start settings: privileged, its own user, environment and command.
 fn srlinux_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup) {
-    setup.image = CONTAINER_NOKIA_SRLINUX_REPO.to_string();
     setup.privileged = true;
     setup.user = Some(CONTAINER_NOKIA_SRLINUX_USER.to_string());
     setup.env_vars = CONTAINER_NOKIA_SRLINUX_ENV_VARS
@@ -680,7 +655,6 @@ fn srlinux_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup) 
         .collect();
 
     // Update node fields
-    node.image = Some(setup.image.clone());
     node.privileged = Some(setup.privileged);
     node.user.clone_from(&setup.user);
     node.environment_variables = Some(setup.env_vars.clone());
@@ -728,7 +702,7 @@ fn srlinux_volume_ztp(
     Ok(())
 }
 
-/// cJunosEvolved start settings: its image, privileged, and the environment its entrypoint
+/// cJunosEvolved start settings: privileged, and the environment its entrypoint
 /// reads to start the EVO VM.
 fn cevolved_start(
     node: &mut topology::NodeExpanded,
@@ -738,7 +712,6 @@ fn cevolved_start(
     // The entrypoint waits for this many data interfaces before it starts the EVO VM.
     let data_interfaces =
         effective_data_interface_count(&node.name, node.data_interface_count, node_image)?;
-    setup.image = CONTAINER_JUNIPER_CEVOLVED_REPO.to_string();
     setup.privileged = true;
     setup.env_vars = cevolved_env_vars(
         node.platform.unwrap_or_default(),
@@ -748,7 +721,6 @@ fn cevolved_start(
     );
 
     // Update node fields for consistency
-    node.image = Some(setup.image.clone());
     node.privileged = Some(setup.privileged);
     node.environment_variables = Some(setup.env_vars.clone());
     Ok(())
@@ -803,17 +775,15 @@ fn cevolved_volume_ztp(
     Ok(())
 }
 
-/// FRR start settings: its image, privileged and its environment. The image's own entrypoint
+/// FRR start settings: privileged and its environment. The image's own entrypoint
 /// and `daemons` file run it.
 fn frr_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup) {
-    setup.image = CONTAINER_FRR_REPO.to_string();
     setup.privileged = true;
     setup.env_vars = CONTAINER_FRR_ENV_VARS
         .iter()
         .map(std::string::ToString::to_string)
         .collect();
 
-    node.image = Some(setup.image.clone());
     node.privileged = Some(setup.privileged);
     node.environment_variables = Some(setup.env_vars.clone());
 }
@@ -889,19 +859,12 @@ fn frr_volume_ztp(
     Ok(())
 }
 
-/// An application container: its model's image and command.
-fn app_container(
-    node: &mut topology::NodeExpanded,
-    setup: &mut ContainerSetup,
-    repo: &str,
-    commands: &[&str],
-) {
-    setup.image = repo.to_string();
+/// An application container: its model's command.
+fn app_container(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup, commands: &[&str]) {
     setup.commands = commands
         .iter()
         .map(std::string::ToString::to_string)
         .collect();
-    node.image = Some(setup.image.clone());
     node.commands = Some(setup.commands.clone());
 }
 
@@ -939,7 +902,6 @@ fn vault_container(
     util::create_dir(dir)?;
     util::create_file(&config_file, rendered_config)?;
 
-    setup.image = CONTAINER_HASHICORP_VAULT_REPO.to_string();
     setup.env_vars = if custom_ztp.is_some() {
         CONTAINER_HASHICORP_VAULT_ENV_VARS
             .iter()
@@ -962,7 +924,6 @@ fn vault_container(
         .collect();
     setup.capabilities = model_capabilities(node.model);
 
-    node.image = Some(setup.image.clone());
     node.environment_variables = Some(setup.env_vars.clone());
     node.volumes = Some(vec![config_volume]);
     node.commands = Some(setup.commands.clone());
@@ -981,7 +942,6 @@ fn keycloak_container(
             node.name
         );
     }
-    setup.image = CONTAINER_KEYCLOAK_REPO.to_string();
     setup.user = Some(CONTAINER_KEYCLOAK_USER.to_string());
     setup.env_vars = merge_env_vars(
         keycloak_env_vars(ztp.node_ipv4_address),
@@ -992,7 +952,6 @@ fn keycloak_container(
         .map(std::string::ToString::to_string)
         .collect();
 
-    node.image = Some(setup.image.clone());
     node.environment_variables = Some(setup.env_vars.clone());
     node.commands = Some(setup.commands.clone());
     node.user.clone_from(&setup.user);
@@ -5412,38 +5371,17 @@ mod tests {
 
     #[test]
     fn application_containers_keep_their_start_settings() {
-        for (model, repo, commands) in [
-            (
-                data::NodeModel::GitlabCe,
-                CONTAINER_GITLAB_CE_REPO,
-                CONTAINER_GITLAB_CE_COMMANDS,
-            ),
-            (
-                data::NodeModel::ForgejoForge,
-                CONTAINER_FORGEJO_REPO,
-                CONTAINER_FORGEJO_COMMANDS,
-            ),
-            (
-                data::NodeModel::SurrealDb,
-                CONTAINER_SURREAL_DB_REPO,
-                CONTAINER_SURREAL_DB_COMMANDS,
-            ),
-            (
-                data::NodeModel::MongoDb,
-                CONTAINER_MONGO_DB_REPO,
-                CONTAINER_MONGO_DB_COMMANDS,
-            ),
-            (
-                data::NodeModel::NatsBus,
-                CONTAINER_NATS_REPO,
-                CONTAINER_NATS_COMMANDS,
-            ),
+        for (model, commands) in [
+            (data::NodeModel::GitlabCe, CONTAINER_GITLAB_CE_COMMANDS),
+            (data::NodeModel::ForgejoForge, CONTAINER_FORGEJO_COMMANDS),
+            (data::NodeModel::SurrealDb, CONTAINER_SURREAL_DB_COMMANDS),
+            (data::NodeModel::MongoDb, CONTAINER_MONGO_DB_COMMANDS),
+            (data::NodeModel::NatsBus, CONTAINER_NATS_COMMANDS),
         ] {
             let lab = ZtpLab::new();
             let mut node = named_node("app01", model);
             let result = lab.container(&mut node, None).unwrap();
             assert_eq!(result.ztp_record.ztp, data::Ztp::Disabled, "{model}");
-            assert_eq!(result.image, repo, "{model}");
             assert_eq!(result.commands, strings(commands), "{model}");
             assert!(result.volumes.is_empty(), "{model}");
             assert!(!result.privileged, "{model}");
@@ -5456,6 +5394,47 @@ mod tests {
             gitlab.shm_size,
             Some(CONTAINER_GITLAB_CE_SHM_SIZE * 1024 * 1024)
         );
+    }
+
+    #[test]
+    fn containers_with_a_built_in_repo_run_the_image_their_node_resolved() {
+        let certs = NodeCertPaths {
+            ca_cert: "/certs/ca.crt".to_owned(),
+            node_cert: "/certs/node.crt".to_owned(),
+            node_key: "/certs/node.key".to_owned(),
+        };
+        let models: Vec<data::NodeModel> = data::NodeModel::to_vec()
+            .into_iter()
+            .filter(|model| {
+                let config = data::NodeConfig::get_model(*model);
+                config.kind == data::NodeKind::Container && config.repo.is_some()
+            })
+            .collect();
+        assert_eq!(models.len(), 11, "{models:?}");
+        for model in models {
+            let lab = ZtpLab::new();
+            let mut node = named_node("node1", model);
+            node.image = Some("registry.example:5000/mirror/image".to_owned());
+
+            let result = generate_container_ztp(
+                &mut node,
+                &data::NodeConfig::get_model(model),
+                &lab.lab(),
+                "192.0.2.10".parse().unwrap(),
+                Some(&certs),
+            )
+            .unwrap();
+
+            assert_eq!(
+                result.image, "registry.example:5000/mirror/image",
+                "{model}"
+            );
+            assert_eq!(
+                node.image.as_deref(),
+                Some("registry.example:5000/mirror/image"),
+                "{model}"
+            );
+        }
     }
 
     #[test]
@@ -5489,7 +5468,6 @@ mod tests {
 
         let config = format!("{}/vault01/config.hcl", lab.root());
         assert_eq!(result.ztp_record.ztp, data::Ztp::Disabled);
-        assert_eq!(result.image, CONTAINER_HASHICORP_VAULT_REPO);
         assert_eq!(
             result.volumes,
             [format!("{config}:{VAULT_ZTP_CONFIG_MOUNT}")]
@@ -5518,7 +5496,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.ztp_record.ztp, data::Ztp::Disabled);
-        assert_eq!(result.image, CONTAINER_KEYCLOAK_REPO);
         assert_eq!(result.commands, strings(CONTAINER_KEYCLOAK_COMMANDS));
         assert_eq!(result.user, Some(CONTAINER_KEYCLOAK_USER.to_owned()));
         assert_eq!(result.volumes.len(), 3, "the certificate mounts");

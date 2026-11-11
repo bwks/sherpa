@@ -49,7 +49,7 @@ Validators that only the server enforces.
 
 ## Version Resolution & Image Existence — `validate/version.rs`
 
-**Function:** `validate_and_resolve_node_versions(nodes, node_images, images_dir, docker_images) -> Result<Vec<Node>>`
+**Function:** `validate_and_resolve_node_versions(nodes, node_images, images_dir) -> Result<Vec<Node>>`
 
 **What to test:**
 
@@ -61,10 +61,16 @@ Validators that only the server enforces.
 - No configurations in database for model fails with specific error `[unit]` **P0**
 - Returned nodes have version field populated `[unit]` **P0**
 
-### Container Image Verification
-- Container image present in Docker (`repo:version` format) passes `[unit]` **P0**
-- Container image missing from Docker fails with `docker pull` hint `[unit]` **P0**
-- Container with no repo configured in node_image fails `[unit]` **P0**
+### Container Image Resolution
+- A container node's image is the repo its version was pulled from, kept as written:
+  `docker.io/library/<name>`, `<name>` and a full third-party path `[unit]` **P0**
+- A manifest `image` is honoured, for models with a built-in repo as for any other `[unit]` **P0**
+- Container with no repo configured in node_image fails naming both fixes `[unit]` **P0**
+- Whether Docker has the image is asked of Docker (`inspect_image`) by `up` and redeploy with the
+  same reference the container is created from; an official image pulled by its full name brings
+  a node up and redeploys, and a missing image refuses a redeploy before teardown
+  (`lab_lifecycle::an_official_docker_hub_image_pulled_by_its_full_name_brings_a_container_node_up`)
+  `[integration]` **P0**
 
 ### VM/Unikernel Disk Verification
 - Disk file exists at `{images_dir}/{model}/{version}/virtioa.qcow2` passes `[unit]` **P0**
@@ -75,7 +81,7 @@ Validators that only the server enforces.
 - Mixed VM and container nodes in same manifest `[unit]` **P1**
 - Multiple nodes of same model with different versions `[unit]` **P1**
 
-**Existing coverage:** 17 tests — private validators (version in db, container image, vm disk) plus public entry point tests covering version resolution, fallback, precedence, multi-node scenarios, and failure cases.
+**Existing coverage:** private validators (version in db, vm disk), `validate_container_repo`, plus public entry point tests covering version resolution, fallback, precedence, container image resolution, multi-node scenarios, and failure cases.
 
 ---
 

@@ -1059,13 +1059,12 @@ impl NodeConfig {
         }
     }
 
-    /// The repo a container node runs, for the node's version as pulled (`self`). A model with
-    /// a built-in repo runs that. Any other runs the manifest's `image`, or else the repo its
-    /// version was pulled from; `None` if it has neither.
+    /// The repo a container node runs, for the node's version as pulled (`self`): the
+    /// manifest's `image`, or else the repo its version was pulled from or imported as; `None`
+    /// if it has neither. A model with a built-in repo is treated the same way: its built-in
+    /// repo is only where its records start.
+    #[must_use]
     pub fn container_repo(&self, manifest_image: Option<&str>) -> Option<String> {
-        if NodeConfig::get_model(self.model).repo.is_some() {
-            return self.repo.clone();
-        }
         manifest_image
             .map(str::to_string)
             .or_else(|| self.repo.clone())
@@ -3149,12 +3148,27 @@ mod tests {
     }
 
     #[test]
-    fn test_container_repo_of_a_model_with_a_built_in_repo_ignores_the_manifest_image() {
+    fn test_container_repo_of_a_model_with_a_built_in_repo_prefers_the_manifest_image() {
         let config = pulled(NodeModel::MongoDb, Some("mongo"));
         assert_eq!(
-            config.container_repo(Some("other")),
-            Some("mongo".to_string())
+            config.container_repo(Some("mirror.example/mongo")),
+            Some("mirror.example/mongo".to_string())
         );
+    }
+
+    #[test]
+    fn test_container_repo_of_a_model_with_a_built_in_repo_runs_the_repo_it_was_pulled_from() {
+        let config = pulled(NodeModel::NatsBus, Some("docker.io/library/nats"));
+        assert_eq!(
+            config.container_repo(None),
+            Some("docker.io/library/nats".to_string())
+        );
+    }
+
+    #[test]
+    fn test_container_repo_of_a_model_with_a_built_in_repo_and_no_recorded_repo_is_none() {
+        let config = pulled(NodeModel::FrrLinux, None);
+        assert_eq!(config.container_repo(None), None);
     }
 
     #[test]
