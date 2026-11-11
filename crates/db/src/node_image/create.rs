@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use shared::data::NodeConfig;
+use shared::validators::check_ztp;
 use tracing::instrument;
 use turso::Connection;
 
@@ -21,7 +22,8 @@ use crate::sql::query_optional;
 ///
 /// # Errors
 ///
-/// Fails when the image cannot be written, as when one of its values is not one this build allows,
+/// Fails when the image's ZTP setting is not one its model takes, when the image cannot be
+/// written, as when one of its values is not one this build allows,
 /// and with [`LastDefaultImage`](crate::LastDefaultImage) when `request` is
 /// [`DefaultRequest::Unset`] on the model's only default.
 #[instrument(skip(db), level = "debug")]
@@ -30,6 +32,10 @@ pub async fn upsert_node_image(
     mut config: NodeConfig,
     request: DefaultRequest,
 ) -> Result<NodeConfig> {
+    check_ztp(config.model, config.ztp.mode).context(format!(
+        "Refusing to store node_image: model={}, kind={}, version={}",
+        config.model, config.kind, config.version
+    ))?;
     let mut writer = db.writer().await?;
     let tx = writer
         .conn

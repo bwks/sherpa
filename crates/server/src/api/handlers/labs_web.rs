@@ -1,6 +1,7 @@
 //! The web UI's lab pages, lab and node actions, jobs and lab creation.
 
 use super::labs_api::run_detached;
+use anyhow::Context;
 use axum::extract::{Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::{Html, IntoResponse, Response, sse};
@@ -28,12 +29,14 @@ use crate::templates::{
 use crate::api::errors::ApiError;
 use crate::api::extractors::AuthenticatedUserFromCookie;
 
-use shared::data::{LabNodeActionResponse, LabState, NodeModel, RedeployRequest, UpRequest};
+use shared::data::{LabNodeActionResponse, LabState, NodeModel, RedeployRequest, UpRequest, Ztp};
 use shared::konst::{
     LAB_FILE_NAME, SHERPA_KNOWN_HOSTS_FILE, SHERPA_LABS_PATH, SHERPA_SSH_CONFIG_FILE,
     SHERPA_SSH_PRIVATE_KEY_FILE,
 };
 use shared::util::{generate_lab_name, get_id_for_user, load_saved_manifest};
+use shared::validators::effective_ztp;
+use topology::Manifest;
 
 /// Dashboard page handler (HTML)
 ///
@@ -515,6 +518,8 @@ pub async fn node_detail_handler(
         }
     };
 
+    let ztp = effective_ztp(saved_node_ztp(&lab_id, &node_name), &node_config);
+
     NodeDetailTemplate {
         username: auth.username,
         is_admin: auth.is_admin,
@@ -522,10 +527,36 @@ pub async fn node_detail_handler(
         lab_id: lab_id.clone(),
         lab_name: inspect_response.lab_info.name.clone(),
         device,
+        ztp,
         node_config,
         mgmt_mac: db_node.mgmt_mac,
     }
     .into_response()
+}
+
+/// The ZTP setting the lab's saved manifest gives the node, if it gives one. A manifest that
+/// cannot be read gives none, so the page shows the image's setting.
+fn saved_node_ztp(lab_id: &str, node_name: &str) -> Option<Ztp> {
+    let lab_dir = PathBuf::from(SHERPA_LABS_PATH).join(lab_id);
+    match load_saved_manifest(&lab_dir).and_then(|manifest| manifest_node_ztp(manifest, node_name))
+    {
+        Ok(ztp) => ztp,
+        Err(error) => {
+            tracing::warn!(%error, %lab_id, "Failed to read the saved manifest for the node's ZTP");
+            None
+        }
+    }
+}
+
+/// The `ztp` a manifest sets on its node `node_name`.
+fn manifest_node_ztp(manifest: serde_json::Value, node_name: &str) -> anyhow::Result<Option<Ztp>> {
+    let manifest: Manifest =
+        serde_json::from_value(manifest).context("Failed to deserialize the saved manifest")?;
+    Ok(manifest
+        .nodes
+        .iter()
+        .find(|node| node.name == node_name)
+        .and_then(|node| node.ztp))
 }
 
 // ============================================================================
@@ -951,5 +982,22 @@ mod tests {
             7,
             "a new LabState needs a case here"
         );
+    }
+
+    #[test]
+    fn the_saved_manifest_gives_a_node_its_ztp_only_when_it_sets_one() {
+        let manifest = json!({
+            "name": "lab",
+            "nodes": [
+                { "name": "frr01", "model": "frr_linux" },
+                { "name": "frr02", "model": "frr_linux", "ztp": "disabled" },
+            ],
+        });
+        assert_eq!(manifest_node_ztp(manifest.clone(), "frr01").unwrap(), None);
+        assert_eq!(
+            manifest_node_ztp(manifest.clone(), "frr02").unwrap(),
+            Some(Ztp::Disabled)
+        );
+        assert_eq!(manifest_node_ztp(manifest, "absent").unwrap(), None);
     }
 }

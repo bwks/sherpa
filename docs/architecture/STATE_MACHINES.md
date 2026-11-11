@@ -53,7 +53,7 @@ which to make them explicit, are in
 | 26 | [Link impairment](#26-link-impairment) | server, network, db | `impairment_*` columns, netem qdisc |
 | 27 | [Bridges and management networks](#27-bridges-and-management-networks) | server, libvirt, container, network | side effects |
 | 28 | [Node images](#28-node-images) | server, db | `node_image` row, `default` flag, files |
-| 29 | [ZTP settings](#29-ztp-settings-ztp_enable-and-ztp_method) | shared, db, server, template | `ztp_enable` bool + `ztp_method` enum + model |
+| 29 | [ZTP setting](#29-ztp-setting) | shared, db, server, template, topology | one `Ztp` enum on the image, with an optional manifest override |
 | 30 | [The `ztp_config` field](#30-the-ztp_config-field) | topology, client, server | one `Option<String>` with four meanings |
 | 31 | [Node resource reservation](#31-node-resource-reservation) | server, db | `vnc_port`, `cpu_pinning` Options, admission ledger |
 | 32 | [Database schema version](#32-database-schema-version) | db | `PRAGMA user_version` |
@@ -1324,56 +1324,56 @@ stateDiagram-v2
 
 ## Configuration combinations
 
-### 29. ZTP settings (`ztp_enable` and `ztp_method`)
+### 29. ZTP setting
 
-**Where.**
+**Where.** `shared::data::Ztp` (`crates/shared/src/data/node.rs`), held by the image as
+`ZtpSettings.mode` (column and JSON field `ztp`) and optionally by a manifest node as
+`topology::Node.ztp`. The full description, with the per-model table, is in
+[`ZTP.md`](ZTP.md).
 
-- `ZtpSettings { enable, method, username, password, password_auth }`
-  (`crates/shared/src/data/node.rs:793-810`). `NodeConfig` flattens it into the columns
-  `ztp_enable`, `ztp_method` and so on (`crates/db/src/persistence.rs`).
-- `ZtpMethod` (`crates/shared/src/data/node.rs:650-681`) has eleven variants, including `None`.
-  `#[default]` is `CloudInit`.
+**States.** Ten values: `disabled` and nine methods. There is no flag beside the method, so the
+22 combinations the `ztp_enable` and `ztp_method` pair had are gone, and with them "off with a
+method" and "on with no method". Which methods a model takes is `NodeModel::ztp_methods`.
 
-**States.** A bool times an enum gives 22 combinations. Whether a method works also depends
-on the image's `model` and `kind`. Nothing names the valid combinations. `enable = false` and
-`method = None` both mean "no ZTP".
+**Writers.** Every one is checked by `shared::validators::check_ztp`.
 
-**Writers.**
+- The code defaults, `NodeConfig::get_model`: a unit test holds each to `disabled` or a method
+  its model lists.
+- Import, scan, download, pull and set-default write through `db::upsert_node_image`, and the
+  admin web form through `db::update_node_image`; both refuse a setting the model does not take.
+  An existing row keeps its settings on a re-import (see [Node images](#28-node-images)).
+- A manifest node's `ztp`, checked by `topology::validate::check_node_ztp` and again by the
+  server before `up` or redeploy changes anything.
+- Migration 0016 folded the old pair into the one column, once.
 
-- The code defaults, `NodeConfig::get_model`. For example, `arista_veos` (a VM) is
-  `enable = true, method = Tftp` (`crates/shared/src/data/node.rs:1023-1025`), and
-  `arista_ceos` (a container) is `enable = true, method = None` (`node.rs:1060-1062`).
-- Import, scan and pull upsert the code defaults over the row (`import.rs`).
-- The admin web form writes any pair (`images_web.rs:220-226`, saved at `:391`). Its validation
-  does not look at ZTP (`:373-379`).
-- Migrations 0004 and 0005 rewrote some old defaults once.
+**Readers.** All take `shared::validators::effective_ztp` (the manifest's, or else the
+image's), and each is one `match` with `Disabled` as a case.
 
-**Readers.**
-
-| Reader | file:line | Reads |
-|---|---|---|
-| `generate_vm_ztp` | `crates/server/src/services/node_ops.rs:1015` | `enable` only; false skips all media |
-| `generate_vm_ztp_media` | `node_ops.rs:1104-1155` | `method` |
-| `check_custom_ztp_supported` | `node_ops.rs:1060-1080` | `method`, only when enabled |
-| `ZtpRecord.ztp_method` | `node_ops.rs:441` (containers), `:1046` (VMs) | `method`, whatever `enable` is |
-| dnsmasq template | `crates/template/templates/dnsmasq/config.jinja:48-55` | `ztp_method`: Tftp or Http sets DHCP option 67 |
-| `supports_guest_account` | `crates/server/src/services/guest_account.rs:99-170` | `enable`, `kind`, `method` and model |
-| `generate_container_ztp` | `node_ops.rs:392-455` | model only; never reads `enable` |
+| Reader | Where |
+|---|---|
+| VM media | `node_ops::generate_vm_ztp_media` |
+| Container setup and manifest volumes | `node_ops::container_model_setup`, `add_container_volumes` |
+| DHCP boot options | `template::DnsmasqTemplate::boot_options`, from `ZtpRecord.ztp` |
+| Owner account | `guest_account::supports_guest_account` |
+| Plan-time checks | `server::validate::validate_node_ztp`, from `plan_lab` and redeploy's `load_node` |
 
 The `username`, `password` and `password_auth` fields are read only for display
-(`crates/shared/src/util/table.rs:456-462`).
+(`crates/shared/src/util/table.rs`).
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Defaults : get_model(model)
-    Defaults --> AdminEdited : images_web form (any enable x method)
-    AdminEdited --> Defaults : re-import / scan / pull upserts defaults
-    state AdminEdited {
-        [*] --> EnabledMatching
-        EnabledMatching --> Disabled_MethodSet : uncheck enable
-        EnabledMatching --> Enabled_MethodNone : method None
-        EnabledMatching --> Enabled_WrongModel : method the model lacks
+    [*] --> ModelDefault : get_model(model)
+    ModelDefault --> Stored : upsert_node_image (check_ztp)
+    Stored --> Stored : web form, update_node_image (check_ztp)
+    state Stored {
+        [*] --> Disabled
+        Disabled --> Method : a method the model lists
+        Method --> Disabled
+        Method --> Method : another listed method
     }
+    Stored --> Effective : effective_ztp(node.ztp, image)
+    Effective --> Refused : validate_node_ztp fails, before anything is created
+    Effective --> Generated : one match per reader
 ```
 
 ### 30. The `ztp_config` field

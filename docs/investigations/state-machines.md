@@ -585,6 +585,14 @@ The `file:line` references below are to the code before the fix.
 
 ### M29 and M30. ZTP settings and `ztp_config`
 
+**Status.** Items 1 to 3 are fixed: the pair is one `Ztp` enum, validated at every image write,
+in manifest validation and before `up` or redeploy creates or tears down anything. The lasting
+description is [`docs/architecture/ZTP.md`](../architecture/ZTP.md). Item 4 was already fixed
+when this was written: `upsert_node_image` keeps an existing row's settings
+(`crates/db/src/node_image/create.rs`, test `importing_a_version_again_keeps_its_edited_settings`).
+Items 5 and 6 are open and tracked in `PROJECT.md`. The text below is what was found before the
+fix.
+
 1. **`ztp_enable = false` with `ztp_method = Tftp` or `Http`.**
    - Sequence: an admin unticks "enable" in the image form and leaves the method
      (`crates/server/src/api/handlers/images_web.rs:220-226`). The validation does not look at
@@ -668,7 +676,8 @@ direction for the fix, not a design.
      table, checked in `resolve_user`. Logout, password change and user deletion move the
      version on. Re-resolve web jobs when they start.
    - **Why:** these are security defects, and M14.1 and M14.2 are easy to reach.
-5. **ZTP settings (M29).**
+5. **ZTP settings (M29).** Done, as one flat `Ztp` enum with `Disabled` as a value; see
+   [`docs/architecture/ZTP.md`](../architecture/ZTP.md).
    - **Form:** replace the `enable` and `method` pair with one enum, for example
      `Disabled | Method(ZtpMethod)`, with no `None` variant. Validate it against the model in
      one place, used by the web form, import and `up` planning.

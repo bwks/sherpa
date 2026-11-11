@@ -59,7 +59,7 @@ use shared::konst::{
 };
 use shared::util;
 use shared::validators::{
-    effective_data_interface_count, mode_from_octal_digits, validate_ssh_key,
+    effective_data_interface_count, effective_ztp, mode_from_octal_digits, validate_ssh_key,
 };
 use topology::{BinaryFileData, SystemdUnitData};
 use virt::error::ErrorNumber;
@@ -429,8 +429,9 @@ pub(crate) fn generate_container_ztp(
         user: node.user.clone(),
     };
 
-    container_model_setup(node, node_image, &ztp, &mut setup)?;
-    add_container_volumes(node, cert_paths, &mut setup.volumes);
+    let setting = effective_ztp(node.ztp, node_image);
+    container_model_setup(node, node_image, &ztp, setting, &mut setup)?;
+    add_container_volumes(node, setting, cert_paths, &mut setup.volumes);
 
     let ztp_record = data::ZtpRecord {
         node_name: node.name.clone(),
@@ -438,7 +439,7 @@ pub(crate) fn generate_container_ztp(
         ipv4_address: node_ipv4_address,
         ipv6_address: None,
         mac_address: String::new(),
-        ztp_method: node_image.ztp.method.clone(),
+        ztp: setting,
         ssh_port: Some(SSH_PORT),
     };
 
@@ -455,21 +456,51 @@ pub(crate) fn generate_container_ztp(
     })
 }
 
-/// Apply the container model's setup: its config files, image, environment, mounts and
-/// command. Other models keep the manifest's settings.
+/// Apply the container's ZTP setting. With ZTP off a container gets its model's start
+/// settings alone. `volume` adds the config files Sherpa generates, their mounts and the
+/// logins. No container takes another method, and the validator refuses one before a node is
+/// planned, so reaching one here means a setting skipped validation.
 fn container_model_setup(
+    node: &mut topology::NodeExpanded,
+    node_image: &data::NodeConfig,
+    ztp: &ContainerZtp<'_>,
+    setting: data::Ztp,
+    setup: &mut ContainerSetup,
+) -> Result<()> {
+    match setting {
+        data::Ztp::Disabled => container_start_settings(node, node_image, ztp, setup),
+        data::Ztp::Volume => {
+            container_start_settings(node, node_image, ztp, setup)?;
+            container_volume_ztp(node, node_image, ztp, setup)
+        }
+        data::Ztp::CloudInit
+        | data::Ztp::Cdrom
+        | data::Ztp::Disk
+        | data::Ztp::Http
+        | data::Ztp::Ignition
+        | data::Ztp::NoCloud
+        | data::Ztp::Tftp
+        | data::Ztp::Usb => bail!(
+            "ZTP setting '{setting}' of container node '{}' was not validated: containers take \
+             only 'disabled' and 'volume'",
+            node.name
+        ),
+    }
+}
+
+/// The settings a container of its model needs to start at all: its image, environment, user
+/// and command, and for Vault its own config. Other models keep the manifest's settings.
+fn container_start_settings(
     node: &mut topology::NodeExpanded,
     node_image: &data::NodeConfig,
     ztp: &ContainerZtp<'_>,
     setup: &mut ContainerSetup,
 ) -> Result<()> {
     match node.model {
-        data::NodeModel::AristaCeos => arista_ceos_container(node, ztp, setup)?,
-        data::NodeModel::NokiaSrlinux => srlinux_container(node, ztp, setup)?,
-        data::NodeModel::JuniperCevolved => {
-            cevolved_container(node, node_image, ztp, setup)?;
-        }
-        data::NodeModel::FrrLinux => frr_container(node, ztp, setup)?,
+        data::NodeModel::AristaCeos => arista_ceos_start(node, setup),
+        data::NodeModel::NokiaSrlinux => srlinux_start(node, setup),
+        data::NodeModel::JuniperCevolved => cevolved_start(node, node_image, setup)?,
+        data::NodeModel::FrrLinux => frr_start(node, setup),
         data::NodeModel::GitlabCe => {
             app_container(
                 node,
@@ -511,32 +542,50 @@ fn container_model_setup(
     Ok(())
 }
 
-/// The manifest's mounts, for models whose setup sets none of its own, and the node
-/// certificate mounts.
+/// Generate the container's config files and mount them. Only the models whose config Sherpa
+/// writes take `volume`.
+fn container_volume_ztp(
+    node: &mut topology::NodeExpanded,
+    node_image: &data::NodeConfig,
+    ztp: &ContainerZtp<'_>,
+    setup: &mut ContainerSetup,
+) -> Result<()> {
+    match node.model {
+        data::NodeModel::AristaCeos => arista_ceos_volume_ztp(node, ztp, setup),
+        data::NodeModel::NokiaSrlinux => srlinux_volume_ztp(node, ztp, setup),
+        data::NodeModel::JuniperCevolved => cevolved_volume_ztp(node, node_image, ztp, setup),
+        data::NodeModel::FrrLinux => frr_volume_ztp(node, ztp, setup),
+        model => bail!(
+            "ZTP setting 'volume' of container node '{}' was not validated: Sherpa generates \
+             no config for model {model}",
+            node.name
+        ),
+    }
+}
+
+/// The manifest's mounts and the node certificate mounts. The manifest's are dropped for a
+/// node whose config Sherpa mounts (`volume`), and for Vault, GitLab CE and `SurrealDB`. A node
+/// with ZTP off keeps them: they are how its user mounts a config of their own.
 fn add_container_volumes(
     node: &topology::NodeExpanded,
+    setting: data::Ztp,
     cert_paths: Option<&NodeCertPaths>,
     volumes: &mut Vec<String>,
 ) {
-    // Volumes from node manifest (non-model-specific ones)
-    if let Some(ref node_volumes) = node.volumes {
-        let manifest_volumes: Vec<String> = node_volumes
+    let drops_manifest_volumes = setting == data::Ztp::Volume
+        || matches!(
+            node.model,
+            data::NodeModel::GitlabCe
+                | data::NodeModel::SurrealDb
+                | data::NodeModel::HashicorpVault
+        );
+    if let Some(node_volumes) = &node.volumes
+        && !drops_manifest_volumes
+    {
+        *volumes = node_volumes
             .iter()
             .map(|v| format!("{}:{}", v.src, v.dst))
             .collect();
-        // For non-model-specific nodes, use the manifest volumes
-        if !matches!(
-            node.model,
-            data::NodeModel::AristaCeos
-                | data::NodeModel::NokiaSrlinux
-                | data::NodeModel::JuniperCevolved
-                | data::NodeModel::FrrLinux
-                | data::NodeModel::GitlabCe
-                | data::NodeModel::SurrealDb
-                | data::NodeModel::HashicorpVault
-        ) {
-            *volumes = manifest_volumes;
-        }
     }
     // Add TLS certificate volume mounts if cert paths are provided
     if let Some(certs) = cert_paths {
@@ -549,8 +598,28 @@ fn add_container_volumes(
     }
 }
 
-/// cEOS: its startup config, mounted read-only and copied into flash on first boot.
-fn arista_ceos_container(
+/// cEOS start settings: its image, privileged, its environment and the init command.
+fn arista_ceos_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup) {
+    setup.image = CONTAINER_ARISTA_CEOS_REPO.to_string();
+    setup.privileged = true;
+    setup.env_vars = CONTAINER_ARISTA_CEOS_ENV_VARS
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect();
+    setup.commands = CONTAINER_ARISTA_CEOS_COMMANDS
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect();
+
+    // Update node fields for consistency
+    node.image = Some(setup.image.clone());
+    node.privileged = Some(setup.privileged);
+    node.environment_variables = Some(setup.env_vars.clone());
+    node.commands = Some(setup.commands.clone());
+}
+
+/// cEOS ZTP: its startup config, mounted read-only and copied into flash on first boot.
+fn arista_ceos_volume_ztp(
     node: &mut topology::NodeExpanded,
     ztp: &ContainerZtp<'_>,
     setup: &mut ContainerSetup,
@@ -588,26 +657,38 @@ fn arista_ceos_container(
     util::create_dir(dir)?;
     util::create_file(&ztp_config, rendered_template)?;
 
-    setup.image = CONTAINER_ARISTA_CEOS_REPO.to_string();
-    setup.privileged = true;
-    setup.env_vars = CONTAINER_ARISTA_CEOS_ENV_VARS
-        .iter()
-        .map(std::string::ToString::to_string)
-        .collect();
     setup.volumes = vec![format!("{}:{}:ro", ztp_volume.src, ztp_volume.dst)];
     setup.commands = ceos_startup_commands();
 
-    // Update node fields for consistency
-    node.image = Some(setup.image.clone());
-    node.privileged = Some(setup.privileged);
-    node.environment_variables = Some(setup.env_vars.clone());
     node.volumes = Some(vec![ztp_volume]);
     node.commands = Some(setup.commands.clone());
     Ok(())
 }
 
-/// SR Linux: its startup config as JSON, run as its own user.
-fn srlinux_container(
+/// SR Linux start settings: its image, privileged, its own user, environment and command.
+fn srlinux_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup) {
+    setup.image = CONTAINER_NOKIA_SRLINUX_REPO.to_string();
+    setup.privileged = true;
+    setup.user = Some(CONTAINER_NOKIA_SRLINUX_USER.to_string());
+    setup.env_vars = CONTAINER_NOKIA_SRLINUX_ENV_VARS
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect();
+    setup.commands = CONTAINER_NOKIA_SRLINUX_COMMANDS
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect();
+
+    // Update node fields
+    node.image = Some(setup.image.clone());
+    node.privileged = Some(setup.privileged);
+    node.user.clone_from(&setup.user);
+    node.environment_variables = Some(setup.env_vars.clone());
+    node.commands = Some(setup.commands.clone());
+}
+
+/// SR Linux ZTP: its startup config as JSON, mounted over the image's.
+fn srlinux_volume_ztp(
     node: &mut topology::NodeExpanded,
     ztp: &ContainerZtp<'_>,
     setup: &mut ContainerSetup,
@@ -642,32 +723,39 @@ fn srlinux_container(
     util::create_dir(dir)?;
     util::create_file(&ztp_config, srlinux_config)?;
 
-    setup.image = CONTAINER_NOKIA_SRLINUX_REPO.to_string();
-    setup.privileged = true;
-    setup.user = Some(CONTAINER_NOKIA_SRLINUX_USER.to_string());
-    setup.env_vars = CONTAINER_NOKIA_SRLINUX_ENV_VARS
-        .iter()
-        .map(std::string::ToString::to_string)
-        .collect();
     setup.volumes = vec![format!("{}:{}", ztp_volume.src, ztp_volume.dst)];
-    setup.commands = CONTAINER_NOKIA_SRLINUX_COMMANDS
-        .iter()
-        .map(std::string::ToString::to_string)
-        .collect();
-
-    // Update node fields
-    node.image = Some(setup.image.clone());
-    node.privileged = Some(setup.privileged);
-    node.user.clone_from(&setup.user);
-    node.environment_variables = Some(setup.env_vars.clone());
     node.volumes = Some(vec![ztp_volume]);
-    node.commands = Some(setup.commands.clone());
     Ok(())
 }
 
-/// cJunosEvolved: its Junos config in a mounted config directory, and the environment its
-/// entrypoint reads to start the EVO VM.
-fn cevolved_container(
+/// cJunosEvolved start settings: its image, privileged, and the environment its entrypoint
+/// reads to start the EVO VM.
+fn cevolved_start(
+    node: &mut topology::NodeExpanded,
+    node_image: &data::NodeConfig,
+    setup: &mut ContainerSetup,
+) -> Result<()> {
+    // The entrypoint waits for this many data interfaces before it starts the EVO VM.
+    let data_interfaces =
+        effective_data_interface_count(&node.name, node.data_interface_count, node_image)?;
+    setup.image = CONTAINER_JUNIPER_CEVOLVED_REPO.to_string();
+    setup.privileged = true;
+    setup.env_vars = cevolved_env_vars(
+        node.platform.unwrap_or_default(),
+        data_interfaces,
+        node.cpu_count.unwrap_or(node_image.cpu_count),
+        node.memory.unwrap_or(node_image.memory),
+    );
+
+    // Update node fields for consistency
+    node.image = Some(setup.image.clone());
+    node.privileged = Some(setup.privileged);
+    node.environment_variables = Some(setup.env_vars.clone());
+    Ok(())
+}
+
+/// cJunosEvolved ZTP: its Junos config in a mounted config directory.
+fn cevolved_volume_ztp(
     node: &mut topology::NodeExpanded,
     node_image: &data::NodeConfig,
     ztp: &ContainerZtp<'_>,
@@ -710,29 +798,29 @@ fn cevolved_container(
         rendered_template,
     )?;
 
-    // The entrypoint waits for this many data interfaces before it starts the EVO VM.
-    let data_interfaces =
-        effective_data_interface_count(&node.name, node.data_interface_count, node_image)?;
-    setup.image = CONTAINER_JUNIPER_CEVOLVED_REPO.to_string();
-    setup.privileged = true;
-    setup.env_vars = cevolved_env_vars(
-        node.platform.unwrap_or_default(),
-        data_interfaces,
-        node.cpu_count.unwrap_or(node_image.cpu_count),
-        node.memory.unwrap_or(node_image.memory),
-    );
     setup.volumes = vec![format!("{}:{}:ro", config_volume.src, config_volume.dst)];
-
-    // Update node fields for consistency
-    node.image = Some(setup.image.clone());
-    node.privileged = Some(setup.privileged);
-    node.environment_variables = Some(setup.env_vars.clone());
     node.volumes = Some(vec![config_volume]);
     Ok(())
 }
 
-/// FRR: its daemons file, its config, and a startup script that adds the logins.
-fn frr_container(
+/// FRR start settings: its image, privileged and its environment. The image's own entrypoint
+/// and `daemons` file run it.
+fn frr_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup) {
+    setup.image = CONTAINER_FRR_REPO.to_string();
+    setup.privileged = true;
+    setup.env_vars = CONTAINER_FRR_ENV_VARS
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect();
+
+    node.image = Some(setup.image.clone());
+    node.privileged = Some(setup.privileged);
+    node.environment_variables = Some(setup.env_vars.clone());
+}
+
+/// FRR ZTP: its daemons file, its config, and a startup script that adds the SSH server and
+/// the logins.
+fn frr_volume_ztp(
     node: &mut topology::NodeExpanded,
     ztp: &ContainerZtp<'_>,
     setup: &mut ContainerSetup,
@@ -789,22 +877,13 @@ fn frr_container(
         dst: FRR_ZTP_STARTUP_MOUNT.to_string(),
     };
 
-    setup.image = CONTAINER_FRR_REPO.to_string();
-    setup.privileged = true;
-    setup.env_vars = CONTAINER_FRR_ENV_VARS
-        .iter()
-        .map(std::string::ToString::to_string)
-        .collect();
     setup.volumes = vec![
         format!("{}:{}", daemons_volume.src, daemons_volume.dst),
         format!("{}:{}", config_volume.src, config_volume.dst),
         format!("{}:{}", startup_volume.src, startup_volume.dst),
     ];
-    setup.commands = vec!["/bin/sh".to_string(), "/tmp/sherpa-init.sh".to_string()];
+    setup.commands = vec!["/bin/sh".to_string(), FRR_ZTP_STARTUP_MOUNT.to_string()];
 
-    node.image = Some(setup.image.clone());
-    node.privileged = Some(setup.privileged);
-    node.environment_variables = Some(setup.env_vars.clone());
     node.volumes = Some(vec![daemons_volume, config_volume, startup_volume]);
     node.commands = Some(setup.commands.clone());
     Ok(())
@@ -1012,11 +1091,8 @@ pub(crate) fn generate_vm_ztp(
         cert_paths,
         guest_account,
     };
-    let media = if node_image.ztp.enable {
-        generate_vm_ztp_media(node, node_image, &ztp)?
-    } else {
-        VmZtpMedia::default()
-    };
+    let setting = effective_ztp(node.ztp, node_image);
+    let media = generate_vm_ztp_media(node, node_image, &ztp, setting)?;
     // The image's own CD-ROM, such as vEOS's Aboot, unless the ZTP method brings one.
     let image_cdrom = node_image.cdrom.as_ref().map(|src_iso| {
         (
@@ -1043,7 +1119,7 @@ pub(crate) fn generate_vm_ztp(
         ipv4_address: node_ipv4_address,
         ipv6_address: None,
         mac_address: mac_address.clone(),
-        ztp_method: node_image.ztp.method.clone(),
+        ztp: setting,
         ssh_port: node_image.model.has_ssh().then_some(SSH_PORT),
     };
 
@@ -1056,35 +1132,15 @@ pub(crate) fn generate_vm_ztp(
     })
 }
 
-/// Only the ZTP methods that deliver a config file take a custom one.
-fn check_custom_ztp_supported(
-    node: &topology::NodeExpanded,
-    node_image: &data::NodeConfig,
-) -> Result<()> {
-    let unsupported = matches!(
-        node_image.ztp.method,
-        data::ZtpMethod::CloudInit
-            | data::ZtpMethod::Ignition
-            | data::ZtpMethod::Http
-            | data::ZtpMethod::None
-    );
-    if node.ztp_config.is_some() && unsupported {
-        bail!(
-            "Custom ZTP config is not supported for node '{}' with ZTP method '{:?}'. \
-             Only Tftp, Cdrom, Disk, Usb, and Volume methods support custom ZTP config files.",
-            node.name,
-            node_image.ztp.method
-        );
-    }
-    Ok(())
-}
-
-/// Generate the VM's configuration with its image's ZTP method, and return the media that carry
-/// it to the VM.
+/// Generate the VM's configuration by its ZTP setting, and return the media that carry it to
+/// the VM. With ZTP off there is nothing to generate and no media. `volume` is a container's
+/// method, and the validator refuses it for a VM before the node is planned, so reaching it
+/// here means a setting skipped validation.
 fn generate_vm_ztp_media(
     node: &mut topology::NodeExpanded,
     node_image: &data::NodeConfig,
     ztp: &NodeZtp<'_>,
+    setting: data::Ztp,
 ) -> Result<VmZtpMedia> {
     let NodeZtp {
         lab_dir,
@@ -1092,7 +1148,6 @@ fn generate_vm_ztp_media(
         node_name_with_lab,
         ..
     } = *ztp;
-    check_custom_ztp_supported(node, node_image)?;
     let custom_ztp = take_custom_ztp_config(node, progress);
     let custom_ztp = custom_ztp.as_deref();
     let ztp_iso = (
@@ -1101,57 +1156,44 @@ fn generate_vm_ztp_media(
     );
     let mut media = VmZtpMedia::default();
 
-    match node_image.ztp.method {
-        data::ZtpMethod::CloudInit => {
+    match setting {
+        data::Ztp::Disabled => {
+            let _ = progress.send_status(
+                format!("ZTP is off for node: {}", node.name),
+                StatusKind::Info,
+            );
+        }
+        data::Ztp::CloudInit => {
             generate_cloud_init_ztp(node, node_image, ztp)?;
             media.cdrom = Some(ztp_iso);
         }
-        data::ZtpMethod::Tftp => generate_tftp_ztp(node, node_image, ztp, custom_ztp)?,
-        data::ZtpMethod::NoCloud => {
+        data::Ztp::Tftp => generate_tftp_ztp(node, node_image, ztp, custom_ztp)?,
+        data::Ztp::NoCloud => {
             generate_nocloud_ztp(node, ztp, custom_ztp)?;
             media.cdrom = Some(ztp_iso);
         }
-        data::ZtpMethod::Cdrom => {
+        data::Ztp::Cdrom => {
             generate_cdrom_ztp(node, node_image, ztp, custom_ztp)?;
             media.cdrom = Some(ztp_iso);
         }
-        data::ZtpMethod::Disk => {
+        data::Ztp::Disk => {
             media.config_disk = Some(generate_disk_ztp(node, node_image, ztp, custom_ztp)?);
         }
-        data::ZtpMethod::Usb => {
+        data::Ztp::Usb => {
             media.usb_disk = Some(generate_usb_ztp(node, node_image, ztp, custom_ztp)?);
         }
-        data::ZtpMethod::Http => generate_http_ztp(node, node_image, ztp)?,
-        data::ZtpMethod::Ignition => {
+        data::Ztp::Http => generate_http_ztp(node, node_image, ztp)?,
+        data::Ztp::Ignition => {
             let (src_ign, dst_ign, src_cfg, dst_cfg) =
                 generate_ignition_ztp(node, node_image, ztp)?;
             media.ignition = Some((src_ign, dst_ign));
             media.config_disk = Some((src_cfg, dst_cfg));
         }
-        data::ZtpMethod::Volume => {
-            let _ = progress.send_status(
-                format!(
-                    "ZTP method Volume is not applicable to VMs, skipping: {}",
-                    node.name
-                ),
-                StatusKind::Info,
-            );
-        }
-        data::ZtpMethod::Ipxe => {
-            let _ = progress.send_status(
-                format!(
-                    "ZTP method iPXE is not yet implemented for VM: {}",
-                    node.name
-                ),
-                StatusKind::Info,
-            );
-        }
-        data::ZtpMethod::None => {
-            let _ = progress.send_status(
-                format!("ZTP disabled for VM: {}", node.name),
-                StatusKind::Info,
-            );
-        }
+        data::Ztp::Volume => bail!(
+            "ZTP setting '{setting}' of virtual machine '{}' was not validated: it is a \
+             container's method",
+            node.name
+        ),
     }
     Ok(media)
 }
@@ -4682,7 +4724,7 @@ mod tests {
         assert!(xml.contains("<model type='virtio' heads='1'/>"));
         assert!(xml.contains("OVMF_CODE_4M.fd"));
         assert!(xml.find("<boot dev='cdrom'/>").unwrap() < xml.find("<boot dev='hd'/>").unwrap());
-        assert_eq!(config.ztp.method, data::ZtpMethod::CloudInit);
+        assert_eq!(config.ztp.mode, data::Ztp::CloudInit);
         assert!(config.cdrom.is_none());
     }
 
@@ -5010,5 +5052,537 @@ mod tests {
              systemd.setenv=container=docker systemd.setenv=MAPETH0=1 \
              systemd.setenv=MGMT_INTF=eth0"
         );
+    }
+
+    /// A lab folder and the accounts and network its nodes are configured with.
+    struct ZtpLab {
+        dir: tempfile::TempDir,
+        user: data::User,
+        network: data::SherpaNetwork,
+        dns: data::Dns,
+        progress: ProgressSender,
+        messages: mpsc::UnboundedReceiver<axum::extract::ws::Message>,
+    }
+
+    impl ZtpLab {
+        fn new() -> Self {
+            let network = nocloud_test_network();
+            let (tx, messages) = mpsc::unbounded_channel();
+            Self {
+                dir: tempdir().unwrap(),
+                user: ignition_test_user(),
+                dns: util::default_dns(&network.v4.prefix).unwrap(),
+                network,
+                progress: ProgressSender::new(tx),
+                messages,
+            }
+        }
+
+        fn root(&self) -> &str {
+            self.dir.path().to_str().unwrap()
+        }
+
+        fn lab(&self) -> LabZtp<'_> {
+            LabZtp {
+                lab_id: "a1b2c3d4",
+                lab_dir: self.root(),
+                images_dir: "/images",
+                sherpa_user: &self.user,
+                dns: &self.dns,
+                mgmt_net: &self.network,
+                progress: &self.progress,
+                owner_account: None,
+            }
+        }
+
+        /// Generate the container node's setup with `ztp` as its manifest setting.
+        fn container(
+            &self,
+            node: &mut topology::NodeExpanded,
+            ztp: Option<data::Ztp>,
+        ) -> Result<ContainerZtpResult> {
+            node.ztp = ztp;
+            generate_container_ztp(
+                node,
+                &data::NodeConfig::get_model(node.model),
+                &self.lab(),
+                "192.0.2.10".parse().unwrap(),
+                None,
+            )
+        }
+
+        /// The files written under the lab folder, relative to it, sorted.
+        fn files(&self) -> Vec<String> {
+            fn walk(dir: &Path, root: &Path, found: &mut Vec<String>) {
+                for entry in fs::read_dir(dir).unwrap() {
+                    let path = entry.unwrap().path();
+                    if path.is_dir() {
+                        walk(&path, root, found);
+                    } else {
+                        found.push(path.strip_prefix(root).unwrap().display().to_string());
+                    }
+                }
+            }
+            let mut found = Vec::new();
+            walk(self.dir.path(), self.dir.path(), &mut found);
+            found.sort();
+            found
+        }
+    }
+
+    fn named_node(name: &str, model: data::NodeModel) -> topology::NodeExpanded {
+        topology::NodeExpanded {
+            name: name.to_owned(),
+            model,
+            ..Default::default()
+        }
+    }
+
+    fn strings(values: &[&str]) -> Vec<String> {
+        values.iter().map(ToString::to_string).collect()
+    }
+
+    const MOUNTED_CONFIG_MODELS: [data::NodeModel; 4] = [
+        data::NodeModel::AristaCeos,
+        data::NodeModel::NokiaSrlinux,
+        data::NodeModel::JuniperCevolved,
+        data::NodeModel::FrrLinux,
+    ];
+
+    #[test]
+    fn a_vm_with_ztp_off_gets_no_media_and_a_disabled_record() {
+        let mut lab = ZtpLab::new();
+        let mut node = named_node("vm01", data::NodeModel::UbuntuLinux);
+        node.ztp = Some(data::Ztp::Disabled);
+        let image = data::NodeConfig::get_model(data::NodeModel::UbuntuLinux);
+
+        let result = generate_vm_ztp(
+            &mut node,
+            &image,
+            &lab.lab(),
+            "192.0.2.10".parse().unwrap(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(result.ztp_record.ztp, data::Ztp::Disabled);
+        // The boot disk alone: no CD-ROM, config disk or USB disk.
+        assert_eq!(result.clone_disks.len(), 1);
+        assert_eq!(result.disks.len(), 1);
+        assert!(result.qemu_commands.is_empty());
+        assert!(lab.files().is_empty(), "{:?}", lab.files());
+        let mut messages = Vec::new();
+        while let Ok(message) = lab.messages.try_recv() {
+            messages.push(format!("{message:?}"));
+        }
+        assert_eq!(
+            messages
+                .iter()
+                .filter(|message| message.contains("ZTP is off for node: vm01"))
+                .count(),
+            1,
+            "{messages:?}"
+        );
+    }
+
+    #[test]
+    fn a_vm_follows_its_images_ztp_when_the_manifest_sets_none() {
+        let lab = ZtpLab::new();
+        let mut node = named_node("talos01", data::NodeModel::TalosLinux);
+        let image = data::NodeConfig::get_model(data::NodeModel::TalosLinux);
+
+        let result = generate_vm_ztp(
+            &mut node,
+            &image,
+            &lab.lab(),
+            "192.0.2.10".parse().unwrap(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(result.ztp_record.ztp, data::Ztp::NoCloud);
+        assert_eq!(
+            result.clone_disks.len(),
+            2,
+            "the boot disk and the seed ISO"
+        );
+        assert!(lab.files().contains(&format!("talos01/{ZTP_ISO}")));
+    }
+
+    #[test]
+    fn volume_on_a_vm_is_an_error_not_a_skipped_step() {
+        let lab = ZtpLab::new();
+        let mut node = named_node("vm01", data::NodeModel::UbuntuLinux);
+        node.ztp = Some(data::Ztp::Volume);
+        let image = data::NodeConfig::get_model(data::NodeModel::UbuntuLinux);
+
+        let error = generate_vm_ztp(
+            &mut node,
+            &image,
+            &lab.lab(),
+            "192.0.2.10".parse().unwrap(),
+            None,
+            None,
+        )
+        .err()
+        .expect("the setting is refused")
+        .to_string();
+
+        assert!(error.contains("'volume'"), "{error}");
+        assert!(error.contains("was not validated"), "{error}");
+        assert!(lab.files().is_empty(), "{:?}", lab.files());
+    }
+
+    #[test]
+    fn ceos_with_volume_ztp_mounts_its_config_and_copies_it_into_flash() {
+        let lab = ZtpLab::new();
+        let mut node = named_node("ceos01", data::NodeModel::AristaCeos);
+
+        let result = lab.container(&mut node, None).unwrap();
+
+        let config = format!("{}/ceos01/ceos01.conf", lab.root());
+        assert_eq!(result.ztp_record.ztp, data::Ztp::Volume);
+        assert_eq!(lab.files(), ["ceos01/ceos01.conf"]);
+        assert_eq!(
+            result.volumes,
+            [format!("{config}:{ARISTA_CEOS_ZTP_VOLUME_MOUNT}:ro")]
+        );
+        assert_eq!(result.commands, ceos_startup_commands());
+        assert!(
+            fs::read_to_string(config)
+                .unwrap()
+                .contains(SHERPA_USERNAME)
+        );
+    }
+
+    #[test]
+    fn ceos_with_ztp_off_starts_with_the_plain_init_command() {
+        let lab = ZtpLab::new();
+        let mut on = named_node("ceos01", data::NodeModel::AristaCeos);
+        let with_ztp = lab.container(&mut on, None).unwrap();
+        let lab = ZtpLab::new();
+        let mut node = named_node("ceos01", data::NodeModel::AristaCeos);
+
+        let result = lab.container(&mut node, Some(data::Ztp::Disabled)).unwrap();
+
+        assert_eq!(result.ztp_record.ztp, data::Ztp::Disabled);
+        assert!(lab.files().is_empty(), "{:?}", lab.files());
+        assert!(result.volumes.is_empty(), "{:?}", result.volumes);
+        assert_eq!(result.commands, strings(CONTAINER_ARISTA_CEOS_COMMANDS));
+        assert_eq!(result.image, with_ztp.image);
+        assert_eq!(result.env_vars, with_ztp.env_vars);
+        assert!(result.privileged);
+    }
+
+    #[test]
+    fn srlinux_mounts_its_config_only_with_volume_ztp() {
+        let lab = ZtpLab::new();
+        let mut node = named_node("srl01", data::NodeModel::NokiaSrlinux);
+        let with_ztp = lab.container(&mut node, None).unwrap();
+        let config = format!("{}/srl01/srl01.json", lab.root());
+        assert_eq!(lab.files(), ["srl01/srl01.json"]);
+        assert_eq!(
+            with_ztp.volumes,
+            [format!("{config}:{NOKIA_SRLINUX_ZTP_VOLUME_MOUNT}")]
+        );
+
+        let lab = ZtpLab::new();
+        let mut node = named_node("srl01", data::NodeModel::NokiaSrlinux);
+        let off = lab.container(&mut node, Some(data::Ztp::Disabled)).unwrap();
+        assert!(lab.files().is_empty(), "{:?}", lab.files());
+        assert!(off.volumes.is_empty(), "{:?}", off.volumes);
+        // The start settings are the same either way.
+        assert_eq!(off.image, with_ztp.image);
+        assert_eq!(off.env_vars, with_ztp.env_vars);
+        assert_eq!(off.commands, with_ztp.commands);
+        assert_eq!(off.commands, strings(CONTAINER_NOKIA_SRLINUX_COMMANDS));
+        assert_eq!(off.user, Some(CONTAINER_NOKIA_SRLINUX_USER.to_owned()));
+        assert_eq!(off.user, with_ztp.user);
+        assert!(off.privileged);
+    }
+
+    #[test]
+    fn cevolved_mounts_its_config_directory_only_with_volume_ztp() {
+        let lab = ZtpLab::new();
+        let mut node = named_node("ptx01", data::NodeModel::JuniperCevolved);
+        let with_ztp = lab.container(&mut node, None).unwrap();
+        assert_eq!(
+            lab.files(),
+            [format!("ptx01/configdisk/{JUNIPER_ZTP_CONFIG}")]
+        );
+        assert_eq!(
+            with_ztp.volumes,
+            [format!(
+                "{}/ptx01/configdisk:{JUNIPER_CEVOLVED_CONFIG_DIR}:ro",
+                lab.root()
+            )]
+        );
+
+        let lab = ZtpLab::new();
+        let mut node = named_node("ptx01", data::NodeModel::JuniperCevolved);
+        let off = lab.container(&mut node, Some(data::Ztp::Disabled)).unwrap();
+        assert!(lab.files().is_empty(), "{:?}", lab.files());
+        assert!(off.volumes.is_empty(), "{:?}", off.volumes);
+        // The entrypoint still gets the environment it starts the EVO VM from.
+        assert_eq!(off.image, with_ztp.image);
+        assert_eq!(off.env_vars, with_ztp.env_vars);
+        assert!(
+            off.env_vars
+                .iter()
+                .any(|var| var.starts_with("CPTX_NUM_IF="))
+        );
+        assert!(off.privileged);
+    }
+
+    #[test]
+    fn frr_gets_its_daemons_config_and_startup_script_only_with_volume_ztp() {
+        let lab = ZtpLab::new();
+        let mut node = named_node("frr01", data::NodeModel::FrrLinux);
+        let with_ztp = lab.container(&mut node, None).unwrap();
+        let dir = format!("{}/frr01", lab.root());
+        assert_eq!(
+            lab.files(),
+            ["frr01/daemons", "frr01/frr.conf", "frr01/sherpa-init.sh"]
+        );
+        assert_eq!(
+            with_ztp.volumes,
+            [
+                format!("{dir}/daemons:{FRR_ZTP_DAEMONS_MOUNT}"),
+                format!("{dir}/frr.conf:{FRR_ZTP_CONFIG_MOUNT}"),
+                format!("{dir}/sherpa-init.sh:{FRR_ZTP_STARTUP_MOUNT}"),
+            ]
+        );
+        assert_eq!(with_ztp.commands, ["/bin/sh", FRR_ZTP_STARTUP_MOUNT]);
+
+        let lab = ZtpLab::new();
+        let mut node = named_node("frr01", data::NodeModel::FrrLinux);
+        let off = lab.container(&mut node, Some(data::Ztp::Disabled)).unwrap();
+        assert!(lab.files().is_empty(), "{:?}", lab.files());
+        assert!(off.volumes.is_empty(), "{:?}", off.volumes);
+        // The image's own entrypoint runs it.
+        assert!(off.commands.is_empty(), "{:?}", off.commands);
+        assert_eq!(off.image, with_ztp.image);
+        assert_eq!(off.env_vars, with_ztp.env_vars);
+        assert!(off.privileged);
+    }
+
+    #[test]
+    fn a_container_refuses_a_method_that_is_not_volume() {
+        for model in MOUNTED_CONFIG_MODELS {
+            for ztp in [
+                data::Ztp::CloudInit,
+                data::Ztp::Cdrom,
+                data::Ztp::Disk,
+                data::Ztp::Http,
+                data::Ztp::Ignition,
+                data::Ztp::NoCloud,
+                data::Ztp::Tftp,
+                data::Ztp::Usb,
+            ] {
+                let lab = ZtpLab::new();
+                let mut node = named_node("node1", model);
+                let error = lab
+                    .container(&mut node, Some(ztp))
+                    .err()
+                    .expect("the setting is refused")
+                    .to_string();
+                assert!(
+                    error.contains("was not validated"),
+                    "{model} {ztp}: {error}"
+                );
+                assert!(lab.files().is_empty(), "{model} {ztp}");
+            }
+        }
+    }
+
+    #[test]
+    fn volume_on_a_container_without_a_config_generator_is_an_error() {
+        let lab = ZtpLab::new();
+        let mut node = named_node("db01", data::NodeModel::MongoDb);
+        let error = lab
+            .container(&mut node, Some(data::Ztp::Volume))
+            .err()
+            .expect("the setting is refused")
+            .to_string();
+        assert!(error.contains("was not validated"), "{error}");
+        assert!(error.contains("mongo_db"), "{error}");
+    }
+
+    #[test]
+    fn application_containers_keep_their_start_settings() {
+        for (model, repo, commands) in [
+            (
+                data::NodeModel::GitlabCe,
+                CONTAINER_GITLAB_CE_REPO,
+                CONTAINER_GITLAB_CE_COMMANDS,
+            ),
+            (
+                data::NodeModel::ForgejoForge,
+                CONTAINER_FORGEJO_REPO,
+                CONTAINER_FORGEJO_COMMANDS,
+            ),
+            (
+                data::NodeModel::SurrealDb,
+                CONTAINER_SURREAL_DB_REPO,
+                CONTAINER_SURREAL_DB_COMMANDS,
+            ),
+            (
+                data::NodeModel::MongoDb,
+                CONTAINER_MONGO_DB_REPO,
+                CONTAINER_MONGO_DB_COMMANDS,
+            ),
+            (
+                data::NodeModel::NatsBus,
+                CONTAINER_NATS_REPO,
+                CONTAINER_NATS_COMMANDS,
+            ),
+        ] {
+            let lab = ZtpLab::new();
+            let mut node = named_node("app01", model);
+            let result = lab.container(&mut node, None).unwrap();
+            assert_eq!(result.ztp_record.ztp, data::Ztp::Disabled, "{model}");
+            assert_eq!(result.image, repo, "{model}");
+            assert_eq!(result.commands, strings(commands), "{model}");
+            assert!(result.volumes.is_empty(), "{model}");
+            assert!(!result.privileged, "{model}");
+            assert!(lab.files().is_empty(), "{model}");
+        }
+        let lab = ZtpLab::new();
+        let mut node = named_node("git01", data::NodeModel::GitlabCe);
+        let gitlab = lab.container(&mut node, None).unwrap();
+        assert_eq!(
+            gitlab.shm_size,
+            Some(CONTAINER_GITLAB_CE_SHM_SIZE * 1024 * 1024)
+        );
+    }
+
+    #[test]
+    fn containers_without_a_model_setup_keep_the_manifests_settings() {
+        for model in [
+            data::NodeModel::MysqlDb,
+            data::NodeModel::PostgresqlDb,
+            data::NodeModel::GenericContainer,
+        ] {
+            let lab = ZtpLab::new();
+            let mut node = named_node("app01", model);
+            node.image = Some("example/app".to_owned());
+            node.commands = Some(strings(&["serve"]));
+            node.environment_variables = Some(strings(&["KEY=value"]));
+            let result = lab.container(&mut node, None).unwrap();
+            assert_eq!(result.ztp_record.ztp, data::Ztp::Disabled, "{model}");
+            assert_eq!(result.image, "example/app", "{model}");
+            assert_eq!(result.commands, ["serve"], "{model}");
+            assert_eq!(result.env_vars, ["KEY=value"], "{model}");
+            assert!(lab.files().is_empty(), "{model}");
+        }
+    }
+
+    #[test]
+    fn vault_keeps_its_own_config_as_a_start_setting_with_ztp_off() {
+        let lab = ZtpLab::new();
+        let mut node = named_node("vault01", data::NodeModel::HashicorpVault);
+        node.ztp_config = Some("ui = true".to_owned());
+
+        let result = lab.container(&mut node, None).unwrap();
+
+        let config = format!("{}/vault01/config.hcl", lab.root());
+        assert_eq!(result.ztp_record.ztp, data::Ztp::Disabled);
+        assert_eq!(result.image, CONTAINER_HASHICORP_VAULT_REPO);
+        assert_eq!(
+            result.volumes,
+            [format!("{config}:{VAULT_ZTP_CONFIG_MOUNT}")]
+        );
+        assert_eq!(result.commands, strings(CONTAINER_HASHICORP_VAULT_COMMANDS));
+        assert_eq!(fs::read_to_string(config).unwrap(), "ui = true");
+    }
+
+    #[test]
+    fn keycloak_keeps_its_start_settings() {
+        let lab = ZtpLab::new();
+        let mut node = named_node("kc01", data::NodeModel::KeycloakServer);
+        let certs = NodeCertPaths {
+            ca_cert: "/certs/ca.crt".to_owned(),
+            node_cert: "/certs/node.crt".to_owned(),
+            node_key: "/certs/node.key".to_owned(),
+        };
+
+        let result = generate_container_ztp(
+            &mut node,
+            &data::NodeConfig::get_model(data::NodeModel::KeycloakServer),
+            &lab.lab(),
+            "192.0.2.10".parse().unwrap(),
+            Some(&certs),
+        )
+        .unwrap();
+
+        assert_eq!(result.ztp_record.ztp, data::Ztp::Disabled);
+        assert_eq!(result.image, CONTAINER_KEYCLOAK_REPO);
+        assert_eq!(result.commands, strings(CONTAINER_KEYCLOAK_COMMANDS));
+        assert_eq!(result.user, Some(CONTAINER_KEYCLOAK_USER.to_owned()));
+        assert_eq!(result.volumes.len(), 3, "the certificate mounts");
+        assert!(lab.files().is_empty(), "{:?}", lab.files());
+    }
+
+    fn manifest_volume() -> Vec<topology::VolumeMount> {
+        vec![topology::VolumeMount {
+            src: "/srv/own.conf".to_owned(),
+            dst: "/etc/own.conf".to_owned(),
+        }]
+    }
+
+    #[test]
+    fn manifest_volumes_reach_a_mounted_config_model_only_with_ztp_off() {
+        for model in MOUNTED_CONFIG_MODELS {
+            let lab = ZtpLab::new();
+            let mut node = named_node("node1", model);
+            node.volumes = Some(manifest_volume());
+            let off = lab.container(&mut node, Some(data::Ztp::Disabled)).unwrap();
+            assert_eq!(off.volumes, ["/srv/own.conf:/etc/own.conf"], "{model}");
+
+            let lab = ZtpLab::new();
+            let mut node = named_node("node1", model);
+            node.volumes = Some(manifest_volume());
+            let with_ztp = lab.container(&mut node, None).unwrap();
+            assert!(
+                !with_ztp
+                    .volumes
+                    .iter()
+                    .any(|volume| volume.contains("own.conf")),
+                "{model}: {:?}",
+                with_ztp.volumes
+            );
+            assert!(!with_ztp.volumes.is_empty(), "{model}");
+        }
+    }
+
+    #[test]
+    fn manifest_volumes_are_still_dropped_for_gitlab_surrealdb_and_vault() {
+        for model in [
+            data::NodeModel::GitlabCe,
+            data::NodeModel::SurrealDb,
+            data::NodeModel::HashicorpVault,
+        ] {
+            let lab = ZtpLab::new();
+            let mut node = named_node("app01", model);
+            node.volumes = Some(manifest_volume());
+            node.ztp_config = Some("ui = true".to_owned());
+            let result = lab.container(&mut node, None).unwrap();
+            assert!(
+                !result
+                    .volumes
+                    .iter()
+                    .any(|volume| volume.contains("own.conf")),
+                "{model}: {:?}",
+                result.volumes
+            );
+        }
+        // The other application containers take them, as before.
+        let lab = ZtpLab::new();
+        let mut node = named_node("db01", data::NodeModel::MongoDb);
+        node.volumes = Some(manifest_volume());
+        let result = lab.container(&mut node, None).unwrap();
+        assert_eq!(result.volumes, ["/srv/own.conf:/etc/own.conf"]);
     }
 }
