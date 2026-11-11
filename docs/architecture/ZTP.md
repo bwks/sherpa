@@ -127,17 +127,23 @@ the `sherpa` login and the owner's are written into the generated config or scri
 its image's own entrypoint and `daemons` file, with no SSH server. A container is ready when it
 is running, so readiness does not depend on the setting.
 
-Off means the image as shipped, so the node's management address is not configured either. The
-address is still reserved for the node and Docker still gives it to the container's `eth0`, but
-it is the generated config that makes a network OS use it. `nokia_srlinux` takes its management
-interface into its own network instance and, with no config, leaves it without the address: once
-it has booted the node has no management IP, nothing answers there, and it is reached with
-`docker exec`. For about a minute while it boots, the container still holds the address and the
-image's SSH server answers, refusing `sherpa`.
-`frr_linux` is a plain Linux container, so its address answers, with no SSH server behind it.
-The lab test `tests/labs/container-ztp` asserts both. `arista_ceos` and `juniper_cevolved` have
-not been run with ZTP off; expect no management access on them either. The node's entry in the
-lab's SSH config is still written.
+Off means the image as shipped, so the node's management address is usually not configured
+either. The address is still reserved for the node and Docker still gives it to the container's
+`eth0`, but it is the generated config that makes most network OSes use it. Once booted, as
+observed with `tests/labs/container-ztp` (cEOS 4.35.1F, SR Linux 26.7.2, cJunosEvolved 26.2R1.7,
+FRR 10.5.2):
+
+| Model | Management address | SSH | Reached with |
+|---|---|---|---|
+| `nokia_srlinux` | none: SR Linux takes the interface into its own network instance without it | not reachable | `docker exec` |
+| `arista_ceos` | none: EOS takes `eth0` as `Management0` and leaves it unassigned; its own ZTP is off | enabled, not reachable | `docker exec ... Cli` |
+| `juniper_cevolved` | the node's: the image's entrypoint puts it on `re0:mgmt-0` from the image's own `juniper.conf` | answers, refuses `sherpa`: the image's config has only its own `admin` user | `docker exec` (SSH as `admin` was not tried) |
+| `frr_linux` | the node's: a plain Linux container | none | `docker exec` |
+
+While SR Linux and cEOS boot, the container still holds the address: SR Linux's SSH server
+answers there for about a minute, refusing `sherpa`, and on cEOS nothing listens yet. The
+containers stay running with no restarts. The lab test asserts each booted state. The node's
+entry in the lab's SSH config is still written.
 
 `add_container_volumes` applies the manifest's `volumes` unless the node's setting is `volume`,
 or the model is `hashicorp_vault`, `gitlab_ce` or `surreal_db`. So a node of the first four with

@@ -62,13 +62,17 @@ SSH_REFUSALS = (
     ("Connection refused", NO_SSH_SERVER),
     ("Permission denied", LOGIN_REFUSED),
 )
-# What a node with ZTP off is once it has booted, by model, where it has been observed. With
-# no Sherpa config, SR Linux takes its management interface without the address its container
-# was given, so nothing answers there. For about a minute before that, while it boots, the
-# container still holds the address and the image's SSH server refuses the login. FRR is a Linux container: its address answers, and nothing listens for SSH. Models not
-# listed must still refuse the login, for any of the reasons above.
+# What a node with ZTP off is once it has booted, by model, as observed. With no Sherpa config,
+# SR Linux and cEOS take their management interface without the address their container was
+# given, so nothing answers there. While they boot, the container still holds the address and
+# the image's SSH server refuses the login (SR Linux, for about a minute) or nothing listens yet
+# (cEOS). cJunosEvolved's entrypoint configures the address from the image's own config, with an
+# SSH server and the image's `admin` user, so the address answers and Junos refuses `sherpa`.
+# FRR is a Linux container: its address answers, and nothing listens for SSH.
 ZTP_OFF_REFUSAL = {
+    "arista_ceos": NO_ADDRESS,
     "nokia_srlinux": NO_ADDRESS,
+    "juniper_cevolved": LOGIN_REFUSED,
     "frr_linux": NO_SSH_SERVER,
 }
 REFUSED_METHOD = "cdrom"
@@ -347,11 +351,8 @@ class LabRun:
         """The node is running and has no `sherpa` login, for the reason its model has with ZTP
         off once it has booted. While it boots, the reason may be another; a login never works."""
         name = node["name"]
-        expected = ZTP_OFF_REFUSAL.get(node["model"])
+        expected = ZTP_OFF_REFUSAL[node["model"]]
         refusal = self.refused_login(node, stage)
-        if expected is None:
-            print(f"[{self.directory.name}] {name} with ZTP off: {refusal}", flush=True)
-            return
         deadline = time.monotonic() + timeout
         while refusal != expected:
             require(time.monotonic() < deadline,
@@ -361,7 +362,7 @@ class LabRun:
         if expected == NO_ADDRESS:
             require(not self.answers_ping(node),
                     f"{stage}, {name} has ZTP off but answers on its management address")
-        if expected == NO_SSH_SERVER:
+        if expected in (NO_SSH_SERVER, LOGIN_REFUSED):
             require(self.answers_ping(node),
                     f"{stage}, {name} does not answer on its management address")
 
@@ -502,8 +503,8 @@ class SelfTest(unittest.TestCase):
         self.assertEqual(ssh_refusal("sherpa@192.0.2.1: Permission denied (publickey).\n"), LOGIN_REFUSED)
         self.assertIsNone(ssh_refusal("kex_exchange_identification: read: Connection reset\n"))
 
-    def test_expected_refusals_are_for_mounted_config_models_and_known_reasons(self):
-        self.assertTrue(set(ZTP_OFF_REFUSAL) <= set(ZTP_MOUNTS))
+    def test_every_mounted_config_model_has_its_ztp_off_refusal_and_known_reasons(self):
+        self.assertEqual(set(ZTP_OFF_REFUSAL), set(ZTP_MOUNTS))
         reasons = {reason for _, reason in SSH_REFUSALS}
         self.assertTrue(set(ZTP_OFF_REFUSAL.values()) <= reasons)
 

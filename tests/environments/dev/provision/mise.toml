@@ -16,7 +16,7 @@ rust = [
 gh = "latest"
 shellcheck = "latest"
 bats = "latest"
-# Installs mkdocs for building sherpa-docs, as a tool on the PATH.
+# Installs zensical for building sherpa-docs, as a tool on the PATH.
 uv = "latest"
 # Compiler cache. provision/sccache.env sets RUSTC_WRAPPER and points it at the host's build cache
 # (Redis); pinned to the release in tests/environments/build-cache.toml.

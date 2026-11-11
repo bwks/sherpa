@@ -129,12 +129,12 @@ clone_repos() {
     done
 }
 
-# mkdocs for building sherpa-docs, as a uv tool in ~/.local/bin, at the versions in the docs'
-# requirements.txt. Running it again picks up changed versions. It runs on a uv-managed Python
-# 3.15, never the system python3.
+# Zensical for building sherpa-docs (`zensical build`, `zensical serve`), as a uv tool in
+# ~/.local/bin, at the version pinned in the docs' requirements.txt. Running it again picks up a
+# changed version. It runs on a uv-managed Python 3.15, never the system python3.
 install_docs_tools() {
-    log "Installing mkdocs for sherpa-docs"
-    uv tool install --quiet --managed-python --python 3.15 mkdocs --with-requirements "${CODE_DIR}/sherpa-docs/requirements.txt"
+    log "Installing zensical for sherpa-docs"
+    uv tool install --quiet --managed-python --python 3.15 zensical --with-requirements "${CODE_DIR}/sherpa-docs/requirements.txt"
 }
 
 # The beautiful-rust skills (rust-best-practices, rust-review, rust-port) for Claude Code, from
