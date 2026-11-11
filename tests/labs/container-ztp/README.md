@@ -45,13 +45,17 @@ Each run logs every command and its output under
 - a node with ZTP on has every config mount of its model and takes an SSH login as `sherpa`
   through the lab's SSH config;
 - a node with ZTP off is running, has none of those mounts, and does not take an SSH login as
-  `sherpa`, for the reason its model has. `srl02` has no management address once it has booted:
-  SR Linux as shipped never configures the address its container was given, so the SSH
-  connection finds no route and the address does not answer a ping. While it boots, for about a
-  minute, the image's SSH server answers there and refuses the login; the run waits for the
-  booted state and fails if a login ever succeeds. `frr02` answers a ping on its address and refuses the
-  SSH connection, because nothing installed an SSH server. The cEOS and cJunosEvolved nodes
-  must refuse the login too; the run prints the reason it saw;
+  `sherpa`, for the reason its model has once it has booted. The run waits for the booted state
+  and fails if a login ever succeeds:
+  - `srl02` and `ceos02` have no management address: SR Linux and cEOS as shipped never configure
+    the address their container was given, so the SSH connection finds no route and the address
+    does not answer a ping. While they boot the container still holds the address, and SR Linux's
+    SSH server refuses the login there for about a minute; on cEOS nothing listens yet;
+  - `ptx02` answers a ping and its SSH server refuses `sherpa`: the cJunosEvolved entrypoint
+    configures the address from the image's own config, which has an SSH server and only the
+    image's `admin` user;
+  - `frr02` answers a ping on its address and refuses the SSH connection, because nothing
+    installed an SSH server;
 - every node, the application container included, is still running, never restarted, after the
   others have booted;
 - the same after redeploying one node with ZTP on and one with it off;

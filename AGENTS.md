@@ -27,7 +27,7 @@ database is Turso, embedded in sherpad as a single file (see `docs/architecture/
 - Application architecture is documented in `docs/architecture/`. When you change how a subsystem
   works (server startup, routing, auth, services, networking, observability), update the matching
   document there, or add one. See `docs/architecture/README.md` for the index and conventions.
-- User-facing documentation lives in a separate repository at `../sherpa-docs` (MkDocs site).
+- User-facing documentation lives in a separate repository at `../sherpa-docs` (Zensical site).
   Any change to user-facing functionality must be reviewed against that repository, and if the
   docs there need to change, update them in that repository as part of the same piece of work.
   User-facing functionality includes CLI commands and flags, manifest fields and defaults,
