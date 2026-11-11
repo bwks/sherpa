@@ -44,7 +44,7 @@ default-members = ["crates/client"]
 # Pull requests do not change it: the Prepare release workflow does, in the release pull
 # request (see docs/architecture/RELEASE.md).
 [workspace.package]
-version = "0.5.33"
+version = "0.5.32"
 
 [workspace.dependencies]
 # Common application dependencies
