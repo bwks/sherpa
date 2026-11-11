@@ -3,15 +3,23 @@ use askama_web::WebTemplate;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use shared::data::{
-    BridgeInfo, DbUser, DestroyError, DeviceInfo, LabInfo, LabPhase, LabState, LabSummary,
-    LinkInfo, NodeConfig, NodeKind, Ztp,
+    BridgeInfo, DbUser, DestroyError, DeviceInfo, LabInfo, LabPhase, LabSummary, LinkInfo,
+    NodeConfig, NodeKind, Ztp,
 };
 
 use crate::api::handlers::{ImageSummary, UserSummary};
 
+mod actions;
 mod badge;
+mod kind;
+mod login;
+mod nav;
 
+pub use actions::{LabActions, NodeActions};
 pub use badge::{Badge, BadgeSize, BadgeTone};
+pub use kind::{KindBadge, kind_label};
+pub use login::LoginError;
+pub use nav::{Nav, NavLink, NavPage};
 
 /// Main dashboard page template
 #[derive(Template, WebTemplate)]
@@ -19,7 +27,7 @@ pub use badge::{Badge, BadgeSize, BadgeTone};
 pub struct DashboardTemplate {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
     pub lab_count: usize,
     pub image_count: usize,
     pub docker_ok: bool,
@@ -32,7 +40,7 @@ pub struct DashboardTemplate {
 pub struct LabsListTemplate {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
 }
 
 /// Labs grid partial template - displays all labs
@@ -45,18 +53,34 @@ pub struct LabsGridTemplate {
 /// One lab in the labs grid.
 pub struct LabRow {
     pub lab: LabSummary,
-    /// Shown instead of the lab state until the lab is ready.
-    pub phase_badge: Option<Badge>,
-    /// Only a ready lab can be started or stopped; any other can only be destroyed.
-    pub offers_start_stop: bool,
+    /// The lab's phase until it is ready, then its state.
+    pub status_badge: Badge,
+    pub actions: LabActions,
 }
 
 impl From<LabSummary> for LabRow {
     fn from(lab: LabSummary) -> Self {
         Self {
-            phase_badge: Badge::for_unready_phase(lab.phase, BadgeSize::Small),
-            offers_start_stop: lab.phase.is_ready(),
+            status_badge: Badge::for_lab(lab.phase, lab.status, BadgeSize::Small),
+            actions: LabActions::for_lab(lab.phase, lab.status),
             lab,
+        }
+    }
+}
+
+/// One node in a lab's nodes table.
+pub struct NodeRow {
+    pub device: DeviceInfo,
+    pub state_badge: Badge,
+    pub actions: NodeActions,
+}
+
+impl From<DeviceInfo> for NodeRow {
+    fn from(device: DeviceInfo) -> Self {
+        Self {
+            state_badge: Badge::for_node_state(device.state, BadgeSize::Small),
+            actions: NodeActions::for_state(device.state),
+            device,
         }
     }
 }
@@ -83,7 +107,7 @@ pub struct ErrorTemplate {
 #[derive(Template, WebTemplate)]
 #[template(path = "auth/login.html.jinja")]
 pub struct LoginPageTemplate {
-    pub error: String,
+    pub error: Option<LoginError>,
     pub message: String,
     /// Whether to link to the signup page; see `Config::allow_signup`.
     pub allow_signup: bool,
@@ -118,7 +142,7 @@ pub struct SignupErrorTemplate {
 pub struct Error404Template {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
     pub message: String,
 }
 
@@ -134,7 +158,7 @@ impl IntoResponse for Error404Template {
 pub struct Error403Template {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
     pub message: String,
 }
 
@@ -150,7 +174,7 @@ impl IntoResponse for Error403Template {
 pub struct Admin403Template {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
 }
 
 impl IntoResponse for Admin403Template {
@@ -169,19 +193,16 @@ impl IntoResponse for Admin403Template {
 pub struct LabDetailTemplate {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
     pub lab_id: String,
     pub lab_info: LabInfo,
-    pub lab_state: LabState,
-    /// Which operation owns the lab, from `Badge::for_unready_phase`; while it is `Some`, it is
-    /// shown instead of the state.
-    pub phase_badge: Option<Badge>,
-    /// Only a ready lab can be started or stopped; any other can only be destroyed.
-    pub offers_start_stop: bool,
+    /// The lab's phase until it is ready, then its state.
+    pub state_badge: Badge,
+    pub actions: LabActions,
     /// Set by the handler from the lab state: a lab with no nodes, or an unknown state, has
     /// no files to download.
     pub offers_download: bool,
-    pub devices: Vec<DeviceInfo>,
+    pub nodes: Vec<NodeRow>,
     pub device_count: usize,
     pub inactive_devices: Vec<String>,
     pub inactive_device_count: usize,
@@ -201,10 +222,12 @@ pub struct LabDetailTemplate {
 pub struct NodeDetailTemplate {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
     pub lab_id: String,
     pub lab_name: String,
     pub device: DeviceInfo,
+    pub state_badge: Badge,
+    pub actions: NodeActions,
     pub node_config: NodeConfig,
     /// The ZTP setting the node runs with: its manifest's, or else its image's.
     pub ztp: Ztp,
@@ -241,7 +264,7 @@ fn resource_display(value: Option<u16>, kind: &NodeKind) -> String {
 pub struct ProfileTemplate {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
     /// Rendered in place, and on its own for HTMX swaps.
     pub ssh_keys_list: SshKeysListTemplate,
 }
@@ -284,7 +307,7 @@ pub struct SshKeyErrorTemplate {
 pub struct AdminUsersTemplate {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
     pub users: Vec<UserSummary>,
 }
 
@@ -294,7 +317,7 @@ pub struct AdminUsersTemplate {
 pub struct AdminLabsTemplate {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
     pub labs: Vec<AdminLabSummary>,
 }
 
@@ -339,7 +362,7 @@ impl AdminLabSummary {
 pub struct AdminUserEditTemplate {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
     pub target_user: DbUser,
     pub is_self: bool,
     /// Rendered in place, and on its own for HTMX swaps.
@@ -380,7 +403,7 @@ pub struct AdminPasswordErrorTemplate {
 pub struct AdminImagesListTemplate {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
     pub configs: Vec<ImageSummary>,
 }
 
@@ -390,7 +413,8 @@ pub struct AdminImagesListTemplate {
 pub struct AdminImageDetailTemplate {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
+    pub kind_badge: KindBadge,
     pub config: NodeConfig,
 }
 
@@ -409,17 +433,19 @@ pub struct FormChoice {
 pub struct AdminImageEditTemplate {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
     pub config: NodeConfig,
-    pub os_variants: Vec<String>,
-    pub bios_types: Vec<String>,
-    pub cpu_architectures: Vec<String>,
-    pub cpu_models: Vec<String>,
-    pub machine_types: Vec<String>,
-    pub disk_buses: Vec<String>,
+    pub kind_label: &'static str,
+    pub os_variant_choices: Vec<FormChoice>,
+    pub bios_choices: Vec<FormChoice>,
+    pub cpu_architecture_choices: Vec<FormChoice>,
+    pub cpu_model_choices: Vec<FormChoice>,
+    pub machine_type_choices: Vec<FormChoice>,
+    pub hdd_bus_choices: Vec<FormChoice>,
+    pub cdrom_bus_choices: Vec<FormChoice>,
     /// The ZTP settings the image's model takes, the image's own selected.
     pub ztp_choices: Vec<FormChoice>,
-    pub interface_types: Vec<String>,
+    pub interface_type_choices: Vec<FormChoice>,
 }
 
 /// Admin image versions list page template
@@ -428,9 +454,10 @@ pub struct AdminImageEditTemplate {
 pub struct AdminImageVersionsTemplate {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
     pub model: String,
-    pub kind: String,
+    pub kind: NodeKind,
+    pub kind_label: &'static str,
     pub versions: Vec<NodeConfig>,
 }
 
@@ -440,7 +467,7 @@ pub struct AdminImageVersionsTemplate {
 pub struct AdminImageUploadTemplate {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
     pub models: Vec<String>,
 }
 
@@ -461,7 +488,7 @@ pub struct AdminNotificationErrorTemplate {
 pub struct AdminToolsTemplate {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
 }
 
 // ============================================================================
@@ -474,7 +501,7 @@ pub struct AdminToolsTemplate {
 pub struct LabCreateTemplate {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
     pub generated_name: String,
     pub models: Vec<String>,
 }
@@ -510,7 +537,7 @@ pub struct CreateSummaryFailedFragment {
 #[template(path = "user/partials/nodes-table.html.jinja")]
 pub struct NodesTableFragment {
     pub lab_id: String,
-    pub devices: Vec<DeviceInfo>,
+    pub nodes: Vec<NodeRow>,
     pub device_count: usize,
 }
 
@@ -544,7 +571,7 @@ pub struct LabDestroyConfirmFragment {
 pub struct JobPageTemplate {
     pub username: String,
     pub is_admin: bool,
-    pub active_page: String,
+    pub nav: Nav,
     pub job_id: String,
     pub lab_name: String,
     pub action: String,
@@ -596,7 +623,7 @@ mod tests {
 
     use askama::Template;
     use axum::http::header::CONTENT_TYPE;
-    use shared::data::{NodeKind, NodeModel, NodeState};
+    use shared::data::{LabState, NodeKind, NodeModel, NodeState};
 
     use super::*;
     use crate::api::handlers::lab_offers_download;
@@ -648,7 +675,7 @@ mod tests {
         let html = DashboardTemplate {
             username: username.to_string(),
             is_admin: false,
-            active_page: "dashboard".to_string(),
+            nav: NavPage::Dashboard.into(),
             lab_count: 0,
             image_count: 0,
             docker_ok: true,
@@ -682,7 +709,7 @@ mod tests {
         let response = Error404Template {
             username: "testuser".to_string(),
             is_admin: false,
-            active_page: String::new(),
+            nav: NavPage::Other.into(),
             message: "Lab not found".to_string(),
         }
         .into_response();
@@ -700,7 +727,7 @@ mod tests {
         let html = ProfileTemplate {
             username: "testuser".to_string(),
             is_admin: false,
-            active_page: "profile".to_string(),
+            nav: NavPage::Other.into(),
             ssh_keys_list: SshKeysListTemplate {
                 ssh_keys: vec!["ssh-ed25519 AAAAkey testuser".to_string()],
             },
@@ -716,7 +743,7 @@ mod tests {
         let tpl = DashboardTemplate {
             username: "testuser".to_string(),
             is_admin: false,
-            active_page: "dashboard".to_string(),
+            nav: NavPage::Dashboard.into(),
             lab_count: 3,
             image_count: 12,
             docker_ok: true,
@@ -731,7 +758,7 @@ mod tests {
         let tpl = LabsListTemplate {
             username: "testuser".to_string(),
             is_admin: false,
-            active_page: "labs".to_string(),
+            nav: NavPage::Labs.into(),
         };
         let html = tpl.render().expect("template should render");
         assert!(html.contains("testuser"));
@@ -756,7 +783,7 @@ mod tests {
     fn test_nodes_table_shows_node_name_with_lab_id() {
         let tpl = NodesTableFragment {
             lab_id: "a1b2c3d4".to_string(),
-            devices: vec![test_device()],
+            nodes: vec![NodeRow::from(test_device())],
             device_count: 1,
         };
         let html = tpl.render().expect("template should render");
@@ -766,18 +793,7 @@ mod tests {
 
     #[test]
     fn test_node_detail_heading_shows_node_name_with_lab_id() {
-        let tpl = NodeDetailTemplate {
-            username: "testuser".to_string(),
-            is_admin: false,
-            active_page: "labs".to_string(),
-            lab_id: "a1b2c3d4".to_string(),
-            lab_name: "test-lab".to_string(),
-            device: test_device(),
-            node_config: NodeConfig::get_model(NodeModel::UbuntuLinux),
-            ztp: Ztp::CloudInit,
-            mgmt_mac: None,
-        };
-        let html = tpl.render().expect("template should render");
+        let html = node_detail(test_device(), NodeModel::UbuntuLinux);
         assert!(
             html.contains(r#"<h1 class="text-2xl font-semibold text-heading">dev01.a1b2c3d4</h1>"#)
         );
@@ -787,9 +803,11 @@ mod tests {
         NodeDetailTemplate {
             username: "testuser".to_string(),
             is_admin: false,
-            active_page: "labs".to_string(),
+            nav: NavPage::Labs.into(),
             lab_id: "a1b2c3d4".to_string(),
             lab_name: "test-lab".to_string(),
+            state_badge: Badge::for_node_state(device.state, BadgeSize::Large),
+            actions: NodeActions::for_state(device.state),
             device,
             node_config: NodeConfig::get_model(model),
             ztp: NodeConfig::get_model(model).ztp.mode,
@@ -809,6 +827,7 @@ mod tests {
             (NodeState::Failed, &["start", "redeploy"]),
             (NodeState::Missing, &["redeploy"]),
             (NodeState::Building, &[]),
+            (NodeState::Unknown, &["start", "redeploy"]),
         ];
         for (state, offered) in cases {
             let device = DeviceInfo {
@@ -817,7 +836,7 @@ mod tests {
             };
             let table = NodesTableFragment {
                 lab_id: "a1b2c3d4".to_string(),
-                devices: vec![device.clone()],
+                nodes: vec![NodeRow::from(device.clone())],
                 device_count: 1,
             }
             .render()
@@ -943,7 +962,7 @@ mod tests {
         let tpl = LabCreateTemplate {
             username: "testuser".to_string(),
             is_admin: false,
-            active_page: "labs".to_string(),
+            nav: NavPage::Labs.into(),
             generated_name: "happy-panda".to_string(),
             models: vec!["cisco_iosv".to_string(), "ubuntu_linux".to_string()],
         };
@@ -958,7 +977,7 @@ mod tests {
         let tpl = LabCreateTemplate {
             username: "testuser".to_string(),
             is_admin: false,
-            active_page: "labs".to_string(),
+            nav: NavPage::Labs.into(),
             generated_name: "happy-panda".to_string(),
             models: vec!["cisco_iosv".to_string()],
         };
@@ -985,7 +1004,7 @@ mod tests {
         let tpl = JobPageTemplate {
             username: "testuser".to_string(),
             is_admin: false,
-            active_page: "labs".to_string(),
+            nav: NavPage::Labs.into(),
             job_id: "abc-123".to_string(),
             lab_name: "test-lab".to_string(),
             action: "Creating".to_string(),
@@ -1010,7 +1029,7 @@ mod tests {
         let tpl = AdminToolsTemplate {
             username: "admin".to_string(),
             is_admin: true,
-            active_page: "admin_tools".to_string(),
+            nav: NavPage::AdminTools.into(),
         };
         let html = tpl.render().expect("template should render");
         assert!(html.contains("Tools"));
@@ -1023,7 +1042,7 @@ mod tests {
         let tpl = AdminToolsTemplate {
             username: "admin".to_string(),
             is_admin: true,
-            active_page: "admin_tools".to_string(),
+            nav: NavPage::AdminTools.into(),
         };
         let html = tpl.render().expect("template should render");
         assert!(html.contains("admin-tools.js"));
@@ -1034,7 +1053,7 @@ mod tests {
         let tpl = AdminLabsTemplate {
             username: "admin".to_string(),
             is_admin: true,
-            active_page: "admin_labs".to_string(),
+            nav: NavPage::AdminLabs.into(),
             labs: vec![],
         };
         let html = tpl.render().expect("template should render");
@@ -1046,7 +1065,7 @@ mod tests {
         let tpl = AdminLabsTemplate {
             username: "admin".to_string(),
             is_admin: true,
-            active_page: "admin_labs".to_string(),
+            nav: NavPage::AdminLabs.into(),
             labs: vec![AdminLabSummary::new(
                 "abc12345".to_string(),
                 "my-lab".to_string(),
@@ -1074,7 +1093,7 @@ mod tests {
         let tpl = AdminLabsTemplate {
             username: "admin".to_string(),
             is_admin: true,
-            active_page: "admin_labs".to_string(),
+            nav: NavPage::AdminLabs.into(),
             labs: vec![AdminLabSummary::new(
                 "abc12345".to_string(),
                 "my-lab".to_string(),
@@ -1101,14 +1120,13 @@ mod tests {
         LabDetailTemplate {
             username: "alice".to_string(),
             is_admin: false,
-            active_page: "labs".to_string(),
+            nav: NavPage::Labs.into(),
             lab_id: "abcd1234".to_string(),
             lab_info,
-            lab_state,
-            phase_badge: Badge::for_unready_phase(lab_phase, BadgeSize::Large),
-            offers_start_stop: lab_phase.is_ready(),
+            state_badge: Badge::for_lab(lab_phase, lab_state, BadgeSize::Large),
+            actions: LabActions::for_lab(lab_phase, lab_state),
             offers_download: lab_offers_download(lab_state),
-            devices: vec![],
+            nodes: vec![],
             device_count: 0,
             inactive_devices: vec![],
             inactive_device_count: 0,
@@ -1196,10 +1214,260 @@ mod tests {
         assert!(!html.contains(">Ready<"), "{html}");
     }
 
+    /// The small badge class for each lab state, and whether a ready lab offers start and stop.
+    const READY_LAB_STATES: [(LabState, &str, &str, bool, bool); 7] = [
+        (LabState::Running, "badge-success", "Running", false, true),
+        (LabState::Stopped, "badge-neutral", "Stopped", true, false),
+        (LabState::Partial, "badge-warning", "Partial", true, true),
+        (LabState::Starting, "badge-warning", "Starting", false, true),
+        (LabState::Failed, "badge-danger", "Failed", true, false),
+        (LabState::Empty, "badge-neutral", "Empty", true, false),
+        (LabState::Unknown, "badge-neutral", "Unknown", true, false),
+    ];
+
+    #[test]
+    fn a_ready_lab_shows_its_state_and_the_actions_it_offers() {
+        for (state, class, label, start, stop) in READY_LAB_STATES {
+            let grid = LabsGridTemplate {
+                labs: vec![LabRow::from(LabSummary {
+                    id: "a10736e8".to_string(),
+                    name: "test-lab".to_string(),
+                    description: None,
+                    status: state,
+                    node_count: 2,
+                    phase: LabPhase::Ready,
+                })],
+            }
+            .render()
+            .expect("template should render");
+            assert!(
+                grid.contains(&format!(r#"<span class="{class}">{label}</span>"#)),
+                "{state:?}: {grid}"
+            );
+            assert_eq!(
+                grid.contains(r#"data-lab-action="start""#),
+                start,
+                "{state:?}"
+            );
+            assert_eq!(
+                grid.contains(r#"data-lab-action="stop""#),
+                stop,
+                "{state:?}"
+            );
+
+            let detail = lab_detail(state, LabPhase::Ready);
+            assert!(
+                detail.contains(&format!(r#"<span class="{class}-lg">{label}</span>"#)),
+                "{state:?}: {detail}"
+            );
+            assert_eq!(
+                detail.contains(r#"data-lab-detail-action="start""#),
+                start,
+                "{state:?}"
+            );
+            assert_eq!(
+                detail.contains(r#"data-lab-detail-action="stop""#),
+                stop,
+                "{state:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_node_state_shows_its_badge_in_the_table_and_on_the_node_page() {
+        for (state, class, label) in [
+            (NodeState::Building, "badge-warning", "Building"),
+            (NodeState::Starting, "badge-warning", "Starting"),
+            (NodeState::Running, "badge-success", "Running"),
+            (NodeState::Stopped, "badge-neutral", "Stopped"),
+            (NodeState::Failed, "badge-danger", "Failed"),
+            (NodeState::Missing, "badge-danger", "Missing"),
+            (NodeState::Unknown, "badge-neutral", "Unknown"),
+        ] {
+            let device = DeviceInfo {
+                state,
+                ..test_device()
+            };
+            let table = NodesTableFragment {
+                lab_id: "a1b2c3d4".to_string(),
+                nodes: vec![NodeRow::from(device.clone())],
+                device_count: 1,
+            }
+            .render()
+            .expect("template should render");
+            assert!(
+                table.contains(&format!(r#"<span class="{class}">{label}</span>"#)),
+                "{state:?}: {table}"
+            );
+            let detail = node_detail(device, NodeModel::UbuntuLinux);
+            assert!(
+                detail.contains(&format!(r#"<span class="{class}-lg">{label}</span>"#)),
+                "{state:?}: {detail}"
+            );
+        }
+    }
+
+    /// The pill the admin image pages draw for each kind, with the label left out.
+    const KIND_PILLS: [(NodeKind, &str); 3] = [
+        (NodeKind::VirtualMachine, "bg-kind-vm text-kind-vm-text"),
+        (NodeKind::Container, "bg-kind-container text-kind-ctr-text"),
+        (NodeKind::Unikernel, "bg-kind-unikernel text-kind-uni-text"),
+    ];
+
+    fn kind_pill(colours: &str, label: &str) -> String {
+        format!(
+            r#"<span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide {colours}">{label}</span>"#
+        )
+    }
+
+    #[test]
+    fn the_images_list_shows_each_kind_by_its_short_label() {
+        for ((kind, colours), label) in KIND_PILLS.into_iter().zip(["VM", "Container", "Unikernel"])
+        {
+            let html = AdminImagesListTemplate {
+                username: "admin".to_string(),
+                is_admin: true,
+                nav: NavPage::AdminImages.into(),
+                configs: vec![ImageSummary {
+                    model: "some_model".to_string(),
+                    kind_badge: KindBadge::short(kind.clone()),
+                    version: "1.0".to_string(),
+                    cpu_count: 1,
+                    memory: 1024,
+                    data_interface_count: 1,
+                    default: true,
+                }],
+            }
+            .render()
+            .expect("template should render");
+            assert!(
+                html.contains(&kind_pill(colours, label)),
+                "{kind:?}: {html}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_image_pages_show_each_kind_by_its_full_label() {
+        for ((kind, colours), (model, label)) in KIND_PILLS.into_iter().zip([
+            (NodeModel::UbuntuLinux, "Virtual Machine"),
+            (NodeModel::MongoDb, "Container"),
+            (NodeModel::NanosUnikernel, "Unikernel"),
+        ]) {
+            let config = NodeConfig::get_model(model);
+            assert_eq!(config.kind, kind);
+            let detail = AdminImageDetailTemplate {
+                username: "admin".to_string(),
+                is_admin: true,
+                nav: NavPage::AdminImages.into(),
+                kind_badge: KindBadge::full(kind.clone()),
+                config: config.clone(),
+            }
+            .render()
+            .expect("template should render");
+            assert!(
+                detail.contains(&kind_pill(colours, label)),
+                "{kind:?}: {detail}"
+            );
+
+            let versions = AdminImageVersionsTemplate {
+                username: "admin".to_string(),
+                is_admin: true,
+                nav: NavPage::AdminImages.into(),
+                model: model.to_string(),
+                kind_label: kind_label(&kind),
+                kind: kind.clone(),
+                versions: vec![config],
+            }
+            .render()
+            .expect("template should render");
+            assert!(
+                versions.contains(&format!("({label})")),
+                "{kind:?}: {versions}"
+            );
+            assert!(
+                versions.contains(&format!(
+                    "<title>Versions: {model} ({kind}) - Sherpa Labs</title>"
+                )),
+                "{kind:?}: {versions}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_login_page_shows_the_notice_for_its_error_code() {
+        let notice = r#"<div class="bg-alert-error"#;
+        for (code, text) in [
+            ("session_required", "Please sign in to continue"),
+            (
+                "session_expired",
+                "Your session has expired. Please sign in again.",
+            ),
+            ("logout_success", "You have been logged out successfully"),
+            ("<b>odd</b>", "&#60;b&#62;odd&#60;/b&#62;"),
+        ] {
+            let html = LoginPageTemplate {
+                error: LoginError::from_code(code),
+                message: String::new(),
+                allow_signup: false,
+            }
+            .render()
+            .expect("template should render");
+            assert!(html.contains(notice), "{code}: {html}");
+            assert!(html.contains(text), "{code}: {html}");
+        }
+        let html = LoginPageTemplate {
+            error: LoginError::from_code(""),
+            message: String::new(),
+            allow_signup: false,
+        }
+        .render()
+        .expect("template should render");
+        assert!(!html.contains(notice), "{html}");
+    }
+
+    #[test]
+    fn the_sidebar_highlights_the_current_pages_link_alone() {
+        let active = "transition-colors bg-accent/15 text-accent";
+        for (page, href) in [
+            (NavPage::Dashboard, Some("/")),
+            (NavPage::Labs, Some("/labs")),
+            (NavPage::AdminImages, Some("/admin/images")),
+            (NavPage::AdminLabs, Some("/admin/labs")),
+            (NavPage::AdminUsers, Some("/admin/users")),
+            (NavPage::AdminTools, Some("/admin/tools")),
+            (NavPage::Other, None),
+        ] {
+            let html = DashboardTemplate {
+                username: "admin".to_string(),
+                is_admin: true,
+                nav: page.into(),
+                lab_count: 0,
+                image_count: 0,
+                docker_ok: true,
+                libvirt_ok: true,
+            }
+            .render()
+            .expect("template should render");
+            let highlighted: Vec<&str> = html
+                .match_indices(active)
+                .map(|(at, _)| {
+                    let link = &html[html[..at].rfind("<a href=\"").expect("link") + 9..];
+                    &link[..link.find('"').expect("href end")]
+                })
+                .collect();
+            assert_eq!(
+                highlighted,
+                href.into_iter().collect::<Vec<_>>(),
+                "{page:?}"
+            );
+        }
+    }
+
     #[test]
     fn test_login_page_template_renders() {
         let tpl = LoginPageTemplate {
-            error: String::new(),
+            error: None,
             message: String::new(),
             allow_signup: false,
         };
@@ -1239,7 +1507,7 @@ mod tests {
         let tpl = Error404Template {
             username: "testuser".to_string(),
             is_admin: false,
-            active_page: String::new(),
+            nav: NavPage::Other.into(),
             message: "Page not found".to_string(),
         };
         let html = tpl.render().expect("template should render");
@@ -1273,7 +1541,7 @@ mod tests {
         let tpl = AdminToolsTemplate {
             username: "admin".to_string(),
             is_admin: true,
-            active_page: "admin_tools".to_string(),
+            nav: NavPage::AdminTools.into(),
         };
         let html = tpl.render().expect("template should render");
         // The active link should have the accent class
@@ -1285,7 +1553,7 @@ mod tests {
         let tpl = DashboardTemplate {
             username: "admin".to_string(),
             is_admin: true,
-            active_page: "dashboard".to_string(),
+            nav: NavPage::Dashboard.into(),
             lab_count: 5,
             image_count: 10,
             docker_ok: true,
@@ -1303,7 +1571,7 @@ mod tests {
         let tpl = DashboardTemplate {
             username: "user".to_string(),
             is_admin: false,
-            active_page: "dashboard".to_string(),
+            nav: NavPage::Dashboard.into(),
             lab_count: 0,
             image_count: 0,
             docker_ok: true,
@@ -1320,7 +1588,7 @@ mod tests {
         let tpl = DashboardTemplate {
             username: "testuser".to_string(),
             is_admin: false,
-            active_page: "dashboard".to_string(),
+            nav: NavPage::Dashboard.into(),
             lab_count: 7,
             image_count: 15,
             docker_ok: true,
@@ -1338,7 +1606,7 @@ mod tests {
         let tpl = AdminUsersTemplate {
             username: "admin".to_string(),
             is_admin: true,
-            active_page: "admin_users".to_string(),
+            nav: NavPage::AdminUsers.into(),
             users: vec![],
         };
         let html = tpl.render().expect("template should render");
@@ -1367,6 +1635,56 @@ mod tests {
             })
             .collect();
         assert!(offenders.is_empty(), "inline JavaScript: {offenders:#?}");
+    }
+
+    /// Template tags that decide from an enum's text: a `to_string()` call, or a comparison
+    /// with a non-empty string literal.
+    fn text_decisions(html: &str) -> Vec<String> {
+        html.split("{%")
+            .skip(1)
+            .filter_map(|tag| tag.split_once("%}").map(|(tag, _)| tag.trim()))
+            .filter(|tag| {
+                tag.contains("to_string()")
+                    || ["== \"", "!= \""].iter().any(|op| {
+                        tag.match_indices(op)
+                            .any(|(at, _)| !tag[at + op.len()..].starts_with('"'))
+                    })
+            })
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[test]
+    fn templates_decide_nothing_from_an_enums_text() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+        let offenders: Vec<String> = template_files(&dir)
+            .into_iter()
+            .flat_map(|path| {
+                let html = fs::read_to_string(&path).expect("read template");
+                let name = path
+                    .strip_prefix(&dir)
+                    .unwrap_or(&path)
+                    .display()
+                    .to_string();
+                text_decisions(&html)
+                    .into_iter()
+                    .map(move |found| format!("{name}: {found}"))
+            })
+            .collect();
+        assert!(offenders.is_empty(), "text decisions: {offenders:#?}");
+    }
+
+    #[test]
+    fn the_text_decision_check_finds_to_string_and_literal_comparisons() {
+        assert_eq!(
+            text_decisions(
+                r#"{% if state.to_string() == "running" %}{% elif kind == "vm" %}{% if ip != "" %}"#
+            ),
+            vec![
+                r#"if state.to_string() == "running""#.to_owned(),
+                r#"elif kind == "vm""#.to_owned()
+            ]
+        );
     }
 
     #[test]

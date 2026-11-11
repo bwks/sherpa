@@ -1,0 +1,6 @@
+{# Renders `kind_badge`, a `templates::KindBadge` whose label Rust decided, in its kind's colours. #}
+{% match kind_badge.kind %}
+{% when NodeKind::VirtualMachine %}<span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-kind-vm text-kind-vm-text">{{ kind_badge.label }}</span>
+{% when NodeKind::Container %}<span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-kind-container text-kind-ctr-text">{{ kind_badge.label }}</span>
+{% when NodeKind::Unikernel %}<span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-kind-unikernel text-kind-uni-text">{{ kind_badge.label }}</span>
+{% endmatch %}

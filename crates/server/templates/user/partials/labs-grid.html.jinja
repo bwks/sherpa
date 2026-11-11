@@ -1,5 +1,4 @@
 {% import "macros/icons.html.jinja" as icons %}
-{% import "macros/badges.html.jinja" as badges %}
 <div class="bg-card rounded-lg shadow-sm border border-border overflow-hidden">
     <table class="w-full bg-card border-collapse">
         <thead class="bg-table-head border-b border-border">
@@ -18,53 +17,27 @@
                 <td class="p-4 text-sm font-medium"><a href="/labs/{{ lab.id }}" class="text-accent hover:text-accent-hover hover:underline">{{ lab.name }}</a>{% if let Some(description) = lab.description %}<p class="mt-1 text-xs font-normal text-muted line-clamp-2 max-w-md" title="{{ description }}">{{ description }}</p>{% endif %}</td>
                 <td class="p-4 text-sm text-muted font-mono">{{ lab.id }}</td>
                 <td class="p-4 text-sm">
-                    {% match row.phase_badge %}
-                    {% when Some(badge) %}
+                    {% let badge = row.status_badge %}
                     {% include "snippets/badge.html.jinja" %}
-                    {% when None %}
-                    {% call badges::lab_state(lab.status) %}
-                    {% endmatch %}
                 </td>
                 <td class="p-4 text-sm text-body text-center">{{ lab.node_count }}</td>
                 <td class="p-4 text-sm text-body">
                     <div class="flex items-center justify-end space-x-2">
-                        {% if row.offers_start_stop %}
-                        {% match lab.status %}
-                            {% when LabState::Running %}
-                            <button
-                                data-lab-action="stop" data-lab-id="{{ lab.id }}"
-                                class="text-danger-solid hover:text-danger-solid-hover transition-colors cursor-pointer"
-                                title="Stop all nodes">
-                                {% call icons::stop() %}
-                            </button>
-                            {% when LabState::Partial %}
-                            <button
-                                data-lab-action="start" data-lab-id="{{ lab.id }}"
-                                class="text-accent hover:text-accent-hover transition-colors cursor-pointer"
-                                title="Start all nodes">
-                                {% call icons::play() %}
-                            </button>
-                            <button
-                                data-lab-action="stop" data-lab-id="{{ lab.id }}"
-                                class="text-danger-solid hover:text-danger-solid-hover transition-colors cursor-pointer"
-                                title="Stop all nodes">
-                                {% call icons::stop() %}
-                            </button>
-                            {% when LabState::Starting %}
-                            <button
-                                data-lab-action="stop" data-lab-id="{{ lab.id }}"
-                                class="text-danger-solid hover:text-danger-solid-hover transition-colors cursor-pointer"
-                                title="Stop all nodes">
-                                {% call icons::stop() %}
-                            </button>
-                            {% else %}
-                            <button
-                                data-lab-action="start" data-lab-id="{{ lab.id }}"
-                                class="text-accent hover:text-accent-hover transition-colors cursor-pointer"
-                                title="Start all nodes">
-                                {% call icons::play() %}
-                            </button>
-                        {% endmatch %}
+                        {% if row.actions.start %}
+                        <button
+                            data-lab-action="start" data-lab-id="{{ lab.id }}"
+                            class="text-accent hover:text-accent-hover transition-colors cursor-pointer"
+                            title="Start all nodes">
+                            {% call icons::play() %}
+                        </button>
+                        {% endif %}
+                        {% if row.actions.stop %}
+                        <button
+                            data-lab-action="stop" data-lab-id="{{ lab.id }}"
+                            class="text-danger-solid hover:text-danger-solid-hover transition-colors cursor-pointer"
+                            title="Stop all nodes">
+                            {% call icons::stop() %}
+                        </button>
                         {% endif %}
                         <a href="/labs/{{ lab.id }}" class="text-muted hover:text-heading transition-colors" title="View">
                             {% call icons::eye() %}

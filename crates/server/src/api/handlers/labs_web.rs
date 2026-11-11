@@ -21,9 +21,9 @@ use crate::services::progress::ProgressSender;
 use crate::services::{destroy, down, download, inspect, list_labs, redeploy, resume, up};
 use crate::templates::{
     Badge, BadgeSize, DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template,
-    ErrorTemplate, JobPageTemplate, LabCreateTemplate, LabDestroyButtonFragment,
+    ErrorTemplate, JobPageTemplate, LabActions, LabCreateTemplate, LabDestroyButtonFragment,
     LabDestroyConfirmFragment, LabDetailTemplate, LabRow, LabsGridTemplate, LabsListTemplate,
-    NodeDetailTemplate, NodesTableFragment,
+    NavPage, NodeActions, NodeDetailTemplate, NodeRow, NodesTableFragment,
 };
 
 use crate::api::errors::ApiError;
@@ -77,7 +77,7 @@ pub async fn dashboard_handler(
     Ok(DashboardTemplate {
         username: auth.username.clone(),
         is_admin: auth.is_admin,
-        active_page: "dashboard".to_string(),
+        nav: NavPage::Dashboard.into(),
         lab_count,
         image_count,
         docker_ok,
@@ -92,7 +92,7 @@ pub async fn labs_list_page_handler(auth: AuthenticatedUserFromCookie) -> impl I
     LabsListTemplate {
         username: auth.username,
         is_admin: auth.is_admin,
-        active_page: "labs".to_string(),
+        nav: NavPage::Labs.into(),
     }
 }
 
@@ -311,14 +311,17 @@ pub async fn lab_detail_handler(
             LabDetailTemplate {
                 username: auth.username.clone(),
                 is_admin: auth.is_admin,
-                active_page: "labs".to_string(),
+                nav: NavPage::Labs.into(),
                 lab_id: lab_id.clone(),
                 lab_info: response.lab_info,
-                lab_state: response.lab_state,
-                phase_badge: Badge::for_unready_phase(response.lab_phase, BadgeSize::Large),
-                offers_start_stop: response.lab_phase.is_ready(),
+                state_badge: Badge::for_lab(
+                    response.lab_phase,
+                    response.lab_state,
+                    BadgeSize::Large,
+                ),
+                actions: LabActions::for_lab(response.lab_phase, response.lab_state),
                 offers_download: lab_offers_download(response.lab_state),
-                devices: response.devices,
+                nodes: response.devices.into_iter().map(NodeRow::from).collect(),
                 device_count,
                 inactive_devices: response.inactive_devices,
                 inactive_device_count,
@@ -367,7 +370,7 @@ fn lab_error_page(
         Some(ServiceError::Denied(_)) => Error403Template {
             username,
             is_admin,
-            active_page: String::new(),
+            nav: NavPage::Other.into(),
             message: "You don't have permission to view this lab.".to_string(),
         }
         .into_response(),
@@ -376,7 +379,7 @@ fn lab_error_page(
             Error404Template {
                 username,
                 is_admin,
-                active_page: String::new(),
+                nav: NavPage::Other.into(),
                 message: "Lab not found.".to_string(),
             }
             .into_response()
@@ -391,7 +394,7 @@ fn lab_error_page(
             Error404Template {
                 username,
                 is_admin,
-                active_page: String::new(),
+                nav: NavPage::Other.into(),
                 message: failure_message.to_string(),
             }
             .into_response()
@@ -456,7 +459,7 @@ pub async fn node_detail_handler(
             return Error404Template {
                 username: auth.username,
                 is_admin: auth.is_admin,
-                active_page: String::new(),
+                nav: NavPage::Other.into(),
                 message: format!("Node '{node_name}' not found in lab."),
             }
             .into_response();
@@ -471,7 +474,7 @@ pub async fn node_detail_handler(
             return Error404Template {
                 username: auth.username,
                 is_admin: auth.is_admin,
-                active_page: String::new(),
+                nav: NavPage::Other.into(),
                 message: "Lab not found.".to_string(),
             }
             .into_response();
@@ -492,7 +495,7 @@ pub async fn node_detail_handler(
             return Error404Template {
                 username: auth.username,
                 is_admin: auth.is_admin,
-                active_page: String::new(),
+                nav: NavPage::Other.into(),
                 message: format!("Node '{node_name}' not found."),
             }
             .into_response();
@@ -523,9 +526,11 @@ pub async fn node_detail_handler(
     NodeDetailTemplate {
         username: auth.username,
         is_admin: auth.is_admin,
-        active_page: "labs".to_string(),
+        nav: NavPage::Labs.into(),
         lab_id: lab_id.clone(),
         lab_name: inspect_response.lab_info.name.clone(),
+        state_badge: Badge::for_node_state(device.state, BadgeSize::Large),
+        actions: NodeActions::for_state(device.state),
         device,
         ztp,
         node_config,
@@ -576,7 +581,7 @@ pub async fn lab_nodes_handler(
             let device_count = response.devices.len();
             NodesTableFragment {
                 lab_id,
-                devices: response.devices,
+                nodes: response.devices.into_iter().map(NodeRow::from).collect(),
                 device_count,
             }
             .into_response()
@@ -736,7 +741,7 @@ pub async fn job_page_handler(
             Error403Template {
                 username: auth.username,
                 is_admin: auth.is_admin,
-                active_page: String::new(),
+                nav: NavPage::Other.into(),
                 message: "You don't have permission to view this job.".to_string(),
             }
             .into_response()
@@ -749,7 +754,7 @@ pub async fn job_page_handler(
             JobPageTemplate {
                 username: auth.username,
                 is_admin: auth.is_admin,
-                active_page: "labs".to_string(),
+                nav: NavPage::Labs.into(),
                 job_id,
                 lab_name: job.lab_name.clone(),
                 action,
@@ -759,7 +764,7 @@ pub async fn job_page_handler(
         None => Error404Template {
             username: auth.username,
             is_admin: auth.is_admin,
-            active_page: String::new(),
+            nav: NavPage::Other.into(),
             message: "Job not found or already completed".to_string(),
         }
         .into_response(),
@@ -867,7 +872,7 @@ pub async fn lab_create_page_handler(auth: AuthenticatedUserFromCookie) -> impl 
     LabCreateTemplate {
         username: auth.username,
         is_admin: auth.is_admin,
-        active_page: "labs".to_string(),
+        nav: NavPage::Labs.into(),
         generated_name,
         models,
     }

@@ -5,17 +5,9 @@
 {% block subtitle %}Sign in to continue{% endblock %}
 
 {% block messages %}
-    {% if error != "" %}
+    {% if let Some(error) = error %}
     <div class="bg-alert-error border border-alert-error-border text-alert-error-text px-4 py-3 rounded-lg text-sm">
-        {% if error == "session_required" %}
-        Please sign in to continue
-        {% elif error == "session_expired" %}
-        Your session has expired. Please sign in again.
-        {% elif error == "logout_success" %}
-        You have been logged out successfully
-        {% else %}
         {{ error }}
-        {% endif %}
     </div>
     {% endif %}
     {% if message != "" %}

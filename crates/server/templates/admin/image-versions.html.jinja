@@ -12,16 +12,7 @@
             <h2 class="text-3xl font-bold text-heading">Configuration Versions</h2>
             <p class="mt-1 text-sm text-muted">
                 All versions for <span class="font-semibold">{{ model }}</span>
-                {% let kind_str = kind.clone() %}
-                {% if kind_str == "virtual_machine" %}
-                    (Virtual Machine)
-                {% else if kind_str == "container" %}
-                    (Container)
-                {% else if kind_str == "unikernel" %}
-                    (Unikernel)
-                {% else %}
-                    ({{ kind }})
-                {% endif %}
+                ({{ kind_label }})
             </p>
         </div>
         <div class="flex items-center space-x-3">

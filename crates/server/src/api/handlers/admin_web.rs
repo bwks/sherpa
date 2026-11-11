@@ -13,6 +13,7 @@ use crate::services::{clean, import, user_delete, user_password};
 use crate::templates::{
     AdminNotificationErrorTemplate, AdminPasswordErrorTemplate, AdminPasswordSuccessTemplate,
     AdminSshKeysListTemplate, AdminToolsTemplate, AdminUserEditTemplate, AdminUsersTemplate,
+    NavPage,
 };
 
 use crate::api::errors::ApiError;
@@ -82,7 +83,7 @@ pub async fn admin_dashboard_handler(
     Ok(AdminUsersTemplate {
         username: admin.username,
         is_admin: true,
-        active_page: "admin_users".to_string(),
+        nav: NavPage::AdminUsers.into(),
         users: user_summaries,
     }
     .into_response())
@@ -135,7 +136,7 @@ pub async fn admin_labs_list_handler(
     Ok(crate::templates::AdminLabsTemplate {
         username: admin.username,
         is_admin: true,
-        active_page: "admin_labs".to_string(),
+        nav: NavPage::AdminLabs.into(),
         labs: lab_summaries,
     }
     .into_response())
@@ -148,7 +149,7 @@ pub async fn admin_tools_handler(admin: AdminUser) -> impl IntoResponse {
     AdminToolsTemplate {
         username: admin.username,
         is_admin: true,
-        active_page: "admin_tools".to_string(),
+        nav: NavPage::AdminTools.into(),
     }
 }
 
@@ -251,7 +252,7 @@ pub async fn admin_user_edit_handler(
     Ok(AdminUserEditTemplate {
         username: admin.username,
         is_admin: true,
-        active_page: "admin_users".to_string(),
+        nav: NavPage::AdminUsers.into(),
         target_user,
         is_self,
         ssh_keys_list,

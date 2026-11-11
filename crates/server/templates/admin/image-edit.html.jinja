@@ -37,8 +37,7 @@
                 <!-- Kind (Read-only) -->
                 <div>
                     <label class="block text-sm font-medium text-body mb-2">Kind</label>
-                    {% let kind_str = config.kind.to_string() %}
-                    <input type="text" value="{% if kind_str == "virtual_machine" %}Virtual Machine{% else if kind_str == "container" %}Container{% else if kind_str == "unikernel" %}Unikernel{% else %}{{ config.kind }}{% endif %}" disabled class="w-full px-3 py-2 border border-border-strong rounded-md bg-surface text-muted cursor-not-allowed">
+                    <input type="text" value="{{ kind_label }}" disabled class="w-full px-3 py-2 border border-border-strong rounded-md bg-surface text-muted cursor-not-allowed">
                     <p class="mt-1 text-xs text-muted">Read-only identifier</p>
                 </div>
 
@@ -59,9 +58,8 @@
                 <div>
                     <label for="os_variant" class="block text-sm font-medium text-body mb-2">OS Variant *</label>
                     <select id="os_variant" name="os_variant" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
-                        {% let current_os = config.os_variant.to_string() %}
-                        {% for variant in os_variants %}
-                        <option value="{{ variant }}" {% if *variant == current_os %}selected{% endif %}>{{ variant }}</option>
+                        {% for choice in os_variant_choices %}
+                        <option value="{{ choice.value }}" {% if choice.selected %}selected{% endif %}>{{ choice.label }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -96,9 +94,8 @@
                 <div>
                     <label for="cpu_architecture" class="block text-sm font-medium text-body mb-2">CPU Architecture *</label>
                     <select id="cpu_architecture" name="cpu_architecture" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
-                        {% let current_arch = config.cpu_architecture.to_string() %}
-                        {% for arch in cpu_architectures %}
-                        <option value="{{ arch }}" {% if *arch == current_arch %}selected{% endif %}>{{ arch }}</option>
+                        {% for choice in cpu_architecture_choices %}
+                        <option value="{{ choice.value }}" {% if choice.selected %}selected{% endif %}>{{ choice.label }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -107,9 +104,8 @@
                 <div>
                     <label for="cpu_model" class="block text-sm font-medium text-body mb-2">CPU Model *</label>
                     <select id="cpu_model" name="cpu_model" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
-                        {% let current_cpu = config.cpu_model.to_string() %}
-                        {% for model in cpu_models %}
-                        <option value="{{ model }}" {% if *model == current_cpu %}selected{% endif %}>{{ model }}</option>
+                        {% for choice in cpu_model_choices %}
+                        <option value="{{ choice.value }}" {% if choice.selected %}selected{% endif %}>{{ choice.label }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -125,9 +121,8 @@
                 <div>
                     <label for="machine_type" class="block text-sm font-medium text-body mb-2">Machine Type *</label>
                     <select id="machine_type" name="machine_type" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
-                        {% let current_machine = config.machine_type.to_string() %}
-                        {% for mtype in machine_types %}
-                        <option value="{{ mtype }}" {% if *mtype == current_machine %}selected{% endif %}>{{ mtype }}</option>
+                        {% for choice in machine_type_choices %}
+                        <option value="{{ choice.value }}" {% if choice.selected %}selected{% endif %}>{{ choice.label }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -136,9 +131,8 @@
                 <div>
                     <label for="bios" class="block text-sm font-medium text-body mb-2">BIOS Type *</label>
                     <select id="bios" name="bios" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
-                        {% let current_bios = config.bios.to_string() %}
-                        {% for btype in bios_types %}
-                        <option value="{{ btype }}" {% if *btype == current_bios %}selected{% endif %}>{{ btype }}</option>
+                        {% for choice in bios_choices %}
+                        <option value="{{ choice.value }}" {% if choice.selected %}selected{% endif %}>{{ choice.label }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -160,9 +154,8 @@
                 <div>
                     <label for="hdd_bus" class="block text-sm font-medium text-body mb-2">HDD Bus *</label>
                     <select id="hdd_bus" name="hdd_bus" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
-                        {% let current_hdd_bus = config.hdd_bus.to_string() %}
-                        {% for bus in disk_buses %}
-                        <option value="{{ bus }}" {% if *bus == current_hdd_bus %}selected{% endif %}>{{ bus }}</option>
+                        {% for choice in hdd_bus_choices %}
+                        <option value="{{ choice.value }}" {% if choice.selected %}selected{% endif %}>{{ choice.label }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -171,9 +164,8 @@
                 <div>
                     <label for="cdrom_bus" class="block text-sm font-medium text-body mb-2">CD-ROM Bus *</label>
                     <select id="cdrom_bus" name="cdrom_bus" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
-                        {% let current_cdrom_bus = config.cdrom_bus.to_string() %}
-                        {% for bus in disk_buses %}
-                        <option value="{{ bus }}" {% if *bus == current_cdrom_bus %}selected{% endif %}>{{ bus }}</option>
+                        {% for choice in cdrom_bus_choices %}
+                        <option value="{{ choice.value }}" {% if choice.selected %}selected{% endif %}>{{ choice.label }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -260,9 +252,8 @@
                 <div>
                     <label for="interface_type" class="block text-sm font-medium text-body mb-2">Interface Type *</label>
                     <select id="interface_type" name="interface_type" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
-                        {% let current_if_type = config.interface_type.to_string() %}
-                        {% for iftype in interface_types %}
-                        <option value="{{ iftype }}" {% if *iftype == current_if_type %}selected{% endif %}>{{ iftype }}</option>
+                        {% for choice in interface_type_choices %}
+                        <option value="{{ choice.value }}" {% if choice.selected %}selected{% endif %}>{{ choice.label }}</option>
                         {% endfor %}
                     </select>
                 </div>
