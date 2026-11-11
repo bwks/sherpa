@@ -36,6 +36,26 @@ later. Two things depend on this:
   function first removes the old filter with `qdisc_detach_program`, which only sees TC filters.
   A TCX program would stay in front of the new one and keep redirecting to the deleted peer.
 
+### Re-attaching after an end is made again
+
+A VM or unikernel cold boot gives the node new taps, a container started from exited gets a new
+network namespace with none of its veths, and a redeploy makes the node's ends again. Each new
+end has a new ifindex, so the peer's redirect is stale. All of these go through one function,
+`services::p2p_links::reattach_node_links`, which works from the database rows:
+
+1. For a container, it makes every data interface's veth in the new namespace first: links,
+   bridge members (joined to their bridge) and disabled interfaces, planned as redeploy plans
+   them.
+2. For each of the node's links, on its own, it looks up both ends. Both present: each end's
+   redirect is pointed at the other, and each direction's impairment is synced from the
+   database. The peer's end absent: the link is left `PeerDown`, and the peer's own re-attach,
+   when it starts, sets both directions. Anything else: `Failed`, with the reason.
+3. The per-link states go back to the user with the resume or redeploy result. None of them
+   fails the node.
+
+The states and the transition are described in
+[`STATE_MACHINES.md`, section 25](STATE_MACHINES.md#25-p2p-link-attachment).
+
 ### Link Impairment (TC netem)
 
 Each interface supports two coexisting TC layers:
@@ -47,8 +67,11 @@ netem on iface_a's egress controls B->A impairment. netem on iface_b's egress co
 impairment. Each direction is stored on the link record (`impairment_a_to_b`,
 `impairment_b_to_a`, where A is the manifest's `src`) and is set on its own by the impairment
 API (`services::impairment`, `direction` in the request). `up` stores the manifest's
-`[links.impairment]` in both; resume and redeploy re-apply each direction that is not clear
-with `network::apply_link_netem`.
+`[links.impairment]` in both; resume and redeploy sync each direction from the database with
+`network::sync_netem`, which applies a set direction and removes any netem qdisc from a clear
+one. `network::remove_netem` reports `NothingToRemove` only when the interface has no netem
+qdisc of Sherpa's, found by listing its qdiscs; any other failure is an error, so a direction is
+never recorded clear while the kernel keeps its qdisc.
 
 ```mermaid
 sequenceDiagram

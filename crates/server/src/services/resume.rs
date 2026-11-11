@@ -2,11 +2,12 @@ use anyhow::{Context, Result, anyhow};
 use futures::future::join_all;
 use opentelemetry::KeyValue;
 use shared::data::{
-    self, DbLab, Halt, LabNodeActionResponse, NodeActionResult, NodeKind, OperationEvent, RecordId,
-    Runtime, StatusKind, TailnetAuthKey, TailnetStatus,
+    self, DbBridge, DbLab, DbLink, Halt, LabNodeActionResponse, NodeActionResult, NodeKind,
+    OperationEvent, RecordId, Runtime, StatusKind, TailnetAuthKey, TailnetStatus,
 };
 use shared::konst::{READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_LABS_PATH, SSH_PORT};
 use shared::util::load_saved_manifest;
+use shared::validators::effective_data_interface_count;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -20,6 +21,10 @@ use super::lab_nodes::load_target_nodes;
 use super::lab_operations::{self, LabOperation};
 use super::node_lifecycle;
 use super::node_ops::{self, VmReadiness};
+use super::p2p_links::{
+    ContainerNode, KernelHost, LabLinks, RecreatedEnd, container_veths, data_interface_indices,
+    node_bridge_interfaces, node_links, reattach_node_links, report_links,
+};
 use super::progress::ProgressSender;
 use super::ssh_config;
 use crate::auth::context::AuthContext;
@@ -156,40 +161,21 @@ pub async fn start_lab_nodes(
 
     let mut results = immediate_results;
     let cold_booted = record_outcomes(state, &operation, concurrent_results, &mut results).await;
-    let cold_booted_vms: Vec<String> = cold_booted
-        .iter()
-        .filter(|(_, kind)| *kind == NodeKind::VirtualMachine)
-        .map(|(name, _)| name.clone())
-        .collect();
+    let manifest = load_lab_manifest(lab_id);
+    let lab = ResumedLab {
+        lab_id,
+        lab_record_id: &lab_record_id,
+        nodes: &target_nodes,
+        manifest: manifest.as_ref(),
+        state,
+        progress,
+        operation: &operation,
+    };
 
-    // Re-attach eBPF redirect on P2p links for cold-booted VMs.
-    // Cold boot creates new tap devices, so the eBPF programs need re-attaching
-    // on both sides (new VM tap + peer's stale redirect).
-    if !cold_booted_vms.is_empty()
-        && let Err(e) =
-            reattach_p2p_ebpf_for_nodes(lab_id, &cold_booted_vms, &lab_record_id, state).await
-    {
-        tracing::error!(
-            lab_id = %lab_id,
-            error = ?e,
-            "Failed to re-attach eBPF redirect after VM cold boot"
-        );
-    }
-
-    // Wait for cold-booted nodes after their links are restored, as `up` does.
-    let ready = wait_for_cold_booted(
-        ResumedLab {
-            lab_id,
-            lab_record_id: &lab_record_id,
-            nodes: &target_nodes,
-            state,
-            progress,
-            operation: &operation,
-        },
-        &cold_booted,
-        &mut results,
-    )
-    .await?;
+    // A cold boot makes a node's link ends again, so its links are re-attached before its
+    // readiness is awaited, as `up` does.
+    reattach_cold_booted(&lab, &node_images, &cold_booted, &mut results).await;
+    let ready = wait_for_cold_booted(&lab, &cold_booted, &mut results).await?;
     // A node not ready in time stays `Starting`; the scanner records it running once it answers.
     for node in target_nodes
         .iter()
@@ -266,10 +252,13 @@ async fn resume_tailscale(
 }
 
 /// The lab being resumed, for waiting on its cold-booted nodes.
+#[derive(Clone, Copy)]
 struct ResumedLab<'a> {
     lab_id: &'a str,
     lab_record_id: &'a RecordId,
     nodes: &'a [data::DbNode],
+    /// The manifest `up` saved, if it can be read.
+    manifest: Option<&'a Manifest>,
     state: &'a AppState,
     progress: Option<&'a ProgressSender>,
     operation: &'a LabOperation,
@@ -281,7 +270,7 @@ struct ResumedLab<'a> {
 /// answered, and those with no check, as containers are ready once running.
 #[instrument(skip_all, fields(lab_id = %lab.lab_id), level = "debug")]
 async fn wait_for_cold_booted(
-    lab: ResumedLab<'_>,
+    lab: &ResumedLab<'_>,
     cold_booted: &[(String, NodeKind)],
     results: &mut [NodeActionResult],
 ) -> Result<HashSet<String>> {
@@ -289,12 +278,12 @@ async fn wait_for_cold_booted(
         lab_id,
         lab_record_id,
         nodes,
+        manifest,
         state,
         progress,
         operation,
-    } = lab;
-    let manifest = load_lab_manifest(lab_id);
-    let targets = readiness_targets(lab_id, nodes, cold_booted, manifest.as_ref());
+    } = *lab;
+    let targets = readiness_targets(lab_id, nodes, cold_booted, manifest);
     let mut ready_nodes: HashSet<String> = cold_booted
         .iter()
         .map(|(name, _)| name.clone())
@@ -303,7 +292,7 @@ async fn wait_for_cold_booted(
     if targets.is_empty() {
         return Ok(ready_nodes);
     }
-    let timeout = ready_timeout(manifest.as_ref());
+    let timeout = ready_timeout(manifest);
     let ready = wait_for_readiness(lab_id, &targets, timeout, state, progress, operation).await?;
     for result in results.iter_mut() {
         if targets.iter().any(|target| target.name == result.name) {
@@ -565,6 +554,7 @@ impl StartOutcome {
             name: node_name.to_string(),
             success,
             message,
+            links: Vec::new(),
         }
     }
 }
@@ -596,6 +586,7 @@ fn startable_kind(
         name: node.name.clone(),
         success: false,
         message,
+        links: Vec::new(),
     };
     let kind = node_images
         .iter()
@@ -709,69 +700,145 @@ async fn start_container_node(device_name: &str, state: &AppState) -> StartOutco
     }
 }
 
-/// Re-attach eBPF redirect programs on P2p links after VM cold boot.
-///
-/// When a VM is cold-booted, libvirt creates new tap devices with new ifindexes.
-/// The peer side's eBPF program still points to the old (stale) ifindex.
-/// This function re-attaches eBPF on both sides of each affected P2p link.
-async fn reattach_p2p_ebpf_for_nodes(
-    lab_id: &str,
-    node_names: &[String],
-    lab_record_id: &RecordId,
-    state: &AppState,
-) -> Result<()> {
-    let db_links = db::list_links_by_lab(&state.db, lab_record_id.clone()).await?;
-    let db_nodes = db::list_nodes_by_lab(&state.db, lab_record_id.clone()).await?;
-
-    // Build node name -> RecordId lookup
-    let node_record_ids: std::collections::HashMap<String, RecordId> = db_nodes
-        .iter()
-        .filter_map(|n| n.id.clone().map(|id| (n.name.clone(), id)))
-        .collect();
-
-    let target_record_ids: Vec<&RecordId> = node_names
-        .iter()
-        .filter_map(|name| node_record_ids.get(name))
-        .collect();
-
-    for link in &db_links {
-        // Only process links that involve one of the cold-booted nodes
-        let involves_target = target_record_ids
-            .iter()
-            .any(|id| link.node_a == **id || link.node_b == **id);
-        if !involves_target {
-            continue;
-        }
-
-        let ifindex_a = network::get_ifindex(&link.tap_a)
-            .await
-            .context(format!("failed to get ifindex for {}", link.tap_a))?;
-        let ifindex_b = network::get_ifindex(&link.tap_b)
-            .await
-            .context(format!("failed to get ifindex for {}", link.tap_b))?;
-
-        network::attach_p2p_redirect(&link.tap_a, ifindex_b)
-            .context(format!("failed to attach eBPF redirect on {}", link.tap_a))?;
-        network::attach_p2p_redirect(&link.tap_b, ifindex_a)
-            .context(format!("failed to attach eBPF redirect on {}", link.tap_b))?;
-
-        network::apply_link_netem(
-            ifindex_a,
-            ifindex_b,
-            &link.impairment_a_to_b,
-            &link.impairment_b_to_a,
-        )
-        .await?;
-
-        tracing::info!(
-            lab_id = %lab_id,
-            tap_a = %link.tap_a,
-            tap_b = %link.tap_b,
-            "Re-attached eBPF P2p redirect after cold boot"
-        );
+/// Re-attach the links of each cold-booted node, whose ends were made again, and add their
+/// states to its result. A link that is not attached does not fail the node.
+#[instrument(skip_all, fields(lab_id = %lab.lab_id), level = "debug")]
+async fn reattach_cold_booted(
+    lab: &ResumedLab<'_>,
+    node_images: &[data::NodeConfig],
+    cold_booted: &[(String, NodeKind)],
+    results: &mut [NodeActionResult],
+) {
+    if cold_booted.is_empty() {
+        return;
     }
+    let db = &lab.state.db;
+    let lab_links = match LabLinks::load(db, lab.lab_record_id).await {
+        Ok(lab_links) => lab_links,
+        Err(error) => {
+            tracing::error!(lab_id = %lab.lab_id, error = ?error, "Failed to load the lab's links");
+            for result in results
+                .iter_mut()
+                .filter(|result| cold_booted.iter().any(|(name, _)| *name == result.name))
+            {
+                result.message = format!("{}; links not re-attached: {error:#}", result.message);
+            }
+            return;
+        }
+    };
+    // Only a started container's veths need the bridges; they are loaded once.
+    let bridges = if cold_booted
+        .iter()
+        .any(|(_, kind)| *kind == NodeKind::Container)
+    {
+        db::list_bridges(db, lab.lab_record_id)
+            .await
+            .map_err(|error| format!("{error:#}"))
+    } else {
+        Ok(vec![])
+    };
+    let host = KernelHost::new(&lab.state.docker);
+    for (name, kind) in cold_booted {
+        let Some(node) = lab.nodes.iter().find(|node| node.name == *name) else {
+            continue;
+        };
+        let Some(node_id) = &node.id else {
+            continue;
+        };
+        let image = node_images
+            .iter()
+            .find(|image| image.id.as_ref() == Some(&node.image));
+        let Some(end) = recreated_end(
+            &ColdBooted {
+                lab_id: lab.lab_id,
+                node,
+                node_id,
+                kind,
+                image,
+            },
+            lab.manifest,
+            &lab_links,
+            bridges.as_deref(),
+        ) else {
+            continue;
+        };
+        let reports = reattach_node_links(&host, &lab_links, node_id, end).await;
+        report_links(lab.progress, name, &reports);
+        if let Some(result) = results.iter_mut().find(|result| result.name == *name) {
+            result.links = reports;
+        }
+    }
+}
 
-    Ok(())
+/// A node that resume cold-booted.
+struct ColdBooted<'a> {
+    lab_id: &'a str,
+    node: &'a data::DbNode,
+    node_id: &'a RecordId,
+    kind: &'a NodeKind,
+    image: Option<&'a data::NodeConfig>,
+}
+
+/// How a cold boot made the node's link ends again, or `None` when it has no ends to re-attach.
+///
+/// libvirt makes a VM's or a unikernel's taps when it boots the domain. A container started
+/// from exited has a new network namespace with none of its veths, so each of its data
+/// interfaces is planned again, as redeploy does, with the saved manifest's interface count. A
+/// container on no link has Docker networks, which Docker connects again.
+fn recreated_end(
+    node: &ColdBooted<'_>,
+    manifest: Option<&Manifest>,
+    lab_links: &LabLinks,
+    bridges: Result<&[DbBridge], &String>,
+) -> Option<RecreatedEnd> {
+    match node.kind {
+        NodeKind::VirtualMachine | NodeKind::Unikernel => Some(RecreatedEnd::Domain),
+        NodeKind::Container => {
+            let links = node_links(lab_links.links(), node.node_id);
+            if links.is_empty() {
+                return None;
+            }
+            Some(
+                container_end(node, manifest, &links, bridges)
+                    .unwrap_or_else(|error| RecreatedEnd::Unplanned(format!("{error:#}"))),
+            )
+        }
+    }
+}
+
+/// The started container's veths, planned from its links and bridges in the database and its
+/// data interface count.
+fn container_end(
+    node: &ColdBooted<'_>,
+    manifest: Option<&Manifest>,
+    links: &[&DbLink],
+    bridges: Result<&[DbBridge], &String>,
+) -> Result<RecreatedEnd> {
+    let name = node.node.name.as_str();
+    let image = node
+        .image
+        .ok_or_else(|| anyhow!("Node image of {name} not found"))?;
+    let bridges = bridges.map_err(|error| anyhow!("Failed to list the lab's bridges: {error}"))?;
+    let manifest_count = manifest
+        .and_then(|manifest| manifest.nodes.iter().find(|n| n.name == name))
+        .and_then(|n| n.data_interface_count);
+    let count = effective_data_interface_count(name, manifest_count, image)?;
+    let veths = container_veths(
+        &ContainerNode {
+            lab_id: node.lab_id,
+            name,
+            index: node.node.index,
+            model: image.model,
+            record: node.node_id,
+        },
+        links,
+        &node_bridge_interfaces(bridges, node.node_id),
+        data_interface_indices(image, count, name)?,
+    )?;
+    Ok(RecreatedEnd::Container {
+        container: format!("{name}-{}", node.lab_id),
+        veths,
+    })
 }
 
 #[cfg(test)]
@@ -962,5 +1029,92 @@ nodes = [
             readiness_message(false, Duration::from_secs(600)),
             "Started, but not ready within 600 seconds"
         );
+    }
+
+    fn linked_lab() -> LabLinks {
+        let link = |index: u16, a: &str, b: &str| DbLink {
+            id: None,
+            index,
+            kind: data::BridgeKind::P2p,
+            node_a: RecordId::new("node", a),
+            node_b: RecordId::new("node", b),
+            int_a: "eth1".to_string(),
+            int_b: "eth1".to_string(),
+            lab: RecordId::new("lab", "x"),
+            tap_a: format!("tpa{index}-lab1"),
+            tap_b: format!("tpb{index}-lab1"),
+            impairment_a_to_b: data::LinkImpairment::default(),
+            impairment_b_to_a: data::LinkImpairment::default(),
+        };
+        LabLinks::new(vec![link(0, "vm1", "uk1"), link(1, "vm1", "ctr1")], &[])
+    }
+
+    fn end_of(
+        name: &str,
+        kind: &NodeKind,
+        image: Option<&data::NodeConfig>,
+    ) -> Option<RecreatedEnd> {
+        let mut node = db_node(name, "172.31.1.5");
+        node.index = 3;
+        let node_id = RecordId::new("node", name);
+        let bridges: Vec<DbBridge> = vec![];
+        recreated_end(
+            &ColdBooted {
+                lab_id: "lab1",
+                node: &node,
+                node_id: &node_id,
+                kind,
+                image,
+            },
+            Some(&manifest(
+                "name = \"l\"\n[[nodes]]\nname = \"ctr1\"\nmodel = \"frr_linux\"\ndata_interface_count = 2\n",
+            )),
+            &linked_lab(),
+            Ok(&bridges),
+        )
+    }
+
+    #[test]
+    fn a_cold_booted_unikernel_has_its_links_reattached() {
+        // M8.1: only cold-booted VMs used to be re-attached; a unikernel's new tap was left
+        // without a redirect, and its peer's pointed at the old one.
+        assert!(matches!(
+            end_of("uk1", &NodeKind::Unikernel, None),
+            Some(RecreatedEnd::Domain)
+        ));
+        assert!(matches!(
+            end_of("vm1", &NodeKind::VirtualMachine, None),
+            Some(RecreatedEnd::Domain)
+        ));
+    }
+
+    #[test]
+    fn a_started_container_has_its_veths_made_again() {
+        // M25.2: a container started from exited has a new network namespace without its
+        // veths; resume used to leave it so.
+        let image = data::NodeConfig::get_model(data::NodeModel::FrrLinux);
+        let Some(RecreatedEnd::Container { container, veths }) =
+            end_of("ctr1", &NodeKind::Container, Some(&image))
+        else {
+            panic!("a started container on a link has its ends made again");
+        };
+        assert_eq!(container, "ctr1-lab1");
+        let host_veths: Vec<&str> = veths.iter().map(|v| v.host_veth.as_str()).collect();
+        // Its link's end, and its other data interface, disabled, from the manifest's count.
+        assert_eq!(host_veths, vec!["tpb1-lab1", "cd3i2-lab1"]);
+    }
+
+    #[test]
+    fn a_started_container_on_no_link_keeps_its_docker_networks() {
+        let image = data::NodeConfig::get_model(data::NodeModel::FrrLinux);
+        assert!(end_of("ctr9", &NodeKind::Container, Some(&image)).is_none());
+    }
+
+    #[test]
+    fn a_started_container_that_cannot_be_planned_fails_its_links() {
+        assert!(matches!(
+            end_of("ctr1", &NodeKind::Container, None),
+            Some(RecreatedEnd::Unplanned(_))
+        ));
     }
 }

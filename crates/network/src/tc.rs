@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail};
-use futures::StreamExt;
+use futures::{StreamExt, TryStreamExt};
 use rtnetlink::packet_core::DefaultNla;
 use rtnetlink::packet_core::{
     NLM_F_ACK, NLM_F_CREATE, NLM_F_REPLACE, NLM_F_REQUEST, NetlinkMessage, NetlinkPayload,
@@ -11,6 +11,15 @@ use shared::konst::{NETEM_QOPT_LEN, TCA_NETEM_CORRUPT, TCA_NETEM_REORDER, TCA_OP
 use tracing::instrument;
 
 use crate::linux::setup_netlink;
+
+/// What removing an interface's netem qdisc found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetemRemoval {
+    /// The interface had Sherpa's netem qdisc, and it is gone.
+    Removed,
+    /// The interface had no netem qdisc of Sherpa's: there was nothing to remove.
+    NothingToRemove,
+}
 
 /// Convert a percentage (0.0-100.0) to the kernel's u32 representation.
 /// Kernel uses 0 = 0%, `u32::MAX` ~ 100%.
@@ -113,7 +122,7 @@ async fn send_tc_message(msg: NetlinkMessage<RouteNetlinkMessage>) -> Result<()>
 pub async fn apply_netem(iface_index: u32, impairment: &LinkImpairment) -> Result<()> {
     let mut msg = TcMessage::default();
     msg.header.index = tc_index(iface_index)?;
-    msg.header.handle = TcHandle { major: 1, minor: 0 };
+    msg.header.handle = NETEM_HANDLE;
     msg.header.parent = TcHandle::ROOT;
     msg.attributes.push(TcAttribute::Kind("netem".to_string()));
     msg.attributes.push(TcAttribute::Other(DefaultNla::new(
@@ -137,17 +146,58 @@ pub async fn apply_netem(iface_index: u32, impairment: &LinkImpairment) -> Resul
     send_tc_message(req).await
 }
 
+/// The handle Sherpa's netem qdisc takes, as the interface's root qdisc.
+const NETEM_HANDLE: TcHandle = TcHandle { major: 1, minor: 0 };
+
+/// Whether `qdisc`, from a qdisc dump, is Sherpa's netem qdisc on interface `iface_index`: the
+/// root qdisc, with handle `1:`, of kind `netem`.
+fn is_link_netem(qdisc: &TcMessage, iface_index: i32) -> bool {
+    qdisc.header.index == iface_index
+        && qdisc.header.handle == NETEM_HANDLE
+        && qdisc.header.parent == TcHandle::ROOT
+        && qdisc
+            .attributes
+            .iter()
+            .any(|attribute| matches!(attribute, TcAttribute::Kind(kind) if kind == "netem"))
+}
+
+/// Whether interface `iface_index` has Sherpa's netem qdisc.
+async fn has_link_netem(iface_index: i32) -> Result<bool> {
+    let handle = setup_netlink().await?;
+    let mut qdiscs = handle.qdisc().get().index(iface_index).execute();
+    while let Some(qdisc) = qdiscs
+        .try_next()
+        .await
+        .with_context(|| format!("failed to list the qdiscs of ifindex {iface_index}"))?
+    {
+        if is_link_netem(&qdisc, iface_index) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Remove the netem qdisc from an interface.
+///
+/// An interface without Sherpa's netem qdisc has nothing to remove, and says so with
+/// [`NetemRemoval::NothingToRemove`]. That is told from the qdiscs the interface has, not from
+/// the kernel's error, which is the same `EINVAL` for "no such qdisc" as for a bad request.
 ///
 /// # Errors
 ///
-/// Fails when the index is out of range or the kernel refuses, as it does when the interface
-/// has no netem qdisc.
+/// Fails when the index is out of range, the qdiscs cannot be listed, or the kernel refuses to
+/// remove the netem qdisc the interface has.
 #[instrument(fields(iface_index), level = "debug")]
-pub async fn remove_netem(iface_index: u32) -> Result<()> {
+pub async fn remove_netem(iface_index: u32) -> Result<NetemRemoval> {
+    let index = tc_index(iface_index)?;
+    if !has_link_netem(index).await? {
+        tracing::debug!(iface_index, "no netem qdisc to remove");
+        return Ok(NetemRemoval::NothingToRemove);
+    }
+
     let mut msg = TcMessage::default();
-    msg.header.index = tc_index(iface_index)?;
-    msg.header.handle = TcHandle { major: 1, minor: 0 };
+    msg.header.index = index;
+    msg.header.handle = NETEM_HANDLE;
     msg.header.parent = TcHandle::ROOT;
 
     let mut req = NetlinkMessage::from(RouteNetlinkMessage::DelQueueDiscipline(msg));
@@ -155,7 +205,10 @@ pub async fn remove_netem(iface_index: u32) -> Result<()> {
 
     tracing::info!(iface_index = iface_index, "removing netem qdisc");
 
-    send_tc_message(req).await
+    send_tc_message(req)
+        .await
+        .with_context(|| format!("failed to remove the netem qdisc of ifindex {iface_index}"))?;
+    Ok(NetemRemoval::Removed)
 }
 
 /// Update netem parameters on an interface that already has netem applied.
@@ -164,41 +217,29 @@ pub async fn remove_netem(iface_index: u32) -> Result<()> {
 ///
 /// # Errors
 ///
-/// Fails as `apply_netem` does.
+/// Fails when an existing netem qdisc cannot be removed, or as `apply_netem` does.
 #[instrument(skip(impairment), fields(iface_index), level = "debug")]
 pub async fn update_netem(iface_index: u32, impairment: &LinkImpairment) -> Result<()> {
     // Remove then re-add — simplest approach that avoids change vs replace semantics. An
-    // interface without netem has nothing to remove.
-    if let Err(error) = remove_netem(iface_index).await {
-        tracing::debug!(iface_index, error = %error, "No netem qdisc removed before applying");
-    }
+    // interface without netem has nothing to remove; any other failure is an error.
+    remove_netem(iface_index).await?;
     apply_netem(iface_index, impairment).await
 }
 
-/// Apply a link's impairment for each direction that has one. Traffic from A to B leaves the
-/// host through B's end, so `a_to_b` goes on `ifindex_b`'s egress and `b_to_a` on `ifindex_a`'s.
+/// Make interface `iface_index`'s egress impairment `impairment`: apply it, or, when it is
+/// clear, remove any netem qdisc the interface has. Applying replaces an existing qdisc.
 ///
 /// # Errors
 ///
-/// Fails as `apply_netem` does, naming the interface index.
-#[instrument(skip(a_to_b, b_to_a), fields(ifindex_a, ifindex_b), level = "debug")]
-pub async fn apply_link_netem(
-    ifindex_a: u32,
-    ifindex_b: u32,
-    a_to_b: &LinkImpairment,
-    b_to_a: &LinkImpairment,
-) -> Result<()> {
-    if !a_to_b.is_clear() {
-        apply_netem(ifindex_b, a_to_b)
-            .await
-            .context(format!("failed to apply netem on ifindex {ifindex_b}"))?;
+/// Fails as `apply_netem` or `remove_netem` do.
+#[instrument(skip(impairment), fields(iface_index), level = "debug")]
+pub async fn sync_netem(iface_index: u32, impairment: &LinkImpairment) -> Result<()> {
+    if impairment.is_clear() {
+        remove_netem(iface_index).await?;
+        Ok(())
+    } else {
+        apply_netem(iface_index, impairment).await
     }
-    if !b_to_a.is_clear() {
-        apply_netem(ifindex_a, b_to_a)
-            .await
-            .context(format!("failed to apply netem on ifindex {ifindex_a}"))?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -313,6 +354,43 @@ mod tests {
             error.to_string().contains("too long for netem"),
             "{error:#}"
         );
+    }
+
+    fn qdisc(index: i32, handle: TcHandle, parent: TcHandle, kind: &str) -> TcMessage {
+        let mut message = TcMessage::default();
+        message.header.index = index;
+        message.header.handle = handle;
+        message.header.parent = parent;
+        message.attributes.push(TcAttribute::Kind(kind.to_string()));
+        message
+    }
+
+    #[test]
+    fn only_the_root_netem_of_the_interface_is_sherpas_netem() {
+        assert!(is_link_netem(
+            &qdisc(7, NETEM_HANDLE, TcHandle::ROOT, "netem"),
+            7
+        ));
+        // The default qdisc, a qdisc of another interface, another root qdisc, and netem
+        // below the root are not Sherpa's: removing "it" would remove nothing.
+        let default = TcHandle { major: 0, minor: 0 };
+        for other in [
+            qdisc(7, default, TcHandle::ROOT, "fq_codel"),
+            qdisc(8, NETEM_HANDLE, TcHandle::ROOT, "netem"),
+            qdisc(7, NETEM_HANDLE, TcHandle::ROOT, "htb"),
+            qdisc(7, NETEM_HANDLE, TcHandle { major: 2, minor: 1 }, "netem"),
+            qdisc(
+                7,
+                TcHandle {
+                    major: 0xffff,
+                    minor: 0,
+                },
+                TcHandle::CLSACT,
+                "clsact",
+            ),
+        ] {
+            assert!(!is_link_netem(&other, 7), "{:?}", other.header);
+        }
     }
 
     #[test]

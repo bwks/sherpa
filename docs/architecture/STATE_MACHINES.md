@@ -49,8 +49,8 @@ which to make them explicit, are in
 | 22 | [Client token](#22-client-token) | client | `~/.sherpa/token` file |
 | 23 | [Client operation outcome and local lab files](#23-client-operation-outcome-and-local-lab-files) | client | files in the lab folder |
 | 24 | [CLI provisioners](#24-cli-provisioners) | client | per-run `ProvisionStatus` |
-| 25 | [P2p link attachment](#25-p2p-link-attachment) | network, server | kernel taps, TC filters, in-memory set |
-| 26 | [Link impairment](#26-link-impairment) | server, network, db | `impairment_*` columns, netem qdisc |
+| 25 | [P2p link attachment](#25-p2p-link-attachment) | network, server | `LinkState` enum and `step` transition over the kernel's ends and TC filters |
+| 26 | [Link impairment](#26-link-impairment) | server, network, db | `impairment_*` columns, netem qdisc; kernel put back on a failed DB write |
 | 27 | [Bridges and management networks](#27-bridges-and-management-networks) | server, libvirt, container, network | side effects |
 | 28 | [Node images](#28-node-images) | server, db | `node_image` row, `default` flag, files |
 | 29 | [ZTP setting](#29-ztp-setting) | shared, db, server, template, topology | one `Ztp` enum on the image, with an optional manifest override |
@@ -58,7 +58,7 @@ which to make them explicit, are in
 | 31 | [Node resource reservation](#31-node-resource-reservation) | server, db | `vnc_port`, `cpu_pinning` Options, admission ledger |
 | 32 | [Database schema version](#32-database-schema-version) | db | `PRAGMA user_version` |
 
-Machines 3 and 32 were already explicit and checked; 1, 2, 4 and 14 have been made so since. They
+Machines 3 and 32 were already explicit and checked; 1, 2, 4, 14 and 25 have been made so since. They
 are here so the survey is complete, and because the other machines depend on them.
 
 ---
@@ -591,8 +591,10 @@ stateDiagram-v2
   - `AlreadyRunning`: not recorded;
   - `Failed(reason)`: a crashed domain, dead container, one between states, a missing domain,
     or an error from libvirt or Docker.
-- `ColdBooted` VMs have their eBPF redirects re-attached (`reattach_p2p_ebpf_for_nodes`).
-  Unikernels are not re-attached (M8.1).
+- Every `ColdBooted` node has its P2p links re-attached (`reattach_cold_booted`, machine 25):
+  VMs and unikernels have new taps; a container started from exited has its veths made again
+  in its new namespace first. Each node's result carries its links' states; a link that is not
+  attached does not fail the node.
 - `ColdBooted` nodes are waited on for readiness (`wait_for_cold_booted`). Those that become
   ready, and those with no check (containers, `skip_ready_check`), are recorded `Running`; the
   others stay `Starting`.
@@ -625,7 +627,9 @@ stateDiagram-v2
    - regenerate ZTP and certificates;
    - recreate the node (`redeploy_vm` or `redeploy_container`), recorded `Starting` once the
      VM is created or the container runs;
-   - re-attach P2p redirects (`vm.rs`, `container.rs`);
+   - re-attach its P2p links with `reattach_node_links` (machine 25), making a container's
+     veths first. The link states go in the response; a link that is not attached, such as
+     one whose peer is down, does not fail the redeploy;
    - record `Running`:
      - containers: after Vault and Keycloak are restored (`ready_after_restore`,
        `container.rs`);
@@ -649,7 +653,7 @@ stateDiagram-v2
     Starting --> Running : VM probe ok / container services restored
     Starting --> Starting_left : VM probe timed out (returns success)
     TornDown --> Failed : rebuild error
-    Starting --> Failed : reattach or service restore error
+    Starting --> Failed : service restore error
     Running --> [*]
     Failed --> [*]
     Starting_left --> [*]
@@ -1153,38 +1157,93 @@ confirmation from the server (`container.rs:32-42`).
 
 **Where.**
 
-- `crates/network/src/ebpf.rs`, `tap.rs` and `tc.rs`;
-- `crates/server/src/services/up/links.rs`, `redeploy/links.rs`, `resume.rs:632-680`.
+- `crates/server/src/services/p2p_links/`:
+  - `transition.rs`: the states and the one transition, `step`, a pure function;
+  - `reattach.rs`: `reattach_node_links`, the one function every event that makes a link end
+    again calls, and `attach_link`, the per-link kernel step that `up` uses too;
+  - `host.rs`: the `LinkHost` trait (look up an end, attach a redirect, set netem, make a
+    container's veths) and `KernelHost`, its implementation over `network` and Docker. Tests
+    use a fake (`fake.rs`);
+  - `veths.rs`: a container's veth plan from the database rows.
+- `crates/network/src/ebpf.rs`, `tap.rs` and `tc.rs`.
 
-`DbLink` has `tap_a` and `tap_b`, and no status field. The attachment state is held in two
-places:
+`DbLink` has `tap_a` and `tap_b`, and no status field: the link's state is in the kernel
+(whether each end's tap or veth exists, and the peer ifindex in each end's BPF map,
+`ebpf.rs`), and the database holds what the link should be (its ends and impairments). During
+`up`, `P2pAttachment { ready_ends, attached }` (`up/links.rs`) tracks which links are attached
+so far.
 
-- the kernel: whether the tap or veth exists, the TC filter with the peer's ifindex in its
-  BPF map (`ebpf.rs:86`), and netem;
-- `P2pAttachment { ready_ends, attached }`, in memory, for one `up` (`up/links.rs:378-383`).
+**States per link** (`shared::data::LinkState`, reported to the user):
 
-**States per link** *(implicit)*: ends missing, ends present, redirect attached both ways,
-and stale (one end recreated with a new ifindex, so the peer's redirect points at the old one).
+- `Attached`: both ends exist and redirect to each other, with the link's impairments;
+- `PeerDown { peer }`: the node's end exists and the peer's does not, because the peer is
+  down. Nothing is touched. This is expected, not a failure;
+- `Failed { reason }`: the node's own end does not exist, an end could not be made or looked
+  up, or the kernel refused the redirect or the qdisc.
 
-**Transitions.**
+Between an event and its re-attach the link is *stale*: one end has a new ifindex and the other
+end's redirect still points at the old one. Stale is never reported; every event that makes it
+re-attaches.
 
-| Transition | Function | Checked? |
+**The transition.** `step(side, a, b, peer)` looks at the two ends, as `End::Present(ifindex)`,
+`Absent` or `Broken(reason)`:
+
+| Node's own end(s) | Peer's end | Step | Result |
+|---|---|---|---|
+| present | present | `Attach` | `Attached`, or `Failed` if the kernel refuses |
+| present | absent | `Leave` | `PeerDown` |
+| absent or broken | any | `Leave` | `Failed` (the node's own end is reported first) |
+| present | broken | `Leave` | `Failed` |
+
+A link whose two ends are on one node (`Side::Both`) needs both.
+
+**Events.** `reattach_node_links(host, lab_links, node, end)` runs the transition for every link
+of `node`, in index order, each on its own: one link's failure never stops the next. `end`
+(`RecreatedEnd`) says how the node's ends were made again:
+
+| Event | Caller | `RecreatedEnd` |
 |---|---|---|
-| ends present → attached | `attach_vm_links` (`up/links.rs:393`), `attach_ready_p2p_links` as container veths appear (`up/readiness.rs:342-399`) | waits until both ends are ready |
-| attached → stale | a VM cold boot (resume), node teardown (redeploy), a container restart *(inferred)* | — |
-| stale → attached | `reattach_p2p_ebpf_for_nodes` (resume, VMs only, `resume.rs:143-145`), `reattach_p2p_redirects` (redeploy, `redeploy/links.rs:39`) | none: the first `get_ifindex` that fails returns, and later links are skipped (`resume.rs:661-666`, `redeploy/links.rs:53-58`) |
+| VM or unikernel cold boot by resume | `resume::reattach_cold_booted` | `Domain` (libvirt made the taps) |
+| container started from exited by resume | `resume::reattach_cold_booted` | `Container { veths }`: every data interface planned again from the database rows (links, bridges) and the saved manifest's interface count, made in the new namespace first |
+| VM redeploy | `redeploy/vm.rs` | `Domain` |
+| container redeploy | `redeploy/container.rs` | `Container { veths }` |
+| the container's plan failed | resume | `Unplanned(reason)`: each link `Failed` |
 
-`attach_p2p_redirect` detaches and then attaches again (`ebpf.rs:57-73`), so it is
-idempotent.
+A container on no link has Docker networks, which Docker connects again; it is not
+re-attached. A paused container or VM keeps its ends, so unpausing re-attaches nothing.
+
+Attaching (`attach_link`) points each end's redirect at the other and *syncs* each direction's
+impairment from the database onto the end it leaves through: set, or removed when clear. So a
+re-attach also clears a qdisc a direction recorded clear should not have (machine 26).
+
+**Peer down, then up.** When a node is re-attached while its peer is down, its links to that
+peer are `PeerDown`. When the peer starts (resume cold boot, or redeploy), the peer's own
+re-attach finds both ends and sets both directions, so the surviving end's redirect moves to the
+peer's new ifindex. No state is kept between the two events: the kernel and the rows decide.
+
+**Reporting.** The function returns a `LinkReport` per link and fails nothing. Resume puts them
+in the node's `NodeActionResult.links`, redeploy in `RedeployResponse.links`, and both stream a
+status line per link that is not attached. The CLI prints those under the node's line, and the
+web UI adds them to its notification. A link that is not attached does not mark the node
+`Failed` and does not make the command fail: the node is up.
+
+`up` does not use `reattach_node_links`. It attaches each link once both ends exist (VM links
+in phase 11b, links with a container end as each container starts), with `attach_link`, and a
+failure there fails `up`, which rolls back.
+
+`attach_p2p_redirect` detaches and then attaches again (`ebpf.rs`), so attaching is idempotent:
+a link both of whose nodes cold-booted in one resume is attached twice, the same way.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Recorded : up phase 5, link row
-    Recorded --> EndsReady : VM taps / container veths created
-    EndsReady --> Attached : attach redirect both ways + netem
-    Attached --> Stale : VM cold boot / node teardown / container restart (inferred)
-    Stale --> Attached : resume (VMs only) / redeploy reattach
-    Stale --> Stale : unikernel cold boot / earlier link failed in loop
+    Recorded --> Attached : up, both ends exist (attach_link)
+    Attached --> Stale : cold boot / container start / redeploy of one end
+    Stale --> Attached : reattach_node_links, both ends present
+    Stale --> PeerDown : reattach_node_links, peer end absent
+    Stale --> Failed : own end absent, or kernel refuses
+    PeerDown --> Attached : the peer's own re-attach when it starts
+    Failed --> Attached : next re-attach of either end
 ```
 
 ### 26. Link impairment
@@ -1196,25 +1255,37 @@ stateDiagram-v2
 - the columns `link.impairment_a_to_b` and `link.impairment_b_to_a`.
 
 **States per direction.** Clear (`LinkImpairment::is_clear`) or set. The value is held twice:
-in the database and in the kernel qdisc.
+in the database and in the kernel qdisc. The database is the source: every re-attach (machine
+25) syncs the kernel to it, removing the qdisc of a clear direction.
 
-**Transitions.** `update_impairment` (`impairment.rs:25-138`):
+**Transitions.** `update_impairment` checks lab access, that the link exists and that it is a
+P2p link, then calls `change_impairment`:
 
-- It checks lab access, that the link exists, and that it is a P2p link (`:53-60`).
-- It writes the kernel first (`:68-82`), then the database (`:102-109`).
-- If the second direction fails, it restores the first (`:71-80`).
-- `set_netem` (`:167-186`) treats every error from `remove_netem` as "nothing to remove".
+- It changes the kernel first, then records the link in the database.
+- If the second direction fails in the kernel, it puts the first back.
+- If the database write fails, it puts every direction it changed back to the old value in the
+  kernel. The request fails, and the kernel and the database keep the old value together. If
+  putting the kernel back fails as well, the error says so; the next re-attach of the link
+  syncs the kernel to the old value in the database.
+- Clearing a direction removes its netem qdisc with `network::remove_netem`, which returns
+  `NetemRemoval::NothingToRemove` only when the interface has no root netem qdisc with handle
+  `1:` (it lists the qdiscs; the kernel's error for a missing qdisc is the same `EINVAL` as for
+  a bad request). Any other failure fails the request, and the database keeps the value.
 
-When links are attached (up, resume, redeploy), the DB value is applied. A clear direction is
-skipped there, so nothing is removed (`tc.rs:185-205`).
+Why the kernel first: the request fails when the kernel refuses (the usual failure) without
+touching the database, and the compensations all move toward the value the user was told
+remains.
 
 ```mermaid
 stateDiagram-v2
-    state "any" as ANY
     [*] --> FromManifest : up, both directions
-    ANY --> Set : update_impairment (kernel, then DB) [unchecked]
-    ANY --> Clear : update_impairment clear (remove errors ignored) [unchecked]
-    Set --> Set : resume / redeploy reapply from DB
+    FromManifest --> Set
+    FromManifest --> Clear
+    Set --> Set : update (kernel, then DB; kernel put back if the DB fails)
+    Set --> Clear : update clear (removed, or nothing to remove)
+    Clear --> Set : update
+    Set --> Set : re-attach syncs from DB
+    Clear --> Clear : re-attach removes any leftover qdisc
 ```
 
 ### 27. Bridges and management networks

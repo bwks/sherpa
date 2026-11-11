@@ -263,6 +263,7 @@ pub async fn node_redeploy_handler(
     Ok(Json(json!({
         "success": result.success,
         "message": result.message,
+        "links": result.links,
     })))
 }
 

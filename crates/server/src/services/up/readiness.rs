@@ -14,6 +14,7 @@ use crate::services::lab_operations::LabOperation;
 use crate::services::node_lifecycle;
 use crate::services::node_ops::{self, VmReadiness};
 use crate::services::node_secrets::write_node_secrets;
+use crate::services::p2p_links::{KernelHost, LinkHost};
 use crate::services::talos;
 
 use container::ContainerSpec;
@@ -23,7 +24,6 @@ use shared::konst::{
     CONTAINER_SECRETS_DIR, READINESS_SLEEP, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR,
     SSH_PORT,
 };
-use shared::util;
 
 /// What waiting for the nodes needs besides the build.
 pub(super) struct ReadinessInputs<'a> {
@@ -389,37 +389,16 @@ impl Readiness<'_, '_> {
         if veths.is_empty() {
             return Ok(());
         }
-        let pid = container::get_container_pid(self.build.docker_conn, container_name).await?;
-        for veth in veths {
-            let target_name = util::container_interface_name(&veth.node_model, veth.interface_idx)?;
-            let state = node_ops::netns_veth_state(veth.node_model, veth.admin_down);
-            network::create_veth_in_netns(
-                &veth.host_veth,
-                &veth.host_alias,
-                &target_name,
-                pid,
-                state,
-            )
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to create P2p interface {target_name} in container {container_name}"
-                )
+        let host = KernelHost::new(self.build.docker_conn);
+        let pid = host.container_pid(container_name).await?;
+        for P2pContainerVeth { veth, .. } in veths {
+            host.create_veth(veth, pid).await.with_context(|| {
+                format!("Failed to create a P2p interface in container {container_name}")
             })?;
-            if let Some(bridge_name) = &veth.bridge {
-                network::enslave_to_bridge(&veth.host_veth, bridge_name).await?;
-            }
             self.p2p.ready_ends.insert(veth.host_veth.clone());
-            tracing::info!(
-                container = %container_name,
-                host_veth = %veth.host_veth,
-                target = %target_name,
-                admin_down = veth.admin_down,
-                pid,
-                "Created P2p veth into container netns"
-            );
         }
         attach_ready_p2p_links(
+            &host,
             self.build.lab_id,
             self.inputs.p2p_links,
             self.inputs.links_detailed,

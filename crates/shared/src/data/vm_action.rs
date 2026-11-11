@@ -1,4 +1,4 @@
-use super::TailnetStatus;
+use super::{LinkReport, TailnetStatus};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +8,10 @@ pub struct NodeActionResult {
     pub name: String,
     pub success: bool,
     pub message: String,
+    /// The node's P2p links, when the action made its end again (a cold boot or a container
+    /// start). Empty otherwise. A link that is not attached does not fail the node.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub links: Vec<LinkReport>,
 }
 
 /// Response for lab-wide node actions (down/resume)

@@ -30,7 +30,7 @@ fn is_no_device(error: &Error) -> bool {
 }
 
 /// The index of the link `name`, or `None` when there is no such link.
-async fn find_link_index(handle: &Handle, name: &str) -> Result<Option<u32>> {
+pub(crate) async fn find_link_index(handle: &Handle, name: &str) -> Result<Option<u32>> {
     let mut links = handle.link().get().match_name(name.to_string()).execute();
     match links.try_next().await {
         Ok(link) => Ok(link.map(|link| link.header.index)),

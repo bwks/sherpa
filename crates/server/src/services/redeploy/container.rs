@@ -1,53 +1,50 @@
 //! Stages 4 and 5 for a container: its configuration, its data networks or P2p veths, and
 //! starting it; then the services a container node runs.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::RangeInclusive;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use tracing::instrument;
 
-use super::context::{Redeploy, data_interface_indices};
-use super::links::{node_bridge_interfaces, node_links, reattach_p2p_redirects};
+use super::context::Redeploy;
 use crate::services::container_networks::{self, ContainerDataInterface};
 use crate::services::keycloak;
 use crate::services::lab_operations::LabOperation;
 use crate::services::node_lifecycle;
 use crate::services::node_ops::{self, ContainerZtpResult, LabZtp};
 use crate::services::node_secrets::secrets_for_redeploy;
+use crate::services::p2p_links::{
+    ContainerNode, ContainerVeth, KernelHost, LabLinks, RecreatedEnd, container_veths,
+    data_interface_indices, node_bridge_interfaces, node_links, reattach_node_links, report_links,
+};
 use crate::services::talos;
 use crate::services::vault;
 use crate::tls::lab_ca::NodeCertPaths;
 
 use container::ContainerSpec;
 use shared::data;
-use shared::data::{DbLink, OperationEvent, RecordId, StatusKind};
-use shared::konst::{
-    BRIDGE_MEMBER_HOST_VETH_PREFIX, CONTAINER_HOST_VETH_PREFIX, CONTAINER_SECRETS_DIR,
-    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR,
-};
+use shared::data::{LinkReport, OperationEvent, RecordId, StatusKind};
+use shared::konst::{CONTAINER_SECRETS_DIR, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR};
 use shared::util;
 
-/// A data interface of a P2p container: a veth created into the container's netns once it has
-/// started, with its host end named `host_veth`.
-struct P2pContainerVeth {
-    host_veth: String,
-    host_alias: String,
-    interface_idx: u8,
-    node_model: data::NodeModel,
-    admin_down: bool,
-    /// The private bridge the host end joins, for a bridge member.
-    bridge: Option<String>,
+/// A container's data interfaces, and the lab's links they were planned from.
+struct DataInterfaces {
+    lab_links: LabLinks,
+    /// Its Docker data networks, for a container on no link.
+    networks: Vec<data::ContainerNetworkAttachment>,
+    /// Its veths, for a container on a P2p link.
+    veths: Vec<ContainerVeth>,
 }
 
-/// Configure the container again, recreate its data networks or P2p veths, start it, and
-/// restore what its services keep (stages 4 and 5).
+/// Configure the container again, recreate its data networks or P2p veths, start it, re-attach
+/// its links, and restore what its services keep (stages 4 and 5). Returns its links' states.
 #[instrument(skip_all, fields(lab_id = %redeploy.lab_id, node_name = %redeploy.node_name), level = "debug")]
 pub(super) async fn redeploy_container(
     redeploy: &mut Redeploy<'_>,
     cert_paths: &NodeCertPaths,
-) -> Result<()> {
+) -> Result<Vec<LinkReport>> {
     // Read before the node's ZTP takes a custom config out of it.
     let initialises_vault = vault::sherpa_initialises_vault(
         redeploy.target_node.model,
@@ -66,26 +63,12 @@ pub(super) async fn redeploy_container(
     let container_image =
         container::image_reference(&ztp_result.image, &redeploy.node_image.version);
 
+    let DataInterfaces {
+        lab_links,
+        networks: additional_networks,
+        veths: p2p_veths,
+    } = plan_data_interfaces(redeploy).await?;
     let db = &redeploy.state.db;
-    let db_links = db::list_links_by_lab(db, redeploy.lab_record_id.clone()).await?;
-    let links = node_links(&db_links, &redeploy.node_record_id);
-    let db_bridges = db::list_bridges(db, &redeploy.lab_record_id).await?;
-    let bridge_interfaces = node_bridge_interfaces(&db_bridges, &redeploy.node_record_id);
-    let data_indices = data_interface_indices(
-        &redeploy.node_image,
-        redeploy.data_interface_count,
-        node_name,
-    )?;
-
-    // A container on a P2p link gets a veth for every data interface, created once it has
-    // started; Docker only handles its management network.
-    let (additional_networks, p2p_veths) = if links.is_empty() {
-        let networks = create_data_networks(redeploy, &bridge_interfaces, data_indices).await?;
-        (networks, vec![])
-    } else {
-        let veths = p2p_container_veths(redeploy, &links, &bridge_interfaces, data_indices)?;
-        (vec![], veths)
-    };
 
     let mgmt_attachment = data::ContainerNetworkAttachment {
         name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
@@ -147,10 +130,23 @@ pub(super) async fn redeploy_container(
         network::set_link_down(&isolated.bridge_name).await?;
     }
 
-    if !p2p_veths.is_empty() {
-        create_p2p_veths(redeploy, &container_name, &p2p_veths).await?;
-        reattach_p2p_redirects(lab_id, &links, redeploy.progress).await?;
-    }
+    // The container's veths are made in its namespace, then its links attached.
+    let link_reports = if p2p_veths.is_empty() {
+        vec![]
+    } else {
+        let reports = reattach_node_links(
+            &KernelHost::new(&redeploy.state.docker),
+            &lab_links,
+            &redeploy.node_record_id,
+            RecreatedEnd::Container {
+                container: container_name,
+                veths: p2p_veths,
+            },
+        )
+        .await;
+        report_links(Some(redeploy.progress), node_name, &reports);
+        reports
+    };
 
     ready_after_restore(
         db,
@@ -158,7 +154,43 @@ pub(super) async fn redeploy_container(
         &redeploy.node_record_id,
         restore_node_services(redeploy, initialises_vault),
     )
-    .await
+    .await?;
+    Ok(link_reports)
+}
+
+/// The data interfaces of a container: Docker networks, made now, for one on no link, or, for
+/// one on a P2p link, a veth for every data interface, made once it has started; Docker then
+/// only handles its management network.
+async fn plan_data_interfaces(redeploy: &Redeploy<'_>) -> Result<DataInterfaces> {
+    let db = &redeploy.state.db;
+    let lab_links = LabLinks::load(db, &redeploy.lab_record_id).await?;
+    let links = node_links(lab_links.links(), &redeploy.node_record_id);
+    let db_bridges = db::list_bridges(db, &redeploy.lab_record_id).await?;
+    let bridge_interfaces = node_bridge_interfaces(&db_bridges, &redeploy.node_record_id);
+    let data_indices = data_interface_indices(
+        &redeploy.node_image,
+        redeploy.data_interface_count,
+        &redeploy.node_name,
+    )?;
+    let (networks, veths) = if links.is_empty() {
+        let networks = create_data_networks(redeploy, &bridge_interfaces, data_indices).await?;
+        (networks, vec![])
+    } else {
+        let node = ContainerNode {
+            lab_id: &redeploy.lab_id,
+            name: &redeploy.node_name,
+            index: redeploy.db_node.index,
+            model: redeploy.target_node.model,
+            record: &redeploy.node_record_id,
+        };
+        let veths = container_veths(&node, &links, &bridge_interfaces, data_indices)?;
+        (vec![], veths)
+    };
+    Ok(DataInterfaces {
+        lab_links,
+        networks,
+        veths,
+    })
 }
 
 /// Restore what the node's services keep, then record the node ready. A container whose
@@ -197,71 +229,6 @@ fn configure_container(
         redeploy.ipv4,
         Some(cert_paths),
     )
-}
-
-/// The veths of a container on a P2p link, one for every data interface: its links, its
-/// private bridge memberships, whose host end joins the bridge, and its disabled interfaces,
-/// admin down.
-fn p2p_container_veths(
-    redeploy: &Redeploy<'_>,
-    links: &[&DbLink],
-    bridge_interfaces: &HashMap<String, String>,
-    data_indices: RangeInclusive<u8>,
-) -> Result<Vec<P2pContainerVeth>> {
-    let lab_id = redeploy.lab_id.as_str();
-    let node_name = redeploy.node_name.as_str();
-    let node_idx = redeploy.db_node.index;
-    let model = redeploy.target_node.model;
-    let node = &redeploy.node_record_id;
-    let mut veths = vec![];
-
-    for link in links {
-        let ends = [
-            (&link.node_a, &link.int_a, &link.tap_a),
-            (&link.node_b, &link.int_b, &link.tap_b),
-        ];
-        for (end, interface, tap) in ends {
-            if end != node {
-                continue;
-            }
-            veths.push(P2pContainerVeth {
-                host_veth: tap.clone(),
-                host_alias: format!("{lab_id}-p2p-host-{node_name}::{interface}"),
-                interface_idx: util::interface_to_idx(&model, interface)?,
-                node_model: model,
-                admin_down: false,
-                bridge: None,
-            });
-        }
-    }
-
-    for (iface_name, bridge_name) in bridge_interfaces {
-        let iface_idx = util::interface_to_idx(&model, iface_name)?;
-        veths.push(P2pContainerVeth {
-            host_veth: format!("{BRIDGE_MEMBER_HOST_VETH_PREFIX}{node_idx}i{iface_idx}-{lab_id}"),
-            host_alias: format!("{lab_id}-bridge-host-{node_name}::{iface_name}"),
-            interface_idx: iface_idx,
-            node_model: model,
-            admin_down: false,
-            bridge: Some(bridge_name.clone()),
-        });
-    }
-
-    let connected: HashSet<u8> = veths.iter().map(|v| v.interface_idx).collect();
-    for idx in data_indices {
-        if connected.contains(&idx) {
-            continue;
-        }
-        veths.push(P2pContainerVeth {
-            host_veth: format!("{CONTAINER_HOST_VETH_PREFIX}{node_idx}i{idx}-{lab_id}"),
-            host_alias: format!("{lab_id}-p2p-disabled-host-{node_name}::{idx}"),
-            interface_idx: idx,
-            node_model: model,
-            admin_down: true,
-            bridge: None,
-        });
-    }
-    Ok(veths)
 }
 
 /// Create the Docker macvlan network of each data interface of a container with no links: on
@@ -308,48 +275,6 @@ async fn create_data_networks(
         )?);
     }
     Ok(attachments)
-}
-
-/// Create the P2p veths into the started container's netns, named and up, so nothing runs in
-/// the image, and join bridge members' host ends to their bridge.
-#[instrument(skip_all, fields(lab_id = %redeploy.lab_id, %container_name), level = "debug")]
-async fn create_p2p_veths(
-    redeploy: &Redeploy<'_>,
-    container_name: &str,
-    veths: &[P2pContainerVeth],
-) -> Result<()> {
-    let pid = container::get_container_pid(&redeploy.state.docker, container_name).await?;
-
-    for veth_info in veths {
-        let target_name =
-            util::container_interface_name(&veth_info.node_model, veth_info.interface_idx)?;
-        let state = node_ops::netns_veth_state(veth_info.node_model, veth_info.admin_down);
-
-        network::create_veth_in_netns(
-            &veth_info.host_veth,
-            &veth_info.host_alias,
-            &target_name,
-            pid,
-            state,
-        )
-        .await
-        .with_context(|| {
-            format!("Failed to create P2p interface {target_name} in container {container_name}")
-        })?;
-        if let Some(bridge_name) = &veth_info.bridge {
-            network::enslave_to_bridge(&veth_info.host_veth, bridge_name).await?;
-        }
-
-        tracing::info!(
-            lab_id = %redeploy.lab_id,
-            container = %container_name,
-            host_veth = %veth_info.host_veth,
-            target = %target_name,
-            admin_down = veth_info.admin_down,
-            "Created P2p veth into container netns (redeploy)"
-        );
-    }
-    Ok(())
 }
 
 /// A redeployed Vault starts with empty storage: initialise and unseal it again, and let the

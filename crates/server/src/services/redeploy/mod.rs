@@ -3,7 +3,6 @@
 
 mod container;
 mod context;
-mod links;
 mod node;
 mod teardown;
 mod vm;

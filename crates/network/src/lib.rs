@@ -13,5 +13,5 @@ pub use linux::{
 };
 
 pub use ebpf::attach_p2p_redirect;
-pub use tap::{NetnsVethState, create_tap, create_veth_in_netns, get_ifindex};
-pub use tc::{apply_link_netem, apply_netem, remove_netem, update_netem};
+pub use tap::{NetnsVethState, create_tap, create_veth_in_netns, find_ifindex, get_ifindex};
+pub use tc::{NetemRemoval, apply_netem, remove_netem, sync_netem, update_netem};
