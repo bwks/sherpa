@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.32] - 2026-11-11
+
+### Bug Fixes
+
+- One container image reference from pull to create, checked with Docker by @bwks ([becb3d3](https://github.com/bwks/sherpa/commit/becb3d350c6859a726b7b99f883364982f5bd2b8))
+
+### Documentation
+
+- Observed ZTP-off behaviour of cEOS and cJunosEvolved, zensical for the docs [skip ci] by @bwks ([9db5dee](https://github.com/bwks/sherpa/commit/9db5dee16a235531001b97d91b9604d2017f1b6f))
+
+### Miscellaneous
+
+- Merge pull request #569 from bwks/fix/566-docker-hub-image-check
+
+fix: one container image reference from pull to create, checked with Docker by @bwks in [#569](https://github.com/bwks/sherpa/pull/569) ([7c8b6a6](https://github.com/bwks/sherpa/commit/7c8b6a6b7846992316a2c7a6a288aab59b0e9a67))
+- Merge pull request #568 from bwks/fix/container-ztp-ceos-cevolved
+
+docs: observed ZTP-off behaviour of cEOS and cJunosEvolved, zensical for the docs by @bwks in [#568](https://github.com/bwks/sherpa/pull/568) ([7760b6f](https://github.com/bwks/sherpa/commit/7760b6f08622936c8526ff0a90d57100e9ee786a))
+- Merge pull request #565 from bwks/changelog/v0.5.31
+
+chore(release): update changelog for v0.5.31 by @github-actions[bot] in [#565](https://github.com/bwks/sherpa/pull/565) ([d103dee](https://github.com/bwks/sherpa/commit/d103deeb918f569e6f528b61bf2277c30e616886))
 ## [0.5.31] - 2026-11-11
 
 ### Bug Fixes
