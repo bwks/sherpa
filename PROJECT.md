@@ -54,10 +54,6 @@
 - [ ] **Resource registry cleanup** — Add exact resource inventory/ownership tracking so destroy/clean do not depend primarily on name substring matching. PRD: `docs/prds/server-resource-registry-cleanup.md`.
 - [ ] **Blocking libvirt boundary** — Audit and isolate all blocking libvirt operations behind a consistent blocking-safe execution boundary. PRD: `docs/prds/server-libvirt-blocking-boundary.md`.
 
-## Frontend
-
-- [ ] **Dioxus native GUI frontend** — Planned but not yet started.
-
 ## Tailnet access
 
 - [x] **Manifest-driven Tailscale gateway** — Per-lab management routing, client-environment auth keys, lifecycle integration, and nonfatal route-approval warnings. Setup: `docs/TAILNET.md`.
