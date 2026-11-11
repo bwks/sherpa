@@ -162,6 +162,12 @@
 - `generate_container_ztp()` produces correct env/volumes/capabilities per model:
   - Arista cEOS, Nokia SR Linux, FRR, GitLab, SurrealDB, Vault `[unit]` **P0**
 - `generate_vm_ztp()` produces correct boot configs per model `[unit]` **P0**
+- ZTP setting (`Ztp`), see `docs/architecture/ZTP.md`:
+  - cEOS, SR Linux, cJunosEvolved and FRR get config files, mounts and their ZTP command only with `volume`; with `disabled` they get start settings alone and the manifest's volumes `[unit]` **P0**
+  - A VM with `disabled` gets no media and a `disabled` ZTP record `[unit]` **P0**
+  - A setting the validator excludes (`volume` on a VM, another method on a container) is an error, not a skipped step `[unit]` **P0**
+  - `validate_node_ztp()` refuses a method the model does not take, an unused `ztp_config`, and a Talos cluster member with ZTP off `[unit]` **P0**
+  - `up` and redeploy refuse those before creating or tearing down anything `[integration]` **P0**
 - `build_domain_template()` produces valid libvirt XML structure `[unit]` **P0**
 - `clone_node_disks()` clones all disks for a node `[integration]` **P0**
 - `start_container_node()` creates container with correct networks/volumes `[integration]` **P0**

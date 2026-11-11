@@ -9,9 +9,9 @@ A validator lives with the crate that owns the rule.
 
 | Location | Holds | Used by |
 |---|---|---|
-| `crates/shared/src/validators/` | Rules on plain values: password strength, SSH public key format, guest usernames, Tailscale auth keys, data interface count overrides. | `server`, `client`, `db` |
-| `crates/topology/src/validate/` | Checks on manifest types: node names, files read by the client, duplicate devices and device count, management interface use, duplicate interface links, interface bounds, link and bridge endpoints, Talos clusters, Tailscale manifest settings. | `client` (`sherpa validate`, `sherpa up`) and `server` (`up`, `redeploy`) |
-| `crates/server/src/validate/` | Server-only rules: environment variable entries, node image updates, node version resolution and image existence, Tailscale gateway settings. | `server` |
+| `crates/shared/src/validators/` | Rules on plain values: password strength, SSH public key format, guest usernames, Tailscale auth keys, data interface count overrides, the ZTP setting a model takes (`check_ztp`, see [`ZTP.md`](ZTP.md)). | `server`, `client`, `db` |
+| `crates/topology/src/validate/` | Checks on manifest types: node names, files read by the client, duplicate devices and device count, management interface use, duplicate interface links, interface bounds, link and bridge endpoints, Talos clusters, Tailscale manifest settings, a node's `ztp`. | `client` (`sherpa validate`, `sherpa up`) and `server` (`up`, `redeploy`) |
+| `crates/server/src/validate/` | Server-only rules: environment variable entries, node image updates, node version resolution and image existence, Tailscale gateway settings, a node's effective ZTP setting and its `ztp_config` (`validate_node_ztp`). | `server` |
 
 Manifest checks cannot live in `shared`, because they take `topology` types and `topology`
 depends on `shared`.

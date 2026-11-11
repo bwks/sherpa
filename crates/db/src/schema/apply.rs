@@ -80,44 +80,125 @@ pub async fn apply_schema(db: &Database) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use shared::data::{
-        DiskBuses, LabPhase, LabSshKey, NodeConfig, NodeModel, NodeState, ZtpMethod,
+        DiskBuses, LabPhase, LabSshKey, NodeConfig, NodeKind, NodeModel, NodeState, Ztp,
     };
+    use shared::validators::check_ztp;
+    use turso::Value;
 
     use super::*;
+    use crate::persistence::{new_key, node_image_values};
     use crate::{
         DefaultRequest, find_lab, list_node_images, list_nodes_by_lab, open_in_memory,
         upsert_node_image,
     };
+
+    /// The eleven ZTP methods a release before the one `ztp` column could store.
+    const OLD_ZTP_METHODS: [&str; 11] = [
+        "cloud-init",
+        "cdrom",
+        "disk",
+        "http",
+        "ignition",
+        "ipxe",
+        "nocloud",
+        "tftp",
+        "usb",
+        "volume",
+        "none",
+    ];
 
     async fn version(db: &Database) -> usize {
         let conn = db.reader().await.unwrap();
         query_count(&conn, "PRAGMA user_version", ()).await.unwrap()
     }
 
-    /// Insert `image` into a database at a version before 9, whose `node_image` table still has
-    /// the `dedicated_management_interface` column today's queries do not write: the column is
-    /// dropped for the insert and added back, as an older release stored it.
-    async fn insert_into_older_schema(db: &Database, image: NodeConfig) {
-        db.writer()
-            .await
-            .unwrap()
+    /// Insert `image` into a database at a version before 16, whose `node_image` table has the
+    /// `ztp_enable` and `ztp_method` columns, and before version 9 the
+    /// `dedicated_management_interface` column too, none of which today's queries write. The
+    /// two ZTP values are stored as given, as an older release stored them. Returns the row's
+    /// key.
+    async fn insert_into_older_schema(
+        db: &Database,
+        image: &NodeConfig,
+        ztp_enable: bool,
+        ztp_method: &str,
+    ) -> String {
+        let key = new_key();
+        let mut values = node_image_values(image, &key).unwrap();
+        // Today's last column is `ztp`, which the older table does not have.
+        values.pop();
+        values.push(Value::from(ztp_enable));
+        values.push(Value::from(ztp_method));
+        let mut columns = "id, model, version, repo, os_variant, kind, bios, cpu_count, \
+             cpu_architecture, cpu_model, machine_type, vmx_enabled, memory, hdd_bus, cdrom, \
+             cdrom_bus, ztp_username, ztp_password, ztp_password_auth, data_interface_count, \
+             interface_prefix, interface_type, interface_mtu, first_interface_index, \
+             management_interface, reserved_interface_count, \"default\", boot_mode, ztp_enable, \
+             ztp_method"
+            .to_owned();
+        let writer = db.writer().await.unwrap();
+        let dedicated = query_count(
+            &writer.conn,
+            "SELECT count(*) FROM pragma_table_info('node_image') \
+             WHERE name = 'dedicated_management_interface'",
+            (),
+        )
+        .await
+        .unwrap();
+        if dedicated == 1 {
+            columns.push_str(", dedicated_management_interface");
+            values.push(Value::from(false));
+        }
+        let placeholders = (1..=values.len())
+            .map(|index| format!("?{index}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        writer
             .conn
-            .execute_batch("ALTER TABLE node_image DROP COLUMN dedicated_management_interface;")
-            .await
-            .unwrap();
-        upsert_node_image(db, image, DefaultRequest::Keep)
-            .await
-            .unwrap();
-        db.writer()
-            .await
-            .unwrap()
-            .conn
-            .execute_batch(
-                "ALTER TABLE node_image ADD COLUMN dedicated_management_interface INTEGER \
-                 NOT NULL DEFAULT 0;",
+            .execute(
+                &format!("INSERT INTO node_image ({columns}) VALUES ({placeholders})"),
+                values,
             )
             .await
             .unwrap();
+        key
+    }
+
+    /// A database with the tables and the first `migrations` migrations applied.
+    async fn database_at(migrations: usize) -> Database {
+        let db = open_in_memory().await.unwrap();
+        {
+            let writer = db.writer().await.unwrap();
+            for batch in TABLES.iter().chain(&migrations::ALL[..migrations]) {
+                writer.conn.execute_batch(batch).await.unwrap();
+            }
+            writer
+                .conn
+                .execute(&format!("PRAGMA user_version = {}", migrations + 1), ())
+                .await
+                .unwrap();
+        }
+        db
+    }
+
+    /// What the migration to the one `ztp` column makes of a stored `(enable, method)` pair.
+    fn migrated_ztp(model: NodeModel, enable: bool, method: &str) -> Ztp {
+        let image = NodeConfig::get_model(model);
+        if !enable {
+            return Ztp::Disabled;
+        }
+        if image.kind != NodeKind::VirtualMachine {
+            // The four models with mounted configs are the only ones whose default is not off.
+            return image.ztp.mode;
+        }
+        let stored: Option<Ztp> =
+            serde_json::from_value(serde_json::Value::String(method.to_owned())).ok();
+        match stored {
+            Some(ztp) if model.ztp_methods().contains(&ztp) => ztp,
+            // `volume` on a VM, `none` and `ipxe`: their arms generated nothing.
+            Some(Ztp::Volume) | None => Ztp::Disabled,
+            Some(_) => image.ztp.mode,
+        }
     }
 
     async fn trigger_count(db: &Database, pattern: &str) -> usize {
@@ -293,7 +374,7 @@ mod tests {
         ] {
             let mut image = NodeConfig::get_model(model);
             image.data_interface_count = 16;
-            insert_into_older_schema(&db, image).await;
+            insert_into_older_schema(&db, &image, true, "cloud-init").await;
         }
 
         apply_schema(&db).await.unwrap();
@@ -328,31 +409,29 @@ mod tests {
             .unwrap();
         drop(writer);
         for model in [NodeModel::CiscoIse, NodeModel::CiscoAsav] {
-            let mut image = NodeConfig::get_model(model);
-            image.ztp.method = ZtpMethod::Cdrom;
-            insert_into_older_schema(&db, image).await;
+            insert_into_older_schema(&db, &NodeConfig::get_model(model), true, "cdrom").await;
         }
         for model in [NodeModel::GenericVm, NodeModel::CiscoIosv] {
             let mut image = NodeConfig::get_model(model);
             image.cdrom_bus = DiskBuses::Virtio;
-            insert_into_older_schema(&db, image).await;
+            insert_into_older_schema(&db, &image, true, "cloud-init").await;
         }
 
         apply_schema(&db).await.unwrap();
         assert_eq!(version(&db).await, SCHEMA_VERSION);
 
-        let methods: Vec<(NodeModel, ZtpMethod)> = list_node_images(&db)
+        let methods: Vec<(NodeModel, Ztp)> = list_node_images(&db)
             .await
             .unwrap()
             .into_iter()
-            .map(|image| (image.model, image.ztp.method))
+            .map(|image| (image.model, image.ztp.mode))
             .collect();
         assert!(
-            methods.contains(&(NodeModel::CiscoIse, ZtpMethod::Disk)),
+            methods.contains(&(NodeModel::CiscoIse, Ztp::Disk)),
             "{methods:?}"
         );
         assert!(
-            methods.contains(&(NodeModel::CiscoAsav, ZtpMethod::Cdrom)),
+            methods.contains(&(NodeModel::CiscoAsav, Ztp::Cdrom)),
             "{methods:?}"
         );
 
@@ -387,26 +466,24 @@ mod tests {
             .unwrap();
         drop(writer);
         for model in [NodeModel::JuniperVsrxv3, NodeModel::AristaVeos] {
-            let mut image = NodeConfig::get_model(model);
-            image.ztp.method = ZtpMethod::Tftp;
-            insert_into_older_schema(&db, image).await;
+            insert_into_older_schema(&db, &NodeConfig::get_model(model), true, "tftp").await;
         }
 
         apply_schema(&db).await.unwrap();
         assert_eq!(version(&db).await, SCHEMA_VERSION);
 
-        let methods: Vec<(NodeModel, ZtpMethod)> = list_node_images(&db)
+        let methods: Vec<(NodeModel, Ztp)> = list_node_images(&db)
             .await
             .unwrap()
             .into_iter()
-            .map(|image| (image.model, image.ztp.method))
+            .map(|image| (image.model, image.ztp.mode))
             .collect();
         assert!(
-            methods.contains(&(NodeModel::JuniperVsrxv3, ZtpMethod::Cdrom)),
+            methods.contains(&(NodeModel::JuniperVsrxv3, Ztp::Cdrom)),
             "{methods:?}"
         );
         assert!(
-            methods.contains(&(NodeModel::AristaVeos, ZtpMethod::Tftp)),
+            methods.contains(&(NodeModel::AristaVeos, Ztp::Tftp)),
             "{methods:?}"
         );
     }
@@ -425,7 +502,13 @@ mod tests {
                 .await
                 .unwrap();
         }
-        insert_into_older_schema(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await;
+        insert_into_older_schema(
+            &db,
+            &NodeConfig::get_model(NodeModel::UbuntuLinux),
+            true,
+            "cloud-init",
+        )
+        .await;
 
         apply_schema(&db).await.unwrap();
 
@@ -498,14 +581,13 @@ mod tests {
                 .await
                 .unwrap();
         }
-        let image = upsert_node_image(
+        let image_key = insert_into_older_schema(
             &db,
-            NodeConfig::get_model(NodeModel::UbuntuLinux),
-            DefaultRequest::Keep,
+            &NodeConfig::get_model(NodeModel::UbuntuLinux),
+            true,
+            "cloud-init",
         )
-        .await
-        .unwrap();
-        let image_key = image.id.unwrap().key.to_string();
+        .await;
         let writer = db.writer().await.unwrap();
         for (index, state) in (0_i64..).zip(states) {
             writer
@@ -569,31 +651,18 @@ mod tests {
                 .await
                 .unwrap();
         }
-        for version in ["old", "new"] {
-            let mut image = NodeConfig::get_model(NodeModel::UbuntuLinux);
-            version.clone_into(&mut image.version);
-            upsert_node_image(&db, image, DefaultRequest::Keep)
-                .await
-                .unwrap();
-        }
-        for version in ["kept", "other"] {
-            let mut image = NodeConfig::get_model(NodeModel::FedoraLinux);
-            version.clone_into(&mut image.version);
-            upsert_node_image(&db, image, DefaultRequest::Keep)
-                .await
-                .unwrap();
-        }
         // As an earlier release could leave it: Ubuntu has images and no default.
-        db.writer()
-            .await
-            .unwrap()
-            .conn
-            .execute(
-                r#"UPDATE node_image SET "default" = 0 WHERE model = 'ubuntu_linux'"#,
-                (),
-            )
-            .await
-            .unwrap();
+        for (model, version, default) in [
+            (NodeModel::UbuntuLinux, "old", false),
+            (NodeModel::UbuntuLinux, "new", false),
+            (NodeModel::FedoraLinux, "kept", true),
+            (NodeModel::FedoraLinux, "other", false),
+        ] {
+            let mut image = NodeConfig::get_model(model);
+            version.clone_into(&mut image.version);
+            image.default = default;
+            insert_into_older_schema(&db, &image, true, "cloud-init").await;
+        }
 
         apply_schema(&db).await.unwrap();
 
@@ -671,5 +740,102 @@ mod tests {
         apply_schema(&db).await.unwrap();
         // Three admin protection triggers, and the two that keep interfaces used once.
         assert_eq!(trigger_count(&db, "%").await, 3 + 2);
+    }
+
+    #[tokio::test]
+    async fn apply_schema_folds_every_ztp_pair_into_the_one_setting() {
+        // A version 15 database, before the one `ztp` column.
+        let db = database_at(14).await;
+        for model in NodeModel::to_vec() {
+            for enable in [false, true] {
+                for method in OLD_ZTP_METHODS {
+                    let mut image = NodeConfig::get_model(model);
+                    image.version = format!("{enable}-{method}");
+                    image.default = false;
+                    insert_into_older_schema(&db, &image, enable, method).await;
+                }
+            }
+        }
+
+        apply_schema(&db).await.unwrap();
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
+
+        let images = list_node_images(&db).await.unwrap();
+        assert_eq!(images.len(), NodeModel::to_vec().len() * 22);
+        for image in images {
+            let (enable, method) = image.version.split_once('-').unwrap();
+            let expected = migrated_ztp(image.model, enable == "true", method);
+            assert_eq!(
+                image.ztp.mode, expected,
+                "{} stored as {}",
+                image.model, image.version
+            );
+            check_ztp(image.model, image.ztp.mode).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn apply_schema_keeps_the_settings_this_release_ships_with() {
+        // The pairs the model defaults of the release before stored: enabled with the model's
+        // method, `none` for every container, and off for unikernels.
+        let db = database_at(14).await;
+        for model in NodeModel::to_vec() {
+            let mut image = NodeConfig::get_model(model);
+            image.default = false;
+            let (enable, method) = match image.kind {
+                NodeKind::VirtualMachine => (true, image.ztp.mode.to_string()),
+                NodeKind::Container => (true, "none".to_owned()),
+                NodeKind::Unikernel => (false, "none".to_owned()),
+            };
+            insert_into_older_schema(&db, &image, enable, &method).await;
+        }
+
+        apply_schema(&db).await.unwrap();
+
+        for image in list_node_images(&db).await.unwrap() {
+            let default = NodeConfig::get_model(image.model).ztp.mode;
+            assert_eq!(image.ztp.mode, default, "{}", image.model);
+        }
+    }
+
+    #[tokio::test]
+    async fn apply_schema_turns_ztp_off_for_a_model_this_build_does_not_know() {
+        let db = database_at(14).await;
+        let key = insert_into_older_schema(
+            &db,
+            &NodeConfig::get_model(NodeModel::UbuntuLinux),
+            true,
+            "cloud-init",
+        )
+        .await;
+        {
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute("UPDATE node_image SET model = 'future_model'", ())
+                .await
+                .unwrap();
+        }
+
+        apply_schema(&db).await.unwrap();
+
+        let conn = db.reader().await.unwrap();
+        let disabled = query_count(
+            &conn,
+            "SELECT count(*) FROM node_image WHERE id = ?1 AND ztp = 'disabled'",
+            [key.as_str()],
+        )
+        .await
+        .unwrap();
+        assert_eq!(disabled, 1);
+        let old_columns = query_count(
+            &conn,
+            "SELECT count(*) FROM pragma_table_info('node_image') \
+             WHERE name IN ('ztp_enable', 'ztp_method')",
+            (),
+        )
+        .await
+        .unwrap();
+        assert_eq!(old_columns, 0);
     }
 }

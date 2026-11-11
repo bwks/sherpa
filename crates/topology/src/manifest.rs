@@ -117,6 +117,8 @@ mod tests {
     use std::{env, process};
 
     use super::*;
+    use crate::node::NodeExpanded;
+    use shared::data::Ztp;
 
     #[test]
     fn description_round_trip_preserves_multiline_text() {
@@ -315,6 +317,52 @@ nodes = [
             Some("configs/dev01.txt".to_string())
         );
         assert_eq!(manifest.nodes[1].ztp_config, None);
+    }
+
+    #[test]
+    fn test_manifest_deserialize_ztp_reaches_the_expanded_node() {
+        let toml_str = r#"
+name = "my-lab"
+
+nodes = [
+  { name = "frr01", model = "frr_linux" },
+  { name = "frr02", model = "frr_linux", ztp = "disabled" },
+  { name = "srx01", model = "juniper_vsrxv3", ztp = "cdrom" },
+]
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
+        let set: Vec<Option<Ztp>> = manifest.nodes.iter().map(|node| node.ztp).collect();
+        assert_eq!(set, [None, Some(Ztp::Disabled), Some(Ztp::Cdrom)]);
+        let expanded: Vec<Option<Ztp>> = manifest
+            .nodes
+            .iter()
+            .map(|node| NodeExpanded::new(1, node).ztp)
+            .collect();
+        assert_eq!(expanded, set);
+    }
+
+    #[test]
+    fn test_manifest_refuses_a_ztp_that_is_not_one_of_the_words() {
+        for value in [
+            "false",
+            "true",
+            r#"{ method = "cdrom" }"#,
+            r#""ipxe""#,
+            r#""none""#,
+        ] {
+            let toml_str = format!(
+                r#"name = "my-lab"
+
+nodes = [
+  {{ name = "dev01", model = "frr_linux", ztp = {value} }},
+]
+"#
+            );
+            let error = toml::from_str::<Manifest>(&toml_str)
+                .expect_err("the manifest is refused")
+                .to_string();
+            assert!(error.contains("ztp = "), "{value}: {error}");
+        }
     }
 
     #[test]

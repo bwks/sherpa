@@ -460,6 +460,209 @@ async fn a_redeploy_that_fails_after_teardown_fails_its_node() -> Result<()> {
     with_cleanup(checks, cleanup)
 }
 
+/// The FRR image the ZTP tests run, which must be in the server's Docker.
+const FRR_TEST_VERSION: &str = "10.5.2";
+
+/// Where Sherpa mounts the config files it generates for an FRR node.
+const FRR_ZTP_MOUNTS: [&str; 3] = [
+    "/etc/frr/daemons",
+    "/etc/frr/frr.conf",
+    "/tmp/sherpa-init.sh",
+];
+
+/// The paths mounted into a lab node's container, and the command it was started with.
+async fn container_mounts_and_command(
+    docker: &Docker,
+    container: &str,
+) -> Result<(Vec<String>, Vec<String>)> {
+    let inspect = docker
+        .inspect_container(container, None::<InspectContainerOptions>)
+        .await
+        .with_context(|| format!("Failed to inspect container {container}"))?;
+    let mounts = inspect
+        .mounts
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|mount| mount.destination)
+        .collect();
+    let command = inspect
+        .config
+        .and_then(|config| config.cmd)
+        .unwrap_or_default();
+    Ok((mounts, command))
+}
+
+/// An FRR node with ZTP on has Sherpa's three config mounts and runs its startup script; one
+/// with ZTP off has none of them and runs the image's own command.
+async fn check_frr_ztp(docker: &Docker, lab_name: &str) -> Result<()> {
+    let (mounts, command) = container_mounts_and_command(docker, &format!("on-{lab_name}")).await?;
+    for mount in FRR_ZTP_MOUNTS {
+        ensure!(
+            mounts.iter().any(|path| path == mount),
+            "the node with ZTP on has no {mount} mount: {mounts:?}"
+        );
+    }
+    ensure!(
+        command == ["/bin/sh", "/tmp/sherpa-init.sh"],
+        "the node with ZTP on runs {command:?}"
+    );
+
+    let (mounts, command) =
+        container_mounts_and_command(docker, &format!("off-{lab_name}")).await?;
+    for mount in FRR_ZTP_MOUNTS {
+        ensure!(
+            !mounts.iter().any(|path| path == mount),
+            "the node with ZTP off has a {mount} mount: {mounts:?}"
+        );
+    }
+    ensure!(
+        mounts.iter().any(|path| path == "/etc/own.conf"),
+        "the node with ZTP off lost the manifest's volume: {mounts:?}"
+    );
+    ensure!(
+        !command.iter().any(|part| part.contains("sherpa-init")),
+        "the node with ZTP off runs {command:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires Docker with quay.io/frrouting/frr:10.5.2 and host network administration rights (CAP_NET_ADMIN)"]
+async fn frr_gets_its_config_mounts_and_command_only_with_ztp_on() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_lab_admin(&server).await?;
+    bootstrap_images(&mut ws, &token).await?;
+
+    let mut frr = NodeConfig::get_model(NodeModel::FrrLinux);
+    frr.version = FRR_TEST_VERSION.to_owned();
+    db::upsert_node_image(&server.db, frr, DefaultRequest::Make).await?;
+
+    let lab_name = format!("tz{:06}", std::process::id() % 1_000_000);
+    let own_config = std::env::temp_dir().join(format!("{lab_name}-own.conf"));
+    fs::write(&own_config, "! the user's own config\n")?;
+    let manifest = json!({
+        "name": lab_name,
+        "nodes": [
+            { "name": "on", "model": "frr_linux" },
+            {
+                "name": "off",
+                "model": "frr_linux",
+                "ztp": "disabled",
+                "volumes": [{ "src": own_config, "dst": "/etc/own.conf" }],
+            },
+        ]
+    });
+
+    let checks: Result<()> = async {
+        lab_up(&mut ws, &token, &lab_name, &manifest, Duration::from_secs(180)).await?;
+        let docker = Docker::connect_with_local_defaults()?;
+        check_frr_ztp(&docker, &lab_name).await?;
+
+        for node in ["on", "off"] {
+            let (_statuses, response) = ws
+                .rpc_call_streaming(
+                    "redeploy",
+                    json!({ "token": token, "lab_id": lab_name, "node_name": node, "manifest": manifest }),
+                    Duration::from_secs(180),
+                )
+                .await?;
+            ensure!(
+                response.get("error").is_none(),
+                "redeploy of {node} failed: {response}"
+            );
+        }
+        check_frr_ztp(&docker, &lab_name).await?;
+
+        // A method the model does not take is refused before the node is torn down.
+        let mut unsupported = manifest.clone();
+        unsupported["nodes"][0]["ztp"] = json!("cdrom");
+        let (_statuses, response) = ws
+            .rpc_call_streaming(
+                "redeploy",
+                json!({ "token": token, "lab_id": lab_name, "node_name": "on", "manifest": unsupported }),
+                Duration::from_secs(60),
+            )
+            .await?;
+        ensure!(
+            response.to_string().contains("allows: disabled, volume"),
+            "the redeploy was not refused for its ZTP setting: {response}"
+        );
+        check_frr_ztp(&docker, &lab_name).await
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    fs::remove_file(&own_config).ok();
+    with_cleanup(checks, cleanup)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker with quay.io/frrouting/frr:10.5.2 and host network administration rights (CAP_NET_ADMIN)"]
+async fn up_refuses_an_unsupported_ztp_setting_before_creating_anything() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_lab_admin(&server).await?;
+    bootstrap_images(&mut ws, &token).await?;
+
+    let mut frr = NodeConfig::get_model(NodeModel::FrrLinux);
+    frr.version = FRR_TEST_VERSION.to_owned();
+    db::upsert_node_image(&server.db, frr, DefaultRequest::Make).await?;
+
+    let lab_name = format!("ty{:06}", std::process::id() % 1_000_000);
+    let unsupported = json!({
+        "name": lab_name,
+        "nodes": [{ "name": "frr1", "model": "frr_linux", "ztp": "cdrom" }]
+    });
+    // A config the node's setting would not use is refused the same way.
+    let unused_config = json!({
+        "name": lab_name,
+        "nodes": [{ "name": "frr1", "model": "frr_linux", "ztp": "disabled", "ztp_config": "IQ==" }]
+    });
+
+    let checks: Result<()> = async {
+        let docker = Docker::connect_with_local_defaults()?;
+        for (manifest, reason) in [
+            (&unsupported, "allows: disabled, volume"),
+            (&unused_config, "its ZTP is disabled"),
+        ] {
+            let (_statuses, response) = ws
+                .rpc_call_streaming(
+                    "up",
+                    json!({ "token": token, "lab_id": lab_name, "manifest": manifest }),
+                    Duration::from_secs(60),
+                )
+                .await?;
+            ensure!(
+                response.to_string().contains(reason),
+                "up was not refused with '{reason}': {response}"
+            );
+            ensure!(
+                db::get_lab(&server.db, &lab_name).await.is_err(),
+                "the refused up left a lab record"
+            );
+            ensure!(
+                docker
+                    .inspect_container(&format!("frr1-{lab_name}"), None::<InspectContainerOptions>)
+                    .await
+                    .is_err(),
+                "the refused up created the node's container"
+            );
+            let networks = docker.list_networks(None::<ListNetworksOptions>).await?;
+            ensure!(
+                !networks
+                    .iter()
+                    .filter_map(|network| network.name.as_deref())
+                    .any(|name| name.ends_with(&format!("-{lab_name}"))),
+                "the refused up left a Docker network"
+            );
+        }
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
 #[tokio::test]
 #[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
 async fn the_scanner_records_what_docker_reports_but_not_over_up() -> Result<()> {

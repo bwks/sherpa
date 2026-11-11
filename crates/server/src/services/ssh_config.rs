@@ -5,7 +5,7 @@ use askama::Template;
 use tracing::instrument;
 
 use shared::data::{
-    DbNode, LabInfo, NodeConfig, NodeHostKey, NodeSshUsername, RecordId, ZtpMethod, ZtpRecord,
+    DbNode, LabInfo, NodeConfig, NodeHostKey, NodeSshUsername, RecordId, Ztp, ZtpRecord,
 };
 use shared::konst::{
     LAB_FILE_NAME, SHERPA_DOMAIN_NAME, SHERPA_KNOWN_HOSTS_FILE, SHERPA_SSH_CONFIG_FILE,
@@ -114,7 +114,7 @@ pub(crate) fn saved_node_ssh_records(
             ipv6_address: None,
             mac_address: String::new(),
             config_file: String::new(),
-            ztp_method: ZtpMethod::None,
+            ztp: Ztp::Disabled,
             ssh_port: has_ssh.then_some(SSH_PORT),
         });
     }
@@ -269,7 +269,7 @@ mod tests {
                 ipv6_address: None,
                 config_file: String::new(),
                 mac_address: String::new(),
-                ztp_method: ZtpMethod::None,
+                ztp: Ztp::Disabled,
                 ssh_port: Some(if index == 0 { 22 } else { 830 }),
             })
             .collect()
@@ -348,7 +348,7 @@ mod tests {
             ipv6_address: None,
             config_file: String::new(),
             mac_address: String::new(),
-            ztp_method: ZtpMethod::NoCloud,
+            ztp: Ztp::NoCloud,
             ssh_port: None,
         });
         let config = build_ssh_config(

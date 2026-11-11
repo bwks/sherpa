@@ -160,13 +160,12 @@
 </div>
 
 <!-- ZTP Configuration -->
-{% if node_config.ztp.enable %}
 <div class="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
     <h2 class="text-xl font-semibold text-heading mb-4">Zero-Touch Provisioning</h2>
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div class="flex flex-col gap-1">
-            <span class="block text-sm font-medium text-muted mb-1">Method</span>
-            <span class="block text-base text-heading font-mono">{{ node_config.ztp.method }}</span>
+            <span class="block text-sm font-medium text-muted mb-1">ZTP</span>
+            <span class="block text-base text-heading font-mono">{{ ztp }}</span>
         </div>
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">Username</span>
@@ -178,7 +177,6 @@
         </div>
     </div>
 </div>
-{% endif %}
 
 <!-- Image Information -->
 <div class="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">

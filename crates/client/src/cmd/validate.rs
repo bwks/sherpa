@@ -7,9 +7,9 @@ use shared::validators::effective_data_interface_count;
 use topology::validate::{
     check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_lab_description,
-    check_link_impairments, check_no_p2p_field, check_node_names, check_performance_tuning,
-    check_ptx_platform, check_text_file_modes, check_watchdog, validate_provisioners,
-    validate_tailscale, validate_talos_clusters,
+    check_link_impairments, check_no_p2p_field, check_node_names, check_node_ztp,
+    check_performance_tuning, check_ptx_platform, check_text_file_modes, check_watchdog,
+    validate_provisioners, validate_tailscale, validate_talos_clusters,
 };
 use topology::{Manifest, process_manifest_bridges, process_manifest_links};
 
@@ -92,6 +92,7 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
         check_performance_tuning(node, &node_image)?;
         check_watchdog(node, &node_image)?;
         check_ptx_platform(node, &node_image)?;
+        check_node_ztp(node)?;
     }
     let pins: Vec<NodeCpuPins> = nodes_expanded
         .iter()
@@ -168,5 +169,39 @@ links = [
         let result = validate_manifest(path.to_str().expect("temp path is utf-8"));
         fs::remove_file(path).ok();
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_manifest_accepts_ztp_the_model_allows() {
+        let manifest = r#"
+name = "ztp-lab"
+
+nodes = [
+  { name = "frr01", model = "frr_linux" },
+  { name = "frr02", model = "frr_linux", ztp = "disabled" },
+  { name = "srx01", model = "juniper_vsrxv3", ztp = "tftp" },
+]
+"#;
+        let path = write_temp_manifest("ztp-pass", manifest);
+        let result = validate_manifest(path.to_str().expect("temp path is utf-8"));
+        fs::remove_file(path).ok();
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[test]
+    fn test_validate_manifest_reports_a_ztp_method_the_model_does_not_allow() {
+        let manifest = r#"
+name = "ztp-lab"
+
+nodes = [
+  { name = "frr01", model = "frr_linux", ztp = "cdrom" },
+]
+"#;
+        let path = write_temp_manifest("ztp-fail", manifest);
+        let result = validate_manifest(path.to_str().expect("temp path is utf-8"));
+        fs::remove_file(path).ok();
+        let error = format!("{:#}", result.expect_err("the manifest is refused"));
+        assert!(error.contains("'frr01'"), "{error}");
+        assert!(error.contains("allows: disabled, volume"), "{error}");
     }
 }

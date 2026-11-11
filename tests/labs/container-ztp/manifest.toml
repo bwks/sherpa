@@ -1,0 +1,54 @@
+name = "container-ztp"
+
+# Each model whose config Sherpa mounts, twice: once with its image's ZTP setting (`volume`)
+# and once with `ztp = "disabled"`, which must start it without the config, the mount and the
+# logins. nats01 is an application container, whose only setting is `disabled`.
+
+[[nodes]]
+name = "ceos01"
+model = "arista_ceos"
+version = "4.35.1F"
+
+[[nodes]]
+name = "ceos02"
+model = "arista_ceos"
+version = "4.35.1F"
+ztp = "disabled"
+
+[[nodes]]
+name = "srl01"
+model = "nokia_srlinux"
+version = "26.7.2"
+
+[[nodes]]
+name = "srl02"
+model = "nokia_srlinux"
+version = "26.7.2"
+ztp = "disabled"
+
+[[nodes]]
+name = "ptx01"
+model = "juniper_cevolved"
+version = "26.2R1.7"
+
+[[nodes]]
+name = "ptx02"
+model = "juniper_cevolved"
+version = "26.2R1.7"
+ztp = "disabled"
+
+[[nodes]]
+name = "frr01"
+model = "frr_linux"
+version = "10.5.2"
+
+[[nodes]]
+name = "frr02"
+model = "frr_linux"
+version = "10.5.2"
+ztp = "disabled"
+
+[[nodes]]
+name = "nats01"
+model = "nats_bus"
+version = "2.11"

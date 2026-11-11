@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use shared::data::NodeConfig;
+use shared::validators::check_ztp;
 use tracing::instrument;
 
 use crate::Database;
@@ -20,6 +21,7 @@ use crate::sql::query_optional;
 /// # Errors
 ///
 /// - If the config has no ID, or no record has it.
+/// - If the config's ZTP setting is not one the record's model takes.
 /// - With [`LastDefaultImage`](crate::LastDefaultImage) when `request` is
 ///   [`DefaultRequest::Unset`] on the model's only default.
 /// - If there's a database error during the update.
@@ -49,6 +51,8 @@ pub async fn update_node_image(
     .context(format!("Failed to read node_image {id:?} for update"))?
     .ok_or_else(|| anyhow!("Node image not found for update: {id:?}"))?;
 
+    check_ztp(stored.model, config.ztp.mode)
+        .context(format!("Refusing to update node_image {id:?}"))?;
     let default = claim_default(&tx, stored.model, &stored.kind, &stored.version, request).await?;
     let config = NodeConfig {
         model: stored.model,

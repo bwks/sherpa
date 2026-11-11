@@ -1,18 +1,25 @@
 use anyhow::{Result, bail};
 
 use crate::services::error::ServiceError;
+use shared::data::{NodeModel, Ztp};
+use shared::validators::check_ztp;
 
 /// The longest image version.
 const IMAGE_VERSION_MAX_LEN: usize = 64;
 
-/// Validate node image form data before database update
+/// Validate node image form data before database update. The ZTP setting must be one the
+/// image's model takes.
 pub fn validate_node_image_update(
+    model: NodeModel,
+    ztp: Ztp,
     cpu_count: u8,
     memory: u16,
     interface_mtu: u16,
     version: &str,
     interface_prefix: &str,
 ) -> Result<()> {
+    check_ztp(model, ztp)?;
+
     // Validate numeric ranges
     validate_cpu_count(cpu_count)?;
     validate_memory(memory)?;
@@ -155,41 +162,89 @@ mod tests {
 
     #[test]
     fn test_validate_node_image_update_all_valid() {
-        let result = validate_node_image_update(2, 1024, 1500, "1.0.0", "eth");
+        let result = validate_node_image_update(
+            NodeModel::UbuntuLinux,
+            Ztp::CloudInit,
+            2,
+            1024,
+            1500,
+            "1.0.0",
+            "eth",
+        );
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_validate_node_image_update_cpu_zero() {
-        let result = validate_node_image_update(0, 1024, 1500, "1.0.0", "eth");
+        let result = validate_node_image_update(
+            NodeModel::UbuntuLinux,
+            Ztp::CloudInit,
+            0,
+            1024,
+            1500,
+            "1.0.0",
+            "eth",
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("CPU count"));
     }
 
     #[test]
     fn test_validate_node_image_update_memory_too_low() {
-        let result = validate_node_image_update(1, 32, 1500, "1.0.0", "eth");
+        let result = validate_node_image_update(
+            NodeModel::UbuntuLinux,
+            Ztp::CloudInit,
+            1,
+            32,
+            1500,
+            "1.0.0",
+            "eth",
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Memory"));
     }
 
     #[test]
     fn test_validate_node_image_update_mtu_out_of_range() {
-        let result = validate_node_image_update(1, 1024, 100, "1.0.0", "eth");
+        let result = validate_node_image_update(
+            NodeModel::UbuntuLinux,
+            Ztp::CloudInit,
+            1,
+            1024,
+            100,
+            "1.0.0",
+            "eth",
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("MTU"));
     }
 
     #[test]
     fn test_validate_node_image_update_empty_version() {
-        let result = validate_node_image_update(1, 1024, 1500, "", "eth");
+        let result = validate_node_image_update(
+            NodeModel::UbuntuLinux,
+            Ztp::CloudInit,
+            1,
+            1024,
+            1500,
+            "",
+            "eth",
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Image version"));
     }
 
     #[test]
     fn test_validate_node_image_update_empty_prefix() {
-        let result = validate_node_image_update(1, 1024, 1500, "1.0.0", "");
+        let result = validate_node_image_update(
+            NodeModel::UbuntuLinux,
+            Ztp::CloudInit,
+            1,
+            1024,
+            1500,
+            "1.0.0",
+            "",
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Interface prefix"));
     }
@@ -197,7 +252,29 @@ mod tests {
     #[test]
     fn test_validate_node_image_update_boundary_values() {
         // All fields at minimum valid values
-        let result = validate_node_image_update(1, 64, 576, "abcde", "e");
+        let result = validate_node_image_update(
+            NodeModel::UbuntuLinux,
+            Ztp::CloudInit,
+            1,
+            64,
+            576,
+            "abcde",
+            "e",
+        );
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_node_image_update_refuses_a_ztp_method_the_model_does_not_take() {
+        let error =
+            validate_node_image_update(NodeModel::UbuntuLinux, Ztp::Tftp, 1, 1024, 1500, "1", "e")
+                .unwrap_err()
+                .to_string();
+        assert!(error.contains("allows: disabled, cloud-init"), "{error}");
+        for ztp in [Ztp::Disabled, Ztp::Tftp, Ztp::Cdrom] {
+            let result =
+                validate_node_image_update(NodeModel::JuniperVsrxv3, ztp, 1, 1024, 1500, "1", "e");
+            assert!(result.is_ok(), "{ztp}");
+        }
     }
 }

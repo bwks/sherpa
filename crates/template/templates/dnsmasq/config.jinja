@@ -45,15 +45,9 @@ host-record={{ record.node_name }}.{{ SHERPA_DOMAIN_NAME }},{{ ipv6 }}
 {%-   endif %}
 {%-   if !record.mac_address.is_empty() %}
 dhcp-host={{ record.mac_address }},{{ record.ipv4_address }},{{ record.node_name }},,set:{{ record.node_name }}-tag
-{%-     match record.ztp_method %}
-{%-       when ZtpMethod::Tftp %}
-dhcp-option=tag:{{ record.node_name }}-tag,67,{{ record.config_file }}
-{%-       when ZtpMethod::Http %}
-dhcp-option=tag:{{ record.node_name }}-tag,67,"http://{{ tftp_server_ipv4 }}:8080/{{ NODE_CONFIGS_DIR }}/{{ record.config_file }}"
-dhcp-option=tag:{{ record.node_name }}-tag,239,"http://{{ tftp_server_ipv4 }}:8080/{{ NODE_CONFIGS_DIR }}/{{ record.config_file }}"
-{%-       else %}
-# Add as needed
-{%-     endmatch  %}
+{%-     for line in self.boot_options(record) %}
+{{ line|safe }}
+{%-     endfor %}
 {%-   endif %}
 {%- endfor %}
 {# END #}

@@ -3,7 +3,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use serde_derive::{Deserialize, Serialize};
 
 use shared::data::{
-    DiskImageCloneMethod, NodeModel, PerformanceTuning, PtxPlatform, WatchdogAction,
+    DiskImageCloneMethod, NodeModel, PerformanceTuning, PtxPlatform, WatchdogAction, Ztp,
 };
 
 use crate::provisioner::Provisioner;
@@ -33,6 +33,9 @@ pub struct Node {
     pub shm_size: Option<i64>,
     pub user: Option<String>,
     pub skip_ready_check: Option<bool>,
+    /// Zero touch provisioning for this node: `disabled`, or a method its model takes. Absent,
+    /// the node runs with its image's setting.
+    pub ztp: Option<Ztp>,
     pub ztp_config: Option<String>,
     pub startup_scripts: Option<Vec<String>>,
     #[serde(default)]
@@ -92,6 +95,9 @@ pub struct NodeExpanded {
     pub shm_size: Option<i64>,
     pub user: Option<String>,
     pub skip_ready_check: Option<bool>,
+    /// Zero touch provisioning for this node: `disabled`, or a method its model takes. Absent,
+    /// the node runs with its image's setting.
+    pub ztp: Option<Ztp>,
     pub ztp_config: Option<String>,
     pub startup_scripts: Option<Vec<StartupScript>>,
     pub user_scripts: Option<Vec<StartupScript>>,
@@ -132,6 +138,7 @@ impl NodeExpanded {
             shm_size: node.shm_size,
             user: node.user.clone(),
             skip_ready_check: node.skip_ready_check,
+            ztp: node.ztp,
             ztp_config: node.ztp_config.clone(),
             startup_scripts: node.startup_scripts_data.clone(),
             user_scripts: node.user_scripts_data.clone(),

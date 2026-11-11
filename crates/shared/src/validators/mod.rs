@@ -12,6 +12,7 @@ mod secret_file;
 mod ssh_key;
 mod tailscale_key;
 mod username;
+mod ztp;
 
 pub use file_mode::mode_from_octal_digits;
 pub use impairment::validate_link_impairment;
@@ -21,3 +22,4 @@ pub use secret_file::validate_secret_file;
 pub use ssh_key::validate_ssh_key;
 pub use tailscale_key::validate_tailscale_key;
 pub use username::{validate_guest_username, validate_username};
+pub use ztp::{check_ztp, effective_ztp};

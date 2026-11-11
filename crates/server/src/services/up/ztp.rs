@@ -404,7 +404,7 @@ impl Configuring<'_, '_> {
             ipv4_address: ipv4,
             ipv6_address: node.ipv6_address,
             mac_address: setup_result.mac_address.clone(),
-            ztp_method: data::ZtpMethod::None,
+            ztp: data::Ztp::Disabled,
             ssh_port: Some(SSH_PORT),
         });
         self.clone_disks.extend(setup_result.clone_disks);

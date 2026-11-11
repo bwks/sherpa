@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde_derive::{Deserialize, Serialize};
 
 use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
+use strum_macros::{Display, EnumIter};
 
 use super::cpu::CpuModels;
 use super::disk::DiskBuses;
@@ -364,6 +364,77 @@ impl NodeModel {
         NodeConfig::get_model(*self).kind
     }
 
+    /// The ZTP methods this model takes, most models one, two models two, and models with no
+    /// config generator none. `Ztp::Disabled` is allowed for every model and is never listed.
+    /// Every model is named, so a new one does not compile until it has an entry.
+    #[must_use]
+    pub fn ztp_methods(self) -> &'static [Ztp] {
+        match self {
+            NodeModel::CentosLinux
+            | NodeModel::AlmaLinux
+            | NodeModel::DevboxLinux
+            | NodeModel::RockyLinux
+            | NodeModel::FedoraLinux
+            | NodeModel::OpensuseLinux
+            | NodeModel::RedhatLinux
+            | NodeModel::SuseLinux
+            | NodeModel::UbuntuLinux
+            | NodeModel::OmarchyLinux
+            | NodeModel::NixosLinux
+            | NodeModel::KaliLinux
+            | NodeModel::InfrahubServer
+            | NodeModel::JenkinsServer
+            | NodeModel::NautobotServer
+            | NodeModel::NetboxServer
+            | NodeModel::SignozServer
+            | NodeModel::VirtServer
+            | NodeModel::GenericVm
+            | NodeModel::FreeBsd
+            | NodeModel::OpenBsd
+            | NodeModel::DevboxWindows
+            | NodeModel::WindowsServer
+            | NodeModel::AlpineLinux => &[Ztp::CloudInit],
+            NodeModel::AristaVeos | NodeModel::ArubaAoscx => &[Ztp::Tftp],
+            NodeModel::JuniperVsrxv3 => &[Ztp::Tftp, Ztp::Cdrom],
+            NodeModel::JuniperVevolved => &[Ztp::Tftp, Ztp::Usb],
+            NodeModel::CiscoCsr1000v
+            | NodeModel::CiscoCat8000v
+            | NodeModel::CiscoCat9000v
+            | NodeModel::CiscoAsav
+            | NodeModel::CiscoNexus9300v
+            | NodeModel::CiscoIosxrv9000
+            | NodeModel::CiscoFtdv
+            | NodeModel::JuniperVrouter
+            | NodeModel::JuniperVswitch
+            | NodeModel::PaloaltoPanos => &[Ztp::Cdrom],
+            NodeModel::CiscoIosv
+            | NodeModel::CiscoIosvl2
+            | NodeModel::CiscoIse
+            | NodeModel::MikrotikChr => &[Ztp::Disk],
+            NodeModel::CumulusLinux => &[Ztp::Usb],
+            NodeModel::SonicLinux => &[Ztp::Http],
+            NodeModel::FlatcarLinux => &[Ztp::Ignition],
+            NodeModel::TalosLinux => &[Ztp::NoCloud],
+            NodeModel::AristaCeos
+            | NodeModel::NokiaSrlinux
+            | NodeModel::JuniperCevolved
+            | NodeModel::FrrLinux => &[Ztp::Volume],
+            NodeModel::GitlabCe
+            | NodeModel::ForgejoForge
+            | NodeModel::SurrealDb
+            | NodeModel::MysqlDb
+            | NodeModel::MongoDb
+            | NodeModel::PostgresqlDb
+            | NodeModel::NatsBus
+            | NodeModel::HashicorpVault
+            | NodeModel::KeycloakServer
+            | NodeModel::GenericContainer
+            | NodeModel::GenericUnikernel
+            | NodeModel::UnikraftUnikernel
+            | NodeModel::NanosUnikernel => &[],
+        }
+    }
+
     /// Whether nodes of this model accept SSH logins. Talos Linux has no SSH or shell.
     #[must_use]
     pub fn has_ssh(&self) -> bool {
@@ -645,47 +716,43 @@ impl UnikernelBootMode {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, EnumIter, JsonSchema)]
+/// Zero touch provisioning for a node: off, or the one method Sherpa provisions it by at boot.
+/// The image, the API, the database, the manifest and the web form all carry this type and
+/// spell it the same way. Which methods a model takes is `NodeModel::ztp_methods`.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    Deserialize,
+    Serialize,
+    Display,
+    EnumIter,
+    JsonSchema,
+)]
 #[serde(rename_all = "lowercase")]
-pub enum ZtpMethod {
+#[strum(serialize_all = "lowercase")]
+pub enum Ztp {
+    /// Sherpa provisions nothing.
     #[default]
+    Disabled,
     #[serde(rename = "cloud-init")]
+    #[strum(to_string = "cloud-init")]
     CloudInit,
     Cdrom,
     Disk,
     Http,
     Ignition,
-    Ipxe,
     /// `NoCloud` `cidata` CD-ROM carrying the node's own `user-data` (if any) with Sherpa's
     /// `meta-data` and static management `network-config`.
     NoCloud,
     Tftp,
     Usb,
+    /// Config files mounted into a container.
     Volume,
-    None,
-}
-impl fmt::Display for ZtpMethod {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ZtpMethod::CloudInit => write!(f, "cloud-init"),
-            ZtpMethod::Cdrom => write!(f, "cdrom"),
-            ZtpMethod::Disk => write!(f, "disk"),
-            ZtpMethod::Http => write!(f, "http"),
-            ZtpMethod::Ignition => write!(f, "ignition"),
-            ZtpMethod::Ipxe => write!(f, "ipxe"),
-            ZtpMethod::NoCloud => write!(f, "nocloud"),
-            ZtpMethod::Tftp => write!(f, "tftp"),
-            ZtpMethod::Usb => write!(f, "usb"),
-            ZtpMethod::Volume => write!(f, "volume"),
-            ZtpMethod::None => write!(f, "none"),
-        }
-    }
-}
-impl ZtpMethod {
-    #[must_use]
-    pub fn to_vec() -> Vec<ZtpMethod> {
-        ZtpMethod::iter().collect()
-    }
 }
 
 #[derive(
@@ -797,17 +864,14 @@ impl NodeState {
     }
 }
 
-/// Zero touch provisioning for a node image: whether Sherpa provisions its nodes at boot, by
-/// which method, and with which credentials. `NodeConfig` flattens it, so on the wire and in the
-/// database the fields keep their `ztp_` names.
+/// Zero touch provisioning for a node image: off or the method Sherpa provisions its nodes by,
+/// and with which credentials. `NodeConfig` flattens it, so on the wire and in the database the
+/// setting is `ztp` and the credentials keep their `ztp_` names.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
 pub struct ZtpSettings {
-    /// Whether Sherpa provisions the image's nodes at boot.
-    #[serde(rename = "ztp_enable")]
-    pub enable: bool,
-    /// How the nodes are provisioned.
-    #[serde(rename = "ztp_method")]
-    pub method: ZtpMethod,
+    /// Off, or how the image's nodes are provisioned at boot.
+    #[serde(rename = "ztp")]
+    pub mode: Ztp,
     /// The account the provisioning sets up, when the image has a fixed one.
     #[serde(rename = "ztp_username")]
     pub username: Option<String>,
@@ -872,8 +936,7 @@ impl Default for NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::default(),
             ztp: ZtpSettings {
-                enable: false,
-                method: ZtpMethod::None,
+                mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1031,8 +1094,7 @@ impl NodeConfig {
             cdrom: Some("aboot.iso".to_owned()),
             cdrom_bus: DiskBuses::Ide,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Tftp,
+                mode: Ztp::Tftp,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1068,8 +1130,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::None,
+                mode: Ztp::Volume,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1105,8 +1166,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Tftp,
+                mode: Ztp::Tftp,
                 username: None,
                 password: None,
                 password_auth: true,
@@ -1142,8 +1202,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Ide,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Cdrom,
+                mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1179,8 +1238,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Cdrom,
+                mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: true,
@@ -1216,8 +1274,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Cdrom,
+                mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1253,8 +1310,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Cdrom,
+                mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1290,8 +1346,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Cdrom,
+                mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1327,8 +1382,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Ide,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Cdrom,
+                mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1364,8 +1418,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Virtio,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Disk,
+                mode: Ztp::Disk,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1402,8 +1455,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Virtio,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Disk,
+                mode: Ztp::Disk,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1439,8 +1491,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Disk,
+                mode: Ztp::Disk,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1476,8 +1527,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Cdrom,
+                mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1513,8 +1563,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Cdrom,
+                mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1550,8 +1599,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Cdrom,
+                mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1587,8 +1635,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Tftp,
+                mode: Ztp::Tftp,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1624,8 +1671,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Ide,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Cdrom,
+                mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1661,8 +1707,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1698,8 +1743,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1735,8 +1779,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1772,8 +1815,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Usb,
+                mode: Ztp::Usb,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1811,8 +1853,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::None,
+                mode: Ztp::Volume,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1848,8 +1889,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::None,
+                mode: Ztp::Volume,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1885,8 +1925,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1922,8 +1961,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1959,8 +1997,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -1996,8 +2033,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2033,8 +2069,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2070,8 +2105,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2107,8 +2141,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2131,7 +2164,7 @@ impl NodeConfig {
             cpu_count: 2,
             memory: 4096,
             ztp: ZtpSettings {
-                method: ZtpMethod::NoCloud,
+                mode: Ztp::NoCloud,
                 ..ubuntu.ztp
             },
             ..ubuntu
@@ -2183,8 +2216,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2220,8 +2252,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Virtio,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Http,
+                mode: Ztp::Http,
                 username: None,
                 password: None,
                 password_auth: true,
@@ -2257,8 +2288,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Ignition,
+                mode: Ztp::Ignition,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2294,8 +2324,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2331,8 +2360,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2368,8 +2396,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2405,8 +2432,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2442,8 +2468,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: true,
@@ -2479,8 +2504,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: true,
@@ -2516,8 +2540,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: true,
@@ -2553,8 +2576,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: true,
@@ -2590,8 +2612,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: true,
@@ -2627,8 +2648,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: true,
@@ -2654,8 +2674,7 @@ impl NodeConfig {
             cpu_count: 1,
             memory: 1024,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::None,
+                mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2681,8 +2700,7 @@ impl NodeConfig {
             cpu_count: 2,
             memory: 4096,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::None,
+                mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2708,8 +2726,7 @@ impl NodeConfig {
             cpu_count: 1,
             memory: 1024,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::None,
+                mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2735,8 +2752,7 @@ impl NodeConfig {
             cpu_count: 1,
             memory: 1024,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::None,
+                mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2762,8 +2778,7 @@ impl NodeConfig {
             cpu_count: 2,
             memory: 2048,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::None,
+                mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2789,8 +2804,7 @@ impl NodeConfig {
             cpu_count: 1,
             memory: 1024,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::None,
+                mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2816,8 +2830,7 @@ impl NodeConfig {
             cpu_count: 1,
             memory: 1024,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::None,
+                mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2843,8 +2856,7 @@ impl NodeConfig {
             cpu_count: 1,
             memory: 512,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::None,
+                mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2870,8 +2882,7 @@ impl NodeConfig {
             cpu_count: 1,
             memory: 1024,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::None,
+                mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2907,8 +2918,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Ide,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Disk,
+                mode: Ztp::Disk,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2944,8 +2954,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::Cdrom,
+                mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -2981,8 +2990,7 @@ impl NodeConfig {
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::None,
+                mode: Ztp::Volume,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -3008,8 +3016,7 @@ impl NodeConfig {
             cpu_count: 1,
             memory: 1024,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::None,
+                mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -3035,8 +3042,7 @@ impl NodeConfig {
             cpu_count: 1,
             memory: 512,
             ztp: ZtpSettings {
-                enable: false,
-                method: ZtpMethod::None,
+                mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -3063,8 +3069,7 @@ impl NodeConfig {
             cpu_count: 1,
             memory: 512,
             ztp: ZtpSettings {
-                enable: false,
-                method: ZtpMethod::None,
+                mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -3091,8 +3096,7 @@ impl NodeConfig {
             cpu_count: 1,
             memory: 512,
             ztp: ZtpSettings {
-                enable: false,
-                method: ZtpMethod::None,
+                mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -3120,8 +3124,7 @@ impl NodeConfig {
             memory: 1024,
             cdrom_bus: DiskBuses::Sata,
             ztp: ZtpSettings {
-                enable: true,
-                method: ZtpMethod::CloudInit,
+                mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
@@ -3303,11 +3306,10 @@ mod tests {
         ];
         for model in unikernel_models {
             let config = NodeConfig::get_model(model);
-            assert!(!config.ztp.enable, "Model {model} should have ZTP disabled");
             assert_eq!(
-                config.ztp.method,
-                ZtpMethod::None,
-                "Model {model} should have ZTP method None"
+                config.ztp.mode,
+                Ztp::Disabled,
+                "Model {model} should have ZTP disabled"
             );
         }
     }
@@ -3341,7 +3343,7 @@ mod tests {
         let config = super::NodeConfig::get_model(model);
         assert_eq!(model.to_string(), "omarchy_linux");
         assert!(matches!(config.bios, super::BiosTypes::Uefi));
-        assert_eq!(config.ztp.method, super::ZtpMethod::CloudInit);
+        assert_eq!(config.ztp.mode, super::Ztp::CloudInit);
         assert!(matches!(config.hdd_bus, super::DiskBuses::Virtio));
         assert!(config.cdrom.is_none());
         assert_eq!(config.memory, 8192);
@@ -3361,7 +3363,7 @@ mod tests {
         assert_eq!(config.kind, super::NodeKind::VirtualMachine);
         assert!(matches!(config.os_variant, super::OsVariant::Linux));
         assert!(matches!(config.bios, super::BiosTypes::SeaBios));
-        assert_eq!(config.ztp.method, super::ZtpMethod::CloudInit);
+        assert_eq!(config.ztp.mode, super::Ztp::CloudInit);
         assert!(matches!(config.hdd_bus, super::DiskBuses::Virtio));
         assert!(matches!(
             config.interface_type,
@@ -3391,7 +3393,7 @@ mod tests {
         assert!(matches!(config.os_variant, super::OsVariant::Linux));
         assert!(matches!(config.machine_type, super::MachineType::Q35));
         assert!(matches!(config.cpu_model, super::CpuModels::HostModel));
-        assert_eq!(config.ztp.method, super::ZtpMethod::NoCloud);
+        assert_eq!(config.ztp.mode, super::Ztp::NoCloud);
         assert!(matches!(config.hdd_bus, super::DiskBuses::Virtio));
         assert!(matches!(config.cdrom_bus, super::DiskBuses::Sata));
         assert!(matches!(
@@ -3432,5 +3434,132 @@ mod tests {
             assert_eq!(serde_json::from_str::<NodeState>(&text).unwrap(), state);
             assert_eq!(text, format!("\"{state}\""));
         }
+    }
+
+    /// The methods each model takes, written out: the generators' model arms.
+    fn expected_ztp_methods(model: NodeModel) -> Vec<Ztp> {
+        match model {
+            NodeModel::CentosLinux
+            | NodeModel::AlmaLinux
+            | NodeModel::DevboxLinux
+            | NodeModel::RockyLinux
+            | NodeModel::FedoraLinux
+            | NodeModel::OpensuseLinux
+            | NodeModel::RedhatLinux
+            | NodeModel::SuseLinux
+            | NodeModel::UbuntuLinux
+            | NodeModel::OmarchyLinux
+            | NodeModel::NixosLinux
+            | NodeModel::KaliLinux
+            | NodeModel::InfrahubServer
+            | NodeModel::JenkinsServer
+            | NodeModel::NautobotServer
+            | NodeModel::NetboxServer
+            | NodeModel::SignozServer
+            | NodeModel::VirtServer
+            | NodeModel::GenericVm
+            | NodeModel::FreeBsd
+            | NodeModel::OpenBsd
+            | NodeModel::DevboxWindows
+            | NodeModel::WindowsServer
+            | NodeModel::AlpineLinux => vec![Ztp::CloudInit],
+            NodeModel::AristaVeos | NodeModel::ArubaAoscx => vec![Ztp::Tftp],
+            NodeModel::JuniperVsrxv3 => vec![Ztp::Tftp, Ztp::Cdrom],
+            NodeModel::JuniperVevolved => vec![Ztp::Tftp, Ztp::Usb],
+            NodeModel::CiscoCsr1000v
+            | NodeModel::CiscoCat8000v
+            | NodeModel::CiscoCat9000v
+            | NodeModel::CiscoAsav
+            | NodeModel::CiscoNexus9300v
+            | NodeModel::CiscoIosxrv9000
+            | NodeModel::CiscoFtdv
+            | NodeModel::JuniperVrouter
+            | NodeModel::JuniperVswitch
+            | NodeModel::PaloaltoPanos => vec![Ztp::Cdrom],
+            NodeModel::CiscoIosv
+            | NodeModel::CiscoIosvl2
+            | NodeModel::CiscoIse
+            | NodeModel::MikrotikChr => vec![Ztp::Disk],
+            NodeModel::CumulusLinux => vec![Ztp::Usb],
+            NodeModel::SonicLinux => vec![Ztp::Http],
+            NodeModel::FlatcarLinux => vec![Ztp::Ignition],
+            NodeModel::TalosLinux => vec![Ztp::NoCloud],
+            NodeModel::AristaCeos
+            | NodeModel::NokiaSrlinux
+            | NodeModel::JuniperCevolved
+            | NodeModel::FrrLinux => vec![Ztp::Volume],
+            NodeModel::GitlabCe
+            | NodeModel::ForgejoForge
+            | NodeModel::SurrealDb
+            | NodeModel::MysqlDb
+            | NodeModel::MongoDb
+            | NodeModel::PostgresqlDb
+            | NodeModel::NatsBus
+            | NodeModel::HashicorpVault
+            | NodeModel::KeycloakServer
+            | NodeModel::GenericContainer
+            | NodeModel::GenericUnikernel
+            | NodeModel::UnikraftUnikernel
+            | NodeModel::NanosUnikernel => Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_ztp_methods_of_every_model_match_the_generators() {
+        for model in NodeModel::iter() {
+            assert_eq!(
+                model.ztp_methods(),
+                expected_ztp_methods(model),
+                "methods of {model}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_no_model_lists_disabled_as_a_ztp_method() {
+        for model in NodeModel::iter() {
+            assert!(
+                !model.ztp_methods().contains(&Ztp::Disabled),
+                "{model} lists disabled"
+            );
+        }
+    }
+
+    #[test]
+    fn test_every_models_default_ztp_is_disabled_or_a_listed_method() {
+        for model in NodeModel::iter() {
+            let ztp = NodeConfig::get_model(model).ztp.mode;
+            assert!(
+                ztp == Ztp::Disabled || model.ztp_methods().contains(&ztp),
+                "{model} defaults to {ztp}, which it does not list"
+            );
+        }
+    }
+
+    #[test]
+    fn test_container_and_unikernel_default_ztp() {
+        let mounted = [
+            NodeModel::AristaCeos,
+            NodeModel::NokiaSrlinux,
+            NodeModel::JuniperCevolved,
+            NodeModel::FrrLinux,
+        ];
+        for model in NodeModel::iter() {
+            let config = NodeConfig::get_model(model);
+            let expected = match config.kind {
+                NodeKind::Container if mounted.contains(&model) => Ztp::Volume,
+                NodeKind::Container | NodeKind::Unikernel => Ztp::Disabled,
+                NodeKind::VirtualMachine => continue,
+            };
+            assert_eq!(config.ztp.mode, expected, "default of {model}");
+        }
+    }
+
+    #[test]
+    fn test_node_config_json_carries_one_ztp_field() {
+        let json = serde_json::to_value(NodeConfig::get_model(NodeModel::AristaCeos)).unwrap();
+        assert_eq!(json["ztp"], "volume");
+        assert!(json.get("ztp_enable").is_none());
+        assert!(json.get("ztp_method").is_none());
     }
 }

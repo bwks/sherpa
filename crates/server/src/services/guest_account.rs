@@ -8,9 +8,7 @@ use rand::seq::SliceRandom;
 use ssh_key::{Algorithm, PublicKey};
 use tracing::instrument;
 
-use shared::data::{
-    DbUser, NodeConfig, NodeKind, NodeModel, OwnerSshKey, OwnerUser, RecordId, ZtpMethod,
-};
+use shared::data::{DbUser, NodeConfig, NodeModel, OwnerSshKey, OwnerUser, RecordId, Ztp};
 use shared::konst::{
     NODE_CLOUD_INIT_SUDO_RULE, NODE_DOAS_CONF_DIR, NODE_NIXOS_SHELL, NODE_NO_PASSWORD_HASH,
     RESERVED_USERNAMES, SHERPA_USERNAME, SSH_KEYS_DOCS_URL,
@@ -18,8 +16,7 @@ use shared::konst::{
 use shared::util::{
     base64_encode, base64_encode_bytes, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash,
 };
-use shared::validators::validate_guest_username;
-use shared::validators::validate_ssh_key;
+use shared::validators::{effective_ztp, validate_guest_username, validate_ssh_key};
 use template::{
     CloudInitUser, CloudInitWriteFile, CloudbaseInitUser, FileMode, IgnitionFile,
     IgnitionFileContents, IgnitionUser,
@@ -92,94 +89,30 @@ pub(crate) enum KeyFormat {
     PanosBase64,
 }
 
-/// Whether the image's ZTP generator adds the owner's account. Keep this list aligned with the
-/// model branches in the ZTP generators. Cisco `FTDv`, Talos, the application containers and
-/// unikernels have no way to add an account at boot.
-#[instrument(level = "debug", skip(image))]
-pub(crate) fn supports_guest_account(image: &NodeConfig) -> bool {
-    if !image.ztp.enable {
-        return false;
-    }
-    match image.kind {
-        NodeKind::VirtualMachine => match image.ztp.method {
-            ZtpMethod::CloudInit => matches!(
-                image.model,
-                NodeModel::CentosLinux
-                    | NodeModel::AlmaLinux
-                    | NodeModel::DevboxLinux
-                    | NodeModel::RockyLinux
-                    | NodeModel::FedoraLinux
-                    | NodeModel::OpensuseLinux
-                    | NodeModel::RedhatLinux
-                    | NodeModel::SuseLinux
-                    | NodeModel::UbuntuLinux
-                    | NodeModel::OmarchyLinux
-                    | NodeModel::NixosLinux
-                    | NodeModel::KaliLinux
-                    | NodeModel::InfrahubServer
-                    | NodeModel::JenkinsServer
-                    | NodeModel::NautobotServer
-                    | NodeModel::NetboxServer
-                    | NodeModel::SignozServer
-                    | NodeModel::VirtServer
-                    | NodeModel::AlpineLinux
-                    | NodeModel::FreeBsd
-                    | NodeModel::OpenBsd
-                    | NodeModel::GenericVm
-                    | NodeModel::DevboxWindows
-                    | NodeModel::WindowsServer
-            ),
-            ZtpMethod::Ignition => image.model == NodeModel::FlatcarLinux,
-            ZtpMethod::Tftp => matches!(
-                image.model,
-                NodeModel::AristaVeos
-                    | NodeModel::ArubaAoscx
-                    | NodeModel::JuniperVevolved
-                    | NodeModel::JuniperVsrxv3
-            ),
-            ZtpMethod::Cdrom => matches!(
-                image.model,
-                NodeModel::CiscoCsr1000v
-                    | NodeModel::CiscoCat8000v
-                    | NodeModel::CiscoCat9000v
-                    | NodeModel::CiscoAsav
-                    | NodeModel::CiscoNexus9300v
-                    | NodeModel::CiscoIosxrv9000
-                    | NodeModel::JuniperVsrxv3
-                    | NodeModel::JuniperVrouter
-                    | NodeModel::JuniperVswitch
-                    | NodeModel::PaloaltoPanos
-            ),
-            ZtpMethod::Disk => matches!(
-                image.model,
-                NodeModel::CiscoIosv
-                    | NodeModel::CiscoIosvl2
-                    | NodeModel::CiscoIse
-                    | NodeModel::MikrotikChr
-            ),
-            ZtpMethod::Usb => matches!(
-                image.model,
-                NodeModel::CumulusLinux | NodeModel::JuniperVevolved
-            ),
-            ZtpMethod::Http => image.model == NodeModel::SonicLinux,
-            ZtpMethod::NoCloud | ZtpMethod::Volume | ZtpMethod::Ipxe | ZtpMethod::None => false,
-        },
-        NodeKind::Container => matches!(
-            image.model,
-            NodeModel::AristaCeos
-                | NodeModel::NokiaSrlinux
-                | NodeModel::FrrLinux
-                | NodeModel::JuniperCevolved
-        ),
-        NodeKind::Unikernel => false,
+/// Whether a node's ZTP adds the owner's account. Every method does, on every model that takes
+/// it (`NodeModel::ztp_methods`), except Cisco `FTDv` and Talos, whose configs have no way to
+/// add an account at boot. With ZTP off, nothing is generated to add it to.
+#[instrument(level = "debug")]
+pub(crate) fn supports_guest_account(model: NodeModel, ztp: Ztp) -> bool {
+    match ztp {
+        Ztp::Disabled => false,
+        Ztp::CloudInit
+        | Ztp::Cdrom
+        | Ztp::Disk
+        | Ztp::Http
+        | Ztp::Ignition
+        | Ztp::NoCloud
+        | Ztp::Tftp
+        | Ztp::Usb
+        | Ztp::Volume => !matches!(model, NodeModel::CiscoFtdv | NodeModel::TalosLinux),
     }
 }
 
-/// Whether the node gets the owner's account: its image supports one and the node has no custom
+/// Whether the node gets the owner's account: its ZTP setting adds one and the node has no custom
 /// ZTP config, which replaces the generated config the account is written into.
 #[instrument(level = "debug", skip(node, image))]
 pub(crate) fn provisions_owner(node: &topology::NodeExpanded, image: &NodeConfig) -> bool {
-    supports_guest_account(image) && node.ztp_config.is_none()
+    supports_guest_account(image.model, effective_ztp(node.ztp, image)) && node.ztp_config.is_none()
 }
 
 /// The owner keys a model takes, from each vendor's documentation of user public keys.
@@ -620,6 +553,7 @@ pub(crate) fn sudoers_file(account: &GuestAccount) -> IgnitionFile {
 mod tests {
     use super::*;
     use jiff::Timestamp;
+    use shared::data::NodeKind;
     use shared::konst::{ADMIN_USERNAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH, SHERPA_USERNAME};
     use shared::util::base64_decode;
     use template::{CloudInitConfig, IgnitionConfig};
@@ -758,10 +692,9 @@ mod tests {
             NodeModel::CumulusLinux,
             NodeModel::SonicLinux,
         ] {
-            let mut image = NodeConfig::get_model(model);
-            assert!(supports_guest_account(&image), "{model}");
-            image.ztp.enable = false;
-            assert!(!supports_guest_account(&image), "{model}");
+            let image = NodeConfig::get_model(model);
+            assert!(supports_guest_account(model, image.ztp.mode), "{model}");
+            assert!(!supports_guest_account(model, Ztp::Disabled), "{model}");
         }
         for model in [
             NodeModel::CiscoFtdv,
@@ -771,17 +704,116 @@ mod tests {
             NodeModel::NanosUnikernel,
         ] {
             assert!(
-                !supports_guest_account(&NodeConfig::get_model(model)),
+                !supports_guest_account(model, NodeConfig::get_model(model).ztp.mode),
                 "{model}"
             );
         }
-        // A model only gets one through the generator that writes it.
-        let mut image = NodeConfig::get_model(NodeModel::UbuntuLinux);
-        image.kind = NodeKind::Container;
-        assert!(!supports_guest_account(&image));
-        let mut image = NodeConfig::get_model(NodeModel::CiscoIosv);
-        image.ztp.method = ZtpMethod::Tftp;
-        assert!(!supports_guest_account(&image));
+    }
+
+    /// The models each generator wrote the owner's account for, as the lists kept here by hand
+    /// had them before the per-model table replaced them.
+    fn listed_by_the_generators(model: NodeModel, kind: &NodeKind, ztp: Ztp) -> bool {
+        match kind {
+            NodeKind::VirtualMachine => match ztp {
+                Ztp::CloudInit => matches!(
+                    model,
+                    NodeModel::CentosLinux
+                        | NodeModel::AlmaLinux
+                        | NodeModel::DevboxLinux
+                        | NodeModel::RockyLinux
+                        | NodeModel::FedoraLinux
+                        | NodeModel::OpensuseLinux
+                        | NodeModel::RedhatLinux
+                        | NodeModel::SuseLinux
+                        | NodeModel::UbuntuLinux
+                        | NodeModel::OmarchyLinux
+                        | NodeModel::NixosLinux
+                        | NodeModel::KaliLinux
+                        | NodeModel::InfrahubServer
+                        | NodeModel::JenkinsServer
+                        | NodeModel::NautobotServer
+                        | NodeModel::NetboxServer
+                        | NodeModel::SignozServer
+                        | NodeModel::VirtServer
+                        | NodeModel::AlpineLinux
+                        | NodeModel::FreeBsd
+                        | NodeModel::OpenBsd
+                        | NodeModel::GenericVm
+                        | NodeModel::DevboxWindows
+                        | NodeModel::WindowsServer
+                ),
+                Ztp::Ignition => model == NodeModel::FlatcarLinux,
+                Ztp::Tftp => matches!(
+                    model,
+                    NodeModel::AristaVeos
+                        | NodeModel::ArubaAoscx
+                        | NodeModel::JuniperVevolved
+                        | NodeModel::JuniperVsrxv3
+                ),
+                Ztp::Cdrom => matches!(
+                    model,
+                    NodeModel::CiscoCsr1000v
+                        | NodeModel::CiscoCat8000v
+                        | NodeModel::CiscoCat9000v
+                        | NodeModel::CiscoAsav
+                        | NodeModel::CiscoNexus9300v
+                        | NodeModel::CiscoIosxrv9000
+                        | NodeModel::JuniperVsrxv3
+                        | NodeModel::JuniperVrouter
+                        | NodeModel::JuniperVswitch
+                        | NodeModel::PaloaltoPanos
+                ),
+                Ztp::Disk => matches!(
+                    model,
+                    NodeModel::CiscoIosv
+                        | NodeModel::CiscoIosvl2
+                        | NodeModel::CiscoIse
+                        | NodeModel::MikrotikChr
+                ),
+                Ztp::Usb => matches!(model, NodeModel::CumulusLinux | NodeModel::JuniperVevolved),
+                Ztp::Http => model == NodeModel::SonicLinux,
+                Ztp::NoCloud | Ztp::Volume | Ztp::Disabled => false,
+            },
+            NodeKind::Container => {
+                ztp == Ztp::Volume
+                    && matches!(
+                        model,
+                        NodeModel::AristaCeos
+                            | NodeModel::NokiaSrlinux
+                            | NodeModel::FrrLinux
+                            | NodeModel::JuniperCevolved
+                    )
+            }
+            NodeKind::Unikernel => false,
+        }
+    }
+
+    #[test]
+    fn the_owner_account_follows_the_generators_for_every_model_and_setting() {
+        for model in NodeModel::to_vec() {
+            let kind = NodeConfig::get_model(model).kind;
+            let settings = model.ztp_methods().iter().copied().chain([Ztp::Disabled]);
+            for ztp in settings {
+                assert_eq!(
+                    supports_guest_account(model, ztp),
+                    listed_by_the_generators(model, &kind, ztp),
+                    "{model} with {ztp}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_manifest_ztp_decides_the_owner_account_over_the_images() {
+        let image = NodeConfig::get_model(NodeModel::FrrLinux);
+        let mut node = topology::NodeExpanded {
+            name: "frr01".to_owned(),
+            model: NodeModel::FrrLinux,
+            ..Default::default()
+        };
+        assert!(provisions_owner(&node, &image));
+        node.ztp = Some(Ztp::Disabled);
+        assert!(!provisions_owner(&node, &image));
     }
 
     #[test]

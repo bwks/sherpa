@@ -15,6 +15,7 @@ mod tailscale;
 mod talos_cluster;
 mod text_files;
 mod watchdog;
+mod ztp;
 
 pub use client_files::check_client_read_files;
 pub use description::check_lab_description;
@@ -30,3 +31,4 @@ pub use tailscale::validate_tailscale;
 pub use talos_cluster::validate_talos_clusters;
 pub use text_files::check_text_file_modes;
 pub use watchdog::check_watchdog;
+pub use ztp::check_node_ztp;

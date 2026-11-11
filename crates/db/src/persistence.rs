@@ -12,7 +12,7 @@ use turso::{Row, Value};
 
 use shared::data::{
     BridgeMember, DbBridge, DbLab, DbLink, DbNode, DbSession, DbSessionUser, DbUser,
-    LinkImpairment, NodeConfig, RecordId, ZtpSettings,
+    LinkImpairment, NodeConfig, RecordId, Ztp, ZtpSettings,
 };
 use shared::konst::{SHERPA_DB_KEY_CHARSET, SHERPA_DB_KEY_LENGTH};
 
@@ -456,7 +456,7 @@ pub(crate) fn bridge_member_values(
 
 pub(crate) fn node_image_from_row(row: &Row) -> Result<NodeConfig> {
     let mut cells = Cells::new(row);
-    Ok(NodeConfig {
+    let mut image = NodeConfig {
         id: Some(cells.record(NODE_IMAGE_TABLE, "id")?),
         model: cells.enumeration("model")?,
         version: cells.text("version")?,
@@ -474,8 +474,8 @@ pub(crate) fn node_image_from_row(row: &Row) -> Result<NodeConfig> {
         cdrom: cells.optional_text("cdrom")?,
         cdrom_bus: cells.enumeration("cdrom_bus")?,
         ztp: ZtpSettings {
-            enable: cells.boolean("ztp_enable")?,
-            method: cells.enumeration("ztp_method")?,
+            // The `ztp` column is the table's last, read below.
+            mode: Ztp::default(),
             username: cells.optional_text("ztp_username")?,
             password: cells.optional_text("ztp_password")?,
             password_auth: cells.boolean("ztp_password_auth")?,
@@ -489,7 +489,9 @@ pub(crate) fn node_image_from_row(row: &Row) -> Result<NodeConfig> {
         reserved_interface_count: cells.integer("reserved_interface_count")?,
         default: cells.boolean("default")?,
         boot_mode: cells.optional_enumeration("boot_mode")?,
-    })
+    };
+    image.ztp.mode = cells.enumeration("ztp")?;
+    Ok(image)
 }
 
 /// A node image's column values in the `node_image` table's column order, under `key`.
@@ -511,8 +513,6 @@ pub(crate) fn node_image_values(image: &NodeConfig, key: &str) -> Result<Vec<Val
         enum_text(&image.hdd_bus, "hdd_bus")?.into(),
         image.cdrom.as_deref().into(),
         enum_text(&image.cdrom_bus, "cdrom_bus")?.into(),
-        image.ztp.enable.into(),
-        enum_text(&image.ztp.method, "ztp_method")?.into(),
         image.ztp.username.as_deref().into(),
         image.ztp.password.as_deref().into(),
         image.ztp.password_auth.into(),
@@ -530,6 +530,7 @@ pub(crate) fn node_image_values(image: &NodeConfig, key: &str) -> Result<Vec<Val
             .map(|mode| enum_text(mode, "boot_mode"))
             .transpose()?
             .into(),
+        enum_text(&image.ztp.mode, "ztp")?.into(),
     ])
 }
 
