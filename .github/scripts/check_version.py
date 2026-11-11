@@ -5,30 +5,27 @@
 # ///
 """Check a pull request's Sherpa version (Python 3.15+, standard library only).
 
-Pull requests do not change the version. The one exception is the release pull request that the
-Prepare release workflow opens: it is authored by the release app, from a `release/vX.Y.Z` branch
-of this repository, sets the workspace version to X.Y.Z, and changes only the files a release
-changes. See docs/architecture/RELEASE.md.
+Every crate inherits the workspace version, and Cargo.lock has the workspace crates at it. A pull
+request leaves the version alone, unless it is a bump pull request (`mise run release:bump`):
+one that changes only Cargo.toml, Cargo.lock and CHANGELOG.md, sets a version higher than the
+last v* tag, and has a CHANGELOG.md section for it. See docs/architecture/RELEASE.md.
 
 Run from the root of a checkout of the pull request's merge commit:
 
     check_version.py BASE_REV
 
-BASE_REV is the commit the pull request merges into. The pull request is described by the
-environment: PR_AUTHOR (the author's login), PR_HEAD_REF (the head branch), PR_HEAD_REPO (the
-head repository, owner/name) and REPOSITORY (this repository, owner/name).
+BASE_REV is the commit the pull request merges into.
 """
 
-import os
 import re
 import subprocess
 import sys
 import tomllib
 
-RELEASE_AUTHOR = "bwks-sherpa-release[bot]"
-RELEASE_BRANCH_PREFIX = "release/v"
-RELEASE_FILES = {"Cargo.toml", "Cargo.lock", "CHANGELOG.md"}
+BUMP_FILES = {"Cargo.toml", "Cargo.lock", "CHANGELOG.md"}
 SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
+# A version's CHANGELOG.md section starts with `## [X.Y.Z] - YYYY-MM-DD`.
+SECTION = re.compile(r"^## \[(?P<version>[^\]]+)\]", re.MULTILINE)
 
 
 def git(*args):
@@ -109,7 +106,16 @@ def last_tag():
     return max(versions) if versions else None
 
 
-def check_release(base, version):
+def has_section(version):
+    try:
+        with open("CHANGELOG.md", encoding="utf-8") as f:
+            changelog = f.read()
+    except FileNotFoundError:
+        return False
+    return any(m["version"] == version for m in SECTION.finditer(changelog))
+
+
+def check_bump(base, version):
     errors = []
     if parse(version) is None:
         errors.append(f"{version} is not a X.Y.Z version.")
@@ -120,12 +126,16 @@ def check_release(base, version):
                 f"{version} is not higher than the last release, "
                 f"{'.'.join(map(str, latest))}."
             )
+    if not has_section(version):
+        errors.append(
+            f"CHANGELOG.md has no ## [{version}] section; run `mise run release:bump`."
+        )
     changed = set(git("diff", "--name-only", base, "HEAD").split())
-    extra = sorted(changed - RELEASE_FILES)
+    extra = sorted(changed - BUMP_FILES)
     if extra:
         errors.append(
-            "A release pull request changes only "
-            f"{', '.join(sorted(RELEASE_FILES))}; this one also changes {', '.join(extra)}."
+            "A pull request that changes the version changes only "
+            f"{', '.join(sorted(BUMP_FILES))}; this one also changes {', '.join(extra)}."
         )
     return errors
 
@@ -138,27 +148,10 @@ def main():
     errors, version = check_head()
     if version is not None:
         before = base_version(base)
-        head_ref = os.environ.get("PR_HEAD_REF", "")
-        is_release = (
-            os.environ.get("PR_AUTHOR") == RELEASE_AUTHOR
-            and head_ref.startswith(RELEASE_BRANCH_PREFIX)
-            and os.environ.get("PR_HEAD_REPO") == os.environ.get("REPOSITORY")
-        )
-        if is_release:
-            branch_version = head_ref.removeprefix(RELEASE_BRANCH_PREFIX)
-            if version != branch_version:
-                errors.append(
-                    f"The release pull request for {branch_version} sets the version to {version}."
-                )
-            errors += check_release(base, version)
+        if version != before:
+            errors += check_bump(base, version)
             if not errors:
-                print(f"Release pull request: {before} -> {version}.")
-        elif version != before:
-            errors.append(
-                f"This pull request changes the version from {before} to {version}. Pull requests "
-                "do not change the version; the Prepare release workflow does, in the release "
-                "pull request (docs/architecture/RELEASE.md)."
-            )
+                print(f"Version bump: {before} -> {version}.")
         elif not errors:
             print(f"The version is unchanged at {version}.")
 

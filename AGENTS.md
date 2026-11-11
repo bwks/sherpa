@@ -58,9 +58,13 @@ database is Turso, embedded in sherpad as a single file (see `docs/architecture/
 ## Versions and Releases
 - Sherpa has one version, `[workspace.package] version` in the root `Cargo.toml`. Every
   workspace crate uses `version.workspace = true`.
-- Pull requests do not change the version. The `Version` check fails one that does.
-- A release is cut with the Prepare release workflow, which opens a release pull request with the
-  version, the lockfile and `CHANGELOG.md`; the user merges it, and that merge releases. See
+- Pull requests do not change the version, except a bump pull request: `mise run release:bump`
+  sets the version, updates `Cargo.lock` and regenerates `CHANGELOG.md`, and the pull request
+  changes only those three files. The `Version` check fails any other pull request that changes
+  the version.
+- A merge never releases. The user clicks the Release workflow, which ships main at its version
+  with that version's `CHANGELOG.md` section as the notes. Pull requests merged between the bump
+  and the release ship without changelog lines until the next bump. See
   `docs/architecture/RELEASE.md`.
 
 ## Configuration / Project Files

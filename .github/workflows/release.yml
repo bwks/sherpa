@@ -1,39 +1,86 @@
 name: Release
 
+# Releases main as it is: the version in the workspace manifest, which a bump pull request set
+# (`mise run release:bump`), and that version's CHANGELOG.md section as the release notes. Run it
+# from the Actions tab or with `gh workflow run release.yml`. See docs/architecture/RELEASE.md.
+
 on:
-  workflow_call:
-    inputs:
-      version:
-        required: true
-        type: string
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+# Releases queue rather than overlap; the second of two runs at the same version finds the tag and
+# stops.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  tag-check:
-    name: Check the version is not tagged yet
+  check:
+    name: Check the version
     runs-on: ubuntu-latest
     outputs:
-      free: ${{ steps.tag.outputs.free }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
-      - name: Look for the tag on the remote
-        id: tag
+      - name: Require main
+        if: github.ref != 'refs/heads/main'
         run: |
-          # A release of the same version that ran before this one, queued behind it in the
-          # release concurrency group, has tagged it already: then there is nothing to do.
-          if git ls-remote --exit-code --tags "https://github.com/${{ github.repository }}.git" \
-              "refs/tags/${{ inputs.version }}" > /dev/null; then
-            echo "${{ inputs.version }} is already tagged; nothing to release."
-            echo "free=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "free=true" >> "$GITHUB_OUTPUT"
+          echo "::error::Release main, not ${GITHUB_REF}."
+          exit 1
+
+      # Every job checks out the commit the run started at (GITHUB_SHA), main's tip then, and
+      # the release tags that commit, even if main moves on during the run.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Read the version
+        id: version
+        # The workspace version, which every crate inherits.
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "sherpa") | .version')
+          echo "Releasing v${version} from ${GITHUB_SHA}."
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Check the version is not tagged yet
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if git ls-remote --exit-code --tags "https://github.com/${GITHUB_REPOSITORY}.git" \
+              "refs/tags/${TAG}" > /dev/null; then
+            echo "::error::${TAG} is already tagged. Bump the version first: mise run release:bump."
+            exit 1
           fi
+
+      - name: Extract the release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        # The version's section runs from its "## [X.Y.Z] - date" heading to the next heading.
+        # The notes are the section without its heading; the release is titled with the tag.
+        run: |
+          awk -v version="[${VERSION}]" '
+            $1 == "##" { found = ($2 == version); if (found) seen = 1; next }
+            found { print }
+            END { exit !seen }
+          ' CHANGELOG.md > notes.md || {
+            echo "::error::CHANGELOG.md has no ## [${VERSION}] section. Bump the version with mise run release:bump."
+            exit 1
+          }
+          cat notes.md
+
+      - name: Upload the release notes
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: notes.md
 
   build-app:
     name: Build ${{ matrix.binary }} (${{ matrix.target }})
-    needs: tag-check
-    if: needs.tag-check.outputs.free == 'true'
+    needs: check
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -72,6 +119,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -112,46 +161,40 @@ jobs:
 
   release:
     name: Create Release
-    needs: [tag-check, build-app]
-    if: needs.tag-check.outputs.free == 'true'
+    needs: [check, build-app]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           persist-credentials: false
 
-      - name: Download all artifacts
+      - name: Download the archives
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          pattern: sherpa*
           merge-multiple: true
 
-      - name: Extract release notes
-        id: release_notes
-        uses: orhun/git-cliff-action@v4
+      - name: Download the release notes
+        uses: actions/download-artifact@v4
         with:
-          config: cliff.toml
-          args: --tag ${{ inputs.version }} --unreleased --strip header
-        env:
-          GITHUB_REPO: ${{ github.repository }}
-          GITHUB_TOKEN: ${{ github.token }}
+          name: release-notes
 
       - name: Create and push tag
         env:
           GH_TOKEN: ${{ github.token }}
-        # Tag the commit that started the release, which is the one the binaries were built from;
-        # main may have moved on since. The release pull request merged at that commit already
-        # carries CHANGELOG.md.
+          TAG: ${{ needs.check.outputs.tag }}
+        # Tag the commit the binaries were built from; main may have moved on since. The push
+        # fails if the tag appeared after the check.
         run: |
           gh auth setup-git
-          git tag "${{ inputs.version }}" "$GITHUB_SHA"
-          git push origin "${{ inputs.version }}"
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/${TAG}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.version }}
-          body: ${{ steps.release_notes.outputs.content }}
+          tag_name: ${{ needs.check.outputs.tag }}
+          body_path: notes.md
           files: artifacts/*
