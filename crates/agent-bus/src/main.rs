@@ -24,10 +24,12 @@ mod keys;
 mod listen;
 mod message;
 mod model;
+mod record;
 mod registry;
 mod report;
 mod state;
 mod status;
+mod store;
 mod table;
 mod tls;
 
@@ -45,11 +47,13 @@ use tracing_subscriber::fmt::format::FmtSpan;
 
 use bus::Bus;
 use channel::{Channel, Endpoint};
-use files::now_ms;
+use files::{millis, now_ms, standard_state_dir};
 use keys::seed_from_environment;
 use message::{Kind, Message, check_agent_name, new_task_id};
 use model::{DEFAULT_MODEL, model_id};
+use record::{BusAccess, Paths, Record};
 use status::{Observed, STALE};
+use store::read;
 
 #[derive(Parser)]
 #[command(
@@ -148,35 +152,58 @@ enum Command {
         /// The agent whose messages to print
         agent: String,
     },
-    /// Print what each task cost, from the outcome messages the bus still keeps for the host. The
-    /// host's inbox is not consumed
+    /// Print what each task cost, from the host's record, first caught up from the bus. Run as
+    /// the host: `AGENT_BUS_SEED` is the host's seed
     Usage {
-        /// The bus, for example `nats://192.0.2.1:4222`. Without it: `AGENT_BUS_URL`, then
-        /// where `bus start` recorded the bus
+        /// The bus to catch the record up from, for example `nats://192.0.2.1:4222`. Without
+        /// it: `AGENT_BUS_URL`, then where `bus start` recorded the bus
         #[arg(long)]
         server: Option<String>,
-        /// The agent whose inbox to read
+        /// The agent that sent the tasks
         #[arg(long, default_value = "host")]
         host: String,
         /// Only the tasks of this guest agent
         #[arg(long)]
         agent: Option<String>,
+        /// Only tasks with a message this long ago or later, such as `7d` (units s, m, h, d)
+        #[arg(long, value_parser = listen::parse_since)]
+        since: Option<Duration>,
         /// Also list tasks from before usage was tracked, with n/a for their figures
         #[arg(long)]
         all: bool,
     },
-    /// Print every message of a task kept in the host's inbox stream, oldest first, as one JSON
-    /// line each. The host's inbox is not consumed
+    /// Print every message of a task that the host sent or received, oldest first, as one JSON
+    /// line each, from the host's record, first caught up from the bus
     Show {
-        /// The bus, for example `nats://192.0.2.1:4222`. Without it: `AGENT_BUS_URL`, then
-        /// where `bus start` recorded the bus
+        /// The bus to catch the record up from, for example `nats://192.0.2.1:4222`. Without
+        /// it: `AGENT_BUS_URL`, then where `bus start` recorded the bus
         #[arg(long)]
         server: Option<String>,
-        /// The agent whose inbox to read
+        /// The agent whose messages to print
         #[arg(long, default_value = "host")]
         host: String,
         /// The task to print
         task: String,
+    },
+    /// List the newest tasks, from the host's record: their agent, state, model, last activity,
+    /// cost and the start of their prompt. The record is first caught up from the bus
+    History {
+        /// The bus to catch the record up from, for example `nats://192.0.2.1:4222`. Without
+        /// it: `AGENT_BUS_URL`, then where `bus start` recorded the bus
+        #[arg(long)]
+        server: Option<String>,
+        /// Only the tasks of this guest agent
+        #[arg(long)]
+        agent: Option<String>,
+        /// Only tasks with a message this long ago or later, such as `2d` (units s, m, h, d)
+        #[arg(long, value_parser = listen::parse_since)]
+        since: Option<Duration>,
+        /// How many tasks to list
+        #[arg(long, default_value_t = 20)]
+        limit: u64,
+        /// Print the tasks as JSON instead of a table
+        #[arg(long)]
+        json: bool,
     },
     /// Show every agent of the recorded bus, the host and each guest: whether it is online, the
     /// task it runs and for how long, how many tasks wait for it, and when it was last active.
@@ -322,22 +349,17 @@ async fn execute(cli: Cli) -> Result<()> {
             server,
             host,
             agent,
+            since,
             all,
-        } => {
-            let server = find_server(server)?;
-            usage(
-                &server,
-                &seed_from_environment()?,
-                &host,
-                agent.as_deref(),
-                all,
-            )
-            .await
-        }
-        Command::Show { server, host, task } => {
-            let server = find_server(server)?;
-            show(&server, &seed_from_environment()?, &host, &task).await
-        }
+        } => usage(server, host, agent, since, all).await,
+        Command::Show { server, host, task } => show(server, host, task).await,
+        Command::History {
+            server,
+            agent,
+            since,
+            limit,
+            json,
+        } => history(server, agent, since, limit, json).await,
         Command::Agents { server, json } => {
             let server = find_server(server)?;
             agents(&server, &seed_from_environment()?, json).await
@@ -527,33 +549,87 @@ async fn cancel(
         .await
 }
 
-/// Print what each task cost, from the messages kept in `host`'s inbox stream. Nothing is
-/// acknowledged and the inbox is not consumed.
+/// Print what each task `host` sent cost, from the record.
 async fn usage(
-    server: &Endpoint,
-    seed: &str,
-    host: &str,
-    agent: Option<&str>,
+    server: Option<String>,
+    host: String,
+    agent: Option<String>,
+    since: Option<Duration>,
     all: bool,
 ) -> Result<()> {
-    if let Some(agent) = agent {
+    check_agent_name(&host)?;
+    if let Some(agent) = &agent {
         check_agent_name(agent)?;
     }
-    let channel = Channel::connect(server, seed).await?;
-    let messages = channel.history(host).await?;
-    println!("{}", report::table(&report::rows(&messages, agent, all)));
+    let record = open_record(server).await?;
+    let rows = read::usage(
+        record.conn(),
+        &host,
+        agent.as_deref(),
+        since.map(since_ms),
+        all,
+    )
+    .await?;
+    drop(record);
+    println!("{}", report::table(&rows));
     Ok(())
 }
 
-/// Print every message of `task` kept in `host`'s inbox stream, oldest first, as one JSON line
-/// each. Nothing is acknowledged and the inbox is not consumed.
-async fn show(server: &Endpoint, seed: &str, host: &str, task: &str) -> Result<()> {
-    let channel = Channel::connect(server, seed).await?;
-    let messages = channel.history(host).await?;
-    for message in report::task_messages(&messages, task) {
-        println!("{}", serde_json::to_string(message)?);
+/// Print every recorded message of `task` that `host` sent or received, oldest first, as one
+/// JSON line each.
+async fn show(server: Option<String>, host: String, task: String) -> Result<()> {
+    check_agent_name(&host)?;
+    let record = open_record(server).await?;
+    let messages = read::task_messages(record.conn(), &task, &host).await?;
+    drop(record);
+    for message in messages {
+        println!("{}", serde_json::to_string(&message)?);
     }
     Ok(())
+}
+
+/// Print the newest `limit` tasks from the record, as a table or as JSON.
+async fn history(
+    server: Option<String>,
+    agent: Option<String>,
+    since: Option<Duration>,
+    limit: u64,
+    json: bool,
+) -> Result<()> {
+    if let Some(agent) = &agent {
+        check_agent_name(agent)?;
+    }
+    let record = open_record(server).await?;
+    let rows = read::history(record.conn(), agent.as_deref(), since.map(since_ms), limit).await?;
+    drop(record);
+    if json {
+        println!("{}", serde_json::to_string_pretty(&rows)?);
+    } else {
+        println!("{}", table::history(&rows));
+    }
+    Ok(())
+}
+
+/// The host's record in the state directory, caught up from the bus at `server` (`--server`,
+/// then `AGENT_BUS_URL`, then where `bus start` recorded it) with the seed in `AGENT_BUS_SEED`.
+/// When it cannot be caught up, it is opened as it is, and a warning says so.
+async fn open_record(server: Option<String>) -> Result<Record> {
+    let access = find_server(server).and_then(|server| {
+        Ok(BusAccess {
+            server,
+            seed: seed_from_environment()?,
+        })
+    });
+    let record = Record::open(&Paths::in_dir(&standard_state_dir()?), access).await?;
+    if let Some(warning) = record.behind() {
+        eprintln!("{warning}");
+    }
+    Ok(record)
+}
+
+/// The time `since` ago, in milliseconds since the Unix epoch.
+fn since_ms(since: Duration) -> u64 {
+    now_ms().saturating_sub(millis(since))
 }
 
 /// Print every agent of the recorded bus, as a table or as JSON. Nothing is consumed: the host

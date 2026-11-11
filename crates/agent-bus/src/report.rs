@@ -1,9 +1,9 @@
-//! The usage report of `agent-bus usage`: one row per task from the outcome messages the host
-//! received, and a total row.
+//! The usage report of `agent-bus usage`: one row per task from the record, and a total row.
 
 use shared::util::render_modern_table;
 
-use crate::message::{Kind, Message, TaskUsage, cache_hit_permille};
+use crate::message::{TaskUsage, cache_hit_permille};
+use crate::store::TaskState;
 
 const HEADERS: [&str; 8] = [
     "Task",
@@ -29,58 +29,8 @@ pub struct Row {
     /// The task's totals as of its last outcome message that carried them. `None` for a task
     /// from before usage was tracked.
     pub usage: Option<TaskUsage>,
-    /// The kind of the task's last outcome message.
-    pub state: Kind,
-}
-
-/// The messages of `task`, oldest first, of every kind.
-pub fn task_messages<'a>(messages: &'a [Message], task: &str) -> Vec<&'a Message> {
-    messages
-        .iter()
-        .filter(|message| message.task == task)
-        .collect()
-}
-
-/// The tasks in `messages`, in the order they first had an outcome, for `agent` only when given.
-/// A task's usage is cumulative, so its latest figures are the ones that count. Messages that are
-/// not outcomes (tasks, answers, progress) are skipped. Tasks without usage are left out unless
-/// `all`.
-pub fn rows(messages: &[Message], agent: Option<&str>, all: bool) -> Vec<Row> {
-    let mut rows: Vec<Row> = Vec::new();
-    for message in messages {
-        let outcome = matches!(
-            message.kind,
-            Kind::Completed | Kind::Question | Kind::Failed | Kind::Canceled
-        );
-        if !outcome || agent.is_some_and(|wanted| wanted != message.from) {
-            continue;
-        }
-        let position = rows.iter().position(|row| row.task == message.task);
-        let index = position.unwrap_or_else(|| {
-            rows.push(Row {
-                task: message.task.clone(),
-                agent: message.from.clone(),
-                model: None,
-                usage: None,
-                state: message.kind,
-            });
-            rows.len() - 1
-        });
-        let Some(row) = rows.get_mut(index) else {
-            continue;
-        };
-        row.state = message.kind;
-        if message.model.is_some() {
-            row.model.clone_from(&message.model);
-        }
-        if let Some(usage) = &message.task_usage {
-            row.usage = Some(usage.clone());
-        }
-    }
-    if !all {
-        rows.retain(|row| row.usage.is_some());
-    }
-    rows
+    /// Where the task is, from its last outcome message.
+    pub state: TaskState,
 }
 
 /// The report as a table, or a sentence when there is nothing to report.
@@ -105,7 +55,7 @@ pub fn table(rows: &[Row]) -> String {
                 &row.agent,
                 row.model.as_deref().unwrap_or("n/a"),
                 row.usage.as_ref(),
-                &format!("{:?}", row.state).to_lowercase(),
+                row.state.as_str(),
             )
         })
         .collect();
@@ -149,20 +99,6 @@ fn line(
 mod tests {
     use super::*;
 
-    fn outcome(task: &str, from: &str, kind: Kind, usage: Option<TaskUsage>) -> Message {
-        Message {
-            task: task.to_owned(),
-            from: from.to_owned(),
-            to: "host".to_owned(),
-            kind,
-            text: String::new(),
-            usage: None,
-            task_usage: usage,
-            github: false,
-            model: None,
-        }
-    }
-
     fn used(runs: u64, cost_usd: f64, input: u64, cache_read: u64) -> TaskUsage {
         TaskUsage {
             runs,
@@ -174,43 +110,33 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_task_has_one_row_with_its_latest_totals_and_state() {
-        let messages = [
-            outcome("a", "dev", Kind::Progress, None),
-            outcome("a", "dev", Kind::Question, Some(used(1, 0.04, 10, 30))),
-            outcome("b", "test", Kind::Failed, None),
-            outcome("a", "dev", Kind::Completed, Some(used(2, 0.06, 20, 60))),
-        ];
-        let rows = rows(&messages, None, true);
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].task, "a");
-        assert_eq!(rows[0].state, Kind::Completed);
-        assert_eq!(rows[0].usage, Some(used(2, 0.06, 20, 60)));
-        assert_eq!(rows[1].task, "b");
-        assert_eq!(rows[1].state, Kind::Failed);
-        assert_eq!(rows[1].usage, None);
+    fn row(task: &str, model: Option<&str>, usage: Option<TaskUsage>, state: TaskState) -> Row {
+        Row {
+            task: task.to_owned(),
+            agent: "dev".to_owned(),
+            model: model.map(str::to_owned),
+            usage,
+            state,
+        }
     }
 
     #[test]
     fn the_model_column_shows_the_model_each_task_ran_on() {
-        let on = |task: &str, model: Option<&str>| Message {
-            model: model.map(str::to_owned),
-            ..outcome(task, "dev", Kind::Completed, Some(used(1, 0.04, 1, 1)))
-        };
-        let messages = [
-            on("a", Some("claude-sonnet-5-5")),
-            // A reply without a model does not clear the one known.
-            on("a", None),
-            on("b", Some("claude-haiku-5-5")),
-            on("old", None),
+        let rows = [
+            row(
+                "a",
+                Some("claude-sonnet-5-5"),
+                Some(used(1, 0.04, 1, 1)),
+                TaskState::Completed,
+            ),
+            row(
+                "b",
+                Some("claude-haiku-5-5"),
+                Some(used(1, 0.04, 1, 1)),
+                TaskState::Completed,
+            ),
+            row("old", None, Some(used(1, 0.04, 1, 1)), TaskState::Completed),
         ];
-        let rows = rows(&messages, None, false);
-        let models: Vec<Option<&str>> = rows.iter().map(|row| row.model.as_deref()).collect();
-        assert_eq!(
-            models,
-            [Some("claude-sonnet-5-5"), Some("claude-haiku-5-5"), None]
-        );
         let table = table(&rows);
         assert!(table.contains("Model"), "{table}");
         for (task, model) in [
@@ -227,24 +153,12 @@ mod tests {
     }
 
     #[test]
-    fn the_agent_filter_keeps_that_agents_tasks() {
-        let messages = [
-            outcome("a", "dev", Kind::Completed, Some(used(1, 0.04, 1, 1))),
-            outcome("b", "test", Kind::Completed, Some(used(1, 0.04, 1, 1))),
-        ];
-        let rows = rows(&messages, Some("test"), true);
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].task, "b");
-        assert_eq!(super::rows(&messages, Some("nobody"), true).len(), 0);
-    }
-
-    #[test]
     fn the_table_has_a_row_per_task_and_a_total() {
-        let messages = [
-            outcome("a", "dev", Kind::Completed, Some(used(2, 0.25, 10, 90))),
-            outcome("b", "dev", Kind::Canceled, Some(used(1, 0.5, 0, 0))),
+        let rows = [
+            row("a", None, Some(used(2, 0.25, 10, 90)), TaskState::Completed),
+            row("b", None, Some(used(1, 0.5, 0, 0)), TaskState::Canceled),
         ];
-        let table = table(&rows(&messages, None, false));
+        let table = table(&rows);
         for expected in [
             "Task",
             "Cache hit",
@@ -277,18 +191,17 @@ mod tests {
     }
 
     #[test]
-    fn tasks_without_usage_are_listed_only_with_all_and_not_totalled() {
-        let messages = [
-            outcome("old", "dev", Kind::Failed, None),
-            outcome("new", "dev", Kind::Completed, Some(used(2, 0.25, 10, 90))),
+    fn a_task_without_usage_is_not_totalled() {
+        let rows = [
+            row("old", None, None, TaskState::Failed),
+            row(
+                "new",
+                None,
+                Some(used(2, 0.25, 10, 90)),
+                TaskState::Completed,
+            ),
         ];
-        let default = rows(&messages, None, false);
-        assert_eq!(default.len(), 1);
-        assert_eq!(default[0].task, "new");
-
-        let all = rows(&messages, None, true);
-        assert_eq!(all.len(), 2);
-        let table = table(&all);
+        let table = table(&rows);
         let old = table
             .lines()
             .find(|l| l.contains("old"))
@@ -301,20 +214,5 @@ mod tests {
             .unwrap_or_default();
         assert!(total.contains("$0.2500"), "{total}");
         assert!(total.contains('2'), "{total}");
-    }
-
-    #[test]
-    fn a_tasks_messages_are_all_kinds_in_order() {
-        let messages = [
-            outcome("a", "dev", Kind::Progress, None),
-            outcome("b", "dev", Kind::Completed, None),
-            outcome("a", "dev", Kind::Question, None),
-        ];
-        let kinds: Vec<Kind> = task_messages(&messages, "a")
-            .iter()
-            .map(|m| m.kind)
-            .collect();
-        assert_eq!(kinds, [Kind::Progress, Kind::Question]);
-        assert_eq!(task_messages(&messages, "zzz").len(), 0);
     }
 }

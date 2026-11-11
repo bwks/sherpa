@@ -5,7 +5,9 @@ Sherpa's records (users, node images, labs, nodes, links, bridges) live in an em
 pinned to an exact pre-1.0 version with default features off, because they install mimalloc as the
 process's global allocator. The file is `SHERPA_DB_FILE_PATH`
 (`/opt/sherpa/db/sherpa.sqlite`), in SQLite's format, with a write-ahead log. Everything is in
-`crates/db`; no other crate depends on Turso. Outside the crate, records are the `shared::data`
+`crates/db`; the only other crate that depends on Turso is the `agent-bus` development tool, for
+its own file, the host's record (see [`AGENT_BUS.md`](AGENT_BUS.md), "The record"), which shares
+only the workspace pin. Outside the crate, records are the `shared::data`
 types and ids are the database-neutral `shared::data::RecordId`.
 
 Releases before 0.5.0 used a SurrealDB container. The spike that chose Turso, and its measurements,

@@ -34,7 +34,9 @@ tracked in issue #494.
 | Stream | One JetStream stream, `AGENTS`, on `agents.>`, keeping messages for 7 days (`max_age`). | `src/channel.rs` |
 | Status bucket | A JetStream key-value bucket, `AGENT_STATUS` (stream `KV_AGENT_STATUS`), one key per guest, history 1, kept 7 days. Each guest agent's heartbeat. See [Agent status](#agent-status). | `src/channel.rs`, `src/status.rs` |
 | Inboxes | One durable pull consumer per agent, named after it, filtered on `agents.<name>.>` (one subject per sender), with `max_waiting = 1`. A message waits until its agent reads and acknowledges it, and a restarted reader goes on where it stopped. | `src/channel.rs` |
-| Host commands | `key new`, `bus start/stop/status`, `enroll`, `unenroll`, `send`, `cancel`, `listen`, `usage`, `show`, `agents`. | `src/main.rs`, `src/bus.rs`, `src/listen.rs`, `src/table.rs` |
+| Recorder consumer | `_record`, a durable pull consumer on `agents.>` (every message, both ways), deliver all, `max_waiting = 1`, `max_ack_pending = 1`. Created by `bus start`; read only by a host command catching the record up. See [The record](#the-record). | `src/channel.rs` |
+| Record | `agent-bus.db` in the host's state directory: an embedded Turso database holding every message read from `_record`, and the tasks, runs and models derived from them, past the stream's 7 days. See [The record](#the-record). | `src/store/`, `src/record.rs`, `sql/` |
+| Host commands | `key new`, `bus start/stop/status`, `enroll`, `unenroll`, `send`, `cancel`, `listen`, `usage`, `show`, `history`, `agents`. | `src/main.rs`, `src/bus.rs`, `src/listen.rs`, `src/record.rs`, `src/report.rs`, `src/table.rs` |
 | Starting a guest | `dev/agent-bus/start-agent.sh` on the host enrolls a node's agent (named after the node, or given its own name) and pipes the Claude token, the GitHub write token, its seed and the bus's CA certificate over SSH to `dev/agent-bus/start-guest.sh` in the guest. | `dev/agent-bus/` |
 | Guest agent | `agent-bus guest`: reads its inbox, queues tasks, runs them one at a time through Claude Code, and replies. | `src/guest/` |
 | Claude Code | `claude -p` with `stream-json` output, one process (and process group) per run, in the guest's checkout. | `src/guest/claude.rs` |
@@ -48,7 +50,9 @@ runs.
 flowchart LR
     subgraph host["Host"]
         hostagent["Host agent<br/>Claude Code"]
-        cmds["agent-bus send, cancel,<br/>listen, usage, show"]
+        cmds["agent-bus send, cancel,<br/>listen"]
+        reads["agent-bus usage,<br/>show, history"]
+        record[("agent-bus.db<br/>the record")]
         start["agent-bus bus start"]
         enroll["agent-bus enroll, unenroll"]
         registry["enrolled.toml<br/>enrolled guests' public keys"]
@@ -64,7 +68,10 @@ flowchart LR
         checkout["checkout"]
     end
     hostagent --> cmds
+    hostagent --> reads
     cmds <-->|"NATS over TLS, NKey auth"| nats
+    reads <-->|"consumer _record"| nats
+    reads ---|"record.lock"| record
     start -->|"Docker API"| ctr
     start --> conf
     enroll --> registry
@@ -119,13 +126,15 @@ the error names the sequence to create it from.
 
 An inbox made before messages carried their sender in the subject is filtered on
 `agents.<name>`; `bus start` updates it to `agents.<name>.>` in place. Messages stored under the
-old subject are not delivered after that, and `usage` and `show` no longer see them, so let the
-inboxes drain (and run `listen` once) before upgrading. Guests must run the same version as the
+old subject are not delivered after that, so let the inboxes drain (and run `listen` once) before upgrading. Guests must run the same version as the
 host: an older guest publishes to `agents.<host>`, which it may no longer do.
 
 `bus stop` stops and removes the container and removes `bus.toml`; the volume and its messages
 stay. A container that is stopped already or gone is no error (`bus::remove`), so `bus stop`
 run again, or after the container was removed by hand, still removes `bus.toml`. `bus status` prints the container's state, the recorded URL and the lab.
+
+`bus start` also creates the record's consumer `_record` (see [The record](#the-record)),
+delivering every message the stream holds; on a bus that has one it is left as it is.
 
 Adding a guest means starting it: `start-agent.sh` enrolls it on the running bus (see
 [Enrollment](#enrollment)). `bus start` is needed again only when the agents file changes.
@@ -137,7 +146,7 @@ given. A record without the agents file, written before enrollment, makes them f
 run `bus start` again. With no record at all (the bus was stopped), `unenroll` still works: see
 [Enrollment](#enrollment).
 
-`send`, `cancel`, `listen`, `usage` and `show` take the first of: `--server <url>`, the
+`send`, `cancel`, `listen`, `usage`, `show` and `history` take the first of: `--server <url>`, the
 environment variable `AGENT_BUS_URL`, the URL in `bus.toml` (`state::find_server`). With none,
 they fail and say to run `bus start` or set one. The guest agent runs in the lab guest, where
 there is no `bus.toml`: it takes `--server` (or `AGENT_BUS_URL`), which `dev/agent-bus/start-guest.sh`
@@ -164,7 +173,7 @@ Every message is one JSON object, published to `agents.<to>.<from>` and stored b
 before `send` returns (`src/message.rs`, `Channel::send`). A guest may publish only under its own
 name (see [The rendered config](#the-rendered-config)), and a reader drops, logs and
 acknowledges a message whose `to` and `from` are not its subject's (`channel::sent_by`;
-`usage` and `show` skip it too), so a guest cannot pose as another agent.
+catching the record up skips it too), so a guest cannot pose as another agent.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -684,9 +693,10 @@ nats-server drops it and sends an asynchronous `Permissions Violation` error, an
 out. Every client prints the connection's events (`Channel::connect`), so a denial shows up as
 `Bus connection event: server error: nats: Permissions Violation for Publish to ...`.
 
-`usage` and `show` read the host's inbox history through an ephemeral pull consumer, which the
-host's `$JS.API.>` already allows. An ordered push consumer would need `$JS.FC` publish rights for
-flow control, so a pull consumer is used and nothing is widened.
+Host commands read the durable pull consumer `_record` with the host's key: `$JS.API.>` covers
+its pulls and `$JS.ACK.AGENTS.>` its acknowledgements, so nothing was widened for it, and a guest
+cannot read it. Queries run on the record file in the command's own process, not over the bus,
+so the host key needs no subscription beyond its reply prefix.
 
 ## Agent status
 
@@ -953,17 +963,90 @@ The guest log has one line per finished run with the run's figures and the task'
 one line per priming run. Every `result` event line is also appended unchanged to
 `results.jsonl` (see [Files and state](#files-and-state)), to check what the figures mean.
 
-`agent-bus usage [--agent <guest>] [--host <name>] [--all]` reads every message the stream still
-holds for the host's inbox (7 days) through an ephemeral pull consumer with no acknowledgement
-(`Channel::history`: deliver all, 256 per fetch, removed after use or after 30 s idle), so the
-host's inbox is neither consumed nor changed. It prints one row per task that had an outcome
-(`question`, `completed`, `failed`, `canceled`): task, agent, model (from its outcomes'
-`model`, `n/a` before guests sent it), runs, cost, cache hit, tokens (the four kinds added) and
-the kind of its last outcome, then a total row, as a `tabled` modern table
-(`src/report.rs`). A task's figures are the `task_usage` of its last outcome that carried one.
-Tasks with no usage are left out unless `--all` is given. `agent-bus show <task>` prints every
-kept message of one task, oldest first, one JSON line each, the same way, from the bus rather than
-the listener's journal.
+`agent-bus usage [--agent <guest>] [--host <name>] [--since <d>] [--all]` reads the record (see
+[The record](#the-record)). It prints one row per task sent by `--host` (default `host`) that
+had an outcome (`question`, `completed`, `failed`, `canceled`): task, agent, model (from its
+outcomes' `model`, `n/a` before guests sent it), runs, cost, cache hit, tokens (the four kinds
+added) and its state, then a total row, as a `tabled` modern table (`src/report.rs`). A task's
+figures are the `task_usage` of its last outcome that carried one. Tasks with no usage are left
+out unless `--all` is given; `--since 7d` keeps the tasks with a message in the last 7 days.
+`agent-bus show <task>` prints every recorded message of one task that `--host` sent or
+received, both directions (the task, answers and cancels as well as the replies), oldest first,
+one JSON line each.
+
+## The record
+
+The record is the host's copy of every message on the bus, kept for as long as the host keeps
+the file: `<state>/agent-bus.db`, an embedded Turso database (`turso` =0.8.3 without default
+features, the workspace's pin, as `crates/db`). The research and the options weighed are in
+[`../investigations/agent-bus-database.md`](../investigations/agent-bus-database.md).
+
+**One process opens it.** Turso holds its file for one process (a second open is refused, and
+its read-only mode reads a stale snapshot). Whoever holds the exclusive `flock` on
+`<state>/record.lock` is the only process that opens the record; Turso's own lock is a second
+guard, not the arbiter, because it is a POSIX record lock that a second open inside the same
+process does not see.
+
+**One path.** There is no long-running writer and no query protocol. `usage`, `show` and
+`history` each open the record through `record::Record::open`, the only code that opens it:
+
+1. Connect to the bus with the host's seed (`--server`, `AGENT_BUS_URL` or `bus.toml`, and
+   `AGENT_BUS_SEED`). This comes before the lock, so a bus that is slow to refuse does not keep
+   other commands waiting.
+2. Take `record.lock`, waiting up to 5 s (tried every 50 ms). The holder writes its PID into the
+   file (`files::lock_holder` reads it); a command that cannot take the lock in time fails with
+   "The record is busy: process <pid> has held <state>/record.lock for more than 5s".
+3. Open the record and bring its schema up to date.
+4. Catch up from `_record` (`record::catch_up`): record what waits, and stop when the last
+   delivery says nothing is pending or nothing comes for 2 s. Each message is:
+   1. one transaction: the `message` row (the stream sequence is the key, `ON CONFLICT DO
+      NOTHING`), the task's row read, updated (`store::task::apply`) and written back, and for
+      an outcome that carries a run's `usage`, the `run` row and a `run_model` row per model;
+   2. committed, then acknowledged. A command stopped between the two leaves the message to be
+      delivered again; its sequence is already recorded, so nothing changes (`store::record`
+      returns `false`). An acknowledgement the bus does not take is reported and catching up
+      goes on.
+5. Run the command's query (`store::read`), then drop the `Record`: the connection and the
+   database close, then the lock is released. The command prints after that.
+
+When catching up fails (the bus cannot be reached, `AGENT_BUS_SEED` is not set, the consumer is
+missing or has another reader, or a message cannot be recorded), the command prints "Showing
+what was recorded before: not caught up with the bus: <reason>" and answers from what is
+recorded. A message that was not recorded was not acknowledged, so the next command gets it.
+
+`max_ack_pending = 1` keeps one message in flight, so messages are recorded in stream order even
+when one is delivered again. As a second guard, a message older than the task's newest recorded
+one does not change its state, result, model or usage; it still adds its counts and the prompt.
+`_record` reads every subject, so the record holds what the host sent too; the host inbox and
+`listen` are untouched. Between commands, the stream keeps what the record has not taken yet.
+
+**Backfill.** `_record` is created delivering all, so the first command records every message
+the stream still holds (7 days). If no command runs for longer than the stream keeps messages,
+the record loses what the stream dropped.
+
+**Schema.** The SQL is under `crates/agent-bus/sql/`: `migrations/0001_record.sql` and one file
+per statement in `queries/`, included in the binary (`src/store/sql.rs`). The record's
+`PRAGMA user_version` is the number of migrations applied; opening it applies the rest in one
+transaction, and a record newer than the binary is refused. A unit test
+(`store::database::tests`) applies every migration to an in-memory database, prepares every
+query, and checks that every query file is listed and the migrations are numbered without a gap;
+there is no `build.rs`, so the guest's build does not compile Turso a second time as a build
+dependency. Times are milliseconds since the Unix epoch.
+
+| Table | One row per | Key |
+|---|---|---|
+| `message` | message read: task, from, to, kind, text, model, github, and `usage` and `task_usage` as JSON | `seq`, the stream sequence |
+| `task` | task: its agent and requester, prompt, requested and actual model, `github`, state (`sent`, `running`, `question`, `completed`, `failed`, `canceled`), sent, started, finished and last-active times, last result, question and answer counts, and its last `task_usage` | `id` |
+| `run` | outcome that carried a run's `usage`: its figures | `seq` |
+| `run_model` | model in a run's `usage.models`, subagents included | (`run`, `model`) |
+
+A task first seen through a later message (sent before the stream's oldest message) has no
+prompt and no sent time.
+
+`agent-bus history [--agent <guest>] [--since <d>] [--limit <n>] [--json]` lists the newest tasks
+(20 by default), newest first: task, agent, state, model (the one it ran on, else the one it asked
+for, else `default`), last activity in UTC, cost and the start of the prompt's first line, as a
+`tabled` modern table, or the rows as JSON.
 
 ## Pull request Generation section
 
@@ -1064,9 +1147,11 @@ real-bus tests start the bus with its state in a 0700 directory.
 | Host | `<state>/enrolled.toml` | 0600, directory 0700 | The registry of enrolled guests, in the agents file's format, guests only, with a header saying it is managed by agent-bus. Written with `files::write_atomic`. A missing file is an empty registry. | `registry::Registry::save` |
 | Host | `<state>/enroll.lock` | 0600, directory 0700 | Empty; the exclusive `flock` that `bus start`, `enroll` and `unenroll` hold while they change the registry or render the config. Never removed. | `files::lock_exclusive` |
 | Host | `<state>/bus.toml` | 0600, directory 0700 | `url`, `agents` (the agents file's absolute path), and `[lab]` with `id` and `name` when started with `--lab`. Written with `files::write_atomic`. Removed by `bus stop`. | `state::write` |
+| Host | `<state>/agent-bus.db`, `<state>/agent-bus.db-wal` | 0600, directory 0700 | The record (see [The record](#the-record)). Opened only by the holder of `record.lock`; its mode is set on every open. | `store::Store::open` |
+| Host | `<state>/record.lock` | 0600, directory 0700 | The exclusive `flock` whose holder alone opens the record: the command reading it. Holds the PID of its holder, or its last one. Never removed. | `record::Record::open`, `files::try_lock_exclusive` |
 | Host | `<state>/listen-<agent>.jsonl` | 0600, directory 0700 | The listener's journal: one line per message received, `{"at_ms":..,"message":{..}}`, the message as `listen` prints it. Appended and in the file before the message is printed and acknowledged. Pruned to 7 days (below). | `listen::Journal` |
 | Host | the agents file | the user's | The host's and any fixed guests' names, public keys and roles. Only read. | the user |
-| Host | Docker volume `sherpa-agent-bus-data` | Docker's | JetStream's store: the `AGENTS` stream and the consumers. | nats-server |
+| Host | Docker volume `sherpa-agent-bus-data` | Docker's | JetStream's store: the `AGENTS` stream and the consumers, `_record` among them. | nats-server |
 | Guest | `<state>/bus-ca.pem` | 0644, directory 0700 | The bus CA's certificate, from the SSH stdin pipe; the agent's `AGENT_BUS_CA`. Replaced on every start. | `start-guest.sh` |
 | Guest | `<state>/guest-<name>.toml` | 0600, directory 0700 | The guest agent's state (below). Written with `files::write_atomic` (below). A file that cannot be read or parsed is moved to `guest-<name>.toml.corrupt-<unix seconds>` and the agent starts fresh. | `guest::state` |
 | Guest | `<state>/guest-<name>.lock` | 0600, directory 0700 | The PID of the agent holding the lock. Never removed. | `guest::lock` |
@@ -1153,6 +1238,7 @@ The only bus secret stored is the host's seed: guests get a fresh key each time 
 | `agent-bus:cancel` | `agent-bus cancel` |
 | `agent-bus:usage` | `agent-bus usage` |
 | `agent-bus:show` | `agent-bus show <task>` |
+| `agent-bus:history` | `agent-bus history` |
 
 `agent-bus:agent` replaces the per-agent tasks that piped a stored seed for each guest. It holds
 no secret itself; `<load secrets>` stands for however the other tasks load the host's
@@ -1225,9 +1311,9 @@ and lab and its agent takes a new name, with no rebuild. For node `dev` to run a
 4. In the guest, `guest-dev.toml`, `guest-dev.lock` and `~/agent-bus-dev.log` are left as they
    were; delete them by hand when nothing is left to answer.
 
-History stays under the old name. `agent-bus usage` reads the messages kept for the host, so old
-tasks show agent `dev` (and `--agent dev` finds them) until the stream's 7 days drop them;
-nothing is rewritten. The generation ledger is shared by every name, so the old tasks' rows keep
+History stays under the old name. The record keeps each task under the agent it went to, so old
+tasks show agent `dev` in `usage` and `history` (and `--agent dev` finds them); nothing is
+rewritten. The generation ledger is shared by every name, so the old tasks' rows keep
 `dev` as their agent and still count in a pull request's Generation section.
 
 **Moving from stored guest keys.** Guests listed in the agents file keep their fixed keys and
@@ -1248,19 +1334,21 @@ its result are in `tests/environments/dev/README.md`.
 Checking health:
 
 - `agent-bus bus status`: the container's state, the recorded URL, the lab and the CA certificate.
-- The `bus start` output: one `Inbox ready` line per agent.
+- The `bus start` output: one `Inbox ready` line per agent, and `Recorder consumer ready`.
 - `<state>/enrolled.toml`: the enrolled guests and their public keys.
-- `agent-bus usage`: what each recent task cost, and its last outcome.
+- `agent-bus usage`: what each task cost, and its last outcome.
+- `agent-bus history`: the newest tasks, their state and the start of their prompt.
 - `agent-bus listen host --since 1h`, or `<state>/listen-host.jsonl` on the host: what the
   listener received, for an outcome the host agent missed.
-- `agent-bus show <task>`: every message of one task the bus still keeps.
+- `agent-bus show <task>`: every recorded message of one task, both ways.
 - The guest log, `~/agent-bus-<name>.log` in the guest: the lock and state paths, each task and
   answer taken, one usage line per run, priming lines, and any `Bus connection event`, such as a
   permission violation.
 
 The `nats` CLI (in the dev server's mise tools) can inspect the bus with `--nkey <seed file>
 --tlsfirst --tlsca <state>/tls/ca.pem`, but that puts a seed on disk; prefer `agent-bus listen`
-and `show`.
+and `show`. The record is a Turso file: read it with the commands, not with the `sqlite3` CLI,
+which Turso's lock refuses while a command has it open.
 
 ### Tracing
 
@@ -1321,6 +1409,11 @@ not reach the builds and tests Claude runs.
 
   If a task prints either, the agent redacts it from what it sends and records, but Claude
   Code's own session transcript in `~/.claude/` keeps the tool output as printed.
+- **The record is one process's at a time.** Commands take turns on `record.lock`; one that
+  waits more than 5 s fails naming the holder's PID. Each command catches up first, which takes
+  a moment after a busy stretch (seconds for the first backfill of 7 days), and nothing records
+  while no command runs: the stream holds those messages for 7 days. The record holds every
+  task's text and results, so it is as private as the state directory.
 - **The registry is trusted as written.** Anyone who can write the host's state directory can
   enroll a key; it is 0700 for that reason.
 - **Windows left.** A message is acknowledged before it reaches the state file's queue, so a

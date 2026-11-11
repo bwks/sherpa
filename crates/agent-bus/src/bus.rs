@@ -33,7 +33,7 @@ use futures_util::TryStreamExt;
 use tracing::instrument;
 
 use crate::agents::Agents;
-use crate::channel::{Channel, Endpoint};
+use crate::channel::{Channel, Endpoint, RECORDER};
 use crate::config;
 use crate::files::{lock_exclusive, standard_state_dir};
 use crate::keys::{self, public_key_of};
@@ -209,7 +209,7 @@ impl Bus {
 /// Start the bus for the agents in `agents_path` and the enrolled guests, and prepare it. This
 /// renders the server config, replaces any existing bus container (the config may have changed;
 /// the messages live in the volume), then connects as the host with `host_seed` and creates the
-/// inbox stream and every agent's inbox.
+/// inbox stream, every agent's inbox and the recorder's consumer.
 ///
 /// # Errors
 ///
@@ -271,6 +271,7 @@ pub async fn start(bus: &Bus, agents_path: &Path, host_seed: &str) -> Result<()>
     let outcomes = channel
         .create_inboxes(agents.all().map(|agent| agent.name.as_str()))
         .await?;
+    let recorder = channel.create_recorder().await?;
     state::write(
         &bus.record_path(),
         &BusRecord {
@@ -286,6 +287,7 @@ pub async fn start(bus: &Bus, agents_path: &Path, host_seed: &str) -> Result<()>
     for (agent, change) in outcomes {
         println!("Inbox ready: {agent} ({change})");
     }
+    println!("Recorder consumer ready: {RECORDER} ({recorder})");
     Ok(())
 }
 
@@ -746,13 +748,15 @@ mod tests {
     use crate::agents::Role;
     use crate::channel::{Inbox, inbox_prefix, tls_options};
     use crate::files::{DIR_MODE, PRIVATE_FILE_MODE};
-    use crate::files::{millis, now_ms};
+    use crate::files::{millis, now_ms, try_lock_exclusive};
     use crate::guest::run::heartbeat;
     use crate::keys::{NewKey, generate};
     use crate::listen::{Journal, serve};
     use crate::message::{Kind, Message, TaskUsage, Usage};
+    use crate::record::{BusAccess, CatchUp, Paths, Record};
     use crate::report;
     use crate::status::{Heartbeat, Observed, Online, Row, Running, STALE, Status, row};
+    use crate::store::{TaskState, read};
 
     /// The heartbeat's beat in the offline test, not the production `HEARTBEAT`.
     const BEAT: Duration = Duration::from_millis(200);
@@ -1383,15 +1387,15 @@ mod tests {
         Ok(())
     }
 
-    /// The host reads the outcomes still kept in the stream, with its own permissions, and the
-    /// read leaves its inbox as it was.
-    async fn usage_history(bus: &Bus, host: &NewKey, dev: &NewKey) -> Result<()> {
-        let wait = Duration::from_secs(15);
-        let host_channel = Channel::connect(&bus.endpoint(), &host.seed).await?;
-        let dev_channel = Channel::connect(&bus.endpoint(), &dev.seed).await?;
+    /// Task `record1` both ways: the task from the host, a question and the outcome from dev,
+    /// each with its usage.
+    async fn send_task_to_record(host_channel: &Channel, dev_channel: &Channel) -> Result<()> {
+        let mut task = message("host", "dev", "record me");
+        task.task = "record1".to_owned();
+        host_channel.send(&task).await?;
         for (kind, runs, cost_usd) in [(Kind::Question, 1, 0.04), (Kind::Completed, 2, 0.06)] {
             let mut outcome = message("dev", "host", "outcome");
-            outcome.task = "usage1".to_owned();
+            outcome.task = "record1".to_owned();
             outcome.kind = kind;
             outcome.task_usage = Some(TaskUsage {
                 runs,
@@ -1403,15 +1407,52 @@ mod tests {
             });
             dev_channel.send(&outcome).await?;
         }
-        let messages = timeout(wait, host_channel.history("host"))
+        Ok(())
+    }
+
+    /// The host records every message on the bus, both ways, once each, through the one path
+    /// every command takes: a command catches the record up from `_record` and answers from
+    /// it; the next command, in turn, records nothing more and answers the same. The host's
+    /// inbox is left as it was, and a guest may not read the recorder's consumer.
+    async fn recorded_history(bus: &Bus, host: &NewKey, dev: &NewKey, dir: &Path) -> Result<()> {
+        let wait = Duration::from_secs(15);
+        let host_channel = Channel::connect(&bus.endpoint(), &host.seed).await?;
+        let dev_channel = Channel::connect(&bus.endpoint(), &dev.seed).await?;
+        send_task_to_record(&host_channel, &dev_channel).await?;
+        let waiting = host_channel.waiting("host").await?;
+        let paths = Paths::in_dir(&dir.join("record-state"));
+        let access = || {
+            Ok(BusAccess {
+                server: bus.endpoint(),
+                seed: host.seed.clone(),
+            })
+        };
+
+        // The first command catches up, then answers.
+        let record = timeout(wait, Record::open(&paths, access()))
             .await
-            .context("the history was not read in time")??;
-        let rows = report::rows(&messages, Some("dev"), false);
+            .context("catching up took too long")??;
+        let CatchUp::Read(read) = record.catch_up() else {
+            bail!(
+                "the first command did not catch up: {:?}",
+                record.catch_up()
+            );
+        };
+        ensure!(*read >= 3, "only {read} messages were recorded");
+        ensure!(
+            record.behind().is_none(),
+            "a current record says it is behind"
+        );
+        let rows = read::usage(record.conn(), "host", Some("dev"), None, false).await?;
         let row = rows
             .iter()
-            .find(|row| row.task == "usage1")
+            .find(|row| row.task == "record1")
             .context("the task is missing from the report")?;
-        ensure!(row.state == Kind::Completed, "wrong state {:?}", row.state);
+        ensure!(
+            row.state == TaskState::Completed,
+            "wrong state {:?}",
+            row.state
+        );
         ensure!(
             row.usage.as_ref().is_some_and(|usage| usage.runs == 2),
             "wrong usage {:?}",
@@ -1421,39 +1462,52 @@ mod tests {
             report::table(&rows).contains("$0.0600"),
             "the cost is missing from the table"
         );
-        // `show` prints the task's messages, all kinds, oldest first.
-        let shown = report::task_messages(&messages, "usage1");
         ensure!(
-            shown.len() == 2
-                && shown.first().is_some_and(|m| m.kind == Kind::Question)
-                && shown.get(1).is_some_and(|m| m.kind == Kind::Completed),
-            "wrong messages for the task: {shown:?}"
+            try_lock_exclusive(&paths.lock)?.is_none(),
+            "an open record does not hold its lock"
         );
-        // Nothing was acknowledged or consumed: the two outcomes are still in the inbox, and
-        // reading twice gives the same.
+        drop(record);
+
+        // The next command, in turn: nothing more to record, the same answer. `show` has the
+        // task's messages both ways, oldest first.
+        let record = timeout(wait, Record::open(&paths, access()))
+            .await
+            .context("catching up again took too long")??;
         ensure!(
-            host_channel.waiting("host").await? >= 2,
-            "the history read consumed the host's inbox"
+            matches!(record.catch_up(), CatchUp::Read(0)),
+            "the second command recorded {:?}",
+            record.catch_up()
         );
+        let messages = read::task_messages(record.conn(), "record1", "host").await?;
+        let kinds: Vec<Kind> = messages.iter().map(|message| message.kind).collect();
         ensure!(
-            host_channel.history("host").await?.len() == messages.len(),
-            "a second read of the history differs"
+            kinds == [Kind::Task, Kind::Question, Kind::Completed],
+            "wrong messages for the task: {kinds:?}"
         );
-        // Drain the inbox as the other checks expect.
-        let mut inbox = host_channel.inbox("host").await?;
-        while host_channel.waiting("host").await? > 0 {
-            let delivery = timeout(wait, inbox.next())
-                .await
-                .context("the inbox ran dry")??
-                .context("the inbox closed")?;
-            delivery.ack().await?;
+        drop(record);
+
+        // The host's inbox was not touched.
+        ensure!(
+            host_channel.waiting("host").await? == waiting,
+            "recording consumed the host's inbox"
+        );
+        // Drain the inboxes as the other checks expect.
+        for (channel, name) in [(&host_channel, "host"), (&dev_channel, "dev")] {
+            let mut inbox = channel.inbox(name).await?;
+            while channel.waiting(name).await? > 0 {
+                let delivery = timeout(wait, inbox.next())
+                    .await
+                    .context("the inbox ran dry")??
+                    .context("the inbox closed")?;
+                delivery.ack().await?;
+            }
         }
-        // The guest may not read the history: it cannot create a consumer.
+        // The guest may not read the recorder's consumer.
         ensure!(
-            timeout(wait, dev_channel.history("host"))
+            timeout(wait, dev_channel.recorder())
                 .await
                 .is_ok_and(|read| read.is_err()),
-            "a guest read the host's history"
+            "a guest read the recorder's consumer"
         );
         Ok(())
     }
@@ -1676,8 +1730,8 @@ mod tests {
             // with its usage.
             reply_burst(&bus, &host, &dev).await?;
 
-            // `usage` reads the kept outcomes without consuming the host's inbox.
-            usage_history(&bus, &host, &dev).await?;
+            // The record takes every message, once, without consuming the host's inbox.
+            recorded_history(&bus, &host, &dev, &dir).await?;
 
             // `listen` journals each message before acknowledging it.
             listener_journal(&bus, &host, &dev, &dir).await?;
