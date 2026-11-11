@@ -548,7 +548,7 @@ impl OsVariant {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, Eq, EnumIter, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum CpuArchitecture {
     #[default]
@@ -568,7 +568,7 @@ impl CpuArchitecture {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, Eq, EnumIter, JsonSchema)]
 pub enum MachineType {
     #[default]
     #[serde(rename = "pc")]
@@ -661,7 +661,7 @@ impl InterfaceType {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, Eq, EnumIter, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BiosTypes {
     #[default]

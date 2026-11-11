@@ -3,12 +3,14 @@
 {% when BadgeSize::Small %}
 {% match badge.tone %}
 {% when BadgeTone::Neutral %}<span class="badge-neutral">{{ badge.label }}</span>
+{% when BadgeTone::Success %}<span class="badge-success">{{ badge.label }}</span>
 {% when BadgeTone::Warning %}<span class="badge-warning">{{ badge.label }}</span>
 {% when BadgeTone::Danger %}<span class="badge-danger">{{ badge.label }}</span>
 {% endmatch %}
 {% when BadgeSize::Large %}
 {% match badge.tone %}
 {% when BadgeTone::Neutral %}<span class="badge-neutral-lg">{{ badge.label }}</span>
+{% when BadgeTone::Success %}<span class="badge-success-lg">{{ badge.label }}</span>
 {% when BadgeTone::Warning %}<span class="badge-warning-lg">{{ badge.label }}</span>
 {% when BadgeTone::Danger %}<span class="badge-danger-lg">{{ badge.label }}</span>
 {% endmatch %}

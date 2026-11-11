@@ -1,6 +1,5 @@
 {% extends "layouts/base.html.jinja" %}
 {% import "macros/icons.html.jinja" as icons %}
-{% import "macros/badges.html.jinja" as badges %}
 
 {% block title %}{{ device.name }} - Node Details{% endblock %}
 
@@ -24,7 +23,8 @@
             <p class="text-sm text-muted mt-1 font-mono">{{ device.model }} / {{ device.kind }}</p>
         </div>
         <div>
-            {% call badges::node_state_lg(device.state) %}
+            {% let badge = state_badge %}
+            {% include "snippets/badge.html.jinja" %}
         </div>
     </div>
 </div>
@@ -208,14 +208,15 @@
     <a href="/labs/{{ lab_id }}" class="btn-cancel">
         Back to Lab
     </a>
-    {% if device.state.can_stop() %}
+    {% if actions.stop %}
     <button
         data-node-action="stop" data-lab-id="{{ lab_id }}" data-node-name="{{ device.name }}"
         class="btn-danger cursor-pointer"
     >
         Stop Node
     </button>
-    {% elif device.state.can_start() %}
+    {% endif %}
+    {% if actions.start %}
     <button
         data-node-action="start" data-lab-id="{{ lab_id }}" data-node-name="{{ device.name }}"
         class="btn-primary cursor-pointer"
@@ -223,7 +224,7 @@
         Start Node
     </button>
     {% endif %}
-    {% if device.state.can_redeploy() %}
+    {% if actions.redeploy %}
     <button
         data-node-action="redeploy" data-lab-id="{{ lab_id }}" data-node-name="{{ device.name }}"
         class="btn-edit cursor-pointer"

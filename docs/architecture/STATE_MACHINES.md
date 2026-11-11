@@ -79,8 +79,8 @@ M8.2 and M9.1.*
   - `NodeState::on_operation(OperationEvent) -> Result<NodeState, Refused>`, for operations;
   - `NodeState::on_observation(Observation) -> NodeState`, for the scanner. An observation
     never fails; one the state does not take leaves it as it is.
-  - `can_start`, `can_stop` and `can_redeploy`, which the web templates use to choose the
-    buttons. A test checks they agree with `on_operation`.
+- The buttons the web UI offers for a node come from `NodeActions::for_state` in
+  `crates/server/src/templates/actions.rs`. A test checks they agree with `on_operation`.
 - It is stored in `node.state TEXT NOT NULL` (`crates/db/sql/schema/node.sql`). The only write
   is `db::update_node_state_from(id, from, to)` (`crates/db/src/node/update.rs`), a
   compare-and-set: `UPDATE ... WHERE id = ? AND state = ?`. It returns `None` when the node is
@@ -146,7 +146,7 @@ domain or container, and report the refusal in its result.
 - The scanner sets it only for a lab no operation holds, and queries libvirt and Docker again
   under that hold, so it sees what the last operation did.
 - Read by `LabState::derive` (machine 2), by `list_labs` and `inspect`, by the CLI tables, and
-  by the web templates through `can_start`, `can_stop` and `can_redeploy`.
+  by the web UI through `NodeActions::for_state` and `Badge::for_node_state`.
 - At startup, before the server takes requests, `lab_lifecycle::recover` records `Failed` for
   every node still `Building`: the `up` or redeploy building it ended with the server
   (machine 2).
@@ -197,8 +197,8 @@ The **status** says how healthy its nodes are, and is derived from them each tim
   - `LabPhase::on_event(LabEvent) -> Result<LabTransition, LabRefused>`. A `LabTransition` is
     `To(phase)`, or `Removed` for a move that deletes the record.
   - `ensure_ready() -> Result<(), LabNotReady>`: only `Ready` takes operations on the lab's
-    nodes. The refusal's message says what to do. `is_ready()` is the same test for the web
-    templates.
+    nodes. The refusal's message says what to do. `is_ready()` is the same test for the admin
+    labs list.
 - It is stored in `lab.phase TEXT NOT NULL` (migration `0015_lab_phase.sql`, which also dropped
   the old `lab.status`). Labs that existed before are `ready`. Text this build does not know
   decodes as `Unknown` (`#[serde(other)]`), which allows only destroy and clean.
@@ -248,8 +248,9 @@ Every other pair is refused with a `LabRefused`.
   no lab is `Creating` or `Destroying` and no node is `Building` without an operation.
 - `list_labs` and `inspect` return the phase beside the status (`LabSummary.phase`,
   `InspectResponse.lab_phase`, both `ready` when a server before 0.5.27 sends none).
-- The web templates show the phase instead of the status while the lab is not ready, and then
-  offer only Destroy (`labs-grid`, `lab-detail`, and the admin labs list). `sherpa inspect` and
+- The web UI shows the phase instead of the status while the lab is not ready, and then
+  offers only Destroy (`labs-grid`, `lab-detail`, and the admin labs list). The handlers decide
+  with `Badge::for_lab` and `LabActions::for_lab` (`crates/server/src/templates/`). `sherpa inspect` and
   `sherpa destroy` print the refusal message for a lab that is not ready.
 - The scanner does not read or write the phase. It observes the nodes of any lab no operation
   holds; a lab whose destroy failed has its missing nodes recorded `Missing`.

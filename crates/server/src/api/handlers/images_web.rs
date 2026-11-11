@@ -4,9 +4,10 @@ use axum::Form;
 use axum::extract::{Multipart, Path, State};
 use axum::http::header;
 use axum::response::{Html, IntoResponse, Response};
+use serde::Deserialize;
 use serde::de::value::{Error as DeError, StrDeserializer};
 use serde::de::{DeserializeOwned, IntoDeserializer};
-use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 use std::iter;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
@@ -17,7 +18,10 @@ use crate::daemon::state::AppState;
 use crate::services::image_lifecycle::lock_image;
 use crate::services::import;
 use crate::services::progress::ProgressSender;
-use crate::templates::{AdminImageUploadTemplate, AdminNotificationErrorTemplate, FormChoice};
+use crate::templates::{
+    AdminImageEditTemplate, AdminImageUploadTemplate, AdminNotificationErrorTemplate, FormChoice,
+    KindBadge, NavPage, kind_label,
+};
 
 use crate::api::errors::ApiError;
 use crate::api::extractors::AdminUser;
@@ -36,10 +40,10 @@ pub struct ImagePath {
 }
 
 /// Helper struct to summarize image data for list view
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct ImageSummary {
     pub model: String,
-    pub kind: String,
+    pub kind_badge: KindBadge,
     pub version: String,
     pub cpu_count: u8,
     pub memory: u16,
@@ -69,7 +73,7 @@ pub async fn admin_images_list_handler(
         let model_key = config.model.to_string();
         let summary = ImageSummary {
             model: model_key.clone(),
-            kind: config.kind.to_string(),
+            kind_badge: KindBadge::short(config.kind),
             version: config.version,
             cpu_count: config.cpu_count,
             memory: config.memory,
@@ -93,7 +97,7 @@ pub async fn admin_images_list_handler(
     let template = crate::templates::AdminImagesListTemplate {
         username: admin.username.clone(),
         is_admin: true,
-        active_page: "admin_images".to_string(),
+        nav: NavPage::AdminImages.into(),
         configs: summaries,
     };
 
@@ -201,6 +205,18 @@ fn ztp_choices(model: NodeModel, current: Ztp) -> Vec<FormChoice> {
         .collect()
 }
 
+/// The edit form's options for a field of type `T`: every variant, with the image's `current`
+/// value selected.
+fn form_choices<T: IntoEnumIterator + Display + PartialEq>(current: &T) -> Vec<FormChoice> {
+    T::iter()
+        .map(|variant| FormChoice {
+            value: variant.to_string(),
+            label: variant.to_string(),
+            selected: variant == *current,
+        })
+        .collect()
+}
+
 /// One of the form's choices, by the enum's serde name.
 fn parse_form_choice<T: DeserializeOwned>(value: &str, field_name: &str) -> Result<T, ApiError> {
     let deserializer: StrDeserializer<'_, DeError> = value.into_deserializer();
@@ -268,7 +284,8 @@ pub async fn admin_image_detail_handler(
     let template = crate::templates::AdminImageDetailTemplate {
         username: admin.username.clone(),
         is_admin: true,
-        active_page: "admin_images".to_string(),
+        nav: NavPage::AdminImages.into(),
+        kind_badge: KindBadge::full(config.kind.clone()),
         config,
     };
 
@@ -289,23 +306,27 @@ pub async fn admin_image_edit_page_handler(
 
     let config = find_image_config(&state, &params).await?;
 
-    // Generate enum options for dropdowns
-    let template = crate::templates::AdminImageEditTemplate {
-        username: admin.username.clone(),
-        is_admin: true,
-        active_page: "admin_images".to_string(),
-        ztp_choices: ztp_choices(config.model, config.ztp.mode),
-        config,
-        os_variants: OsVariant::iter().map(|v| v.to_string()).collect(),
-        bios_types: BiosTypes::iter().map(|v| v.to_string()).collect(),
-        cpu_architectures: CpuArchitecture::iter().map(|v| v.to_string()).collect(),
-        cpu_models: CpuModels::iter().map(|v| v.to_string()).collect(),
-        machine_types: MachineType::iter().map(|v| v.to_string()).collect(),
-        disk_buses: DiskBuses::iter().map(|v| v.to_string()).collect(),
-        interface_types: InterfaceType::iter().map(|v| v.to_string()).collect(),
-    };
+    Ok(image_edit_template(admin.username, config))
+}
 
-    Ok(template)
+/// The edit page for `config`, with every dropdown's options and the image's own selected.
+fn image_edit_template(username: String, config: NodeConfig) -> AdminImageEditTemplate {
+    AdminImageEditTemplate {
+        username,
+        is_admin: true,
+        nav: NavPage::AdminImages.into(),
+        kind_label: kind_label(&config.kind),
+        os_variant_choices: form_choices::<OsVariant>(&config.os_variant),
+        bios_choices: form_choices::<BiosTypes>(&config.bios),
+        cpu_architecture_choices: form_choices::<CpuArchitecture>(&config.cpu_architecture),
+        cpu_model_choices: form_choices::<CpuModels>(&config.cpu_model),
+        machine_type_choices: form_choices::<MachineType>(&config.machine_type),
+        hdd_bus_choices: form_choices::<DiskBuses>(&config.hdd_bus),
+        cdrom_bus_choices: form_choices::<DiskBuses>(&config.cdrom_bus),
+        ztp_choices: ztp_choices(config.model, config.ztp.mode),
+        interface_type_choices: form_choices::<InterfaceType>(&config.interface_type),
+        config,
+    }
 }
 
 /// Form data for updating an image configuration
@@ -450,9 +471,10 @@ pub async fn admin_image_versions_handler(
     let template = crate::templates::AdminImageVersionsTemplate {
         username,
         is_admin: true,
-        active_page: "admin_images".to_string(),
+        nav: NavPage::AdminImages.into(),
         model,
-        kind: kind_enum.to_string(), // Derive kind for display in template
+        kind_label: kind_label(&kind_enum),
+        kind: kind_enum,
         versions,
     };
 
@@ -579,7 +601,7 @@ pub async fn admin_image_upload_page_handler(
     let template = AdminImageUploadTemplate {
         username: admin.username,
         is_admin: true,
-        active_page: "admin_images".to_string(),
+        nav: NavPage::AdminImages.into(),
         models,
     };
 
@@ -673,10 +695,12 @@ pub async fn admin_image_upload_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use askama::Template;
     use axum::body::Body;
     use axum::extract::FromRequest;
     use axum::extract::rejection::FormRejection;
     use axum::http::{Method, Request};
+    use serde::Serialize;
 
     fn raw_fields(
         model: Option<&str>,
@@ -842,6 +866,90 @@ mod tests {
 
         assert_eq!(updated.version, "24.04");
         assert!(updated.default);
+    }
+
+    /// Each variant of `T` in turn as the image's value: the form offers every variant, and
+    /// selects that one alone.
+    fn assert_every_variant_offered_and_the_current_selected<T>()
+    where
+        T: IntoEnumIterator + Display + PartialEq,
+    {
+        let all: Vec<String> = T::iter().map(|variant| variant.to_string()).collect();
+        for current in T::iter() {
+            let choices = form_choices(&current);
+            let values: Vec<String> = choices.iter().map(|choice| choice.value.clone()).collect();
+            let labels: Vec<String> = choices.iter().map(|choice| choice.label.clone()).collect();
+            let selected: Vec<String> = choices
+                .iter()
+                .filter(|choice| choice.selected)
+                .map(|choice| choice.value.clone())
+                .collect();
+            assert_eq!(values, all);
+            assert_eq!(labels, all);
+            assert_eq!(selected, vec![current.to_string()]);
+        }
+    }
+
+    #[test]
+    fn the_edit_form_offers_every_option_and_selects_the_images_own() {
+        assert_every_variant_offered_and_the_current_selected::<OsVariant>();
+        assert_every_variant_offered_and_the_current_selected::<BiosTypes>();
+        assert_every_variant_offered_and_the_current_selected::<CpuArchitecture>();
+        assert_every_variant_offered_and_the_current_selected::<CpuModels>();
+        assert_every_variant_offered_and_the_current_selected::<MachineType>();
+        assert_every_variant_offered_and_the_current_selected::<DiskBuses>();
+        assert_every_variant_offered_and_the_current_selected::<InterfaceType>();
+    }
+
+    /// The `<option>` the edit page selects in the `<select>` named `name`.
+    fn selected_option(html: &str, name: &str) -> String {
+        let select = &html[html.find(&format!(r#"<select id="{name}""#)).expect(name)..];
+        let select = &select[..select.find("</select>").expect("select end")];
+        let marked: Vec<&str> = select
+            .match_indices(r#"" selected>"#)
+            .map(|(at, _)| {
+                let start = select[..at].rfind(r#"value=""#).expect("value") + 7;
+                &select[start..at]
+            })
+            .collect();
+        assert_eq!(marked.len(), 1, "{name}: {select}");
+        marked[0].to_owned()
+    }
+
+    #[test]
+    fn the_edit_page_selects_the_images_own_settings_and_names_its_kind() {
+        let config = NodeConfig {
+            os_variant: OsVariant::iter().next_back().expect("an OS variant"),
+            bios: BiosTypes::iter().next_back().expect("a BIOS"),
+            cpu_architecture: CpuArchitecture::iter()
+                .next_back()
+                .expect("an architecture"),
+            cpu_model: CpuModels::iter().next_back().expect("a CPU model"),
+            machine_type: MachineType::iter().next_back().expect("a machine type"),
+            hdd_bus: DiskBuses::iter().next_back().expect("a bus"),
+            cdrom_bus: DiskBuses::iter().next().expect("a bus"),
+            interface_type: InterfaceType::iter()
+                .next_back()
+                .expect("an interface type"),
+            ..NodeConfig::get_model(NodeModel::UbuntuLinux)
+        };
+        let html = image_edit_template("admin".to_owned(), config.clone())
+            .render()
+            .expect("template should render");
+        for (name, value) in [
+            ("os_variant", config.os_variant.to_string()),
+            ("bios", config.bios.to_string()),
+            ("cpu_architecture", config.cpu_architecture.to_string()),
+            ("cpu_model", config.cpu_model.to_string()),
+            ("machine_type", config.machine_type.to_string()),
+            ("hdd_bus", config.hdd_bus.to_string()),
+            ("cdrom_bus", config.cdrom_bus.to_string()),
+            ("ztp", config.ztp.mode.to_string()),
+            ("interface_type", config.interface_type.to_string()),
+        ] {
+            assert_eq!(selected_option(&html, name), value, "{name}");
+        }
+        assert!(html.contains(r#"<input type="text" value="Virtual Machine" disabled"#));
     }
 
     /// The offered values, and the one selected.

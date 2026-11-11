@@ -149,27 +149,6 @@ impl NodeState {
             },
         }
     }
-
-    /// Whether the web UI offers to start the node.
-    #[must_use]
-    pub fn can_start(self) -> bool {
-        matches!(
-            self,
-            NodeState::Stopped | NodeState::Failed | NodeState::Unknown
-        )
-    }
-
-    /// Whether the web UI offers to stop the node.
-    #[must_use]
-    pub fn can_stop(self) -> bool {
-        matches!(self, NodeState::Running | NodeState::Starting)
-    }
-
-    /// Whether the web UI offers to redeploy the node.
-    #[must_use]
-    pub fn can_redeploy(self) -> bool {
-        self != NodeState::Building
-    }
 }
 
 #[cfg(test)]
@@ -177,7 +156,7 @@ mod tests {
     use super::*;
     use strum::IntoEnumIterator;
 
-    use NodeState::{Building, Failed, Missing, Running, Starting, Stopped, Unknown};
+    use NodeState::{Building, Failed, Missing, Running, Starting, Stopped};
 
     const OPERATION_EVENTS: [OperationEvent; 5] = [
         OperationEvent::RebuildStarted,
@@ -351,31 +330,11 @@ mod tests {
             probe: Probe::NotProbed,
         };
         assert_eq!(Running.on_observation(gone), Missing);
-        assert!(!Missing.can_start());
-        assert!(Missing.can_redeploy());
         let refusal = Missing.on_operation(OperationEvent::Launched);
         assert!(
             refusal
                 .err()
                 .is_some_and(|refusal| refusal.to_string().contains("redeploy it"))
         );
-    }
-
-    #[test]
-    fn the_ui_offers_actions_the_machine_allows() {
-        for state in NodeState::iter() {
-            if state.can_start() {
-                assert!(state.on_operation(OperationEvent::Launched).is_ok());
-            }
-            if state.can_stop() {
-                assert!(state.on_operation(OperationEvent::Stopped).is_ok());
-            }
-            if state.can_redeploy() {
-                assert!(state.on_operation(OperationEvent::RebuildStarted).is_ok());
-            }
-        }
-        assert!(!Building.can_start() && !Building.can_stop() && !Building.can_redeploy());
-        assert!(Running.can_stop() && Starting.can_stop());
-        assert!(Stopped.can_start() && Failed.can_start() && Unknown.can_start());
     }
 }

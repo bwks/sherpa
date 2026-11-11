@@ -1,6 +1,5 @@
 {% extends "layouts/base.html.jinja" %}
 {% import "macros/icons.html.jinja" as icons %}
-{% import "macros/badges.html.jinja" as badges %}
 
 {% block title %}{{ lab_info.name }} - Lab Details{% endblock %}
 
@@ -55,7 +54,7 @@
         </div>
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">State</span>
-            <span class="block text-base">{% match phase_badge %}{% when Some(badge) %}{% include "snippets/badge.html.jinja" %}{% when None %}{% call badges::lab_state_lg(lab_state) %}{% endmatch %}</span>
+            <span class="block text-base">{% let badge = state_badge %}{% include "snippets/badge.html.jinja" %}</span>
         </div>
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">Loopback Network</span>
@@ -231,48 +230,23 @@
     <a href="/labs" class="btn-cancel">
         Back to Labs
     </a>
-    {% if offers_start_stop %}
-    {% match lab_state %}
-        {% when LabState::Running %}
-        <button
-            id="lab-stop-btn"
-            data-lab-detail-action="stop" data-lab-id="{{ lab_info.id }}"
-            class="btn-danger cursor-pointer"
-        >
-            Stop Lab
-        </button>
-        {% when LabState::Partial %}
-        <button
-            id="lab-start-btn"
-            data-lab-detail-action="start" data-lab-id="{{ lab_info.id }}"
-            class="btn-primary cursor-pointer"
-        >
-            Start Lab
-        </button>
-        <button
-            id="lab-stop-btn"
-            data-lab-detail-action="stop" data-lab-id="{{ lab_info.id }}"
-            class="btn-danger cursor-pointer"
-        >
-            Stop Lab
-        </button>
-        {% when LabState::Starting %}
-        <button
-            id="lab-stop-btn"
-            data-lab-detail-action="stop" data-lab-id="{{ lab_info.id }}"
-            class="btn-danger cursor-pointer"
-        >
-            Stop Lab
-        </button>
-        {% else %}
-        <button
-            id="lab-start-btn"
-            data-lab-detail-action="start" data-lab-id="{{ lab_info.id }}"
-            class="btn-primary cursor-pointer"
-        >
-            Start Lab
-        </button>
-    {% endmatch %}
+    {% if actions.start %}
+    <button
+        id="lab-start-btn"
+        data-lab-detail-action="start" data-lab-id="{{ lab_info.id }}"
+        class="btn-primary cursor-pointer"
+    >
+        Start Lab
+    </button>
+    {% endif %}
+    {% if actions.stop %}
+    <button
+        id="lab-stop-btn"
+        data-lab-detail-action="stop" data-lab-id="{{ lab_info.id }}"
+        class="btn-danger cursor-pointer"
+    >
+        Stop Lab
+    </button>
     {% endif %}
     <div id="destroy-action">
         <button

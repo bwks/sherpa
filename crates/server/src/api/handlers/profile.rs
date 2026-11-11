@@ -9,7 +9,7 @@ use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
 use crate::services::user_password;
 use crate::templates::{
-    PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate, SshKeyErrorTemplate,
+    NavPage, PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate, SshKeyErrorTemplate,
     SshKeysListTemplate,
 };
 
@@ -60,7 +60,7 @@ pub async fn profile_handler(
     ProfileTemplate {
         username: auth.username.clone(),
         is_admin: auth.is_admin,
-        active_page: "profile".to_string(),
+        nav: NavPage::Other.into(),
         ssh_keys_list: SshKeysListTemplate {
             ssh_keys: user.ssh_keys,
         },

@@ -8,7 +8,7 @@ use shared::auth::jwt::Claims;
 use crate::auth::session::{self, SessionLookup};
 use crate::auth::{context::AuthContext, cookies, jwt};
 use crate::daemon::state::AppState;
-use crate::templates::Admin403Template;
+use crate::templates::{Admin403Template, NavPage};
 
 use super::errors::ApiError;
 
@@ -466,7 +466,7 @@ impl IntoResponse for AdminForbidden {
         Admin403Template {
             username: self.username,
             is_admin: false,
-            active_page: String::new(),
+            nav: NavPage::Other.into(),
         }
         .into_response()
     }

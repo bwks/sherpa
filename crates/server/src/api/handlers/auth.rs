@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use crate::auth::{cookies, login, session};
 use crate::daemon::state::AppState;
 use crate::templates::{
-    LoginErrorTemplate, LoginPageTemplate, SignupErrorTemplate, SignupPageTemplate,
+    LoginError, LoginErrorTemplate, LoginPageTemplate, SignupErrorTemplate, SignupPageTemplate,
 };
 
 use crate::api::errors::ApiError;
@@ -147,7 +147,9 @@ pub async fn login_page_handler(
     headers: HeaderMap,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
-    let mut error = params.get("error").cloned().unwrap_or_default();
+    let error = params
+        .get("error")
+        .and_then(|code| LoginError::from_code(code));
     let message = params.get("message").cloned().unwrap_or_default();
 
     let cookie_header = headers
@@ -171,11 +173,10 @@ pub async fn login_page_handler(
         .into_response(),
         Err(session_error) => {
             trace_rejected_session("/login", &session_error, "clear_and_render_login");
-            error = "session_expired".to_string();
             (
                 [(header::SET_COOKIE, cookies::create_clear_cookie())],
                 LoginPageTemplate {
-                    error,
+                    error: Some(LoginError::SessionExpired),
                     message,
                     allow_signup: state.config.allow_signup,
                 },
