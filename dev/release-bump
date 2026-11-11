@@ -1,0 +1,96 @@
+#! /usr/bin/bash
+
+# Prepares a version bump for a bump pull request: sets the workspace version, updates the
+# workspace crates' lockfile entries and regenerates CHANGELOG.md. It does not commit.
+# Run it with `mise run release:bump [VERSION]`; see docs/architecture/RELEASE.md.
+
+set -euo pipefail
+
+usage() {
+    echo "Usage: dev/release-bump [X.Y.Z]"
+    echo "  X.Y.Z  The version to bump to. Default: worked out by git-cliff from the"
+    echo "         conventional commits since the last v* tag (cliff.toml [bump])."
+    echo
+    echo "Needs a read-only GitHub token in GH_TOKEN_RO (or GITHUB_TOKEN) for the"
+    echo "changelog's pull request links and authors."
+}
+
+fail() {
+    echo "error: $*" >&2
+    exit 1
+}
+
+# A version's section starts at its "## [X.Y.Z] - date" heading and runs to the next heading.
+section() {
+    awk -v version="[$1]" '
+        $1 == "##" { found = ($2 == version) }
+        found { print }
+    ' CHANGELOG.md
+}
+
+case "${1:-}" in
+    -h|--help|help)
+        usage
+        exit 0
+        ;;
+esac
+if [ "$#" -gt 1 ]; then
+    usage >&2
+    exit 2
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+
+# git-cliff reads the token from GITHUB_TOKEN; the repository is set in cliff.toml.
+token="${GITHUB_TOKEN:-${GH_TOKEN_RO:-}}"
+[ -n "$token" ] || fail "set GH_TOKEN_RO (or GITHUB_TOKEN) to a read-only GitHub token; git-cliff uses it for the changelog's pull request links and authors."
+export GITHUB_TOKEN="$token"
+
+# The bump pull request changes only these files, so start from a clean tree.
+[ -z "$(git status --porcelain)" ] || fail "the working tree has uncommitted changes; commit or remove them first."
+
+git fetch --quiet --tags origin || fail "cannot fetch the tags from origin."
+
+last=$(git tag --list 'v[0-9]*' --sort=-v:refname | head -n 1)
+[ -n "$last" ] || fail "there is no v* tag to bump from."
+
+if [ "$#" -eq 1 ]; then
+    next="v${1#v}"
+else
+    next=$(git cliff --bumped-version)
+    # git-cliff prints the last version when there is nothing to bump.
+    [ "$next" != "$last" ] || fail "there are no commits to release since ${last}."
+fi
+
+[[ "$next" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "${next} is not a X.Y.Z version."
+[ "$(printf '%s\n%s\n' "$last" "$next" | sort -V | tail -n 1)" = "$next" ] \
+    || fail "${next} is not higher than the last release, ${last}."
+if git rev-parse --quiet --verify "refs/tags/${next}" > /dev/null \
+    || git ls-remote --exit-code --tags origin "refs/tags/${next}" > /dev/null; then
+    fail "${next} is already tagged."
+fi
+
+version="${next#v}"
+sed -i "/^\[workspace\.package\]/,/^\[/ s/^version = \".*\"/version = \"${version}\"/" Cargo.toml
+# Updates the workspace crates' entries only, not the dependencies.
+cargo update --workspace --quiet
+
+versions=$(cargo metadata --no-deps --locked --format-version 1 \
+    | jq -r '[.packages[].version] | unique | join(" ")')
+[ "$versions" = "$version" ] || fail "the workspace crates are at ${versions}, not ${version}."
+
+git cliff --tag "$next" --output CHANGELOG.md
+[ -n "$(section "$version")" ] || fail "CHANGELOG.md has no ## [${version}] section."
+
+extra=$(git diff --name-only | grep -vxE 'Cargo\.toml|Cargo\.lock|CHANGELOG\.md' || true)
+[ -z "$extra" ] || fail "the bump changes more than the version and the changelog: ${extra}"
+
+echo "Bumped ${last} -> ${next}."
+echo
+git --no-pager diff --stat
+echo
+# The new version's changelog section.
+section "$version"
+echo
+echo "Nothing is committed. Commit these files as \"chore(release): ${next}\" in a pull request;"
+echo "once it is merged, run the Release workflow."

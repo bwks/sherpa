@@ -16,3 +16,10 @@ uv = "latest"
 "cargo:bpf-linker" = "0.10.2"
 # Runs the install and update script tests in tests/bats.
 bats = "latest"
+# Writes CHANGELOG.md and works out the next version, for `mise run release:bump`.
+git-cliff = "2.14.2"
+
+[tasks."release:bump"]
+description = "Set the next version, update Cargo.lock and regenerate CHANGELOG.md, without committing"
+usage = 'arg "[version]" help="The version, X.Y.Z. Default: worked out by git-cliff from the commits since the last tag."'
+run = 'dev/release-bump ${usage_version:+"$usage_version"}'
