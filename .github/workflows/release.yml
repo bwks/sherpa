@@ -6,13 +6,9 @@ on:
       version:
         required: true
         type: string
-    secrets:
-      SHERPA_RELEASE_APP_PRIVATE_KEY:
-        required: true
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   tag-check:
@@ -132,15 +128,6 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Generate full changelog
-        uses: orhun/git-cliff-action@v4
-        with:
-          config: cliff.toml
-          args: --tag ${{ inputs.version }}
-        env:
-          OUTPUT: CHANGELOG.md
-          GITHUB_REPO: ${{ github.repository }}
-
       - name: Extract release notes
         id: release_notes
         uses: orhun/git-cliff-action@v4
@@ -149,76 +136,17 @@ jobs:
           args: --tag ${{ inputs.version }} --unreleased --strip header
         env:
           GITHUB_REPO: ${{ github.repository }}
-
-      - name: Generate changelog App token
-        id: changelog-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          client-id: ${{ vars.SHERPA_RELEASE_APP_CLIENT_ID }}
-          private-key: ${{ secrets.SHERPA_RELEASE_APP_PRIVATE_KEY }}
-          repositories: ${{ github.event.repository.name }}
-          permission-contents: write
-          permission-pull-requests: write
-
-      - name: Create changelog PR
-        env:
-          GH_TOKEN: ${{ steps.changelog-token.outputs.token }}
-          APP_SLUG: ${{ steps.changelog-token.outputs.app-slug }}
-        run: |
-          BRANCH="changelog/${{ inputs.version }}"
-
-          BOT_ID=$(gh api "users/${APP_SLUG}[bot]" --jq '.id')
-          git config user.name "${APP_SLUG}[bot]"
-          git config user.email "${BOT_ID}+${APP_SLUG}[bot]@users.noreply.github.com"
-          gh auth setup-git
-
-          # Clean up stale branch from a previous failed run
-          git push origin --delete "$BRANCH" 2>/dev/null || true
-
-          git checkout -b "$BRANCH"
-          git add CHANGELOG.md
-          git commit -m "chore(release): update changelog for ${{ inputs.version }}"
-          git push origin "$BRANCH"
-
-          gh pr create \
-            --title "chore(release): update changelog for ${{ inputs.version }}" \
-            --body "Automated changelog update for release ${{ inputs.version }}." \
-            --base main \
-            --head "$BRANCH"
-
-      - name: Merge changelog PR
-        env:
-          # Keep the merge from triggering another release before its tag exists.
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          BRANCH="changelog/${{ inputs.version }}"
-
-          # Retry the merge until it lands. Right after the PR is opened its required checks have
-          # not reported, so the merge is refused; auto-merge cannot cover that window, because
-          # GitHub refuses to enable it once the checks have reported and the PR is clean.
-          for i in $(seq 1 120); do
-            if gh pr merge "$BRANCH" --merge; then
-              echo "PR merged successfully."
-              break
-            fi
-            if [ "$(gh pr view "$BRANCH" --json state --jq '.state')" = "MERGED" ]; then
-              echo "PR merged successfully."
-              break
-            fi
-            if [ "$i" -eq 120 ]; then
-              echo "Timed out waiting for PR to merge."
-              exit 1
-            fi
-            sleep 10
-          done
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Create and push tag
         env:
           GH_TOKEN: ${{ github.token }}
+        # Tag the commit that started the release, which is the one the binaries were built from;
+        # main may have moved on since. The release pull request merged at that commit already
+        # carries CHANGELOG.md.
         run: |
-          git fetch origin main
-          git checkout main
-          git tag "${{ inputs.version }}"
+          gh auth setup-git
+          git tag "${{ inputs.version }}" "$GITHUB_SHA"
           git push origin "${{ inputs.version }}"
 
       - name: Create GitHub Release

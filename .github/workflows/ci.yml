@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   check-version:
@@ -24,8 +23,11 @@ jobs:
 
       - name: Extract version
         id: version
+        # The workspace version, which every crate inherits. Only a release pull request changes
+        # it, so a push that leaves it at a tagged version releases nothing.
         run: |
-          version=$(grep '^version' crates/client/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "sherpa") | .version')
           echo "version=v${version}" >> "$GITHUB_OUTPUT"
 
       - name: Check if tag exists
@@ -49,5 +51,3 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       version: ${{ needs.check-version.outputs.version }}
-    secrets:
-      SHERPA_RELEASE_APP_PRIVATE_KEY: ${{ secrets.SHERPA_RELEASE_APP_PRIVATE_KEY }}

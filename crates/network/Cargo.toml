@@ -1,6 +1,6 @@
 [package]
 name = "network"
-version = "0.5.32"
+version.workspace = true
 edition = "2024"
 
 [dependencies]

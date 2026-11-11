@@ -1,7 +1,10 @@
 [package]
 name = "ebpf-redirect"
-version = "0.5.32"
+# Not versioned with Sherpa: the program is built by hand and its ELF is committed, and
+# nothing reads this version. It changes only when the program does.
+version = "0.1.0"
 edition = "2021"
+publish = false
 
 [dependencies]
 aya-ebpf = "0.1.1"

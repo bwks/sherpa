@@ -55,6 +55,14 @@ database is Turso, embedded in sherpad as a single file (see `docs/architecture/
   section" in `docs/architecture/AGENT_BUS.md`). Work done outside the agent bus is listed by
   hand, outside the markers, as not measured.
 
+## Versions and Releases
+- Sherpa has one version, `[workspace.package] version` in the root `Cargo.toml`. Every
+  workspace crate uses `version.workspace = true`.
+- Pull requests do not change the version. The `Version` check fails one that does.
+- A release is cut with the Prepare release workflow, which opens a release pull request with the
+  version, the lockfile and `CHANGELOG.md`; the user merges it, and that merge releases. See
+  `docs/architecture/RELEASE.md`.
+
 ## Configuration / Project Files
 - All configuration and project files (such as `sherpa.toml` and `manifest.toml`) are to use the 
   TOML format. Do not use any other format like JSON, YAML or INI. TOML is the only acceptable format.

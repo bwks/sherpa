@@ -1,0 +1,202 @@
+name: Prepare release
+
+# Opens the release pull request: the next version in the workspace manifest and the lockfile,
+# and CHANGELOG.md. Merging it is the only way the version changes on main, and the push of that
+# merge releases the version (ci.yml). See docs/architecture/RELEASE.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, X.Y.Z. Empty: worked out from the commits since the last tag."
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "Work out the release and show it in the run summary, without opening the pull request."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# A second run replaces the first; its pull request supersedes the first one's.
+concurrency:
+  group: prepare-release
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          # git-cliff reads every commit and tag.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@git-cliff
+
+      - name: Work out the version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          last=$(git describe --tags --abbrev=0 --match 'v[0-9]*')
+          if [ -n "$INPUT_VERSION" ]; then
+            next="v${INPUT_VERSION#v}"
+          else
+            next=$(git cliff --bumped-version)
+          fi
+
+          if ! [[ "$next" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::${next} is not a vX.Y.Z version."
+            exit 1
+          fi
+          # git-cliff prints the last version when there is nothing to bump.
+          if [ "$next" = "$last" ]; then
+            echo "::error::Nothing to release: no commits since ${last}."
+            exit 1
+          fi
+          if [ "$(printf '%s\n%s\n' "$last" "$next" | sort -V | tail -1)" != "$next" ]; then
+            echo "::error::${next} is not higher than the last release, ${last}."
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/${next}" > /dev/null; then
+            echo "::error::${next} is already tagged."
+            exit 1
+          fi
+
+          echo "Releasing ${next}, after ${last}."
+          echo "last=${last}" >> "$GITHUB_OUTPUT"
+          echo "next=${next}" >> "$GITHUB_OUTPUT"
+
+      - name: Set the version and write the changelog
+        env:
+          NEXT: ${{ steps.version.outputs.next }}
+          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          version="${NEXT#v}"
+          sed -i "/^\[workspace\.package\]/,/^\[/ s/^version = \".*\"/version = \"${version}\"/" \
+            Cargo.toml
+          # Updates the workspace crates' entries only, not the dependencies.
+          cargo update --workspace
+
+          versions=$(cargo metadata --no-deps --locked --format-version 1 \
+            | jq -r '[.packages[].version] | unique | join(" ")')
+          if [ "$versions" != "$version" ]; then
+            echo "::error::The workspace crates are at ${versions}, not ${version}."
+            exit 1
+          fi
+
+          git cliff --tag "$NEXT" --output CHANGELOG.md
+          git cliff --tag "$NEXT" --unreleased --strip header --output "$RUNNER_TEMP/notes.md"
+
+          # The same rule as the Version check on the pull request.
+          extra=$(git diff --name-only | grep -vxE 'Cargo\.toml|Cargo\.lock|CHANGELOG\.md' || true)
+          if [ -n "$extra" ]; then
+            echo "::error::The release changes more than the version and the changelog: ${extra}"
+            exit 1
+          fi
+
+      - name: Summarise
+        env:
+          LAST: ${{ steps.version.outputs.last }}
+          NEXT: ${{ steps.version.outputs.next }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          {
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "# Dry run: ${NEXT}"
+              echo "No pull request was opened."
+            else
+              echo "# ${NEXT}"
+            fi
+            echo
+            echo "After ${LAST}. Files changed:"
+            echo
+            echo '```'
+            git diff --stat
+            echo '```'
+            echo
+            echo "## Release notes"
+            echo
+            cat "$RUNNER_TEMP/notes.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate release App token
+        if: ${{ !inputs.dry_run }}
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.SHERPA_RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SHERPA_RELEASE_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Open the release pull request
+        if: ${{ !inputs.dry_run }}
+        env:
+          # The app opens the pull request, so the PR checks run on it and the Version check
+          # knows it for the release pull request by its author.
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          NEXT: ${{ steps.version.outputs.next }}
+        run: |
+          branch="release/${NEXT}"
+
+          bot_id=$(gh api "users/${APP_SLUG}[bot]" --jq '.id')
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${bot_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+          gh auth setup-git
+
+          git checkout -b "$branch"
+          git add Cargo.toml Cargo.lock CHANGELOG.md
+          git commit -m "chore(release): ${NEXT}"
+          # A rerun for the same version replaces the branch, and its open pull request with it.
+          git push --force origin "HEAD:refs/heads/${branch}"
+
+          {
+            echo "Release ${NEXT}: sets the workspace version and writes CHANGELOG.md."
+            echo
+            echo "Merging this releases ${NEXT}: build, tag and GitHub release (ci.yml). If main"
+            echo "moves on before it merges, run Prepare release again to replace it."
+            echo
+            echo "- [ ] The VM code suite on both releases (tests/README.md, \"Before a release\")."
+            echo
+            echo "## Release notes"
+            echo
+            cat "$RUNNER_TEMP/notes.md"
+          } > "$RUNNER_TEMP/body.md"
+
+          if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            gh pr edit "$branch" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr create \
+              --base main \
+              --head "$branch" \
+              --title "chore(release): ${NEXT}" \
+              --body-file "$RUNNER_TEMP/body.md"
+          fi
+
+          # An open release pull request for another version is superseded by this one.
+          gh pr list --author "app/${APP_SLUG}" --state open --json number,headRefName \
+            --jq '.[] | "\(.number) \(.headRefName)"' \
+            | while read -r number head; do
+                if [[ "$head" == release/v* && "$head" != "$branch" ]]; then
+                  gh pr close "$number" --delete-branch \
+                    --comment "Superseded by the release pull request for ${NEXT}."
+                fi
+              done

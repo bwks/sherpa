@@ -40,6 +40,12 @@ members = [
 exclude = ["crates/ebpf-redirect"]
 default-members = ["crates/client"]
 
+# The one Sherpa version. Every workspace crate inherits it with `version.workspace = true`.
+# Pull requests do not change it: the Prepare release workflow does, in the release pull
+# request (see docs/architecture/RELEASE.md).
+[workspace.package]
+version = "0.5.32"
+
 [workspace.dependencies]
 # Common application dependencies
 anyhow = "1.0.100"

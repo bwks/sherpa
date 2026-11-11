@@ -50,3 +50,10 @@ protect_breaking_commits = false
 filter_commits = false
 tag_pattern = "v[0-9].*"
 sort_commits = "newest"
+
+# How Prepare release works out the next version (`git cliff --bumped-version`). While Sherpa is
+# on 0.x, a feature bumps the patch number and a breaking change the minor number; git-cliff's
+# defaults would bump the minor and major numbers instead.
+[bump]
+features_always_bump_minor = false
+breaking_always_bump_major = false

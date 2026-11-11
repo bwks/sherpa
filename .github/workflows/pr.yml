@@ -14,13 +14,35 @@ permissions:
   pull-requests: write
 
 jobs:
+  version:
+    name: Version
+    # Pull requests do not change the version; only the release pull request does
+    # (docs/architecture/RELEASE.md).
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # The base commit and the release tags.
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: Check the version
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD_REF: ${{ github.head_ref }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPOSITORY: ${{ github.repository }}
+        # The checkout is the merge commit, so its first parent is the base it merges into.
+        # The script's inline metadata requires Python 3.15 and no dependencies, so uv runs it
+        # on its own on a uv-managed Python, without syncing the repository's uv project.
+        run: uv run .github/scripts/check_version.py HEAD^1
+
   lint:
     name: Lint
-    # The release workflow's changelog PR only changes CHANGELOG.md. A job skipped by its `if`
-    # counts as passing for the required checks, so the PR merges without a full build.
-    if: >-
-      ${{ !(github.event.pull_request.user.login == 'bwks-sherpa-release[bot]'
-      && startsWith(github.head_ref, 'changelog/')) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -51,11 +73,6 @@ jobs:
 
   coverage:
     name: Coverage
-    # The release workflow's changelog PR only changes CHANGELOG.md. A job skipped by its `if`
-    # counts as passing for the required checks, so the PR merges without a full build.
-    if: >-
-      ${{ !(github.event.pull_request.user.login == 'bwks-sherpa-release[bot]'
-      && startsWith(github.head_ref, 'changelog/')) }}
     runs-on: ubuntu-latest
     steps:
       - name: Free disk space
@@ -148,11 +165,6 @@ jobs:
 
   windows-client:
     name: Windows Client
-    # The release workflow's changelog PR only changes CHANGELOG.md. A job skipped by its `if`
-    # counts as passing for the required checks, so the PR merges without a full build.
-    if: >-
-      ${{ !(github.event.pull_request.user.login == 'bwks-sherpa-release[bot]'
-      && startsWith(github.head_ref, 'changelog/')) }}
     runs-on: windows-latest
     steps:
       - name: Checkout
