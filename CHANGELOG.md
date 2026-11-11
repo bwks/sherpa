@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.33] - 2026-11-11
+
+### CI
+
+- Release main as it is, after a version bump PR by @bwks ([e1ee031](https://github.com/bwks/sherpa/commit/e1ee0317624a105b26d26091268f96e37b41060c))
+- One workspace version, released by a release PR by @bwks ([02671f6](https://github.com/bwks/sherpa/commit/02671f6497fe21530f0671b2ff92ec11bd49f7eb))
+
+### Refactor
+
+- Templates only render; handlers decide with enums by @bwks ([0983761](https://github.com/bwks/sherpa/commit/09837611092bcc72df2f8e1c73f3198e0c0313e9))
 ## [0.5.32] - 2026-11-11
 
 ### Bug Fixes
@@ -11,49 +21,16 @@ All notable changes to this project will be documented in this file.
 ### Documentation
 
 - Observed ZTP-off behaviour of cEOS and cJunosEvolved, zensical for the docs [skip ci] by @bwks ([9db5dee](https://github.com/bwks/sherpa/commit/9db5dee16a235531001b97d91b9604d2017f1b6f))
-
-### Miscellaneous
-
-- Merge pull request #569 from bwks/fix/566-docker-hub-image-check
-
-fix: one container image reference from pull to create, checked with Docker by @bwks in [#569](https://github.com/bwks/sherpa/pull/569) ([7c8b6a6](https://github.com/bwks/sherpa/commit/7c8b6a6b7846992316a2c7a6a288aab59b0e9a67))
-- Merge pull request #568 from bwks/fix/container-ztp-ceos-cevolved
-
-docs: observed ZTP-off behaviour of cEOS and cJunosEvolved, zensical for the docs by @bwks in [#568](https://github.com/bwks/sherpa/pull/568) ([7760b6f](https://github.com/bwks/sherpa/commit/7760b6f08622936c8526ff0a90d57100e9ee786a))
-- Merge pull request #565 from bwks/changelog/v0.5.31
-
-chore(release): update changelog for v0.5.31 by @github-actions[bot] in [#565](https://github.com/bwks/sherpa/pull/565) ([d103dee](https://github.com/bwks/sherpa/commit/d103deeb918f569e6f528b61bf2277c30e616886))
 ## [0.5.31] - 2026-11-11
 
 ### Bug Fixes
 
 - Report gh's error, not the broken pipe, when it ends without reading the body by @bwks ([8f21944](https://github.com/bwks/sherpa/commit/8f219448b9de1fef87cd406f086667282927a5e1))
-
-### Miscellaneous
-
-- Merge pull request #563 from bwks/fix/agent-bus-gh-broken-pipe
-
-fix(agent-bus): report gh's error, not the broken pipe, when it ends without reading the body by @bwks in [#563](https://github.com/bwks/sherpa/pull/563) ([260514c](https://github.com/bwks/sherpa/commit/260514cc21c91c576ee0b92aed500d7f33da6391))
-- Merge remote-tracking branch 'origin/main' into fix/agent-bus-gh-broken-pipe
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com> by @bwks ([49083b2](https://github.com/bwks/sherpa/commit/49083b205a40b9d964a50b40de585f8732574610))
-- Merge pull request #564 from bwks/changelog/v0.5.30
-
-chore(release): update changelog for v0.5.30 by @github-actions[bot] in [#564](https://github.com/bwks/sherpa/pull/564) ([361e046](https://github.com/bwks/sherpa/commit/361e046f9cb58cea95cc47af6c3da3b06999e6ff))
 ## [0.5.30] - 2026-11-11
 
 ### Features
 
 - One validated ZTP setting, honoured by containers by @bwks ([df7c0f7](https://github.com/bwks/sherpa/commit/df7c0f76fb119fbdd9f253f907d985a9199cf525))
-
-### Miscellaneous
-
-- Merge pull request #562 from bwks/feat/476-502-ztp
-
-feat: one validated ZTP setting, honoured by containers by @bwks in [#562](https://github.com/bwks/sherpa/pull/562) ([436fa33](https://github.com/bwks/sherpa/commit/436fa3383ae2732d96532858238186ddd1003d15))
-- Merge pull request #560 from bwks/changelog/v0.5.29
-
-chore(release): update changelog for v0.5.29 by @github-actions[bot] in [#560](https://github.com/bwks/sherpa/pull/560) ([4685ce8](https://github.com/bwks/sherpa/commit/4685ce84fcda9d52962f34a97dd3188aefef3c9a))
 
 ### Refactor
 
@@ -64,25 +41,16 @@ chore(release): update changelog for v0.5.29 by @github-actions[bot] in [#560](h
 
 - Match Generation markers only on their own lines by @bwks ([66fa12c](https://github.com/bwks/sherpa/commit/66fa12c2bbb587a9c695fead1d407095ceb6e655))
 
+### CI
+
+- Release each version once when two pushes race by @bwks ([279d76f](https://github.com/bwks/sherpa/commit/279d76ffb2385a472d0792e182720b40cb7d04be))
+
 ### Features
 
 - Keep the PR Generation section and name agents apart from nodes by @bwks ([76c150c](https://github.com/bwks/sherpa/commit/76c150caab1021a086abc373ebc8d7198148dbd4))
 
 ### Miscellaneous
 
-- Merge pull request #559 from bwks/fix/release-race-same-version
-
-ci: release each version once when two pushes race by @bwks in [#559](https://github.com/bwks/sherpa/pull/559) ([41e5c1b](https://github.com/bwks/sherpa/commit/41e5c1b5179b79669f0b588884d24d4927b35f6b))
-- Release each version once when two pushes race by @bwks ([279d76f](https://github.com/bwks/sherpa/commit/279d76ffb2385a472d0792e182720b40cb7d04be))
-- Merge pull request #558 from bwks/feat/agent-bus-generation
-
-feat(agent-bus): keep the PR Generation section and name agents apart from nodes by @bwks in [#558](https://github.com/bwks/sherpa/pull/558) ([83104c4](https://github.com/bwks/sherpa/commit/83104c4c2cbb3f76b248ac1a30b6f6ddb308cdad))
-- Merge pull request #556 from bwks/changelog/v0.5.28
-
-chore(release): update changelog for v0.5.28 by @github-actions[bot] in [#556](https://github.com/bwks/sherpa/pull/556) ([cf2eb6d](https://github.com/bwks/sherpa/commit/cf2eb6d6b7cd5cec5d52bebaa2d8d85dfc60f8a6))
-- Merge pull request #554 from bwks/chore/move-nixos-image
-
-chore: move the NixOS image recipe to bwks/nixos-image by @bwks in [#554](https://github.com/bwks/sherpa/pull/554) ([41942fd](https://github.com/bwks/sherpa/commit/41942fd850b78e211c68a357ce970a005253cdb4))
 - Point the NixOS references at bwks/nixos-image by @bwks ([20cdd8e](https://github.com/bwks/sherpa/commit/20cdd8e70c4c21e382167c0828a1ee87fff29ba9))
 - Move the NixOS image recipe to bwks/nixos-image by @bwks ([0406320](https://github.com/bwks/sherpa/commit/040632015eae13b7045bd790f695ea4547d0e7b6))
 ## [0.5.28] - 2026-11-10
@@ -94,18 +62,6 @@ chore: move the NixOS image recipe to bwks/nixos-image by @bwks in [#554](https:
 ### Documentation
 
 - Record the models and cost behind each pull request [skip ci] by @bwks ([0ecc04d](https://github.com/bwks/sherpa/commit/0ecc04d4d2c2401f2f467a148c66a2947af56a4f))
-
-### Miscellaneous
-
-- Merge pull request #553 from bwks/fix/545-lab-lease-leak
-
-fix(server): remove a lab's lease entry once nothing holds or waits on it by @bwks in [#553](https://github.com/bwks/sherpa/pull/553) ([90e7025](https://github.com/bwks/sherpa/commit/90e7025e9cb87655501c48000c555ec6f29cc706))
-- Merge pull request #551 from bwks/docs/pr-model-cost
-
-docs: record the models and cost behind each pull request by @bwks in [#551](https://github.com/bwks/sherpa/pull/551) ([6a95490](https://github.com/bwks/sherpa/commit/6a95490be5864b659be4a0e9c961bb5527199cd8))
-- Merge pull request #552 from bwks/changelog/v0.5.27
-
-chore(release): update changelog for v0.5.27 by @github-actions[bot] in [#552](https://github.com/bwks/sherpa/pull/552) ([96a1f43](https://github.com/bwks/sherpa/commit/96a1f43648cc3fccdddfa48a49380a412ba6b89b))
 ## [0.5.27] - 2026-11-10
 
 ### Bug Fixes
@@ -118,22 +74,7 @@ chore(release): update changelog for v0.5.27 by @github-actions[bot] in [#552](h
 
 ### Miscellaneous
 
-- Merge pull request #549 from bwks/feat/499-lab-lifecycle
-
-feat(server): an explicit lab lifecycle across up, destroy and clean by @bwks in [#549](https://github.com/bwks/sherpa/pull/549) ([20a7208](https://github.com/bwks/sherpa/commit/20a7208ba3951d20871d72f63d82be7863d09094))
-- Merge remote-tracking branch 'origin/main' into feat/499-lab-lifecycle
-
-Keeps 0.5.27 and the lab phase migration as 0015 after #503's 0014.
-Moves the new tests onto upsert_node_image's DefaultRequest argument.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com> by @bwks ([f9aa2c6](https://github.com/bwks/sherpa/commit/f9aa2c60822a565ee316b52dcfe085b17ab37ded))
-- Merge pull request #547 from bwks/chore/guest-claude-attribution
-
-chore(dev): give the guest agents the host's Claude Code attribution by @bwks in [#547](https://github.com/bwks/sherpa/pull/547) ([f83882e](https://github.com/bwks/sherpa/commit/f83882e882437ba051d760f821e6e1d189623a93))
 - Give the guest agents the host's Claude Code attribution by @bwks ([39b5388](https://github.com/bwks/sherpa/commit/39b53888971697e3c9002b6d9e7d914500dd8109))
-- Merge pull request #548 from bwks/changelog/v0.5.26
-
-chore(release): update changelog for v0.5.26 by @github-actions[bot] in [#548](https://github.com/bwks/sherpa/pull/548) ([d4f8f40](https://github.com/bwks/sherpa/commit/d4f8f4012f2723d49a1fe67a0a43983564b8176d))
 
 ### Refactor
 
@@ -150,76 +91,21 @@ chore(release): update changelog for v0.5.26 by @github-actions[bot] in [#548](h
 ### Bug Fixes
 
 - Atomic node image import and one default image per model by @bwks ([6c3df9d](https://github.com/bwks/sherpa/commit/6c3df9d409b12aabe398e53730f7fe4d8c818abc))
-
-### Miscellaneous
-
-- Merge pull request #546 from bwks/fix/503-image-import
-
-fix(server): atomic node image import and one default image per model by @bwks in [#546](https://github.com/bwks/sherpa/pull/546) ([6443b38](https://github.com/bwks/sherpa/commit/6443b38f9e0f176f9b44ba0c24d3a66c506704d7))
-- Merge pull request #544 from bwks/changelog/v0.5.25
-
-chore(release): update changelog for v0.5.25 by @github-actions[bot] in [#544](https://github.com/bwks/sherpa/pull/544) ([1af6ba1](https://github.com/bwks/sherpa/commit/1af6ba18fe10595146ba9de887fcab6d7e744737))
 ## [0.5.25] - 2026-11-10
 
 ### Bug Fixes
 
 - Retry the changelog PR merge instead of falling back to auto-merge by @bwks ([f522ee7](https://github.com/bwks/sherpa/commit/f522ee75113efa14723b2207c003fc6c5365fe34))
-
-### Features
-
-- An explicit node lifecycle the scanner cannot overwrite by @bwks ([b39537b](https://github.com/bwks/sherpa/commit/b39537b6d03f182af7719bf6182782c92e32551c))
-
-### Miscellaneous
-
-- Merge pull request #543 from bwks/feat/498-node-lifecycle
-
-feat(server): an explicit node lifecycle the scanner cannot overwrite by @bwks in [#543](https://github.com/bwks/sherpa/pull/543) ([f257381](https://github.com/bwks/sherpa/commit/f2573818602522f6b0b74c49b479f73f502b4cab))
-- Merge remote-tracking branch 'origin/main' into feat/498-node-lifecycle
-
-# Conflicts:
-#	Cargo.lock
-#	crates/agent-bus/Cargo.toml
-#	crates/client/Cargo.toml
-#	crates/container/Cargo.toml
-#	crates/db/Cargo.toml
-#	crates/ebpf-redirect/Cargo.lock
-#	crates/ebpf-redirect/Cargo.toml
-#	crates/iso/Cargo.toml
-#	crates/libvirt/Cargo.toml
-#	crates/network/Cargo.toml
-#	crates/server/Cargo.toml
-#	crates/shared/Cargo.toml
-#	crates/template/Cargo.toml
-#	crates/topology/Cargo.toml by @bwks ([d8bbb01](https://github.com/bwks/sherpa/commit/d8bbb01423e57eaecfab97b6dda521490dca0bb1))
-- Merge pull request #541 from bwks/fix/release-merge-race
-
-fix(ci): retry the changelog PR merge instead of falling back to auto-merge by @bwks in [#541](https://github.com/bwks/sherpa/pull/541) ([868ace4](https://github.com/bwks/sherpa/commit/868ace4d5206023b971aa3d77fb7a25aa77aaf15))
-- Merge pull request #540 from bwks/changelog/v0.5.24
-
-chore(release): update changelog for v0.5.24 by @github-actions[bot] in [#540](https://github.com/bwks/sherpa/pull/540) ([0243d9d](https://github.com/bwks/sherpa/commit/0243d9dbc70b90908dfe48d189071cfdaffd41bd))
 ## [0.5.24] - 2026-11-10
 
 ### Features
 
 - Keep the bus seed and Claude token out of the agent environment by @bwks ([f2e30cc](https://github.com/bwks/sherpa/commit/f2e30cce8c36170b616b44310b5433dbb3e8026f))
+- An explicit node lifecycle the scanner cannot overwrite by @bwks ([b39537b](https://github.com/bwks/sherpa/commit/b39537b6d03f182af7719bf6182782c92e32551c))
 
 ### Miscellaneous
 
-- Merge pull request #538 from bwks/feat/531-seed-off-environ
-
-feat(agent-bus): keep the bus seed and Claude token out of the agent environment by @bwks in [#538](https://github.com/bwks/sherpa/pull/538) ([b5929a5](https://github.com/bwks/sherpa/commit/b5929a5b6b1dd03227151d2e774d80f60ae0d052))
-- Merge main (0.5.23) into feat/531-seed-off-environ
-
-Keeps 0.5.24.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com> by @bwks ([678c87e](https://github.com/bwks/sherpa/commit/678c87e864535f642925bc6dbd8bf0ba8cc648a3))
-- Merge pull request #537 from bwks/chore/guest-claude-plugins
-
-chore(dev): install the beautiful-rust Claude Code plugin in dev servers by @bwks in [#537](https://github.com/bwks/sherpa/pull/537) ([487e535](https://github.com/bwks/sherpa/commit/487e535bd839f0ddd51f040a02307212935ade88))
 - Install the beautiful-rust Claude Code plugin in dev servers by @bwks ([63dc3ca](https://github.com/bwks/sherpa/commit/63dc3ca5c7fbfe06de0d5b605b8b1a90b5b1c1e7))
-- Merge pull request #536 from bwks/changelog/v0.5.23
-
-chore(release): update changelog for v0.5.23 by @github-actions[bot] in [#536](https://github.com/bwks/sherpa/pull/536) ([750b78a](https://github.com/bwks/sherpa/commit/750b78afd4aeb75d4cbe7de1fed9da9d883a93aa))
 ## [0.5.23] - 2026-11-10
 
 ### Bug Fixes
@@ -229,24 +115,12 @@ chore(release): update changelog for v0.5.23 by @github-actions[bot] in [#536](h
 
 ### Miscellaneous
 
-- Merge pull request #535 from bwks/fix/501-revoke-sessions
-
-fix(server): revoke sessions on logout, password change and user deletion by @bwks in [#535](https://github.com/bwks/sherpa/pull/535) ([d529542](https://github.com/bwks/sherpa/commit/d5295427d2a33f33d9499ddeaf76b071feefb501))
 - No issue number in the session migration comment by @bwks ([b96f7e4](https://github.com/bwks/sherpa/commit/b96f7e4de12a2ff9a30ad47f6b78258a6c2ddd0a))
-- Merge remote-tracking branch 'origin/main' into fix/501-revoke-sessions
+## [0.5.20] - 2026-11-10
 
-Brings in 0.5.22 (#529, #532). Version lines conflicted; every workspace
-crate is set to 0.5.23. Release references for the session change move
-from 0.5.21 to 0.5.23.
+### Bug Fixes
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com> by @bwks ([e2ad3f8](https://github.com/bwks/sherpa/commit/e2ad3f8c975172d6ef066e17fb14b11071ec245e))
-- Merge pull request #534 from bwks/fix/setup-rerun-init
-
-fix(dev): setup.sh can run again on a provisioned server by @bwks in [#534](https://github.com/bwks/sherpa/pull/534) ([ecce064](https://github.com/bwks/sherpa/commit/ecce064dfd03b076f4b4a134bb625f87d9fdf566))
-- Merge pull request #533 from bwks/changelog/v0.5.22
-
-chore(release): update changelog for v0.5.22 by @github-actions[bot] in [#533](https://github.com/bwks/sherpa/pull/533) ([55bf0b3](https://github.com/bwks/sherpa/commit/55bf0b362dc7962ab7ba2ecb5f0d77d71176192b))
-## [0.5.22] - 2026-11-10
+- The lab create Import tab can submit by @bwks ([10ce83b](https://github.com/bwks/sherpa/commit/10ce83b94049566ef23b474a28a4babaf9c101ee))
 
 ### Features
 
@@ -254,70 +128,18 @@ chore(release): update changelog for v0.5.22 by @github-actions[bot] in [#533](h
 
 ### Miscellaneous
 
-- Merge pull request #532 from bwks/feat/528-read-only-github
-
-feat(agent-bus): read-only GitHub for every task, write token in memory by @bwks in [#532](https://github.com/bwks/sherpa/pull/532) ([5bdd2aa](https://github.com/bwks/sherpa/commit/5bdd2aa495194c8038fd7804c298241808e3e9cf))
-- Merge main (0.5.20) into feat/528-read-only-github
-
-Keeps 0.5.22.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com> by @bwks ([efe6c65](https://github.com/bwks/sherpa/commit/efe6c65ef9add837c03c758c82169f1a1accec78))
-- Merge pull request #530 from bwks/changelog/v0.5.20
-
-chore(release): update changelog for v0.5.20 by @github-actions[bot] in [#530](https://github.com/bwks/sherpa/pull/530) ([dd0c732](https://github.com/bwks/sherpa/commit/dd0c73232b50d39c0ac515f7cce615fe58542388))
-## [0.5.20] - 2026-11-10
-
-### Bug Fixes
-
-- The lab create Import tab can submit by @bwks ([10ce83b](https://github.com/bwks/sherpa/commit/10ce83b94049566ef23b474a28a4babaf9c101ee))
-
-### Miscellaneous
-
-- Merge pull request #529 from bwks/fix/482-import-tab-submit
-
-fix(server): the lab create Import tab can submit by @bwks in [#529](https://github.com/bwks/sherpa/pull/529) ([aa28125](https://github.com/bwks/sherpa/commit/aa28125a9714ff9ed408cfb122abfff948913736))
-- Merge pull request #526 from bwks/chore/standard-dev-vms
-
-chore(dev): two identical dev servers, dev and agent-2 by @bwks in [#526](https://github.com/bwks/sherpa/pull/526) ([6896a0b](https://github.com/bwks/sherpa/commit/6896a0bcccbcf9bf4fc42c9900929b7977ad5089))
 - Two identical dev servers, dev and agent-2 by @bwks ([2cb2372](https://github.com/bwks/sherpa/commit/2cb23723279681579029db0b880988050d9f7a26))
-- Merge pull request #525 from bwks/changelog/v0.5.19
-
-chore(release): update changelog for v0.5.19 by @github-actions[bot] in [#525](https://github.com/bwks/sherpa/pull/525) ([0028417](https://github.com/bwks/sherpa/commit/0028417a81c164df1dd517217be4c8f80076ce3f))
 ## [0.5.19] - 2026-11-10
 
 ### Features
 
 - Numa_memory_mode lets a VM prefer its NUMA node by @bwks ([77b1fda](https://github.com/bwks/sherpa/commit/77b1fdaf157abac1abbd3cad342075ec24ccf85c))
-
-### Miscellaneous
-
-- Merge pull request #524 from bwks/feat/514-numa-memory-mode
-
-feat(server): numa_memory_mode lets a VM prefer its NUMA node by @bwks in [#524](https://github.com/bwks/sherpa/pull/524) ([1ec1baf](https://github.com/bwks/sherpa/commit/1ec1bafeb8c92a1101eab7aca83c20ca7c60b35e))
-- Merge pull request #523 from bwks/changelog/v0.5.18
-
-chore(release): update changelog for v0.5.18 by @github-actions[bot] in [#523](https://github.com/bwks/sherpa/pull/523) ([22a8ec4](https://github.com/bwks/sherpa/commit/22a8ec43d6b4e796de44795bc78ff343e53295cd))
 ## [0.5.18] - 2026-11-10
 
 ### Bug Fixes
 
 - Refuse nodes that do not fit in host memory (behaviour change: up, redeploy and resume now refuse; see [host_memory] in sherpa.toml) by @bwks ([3e81a7a](https://github.com/bwks/sherpa/commit/3e81a7af4b99cc087fc340557c56f9cb0cbf777f))
 - Trust the project mise.toml in guest checkouts by @bwks ([006aed2](https://github.com/bwks/sherpa/commit/006aed22835f07b0f4c6d52b5c666735d3367939))
-
-### Miscellaneous
-
-- Merge pull request #519 from bwks/fix/admission-test-portable
-
-test(server): size the admission test from the server's free guest memory by @bwks in [#519](https://github.com/bwks/sherpa/pull/519) ([48eea85](https://github.com/bwks/sherpa/commit/48eea85d70391f21ced48d5a9d75e0c98cf188b3))
-- Merge pull request #518 from bwks/fix/514-memory-admission
-
-fix(server): refuse nodes that do not fit in host memory (behaviour change: up, redeploy and resume now refuse; see [host_memory] in sherpa.toml) by @bwks in [#518](https://github.com/bwks/sherpa/pull/518) ([706cc92](https://github.com/bwks/sherpa/commit/706cc9215fa6d42a9162e3dd76074095bb36e219))
-- Merge pull request #517 from bwks/fix/guest-mise-trust
-
-fix(dev): trust the project mise.toml in guest checkouts by @bwks in [#517](https://github.com/bwks/sherpa/pull/517) ([4d54c6f](https://github.com/bwks/sherpa/commit/4d54c6f7f723e612ac1c09796f512f48d9ef6f6d))
-- Merge pull request #516 from bwks/changelog/v0.5.17
-
-chore(release): update changelog for v0.5.17 by @github-actions[bot] in [#516](https://github.com/bwks/sherpa/pull/516) ([88494e1](https://github.com/bwks/sherpa/commit/88494e10a523794048b3be173aca8cd0c01b6e02))
 
 ### Refactor
 
@@ -332,19 +154,59 @@ chore(release): update changelog for v0.5.17 by @github-actions[bot] in [#516](h
 ### Bug Fixes
 
 - Run mkdocs on a uv-managed Python 3.15, not system python [skip ci] by @bwks ([8456581](https://github.com/bwks/sherpa/commit/845658105a8aec9c543f5f5fdba8093195cbe361))
-- Fail and retry on download errors by @bwks ([8afb201](https://github.com/bwks/sherpa/commit/8afb201553eec2393a6928f5432f5a7f2b25baa1))
-- Prune logs, private state files, listener journal, safer git by @bwks ([74db2d0](https://github.com/bwks/sherpa/commit/74db2d0af6394bf495d537c916bb80acf5a09992))
 
 ### Documentation
 
 - Document implicit state machines and their invalid states [skip ci] by @bwks ([bd98840](https://github.com/bwks/sherpa/commit/bd988402851a2721c1e5ded6db8d98165b1ed335))
-- Architecture doc with diagrams [skip ci] by @bwks ([771461e](https://github.com/bwks/sherpa/commit/771461e0db48da23e91708c2097fa0bb0da6b4ba))
 
 ### Features
 
 - Tracing spans on I/O and lifecycle functions by @bwks ([a10e988](https://github.com/bwks/sherpa/commit/a10e98861334516c8957eb6efea6a08f9736d856))
 - Review hardening and TLS on the bus by @bwks ([f2ed7f7](https://github.com/bwks/sherpa/commit/f2ed7f70d11aef9962ded8dc0342537626725c01))
+
+### Miscellaneous
+
+- Bump version to 0.5.17 by @bwks ([39d8f88](https://github.com/bwks/sherpa/commit/39d8f88133514db8bf8738f413bba9b9e193d04b))
+- Run CI on the branch head by @bwks ([3a42523](https://github.com/bwks/sherpa/commit/3a425232512552337dec46c0b3c3fef1958dae24))
+- Uv shebangs for the Python scripts, fix verify self-test by @bwks ([dbf913e](https://github.com/bwks/sherpa/commit/dbf913ef062eef1e362a380420d4cc7155b479e3))
+- Run all harness Python on uv's Python 3.15 by @bwks ([3bf92ad](https://github.com/bwks/sherpa/commit/3bf92adc7f9fc0327705100b2a9db7d8a3cd9c63))
+- Require Python 3.15 for the host-side scripts by @bwks ([c34acbc](https://github.com/bwks/sherpa/commit/c34acbcbfa58f7073574e5d14a3588b9af9f0df0))
+- Let uv own Python through pyproject.toml by @bwks ([e3e1428](https://github.com/bwks/sherpa/commit/e3e1428b54b714244d0ba753afdb5f0149fc9413))
+- Add uv to mise.toml for Python dependencies by @bwks ([8336f55](https://github.com/bwks/sherpa/commit/8336f55546321bf19957cb829feb77a280e3024e))
+- Add a project mise.toml and declare toolchain components by @bwks ([e91e12a](https://github.com/bwks/sherpa/commit/e91e12aac82f5fd18e7f882f27d649d86231ce24))
+- Bump version to 0.5.16 by @bwks ([53b4e63](https://github.com/bwks/sherpa/commit/53b4e63933d2b4070f0b8cfdbbedaec4e3ca4750))
+
+### Testing
+
+- An answer refuses --model and --github by @bwks ([5873717](https://github.com/bwks/sherpa/commit/5873717694104f23360c65e9b01d578fc272ee7c))
+## [0.5.16] - 2026-11-09
+
+### Bug Fixes
+
+- Make the server SSH key 0600 and tighten existing keys on start by @bwks ([faa2ea3](https://github.com/bwks/sherpa/commit/faa2ea354760e3f15a2482fdc91db05b7d44e8a9))
+
+### Features
+
 - Read lab files from the .sherpa directory by @bwks ([e5f69e2](https://github.com/bwks/sherpa/commit/e5f69e25571bc432066fae5feafe8b86c4107600))
+
+### Miscellaneous
+
+- Group the loose SSH lab files with the other older-client lab files in .gitignore [skip ci] by @bwks ([890207e](https://github.com/bwks/sherpa/commit/890207e56a4c18f5ef128528d50acde20b2f44b9))
+## [0.5.15] - 2026-11-08
+
+### Bug Fixes
+
+- Fail and retry on download errors by @bwks ([8afb201](https://github.com/bwks/sherpa/commit/8afb201553eec2393a6928f5432f5a7f2b25baa1))
+- Prune logs, private state files, listener journal, safer git by @bwks ([74db2d0](https://github.com/bwks/sherpa/commit/74db2d0af6394bf495d537c916bb80acf5a09992))
+
+### Documentation
+
+- Architecture doc with diagrams [skip ci] by @bwks ([771461e](https://github.com/bwks/sherpa/commit/771461e0db48da23e91708c2097fa0bb0da6b4ba))
+
+### Features
+
+- Keep generated lab files in a .sherpa directory by @bwks ([2e46563](https://github.com/bwks/sherpa/commit/2e465636f24f3b2c92c41f8f0cabbbc60ea6e45b))
+- Per-lab SSH keys instead of the shared server key by @bwks ([16fc557](https://github.com/bwks/sherpa/commit/16fc557815f4248508774e03b6b80aeebb18d01b))
 - Agents status command with guest heartbeats by @bwks ([c16cf1d](https://github.com/bwks/sherpa/commit/c16cf1d8b49f7cbdd06669b11121dd19cc2eb80e))
 - Enroll guest agents automatically, one key each by @bwks ([5f717cb](https://github.com/bwks/sherpa/commit/5f717cbd00df059497fe72ed414740a420602007))
 - Worker lab, model per task, shared test key by @bwks ([d761973](https://github.com/bwks/sherpa/commit/d761973290d25481ecb4a9825c3be434280426f8))
@@ -360,86 +222,13 @@ chore(release): update changelog for v0.5.17 by @github-actions[bot] in [#516](h
 
 ### Miscellaneous
 
-- Merge pull request #495 from bwks/feat/agent-bus
-
-feat(agent-bus): NATS message channel between the host agent and guest agents, with NKey auth by @bwks in [#495](https://github.com/bwks/sherpa/pull/495) ([849c097](https://github.com/bwks/sherpa/commit/849c097660aacc0a0c90db90f2d49fbb625c96fe))
-- Bump version to 0.5.17 by @bwks ([39d8f88](https://github.com/bwks/sherpa/commit/39d8f88133514db8bf8738f413bba9b9e193d04b))
-- Merge remote-tracking branch 'origin/main' into feat/agent-bus by @bwks ([c6d4123](https://github.com/bwks/sherpa/commit/c6d412321939dbe3ce0d49d5bcb6bdaf57089834))
-- Merge pull request #497 from bwks/docs/474-state-machines
-
-docs: inventory of Sherpa's implicit state machines [skip ci] by @bwks in [#497](https://github.com/bwks/sherpa/pull/497) ([b362469](https://github.com/bwks/sherpa/commit/b3624697ca7a0544c84f97d99622c04b1f18f834))
-- Merge pull request #513 from bwks/chore/mise-toml
-
-chore: add a project mise.toml and declare toolchain components by @bwks in [#513](https://github.com/bwks/sherpa/pull/513) ([15f5ef4](https://github.com/bwks/sherpa/commit/15f5ef4f275ef1a429aa52c1aac597c359f27602))
-- Run CI on the branch head by @bwks ([3a42523](https://github.com/bwks/sherpa/commit/3a425232512552337dec46c0b3c3fef1958dae24))
-- Uv shebangs for the Python scripts, fix verify self-test by @bwks ([dbf913e](https://github.com/bwks/sherpa/commit/dbf913ef062eef1e362a380420d4cc7155b479e3))
-- Run all harness Python on uv's Python 3.15 by @bwks ([3bf92ad](https://github.com/bwks/sherpa/commit/3bf92adc7f9fc0327705100b2a9db7d8a3cd9c63))
-- Require Python 3.15 for the host-side scripts by @bwks ([c34acbc](https://github.com/bwks/sherpa/commit/c34acbcbfa58f7073574e5d14a3588b9af9f0df0))
-- Let uv own Python through pyproject.toml by @bwks ([e3e1428](https://github.com/bwks/sherpa/commit/e3e1428b54b714244d0ba753afdb5f0149fc9413))
-- Add uv to mise.toml for Python dependencies by @bwks ([8336f55](https://github.com/bwks/sherpa/commit/8336f55546321bf19957cb829feb77a280e3024e))
-- Add a project mise.toml and declare toolchain components by @bwks ([e91e12a](https://github.com/bwks/sherpa/commit/e91e12aac82f5fd18e7f882f27d649d86231ce24))
-- Bump version to 0.5.16 by @bwks ([53b4e63](https://github.com/bwks/sherpa/commit/53b4e63933d2b4070f0b8cfdbbedaec4e3ca4750))
-- Merge remote-tracking branch 'origin/main' into feat/agent-bus by @bwks ([409963d](https://github.com/bwks/sherpa/commit/409963d84de999a283d3c5346f604fdfb7b43eb4))
-- Merge pull request #512 from bwks/changelog/v0.5.16
-
-chore(release): update changelog for v0.5.16 by @github-actions[bot] in [#512](https://github.com/bwks/sherpa/pull/512) ([bf444ac](https://github.com/bwks/sherpa/commit/bf444ac3b2a564d97c358908223e667c5e9bf240))
-- Merge remote-tracking branch 'origin/main' into feat/agent-bus by @bwks ([16441e8](https://github.com/bwks/sherpa/commit/16441e877008fb07167696970fe64edebc9c7ad5))
-
-### Testing
-
-- An answer refuses --model and --github by @bwks ([5873717](https://github.com/bwks/sherpa/commit/5873717694104f23360c65e9b01d578fc272ee7c))
-## [0.5.16] - 2026-11-09
-
-### Bug Fixes
-
-- Make the server SSH key 0600 and tighten existing keys on start by @bwks ([faa2ea3](https://github.com/bwks/sherpa/commit/faa2ea354760e3f15a2482fdc91db05b7d44e8a9))
-
-### Miscellaneous
-
-- Merge pull request #511 from bwks/fix/506-server-key-mode
-
-fix(server): make the server SSH key 0600 and tighten existing keys on start by @bwks in [#511](https://github.com/bwks/sherpa/pull/511) ([e466c66](https://github.com/bwks/sherpa/commit/e466c66fbab7c3f56e5ffac18624db5db4f1e8c1))
-- Merge pull request #509 from bwks/chore/gitignore-lab-files
-
-chore: group the loose SSH lab files with the older-client lab files in .gitignore by @bwks in [#509](https://github.com/bwks/sherpa/pull/509) ([36b9b95](https://github.com/bwks/sherpa/commit/36b9b956c574a605dc23e2e9ba704054ad512fd6))
-- Group the loose SSH lab files with the other older-client lab files in .gitignore [skip ci] by @bwks ([890207e](https://github.com/bwks/sherpa/commit/890207e56a4c18f5ef128528d50acde20b2f44b9))
-- Merge pull request #508 from bwks/changelog/v0.5.15
-
-chore(release): update changelog for v0.5.15 by @github-actions[bot] in [#508](https://github.com/bwks/sherpa/pull/508) ([5055a26](https://github.com/bwks/sherpa/commit/5055a26b987519e5c9e9d0ff13cf9b51195bef8c))
-## [0.5.15] - 2026-11-08
-
-### Features
-
-- Keep generated lab files in a .sherpa directory by @bwks ([2e46563](https://github.com/bwks/sherpa/commit/2e465636f24f3b2c92c41f8f0cabbbc60ea6e45b))
-- Per-lab SSH keys instead of the shared server key by @bwks ([16fc557](https://github.com/bwks/sherpa/commit/16fc557815f4248508774e03b6b80aeebb18d01b))
-
-### Miscellaneous
-
-- Merge pull request #507 from bwks/feat/505-sherpa-dir
-
-feat(client): keep generated lab files in a .sherpa directory by @bwks in [#507](https://github.com/bwks/sherpa/pull/507) ([5bde7a5](https://github.com/bwks/sherpa/commit/5bde7a53b426e8e0b2d64c461252d4fc0d5c2671))
 - Bump version to 0.5.15 by @bwks ([fd4f642](https://github.com/bwks/sherpa/commit/fd4f642b60adbcb3161f9bd1a1395165ff9f4548))
-- Merge pull request #504 from bwks/feat/480-per-lab-ssh-keys
-
-feat(server): per-lab SSH keys instead of the shared server key by @bwks in [#504](https://github.com/bwks/sherpa/pull/504) ([89b4045](https://github.com/bwks/sherpa/commit/89b40451cb9efcdbce260b0d788fa515a77da696))
 - Drop the version bump from this PR by @bwks ([ae80a95](https://github.com/bwks/sherpa/commit/ae80a95930c8de6ca1591e38575ca3c7d07a8978))
-- Merge pull request #493 from bwks/changelog/v0.5.14
-
-chore(release): update changelog for v0.5.14 by @github-actions[bot] in [#493](https://github.com/bwks/sherpa/pull/493) ([d5b86e9](https://github.com/bwks/sherpa/commit/d5b86e93ce22c2f2181b66496b472a70f0e4746b))
 ## [0.5.14] - 2026-11-08
 
 ### Features
 
 - Show the lab description in every interface by @bwks ([ee780a7](https://github.com/bwks/sherpa/commit/ee780a79925fc662f199c0d0cac337fbc9ac06e7))
-
-### Miscellaneous
-
-- Merge pull request #492 from bwks/feat/lab-description
-
-feat: show the lab description in every interface by @bwks in [#492](https://github.com/bwks/sherpa/pull/492) ([79f0f21](https://github.com/bwks/sherpa/commit/79f0f21207f264c2bdc57436163ba95ba35c2776))
-- Merge pull request #491 from bwks/changelog/v0.5.13
-
-chore(release): update changelog for v0.5.13 by @github-actions[bot] in [#491](https://github.com/bwks/sherpa/pull/491) ([ff8085d](https://github.com/bwks/sherpa/commit/ff8085d2a58f11a2d923a96f65407b5fd8dc78e6))
 ## [0.5.13] - 2026-11-07
 
 ### Bug Fixes
@@ -457,76 +246,10 @@ chore(release): update changelog for v0.5.13 by @github-actions[bot] in [#491](h
 
 ### Miscellaneous
 
-- Merge pull request #490 from bwks/chore/version-bump
-
-chore: bump version to 0.5.13 by @bwks in [#490](https://github.com/bwks/sherpa/pull/490) ([578c0f3](https://github.com/bwks/sherpa/commit/578c0f37084282f3604eeda0414b71f677119f01))
 - Bump version to 0.5.13 by @bwks ([552faca](https://github.com/bwks/sherpa/commit/552faca7d2be67cd242b7bc748c4571b0046c416))
-- Merge pull request #489 from bwks/chore/raw-strings
-
-style: raw strings instead of escaped quotes by @bwks in [#489](https://github.com/bwks/sherpa/pull/489) ([565c7a2](https://github.com/bwks/sherpa/commit/565c7a2b99d2ee6a44de6285604a4c6f5d976c9e))
 - Raw strings instead of escaped quotes across the workspace [skip ci] by @bwks ([b20675a](https://github.com/bwks/sherpa/commit/b20675ac0261c6733d0d6f1ab051fb613c21de4f))
-- Merge pull request #488 from bwks/chore/server-pedantic
-
-refactor(server): clippy pedantic, long functions split, one test binary by @bwks in [#488](https://github.com/bwks/sherpa/pull/488) ([08ced4e](https://github.com/bwks/sherpa/commit/08ced4e864545505fd03b0e90d347114aa2a2945))
 - Whole-path route docs, raw strings over escaped quotes [skip ci] by @bwks ([4233bd9](https://github.com/bwks/sherpa/commit/4233bd974bb7f42439c4c1cb2d451dcc496a366f))
-- Merge pull request #487 from bwks/chore/server-templates
-
-refactor(server): askama_web templates, dead code and unused deps by @bwks in [#487](https://github.com/bwks/sherpa/pull/487) ([0af076f](https://github.com/bwks/sherpa/commit/0af076f9454ba7c218f025ee27d667adaf16429e))
-- Merge pull request #486 from bwks/chore/server-up-split
-
-refactor(server): split up and redeploy by stage by @bwks in [#486](https://github.com/bwks/sherpa/pull/486) ([f800e38](https://github.com/bwks/sherpa/commit/f800e3855b9cf0778391b54e552ad80e3c038214))
-- Merge pull request #484 from bwks/chore/server-rpc
-
-refactor(server): one RPC dispatcher, handlers split by resource by @bwks in [#484](https://github.com/bwks/sherpa/pull/484) ([fb3a214](https://github.com/bwks/sherpa/commit/fb3a214574c3897e25e7eba32c957ec4063083f9))
-- Merge pull request #483 from bwks/chore/server-lifecycle
-
-fix(server): lifecycle bugs from the server review by @bwks in [#483](https://github.com/bwks/sherpa/pull/483) ([743b239](https://github.com/bwks/sherpa/commit/743b2394297c4e5d120439bdafd6075d40386df1))
-- Merge pull request #481 from bwks/chore/server-security
-
-fix(server): security fixes from the server review by @bwks in [#481](https://github.com/bwks/sherpa/pull/481) ([4614323](https://github.com/bwks/sherpa/commit/4614323c831aa5c5d7daf96082fe020c381e6502))
-- Merge pull request #479 from bwks/chore/shared-pedantic
-
-refactor(shared): hold the crate to clippy pedantic by @bwks in [#479](https://github.com/bwks/sherpa/pull/479) ([3138cad](https://github.com/bwks/sherpa/commit/3138cad6adf15838114a6446b14d09e6498a6d65))
-- Merge pull request #475 from bwks/chore/shared-housekeeping
-
-refactor(shared): review fixes for trust, SSH config and config defaults by @bwks in [#475](https://github.com/bwks/sherpa/pull/475) ([dd411af](https://github.com/bwks/sherpa/commit/dd411af8608e85c2b0bd86c9f72ab8bd8f542451))
-- Merge pull request #472 from bwks/chore/db-housekeeping
-
-refactor(db): hold the crate to clippy pedantic, remove the importer by @bwks in [#472](https://github.com/bwks/sherpa/pull/472) ([ac28ac8](https://github.com/bwks/sherpa/commit/ac28ac860bdf116d75e6f616a96ba19fd37d451c))
-- Merge pull request #471 from bwks/chore/client-housekeeping
-
-refactor(client): hold the crate to clippy pedantic by @bwks in [#471](https://github.com/bwks/sherpa/pull/471) ([5926a72](https://github.com/bwks/sherpa/commit/5926a72f09fff1866d81b9fddba95fb4f47d5051))
-- Merge pull request #468 from bwks/chore/client-fixes
-
-fix(client): first client clean-up, the fixes by @bwks in [#468](https://github.com/bwks/sherpa/pull/468) ([eff3daa](https://github.com/bwks/sherpa/commit/eff3daa4d5e806bff81180122b223edc1d526fe2))
-- Merge pull request #467 from bwks/chore/template-housekeeping
-
-refactor(template): hold the crate to clippy pedantic by @bwks in [#467](https://github.com/bwks/sherpa/pull/467) ([fd797b9](https://github.com/bwks/sherpa/commit/fd797b99005ea60dd46766af74bf61380dec9f7b))
-- Merge pull request #466 from bwks/chore/topology-housekeeping
-
-refactor(topology): hold the crate to clippy pedantic by @bwks in [#466](https://github.com/bwks/sherpa/pull/466) ([3ce54ab](https://github.com/bwks/sherpa/commit/3ce54abaaf990ce8edca87b5766bcd531caded6f))
-- Merge pull request #465 from bwks/chore/container-housekeeping
-
-refactor(container): hold the crate to clippy pedantic by @bwks in [#465](https://github.com/bwks/sherpa/pull/465) ([8a95945](https://github.com/bwks/sherpa/commit/8a95945d3d907b62251fd08545e5cadc37e5d559))
-- Merge pull request #464 from bwks/chore/network-housekeeping
-
-refactor(network): hold the crate to clippy pedantic by @bwks in [#464](https://github.com/bwks/sherpa/pull/464) ([2487926](https://github.com/bwks/sherpa/commit/2487926cf7e37d1720eabcfe8d4ad892122eaf59))
-- Merge pull request #463 from bwks/chore/libvirt-housekeeping
-
-refactor(libvirt): hold the crate to clippy pedantic by @bwks in [#463](https://github.com/bwks/sherpa/pull/463) ([d8a0dda](https://github.com/bwks/sherpa/commit/d8a0dda5ca49946f8348dd882c3f40b1f41d17c7))
-- Merge pull request #462 from bwks/chore/iso-housekeeping
-
-refactor(iso): hold the crate to clippy pedantic by @bwks in [#462](https://github.com/bwks/sherpa/pull/462) ([76478e7](https://github.com/bwks/sherpa/commit/76478e7c4d90476c398f2a4a9c56f38ce472d770))
 - Hold the version until the crate clean-up is done by @bwks ([4f32f3c](https://github.com/bwks/sherpa/commit/4f32f3c360e550fb2c8fe794684adca6b38c4e1f))
-- Merge pull request #461 from bwks/feat/test-build-cache
-
-test: cache the VM suite test build in Redis on the host by @bwks in [#461](https://github.com/bwks/sherpa/pull/461) ([cec5e38](https://github.com/bwks/sherpa/commit/cec5e38666870283f06c461ffed01a1a0ae59bfe))
-- Merge pull request #460 from bwks/fix/release-test-rebuild
-
-test: build the VM suite tests once and run the executables by @bwks in [#460](https://github.com/bwks/sherpa/pull/460) ([c525efe](https://github.com/bwks/sherpa/commit/c525efe058ec875975b6b5a476a67086c4486acf))
-- Merge pull request #459 from bwks/changelog/v0.5.12
-
-chore(release): update changelog for v0.5.12 by @github-actions[bot] in [#459](https://github.com/bwks/sherpa/pull/459) ([46c4eb7](https://github.com/bwks/sherpa/commit/46c4eb7c203f67c299ce5b56101fb5a8fd699f0a))
 
 ### Refactor
 
@@ -563,15 +286,6 @@ chore(release): update changelog for v0.5.12 by @github-actions[bot] in [#459](h
 ### Features
 
 - Keycloak login and Vault secrets for Talos clusters by @bwks ([6326281](https://github.com/bwks/sherpa/commit/632628170f31533d40650250c86335abab0df463))
-
-### Miscellaneous
-
-- Merge pull request #458 from bwks/feat/57-k8s-keycloak-vault
-
-feat: Keycloak login and Vault secrets for Talos clusters by @bwks in [#458](https://github.com/bwks/sherpa/pull/458) ([97000b0](https://github.com/bwks/sherpa/commit/97000b024ec03ddde6dde17cc1b346baa8735d95))
-- Merge pull request #457 from bwks/changelog/v0.5.11
-
-chore(release): update changelog for v0.5.11 by @github-actions[bot] in [#457](https://github.com/bwks/sherpa/pull/457) ([cc4e25f](https://github.com/bwks/sherpa/commit/cc4e25f68107c66706af613d172574da8c39365b))
 ## [0.5.11] - 2026-11-05
 
 ### Bug Fixes
@@ -582,15 +296,6 @@ chore(release): update changelog for v0.5.11 by @github-actions[bot] in [#457](h
 
 - Lab CA certificates, Vault over TLS with init and unseal, Keycloak by @bwks ([b347dd8](https://github.com/bwks/sherpa/commit/b347dd8985764318ab40ac2979b7fc37acf6bd87))
 
-### Miscellaneous
-
-- Merge pull request #456 from bwks/feat/454-lab-ca
-
-feat: lab CA certificates, Vault over TLS with init and unseal, Keycloak by @bwks in [#456](https://github.com/bwks/sherpa/pull/456) ([a0a4984](https://github.com/bwks/sherpa/commit/a0a4984d9a96f6cdd099d9a40aed4c35986e1eee))
-- Merge pull request #455 from bwks/changelog/v0.5.10
-
-chore(release): update changelog for v0.5.10 by @github-actions[bot] in [#455](https://github.com/bwks/sherpa/pull/455) ([6453b5e](https://github.com/bwks/sherpa/commit/6453b5eee7528143b620307225281b7e46dcd840))
-
 ### Refactor
 
 - Drop wrapper functions in the Vault and lab CA code by @bwks ([462aa5d](https://github.com/bwks/sherpa/commit/462aa5d0ef97b830cf8365556bbb049974129e96))
@@ -599,47 +304,20 @@ chore(release): update changelog for v0.5.10 by @github-actions[bot] in [#455](h
 ### Features
 
 - Cilium CNI for Sherpa-built Talos clusters by @bwks ([5551038](https://github.com/bwks/sherpa/commit/555103844d4019b01fc2ca0a389ed7790d2a8a90))
-
-### Miscellaneous
-
-- Merge pull request #453 from bwks/feat/57-talos-cilium
-
-feat: Cilium CNI for Sherpa-built Talos clusters by @bwks in [#453](https://github.com/bwks/sherpa/pull/453) ([55d6618](https://github.com/bwks/sherpa/commit/55d66180553c7d584dc485261c36fd245b8106a2))
-- Merge pull request #452 from bwks/changelog/v0.5.9
-
-chore(release): update changelog for v0.5.9 by @github-actions[bot] in [#452](https://github.com/bwks/sherpa/pull/452) ([5cff7ac](https://github.com/bwks/sherpa/commit/5cff7aced3a6aa9e3523c7410015336fd807ab9e))
 ## [0.5.9] - 2026-11-05
+
+### CI
+
+- Keep the coverage job within the runner's disk by @bwks ([e1507dd](https://github.com/bwks/sherpa/commit/e1507dd23a47688b744e4fe97994e79956005612))
 
 ### Features
 
 - Juniper_cevolved container node model by @bwks ([f0b7a55](https://github.com/bwks/sherpa/commit/f0b7a5596058b1c7774e39a115f303b8329695d8))
-
-### Miscellaneous
-
-- Merge pull request #451 from bwks/feat/277-juniper-cevolved
-
-feat: juniper_cevolved container node model by @bwks in [#451](https://github.com/bwks/sherpa/pull/451) ([b050e2b](https://github.com/bwks/sherpa/commit/b050e2baf8d88077fe3bbf56ab7d727c3e25eb9b))
-- Merge pull request #450 from bwks/ci/coverage-cache-size
-
-ci: keep the coverage job within the runner's disk by @bwks in [#450](https://github.com/bwks/sherpa/pull/450) ([c9d0f4c](https://github.com/bwks/sherpa/commit/c9d0f4cfba2e20b0c5ea8591de69d13f5a912c6f))
-- Keep the coverage job within the runner's disk by @bwks ([e1507dd](https://github.com/bwks/sherpa/commit/e1507dd23a47688b744e4fe97994e79956005612))
-- Merge pull request #449 from bwks/changelog/v0.5.8
-
-chore(release): update changelog for v0.5.8 by @github-actions[bot] in [#449](https://github.com/bwks/sherpa/pull/449) ([cdbf203](https://github.com/bwks/sherpa/commit/cdbf203ab55feef8b1767d3b79296cc24b575ae2))
 ## [0.5.8] - 2026-11-04
 
 ### Bug Fixes
 
 - Fixes for srlinux, vsrx, iosv by @bwks ([afc7999](https://github.com/bwks/sherpa/commit/afc7999432d6841d173c16e65433b6a0fe4540ed))
-
-### Miscellaneous
-
-- Merge pull request #448 from bwks/fix/444-446-node-boot
-
-fix: IOSv, vSRX and SR Linux boot configs (0.5.8) by @bwks in [#448](https://github.com/bwks/sherpa/pull/448) ([51612ed](https://github.com/bwks/sherpa/commit/51612ed2795123aaed2a50ef8796a1103e4a7b0a))
-- Merge pull request #447 from bwks/changelog/v0.5.7
-
-chore(release): update changelog for v0.5.7 by @github-actions[bot] in [#447](https://github.com/bwks/sherpa/pull/447) ([0899b35](https://github.com/bwks/sherpa/commit/0899b3554488e671db48bfef806379479da227c3))
 ## [0.5.7] - 2026-11-04
 
 ### Features
@@ -648,13 +326,7 @@ chore(release): update changelog for v0.5.7 by @github-actions[bot] in [#447](ht
 
 ### Miscellaneous
 
-- Merge pull request #443 from bwks/feat/288-owner-accounts-network
-
-feat: owner accounts on network devices, Windows and generic VMs by @bwks in [#443](https://github.com/bwks/sherpa/pull/443) ([d363ba2](https://github.com/bwks/sherpa/commit/d363ba279d1da4009ad7e1514da5561f2e82e771))
 - Bump version to 0.5.7 by @bwks ([c5842eb](https://github.com/bwks/sherpa/commit/c5842eb5f7949b0502bbbe9f0558aa242a4a9e38))
-- Merge pull request #442 from bwks/changelog/v0.5.6
-
-chore(release): update changelog for v0.5.6 by @github-actions[bot] in [#442](https://github.com/bwks/sherpa/pull/442) ([860fbcf](https://github.com/bwks/sherpa/commit/860fbcfc53fc3555def50823b684e922fbbb5f18))
 ## [0.5.6] - 2026-11-03
 
 ### Features
@@ -664,18 +336,17 @@ chore(release): update changelog for v0.5.6 by @github-actions[bot] in [#442](ht
 
 ### Miscellaneous
 
-- Merge pull request #441 from bwks/feat/lab-source-and-watchdog
-
-feat: record where a lab was started, and a per-node watchdog (v0.5.6) by @bwks in [#441](https://github.com/bwks/sherpa/pull/441) ([ec140b4](https://github.com/bwks/sherpa/commit/ec140b4c472dd98d1a1664bb07e4d0678deb8745))
 - Bump version to 0.5.6 by @bwks ([77b0c41](https://github.com/bwks/sherpa/commit/77b0c410d72d46d2ffbd8c416ad666c33693b5e8))
-- Merge pull request #440 from bwks/changelog/v0.5.5
-
-chore(release): update changelog for v0.5.5 by @github-actions[bot] in [#440](https://github.com/bwks/sherpa/pull/440) ([715e6b5](https://github.com/bwks/sherpa/commit/715e6b575d823ec260d0187803bb505e58ac8cf2))
 ## [0.5.5] - 2026-11-03
 
 ### Bug Fixes
 
 - Commit the schema and query SQL files by @bwks ([fa9c4aa](https://github.com/bwks/sherpa/commit/fa9c4aa7effdebca3244de206cc311253695d11b))
+
+### CI
+
+- Cache Rust builds in the PR workflow by @bwks ([d5f077a](https://github.com/bwks/sherpa/commit/d5f077a6ad9c9446ba09d250f588db258d395490))
+- Skip PR checks on the release bot's changelog PR by @bwks ([d59a003](https://github.com/bwks/sherpa/commit/d59a0031cd72323d5ebac9f02e16cba2ee0ab3c5))
 
 ### Features
 
@@ -683,21 +354,7 @@ chore(release): update changelog for v0.5.5 by @github-actions[bot] in [#440](ht
 
 ### Miscellaneous
 
-- Merge pull request #438 from bwks/chore/bump-0.5.5
-
-chore: bump version to 0.5.5 by @bwks in [#438](https://github.com/bwks/sherpa/pull/438) ([3c6d0ff](https://github.com/bwks/sherpa/commit/3c6d0ff3fd3d34623b950577e7dec3a4d70d76d4))
 - Bump version to 0.5.5 by @bwks ([a3fc27a](https://github.com/bwks/sherpa/commit/a3fc27a2e8000004ea5e7920420091d3d31f5535))
-- Merge pull request #436 from bwks/feat/build-checked-sql
-
-feat(db): check every SQL statement against the schema at build time by @bwks in [#436](https://github.com/bwks/sherpa/pull/436) ([a396656](https://github.com/bwks/sherpa/commit/a396656d3f1794312f2737da84a25b1673ea3757))
-- Cache Rust builds in the PR workflow by @bwks ([d5f077a](https://github.com/bwks/sherpa/commit/d5f077a6ad9c9446ba09d250f588db258d395490))
-- Merge pull request #434 from bwks/chore/skip-pr-checks-for-changelog
-
-ci: skip PR checks on the release bot changelog PR by @bwks in [#434](https://github.com/bwks/sherpa/pull/434) ([9e510c4](https://github.com/bwks/sherpa/commit/9e510c485384b52e8606350b8d07a1b27b1c17ba))
-- Skip PR checks on the release bot's changelog PR by @bwks ([d59a003](https://github.com/bwks/sherpa/commit/d59a0031cd72323d5ebac9f02e16cba2ee0ab3c5))
-- Merge pull request #433 from bwks/changelog/v0.5.4
-
-chore(release): update changelog for v0.5.4 by @github-actions[bot] in [#433](https://github.com/bwks/sherpa/pull/433) ([571bea4](https://github.com/bwks/sherpa/commit/571bea44d68ee4f88bb4aec5555711c240d547b9))
 
 ### Refactor
 
@@ -708,15 +365,6 @@ chore(release): update changelog for v0.5.4 by @github-actions[bot] in [#433](ht
 
 - Remove the watchdog from VM domains by @bwks ([c0c4f7b](https://github.com/bwks/sherpa/commit/c0c4f7b76ce5c203144b387dddd13c1eeaef21c5))
 - Default data interface counts for CSR1000v and IOSvL2 by @bwks ([73ea9f1](https://github.com/bwks/sherpa/commit/73ea9f12ced4f35c53a80ebabdbf769787a326cc))
-
-### Miscellaneous
-
-- Merge pull request #430 from bwks/fix/default-interface-counts
-
-fix: CSR1000v/IOSvL2 interface defaults and IOS watchdog resets by @bwks in [#430](https://github.com/bwks/sherpa/pull/430) ([136913b](https://github.com/bwks/sherpa/commit/136913bab0f971623946a3a2d4300d922bfe815b))
-- Merge pull request #429 from bwks/changelog/v0.5.3
-
-chore(release): update changelog for v0.5.3 by @github-actions[bot] in [#429](https://github.com/bwks/sherpa/pull/429) ([2afd651](https://github.com/bwks/sherpa/commit/2afd6519f2110dc91aa24dbe9baa9f54975a91ed))
 ## [0.5.3] - 2026-11-03
 
 ### Documentation
@@ -728,15 +376,6 @@ chore(release): update changelog for v0.5.3 by @github-actions[bot] in [#429](ht
 
 - Build ZTP ISOs with a Rust ISO 9660 writer by @bwks ([434ae91](https://github.com/bwks/sherpa/commit/434ae918a3d721ed715cdd195e98408ae12ca046))
 
-### Miscellaneous
-
-- Merge pull request #428 from bwks/feat/rust-iso-writer
-
-feat: build ZTP ISOs with a Rust ISO 9660 writer by @bwks in [#428](https://github.com/bwks/sherpa/pull/428) ([dafd59c](https://github.com/bwks/sherpa/commit/dafd59cc6caa1afde4d13f2f20d5db2ab91bf514))
-- Merge pull request #425 from bwks/changelog/v0.5.2
-
-chore(release): update changelog for v0.5.2 by @github-actions[bot] in [#425](https://github.com/bwks/sherpa/pull/425) ([899ef33](https://github.com/bwks/sherpa/commit/899ef3348931a223f9ba30e479830fe686c1fadf))
-
 ### Refactor
 
 - Move the ISO writer into its own iso crate by @bwks ([9beabc9](https://github.com/bwks/sherpa/commit/9beabc91dfc1fd3963f905974e8bf723c01ce345))
@@ -746,29 +385,11 @@ chore(release): update changelog for v0.5.2 by @github-actions[bot] in [#425](ht
 ### Features
 
 - NixOS lab nodes by @bwks ([e8c08ee](https://github.com/bwks/sherpa/commit/e8c08ee4b06687b422109edd65abf5cfe87bb446))
-
-### Miscellaneous
-
-- Merge pull request #424 from bwks/feat/nixos-linux
-
-feat: NixOS lab nodes by @bwks in [#424](https://github.com/bwks/sherpa/pull/424) ([26cc55f](https://github.com/bwks/sherpa/commit/26cc55fd7fdf9710a8ca44f984ebf996ab3360e2))
-- Merge pull request #423 from bwks/changelog/v0.5.1
-
-chore(release): update changelog for v0.5.1 by @github-actions[bot] in [#423](https://github.com/bwks/sherpa/pull/423) ([f4f9f91](https://github.com/bwks/sherpa/commit/f4f9f917d37b45f2ad4f45e5b0e5349f8fb35248))
 ## [0.5.1] - 2026-11-02
 
 ### Bug Fixes
 
 - Read sherpa.env only through systemd by @bwks ([6348c36](https://github.com/bwks/sherpa/commit/6348c362ac57fc7aef5a2a20f7d307ea016dd5d1))
-
-### Miscellaneous
-
-- Merge pull request #422 from bwks/fix/env-file-systemd
-
-fix: read sherpa.env only through systemd by @bwks in [#422](https://github.com/bwks/sherpa/pull/422) ([a10ebc8](https://github.com/bwks/sherpa/commit/a10ebc8da2b0c8efa7e9bf2054d7ea91405cc151))
-- Merge pull request #420 from bwks/changelog/v0.5.0
-
-chore(release): update changelog for v0.5.0 by @github-actions[bot] in [#420](https://github.com/bwks/sherpa/pull/420) ([cde327c](https://github.com/bwks/sherpa/commit/cde327c0bce1b3dd91251c24625e57029c7073b4))
 ## [0.5.0] - 2026-11-02
 
 ### Documentation
@@ -781,19 +402,7 @@ chore(release): update changelog for v0.5.0 by @github-actions[bot] in [#420](ht
 
 ### Miscellaneous
 
-- Merge pull request #417 from bwks/feat/turso-db
-
-feat: embed the database in sherpad with Turso by @bwks in [#417](https://github.com/bwks/sherpa/pull/417) ([ca8bfa7](https://github.com/bwks/sherpa/commit/ca8bfa7bd24e1775212a866e110c185989249c8b))
 - Remove leftover SurrealDB references by @bwks ([88a1e29](https://github.com/bwks/sherpa/commit/88a1e2971b7233ae065d6cdb842281221c5149d9))
-- Merge pull request #412 from bwks/feat/dev-env-mise
-
-test: install the dev server's tools with mise by @bwks in [#412](https://github.com/bwks/sherpa/pull/412) ([4f78d39](https://github.com/bwks/sherpa/commit/4f78d3967d4cd65f58e7aa607f45418b635d0edc))
-- Merge pull request #411 from bwks/docs/dev-server-workflow
-
-docs: how to work on the dev server  [skip ci] by @bwks in [#411](https://github.com/bwks/sherpa/pull/411) ([322562c](https://github.com/bwks/sherpa/commit/322562c3b20d3701be845fd32b03880ad5ac2d64))
-- Merge pull request #410 from bwks/changelog/v0.4.18
-
-chore(release): update changelog for v0.4.18 by @github-actions[bot] in [#410](https://github.com/bwks/sherpa/pull/410) ([fa5ea8d](https://github.com/bwks/sherpa/commit/fa5ea8d76bbf765e794b4e2b71978b4e03190696))
 
 ### Testing
 
@@ -806,21 +415,6 @@ chore(release): update changelog for v0.4.18 by @github-actions[bot] in [#410](h
 - Unattended sherpad init and sherpa login by @bwks ([ee11212](https://github.com/bwks/sherpa/commit/ee11212997912d0e93c61f00bcb6b2707d76aa6f))
 - Set transparent hugepages to madvise by @bwks ([2048891](https://github.com/bwks/sherpa/commit/20488914f38f46184cbe9065afbc6937c11876aa))
 
-### Miscellaneous
-
-- Merge pull request #409 from bwks/feat/init-first-user-env
-
-feat: unattended sherpad init and sherpa login by @bwks in [#409](https://github.com/bwks/sherpa/pull/409) ([943ff3b](https://github.com/bwks/sherpa/commit/943ff3b59ef82a31ee8494b823dd584a6e4e2107))
-- Merge pull request #408 from bwks/feat/402-dev-environment
-
-test: Sherpa dev server environment by @bwks in [#408](https://github.com/bwks/sherpa/pull/408) ([19fbd94](https://github.com/bwks/sherpa/commit/19fbd943603a4fe7798f58c6199f329c86dea815))
-- Merge pull request #407 from bwks/feat/402-installer-thp
-
-feat(install): set transparent hugepages to madvise by @bwks in [#407](https://github.com/bwks/sherpa/pull/407) ([b33c275](https://github.com/bwks/sherpa/commit/b33c27508975dd9979f59bee17b1918d4437ff07))
-- Merge pull request #406 from bwks/changelog/v0.4.17
-
-chore(release): update changelog for v0.4.17 by @github-actions[bot] in [#406](https://github.com/bwks/sherpa/pull/406) ([39caa29](https://github.com/bwks/sherpa/commit/39caa292950ee72d6303451d1a5dfaed1702c232))
-
 ### Testing
 
 - Add the Sherpa dev server environment by @bwks ([1b43540](https://github.com/bwks/sherpa/commit/1b435402b50a7b800b3c1f28078d2a51662f8728))
@@ -829,15 +423,6 @@ chore(release): update changelog for v0.4.17 by @github-actions[bot] in [#406](h
 ### Features
 
 - Add performance tuning for virtual machine nodes by @bwks ([7201458](https://github.com/bwks/sherpa/commit/72014584fbb4f145280922a33efc5652fe0ca859))
-
-### Miscellaneous
-
-- Merge pull request #405 from bwks/feat/402-vm-performance-settings
-
-feat: performance tuning for virtual machine nodes by @bwks in [#405](https://github.com/bwks/sherpa/pull/405) ([3dc9f6a](https://github.com/bwks/sherpa/commit/3dc9f6a86575ce0bc813ab133f830d1438b1122b))
-- Merge pull request #404 from bwks/changelog/v0.4.16
-
-chore(release): update changelog for v0.4.16 by @github-actions[bot] in [#404](https://github.com/bwks/sherpa/pull/404) ([9c454bb](https://github.com/bwks/sherpa/commit/9c454bb16280ae92bd0a3b8174714a7dbc144860))
 ## [0.4.16] - 2026-10-31
 
 ### Bug Fixes
@@ -846,13 +431,7 @@ chore(release): update changelog for v0.4.16 by @github-actions[bot] in [#404](h
 
 ### Miscellaneous
 
-- Merge pull request #403 from bwks/fix/395-ceos-write-memory
-
-fix(server): let cEOS save its startup-config by @bwks in [#403](https://github.com/bwks/sherpa/pull/403) ([a8ff8a0](https://github.com/bwks/sherpa/commit/a8ff8a05e70dfade93f4a6c4574288e7229e2f8b))
 - Bump version to 0.4.16 by @bwks ([0825c25](https://github.com/bwks/sherpa/commit/0825c2552df60cd3b1db8bef24758742b2101f87))
-- Merge pull request #401 from bwks/changelog/v0.4.15
-
-chore(release): update changelog for v0.4.15 by @github-actions[bot] in [#401](https://github.com/bwks/sherpa/pull/401) ([3c9d53f](https://github.com/bwks/sherpa/commit/3c9d53f8b15220be93316ec5868589035798d42a))
 ## [0.4.15] - 2026-10-31
 
 ### Bug Fixes
@@ -861,13 +440,7 @@ chore(release): update changelog for v0.4.15 by @github-actions[bot] in [#401](h
 
 ### Miscellaneous
 
-- Merge pull request #400 from bwks/fix/396-destroy-libvirt-setup-failures
-
-fix(server): keep destroying a lab when libvirt setup fails by @bwks in [#400](https://github.com/bwks/sherpa/pull/400) ([9f07935](https://github.com/bwks/sherpa/commit/9f07935229bf889968f9a8f85e38d91bf16fcb4d))
 - Bump version to 0.4.15 by @bwks ([b51af32](https://github.com/bwks/sherpa/commit/b51af321d1aceff0295d6cfeec5b00f3076332de))
-- Merge pull request #399 from bwks/changelog/v0.4.14
-
-chore(release): update changelog for v0.4.14 by @github-actions[bot] in [#399](https://github.com/bwks/sherpa/pull/399) ([bf9ee52](https://github.com/bwks/sherpa/commit/bf9ee528d7bf009838b32dd7c8899fe10cf13ba0))
 ## [0.4.14] - 2026-10-31
 
 ### Bug Fixes
@@ -880,13 +453,7 @@ chore(release): update changelog for v0.4.14 by @github-actions[bot] in [#399](h
 
 ### Miscellaneous
 
-- Merge pull request #398 from bwks/feat/391-ebpf-only-p2p
-
-feat: make every link a P2p eBPF link by @bwks in [#398](https://github.com/bwks/sherpa/pull/398) ([1ca5fbe](https://github.com/bwks/sherpa/commit/1ca5fbe3d6e41543c7557caf7a748d9732c49dce))
 - Bump version to 0.4.14 by @bwks ([15fdf78](https://github.com/bwks/sherpa/commit/15fdf78b8dd1cc09476e13be1fb4f99d7ec375b9))
-- Merge pull request #393 from bwks/changelog/v0.4.13
-
-chore(release): update changelog for v0.4.13 by @github-actions[bot] in [#393](https://github.com/bwks/sherpa/pull/393) ([7cbcfa8](https://github.com/bwks/sherpa/commit/7cbcfa8fd421d6df95e2c036bb6900aa4fff95ac))
 ## [0.4.13] - 2026-10-31
 
 ### Bug Fixes
@@ -895,13 +462,7 @@ chore(release): update changelog for v0.4.13 by @github-actions[bot] in [#393](h
 
 ### Miscellaneous
 
-- Merge pull request #392 from bwks/fix/388-skip-ready-check-containers
-
-fix(server): start containers with skip_ready_check during sherpa up by @bwks in [#392](https://github.com/bwks/sherpa/pull/392) ([4801723](https://github.com/bwks/sherpa/commit/4801723bc269205553e4b353a58a5f8c5f16585e))
 - Bump version to 0.4.13 by @bwks ([1783528](https://github.com/bwks/sherpa/commit/17835280b4c3627a780ad8202dada2326cf63ba9))
-- Merge pull request #390 from bwks/changelog/v0.4.12
-
-chore(release): update changelog for v0.4.12 by @github-actions[bot] in [#390](https://github.com/bwks/sherpa/pull/390) ([418c041](https://github.com/bwks/sherpa/commit/418c0412471a7603e0d9db33a0b4e2646496dfce))
 ## [0.4.12] - 2026-10-31
 
 ### Bug Fixes
@@ -910,13 +471,7 @@ chore(release): update changelog for v0.4.12 by @github-actions[bot] in [#390](h
 
 ### Miscellaneous
 
-- Merge pull request #387 from bwks/fix/355-p2p-veth-netns
-
-fix: create P2p container interfaces from the host, with no command in the image by @bwks in [#387](https://github.com/bwks/sherpa/pull/387) ([5a5421e](https://github.com/bwks/sherpa/commit/5a5421e3ddd72a5500913a340606b7669925e207))
 - Bump version to 0.4.12 by @bwks ([6e78371](https://github.com/bwks/sherpa/commit/6e78371a9f17724aaea17fbd7134c9aba3f49b73))
-- Merge pull request #386 from bwks/changelog/v0.4.11
-
-chore(release): update changelog for v0.4.11 by @github-actions[bot] in [#386](https://github.com/bwks/sherpa/pull/386) ([9f03e9d](https://github.com/bwks/sherpa/commit/9f03e9dd52e0a8c409ae28f33be689c74a46c1c2))
 ## [0.4.11] - 2026-10-31
 
 ### Bug Fixes
@@ -925,13 +480,7 @@ chore(release): update changelog for v0.4.11 by @github-actions[bot] in [#386](h
 
 ### Miscellaneous
 
-- Merge pull request #385 from bwks/fix/383-destroy-exit-code
-
-fix(client): exit non-zero when the server reports a failure by @bwks in [#385](https://github.com/bwks/sherpa/pull/385) ([110d475](https://github.com/bwks/sherpa/commit/110d475dc611fa318282aa26bf95283bf456b272))
 - Bump version to 0.4.11 by @bwks ([5fbf8f0](https://github.com/bwks/sherpa/commit/5fbf8f0081f3ba1a729f1508ebca9ef62397d5ce))
-- Merge pull request #384 from bwks/changelog/v0.4.10
-
-chore(release): update changelog for v0.4.10 by @github-actions[bot] in [#384](https://github.com/bwks/sherpa/pull/384) ([89cb295](https://github.com/bwks/sherpa/commit/89cb29523eacc55f156f013edc9552bea6f21e58))
 ## [0.4.10] - 2026-10-31
 
 ### Bug Fixes
@@ -941,13 +490,7 @@ chore(release): update changelog for v0.4.10 by @github-actions[bot] in [#384](h
 
 ### Miscellaneous
 
-- Merge pull request #382 from bwks/fix/345-container-bridges
-
-fix: containers in private bridges, P2p redirects across restarts by @bwks in [#382](https://github.com/bwks/sherpa/pull/382) ([5af6cb8](https://github.com/bwks/sherpa/commit/5af6cb81845a3b8d1548d0a4f430080ee397efc4))
 - Bump version to 0.4.10 by @bwks ([ffbecf4](https://github.com/bwks/sherpa/commit/ffbecf4408b8d6d22934429263a8799396d30f85))
-- Merge pull request #381 from bwks/changelog/v0.4.9
-
-chore(release): update changelog for v0.4.9 by @github-actions[bot] in [#381](https://github.com/bwks/sherpa/pull/381) ([dc21f10](https://github.com/bwks/sherpa/commit/dc21f10760ea663cf8455c265263dbe6d884ccc4))
 
 ### Testing
 
@@ -960,13 +503,7 @@ chore(release): update changelog for v0.4.9 by @github-actions[bot] in [#381](ht
 
 ### Miscellaneous
 
-- Merge pull request #380 from bwks/feat/windows-hyperv-enlightenments
-
-feat(template): full Hyper-V enlightenment set for Windows nodes by @bwks in [#380](https://github.com/bwks/sherpa/pull/380) ([bc64111](https://github.com/bwks/sherpa/commit/bc6411185bf8a9696bcd521945cc4e271575e269))
 - Bump version to 0.4.9 by @bwks ([2787096](https://github.com/bwks/sherpa/commit/2787096a7438d7d636d8e14a94594108e994b8b9))
-- Merge pull request #379 from bwks/changelog/v0.4.8
-
-chore(release): update changelog for v0.4.8 by @github-actions[bot] in [#379](https://github.com/bwks/sherpa/pull/379) ([83a8951](https://github.com/bwks/sherpa/commit/83a8951e883abcdc0d1ec2934b335290118a3227))
 ## [0.4.8] - 2026-10-30
 
 ### Bug Fixes
@@ -979,14 +516,8 @@ chore(release): update changelog for v0.4.8 by @github-actions[bot] in [#379](ht
 
 ### Miscellaneous
 
-- Merge pull request #378 from bwks/feat/concurrent-provisioning
-
-feat(provision): provision SSH nodes concurrently by @bwks in [#378](https://github.com/bwks/sherpa/pull/378) ([408a650](https://github.com/bwks/sherpa/commit/408a6506b07aa1270ba9a03cad6990809b95dd9a))
 - Use the jato v0.4.3 release tag by @bwks ([8232c28](https://github.com/bwks/sherpa/commit/8232c280eb9bc8b641f692e47b56efcc40e39e8c))
 - Bump version to 0.4.8 by @bwks ([ac5cf12](https://github.com/bwks/sherpa/commit/ac5cf128a823c2962d2003ef5cf340d806038228))
-- Merge pull request #375 from bwks/changelog/v0.4.7
-
-chore(release): update changelog for v0.4.7 by @github-actions[bot] in [#375](https://github.com/bwks/sherpa/pull/375) ([4a2e869](https://github.com/bwks/sherpa/commit/4a2e869abbac81298142e2f71c6065c3203814f7))
 ## [0.4.7] - 2026-10-28
 
 ### Bug Fixes
@@ -995,13 +526,7 @@ chore(release): update changelog for v0.4.7 by @github-actions[bot] in [#375](ht
 
 ### Miscellaneous
 
-- Merge pull request #374 from bwks/fix/provisioner-login-shell
-
-fix(provision): run ssh provisioner scripts in a login shell by @bwks in [#374](https://github.com/bwks/sherpa/pull/374) ([e0ebe3e](https://github.com/bwks/sherpa/commit/e0ebe3ef799190331daaf735f96c535c2498477f))
 - Bump version to 0.4.7 by @bwks ([3e168bf](https://github.com/bwks/sherpa/commit/3e168bf453371dc05ca2b140e5045fe045fa0cc9))
-- Merge pull request #373 from bwks/changelog/v0.4.6
-
-chore(release): update changelog for v0.4.6 by @github-actions[bot] in [#373](https://github.com/bwks/sherpa/pull/373) ([0e40b6c](https://github.com/bwks/sherpa/commit/0e40b6cdcd2dcbf86e182464d96ce26135e1a3fe))
 ## [0.4.6] - 2026-10-28
 
 ### Bug Fixes
@@ -1010,13 +535,7 @@ chore(release): update changelog for v0.4.6 by @github-actions[bot] in [#373](ht
 
 ### Miscellaneous
 
-- Merge pull request #371 from bwks/fix/env-file-variables
-
-fix(provision): resolve $NAME values in env files from the client by @bwks in [#371](https://github.com/bwks/sherpa/pull/371) ([03a0291](https://github.com/bwks/sherpa/commit/03a0291f8d5cadaef38b509035330324df8fc129))
 - Bump version to 0.4.6 by @bwks ([cc9a02d](https://github.com/bwks/sherpa/commit/cc9a02ddea97ca4d7db83ee4ef98b32699f726bb))
-- Merge pull request #372 from bwks/changelog/v0.4.5
-
-chore(release): update changelog for v0.4.5 by @github-actions[bot] in [#372](https://github.com/bwks/sherpa/pull/372) ([7db628d](https://github.com/bwks/sherpa/commit/7db628d0566219fbe737efddaa1824c5d6f806ba))
 ## [0.4.5] - 2026-10-28
 
 ### Bug Fixes
@@ -1025,13 +544,7 @@ chore(release): update changelog for v0.4.5 by @github-actions[bot] in [#372](ht
 
 ### Miscellaneous
 
-- Merge pull request #370 from bwks/fix/drop-client-stack-thread
-
-fix(client): run commands on the main thread again (Jato v0.4.2) by @bwks in [#370](https://github.com/bwks/sherpa/pull/370) ([eda61e0](https://github.com/bwks/sherpa/commit/eda61e05da08fa7a479c6d0c3b29be787f339817))
 - Bump version to 0.4.5 by @bwks ([295ecb8](https://github.com/bwks/sherpa/commit/295ecb88679b19d044737b04a1d338546383650b))
-- Merge pull request #369 from bwks/changelog/v0.4.4
-
-chore(release): update changelog for v0.4.4 by @github-actions[bot] in [#369](https://github.com/bwks/sherpa/pull/369) ([5cf18ac](https://github.com/bwks/sherpa/commit/5cf18acfad54c201d0667410c1ed1dba832be123))
 ## [0.4.4] - 2026-10-28
 
 ### Features
@@ -1040,13 +553,7 @@ chore(release): update changelog for v0.4.4 by @github-actions[bot] in [#369](ht
 
 ### Miscellaneous
 
-- Merge pull request #368 from bwks/feat/lab-known-hosts
-
-feat: record lab node host keys and check them strictly by @bwks in [#368](https://github.com/bwks/sherpa/pull/368) ([803e44b](https://github.com/bwks/sherpa/commit/803e44bfba1ae6fbce38043fde064d9d30d0747c))
 - Bump version to 0.4.4 by @bwks ([338771b](https://github.com/bwks/sherpa/commit/338771b9b75ded4393b47c6ba56ae0da846e4f9f))
-- Merge pull request #367 from bwks/changelog/v0.4.3
-
-chore(release): update changelog for v0.4.3 by @github-actions[bot] in [#367](https://github.com/bwks/sherpa/pull/367) ([e207bbb](https://github.com/bwks/sherpa/commit/e207bbba2527c868bd6ac99ae4ffbd797ceaa28b))
 ## [0.4.3] - 2026-10-27
 
 ### Bug Fixes
@@ -1062,15 +569,9 @@ chore(release): update changelog for v0.4.3 by @github-actions[bot] in [#367](ht
 
 ### Miscellaneous
 
-- Merge pull request #366 from bwks/feat/jato-ssh-command
-
-feat(ssh): run sherpa ssh through Jato instead of the system ssh by @bwks in [#366](https://github.com/bwks/sherpa/pull/366) ([875ac0b](https://github.com/bwks/sherpa/commit/875ac0b194d16af18ccddca8f4610f5eaad9722f))
 - Bump version to 0.4.3 by @bwks ([8581ff3](https://github.com/bwks/sherpa/commit/8581ff39c97f70721c20613193befd53e0f5b662))
 - Pin Jato to its v0.4.0 release by @bwks ([548480b](https://github.com/bwks/sherpa/commit/548480b3a45298d797c6bc00172813d0b6c6e5a1))
 - Update Jato to its release-v0.4.0 branch head by @bwks ([7148dfc](https://github.com/bwks/sherpa/commit/7148dfc4281f4a377618578b94da96e7e25a2998))
-- Merge pull request #365 from bwks/changelog/v0.4.2
-
-chore(release): update changelog for v0.4.2 by @github-actions[bot] in [#365](https://github.com/bwks/sherpa/pull/365) ([770a12d](https://github.com/bwks/sherpa/commit/770a12db281e12db3ef983d4a0f7756b98c1f0a8))
 
 ### Refactor
 
@@ -1087,13 +588,7 @@ chore(release): update changelog for v0.4.2 by @github-actions[bot] in [#365](ht
 
 ### Miscellaneous
 
-- Merge pull request #364 from bwks/feat/jato-ssh-readiness
-
-feat(readiness): confirm an SSH server answers before a VM counts as ready by @bwks in [#364](https://github.com/bwks/sherpa/pull/364) ([9e0b65d](https://github.com/bwks/sherpa/commit/9e0b65d5f44c88ea91b1473812301d6732f61edb))
 - Bump version to 0.4.2 by @bwks ([e88561c](https://github.com/bwks/sherpa/commit/e88561c4b3b3cbd0f22996751bdd02ac73f4a1ec))
-- Merge pull request #363 from bwks/changelog/v0.4.1
-
-chore(release): update changelog for v0.4.1 by @github-actions[bot] in [#363](https://github.com/bwks/sherpa/pull/363) ([a89f3ee](https://github.com/bwks/sherpa/commit/a89f3eea39d80099a5e22e4b6fb3787beeba4f1e))
 ## [0.4.1] - 2026-10-27
 
 ### Bug Fixes
@@ -1102,13 +597,7 @@ chore(release): update changelog for v0.4.1 by @github-actions[bot] in [#363](ht
 
 ### Miscellaneous
 
-- Merge pull request #362 from bwks/fix/windows-private-file-acls
-
-fix(windows): make node.key and private text files readable only by admins by @bwks in [#362](https://github.com/bwks/sherpa/pull/362) ([38a6f09](https://github.com/bwks/sherpa/commit/38a6f09d4978aea581b04236ad8bf6944239522d))
 - Bump version to 0.4.1 by @bwks ([01a0b02](https://github.com/bwks/sherpa/commit/01a0b02663f6e5e9e077ebd9bd7cf267844e35ba))
-- Merge pull request #361 from bwks/changelog/v0.4.0
-
-chore(release): update changelog for v0.4.0 by @github-actions[bot] in [#361](https://github.com/bwks/sherpa/pull/361) ([3d47bf7](https://github.com/bwks/sherpa/commit/3d47bf78863e8695c49001ad074bfb672d5ebee0))
 ## [0.4.0] - 2026-10-25
 
 ### Features
@@ -1117,13 +606,7 @@ chore(release): update changelog for v0.4.0 by @github-actions[bot] in [#361](ht
 
 ### Miscellaneous
 
-- Merge pull request #360 from bwks/feat/tailscale-ephemeral-keys
-
-v0.4.0: Tailscale logout on down and destroy, re-enrollment on resume by @bwks in [#360](https://github.com/bwks/sherpa/pull/360) ([74c4593](https://github.com/bwks/sherpa/commit/74c459347554794d48407cb56ae268355fb1df79))
 - Bump version to 0.4.0 by @bwks ([04f5d57](https://github.com/bwks/sherpa/commit/04f5d579f5bacbd0503531d3fdbcc1d6dcd344b0))
-- Merge pull request #359 from bwks/changelog/v0.3.99
-
-chore(release): update changelog for v0.3.99 by @github-actions[bot] in [#359](https://github.com/bwks/sherpa/pull/359) ([d2ff051](https://github.com/bwks/sherpa/commit/d2ff051b98ed954d320b6ef5d207d0d732dc7ae9))
 ## [0.3.99] - 2026-10-25
 
 ### Bug Fixes
@@ -1136,13 +619,7 @@ chore(release): update changelog for v0.3.99 by @github-actions[bot] in [#359](h
 
 ### Miscellaneous
 
-- Merge pull request #358 from bwks/fix/test-env-resources-and-web-node-specs
-
-v0.3.99: store node CPU, memory and fixed VNC ports by @bwks in [#358](https://github.com/bwks/sherpa/pull/358) ([2c04648](https://github.com/bwks/sherpa/commit/2c0464822a20483c278466f16c6263e8b8121c60))
 - Bump version to 0.3.99 by @bwks ([d5a70cf](https://github.com/bwks/sherpa/commit/d5a70cf267e7aff5f87128d4eeb728eec5653f88))
-- Merge pull request #357 from bwks/changelog/v0.3.98
-
-chore(release): update changelog for v0.3.98 by @github-actions[bot] in [#357](https://github.com/bwks/sherpa/pull/357) ([1d46ef1](https://github.com/bwks/sherpa/commit/1d46ef1ff0d5cfb51dd33735333ec6b611c3d6f3))
 
 ### Testing
 
@@ -1160,13 +637,7 @@ chore(release): update changelog for v0.3.98 by @github-actions[bot] in [#357](h
 
 ### Miscellaneous
 
-- Merge pull request #356 from bwks/v-0.3.98
-
-v0.3.98: BSD personal accounts, container secret files, containers without ip by @bwks in [#356](https://github.com/bwks/sherpa/pull/356) ([2276088](https://github.com/bwks/sherpa/commit/227608809aa594d32d8bec268f20fdcc1f8ad251))
 - Bump version to 0.3.98 by @bwks ([0c7f186](https://github.com/bwks/sherpa/commit/0c7f186ab164b16f48c8867921c81d96fcac3a0a))
-- Merge pull request #354 from bwks/changelog/v0.3.97
-
-chore(release): update changelog for v0.3.97 by @github-actions[bot] in [#354](https://github.com/bwks/sherpa/pull/354) ([9c10df0](https://github.com/bwks/sherpa/commit/9c10df0abecd86f536e4886be4b82b273c39af85))
 ## [0.3.97] - 2026-10-25
 
 ### Bug Fixes
@@ -1180,13 +651,7 @@ chore(release): update changelog for v0.3.97 by @github-actions[bot] in [#354](h
 
 ### Miscellaneous
 
-- Merge pull request #353 from bwks/feat/provisioners
-
-feat: client-side SSH provisioners for node secrets by @bwks in [#353](https://github.com/bwks/sherpa/pull/353) ([0ce6ff0](https://github.com/bwks/sherpa/commit/0ce6ff0c5f128b12bb206048f7d0fa94f7716458))
 - Bump version to 0.3.97 by @bwks ([dd45e42](https://github.com/bwks/sherpa/commit/dd45e421bec65995c2461201c72db2819b940d07))
-- Merge pull request #352 from bwks/changelog/v0.3.96
-
-chore(release): update changelog for v0.3.96 by @github-actions[bot] in [#352](https://github.com/bwks/sherpa/pull/352) ([e501cb9](https://github.com/bwks/sherpa/commit/e501cb9797847087d6a4d4cece15f141324ff290))
 ## [0.3.96] - 2026-10-25
 
 ### Bug Fixes
@@ -1199,13 +664,7 @@ chore(release): update changelog for v0.3.96 by @github-actions[bot] in [#352](h
 
 ### Miscellaneous
 
-- Merge pull request #351 from bwks/feat/lab-data-protection
-
-fix: keep lab data readable only by sherpa, admins and QEMU by @bwks in [#351](https://github.com/bwks/sherpa/pull/351) ([151d432](https://github.com/bwks/sherpa/commit/151d432949328e6f317a7483157b7c807b74f19b))
 - Bump version to 0.3.96 by @bwks ([f268f2c](https://github.com/bwks/sherpa/commit/f268f2cd82f3c659f2e51f3b5db2b2331c56c8d4))
-- Merge pull request #350 from bwks/changelog/v0.3.95
-
-chore(release): update changelog for v0.3.95 by @github-actions[bot] in [#350](https://github.com/bwks/sherpa/pull/350) ([76f71b9](https://github.com/bwks/sherpa/commit/76f71b97f98182678c0b9b0be5ce45d988e650fb))
 ## [0.3.95] - 2026-10-25
 
 ### Bug Fixes
@@ -1223,13 +682,7 @@ chore(release): update changelog for v0.3.95 by @github-actions[bot] in [#350](h
 
 ### Miscellaneous
 
-- Merge pull request #349 from bwks/feat/user-account-setup
-
-fix: stage guest files and use each OS's native tools by @bwks in [#349](https://github.com/bwks/sherpa/pull/349) ([cb6f9bb](https://github.com/bwks/sherpa/commit/cb6f9bb37afac3fa01b7fc7b7170a5805d3fef46))
 - Bump version to 0.3.95 by @bwks ([52476ff](https://github.com/bwks/sherpa/commit/52476ff1742211d90fc6efa304f942896da8bd97))
-- Merge pull request #344 from bwks/changelog/v0.3.94
-
-chore(release): update changelog for v0.3.94 by @github-actions[bot] in [#344](https://github.com/bwks/sherpa/pull/344) ([579071e](https://github.com/bwks/sherpa/commit/579071e04c9c40a56dcf2d81005f357c7ece0609))
 ## [0.3.94] - 2026-10-18
 
 ### Features
@@ -1238,16 +691,7 @@ chore(release): update changelog for v0.3.94 by @github-actions[bot] in [#344](h
 
 ### Miscellaneous
 
-- Merge pull request #343 from bwks/refactor/remove-toml-edit
-
-refactor: write manifests with serde instead of toml_edit by @bwks in [#343](https://github.com/bwks/sherpa/pull/343) ([1451c24](https://github.com/bwks/sherpa/commit/1451c2446a415c5fad970871b0a9c00cee6797fa))
 - Bump crate versions to 0.3.94 by @bwks ([8a81f9d](https://github.com/bwks/sherpa/commit/8a81f9ddb4b1b9e182b918c5cb775c7a1ce1678f))
-- Merge pull request #342 from bwks/feat/web-ui-icon-and-theme
-
-Node Peak icon and Soda Pop as the only web UI theme by @bwks in [#342](https://github.com/bwks/sherpa/pull/342) ([5b68a40](https://github.com/bwks/sherpa/commit/5b68a403465d5cf6f6664210c2812018f4eef4c1))
-- Merge pull request #341 from bwks/changelog/v0.3.93
-
-chore(release): update changelog for v0.3.93 by @github-actions[bot] in [#341](https://github.com/bwks/sherpa/pull/341) ([d60a440](https://github.com/bwks/sherpa/commit/d60a440c686fdd3ccc369e7e46ca1ebb32f5c584))
 
 ### Refactor
 
@@ -1266,17 +710,8 @@ chore(release): update changelog for v0.3.93 by @github-actions[bot] in [#341](h
 
 ### Miscellaneous
 
-- Merge pull request #340 from bwks/feat/338-server-accounts
-
-Server accounts: built-in admin, guest-safe usernames, required SSH keys by @bwks in [#340](https://github.com/bwks/sherpa/pull/340) ([ed17b17](https://github.com/bwks/sherpa/commit/ed17b17effedf892ee0a41d0557a03e5ca0d8f1e))
 - Bump crate versions to 0.3.93 by @bwks ([298912c](https://github.com/bwks/sherpa/commit/298912c749065dc16f8bec22cb1764d7cf455a33))
-- Merge pull request #337 from bwks/chore/332-upgrade-tabled
-
-chore: upgrade tabled to 0.22 to drop proc-macro-error2 by @bwks in [#337](https://github.com/bwks/sherpa/pull/337) ([de510b9](https://github.com/bwks/sherpa/commit/de510b9958beab5277c5ec1cbe1d62f8c9eff44f))
 - Upgrade tabled to 0.22 to drop proc-macro-error2 by @bwks ([599cbd8](https://github.com/bwks/sherpa/commit/599cbd8813d031681262a4a722114c4b59edc81d))
-- Merge pull request #336 from bwks/changelog/v0.3.92
-
-chore(release): update changelog for v0.3.92 by @github-actions[bot] in [#336](https://github.com/bwks/sherpa/pull/336) ([ab7662f](https://github.com/bwks/sherpa/commit/ab7662ff68e0edf4c0fa5f5c4abe08e2019cd782))
 
 ### Refactor
 
@@ -1289,13 +724,7 @@ chore(release): update changelog for v0.3.92 by @github-actions[bot] in [#336](h
 
 ### Miscellaneous
 
-- Merge pull request #335 from bwks/fix/331-operation-lifecycle
-
-fix: keep lab operations safe across client disconnects; stop them on request by @bwks in [#335](https://github.com/bwks/sherpa/pull/335) ([afc5fa7](https://github.com/bwks/sherpa/commit/afc5fa7c6c8e56f9743160e5fa419049f01bc17d))
 - Bump crate versions to 0.3.92 by @bwks ([7c2c906](https://github.com/bwks/sherpa/commit/7c2c90694c3668ee2ec5b68b99705fb80ee39480))
-- Merge pull request #333 from bwks/changelog/v0.3.91
-
-chore(release): update changelog for v0.3.91 by @github-actions[bot] in [#333](https://github.com/bwks/sherpa/pull/333) ([8545361](https://github.com/bwks/sherpa/commit/85453616de3ae7bc22c1b3cfaaefe4ce0e90f18e))
 ## [0.3.91] - 2026-10-18
 
 ### Bug Fixes
@@ -1317,15 +746,9 @@ chore(release): update changelog for v0.3.91 by @github-actions[bot] in [#333](h
 
 ### Miscellaneous
 
-- Merge pull request #329 from bwks/feat/talos-linux
-
-feat: Talos Linux nodes and Sherpa-built Kubernetes clusters by @bwks in [#329](https://github.com/bwks/sherpa/pull/329) ([45b31a0](https://github.com/bwks/sherpa/commit/45b31a022126ebdf3dfa970e437fd8312fab8d47))
 - Ignore local HANDOVER.md session notes [skip ci] by @bwks ([af4ae8f](https://github.com/bwks/sherpa/commit/af4ae8f0960366fce5ca97158a198bbcd9da9cf9))
 - Bump crate versions to 0.3.91 by @bwks ([a4fab03](https://github.com/bwks/sherpa/commit/a4fab037b77033fd234309eaee811eda4fb43fab))
 - Updaet agenet instructions by @bwks ([5275cb8](https://github.com/bwks/sherpa/commit/5275cb88c4a2537b3ff0ab1df720ee39bf3d7dfa))
-- Merge pull request #328 from bwks/changelog/v0.3.90
-
-chore(release): update changelog for v0.3.90 by @github-actions[bot] in [#328](https://github.com/bwks/sherpa/pull/328) ([13bedc4](https://github.com/bwks/sherpa/commit/13bedc4bc03a53cee1727ff2e26c3a4672afcd61))
 
 ### Refactor
 
@@ -1347,20 +770,8 @@ chore(release): update changelog for v0.3.90 by @github-actions[bot] in [#328](h
 
 ### Miscellaneous
 
-- Merge pull request #327 from bwks/fix/user-delete-owned-labs
-
-fix(server): refuse to delete users who own labs, on every transport by @bwks in [#327](https://github.com/bwks/sherpa/pull/327) ([94dfbd7](https://github.com/bwks/sherpa/commit/94dfbd7b7fe2ac2d0077f7ec0f1eca3765374b1c))
 - Bump crate versions to 0.3.90 by @bwks ([65833ab](https://github.com/bwks/sherpa/commit/65833abe8b554a09d562eff59ef7ca70546c7ae0))
-- Merge pull request #325 from bwks/fix/admin-lab-access
-
-fix(server): consistent lab authorization; admins can destroy and inspect any lab by @bwks in [#325](https://github.com/bwks/sherpa/pull/325) ([142b16a](https://github.com/bwks/sherpa/commit/142b16a374b5dfc67b8fe3e916a4a43d07d64169))
-- Merge pull request #323 from bwks/fix/guest-json-and-tests-layout
-
-fix: write guest cloud-init documents as JSON; move test tooling under tests/ by @bwks in [#323](https://github.com/bwks/sherpa/pull/323) ([1510a01](https://github.com/bwks/sherpa/commit/1510a01cad0fd0a5171023e6c71b936680ff1c04))
 - Move test tooling, specs and environments under tests/ by @bwks ([a968509](https://github.com/bwks/sherpa/commit/a968509d37e5c3dce8b7ad06d0ce795f6adda1cd))
-- Merge pull request #321 from bwks/changelog/v0.3.89
-
-chore(release): update changelog for v0.3.89 by @github-actions[bot] in [#321](https://github.com/bwks/sherpa/pull/321) ([84917d4](https://github.com/bwks/sherpa/commit/84917d40a77a9e2ec57cb94206b8331cf70082eb))
 ## [0.3.89] - 2026-10-17
 
 ### Bug Fixes
@@ -1369,18 +780,9 @@ chore(release): update changelog for v0.3.89 by @github-actions[bot] in [#321](h
 
 ### Miscellaneous
 
-- Merge pull request #319 from bwks/chore/server-tests
-
-fix: reserve lab subnets in the database and wait for readiness on resume by @bwks in [#319](https://github.com/bwks/sherpa/pull/319) ([7ad9b20](https://github.com/bwks/sherpa/commit/7ad9b205615a4014bd50be1ed7c86e6c7519acdc))
 - Bump version to v0.3.89 by @bwks ([5bb12b0](https://github.com/bwks/sherpa/commit/5bb12b01e40a9b0bfff2632e9bee1c3abf29b48c))
 - Setup vm tests by @bwks ([44a56cb](https://github.com/bwks/sherpa/commit/44a56cbd0778816cbbcadf46d04b1636101c8795))
-- Merge pull request #317 from bwks/chore/remove-ansible-pyats-nornir
-
-chore: remove ansible, pyats and nornir config management support by @bwks in [#317](https://github.com/bwks/sherpa/pull/317) ([c5a988d](https://github.com/bwks/sherpa/commit/c5a988d0764dc70bcdb5f59028cbe9a5992048a8))
 - Remove ansible, pyats and nornir config management support by @bwks ([4e0f169](https://github.com/bwks/sherpa/commit/4e0f169faf0aac1b37d1d39e7c14d9b40b687720))
-- Merge pull request #316 from bwks/changelog/v0.3.88
-
-chore(release): update changelog for v0.3.88 by @github-actions[bot] in [#316](https://github.com/bwks/sherpa/pull/316) ([e973dc1](https://github.com/bwks/sherpa/commit/e973dc19451b6984708bf4611c776e5645ed2b16))
 
 ### Testing
 
@@ -1401,33 +803,8 @@ chore(release): update changelog for v0.3.88 by @github-actions[bot] in [#316](h
 
 ### Miscellaneous
 
-- Merge pull request #315 from bwks/fix/remove-production-expect-and-unsafe
-
-fix: remove production expect() calls and unneeded unsafe impls, bump to v0.3.88 by @bwks in [#315](https://github.com/bwks/sherpa/pull/315) ([1435b43](https://github.com/bwks/sherpa/commit/1435b43b96136a968cfb5bf6cb96c23241a482fc))
-- Merge remote-tracking branch 'origin/main' into fix/remove-production-expect-and-unsafe by @bwks ([80e98fa](https://github.com/bwks/sherpa/commit/80e98fa28ff79335cac5aa8e90b01711fe0622eb))
-- Merge pull request #314 from bwks/docs/investigations
-
-docs: add docs/investigations and move the Juniper vSRX notes there by @bwks in [#314](https://github.com/bwks/sherpa/pull/314) ([05b1bd9](https://github.com/bwks/sherpa/commit/05b1bd94025cffdb16929d9371f10af2e6856144))
 - Restore test code that used unsafe env var changes by @bwks ([814d161](https://github.com/bwks/sherpa/commit/814d161b3b52938f85f3b0ea04d0b685e55851e5))
-- Merge pull request #313 from bwks/chore/align-agents-skills
-
-chore: align .agents skills with .claude skills by @bwks in [#313](https://github.com/bwks/sherpa/pull/313) ([b5e7aa5](https://github.com/bwks/sherpa/commit/b5e7aa58be8ae2ba7c9b7ced04f96decb6c983be))
 - Align .agents skills with .claude skills [skip ci] by @bwks ([2f97e47](https://github.com/bwks/sherpa/commit/2f97e47f38194a11cc89ad9d9b373e74dfb6f6ab))
-- Merge pull request #312 from bwks/docs/prompt-audit-fixes
-
-docs: apply prompt audit fixes to AGENTS.md and project skills by @bwks in [#312](https://github.com/bwks/sherpa/pull/312) ([3a16604](https://github.com/bwks/sherpa/commit/3a1660454cdcbcec3eec65901987369be02b2b9e))
-- Merge pull request #311 from bwks/docs/agents-md-cleanup
-
-docs: clean up AGENTS.md by @bwks in [#311](https://github.com/bwks/sherpa/pull/311) ([d62ccc5](https://github.com/bwks/sherpa/commit/d62ccc5466d86dabbf4f9c55e1cb0d2a18f4c9f0))
-- Merge pull request #310 from bwks/docs/remove-unikernel-images-md
-
-docs: remove UNIKERNEL-IMAGES.md, now covered by sherpa-docs by @bwks in [#310](https://github.com/bwks/sherpa/pull/310) ([ffa19bf](https://github.com/bwks/sherpa/commit/ffa19bf103d1f8dfdaf417faa141f1d0d118281b))
-- Merge pull request #309 from bwks/docs/remove-ipv6-md
-
-docs: remove README-IPV6.md, now covered by sherpa-docs by @bwks in [#309](https://github.com/bwks/sherpa/pull/309) ([20ec3d3](https://github.com/bwks/sherpa/commit/20ec3d3baa8c002f93b6f6b307bf14022feb3f93))
-- Merge pull request #308 from bwks/changelog/v0.3.87
-
-chore(release): update changelog for v0.3.87 by @github-actions[bot] in [#308](https://github.com/bwks/sherpa/pull/308) ([ae2ad57](https://github.com/bwks/sherpa/commit/ae2ad57cff3d369c71ade84f2741c0b93651ffde))
 ## [0.3.87] - 2026-10-13
 
 ### Documentation
@@ -1439,127 +816,38 @@ chore(release): update changelog for v0.3.87 by @github-actions[bot] in [#308](h
 
 ### Miscellaneous
 
-- Merge pull request #306 from bwks/chore/tailnet-docs-link-and-version-bump
-
-chore: bump to v0.3.87 and point Tailscale warnings at the docs site by @bwks in [#306](https://github.com/bwks/sherpa/pull/306) ([1af027a](https://github.com/bwks/sherpa/commit/1af027a605a8bc1aa9d04ca924e3b8f6fbc2040a))
-- Merge origin/main into chore/tailnet-docs-link-and-version-bump
-
-Resolve the docs/README.md conflict: keep main's removal of the
-CURRENT_USER.md row and this branch's updated TAILNET.md row.
-
-Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com> by @bwks ([612d516](https://github.com/bwks/sherpa/commit/612d51681c522b68f72739f64fd3e52076887bc9))
-- Merge pull request #305 from bwks/docs/remove-current-user-md
-
-docs: remove CURRENT_USER.md, now covered by sherpa-docs by @bwks in [#305](https://github.com/bwks/sherpa/pull/305) ([4b7ba13](https://github.com/bwks/sherpa/commit/4b7ba13b3f3ae79134d552ccb0ab08eaaa2257cd))
 - Bump to v0.3.87 and point Tailscale warnings at the docs site by @bwks ([0d69059](https://github.com/bwks/sherpa/commit/0d69059a2c36182e23f4382b4aa3a6640d3ee5a3))
-- Merge pull request #304 from bwks/docs/remove-manifest-md
-
-docs: remove MANIFEST.md, now covered by sherpa-docs by @bwks in [#304](https://github.com/bwks/sherpa/pull/304) ([1bd86ac](https://github.com/bwks/sherpa/commit/1bd86acaeededa4aba70778498f558c6d401ece7))
-- Merge pull request #303 from bwks/docs/api-placeholder-password
-
-docs: use a placeholder password in the API login example by @bwks in [#303](https://github.com/bwks/sherpa/pull/303) ([fbdcbfa](https://github.com/bwks/sherpa/commit/fbdcbfa5754ee1904a43d1eb07f54aca898d682f))
-- Merge pull request #302 from bwks/docs/architecture-folder
-
-docs: add docs/architecture for application architecture by @bwks in [#302](https://github.com/bwks/sherpa/pull/302) ([071be4a](https://github.com/bwks/sherpa/commit/071be4aa4049949ad094a2fb5c2eb7382aea6c94))
-- Merge pull request #299 from bwks/chore/remove-stale-docs
-
-chore: remove stale documentation and unreferenced scripts by @bwks in [#299](https://github.com/bwks/sherpa/pull/299) ([da9f4a1](https://github.com/bwks/sherpa/commit/da9f4a149a4fe8668af50fc9c43e9284eb2e2cd6))
-- Merge origin/main; restore test-specs [skip ci]
-
-Keep the per-crate test specifications: they still track test goals that
-have no coverage yet. Resolve the modify/delete conflict on
-test-specs/topology/manifest-parsing.md by taking main's version.
-
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_017FkqoYN2ywnhencWnEpBSw by @bwks ([c0e0329](https://github.com/bwks/sherpa/commit/c0e0329ae4bccf3cd8db55024d45de60736b29a3))
 - Remove stale documentation and unreferenced scripts by @bwks ([324a232](https://github.com/bwks/sherpa/commit/324a232911b92e9881546ec33c7846afb5cc1a52))
-- Merge pull request #300 from bwks/changelog/v0.3.86
-
-chore(release): update changelog for v0.3.86 by @github-actions[bot] in [#300](https://github.com/bwks/sherpa/pull/300) ([b9dbc55](https://github.com/bwks/sherpa/commit/b9dbc556b503f38dfeee390d0cc0de13f44e7f70))
 ## [0.3.86] - 2026-10-13
 
 ### Features
 
 - Add optional lab descriptions to manifests by @bwks ([178bc2a](https://github.com/bwks/sherpa/commit/178bc2a52b60350d01bc7e4addac6c5a8a8fbc26))
-
-### Miscellaneous
-
-- Merge pull request #298 from bwks/feat/lab-description
-
-feat: add optional lab descriptions to manifests by @bwks in [#298](https://github.com/bwks/sherpa/pull/298) ([2000827](https://github.com/bwks/sherpa/commit/20008277da0775924a569dfd15b205e27ebecce8))
-- Merge pull request #297 from bwks/changelog/v0.3.85
-
-chore(release): update changelog for v0.3.85 by @github-actions[bot] in [#297](https://github.com/bwks/sherpa/pull/297) ([407e952](https://github.com/bwks/sherpa/commit/407e952d5330e2a3e1a0a8c527c254146c7c3f92))
 ## [0.3.85] - 2026-10-11
 
 ### Bug Fixes
 
 - Wrap Tailscale status output within 80 columns by @bwks ([ea17c15](https://github.com/bwks/sherpa/commit/ea17c155535f3826cadcb1978a8ac918c5ffb989))
-
-### Miscellaneous
-
-- Merge pull request #296 from bwks/fix/tailscale-table-wrapping
-
-fix: wrap Tailscale status output within 80 columns by @bwks in [#296](https://github.com/bwks/sherpa/pull/296) ([7453960](https://github.com/bwks/sherpa/commit/74539602ef0cfb0f7a93a55d9247f255200ddbb5))
-- Merge pull request #295 from bwks/changelog/v0.3.84
-
-chore(release): update changelog for v0.3.84 by @github-actions[bot] in [#295](https://github.com/bwks/sherpa/pull/295) ([cefe08c](https://github.com/bwks/sherpa/commit/cefe08c51eb24cf8ab91b85a58703d6e7657d225))
 ## [0.3.84] - 2026-10-11
 
 ### Features
 
 - Provision lab owner accounts in Linux VMs by @bwks ([03a9cc0](https://github.com/bwks/sherpa/commit/03a9cc0c894b48e497ea3a938b854e57d8ee25ea))
-
-### Miscellaneous
-
-- Merge pull request #294 from bwks/feat/provision-current-user
-
-Provision lab owner accounts in Linux VMs by @bwks in [#294](https://github.com/bwks/sherpa/pull/294) ([e27c7d9](https://github.com/bwks/sherpa/commit/e27c7d9600b65732782d2652cf62c4cb54ddb508))
-- Merge pull request #293 from bwks/changelog/v0.3.83
-
-chore(release): update changelog for v0.3.83 by @github-actions[bot] in [#293](https://github.com/bwks/sherpa/pull/293) ([6afd026](https://github.com/bwks/sherpa/commit/6afd026d94ec8143e28df6242462f803708cf0a2))
 ## [0.3.83] - 2026-10-11
 
 ### Features
 
 - Provision VM boot disks with QCOW2 overlays by @bwks ([3b05975](https://github.com/bwks/sherpa/commit/3b05975777f344168dc965840d852b9b21ca0d9f))
-
-### Miscellaneous
-
-- Merge pull request #292 from bwks/v0.3.83
-
-feat: default VM boot disks to QCOW2 overlays (v0.3.83) by @bwks in [#292](https://github.com/bwks/sherpa/pull/292) ([5cd0f4a](https://github.com/bwks/sherpa/commit/5cd0f4a36c931465371dc42591b1d9c7927b871c))
-- Merge pull request #291 from bwks/changelog/v0.3.82
-
-chore(release): update changelog for v0.3.82 by @github-actions[bot] in [#291](https://github.com/bwks/sherpa/pull/291) ([5c5c3ec](https://github.com/bwks/sherpa/commit/5c5c3ecab06cacece90465cc890e2b8ee0c944a5))
 ## [0.3.82] - 2026-10-10
 
 ### Features
 
 - Add Omarchy Linux cloud-init VM support by @bwks ([dcf60b0](https://github.com/bwks/sherpa/commit/dcf60b0ec10b4625474eb0fa6fd5eab9dc04115a))
-
-### Miscellaneous
-
-- Merge pull request #289 from bwks/feat/omarchy-linux
-
-feat: add Omarchy Linux cloud-init support by @bwks in [#289](https://github.com/bwks/sherpa/pull/289) ([7982a94](https://github.com/bwks/sherpa/commit/7982a94fc855220d1b4729053efecfddc70f0114))
-- Merge pull request #284 from bwks/changelog/v0.3.81
-
-chore(release): update changelog for v0.3.81 by @github-actions[bot] in [#284](https://github.com/bwks/sherpa/pull/284) ([7c0629c](https://github.com/bwks/sherpa/commit/7c0629c09a0b0f21e93067fcd502e81d316eecb4))
 ## [0.3.81] - 2026-10-10
 
 ### Features
 
 - Simplify web UI themes and default to Soda Pop by @bwks ([1b0f079](https://github.com/bwks/sherpa/commit/1b0f079b5cb27ba48c98304365fa3cc833ab66b5))
-
-### Miscellaneous
-
-- Merge pull request #283 from bwks/v0.3.81
-
-feat: simplify web UI themes and default to Soda Pop by @bwks in [#283](https://github.com/bwks/sherpa/pull/283) ([c3b5ea5](https://github.com/bwks/sherpa/commit/c3b5ea50f2e0eaaf707bd8f18091a1437892a899))
-- Merge pull request #282 from bwks/changelog/v0.3.80
-
-chore(release): update changelog for v0.3.80 by @github-actions[bot] in [#282](https://github.com/bwks/sherpa/pull/282) ([415e143](https://github.com/bwks/sherpa/commit/415e143e6dd6d4b0b62cb590de4d94c5da314eb2))
 ## [0.3.80] - 2026-10-03
 
 ### Bug Fixes
@@ -1572,14 +860,8 @@ chore(release): update changelog for v0.3.80 by @github-actions[bot] in [#282](h
 
 ### Miscellaneous
 
-- Merge pull request #281 from bwks/v0.3.80
-
-V0.3.80 by @bwks in [#281](https://github.com/bwks/sherpa/pull/281) ([42ef5c2](https://github.com/bwks/sherpa/commit/42ef5c2b1909c7f6bd6e17b683197f20b82bb17d))
 - E2e tests by @bwks ([b1a4545](https://github.com/bwks/sherpa/commit/b1a454559f2ed36a035eb2f57577b53dfaafbaab))
 - Sherpa install/uninstall testing by @bwks ([cba3c37](https://github.com/bwks/sherpa/commit/cba3c377c8863a677d8cc42ff0abc8a378ec982e))
-- Merge pull request #280 from bwks/changelog/v0.3.79
-
-chore(release): update changelog for v0.3.79 by @github-actions[bot] in [#280](https://github.com/bwks/sherpa/pull/280) ([32417db](https://github.com/bwks/sherpa/commit/32417dbe8fe6008f966c030e70909323a986a647))
 
 ### Testing
 
@@ -1592,13 +874,7 @@ chore(release): update changelog for v0.3.79 by @github-actions[bot] in [#280](h
 
 ### Miscellaneous
 
-- Merge pull request #279 from bwks/v0.3.79
-
-V0.3.79 by @bwks in [#279](https://github.com/bwks/sherpa/pull/279) ([f9d7c54](https://github.com/bwks/sherpa/commit/f9d7c5408e5321ce61f87d2f03bb214cd333582f))
 - Bump all crates to v0.3.79 by @bwks ([723bfb8](https://github.com/bwks/sherpa/commit/723bfb8fa7e96c7aa8d92675998def29efed95a1))
-- Merge pull request #275 from bwks/changelog/v0.3.78
-
-chore(release): update changelog for v0.3.78 by @github-actions[bot] in [#275](https://github.com/bwks/sherpa/pull/275) ([08094f3](https://github.com/bwks/sherpa/commit/08094f3dd5751ff7960b2ddc5bb2704c3cc79b07))
 ## [0.3.78] - 2026-08-19
 
 ### Bug Fixes
@@ -1607,13 +883,7 @@ chore(release): update changelog for v0.3.78 by @github-actions[bot] in [#275](h
 
 ### Miscellaneous
 
-- Merge pull request #274 from bwks/v0.3.78
-
-chore: consolidate workspace dependencies by @bwks in [#274](https://github.com/bwks/sherpa/pull/274) ([06e9a2a](https://github.com/bwks/sherpa/commit/06e9a2ab654e331f66f3d5533f4064a10a6f821e))
 - Consolidate workspace dependencies by @bwks ([c8f4038](https://github.com/bwks/sherpa/commit/c8f40386132df17147e4fa1fa1f2ce51dcadf7e1))
-- Merge pull request #273 from bwks/changelog/v0.3.77
-
-chore(release): update changelog for v0.3.77 by @github-actions[bot] in [#273](https://github.com/bwks/sherpa/pull/273) ([cbeaef7](https://github.com/bwks/sherpa/commit/cbeaef7a14da07e53cbcc161d2dd64e55b702aa4))
 ## [0.3.77] - 2026-08-19
 
 ### Bug Fixes
@@ -1622,13 +892,7 @@ chore(release): update changelog for v0.3.77 by @github-actions[bot] in [#273](h
 
 ### Miscellaneous
 
-- Merge pull request #272 from bwks/v0.3.77
-
-fix(web): recover from stale session cookies by @bwks in [#272](https://github.com/bwks/sherpa/pull/272) ([83de507](https://github.com/bwks/sherpa/commit/83de507485f4258812db4076b710c2c06f68007b))
 - Bump workspace version to 0.3.77 by @bwks ([fb280f6](https://github.com/bwks/sherpa/commit/fb280f6a1643538e4d434fd7cfb39db4fd21cfde))
-- Merge pull request #270 from bwks/changelog/v0.3.76
-
-chore(release): update changelog for v0.3.76 by @github-actions[bot] in [#270](https://github.com/bwks/sherpa/pull/270) ([68fcba9](https://github.com/bwks/sherpa/commit/68fcba976a89bea0307ca5b22d6fec74382f840e))
 ## [0.3.76] - 2026-08-18
 
 ### Bug Fixes
@@ -1638,14 +902,12 @@ chore(release): update changelog for v0.3.76 by @github-actions[bot] in [#270](h
 
 ### Miscellaneous
 
-- Merge pull request #269 from bwks/fix/windows-ssh-key-permissions
-
-fix: secure SSH private keys on Windows by @bwks in [#269](https://github.com/bwks/sherpa/pull/269) ([04d5eaa](https://github.com/bwks/sherpa/commit/04d5eaaaa50dde659b5880121a35de3f17e4bce9))
 - Bump workspace version to 0.3.76 by @bwks ([787427f](https://github.com/bwks/sherpa/commit/787427fdb7e42eef92e5160b5ffb2938dc393f5b))
-- Merge pull request #268 from bwks/changelog/v0.3.75
-
-chore(release): update changelog for v0.3.75 by @github-actions[bot] in [#268](https://github.com/bwks/sherpa/pull/268) ([652739d](https://github.com/bwks/sherpa/commit/652739d2d4d5b37b0e60accd2da8805d6c3c7827))
 ## [0.3.75] - 2026-08-18
+
+### CI
+
+- Run clippy and coverage in parallel by @bwks ([abe7214](https://github.com/bwks/sherpa/commit/abe7214fa711992e30fbebc699c956cda3b21dca))
 
 ### Features
 
@@ -1653,14 +915,7 @@ chore(release): update changelog for v0.3.75 by @github-actions[bot] in [#268](h
 
 ### Miscellaneous
 
-- Merge pull request #267 from bwks/v0.3.75
-
-V0.3.75 by @bwks in [#267](https://github.com/bwks/sherpa/pull/267) ([150c98d](https://github.com/bwks/sherpa/commit/150c98d8e4c90b1b024261445df9f9594e69ff24))
-- Run clippy and coverage in parallel by @bwks ([abe7214](https://github.com/bwks/sherpa/commit/abe7214fa711992e30fbebc699c956cda3b21dca))
 - Obey clippy by @bwks ([73aaebf](https://github.com/bwks/sherpa/commit/73aaebf07916b5f235fad9a1a459790b6c9259ce))
-- Merge pull request #266 from bwks/changelog/v0.3.74
-
-chore(release): update changelog for v0.3.74 by @github-actions[bot] in [#266](https://github.com/bwks/sherpa/pull/266) ([a573b40](https://github.com/bwks/sherpa/commit/a573b4018bfdf52fb40174045c814d885e102308))
 
 ### Refactor
 
@@ -1677,17 +932,8 @@ chore(release): update changelog for v0.3.74 by @github-actions[bot] in [#266](h
 
 ### Miscellaneous
 
-- Merge pull request #265 from bwks/v0.3.74
-
-chore: version bump by @bwks in [#265](https://github.com/bwks/sherpa/pull/265) ([c79fecf](https://github.com/bwks/sherpa/commit/c79fecfa824adb8553bf5c9434185d3cdaa2ecb4))
 - Version bump by @bwks ([91cb83b](https://github.com/bwks/sherpa/commit/91cb83be57cb80d095431c96f0fdd49727097e0d))
-- Merge pull request #264 from bwks/v0.3.74
-
-V0.3.74 by @bwks in [#264](https://github.com/bwks/sherpa/pull/264) ([815c4c5](https://github.com/bwks/sherpa/commit/815c4c52885c0d70dc9ea795c29c26f70257e00c))
 - Attach claude model to skills by @bwks ([2c27409](https://github.com/bwks/sherpa/commit/2c27409431cb9f1e2170047a94fbc0c9bad7cc86))
-- Merge pull request #263 from bwks/changelog/v0.3.73
-
-chore(release): update changelog for v0.3.73 by @github-actions[bot] in [#263](https://github.com/bwks/sherpa/pull/263) ([7406b82](https://github.com/bwks/sherpa/commit/7406b822bac684b72cd18f4667038a1ff6ec6cae))
 ## [0.3.73] - 2026-04-25
 
 ### Features
@@ -1696,16 +942,10 @@ chore(release): update changelog for v0.3.73 by @github-actions[bot] in [#263](h
 
 ### Miscellaneous
 
-- Merge pull request #262 from bwks/v0.3.73
-
-V0.3.73 by @bwks in [#262](https://github.com/bwks/sherpa/pull/262) ([8ad63b4](https://github.com/bwks/sherpa/commit/8ad63b4c4f4846521b4e88fbf813e8072e655f93))
 - Add shared pi skills by @bwks ([d12c1fc](https://github.com/bwks/sherpa/commit/d12c1fc24a59259b70b2b44039db68f8cb2188b1))
 - Bump crate versions to 0.3.73 by @bwks ([3cae09d](https://github.com/bwks/sherpa/commit/3cae09dd53f7abc8fc2587cb7f273d04a88d0a9d))
 - Compile optimizations by @claude ([5293f88](https://github.com/bwks/sherpa/commit/5293f8802a4bd2b347165bff0b7cdd88ab649d2b))
 - Compile optimizations by @claude ([93621f3](https://github.com/bwks/sherpa/commit/93621f37c4a03c57ed329ba35833ae31f00f99c9))
-- Merge pull request #261 from bwks/changelog/v0.3.72
-
-chore(release): update changelog for v0.3.72 by @github-actions[bot] in [#261](https://github.com/bwks/sherpa/pull/261) ([0ff6865](https://github.com/bwks/sherpa/commit/0ff6865c1683d66ac46ef79a6886ac8381158670))
 ## [0.3.72] - 2026-04-25
 
 ### Documentation
@@ -1718,13 +958,7 @@ chore(release): update changelog for v0.3.72 by @github-actions[bot] in [#261](h
 
 ### Miscellaneous
 
-- Merge pull request #260 from bwks/v0.3.72
-
-V0.3.72 by @bwks in [#260](https://github.com/bwks/sherpa/pull/260) ([9da7589](https://github.com/bwks/sherpa/commit/9da7589e34ec1a46d50b54f1560fb41c6defafad))
 - Bump crate versions to 0.3.72 by @claude ([b95c658](https://github.com/bwks/sherpa/commit/b95c658c7c9d22ad0961f3179b4a5ce60f8450f9))
-- Merge pull request #259 from bwks/changelog/v0.3.71
-
-chore(release): update changelog for v0.3.71 by @github-actions[bot] in [#259](https://github.com/bwks/sherpa/pull/259) ([dc86fa6](https://github.com/bwks/sherpa/commit/dc86fa67040d5f271ae0b1d59c286c745ceaae93))
 ## [0.3.71] - 2026-04-13
 
 ### Features
@@ -1733,14 +967,8 @@ chore(release): update changelog for v0.3.71 by @github-actions[bot] in [#259](h
 
 ### Miscellaneous
 
-- Merge pull request #258 from bwks/v0.3.71
-
-V0.3.71 by @bwks in [#258](https://github.com/bwks/sherpa/pull/258) ([d37bdc5](https://github.com/bwks/sherpa/commit/d37bdc5d57dc531a582dfcc7d005b5ee00c40738))
 - Version bump 0.3.70 → 0.3.71 by @claude ([4a51487](https://github.com/bwks/sherpa/commit/4a5148770cc08cbd74dcc0993fdd02cc1e70a64e))
 - Integration test manifest by @bwks ([609d379](https://github.com/bwks/sherpa/commit/609d379df307571cf3b9ae5de8e1d92b4b30d0be))
-- Merge pull request #255 from bwks/changelog/v0.3.70
-
-chore(release): update changelog for v0.3.70 by @github-actions[bot] in [#255](https://github.com/bwks/sherpa/pull/255) ([ca6076e](https://github.com/bwks/sherpa/commit/ca6076e4a43b6f3784c1c6d233b78ff2cd8e2b3d))
 ## [0.3.70] - 2026-04-13
 
 ### Bug Fixes
@@ -1749,16 +977,10 @@ chore(release): update changelog for v0.3.70 by @github-actions[bot] in [#255](h
 
 ### Miscellaneous
 
-- Merge pull request #253 from bwks/v0.3.70
-
-V0.3.70 by @bwks in [#253](https://github.com/bwks/sherpa/pull/253) ([1b44303](https://github.com/bwks/sherpa/commit/1b44303fb21e145126975d22611388919d05d63f))
 - Adopt cargo-nextest and add dev/testdeps script by @claude ([f1dcbbb](https://github.com/bwks/sherpa/commit/f1dcbbb396dc124c4eb4da14c5ea5ff6f194495d))
 - Version bump 0.3.69 → 0.3.70 by @claude ([6343c09](https://github.com/bwks/sherpa/commit/6343c09f4867da7f6fd45b31b77b70b238173ea0))
 - Add gh-branch, gh-commit, and gh-push skills by @claude ([50592fd](https://github.com/bwks/sherpa/commit/50592fdc9644f25875c00a1a8b8e92c206694ef5))
 - Remove code examples from docstrings by @claude ([4941ff1](https://github.com/bwks/sherpa/commit/4941ff103df200a5a2e4237a2d6604fe2622ee2d))
-- Merge pull request #251 from bwks/changelog/v0.3.69
-
-chore(release): update changelog for v0.3.69 by @github-actions[bot] in [#251](https://github.com/bwks/sherpa/pull/251) ([d5f0a77](https://github.com/bwks/sherpa/commit/d5f0a77f0c2f21cc97b13b6c89d8651bc1558e10))
 
 ### Testing
 
@@ -1771,24 +993,12 @@ chore(release): update changelog for v0.3.69 by @github-actions[bot] in [#251](h
 
 ### Miscellaneous
 
-- Merge pull request #250 from bwks/v0.3.69
-
-V0.3.69 by @bwks in [#250](https://github.com/bwks/sherpa/pull/250) ([44aa8af](https://github.com/bwks/sherpa/commit/44aa8af3bde7f4f60b2a737772bb8a620a9d464f))
 - Version bump by @bwks ([7444875](https://github.com/bwks/sherpa/commit/7444875dec1e72961ea6937086cd1230e5f1bf6d))
-- Merge pull request #248 from bwks/changelog/v0.3.68
-
-chore(release): update changelog for v0.3.68 by @github-actions[bot] in [#248](https://github.com/bwks/sherpa/pull/248) ([752d926](https://github.com/bwks/sherpa/commit/752d9260ed9e1c93a15b58efc397dd6f18d8d300))
 ## [0.3.68] - 2026-04-11
 
 ### Miscellaneous
 
-- Merge pull request #247 from bwks/v0.3.68
-
-V0.3.68 by @bwks in [#247](https://github.com/bwks/sherpa/pull/247) ([55b9cee](https://github.com/bwks/sherpa/commit/55b9cee4146b7ad7f2938874fe7cf0f026b42c6d))
 - Version bump by @bwks ([d2774d6](https://github.com/bwks/sherpa/commit/d2774d62ee0a6b348863c011d04f4647edd1ab8d))
-- Merge pull request #246 from bwks/changelog/v0.3.67
-
-chore(release): update changelog for v0.3.67 by @github-actions[bot] in [#246](https://github.com/bwks/sherpa/pull/246) ([68a98dc](https://github.com/bwks/sherpa/commit/68a98dc14fe5526a2da58aeb816cb860562cbebc))
 
 ### Testing
 
@@ -1801,13 +1011,7 @@ chore(release): update changelog for v0.3.67 by @github-actions[bot] in [#246](h
 
 ### Miscellaneous
 
-- Merge pull request #245 from bwks/v0.3.67
-
-V0.3.67 by @bwks in [#245](https://github.com/bwks/sherpa/pull/245) ([f223628](https://github.com/bwks/sherpa/commit/f223628b8119f2929d9255b1f64d20d4744070ba))
 - Version bump by @bwks ([5b5c6f5](https://github.com/bwks/sherpa/commit/5b5c6f542d45bb7373bf7d47fcd819b7f1e3c963))
-- Merge pull request #244 from bwks/changelog/v0.3.66
-
-chore(release): update changelog for v0.3.66 by @github-actions[bot] in [#244](https://github.com/bwks/sherpa/pull/244) ([dea6df4](https://github.com/bwks/sherpa/commit/dea6df4a0b7eb1d150d11ad2a9b571b1d567b79e))
 
 ### Testing
 
@@ -1821,14 +1025,8 @@ chore(release): update changelog for v0.3.66 by @github-actions[bot] in [#244](h
 
 ### Miscellaneous
 
-- Merge pull request #243 from bwks/v0.3.66
-
-V0.3.66 by @bwks in [#243](https://github.com/bwks/sherpa/pull/243) ([aa688e0](https://github.com/bwks/sherpa/commit/aa688e0a88f06dec24f3604050de7b8f1322d5ec))
 - Version bump by @bwks ([a3fc297](https://github.com/bwks/sherpa/commit/a3fc29754a57ffe7cabe021c88177e5773e5462e))
 - Theme dropdown ordering by @bwks ([fe484bf](https://github.com/bwks/sherpa/commit/fe484bf25ff68bd76c272f9f4e243a110a5e55df))
-- Merge pull request #242 from bwks/changelog/v0.3.65
-
-chore(release): update changelog for v0.3.65 by @github-actions[bot] in [#242](https://github.com/bwks/sherpa/pull/242) ([6eaa4c2](https://github.com/bwks/sherpa/commit/6eaa4c2eeb8fb7507e95d57c105eada3e07f022a))
 ## [0.3.65] - 2026-04-08
 
 ### Features
@@ -1839,13 +1037,7 @@ chore(release): update changelog for v0.3.65 by @github-actions[bot] in [#242](h
 
 ### Miscellaneous
 
-- Merge pull request #241 from bwks/v0.3.65
-
-V0.3.65 by @bwks in [#241](https://github.com/bwks/sherpa/pull/241) ([456d3e6](https://github.com/bwks/sherpa/commit/456d3e64c985c9cf25b4726792b279c07456acf9))
 - Version bump by @bwks ([8ecb0b5](https://github.com/bwks/sherpa/commit/8ecb0b5b5c424704f717a2b7445f1eda4cbf1e23))
-- Merge pull request #240 from bwks/changelog/v0.3.64
-
-chore(release): update changelog for v0.3.64 by @github-actions[bot] in [#240](https://github.com/bwks/sherpa/pull/240) ([efb9731](https://github.com/bwks/sherpa/commit/efb9731bc1a892969501bf819b44d6f3c79f9ed0))
 ## [0.3.64] - 2026-04-08
 
 ### Features
@@ -1854,13 +1046,7 @@ chore(release): update changelog for v0.3.64 by @github-actions[bot] in [#240](h
 
 ### Miscellaneous
 
-- Merge pull request #239 from bwks/v0.3.64
-
-V0.3.64 by @bwks in [#239](https://github.com/bwks/sherpa/pull/239) ([3c02394](https://github.com/bwks/sherpa/commit/3c0239470de53b8cf43439cd631eb7f46e8874be))
 - Version bump by @bwks ([5056d97](https://github.com/bwks/sherpa/commit/5056d9735d1c5bd25cd42196bd831d36b362768a))
-- Merge pull request #238 from bwks/changelog/v0.3.63
-
-chore(release): update changelog for v0.3.63 by @github-actions[bot] in [#238](https://github.com/bwks/sherpa/pull/238) ([d8cceb6](https://github.com/bwks/sherpa/commit/d8cceb62741e0c09805b6cb015c9ba52d07759f3))
 ## [0.3.63] - 2026-04-06
 
 ### Bug Fixes
@@ -1870,19 +1056,19 @@ chore(release): update changelog for v0.3.63 by @github-actions[bot] in [#238](h
 
 ### Miscellaneous
 
-- Merge pull request #237 from bwks/v0.3.63
-
-V0.3.63 by @bwks in [#237](https://github.com/bwks/sherpa/pull/237) ([3120659](https://github.com/bwks/sherpa/commit/3120659fb853603d09bcf3018d0f5efabe8fb0fd))
 - Version bump by @bwks ([de43daf](https://github.com/bwks/sherpa/commit/de43daf3f528d0da4c1dc62d98b9fd4307070580))
-- Merge pull request #236 from bwks/changelog/v0.3.62
-
-chore(release): update changelog for v0.3.62 by @github-actions[bot] in [#236](https://github.com/bwks/sherpa/pull/236) ([446cf1d](https://github.com/bwks/sherpa/commit/446cf1df9c092c1eb87bc719c9a4e30f5705aa6c))
 ## [0.3.62] - 2026-04-06
+
+### Miscellaneous
+
+- Version bump by @bwks ([e2579e9](https://github.com/bwks/sherpa/commit/e2579e99b7182b9c93d65130f2bce60d9e248f7f))
+## [0.3.61] - 2026-04-06
 
 ### Bug Fixes
 
 - Lab templates by @bwks ([e623a8d](https://github.com/bwks/sherpa/commit/e623a8d2d009b30ccdaf387170d9628e6cc391f6))
 - Dark mode flash by @bwks ([e7da437](https://github.com/bwks/sherpa/commit/e7da437d2bba20dce9fcbd0ed1f3879b5420ebab))
+- Graceful shutdown fix by @bwks ([fe80198](https://github.com/bwks/sherpa/commit/fe80198cd0742fb4baa61653f4b533da9e07925a))
 
 ### Features
 
@@ -1890,30 +1076,8 @@ chore(release): update changelog for v0.3.62 by @github-actions[bot] in [#236](h
 
 ### Miscellaneous
 
-- Merge pull request #235 from bwks/v0.3.62
-
-V0.3.62 by @bwks in [#235](https://github.com/bwks/sherpa/pull/235) ([6c91938](https://github.com/bwks/sherpa/commit/6c91938735a247544ba8a063642e7b988b74e576))
-- Version bump by @bwks ([e2579e9](https://github.com/bwks/sherpa/commit/e2579e99b7182b9c93d65130f2bce60d9e248f7f))
-- Merge branch 'main' into v0.3.62 by @bwks ([b2b5432](https://github.com/bwks/sherpa/commit/b2b54321e982f006a39308c680e92f0daaf92c46))
-- Merge pull request #234 from bwks/changelog/v0.3.61
-
-chore(release): update changelog for v0.3.61 by @github-actions[bot] in [#234](https://github.com/bwks/sherpa/pull/234) ([e479cb1](https://github.com/bwks/sherpa/commit/e479cb116b1d1248ac143ac6a1392f66906545c3))
 - Version bump by @bwks ([d14c8a1](https://github.com/bwks/sherpa/commit/d14c8a1986fdcfdfd0eb45d67cd82e0dba2139ef))
-## [0.3.61] - 2026-04-06
-
-### Bug Fixes
-
-- Graceful shutdown fix by @bwks ([fe80198](https://github.com/bwks/sherpa/commit/fe80198cd0742fb4baa61653f4b533da9e07925a))
-
-### Miscellaneous
-
-- Merge pull request #233 from bwks/v0.3.61
-
-V0.3.61 by @bwks in [#233](https://github.com/bwks/sherpa/pull/233) ([3d15f8a](https://github.com/bwks/sherpa/commit/3d15f8a6798a3863c990f00ebb74ed757339ce3c))
 - Version bump by @bwks ([128fe73](https://github.com/bwks/sherpa/commit/128fe7383a05b46054f619e23a8190dac06cade4))
-- Merge pull request #231 from bwks/changelog/v0.3.60
-
-chore(release): update changelog for v0.3.60 by @github-actions[bot] in [#231](https://github.com/bwks/sherpa/pull/231) ([5ab355f](https://github.com/bwks/sherpa/commit/5ab355f6a9f8d8542320862718e176c8a8f1310b))
 ## [0.3.60] - 2026-04-06
 
 ### Bug Fixes
@@ -1931,14 +1095,8 @@ chore(release): update changelog for v0.3.60 by @github-actions[bot] in [#231](h
 
 ### Miscellaneous
 
-- Merge pull request #230 from bwks/v0.3.60
-
-V0.3.60 by @bwks in [#230](https://github.com/bwks/sherpa/pull/230) ([4ecb5c3](https://github.com/bwks/sherpa/commit/4ecb5c3ae82535610ad7f55d77bb042d699a4354))
 - Version bump by @bwks ([497b61a](https://github.com/bwks/sherpa/commit/497b61a1db5ff184fe072136539313f586f6a23e))
 - Version bump by @bwks ([4cd3bff](https://github.com/bwks/sherpa/commit/4cd3bff25451706eb684f5d8c43073a09b5e8438))
-- Merge pull request #226 from bwks/changelog/v0.3.58
-
-chore(release): update changelog for v0.3.58 by @github-actions[bot] in [#226](https://github.com/bwks/sherpa/pull/226) ([2ac1ae4](https://github.com/bwks/sherpa/commit/2ac1ae48198705b37f01c2f41c2f24186766b65e))
 ## [0.3.58] - 2026-04-05
 
 ### Features
@@ -1949,9 +1107,6 @@ chore(release): update changelog for v0.3.58 by @github-actions[bot] in [#226](h
 ### Miscellaneous
 
 - Version bump by @bwks ([b11f165](https://github.com/bwks/sherpa/commit/b11f165f380f6fa7b7913f62f810770e50f42032))
-- Merge pull request #223 from bwks/changelog/v0.3.57
-
-chore(release): update changelog for v0.3.57 by @github-actions[bot] in [#223](https://github.com/bwks/sherpa/pull/223) ([08321a6](https://github.com/bwks/sherpa/commit/08321a6b18c000a581c696b6eb19cc98f895cd10))
 ## [0.3.57] - 2026-04-05
 
 ### Features
@@ -1963,31 +1118,16 @@ chore(release): update changelog for v0.3.57 by @github-actions[bot] in [#223](h
 
 ### Miscellaneous
 
-- Merge pull request #222 from bwks/v0.3.57
-
-V0.3.57 by @bwks in [#222](https://github.com/bwks/sherpa/pull/222) ([c9c6421](https://github.com/bwks/sherpa/commit/c9c642180c16cbc33665339d1fa9c4442a292926))
 - Update buttons to use common settings by @bwks ([7fb6626](https://github.com/bwks/sherpa/commit/7fb66261f41754e0506be231101026318e0c3ae7))
 - Update project file by @bwks ([de8923a](https://github.com/bwks/sherpa/commit/de8923ab93d59f5387b521985200c16376ad4b55))
 - Add version bump skill by @bwks ([8100527](https://github.com/bwks/sherpa/commit/810052779a54977c5a52d0fe497e973b9ceb8ec2))
 - Version bump by @bwks ([e389dca](https://github.com/bwks/sherpa/commit/e389dca9d615db00af682b2ac4a8ec437fd7fec5))
-- Merge pull request #221 from bwks/changelog/v0.3.56
-
-chore(release): update changelog for v0.3.56 by @github-actions[bot] in [#221](https://github.com/bwks/sherpa/pull/221) ([ebdccd0](https://github.com/bwks/sherpa/commit/ebdccd0babdd9935c9635c85900490929217c219))
 ## [0.3.56] - 2026-04-05
 
 ### Features
 
 - Version bump by @bwks ([5de19b9](https://github.com/bwks/sherpa/commit/5de19b9e26d9e09c79b2b574e4f2caa362d20c55))
 - Dashboards by @bwks ([16ba40f](https://github.com/bwks/sherpa/commit/16ba40fc507f65d5dc80ee50323092bb75779b76))
-
-### Miscellaneous
-
-- Merge pull request #220 from bwks/v0.3.56
-
-V0.3.56 by @bwks in [#220](https://github.com/bwks/sherpa/pull/220) ([6bec95c](https://github.com/bwks/sherpa/commit/6bec95caa2b029c5d6da748f7629e19ecd8cedcd))
-- Merge pull request #218 from bwks/changelog/v0.3.55
-
-chore(release): update changelog for v0.3.55 by @github-actions[bot] in [#218](https://github.com/bwks/sherpa/pull/218) ([2134381](https://github.com/bwks/sherpa/commit/213438103640495a7f5172ebb3ab2442accbec6f))
 ## [0.3.55] - 2026-04-05
 
 ### Documentation
@@ -2001,16 +1141,10 @@ chore(release): update changelog for v0.3.55 by @github-actions[bot] in [#218](h
 
 ### Miscellaneous
 
-- Merge pull request #217 from bwks/v0.3.55
-
-V0.3.55 by @bwks in [#217](https://github.com/bwks/sherpa/pull/217) ([de76dea](https://github.com/bwks/sherpa/commit/de76dea51d7f89e7f9af4aaf4fe64267b82b8e18))
 - Admin routes by @bwks ([22c212c](https://github.com/bwks/sherpa/commit/22c212c1d422b5b7a0fbc071b4fc2b4827244f93))
 - Version bump by @bwks ([853c150](https://github.com/bwks/sherpa/commit/853c1501565daffea09314953befaf465e4d248b))
 - Version bump by @bwks ([ef52250](https://github.com/bwks/sherpa/commit/ef5225094aeb848b9a0eff94993a04852eb16ee3))
 - Rename node-images to images by @bwks ([cc3cead](https://github.com/bwks/sherpa/commit/cc3cead959bb4ca01d1e5a1fdd31ccf1a0c1d06c))
-- Merge pull request #216 from bwks/changelog/v0.3.54
-
-chore(release): update changelog for v0.3.54 by @github-actions[bot] in [#216](https://github.com/bwks/sherpa/pull/216) ([a82a01e](https://github.com/bwks/sherpa/commit/a82a01e937d6abaa64e2fee9dca5fa75e1a7b35c))
 ## [0.3.54] - 2026-04-05
 
 ### Features
@@ -2020,17 +1154,11 @@ chore(release): update changelog for v0.3.54 by @github-actions[bot] in [#216](h
 
 ### Miscellaneous
 
-- Merge pull request #215 from bwks/v0.3.54
-
-V0.3.54 by @bwks in [#215](https://github.com/bwks/sherpa/pull/215) ([7861ea8](https://github.com/bwks/sherpa/commit/7861ea882382dcaacd18f2b78ed82fcf0c72588b))
 - Update tasks by @bwks ([476d1ba](https://github.com/bwks/sherpa/commit/476d1ba156243d4ca9824ae7c2efdc49b19fe53e))
 - Version bump by @bwks ([e968fe7](https://github.com/bwks/sherpa/commit/e968fe7044664f82497735552218cd15f21c7eb8))
 - Qc skill to run formating, clippy and tests by @bwks ([e9afe12](https://github.com/bwks/sherpa/commit/e9afe124a7f0d90ca75f81c7e6d6bd0d1f6ac825))
 - Qc skill to run formating, clippy and tests by @bwks ([dcdbc32](https://github.com/bwks/sherpa/commit/dcdbc3257d5b0b103bfd2d4a44f8a3b30913b67d))
 - Fix imports by @bwks ([5437164](https://github.com/bwks/sherpa/commit/5437164d5088872006f635999e3b96298ca0fd65))
-- Merge pull request #214 from bwks/changelog/v0.3.53
-
-chore(release): update changelog for v0.3.53 by @github-actions[bot] in [#214](https://github.com/bwks/sherpa/pull/214) ([d412936](https://github.com/bwks/sherpa/commit/d4129364542c45993a3add405d9bbf0013c466b7))
 ## [0.3.53] - 2026-04-05
 
 ### Features
@@ -2039,13 +1167,7 @@ chore(release): update changelog for v0.3.53 by @github-actions[bot] in [#214](h
 
 ### Miscellaneous
 
-- Merge pull request #213 from bwks/v0.3.53
-
-V0.3.53 by @bwks in [#213](https://github.com/bwks/sherpa/pull/213) ([7cfdf40](https://github.com/bwks/sherpa/commit/7cfdf40d0f0f41bb3fa58da43bd6e1f0bb516adc))
 - Version bump by @bwks ([6ef5525](https://github.com/bwks/sherpa/commit/6ef55259f98ad1eab015d2fd6fd227c44c161b67))
-- Merge pull request #212 from bwks/changelog/v0.3.52
-
-chore(release): update changelog for v0.3.52 by @github-actions[bot] in [#212](https://github.com/bwks/sherpa/pull/212) ([74bf8e0](https://github.com/bwks/sherpa/commit/74bf8e06ea437f866301767e016ce7903a53a882))
 ## [0.3.52] - 2026-04-05
 
 ### Features
@@ -2057,17 +1179,8 @@ chore(release): update changelog for v0.3.52 by @github-actions[bot] in [#212](h
 
 ### Miscellaneous
 
-- Merge pull request #211 from bwks/v0.3.52
-
-V0.3.52 by @bwks in [#211](https://github.com/bwks/sherpa/pull/211) ([98bf398](https://github.com/bwks/sherpa/commit/98bf398c870b07ec3fe5f3f5d3e9d18c2e28d26a))
 - Chore version bump by @bwks ([071e2ad](https://github.com/bwks/sherpa/commit/071e2ad6ded2cf660a03d04c76c2c44dd2bad140))
-- Merge pull request #209 from bwks/v0.3.51
-
-feat: web-ui themes by @bwks in [#209](https://github.com/bwks/sherpa/pull/209) ([75442cb](https://github.com/bwks/sherpa/commit/75442cb9737b14a3385a24bf852b944a7cf18494))
 - Version bump by @bwks ([29c6741](https://github.com/bwks/sherpa/commit/29c6741b446478c477317cb4014ca112ac6098f0))
-- Merge pull request #208 from bwks/changelog/v0.3.50
-
-chore(release): update changelog for v0.3.50 by @github-actions[bot] in [#208](https://github.com/bwks/sherpa/pull/208) ([f242bb2](https://github.com/bwks/sherpa/commit/f242bb2d0a2bab7a5e43aa0de8965fe1689d2bb0))
 ## [0.3.50] - 2026-04-04
 
 ### Features
@@ -2076,13 +1189,7 @@ chore(release): update changelog for v0.3.50 by @github-actions[bot] in [#208](h
 
 ### Miscellaneous
 
-- Merge pull request #207 from bwks/v0.3.50
-
-V0.3.50 by @bwks in [#207](https://github.com/bwks/sherpa/pull/207) ([3331c51](https://github.com/bwks/sherpa/commit/3331c516678fa159b8a75689925325ebbd944c87))
 - Version bump by @bwks ([127c074](https://github.com/bwks/sherpa/commit/127c0749ccec8af5a53c01861b56cbe72eca509c))
-- Merge pull request #206 from bwks/changelog/v0.3.49
-
-chore(release): update changelog for v0.3.49 by @github-actions[bot] in [#206](https://github.com/bwks/sherpa/pull/206) ([55ce0d1](https://github.com/bwks/sherpa/commit/55ce0d19b93fb3ed376b686c8bba86e6ab2489ce))
 ## [0.3.49] - 2026-04-04
 
 ### Bug Fixes
@@ -2095,16 +1202,7 @@ chore(release): update changelog for v0.3.49 by @github-actions[bot] in [#206](h
 
 ### Miscellaneous
 
-- Merge pull request #205 from bwks/v0.3.49
-
-V0.3.49 by @bwks in [#205](https://github.com/bwks/sherpa/pull/205) ([52aa1ca](https://github.com/bwks/sherpa/commit/52aa1ca84b65c872a8f685f3c48d0191ecd4f3ed))
-- Merge pull request #204 from bwks/fix/installer-bugs
-
-fix: resolve 6 installer bugs identified in test spec review by @bwks in [#204](https://github.com/bwks/sherpa/pull/204) ([3bb6ce9](https://github.com/bwks/sherpa/commit/3bb6ce9df7a93f911818c8f45cc0272e179ba322))
 - Version bump by @bwks ([1de988b](https://github.com/bwks/sherpa/commit/1de988b8cce3a6b271487797320869549f9fe79f))
-- Merge pull request #203 from bwks/changelog/v0.3.48
-
-chore(release): update changelog for v0.3.48 by @github-actions[bot] in [#203](https://github.com/bwks/sherpa/pull/203) ([07a7cfa](https://github.com/bwks/sherpa/commit/07a7cfaa99804b8b190821281ed8a3ffd6923ecf))
 ## [0.3.48] - 2026-04-04
 
 ### Features
@@ -2114,17 +1212,8 @@ chore(release): update changelog for v0.3.48 by @github-actions[bot] in [#203](h
 
 ### Miscellaneous
 
-- Merge pull request #201 from bwks/v0.3.48
-
-V0.3.48 by @bwks in [#201](https://github.com/bwks/sherpa/pull/201) ([3bbb01d](https://github.com/bwks/sherpa/commit/3bbb01d68927d701f1259aa70d7fd14626259274))
 - Obey clippy by @bwks ([732b059](https://github.com/bwks/sherpa/commit/732b059a9e4112bf6123b91a513983bcc8c1221b))
-- Merge pull request #202 from bwks/test-coverage-improvements
-
-test: additional tests by @bwks in [#202](https://github.com/bwks/sherpa/pull/202) ([01ed60f](https://github.com/bwks/sherpa/commit/01ed60f4da4e4046a030e492de47e8c69defa404))
 - Version bump by @bwks ([78fdfa5](https://github.com/bwks/sherpa/commit/78fdfa56080e4f686c0b3b29b25bf92b145322f4))
-- Merge pull request #200 from bwks/changelog/v0.3.47
-
-chore(release): update changelog for v0.3.47 by @github-actions[bot] in [#200](https://github.com/bwks/sherpa/pull/200) ([d133867](https://github.com/bwks/sherpa/commit/d13386787e6287b1636bd07ef5a3f3a648fdcef1))
 
 ### Testing
 
@@ -2133,19 +1222,10 @@ chore(release): update changelog for v0.3.47 by @github-actions[bot] in [#200](h
 
 ### Miscellaneous
 
-- Merge pull request #199 from bwks/v0.3.47
-
-V0.3.47 by @bwks in [#199](https://github.com/bwks/sherpa/pull/199) ([ce4bcd2](https://github.com/bwks/sherpa/commit/ce4bcd23e9cc205fe4f63e8346a2770a46185717))
 - Update actions by @bwks ([e071d54](https://github.com/bwks/sherpa/commit/e071d54c6917ed38d09a53c8b15f575b730fee84))
 - Test coverage report. by @bwks ([3ec02f1](https://github.com/bwks/sherpa/commit/3ec02f1827c8a9331c9ebe2dc7b04c20799f5b9f))
 - Version bump by @bwks ([2fe71a3](https://github.com/bwks/sherpa/commit/2fe71a39afea8480ec73e3c9f34bbec4bdb88b5c))
-- Merge pull request #198 from bwks/v0.3.47
-
-V0.3.47 by @bwks in [#198](https://github.com/bwks/sherpa/pull/198) ([2105d78](https://github.com/bwks/sherpa/commit/2105d7877ff6ed633952bffb264afb9199fce935))
 - Apply rustfmt by @bwks ([d369dad](https://github.com/bwks/sherpa/commit/d369dad28c7b8b86816570989d030ea6250f061b))
-- Merge pull request #197 from bwks/changelog/v0.3.46
-
-chore(release): update changelog for v0.3.46 by @github-actions[bot] in [#197](https://github.com/bwks/sherpa/pull/197) ([f8ac9b1](https://github.com/bwks/sherpa/commit/f8ac9b1af63bdb24e00f72354a57695fa20dab54))
 
 ### Testing
 
@@ -2170,15 +1250,9 @@ chore(release): update changelog for v0.3.46 by @github-actions[bot] in [#197](h
 
 ### Miscellaneous
 
-- Merge pull request #196 from bwks/feat/integration-tests
-
-Feat/integration tests by @bwks in [#196](https://github.com/bwks/sherpa/pull/196) ([773595d](https://github.com/bwks/sherpa/commit/773595de29321a9753e8728caf86d1f37169dfd9))
 - Obey clippy by @bwks ([066f023](https://github.com/bwks/sherpa/commit/066f023b3782d0dc19369f3f3ccfe65d3fb2e69e))
 - Remove docstring code examples from extractors by @bwks ([eddfb89](https://github.com/bwks/sherpa/commit/eddfb894c4ec395127b7ea6e5e1eb86d3af0de24))
 - Update ztp methods for VMs by @bwks ([3d36531](https://github.com/bwks/sherpa/commit/3d365316205da1448b0dfc5fe9035c95df40f4f5))
-- Merge pull request #195 from bwks/changelog/v0.3.45
-
-chore(release): update changelog for v0.3.45 by @github-actions[bot] in [#195](https://github.com/bwks/sherpa/pull/195) ([3c17cb7](https://github.com/bwks/sherpa/commit/3c17cb7542ef1aa5c06dea8ecae6000c388b9dd5))
 
 ### Testing
 
@@ -2210,9 +1284,6 @@ version: v0.3.45
 
 - Obey clippy by @bwks ([842963c](https://github.com/bwks/sherpa/commit/842963c900fd7ac6036a6cddea68c06850245e53))
 - Version bump by @bwks ([54ae462](https://github.com/bwks/sherpa/commit/54ae462c228e32a8ba187866b5ac10bd89f1da2e))
-- Merge pull request #193 from bwks/changelog/v0.3.44
-
-chore(release): update changelog for v0.3.44 by @github-actions[bot] in [#193](https://github.com/bwks/sherpa/pull/193) ([d122fa9](https://github.com/bwks/sherpa/commit/d122fa9bea0215d6fc7e975a4dbd129800930f72))
 
 ### Testing
 
@@ -2231,13 +1302,7 @@ chore(release): update changelog for v0.3.44 by @github-actions[bot] in [#193](h
 
 ### Miscellaneous
 
-- Merge pull request #192 from bwks/v0.3.44
-
-V0.3.44 by @bwks in [#192](https://github.com/bwks/sherpa/pull/192) ([2ab8b48](https://github.com/bwks/sherpa/commit/2ab8b48ca4649a67cbd49c9b5b00f8f5384d7730))
 - Version bump by @bwks ([126f4ba](https://github.com/bwks/sherpa/commit/126f4ba0599180e371e8c5ecc0f8b084fe979b30))
-- Merge pull request #190 from bwks/changelog/v0.3.43
-
-chore(release): update changelog for v0.3.43 by @github-actions[bot] in [#190](https://github.com/bwks/sherpa/pull/190) ([f275fef](https://github.com/bwks/sherpa/commit/f275fef148e7fa13e1f58783ae82a6f9834bb3d8))
 ## [0.3.43] - 2026-04-02
 
 ### Documentation
@@ -2250,13 +1315,7 @@ chore(release): update changelog for v0.3.43 by @github-actions[bot] in [#190](h
 
 ### Miscellaneous
 
-- Merge pull request #189 from bwks/v0.3.43
-
-V0.3.43 by @bwks in [#189](https://github.com/bwks/sherpa/pull/189) ([47b365f](https://github.com/bwks/sherpa/commit/47b365f6b33483ba84cd56d0387710204b4bf398))
 - Version bump by @bwks ([944c9b2](https://github.com/bwks/sherpa/commit/944c9b272b84c48ebe95cb234600cf8a4c8e54a2))
-- Merge pull request #188 from bwks/changelog/v0.3.42
-
-chore(release): update changelog for v0.3.42 by @github-actions[bot] in [#188](https://github.com/bwks/sherpa/pull/188) ([a991920](https://github.com/bwks/sherpa/commit/a9919209ee0728187b5fac8bb4fd670cd11d4612))
 ## [0.3.42] - 2026-04-01
 
 ### Features
@@ -2266,14 +1325,8 @@ chore(release): update changelog for v0.3.42 by @github-actions[bot] in [#188](h
 
 ### Miscellaneous
 
-- Merge pull request #187 from bwks/v0.3.42
-
-V0.3.42 by @bwks in [#187](https://github.com/bwks/sherpa/pull/187) ([90a2a0c](https://github.com/bwks/sherpa/commit/90a2a0c09c044ebe09b297fa7b7dea53a9ae901b))
 - Version bump by @bwks ([73cb5c2](https://github.com/bwks/sherpa/commit/73cb5c2ea4fee406d5a388ead252691ba482615d))
 - Version bump by @bwks ([7f9845c](https://github.com/bwks/sherpa/commit/7f9845c4700035eaa7a51a10abbf16e7f6d91ad8))
-- Merge pull request #186 from bwks/changelog/v0.3.41
-
-chore(release): update changelog for v0.3.41 by @github-actions[bot] in [#186](https://github.com/bwks/sherpa/pull/186) ([e72bd7c](https://github.com/bwks/sherpa/commit/e72bd7c13c40ec9162b7b99c409f47fc8a79cf95))
 ## [0.3.41] - 2026-04-01
 
 ### Features
@@ -2282,13 +1335,7 @@ chore(release): update changelog for v0.3.41 by @github-actions[bot] in [#186](h
 
 ### Miscellaneous
 
-- Merge pull request #185 from bwks/v0.3.41
-
-feat: open telemetry support by @bwks in [#185](https://github.com/bwks/sherpa/pull/185) ([2439f46](https://github.com/bwks/sherpa/commit/2439f46da523ae3e03a4a0223644f74f2b3bacf6))
 - Version bump by @bwks ([68b9ae3](https://github.com/bwks/sherpa/commit/68b9ae39510b2329211ee4f5cfa5be871a6ecc9e))
-- Merge pull request #184 from bwks/changelog/v0.3.40
-
-chore(release): update changelog for v0.3.40 by @github-actions[bot] in [#184](https://github.com/bwks/sherpa/pull/184) ([5ac6190](https://github.com/bwks/sherpa/commit/5ac6190abde2e45a4ff79e510ccade33190b07a8))
 ## [0.3.40] - 2026-04-01
 
 ### Bug Fixes
@@ -2302,14 +1349,8 @@ chore(release): update changelog for v0.3.40 by @github-actions[bot] in [#184](h
 
 ### Miscellaneous
 
-- Merge pull request #183 from bwks/v0.3.40
-
-V0.3.40 by @bwks in [#183](https://github.com/bwks/sherpa/pull/183) ([e738cf7](https://github.com/bwks/sherpa/commit/e738cf7261119c473eaa74ba63a832315cdd8b62))
 - Version bump + doc by @bwks ([790cd26](https://github.com/bwks/sherpa/commit/790cd26f0f19b2921bb478930f27b36f5cbe8994))
 - API endpoint stubs by @bwks ([c6c862a](https://github.com/bwks/sherpa/commit/c6c862ad49df8291eceea5b4abca38a8461fc48c))
-- Merge pull request #182 from bwks/changelog/v0.3.39
-
-chore(release): update changelog for v0.3.39 by @github-actions[bot] in [#182](https://github.com/bwks/sherpa/pull/182) ([35d136e](https://github.com/bwks/sherpa/commit/35d136ee4710ef03e2abfd008b704f573d997024))
 
 ### Testing
 
@@ -2327,18 +1368,9 @@ chore(release): update changelog for v0.3.39 by @github-actions[bot] in [#182](h
 
 ### Miscellaneous
 
-- Merge pull request #181 from bwks/v0.3.39
-
-V0.3.39 by @bwks in [#181](https://github.com/bwks/sherpa/pull/181) ([ddacb9d](https://github.com/bwks/sherpa/commit/ddacb9dab399e2841af3d9d7a381ebdc81829e90))
 - Version bump by @bwks ([91ce3fb](https://github.com/bwks/sherpa/commit/91ce3fb86bfc3948bf0f54e378877f235e6f2e20))
 - Version bump by @bwks ([dc3dc64](https://github.com/bwks/sherpa/commit/dc3dc641ce2208fd5b2fb5c146357cb89bd676c5))
-- Merge pull request #180 from bwks/v0.3.39
-
-V0.3.39 by @bwks in [#180](https://github.com/bwks/sherpa/pull/180) ([542d18d](https://github.com/bwks/sherpa/commit/542d18de5df753b2c9bd4702bb0620173bd05e51))
 - Obey clippy by @bwks ([e09794f](https://github.com/bwks/sherpa/commit/e09794f6e71256e965f4e67213667fbb1cb7b741))
-- Merge pull request #178 from bwks/changelog/v0.3.38
-
-chore(release): update changelog for v0.3.38 by @github-actions[bot] in [#178](https://github.com/bwks/sherpa/pull/178) ([d903fe5](https://github.com/bwks/sherpa/commit/d903fe52e34e423b84c887f3554adf5c7668855c))
 ## [0.3.38] - 2026-03-29
 
 ### Bug Fixes
@@ -2351,13 +1383,7 @@ chore(release): update changelog for v0.3.38 by @github-actions[bot] in [#178](h
 
 ### Miscellaneous
 
-- Merge pull request #177 from bwks/v0.3.38
-
-V0.3.38 by @bwks in [#177](https://github.com/bwks/sherpa/pull/177) ([c4390a7](https://github.com/bwks/sherpa/commit/c4390a769eaa5b0412c86b648bbefd908102b24d))
 - Version bump by @bwks ([f9d245a](https://github.com/bwks/sherpa/commit/f9d245a93c4148308f5d9ef7180f8b2b4a47c216))
-- Merge pull request #176 from bwks/changelog/v0.3.37
-
-chore(release): update changelog for v0.3.37 by @github-actions[bot] in [#176](https://github.com/bwks/sherpa/pull/176) ([d790694](https://github.com/bwks/sherpa/commit/d7906948801f0a8f6d0d0dcfc83c4fbbbaf8e3cc))
 
 ### Testing
 
@@ -2371,13 +1397,7 @@ chore(release): update changelog for v0.3.37 by @github-actions[bot] in [#176](h
 
 ### Miscellaneous
 
-- Merge pull request #175 from bwks/v0.3.37
-
-feat: user text_files by @bwks in [#175](https://github.com/bwks/sherpa/pull/175) ([1db3657](https://github.com/bwks/sherpa/commit/1db365742769390debac64119b37d0755495cdae))
 - Version bump by @bwks ([992d74b](https://github.com/bwks/sherpa/commit/992d74b9ff660c57f1123a72c717925843bdc574))
-- Merge pull request #174 from bwks/changelog/v0.3.36
-
-chore(release): update changelog for v0.3.36 by @github-actions[bot] in [#174](https://github.com/bwks/sherpa/pull/174) ([f8a1a1b](https://github.com/bwks/sherpa/commit/f8a1a1bc96def46d9d392606510549f8ac6f943f))
 
 ### Testing
 
@@ -2396,16 +1416,10 @@ chore(release): update changelog for v0.3.36 by @github-actions[bot] in [#174](h
 
 ### Miscellaneous
 
-- Merge pull request #173 from bwks/v0.3.35
-
-V0.3.35 by @bwks in [#173](https://github.com/bwks/sherpa/pull/173) ([1c8963e](https://github.com/bwks/sherpa/commit/1c8963e5ba72c3389438c46187b39f118d84bb4b))
 - Version bump by @bwks ([f91b3ad](https://github.com/bwks/sherpa/commit/f91b3ad193f7546ce003850daf0186923a0680c9))
 - Version bump by @bwks ([799d616](https://github.com/bwks/sherpa/commit/799d616a6cf3370883a4653c7636289746da171b))
 - Remove custom manifest definition by @bwks ([8cdfda2](https://github.com/bwks/sherpa/commit/8cdfda254d1629057e2a2e0497fc49df21e2d902))
 - Remove the vscode extension by @bwks ([909167e](https://github.com/bwks/sherpa/commit/909167e5f88cef02e3b6bd8652a42f0a8f5fbbb2))
-- Merge pull request #171 from bwks/changelog/v0.3.34
-
-chore(release): update changelog for v0.3.34 by @github-actions[bot] in [#171](https://github.com/bwks/sherpa/pull/171) ([10e85b4](https://github.com/bwks/sherpa/commit/10e85b42c46863107271e06f678cf7af644b1686))
 ## [0.3.34] - 2026-03-28
 
 ### Bug Fixes
@@ -2423,20 +1437,11 @@ chore(release): update changelog for v0.3.34 by @github-actions[bot] in [#171](h
 
 ### Miscellaneous
 
-- Merge pull request #169 from bwks/v0.3.34
-
-test scripts by @bwks in [#169](https://github.com/bwks/sherpa/pull/169) ([dd5fb1c](https://github.com/bwks/sherpa/commit/dd5fb1c9958c2853b346fd29cb4e4a90ad632aac))
 - Pipelines by @bwks ([375a0c3](https://github.com/bwks/sherpa/commit/375a0c32af9692e7ab9f4c7ae4bdc7b66bdee288))
 - Version bump by @bwks ([b90fe4b](https://github.com/bwks/sherpa/commit/b90fe4b28f09b4bdd6bd3f977909e89f53e97f07))
 - Pipelines by @bwks ([b9e8719](https://github.com/bwks/sherpa/commit/b9e87198bd64a597ab949d93f00b8a2bea8166c3))
-- Merge pull request #168 from bwks/test/install-script-bats
-
-test(install): add BATS test suite for sherpa_install.sh by @bwks in [#168](https://github.com/bwks/sherpa/pull/168) ([7090774](https://github.com/bwks/sherpa/commit/709077458e5a03809380f936239e820c3d2bd0fe))
 - [ci skip] merge BATS install test suite ([8f06b59](https://github.com/bwks/sherpa/commit/8f06b599b812f73ad8246d2c71b21a51ea9dd089))
 - Add /test-installer slash command ([a84dcac](https://github.com/bwks/sherpa/commit/a84dcac11568edde5a7950e79f9d8984e2836991))
-- Merge pull request #167 from bwks/changelog/v0.3.33
-
-chore(release): update changelog for v0.3.33 by @github-actions[bot] in [#167](https://github.com/bwks/sherpa/pull/167) ([be1964d](https://github.com/bwks/sherpa/commit/be1964d5eafae99ea331cf47f24c78aefecc6cab))
 
 ### Testing
 
@@ -2456,15 +1461,8 @@ chore(release): update changelog for v0.3.33 by @github-actions[bot] in [#167](h
 
 ### Miscellaneous
 
-- Merge pull request #166 from bwks/v0.3.33
-
-V0.3.33 by @bwks in [#166](https://github.com/bwks/sherpa/pull/166) ([949f3b1](https://github.com/bwks/sherpa/commit/949f3b1197f121e661940b149b19ac28384d0ccd))
 - Version bump by @bwks ([2790887](https://github.com/bwks/sherpa/commit/2790887a4018aed25572aa4f76969eb163402a7d))
-- Merge branch 'v0.3.33' by @bwks ([d6bf101](https://github.com/bwks/sherpa/commit/d6bf101e72ab2875ad7bba351c6a10b09097b7dd))
 - USB disk ordering by @bwks ([9543d77](https://github.com/bwks/sherpa/commit/9543d77d51c76928875805e5d5fe5614ca014946))
-- Merge pull request #165 from bwks/changelog/v0.3.32
-
-chore(release): update changelog for v0.3.32 by @github-actions[bot] in [#165](https://github.com/bwks/sherpa/pull/165) ([8326bb8](https://github.com/bwks/sherpa/commit/8326bb84ae9ec4414b2f83fedc7aff1dda5ba0f1))
 ## [0.3.32] - 2026-03-26
 
 ### Features
@@ -2477,15 +1475,9 @@ chore(release): update changelog for v0.3.32 by @github-actions[bot] in [#165](h
 
 ### Miscellaneous
 
-- Merge pull request #164 from bwks/v0.3.32
-
-V0.3.32 by @bwks in [#164](https://github.com/bwks/sherpa/pull/164) ([1089d1c](https://github.com/bwks/sherpa/commit/1089d1c5632f5e73293c89fd32624ad3d5353649))
 - Formattging by @bwks ([a909c4c](https://github.com/bwks/sherpa/commit/a909c4c653cefeb3a85e06cee9365f40e7ab31dd))
 - Version bump by @bwks ([f4ea130](https://github.com/bwks/sherpa/commit/f4ea130455310e3b07e3e45fc04bd2c5e04037ff))
 - Delete makefile by @bwks ([c69c4d6](https://github.com/bwks/sherpa/commit/c69c4d64fe14a9d8d65f7a190a2f7c19a1198724))
-- Merge pull request #162 from bwks/changelog/v0.3.31
-
-chore(release): update changelog for v0.3.31 by @github-actions[bot] in [#162](https://github.com/bwks/sherpa/pull/162) ([9ff27ca](https://github.com/bwks/sherpa/commit/9ff27cae8f19edf925b807b05f9165c5381ac92b))
 ## [0.3.31] - 2026-03-21
 
 ### Documentation
@@ -2509,13 +1501,7 @@ chore(release): update changelog for v0.3.31 by @github-actions[bot] in [#162](h
 
 ### Miscellaneous
 
-- Merge pull request #160 from bwks/v0.3.31
-
-V0.3.31 by @bwks in [#160](https://github.com/bwks/sherpa/pull/160) ([c627582](https://github.com/bwks/sherpa/commit/c6275825420a2091885887303e01098fd3a7207c))
 - Shared test cases updates by @bwks ([0a1f376](https://github.com/bwks/sherpa/commit/0a1f376d0e54e169b0085b276e8cd36ec702b138))
-- Merge pull request #159 from bwks/changelog/v0.3.30
-
-chore(release): update changelog for v0.3.30 by @github-actions[bot] in [#159](https://github.com/bwks/sherpa/pull/159) ([e4eecc4](https://github.com/bwks/sherpa/commit/e4eecc4604ee5334aefa5b34351781ced1e4f726))
 ## [0.3.30] - 2026-03-21
 
 ### Bug Fixes
@@ -2529,13 +1515,7 @@ chore(release): update changelog for v0.3.30 by @github-actions[bot] in [#159](h
 
 ### Miscellaneous
 
-- Merge pull request #158 from bwks/v0.3.30
-
-V0.3.30 by @bwks in [#158](https://github.com/bwks/sherpa/pull/158) ([b485638](https://github.com/bwks/sherpa/commit/b485638fe5ac12b26c069cd52374c6573820faa7))
 - Version bump by @bwks ([593f6b0](https://github.com/bwks/sherpa/commit/593f6b07340799d2e1c8cddb0451d1c0475ab638))
-- Merge pull request #156 from bwks/changelog/v0.3.29
-
-chore(release): update changelog for v0.3.29 by @github-actions[bot] in [#156](https://github.com/bwks/sherpa/pull/156) ([37f546c](https://github.com/bwks/sherpa/commit/37f546ce94264c7b7c6d70e010159effe5fc10ff))
 ## [0.3.29] - 2026-03-20
 
 ### Bug Fixes
@@ -2550,13 +1530,7 @@ chore(release): update changelog for v0.3.29 by @github-actions[bot] in [#156](h
 
 ### Miscellaneous
 
-- Merge pull request #155 from bwks/v0.3.29
-
-V0.3.29 by @bwks in [#155](https://github.com/bwks/sherpa/pull/155) ([d51b66b](https://github.com/bwks/sherpa/commit/d51b66bfc6e7f20aec0084eda8e96c85c66c14b3))
 - Version bump by @bwks ([76db777](https://github.com/bwks/sherpa/commit/76db7777fad9e78f6681dbb5ee0a5f045bd0a8a8))
-- Merge pull request #154 from bwks/changelog/v0.3.28
-
-chore(release): update changelog for v0.3.28 by @github-actions[bot] in [#154](https://github.com/bwks/sherpa/pull/154) ([2d9c6c7](https://github.com/bwks/sherpa/commit/2d9c6c749b8e94060583cefdc79c9a1df9d46c32))
 ## [0.3.28] - 2026-03-19
 
 ### Features
@@ -2572,15 +1546,9 @@ chore(release): update changelog for v0.3.28 by @github-actions[bot] in [#154](h
 
 ### Miscellaneous
 
-- Merge pull request #153 from bwks/v0.3.28
-
-V0.3.28 by @bwks in [#153](https://github.com/bwks/sherpa/pull/153) ([3b473ca](https://github.com/bwks/sherpa/commit/3b473ca1f614864af8bc0da832da532bca2c0c2f))
 - Obey clippy by @bwks ([63ce8ef](https://github.com/bwks/sherpa/commit/63ce8ef03368379821798453d8f8360fd5c52332))
 - Obey clippy by @bwks ([de9a724](https://github.com/bwks/sherpa/commit/de9a72407d0fdb28cf68f9e6e576d86b21af341f))
 - Version bump by @bwks ([dc2ec60](https://github.com/bwks/sherpa/commit/dc2ec60570da1d8aee44009259472c0ed377fc73))
-- Merge pull request #145 from bwks/changelog/v0.3.27
-
-chore(release): update changelog for v0.3.27 by @github-actions[bot] in [#145](https://github.com/bwks/sherpa/pull/145) ([7fc7606](https://github.com/bwks/sherpa/commit/7fc7606db418af7825e095d07d603b0a84a0088f))
 ## [0.3.27] - 2026-03-17
 
 ### Features
@@ -2594,9 +1562,6 @@ chore(release): update changelog for v0.3.27 by @github-actions[bot] in [#145](h
 
 V0.3.27 by @bwks in [#144](https://github.com/bwks/sherpa/pull/144) ([baa7353](https://github.com/bwks/sherpa/commit/baa7353091e05096c135b803f7fa0984d428c9b6))
 - Version bump by @bwks ([e007d8d](https://github.com/bwks/sherpa/commit/e007d8d1cb8616d5f119cc7713bdb66038ea5ad0))
-- Merge pull request #143 from bwks/changelog/v0.3.26
-
-chore(release): update changelog for v0.3.26 by @github-actions[bot] in [#143](https://github.com/bwks/sherpa/pull/143) ([95dcc60](https://github.com/bwks/sherpa/commit/95dcc609b4f3599443dd7356fcd3ec49f0d284ba))
 ## [0.3.26] - 2026-03-16
 
 ### Features
@@ -2605,14 +1570,8 @@ chore(release): update changelog for v0.3.26 by @github-actions[bot] in [#143](h
 
 ### Miscellaneous
 
-- Merge pull request #142 from bwks/v0.3.26
-
-V0.3.26 by @bwks in [#142](https://github.com/bwks/sherpa/pull/142) ([e36c3d5](https://github.com/bwks/sherpa/commit/e36c3d569a2f99006da9996d2359e8c7224d3535))
 - Obey clippy by @bwks ([1a43a46](https://github.com/bwks/sherpa/commit/1a43a46b9921e4f5007f691b72ff3562b26bc01a))
 - Version bump by @bwks ([ceb22fe](https://github.com/bwks/sherpa/commit/ceb22fe74d29a0ecb2bb39f8e045de8e8fc54f04))
-- Merge pull request #141 from bwks/changelog/v0.3.25
-
-chore(release): update changelog for v0.3.25 by @github-actions[bot] in [#141](https://github.com/bwks/sherpa/pull/141) ([911067e](https://github.com/bwks/sherpa/commit/911067ea021faacf088d5af7b8c0407e5c5312a2))
 ## [0.3.25] - 2026-03-15
 
 ### Miscellaneous
@@ -2622,9 +1581,6 @@ chore(release): update changelog for v0.3.25 by @github-actions[bot] in [#141](h
 chore: css styling by @bwks in [#140](https://github.com/bwks/sherpa/pull/140) ([f111f74](https://github.com/bwks/sherpa/commit/f111f7435045505c90ecea4052018b80c3e8497b))
 - Version bump by @bwks ([2ffdb96](https://github.com/bwks/sherpa/commit/2ffdb96a7d92444e8c0dcaf402f56c43c41a2a97))
 - Css styling by @bwks ([7ce70de](https://github.com/bwks/sherpa/commit/7ce70de07840f28f217c790f62246a8d73737fbb))
-- Merge pull request #139 from bwks/changelog/v0.3.24
-
-chore(release): update changelog for v0.3.24 by @github-actions[bot] in [#139](https://github.com/bwks/sherpa/pull/139) ([2d3b38f](https://github.com/bwks/sherpa/commit/2d3b38f2563dad126881012e4bc90082e3c4859c))
 ## [0.3.24] - 2026-03-15
 
 ### Bug Fixes
@@ -2637,9 +1593,6 @@ chore(release): update changelog for v0.3.24 by @github-actions[bot] in [#139](h
 
 ### Miscellaneous
 
-- Merge pull request #138 from bwks/v0.3.24
-
-V0.3.24 by @bwks in [#138](https://github.com/bwks/sherpa/pull/138) ([938d812](https://github.com/bwks/sherpa/commit/938d812a183f7e2d580087071ff6044177af4c2b))
 - Remove test from ci pipeline by @bwks ([9aac9ea](https://github.com/bwks/sherpa/commit/9aac9eaccb2a600e6a16f8291ec9e370c79bfc80))
 - Version bump by @bwks ([4ae0e12](https://github.com/bwks/sherpa/commit/4ae0e12cb5935019179f58dcfb63a19cdfe3968b))
 - V0.3.24
@@ -2650,9 +1603,6 @@ V0.3.24 by @bwks in [#137](https://github.com/bwks/sherpa/pull/137) ([f26aea0](h
 - Lab details page styling by @bwks ([aa2ae7a](https://github.com/bwks/sherpa/commit/aa2ae7a0bd9e292ad893025e1d3d71fefb7d50b6))
 - Template organization + some styling changes by @bwks ([7ff85be](https://github.com/bwks/sherpa/commit/7ff85bef2be9fbaf0c58d96ab5c49682866c2dea))
 - Refactor admin templates by @bwks ([bf3cae3](https://github.com/bwks/sherpa/commit/bf3cae3a69e754aca0061f6656645717569b4f4b))
-- Merge pull request #136 from bwks/changelog/v0.3.23
-
-chore(release): update changelog for v0.3.23 by @github-actions[bot] in [#136](https://github.com/bwks/sherpa/pull/136) ([a48e9bc](https://github.com/bwks/sherpa/commit/a48e9bc71bb8772f125d4ed887c411e28a7be9a6))
 ## [0.3.23] - 2026-03-14
 
 ### Bug Fixes
@@ -2666,14 +1616,8 @@ chore(release): update changelog for v0.3.23 by @github-actions[bot] in [#136](h
 
 chore: version bump by @bwks in [#135](https://github.com/bwks/sherpa/pull/135) ([5646419](https://github.com/bwks/sherpa/commit/564641944b897ef929c1f5837ba91f5cc0fdb291))
 - Version bump by @bwks ([c0da5aa](https://github.com/bwks/sherpa/commit/c0da5aae862ad6c63f3d0c18b87a2765dda606b8))
-- Merge pull request #134 from bwks/v0.3.23
-
-V0.3.23 by @bwks in [#134](https://github.com/bwks/sherpa/pull/134) ([3f89975](https://github.com/bwks/sherpa/commit/3f899755229682eacb01f4f61f410a6b5640610b))
 - Attempted (failed) to fix vsrxv3 by @bwks ([3444e6e](https://github.com/bwks/sherpa/commit/3444e6eef994b54a49a16fa89a6439e5992cdb02))
 - Juniper_vevolved ztp fixes by @bwks ([4829b37](https://github.com/bwks/sherpa/commit/4829b3730921d396d7ffbe11e52048e46e2b203f))
-- Merge pull request #133 from bwks/changelog/v0.3.22
-
-chore(release): update changelog for v0.3.22 by @github-actions[bot] in [#133](https://github.com/bwks/sherpa/pull/133) ([68270bc](https://github.com/bwks/sherpa/commit/68270bc48a32a51dd633323162c7d0d593f0a4dd))
 ## [0.3.22] - 2026-03-13
 
 ### Features
@@ -2686,14 +1630,8 @@ chore(release): update changelog for v0.3.22 by @github-actions[bot] in [#133](h
 
 chore: stable toolchain by @bwks in [#132](https://github.com/bwks/sherpa/pull/132) ([a770a08](https://github.com/bwks/sherpa/commit/a770a0899179a60b309166c31f9b0458c2108102))
 - Stable toolchain by @bwks ([26905f3](https://github.com/bwks/sherpa/commit/26905f3b632e07bb0733c04828f03d16ea87a7b1))
-- Merge pull request #131 from bwks/v0.3.22
-
-feat: TLS certs per lab by @bwks in [#131](https://github.com/bwks/sherpa/pull/131) ([8de63f7](https://github.com/bwks/sherpa/commit/8de63f7b1c410f5d410f3ea98fc26b60eb253321))
 - Version bump by @bwks ([30cb249](https://github.com/bwks/sherpa/commit/30cb24901c44dcd3dafeea23fe4ea1e552e47f65))
 - Fix formatting by @bwks ([8f71b87](https://github.com/bwks/sherpa/commit/8f71b8790c1e27e262fcfff6e68fb3cfa567f6f9))
-- Merge pull request #130 from bwks/changelog/v0.3.21
-
-chore(release): update changelog for v0.3.21 by @github-actions[bot] in [#130](https://github.com/bwks/sherpa/pull/130) ([62d6852](https://github.com/bwks/sherpa/commit/62d685217ac8bb13300adb78eebbef8ac55d0266))
 ## [0.3.21] - 2026-03-11
 
 ### Features
@@ -2710,9 +1648,6 @@ chore(release): update changelog for v0.3.21 by @github-actions[bot] in [#130](h
 V0.3.21 by @bwks in [#129](https://github.com/bwks/sherpa/pull/129) ([4ec53ba](https://github.com/bwks/sherpa/commit/4ec53ba28058c77846737980a66cf1cb09353521))
 - Version bump by @bwks ([60fd143](https://github.com/bwks/sherpa/commit/60fd14303e195fd89f794d18145368d39f7868be))
 - Remove iol build scripts by @bwks ([629dad1](https://github.com/bwks/sherpa/commit/629dad1e981af4daab294c362c0edceab4dcd920))
-- Merge pull request #127 from bwks/changelog/v0.3.20
-
-chore(release): update changelog for v0.3.20 by @github-actions[bot] in [#127](https://github.com/bwks/sherpa/pull/127) ([b2ffd5e](https://github.com/bwks/sherpa/commit/b2ffd5e597e0faaec80c0540d1ce464cf1e2c449))
 ## [0.3.20] - 2026-03-10
 
 ### Features
@@ -2731,9 +1666,6 @@ chore(release): update changelog for v0.3.20 by @github-actions[bot] in [#127](h
 
 V0.3.20 by @bwks in [#126](https://github.com/bwks/sherpa/pull/126) ([feb5feb](https://github.com/bwks/sherpa/commit/feb5feb26e21cd3993d50742eb49e99e1ed46f1e))
 - Version bump by @bwks ([4a3308e](https://github.com/bwks/sherpa/commit/4a3308eba99bfe2b3510f658a521c8430691a71c))
-- Merge pull request #125 from bwks/changelog/v0.3.19
-
-chore(release): update changelog for v0.3.19 by @github-actions[bot] in [#125](https://github.com/bwks/sherpa/pull/125) ([4d501a7](https://github.com/bwks/sherpa/commit/4d501a7f46529ecc006b92036a3f1f2c445fdb91))
 ## [0.3.19] - 2026-03-08
 
 ### Features
@@ -2749,9 +1681,6 @@ chore(release): update changelog for v0.3.19 by @github-actions[bot] in [#125](h
 V0.3.19 by @bwks in [#124](https://github.com/bwks/sherpa/pull/124) ([77c145c](https://github.com/bwks/sherpa/commit/77c145cb1c75240aff19b3a86ae76eab87cc40e8))
 - Formatting by @bwks ([c90c035](https://github.com/bwks/sherpa/commit/c90c035308a4b6c58110a5af8e929b07c0dcaed9))
 - Version bump by @bwks ([ff99156](https://github.com/bwks/sherpa/commit/ff991569258c05bcdd77e813f52d8cb4931cd081))
-- Merge pull request #122 from bwks/changelog/v0.3.18
-
-chore(release): update changelog for v0.3.18 by @github-actions[bot] in [#122](https://github.com/bwks/sherpa/pull/122) ([5e846fe](https://github.com/bwks/sherpa/commit/5e846fe250c16e5726ca2b2c5f0911d252b667e7))
 ## [0.3.18] - 2026-03-07
 
 ### Bug Fixes
@@ -2779,34 +1708,16 @@ chore(release): update changelog for v0.3.18 by @github-actions[bot] in [#122](h
 V0.3.18 by @bwks in [#121](https://github.com/bwks/sherpa/pull/121) ([cfac78b](https://github.com/bwks/sherpa/commit/cfac78b792bac81ef729d791041bdfd1abb54c68))
 - Version bump by @bwks ([30b2b46](https://github.com/bwks/sherpa/commit/30b2b46401b6ef2f2f0858ea06d04b85d9a62276))
 - Rebuild script executable by @bwks ([7ef1568](https://github.com/bwks/sherpa/commit/7ef1568a1efcedd6bc8bc56428e6c101d4eee896))
-- Merge pull request #120 from bwks/v0.3.18
-
-Docs and install scripts by @bwks in [#120](https://github.com/bwks/sherpa/pull/120) ([a437eae](https://github.com/bwks/sherpa/commit/a437eae1376d09b46ee2a6aef8bca1fca9ae54e2))
 - Add rebuild script for development by @bwks ([603908a](https://github.com/bwks/sherpa/commit/603908a1cfa05b5e2f823584a910126196ad14cd))
 - Add outputs for sherpd status by @bwks ([914ba0e](https://github.com/bwks/sherpa/commit/914ba0e12432ed121be82109d1dfcee170a68aee))
-- Merge pull request #118 from bwks/changelog/v0.3.17
-
-chore(release): update changelog for v0.3.17 by @github-actions[bot] in [#118](https://github.com/bwks/sherpa/pull/118) ([efeef0f](https://github.com/bwks/sherpa/commit/efeef0f37c23f8940288400682abca854a5d912f))
 ## [0.3.17] - 2026-03-07
 
 ### Miscellaneous
 
-- Merge pull request #117 from bwks/v0.3.17
-
-bug: github release fix by @bwks in [#117](https://github.com/bwks/sherpa/pull/117) ([58f389b](https://github.com/bwks/sherpa/commit/58f389bbee8b1bf33916f54a158bf6fc50abdbf4))
 - Github release fix by @bwks ([3abbf9c](https://github.com/bwks/sherpa/commit/3abbf9c3776a9289228c8c23ab586fcb10880cf2))
-- Merge pull request #114 from bwks/v0.3.17
-
-bug: fix CI permissions by @bwks in [#114](https://github.com/bwks/sherpa/pull/114) ([bb768fd](https://github.com/bwks/sherpa/commit/bb768fd3cf86a7e5813225ddf85e0d3235b02744))
 - Fix CI permissions by @bwks ([7e26df0](https://github.com/bwks/sherpa/commit/7e26df00a1828ac83f9f9bc3d484f270c0dcaf42))
-- Merge pull request #113 from bwks/v0.3.17
-
-V0.3.17 by @bwks in [#113](https://github.com/bwks/sherpa/pull/113) ([6c7556c](https://github.com/bwks/sherpa/commit/6c7556cce4cafa91fe1580c0f22d638fa565711b))
 - Version bump + github release fix by @bwks ([b332afe](https://github.com/bwks/sherpa/commit/b332afe7a471593f3bf81ec2cf20f9de5a6354d2))
 - Version bump + github release fix by @bwks ([ac2e57e](https://github.com/bwks/sherpa/commit/ac2e57e4aa186e7bb18766deb4319c348827402e))
-- Merge pull request #112 from bwks/v0.3.16
-
-chore: version bump by @bwks in [#112](https://github.com/bwks/sherpa/pull/112) ([994fbb8](https://github.com/bwks/sherpa/commit/994fbb8eadfde425bd5183d12c7cb8717a627add))
 - Version bump by @bwks ([71a4f11](https://github.com/bwks/sherpa/commit/71a4f1139346ffbea6a32dbf80ac2df1a8d29e62))
 - Explicit ws port declaration by @bwks ([32d2002](https://github.com/bwks/sherpa/commit/32d2002ef3368758225bd9dd58bba758369fa9f4))
 - Sherpa server http port by @bwks ([d0f4098](https://github.com/bwks/sherpa/commit/d0f4098ad51bc7e51d0696ecbdac6a5b10205f5a))
@@ -2824,9 +1735,6 @@ chore: version bump by @bwks in [#112](https://github.com/bwks/sherpa/pull/112) 
 
 ### Miscellaneous
 
-- Merge pull request #110 from bwks/v0.3.15
-
-V0.3.15 by @bwks in [#110](https://github.com/bwks/sherpa/pull/110) ([b9ac382](https://github.com/bwks/sherpa/commit/b9ac382530e2805fce5d8c70d420ead3a3ed82f6))
 - Version bump by @bwks ([2c939ae](https://github.com/bwks/sherpa/commit/2c939ae7bfecc1b564f0d652ce47bb4766b6bc1c))
 ## [0.3.14] - 2026-03-06
 
@@ -2836,18 +1744,12 @@ V0.3.15 by @bwks in [#110](https://github.com/bwks/sherpa/pull/110) ([b9ac382](h
 
 ### Miscellaneous
 
-- Merge pull request #109 from bwks/v0.3.14
-
-V0.3.14 by @bwks in [#109](https://github.com/bwks/sherpa/pull/109) ([b39e053](https://github.com/bwks/sherpa/commit/b39e0538c2df1ff98b2db8d44ab5109f741e9137))
 - Chore version bump + clippy by @bwks ([4c14c0d](https://github.com/bwks/sherpa/commit/4c14c0d710ee55fd98b813b498d2b121be8b295f))
 - Bug track container readyness by @bwks ([cc125c7](https://github.com/bwks/sherpa/commit/cc125c73f5db37dfa5966c97e013655faac6b629))
 ## [0.3.13] - 2026-03-06
 
 ### Miscellaneous
 
-- Merge pull request #108 from bwks/v0.1.13
-
-V0.1.13 by @bwks in [#108](https://github.com/bwks/sherpa/pull/108) ([e60c793](https://github.com/bwks/sherpa/commit/e60c793814ebf3e0c207849f7d466a79e7331363))
 - Formatting fixes by @bwks ([a862739](https://github.com/bwks/sherpa/commit/a8627398b620c8a1aba95c4dbf8e0de9aca4bf3e))
 - (chore): version bump by @bwks ([0760073](https://github.com/bwks/sherpa/commit/0760073fa60af194f52c46c5a29ba807755ab3f7))
 - (doc): update build docs by @bwks ([7a6b816](https://github.com/bwks/sherpa/commit/7a6b816099abee8ad02c95f6c731fd6214d07d60))
@@ -2866,9 +1768,6 @@ V0.1.13 by @bwks in [#108](https://github.com/bwks/sherpa/pull/108) ([e60c793](h
 
 ### Miscellaneous
 
-- Merge pull request #107 from bwks/v3.0.12
-
-V3.0.12 by @bwks in [#107](https://github.com/bwks/sherpa/pull/107) ([360a623](https://github.com/bwks/sherpa/commit/360a623fe672379e467a274ca0e55d571eb6e254))
 - Clippy rules by @bwks ([89044bc](https://github.com/bwks/sherpa/commit/89044bcb421b8ab45520bb337c38446fb4dc19c4))
 - Version bump by @bwks ([45afaa5](https://github.com/bwks/sherpa/commit/45afaa52878fc7f130ef0a5307e68e98d331c0ea))
 - Comments by @bwks ([07351d1](https://github.com/bwks/sherpa/commit/07351d1a2509e946fbbdeb05ecf03b353bbcd53c))
@@ -2882,9 +1781,6 @@ V3.0.12 by @bwks in [#107](https://github.com/bwks/sherpa/pull/107) ([360a623](h
 
 ### Miscellaneous
 
-- Merge pull request #103 from bwks/sherpad-permissions
-
-Sherpad permissions fixes by @bwks in [#103](https://github.com/bwks/sherpa/pull/103) ([10fd744](https://github.com/bwks/sherpa/commit/10fd744085d6ea0be80ffcaeacb76bd5c8985f33))
 - Bump version by @bwks ([f4cfd58](https://github.com/bwks/sherpa/commit/f4cfd58f0537d6bbb8d7691833f82c70ab3dd6ac))
 - Add delete image by @bwks ([1c3a50e](https://github.com/bwks/sherpa/commit/1c3a50e561d614a3f4ad4d405d610bea853661f6))
 ## [0.3.10] - 2026-03-03
@@ -2895,9 +1791,6 @@ Sherpad permissions fixes by @bwks in [#103](https://github.com/bwks/sherpa/pull
 
 ### Miscellaneous
 
-- Merge pull request #98 from bwks/windows-path-fix
-
-(bug) Windows path fix by @bwks in [#98](https://github.com/bwks/sherpa/pull/98) ([d7c6fdb](https://github.com/bwks/sherpa/commit/d7c6fdbd70c8fba77f5892cf8e33d6df64ad4ae6))
 - Vesrsion bump by @bwks ([ceda6e0](https://github.com/bwks/sherpa/commit/ceda6e0573eb61014143154b0a094ce7b84ad1f1))
 ## [0.3.9] - 2026-03-03
 
@@ -2908,18 +1801,9 @@ Sherpad permissions fixes by @bwks in [#103](https://github.com/bwks/sherpa/pull
 
 ### Miscellaneous
 
-- Merge pull request #97 from bwks/dependency-fix
-
-fix tests and remove unused dependencies by @bwks in [#97](https://github.com/bwks/sherpa/pull/97) ([0c19e45](https://github.com/bwks/sherpa/commit/0c19e45cc6a294faa1aa2972cab2573dba01e6a3))
-- Merge pull request #96 from bwks/dependecymgmt
-
-Dependency Mgmt and some command reshuffling by @bwks in [#96](https://github.com/bwks/sherpa/pull/96) ([65969fb](https://github.com/bwks/sherpa/commit/65969fbf2cc4bd2b3b638497c43ef4f5a9a6e575))
 - Version bump by @bwks ([0c84f73](https://github.com/bwks/sherpa/commit/0c84f730539acb8fcb55335a421404fd79f000a1))
 - Server status by @bwks ([1801b56](https://github.com/bwks/sherpa/commit/1801b5646cf64e5f6e4a483bab28d166b7c4d289))
 - Move init and doctor to sherpad by @bwks ([966fee9](https://github.com/bwks/sherpa/commit/966fee9b43310546ccaf961a492c04fc7c6218a9))
-- Merge pull request #95 from bwks/client-updates
-
-Client updates by @bwks in [#95](https://github.com/bwks/sherpa/pull/95) ([b4e893f](https://github.com/bwks/sherpa/commit/b4e893f3364f3d058864f7c2f7db8890601c8915))
 - Remove sherpactl bin by @bwks ([cf2b534](https://github.com/bwks/sherpa/commit/cf2b53424aeedcaff81dd24b59f5c5fd6e8599c3))
 - Move sherpactl commands to the sherpa client by @bwks ([dd36f18](https://github.com/bwks/sherpa/commit/dd36f185b16f2dcd39a143e834163bda776187a6))
 - Version bump by @bwks ([208535c](https://github.com/bwks/sherpa/commit/208535cb8892bfe5838692a5e5e661a0fd8f1e41))
@@ -2930,21 +1814,12 @@ Client updates by @bwks in [#95](https://github.com/bwks/sherpa/pull/95) ([b4e89
 
 ### Miscellaneous
 
-- Merge pull request #94 from bwks/certificate
-
-Certificate SAN fix by @bwks in [#94](https://github.com/bwks/sherpa/pull/94) ([e9a2172](https://github.com/bwks/sherpa/commit/e9a2172d5b29c142a38fe5b3e58ce9a694020b8f))
 - Version bump by @bwks ([e640af7](https://github.com/bwks/sherpa/commit/e640af78e94e94d075650f07e8b5f780eb520bc4))
 - Certificate processing by @bwks ([5aa48bc](https://github.com/bwks/sherpa/commit/5aa48bc397fcf482167b2a2b9695e85b15121646))
 ## [0.3.5] - 2026-03-02
 
 ### Miscellaneous
 
-- Merge pull request #92 from bwks/fix-tests
-
-tests by @bwks in [#92](https://github.com/bwks/sherpa/pull/92) ([3a543d0](https://github.com/bwks/sherpa/commit/3a543d0d8837b2e84ae29c3d44c24628bd0a1205))
-- Merge pull request #91 from bwks/install-init
-
-Install init by @bwks in [#91](https://github.com/bwks/sherpa/pull/91) ([719b78b](https://github.com/bwks/sherpa/commit/719b78b7f0b9c77d1a88e6db7710360a7cc7ceeb))
 - Version bump by @bwks ([e29722d](https://github.com/bwks/sherpa/commit/e29722dc937c9e3987de9b2a5dc79cbf83372ba9))
 - Delete unused files by @bwks ([5a1e1b1](https://github.com/bwks/sherpa/commit/5a1e1b169f7c95d2a6262d87f9d7fd0865c9b558))
 - New groups loading by @bwks ([4bde1f3](https://github.com/bwks/sherpa/commit/4bde1f3095d8d426c0f223312007f3a5dce90548))
@@ -2960,22 +1835,13 @@ Install init by @bwks in [#91](https://github.com/bwks/sherpa/pull/91) ([719b78b
 
 ### Miscellaneous
 
-- Merge pull request #90 from bwks/init-script
-
-Init script by @bwks in [#90](https://github.com/bwks/sherpa/pull/90) ([e4b4c9c](https://github.com/bwks/sherpa/commit/e4b4c9c1294d82e2fe4aff4b23b44e28c7b4a654))
 - Version bump by @bwks ([50ae7a5](https://github.com/bwks/sherpa/commit/50ae7a55284bcd2b273451e5d6e6c8ea15da006d))
 - Init script fixes by @bwks ([f528eb4](https://github.com/bwks/sherpa/commit/f528eb4140a1dee0e584eca080294b2b9ae9ce14))
 ## [0.3.3] - 2026-03-02
 
 ### Miscellaneous
 
-- Merge pull request #89 from bwks/installer
-
-version bump + installer by @bwks in [#89](https://github.com/bwks/sherpa/pull/89) ([acdde9b](https://github.com/bwks/sherpa/commit/acdde9b7a881204cf1aa6f60d2d40a1cc7155d56))
 - Version bump + installer by @bwks ([db24f2c](https://github.com/bwks/sherpa/commit/db24f2cf2b7abc86676d2b4d10e8ac374d11fc16))
-- Merge pull request #88 from bwks/github-workflows
-
-GitHub workflows + vm disk resize by @bwks in [#88](https://github.com/bwks/sherpa/pull/88) ([549fbef](https://github.com/bwks/sherpa/commit/549fbef3b6494568274ea488be496a89539465b8))
 - Edit boot disk size by @bwks ([0380f29](https://github.com/bwks/sherpa/commit/0380f293320b99ba8c23e98bc34c558b125a87d9))
 - Add sherpactl to devops build by @bwks ([593a8e2](https://github.com/bwks/sherpa/commit/593a8e274d32cfedde5f01e5d289e06a6563e408))
 ## [0.3.2] - 2026-03-01
@@ -2986,12 +1852,6 @@ GitHub workflows + vm disk resize by @bwks in [#88](https://github.com/bwks/sher
 
 ### Miscellaneous
 
-- Merge pull request #87 from bwks/test-fixes
-
-fix tests by @bwks in [#87](https://github.com/bwks/sherpa/pull/87) ([e9e29ed](https://github.com/bwks/sherpa/commit/e9e29edda166b0e9b5eab93fd47ed9b647314e6a))
-- Merge pull request #86 from bwks/develop
-
-Develop by @bwks in [#86](https://github.com/bwks/sherpa/pull/86) ([98e0641](https://github.com/bwks/sherpa/commit/98e0641d4318867ae21a641c6d709319060cef57))
 - Changelog by @bwks ([b14fd72](https://github.com/bwks/sherpa/commit/b14fd72e1b1e4a2216c774567c301cd38bd9140c))
 - Version bump by @bwks ([13899de](https://github.com/bwks/sherpa/commit/13899de3c3bf1f329d33cc82565800f5f6130379))
 - Management network to DB by @bwks ([3838309](https://github.com/bwks/sherpa/commit/38383096bbca5cf9868693a7a7f8406d2a11d1d1))
@@ -3009,6 +1869,28 @@ Develop by @bwks in [#86](https://github.com/bwks/sherpa/pull/86) ([98e0641](htt
 - Fix init bug by @bwks ([e95de62](https://github.com/bwks/sherpa/commit/e95de62625c0b376ba25849dde1919df0f740d3e))
 - Fix name order and interface order bugs by @bwks ([531d45d](https://github.com/bwks/sherpa/commit/531d45dbe48b9d8daa7c78af94b279260019cbe4))
 - Fix domain template and docs by @bwks ([2c5d446](https://github.com/bwks/sherpa/commit/2c5d44641e74d5e6ac0f533e8b96971220bf23c9))
+
+### CI
+
+- Cisco iosv by @bwks ([46f481d](https://github.com/bwks/sherpa/commit/46f481db666fd796beb9636fd8f0f68a1e6c297f))
+- Cisco cdrom ztp devices by @bwks ([4a33d9a](https://github.com/bwks/sherpa/commit/4a33d9a0973e4ad756bc9fa34183e2f36dfa549c))
+- Cisco cumulus user template by @bwks ([f8b046e](https://github.com/bwks/sherpa/commit/f8b046eb1c73db89f412936b12dfd23d5df66bc4))
+- Cisco nxos user template by @bwks ([3612b00](https://github.com/bwks/sherpa/commit/3612b00eaf8bcf43269a007fdc649da7ae0def7f))
+- Cisco iosxr user template by @bwks ([9327759](https://github.com/bwks/sherpa/commit/9327759275987f9b066def978aa5e10c0d91a0db))
+- Cisco iosxe template by @bwks ([110caee](https://github.com/bwks/sherpa/commit/110caee7ab1094dccfa3608c2ab00787201ea13c))
+- Cisco ios by @bwks ([d87f6b5](https://github.com/bwks/sherpa/commit/d87f6b58176ee2bcd91de4c0fac85a0488de311e))
+- Cisco asa template user by @bwks ([0954c66](https://github.com/bwks/sherpa/commit/0954c664707cce36436821ff4fe73631ced775b4))
+- Cisco iosxr template by @bwks ([abe02f7](https://github.com/bwks/sherpa/commit/abe02f78abc918cd5d780f635ec4931269391319))
+- Cisco iosxe dns by @bwks ([c218d01](https://github.com/bwks/sherpa/commit/c218d01c5085212b76f9c3224f9005d4026c8168))
+- Cisco ios dns by @bwks ([942b173](https://github.com/bwks/sherpa/commit/942b173f125e46e72ce517f79bf0bd7393739123))
+- Cisco asav dns by @bwks ([9b3f3c5](https://github.com/bwks/sherpa/commit/9b3f3c5f4795ff20864541ed4bcf6ab4d4bffc1a))
+- Cisco asa template by @bwks ([28b6681](https://github.com/bwks/sherpa/commit/28b668131a90774b3cbd9d88ff8676414734a020))
+- Cisco iosxr by @bwks ([d4cbe28](https://github.com/bwks/sherpa/commit/d4cbe28a556edbdf6ebf2853541b6d00b07a8d55))
+- Cisco nxos by @bwks ([9663f34](https://github.com/bwks/sherpa/commit/9663f34377e9b8aef99d80cd38a55b42078fc098))
+- Cisco ios template by @bwks ([9413be2](https://github.com/bwks/sherpa/commit/9413be29745bb8e3193c2bf7d2bed85f550a8851))
+- Cisco iosxe template by @bwks ([25d36bd](https://github.com/bwks/sherpa/commit/25d36bd70a1ad2fb73972da0297feb4c6c0bc4b1))
+- Cisco iosxr by @bwks ([f901215](https://github.com/bwks/sherpa/commit/f901215257bfc3431b9d5f3e9bcee63e75cbd0ec))
+- Cisco asa and nexus by @bwks ([d555a55](https://github.com/bwks/sherpa/commit/d555a55b9109aa5801e0e95051707b496e2fb02f))
 
 ### Documentation
 
@@ -3030,13 +1912,7 @@ Develop by @bwks in [#86](https://github.com/bwks/sherpa/pull/86) ([98e0641](htt
 
 ### Miscellaneous
 
-- Merge pull request #85 from bwks/version-bump
-
-version bump by @bwks in [#85](https://github.com/bwks/sherpa/pull/85) ([50080fb](https://github.com/bwks/sherpa/commit/50080fba3411caebcb0e74546f94a79ff52d64ee))
 - Version bump by @bwks ([ab262c3](https://github.com/bwks/sherpa/commit/ab262c38cc8e90c8a78ed6e3cbff3d10674f5cdf))
-- Merge pull request #84 from bwks/opencode
-
-Opencode by @bwks in [#84](https://github.com/bwks/sherpa/pull/84) ([5f4253a](https://github.com/bwks/sherpa/commit/5f4253ac8363494563b98506a5b5a9ab3a2e1331))
 - Github actions by @bwks ([39420f6](https://github.com/bwks/sherpa/commit/39420f68c78e536eeb14a92ef95a05536dee14bb))
 - Version bump by @bwks ([4b35866](https://github.com/bwks/sherpa/commit/4b35866d84ed7715200deccf3317fe2860a43364))
 - Update default devices by @bwks ([cacd6dc](https://github.com/bwks/sherpa/commit/cacd6dc20afda1ac66c1c8325a50a66f18c557b8))
@@ -3133,9 +2009,7 @@ Opencode by @bwks in [#84](https://github.com/bwks/sherpa/pull/84) ([5f4253a](ht
 - Ssh config files by @bwks ([4a5ea1c](https://github.com/bwks/sherpa/commit/4a5ea1c7c7583badeb6a71f0873993676e3a0278))
 - Local ssh config by @bwks ([6ff0318](https://github.com/bwks/sherpa/commit/6ff0318050d2f5ceec532dd6fc409347917c2ee6))
 - Sonic/flatcar ztp by @bwks ([3e2fb4e](https://github.com/bwks/sherpa/commit/3e2fb4e382579ee0162647b4ca66a7687c66e259))
-- Cisco iosv by @bwks ([46f481d](https://github.com/bwks/sherpa/commit/46f481db666fd796beb9636fd8f0f68a1e6c297f))
 - Cisco ASA by @bwks ([18b1e93](https://github.com/bwks/sherpa/commit/18b1e93d0dd05e24030805beb653c26ab62db973))
-- Cisco cdrom ztp devices by @bwks ([4a33d9a](https://github.com/bwks/sherpa/commit/4a33d9a0973e4ad756bc9fa34183e2f36dfa549c))
 - Arista veos by @bwks ([7417864](https://github.com/bwks/sherpa/commit/74178642d0650371070cc8d11b0d9110869dbdc9))
 - Ceos/veos node models in up working. by @bwks ([38135c2](https://github.com/bwks/sherpa/commit/38135c2c1c99ee53ae9737bf4a4bd065545b88c1))
 - Destroy ws impl by @bwks ([07a596d](https://github.com/bwks/sherpa/commit/07a596d7892cb33edbfba58180708ac04ea36d91))
@@ -3262,9 +2136,6 @@ between vms and containers by @bwks ([433e6de](https://github.com/bwks/sherpa/co
 - Update boot server checks by @bwks ([c7cb330](https://github.com/bwks/sherpa/commit/c7cb330880b724a7b4b3dc87152a298aa7328582))
 - Update inspect and refactor dhcp leases gathering by @bwks ([4ac79bc](https://github.com/bwks/sherpa/commit/4ac79bc344187a0964c6a21a7496bb295abd1939))
 - Update inspect and refactor dhcp leases gathering by @bwks ([547285a](https://github.com/bwks/sherpa/commit/547285a4a6af3a24e0f9dad6ff7c40861b4509f7))
-- Merge pull request #69 from bwks/workspaces
-
-Workspaces by @bwks in [#69](https://github.com/bwks/sherpa/pull/69) ([843962a](https://github.com/bwks/sherpa/commit/843962a3ebe2f51f166ac8e5327be53eda10b0eb))
 - Error context by @bwks ([66afb45](https://github.com/bwks/sherpa/commit/66afb456773d27e5aaea3253390451da38842dbf))
 - It compiles by @bwks ([b11b231](https://github.com/bwks/sherpa/commit/b11b2314ecf230ceedbb8850c74a389a06860853))
 - Add validate lib by @bwks ([b02e67b](https://github.com/bwks/sherpa/commit/b02e67be582e7d7540ac417d97428b5f2fbf61a7))
@@ -3290,9 +2161,6 @@ Workspaces by @bwks in [#69](https://github.com/bwks/sherpa/pull/69) ([843962a](
 - Moved back to askama by @bwks ([0b7d497](https://github.com/bwks/sherpa/commit/0b7d497e2f95b939b2f19bce032ceed2f4edeb45))
 - Networking ztp server by @bwks ([e7abf8c](https://github.com/bwks/sherpa/commit/e7abf8c7a11140aa309160982a3ddddaaa51248a))
 - Formatting by @bwks ([d13ba27](https://github.com/bwks/sherpa/commit/d13ba279002dab30ef220afdaf755735e182b2de))
-- Merge pull request #59 from bwks/k8s
-
-K8s Updates by @bwks in [#59](https://github.com/bwks/sherpa/pull/59) ([9c2a874](https://github.com/bwks/sherpa/commit/9c2a874cb2addf59b41398f1ffcf125cdcda216e))
 - Typo by @bwks ([d99df92](https://github.com/bwks/sherpa/commit/d99df9269aef1045569dd91136c7d73f1dcf84de))
 - Disable updates on flatcar_linux by @bwks ([ba466ed](https://github.com/bwks/sherpa/commit/ba466ed970bf27be249db2bc0ba80d399892b8fd))
 - K8s control plane by @bwks ([59d32e6](https://github.com/bwks/sherpa/commit/59d32e68a8a3b189017efd6f7384ad82ddcb0d99))
@@ -3317,12 +2185,6 @@ K8s Updates by @bwks in [#59](https://github.com/bwks/sherpa/pull/59) ([9c2a874]
 - Junos blank disk script by @bwks ([caac1d3](https://github.com/bwks/sherpa/commit/caac1d3ccc54f3638cf28eb9ad7d7c0c2e361506))
 - Juniper vevolved ztp by @bwks ([cd498a7](https://github.com/bwks/sherpa/commit/cd498a7c2eae95eb475a520a92077ea87ab14102))
 - Working on juniper vevolved by @bwks ([c7b443e](https://github.com/bwks/sherpa/commit/c7b443eee690c252733113222b56e91c85128d34))
-- Cisco cumulus user template by @bwks ([f8b046e](https://github.com/bwks/sherpa/commit/f8b046eb1c73db89f412936b12dfd23d5df66bc4))
-- Cisco nxos user template by @bwks ([3612b00](https://github.com/bwks/sherpa/commit/3612b00eaf8bcf43269a007fdc649da7ae0def7f))
-- Cisco iosxr user template by @bwks ([9327759](https://github.com/bwks/sherpa/commit/9327759275987f9b066def978aa5e10c0d91a0db))
-- Cisco iosxe template by @bwks ([110caee](https://github.com/bwks/sherpa/commit/110caee7ab1094dccfa3608c2ab00787201ea13c))
-- Cisco ios by @bwks ([d87f6b5](https://github.com/bwks/sherpa/commit/d87f6b58176ee2bcd91de4c0fac85a0488de311e))
-- Cisco asa template user by @bwks ([0954c66](https://github.com/bwks/sherpa/commit/0954c664707cce36436821ff4fe73631ced775b4))
 - Aruba aos template user by @bwks ([29f1c0a](https://github.com/bwks/sherpa/commit/29f1c0a1588f17bbfd65ab1e75181c9d2b860e9d))
 - Arista template user by @bwks ([3cd7d17](https://github.com/bwks/sherpa/commit/3cd7d17f83e5add724691f0662d0f5ce849f3b99))
 - Juniper vsrx boot and ztp by @bwks ([0e7aabc](https://github.com/bwks/sherpa/commit/0e7aabc855a211910caf0fc654e1e30b98ae5530))
@@ -3377,10 +2239,6 @@ K8s Updates by @bwks in [#59](https://github.com/bwks/sherpa/pull/59) ([9c2a874]
 - Cloud init config by @bwks ([e3a57cd](https://github.com/bwks/sherpa/commit/e3a57cd365c11dd8016f711025be070d5defd8f9))
 - Stub cloud-init structs by @bwks ([babfcc8](https://github.com/bwks/sherpa/commit/babfcc8b027751844a673752f541ad4b00fa341d))
 - Nxos dns template by @bwks ([b381d4e](https://github.com/bwks/sherpa/commit/b381d4ed8edd455b1ee0294144ebd27dd3054e64))
-- Cisco iosxr template by @bwks ([abe02f7](https://github.com/bwks/sherpa/commit/abe02f78abc918cd5d780f635ec4931269391319))
-- Cisco iosxe dns by @bwks ([c218d01](https://github.com/bwks/sherpa/commit/c218d01c5085212b76f9c3224f9005d4026c8168))
-- Cisco ios dns by @bwks ([942b173](https://github.com/bwks/sherpa/commit/942b173f125e46e72ce517f79bf0bd7393739123))
-- Cisco asav dns by @bwks ([9b3f3c5](https://github.com/bwks/sherpa/commit/9b3f3c5f4795ff20864541ed4bcf6ab4d4bffc1a))
 - Aruba dns config by @bwks ([c2f0e97](https://github.com/bwks/sherpa/commit/c2f0e97a4026eb638a3c8c3d67a7c20d4ac6c702))
 - Update arista template by @bwks ([3c7e7cc](https://github.com/bwks/sherpa/commit/3c7e7cc1a4b82358639d900047456455e64f7196))
 - Dns data by @bwks ([4ea8d7f](https://github.com/bwks/sherpa/commit/4ea8d7f5271c0479f65f97ab9185e0296cfa4f76))
@@ -3391,11 +2249,6 @@ K8s Updates by @bwks in [#59](https://github.com/bwks/sherpa/pull/59) ([9c2a874]
 - Juniper junos template by @bwks ([8c155c1](https://github.com/bwks/sherpa/commit/8c155c1a4ca4036924324c2a3a6cf16782f80e58))
 - Juniper junos template by @bwks ([216b126](https://github.com/bwks/sherpa/commit/216b1261c553b97434d57849b8cc9777c1245fea))
 - Aruba aos template by @bwks ([c446262](https://github.com/bwks/sherpa/commit/c4462624b4f8f613a443a901d41630dc9ef877fb))
-- Cisco asa template by @bwks ([28b6681](https://github.com/bwks/sherpa/commit/28b668131a90774b3cbd9d88ff8676414734a020))
-- Cisco iosxr by @bwks ([d4cbe28](https://github.com/bwks/sherpa/commit/d4cbe28a556edbdf6ebf2853541b6d00b07a8d55))
-- Cisco nxos by @bwks ([9663f34](https://github.com/bwks/sherpa/commit/9663f34377e9b8aef99d80cd38a55b42078fc098))
-- Cisco ios template by @bwks ([9413be2](https://github.com/bwks/sherpa/commit/9413be29745bb8e3193c2bf7d2bed85f550a8851))
-- Cisco iosxe template by @bwks ([25d36bd](https://github.com/bwks/sherpa/commit/25d36bd70a1ad2fb73972da0297feb4c6c0bc4b1))
 - Arista template by @bwks ([21ef8d6](https://github.com/bwks/sherpa/commit/21ef8d662ba6149ea68851fc7e7e26ec5501fae8))
 - Cumulus bootstrap template by @bwks ([cd6aba5](https://github.com/bwks/sherpa/commit/cd6aba5d1cc0fffc41947ffccb8358ddeabb8819))
 - Vsrx by @bwks ([0c482f0](https://github.com/bwks/sherpa/commit/0c482f00800a4a0ea7e650fe88533acd002d7f46))
@@ -3415,8 +2268,6 @@ K8s Updates by @bwks in [#59](https://github.com/bwks/sherpa/pull/59) ([9c2a874]
 - Update defaults by @bwks ([e640594](https://github.com/bwks/sherpa/commit/e6405944cf3aedab52639b728ef776228295012a))
 - Tftp boot server service by @bwks ([c6d03ed](https://github.com/bwks/sherpa/commit/c6d03edb5fefca0b3bfc8870da6ef19ca1eda324))
 - Update docs by @bwks ([660ed33](https://github.com/bwks/sherpa/commit/660ed33a4821dad0cff6964e2a142d3c362ce12c))
-- Cisco iosxr by @bwks ([f901215](https://github.com/bwks/sherpa/commit/f901215257bfc3431b9d5f3e9bcee63e75cbd0ec))
-- Cisco asa and nexus by @bwks ([d555a55](https://github.com/bwks/sherpa/commit/d555a55b9109aa5801e0e95051707b496e2fb02f))
 - Hidden files options by @bwks ([1696757](https://github.com/bwks/sherpa/commit/16967571b08601fa43ed729652e7f1d28b5b7882))
 - Boot server by @bwks ([182d1c5](https://github.com/bwks/sherpa/commit/182d1c58718cc4a811e148e5fc792ee80a81a3c6))
 - Flatcar linux ignition provisioning by @bwks ([9d17a94](https://github.com/bwks/sherpa/commit/9d17a9446ac6beb19e1b2a6a2e09a6f2991ba7dd))
