@@ -326,7 +326,9 @@ below is kept as found, with what closed it:
 
 ### M8. Down and resume
 
-1. **Unikernels are not re-attached after a cold boot.**
+1. **Unikernels are not re-attached after a cold boot.** *Resolved by #500: every cold-booted
+   node goes through `p2p_links::reattach_node_links`; a unikernel's taps are made by libvirt
+   like a VM's. Test: `a_cold_booted_unikernel_has_its_links_reattached`.*
    - Only `NodeKind::VirtualMachine` goes into `cold_booted_vms` (`resume.rs:143-145`).
    - Unikernels can have P2p interfaces.
    - So after `down` and `resume`, a unikernel has a new tap with no redirect, and its peer's
@@ -352,7 +354,13 @@ below is kept as found, with what closed it:
      and Keycloak.
    - If that restore fails, `rebuild` returns an error and `mark_failed` writes `Failed`
      (`redeploy/node.rs:83-86`) for a running container.
-2. **Redeploy fails after teardown when a peer is down.**
+2. **Redeploy fails after teardown when a peer is down.** *Resolved by #500: redeploy calls
+   `p2p_links::reattach_node_links`, where a missing peer end is the `PeerDown` state, not an
+   error, and no link state fails the node; the peer's own re-attach when it starts sets both
+   directions. The link states are in `RedeployResponse.links`. Tests:
+   `a_link_whose_peer_end_is_missing_waits_for_its_peer`,
+   `a_peer_that_comes_back_attaches_both_directions`, and the ignored
+   `the_kernel_re_attaches_a_link_and_waits_for_a_peer_that_is_down`.*
    - `reattach_p2p_redirects` calls `get_ifindex(...)?` on both ends of every link
      (`redeploy/links.rs:53-58`).
    - If a peer VM is shut off, its tap does not exist. The rebuilt node is then marked
@@ -513,6 +521,30 @@ item below is kept as found, with what closed it:
 
 ### M25 and M26. P2p links and impairment
 
+**Fixed (#500).** Items 1 to 4 below are fixed, with M8.1 and M9.2. How link attachment and
+impairment work now is in
+[`docs/architecture/STATE_MACHINES.md`, sections 25 and 26](../architecture/STATE_MACHINES.md#25-p2p-link-attachment).
+The `file:line` references below are to the code before the fix. Tests, by item:
+
+1. `a_peer_that_is_down_does_not_stop_the_other_links`,
+   `a_link_that_fails_does_not_stop_the_other_links`,
+   `a_node_whose_own_end_is_missing_fails_the_link_not_the_node`. The per-link states reach
+   the user in `NodeActionResult.links`.
+2. `a_started_container_has_its_veths_made_again`,
+   `a_started_container_gets_its_veths_again_before_its_links_attach`,
+   `a_veth_that_cannot_be_made_fails_its_link`,
+   `a_container_whose_namespace_cannot_be_found_fails_its_links`. Inferred behaviour confirmed
+   live: a container started from exited had only `lo` and `eth0`.
+3. `a_clear_that_the_kernel_refuses_is_not_recorded`,
+   `only_the_root_netem_of_the_interface_is_sherpas_netem`, and the ignored `test_remove_netem`,
+   `test_sync_netem_applies_and_clears`. The kernel's error for a missing qdisc turned out to be
+   `EINVAL` ("Invalid handle"), the same as for a bad request, so `remove_netem` now lists the
+   qdiscs instead of reading the error. Re-attach also removes a leftover qdisc from a clear
+   direction (`re_attach_sets_each_direction_on_the_end_it_leaves_through`).
+4. `a_change_the_database_refuses_is_taken_back_from_the_kernel`,
+   `a_change_the_kernel_refuses_halfway_is_taken_back`. The kernel is still changed first, and
+   put back when the database write fails.
+
 1. **One failed link stops every later re-attach in a resume.**
    - `reattach_p2p_ebpf_for_nodes` uses `?` per link (`resume.rs:661-679`).
    - Sequence: VM A has links to B and C. B is shut off. Resume A alone. The B link fails at
@@ -665,7 +697,7 @@ direction for the fix, not a design.
    - Make `UpError.is_critical` mean something, or remove it.
    - **Why second:** M3.1 deletes a user's running lab; M6.2, M6.3 and M7.1 strand labs and
      directories with no way back through the API; M6.1 hides partial failures.
-3. **P2p link attachment (M25, M8.1, M9.2).**
+3. **P2p link attachment (M25, M8.1, M9.2).** *Done in #500: see M25.*
    - **Form:** one transition function that re-attaches a node's links from the DB rows after
      any event that recreates an end: VM cold boot, unikernel cold boot, container start,
      redeploy. It should collect errors per link instead of stopping at the first. Test it
@@ -697,7 +729,7 @@ direction for the fix, not a design.
    - **Form:** record an "initialising" marker before `init()` and handle it explicitly, or
      make the credentials write the only way out of that state.
    - **Why:** rare, but the Vault cannot be recovered without a redeploy.
-9. **Link impairment (M26).**
+9. **Link impairment (M26).** *M25.3 and M25.4 are done in #500; see M25.*
    - **Form:** have `remove_netem` tell "none present" apart from other errors, and write the
      database before the kernel or roll back both.
    - **Why:** narrow, but it leaves a link impaired while reporting it clear.

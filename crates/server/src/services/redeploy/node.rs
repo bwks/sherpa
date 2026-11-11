@@ -28,7 +28,7 @@ use crate::services::ssh_config;
 use crate::tls::lab_ca::{self, NodeIdentity};
 
 use shared::data;
-use shared::data::{OperationEvent, RedeployRequest, RedeployResponse, StatusKind};
+use shared::data::{LinkReport, OperationEvent, RedeployRequest, RedeployResponse, StatusKind};
 
 // Redeploy updates shared lab files. Serialize redeploys within each lab so one
 // node's new identity cannot overwrite another node's concurrent update.
@@ -87,10 +87,14 @@ pub async fn redeploy_node(
     .with_context(|| format!("Cannot redeploy node '{node_name}'"))?;
     // The rebuilt node gets a new host key, recorded again once it is ready.
     db::update_node_host_key(&state.db, redeploy.node_record_id.clone(), None).await?;
-    if let Err(error) = rebuild(&mut redeploy).await {
-        mark_failed(&redeploy).await;
-        return Err(error);
-    }
+    // A link that is not attached is reported with the result; it does not fail the node.
+    let links = match rebuild(&mut redeploy).await {
+        Ok(links) => links,
+        Err(error) => {
+            mark_failed(&redeploy).await;
+            return Err(error);
+        }
+    };
 
     operation.ensure_active()?;
     ssh_config::refresh_lab_ssh_files(
@@ -115,6 +119,7 @@ pub async fn redeploy_node(
         node_name: node_name.clone(),
         message: format!("Node '{node_name}' redeployed successfully"),
         total_time_secs: total_time,
+        links,
     };
 
     tracing::info!(
@@ -141,8 +146,8 @@ fn lab_lock(lab_id: &str) -> Arc<Mutex<()>> {
     }
 }
 
-/// Tear the node down and build it again (stages 2 to 6).
-async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<()> {
+/// Tear the node down and build it again (stages 2 to 6), and report its links.
+async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
     destroy_node(redeploy).await?;
     if matches!(redeploy.node_image.kind, data::NodeKind::VirtualMachine) {
         recreate_vm_networks(redeploy)?;

@@ -1,4 +1,35 @@
 // ============================================================================
+// P2p links a resume or redeploy left unattached
+// ============================================================================
+
+// Each of a node's links that is not attached, as text. A link waiting for its peer is
+// expected; a failed one carries no traffic until either end is resumed or redeployed.
+function linkNotes(links) {
+    return (links || [])
+        .filter(function(l) { return l.state !== "attached"; })
+        .map(function(l) {
+            var why = l.state === "peer_down"
+                ? `${l.peer} is down; it is attached when ${l.peer} starts`
+                : l.reason;
+            return `link ${l.link} not attached: ${why}`;
+        });
+}
+
+// Whether any of the results' links failed, so the notification shows as an error.
+function anyLinkFailed(results) {
+    return results.some(function(r) {
+        return (r.links || []).some(function(l) { return l.state === "failed"; });
+    });
+}
+
+// The link notes of every result, each prefixed by its node's name.
+function resultLinkNotes(results) {
+    return results.flatMap(function(r) {
+        return linkNotes(r.links).map(function(note) { return `${r.name}: ${note}`; });
+    });
+}
+
+// ============================================================================
 // Labs grid — icon button actions (used on /labs and /admin/labs)
 // ============================================================================
 
@@ -22,7 +53,9 @@ async function labAction(labId, btn, action) {
 
         if (failed.length === 0) {
             var verb = action === "start" ? "Started" : "Stopped";
-            showLabNotification(labId, "success", `${verb} ${data.results.length} node(s)`);
+            var notes = resultLinkNotes(data.results);
+            showLabNotification(labId, anyLinkFailed(data.results) ? "error" : "success",
+                [`${verb} ${data.results.length} node(s)`].concat(notes).join(" | "));
         } else {
             var msgs = failed.map(function(r) { return `${r.name}: ${r.message}`; });
             showLabNotification(labId, "error", msgs.join(", "));
@@ -95,7 +128,9 @@ async function labDetailAction(labId, action, btn) {
         if (failed.length === 0) {
             var names = succeeded.map(function(r) { return r.name; }).join(", ");
             var verb = action === "start" ? "Started" : "Stopped";
-            showDetailResult("success", `${verb} ${succeeded.length} node(s): ${names}`);
+            var notes = resultLinkNotes(data.results);
+            showDetailResult(anyLinkFailed(data.results) ? "error" : "success",
+                [`${verb} ${succeeded.length} node(s): ${names}`].concat(notes).join(" | "));
         } else {
             var msgs = failed.map(function(r) { return `${r.name}: ${r.message}`; });
             if (succeeded.length > 0) {
@@ -103,7 +138,7 @@ async function labDetailAction(labId, action, btn) {
                 var verb = action === "start" ? "Started" : "Stopped";
                 msgs.unshift(`${verb}: ${okNames}`);
             }
-            showDetailResult("error", msgs.join(" | "));
+            showDetailResult("error", msgs.concat(resultLinkNotes(data.results)).join(" | "));
         }
     } catch (err) {
         showDetailResult("error", `Request failed: ${err.message}`);
@@ -136,7 +171,8 @@ async function nodeAction(labId, nodeName, action, btn) {
         var result = data.results[0];
 
         if (result && result.success) {
-            showNodeNotification(nodeName, "success", result.message);
+            showNodeNotification(nodeName, anyLinkFailed([result]) ? "error" : "success",
+                [result.message].concat(linkNotes(result.links)).join(" | "));
         } else {
             showNodeNotification(nodeName, "error",
                 result ? result.message : "Unknown error");
@@ -167,7 +203,8 @@ async function nodeRedeploy(labId, nodeName, btn) {
         var data = await response.json();
 
         if (data.success) {
-            showNodeNotification(nodeName, "success", data.message);
+            showNodeNotification(nodeName, anyLinkFailed([data]) ? "error" : "success",
+                [data.message].concat(linkNotes(data.links)).join(" | "));
         } else {
             showNodeNotification(nodeName, "error", data.message);
         }

@@ -9,7 +9,7 @@ use rtnetlink::{Error, Handle};
 use shared::konst::{MTU_JUMBO_NET, NETNS_VETH_INDEX_ATTEMPTS};
 use tracing::instrument;
 
-use crate::linux::{get_link_index, set_link_properties, setup_netlink};
+use crate::linux::{find_link_index, get_link_index, set_link_properties, setup_netlink};
 
 /// How the two ends of a veth into a container come up.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -225,6 +225,18 @@ async fn add_at_free_index(
 pub async fn get_ifindex(iface_name: &str) -> Result<u32> {
     let handle = setup_netlink().await?;
     get_link_index(&handle, iface_name).await
+}
+
+/// The interface index of `iface_name`, or `None` when there is no such interface: a link end
+/// whose VM is shut off, or whose container's network namespace is gone.
+///
+/// # Errors
+///
+/// Fails when netlink cannot look the interface up.
+#[instrument(fields(%iface_name), level = "debug")]
+pub async fn find_ifindex(iface_name: &str) -> Result<Option<u32>> {
+    let handle = setup_netlink().await?;
+    find_link_index(&handle, iface_name).await
 }
 
 /// Whether `link` is a veth whose peer is in another network namespace: the host end of a

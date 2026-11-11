@@ -12,7 +12,7 @@ use crate::cmd::download::download;
 use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
 };
-use crate::cmd::outcome::ensure_nodes_succeeded;
+use crate::cmd::outcome::{ensure_nodes_succeeded, print_link_reports};
 use crate::cmd::tailscale_key::resolve_resume_tailscale_key;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
@@ -121,6 +121,7 @@ pub async fn resume(
                 node_result.message
             );
         }
+        print_link_reports(&node_result.links);
     }
 
     // A booted node may offer a new host key, which the server recorded; refresh the lab

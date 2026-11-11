@@ -144,6 +144,7 @@ pub async fn shutdown_lab_nodes(
                 name: node.name.clone(),
                 success: false,
                 message: "Node image not found in database".to_string(),
+                links: Vec::new(),
             });
             continue;
         };
@@ -152,6 +153,7 @@ pub async fn shutdown_lab_nodes(
                 name: node.name.clone(),
                 success: false,
                 message: format!("Cannot stop: {refusal}"),
+                links: Vec::new(),
             });
             continue;
         }
@@ -265,6 +267,7 @@ async fn stop_tailscale_gateway(
             Ok(()) => "Stopped".into(),
             Err(error) => format!("Unable to stop Tailscale gateway: {error:#}"),
         },
+        links: Vec::new(),
     }
 }
 
@@ -339,6 +342,7 @@ fn check_domain(conn: &virt::connect::Connect, device_name: &str, node_name: &st
                 name: node_name.to_string(),
                 success: false,
                 message: format!("Domain not found: {e}"),
+                links: Vec::new(),
             });
         }
     };
@@ -348,11 +352,13 @@ fn check_domain(conn: &virt::connect::Connect, device_name: &str, node_name: &st
             name: node_name.to_string(),
             success: true,
             message: "Already stopped".to_string(),
+            links: Vec::new(),
         }),
         Err(e) => DomainCheck::Done(NodeActionResult {
             name: node_name.to_string(),
             success: false,
             message: format!("Failed to check state: {e}"),
+            links: Vec::new(),
         }),
     }
 }
@@ -379,6 +385,7 @@ async fn shutdown_vm(
                 name: node_name.to_string(),
                 success: false,
                 message: "Containers are paused, not shut down".to_string(),
+                links: Vec::new(),
             };
         }
     };
@@ -398,11 +405,13 @@ async fn shutdown_vm(
                 name: node_name,
                 success: true,
                 message: stop_message(&stop),
+                links: Vec::new(),
             },
             Err(e) => NodeActionResult {
                 name: node_name,
                 success: false,
                 message: format!("{e:#}"),
+                links: Vec::new(),
             },
         })
     })
@@ -413,11 +422,13 @@ async fn shutdown_vm(
             name: node_name.to_string(),
             success: false,
             message: format!("Libvirt error: {e}"),
+            links: Vec::new(),
         },
         Err(e) => NodeActionResult {
             name: node_name.to_string(),
             success: false,
             message: format!("Task panicked: {e}"),
+            links: Vec::new(),
         },
     }
 }
@@ -440,6 +451,7 @@ async fn shutdown_container(
         name: node_name.to_string(),
         success,
         message,
+        links: Vec::new(),
     };
     // Pausing a container that is not running fails, so a second down would report errors.
     let status = match container::container_status(&state.docker, device_name).await {

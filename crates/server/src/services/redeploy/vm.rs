@@ -2,79 +2,46 @@
 //! to become ready.
 
 use std::collections::HashMap;
+use std::mem;
 use std::ops::RangeInclusive;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use tracing::instrument;
 
-use super::context::{Redeploy, data_interface_indices};
-use super::links::{node_bridge_interfaces, node_links, reattach_p2p_redirects};
+use super::context::Redeploy;
 use crate::services::node_lifecycle;
-use crate::services::node_ops::{self, DomainParts, LabZtp, VmReadiness};
+use crate::services::node_ops::{self, DomainParts, LabZtp, VmReadiness, VmZtpResult};
 use crate::services::node_resources;
+use crate::services::p2p_links::{
+    KernelHost, LabLinks, RecreatedEnd, data_interface_indices, node_bridge_interfaces, node_links,
+    reattach_node_links, report_links,
+};
 use crate::tls::lab_ca::NodeCertPaths;
 
 use shared::data;
-use shared::data::{DbLink, OperationEvent, RecordId, StatusKind};
+use shared::data::{DbLink, LinkReport, OperationEvent, RecordId, StatusKind};
 use shared::konst::{
     KVM_OUI, MTU_JUMBO_NET, READINESS_SLEEP, SHERPA_MANAGEMENT_NETWORK_NAME, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 
 /// Configure the VM again, clone its disks, create its domain on its links, bridges and
-/// networks, and wait for it to become ready (stages 4 to 6).
+/// networks, re-attach its links, and wait for it to become ready (stages 4 to 6). Returns its
+/// links' states.
 #[instrument(skip_all, fields(lab_id = %redeploy.lab_id, node_name = %redeploy.node_name), level = "debug")]
 pub(super) async fn redeploy_vm(
     redeploy: &mut Redeploy<'_>,
     cert_paths: &NodeCertPaths,
-) -> Result<()> {
-    let ztp_dir = format!("{}/{ZTP_DIR}", redeploy.lab_dir);
-    util::create_dir(&ztp_dir)?;
-    util::create_dir(&format!("{ztp_dir}/{TFTP_DIR}"))?;
-
-    let vm_ztp = node_ops::generate_vm_ztp(
-        &mut redeploy.target_node,
-        &redeploy.node_image,
-        &LabZtp {
-            lab_id: &redeploy.lab_id,
-            lab_dir: &redeploy.lab_dir,
-            images_dir: &redeploy.state.config.images_dir,
-            sherpa_user: &redeploy.sherpa_user,
-            dns: &redeploy.dns,
-            mgmt_net: &redeploy.mgmt_net,
-            progress: redeploy.progress,
-            owner_account: redeploy.owner_account.as_ref(),
-        },
-        redeploy.ipv4,
-        redeploy.db_node.mgmt_mac.as_deref(),
-        Some(cert_paths),
-    )?;
-
+) -> Result<Vec<LinkReport>> {
+    let vm_ztp = configure_vm(redeploy, cert_paths).await?;
     let lab_id = redeploy.lab_id.as_str();
     let node_name = redeploy.node_name.as_str();
     let progress = redeploy.progress;
-    let _ = progress.send_status(
-        format!("ZTP regenerated for node: {node_name}"),
-        StatusKind::Done,
-    );
-
-    let _ = progress.send_status(
-        format!("Cloning disks for node: {node_name}"),
-        StatusKind::Progress,
-    );
-    node_ops::clone_node_disks(
-        redeploy.qemu_conn.clone(),
-        vm_ztp.clone_disks,
-        lab_id,
-        progress,
-        vec![redeploy.image_guard.clone()],
-    )
-    .await?;
 
     let db = &redeploy.state.db;
-    let db_links = db::list_links_by_lab(db, redeploy.lab_record_id.clone()).await?;
-    let links = node_links(&db_links, &redeploy.node_record_id);
+    let lab_links = LabLinks::load(db, &redeploy.lab_record_id).await?;
+    let links = node_links(lab_links.links(), &redeploy.node_record_id);
     let db_bridges = db::list_bridges(db, &redeploy.lab_record_id).await?;
     let interfaces = vm_interfaces(
         &redeploy.node_image,
@@ -130,14 +97,73 @@ pub(super) async fn redeploy_vm(
     )
     .await?;
 
-    reattach_p2p_redirects(lab_id, &links, progress).await?;
+    let link_reports = reattach_node_links(
+        &KernelHost::new(&redeploy.state.docker),
+        &lab_links,
+        &redeploy.node_record_id,
+        RecreatedEnd::Domain,
+    )
+    .await;
+    report_links(Some(progress), node_name, &link_reports);
 
     // Set isolated bridge DOWN to remove carrier from disabled VM interfaces
     if has_disabled {
         network::set_link_down(&isolated_net.bridge_name).await?;
     }
 
-    wait_until_ready(redeploy).await
+    wait_until_ready(redeploy).await?;
+    Ok(link_reports)
+}
+
+/// Generate the VM's configuration again and clone its disks (stage 4). The returned result's
+/// disks to clone are taken: they are cloned.
+async fn configure_vm(
+    redeploy: &mut Redeploy<'_>,
+    cert_paths: &NodeCertPaths,
+) -> Result<VmZtpResult> {
+    let ztp_dir = format!("{}/{ZTP_DIR}", redeploy.lab_dir);
+    util::create_dir(&ztp_dir)?;
+    util::create_dir(&format!("{ztp_dir}/{TFTP_DIR}"))?;
+
+    let mut vm_ztp = node_ops::generate_vm_ztp(
+        &mut redeploy.target_node,
+        &redeploy.node_image,
+        &LabZtp {
+            lab_id: &redeploy.lab_id,
+            lab_dir: &redeploy.lab_dir,
+            images_dir: &redeploy.state.config.images_dir,
+            sherpa_user: &redeploy.sherpa_user,
+            dns: &redeploy.dns,
+            mgmt_net: &redeploy.mgmt_net,
+            progress: redeploy.progress,
+            owner_account: redeploy.owner_account.as_ref(),
+        },
+        redeploy.ipv4,
+        redeploy.db_node.mgmt_mac.as_deref(),
+        Some(cert_paths),
+    )?;
+
+    let lab_id = redeploy.lab_id.as_str();
+    let node_name = redeploy.node_name.as_str();
+    let progress = redeploy.progress;
+    let _ = progress.send_status(
+        format!("ZTP regenerated for node: {node_name}"),
+        StatusKind::Done,
+    );
+
+    let _ = progress.send_status(
+        format!("Cloning disks for node: {node_name}"),
+        StatusKind::Progress,
+    );
+    node_ops::clone_node_disks(
+        redeploy.qemu_conn.clone(),
+        mem::take(&mut vm_ztp.clone_disks),
+        lab_id,
+        progress,
+        vec![redeploy.image_guard.clone()],
+    )
+    .await?;
+    Ok(vm_ztp)
 }
 
 /// The VM's interfaces: management, reserved, then each data interface on its P2p link, on

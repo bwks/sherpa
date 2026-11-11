@@ -2,7 +2,6 @@
 
 use std::collections::BTreeMap;
 use std::net::{Ipv4Addr, Ipv6Addr};
-use std::ops::RangeInclusive;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -517,24 +516,6 @@ fn node_management_addresses(
     Ok((ipv4, ipv6))
 }
 
-/// The indices of the node's data interfaces, after its management interface (0) and its
-/// reserved interfaces.
-pub(super) fn data_interface_indices(
-    node_image: &data::NodeConfig,
-    data_interface_count: u8,
-    node_name: &str,
-) -> Result<RangeInclusive<u8>> {
-    let first = node_image
-        .reserved_interface_count
-        .checked_add(1)
-        .ok_or_else(|| anyhow!("Reserved interface count overflow for node {node_name}"))?;
-    let last = node_image
-        .reserved_interface_count
-        .checked_add(data_interface_count)
-        .ok_or_else(|| anyhow!("Data interface count overflow for node {node_name}"))?;
-    Ok(first..=last)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -619,26 +600,5 @@ mod tests {
     fn test_invalid_saved_address_is_an_error() {
         let node = db_node(1, Some("not-an-ip"), None);
         assert!(node_management_addresses(&node, &mgmt_net(false)).is_err());
-    }
-
-    #[test]
-    fn data_interfaces_follow_the_reserved_ones() {
-        let mut image = data::NodeConfig::ubuntu_linux();
-        image.reserved_interface_count = 2;
-        assert_eq!(data_interface_indices(&image, 3, "n1").unwrap(), 3..=5);
-    }
-
-    #[test]
-    fn a_node_without_data_interfaces_has_none() {
-        let mut image = data::NodeConfig::ubuntu_linux();
-        image.reserved_interface_count = 0;
-        assert!(data_interface_indices(&image, 0, "n1").unwrap().is_empty());
-    }
-
-    #[test]
-    fn an_interface_count_past_the_index_range_is_an_error() {
-        let mut image = data::NodeConfig::ubuntu_linux();
-        image.reserved_interface_count = u8::MAX;
-        assert!(data_interface_indices(&image, 1, "n1").is_err());
     }
 }

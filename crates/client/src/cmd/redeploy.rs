@@ -16,6 +16,7 @@ use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
 use super::download::download;
+use super::outcome::print_link_reports;
 use super::progress::print_status;
 use super::up::resolve_manifest_files;
 
@@ -113,6 +114,7 @@ pub async fn redeploy(
         result.node_name,
         result.total_time_secs
     );
+    print_link_reports(&result.links);
 
     download(lab_id, true, server_url, config)
         .await

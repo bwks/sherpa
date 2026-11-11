@@ -16,9 +16,9 @@ use std::time::Duration;
 use anyhow::Result;
 
 use network::{
-    NetnsVethState, apply_netem, attach_p2p_redirect, create_bridge, create_tap,
-    create_veth_in_netns, create_veth_pair, delete_interface, enslave_to_bridge, get_ifindex,
-    list_interface_names, remove_netem, set_link_down, update_netem,
+    NetemRemoval, NetnsVethState, apply_netem, attach_p2p_redirect, create_bridge, create_tap,
+    create_veth_in_netns, create_veth_pair, delete_interface, enslave_to_bridge, find_ifindex,
+    get_ifindex, list_interface_names, remove_netem, set_link_down, sync_netem, update_netem,
 };
 use shared::data::LinkImpairment;
 
@@ -586,7 +586,9 @@ async fn test_remove_netem() -> Result<()> {
     };
 
     apply_netem(idx, &impairment).await?;
-    remove_netem(idx).await?;
+    assert_eq!(remove_netem(idx).await?, NetemRemoval::Removed);
+    // The second removal finds nothing: only that counts as "clear" without a removal.
+    assert_eq!(remove_netem(idx).await?, NetemRemoval::NothingToRemove);
 
     // Verify netem qdisc is gone
     let output = Command::new("tc")
@@ -601,6 +603,56 @@ async fn test_remove_netem() -> Result<()> {
 
     delete_interface(src).await?;
 
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires root or CAP_NET_ADMIN"]
+async fn test_remove_netem_of_a_missing_interface_finds_nothing() -> Result<()> {
+    // An index no interface has holds no qdisc: a removed end has nothing left to remove.
+    assert_eq!(
+        remove_netem(2_000_000_000).await?,
+        NetemRemoval::NothingToRemove
+    );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires root or CAP_NET_ADMIN"]
+async fn test_sync_netem_applies_and_clears() -> Result<()> {
+    let src = "st-netem-sync-a";
+    let dst = "st-netem-sync-b";
+
+    cleanup_interface(src).await;
+    create_veth_pair(src, dst, "netem-sync-src", "netem-sync-dst").await?;
+    let idx = get_ifindex(src).await?;
+    let tc_show = || {
+        let output = Command::new("tc")
+            .args(["qdisc", "show", "dev", src])
+            .output()
+            .expect("tc command failed");
+        String::from_utf8_lossy(&output.stdout).to_string()
+    };
+
+    let impairment = LinkImpairment {
+        delay_us: 10000,
+        ..LinkImpairment::default()
+    };
+    sync_netem(idx, &impairment).await?;
+    assert!(tc_show().contains("netem"), "{}", tc_show());
+    sync_netem(idx, &LinkImpairment::default()).await?;
+    assert!(!tc_show().contains("netem"), "{}", tc_show());
+    // Clear again: nothing to remove, not an error.
+    sync_netem(idx, &LinkImpairment::default()).await?;
+
+    delete_interface(src).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires root or CAP_NET_ADMIN"]
+async fn test_find_ifindex_of_a_missing_interface_is_none() -> Result<()> {
+    assert_eq!(find_ifindex("st-noexist98").await?, None);
     Ok(())
 }
 

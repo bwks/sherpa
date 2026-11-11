@@ -12,6 +12,7 @@ use super::context::LabBuild;
 use super::links::P2pContainerVeth;
 use crate::services::container_networks;
 use crate::services::error::ServiceError;
+use crate::services::p2p_links::ContainerVeth;
 use crate::tls::generator::write_file_with_permissions;
 
 use shared::data;
@@ -487,18 +488,20 @@ async fn join_bridge_members(
             // Format: cb{node_idx}i{iface_idx}-{lab_id}
             p2p_container_veths.push(P2pContainerVeth {
                 node_name: link.node_name.clone(),
-                host_veth: format!(
-                    "{BRIDGE_MEMBER_HOST_VETH_PREFIX}{}i{}-{lab_id}",
-                    node_data.index, link.interface_index
-                ),
-                host_alias: format!(
-                    "{}-bridge-host-{}::{}",
-                    lab_id, link.node_name, link.interface_name
-                ),
-                interface_idx: link.interface_index,
-                node_model: node_data.model,
-                admin_down: false,
-                bridge: Some(bridge.bridge_name.clone()),
+                veth: ContainerVeth {
+                    host_veth: format!(
+                        "{BRIDGE_MEMBER_HOST_VETH_PREFIX}{}i{}-{lab_id}",
+                        node_data.index, link.interface_index
+                    ),
+                    host_alias: format!(
+                        "{}-bridge-host-{}::{}",
+                        lab_id, link.node_name, link.interface_name
+                    ),
+                    interface_idx: link.interface_index,
+                    node_model: node_data.model,
+                    admin_down: false,
+                    bridge: Some(bridge.bridge_name.clone()),
+                },
             });
         } else {
             let docker_net_name = container_networks::bridge_member_network_name(
