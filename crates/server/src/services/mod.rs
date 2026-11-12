@@ -4,6 +4,7 @@ pub mod cancel;
 pub mod clean;
 pub(crate) mod container_networks;
 pub mod container_pull;
+pub(crate) mod container_scan;
 pub mod delete;
 pub mod destroy;
 pub mod down;

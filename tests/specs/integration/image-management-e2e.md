@@ -22,6 +22,9 @@
 **What to test:**
 - Scan discovers VM images on disk by directory structure `[e2e]` **P0**
 - Scan discovers container images from Docker daemon `[e2e]` **P0**
+- Container models with no built-in repo are listed as skipped `[e2e]` **P1**
+- Scan with a model and repo records that repo's local tags, with the repo `[e2e]` **P0**
+- Scan refuses a repo with a tag `[e2e]` **P1**
 - Discovered images bulk-upserted to DB `[e2e]` **P0**
 - Dry-run mode reports discoveries without DB changes `[e2e]` **P1**
 

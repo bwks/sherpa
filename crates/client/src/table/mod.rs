@@ -6,7 +6,10 @@ mod lab;
 mod server;
 mod ssh_config;
 
-pub use image::{render_image_detail_table, render_images_table, render_scanned_images_table};
+pub use image::{
+    render_image_detail_table, render_images_table, render_scanned_images_table,
+    render_skipped_models_table,
+};
 pub use lab::{
     render_bridges_table, render_devices_table, render_lab_info_table, render_links_table,
     render_nodes_table, render_provision_table, render_tailnet_table,

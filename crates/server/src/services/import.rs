@@ -11,7 +11,7 @@ use shared::data::{
     DownloadImageRequest, ImageSummary, ImportRequest, ImportResponse, ListImagesRequest,
     ListImagesResponse, NodeConfig, NodeKind, NodeModel, ScanImagesRequest, ScanImagesResponse,
     ScannedImage, SetDefaultImageRequest, SetDefaultImageResponse, ShowImageRequest,
-    ShowImageResponse, StatusKind,
+    ShowImageResponse, SkippedModel, StatusKind,
 };
 use shared::konst::{SHERPA_IMAGES_PATH, TALOS_IMAGE_FACTORY_URL, TALOS_VANILLA_SCHEMATIC_YAML};
 use shared::util::{file_exists, image_filename};
@@ -19,10 +19,11 @@ use shared::util::{file_exists, image_filename};
 use tracing::instrument;
 
 use crate::daemon::state::AppState;
+use crate::services::container_scan::{ScanTarget, match_container_images};
 use crate::services::image_lifecycle::lock_image;
 use crate::services::image_store::{ExistingDisk, ImagePaths, PlacedDisk, StagedDisk};
 use crate::services::progress::ProgressSender;
-use crate::validate::validate_image_version;
+use crate::validate::{validate_image_scan, validate_image_version};
 
 /// Bytes between progress reports while downloading an image.
 const DOWNLOAD_REPORT_INTERVAL: u64 = 5 * 1024 * 1024;
@@ -346,24 +347,32 @@ pub async fn show_image(request: ShowImageRequest, state: &AppState) -> Result<S
     Ok(ShowImageResponse { image })
 }
 
-/// Scan the images directory for on-disk VM images and import them into the database
+/// Scan for images that are present but not recorded, and record them: disk images in the
+/// images directory, and container images in local Docker. A request's `model` and `repo`
+/// record that repo's local tags for that container model, and scan nothing else.
 #[instrument(skip(state), level = "debug")]
 pub async fn scan_images(
     request: ScanImagesRequest,
     state: &AppState,
 ) -> Result<ScanImagesResponse> {
-    let mut tally = ScanTally::default();
-    scan_disk_images(&request, state, &mut tally).await?;
+    validate_image_scan(&request)?;
+    let target = request
+        .model
+        .zip(request.repo.as_deref())
+        .map(|(model, repo)| ScanTarget { model, repo });
+    let wants = |kind: NodeKind| request.kind.as_ref().is_none_or(|k| *k == kind);
 
-    // --- Container image scanning ---
-    // Query Docker for local images and match against known container models
-    let skip_containers = matches!(request.kind, Some(ref k) if *k != NodeKind::Container);
-    if !skip_containers {
-        scan_container_images(&request, state, &mut tally).await?;
+    let mut tally = ScanTally::default();
+    if target.is_none() && (wants(NodeKind::VirtualMachine) || wants(NodeKind::Unikernel)) {
+        scan_disk_images(&request, state, &mut tally).await?;
+    }
+    if wants(NodeKind::Container) {
+        scan_container_images(target, request.dry_run, state, &mut tally).await?;
     }
 
     Ok(ScanImagesResponse {
         scanned: tally.scanned,
+        skipped: tally.skipped,
         total_imported: tally.total_imported,
     })
 }
@@ -372,6 +381,7 @@ pub async fn scan_images(
 #[derive(Default)]
 struct ScanTally {
     scanned: Vec<ScannedImage>,
+    skipped: Vec<SkippedModel>,
     total_imported: usize,
 }
 
@@ -538,51 +548,37 @@ async fn scan_version_dirs(
     Ok(())
 }
 
-/// Match the Docker daemon's local image tags against the container models' repositories.
+/// Record the Docker daemon's local image tags that [`match_container_images`] matches to
+/// container models, each with the repo it was matched by.
 #[instrument(skip_all, level = "debug")]
 async fn scan_container_images(
-    request: &ScanImagesRequest,
+    target: Option<ScanTarget<'_>>,
+    dry_run: bool,
     state: &AppState,
     tally: &mut ScanTally,
 ) -> Result<()> {
     let docker_tags = container::get_local_images(&state.docker)
         .await
         .context("Failed to list local Docker images")?;
+    let found = match_container_images(&docker_tags, target);
+    for model in &found.skipped {
+        tracing::debug!(model = %model.model, reason = %model.reason, "Skipping container model");
+    }
+    tally.skipped = found.skipped;
 
-    for model in NodeModel::to_vec() {
-        let config = NodeConfig::get_model(model);
-
-        // Only process container models
-        if config.kind != NodeKind::Container {
-            continue;
-        }
-
-        // If a kind filter was provided, check it (redundant guard for safety)
-        if let Some(ref filter_kind) = request.kind
-            && *filter_kind != config.kind
-        {
-            continue;
-        }
-
-        // Skip models with no repo (no way to match Docker images)
-        let Some(repo) = config.repo else {
-            tracing::debug!("Skipping container model {} (no repo configured)", model);
+    for versions in found.matches.chunk_by(|a, b| a.model == b.model) {
+        let Some(first) = versions.first() else {
             continue;
         };
-
-        let mut scan = ModelScan::new(&state.db, model, "container node_image").await?;
-        let prefix = format!("{repo}:");
-        for tag in &docker_tags {
-            // Match tags like "localrepo/arista_ceos:4.32.0F"
-            let Some(version) = tag.strip_prefix(&prefix) else {
-                continue;
-            };
+        let mut scan = ModelScan::new(&state.db, first.model, "container node_image").await?;
+        scan.config.repo = Some(first.repo.clone());
+        for image in versions {
             scan_version(
                 &state.db,
                 &mut scan,
-                version.to_string(),
+                image.version.clone(),
                 None,
-                request.dry_run,
+                dry_run,
                 tally,
             )
             .await?;

@@ -1,10 +1,11 @@
 //! Image tables: the images list, a scan's results and one image's detail.
 
-use shared::data::{ImageSummary, NodeConfig, ScannedImage};
+use shared::data::{ImageSummary, NodeConfig, ScannedImage, SkippedModel};
 use shared::util::{TableLayout, render_table};
 
 const IMAGE_HEADERS: [&str; 4] = ["Model", "Kind", "Version", "Default"];
 const SCANNED_IMAGE_HEADERS: [&str; 4] = ["Model", "Version", "Kind", "Status"];
+const SKIPPED_MODEL_HEADERS: [&str; 2] = ["Model", "Reason"];
 /// The image detail table has no header row: its first column names each row.
 const IMAGE_DETAIL_HEADERS: [&str; 2] = ["Property", "Value"];
 
@@ -52,6 +53,24 @@ fn scanned_image_cells(image: &ScannedImage) -> [String; 4] {
         image.kind.to_string(),
         image.status.clone(),
     ]
+}
+
+/// Renders a table of the models a scan skipped, with why
+#[must_use]
+pub fn render_skipped_models_table(models: &[SkippedModel]) -> String {
+    let rows: Vec<[String; 2]> = models.iter().map(skipped_model_cells).collect();
+    render_table(
+        SKIPPED_MODEL_HEADERS,
+        &rows,
+        &TableLayout {
+            title: Some("Skipped Models"),
+            ..TableLayout::default()
+        },
+    )
+}
+
+fn skipped_model_cells(model: &SkippedModel) -> [String; 2] {
+    [model.model.to_string(), model.reason.clone()]
 }
 
 /// Renders a two-column key-value table with all `NodeConfig` fields for an image
@@ -201,6 +220,31 @@ mod tests {
 │ arista_veos    │ 4.33      │ virtual_machine │ already present │
 └────────────────┴───────────┴─────────────────┴─────────────────┘";
         assert_eq!(render_scanned_images_table(&scanned), expected);
+    }
+
+    #[test]
+    fn skipped_models_table_shows_each_model_with_its_reason() {
+        let skipped = [
+            SkippedModel {
+                model: NodeModel::MysqlDb,
+                reason: "no built-in repo".to_string(),
+            },
+            SkippedModel {
+                model: NodeModel::GenericContainer,
+                reason: "no built-in repo".to_string(),
+            },
+        ];
+        let expected = "\
+┌──────────────────────────────────────┐
+│            Skipped Models            │
+├───────────────────┬──────────────────┤
+│ Model             │ Reason           │
+├───────────────────┼──────────────────┤
+│ mysql_db          │ no built-in repo │
+├───────────────────┼──────────────────┤
+│ generic_container │ no built-in repo │
+└───────────────────┴──────────────────┘";
+        assert_eq!(render_skipped_models_table(&skipped), expected);
     }
 
     #[test]

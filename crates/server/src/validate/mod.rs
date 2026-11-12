@@ -4,6 +4,7 @@
 //! shared with the client live in `topology::validate`.
 
 mod environment;
+mod image_scan;
 mod lab_origin;
 mod memory;
 mod node_image;
@@ -15,6 +16,7 @@ mod version;
 mod ztp;
 
 pub use environment::validate_environment_variables;
+pub use image_scan::validate_image_scan;
 pub use lab_origin::validate_lab_origin;
 pub use memory::{CommittedMemory, MemoryClaim, check_host_memory_settings, check_memory_fits};
 pub use node_image::{validate_image_version, validate_node_image_update};

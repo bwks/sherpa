@@ -618,6 +618,45 @@ mod tests {
     }
 
     #[test]
+    fn a_scan_takes_a_model_and_repo_with_container() {
+        assert!(
+            Cli::try_parse_from([
+                "sherpa",
+                "server",
+                "image",
+                "scan",
+                "--container",
+                "--model",
+                "mysql_db",
+                "--repo",
+                "mysql",
+            ])
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn a_scan_refuses_a_model_or_repo_alone_or_without_container() {
+        for args in [
+            &["--container", "--model", "mysql_db"][..],
+            &["--container", "--repo", "mysql"],
+            &["--model", "mysql_db", "--repo", "mysql"],
+            &[
+                "--virtual-machine",
+                "--model",
+                "mysql_db",
+                "--repo",
+                "mysql",
+            ],
+        ] {
+            let argv = ["sherpa", "server", "image", "scan"]
+                .into_iter()
+                .chain(args.iter().copied());
+            assert!(Cli::try_parse_from(argv).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
     fn test_parse_ssh_config_clean_subcommand() {
         let cli = Cli::try_parse_from(["sherpa", "ssh-config", "clean"]).unwrap();
         match cli.commands {

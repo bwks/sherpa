@@ -11,7 +11,10 @@ use shared::util::emoji_success;
 use super::OutputFormat;
 use super::{rpc_call, rpc_call_streaming};
 use crate::cmd::progress::status_emoji;
-use crate::table::{render_image_detail_table, render_images_table, render_scanned_images_table};
+use crate::table::{
+    render_image_detail_table, render_images_table, render_scanned_images_table,
+    render_skipped_models_table,
+};
 
 /// Which kind of image an image command works on: at most one may be given, and none means
 /// every kind.
@@ -44,6 +47,41 @@ impl ImageKindFlags {
     }
 }
 
+/// What `image scan` scans for.
+#[derive(Debug, Args)]
+pub struct ScanArgs {
+    #[command(flatten)]
+    kind: ImageKindFlags,
+    /// Show what would be imported without making changes
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    dry_run: bool,
+    /// Container model to record the local tags of --repo for (with --container)
+    #[arg(
+        short,
+        long,
+        value_enum,
+        requires_all = ["repo", "container"],
+        conflicts_with_all = ["unikernel", "virtual_machine"]
+    )]
+    model: Option<NodeModel>,
+    /// Image repository without a tag (e.g., mysql or ghcr.io/nokia/srlinux); each of its
+    /// local tags is recorded as a version of --model
+    #[arg(short, long, requires = "model")]
+    repo: Option<String>,
+}
+
+impl ScanArgs {
+    /// The scan request these arguments ask for.
+    fn request(&self) -> data::ScanImagesRequest {
+        data::ScanImagesRequest {
+            kind: self.kind.kind(),
+            dry_run: self.dry_run,
+            model: self.model,
+            repo: self.repo.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Subcommand)]
 pub enum ServerImageCommands {
     /// Show detailed information about an image
@@ -65,14 +103,9 @@ pub enum ServerImageCommands {
         kind: ImageKindFlags,
     },
 
-    /// Scan the images directory for on-disk images and import to database
-    Scan {
-        #[command(flatten)]
-        kind: ImageKindFlags,
-        /// Show what would be imported without making changes
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        dry_run: bool,
-    },
+    /// Record images that are present but not recorded: disk images in the images directory
+    /// and container images in local Docker
+    Scan(ScanArgs),
 
     /// Import a disk image
     Import {
@@ -157,9 +190,8 @@ pub async fn image_commands(
             )
             .await
         }
-        ServerImageCommands::Scan { kind, dry_run } => {
-            let kind = kind.kind();
-            scan_images(kind, *dry_run, server_url, server_connection, output_format).await
+        ServerImageCommands::Scan(args) => {
+            scan_images(args.request(), server_url, server_connection, output_format).await
         }
         ServerImageCommands::Import {
             src,
@@ -285,14 +317,13 @@ pub async fn show_image(
 }
 
 async fn scan_images(
-    kind: Option<NodeKind>,
-    dry_run: bool,
+    request: data::ScanImagesRequest,
     server_url: &str,
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
-    let request = data::ScanImagesRequest { kind, dry_run };
-
+    let dry_run = request.dry_run;
+    let repo = request.repo.clone();
     let response: data::ScanImagesResponse =
         rpc_call("image.scan", request, server_url, server_connection)
             .await
@@ -303,8 +334,19 @@ async fn scan_images(
             println!("{}", serde_json::to_string_pretty(&response)?);
         }
         OutputFormat::Text => {
+            if !response.skipped.is_empty() {
+                println!("\n{}", render_skipped_models_table(&response.skipped));
+                println!(
+                    "Local Docker images are not matched to models with no built-in repo. \
+                     Record a repo's images for one with:\n  sherpa server image scan \
+                     --container --model <model> --repo <repo>"
+                );
+            }
             if response.scanned.is_empty() {
-                println!("No images found on disk");
+                match repo {
+                    Some(repo) => println!("\nNo local Docker images found for repo {repo}"),
+                    None => println!("\nNo images found"),
+                }
             } else {
                 println!("\n{}", render_scanned_images_table(&response.scanned));
                 if dry_run {

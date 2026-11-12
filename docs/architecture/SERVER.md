@@ -935,8 +935,9 @@ A container node runs one image reference from pull to create, `container::image
 tag)`, which is `{repo}:{tag}` with the repo kept as written:
 
 - **Pull** (`container_pull.rs`) pulls `repo:tag` and records `repo` on the version's
-  `node_image` row. A tar import or an image scan records the model's built-in repo
-  (`NodeConfig::get_model`).
+  `node_image` row. A tar import records the model's built-in repo (`NodeConfig::get_model`).
+  An image scan records the repo it matched the tag by: the model's built-in repo, or the
+  request's `repo`.
 - **Resolve** (`validate::validate_and_resolve_node_versions`) sets the node's `image` to
   `NodeConfig::container_repo`: the manifest's `image`, else the row's repo. Models with a built-in
   repo follow the same rule; the built-in repo is only what their rows start with. A node with
@@ -949,8 +950,24 @@ tag)`, which is `{repo}:{tag}` with the repo kept as written:
   reference. The container ZTP start settings in `node_ops.rs` set a model's environment, user,
   command and mounts, never its image.
 
-The image scan still matches Docker's tag list against each model's built-in repo, so it finds
-images Docker tags under that name only.
+#### Container image scan
+
+`import::scan_images` records local Docker tags the database does not have. Docker's tag list
+(`container::get_local_images`) goes to `container_scan::match_container_images`, which is pure:
+
+- With no target, each container model with a built-in repo gets that repo's tags, and the
+  models with none (`generic_container`, `mysql_db`, `postgresql_db`) come back as
+  `SkippedModel`s, which the response lists so the CLI can say why they were not matched.
+- With a target, the request's `model` and `repo`, only that repo's tags are matched, as
+  versions of that model, and the disk scan is not run. `validate::validate_image_scan` checks
+  the pair first: both or neither, a container model, a repo without a tag, and no other kind.
+
+A repo matches a listed tag by the name Docker lists it under: `docker.io/` and
+`index.docker.io/` and Docker Hub's `library/` namespace are dropped from both sides, so
+`docker.io/library/mysql` matches `mysql:8.4`. Nothing else is rewritten, and the repo is
+recorded as given. Tags that are not valid image versions are left out. Each match is recorded
+through `scan_version`, with `DefaultRequest::Keep`, so only a model's first version becomes its
+default and an existing record, repo included, is left as it is.
 
 ### Scanner service architecture
 

@@ -194,6 +194,8 @@ pub async fn admin_tools_scan_handler(
     let request = ScanImagesRequest {
         kind: None,
         dry_run: form.dry_run(),
+        model: None,
+        repo: None,
     };
 
     let response = import::scan_images(request, &state)
