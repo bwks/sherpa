@@ -1,16 +1,7 @@
 //! Where the Sherpa CLI keeps the files it generates for a lab: a `.sherpa` folder beside the
 //! lab's `manifest.toml`, holding `lab-info.toml` and one folder per kind of file.
 //!
-//! ```text
-//! .sherpa/
-//!   lab-info.toml
-//!   ssh/config, ssh/key, ssh/known_hosts
-//!   ca/lab-ca.crt
-//!   talos/talosconfig-<cluster>
-//!   k8s/kubeconfig-<cluster>
-//!   vault/vault-<node>.toml
-//!   keycloak/keycloak-<node>.toml
-//! ```
+//! The paths and their modes are listed in `docs/architecture/LAB_FOLDER.md`.
 
 use std::path::{Path, PathBuf};
 
