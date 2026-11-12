@@ -68,7 +68,7 @@ pub use ssh::{
     remove_lab_ssh_include_at, replace_lab_ssh_include, ssh_key_fingerprint,
 };
 #[cfg(feature = "table")]
-pub use table::{render_property_table, render_table, render_wrapped_table};
+pub use table::{TableLayout, render_table};
 pub use text::split_node_int;
 pub use user::{get_username, normalize_username, sherpa_user};
 

@@ -1,6 +1,6 @@
 //! The table of Sherpa's include lines in the user's SSH config.
 
-use shared::util::{SshConfigInspectionEntry, render_table};
+use shared::util::{SshConfigInspectionEntry, TableLayout, render_table};
 
 const SSH_CONFIG_HEADERS: [&str; 5] = ["Line", "Lab ID", "Status", "Path", "Reason"];
 
@@ -9,10 +9,12 @@ const SSH_CONFIG_HEADERS: [&str; 5] = ["Line", "Lab ID", "Status", "Path", "Reas
 pub fn render_ssh_config_inspection_table(entries: &[SshConfigInspectionEntry]) -> String {
     let rows: Vec<[String; 5]> = entries.iter().map(ssh_config_cells).collect();
     render_table(
-        Some("Sherpa SSH Config Includes"),
         SSH_CONFIG_HEADERS,
         &rows,
-        &[],
+        &TableLayout {
+            title: Some("Sherpa SSH Config Includes"),
+            ..TableLayout::default()
+        },
     )
 }
 

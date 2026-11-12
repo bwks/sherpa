@@ -1,16 +1,25 @@
 //! Image tables: the images list, a scan's results and one image's detail.
 
 use shared::data::{ImageSummary, NodeConfig, ScannedImage};
-use shared::util::{render_property_table, render_table};
+use shared::util::{TableLayout, render_table};
 
 const IMAGE_HEADERS: [&str; 4] = ["Model", "Kind", "Version", "Default"];
 const SCANNED_IMAGE_HEADERS: [&str; 4] = ["Model", "Version", "Kind", "Status"];
+/// The image detail table has no header row: its first column names each row.
+const IMAGE_DETAIL_HEADERS: [&str; 2] = ["Property", "Value"];
 
 /// Renders a table of images with their model, kind, version, and default status
 #[must_use]
 pub fn render_images_table(images: &[ImageSummary]) -> String {
     let rows: Vec<[String; 4]> = images.iter().map(image_cells).collect();
-    render_table(Some("Images"), IMAGE_HEADERS, &rows, &[])
+    render_table(
+        IMAGE_HEADERS,
+        &rows,
+        &TableLayout {
+            title: Some("Images"),
+            ..TableLayout::default()
+        },
+    )
 }
 
 fn image_cells(image: &ImageSummary) -> [String; 4] {
@@ -26,7 +35,14 @@ fn image_cells(image: &ImageSummary) -> [String; 4] {
 #[must_use]
 pub fn render_scanned_images_table(images: &[ScannedImage]) -> String {
     let rows: Vec<[String; 4]> = images.iter().map(scanned_image_cells).collect();
-    render_table(Some("Scanned Images"), SCANNED_IMAGE_HEADERS, &rows, &[])
+    render_table(
+        SCANNED_IMAGE_HEADERS,
+        &rows,
+        &TableLayout {
+            title: Some("Scanned Images"),
+            ..TableLayout::default()
+        },
+    )
 }
 
 fn scanned_image_cells(image: &ScannedImage) -> [String; 4] {
@@ -42,49 +58,75 @@ fn scanned_image_cells(image: &ScannedImage) -> [String; 4] {
 #[must_use]
 pub fn render_image_detail_table(image: &NodeConfig) -> String {
     let rows = [
-        ("Model", image.model.to_string()),
-        ("Kind", image.kind.to_string()),
-        ("Version", image.version.clone()),
-        ("Default", image.default.to_string()),
-        ("OS Variant", image.os_variant.to_string()),
-        ("BIOS", image.bios.to_string()),
-        ("CPU Architecture", image.cpu_architecture.to_string()),
-        ("CPU Model", image.cpu_model.to_string()),
-        ("CPU Count", image.cpu_count.to_string()),
-        ("Memory (MB)", image.memory.to_string()),
-        ("Machine Type", image.machine_type.to_string()),
-        ("VMX Enabled", image.vmx_enabled.to_string()),
-        ("HDD Bus", image.hdd_bus.to_string()),
-        ("CDROM", image.cdrom.as_deref().unwrap_or("none").to_owned()),
-        ("CDROM Bus", image.cdrom_bus.to_string()),
-        ("Interface Type", image.interface_type.to_string()),
-        ("Interface Prefix", image.interface_prefix.clone()),
-        ("Interface MTU", image.interface_mtu.to_string()),
-        (
-            "Data Interface Count",
+        ["Model".to_owned(), image.model.to_string()],
+        ["Kind".to_owned(), image.kind.to_string()],
+        ["Version".to_owned(), image.version.clone()],
+        ["Default".to_owned(), image.default.to_string()],
+        ["OS Variant".to_owned(), image.os_variant.to_string()],
+        ["BIOS".to_owned(), image.bios.to_string()],
+        [
+            "CPU Architecture".to_owned(),
+            image.cpu_architecture.to_string(),
+        ],
+        ["CPU Model".to_owned(), image.cpu_model.to_string()],
+        ["CPU Count".to_owned(), image.cpu_count.to_string()],
+        ["Memory (MB)".to_owned(), image.memory.to_string()],
+        ["Machine Type".to_owned(), image.machine_type.to_string()],
+        ["VMX Enabled".to_owned(), image.vmx_enabled.to_string()],
+        ["HDD Bus".to_owned(), image.hdd_bus.to_string()],
+        [
+            "CDROM".to_owned(),
+            image.cdrom.as_deref().unwrap_or("none").to_owned(),
+        ],
+        ["CDROM Bus".to_owned(), image.cdrom_bus.to_string()],
+        [
+            "Interface Type".to_owned(),
+            image.interface_type.to_string(),
+        ],
+        [
+            "Interface Prefix".to_owned(),
+            image.interface_prefix.clone(),
+        ],
+        ["Interface MTU".to_owned(), image.interface_mtu.to_string()],
+        [
+            "Data Interface Count".to_owned(),
             image.data_interface_count.to_string(),
-        ),
-        (
-            "First Interface Index",
+        ],
+        [
+            "First Interface Index".to_owned(),
             image.first_interface_index.to_string(),
-        ),
-        (
-            "Management Interface",
+        ],
+        [
+            "Management Interface".to_owned(),
             image.management_interface.to_string(),
-        ),
-        (
-            "Reserved Interface Count",
+        ],
+        [
+            "Reserved Interface Count".to_owned(),
             image.reserved_interface_count.to_string(),
-        ),
-        ("Repo", image.repo.as_deref().unwrap_or("none").to_owned()),
-        ("ZTP", image.ztp.mode.to_string()),
-        (
-            "ZTP Username",
+        ],
+        [
+            "Repo".to_owned(),
+            image.repo.as_deref().unwrap_or("none").to_owned(),
+        ],
+        ["ZTP".to_owned(), image.ztp.mode.to_string()],
+        [
+            "ZTP Username".to_owned(),
             image.ztp.username.as_deref().unwrap_or("none").to_owned(),
-        ),
-        ("ZTP Password Auth", image.ztp.password_auth.to_string()),
+        ],
+        [
+            "ZTP Password Auth".to_owned(),
+            image.ztp.password_auth.to_string(),
+        ],
     ];
-    render_property_table("Image Detail", &rows)
+    render_table(
+        IMAGE_DETAIL_HEADERS,
+        &rows,
+        &TableLayout {
+            title: Some("Image Detail"),
+            header_row: false,
+            ..TableLayout::default()
+        },
+    )
 }
 
 #[cfg(test)]

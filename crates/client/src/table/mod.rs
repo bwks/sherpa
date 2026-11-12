@@ -1,5 +1,5 @@
 //! The CLI's terminal tables. Each maps the items it shows to rows of cells and renders them
-//! with `shared::util::render_table` or one of its variants.
+//! with `shared::util::render_table`.
 
 mod image;
 mod lab;

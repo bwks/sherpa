@@ -4,7 +4,7 @@
 use shared::data::{
     BridgeInfo, DeviceInfo, LabInfo, LinkInfo, NodeInfo, ProvisionResult, TailnetStatus,
 };
-use shared::util::{render_property_table, render_table, render_wrapped_table};
+use shared::util::{TableLayout, render_table};
 use tracing::instrument;
 
 const NODE_HEADERS: [&str; 4] = ["Node", "Mgmt IP", "Connection", "Node Model"];
@@ -24,6 +24,8 @@ const LINK_HEADERS: [&str; 5] = ["Node A", "Interface A", "Node B", "Interface B
 const BRIDGE_HEADERS: [&str; 3] = ["Bridge", "Network", "Connected Nodes"];
 const PROVISION_HEADERS: [&str; 3] = ["Node", "Status", "Detail"];
 const TAILNET_HEADERS: [&str; 2] = ["Tailscale", "Details"];
+/// The lab info table has no header row: its first column names each row.
+const LAB_INFO_HEADERS: [&str; 2] = ["Property", "Value"];
 /// The widest the Tailscale table may be, borders and padding included.
 const TAILNET_WIDTH: usize = 80;
 
@@ -32,7 +34,14 @@ const TAILNET_WIDTH: usize = 80;
 #[must_use]
 pub fn render_nodes_table(nodes: &[NodeInfo], lab_id: &str) -> String {
     let rows: Vec<[String; 4]> = nodes.iter().map(|node| node_cells(node, lab_id)).collect();
-    render_table(Some("Nodes"), NODE_HEADERS, &rows, &[])
+    render_table(
+        NODE_HEADERS,
+        &rows,
+        &TableLayout {
+            title: Some("Nodes"),
+            ..TableLayout::default()
+        },
+    )
 }
 
 fn node_cells(node: &NodeInfo, lab_id: &str) -> [String; 4] {
@@ -56,7 +65,14 @@ pub fn render_devices_table(devices: &[DeviceInfo], lab_id: &str) -> String {
         .iter()
         .map(|device| device_cells(device, lab_id))
         .collect();
-    render_table(Some("Active Nodes"), DEVICE_HEADERS, &rows, &[])
+    render_table(
+        DEVICE_HEADERS,
+        &rows,
+        &TableLayout {
+            title: Some("Active Nodes"),
+            ..TableLayout::default()
+        },
+    )
 }
 
 fn device_cells(device: &DeviceInfo, lab_id: &str) -> [String; 10] {
@@ -102,7 +118,14 @@ fn device_cells(device: &DeviceInfo, lab_id: &str) -> [String; 10] {
 #[must_use]
 pub fn render_links_table(links: &[LinkInfo]) -> String {
     let rows: Vec<[String; 5]> = links.iter().map(link_cells).collect();
-    render_table(Some("Links"), LINK_HEADERS, &rows, &[])
+    render_table(
+        LINK_HEADERS,
+        &rows,
+        &TableLayout {
+            title: Some("Links"),
+            ..TableLayout::default()
+        },
+    )
 }
 
 fn link_cells(link: &LinkInfo) -> [String; 5] {
@@ -119,7 +142,14 @@ fn link_cells(link: &LinkInfo) -> [String; 5] {
 #[must_use]
 pub fn render_bridges_table(bridges: &[BridgeInfo]) -> String {
     let rows: Vec<[String; 3]> = bridges.iter().map(bridge_cells).collect();
-    render_table(Some("Bridges"), BRIDGE_HEADERS, &rows, &[])
+    render_table(
+        BRIDGE_HEADERS,
+        &rows,
+        &TableLayout {
+            title: Some("Bridges"),
+            ..TableLayout::default()
+        },
+    )
 }
 
 fn bridge_cells(bridge: &BridgeInfo) -> [String; 3] {
@@ -137,7 +167,14 @@ pub fn render_provision_table(results: &[ProvisionResult], lab_id: &str) -> Stri
         .iter()
         .map(|result| provision_cells(result, lab_id))
         .collect();
-    render_table(Some("Provisioning"), PROVISION_HEADERS, &rows, &[])
+    render_table(
+        PROVISION_HEADERS,
+        &rows,
+        &TableLayout {
+            title: Some("Provisioning"),
+            ..TableLayout::default()
+        },
+    )
 }
 
 fn provision_cells(result: &ProvisionResult, lab_id: &str) -> [String; 3] {
@@ -153,16 +190,22 @@ fn provision_cells(result: &ProvisionResult, lab_id: &str) -> [String; 3] {
 #[must_use]
 pub fn render_lab_info_table(lab_info: &LabInfo) -> String {
     let mut rows = vec![
-        ("ID", lab_info.id.clone()),
-        ("Name", lab_info.name.clone()),
-        ("User", lab_info.user.clone()),
-        ("Management Network", lab_info.ipv4_network.to_string()),
-        ("IPv4 Gateway", lab_info.ipv4_gateway.to_string()),
-        ("IPv4 Router", lab_info.ipv4_router.to_string()),
-        ("Loopback Network", lab_info.loopback_network.to_string()),
+        ["ID".to_owned(), lab_info.id.clone()],
+        ["Name".to_owned(), lab_info.name.clone()],
+        ["User".to_owned(), lab_info.user.clone()],
+        [
+            "Management Network".to_owned(),
+            lab_info.ipv4_network.to_string(),
+        ],
+        ["IPv4 Gateway".to_owned(), lab_info.ipv4_gateway.to_string()],
+        ["IPv4 Router".to_owned(), lab_info.ipv4_router.to_string()],
+        [
+            "Loopback Network".to_owned(),
+            lab_info.loopback_network.to_string(),
+        ],
     ];
     if let Some(description) = &lab_info.description {
-        rows.insert(2, ("Description", description.clone()));
+        rows.insert(2, ["Description".to_owned(), description.clone()]);
     }
     let optional = [
         (
@@ -183,9 +226,17 @@ pub fn render_lab_info_table(lab_info: &LabInfo) -> String {
     rows.extend(
         optional
             .into_iter()
-            .filter_map(|(property, value)| Some((property, value?))),
+            .filter_map(|(property, value)| Some([property.to_owned(), value?])),
     );
-    render_property_table("Lab Info", &rows)
+    render_table(
+        LAB_INFO_HEADERS,
+        &rows,
+        &TableLayout {
+            title: Some("Lab Info"),
+            header_row: false,
+            ..TableLayout::default()
+        },
+    )
 }
 
 /// Shows connection and approval separately; connected does not imply reachable. The table is
@@ -205,7 +256,14 @@ pub fn render_tailnet_table(status: &TailnetStatus) -> String {
         ],
         ["Warnings".to_string(), status.warnings.join("\n")],
     ];
-    render_wrapped_table(TAILNET_HEADERS, &rows, TAILNET_WIDTH)
+    render_table(
+        TAILNET_HEADERS,
+        &rows,
+        &TableLayout {
+            wrap_width: Some(TAILNET_WIDTH),
+            ..TableLayout::default()
+        },
+    )
 }
 
 #[cfg(test)]

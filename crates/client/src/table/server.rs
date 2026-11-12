@@ -1,7 +1,7 @@
 //! Server tables: its status, trusted certificates, a backup and a user's SSH keys.
 
 use shared::data::BackupResponse;
-use shared::util::{render_table, ssh_key_fingerprint};
+use shared::util::{TableLayout, render_table, ssh_key_fingerprint};
 
 const CERTIFICATE_HEADERS: [&str; 3] = ["Server", "Subject", "Valid Until"];
 const SSH_KEY_HEADERS: [&str; 4] = ["#", "Type", "Fingerprint", "Comment"];
@@ -20,10 +20,12 @@ pub struct CertificateTableInfo {
 pub fn render_certificates_table(certs: &[CertificateTableInfo]) -> String {
     let rows: Vec<[String; 3]> = certs.iter().map(certificate_cells).collect();
     render_table(
-        Some("Trusted Server Certificates"),
         CERTIFICATE_HEADERS,
         &rows,
-        &[],
+        &TableLayout {
+            title: Some("Trusted Server Certificates"),
+            ..TableLayout::default()
+        },
     )
 }
 
@@ -44,10 +46,12 @@ pub fn render_ssh_keys_table(username: &str, keys: &[String]) -> String {
         .map(|(index, key)| ssh_key_cells(index + 1, key))
         .collect();
     render_table(
-        Some(&format!("SSH Keys for {username}")),
         SSH_KEY_HEADERS,
         &rows,
-        &[],
+        &TableLayout {
+            title: Some(&format!("SSH Keys for {username}")),
+            ..TableLayout::default()
+        },
     )
 }
 
@@ -73,7 +77,7 @@ fn ssh_key_cells(number: usize, key: &str) -> [String; 4] {
 #[must_use]
 pub fn render_server_status_table(server: &str, status: &str, tls: &str) -> String {
     let row = [server.to_string(), status.to_string(), tls.to_string()];
-    render_table(None, SERVER_STATUS_HEADERS, &[row], &[])
+    render_table(SERVER_STATUS_HEADERS, &[row], &TableLayout::default())
 }
 
 /// Render where a database backup was written on the server.
@@ -83,7 +87,7 @@ pub fn render_backup_table(backup: &BackupResponse) -> String {
         ["File on the server".to_string(), backup.path.clone()],
         ["Size (bytes)".to_string(), backup.size_bytes.to_string()],
     ];
-    render_table(None, BACKUP_HEADERS, &rows, &[])
+    render_table(BACKUP_HEADERS, &rows, &TableLayout::default())
 }
 
 #[cfg(test)]

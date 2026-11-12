@@ -1,6 +1,6 @@
 //! The usage report of `agent-bus usage`: one row per task from the record, and a total row.
 
-use shared::util::render_table;
+use shared::util::{TableLayout, render_table};
 
 use crate::message::{TaskUsage, cache_hit_permille};
 use crate::store::TaskState;
@@ -60,7 +60,14 @@ pub fn table(rows: &[Row]) -> String {
         })
         .collect();
     cells.push(line("total", "", "", Some(&total), ""));
-    render_table(None, HEADERS, &cells, &NUMBER_COLUMNS)
+    render_table(
+        HEADERS,
+        &cells,
+        &TableLayout {
+            right: &NUMBER_COLUMNS,
+            ..TableLayout::default()
+        },
+    )
 }
 
 fn line(

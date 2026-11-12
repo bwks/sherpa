@@ -2,7 +2,7 @@
 //! one row per task from the record.
 
 use jiff::Timestamp;
-use shared::util::render_table;
+use shared::util::{TableLayout, render_table};
 
 use crate::agents::Role;
 use crate::status::{Row, age};
@@ -42,7 +42,14 @@ pub fn agents(rows: &[Row]) -> String {
         return "No agents".to_owned();
     }
     let cells: Vec<[String; 7]> = rows.iter().map(agent_cells).collect();
-    render_table(None, AGENT_HEADERS, &cells, &AGENT_NUMBER_COLUMNS)
+    render_table(
+        AGENT_HEADERS,
+        &cells,
+        &TableLayout {
+            right: &AGENT_NUMBER_COLUMNS,
+            ..TableLayout::default()
+        },
+    )
 }
 
 fn agent_cells(row: &Row) -> [String; 7] {
@@ -76,7 +83,14 @@ pub fn history(rows: &[HistoryRow]) -> String {
         return "No tasks recorded".to_owned();
     }
     let cells: Vec<[String; 7]> = rows.iter().map(history_cells).collect();
-    render_table(None, HISTORY_HEADERS, &cells, &HISTORY_NUMBER_COLUMNS)
+    render_table(
+        HISTORY_HEADERS,
+        &cells,
+        &TableLayout {
+            right: &HISTORY_NUMBER_COLUMNS,
+            ..TableLayout::default()
+        },
+    )
 }
 
 fn history_cells(row: &HistoryRow) -> [String; 7] {
