@@ -59,7 +59,7 @@ url = { workspace = true }
 askama = { workspace = true }
 
 # Table formatting
-tabled = "0.22.0"
+tabled = { version = "0.22.0", optional = true }
 
 # CLI
 clap = { workspace = true }
@@ -80,6 +80,7 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [features]
 netinfo = ["dep:getifaddrs"]
+table = ["dep:tabled"]
 
 [lints]
 workspace = true

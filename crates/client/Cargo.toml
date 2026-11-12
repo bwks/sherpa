@@ -4,7 +4,7 @@ version.workspace = true
 edition = "2024"
 
 [dependencies]
-shared = { path = "../shared" }
+shared = { path = "../shared", features = ["table"] }
 topology = { path = "../topology" }
 template = { path = "../template" }
 

@@ -264,7 +264,11 @@ Never:
 
 ## Terminal Output
 - Summary information presented in the terminal uses the `tabled` crate with the `modern` style.
-- Table logic lives in the `shared::util::table` module.
+- Tables are rendered with `shared::util::render_table` (and its `render_property_table` and
+  `render_wrapped_table` variants), which applies the house style. It is behind the `shared`
+  feature `table`, the only thing that builds `tabled`; only `client` and `agent-bus` enable it.
+- Each table is a function in the crate that prints it, mapping one item to a `[String; N]` row
+  for `N` headers. The client's tables live in `crates/client/src/table/`. Do not derive `Tabled`.
 - Streaming status messages to the terminal do not need to be in table form.
 
 ## Libraries

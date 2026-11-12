@@ -1,13 +1,13 @@
 use anyhow::{Context, Result};
-use shared::util::render_tailnet_table;
 use std::time::Duration;
 
 use shared::data::{ClientConfig, InspectResponse};
-use shared::util::{
-    Emoji, render_bridges_table, render_devices_table, render_lab_info_table, render_links_table,
-    term_msg_surround, term_msg_underline,
-};
+use shared::util::{Emoji, term_msg_surround, term_msg_underline};
 
+use crate::table::{
+    render_bridges_table, render_devices_table, render_lab_info_table, render_links_table,
+    render_tailnet_table,
+};
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 

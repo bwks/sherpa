@@ -8,8 +8,7 @@ use std::time::Duration;
 use shared::data::{ClientConfig, NodeInfo, StatusMessage, UpResponse};
 use shared::util::{
     Emoji, LabFolder, base64_encode, base64_encode_bytes, get_cwd, get_ssh_public_key, load_file,
-    render_lab_info_table, render_nodes_table, render_tailnet_table, term_msg_surround,
-    term_msg_underline,
+    term_msg_surround, term_msg_underline,
 };
 use topology::{
     AuthorizedKeyFile, BinaryFile, BinaryFileData, StartupScript, SystemdUnit, SystemdUnitData,
@@ -25,6 +24,7 @@ use crate::provision::{
     client_variable, container_results, container_secrets, provision_lab, resolve_client_path,
 };
 use crate::ssh_client::HostKeyRefresh;
+use crate::table::{render_lab_info_table, render_nodes_table, render_tailnet_table};
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 use topology::validate::{check_lab_description, check_text_file_modes, validate_provisioners};

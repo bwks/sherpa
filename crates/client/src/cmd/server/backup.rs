@@ -1,9 +1,10 @@
 use anyhow::{Context, Result};
 
 use shared::data::{BackupResponse, ServerConnection};
-use shared::util::{render_backup_table, term_msg_surround};
+use shared::util::term_msg_surround;
 
 use super::{OutputFormat, rpc_call};
+use crate::table::render_backup_table;
 
 /// Back up the server's database to a file on the server (admin-only).
 pub async fn backup(

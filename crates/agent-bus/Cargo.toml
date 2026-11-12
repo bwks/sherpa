@@ -20,7 +20,7 @@ bollard = { workspace = true }
 container = { path = "../container" }
 
 # The .sherpa/lab-info.toml a lab writes, and where its lab folder keeps it
-shared = { path = "../shared" }
+shared = { path = "../shared", features = ["table"] }
 
 # CLI
 clap = { workspace = true, features = ["env"] }
