@@ -21,13 +21,9 @@ mod sql;
 pub mod user;
 
 pub use connect::{Database, open, open_in_memory};
-// Public so the doc test on `Query` can show a wrong parameter count failing to compile. Only this
-// crate can run a `Bound` query; its query helpers are crate-private.
 pub use shared::data::{
     DbBridge, DbLab, DbLink, DbNode, DbSession, DbSessionUser, DbUser, NodeConfig, SessionChannel,
 };
-#[doc(hidden)]
-pub use sql::{Bound, Query};
 
 // Helper functions for extracting IDs safely
 pub use helpers::{get_image_id, get_lab_id, get_node_id, get_user_id};

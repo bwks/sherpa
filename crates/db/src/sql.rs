@@ -7,33 +7,15 @@ use turso::{Connection, Row, Value};
 ///
 /// `build.rs` generates one per query file, with the count it read from the file, as
 /// `queries::<table>::<NAME>`. The helpers below run only a [`Bound`] query, and
-/// [`Query::bind`] takes exactly `N` values, so binding a different number does not compile:
-///
-/// ```compile_fail,E0308
-/// use db::Query;
-/// use turso::Value;
-///
-/// const FIND: Query<2> = Query::new("SELECT id FROM node WHERE name = ?1 AND lab = ?2");
-/// let _ = FIND.bind([Value::from("router1")]);
-/// ```
-///
-/// The right number does:
-///
-/// ```
-/// use db::Query;
-/// use turso::Value;
-///
-/// const FIND: Query<2> = Query::new("SELECT id FROM node WHERE name = ?1 AND lab = ?2");
-/// let _ = FIND.bind([Value::from("router1"), Value::from("lab1")]);
-/// ```
+/// [`Query::bind`] takes exactly `N` values, so binding a different number does not compile.
 #[derive(Clone, Copy, Debug)]
-pub struct Query<const N: usize> {
+pub(crate) struct Query<const N: usize> {
     sql: &'static str,
 }
 
 /// A query with its parameters, ready to run.
 #[derive(Debug)]
-pub struct Bound {
+pub(crate) struct Bound {
     sql: &'static str,
     params: Vec<Value>,
 }
@@ -42,13 +24,13 @@ impl<const N: usize> Query<N> {
     /// A statement binding `N` parameters. The count is taken as given: the generated queries
     /// get theirs from `build.rs`, which counts the placeholders.
     #[must_use]
-    pub const fn new(sql: &'static str) -> Self {
+    pub(crate) const fn new(sql: &'static str) -> Self {
         Self { sql }
     }
 
     /// Bind the statement's `N` parameters, `params[0]` to `?1` and so on.
     #[must_use]
-    pub fn bind(self, params: [Value; N]) -> Bound {
+    pub(crate) fn bind(self, params: [Value; N]) -> Bound {
         Bound {
             sql: self.sql,
             params: params.into(),

@@ -98,11 +98,11 @@ flowchart LR
   naming the file, so the highest number is always the count. Turso's public `Statement` has no
   parameter count to cross-check against. The count is the constant's type, `Query<N>`
   (`src/sql.rs`), and the only way to run a query is `Query::bind`, which takes `[Value; N]`, so
-  binding another number of values is a type error at the call site; a doc test on `Query`
-  checks that it does not compile. Only the count is checked, not the values' types. The
+  binding another number of values is a type error at the call site (`expected an array with a
+  size of 1`). Only the count is checked, not the values' types. The
   `*_values` mappers return fixed-size arrays (`lab_values` returns `[Value; 18]`), so a
-  statement that writes a whole row and its mapper must agree too. `Query` and `Bound` are public
-  only for that doc test; the helpers that run a `Bound` are crate-private. The rules' tests are
+  statement that writes a whole row and its mapper must agree too. `Query`, `Bound` and the
+  helpers that run a `Bound` are crate-private. The rules' tests are
   in the same file, which the crate includes under `cfg(test)`, so `cargo test -p db` runs them.
 - **Built-in statements.** `PRAGMA user_version` is a `Query<0>` written in `schema/apply.rs`;
   setting the version, triggers and `VACUUM INTO` take no bound parameter and are plain
