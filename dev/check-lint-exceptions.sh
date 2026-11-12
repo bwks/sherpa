@@ -18,7 +18,6 @@ set -euo pipefail
 # attributes of the same file, needs a line for each.
 allowlist="
 crates/client/src/main.rs unsafe_code
-crates/db/src/persistence.rs clippy::cast_possible_truncation
 crates/network/src/tc.rs clippy::cast_possible_truncation
 crates/network/src/tc.rs clippy::cast_sign_loss
 "
