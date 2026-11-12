@@ -13,6 +13,10 @@ pub struct RpcError {
     /// Additional debug context (<file:line>, stack trace)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
+    /// JSON-RPC 2.0 `data`: structured detail for codes that define it, such as the
+    /// `MemoryShortfall` of `InsufficientMemory`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
 }
 
 /// Message sent from server to client
@@ -155,6 +159,7 @@ mod tests {
                 code: RpcErrorCode::InternalError,
                 message: "Internal error".to_string(),
                 context: Some("file.rs:123".to_string()),
+                data: None,
             }),
         };
 

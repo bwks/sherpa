@@ -385,7 +385,12 @@ fn lab_error_page(
             }
             .into_response()
         }
-        Some(ServiceError::Conflict(_) | ServiceError::Invalid(_)) | None => {
+        Some(
+            ServiceError::Conflict(_)
+            | ServiceError::Invalid(_)
+            | ServiceError::InsufficientMemory { .. },
+        )
+        | None => {
             tracing::error!(
                 "Failed to load lab '{}' for user '{}': {:?}",
                 lab_id,
@@ -414,6 +419,14 @@ fn lab_error_fragment(error: &anyhow::Error, failure_message: &str) -> Response 
         }
         Some(ServiceError::NotFound(_)) => {
             (StatusCode::NOT_FOUND, ErrorTemplate { message }).into_response()
+        }
+        // The refusal names the memory that fell short; the outer context would not.
+        Some(refusal @ ServiceError::InsufficientMemory { .. }) => {
+            tracing::warn!("{failure_message}: {refusal}");
+            ErrorTemplate {
+                message: format!("{failure_message}: {refusal}"),
+            }
+            .into_response()
         }
         Some(ServiceError::Conflict(_) | ServiceError::Invalid(_)) | None => {
             tracing::error!("{failure_message}: {:?}", error);

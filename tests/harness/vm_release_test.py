@@ -30,8 +30,9 @@ import uuid
 from urllib.parse import urlsplit
 
 import build_cache
-from host_memory import (JOURNAL_HINT, MACHINE_SLICE_EVENTS, MEMCG_KILL, MEMORY_REFUSED_EXIT, OOM_KILL, UP_REFUSED,
-                         classify_guest_loss, domain_stopped, memory_refusal, oom_kills)
+from host_memory import (JOURNAL_HINT, MACHINE_SLICE_EVENTS, MEMCG_KILL, MEMORY_REFUSED_EXIT, OOM_KILL,
+                         SHERPA_MEMORY_REFUSED, UP_REFUSED, classify_guest_loss, domain_stopped, memory_refusal,
+                         oom_kills)
 from vm_release_guest import validate_upgrade_evidence
 
 
@@ -530,7 +531,7 @@ class Runner:
             # A failed up can have created the domain without writing local SSH files.
             self.bind_vm(required=False)
         if up_code:
-            refusal = memory_refusal(up_output)
+            refusal = memory_refusal(up_code, up_output)
             if refusal and not info_path.exists() and not self.guest_uuid:
                 # Refused in validation, before anything was created: there is nothing to retain.
                 self.report["run"]["retained"] = False
@@ -1248,7 +1249,7 @@ sys.exit(runner.run('preflight'))
             receipt = tomllib.loads((runner.directory / "result.toml").read_text())
             self.assertTrue(receipt["run"]["retained"])
 
-    def refused_up(self, runner, up_output, lab_info=False):
+    def refused_up(self, runner, up_output, lab_info=False, up_code=SHERPA_MEMORY_REFUSED):
         def sherpa(label, arguments, timeout, check=True):
             if label == "inspect-before":
                 return 1, f"Sherpa Environment - {runner.lab_name}-12345678"
@@ -1257,7 +1258,7 @@ sys.exit(runner.run('preflight'))
                     (runner.directory / ".sherpa").mkdir()
                     (runner.directory / ".sherpa" / "lab-info.toml").write_text(
                         f'name = "{runner.lab_name}"\nid = "12345678"\n')
-                return 1, up_output
+                return up_code, up_output
             return 0, ""
         return sherpa
 
@@ -1268,22 +1269,23 @@ sys.exit(runner.run('preflight'))
             runner = Runner(config)
             with patch.object(runner, "sherpa", side_effect=self.refused_up(runner, UP_REFUSED)), \
                  patch.object(runner, "host", return_value=(1, "")), redirect_stdout(io.StringIO()), \
-                 self.assertRaisesRegex(MemoryRefused, "Memory admission failed: Not enough memory"):
+                 self.assertRaisesRegex(MemoryRefused, "Not enough memory on the server.*-32005"):
                 runner.provision()
             receipt = tomllib.loads((runner.directory / "result.toml").read_text())
             self.assertFalse(receipt["run"]["retained"])
             self.assertEqual(receipt["run"]["resource_state"], "none")
 
-    def test_a_failed_up_is_not_a_refusal_without_the_admission_error_or_with_a_lab(self):
+    def test_a_failed_up_is_not_a_refusal_without_the_exit_code_or_with_a_lab(self):
         config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
-        for output, lab_info in (("Lab creation failed: CPU pins overlap (code: -32000)", False),
-                                 (UP_REFUSED, True)):
-            with self.subTest(lab_info=lab_info), tempfile.TemporaryDirectory() as directory:
+        for output, lab_info, code in (("Lab creation failed: CPU pins overlap (code: -32000)", False, 1),
+                                       (UP_REFUSED, False, 1),
+                                       (UP_REFUSED, True, SHERPA_MEMORY_REFUSED)):
+            with self.subTest(lab_info=lab_info, code=code), tempfile.TemporaryDirectory() as directory:
                 config["runner"]["output_directory"] = directory
                 runner = Runner(config)
-                with patch.object(runner, "sherpa", side_effect=self.refused_up(runner, output, lab_info)), \
+                with patch.object(runner, "sherpa", side_effect=self.refused_up(runner, output, lab_info, code)), \
                      patch.object(runner, "host", return_value=(1, "")), redirect_stdout(io.StringIO()), \
-                     self.assertRaisesRegex(RuntimeError, "up exited 1") as raised:
+                     self.assertRaisesRegex(RuntimeError, f"up exited {code}") as raised:
                     runner.provision()
                 self.assertNotIsInstance(raised.exception, MemoryRefused)
                 self.assertTrue(tomllib.loads((runner.directory / "result.toml").read_text())["run"]["retained"])
@@ -1295,7 +1297,7 @@ sys.exit(runner.run('preflight'))
             config["runner"]["output_directory"] = directory
             runner = Runner(config)
             runner.lab_id = "12345678"
-            refusal = MemoryRefused("The server refused the lab: Memory admission failed: short")
+            refusal = MemoryRefused("The server refused the lab: Not enough memory on the server: short")
             with patch.object(runner, "inputs"), patch.object(runner, "provision", side_effect=refusal), \
                  patch.object(runner, "collect") as collect, patch.object(runner, "cleanup") as cleanup, \
                  patch.object(runner, "host") as host, redirect_stdout(io.StringIO()):
@@ -1305,7 +1307,7 @@ sys.exit(runner.run('preflight'))
             host.assert_not_called()
             run = tomllib.loads((runner.directory / "result.toml").read_text())["run"]
             self.assertEqual((run["status"], run["failure_kind"]), ("failed", "memory-refused"))
-            self.assertIn("Memory admission failed", run["error"])
+            self.assertIn("Not enough memory on the server", run["error"])
 
     def guest_lost_run(self, state, kernel_ring):
         """A code run whose unit tests lose SSH, with the host answering as given."""
