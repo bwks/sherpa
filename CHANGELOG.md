@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.35] - 2026-11-12
+
+### Bug Fixes
+
+- Catch the record up past one pull batch by @bwks ([364eeae](https://github.com/bwks/sherpa/commit/364eeaec1a19d7a186e2647aa00299d1028dbfee))
+
+### Refactor
+
+- One render_table with a TableLayout by @bwks ([ca9f659](https://github.com/bwks/sherpa/commit/ca9f659b017dda7af05285da699f1da1b5ce8a49))
+- Render every terminal table through one helper by @bwks ([a4b3c79](https://github.com/bwks/sherpa/commit/a4b3c79ab076c8ffc29bcd559e77a7b09bef5203))
 ## [0.5.34] - 2026-11-11
 
 ### Bug Fixes
