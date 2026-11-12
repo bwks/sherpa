@@ -367,13 +367,11 @@ impl Configuring<'_, '_> {
                 isolated_network: node_data
                     .isolated_network
                     .as_ref()
-                    .map(|net| net.network_name.clone())
-                    .unwrap_or_default(),
+                    .map_or_default(|net| net.network_name.clone()),
                 reserved_network: node_data
                     .reserved_network
                     .as_ref()
-                    .map(|net| net.network_name.clone())
-                    .unwrap_or_default(),
+                    .map_or_default(|net| net.network_name.clone()),
             },
             ztp_result.qemu_commands,
             &node_resources::resources_of(record),
@@ -436,13 +434,11 @@ impl Configuring<'_, '_> {
                 isolated_network: node_data
                     .isolated_network
                     .as_ref()
-                    .map(|net| net.network_name.clone())
-                    .unwrap_or_default(),
+                    .map_or_default(|net| net.network_name.clone()),
                 reserved_network: node_data
                     .reserved_network
                     .as_ref()
-                    .map(|net| net.network_name.clone())
-                    .unwrap_or_default(),
+                    .map_or_default(|net| net.network_name.clone()),
             },
             setup_result.kernel_path,
         );
