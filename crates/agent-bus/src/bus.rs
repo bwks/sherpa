@@ -753,7 +753,7 @@ mod tests {
     use crate::keys::{NewKey, generate};
     use crate::listen::{Journal, serve};
     use crate::message::{Kind, Message, TaskUsage, Usage};
-    use crate::record::{BusAccess, CatchUp, Paths, Record};
+    use crate::record::{BusAccess, CatchUp, Paths, Record, Tally};
     use crate::report;
     use crate::status::{Heartbeat, Observed, Online, Row, Running, STALE, Status, row};
     use crate::store::{TaskState, read};
@@ -1259,7 +1259,10 @@ mod tests {
                 ensure!(delivery.message.task == task, "wrong task");
                 delivery.ack().await?;
             }
-            // A second reader would take some of the messages, so the bus refuses it.
+            // A second reader would take some of the messages, so the bus refuses it. A reader
+            // pulls one message at a time, so it has a pull waiting only while it waits for
+            // the next message.
+            let _ = timeout(Duration::from_secs(1), inbox.next()).await;
             let second = Channel::connect(&bus.endpoint(), &host.seed).await?;
             ensure!(
                 second.inbox("host").await.is_err(),
@@ -1432,13 +1435,17 @@ mod tests {
         let record = timeout(wait, Record::open(&paths, access()))
             .await
             .context("catching up took too long")??;
-        let CatchUp::Read(read) = record.catch_up() else {
+        let CatchUp::Read(tally) = record.catch_up() else {
             bail!(
                 "the first command did not catch up: {:?}",
                 record.catch_up()
             );
         };
-        ensure!(*read >= 3, "only {read} messages were recorded");
+        ensure!(
+            tally.recorded >= 3,
+            "only {} messages were recorded",
+            tally.recorded
+        );
         ensure!(
             record.behind().is_none(),
             "a current record says it is behind"
@@ -1474,7 +1481,7 @@ mod tests {
             .await
             .context("catching up again took too long")??;
         ensure!(
-            matches!(record.catch_up(), CatchUp::Read(0)),
+            matches!(record.catch_up(), CatchUp::Read(tally) if *tally == Tally::default()),
             "the second command recorded {:?}",
             record.catch_up()
         );
@@ -2196,6 +2203,193 @@ mod tests {
             );
             Channel::connect(&bus.endpoint(), &host.seed).await?;
             Ok(())
+        }
+        .await;
+
+        let docker = docker_connection().unwrap();
+        let _ = remove_container(&docker, &bus.container).await;
+        let _ = docker
+            .remove_volume(&bus.volume, None::<RemoveVolumeOptions>)
+            .await;
+        let _ = std::fs::remove_dir_all(&dir);
+        result.unwrap();
+    }
+
+    /// How many valid messages the backlog test sends, and how many refused and skipped ones it
+    /// mixes in. Well over async-nats's pull batch of 200, so catching up takes several pulls.
+    const BACKLOG_VALID: u64 = 600;
+    const BACKLOG_REFUSED: u64 = 30;
+    const BACKLOG_SKIPPED: u64 = 20;
+
+    /// Fill the stream with a backlog for the recorder: `BACKLOG_VALID` messages between host
+    /// and dev, with a message whose sender is not its subject's, and one that is not an agent
+    /// message, mixed in at regular intervals. Every publish waits until the bus has stored it.
+    async fn send_backlog(bus: &Bus, host: &NewKey, dev: &NewKey) -> Result<()> {
+        let host_channel = Channel::connect(&bus.endpoint(), &host.seed).await?;
+        let dev_channel = Channel::connect(&bus.endpoint(), &dev.seed).await?;
+        // A plain connection, which publishes what `Channel::send` would not.
+        let raw_host = tls_options(
+            ConnectOptions::with_nkey(host.seed.clone()),
+            &bus.endpoint(),
+        )?
+        .custom_inbox_prefix(inbox_prefix(&host.public_key))
+        .connect(&bus.endpoint().url)
+        .await?;
+        let raw = async_nats::jetstream::new(raw_host);
+        let (mut refused, mut skipped) = (0, 0);
+        for n in 0..BACKLOG_VALID {
+            let task = format!("backlog{}", n / 10);
+            let mut sent = if n % 2 == 0 {
+                message("host", "dev", &format!("m{n}"))
+            } else {
+                message("dev", "host", &format!("m{n}"))
+            };
+            sent.task = task;
+            if n % 2 == 0 {
+                host_channel.send(&sent).await?;
+            } else {
+                sent.kind = Kind::Progress;
+                dev_channel.send(&sent).await?;
+            }
+            if n % 20 == 0 && refused < BACKLOG_REFUSED {
+                let forged = serde_json::to_vec(&message("other", "host", "forged"))?;
+                raw.publish("agents.host.dev", forged.into()).await?.await?;
+                refused += 1;
+            }
+            if n % 30 == 0 && skipped < BACKLOG_SKIPPED {
+                raw.publish("agents.host.dev", "{\"not\": \"a message\"}".into())
+                    .await?
+                    .await?;
+                skipped += 1;
+            }
+        }
+        ensure!(
+            refused == BACKLOG_REFUSED && skipped == BACKLOG_SKIPPED,
+            "the backlog has {refused} refused and {skipped} skipped messages"
+        );
+        Ok(())
+    }
+
+    /// How many messages the record holds.
+    async fn recorded_messages(record: &Record) -> Result<u64> {
+        let mut rows = record
+            .conn()
+            .query("SELECT count(*) FROM message", ())
+            .await?;
+        let row = rows.next().await?.context("no count")?;
+        Ok(u64::try_from(row.get::<i64>(0)?)?)
+    }
+
+    /// A recorder's consumer that stops delivering while a message waits (one was delivered and
+    /// never acknowledged, as when a command dies mid-record, so the bus holds the next until
+    /// that one's acknowledgement wait runs out) leaves the command not caught up, and it says so.
+    async fn stalled_recorder(bus: &Bus, host: &NewKey, paths: &Paths) -> Result<()> {
+        let host_channel = Channel::connect(&bus.endpoint(), &host.seed).await?;
+        for text in ["held", "behind it"] {
+            host_channel.send(&message("host", "dev", text)).await?;
+        }
+        let (mut inbox, _) = host_channel.recorder().await?;
+        let held = timeout(Duration::from_secs(15), inbox.next())
+            .await
+            .context("the recorder delivered nothing")??
+            .context("the recorder closed")?;
+        ensure!(held.message.text == "held", "wrong message");
+        drop(held);
+        drop(inbox);
+        drop(host_channel);
+
+        let access = BusAccess {
+            server: bus.endpoint(),
+            seed: host.seed.clone(),
+        };
+        let record = timeout(Duration::from_secs(30), Record::open(paths, Ok(access)))
+            .await
+            .context("opening the record took too long")??;
+        let warning = record
+            .behind()
+            .context("a record that did not catch up says it is current")?;
+        ensure!(
+            warning.contains("delivered nothing") && warning.contains("still waiting"),
+            "{warning}"
+        );
+        Ok(())
+    }
+
+    /// Needs Docker. A backlog of several pull batches, with refused and skipped messages mixed
+    /// in, is recorded by one command: every valid message is in the record, and nothing waits
+    /// on the recorder's consumer.
+    /// Run with `cargo test -p agent-bus -- --ignored`.
+    #[tokio::test]
+    #[ignore = "needs Docker"]
+    async fn one_command_records_a_backlog_of_many_pull_batches() {
+        install_crypto_provider();
+        let (host, dev) = (generate().unwrap(), generate().unwrap());
+        let id = std::process::id();
+        let dir = std::env::temp_dir().join(format!("agent-bus-backlog-it-{id}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let agents_path = dir.join("agents.toml");
+        std::fs::write(
+            &agents_path,
+            format!(
+                "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n\
+                 [[agent]]\nname = \"dev\"\nkey = \"{}\"\nrole = \"guest\"\n",
+                host.public_key, dev.public_key
+            ),
+        )
+        .unwrap();
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let bus = Bus {
+            container: format!("sherpa-agent-bus-backlog-test-{id}"),
+            volume: format!("sherpa-agent-bus-backlog-test-{id}-data"),
+            listen: Ipv4Addr::LOCALHOST,
+            port,
+            state_dir: dir.join("state"),
+            lab: None,
+        };
+
+        let result = async {
+            start(&bus, &agents_path, &host.seed).await?;
+            send_backlog(&bus, &host, &dev).await?;
+            let paths = Paths::in_dir(&dir.join("record-state"));
+            let access = BusAccess {
+                server: bus.endpoint(),
+                seed: host.seed.clone(),
+            };
+            let record = timeout(Duration::from_secs(300), Record::open(&paths, Ok(access)))
+                .await
+                .context("catching up took too long")??;
+            ensure!(
+                record.behind().is_none(),
+                "the record is behind: {:?}",
+                record.catch_up()
+            );
+            let CatchUp::Read(tally) = record.catch_up() else {
+                bail!("the command did not catch up: {:?}", record.catch_up());
+            };
+            ensure!(
+                *tally
+                    == Tally {
+                        recorded: BACKLOG_VALID,
+                        foreign_sender: BACKLOG_REFUSED,
+                        not_messages: BACKLOG_SKIPPED,
+                    },
+                "read {tally:?} of {BACKLOG_VALID} valid messages"
+            );
+            let recorded = recorded_messages(&record).await?;
+            ensure!(
+                recorded == BACKLOG_VALID,
+                "{recorded} of {BACKLOG_VALID} messages were recorded"
+            );
+            drop(record);
+            let host_channel = Channel::connect(&bus.endpoint(), &host.seed).await?;
+            let (_, waiting) = host_channel.recorder().await?;
+            ensure!(waiting == 0, "{waiting} messages wait on the recorder");
+            drop(host_channel);
+            stalled_recorder(&bus, &host, &paths).await
         }
         .await;
 

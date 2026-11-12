@@ -7,6 +7,11 @@
 //! its query, and closes the record and the lock when it drops `Record`. There is no
 //! long-running writer: between commands the stream keeps what the record has not taken yet.
 //!
+//! Catching up reads until the consumer has nothing left to deliver, however many pulls that
+//! takes. When the bus stops delivering while messages still wait, the command says it did not
+//! catch up. Messages that are not taken (a forged sender, not an agent message) are
+//! acknowledged and counted, and the command prints one line with the counts.
+//!
 //! Turso holds its file for one process, and its lock says nothing about who holds it, so
 //! `record.lock` is the arbiter. Its holder writes its PID into it; a command that cannot take
 //! it within `LOCK_WAIT` fails naming that PID. When the bus cannot be reached, or the host's
@@ -20,18 +25,20 @@ use tokio::time::{Instant, sleep, timeout};
 use tracing::{debug, instrument};
 use turso::Connection;
 
-use crate::channel::{Channel, Delivery, Endpoint, Position};
+use crate::channel::{Channel, Delivery, DropReason, Endpoint, Inbox, Position, Received};
 use crate::files::{FileLock, lock_holder, try_lock_exclusive};
 use crate::store::{self, Recorded, Store, record};
 
 /// The lock whose holder alone opens the record.
 const LOCK_FILE: &str = "record.lock";
 /// How long a command waits for another to let go of the record. A command holds it for as
-/// long as it takes to catch up and query: milliseconds, or a few seconds for a large backlog.
+/// long as it takes to catch up and query: milliseconds, or a few milliseconds a message for a
+/// backlog (about half a minute for 6,000, almost all of it one commit per message).
 const LOCK_WAIT: Duration = Duration::from_secs(5);
 /// How often a waiting command tries the lock again.
 const LOCK_RETRY: Duration = Duration::from_millis(50);
-/// How long catching up waits for one more message before it takes the record as current.
+/// How long catching up waits for the bus to deliver the next message while messages still
+/// wait. Past it, the bus has stopped delivering, and the record is not caught up.
 const CATCH_UP_IDLE: Duration = Duration::from_secs(2);
 /// From how many waiting messages catching up says what it is doing.
 const CATCH_UP_NOTICE: u64 = 100;
@@ -49,11 +56,22 @@ pub struct BusAccess {
     pub seed: String,
 }
 
+/// What catching up read from the bus.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Tally {
+    /// Messages recorded.
+    pub recorded: u64,
+    /// Messages acknowledged without recording: their sender is not their subject's.
+    pub foreign_sender: u64,
+    /// Messages acknowledged without recording: they are not agent messages.
+    pub not_messages: u64,
+}
+
 /// How catching up went.
 #[derive(Debug)]
 pub enum CatchUp {
-    /// The record took this many messages from the bus, and is current.
-    Read(u64),
+    /// The record took everything waiting on the bus, and is current.
+    Read(Tally),
     /// The record could not be caught up; it holds what was recorded before.
     Failed(Error),
 }
@@ -104,8 +122,8 @@ impl Record {
             },
             Err(error) => CatchUp::Failed(error),
         };
-        if let CatchUp::Read(read) = catch_up {
-            debug!(read, "caught the record up from the bus");
+        if let CatchUp::Read(tally) = &catch_up {
+            debug!(?tally, "caught the record up from the bus");
         }
         Ok(Self {
             conn,
@@ -166,34 +184,109 @@ async fn lock_within(path: &Path, wait: Duration) -> Result<FileLock> {
     }
 }
 
-/// Record what waits on the `_record` consumer, and stop once nothing more comes. Returns how
-/// many messages were read.
+/// Record what waits on the `_record` consumer, until it has nothing left to deliver, and
+/// return what was read. Prints one line counting the messages acknowledged without recording,
+/// when there are any, whether or not catching up finished.
 ///
 /// # Errors
 ///
-/// Fails when the consumer cannot be read, or a message cannot be recorded; that message is not
-/// acknowledged, so the next command records it.
+/// Fails when the consumer cannot be read, the bus stops delivering while messages still wait,
+/// or a message cannot be recorded; that message is not acknowledged, so a later command records
+/// it.
 #[instrument(level = "debug", skip_all)]
-async fn catch_up(conn: &mut Connection, channel: &Channel) -> Result<u64> {
+async fn catch_up(conn: &mut Connection, channel: &Channel) -> Result<Tally> {
     let (mut inbox, waiting) = channel.recorder().await?;
+    let mut tally = Tally::default();
     if waiting == 0 {
-        return Ok(0);
+        return Ok(tally);
     }
     if waiting >= CATCH_UP_NOTICE {
         eprintln!("Recording {waiting} messages from the bus");
     }
-    let mut read = 0;
-    while let Ok(next) = timeout(CATCH_UP_IDLE, inbox.next()).await {
-        let Some(delivery) = next? else {
-            break;
+    let read = read_until_current(conn, &mut inbox, waiting, &mut tally).await;
+    if let Some(summary) = dropped_summary(&tally) {
+        eprintln!("{summary}");
+    }
+    read.map(|()| tally)
+}
+
+/// Record or drop each message `inbox` delivers, counting them in `tally`, until a message
+/// says the consumer has nothing left to deliver. `waiting` is how many waited when reading
+/// started. Each read is timed on its own, so a long backlog takes as long as it takes; only a
+/// bus that delivers nothing for `CATCH_UP_IDLE` while messages still wait ends it early.
+///
+/// # Errors
+///
+/// Fails when the bus stops delivering while messages still wait, the consumer closes or cannot
+/// be read, or a message cannot be recorded.
+#[instrument(level = "debug", skip_all, fields(waiting = waiting))]
+async fn read_until_current(
+    conn: &mut Connection,
+    inbox: &mut Inbox,
+    waiting: u64,
+    tally: &mut Tally,
+) -> Result<()> {
+    let mut pending = waiting;
+    loop {
+        let Ok(next) = timeout(CATCH_UP_IDLE, inbox.receive()).await else {
+            bail!(
+                "the bus delivered nothing for {}s with {pending} messages still waiting, \
+                 after {} were recorded",
+                CATCH_UP_IDLE.as_secs_f32(),
+                tally.recorded
+            );
         };
-        let position = record_delivery(conn, &delivery).await?;
-        read += 1;
-        if position.pending == 0 {
-            break;
+        let Some(received) = next? else {
+            bail!(
+                "the recorder's consumer closed with {pending} messages still waiting, after {} \
+                 were recorded",
+                tally.recorded
+            );
+        };
+        let position = match received {
+            Received::Taken(delivery) => {
+                let position = record_delivery(conn, &delivery).await?;
+                tally.recorded += 1;
+                position
+            }
+            Received::Dropped(dropped) => {
+                match dropped.reason {
+                    DropReason::ForeignSender => tally.foreign_sender += 1,
+                    DropReason::NotAMessage => tally.not_messages += 1,
+                }
+                dropped.position
+            }
+        };
+        pending = position.pending;
+        if pending == 0 {
+            return Ok(());
         }
     }
-    Ok(read)
+}
+
+/// The one line that counts the messages `tally` acknowledged without recording, by reason;
+/// `None` when there were none.
+fn dropped_summary(tally: &Tally) -> Option<String> {
+    let mut reasons = Vec::new();
+    if tally.foreign_sender > 0 {
+        reasons.push(format!(
+            "{} whose sender is not the subject's",
+            tally.foreign_sender
+        ));
+    }
+    if tally.not_messages > 0 {
+        reasons.push(format!(
+            "{} that are not agent messages",
+            tally.not_messages
+        ));
+    }
+    if reasons.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "Acknowledged without recording: {}",
+        reasons.join(", ")
+    ))
 }
 
 /// Record `delivery`, commit, then acknowledge it, and return its position. An acknowledgement
@@ -342,6 +435,34 @@ mod tests {
         assert!(error.contains("record.lock"), "{error}");
         drop(held);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn messages_not_recorded_are_counted_on_one_line_by_reason() {
+        assert_eq!(dropped_summary(&Tally::default()), None);
+        let recorded_only = Tally {
+            recorded: 7,
+            ..Tally::default()
+        };
+        assert_eq!(dropped_summary(&recorded_only), None);
+        let both = Tally {
+            recorded: 7,
+            foreign_sender: 1400,
+            not_messages: 3,
+        };
+        assert_eq!(
+            dropped_summary(&both).unwrap(),
+            "Acknowledged without recording: 1400 whose sender is not the subject's, 3 that are \
+             not agent messages"
+        );
+        let one = Tally {
+            not_messages: 2,
+            ..Tally::default()
+        };
+        assert_eq!(
+            dropped_summary(&one).unwrap(),
+            "Acknowledged without recording: 2 that are not agent messages"
+        );
     }
 
     #[tokio::test]

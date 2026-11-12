@@ -152,6 +152,18 @@ that grows while the host inbox's does not (or the reverse) narrows #527 down. W
 long-running reader it also grows between commands by design, so the figure to compare is the
 one right after a command.
 
+**Catch-up stopped at 200 messages (v0.5.34, fixed on `fix/agent-bus-record-catch-up`).** On
+the first live deploy, `_record` had 6,085 messages waiting and each command recorded exactly 200
+and called the record current, so `usage`, `show` and `history` answered from a stale record
+without saying so. Cause, proven against a throwaway bus: async-nats sent its next pull of 200
+once 100 were delivered, the bus dropped it without a reply because `max_waiting = 1` was taken
+by the open pull, the client waited for messages that never came, and catching up took 2 s of
+silence as "caught up". Fix: readers pull one message at a time, catching up reads until the
+consumer's pending count is 0 and says it is behind when the bus stops delivering first, and
+messages not taken are counted on one line. 6,050 messages now take one command, 28.5 s (25.1 s
+of it commits), where before each command took about 3 s for 200 (30 commands). The same
+overlapping pull may be behind #527 (`listen` inboxes also have `max_waiting = 1`); not proven.
+
 ### Keeping the stream as the history
 
 The option the first version skipped: raise the `AGENTS` stream's `max_age` (to a year, say) and
