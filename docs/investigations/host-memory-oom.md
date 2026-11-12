@@ -51,12 +51,34 @@ connection drops.
   "Admission: memory and CPU pins" in [`../architecture/SERVER.md`](../architecture/SERVER.md)
   and in the user docs' manifest reference (`numa_memory_mode`).
 - Provisioning trusts the project `mise.toml` in guest checkouts (separate change).
+- The release test harness (#521): a release the server refuses for memory runs on its own once
+  the others finish, and a guest the host OOM-killed is reported as such, with the kernel's
+  `oom-kill` line, instead of `exited 255`. Settled behaviour is in "Memory" under the VM code
+  suite in [`../../tests/README.md`](../../tests/README.md).
+
+## Harness findings (#521)
+
+- A refusal has no structured form. `up`'s admission error is a plain `anyhow` context, so the
+  server sends the generic JSON-RPC server error (-32000), as for any failed `up`, and the CLI
+  exits 1. The harness matches `Memory admission failed` in the output. A distinct RPC code or
+  `ServiceError` variant for refusals would let clients match without text.
+- The refusal comes in `up`'s validation phase, before the lab is stored, so it leaves nothing:
+  `sherpa inspect` reports the lab not found.
+- After an OOM kill of QEMU, libvirt reports `virsh domstate --reason` as `shut off (crashed)`.
+- The kernel's line names the victim's cgroup: `task_memcg=/machine.slice/machine-qemu\x2d<id>\x2d<name>.scope/libvirt`
+  (or `/libvirt/emulator`). The scope is libvirt's machine name, `qemu-<id>-<name>` with the
+  name cleaned and cut to 64 characters, systemd-escaped.
+- On Ubuntu a user outside `adm` and `systemd-journal` sees no kernel messages from journalctl
+  (it prints a hint and `-- No entries --`), and `kernel.dmesg_restrict = 1` refuses `dmesg`.
+  `/sys/fs/cgroup/machine.slice/memory.events` is readable by anyone and its `oom_kill` count
+  includes the domains' scopes, which are gone after the kill, so it is the unprivileged
+  evidence, without naming the domain.
+- Tried on a dev server: a 1 GiB guest whose scope was capped with
+  `virsh memtune --hard-limit 65536 --live` was killed by the memory cgroup OOM killer
+  (`constraint=CONSTRAINT_MEMCG`), which affects only that guest, not the host.
 
 ## Open
 
-- The release test harness: run releases one at a time when the server refuses them, and
-  report a guest killed by the host OOM killer (`virsh domstate --reason`, the kernel log's
-  `oom-kill` line naming the domain's `machine-qemu…scope`) instead of `exited 255`.
 - Whether the release test VMs need 30 GiB: record their peak memory (the domain scope's
   cgroup `memory.peak`) before changing it.
 - Containers have no memory limits, so admission cannot count them; the host reserve covers

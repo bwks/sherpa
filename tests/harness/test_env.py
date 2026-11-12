@@ -7,9 +7,12 @@
 
 import argparse
 import base64
+from contextlib import redirect_stdout
+import io
 import json
 import os
 from pathlib import Path
+import queue
 import shlex
 import shutil
 import subprocess
@@ -23,6 +26,7 @@ import unittest
 import uuid
 
 import build_cache
+from host_memory import MEMORY_REFUSED_EXIT
 from vm_release_test import encode_toml, guest_python, guest_uv_setup, sha256
 
 
@@ -209,7 +213,8 @@ def prepare_candidate(directory):
 
 
 def relay(name, stream, log):
-    with log.open("w") as output:
+    # A release run again after a memory refusal appends to its first attempt's log.
+    with log.open("a") as output:
         for line in stream:
             output.write(line)
             output.flush()
@@ -223,19 +228,49 @@ def runner_command(environment, candidate, artifacts, archive, directory):
             "--source-archive", str(archive), "--result-file", str(directory / f"{environment}.toml")]
 
 
-def run_parallel(commands, directory):
-    processes = {}
-    relays = []
+def start_release(name, command, directory, finished):
+    """Start one release's runner; its exit code goes to finished once its output is relayed."""
+    process = subprocess.Popen(command, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, text=True)
+
+    def watch():
+        with process.stdout as stream:
+            relay(name, stream, directory / f"{name}.log")
+        finished.put((name, process.wait()))
+
+    threading.Thread(target=watch).start()
+
+
+def run_releases(commands, start):
+    """Run the releases together. One the server refuses for memory while another runs is run
+    again on its own once nothing else runs; refused when it ran alone, it fails.
+
+    start(name, command, finished) starts a release and puts (name, exit code) on finished.
+    """
+    finished = queue.Queue()
+    running = set()
+    deferred = []
+    codes = {}
     for name, command in commands.items():
-        process = subprocess.Popen(command, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                   stderr=subprocess.STDOUT, text=True)
-        processes[name] = process
-        relay_thread = threading.Thread(target=relay, args=(name, process.stdout, directory / f"{name}.log"))
-        relay_thread.start()
-        relays.append(relay_thread)
-    for relay_thread in relays:
-        relay_thread.join()
-    return {name: process.wait() for name, process in processes.items()}
+        start(name, command, finished)
+        running.add(name)
+    alone = set(running) if len(running) == 1 else set()
+    while running:
+        name, code = finished.get()
+        running.discard(name)
+        if code == MEMORY_REFUSED_EXIT and name not in alone:
+            print(f"[run] {name}: the server refused it for memory; it runs alone once the others finish",
+                  flush=True)
+            deferred.append(name)
+        else:
+            codes[name] = code
+        if not running and deferred:
+            name = deferred.pop(0)
+            print(f"[run] {name}: running it alone", flush=True)
+            alone.add(name)
+            start(name, commands[name], finished)
+            running.add(name)
+    return {name: codes[name] for name in commands}
 
 
 def summarize(directory, codes):
@@ -270,7 +305,8 @@ def run_environments(environments):
     candidate, artifacts, archive = prepare_candidate(directory)
     commands = {environment: runner_command(environment, candidate, artifacts, archive, directory)
                 for environment in environments}
-    codes = run_parallel(commands, directory)
+    codes = run_releases(commands, lambda name, command, finished:
+                         start_release(name, command, directory, finished))
     summarize(directory, codes)
     return 0 if not any(codes.values()) else 1
 
@@ -387,6 +423,70 @@ class HostTests(unittest.TestCase):
         self.assertEqual(command[command.index("--artifact-dir") + 1], "/run/artifacts")
         self.assertEqual(command[command.index("--source-archive") + 1], "/run/source.tar.gz")
         self.assertTrue(command[command.index("--config") + 1].endswith("ubuntu-2604/release-test.toml"))
+
+    def schedule(self, names, completions):
+        """Run run_releases with releases that finish in the given (name, exit code) order.
+
+        A completion is delivered once its release has been started and not yet finished.
+        Returns the codes and, for each start, the name and whether every earlier result had been
+        taken from the queue by then.
+        """
+        completions = list(completions)
+        active = set()
+        starts = []
+
+        def start(name, command, finished):
+            starts.append((name, finished.empty()))
+            active.add(name)
+            while completions and completions[0][0] in active:
+                done, code = completions.pop(0)
+                active.discard(done)
+                finished.put((done, code))
+
+        with redirect_stdout(io.StringIO()):
+            codes = run_releases({name: [name] for name in names}, start)
+        self.assertEqual(completions, [])
+        return codes, starts
+
+    def test_a_release_refused_for_memory_runs_alone_after_the_others(self):
+        codes, starts = self.schedule(["ubuntu-2404", "ubuntu-2604"],
+                                      [("ubuntu-2604", MEMORY_REFUSED_EXIT), ("ubuntu-2404", 0),
+                                       ("ubuntu-2604", 0)])
+        self.assertEqual(codes, {"ubuntu-2404": 0, "ubuntu-2604": 0})
+        self.assertEqual(starts, [("ubuntu-2404", True), ("ubuntu-2604", True), ("ubuntu-2604", True)])
+
+    def test_a_release_refused_alone_fails(self):
+        codes, starts = self.schedule(["ubuntu-2604"], [("ubuntu-2604", MEMORY_REFUSED_EXIT)])
+        self.assertEqual(codes, {"ubuntu-2604": MEMORY_REFUSED_EXIT})
+        self.assertEqual([name for name, _ in starts], ["ubuntu-2604"])
+        codes, starts = self.schedule(["ubuntu-2404", "ubuntu-2604"],
+                                      [("ubuntu-2604", MEMORY_REFUSED_EXIT), ("ubuntu-2404", 1),
+                                       ("ubuntu-2604", MEMORY_REFUSED_EXIT)])
+        self.assertEqual(codes, {"ubuntu-2404": 1, "ubuntu-2604": MEMORY_REFUSED_EXIT})
+        self.assertEqual([name for name, _ in starts], ["ubuntu-2404", "ubuntu-2604", "ubuntu-2604"])
+
+    def test_releases_all_refused_run_one_at_a_time(self):
+        codes, starts = self.schedule(["ubuntu-2404", "ubuntu-2604"],
+                                      [("ubuntu-2404", MEMORY_REFUSED_EXIT), ("ubuntu-2604", MEMORY_REFUSED_EXIT),
+                                       ("ubuntu-2404", 0), ("ubuntu-2604", 0)])
+        self.assertEqual(codes, {"ubuntu-2404": 0, "ubuntu-2604": 0})
+        self.assertEqual([name for name, _ in starts], ["ubuntu-2404", "ubuntu-2604", "ubuntu-2404", "ubuntu-2604"])
+
+    def test_other_failures_are_not_run_again(self):
+        codes, starts = self.schedule(["ubuntu-2404", "ubuntu-2604"], [("ubuntu-2604", 1), ("ubuntu-2404", 0)])
+        self.assertEqual(codes, {"ubuntu-2404": 0, "ubuntu-2604": 1})
+        self.assertEqual(len(starts), 2)
+
+    def test_release_processes_report_their_exit_codes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            commands = {"first": [sys.executable, "-c", "print('one')"],
+                        "second": [sys.executable, "-c", f"import sys; print('two'); sys.exit({MEMORY_REFUSED_EXIT})"]}
+            with redirect_stdout(io.StringIO()) as output:
+                codes = run_releases(commands, lambda name, command, finished:
+                                     start_release(name, command, Path(directory), finished))
+            self.assertEqual(codes, {"first": 0, "second": MEMORY_REFUSED_EXIT})
+            self.assertEqual((Path(directory) / "second.log").read_text(), "two\ntwo\n")
+            self.assertIn("[run] second: running it alone", output.getvalue())
 
     def test_guest_command_passes_manifest_expectations(self):
         node = {"version": "24.04-20260926", "cpu_count": 8, "boot_disk_size": 100}
