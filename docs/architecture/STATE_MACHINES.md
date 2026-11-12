@@ -116,10 +116,10 @@ M8.2 and M9.1.*
 | Event | Sent by | Allowed from | Result |
 |---|---|---|---|
 | `RebuildStarted` | redeploy, before teardown | any but `Building` | `Building` |
-| `Launched` | `up` readiness (`up/readiness.rs`), resume after a boot or unpause, redeploy after the VM is created or the container started | any but `Missing` | `Starting` |
-| `Ready` | `up` after a probe or a skipped check, resume after the readiness wait or an unpause, redeploy after the VM probe, or after a container's Vault and Keycloak are restored | `Starting`, `Running` | `Running` |
+| `Launched` | `up` readiness (`up/readiness.rs`), as a container starts or a VM answers, resume after a boot or unpause, redeploy after the VM is created or the container started | any but `Missing` | `Starting` |
+| `Ready` | `up` after a probe, a container that kept running for 5 seconds, or a skipped check, resume after the readiness wait or an unpause, redeploy after the VM probe, or after a container's Vault and Keycloak are restored | `Starting`, `Running` | `Running` |
 | `Stopped` | `down`, once the node has stopped | any but `Building` and `Missing` | `Stopped` |
-| `Failed` | `up` for a container that exited, redeploy's `mark_failed` | any but `Missing` | `Failed` |
+| `Failed` | `up` for a container that stopped running at start, before it was ready, or by the end of polling; redeploy's `mark_failed` | any but `Missing` | `Failed` |
 
 `Refused` says why: "the node is being built by another operation; wait for it to finish",
 "the node has no domain or container; redeploy it", or "cannot mark ready a node that is
@@ -147,6 +147,18 @@ domain or container, and report the refusal in its result.
   under that hold, so it sees what the last operation did.
 - Read by `LabState::derive` (machine 2), by `list_labs` and `inspect`, by the CLI tables, and
   by the web UI through `NodeActions::for_state` and `Badge::for_node_state`.
+- `inspect` reports a container node's state from Docker, not the record: `reported_state`
+  (`crates/server/src/services/inspect.rs`) applies `on_observation` to the recorded state with
+  Docker's status and `Probe::NotProbed`, as the scanner would, and derives the lab's status
+  from the reported states. It writes nothing; the scanner records the same move on its next
+  cycle. So a container recorded `Running` that has exited is reported `Stopped`, a missing
+  one `Missing`, and a `Failed` or `Building` node as recorded. When Docker does not answer,
+  and for virtual machines and unikernels, the recorded state is reported.
+
+  It does not write because only an operation holding the lab's lease (`record`) or the
+  scanner holding it (`observe`) writes a node's state. Inspect holds neither, runs while
+  operations run, and is a read: a write there would be a third writer racing the other two
+  for a result the scanner reaches anyway.
 - At startup, before the server takes requests, `lab_lifecycle::recover` records `Failed` for
   every node still `Building`: the `up` or redeploy building it ended with the server
   (machine 2).
@@ -155,7 +167,7 @@ domain or container, and report the refusal in its result.
 stateDiagram-v2
     [*] --> Building : up inserts the node
     Building --> Starting : Launched
-    Building --> Failed : Failed (container exited)
+    Building --> Failed : Failed (container exited at start)
     Starting --> Running : Ready / scanner, probe answered
     Running --> Starting : Launched (resume of a node the runtime shows stopped)
     Starting --> Stopped : down / scanner
@@ -165,7 +177,7 @@ stateDiagram-v2
     Failed --> Starting : Launched (resume)
     Failed --> Stopped : down
     Running --> Failed : Failed / scanner, crashed or dead
-    Starting --> Failed : Failed / scanner, crashed or dead
+    Starting --> Failed : Failed (container exited while settling) / scanner, crashed or dead
     Stopped --> Failed : scanner, crashed or dead
     Running --> Missing : scanner, gone
     Starting --> Missing : scanner, gone
@@ -375,8 +387,10 @@ stateDiagram-v2
 Sherpa reads libvirt's `VIR_DOMAIN_*` codes and Docker's container status, and maps them to
 `shared::data::Runtime` in one place: `libvirt_runtime` and `container_runtime` in
 `crates/server/src/services/node_lifecycle.rs`, each with a test of every value. The scanner
-uses the mapping to observe nodes (machine 1); resume uses it, through `start_step`
-(`resume.rs`), to decide what to do with each node.
+uses the mapping to observe nodes (machine 1), and `inspect` to report a container's state;
+resume uses it, through `start_step` (`resume.rs`), to decide what to do with each node; `up`
+uses it, through `check_started_container` (`up/readiness.rs`), to decide whether a started
+container is ready.
 
 | Runtime state | `Runtime` | Scanner records (machine 1) | Resume |
 |---|---|---|---|
@@ -387,8 +401,9 @@ uses the mapping to observe nodes (machine 1); resume uses it, through `start_st
 | libvirt SHUTDOWN, BLOCKED, PMSUSPENDED, NOSTATE; Docker RESTARTING, REMOVING, EMPTY | `Transitional` | unchanged | refused: try again shortly |
 | domain or container missing | `Absent` | `Missing` | refused: redeploy it |
 
-- The scanner reads Docker's listing; its states are converted to the inspection's
-  `ContainerStateStatusEnum`, which resume reads, so both go through `container_runtime`.
+- The scanner and `inspect` read Docker's listing through `node_lifecycle::container_states`;
+  its states are converted to the inspection's `ContainerStateStatusEnum`, which resume and
+  `up` read, so all go through `container_runtime`.
 - Resume reports a container it cannot inspect, a missing one included, as "Failed to check the
   container".
 - If a runtime query fails, the scanner keeps the recorded state of that runtime's nodes.
@@ -409,6 +424,26 @@ error policy:
 | `resume` | `resume.rs` `wait_for_cold_booted` | the node stays `Starting`; the message says so |
 | `redeploy` VM | `redeploy/vm.rs` `poll_until_ready` | the node stays `Starting` |
 | scanner | `scanner.rs` `probe_node` | the node stays `Starting`; probed again next cycle |
+
+**Containers in `up`.** Containers have no readiness probe. `up` records a container
+`Starting` once Docker reports it running after the start, and `Running` once it is still
+running `CONTAINER_SETTLE` (5 seconds) after it was started: an image whose entrypoint fails,
+such as `mysql` without a root password, exits about a second after Docker first reports it
+running. While containers settle, the poll wakes when the next one is due, not after
+`READINESS_SLEEP`. `check_started_container` decides from Docker's status:
+
+| Docker status (`Runtime`) | Running for less than 5 s | 5 s or more |
+|---|---|---|
+| RUNNING (`Running`) | wait | `Ready`: `Running` |
+| PAUSED, RESTARTING, REMOVING, EMPTY | wait | wait |
+| EXITED, CREATED, DEAD, missing | `Failed` | `Failed` |
+
+A container not running right after its start is `Failed` at once, with or without
+`skip_ready_check`. With `skip_ready_check`, a container running after its start is `Running`
+at once and not checked again. Every other container that is `Running` is checked once more
+when polling ends, as VMs may have kept it going long after the container settled. Each
+`Failed` container adds a critical error with its exit code and its last ten log lines
+(`container::container_log_tail`).
 
 `up` records a node not ready in time `Starting` too. A node left `Starting` by any of them is
 recorded `Running` by the scanner once its probe answers (virtual machines with SSH) or as
@@ -483,7 +518,8 @@ The stage is the program counter; the lab phase (machine 2) says who owns the re
   nodes `Failed` (machine 2).
 - **Errors in phase 13** are collected in `errors`, and `up` returns `Ok` with the lab `Ready`.
   `success` is false when any is critical:
-  - critical: a container that exited (its node is `Failed`), and a lab service that did not
+  - critical: a container that stopped running before it was ready (its node is `Failed`; the
+    error has its exit code and last log lines, machine 5), and a lab service that did not
     come up: a Talos cluster not ready, a Keycloak realm or a Vault that failed to set up.
     Nothing sets them up again.
   - not critical: a node whose readiness wait timed out (it stays `Starting` and the scanner

@@ -342,6 +342,132 @@ async fn a_container_that_exits_at_once_fails_its_node_not_the_lab() -> Result<(
     with_cleanup(checks, cleanup)
 }
 
+/// Register alpine as the default `generic_container` image, which keeps the manifest's commands.
+async fn register_alpine(server: &TestServer) -> Result<()> {
+    let alpine = NodeConfig {
+        repo: Some("alpine".to_owned()),
+        version: "latest".to_owned(),
+        default: true,
+        ..NodeConfig::get_model(NodeModel::GenericContainer)
+    };
+    db::upsert_node_image(&server.db, alpine, DefaultRequest::Keep).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
+async fn a_container_that_exits_a_moment_after_it_starts_fails_with_its_exit_code_and_log()
+-> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_lab_admin(&server).await?;
+    bootstrap_images(&mut ws, &token).await?;
+    register_alpine(&server).await?;
+
+    // Like mysql without a root password: running when Docker first reports it, gone a moment
+    // later, with a reason in its log.
+    let lab_name = format!("te{:06}", std::process::id() % 1_000_000);
+    let manifest = json!({
+        "name": lab_name,
+        "nodes": [
+            { "name": "late1", "model": "generic_container", "commands": ["sh", "-c", "echo password option is not specified; sleep 1; exit 3"], "data_interface_count": 0 },
+            { "name": "live1", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+        ]
+    });
+
+    let checks: Result<()> = async {
+        let (_statuses, response) = ws
+            .rpc_call_streaming(
+                "up",
+                json!({ "token": token, "lab_id": lab_name, "manifest": manifest }),
+                Duration::from_secs(180),
+            )
+            .await?;
+        ensure!(
+            response.get("error").is_none(),
+            "the lab was rolled back: {response}"
+        );
+        let errors = response["result"]["errors"].to_string();
+        ensure!(
+            errors.contains("Node late1 exited with code 3 before it was ready"),
+            "the exit code was not reported: {response}"
+        );
+        ensure!(
+            errors.contains("password option is not specified"),
+            "the container's log was not reported: {response}"
+        );
+        ensure!(
+            response["result"]["success"] == json!(false),
+            "up reported success with a failed node: {response}"
+        );
+        let states = node_states(&server, &lab_name).await?;
+        ensure!(
+            states.get("late1") == Some(&NodeState::Failed)
+                && states.get("live1") == Some(&NodeState::Running),
+            "unexpected node states: {states:?}"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
+async fn inspect_reports_a_container_that_exited_after_up_as_docker_has_it() -> Result<()> {
+    // No scanner, so the record keeps what `up` wrote.
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_lab_admin(&server).await?;
+    bootstrap_images(&mut ws, &token).await?;
+    register_alpine(&server).await?;
+
+    let lab_name = format!("ti{:06}", std::process::id() % 1_000_000);
+    let manifest = json!({
+        "name": lab_name,
+        "nodes": [
+            { "name": "live1", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+        ]
+    });
+    let docker = Docker::connect_with_local_defaults()?;
+
+    let checks: Result<()> = async {
+        lab_up(
+            &mut ws,
+            &token,
+            &lab_name,
+            &manifest,
+            Duration::from_secs(180),
+        )
+        .await?;
+        container::kill_container(&docker, &format!("live1-{lab_name}")).await?;
+
+        let response = ws
+            .rpc_call("inspect", json!({ "token": token, "lab_id": lab_name }))
+            .await?;
+        let device = &response["result"]["devices"][0];
+        ensure!(
+            device["name"] == "live1" && device["state"] == "stopped",
+            "inspect should report the exited container stopped: {response}"
+        );
+        ensure!(
+            response["result"]["lab_state"] == "stopped",
+            "the lab status should follow the reported states: {response}"
+        );
+        // Inspect reports; the scanner records.
+        let states = node_states(&server, &lab_name).await?;
+        ensure!(
+            states.get("live1") == Some(&NodeState::Running),
+            "inspect should not write the node's state: {states:?}"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
 #[tokio::test]
 #[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
 async fn admin_clean_removes_a_running_lab() -> Result<()> {

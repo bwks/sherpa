@@ -14,7 +14,11 @@
 //! applied to a state it was not meant for. A lab's status is derived from its nodes when it is
 //! read, so it follows every write, scanner or not.
 
+use std::collections::HashMap;
+use std::str::FromStr;
+
 use anyhow::{Context, Result, bail};
+use bollard::Docker;
 use bollard::secret::ContainerStateStatusEnum;
 use shared::data::{DbNode, Halt, NodeState, Observation, OperationEvent, RecordId, Runtime};
 use tracing::instrument;
@@ -60,6 +64,37 @@ pub fn container_runtime(status: Option<ContainerStateStatusEnum>) -> Runtime {
         Some(ContainerStateStatusEnum::REMOVING) => Runtime::Transitional("being removed"),
         Some(ContainerStateStatusEnum::EMPTY) => Runtime::Transitional("in no state"),
     }
+}
+
+/// Every container's status, by container name, from one Docker listing. The listing's states
+/// are the inspection's, under another type, so they go through `container_runtime` too.
+///
+/// # Errors
+/// When Docker cannot list the containers.
+#[instrument(skip(docker), level = "debug")]
+pub async fn container_states(
+    docker: &Docker,
+) -> Result<HashMap<String, ContainerStateStatusEnum>> {
+    let containers = container::list_containers(docker)
+        .await
+        .context("Failed to list Docker containers")?;
+
+    let mut states = HashMap::with_capacity(containers.len());
+    for c in &containers {
+        let name = match &c.names {
+            Some(names) if !names.is_empty() => {
+                // Docker names have a leading '/'
+                names[0].trim_start_matches('/').to_string()
+            }
+            _ => continue,
+        };
+        if let Some(status) = c.state
+            && let Ok(status) = ContainerStateStatusEnum::from_str(status.as_ref())
+        {
+            states.insert(name, status);
+        }
+    }
+    Ok(states)
 }
 
 /// Apply `event`, from the operation holding `_operation`, to node `node_id`, and return the
