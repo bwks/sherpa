@@ -237,7 +237,7 @@ fn child<'a, 'input>(node: Node<'a, 'input>, tag: &str) -> Option<Node<'a, 'inpu
 
 /// A whole number from an element's text or an attribute; `what` names it in the error.
 fn number(value: Option<&str>, what: &str) -> Result<u64> {
-    let value = value.map(str::trim).unwrap_or_default();
+    let value = value.map_or_default(str::trim);
     if value.is_empty() {
         bail!("The {what} has no value");
     }

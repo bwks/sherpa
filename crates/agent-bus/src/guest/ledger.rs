@@ -165,10 +165,7 @@ impl Ledger {
         book.prune(now_ms);
         let text = toml::to_string(&book).context("Unable to write the generation ledger")?;
         write_atomic(&self.path, &text, PRIVATE_FILE_MODE)?;
-        Ok(run
-            .branch
-            .map(|branch| book.rows_on(branch))
-            .unwrap_or_default())
+        Ok(run.branch.map_or_default(|branch| book.rows_on(branch)))
     }
 
     /// The ledger's content. A missing file is empty; one that cannot be read or parsed is

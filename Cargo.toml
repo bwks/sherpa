@@ -51,7 +51,6 @@ version = "0.5.35"
 anyhow = "1.0.100"
 askama = "0.14.0"
 async-nats = "0.52.0"
-async-compression = { version = "0.4.32", features = ["tokio", "gzip"] }
 base64 = "0.22.1"
 bollard = "0.19.3"
 clap = { version = "4.5.16", features = ["derive"] }
