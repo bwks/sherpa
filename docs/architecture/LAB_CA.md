@@ -78,7 +78,10 @@ lab CA:
 1. Poll `GET /v1/sys/seal-status` until it answers, within the lab's `ready_timeout`.
 2. If Vault is not initialised, `PUT /v1/sys/init` with one key share and a threshold of one,
    then save the address, unseal key and root token as `<lab>/vault/<node>.toml` (0600),
-   before unsealing, so a failure in between cannot lose them.
+   before unsealing, so a failure in between cannot lose them. Init has its own timeout, 90s
+   (Vault's default `max_request_duration`), against 10s for every other request: with Raft
+   storage it bootstraps a one-node cluster and waits for leadership, about 6.5s on an idle
+   server and longer while a lab is starting.
 3. If Vault is sealed (always, right after init), `PUT /v1/sys/unseal` with the saved key, and
    fail if it is still sealed.
 4. Poll `GET /v1/sys/health` every second until it answers 200, the active node. Right after
@@ -88,8 +91,23 @@ lab CA:
 In `up` and `redeploy`, `talos::grant_vault_access` then sets Vault up for the clusters that
 use the node (see "Keycloak login and Vault secrets" in `TALOS.md`).
 
-An initialised Vault without saved credentials (initialised outside Sherpa) is reported, not
-touched. In `up`, a failure is a non-critical `UpError`; in `redeploy` it fails the operation.
+An init request that fails can still complete inside Vault: a client that gives up does not
+stop it, and the unseal key and root token exist only in the response. So after a failed init
+(`initialise`), Sherpa polls the seal status again before anything else (`after_failed_init`
+decides from it):
+
+- still not initialised: init is sent again, at most two attempts in all;
+- initialised: Sherpa lost the init response. It fails with that, and with the reset: `sherpa
+  redeploy --node <node>`, which starts the node with empty Vault storage;
+- the status cannot be read: it fails saying it cannot tell, with the same reset.
+
+Mid-init, Vault answers the seal status with a 500 ("barrier reports initialized but no seal
+configuration found"); the poll waits through it. Sherpa never resets Vault data itself.
+
+"Initialised outside Sherpa" is reported only when Vault was already initialised at the first
+seal status read, before Sherpa sent any init in this operation, and no credentials are saved.
+The two cases are on separate paths, so they cannot be mixed up. In `up`, a failure is a
+critical `UpError` of the readiness phase; in `redeploy` it fails the operation.
 
 Vault's Raft data is in the container, so a redeployed Vault is new: it is initialised again
 and its credentials file is replaced. `down` pauses containers, so Vault stays unsealed across
