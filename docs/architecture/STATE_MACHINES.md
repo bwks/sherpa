@@ -737,28 +737,40 @@ stateDiagram-v2
 
 ### 11. Vault init and unseal
 
-**Where.** `ensure_vault_unsealed`, at `crates/server/src/services/vault/lab.rs:84-135`.
+**Where.** `ensure_vault_unsealed` and `unseal_with_client`, at
+`crates/server/src/services/vault/lab.rs:99-148`, and `initialise` at `:165-217`.
 
 **States.** Vault holds one state and Sherpa holds another:
 
-- Vault: uninitialized, initialized and sealed, unsealed, active.
-- Sherpa: whether `<lab>/vault/<node>.toml` exists.
+- Vault: uninitialized, initializing (seal status answers 500), initialized and sealed,
+  unsealed, active.
+- Sherpa: whether `<lab>/vault/<node>.toml` exists, and whether it sent an init in this
+  operation.
 
 **Transitions.** All of them are checked against Vault's status.
 
-- Uninitialized → `init()` (`:103`) → credentials saved (`:117`) → unseal (`:124`).
-- Initialized → credentials loaded. If no file exists, it fails with "initialised outside
-  Sherpa" (`:96-101`).
+- Uninitialized → `init()` (`:174`) → credentials saved (`:185`) → unseal.
+- Init fails → seal status polled again (`:193`), then `after_failed_init` (`:221`):
+  uninitialized → init again (two attempts in all); initialized → "Sherpa lost the init
+  response", with the reset (`sherpa redeploy --node <node>`); no status → "cannot tell", with
+  the same reset.
+- Initialized at the first status read → credentials loaded. If no file exists, it fails with
+  "initialised outside Sherpa" (`saved_credentials`).
 - Sealed → unseal with the saved key.
 - Then `wait_until_active`.
 
-The init and the save are two separate steps, and the code has no recovery for a failure
-between them.
+The init and the save are two separate steps. A lost init response, or a failed save, leaves
+Vault initialised with no saved credentials; Sherpa does not reset Vault data itself, and
+`redeploy` is the way out.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Uninitialised
     Uninitialised --> InitNoFile : client.init()
+    Uninitialised --> Recheck : init fails or times out
+    Recheck --> Uninitialised : still uninitialised (one retry)
+    Recheck --> LostResponse : initialised
+    LostResponse --> [*] : error, reset by redeploy
     InitNoFile --> Sealed : save_credentials
     Sealed --> Unsealed : unseal(saved key)
     Unsealed --> Active : wait_until_active

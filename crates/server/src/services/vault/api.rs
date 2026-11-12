@@ -12,8 +12,14 @@ use serde_json::Value;
 
 use shared::konst::VAULT_API_PORT;
 
-/// Timeout of one API request.
+/// Timeout of one API request, other than init.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+/// Timeout of the init request. With Raft storage, init bootstraps a one-node cluster, waits for
+/// it to elect itself leader and writes the keyring, root token and default mounts, each write
+/// synced to disk: about 6.5s on an idle server, and much longer with the CPU and disk busy
+/// starting a lab. 90s is Vault's own default `max_request_duration`, the longest Vault lets a
+/// request run.
+const INIT_TIMEOUT: Duration = Duration::from_secs(90);
 /// Key shares Sherpa initialises Vault with: one, which unseals Vault on its own.
 const VAULT_KEY_SHARES: u8 = 1;
 /// Header carrying the Vault token of an authenticated request.
@@ -80,6 +86,7 @@ pub fn vault_address(node_address: Ipv4Addr) -> String {
 pub struct VaultClient {
     client: reqwest::Client,
     address: String,
+    init_timeout: Duration,
 }
 
 impl VaultClient {
@@ -93,7 +100,17 @@ impl VaultClient {
         Ok(Self {
             client,
             address: vault_address(node_address),
+            init_timeout: INIT_TIMEOUT,
         })
+    }
+
+    /// The same client with a shorter init timeout, so a test can make an init time out.
+    #[cfg(test)]
+    pub fn with_init_timeout(self, init_timeout: Duration) -> Self {
+        Self {
+            init_timeout,
+            ..self
+        }
     }
 
     pub fn address(&self) -> &str {
@@ -110,7 +127,8 @@ impl VaultClient {
         serde_json::from_slice(&body).context("Failed to parse the Vault seal status")
     }
 
-    /// Initialise Vault with one key share.
+    /// Initialise Vault with one key share. Vault answers with the unseal key and root token
+    /// once only: an init whose response is lost may still have completed inside Vault.
     pub async fn init(&self) -> Result<InitResponse> {
         let request = InitRequest {
             secret_shares: VAULT_KEY_SHARES,
@@ -120,6 +138,7 @@ impl VaultClient {
             .send(
                 self.client
                     .put(format!("{}/v1/sys/init", self.address))
+                    .timeout(self.init_timeout)
                     .body(serde_json::to_vec(&request)?),
             )
             .await?;
