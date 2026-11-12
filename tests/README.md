@@ -157,14 +157,14 @@ tailnet as `tntest<pid>`, advertises `172.31.250.0/24` and logs out when the tes
 
 Each release's VM asks the server for its `memory` (30 GiB in both environments). The releases
 start together, and their `sherpa up` calls take turns. When the server refuses one for memory
-(`Memory admission failed`, from the server's admission check), nothing was created: the
-runner records `failure_kind = "memory-refused"` with the server's numbers, keeps nothing and
-exits 75. `test_env.py` then waits for the other releases to finish and runs the refused one on
-its own, then the next refused one. A release refused while it runs alone fails. A failed release
-keeps its VM, and with it its memory, so remove it (`--cleanup-run`, below) before running
-again. The CLI exits 1 and the server sends a generic JSON-RPC server error (-32000) for any
-failed `up`, so the runner recognises a refusal by the `Memory admission failed` text in the
-`up` output.
+(the CLI exits 75 for the server's `InsufficientMemory` error, see "Typed refusals" in
+`docs/architecture/API.md`), nothing was created: the runner records
+`failure_kind = "memory-refused"` with the server's message, keeps nothing and exits 75 itself.
+`test_env.py` then waits for the other releases to finish and runs the refused one on its own,
+then the next refused one. A release refused while it runs alone fails. A failed release keeps
+its VM, and with it its memory, so remove it (`--cleanup-run`, below) before running again. The
+runner recognises a refusal by `sherpa up`'s exit code, never its output, so the host's `sherpa`
+must be a build that has the exit code; an older one exits 1 and the refusal is a failure.
 
 When a run fails after its VM exists, the runner asks the host whether the VM stopped, with
 `virsh domstate --reason <domain>`. If it did, it reads the kernel's `oom-kill:` lines as the

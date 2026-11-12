@@ -289,6 +289,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use crate::services::error::ServiceError;
     use libvirt::Qemu;
     use shared::data::{NodeModel, NumaMemoryMode};
 
@@ -591,7 +592,14 @@ mod tests {
             .await
             .unwrap_err();
         let message = format!("{refused:#}");
-        assert!(message.contains("Memory admission failed"), "{message}");
+        assert!(
+            matches!(
+                ServiceError::find(&refused),
+                Some(ServiceError::InsufficientMemory { shortfall, .. })
+                    if shortfall.requested_mib == size && shortfall.numa_node.is_none()
+            ),
+            "{message}"
+        );
         assert!(
             message.contains(&format!("node 'second' needs {size} MiB")),
             "{message}"

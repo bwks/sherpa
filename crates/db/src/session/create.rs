@@ -34,8 +34,7 @@ pub async fn create_session(
     let writer = db.writer().await?;
     query_optional(
         &writer.conn,
-        queries::session::CREATE,
-        session_values(&session)?,
+        queries::session::CREATE.bind(session_values(&session)?),
         session_from_row,
     )
     .await

@@ -24,8 +24,7 @@ pub async fn delete_lab_from(db: &Database, lab_id: &str, from: LabPhase) -> Res
     let writer = db.writer().await?;
     let deleted = query_optional(
         &writer.conn,
-        queries::lab::DELETE_FROM,
-        vec![Value::from(lab_id), enum_text(&from, "phase")?.into()],
+        queries::lab::DELETE_FROM.bind([Value::from(lab_id), enum_text(&from, "phase")?.into()]),
         key_from_row,
     )
     .await

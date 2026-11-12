@@ -114,6 +114,7 @@ pub(super) async fn info(
             code: RpcErrorCode::AccessDenied,
             message: RPC_MSG_ACCESS_DENIED_OWN_INFO.to_string(),
             context: None,
+            data: None,
         });
     }
     let user = db::find_user(&state.db, &request.username)
@@ -130,6 +131,7 @@ pub(super) async fn info(
             code: RpcErrorCode::NotFound,
             message: format!("User not found: {}", request.username),
             context: None,
+            data: None,
         }),
         Err(error) => respond::<data::GetUserInfoResponse>(Err(error), RPC_MSG_USER_INFO_FAILED),
     }

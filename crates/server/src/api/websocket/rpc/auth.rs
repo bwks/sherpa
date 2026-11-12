@@ -84,5 +84,6 @@ fn rpc_error(code: RpcErrorCode, message: &str) -> RpcError {
         code,
         message: message.to_string(),
         context: None,
+        data: None,
     }
 }

@@ -43,8 +43,7 @@ pub async fn update_node_image(
 
     let stored = query_optional(
         &tx,
-        queries::node_image::FIND_BY_ID,
-        [key.as_str()],
+        queries::node_image::FIND_BY_ID.bind([key.as_str().into()]),
         node_image_from_row,
     )
     .await

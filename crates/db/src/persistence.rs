@@ -85,15 +85,16 @@ impl<'a> Cells<'a> {
         }
     }
 
-    /// Percentages are `f32` in Sherpa and stored exactly as `REAL`: a STRICT `REAL` column
-    /// keeps whole numbers as `REAL` too.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "every value was written from an f32, so the f64 narrows back exactly"
-    )]
-    pub(crate) fn real(&mut self, field: &str) -> Result<f32> {
+    /// A percentage, 0 to 100. Percentages are `f64` in Sherpa, the width of a `REAL`, so the
+    /// value reads back exactly as it was written. A value Sherpa could not have written, such
+    /// as one edited by hand to `NaN`, infinity or above 100, is an error rather than an
+    /// impairment netem would clamp.
+    pub(crate) fn percent(&mut self, field: &str) -> Result<f64> {
         match self.next(field)? {
-            Value::Real(value) => Ok(value as f32),
+            Value::Real(value) if (0.0..=100.0).contains(&value) => Ok(value),
+            Value::Real(value) => {
+                bail!("Database field {field} is not a percentage between 0 and 100: {value}")
+            }
             other => bail!("Database field {field} is not a number: {other:?}"),
         }
     }
@@ -228,8 +229,8 @@ pub(crate) fn session_user_from_row(row: &Row) -> Result<DbSessionUser> {
 }
 
 /// A session's column values in the `session` table's column order.
-pub(crate) fn session_values(session: &DbSession) -> Result<Vec<Value>> {
-    Ok(vec![
+pub(crate) fn session_values(session: &DbSession) -> Result<[Value; 5]> {
+    Ok([
         session.id.as_str().into(),
         key_of(&session.user, USER_TABLE)?.into(),
         enum_text(&session.channel, "channel")?.into(),
@@ -239,8 +240,8 @@ pub(crate) fn session_values(session: &DbSession) -> Result<Vec<Value>> {
 }
 
 /// A user's column values in the `user` table's column order, under `key`.
-pub(crate) fn user_values(user: &DbUser, key: &str) -> Result<Vec<Value>> {
-    Ok(vec![
+pub(crate) fn user_values(user: &DbUser, key: &str) -> Result<[Value; 7]> {
+    Ok([
         key.into(),
         user.username.as_str().into(),
         user.password_hash.as_str().into(),
@@ -276,8 +277,8 @@ pub(crate) fn lab_from_row(row: &Row) -> Result<DbLab> {
 }
 
 /// A lab's column values in the `lab` table's column order, under `key`.
-pub(crate) fn lab_values(lab: &DbLab, key: &str) -> Result<Vec<Value>> {
-    Ok(vec![
+pub(crate) fn lab_values(lab: &DbLab, key: &str) -> Result<[Value; 18]> {
+    Ok([
         key.into(),
         lab.lab_id.as_str().into(),
         lab.name.as_str().into(),
@@ -321,8 +322,8 @@ pub(crate) fn node_from_row(row: &Row) -> Result<DbNode> {
 }
 
 /// A node's column values in the `node` table's column order, under `key`.
-pub(crate) fn node_values(node: &DbNode, key: &str) -> Result<Vec<Value>> {
-    Ok(vec![
+pub(crate) fn node_values(node: &DbNode, key: &str) -> Result<[Value; 15]> {
+    Ok([
         key.into(),
         node.name.as_str().into(),
         node.index.into(),
@@ -353,9 +354,9 @@ fn impairment_from_cells(cells: &mut Cells<'_>, direction: &str) -> Result<LinkI
     Ok(LinkImpairment {
         delay_us: cells.integer(&format!("{direction}.delay_us"))?,
         jitter_us: cells.integer(&format!("{direction}.jitter_us"))?,
-        loss_percent: cells.real(&format!("{direction}.loss_percent"))?,
-        reorder_percent: cells.real(&format!("{direction}.reorder_percent"))?,
-        corrupt_percent: cells.real(&format!("{direction}.corrupt_percent"))?,
+        loss_percent: cells.percent(&format!("{direction}.loss_percent"))?,
+        reorder_percent: cells.percent(&format!("{direction}.reorder_percent"))?,
+        corrupt_percent: cells.percent(&format!("{direction}.corrupt_percent"))?,
     })
 }
 
@@ -388,8 +389,12 @@ pub(crate) fn link_from_row(row: &Row) -> Result<DbLink> {
 }
 
 /// A link's column values in the `link` table's column order, under `key`.
-pub(crate) fn link_values(link: &DbLink, key: &str) -> Result<Vec<Value>> {
-    let mut values = vec![
+pub(crate) fn link_values(link: &DbLink, key: &str) -> Result<[Value; 20]> {
+    let [a_delay, a_jitter, a_loss, a_reorder, a_corrupt] =
+        impairment_values(&link.impairment_a_to_b);
+    let [b_delay, b_jitter, b_loss, b_reorder, b_corrupt] =
+        impairment_values(&link.impairment_b_to_a);
+    Ok([
         key.into(),
         link.index.into(),
         enum_text(&link.kind, "kind")?.into(),
@@ -400,10 +405,17 @@ pub(crate) fn link_values(link: &DbLink, key: &str) -> Result<Vec<Value>> {
         key_of(&link.lab, LAB_TABLE)?.into(),
         link.tap_a.as_str().into(),
         link.tap_b.as_str().into(),
-    ];
-    values.extend(impairment_values(&link.impairment_a_to_b));
-    values.extend(impairment_values(&link.impairment_b_to_a));
-    Ok(values)
+        a_delay,
+        a_jitter,
+        a_loss,
+        a_reorder,
+        a_corrupt,
+        b_delay,
+        b_jitter,
+        b_loss,
+        b_reorder,
+        b_corrupt,
+    ])
 }
 
 /// A bridge without its members, which live in their own table.
@@ -420,8 +432,8 @@ pub(crate) fn bridge_from_row(row: &Row) -> Result<DbBridge> {
 }
 
 /// A bridge's column values in the `bridge` table's column order, under `key`.
-pub(crate) fn bridge_values(bridge: &DbBridge, key: &str) -> Result<Vec<Value>> {
-    Ok(vec![
+pub(crate) fn bridge_values(bridge: &DbBridge, key: &str) -> Result<[Value; 5]> {
+    Ok([
         key.into(),
         bridge.index.into(),
         bridge.bridge_name.as_str().into(),
@@ -444,8 +456,8 @@ pub(crate) fn bridge_member_values(
     member: &BridgeMember,
     bridge_key: &str,
     position: usize,
-) -> Result<Vec<Value>> {
-    Ok(vec![
+) -> Result<[Value; 4]> {
+    Ok([
         bridge_key.into(),
         i64::try_from(position)
             .context("Bridge member position is too large")?
@@ -504,8 +516,8 @@ pub(crate) fn node_image_from_row(row: &Row) -> Result<NodeConfig> {
 }
 
 /// A node image's column values in the `node_image` table's column order, under `key`.
-pub(crate) fn node_image_values(image: &NodeConfig, key: &str) -> Result<Vec<Value>> {
-    Ok(vec![
+pub(crate) fn node_image_values(image: &NodeConfig, key: &str) -> Result<[Value; 29]> {
+    Ok([
         key.into(),
         enum_text(&image.model, "model")?.into(),
         image.version.as_str().into(),
@@ -549,6 +561,43 @@ mod tests {
     use shared::data::{LabPhase, NodeKind, NodeModel};
 
     use super::*;
+    use crate::open_in_memory;
+
+    /// Read `value`, bound as the only column of a row, as the percentage `a_to_b.loss_percent`.
+    async fn read_percent(value: Value) -> Result<f64> {
+        let db = open_in_memory().await.unwrap();
+        let conn = db.reader().await.unwrap();
+        let mut rows = conn.query("SELECT ?1", [value]).await.unwrap();
+        let row = rows.next().await.unwrap().unwrap();
+        Cells::new(&row).percent("a_to_b.loss_percent")
+    }
+
+    #[tokio::test]
+    async fn percentages_from_0_to_100_read_back_exactly() {
+        for value in [0.0, 1.5, 100.0, 0.100_000_001] {
+            assert_eq!(read_percent(Value::Real(value)).await.unwrap(), value);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_corrupt_or_out_of_range_percentage_is_an_error_naming_the_field() {
+        for value in [
+            Value::Real(f64::INFINITY),
+            Value::Real(f64::NEG_INFINITY),
+            Value::Real(f64::NAN),
+            Value::Real(100.5),
+            Value::Real(1e300),
+            Value::Real(-0.5),
+            Value::Null,
+            Value::Text("12".to_string()),
+        ] {
+            let error = read_percent(value.clone()).await.unwrap_err().to_string();
+            assert!(
+                error.contains("a_to_b.loss_percent"),
+                "{value:?} gave: {error}"
+            );
+        }
+    }
 
     #[test]
     fn new_keys_use_the_key_alphabet_and_length() {

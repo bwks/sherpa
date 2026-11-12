@@ -9,7 +9,7 @@ use tracing::instrument;
 
 use super::{bridge, lab, link, migrations, node, node_image, user};
 use crate::Database;
-use crate::sql::query_count;
+use crate::sql::{Query, query_count};
 
 /// Schema version 1: every table, parents before children.
 const TABLES: &[&str] = &[
@@ -20,6 +20,9 @@ const TABLES: &[&str] = &[
     link::TABLES,
     bridge::TABLES,
 ];
+
+/// The database's schema version. It takes no parameters, so it is not a query file.
+const USER_VERSION: Query<0> = Query::new("PRAGMA user_version");
 
 /// The schema version this build of Sherpa writes.
 pub const SCHEMA_VERSION: usize = 1 + migrations::ALL.len();
@@ -43,7 +46,7 @@ pub async fn apply_schema(db: &Database) -> Result<()> {
         .await
         .context("Failed to start the schema transaction")?;
 
-    let version = query_count(&tx, "PRAGMA user_version", ())
+    let version = query_count(&tx, USER_VERSION.bind([]))
         .await
         .context("Failed to read the database schema version")?;
     if version > SCHEMA_VERSION {
@@ -109,7 +112,7 @@ mod tests {
 
     async fn version(db: &Database) -> usize {
         let conn = db.reader().await.unwrap();
-        query_count(&conn, "PRAGMA user_version", ()).await.unwrap()
+        query_count(&conn, USER_VERSION.bind([])).await.unwrap()
     }
 
     /// Insert `image` into a database at a version before 16, whose `node_image` table has the
@@ -124,7 +127,7 @@ mod tests {
         ztp_method: &str,
     ) -> String {
         let key = new_key();
-        let mut values = node_image_values(image, &key).unwrap();
+        let mut values = Vec::from(node_image_values(image, &key).unwrap());
         // Today's last column is `ztp`, which the older table does not have.
         values.pop();
         values.push(Value::from(ztp_enable));
@@ -139,9 +142,11 @@ mod tests {
         let writer = db.writer().await.unwrap();
         let dedicated = query_count(
             &writer.conn,
-            "SELECT count(*) FROM pragma_table_info('node_image') \
+            Query::new(
+                "SELECT count(*) FROM pragma_table_info('node_image') \
              WHERE name = 'dedicated_management_interface'",
-            (),
+            )
+            .bind([]),
         )
         .await
         .unwrap();
@@ -205,8 +210,10 @@ mod tests {
         let conn = db.reader().await.unwrap();
         query_count(
             &conn,
-            "SELECT count(*) FROM sqlite_schema WHERE type = 'trigger' AND name LIKE ?1",
-            [pattern],
+            Query::new(
+                "SELECT count(*) FROM sqlite_schema WHERE type = 'trigger' AND name LIKE ?1",
+            )
+            .bind([pattern.into()]),
         )
         .await
         .unwrap()
@@ -304,8 +311,8 @@ mod tests {
         let conn = db.reader().await.unwrap();
         let columns = query_count(
             &conn,
-            "SELECT count(*) FROM pragma_table_info('lab') WHERE name = 'half_applied'",
-            (),
+            Query::new("SELECT count(*) FROM pragma_table_info('lab') WHERE name = 'half_applied'")
+                .bind([]),
         )
         .await
         .unwrap();
@@ -515,9 +522,11 @@ mod tests {
         let conn = db.reader().await.unwrap();
         let columns = query_count(
             &conn,
-            "SELECT COUNT(*) FROM pragma_table_info('node_image') \
+            Query::new(
+                "SELECT COUNT(*) FROM pragma_table_info('node_image') \
              WHERE name = 'dedicated_management_interface'",
-            (),
+            )
+            .bind([]),
         )
         .await
         .unwrap();
@@ -822,17 +831,19 @@ mod tests {
         let conn = db.reader().await.unwrap();
         let disabled = query_count(
             &conn,
-            "SELECT count(*) FROM node_image WHERE id = ?1 AND ztp = 'disabled'",
-            [key.as_str()],
+            Query::new("SELECT count(*) FROM node_image WHERE id = ?1 AND ztp = 'disabled'")
+                .bind([key.as_str().into()]),
         )
         .await
         .unwrap();
         assert_eq!(disabled, 1);
         let old_columns = query_count(
             &conn,
-            "SELECT count(*) FROM pragma_table_info('node_image') \
+            Query::new(
+                "SELECT count(*) FROM pragma_table_info('node_image') \
              WHERE name IN ('ztp_enable', 'ztp_method')",
-            (),
+            )
+            .bind([]),
         )
         .await
         .unwrap();

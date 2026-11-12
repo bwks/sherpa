@@ -174,6 +174,7 @@ async fn call(
             code: RpcErrorCode::MethodNotFound,
             message: format!("Method '{method}' not found"),
             context: None,
+            data: None,
         });
     };
     let ctx = match entry.access {
@@ -261,6 +262,7 @@ fn unrouted(method: &str) -> RpcError {
         code: RpcErrorCode::InternalError,
         message: format!("Method '{method}' is not routed"),
         context: None,
+        data: None,
     }
 }
 
@@ -273,6 +275,7 @@ async fn authenticate(params: &Value, state: &AppState) -> Result<AuthContext, R
                 code: RpcErrorCode::AuthRequired,
                 message: RPC_MSG_AUTH_REQUIRED.to_string(),
                 context: None,
+                data: None,
             }
         })
 }
@@ -286,6 +289,7 @@ fn require_admin(ctx: AuthContext, denied: &str) -> Result<AuthContext, RpcError
         code: RpcErrorCode::AccessDenied,
         message: denied.to_string(),
         context: None,
+        data: None,
     })
 }
 
@@ -320,6 +324,7 @@ pub(super) fn parse<T: DeserializeOwned>(params: Value, message: &str) -> Result
         code: RpcErrorCode::InvalidParams,
         message: message.to_string(),
         context: Some(error.to_string()),
+        data: None,
     })
 }
 
@@ -333,6 +338,7 @@ pub(super) fn parse_quietly<T: DeserializeOwned>(
         code: RpcErrorCode::InvalidParams,
         message: message.to_string(),
         context: None,
+        data: None,
     })
 }
 
@@ -347,27 +353,38 @@ pub(super) fn respond<T: Serialize>(
         code: RpcErrorCode::InternalError,
         message: RPC_MSG_SERIALIZE_FAILED.to_string(),
         context: Some(error.to_string()),
+        data: None,
     })
 }
 
 /// Build the RPC error for a failed service call.
 ///
 /// Typed service failures keep their own codes, so clients can tell "not allowed", "does not
-/// exist" and "bad request" from operational failures. Others carry the error's message chain,
-/// never its debug form.
+/// exist", "bad request" and "no room in the server's memory" from operational failures. Others
+/// carry the error's message chain, never its debug form.
 pub(super) fn service_error(error: &anyhow::Error, failure: &str) -> RpcError {
-    let (code, message) = match ServiceError::find(error) {
-        Some(access @ ServiceError::Denied(_)) => (RpcErrorCode::AccessDenied, access.to_string()),
-        Some(ServiceError::NotFound(message)) => (RpcErrorCode::NotFound, message.clone()),
+    let (code, message, data) = match ServiceError::find(error) {
+        Some(access @ ServiceError::Denied(_)) => {
+            (RpcErrorCode::AccessDenied, access.to_string(), None)
+        }
+        Some(ServiceError::NotFound(message)) => (RpcErrorCode::NotFound, message.clone(), None),
         // JSON-RPC has no conflict code; the message tells the caller what to change.
-        Some(ServiceError::Conflict(message)) => (RpcErrorCode::ServerError, message.clone()),
-        Some(ServiceError::Invalid(message)) => (RpcErrorCode::InvalidParams, message.clone()),
+        Some(ServiceError::Conflict(message)) => (RpcErrorCode::ServerError, message.clone(), None),
+        Some(ServiceError::Invalid(message)) => {
+            (RpcErrorCode::InvalidParams, message.clone(), None)
+        }
+        Some(ServiceError::InsufficientMemory { message, shortfall }) => (
+            RpcErrorCode::InsufficientMemory,
+            message.clone(),
+            serde_json::to_value(shortfall).ok(),
+        ),
         None => {
             tracing::warn!(error = ?error, "RPC call failed");
             return RpcError {
                 code: RpcErrorCode::ServerError,
                 message: failure.to_string(),
                 context: Some(format!("{error:#}")),
+                data: None,
             };
         }
     };
@@ -375,6 +392,7 @@ pub(super) fn service_error(error: &anyhow::Error, failure: &str) -> RpcError {
         code,
         message,
         context: None,
+        data,
     }
 }
 
@@ -382,6 +400,7 @@ pub(super) fn service_error(error: &anyhow::Error, failure: &str) -> RpcError {
 mod tests {
     use super::*;
     use shared::api_spec::{AuthRequirement, build_spec};
+    use shared::error::MemoryShortfall;
     use std::collections::HashSet;
 
     /// Spec operations whose RPC method the server does not answer.
@@ -484,5 +503,38 @@ mod tests {
         assert_eq!(rpc.code, RpcErrorCode::InvalidParams);
         assert_eq!(rpc.message, "bad lab ID");
         assert!(rpc.context.is_none());
+    }
+
+    #[test]
+    fn a_memory_refusal_has_its_own_code_and_the_shortfall_as_data() {
+        let shortfall = MemoryShortfall {
+            requested_mib: 16384,
+            available_mib: 11614,
+            numa_node: None,
+        };
+        let error = anyhow::Error::new(ServiceError::InsufficientMemory {
+            message: "Not enough memory on the server".to_owned(),
+            shortfall,
+        })
+        .context("Memory admission failed");
+        let rpc = service_error(&error, "Up operation failed");
+        assert_eq!(rpc.code, RpcErrorCode::InsufficientMemory);
+        assert_eq!(rpc.message, "Not enough memory on the server");
+        assert!(rpc.context.is_none());
+        assert_eq!(
+            rpc.data,
+            Some(serde_json::json!({
+                "requested_mib": 16384,
+                "available_mib": 11614,
+                "numa_node": null,
+            }))
+        );
+    }
+
+    #[test]
+    fn other_failures_carry_no_data() {
+        let rpc = service_error(&anyhow::anyhow!("disk full"), "Up operation failed");
+        assert_eq!(rpc.code, RpcErrorCode::ServerError);
+        assert!(rpc.data.is_none());
     }
 }

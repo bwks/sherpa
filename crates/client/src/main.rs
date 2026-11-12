@@ -32,12 +32,11 @@ async fn main() -> ExitCode {
     match cmd::Cli::run().await {
         Ok(()) => ExitCode::from(0),
         Err(e) => {
-            if let Some(exit) = e.downcast_ref::<cmd::ShellExit>() {
-                ExitCode::from(exit.0)
-            } else {
+            // The node's shell has already said why it exited.
+            if !e.is::<cmd::ShellExit>() {
                 eprintln!("{e:?}");
-                ExitCode::from(1)
             }
+            ExitCode::from(cmd::exit_status(&e))
         }
     }
 }

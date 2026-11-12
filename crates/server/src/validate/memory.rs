@@ -2,6 +2,9 @@ use anyhow::{Result, bail};
 
 use libvirt::HostMemory;
 use shared::data::HostMemorySettings;
+use shared::error::MemoryShortfall;
+
+use crate::services::error::ServiceError;
 
 /// Memory one VM or unikernel takes on the server, or will take once started.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,8 +35,9 @@ pub struct CommittedMemory<'a> {
 ///
 /// # Errors
 ///
-/// Fails when the nodes do not fit, naming the numbers that fell short and the settings that
-/// change them, or when a requested NUMA node does not exist.
+/// Fails with [`ServiceError::InsufficientMemory`] when the nodes do not fit, naming the
+/// numbers that fell short and the settings that change them, or when a requested NUMA node
+/// does not exist.
 pub fn check_memory_fits(
     requested: &[MemoryClaim],
     committed: CommittedMemory<'_>,
@@ -58,7 +62,7 @@ pub fn check_memory_fits(
     let needed = total(requested);
     let left = limit.saturating_sub(running + starting);
     if needed > left {
-        bail!(
+        let message = format!(
             "Not enough memory on the server: {} {needed} MiB, but only {left} MiB of guest \
              memory is left, {} MiB short. The server has {total_mib} MiB; less \
              {hugepages_mib} MiB in hugepages and the {reserve_mib} MiB host reserve, at an \
@@ -71,6 +75,15 @@ pub fn check_memory_fits(
             committed.running.len(),
             committed.starting.len(),
         );
+        return Err(ServiceError::InsufficientMemory {
+            message,
+            shortfall: MemoryShortfall {
+                requested_mib: needed,
+                available_mib: left,
+                numa_node: None,
+            },
+        }
+        .into());
     }
 
     let mut numa_nodes: Vec<u32> = requested.iter().filter_map(|c| c.numa_node).collect();
@@ -128,7 +141,7 @@ fn check_numa_node_fits(
                 .collect::<Vec<_>>()
                 .join(", ")
         };
-        bail!(
+        let message = format!(
             "Not enough memory on NUMA node {numa_node} for nodes held there with \
              `numa_node = {numa_node}`: {} {needed} MiB, but only {left} MiB is left, {} MiB \
              short. NUMA node {numa_node} has {cell_mib} MiB; less {hugepages_mib} MiB in \
@@ -142,6 +155,15 @@ fn check_numa_node_fits(
             needing(&wanted),
             needed - left,
         );
+        return Err(ServiceError::InsufficientMemory {
+            message,
+            shortfall: MemoryShortfall {
+                requested_mib: needed,
+                available_mib: left,
+                numa_node: Some(numa_node),
+            },
+        }
+        .into());
     }
     Ok(())
 }
@@ -197,6 +219,7 @@ fn scale_mib(mib: u64, percent: u32) -> u64 {
 mod tests {
     use super::*;
     use libvirt::NumaCell;
+    use shared::error::MemoryShortfall;
 
     const GIB: u64 = 1024;
 
@@ -251,6 +274,13 @@ mod tests {
 
     fn error(result: Result<()>) -> String {
         format!("{:#}", result.unwrap_err())
+    }
+
+    fn shortfall(error: &anyhow::Error) -> Option<MemoryShortfall> {
+        match ServiceError::find(error) {
+            Some(ServiceError::InsufficientMemory { shortfall, .. }) => Some(*shortfall),
+            _ => None,
+        }
     }
 
     #[test]
@@ -418,8 +448,46 @@ mod tests {
     #[test]
     fn a_numa_node_the_server_does_not_have_is_refused() {
         let requested = [claim("a", 1, Some(7))];
-        let message = error(check(&requested, &[], &[], settings(4096, 100)));
+        let refused = check(&requested, &[], &[], settings(4096, 100)).unwrap_err();
+        assert!(
+            !matches!(
+                ServiceError::find(&refused),
+                Some(ServiceError::InsufficientMemory { .. })
+            ),
+            "a missing NUMA node is not a memory shortage: {refused:#}"
+        );
+        let message = format!("{refused:#}");
         assert!(message.contains("NUMA node 7"), "{message}");
+    }
+
+    #[test]
+    fn a_server_shortfall_is_an_insufficient_memory_refusal() {
+        let running = [claim("dev", 48, Some(1)), claim("rel2404", 70, None)];
+        let requested = [claim("rel2604", 30, None)];
+        let refused = check(&requested, &running, &[], settings(16 * 1024, 100)).unwrap_err();
+        assert_eq!(
+            shortfall(&refused),
+            Some(MemoryShortfall {
+                requested_mib: 30720,
+                available_mib: 26624,
+                numa_node: None,
+            })
+        );
+    }
+
+    #[test]
+    fn a_numa_node_shortfall_names_the_node_in_the_refusal() {
+        let running = [claim("agent", 60, Some(0)), claim("dev", 10, Some(1))];
+        let requested = [claim("pinned", 24, Some(0))];
+        let refused = check(&requested, &running, &[], settings(4096, 100)).unwrap_err();
+        assert_eq!(
+            shortfall(&refused),
+            Some(MemoryShortfall {
+                requested_mib: 24576,
+                available_mib: 18432,
+                numa_node: Some(0),
+            })
+        );
     }
 
     #[test]

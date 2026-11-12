@@ -251,7 +251,7 @@ mod tests {
 
     use crate::services::p2p_links::fake::FakeHost;
 
-    fn request(delay: u32, loss_percent: f32) -> UpdateImpairmentRequest {
+    fn request(delay: u32, loss_percent: f64) -> UpdateImpairmentRequest {
         UpdateImpairmentRequest {
             lab_id: "abc12345".to_owned(),
             link_index: 1,
@@ -268,7 +268,7 @@ mod tests {
     fn a_requested_impairment_is_converted_to_microseconds() {
         let impairment = requested_impairment(&request(274_877, 12.5)).unwrap();
         assert_eq!(impairment.delay_us, 274_877_000);
-        assert!((impairment.loss_percent - 12.5).abs() < f32::EPSILON);
+        assert!((impairment.loss_percent - 12.5).abs() < f64::EPSILON);
     }
 
     fn link() -> DbLink {

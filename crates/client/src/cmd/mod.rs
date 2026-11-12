@@ -4,6 +4,7 @@ mod console;
 mod destroy;
 mod down;
 mod download;
+mod exit_status;
 mod image;
 mod init;
 mod inspect;
@@ -26,4 +27,5 @@ mod up;
 mod validate;
 
 pub use cli::Cli;
+pub use exit_status::exit_status;
 pub use ssh::ShellExit;

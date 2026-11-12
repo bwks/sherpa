@@ -29,13 +29,13 @@ pub struct LinkImpairment {
     pub jitter_us: u32,
     /// Packet loss in percent (0.0-100.0).
     #[serde(default)]
-    pub loss_percent: f32,
+    pub loss_percent: f64,
     /// Packet reordering probability as percent (0.0-100.0).
     #[serde(default)]
-    pub reorder_percent: f32,
+    pub reorder_percent: f64,
     /// Bit-flip corruption probability as percent (0.0-100.0).
     #[serde(default)]
-    pub corrupt_percent: f32,
+    pub corrupt_percent: f64,
 }
 
 impl LinkImpairment {
@@ -60,11 +60,11 @@ pub struct UpdateImpairmentRequest {
     #[serde(default)]
     pub jitter: u32,
     #[serde(default)]
-    pub loss_percent: f32,
+    pub loss_percent: f64,
     #[serde(default)]
-    pub reorder_percent: f32,
+    pub reorder_percent: f64,
     #[serde(default)]
-    pub corrupt_percent: f32,
+    pub corrupt_percent: f64,
 }
 
 /// Response type for updating link impairment

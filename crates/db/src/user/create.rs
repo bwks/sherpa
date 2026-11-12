@@ -82,8 +82,7 @@ async fn insert_user(
     let writer = db.writer().await?;
     let created = query_optional(
         &writer.conn,
-        queries::user::CREATE,
-        user_values(&db_user, &new_key())?,
+        queries::user::CREATE.bind(user_values(&db_user, &new_key())?),
         user_from_row,
     )
     .await

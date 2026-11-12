@@ -11,7 +11,7 @@ use crate::Database;
 use crate::helpers::get_user_id;
 use crate::persistence::{USER_TABLE, json_text, key_of, user_from_row};
 use crate::queries;
-use crate::sql::query_optional;
+use crate::sql::{execute, query_optional};
 
 /// `update_user` was given a user read before another write changed the row, so writing it
 /// would undo that change. Read the user again and reapply the edit.
@@ -66,7 +66,7 @@ pub async fn update_user(db: &Database, user: DbUser) -> Result<DbUser> {
     let key = key_of(&id, USER_TABLE)?;
 
     let writer = db.writer().await?;
-    let values = vec![
+    let values = [
         Value::from(key),
         Value::from(user.username.as_str()),
         Value::from(user.password_hash.as_str()),
@@ -75,7 +75,7 @@ pub async fn update_user(db: &Database, user: DbUser) -> Result<DbUser> {
         Value::from(Timestamp::now().to_string()),
         Value::from(user.updated_at.to_string()),
     ];
-    let updated = query_optional(&writer.conn, queries::user::UPDATE, values, user_from_row)
+    let updated = query_optional(&writer.conn, queries::user::UPDATE.bind(values), user_from_row)
     .await
     .context(format!(
         "Failed to update user:\n id: {:?}\n username: {}\nNote: Username change may fail if it conflicts with another user",
@@ -87,8 +87,7 @@ pub async fn update_user(db: &Database, user: DbUser) -> Result<DbUser> {
     }
     let current = query_optional(
         &writer.conn,
-        queries::user::FIND_BY_ID,
-        [key_of(&id, USER_TABLE)?],
+        queries::user::FIND_BY_ID.bind([key_of(&id, USER_TABLE)?.into()]),
         user_from_row,
     )
     .await
@@ -134,21 +133,24 @@ pub async fn change_user_password(
         .context("Failed to start the password change transaction")?;
     query_optional(
         &tx,
-        queries::user::UPDATE_PASSWORD,
-        (key.as_str(), password_hash, Timestamp::now().to_string()),
+        queries::user::UPDATE_PASSWORD.bind([
+            key.as_str().into(),
+            password_hash.into(),
+            Timestamp::now().to_string().into(),
+        ]),
         user_from_row,
     )
     .await
     .context(format!("Failed to set the password of user {id:?}"))?
     .ok_or_else(|| anyhow!("User not found for password change: {id:?}"))?;
     // No session has an empty key, so `None` keeps none.
-    let ended = tx
-        .execute(
-            queries::session::DELETE_BY_USER_EXCEPT,
-            (key.as_str(), keep.unwrap_or_default()),
-        )
-        .await
-        .context(format!("Failed to end the sessions of user {id:?}"))?;
+    let ended = execute(
+        &tx,
+        queries::session::DELETE_BY_USER_EXCEPT
+            .bind([key.as_str().into(), keep.unwrap_or_default().into()]),
+    )
+    .await
+    .context(format!("Failed to end the sessions of user {id:?}"))?;
     tx.commit()
         .await
         .context("Failed to commit the password change")?;

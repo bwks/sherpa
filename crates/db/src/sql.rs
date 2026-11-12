@@ -1,7 +1,42 @@
 //! Query helpers shared by the table modules.
 use anyhow::{Context, Result};
 use tracing::instrument;
-use turso::{Connection, IntoParams, Row, Value};
+use turso::{Connection, Row, Value};
+
+/// A statement that binds `N` parameters, `?1` to `?N`.
+///
+/// `build.rs` generates one per query file, with the count it read from the file, as
+/// `queries::<table>::<NAME>`. The helpers below run only a [`Bound`] query, and
+/// [`Query::bind`] takes exactly `N` values, so binding a different number does not compile.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Query<const N: usize> {
+    sql: &'static str,
+}
+
+/// A query with its parameters, ready to run.
+#[derive(Debug)]
+pub(crate) struct Bound {
+    sql: &'static str,
+    params: Vec<Value>,
+}
+
+impl<const N: usize> Query<N> {
+    /// A statement binding `N` parameters. The count is taken as given: the generated queries
+    /// get theirs from `build.rs`, which counts the placeholders.
+    #[must_use]
+    pub(crate) const fn new(sql: &'static str) -> Self {
+        Self { sql }
+    }
+
+    /// Bind the statement's `N` parameters, `params[0]` to `?1` and so on.
+    #[must_use]
+    pub(crate) fn bind(self, params: [Value; N]) -> Bound {
+        Bound {
+            sql: self.sql,
+            params: params.into(),
+        }
+    }
+}
 
 /// Quote `text` as an SQL string literal, for the few places SQL takes no bound parameter:
 /// trigger bodies and `VACUUM INTO`.
@@ -24,13 +59,13 @@ fn row_name(row: &Row) -> String {
 }
 
 /// Run a query and map its first row, if there is one.
-#[instrument(skip(conn, params, map), level = "debug")]
+#[instrument(skip(conn, query, map), level = "debug")]
 pub(crate) async fn query_optional<T>(
     conn: &Connection,
-    sql: &str,
-    params: impl IntoParams,
+    query: Bound,
     map: fn(&Row) -> Result<T>,
 ) -> Result<Option<T>> {
+    let Bound { sql, params } = query;
     let mut rows = conn
         .query(sql, params)
         .await
@@ -48,13 +83,13 @@ pub(crate) async fn query_optional<T>(
 }
 
 /// Run a query and map every row.
-#[instrument(skip(conn, params, map), level = "debug")]
+#[instrument(skip(conn, query, map), level = "debug")]
 pub(crate) async fn query_all<T>(
     conn: &Connection,
-    sql: &str,
-    params: impl IntoParams,
+    query: Bound,
     map: fn(&Row) -> Result<T>,
 ) -> Result<Vec<T>> {
+    let Bound { sql, params } = query;
     let mut rows = conn
         .query(sql, params)
         .await
@@ -73,12 +108,9 @@ pub(crate) async fn query_all<T>(
 }
 
 /// Run a query whose first column of its first row is a count.
-#[instrument(skip(conn, params), level = "debug")]
-pub(crate) async fn query_count(
-    conn: &Connection,
-    sql: &str,
-    params: impl IntoParams,
-) -> Result<usize> {
+#[instrument(skip(conn, query), level = "debug")]
+pub(crate) async fn query_count(conn: &Connection, query: Bound) -> Result<usize> {
+    let Bound { sql, params } = query;
     let mut rows = conn
         .query(sql, params)
         .await
@@ -95,6 +127,15 @@ pub(crate) async fn query_count(
         .copied()
         .context("Count query returned a non-integer")?;
     usize::try_from(count).context("Count query returned a negative count")
+}
+
+/// Run a statement that returns no rows, and return how many rows it changed.
+#[instrument(skip(conn, query), level = "debug")]
+pub(crate) async fn execute(conn: &Connection, query: Bound) -> Result<u64> {
+    let Bound { sql, params } = query;
+    conn.execute(sql, params)
+        .await
+        .with_context(|| format!("Statement failed: {}", statement(sql)))
 }
 
 #[cfg(test)]
@@ -116,14 +157,18 @@ mod tests {
         conn.execute_batch("CREATE TABLE t (id TEXT); INSERT INTO t VALUES ('a'), ('b');")
             .await
             .unwrap();
-        let error = query_all(&conn, "SELECT id FROM t\nORDER BY id", (), fail_on_b)
-            .await
-            .unwrap_err();
+        let error = query_all(
+            &conn,
+            Query::new("SELECT id FROM t\nORDER BY id").bind([]),
+            fail_on_b,
+        )
+        .await
+        .unwrap_err();
         let message = format!("{error:#}");
         assert!(message.contains("row b"), "{message}");
         assert!(message.contains("SELECT id FROM t"), "{message}");
 
-        let error = query_count(&conn, "SELECT count(*) FROM missing", ())
+        let error = query_count(&conn, Query::new("SELECT count(*) FROM missing").bind([]))
             .await
             .unwrap_err();
         assert!(

@@ -25,8 +25,7 @@ pub async fn create_link(db: &Database, link: DbLink) -> Result<DbLink> {
     let writer = db.writer().await?;
     let created = query_optional(
         &writer.conn,
-        queries::link::CREATE,
-        link_values(&link, &new_key())?,
+        queries::link::CREATE.bind(link_values(&link, &new_key())?),
         link_from_row,
     )
     .await

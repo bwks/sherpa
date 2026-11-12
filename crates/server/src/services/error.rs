@@ -6,6 +6,7 @@
 use std::fmt;
 
 use db::UserChanged;
+use shared::error::MemoryShortfall;
 
 /// A service refused a request for a reason the caller can act on.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,14 +20,21 @@ pub enum ServiceError {
     Conflict(String),
     /// The request itself is malformed, for example a lab ID that is not a lab ID.
     Invalid(String),
+    /// The VMs and unikernels the operation would start do not fit in the server's memory now.
+    /// Nothing was started; the same request can succeed once other nodes stop.
+    InsufficientMemory {
+        message: String,
+        shortfall: MemoryShortfall,
+    },
 }
 
 impl fmt::Display for ServiceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotFound(message) | Self::Conflict(message) | Self::Invalid(message) => {
-                write!(f, "{message}")
-            }
+            Self::NotFound(message)
+            | Self::Conflict(message)
+            | Self::Invalid(message)
+            | Self::InsufficientMemory { message, .. } => write!(f, "{message}"),
             Self::Denied(message) => write!(f, "Access denied: {message}"),
         }
     }

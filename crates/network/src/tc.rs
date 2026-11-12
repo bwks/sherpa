@@ -28,14 +28,14 @@ pub enum NetemRemoval {
     clippy::cast_sign_loss,
     reason = "the value is clamped to 0..u32::MAX first, and Rust has no checked float to integer conversion"
 )]
-fn percent_to_kernel(pct: f32) -> u32 {
+fn percent_to_kernel(pct: f64) -> u32 {
     if pct <= 0.0 {
         return 0;
     }
     if pct >= 100.0 {
         return u32::MAX;
     }
-    (f64::from(pct) / 100.0 * f64::from(u32::MAX)) as u32
+    (pct / 100.0 * f64::from(u32::MAX)) as u32
 }
 
 /// `micros` microseconds in PSCHED ticks, the unit of netem's latency and jitter. Modern
@@ -82,7 +82,7 @@ fn netem_options(impairment: &LinkImpairment) -> Result<Vec<u8>> {
 
 /// Append a netem attribute holding a probability and a correlation (always 0), the layout of
 /// both `tc_netem_reorder` and `tc_netem_corrupt`. It is 12 bytes, so no padding is needed.
-fn push_probability_attribute(options: &mut Vec<u8>, kind: u16, percent: f32) {
+fn push_probability_attribute(options: &mut Vec<u8>, kind: u16, percent: f64) {
     options.extend_from_slice(&12u16.to_ne_bytes());
     options.extend_from_slice(&kind.to_ne_bytes());
     options.extend_from_slice(&percent_to_kernel(percent).to_ne_bytes());

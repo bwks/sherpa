@@ -13,9 +13,9 @@ const MAX_IMPAIRMENT_DELAY_MS: u32 = 274_877;
 pub fn validate_link_impairment(
     delay_ms: u32,
     jitter_ms: u32,
-    loss_percent: f32,
-    reorder_percent: f32,
-    corrupt_percent: f32,
+    loss_percent: f64,
+    reorder_percent: f64,
+    corrupt_percent: f64,
 ) -> Result<()> {
     for (field, value) in [("delay", delay_ms), ("jitter", jitter_ms)] {
         ensure!(
@@ -78,7 +78,7 @@ mod tests {
         for (loss, reorder, corrupt, field) in [
             (-5.0, 0.0, 0.0, "loss_percent"),
             (150.0, 0.0, 0.0, "loss_percent"),
-            (0.0, f32::NAN, 0.0, "reorder_percent"),
+            (0.0, f64::NAN, 0.0, "reorder_percent"),
             (0.0, 0.0, 100.1, "corrupt_percent"),
         ] {
             let error = validate_link_impairment(0, 0, loss, reorder, corrupt)
