@@ -3,17 +3,8 @@
 //! with fixed keys; guests started with `agent-bus enroll` are kept in the registry instead (see
 //! `registry`), and the agents file wins a name clash.
 //!
-//! ```toml
-//! [[agent]]
-//! name = "host"
-//! key = "UA..."
-//! role = "host"
-//!
-//! [[agent]]
-//! name = "dev"
-//! key = "UB..."
-//! role = "guest"
-//! ```
+//! One `[[agent]]` table per agent, with `name`, `key` and `role`; the example is in
+//! `docs/architecture/AGENT_BUS.md` ("The agents file").
 
 use std::collections::HashSet;
 use std::fs;

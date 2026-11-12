@@ -198,6 +198,12 @@ Mod files:
 - Never add code in `mod.rs` files.
 - Only add module `docs`, mod `declarations` and `pub use re-exports`.
 
+Doc comments:
+- Doc comments (`//!` and `///`) carry no code blocks: no fenced blocks of any language, Rust,
+  text or TOML included, so there are no doctests. Put examples in `docs/architecture/` or in
+  tests instead.
+- Never widen an item's visibility for a test.
+
 General:
 - Never use wrapper functions in the name of keeping diffs small.
 
