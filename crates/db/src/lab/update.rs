@@ -23,11 +23,10 @@ pub async fn update_lab_tailscale_container(
     let writer = db.writer().await?;
     let updated = query_optional(
         &writer.conn,
-        queries::lab::UPDATE_TAILSCALE_CONTAINER,
-        vec![
+        queries::lab::UPDATE_TAILSCALE_CONTAINER.bind([
             Value::from(key_of(id, LAB_TABLE)?),
             container_id.map_or(Value::Null, Value::from),
-        ],
+        ]),
         lab_from_row,
     )
     .await
@@ -53,12 +52,11 @@ pub async fn update_lab_phase_from(
     let writer = db.writer().await?;
     query_optional(
         &writer.conn,
-        queries::lab::UPDATE_PHASE_FROM,
-        vec![
+        queries::lab::UPDATE_PHASE_FROM.bind([
             Value::from(lab_id),
             enum_text(&from, "phase")?.into(),
             enum_text(&to, "phase")?.into(),
-        ],
+        ]),
         lab_from_row,
     )
     .await

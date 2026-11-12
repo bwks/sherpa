@@ -64,8 +64,7 @@ pub async fn create_node(
     let writer = db.writer().await?;
     let node = query_optional(
         &writer.conn,
-        queries::node::CREATE,
-        node_values(&domain, &new_key())?,
+        queries::node::CREATE.bind(node_values(&domain, &new_key())?),
         node_from_row,
     )
     .await

@@ -13,7 +13,7 @@ mod tests {
     use anyhow::Result;
     use shared::konst::ADMIN_PROTECTED_MESSAGE;
 
-    use crate::sql::query_count;
+    use crate::sql::{Query, query_count};
     use crate::{Database, apply_schema, create_admin_user, create_user, open_in_memory};
 
     async fn setup() -> Result<Database> {
@@ -43,7 +43,7 @@ mod tests {
 
     async fn user_count(db: &Database) -> Result<usize> {
         let conn = db.reader().await?;
-        query_count(&conn, "SELECT count(*) FROM user", ()).await
+        query_count(&conn, Query::new("SELECT count(*) FROM user").bind([])).await
     }
 
     #[tokio::test]
@@ -79,8 +79,8 @@ mod tests {
         let conn = db.reader().await?;
         let admins = query_count(
             &conn,
-            "SELECT count(*) FROM user WHERE username = 'admin' AND is_admin = 1",
-            (),
+            Query::new("SELECT count(*) FROM user WHERE username = 'admin' AND is_admin = 1")
+                .bind([]),
         )
         .await?;
         assert_eq!(admins, 1);

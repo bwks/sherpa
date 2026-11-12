@@ -29,9 +29,12 @@ pub async fn delete_node_image(db: &Database, id: RecordId) -> Result<Option<Nod
 
     // The foreign key refuses the delete as well; checking first gives a clearer message.
     // Both run under the write lock, so no node can start using the image in between.
-    let references = query_count(&tx, queries::node::COUNT_BY_IMAGE, [key.as_str()])
-        .await
-        .context("Cannot check image references before deletion")?;
+    let references = query_count(
+        &tx,
+        queries::node::COUNT_BY_IMAGE.bind([key.as_str().into()]),
+    )
+    .await
+    .context("Cannot check image references before deletion")?;
     ensure!(
         references == 0,
         "Cannot delete node_image {:?}: referenced by {} managed node(s)",
@@ -41,8 +44,7 @@ pub async fn delete_node_image(db: &Database, id: RecordId) -> Result<Option<Nod
 
     let deleted = query_optional(
         &tx,
-        queries::node_image::DELETE_BY_ID,
-        [key.as_str()],
+        queries::node_image::DELETE_BY_ID.bind([key.as_str().into()]),
         node_image_from_row,
     )
     .await
@@ -54,11 +56,10 @@ pub async fn delete_node_image(db: &Database, id: RecordId) -> Result<Option<Nod
     let promoted = if deleted.default {
         query_optional(
             &tx,
-            queries::node_image::PROMOTE_NEWEST,
-            (
-                enum_text(&deleted.model, "model")?,
-                enum_text(&deleted.kind, "kind")?,
-            ),
+            queries::node_image::PROMOTE_NEWEST.bind([
+                enum_text(&deleted.model, "model")?.into(),
+                enum_text(&deleted.kind, "kind")?.into(),
+            ]),
             node_image_from_row,
         )
         .await

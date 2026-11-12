@@ -2,6 +2,10 @@
 #![cfg_attr(not(test), forbid(unsafe_code))]
 
 pub mod bridge;
+// The placeholder rules `build.rs` applies, built here too so `cargo test -p db` runs their tests.
+#[cfg(test)]
+#[path = "../build/placeholders.rs"]
+mod build_placeholders;
 mod connect;
 mod helpers;
 pub mod lab;

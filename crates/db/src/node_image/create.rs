@@ -47,8 +47,11 @@ pub async fn upsert_node_image(
     let kind = enum_text(&config.kind, "kind")?;
     let existing = query_optional(
         &tx,
-        queries::node_image::FIND_BY_MODEL_KIND_VERSION,
-        (model.as_str(), kind.as_str(), config.version.as_str()),
+        queries::node_image::FIND_BY_MODEL_KIND_VERSION.bind([
+            model.as_str().into(),
+            kind.as_str().into(),
+            config.version.as_str().into(),
+        ]),
         node_image_from_row,
     )
     .await
@@ -96,8 +99,7 @@ pub async fn upsert_node_image(
 async fn insert_node_image(conn: &Connection, config: &NodeConfig) -> Result<NodeConfig> {
     let created = query_optional(
         conn,
-        queries::node_image::CREATE,
-        node_image_values(config, &new_key())?,
+        queries::node_image::CREATE.bind(node_image_values(config, &new_key())?),
         node_image_from_row,
     )
     .await
@@ -124,8 +126,7 @@ pub(crate) async fn replace_node_image(
 ) -> Result<Option<NodeConfig>> {
     query_optional(
         conn,
-        queries::node_image::UPDATE,
-        node_image_values(config, key)?,
+        queries::node_image::UPDATE.bind(node_image_values(config, key)?),
         node_image_from_row,
     )
     .await

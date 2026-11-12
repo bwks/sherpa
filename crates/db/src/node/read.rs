@@ -27,8 +27,7 @@ use crate::sql::{query_all, query_count, query_optional};
 async fn select_node(conn: &Connection, id: &RecordId) -> Result<DbNode> {
     query_optional(
         conn,
-        queries::node::FIND_BY_ID,
-        [key_of(id, NODE_TABLE)?],
+        queries::node::FIND_BY_ID.bind([key_of(id, NODE_TABLE)?.into()]),
         node_from_row,
     )
     .await
@@ -63,8 +62,8 @@ pub async fn get_node_by_name_and_lab(db: &Database, name: &str, lab: RecordId) 
     let conn = db.reader().await?;
     query_optional(
         &conn,
-        queries::node::FIND_BY_NAME_AND_LAB,
-        [name.to_string(), key_of(&lab, LAB_TABLE)?],
+        queries::node::FIND_BY_NAME_AND_LAB
+            .bind([name.to_string().into(), key_of(&lab, LAB_TABLE)?.into()]),
         node_from_row,
     )
     .await
@@ -89,8 +88,7 @@ pub async fn list_nodes_by_lab(db: &Database, lab: RecordId) -> Result<Vec<DbNod
     let conn = db.reader().await?;
     query_all(
         &conn,
-        queries::node::LIST_BY_LAB,
-        [key_of(&lab, LAB_TABLE)?],
+        queries::node::LIST_BY_LAB.bind([key_of(&lab, LAB_TABLE)?.into()]),
         node_from_row,
     )
     .await
@@ -110,8 +108,7 @@ pub async fn list_node_states_by_user(
     let conn = db.reader().await?;
     query_all(
         &conn,
-        queries::node::LIST_STATES_BY_USER,
-        [key_of(&user, USER_TABLE)?],
+        queries::node::LIST_STATES_BY_USER.bind([key_of(&user, USER_TABLE)?.into()]),
         |row| {
             let mut cells = Cells::new(row);
             Ok((cells.record(LAB_TABLE, "lab")?, cells.enumeration("state")?))
@@ -138,8 +135,7 @@ pub async fn count_nodes_by_lab(db: &Database, lab: RecordId) -> Result<usize> {
     let conn = db.reader().await?;
     query_count(
         &conn,
-        queries::node::COUNT_BY_LAB,
-        [key_of(&lab, LAB_TABLE)?],
+        queries::node::COUNT_BY_LAB.bind([key_of(&lab, LAB_TABLE)?.into()]),
     )
     .await
     .context("Failed to count nodes for lab")
@@ -153,7 +149,7 @@ pub async fn count_nodes_by_lab(db: &Database, lab: RecordId) -> Result<usize> {
 #[instrument(skip(db), level = "debug")]
 pub async fn list_pinned_nodes(db: &Database) -> Result<Vec<DbNode>> {
     let conn = db.reader().await?;
-    query_all(&conn, queries::node::LIST_PINNED, (), node_from_row)
+    query_all(&conn, queries::node::LIST_PINNED.bind([]), node_from_row)
         .await
         .context("Failed to list nodes with pinned CPUs")
 }
@@ -170,7 +166,7 @@ fn vnc_port_from_row(row: &Row) -> Result<u16> {
 #[instrument(skip(db), level = "debug")]
 pub async fn list_vnc_ports(db: &Database) -> Result<Vec<u16>> {
     let conn = db.reader().await?;
-    query_all(&conn, queries::node::VNC_PORTS, (), vnc_port_from_row)
+    query_all(&conn, queries::node::VNC_PORTS.bind([]), vnc_port_from_row)
         .await
         .context("Failed to list node VNC ports")
 }

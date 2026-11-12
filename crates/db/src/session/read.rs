@@ -19,8 +19,7 @@ pub async fn find_session(db: &Database, id: &str) -> Result<Option<DbSessionUse
     let conn = db.reader().await?;
     query_optional(
         &conn,
-        queries::session::FIND_WITH_USER,
-        [id],
+        queries::session::FIND_WITH_USER.bind([id.into()]),
         session_user_from_row,
     )
     .await

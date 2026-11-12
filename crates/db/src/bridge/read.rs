@@ -15,8 +15,7 @@ async fn with_members(conn: &Connection, mut bridge: DbBridge) -> Result<DbBridg
     let id = bridge.id.as_ref().context("Bridge record has no ID")?;
     let members: Vec<BridgeMember> = query_all(
         conn,
-        queries::bridge::LIST_MEMBERS,
-        [key_of(id, BRIDGE_TABLE)?],
+        queries::bridge::LIST_MEMBERS.bind([key_of(id, BRIDGE_TABLE)?.into()]),
         bridge_member_from_row,
     )
     .await
@@ -41,8 +40,7 @@ pub async fn list_bridges(db: &Database, lab: &RecordId) -> Result<Vec<DbBridge>
     let conn = db.reader().await?;
     let bridges = query_all(
         &conn,
-        queries::bridge::LIST_BY_LAB,
-        [key_of(lab, LAB_TABLE)?],
+        queries::bridge::LIST_BY_LAB.bind([key_of(lab, LAB_TABLE)?.into()]),
         bridge_from_row,
     )
     .await

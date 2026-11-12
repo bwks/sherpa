@@ -8,9 +8,13 @@
 //! returns every column of a table must return them in the table's order, as the row mappers in
 //! `src/persistence.rs` read them by position.
 //!
+//! Each query numbers its bound parameters, `?1`, `?2`, ...; `build/placeholders.rs` counts them
+//! and refuses a bare `?`, a named parameter or a gap in the numbering.
+//!
 //! It generates two files:
 //! - `queries.rs`: a constant for each query file, in a module per directory:
-//!   `sql/queries/user/find_by_id.sql` is `queries::user::FIND_BY_ID`.
+//!   `sql/queries/user/find_by_id.sql` is `queries::user::FIND_BY_ID`, a `Query<1>`. The
+//!   parameter count is in the type, so binding a different number of values does not compile.
 //! - `migrations.rs`: a constant for each migration, named without its number, and `ALL`, every
 //!   migration in order. `sql/migrations/0002_fix_data_interface_counts.sql` takes the schema to
 //!   version 2 and is `FIX_DATA_INTERFACE_COUNTS`.
@@ -22,6 +26,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use turso::{Builder, Connection};
+
+#[path = "build/placeholders.rs"]
+mod placeholders;
+
+use placeholders::parameter_count;
 
 const SQL_DIR: &str = "sql";
 const SCHEMA_DIR: &str = "sql/schema";
@@ -44,6 +53,7 @@ const SCHEMA_FILES: &[&str] = &[
 
 fn main() -> Result<()> {
     println!("cargo:rerun-if-changed={SQL_DIR}");
+    println!("cargo:rerun-if-changed=build");
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
@@ -101,7 +111,7 @@ async fn check_sql(manifest_dir: &Path) -> Result<(String, String)> {
     .await?;
     if !errors.is_empty() {
         bail!(
-            "SQL statements do not fit the schema:\n{}",
+            "SQL statements fail the build checks:\n{}",
             errors.join("\n")
         );
     }
@@ -188,7 +198,11 @@ async fn module(
     errors: &mut Vec<String>,
 ) -> Result<String> {
     let mut code = String::new();
-    for file in sql_files(dir)? {
+    let files = sql_files(dir)?;
+    if !files.is_empty() {
+        writeln!(code, "use crate::sql::Query;")?;
+    }
+    for file in files {
         let sql = fs::read_to_string(&file)?;
         let relative = file.strip_prefix(manifest_dir)?.display().to_string();
         match conn.prepare(&sql).await {
@@ -210,15 +224,19 @@ async fn module(
             }
             Err(error) => errors.push(format!("  {relative}: {error}")),
         }
+        let count = parameter_count(&sql).unwrap_or_else(|error| {
+            errors.push(format!("  {relative}: {error:#}"));
+            0
+        });
         let name = file
             .file_stem()
             .context("Query file has no name")?
             .to_string_lossy()
             .to_uppercase();
-        writeln!(code, "/// `{relative}`")?;
+        writeln!(code, "/// `{relative}`, bound parameters: {count}.")?;
         writeln!(
             code,
-            "pub(crate) const {name}: &str = include_str!({:?});",
+            "pub(crate) const {name}: Query<{count}> = Query::new(include_str!({:?}));",
             file.display().to_string()
         )?;
     }

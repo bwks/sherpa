@@ -6,19 +6,17 @@ use turso::Value;
 use crate::Database;
 use crate::persistence::{NODE_TABLE, enum_text, json_text, key_of, node_from_row};
 use crate::queries;
-use crate::sql::{query_count, query_optional};
+use crate::sql::{Bound, query_count, query_optional};
 
-/// Set columns of one node with `sql`, whose `?1` is the node's key, and return the node.
+/// Set columns of one node with `query`, whose `?1` is the node's key, and return the node.
 async fn update_columns(
     db: &Database,
     node_id: &RecordId,
-    sql: &str,
-    mut values: Vec<Value>,
+    query: Bound,
     what: &str,
 ) -> Result<DbNode> {
-    values.insert(0, key_of(node_id, NODE_TABLE)?.into());
     let writer = db.writer().await?;
-    query_optional(&writer.conn, sql, values, node_from_row)
+    query_optional(&writer.conn, query, node_from_row)
         .await
         .context(format!("Failed to update {what} for node: {node_id:?}"))?
         .ok_or_else(|| anyhow!("Node not found with id: {node_id:?}"))
@@ -46,8 +44,8 @@ pub async fn update_node_mgmt_ipv4(
     update_columns(
         db,
         &node_id,
-        queries::node::UPDATE_MGMT_IPV4,
-        vec![mgmt_ipv4.into()],
+        queries::node::UPDATE_MGMT_IPV4
+            .bind([key_of(&node_id, NODE_TABLE)?.into(), mgmt_ipv4.into()]),
         "mgmt_ipv4",
     )
     .await
@@ -75,8 +73,8 @@ pub async fn update_node_mgmt_ipv6(
     update_columns(
         db,
         &node_id,
-        queries::node::UPDATE_MGMT_IPV6,
-        vec![mgmt_ipv6.into()],
+        queries::node::UPDATE_MGMT_IPV6
+            .bind([key_of(&node_id, NODE_TABLE)?.into(), mgmt_ipv6.into()]),
         "mgmt_ipv6",
     )
     .await
@@ -104,8 +102,8 @@ pub async fn update_node_mgmt_mac(
     update_columns(
         db,
         &node_id,
-        queries::node::UPDATE_MGMT_MAC,
-        vec![mgmt_mac.into()],
+        queries::node::UPDATE_MGMT_MAC
+            .bind([key_of(&node_id, NODE_TABLE)?.into(), mgmt_mac.into()]),
         "mgmt_mac",
     )
     .await
@@ -133,18 +131,17 @@ pub async fn update_node_state_from(
     let writer = db.writer().await?;
     let node = query_optional(
         &writer.conn,
-        queries::node::UPDATE_STATE_FROM,
-        vec![
+        queries::node::UPDATE_STATE_FROM.bind([
             Value::from(key.clone()),
             enum_text(&from, "state")?.into(),
             enum_text(&to, "state")?.into(),
-        ],
+        ]),
         node_from_row,
     )
     .await
     .context(format!("Failed to update state for node: {node_id:?}"))?;
     if node.is_none() {
-        let exists = query_count(&writer.conn, queries::node::COUNT_BY_ID, [key])
+        let exists = query_count(&writer.conn, queries::node::COUNT_BY_ID.bind([key.into()]))
             .await
             .context(format!("Failed to look up node: {node_id:?}"))?;
         if exists == 0 {
@@ -168,8 +165,7 @@ pub async fn update_node_host_key(
     update_columns(
         db,
         &node_id,
-        queries::node::UPDATE_SSH_HOST_KEY,
-        vec![key.into()],
+        queries::node::UPDATE_SSH_HOST_KEY.bind([key_of(&node_id, NODE_TABLE)?.into(), key.into()]),
         "host key",
     )
     .await
@@ -190,8 +186,8 @@ pub async fn update_node_resources(
     update_columns(
         db,
         &node_id,
-        queries::node::UPDATE_RESOURCES,
-        vec![
+        queries::node::UPDATE_RESOURCES.bind([
+            key_of(&node_id, NODE_TABLE)?.into(),
             resources.cpu_count.into(),
             resources.memory.into(),
             resources.vnc_port.into(),
@@ -207,7 +203,7 @@ pub async fn update_node_resources(
                 .map(|cpus| json_text(cpus, "qemu_thread_cpus"))
                 .transpose()?
                 .into(),
-        ],
+        ]),
         "resources",
     )
     .await

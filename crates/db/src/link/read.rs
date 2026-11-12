@@ -24,8 +24,7 @@ pub async fn list_links_by_lab(db: &Database, lab: RecordId) -> Result<Vec<DbLin
     let conn = db.reader().await?;
     query_all(
         &conn,
-        queries::link::LIST_BY_LAB,
-        [key_of(&lab, LAB_TABLE)?],
+        queries::link::LIST_BY_LAB.bind([key_of(&lab, LAB_TABLE)?.into()]),
         link_from_row,
     )
     .await
