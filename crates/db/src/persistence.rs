@@ -84,15 +84,16 @@ impl<'a> Cells<'a> {
         }
     }
 
-    /// Percentages are `f32` in Sherpa and stored exactly as `REAL`: a STRICT `REAL` column
-    /// keeps whole numbers as `REAL` too.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "every value was written from an f32, so the f64 narrows back exactly"
-    )]
-    pub(crate) fn real(&mut self, field: &str) -> Result<f32> {
+    /// A percentage, 0 to 100. Percentages are `f64` in Sherpa, the width of a `REAL`, so the
+    /// value reads back exactly as it was written. A value Sherpa could not have written, such
+    /// as one edited by hand to `NaN`, infinity or above 100, is an error rather than an
+    /// impairment netem would clamp.
+    pub(crate) fn percent(&mut self, field: &str) -> Result<f64> {
         match self.next(field)? {
-            Value::Real(value) => Ok(value as f32),
+            Value::Real(value) if (0.0..=100.0).contains(&value) => Ok(value),
+            Value::Real(value) => {
+                bail!("Database field {field} is not a percentage between 0 and 100: {value}")
+            }
             other => bail!("Database field {field} is not a number: {other:?}"),
         }
     }
@@ -352,9 +353,9 @@ fn impairment_from_cells(cells: &mut Cells<'_>, direction: &str) -> Result<LinkI
     Ok(LinkImpairment {
         delay_us: cells.integer(&format!("{direction}.delay_us"))?,
         jitter_us: cells.integer(&format!("{direction}.jitter_us"))?,
-        loss_percent: cells.real(&format!("{direction}.loss_percent"))?,
-        reorder_percent: cells.real(&format!("{direction}.reorder_percent"))?,
-        corrupt_percent: cells.real(&format!("{direction}.corrupt_percent"))?,
+        loss_percent: cells.percent(&format!("{direction}.loss_percent"))?,
+        reorder_percent: cells.percent(&format!("{direction}.reorder_percent"))?,
+        corrupt_percent: cells.percent(&format!("{direction}.corrupt_percent"))?,
     })
 }
 
@@ -539,6 +540,43 @@ mod tests {
     use shared::data::{LabPhase, NodeKind, NodeModel};
 
     use super::*;
+    use crate::open_in_memory;
+
+    /// Read `value`, bound as the only column of a row, as the percentage `a_to_b.loss_percent`.
+    async fn read_percent(value: Value) -> Result<f64> {
+        let db = open_in_memory().await.unwrap();
+        let conn = db.reader().await.unwrap();
+        let mut rows = conn.query("SELECT ?1", [value]).await.unwrap();
+        let row = rows.next().await.unwrap().unwrap();
+        Cells::new(&row).percent("a_to_b.loss_percent")
+    }
+
+    #[tokio::test]
+    async fn percentages_from_0_to_100_read_back_exactly() {
+        for value in [0.0, 1.5, 100.0, 0.100_000_001] {
+            assert_eq!(read_percent(Value::Real(value)).await.unwrap(), value);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_corrupt_or_out_of_range_percentage_is_an_error_naming_the_field() {
+        for value in [
+            Value::Real(f64::INFINITY),
+            Value::Real(f64::NEG_INFINITY),
+            Value::Real(f64::NAN),
+            Value::Real(100.5),
+            Value::Real(1e300),
+            Value::Real(-0.5),
+            Value::Null,
+            Value::Text("12".to_string()),
+        ] {
+            let error = read_percent(value.clone()).await.unwrap_err().to_string();
+            assert!(
+                error.contains("a_to_b.loss_percent"),
+                "{value:?} gave: {error}"
+            );
+        }
+    }
 
     #[test]
     fn new_keys_use_the_key_alphabet_and_length() {

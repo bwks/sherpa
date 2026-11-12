@@ -38,13 +38,13 @@ pub enum LinkCommands {
         jitter: Option<u32>,
         /// Packet loss percentage (0.0-100.0)
         #[arg(long)]
-        loss: Option<f32>,
+        loss: Option<f64>,
         /// Packet reordering percentage (0.0-100.0); needs a delay
         #[arg(long)]
-        reorder: Option<f32>,
+        reorder: Option<f64>,
         /// Bit-flip corruption percentage (0.0-100.0)
         #[arg(long)]
-        corrupt: Option<f32>,
+        corrupt: Option<f64>,
         /// Remove the impairment from the directions named
         #[arg(long, conflicts_with_all = ["delay", "jitter", "loss", "reorder", "corrupt"])]
         clear: bool,

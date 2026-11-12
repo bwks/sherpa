@@ -110,6 +110,9 @@ is named by its first line, and a row that does not map by its first column, its
   `ssh_keys` and `cpu_pinning` are JSON text. Timestamps are RFC 3339 text from `jiff`, which keeps
   nanoseconds. Booleans are `0` and `1`. A link's impairments are flattened into `a_to_b_*` and
   `b_to_a_*` columns, and a bridge's members are rows of `bridge_member`, ordered by `position`.
+  Impairment percentages are `f64` in `LinkImpairment`, the width of a `REAL`, so they read back
+  exactly as written. `Cells::percent` refuses a value outside 0 to 100, which includes `NaN` and
+  infinity, naming the field: netem would otherwise clamp it silently.
 - **Record keys.** A column holds only a record's key; the table is implied by the column, and
   `Cells::record(table, field)` rebuilds the `RecordId`. `key_of` refuses an id from another table.
   New keys are 20 random characters from `SHERPA_DB_KEY_CHARSET`, the length and alphabet of the
