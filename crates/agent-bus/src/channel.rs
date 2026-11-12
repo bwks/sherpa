@@ -45,6 +45,9 @@ pub const RETENTION: Duration = Duration::from_hours(7 * 24);
 /// agent's inbox can take this name.
 pub const RECORDER: &str = "_record";
 
+/// How many messages a reader asks the bus for at a time. It must be 1: see `Channel::reader`.
+const PULL_BATCH: usize = 1;
+
 /// Where the bus is, and the CA certificate its server certificate must chain to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Endpoint {
@@ -111,6 +114,32 @@ pub struct Position {
 pub struct Delivery {
     pub message: Message,
     raw: jetstream::Message,
+}
+
+/// What one read from an inbox gave.
+pub enum Received {
+    /// An agent message from the sender its subject names; acknowledge it once handled.
+    Taken(Box<Delivery>),
+    /// A message that is not taken. It is already acknowledged, so it is not delivered again.
+    Dropped(Dropped),
+}
+
+/// A message an inbox acknowledged without handing it over, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dropped {
+    pub reason: DropReason,
+    /// What the message was, for a reader that reports each one.
+    pub detail: String,
+    pub position: Position,
+}
+
+/// Why a message was dropped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropReason {
+    /// An agent message whose `from` or `to` is not what its subject names.
+    ForeignSender,
+    /// Not an agent message at all, such as one in an older format.
+    NotAMessage,
 }
 
 impl Channel {
@@ -344,7 +373,14 @@ impl Channel {
         let waiting = info
             .num_pending
             .saturating_add(u64::try_from(info.num_ack_pending).unwrap_or(u64::MAX));
+        // One message per pull. async-nats sends the next pull once half of a batch is
+        // delivered, while the first is still open; with `max_waiting = 1` the bus drops that
+        // second pull without a word, and the reader then waits for messages that never come
+        // until it misses two idle heartbeats (about 30 s) and pulls again. A pull for one
+        // message is over once it is delivered, so the next never overlaps it.
         let messages = reader
+            .stream()
+            .max_messages_per_batch(PULL_BATCH)
             .messages()
             .await
             .with_context(|| format!("Unable to read the consumer '{name}'"))?;
@@ -545,15 +581,34 @@ impl Channel {
 
 impl Inbox {
     /// Wait for the next message. A message that is not one of ours, or whose `from` is not
-    /// the sender its subject names, is reported, acknowledged and skipped. An error the reader
-    /// recovers from (`recoverable`), such as the bus being away for a while, is reported and
-    /// reading goes on.
+    /// the sender its subject names, is reported, acknowledged and skipped.
     ///
     /// # Errors
     ///
-    /// Fails when the reader cannot go on: the inbox was deleted, or the bus refuses its pulls.
+    /// Fails as `receive` does.
     #[instrument(level = "debug", skip_all)]
     pub async fn next(&mut self) -> Result<Option<Delivery>> {
+        while let Some(received) = self.receive().await? {
+            match received {
+                Received::Taken(delivery) => return Ok(Some(*delivery)),
+                Received::Dropped(dropped) => eprintln!("{}", dropped.detail),
+            }
+        }
+        Ok(None)
+    }
+
+    /// Wait for the next message the bus delivers, and say whether it was taken. A message
+    /// that is not one of ours, or whose `from` is not the sender its subject names, is
+    /// acknowledged and returned as dropped, without a word: the caller decides what to report.
+    /// An error the reader recovers from (`recoverable`), such as the bus being away for a
+    /// while, is reported and reading goes on.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the reader cannot go on: the inbox was deleted, or the bus refuses its pulls;
+    /// or when a dropped message has no stream position or cannot be acknowledged.
+    #[instrument(level = "debug", skip_all)]
+    pub async fn receive(&mut self) -> Result<Option<Received>> {
         while let Some(raw) = self.messages.next().await {
             let raw = match raw {
                 Ok(raw) => raw,
@@ -566,23 +621,33 @@ impl Inbox {
                     return Err(error).context("Unable to read the inbox");
                 }
             };
-            match serde_json::from_slice::<Message>(&raw.payload) {
+            let (reason, detail) = match serde_json::from_slice::<Message>(&raw.payload) {
                 Ok(message) if sent_by(raw.subject.as_str(), &message) => {
-                    return Ok(Some(Delivery { message, raw }));
+                    return Ok(Some(Received::Taken(Box::new(Delivery { message, raw }))));
                 }
-                Ok(message) => eprintln!(
-                    "Refusing a message on {} that says it is from '{}' to '{}': the sender is not \
-                     the subject's",
-                    raw.subject, message.from, message.to
+                Ok(message) => (
+                    DropReason::ForeignSender,
+                    format!(
+                        "Refusing a message on {} that says it is from '{}' to '{}': the sender \
+                         is not the subject's",
+                        raw.subject, message.from, message.to
+                    ),
                 ),
-                Err(error) => {
-                    eprintln!("Skipping a message that is not an agent message: {error}");
-                }
-            }
+                Err(error) => (
+                    DropReason::NotAMessage,
+                    format!("Skipping a message that is not an agent message: {error}"),
+                ),
+            };
+            let position = position_of(&raw)?;
             raw.ack()
                 .await
                 .map_err(anyhow::Error::from_boxed)
                 .context("Unable to acknowledge a skipped message")?;
+            return Ok(Some(Received::Dropped(Dropped {
+                reason,
+                detail,
+                position,
+            })));
         }
         Ok(None)
     }
@@ -595,16 +660,7 @@ impl Delivery {
     ///
     /// Fails when the delivery has no `JetStream` metadata.
     pub fn position(&self) -> Result<Position> {
-        let info = self
-            .raw
-            .info()
-            .map_err(|error| anyhow!(error))
-            .context("The message has no stream position")?;
-        Ok(Position {
-            seq: info.stream_sequence,
-            at_ms: unix_ms(info.published.unix_timestamp_nanos()),
-            pending: info.pending,
-        })
+        position_of(&self.raw)
     }
 
     /// Tell the bus this message is handled, so it is not delivered again.
@@ -620,6 +676,23 @@ impl Delivery {
             .map_err(anyhow::Error::from_boxed)
             .context("Unable to acknowledge the message")
     }
+}
+
+/// Where `raw` is in the stream, from its delivery's metadata.
+///
+/// # Errors
+///
+/// Fails when the delivery has no `JetStream` metadata.
+fn position_of(raw: &jetstream::Message) -> Result<Position> {
+    let info = raw
+        .info()
+        .map_err(|error| anyhow!(error))
+        .context("The message has no stream position")?;
+    Ok(Position {
+        seq: info.stream_sequence,
+        at_ms: unix_ms(info.published.unix_timestamp_nanos()),
+        pending: info.pending,
+    })
 }
 
 /// The consumer behind `agent`'s inbox.

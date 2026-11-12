@@ -167,13 +167,27 @@ open an inbox whose consumer already has a pull waiting (`num_waiting > 0`), nam
 cause (an earlier `agent-bus listen <agent>` still running). A killed reader leaves no claim
 behind.
 
+Every reader (`Channel::reader`, for an inbox and for `_record`) pulls one message at a time
+(`PULL_BATCH = 1`). async-nats's default pull asks for 200 and sends the next pull once 100 of
+them are delivered, while the first is still open. With `max_waiting = 1` the bus (nats-server
+2.15.2) drops that second pull without replying: no 409, no heartbeat, nothing after the first
+pull ends either. The client counts it as open, so it waits until it misses two idle heartbeats
+(about 30 s) and pulls again. A pull for one message is over once that message is delivered, so
+the next pull never overlaps it. Each message then costs a pull as well as its acknowledgement;
+both go out together, so it is one round trip per message, which `_record` already paid
+through `max_ack_pending = 1`. A reader has a pull waiting only while it waits for a message, not
+while it handles one, so the second-reader check above does not see a reader in that window.
+The guest acknowledges each message as it reads it and `listen` journals, prints and
+acknowledges it, so the window is milliseconds per message.
+
 ## Messages
 
 Every message is one JSON object, published to `agents.<to>.<from>` and stored by JetStream
 before `send` returns (`src/message.rs`, `Channel::send`). A guest may publish only under its own
 name (see [The rendered config](#the-rendered-config)), and a reader drops, logs and
 acknowledges a message whose `to` and `from` are not its subject's (`channel::sent_by`;
-catching the record up skips it too), so a guest cannot pose as another agent.
+catching the record up acknowledges it too, without recording it), so a guest cannot pose as
+another agent.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -997,8 +1011,15 @@ process does not see.
    file (`files::lock_holder` reads it); a command that cannot take the lock in time fails with
    "The record is busy: process <pid> has held <state>/record.lock for more than 5s".
 3. Open the record and bring its schema up to date.
-4. Catch up from `_record` (`record::catch_up`): record what waits, and stop when the last
-   delivery says nothing is pending or nothing comes for 2 s. Each message is:
+4. Catch up from `_record` (`record::catch_up`): read until a delivery's metadata says the
+   consumer has nothing left to deliver (`Position::pending` is 0), however many pulls that
+   takes. Each read waits up to 2 s on its own (`CATCH_UP_IDLE`); a bus that delivers nothing
+   for that long while messages still wait leaves the record not caught up (below). A message
+   that is not taken (its sender is not the subject's, or it is not an agent message) is
+   acknowledged and counted, not recorded, and the command prints one line with the counts by
+   reason ("Acknowledged without recording: 1400 whose sender is not the subject's, 3 that are
+   not agent messages"), not a line per message; `listen` and the guest still print one line
+   per dropped message, since there each is a live event to see as it comes. Each message is:
    1. one transaction: the `message` row (the stream sequence is the key, `ON CONFLICT DO
       NOTHING`), the task's row read, updated (`store::task::apply`) and written back, and for
       an outcome that carries a run's `usage`, the `run` row and a `run_model` row per model;
@@ -1010,12 +1031,21 @@ process does not see.
    database close, then the lock is released. The command prints after that.
 
 When catching up fails (the bus cannot be reached, `AGENT_BUS_SEED` is not set, the consumer is
-missing or has another reader, or a message cannot be recorded), the command prints "Showing
-what was recorded before: not caught up with the bus: <reason>" and answers from what is
-recorded. A message that was not recorded was not acknowledged, so the next command gets it.
+missing or has another reader, the bus stops delivering while messages still wait, or a message
+cannot be recorded), the command prints "Showing what was recorded before: not caught up with
+the bus: <reason>" and answers from what is recorded. A message that was not recorded was not
+acknowledged, so the next command gets it. The bus stops delivering, for example, when a
+command died between delivery and acknowledgement: with `max_ack_pending = 1` the bus holds
+every later message until that one's acknowledgement wait (30 s) runs out and it is delivered
+again.
 
 `max_ack_pending = 1` keeps one message in flight, so messages are recorded in stream order even
-when one is delivered again. As a second guard, a message older than the task's newest recorded
+when one is delivered again. A larger value would let the bus deliver later messages while an
+unacknowledged one waits out its acknowledgement wait, so they would be recorded before it, and
+`store::task::apply` folds a task's messages in order. It costs little: catching up 6,050
+messages (release build, bus on loopback) took 28.5 s, of which 25.1 s was recording (one
+transaction and commit per message) and about 3.3 s waiting on the bus. Committing several
+messages per transaction is the lever if catch-up needs to be faster. As a second guard, a message older than the task's newest recorded
 one does not change its state, result, model or usage; it still adds its counts and the prompt.
 `_record` reads every subject, so the record holds what the host sent too; the host inbox and
 `listen` are untouched. Between commands, the stream keeps what the record has not taken yet.
@@ -1410,8 +1440,9 @@ not reach the builds and tests Claude runs.
   If a task prints either, the agent redacts it from what it sends and records, but Claude
   Code's own session transcript in `~/.claude/` keeps the tool output as printed.
 - **The record is one process's at a time.** Commands take turns on `record.lock`; one that
-  waits more than 5 s fails naming the holder's PID. Each command catches up first, which takes
-  a moment after a busy stretch (seconds for the first backfill of 7 days), and nothing records
+  waits more than 5 s fails naming the holder's PID. Each command catches up first, about 5 ms a
+  message (half a minute for 6,000), so a command started while another catches up a large
+  backlog can fail on the lock and must be run again; and nothing records
   while no command runs: the stream holds those messages for 7 days. The record holds every
   task's text and results, so it is as private as the state directory.
 - **The registry is trusted as written.** Anyone who can write the host's state directory can
