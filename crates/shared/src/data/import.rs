@@ -81,14 +81,25 @@ pub struct ImportResponse {
     pub default: bool,
 }
 
-/// Request type for scanning on-disk images
+/// Request type for scanning for images that are present but not recorded: disk images in the
+/// images directory, and container images in local Docker.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ScanImagesRequest {
-    /// Optional kind filter; only `virtual_machine` is supported
+    /// Optional kind filter: `virtual_machine`, `container` or `unikernel`. With none, every
+    /// kind is scanned.
     pub kind: Option<NodeKind>,
     /// If true, only report what would be imported without making changes
     #[serde(default)]
     pub dry_run: bool,
+    /// A container model to record `repo`'s local Docker tags for, given with `repo`. Without
+    /// them, container images are matched to the models that have a built-in repo, and the
+    /// others are reported as skipped.
+    #[serde(default)]
+    pub model: Option<NodeModel>,
+    /// The repository, without a tag (e.g. `mysql` or `ghcr.io/nokia/srlinux`), whose local
+    /// tags are recorded as versions of `model`. Given with `model`.
+    #[serde(default)]
+    pub repo: Option<String>,
 }
 
 /// A single scanned image result
@@ -100,11 +111,21 @@ pub struct ScannedImage {
     pub status: String,
 }
 
-/// Response from scanning on-disk images
+/// A model an image scan could not match images to, and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SkippedModel {
+    pub model: NodeModel,
+    pub reason: String,
+}
+
+/// Response from scanning for images
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ScanImagesResponse {
     /// List of scanned image results
     pub scanned: Vec<ScannedImage>,
+    /// Models the scan skipped, such as container models with no built-in repo
+    #[serde(default)]
+    pub skipped: Vec<SkippedModel>,
     /// Total number of images imported (new or updated)
     pub total_imported: usize,
 }

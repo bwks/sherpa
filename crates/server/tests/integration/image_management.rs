@@ -1,6 +1,9 @@
-use anyhow::Result;
-use serde_json::json;
+use anyhow::{Context, Result};
+use bollard::query_parameters::{RemoveImageOptions, TagImageOptions};
+use serde_json::{Value, json};
 use std::time::Duration;
+
+use shared::data::{NodeKind, NodeModel};
 
 use crate::helpers::test_server::TestServer;
 use crate::helpers::ws_client::TestWsClient;
@@ -27,6 +30,223 @@ async fn test_image_scan_discovers_images() -> Result<()> {
         "image.scan should succeed: {response:?}"
     );
     // Status messages are emitted per discovered image; OK if none found on a clean env
+
+    Ok(())
+}
+
+/// The status the scan in `response` gave `model` at `version`, if it found it.
+fn scanned_status<'a>(response: &'a Value, model: &str, version: &str) -> Option<&'a str> {
+    response["result"]["scanned"]
+        .as_array()?
+        .iter()
+        .find(|image| image["model"] == model && image["version"] == version)?["status"]
+        .as_str()
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon and internet access to pull an image"]
+async fn test_image_scan_records_a_local_image_for_a_model_and_repo() -> Result<()> {
+    container::pull_image("busybox", "1.36", |_| {}).await?;
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+    let scan = |dry_run: bool| {
+        json!({
+            "token": token,
+            "kind": "container",
+            "dry_run": dry_run,
+            "model": "generic_container",
+            "repo": "busybox",
+        })
+    };
+
+    let dry_run = ws.rpc_call("image.scan", scan(true)).await?;
+
+    assert_eq!(
+        scanned_status(&dry_run, "generic_container", "1.36"),
+        Some("would_import (default)"),
+        "{dry_run:?}"
+    );
+    let unrecorded = db::find_node_image_by_model_kind_version(
+        &server.db,
+        &NodeModel::GenericContainer,
+        &NodeKind::Container,
+        "1.36",
+    )
+    .await?;
+    assert!(unrecorded.is_none(), "a dry run records nothing");
+
+    let scanned = ws.rpc_call("image.scan", scan(false)).await?;
+
+    assert_eq!(
+        scanned_status(&scanned, "generic_container", "1.36"),
+        Some("imported (default)"),
+        "{scanned:?}"
+    );
+    let record = db::find_node_image_by_model_kind_version(
+        &server.db,
+        &NodeModel::GenericContainer,
+        &NodeKind::Container,
+        "1.36",
+    )
+    .await?
+    .context("the scan should record busybox:1.36 for generic_container")?;
+    assert_eq!(record.repo.as_deref(), Some("busybox"));
+    assert!(record.default);
+
+    let rescanned = ws.rpc_call("image.scan", scan(false)).await?;
+
+    assert_eq!(
+        scanned_status(&rescanned, "generic_container", "1.36"),
+        Some("already_exists"),
+        "{rescanned:?}"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon and internet access to pull an image"]
+async fn test_image_scan_matches_a_built_in_repo_and_skips_models_without_one() -> Result<()> {
+    container::pull_image("nats", "2.10-alpine", |_| {}).await?;
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+
+    let response = ws
+        .rpc_call("image.scan", json!({ "token": token, "kind": "container" }))
+        .await?;
+
+    assert_eq!(
+        scanned_status(&response, "nats_bus", "2.10-alpine").map(|s| s.starts_with("imported")),
+        Some(true),
+        "{response:?}"
+    );
+    let record = db::find_node_image_by_model_kind_version(
+        &server.db,
+        &NodeModel::NatsBus,
+        &NodeKind::Container,
+        "2.10-alpine",
+    )
+    .await?
+    .context("the scan should record nats:2.10-alpine for nats_bus")?;
+    assert_eq!(record.repo.as_deref(), Some("nats"));
+    let skipped: Vec<&str> = response["result"]["skipped"]
+        .as_array()
+        .context("the scan should list skipped models")?
+        .iter()
+        .filter_map(|model| model["model"].as_str())
+        .collect();
+    assert_eq!(skipped, ["mysql_db", "postgresql_db", "generic_container"]);
+
+    Ok(())
+}
+
+/// The versions a dry-run scan of `repo` for `generic_container` would record.
+async fn dry_run_versions(ws: &mut TestWsClient, token: &str, repo: &str) -> Result<Vec<String>> {
+    let response = ws
+        .rpc_call(
+            "image.scan",
+            json!({
+                "token": token,
+                "kind": "container",
+                "dry_run": true,
+                "model": "generic_container",
+                "repo": repo,
+            }),
+        )
+        .await?;
+    let scanned = response["result"]["scanned"]
+        .as_array()
+        .with_context(|| format!("the scan of {repo} should list what it found: {response:?}"))?;
+    Ok(scanned
+        .iter()
+        .filter_map(|image| image["version"].as_str().map(ToString::to_string))
+        .collect())
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon and internet access to pull an image"]
+async fn test_image_scan_matches_a_docker_hub_repo_by_its_short_and_full_name_only() -> Result<()> {
+    container::pull_image("busybox", "1.36", |_| {}).await?;
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+
+    for repo in ["busybox", "docker.io/library/busybox"] {
+        let versions = dry_run_versions(&mut ws, &token, repo).await?;
+        assert!(
+            versions.contains(&"1.36".to_string()),
+            "{repo}: {versions:?}"
+        );
+    }
+    for repo in ["docker.io/busybox", "index.docker.io/library/busybox"] {
+        let versions = dry_run_versions(&mut ws, &token, repo).await?;
+        assert!(versions.is_empty(), "{repo}: {versions:?}");
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon and internet access to pull an image"]
+async fn test_image_scan_does_not_match_a_repo_by_its_prefix() -> Result<()> {
+    const REPO: &str = "sherpa-test-image-scan";
+    container::pull_image("busybox", "1.36", |_| {}).await?;
+    let docker = container::docker_connection()?;
+    let others = [
+        "sherpa-test-image-scan-box",
+        "sherpa-test/sherpa-test-image-scan",
+    ];
+    for repo in others {
+        docker
+            .tag_image(
+                "busybox:1.36",
+                Some(TagImageOptions {
+                    repo: Some(repo.to_string()),
+                    tag: Some("1".to_string()),
+                }),
+            )
+            .await?;
+    }
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+
+    let versions = dry_run_versions(&mut ws, &token, REPO).await;
+
+    for repo in others {
+        docker
+            .remove_image(&format!("{repo}:1"), None::<RemoveImageOptions>, None)
+            .await?;
+    }
+    let versions = versions?;
+    assert!(versions.is_empty(), "{REPO}: {versions:?}");
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon"]
+async fn test_image_scan_refuses_a_repo_with_a_tag() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+
+    let response = ws
+        .rpc_call(
+            "image.scan",
+            json!({
+                "token": token,
+                "kind": "container",
+                "model": "mysql_db",
+                "repo": "mysql:8.4",
+            }),
+        )
+        .await?;
+
+    let error = response["error"].to_string();
+    assert!(error.contains("without a tag"), "{response:?}");
 
     Ok(())
 }

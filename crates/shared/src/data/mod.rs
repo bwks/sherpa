@@ -66,6 +66,7 @@ pub use import::{
     DownloadImageRequest, ImageSummary, ImportRequest, ImportResponse, ListImagesRequest,
     ListImagesResponse, ScanImagesRequest, ScanImagesResponse, ScannedImage,
     SetDefaultImageRequest, SetDefaultImageResponse, ShowImageRequest, ShowImageResponse,
+    SkippedModel,
 };
 pub use inspect::{BridgeInfo, DeviceInfo, InspectRequest, InspectResponse, LinkInfo};
 pub use interface::{
