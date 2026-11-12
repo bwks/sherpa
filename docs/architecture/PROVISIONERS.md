@@ -49,7 +49,7 @@ so nothing is lost by not serializing it.
 
 | File | Role |
 |---|---|
-| `run.rs` | `provision_lab`: selects nodes with ssh provisioners (or `--node`), skips nodes missing from the ready list, runs the nodes concurrently (see [Concurrency](#concurrency)), prints `shared::util::render_provision_table` with any results passed in for container nodes, fails if any node was not provisioned |
+| `run.rs` | `provision_lab`: selects nodes with ssh provisioners (or `--node`), skips nodes missing from the ready list, runs the nodes concurrently (see [Concurrency](#concurrency)), prints `table::render_provision_table` with any results passed in for container nodes, fails if any node was not provisioned |
 | `container.rs` | `container_secrets`/`node_secrets`: reads container provisioner files into `shared::data::SecretFile`s; `container_results` reports them |
 | `client_files.rs` | Client path rules shared by both types: `~` expanded, relative paths from the manifest's folder |
 | `env_file.rs` | Resolving `KEY=$NAME` lines of env files from the client's environment |

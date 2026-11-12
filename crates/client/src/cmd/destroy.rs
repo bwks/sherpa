@@ -8,12 +8,13 @@ use shared::data::{ClientConfig, DestroyResponse, InspectResponse, NodeInfo};
 use shared::konst::SHERPA_SSH_CONFIG_FILE;
 use shared::util::{
     Emoji, LabFolder, confirm, display_destroy_results, get_cwd, get_user_ssh_dir,
-    remove_lab_ssh_include_at, render_lab_info_table, render_nodes_table, term_msg_surround,
+    remove_lab_ssh_include_at, term_msg_surround,
 };
 
 use super::outcome::ensure_lab_destroyed;
 use super::progress::print_status;
 use crate::lab_folder_migration::legacy_lab_files;
+use crate::table::{render_lab_info_table, render_nodes_table};
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 

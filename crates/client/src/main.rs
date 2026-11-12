@@ -9,6 +9,7 @@ mod lab_folder_migration;
 mod private_key;
 mod provision;
 mod ssh_client;
+mod table;
 mod token;
 mod vault_credentials;
 mod ws_client;

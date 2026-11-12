@@ -1,6 +1,6 @@
 //! The usage report of `agent-bus usage`: one row per task from the record, and a total row.
 
-use shared::util::render_modern_table;
+use shared::util::{TableLayout, render_table};
 
 use crate::message::{TaskUsage, cache_hit_permille};
 use crate::store::TaskState;
@@ -39,7 +39,7 @@ pub fn table(rows: &[Row]) -> String {
         return "No usage recorded".to_owned();
     }
     let mut total = TaskUsage::default();
-    let mut cells: Vec<Vec<String>> = rows
+    let mut cells: Vec<[String; 8]> = rows
         .iter()
         .map(|row| {
             if let Some(usage) = &row.usage {
@@ -60,7 +60,14 @@ pub fn table(rows: &[Row]) -> String {
         })
         .collect();
     cells.push(line("total", "", "", Some(&total), ""));
-    render_modern_table(&HEADERS, &cells, &NUMBER_COLUMNS)
+    render_table(
+        HEADERS,
+        &cells,
+        &TableLayout {
+            right: &NUMBER_COLUMNS,
+            ..TableLayout::default()
+        },
+    )
 }
 
 fn line(
@@ -69,7 +76,7 @@ fn line(
     model: &str,
     usage: Option<&TaskUsage>,
     state: &str,
-) -> Vec<String> {
+) -> [String; 8] {
     let na = || "n/a".to_owned();
     let (runs, cost, hit, tokens) = match usage {
         Some(usage) => (
@@ -83,7 +90,7 @@ fn line(
         ),
         None => (na(), na(), na(), na()),
     };
-    vec![
+    [
         task.to_owned(),
         agent.to_owned(),
         model.to_owned(),

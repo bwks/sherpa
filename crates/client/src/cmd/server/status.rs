@@ -2,9 +2,10 @@ use std::time::Duration;
 
 use anyhow::Result;
 
-use crate::ws_client::WebSocketClient;
 use shared::data::ServerConnection;
-use shared::util::render_server_status_table;
+
+use crate::table::render_server_status_table;
+use crate::ws_client::WebSocketClient;
 
 /// Check if the Sherpa server is listening by attempting a WebSocket connection.
 pub async fn status(server_url: &str, server_connection: &ServerConnection) -> Result<()> {

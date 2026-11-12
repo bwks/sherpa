@@ -7,11 +7,11 @@ use tracing::instrument;
 use shared::data::{ClientConfig, ListLabsResponse};
 use shared::util::{
     Emoji, SshConfigEntryStatus, SshConfigInspectionEntry, clean_stale_lab_ssh_includes,
-    get_user_ssh_dir, inspect_lab_ssh_includes, render_ssh_config_inspection_table,
-    term_msg_surround,
+    get_user_ssh_dir, inspect_lab_ssh_includes, term_msg_surround,
 };
 
 use crate::lab_folder_migration::migrate_registered_lab_folders;
+use crate::table::render_ssh_config_inspection_table;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 

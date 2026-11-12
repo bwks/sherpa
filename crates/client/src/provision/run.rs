@@ -10,7 +10,6 @@ use jato::{PromptCache, SshConfig};
 use shared::data::{ProvisionResult, ProvisionStatus};
 use shared::konst::{PROVISION_CONCURRENCY, READINESS_TIMEOUT};
 use shared::util::LabFolder;
-use shared::util::render_provision_table;
 use topology::validate::validate_provisioners;
 use topology::{Manifest, Node, Provisioner};
 
@@ -18,6 +17,7 @@ use super::output::NodeOutput;
 use super::ssh::{provision, wait_for_node};
 use super::transport::SshTarget;
 use crate::ssh_client::HostKeyRefresh;
+use crate::table::render_provision_table;
 
 /// What every node of one run shares.
 struct LabRun<'a> {

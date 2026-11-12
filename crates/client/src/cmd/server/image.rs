@@ -6,13 +6,12 @@ use shared::konst::{
     CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO, CONTAINER_HASHICORP_VAULT_REPO,
     CONTAINER_KEYCLOAK_REPO, CONTAINER_MONGO_DB_REPO, CONTAINER_NOKIA_SRLINUX_REPO,
 };
-use shared::util::{
-    emoji_success, render_image_detail_table, render_images_table, render_scanned_images_table,
-};
+use shared::util::emoji_success;
 
 use super::OutputFormat;
 use super::{rpc_call, rpc_call_streaming};
 use crate::cmd::progress::status_emoji;
+use crate::table::{render_image_detail_table, render_images_table, render_scanned_images_table};
 
 /// Which kind of image an image command works on: at most one may be given, and none means
 /// every kind.

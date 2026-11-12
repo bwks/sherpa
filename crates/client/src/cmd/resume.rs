@@ -1,5 +1,4 @@
 use anyhow::{Context, Result, bail};
-use shared::util::render_tailnet_table;
 use std::time::Duration;
 
 use shared::data::{ClientConfig, LabNodeActionResponse};
@@ -14,6 +13,7 @@ use crate::cmd::interrupt::{
 };
 use crate::cmd::outcome::{ensure_nodes_succeeded, print_link_reports};
 use crate::cmd::tailscale_key::resolve_resume_tailscale_key;
+use crate::table::render_tailnet_table;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 

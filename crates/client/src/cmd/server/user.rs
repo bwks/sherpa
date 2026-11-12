@@ -8,13 +8,12 @@ use clap::Subcommand;
 use shared::auth::jwt::Claims;
 use shared::data::{self, ServerConnection};
 use shared::konst::SSH_KEYS_DOCS_URL;
-use shared::util::{
-    confirm, emoji_success, emoji_warning, expand_path, normalize_username, render_ssh_keys_table,
-};
+use shared::util::{confirm, emoji_success, emoji_warning, expand_path, normalize_username};
 use shared::validators::validate_username;
 
 use super::OutputFormat;
 use super::rpc_call;
+use crate::table::render_ssh_keys_table;
 use crate::token::load_token;
 
 #[derive(Debug, Subcommand)]

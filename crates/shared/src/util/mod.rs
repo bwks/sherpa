@@ -14,6 +14,7 @@ mod output;
 mod random;
 mod sanitizers;
 mod ssh;
+#[cfg(feature = "table")]
 mod table;
 mod text;
 mod user;
@@ -66,13 +67,8 @@ pub use ssh::{
     pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, remove_lab_ssh_include,
     remove_lab_ssh_include_at, replace_lab_ssh_include, ssh_key_fingerprint,
 };
-pub use table::{
-    CertificateTableInfo, render_backup_table, render_bridges_table, render_certificates_table,
-    render_devices_table, render_image_detail_table, render_images_table, render_lab_info_table,
-    render_links_table, render_modern_table, render_nodes_table, render_provision_table,
-    render_scanned_images_table, render_server_status_table, render_ssh_config_inspection_table,
-    render_ssh_keys_table, render_tailnet_table,
-};
+#[cfg(feature = "table")]
+pub use table::{TableLayout, render_table};
 pub use text::split_node_int;
 pub use user::{get_username, normalize_username, sherpa_user};
 

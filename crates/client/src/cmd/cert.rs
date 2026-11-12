@@ -6,11 +6,12 @@ use anyhow::{Context, Result};
 use url::Url;
 
 use shared::konst::SHERPA_SERVER_WS_PORT;
-
 use shared::tls::{
     TrustStore, extract_cert_info, fetch_server_certificate, print_certificate_info,
 };
-use shared::util::{CertificateTableInfo, Emoji, confirm, render_certificates_table};
+use shared::util::{Emoji, confirm};
+
+use crate::table::{CertificateTableInfo, render_certificates_table};
 
 /// List all trusted certificates
 pub fn cert_list() -> Result<()> {

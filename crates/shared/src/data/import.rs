@@ -1,6 +1,5 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tabled::Tabled;
 
 use super::node::{NodeConfig, NodeKind, NodeModel};
 
@@ -14,15 +13,11 @@ pub struct ListImagesRequest {
 }
 
 /// Summary of an imported image for display purposes
-#[derive(Debug, Clone, Serialize, Deserialize, Tabled, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ImageSummary {
-    #[tabled(rename = "Model")]
     pub model: NodeModel,
-    #[tabled(rename = "Kind")]
     pub kind: NodeKind,
-    #[tabled(rename = "Version")]
     pub version: String,
-    #[tabled(rename = "Default")]
     pub default: bool,
 }
 
@@ -97,15 +92,11 @@ pub struct ScanImagesRequest {
 }
 
 /// A single scanned image result
-#[derive(Debug, Clone, Serialize, Deserialize, Tabled, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ScannedImage {
-    #[tabled(rename = "Model")]
     pub model: NodeModel,
-    #[tabled(rename = "Version")]
     pub version: String,
-    #[tabled(rename = "Kind")]
     pub kind: NodeKind,
-    #[tabled(rename = "Status")]
     pub status: String,
 }
 

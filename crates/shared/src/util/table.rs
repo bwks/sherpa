@@ -1,626 +1,78 @@
+//! Terminal tables in the house style: `Style::modern()`, laid out by a [`TableLayout`].
+//!
+//! Callers map each item they show to one row of cells, `[String; N]`, and pass `N` headers, so
+//! the compiler checks that every row has a cell for each header. Behind the `table` feature,
+//! which is the only thing that builds `tabled`.
+
 use tabled::{
-    Table, Tabled,
     builder::Builder,
     settings::{
-        Alignment, Modify, Panel, Remove, Style, Width,
+        Alignment, Modify, Panel, Style, Width,
         object::{Columns, Rows},
         peaker::PriorityMax,
         themes::BorderCorrection,
     },
 };
 
-use super::ssh::{SshConfigInspectionEntry, ssh_key_fingerprint};
-use crate::data::{
-    BackupResponse, BridgeInfo, DeviceInfo, ImageSummary, LabInfo, LinkInfo, NodeConfig, NodeInfo,
-    ProvisionResult, ScannedImage, TailnetStatus,
-};
-
-/// Represents a row in the SSH config inspection table
-#[derive(Tabled)]
-struct SshConfigInspectionTableRow {
-    #[tabled(rename = "Line")]
-    line: String,
-
-    #[tabled(rename = "Lab ID")]
-    lab_id: String,
-
-    #[tabled(rename = "Status")]
-    status: String,
-
-    #[tabled(rename = "Path")]
-    path: String,
-
-    #[tabled(rename = "Reason")]
-    reason: String,
+/// How [`render_table`] lays a table out. Set the fields a table needs and take the rest from
+/// [`TableLayout::default`]: no title, left-aligned columns, no width bound, and a header row.
+/// The fields compose: any combination of them can be used together.
+#[derive(Debug, Clone)]
+pub struct TableLayout<'a> {
+    /// Shown in a centred panel above the table.
+    pub title: Option<&'a str>,
+    /// The indices of the columns whose cells are right-aligned, such as columns of numbers.
+    pub right: &'a [usize],
+    /// The widest the table may be, title, borders and padding included. The widest column is
+    /// wrapped first, at word boundaries where it can be.
+    pub wrap_width: Option<usize>,
+    /// Whether the headers are shown as the first row. `false` for a table of label and value
+    /// pairs, whose first column names each row.
+    pub header_row: bool,
 }
 
-/// Renders Sherpa SSH config inspection results.
-#[must_use]
-pub fn render_ssh_config_inspection_table(entries: &[SshConfigInspectionEntry]) -> String {
-    let rows: Vec<SshConfigInspectionTableRow> = entries
-        .iter()
-        .map(|entry| SshConfigInspectionTableRow {
-            line: entry.line_number.to_string(),
-            lab_id: entry.lab_id.as_deref().unwrap_or("-").to_string(),
-            status: entry.status.to_string(),
-            path: entry.include_path.clone(),
-            reason: entry.reason.clone(),
-        })
-        .collect();
-
-    Table::new(rows)
-        .with(Style::modern())
-        .with(Panel::header("Sherpa SSH Config Includes"))
-        .with(Modify::new(Rows::first()).with(Alignment::center()))
-        .with(BorderCorrection::span())
-        .to_string()
-}
-
-/// Represents a row in the nodes table
-#[derive(Tabled)]
-struct NodeTableRow {
-    #[tabled(rename = "Node")]
-    node: String,
-
-    #[tabled(rename = "Mgmt IP")]
-    mgmt_ip: String,
-
-    #[tabled(rename = "Connection")]
-    connection: String,
-
-    #[tabled(rename = "Node Model")]
-    node_model: String,
-}
-
-/// Renders a table of nodes with their management IP, connection info, and model
-///
-/// # Arguments
-/// * `nodes` - Slice of `NodeInfo` structs to display in the table
-/// * `lab_id` - Lab ID appended to each node name, as `<name>.<lab_id>`
-///
-/// # Returns
-/// A formatted table string using modern Unicode box-drawing characters
-///
-#[must_use]
-pub fn render_nodes_table(nodes: &[NodeInfo], lab_id: &str) -> String {
-    let rows: Vec<NodeTableRow> = nodes
-        .iter()
-        .map(|node| {
-            let mgmt_ip = node.ip_address.as_deref().unwrap_or("-");
-            let connection = match (&node.ip_address, node.ssh_port) {
-                (Some(ip), Some(port)) => format!("{ip}:{port}"),
-                _ => "-".to_string(),
-            };
-            let node_model = node.model.to_string();
-
-            NodeTableRow {
-                node: format!("{}.{lab_id}", node.name),
-                mgmt_ip: mgmt_ip.to_string(),
-                connection,
-                node_model,
-            }
-        })
-        .collect();
-
-    Table::new(rows)
-        .with(Style::modern())
-        .with(Panel::header("Nodes"))
-        .with(Modify::new(Rows::first()).with(Alignment::center()))
-        .with(BorderCorrection::span())
-        .to_string()
-}
-
-/// Represents a row in the devices table
-#[derive(Tabled)]
-struct DeviceTableRow {
-    #[tabled(rename = "Device")]
-    device: String,
-
-    #[tabled(rename = "Model")]
-    model: String,
-
-    #[tabled(rename = "Kind")]
-    kind: String,
-
-    #[tabled(rename = "State")]
-    state: String,
-
-    #[tabled(rename = "Mgmt IPv4")]
-    mgmt_ip: String,
-
-    #[tabled(rename = "Mgmt IPv6")]
-    mgmt_ipv6: String,
-
-    #[tabled(rename = "CPU")]
-    cpu_count: String,
-
-    #[tabled(rename = "Memory (MB)")]
-    memory: String,
-
-    #[tabled(rename = "VNC Port")]
-    vnc_port: String,
-
-    #[tabled(rename = "Disks")]
-    disks: String,
-}
-
-/// Renders a table of devices with their model, kind, state, management IPs, vCPUs, memory,
-/// VNC port and disks
-///
-/// # Arguments
-/// * `devices` - Slice of `DeviceInfo` structs to display in the table
-/// * `lab_id` - Lab ID appended to each device name, as `<name>.<lab_id>`
-///
-/// # Returns
-/// A formatted table string using modern Unicode box-drawing characters
-///
-#[must_use]
-pub fn render_devices_table(devices: &[DeviceInfo], lab_id: &str) -> String {
-    let rows: Vec<DeviceTableRow> = devices
-        .iter()
-        .map(|device| {
-            let mgmt_ip = if device.mgmt_ipv4.is_empty() {
-                "-".to_string()
-            } else {
-                device.mgmt_ipv4.clone()
-            };
-            // Format disks - join multiple disks with newline for table display
-            let disks = if device.disks.is_empty() {
-                "-".to_string()
-            } else {
-                device.disks.join("\n")
-            };
-
-            let vnc_port = match device.vnc_port {
-                Some(port) => port.to_string(),
-                None => "-".to_string(),
-            };
-
-            let mgmt_ipv6 = device.mgmt_ipv6.as_deref().unwrap_or("-").to_string();
-
-            // Containers have no limits, so they show "-".
-            let cpu_count = match device.cpu_count {
-                Some(count) => count.to_string(),
-                None => "-".to_string(),
-            };
-            let memory = match device.memory {
-                Some(memory) => memory.to_string(),
-                None => "-".to_string(),
-            };
-
-            DeviceTableRow {
-                device: format!("{}.{lab_id}", device.name),
-                model: device.model.to_string(),
-                kind: device.kind.to_string(),
-                state: device.state.to_string(),
-                mgmt_ip,
-                mgmt_ipv6,
-                cpu_count,
-                memory,
-                vnc_port,
-                disks,
-            }
-        })
-        .collect();
-
-    Table::new(rows)
-        .with(Style::modern())
-        .with(Panel::header("Active Nodes"))
-        .with(Modify::new(Rows::first()).with(Alignment::center()))
-        .with(BorderCorrection::span())
-        .to_string()
-}
-
-/// Represents a row in the links table
-#[derive(Tabled)]
-struct LinkTableRow {
-    #[tabled(rename = "Node A")]
-    node_a: String,
-
-    #[tabled(rename = "Interface A")]
-    int_a: String,
-
-    #[tabled(rename = "Node B")]
-    node_b: String,
-
-    #[tabled(rename = "Interface B")]
-    int_b: String,
-
-    #[tabled(rename = "Type")]
-    kind: String,
-}
-
-/// Renders a table of point-to-point links between nodes
-#[must_use]
-pub fn render_links_table(links: &[LinkInfo]) -> String {
-    let rows: Vec<LinkTableRow> = links
-        .iter()
-        .map(|link| LinkTableRow {
-            node_a: link.node_a_name.clone(),
-            int_a: link.int_a.clone(),
-            node_b: link.node_b_name.clone(),
-            int_b: link.int_b.clone(),
-            kind: link.kind.to_string(),
-        })
-        .collect();
-
-    Table::new(rows)
-        .with(Style::modern())
-        .with(Panel::header("Links"))
-        .with(Modify::new(Rows::first()).with(Alignment::center()))
-        .with(BorderCorrection::span())
-        .to_string()
-}
-
-/// Represents a row in the bridges table
-#[derive(Tabled)]
-struct BridgeTableRow {
-    #[tabled(rename = "Bridge")]
-    bridge_name: String,
-
-    #[tabled(rename = "Network")]
-    network_name: String,
-
-    #[tabled(rename = "Connected Nodes")]
-    connected_nodes: String,
-}
-
-/// Renders a table of shared bridges connecting multiple nodes
-#[must_use]
-pub fn render_bridges_table(bridges: &[BridgeInfo]) -> String {
-    let rows: Vec<BridgeTableRow> = bridges
-        .iter()
-        .map(|bridge| BridgeTableRow {
-            bridge_name: bridge.bridge_name.clone(),
-            network_name: bridge.network_name.clone(),
-            connected_nodes: bridge.connected_nodes.join(", "),
-        })
-        .collect();
-
-    Table::new(rows)
-        .with(Style::modern())
-        .with(Panel::header("Bridges"))
-        .with(Modify::new(Rows::first()).with(Alignment::center()))
-        .with(BorderCorrection::span())
-        .to_string()
-}
-
-#[derive(Tabled)]
-struct ProvisionTableRow {
-    #[tabled(rename = "Node")]
-    node: String,
-
-    #[tabled(rename = "Status")]
-    status: String,
-
-    #[tabled(rename = "Detail")]
-    detail: String,
-}
-
-/// Renders the result of running provisioners on a lab's nodes
-#[must_use]
-pub fn render_provision_table(results: &[ProvisionResult], lab_id: &str) -> String {
-    let mut rows = Vec::with_capacity(results.len());
-    for result in results {
-        rows.push(ProvisionTableRow {
-            node: format!("{}.{lab_id}", result.node),
-            status: result.status.to_string(),
-            detail: result.detail.clone(),
-        });
+impl Default for TableLayout<'_> {
+    fn default() -> Self {
+        Self {
+            title: None,
+            right: &[],
+            wrap_width: None,
+            header_row: true,
+        }
     }
-
-    Table::new(rows)
-        .with(Style::modern())
-        .with(Panel::header("Provisioning"))
-        .with(Modify::new(Rows::first()).with(Alignment::center()))
-        .with(BorderCorrection::span())
-        .to_string()
 }
 
-/// Represents a row in the lab info table (two-column format)
-#[derive(Tabled)]
-struct LabInfoTableRow {
-    #[tabled(rename = "Property")]
-    property: String,
-
-    #[tabled(rename = "Value")]
-    value: String,
-}
-
-/// Renders a two-column table of lab information
+/// Renders `rows` under `headers`, laid out by `layout`.
 #[must_use]
-pub fn render_lab_info_table(lab_info: &LabInfo) -> String {
-    let mut rows = vec![
-        ("ID", lab_info.id.clone()),
-        ("Name", lab_info.name.clone()),
-        ("User", lab_info.user.clone()),
-        ("Management Network", lab_info.ipv4_network.to_string()),
-        ("IPv4 Gateway", lab_info.ipv4_gateway.to_string()),
-        ("IPv4 Router", lab_info.ipv4_router.to_string()),
-        ("Loopback Network", lab_info.loopback_network.to_string()),
-    ];
-    if let Some(description) = &lab_info.description {
-        rows.insert(2, ("Description", description.clone()));
+pub fn render_table<const N: usize>(
+    headers: [&str; N],
+    rows: &[[String; N]],
+    layout: &TableLayout,
+) -> String {
+    let mut builder = Builder::default();
+    if layout.header_row {
+        builder.push_record(headers);
     }
-    let optional = [
-        (
-            "IPv6 Management Network",
-            lab_info.ipv6_network.map(|net| net.to_string()),
-        ),
-        (
-            "IPv6 Gateway",
-            lab_info.ipv6_gateway.map(|addr| addr.to_string()),
-        ),
-        (
-            "IPv6 Router",
-            lab_info.ipv6_router.map(|addr| addr.to_string()),
-        ),
-        ("Client Host", lab_info.client_host.clone()),
-        ("Client Folder", lab_info.client_folder.clone()),
-    ];
-    rows.extend(
-        optional
-            .into_iter()
-            .filter_map(|(property, value)| Some((property, value?))),
-    );
-    property_table("Lab Info", rows)
-}
-
-/// A two-column property and value table under `title`.
-fn property_table(title: &str, rows: Vec<(&str, String)>) -> String {
-    let rows = rows.into_iter().map(|(property, value)| LabInfoTableRow {
-        property: property.to_owned(),
-        value,
-    });
-    Table::new(rows)
-        .with(Style::modern())
-        .with(Remove::row(Rows::first()))
-        .with(Panel::header(title))
-        .with(Modify::new(Rows::first()).with(Alignment::center()))
-        .with(BorderCorrection::span())
-        .to_string()
-}
-
-/// Represents a row in the certificates table
-#[derive(Tabled)]
-struct CertTableRow {
-    #[tabled(rename = "Server")]
-    server: String,
-
-    #[tabled(rename = "Subject")]
-    subject: String,
-
-    #[tabled(rename = "Valid Until")]
-    valid_until: String,
-}
-
-/// Renders a table of images with their model, kind, version, and default status
-#[must_use]
-pub fn render_images_table(images: &[ImageSummary]) -> String {
-    Table::new(images)
-        .with(Style::modern())
-        .with(Panel::header("Images"))
-        .with(Modify::new(Rows::first()).with(Alignment::center()))
-        .with(BorderCorrection::span())
-        .to_string()
-}
-
-/// Renders a table of scanned images with their model, version, kind, and status
-#[must_use]
-pub fn render_scanned_images_table(images: &[ScannedImage]) -> String {
-    Table::new(images)
-        .with(Style::modern())
-        .with(Panel::header("Scanned Images"))
-        .with(Modify::new(Rows::first()).with(Alignment::center()))
-        .with(BorderCorrection::span())
-        .to_string()
-}
-
-/// Renders a two-column key-value table with all `NodeConfig` fields for an image
-#[must_use]
-pub fn render_image_detail_table(image: &NodeConfig) -> String {
-    let rows = vec![
-        ("Model", image.model.to_string()),
-        ("Kind", image.kind.to_string()),
-        ("Version", image.version.clone()),
-        ("Default", image.default.to_string()),
-        ("OS Variant", image.os_variant.to_string()),
-        ("BIOS", image.bios.to_string()),
-        ("CPU Architecture", image.cpu_architecture.to_string()),
-        ("CPU Model", image.cpu_model.to_string()),
-        ("CPU Count", image.cpu_count.to_string()),
-        ("Memory (MB)", image.memory.to_string()),
-        ("Machine Type", image.machine_type.to_string()),
-        ("VMX Enabled", image.vmx_enabled.to_string()),
-        ("HDD Bus", image.hdd_bus.to_string()),
-        ("CDROM", image.cdrom.as_deref().unwrap_or("none").to_owned()),
-        ("CDROM Bus", image.cdrom_bus.to_string()),
-        ("Interface Type", image.interface_type.to_string()),
-        ("Interface Prefix", image.interface_prefix.clone()),
-        ("Interface MTU", image.interface_mtu.to_string()),
-        (
-            "Data Interface Count",
-            image.data_interface_count.to_string(),
-        ),
-        (
-            "First Interface Index",
-            image.first_interface_index.to_string(),
-        ),
-        (
-            "Management Interface",
-            image.management_interface.to_string(),
-        ),
-        (
-            "Reserved Interface Count",
-            image.reserved_interface_count.to_string(),
-        ),
-        ("Repo", image.repo.as_deref().unwrap_or("none").to_owned()),
-        ("ZTP", image.ztp.mode.to_string()),
-        (
-            "ZTP Username",
-            image.ztp.username.as_deref().unwrap_or("none").to_owned(),
-        ),
-        ("ZTP Password Auth", image.ztp.password_auth.to_string()),
-    ];
-    property_table("Image Detail", rows)
-}
-
-/// Certificate information for table display
-pub struct CertificateTableInfo {
-    pub server: String,
-    pub subject: String,
-    pub valid_until: String,
-}
-
-/// Renders a table of trusted certificates
-///
-/// # Arguments
-/// * `certs` - Slice of `CertificateTableInfo` structs to display in the table
-///
-/// # Returns
-/// A formatted table string using modern Unicode box-drawing characters
-///
-#[must_use]
-pub fn render_certificates_table(certs: &[CertificateTableInfo]) -> String {
-    let rows: Vec<CertTableRow> = certs
-        .iter()
-        .map(|cert| CertTableRow {
-            server: cert.server.clone(),
-            subject: cert.subject.clone(),
-            valid_until: cert.valid_until.clone(),
-        })
-        .collect();
-
-    Table::new(rows)
-        .with(Style::modern())
-        .with(Panel::header("Trusted Server Certificates"))
-        .with(Modify::new(Rows::first()).with(Alignment::center()))
-        .with(BorderCorrection::span())
-        .to_string()
-}
-
-/// Represents a row in the SSH keys table
-#[derive(Tabled)]
-struct SshKeyRow {
-    #[tabled(rename = "#")]
-    index: usize,
-    #[tabled(rename = "Type")]
-    key_type: String,
-    #[tabled(rename = "Fingerprint")]
-    fingerprint: String,
-    #[tabled(rename = "Comment")]
-    comment: String,
-}
-
-/// Render a user's SSH public keys with their SHA256 fingerprints
-#[must_use]
-pub fn render_ssh_keys_table(username: &str, keys: &[String]) -> String {
-    let rows: Vec<SshKeyRow> = keys
-        .iter()
-        .enumerate()
-        .map(|(index, key)| {
-            let mut parts = key.split_whitespace();
-            let key_type = parts.next().unwrap_or("-").to_string();
-            parts.next();
-            let comment: Vec<&str> = parts.collect();
-            SshKeyRow {
-                index: index + 1,
-                key_type,
-                fingerprint: ssh_key_fingerprint(key).unwrap_or_else(|_| "invalid key".to_string()),
-                comment: if comment.is_empty() {
-                    "-".to_string()
-                } else {
-                    comment.join(" ")
-                },
-            }
-        })
-        .collect();
-
-    Table::new(rows)
-        .with(Style::modern())
-        .with(Panel::header(format!("SSH Keys for {username}")))
-        .with(Modify::new(Rows::first()).with(Alignment::center()))
-        .with(BorderCorrection::span())
-        .to_string()
-}
-
-/// Represents a row in the server status table
-#[derive(Tabled)]
-struct ServerStatusRow {
-    #[tabled(rename = "Server")]
-    server: String,
-    #[tabled(rename = "Status")]
-    status: String,
-    #[tabled(rename = "TLS")]
-    tls: String,
-}
-
-/// Render a server status table
-#[must_use]
-pub fn render_server_status_table(server: &str, status: &str, tls: &str) -> String {
-    let row = ServerStatusRow {
-        server: server.to_string(),
-        status: status.to_string(),
-        tls: tls.to_string(),
-    };
-
-    Table::new(vec![row])
-        .with(Style::modern())
-        .with(BorderCorrection::span())
-        .to_string()
-}
-
-/// Render where a database backup was written on the server.
-#[must_use]
-pub fn render_backup_table(backup: &BackupResponse) -> String {
-    let mut builder = Builder::default();
-    builder.push_record(["Backup", "Details"]);
-    builder.push_record(["File on the server", backup.path.as_str()]);
-    builder.push_record(["Size (bytes)", backup.size_bytes.to_string().as_str()]);
-    builder.build().with(Style::modern()).to_string()
-}
-
-/// Show connection and approval separately; connected does not imply reachable.
-#[tracing::instrument(skip(status), level = "debug")]
-pub fn render_tailnet_table(status: &TailnetStatus) -> String {
-    let rows = vec![
-        ("Gateway", format!("{:?}", status.state)),
-        ("Route approval", format!("{:?}", status.approval)),
-        ("Management routes", status.routes.join(", ")),
-        ("Tailscale addresses", status.tailscale_ips.join(", ")),
-        ("Warnings", status.warnings.join("\n")),
-    ];
-    let mut builder = Builder::default();
-    builder.push_record(["Tailscale", "Details"]);
-    for (label, value) in rows {
-        builder.push_record([label, value.as_str()]);
-    }
-    builder
-        .build()
-        .with(Style::modern())
-        // Bound the whole table, including padding and borders. Reduce the
-        // widest column first so the property labels remain readable.
-        .with(
-            Width::wrap(80)
-                .keep_words(true)
-                .priority(PriorityMax::right()),
-        )
-        .to_string()
-}
-
-/// Renders rows of text under `headers` as a table in the modern style. Every row must have one
-/// cell per header; the numeric columns named in `right` (by index) are right-aligned.
-#[must_use]
-pub fn render_modern_table(headers: &[&str], rows: &[Vec<String>], right: &[usize]) -> String {
-    let mut builder = Builder::default();
-    builder.push_record(headers.iter().copied());
     for row in rows {
         builder.push_record(row.iter().map(String::as_str));
     }
     let mut table = builder.build();
     table.with(Style::modern());
-    for column in right {
+    for column in layout.right {
         table.with(Modify::new(Columns::one(*column)).with(Alignment::right()));
+    }
+    if let Some(title) = layout.title {
+        table
+            .with(Panel::header(title))
+            .with(Modify::new(Rows::first()).with(Alignment::center()))
+            .with(BorderCorrection::span());
+    }
+    if let Some(width) = layout.wrap_width {
+        table.with(
+            Width::wrap(width)
+                .keep_words(true)
+                .priority(PriorityMax::right()),
+        );
     }
     table.to_string()
 }
@@ -628,507 +80,168 @@ pub fn render_modern_table(headers: &[&str], rows: &[Vec<String>], right: &[usiz
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::{NodeKind, NodeModel, NodeState, ProvisionStatus};
 
-    #[test]
-    fn provision_table_shows_each_node_with_its_status() {
-        let results = vec![
-            ProvisionResult {
-                node: "dev01".to_string(),
-                status: ProvisionStatus::Provisioned,
-                detail: String::new(),
-            },
-            ProvisionResult {
-                node: "dev02".to_string(),
-                status: ProvisionStatus::Failed,
-                detail: "exit status 3 on dev02.abcd1234".to_string(),
-            },
-        ];
-        let table = render_provision_table(&results, "abcd1234");
-        assert!(table.contains("Provisioning"), "{table}");
-        assert!(table.contains("dev01.abcd1234"), "{table}");
-        assert!(table.contains("provisioned"), "{table}");
-        assert!(table.contains("failed"), "{table}");
-        assert!(table.contains("exit status 3"), "{table}");
+    fn fruit() -> Vec<[String; 2]> {
+        vec![
+            ["apple".to_owned(), "3".to_owned()],
+            ["kiwi".to_owned(), "12".to_owned()],
+        ]
+    }
+
+    fn warnings() -> [[String; 2]; 1] {
+        [[
+            "Warnings".to_owned(),
+            "one two three four five six seven eight".to_owned(),
+        ]]
     }
 
     #[test]
-    fn tailnet_table_wraps_pending_route_warning() {
-        let status = TailnetStatus::from_daemon(
-            r#"{"BackendState":"Running","Self":{"AllowedIPs":[]}}"#,
-            vec!["172.31.3.0/24".into(), "fd00:b00b:0:3::/64".into()],
-        )
-        .unwrap();
-
-        let table = render_tailnet_table(&status);
-        assert!(table.lines().all(|line| line.chars().count() <= 80));
-        assert!(table.contains("Management routes"));
-        assert!(table.contains("Tailscale addresses"));
-        assert!(table.contains("Pending"));
-
-        // Recover cell content to check that wrapping loses no warning text,
-        // including long URLs that must be split across lines.
-        let details: String = table
-            .lines()
-            .filter_map(|line| line.split('│').nth(2))
-            .flat_map(|cell| cell.chars().filter(|c| !c.is_whitespace()))
-            .collect();
-        let warning: String = status.warnings[0]
-            .chars()
-            .filter(|c| !c.is_whitespace())
-            .collect();
-        assert!(details.contains(&warning));
+    fn a_titled_table_has_a_centred_title_above_its_headers() {
+        let expected = "\
+┌───────────────┐
+│     Fruit     │
+├───────┬───────┤
+│ Name  │ Count │
+├───────┼───────┤
+│ apple │ 3     │
+├───────┼───────┤
+│ kiwi  │ 12    │
+└───────┴───────┘";
+        let layout = TableLayout {
+            title: Some("Fruit"),
+            ..TableLayout::default()
+        };
+        assert_eq!(render_table(["Name", "Count"], &fruit(), &layout), expected);
     }
 
     #[test]
-    fn tailnet_table_preserves_multiple_warnings() {
-        let mut status = TailnetStatus::unavailable(vec!["172.31.3.0/24".into()]);
-        status.warnings.push("Another gateway warning.".into());
-
-        let table = render_tailnet_table(&status);
-        assert!(table.lines().all(|line| line.chars().count() <= 80));
-        assert!(table.contains("Unavailable"));
-        assert!(table.contains("Another gateway warning."));
-        let details: String = table
-            .lines()
-            .filter_map(|line| line.split('│').nth(2))
-            .flat_map(|cell| cell.chars().filter(|c| !c.is_whitespace()))
-            .collect();
-        for warning in status.warnings {
-            let warning: String = warning.chars().filter(|c| !c.is_whitespace()).collect();
-            assert!(details.contains(&warning));
-        }
+    fn an_untitled_table_right_aligns_the_columns_it_is_given() {
+        let expected = "\
+┌───────┬───────┐
+│ Name  │ Count │
+├───────┼───────┤
+│ apple │     3 │
+├───────┼───────┤
+│ kiwi  │    12 │
+└───────┴───────┘";
+        let layout = TableLayout {
+            right: &[1],
+            ..TableLayout::default()
+        };
+        assert_eq!(render_table(["Name", "Count"], &fruit(), &layout), expected);
     }
 
     #[test]
-    fn tailnet_table_renders_approved_status_without_warnings() {
-        let status = TailnetStatus::from_daemon(
-            r#"{"BackendState":"Running","TailscaleIPs":["100.64.0.1"],"Self":{"AllowedIPs":["172.31.3.0/24"]}}"#,
-            vec!["172.31.3.0/24".into()],
-        )
-        .unwrap();
-
-        let table = render_tailnet_table(&status);
-        assert!(table.lines().all(|line| line.chars().count() <= 80));
-        assert!(table.contains("Connected"));
-        assert!(table.contains("Approved"));
-        assert!(table.contains("172.31.3.0/24"));
-        assert!(table.contains("100.64.0.1"));
-        assert!(table.contains("Warnings"));
-        assert_eq!(table.lines().count(), 13);
+    fn right_aligned_columns_keep_the_title_centred() {
+        let expected = "\
+┌───────────────┐
+│     Fruit     │
+├───────┬───────┤
+│ Name  │ Count │
+├───────┼───────┤
+│ apple │     3 │
+├───────┼───────┤
+│ kiwi  │    12 │
+└───────┴───────┘";
+        let layout = TableLayout {
+            title: Some("Fruit"),
+            right: &[1],
+            ..TableLayout::default()
+        };
+        assert_eq!(render_table(["Name", "Count"], &fruit(), &layout), expected);
     }
 
     #[test]
-    fn test_render_single_node() {
-        let nodes = vec![NodeInfo {
-            name: "dev01".to_string(),
-            kind: NodeKind::VirtualMachine,
-            model: NodeModel::ArubaAoscx,
-            status: NodeState::Running,
-            ip_address: Some("172.31.0.11".to_string()),
-            ssh_port: Some(22),
-        }];
-
-        let table = render_nodes_table(&nodes, "a1b2c3d4");
-
-        // Check that table contains expected data
-        assert!(table.contains("dev01.a1b2c3d4"));
-        assert!(table.contains("172.31.0.11"));
-        assert!(table.contains("172.31.0.11:22"));
-        assert!(table.contains("aruba_aoscx"));
-
-        // Check for modern style box-drawing characters
-        assert!(table.contains("┌") || table.contains("│"));
-    }
-
-    #[test]
-    fn test_render_multiple_nodes() {
-        let nodes = vec![
-            NodeInfo {
-                name: "dev01".to_string(),
-                kind: NodeKind::VirtualMachine,
-                model: NodeModel::ArubaAoscx,
-                status: NodeState::Running,
-                ip_address: Some("172.31.0.11".to_string()),
-                ssh_port: Some(22),
-            },
-            NodeInfo {
-                name: "router01".to_string(),
-                kind: NodeKind::VirtualMachine,
-                model: NodeModel::CiscoCat8000v,
-                status: NodeState::Running,
-                ip_address: Some("172.31.0.12".to_string()),
-                ssh_port: Some(22),
-            },
-        ];
-
-        let table = render_nodes_table(&nodes, "a1b2c3d4");
-        println!("\n{table}");
-
-        // Check that all nodes are present
-        assert!(table.contains("dev01"));
-        assert!(table.contains("router01"));
-        assert!(table.contains("172.31.0.11"));
-        assert!(table.contains("172.31.0.12"));
-        assert!(table.contains("aruba_aoscx"));
-        assert!(table.contains("cisco_cat8000v"));
-    }
-
-    #[test]
-    fn test_render_node_missing_ip() {
-        let nodes = vec![NodeInfo {
-            name: "dev01".to_string(),
-            kind: NodeKind::Container,
-            model: NodeModel::AlpineLinux,
-            status: NodeState::Starting,
-            ip_address: None,
-            ssh_port: None,
-        }];
-
-        let table = render_nodes_table(&nodes, "a1b2c3d4");
-
-        // Check that missing data is represented with "-"
-        assert!(table.contains("dev01"));
-        assert!(table.contains("alpine_linux"));
-        // The table should have "-" for missing IP and connection
-        assert!(table.matches('-').count() >= 2);
-    }
-
-    #[test]
-    fn test_render_empty_nodes() {
-        let nodes: Vec<NodeInfo> = vec![];
-        let table = render_nodes_table(&nodes, "a1b2c3d4");
-
-        // Empty table should still have headers
-        assert!(table.contains("Node"));
-        assert!(table.contains("Mgmt IP"));
-        assert!(table.contains("Connection"));
-        assert!(table.contains("Node Model"));
-    }
-
-    #[test]
-    fn test_render_single_device() {
-        let devices = vec![DeviceInfo {
-            name: "router01".to_string(),
-            model: NodeModel::CiscoCat8000v,
-            kind: NodeKind::VirtualMachine,
-            state: NodeState::Running,
-            mgmt_ipv4: "172.31.0.11".to_string(),
-            mgmt_ipv6: None,
-            vnc_port: None,
-            disks: vec!["/var/lib/sherpa/labs/test/router01.qcow2".to_string()],
-            cpu_count: None,
-            memory: None,
-        }];
-
-        let table = render_devices_table(&devices, "a1b2c3d4");
-
-        // Check that table contains expected data
-        assert!(table.contains("router01.a1b2c3d4"));
-        assert!(table.contains("172.31.0.11"));
-        assert!(table.contains("cisco_cat8000v"));
-        assert!(table.contains("virtual_machine"));
-        assert!(table.contains("running"));
-        assert!(table.contains("router01.qcow2"));
-
-        // Check for modern style box-drawing characters
-        assert!(table.contains("┌") || table.contains("│"));
-    }
-
-    #[test]
-    fn test_render_multiple_devices() {
-        let devices = vec![
-            DeviceInfo {
-                name: "router01".to_string(),
-                model: NodeModel::CiscoCat8000v,
-                kind: NodeKind::VirtualMachine,
-                state: NodeState::Running,
-                mgmt_ipv4: "172.31.0.11".to_string(),
-                mgmt_ipv6: None,
-                vnc_port: Some(5900),
-                disks: vec![
-                    "/var/lib/sherpa/labs/test/router01.qcow2".to_string(),
-                    "/var/lib/sherpa/labs/test/router01-disk2.qcow2".to_string(),
-                ],
-                cpu_count: None,
-                memory: None,
-            },
-            DeviceInfo {
-                name: "switch01".to_string(),
-                model: NodeModel::ArubaAoscx,
-                kind: NodeKind::VirtualMachine,
-                state: NodeState::Running,
-                mgmt_ipv4: "172.31.0.12".to_string(),
-                mgmt_ipv6: None,
-                vnc_port: None,
-                disks: vec!["/var/lib/sherpa/labs/test/switch01.qcow2".to_string()],
-                cpu_count: None,
-                memory: None,
-            },
-        ];
-
-        let table = render_devices_table(&devices, "a1b2c3d4");
-        println!("\n{table}");
-
-        // Check that all devices are present
-        assert!(table.contains("router01"));
-        assert!(table.contains("switch01"));
-        assert!(table.contains("172.31.0.11"));
-        assert!(table.contains("172.31.0.12"));
-        assert!(table.contains("cisco_cat8000v"));
-        assert!(table.contains("aruba_aoscx"));
-        assert!(table.contains("router01.qcow2"));
-        assert!(table.contains("switch01.qcow2"));
-    }
-
-    #[test]
-    fn test_render_device_cpu_and_memory() {
-        let devices = vec![
-            DeviceInfo {
-                name: "dev01".to_string(),
-                model: NodeModel::UbuntuLinux,
-                kind: NodeKind::VirtualMachine,
-                state: NodeState::Running,
-                mgmt_ipv4: "172.31.0.21".to_string(),
-                mgmt_ipv6: None,
-                vnc_port: Some(5901),
-                disks: vec![],
-                cpu_count: Some(16),
-                memory: Some(32768),
-            },
-            DeviceInfo {
-                name: "db01".to_string(),
-                model: NodeModel::MongoDb,
-                kind: NodeKind::Container,
-                state: NodeState::Running,
-                mgmt_ipv4: "172.31.0.22".to_string(),
-                mgmt_ipv6: None,
-                vnc_port: None,
-                disks: vec![],
-                cpu_count: None,
-                memory: None,
-            },
-        ];
-
-        let table = render_devices_table(&devices, "a1b2c3d4");
-        assert!(table.contains("CPU"), "{table}");
-        assert!(table.contains("Memory (MB)"), "{table}");
-        let vm = table.lines().find(|line| line.contains("dev01")).unwrap();
-        assert!(
-            vm.contains("│ 16 ") && vm.contains("│ 32768 ") && vm.contains("│ 5901 "),
-            "{vm}"
+    fn an_empty_table_still_shows_its_headers() {
+        let expected = "\
+┌──────┬───────┐
+│ Name │ Count │
+└──────┴───────┘";
+        assert_eq!(
+            render_table(["Name", "Count"], &[], &TableLayout::default()),
+            expected
         );
-        // Containers are not limited.
-        let container = table.lines().find(|line| line.contains("db01")).unwrap();
-        assert_eq!(container.matches("│ - ").count(), 5, "{container}");
     }
 
     #[test]
-    fn test_render_device_missing_ip() {
-        let devices = vec![DeviceInfo {
-            name: "container01".to_string(),
-            model: NodeModel::AlpineLinux,
-            kind: NodeKind::Container,
-            state: NodeState::Stopped,
-            mgmt_ipv4: String::new(),
-            mgmt_ipv6: None,
-            vnc_port: None,
-            disks: vec![],
-            cpu_count: None,
-            memory: None,
-        }];
-
-        let table = render_devices_table(&devices, "a1b2c3d4");
-
-        // Check that missing data is represented with "-"
-        assert!(table.contains("container01"));
-        assert!(table.contains("alpine_linux"));
-        assert!(table.contains("stopped")); // state = Stopped
-        assert!(table.contains('-')); // empty mgmt_ipv4
-    }
-
-    #[test]
-    fn test_render_empty_devices() {
-        let devices: Vec<DeviceInfo> = vec![];
-        let table = render_devices_table(&devices, "a1b2c3d4");
-
-        // Empty table should still have headers
-        assert!(table.contains("Device"));
-        assert!(table.contains("Model"));
-        assert!(table.contains("Kind"));
-        assert!(table.contains("Active"));
-        assert!(table.contains("Mgmt IP"));
-        assert!(table.contains("Disks"));
-    }
-
-    #[test]
-    fn test_render_lab_info_table() {
-        use std::net::Ipv4Addr;
-
-        let lab_info = LabInfo {
-            ssh_usernames: Vec::default(),
-            id: "039ab286".to_string(),
-            name: "simple-ceos-test".to_string(),
-            user: "admin".to_string(),
-            ipv4_network: "172.31.0.0/24".parse().unwrap(),
-            ipv4_gateway: Ipv4Addr::new(172, 31, 0, 1),
-            ipv4_router: Ipv4Addr::new(172, 31, 0, 2),
-            loopback_network: "127.127.1.0/24".parse().unwrap(),
-            ipv6_network: None,
-            ipv6_gateway: None,
-            ipv6_router: None,
-            description: None,
-            client_host: None,
-            client_folder: None,
+    fn a_table_without_a_header_row_shows_only_its_rows() {
+        let expected = "\
+┌────────────┐
+│    Lab     │
+├──────┬─────┤
+│ ID   │ abc │
+├──────┼─────┤
+│ Name │ x   │
+└──────┴─────┘";
+        let rows = [
+            ["ID".to_owned(), "abc".to_owned()],
+            ["Name".to_owned(), "x".to_owned()],
+        ];
+        let layout = TableLayout {
+            title: Some("Lab"),
+            header_row: false,
+            ..TableLayout::default()
         };
-
-        let table = render_lab_info_table(&lab_info);
-
-        // Check that all values are present
-        assert!(table.contains("039ab286"));
-        assert!(table.contains("simple-ceos-test"));
-        assert!(table.contains("admin"));
-        assert!(table.contains("172.31.0.0/24"));
-        assert!(table.contains("172.31.0.1"));
-        assert!(table.contains("172.31.0.2"));
-
-        // Check that properties are present
-        assert!(table.contains("ID"));
-        assert!(table.contains("Name"));
-        assert!(table.contains("User"));
-        assert!(table.contains("Management Network"));
-        assert!(table.contains("IPv4 Gateway"));
-        assert!(table.contains("IPv4 Router"));
-
-        // Check for modern style box-drawing characters
-        assert!(table.contains("┌") || table.contains("│"));
-
-        // Print the table for visual verification
-        println!("\n{table}");
-        assert!(!table.contains("Client"), "{table}");
+        assert_eq!(
+            render_table(["Property", "Value"], &rows, &layout),
+            expected
+        );
     }
 
     #[test]
-    fn lab_info_table_shows_where_the_lab_was_started() {
-        let lab_info = LabInfo {
-            ssh_usernames: Vec::default(),
-            id: "039ab286".to_string(),
-            name: "core".to_string(),
-            user: "alice".to_string(),
-            ipv4_network: "172.31.0.0/24".parse().unwrap(),
-            ipv4_gateway: "172.31.0.1".parse().unwrap(),
-            ipv4_router: "172.31.0.2".parse().unwrap(),
-            loopback_network: "127.127.1.0/24".parse().unwrap(),
-            ipv6_network: None,
-            ipv6_gateway: None,
-            ipv6_router: None,
-            description: Some("Practice BGP between two routers.".to_string()),
-            client_host: Some("dev01".to_string()),
-            client_folder: Some("/home/alice/labs/core".to_string()),
+    fn a_wrapped_table_wraps_its_widest_column_between_words() {
+        let expected = "\
+┌──────────┬─────────────────┐
+│ Item     │ Details         │
+├──────────┼─────────────────┤
+│ Warnings │ one two three   │
+│          │ four five six   │
+│          │ seven eight     │
+└──────────┴─────────────────┘";
+        let layout = TableLayout {
+            wrap_width: Some(30),
+            ..TableLayout::default()
         };
-
-        let table = render_lab_info_table(&lab_info);
-
-        assert!(table.contains("Description"), "{table}");
+        let table = render_table(["Item", "Details"], &warnings(), &layout);
         assert!(
-            table.contains("Practice BGP between two routers."),
+            table.lines().all(|line| line.chars().count() <= 30),
             "{table}"
         );
-        assert!(table.contains("Client Host"), "{table}");
-        assert!(table.contains("dev01"), "{table}");
-        assert!(table.contains("Client Folder"), "{table}");
-        assert!(table.contains("/home/alice/labs/core"), "{table}");
+        assert_eq!(table, expected);
     }
 
     #[test]
-    fn test_render_image_detail_table() {
-        let image = NodeConfig::get_model(NodeModel::CiscoCat8000v);
-
-        let table = render_image_detail_table(&image);
-
-        // Check that all property labels are present
-        assert!(table.contains("Model"));
-        assert!(table.contains("Kind"));
-        assert!(table.contains("Version"));
-        assert!(table.contains("Default"));
-        assert!(table.contains("OS Variant"));
-        assert!(table.contains("BIOS"));
-        assert!(table.contains("CPU Architecture"));
-        assert!(table.contains("CPU Model"));
-        assert!(table.contains("CPU Count"));
-        assert!(table.contains("Memory (MB)"));
-        assert!(table.contains("Machine Type"));
-        assert!(table.contains("VMX Enabled"));
-        assert!(table.contains("HDD Bus"));
-        assert!(table.contains("CDROM"));
-        assert!(table.contains("CDROM Bus"));
-        assert!(table.contains("Interface Type"));
-        assert!(table.contains("Interface Prefix"));
-        assert!(table.contains("Interface MTU"));
-        assert!(table.contains("Data Interface Count"));
-        assert!(table.contains("First Interface Index"));
-        assert!(table.contains("Management Interface"));
-        assert!(table.contains("Reserved Interface Count"));
-        assert!(table.contains("Repo"));
-        assert!(table.contains("│ ZTP "));
-        assert!(table.contains("cdrom"));
-        assert!(!table.contains("ZTP Enabled"));
-        assert!(!table.contains("ZTP Method"));
-        assert!(table.contains("ZTP Username"));
-        assert!(table.contains("ZTP Password Auth"));
-
-        // Check that model-specific values are present
-        assert!(table.contains("cisco_cat8000v"));
-        assert!(table.contains("virtual_machine"));
-
-        // Check for header panel
-        assert!(table.contains("Image Detail"));
-
-        // Check for modern style box-drawing characters
-        assert!(table.contains("┌") || table.contains("│"));
-
-        println!("\n{table}");
+    fn title_wrapping_and_right_alignment_compose() {
+        let expected = "\
+┌────────────────────────────┐
+│           Status           │
+├──────────┬─────────────────┤
+│     Item │ Details         │
+├──────────┼─────────────────┤
+│ Warnings │ one two three   │
+│          │ four five six   │
+│          │ seven eight     │
+└──────────┴─────────────────┘";
+        let layout = TableLayout {
+            title: Some("Status"),
+            right: &[0],
+            wrap_width: Some(30),
+            ..TableLayout::default()
+        };
+        let table = render_table(["Item", "Details"], &warnings(), &layout);
+        assert!(
+            table.lines().all(|line| line.chars().count() <= 30),
+            "{table}"
+        );
+        assert_eq!(table, expected);
     }
 
     #[test]
-    fn test_render_image_detail_table_container_model() {
-        let image = NodeConfig::get_model(NodeModel::NokiaSrlinux);
-
-        let table = render_image_detail_table(&image);
-
-        // Check container-specific values
-        assert!(table.contains("nokia_srlinux"));
-        assert!(table.contains("container"));
-
-        // Repo should be populated for container models
-        assert!(!table.contains("Repo") || !table.contains("none") || table.contains("ghcr.io"));
-
-        println!("\n{table}");
-    }
-
-    #[test]
-    fn test_render_image_detail_table_optional_fields() {
-        let image = NodeConfig::default();
-
-        let table = render_image_detail_table(&image);
-
-        // Optional fields should show "none" when not set
-        assert!(table.contains("none")); // repo, cdrom, ztp_username are None by default
-
-        println!("\n{table}");
-    }
-
-    #[test]
-    fn test_render_ssh_keys_table() {
-        let keys = vec![
-            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh brad@laptop"
-                .to_string(),
-            "ssh-rsa broken".to_string(),
-        ];
-        let table = render_ssh_keys_table("brad", &keys);
-        assert!(table.contains("SSH Keys for brad"));
-        assert!(table.contains("SHA256:/UpBoWzMiq6/+/wzQIGDT2VxOLzg/LUTfKhc0x+ktEs"));
-        assert!(table.contains("brad@laptop"));
-        assert!(table.contains("invalid key"));
+    fn the_default_layout_has_a_header_row_and_nothing_else() {
+        let layout = TableLayout::default();
+        assert_eq!(layout.title, None);
+        assert_eq!(layout.right, &[] as &[usize]);
+        assert_eq!(layout.wrap_width, None);
+        assert!(layout.header_row);
     }
 }
