@@ -399,18 +399,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfdc70193dadb9d7287fa4b633f15f90c876915b31f6af17da307fc59c9859a8"
 
 [[package]]
-name = "async-compression"
-version = "0.4.41"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0f9ee0f6e02ffd7ad5816e9464499fba7b3effd01123b515c41d1697c43dad1"
-dependencies = [
- "compression-codecs",
- "compression-core",
- "pin-project-lite",
- "tokio",
-]
-
-[[package]]
 name = "async-nats"
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1066,23 +1054,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "compression-codecs"
-version = "0.4.37"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb7b51a7d9c967fc26773061ba86150f19c50c0d65c887cb1fbe295fd16619b7"
-dependencies = [
- "compression-core",
- "flate2",
- "memchr",
-]
-
-[[package]]
-name = "compression-core"
-version = "0.4.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75984efb6ed102a0d42db99afb6c1948f0380d1d91808d5529916e6c08b49d8d"
-
-[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1109,7 +1080,6 @@ version = "0.5.35"
 dependencies = [
  "anyhow",
  "bollard",
- "futures",
  "futures-util",
  "shared",
  "tokio",
@@ -5071,7 +5041,6 @@ version = "0.5.35"
 dependencies = [
  "anyhow",
  "argon2 0.5.3",
- "askama",
  "base64",
  "clap",
  "dirs",
@@ -5123,8 +5092,6 @@ name = "sherpa"
 version = "0.5.35"
 dependencies = [
  "anyhow",
- "askama",
- "async-compression",
  "base64",
  "clap",
  "dirs",
@@ -5142,7 +5109,6 @@ dependencies = [
  "serde_json",
  "shared",
  "tempfile",
- "template",
  "tokio",
  "tokio-tungstenite",
  "toml",
@@ -5645,7 +5611,6 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "shared",
- "topology",
  "urlencoding",
 ]
 

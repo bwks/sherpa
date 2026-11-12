@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 shared = { path = "../shared", features = ["table"] }
 topology = { path = "../topology" }
-template = { path = "../template" }
 
 # Errors
 anyhow = { workspace = true }
@@ -20,15 +19,8 @@ serde_derive = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 
-# De/Compression
-async-compression = { workspace = true }
-
 # Random number generator
 rand = { workspace = true }
-
-# Templates
-askama = { workspace = true }
-
 
 # Async
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time", "signal", "sync"] }
