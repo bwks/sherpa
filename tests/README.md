@@ -22,7 +22,7 @@ instead of repeating these instructions.
 | Format and lint | `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings` | Rust toolchain | about 1–5 min |
 | Unit and database tests | `cargo test --workspace` | Nothing external | about 1–3 min |
 | Other crate integration | see [Crate integration tests](#crate-integration-tests) | Docker, libvirt, sudo | minutes |
-| VM code suite | `uv run tests/harness/test_env.py run [ubuntu-2404] [ubuntu-2604]` | Sherpa host, logged-in CLI | about 40 min per release, in parallel |
+| VM code suite | `uv run tests/harness/test_env.py run [ubuntu-2404] [ubuntu-2604]` | Sherpa host, logged-in CLI | about 40 min per release, in parallel when the server has the memory |
 | Installer suite | `./tests/harness/test_install.sh --config tests/environments/<env>/release-test.toml` | Sherpa host, logged-in CLI | about 20–30 min |
 | Private bridge lab test | `uv run tests/labs/private-bridge/private_bridge_lab_test.py` | Sherpa host with the alpine and FRR images, logged-in CLI | about 5–10 min |
 | P2p containers lab test | `uv run tests/labs/p2p-containers/p2p_containers_lab_test.py` | On the Sherpa server: the node images, Docker access, logged-in CLI | about 2–5 min |
@@ -42,7 +42,7 @@ run directly starts with `#!/usr/bin/env -S uv run --script` and an inline metad
 too for the executable ones. Because of that block, `uv run` takes the Python requirement from
 the script, not from `pyproject.toml`, and runs it in its own environment in uv's cache; inside
 the checkout it still reads the `[tool.uv]` settings there, which allow only uv-managed Python.
-Sibling modules (`vm_release_test.py`, `build_cache.py`) are imported from the script's
+Sibling modules (`vm_release_test.py`, `build_cache.py`, `host_memory.py`) are imported from the script's
 directory, as before. `test_env.py --self-test` fails if a script in `tests/` or `dev/` has any
 other `#!` line.
 Nothing in the harness needs Python on the Sherpa host. The guest helpers,
@@ -153,6 +153,32 @@ command line, and is redacted from the logs. The guest creates a disposable Dock
 the test's gateway and removes it before checking for leftover resources. The gateway joins the
 tailnet as `tntest<pid>`, advertises `172.31.250.0/24` and logs out when the test stops it.
 
+### Memory
+
+Each release's VM asks the server for its `memory` (30 GiB in both environments). The releases
+start together, and their `sherpa up` calls take turns. When the server refuses one for memory
+(`Memory admission failed`, from the server's admission check), nothing was created: the
+runner records `failure_kind = "memory-refused"` with the server's numbers, keeps nothing and
+exits 75. `test_env.py` then waits for the other releases to finish and runs the refused one on
+its own, then the next refused one. A release refused while it runs alone fails. A failed release
+keeps its VM, and with it its memory, so remove it (`--cleanup-run`, below) before running
+again. The CLI exits 1 and the server sends a generic JSON-RPC server error (-32000) for any
+failed `up`, so the runner recognises a refusal by the `Memory admission failed` text in the
+`up` output.
+
+When a run fails after its VM exists, the runner asks the host whether the VM stopped, with
+`virsh domstate --reason <domain>`. If it did, it reads the kernel's `oom-kill:` lines as the
+SSH user, without `sudo`: `journalctl --dmesg --boot --grep=oom-kill:` (which needs the `adm` or
+`systemd-journal` group), then `dmesg` (which needs `kernel.dmesg_restrict=0`). A line whose
+`task_memcg` is the domain's libvirt scope, `machine-qemu\x2d<id>\x2d<domain>.scope`, proves the
+kill. When neither log is readable, a domain libvirt saw crash (`shut off (crashed)`) while the
+`oom_kill` count in `/sys/fs/cgroup/machine.slice/memory.events` rose since the VM started counts
+as killed, and the error says the kernel log could not be read. The run then reports
+`<domain> was killed by the host OOM killer: <evidence>` instead of the step's `exited 255`,
+with `failure_kind = "oom-killed"` and `guest_loss_evidence` in `result.toml`. A VM that stopped
+without that evidence is `failure_kind = "domain-stopped"`. `tests/harness/host_memory.py` holds
+the parsing and its tests.
+
 A passing VM is destroyed; a failing one is kept. Then:
 
 ```sh
@@ -237,6 +263,7 @@ See [labs/README.md](labs/README.md) for the rules and each lab's README for wha
 uv run tests/harness/test_env.py --self-test
 uv run tests/harness/test_env_guest.py --self-test
 uv run tests/harness/build_cache.py --self-test
+uv run tests/harness/host_memory.py --self-test
 uv run tests/harness/vm_release_test.py --self-test
 uv run tests/harness/vm_release_guest.py --self-test
 uv run tests/labs/private-bridge/private_bridge_lab_test.py --self-test
