@@ -724,16 +724,20 @@ fn container_config(bus: &Bus) -> ContainerCreateBody {
 
 #[cfg(test)]
 mod tests {
+    use std::env::temp_dir;
+    use std::fs::{create_dir_all, read_to_string, remove_dir_all, write};
+    use std::io::{self, Write, stderr};
     use std::net::TcpListener;
     use std::os::unix::fs::PermissionsExt;
-    use std::sync::Arc;
+    use std::process;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::Duration;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
 
     use async_nats::connection::State;
     use async_nats::jetstream::consumer::DeliverPolicy;
     use async_nats::rustls::crypto::aws_lc_rs;
-    use async_nats::{Client, ConnectOptions, Event};
+    use async_nats::{Client, ConnectOptions, Event, StatusCode};
     use bollard::query_parameters::RemoveVolumeOptions;
     use futures_util::StreamExt;
     use shared::util::LabFolder;
@@ -757,6 +761,46 @@ mod tests {
     use crate::report;
     use crate::status::{Heartbeat, Observed, Online, Row, Running, STALE, Status, row};
     use crate::store::{TaskState, read};
+
+    /// A reader's notices, kept where the test reads them while the reader writes them.
+    #[derive(Clone, Default)]
+    struct Notices(Arc<Mutex<Vec<u8>>>);
+
+    impl Notices {
+        /// Everything written so far.
+        fn text(&self) -> String {
+            String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
+        }
+
+        /// Whether a notice holds `text`.
+        fn hold(&self, text: &str) -> bool {
+            self.text().contains(text)
+        }
+    }
+
+    /// Stdout once whoever read it is gone: every write fails.
+    struct Gone;
+
+    impl Write for Gone {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::ErrorKind::BrokenPipe.into())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::ErrorKind::BrokenPipe.into())
+        }
+    }
+
+    impl Write for Notices {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
 
     /// The heartbeat's beat in the offline test, not the production `HEARTBEAT`.
     const BEAT: Duration = Duration::from_millis(200);
@@ -863,7 +907,7 @@ mod tests {
 
         // The host's task reaches the guest, which reads and acknowledges it.
         host_channel.send(&message("host", "dev", "first")).await?;
-        let mut dev_inbox = dev_channel.inbox("dev").await?;
+        let mut dev_inbox = dev_channel.inbox("dev", stderr()).await?;
         let delivery = timeout(wait, dev_inbox.next())
             .await
             .context("no message for dev")??
@@ -877,7 +921,7 @@ mod tests {
 
         // The guest's reply reaches the host.
         dev_channel.send(&message("dev", "host", "reply")).await?;
-        let mut host_inbox = host_channel.inbox("host").await?;
+        let mut host_inbox = host_channel.inbox("host", stderr()).await?;
         let reply = timeout(wait, host_inbox.next())
             .await
             .context("no message for host")??
@@ -941,7 +985,7 @@ mod tests {
         );
         // It cannot read another agent's inbox either.
         ensure!(
-            timeout(wait, dev_channel.inbox("other"))
+            timeout(wait, dev_channel.inbox("other", stderr()))
                 .await
                 .is_ok_and(|inbox| inbox.is_err()),
             "a guest opened another agent's inbox"
@@ -1065,7 +1109,7 @@ mod tests {
         );
 
         // Drain dev's inbox for the later steps.
-        let mut inbox = dev_channel.inbox("dev").await?;
+        let mut inbox = dev_channel.inbox("dev", stderr()).await?;
         let delivery = timeout(wait, inbox.next())
             .await
             .context("no message for dev")??
@@ -1226,7 +1270,7 @@ mod tests {
         let wait = Duration::from_secs(15);
         let mut host_channel = Channel::connect(&bus.endpoint(), &host.seed).await?;
         let dev_channel = Channel::connect(&bus.endpoint(), &dev.seed).await?;
-        let mut inbox = host_channel.inbox("host").await?;
+        let mut inbox = host_channel.inbox("host", stderr()).await?;
         for round in 0..2 {
             let task = format!("burst{round}");
             for n in 0..4 {
@@ -1265,7 +1309,7 @@ mod tests {
             let _ = timeout(Duration::from_secs(1), inbox.next()).await;
             let second = Channel::connect(&bus.endpoint(), &host.seed).await?;
             ensure!(
-                second.inbox("host").await.is_err(),
+                second.inbox("host", stderr()).await.is_err(),
                 "a second reader was attached to the host's inbox"
             );
             // The listener dies with a pull request outstanding, and the guest sends meanwhile.
@@ -1277,7 +1321,7 @@ mod tests {
             late.kind = Kind::Progress;
             dev_channel.send(&late).await?;
             host_channel = Channel::connect(&bus.endpoint(), &host.seed).await?;
-            inbox = host_channel.inbox("host").await?;
+            inbox = host_channel.inbox("host", stderr()).await?;
             let delivery = timeout(wait, inbox.next())
                 .await
                 .context("a message sent while the listener was gone never arrived")??
@@ -1286,7 +1330,7 @@ mod tests {
             delivery.ack().await?;
             // The listener restarts: nothing is left, nothing is delivered again.
             drop(inbox);
-            inbox = host_channel.inbox("host").await?;
+            inbox = host_channel.inbox("host", stderr()).await?;
             ensure!(
                 host_channel.waiting("host").await? == 0,
                 "messages are left in the host's inbox"
@@ -1500,7 +1544,7 @@ mod tests {
         );
         // Drain the inboxes as the other checks expect.
         for (channel, name) in [(&host_channel, "host"), (&dev_channel, "dev")] {
-            let mut inbox = channel.inbox(name).await?;
+            let mut inbox = channel.inbox(name, stderr()).await?;
             while channel.waiting(name).await? > 0 {
                 let delivery = timeout(wait, inbox.next())
                     .await
@@ -1511,7 +1555,7 @@ mod tests {
         }
         // The guest may not read the recorder's consumer.
         ensure!(
-            timeout(wait, dev_channel.recorder())
+            timeout(wait, dev_channel.recorder(stderr()))
                 .await
                 .is_ok_and(|read| read.is_err()),
             "a guest read the recorder's consumer"
@@ -1557,7 +1601,7 @@ mod tests {
         );
         ensure!(config.max_waiting == 1, "max_waiting changed");
         let other_channel = Channel::connect(&bus.endpoint(), &other.seed).await?;
-        let mut inbox = other_channel.inbox("other").await?;
+        let mut inbox = other_channel.inbox("other", stderr()).await?;
         let delivery = timeout(wait, inbox.next())
             .await
             .context("the waiting message did not arrive after the upgrade")??
@@ -1597,7 +1641,7 @@ mod tests {
                 .send(&message("host", "other", &format!("m{n}")))
                 .await?;
         }
-        let mut inbox = other_channel.inbox("other").await?;
+        let mut inbox = other_channel.inbox("other", stderr()).await?;
         for expected in ["m1", "m2"] {
             let delivery = timeout(wait, inbox.next())
                 .await
@@ -1620,7 +1664,7 @@ mod tests {
         start(bus, agents_path, &host.seed).await?;
 
         let other_channel = Channel::connect(&bus.endpoint(), &other.seed).await?;
-        let mut inbox = other_channel.inbox("other").await?;
+        let mut inbox = other_channel.inbox("other", stderr()).await?;
         for expected in ["m3", "m4", "m5"] {
             let delivery = timeout(wait, inbox.next())
                 .await
@@ -1645,12 +1689,12 @@ mod tests {
             "messages are left in the inbox"
         );
         // The upgraded inbox has the new setting: a second reader is refused.
-        let mut first = other_channel.inbox("other").await?;
+        let mut first = other_channel.inbox("other", stderr()).await?;
         // The reader asks the bus for messages only once it waits for one.
         let _ = timeout(Duration::from_secs(1), first.next()).await;
         let second = Channel::connect(&bus.endpoint(), &other.seed).await?;
         ensure!(
-            second.inbox("other").await.is_err(),
+            second.inbox("other", stderr()).await.is_err(),
             "the upgraded inbox accepts a second reader"
         );
         drop(first);
@@ -1749,7 +1793,7 @@ mod tests {
             drop(host_channel);
             start(&bus, &agents_path, &host.seed).await?;
             let dev_channel = Channel::connect(&bus.endpoint(), &dev.seed).await?;
-            let mut inbox = dev_channel.inbox("dev").await?;
+            let mut inbox = dev_channel.inbox("dev", stderr()).await?;
             let delivery = timeout(Duration::from_secs(15), inbox.next())
                 .await
                 .context("no message for dev after the restart")??
@@ -1797,7 +1841,12 @@ mod tests {
     }
 
     /// The host sends `text` to `name`, and `inbox` gets it.
-    async fn delivered(host: &Channel, inbox: &mut Inbox, name: &str, text: &str) -> Result<()> {
+    async fn delivered(
+        host: &Channel,
+        inbox: &mut Inbox<impl Write>,
+        name: &str,
+        text: &str,
+    ) -> Result<()> {
         host.send(&message("host", name, text)).await?;
         let delivery = timeout(Duration::from_secs(15), inbox.next())
             .await
@@ -1829,11 +1878,11 @@ mod tests {
         let (a_client, a_drops) = watched(&url, &old_a).await?;
         let (b_client, b_drops) = watched(&url, &b).await?;
         let b_channel = Channel::connect(&url, &b).await?;
-        let mut b_inbox = b_channel.inbox("worker-b").await?;
+        let mut b_inbox = b_channel.inbox("worker-b", stderr()).await?;
         delivered(&host_channel, &mut b_inbox, "worker-b", "before").await?;
         {
             let a_channel = Channel::connect(&url, &old_a).await?;
-            let mut a_inbox = a_channel.inbox("worker-a").await?;
+            let mut a_inbox = a_channel.inbox("worker-a", stderr()).await?;
             delivered(&host_channel, &mut a_inbox, "worker-a", "first key").await?;
         }
 
@@ -1863,7 +1912,7 @@ mod tests {
         );
         {
             let a_channel = Channel::connect(&url, &new_a).await?;
-            let mut a_inbox = a_channel.inbox("worker-a").await?;
+            let mut a_inbox = a_channel.inbox("worker-a", stderr()).await?;
             delivered(&host_channel, &mut a_inbox, "worker-a", "second key").await?;
         }
 
@@ -2288,7 +2337,7 @@ mod tests {
         for text in ["held", "behind it"] {
             host_channel.send(&message("host", "dev", text)).await?;
         }
-        let (mut inbox, _) = host_channel.recorder().await?;
+        let (mut inbox, _) = host_channel.recorder(stderr()).await?;
         let held = timeout(Duration::from_secs(15), inbox.next())
             .await
             .context("the recorder delivered nothing")??
@@ -2386,7 +2435,7 @@ mod tests {
             );
             drop(record);
             let host_channel = Channel::connect(&bus.endpoint(), &host.seed).await?;
-            let (_, waiting) = host_channel.recorder().await?;
+            let (_, waiting) = host_channel.recorder(stderr()).await?;
             ensure!(waiting == 0, "{waiting} messages wait on the recorder");
             drop(host_channel);
             stalled_recorder(&bus, &host, &paths).await
@@ -2400,5 +2449,278 @@ mod tests {
             .await;
         let _ = std::fs::remove_dir_all(&dir);
         result.unwrap();
+    }
+
+    /// Needs Docker. A reader whose pulls the bus refuses (another pull holds the inbox's one
+    /// waiting slot) or does not answer at all (the bus is paused) says so, and reads again
+    /// once the bus takes its pull. Both used to be retried without a word.
+    /// Run with `cargo test -p agent-bus -- --ignored`.
+    #[tokio::test]
+    #[ignore = "needs Docker"]
+    async fn a_reader_says_when_the_bus_refuses_or_ignores_its_pulls() {
+        install_crypto_provider();
+        let host = generate().unwrap();
+        let id = process::id();
+        let dir = temp_dir().join(format!("agent-bus-stall-it-{id}"));
+        create_dir_all(&dir).unwrap();
+        let agents_path = dir.join("agents.toml");
+        write(
+            &agents_path,
+            format!(
+                "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n",
+                host.public_key
+            ),
+        )
+        .unwrap();
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let bus = Bus {
+            container: format!("sherpa-agent-bus-stall-test-{id}"),
+            volume: format!("sherpa-agent-bus-stall-test-{id}-data"),
+            listen: Ipv4Addr::LOCALHOST,
+            port,
+            state_dir: dir.join("state"),
+            lab: None,
+        };
+
+        let result = async {
+            start(&bus, &agents_path, &host.seed).await?;
+            refused_pulls(&bus, &host).await?;
+            ignored_pulls(&bus, &host).await
+        }
+        .await;
+
+        let docker = docker_connection().unwrap();
+        let _ = remove_container(&docker, &bus.container).await;
+        let _ = docker
+            .remove_volume(&bus.volume, None::<RemoveVolumeOptions>)
+            .await;
+        let _ = remove_dir_all(&dir);
+        result.unwrap();
+    }
+
+    /// Another pull holds the host inbox's waiting slot when the reader starts: the bus refuses
+    /// the reader's pulls with 409 until that pull expires, and the reader says so, then reads.
+    async fn refused_pulls(bus: &Bus, host: &NewKey) -> Result<()> {
+        let channel = Channel::connect(&bus.endpoint(), &host.seed).await?;
+        // The reader is opened, so it saw no other reader, but has not pulled yet.
+        let notices = Notices::default();
+        let mut inbox = channel.inbox("host", notices.clone()).await?;
+        let holder = tls_options(
+            ConnectOptions::with_nkey(host.seed.clone()),
+            &bus.endpoint(),
+        )?
+        .custom_inbox_prefix(inbox_prefix(&host.public_key))
+        .connect(&bus.endpoint().url)
+        .await?;
+        let reply = holder.new_inbox();
+        let mut held = holder.subscribe(reply.clone()).await?;
+        holder
+            .publish_with_reply(
+                "$JS.API.CONSUMER.MSG.NEXT.AGENTS.host",
+                reply,
+                "{\"batch\":1,\"expires\":4000000000}".into(),
+            )
+            .await?;
+        holder.flush().await?;
+        // While the other pull waits, the reader gets nothing, and says why.
+        ensure!(
+            timeout(Duration::from_secs(3), inbox.next()).await.is_err(),
+            "the reader read while another pull held the inbox"
+        );
+        ensure!(
+            notices.hold("Exceeded MaxWaiting"),
+            "the reader did not say the bus refused its pulls: {:?}",
+            notices.text()
+        );
+        // The other pull expires; the reader's next pull is taken, and it reads.
+        let expired = timeout(Duration::from_secs(10), held.next())
+            .await
+            .context("the other pull did not expire")?
+            .context("the other pull's replies closed")?;
+        ensure!(
+            expired.status == Some(StatusCode::TIMEOUT),
+            "the other pull ended with {:?}",
+            expired.status
+        );
+        delivered(&channel, &mut inbox, "host", "after the other pull").await?;
+        ensure!(
+            notices.hold("again"),
+            "the reader did not say it reads again: {:?}",
+            notices.text()
+        );
+        Ok(())
+    }
+
+    /// The bus is paused for longer than the reader waits for a word on its pull: the reader
+    /// says the bus is silent, and reads once the bus is back.
+    async fn ignored_pulls(bus: &Bus, host: &NewKey) -> Result<()> {
+        let channel = Channel::connect(&bus.endpoint(), &host.seed).await?;
+        let notices = Notices::default();
+        let mut inbox = channel.inbox("host", notices.clone()).await?;
+        delivered(&channel, &mut inbox, "host", "before the pause").await?;
+        let docker = docker_connection()?;
+        docker.pause_container(&bus.container).await?;
+        let waited = timeout(Duration::from_secs(20), inbox.next()).await;
+        docker.unpause_container(&bus.container).await?;
+        ensure!(waited.is_err(), "the reader read from a paused bus");
+        ensure!(
+            notices.hold("said nothing"),
+            "the reader did not say the bus was silent: {:?}",
+            notices.text()
+        );
+        delivered(&channel, &mut inbox, "host", "after the pause").await
+    }
+
+    /// Needs Docker. A listener that journals a message and then cannot print it does not
+    /// acknowledge it. The bus delivers it again to whichever listener pulls next, once the
+    /// inbox's acknowledgement wait (30 s, with no limit on deliveries) is over, and the journal
+    /// keeps every delivery, so it holds the message twice.
+    /// Run with `cargo test -p agent-bus -- --ignored`.
+    #[tokio::test]
+    #[ignore = "needs Docker"]
+    async fn a_message_a_listener_cannot_print_is_delivered_again_and_journaled_twice() {
+        install_crypto_provider();
+        let host = generate().unwrap();
+        let id = process::id();
+        let dir = temp_dir().join(format!("agent-bus-unprinted-it-{id}"));
+        create_dir_all(&dir).unwrap();
+        let agents_path = dir.join("agents.toml");
+        write(
+            &agents_path,
+            format!(
+                "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n",
+                host.public_key
+            ),
+        )
+        .unwrap();
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let bus = Bus {
+            container: format!("sherpa-agent-bus-unprinted-test-{id}"),
+            volume: format!("sherpa-agent-bus-unprinted-test-{id}-data"),
+            listen: Ipv4Addr::LOCALHOST,
+            port,
+            state_dir: dir.join("state"),
+            lab: None,
+        };
+
+        let result = async {
+            start(&bus, &agents_path, &host.seed).await?;
+            unprinted_is_delivered_again(&bus, &host, &dir).await
+        }
+        .await;
+
+        let docker = docker_connection().unwrap();
+        let _ = remove_container(&docker, &bus.container).await;
+        let _ = docker
+            .remove_volume(&bus.volume, None::<RemoveVolumeOptions>)
+            .await;
+        let _ = remove_dir_all(&dir);
+        result.unwrap();
+    }
+
+    /// The `at_ms` of each journal entry at `path` for the task `task`.
+    fn journaled_at(path: &Path, task: &str) -> Result<Vec<u64>> {
+        let text = read_to_string(path)?;
+        let mut at = Vec::new();
+        for line in text.lines() {
+            let entry: serde_json::Value = serde_json::from_str(line)?;
+            if entry["message"]["task"] == task {
+                at.push(entry["at_ms"].as_u64().context("an entry has no at_ms")?);
+            }
+        }
+        Ok(at)
+    }
+
+    /// One listener journals a message and fails to print it; the next gets it again only
+    /// after the acknowledgement wait, journals it a second time, prints and acknowledges it.
+    async fn unprinted_is_delivered_again(bus: &Bus, host: &NewKey, dir: &Path) -> Result<()> {
+        let path = dir.join("listen-host.jsonl");
+        let channel = Channel::connect(&bus.endpoint(), &host.seed).await?;
+        let config = channel.inbox_config("host").await?;
+        ensure!(
+            config.ack_wait == Duration::from_secs(30),
+            "the inbox waits {:?} for an acknowledgement",
+            config.ack_wait
+        );
+        ensure!(
+            config.max_deliver == -1,
+            "the inbox delivers a message at most {} times",
+            config.max_deliver
+        );
+        let mut sent = message("host", "host", "unprinted");
+        sent.task = "unprint1".to_owned();
+        channel.send(&sent).await?;
+
+        let failed = timeout(
+            Duration::from_secs(15),
+            serve(
+                &channel,
+                "host",
+                Journal::new(path.clone()),
+                None,
+                &mut Gone,
+            ),
+        )
+        .await
+        .context("the listener went on with nowhere to print")?;
+        let delivered_at = Instant::now();
+        ensure!(
+            failed
+                .as_ref()
+                .is_err_and(|error| format!("{error:#}").contains("Unable to print")),
+            "the listener did not fail to print: {failed:?}"
+        );
+        ensure!(
+            journaled_at(&path, "unprint1")?.len() == 1,
+            "the message was not journaled before it was printed"
+        );
+        ensure!(
+            channel.waiting("host").await? == 1,
+            "a message that was not printed was acknowledged"
+        );
+
+        let next = Channel::connect(&bus.endpoint(), &host.seed).await?;
+        let mut printed = Vec::new();
+        let caught = timeout(Duration::from_secs(45), async {
+            tokio::select! {
+                served = serve(&next, "host", Journal::new(path.clone()), None, &mut printed) => {
+                    bail!("the next listener stopped: {served:?}")
+                }
+                () = async {
+                    while journaled_at(&path, "unprint1").map_or(0, |at| at.len()) < 2
+                        || channel.waiting("host").await.unwrap_or(1) > 0
+                    {
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+                    }
+                } => Ok(()),
+            }
+        })
+        .await
+        .context("the message was not delivered again")?;
+        caught?;
+        let waited = delivered_at.elapsed();
+        ensure!(
+            waited >= Duration::from_secs(25),
+            "delivered again after {waited:?}, before the acknowledgement wait was over"
+        );
+        let at = journaled_at(&path, "unprint1")?;
+        ensure!(
+            at.len() == 2 && at[1].saturating_sub(at[0]) >= 25_000,
+            "the journal holds the deliveries at {at:?}"
+        );
+        let printed = String::from_utf8(printed)?;
+        ensure!(
+            printed.matches("unprint1").count() == 1,
+            "the next listener printed {printed}"
+        );
+        Ok(())
     }
 }

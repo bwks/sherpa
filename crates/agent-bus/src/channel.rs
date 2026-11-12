@@ -12,23 +12,23 @@
 //! subscribe to, so no agent reads another's replies.
 
 use std::fmt;
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, ensure};
 use async_nats::jetstream::ErrorCode;
 use async_nats::jetstream::consumer::FromConsumer;
-use async_nats::jetstream::consumer::pull::MessagesErrorKind;
 use async_nats::jetstream::context::{ConsumerInfoErrorKind, GetStreamErrorKind};
 use async_nats::jetstream::kv::{self, Operation};
 use async_nats::jetstream::{self, consumer, stream};
 use async_nats::{ConnectOptions, Event};
-use futures_util::StreamExt;
 use tracing::field::Empty;
 use tracing::{Span, instrument};
 
 use crate::keys::public_key_of;
 use crate::message::{Message, check_agent_name};
+use crate::pull::Puller;
 use crate::status::{BUCKET, Heartbeat, InboxState, Status};
 use crate::tls::CA_ENV;
 
@@ -45,9 +45,6 @@ pub const RETENTION: Duration = Duration::from_hours(7 * 24);
 /// agent's inbox can take this name.
 pub const RECORDER: &str = "_record";
 
-/// How many messages a reader asks the bus for at a time. It must be 1: see `Channel::reader`.
-const PULL_BATCH: usize = 1;
-
 /// Where the bus is, and the CA certificate its server certificate must chain to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Endpoint {
@@ -61,9 +58,10 @@ pub struct Channel {
     jetstream: jetstream::Context,
 }
 
-/// The messages sent to one agent, in order, kept by the bus until acknowledged.
-pub struct Inbox {
-    messages: consumer::pull::Stream,
+/// The messages sent to one agent, in order, kept by the bus until acknowledged. The reader's
+/// notices (a skipped message, a refused or unanswered pull) go to `W`: stderr, for a command.
+pub struct Inbox<W> {
+    puller: Puller<W>,
 }
 
 /// What `create_inboxes` did to one inbox.
@@ -311,15 +309,15 @@ impl Channel {
         Ok(())
     }
 
-    /// Open `agent`'s inbox. The inbox remembers what was read, so a restarted reader goes on
-    /// where it stopped.
+    /// Open `agent`'s inbox, with its reader's notices written to `notices`. The inbox remembers
+    /// what was read, so a restarted reader goes on where it stopped.
     ///
     /// # Errors
     ///
     /// Fails when the name is invalid, or the inbox does not exist: the host creates it when it
     /// starts the bus with the agent in its agents file.
     #[instrument(skip_all, fields(%agent))]
-    pub async fn inbox(&self, agent: &str) -> Result<Inbox> {
+    pub async fn inbox<W: Write>(&self, agent: &str, notices: W) -> Result<Inbox<W>> {
         check_agent_name(agent)?;
         let (inbox, _) = self
             .reader(
@@ -328,33 +326,41 @@ impl Channel {
                     "Unable to open the inbox of '{agent}'. It exists only for an agent in the \
                      agents file the bus was started with, and only while the bus is running"
                 ),
+                notices,
             )
             .await?;
         Ok(inbox)
     }
 
-    /// Open the recorder's consumer, and say how many messages wait in it, unread or
-    /// unacknowledged. Like an inbox, it takes one reader at a time.
+    /// Open the recorder's consumer, with its reader's notices written to `notices`, and say how
+    /// many messages wait in it, unread or unacknowledged. Like an inbox, it takes one reader at
+    /// a time.
     ///
     /// # Errors
     ///
     /// Fails when there is no recorder consumer (the bus was started by an older agent-bus) or
     /// another reader is attached.
     #[instrument(skip_all)]
-    pub async fn recorder(&self) -> Result<(Inbox, u64)> {
+    pub async fn recorder<W: Write>(&self, notices: W) -> Result<(Inbox<W>, u64)> {
         self.reader(
             RECORDER,
             &format!(
                 "Unable to open the recorder's consumer '{RECORDER}'. `agent-bus bus start` \
                  creates it; run it again if the bus was started by an older agent-bus"
             ),
+            notices,
         )
         .await
     }
 
     /// Open the durable consumer `name` as its only reader, and say how many messages wait in
-    /// it. `missing` is the error when it cannot be opened.
-    async fn reader(&self, name: &str, missing: &str) -> Result<(Inbox, u64)> {
+    /// it. `missing` is the error when it cannot be opened; the reader's notices go to `notices`.
+    async fn reader<W: Write>(
+        &self,
+        name: &str,
+        missing: &str,
+        notices: W,
+    ) -> Result<(Inbox<W>, u64)> {
         let mut reader = self
             .jetstream
             .get_consumer_from_stream::<consumer::pull::Config, _, _>(name, STREAM)
@@ -373,18 +379,10 @@ impl Channel {
         let waiting = info
             .num_pending
             .saturating_add(u64::try_from(info.num_ack_pending).unwrap_or(u64::MAX));
-        // One message per pull. async-nats sends the next pull once half of a batch is
-        // delivered, while the first is still open; with `max_waiting = 1` the bus drops that
-        // second pull without a word, and the reader then waits for messages that never come
-        // until it misses two idle heartbeats (about 30 s) and pulls again. A pull for one
-        // message is over once it is delivered, so the next never overlaps it.
-        let messages = reader
-            .stream()
-            .max_messages_per_batch(PULL_BATCH)
-            .messages()
-            .await
-            .with_context(|| format!("Unable to read the consumer '{name}'"))?;
-        Ok((Inbox { messages }, waiting))
+        // One pull at a time, for one message, with every refusal and silence reported:
+        // see `pull`.
+        let puller = Puller::new(&self.jetstream, STREAM, name, notices)?;
+        Ok((Inbox { puller }, waiting))
     }
 
     /// Store `status` as `agent`'s, and wait until the bus has stored it. This is a plain
@@ -579,19 +577,25 @@ impl Channel {
     }
 }
 
-impl Inbox {
+impl<W: Write> Inbox<W> {
+    /// Say in the notices, once, when the bus first takes this reader's pull: the reader is
+    /// attached and waiting.
+    pub fn announce(&mut self) {
+        self.puller.announce();
+    }
+
     /// Wait for the next message. A message that is not one of ours, or whose `from` is not
-    /// the sender its subject names, is reported, acknowledged and skipped.
+    /// the sender its subject names, is written to the notices, acknowledged and skipped.
     ///
     /// # Errors
     ///
-    /// Fails as `receive` does.
+    /// Fails as `receive` does, or when a notice cannot be written.
     #[instrument(level = "debug", skip_all)]
     pub async fn next(&mut self) -> Result<Option<Delivery>> {
         while let Some(received) = self.receive().await? {
             match received {
                 Received::Taken(delivery) => return Ok(Some(*delivery)),
-                Received::Dropped(dropped) => eprintln!("{}", dropped.detail),
+                Received::Dropped(dropped) => self.puller.notice(&dropped.detail)?,
             }
         }
         Ok(None)
@@ -600,56 +604,45 @@ impl Inbox {
     /// Wait for the next message the bus delivers, and say whether it was taken. A message
     /// that is not one of ours, or whose `from` is not the sender its subject names, is
     /// acknowledged and returned as dropped, without a word: the caller decides what to report.
-    /// An error the reader recovers from (`recoverable`), such as the bus being away for a
-    /// while, is reported and reading goes on.
+    /// A pull the bus refuses or leaves unanswered, such as while the bus is away, is written to
+    /// the notices and pulled again (see `pull`).
     ///
     /// # Errors
     ///
-    /// Fails when the reader cannot go on: the inbox was deleted, or the bus refuses its pulls;
-    /// or when a dropped message has no stream position or cannot be acknowledged.
+    /// Fails when the reader cannot go on: a pull cannot be sent, the inbox was deleted, or the
+    /// bus ends its pulls; or when a dropped message has no stream position or cannot be
+    /// acknowledged.
     #[instrument(level = "debug", skip_all)]
     pub async fn receive(&mut self) -> Result<Option<Received>> {
-        while let Some(raw) = self.messages.next().await {
-            let raw = match raw {
-                Ok(raw) => raw,
-                Err(error) if recoverable(error.kind()) => {
-                    eprintln!("Reading the inbox: {error}; still reading");
-                    continue;
-                }
-                Err(error) => {
-                    eprintln!("Reading the inbox: {error}; the reader cannot go on");
-                    return Err(error).context("Unable to read the inbox");
-                }
-            };
-            let (reason, detail) = match serde_json::from_slice::<Message>(&raw.payload) {
-                Ok(message) if sent_by(raw.subject.as_str(), &message) => {
-                    return Ok(Some(Received::Taken(Box::new(Delivery { message, raw }))));
-                }
-                Ok(message) => (
-                    DropReason::ForeignSender,
-                    format!(
-                        "Refusing a message on {} that says it is from '{}' to '{}': the sender \
-                         is not the subject's",
-                        raw.subject, message.from, message.to
-                    ),
+        let Some(raw) = self.puller.next().await? else {
+            return Ok(None);
+        };
+        let (reason, detail) = match serde_json::from_slice::<Message>(&raw.payload) {
+            Ok(message) if sent_by(raw.subject.as_str(), &message) => {
+                return Ok(Some(Received::Taken(Box::new(Delivery { message, raw }))));
+            }
+            Ok(message) => (
+                DropReason::ForeignSender,
+                format!(
+                    "Refusing a message on {} that says it is from '{}' to '{}': the sender \
+                     is not the subject's",
+                    raw.subject, message.from, message.to
                 ),
-                Err(error) => (
-                    DropReason::NotAMessage,
-                    format!("Skipping a message that is not an agent message: {error}"),
-                ),
-            };
-            let position = position_of(&raw)?;
-            raw.ack()
-                .await
-                .map_err(anyhow::Error::from_boxed)
-                .context("Unable to acknowledge a skipped message")?;
-            return Ok(Some(Received::Dropped(Dropped {
-                reason,
-                detail,
-                position,
-            })));
-        }
-        Ok(None)
+            ),
+            Err(error) => (
+                DropReason::NotAMessage,
+                format!("Skipping a message that is not an agent message: {error}"),
+            ),
+        };
+        let position = position_of(&raw)?;
+        acknowledge(&raw)
+            .await
+            .context("Unable to acknowledge a skipped message")?;
+        Ok(Some(Received::Dropped(Dropped {
+            reason,
+            detail,
+            position,
+        })))
     }
 }
 
@@ -670,12 +663,27 @@ impl Delivery {
     /// Fails when the bus does not take the acknowledgement.
     #[instrument(level = "debug", skip_all, fields(task = %self.message.task))]
     pub async fn ack(&self) -> Result<()> {
-        self.raw
-            .ack()
+        acknowledge(&self.raw)
             .await
-            .map_err(anyhow::Error::from_boxed)
             .context("Unable to acknowledge the message")
     }
+}
+
+/// Acknowledge `raw`, and wait until the bus has it. An acknowledgement is a plain publish that
+/// waits in the client's buffer; a command that exits right after its last one would otherwise
+/// leave that message unacknowledged, held by the bus for its acknowledgement wait.
+///
+/// # Errors
+///
+/// Fails when the acknowledgement cannot be sent or the bus does not answer the flush.
+#[instrument(level = "debug", skip_all)]
+async fn acknowledge(raw: &jetstream::Message) -> Result<()> {
+    raw.ack().await.map_err(anyhow::Error::from_boxed)?;
+    raw.context
+        .client()
+        .flush()
+        .await
+        .context("The bus did not confirm the acknowledgement")
 }
 
 /// Where `raw` is in the stream, from its delivery's metadata.
@@ -824,19 +832,6 @@ fn sent_by(subject: &str, message: &Message) -> bool {
     message_subject(&message.to, &message.from).is_ok_and(|expected| expected == subject)
 }
 
-/// Whether an inbox's pull stream goes on after an error of this kind. async-nats ends the
-/// stream after a deleted consumer, a push consumer, or a pull over the consumer's limits. After
-/// any other error (a missed heartbeat, a pull that could not be sent, no responders while the
-/// bus is away) it keeps pulling, and pulls again once it has reconnected.
-fn recoverable(kind: MessagesErrorKind) -> bool {
-    !matches!(
-        kind,
-        MessagesErrorKind::ConsumerDeleted
-            | MessagesErrorKind::PushBasedConsumer
-            | MessagesErrorKind::RequestLimitExceeded
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -886,25 +881,6 @@ mod tests {
             inbox_prefix(&key),
             inbox_prefix(&generate().unwrap().public_key)
         );
-    }
-
-    #[test]
-    fn only_errors_that_end_the_pull_stream_end_the_reader() {
-        for kind in [
-            MessagesErrorKind::MissingHeartbeat,
-            MessagesErrorKind::Pull,
-            MessagesErrorKind::NoResponders,
-            MessagesErrorKind::Other,
-        ] {
-            assert!(recoverable(kind), "{kind}");
-        }
-        for kind in [
-            MessagesErrorKind::ConsumerDeleted,
-            MessagesErrorKind::PushBasedConsumer,
-            MessagesErrorKind::RequestLimitExceeded,
-        ] {
-            assert!(!recoverable(kind), "{kind}");
-        }
     }
 
     #[test]

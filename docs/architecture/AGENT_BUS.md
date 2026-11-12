@@ -32,7 +32,7 @@ tracked in issue #494.
 | TLS | The bus's own private CA (not the Sherpa lab CA), made once by `bus start`, and the server certificate it signs for the listen address, in the same mounted directory as the config. The server takes TLS only, handshake first. See [TLS](#tls). | `src/tls.rs` |
 | Registry | `enrolled.toml`: the guests `enroll` added, with their public keys. Host-managed, never edited by hand. | `src/registry.rs` |
 | Stream | One JetStream stream, `AGENTS`, on `agents.>`, keeping messages for 7 days (`max_age`). | `src/channel.rs` |
-| Status bucket | A JetStream key-value bucket, `AGENT_STATUS` (stream `KV_AGENT_STATUS`), one key per guest, history 1, kept 7 days. Each guest agent's heartbeat. See [Agent status](#agent-status). | `src/channel.rs`, `src/status.rs` |
+| Status bucket | A JetStream key-value bucket, `AGENT_STATUS` (stream `KV_AGENT_STATUS`), one key per guest, history 1, kept 7 days. Each guest agent's heartbeat. See [Agent status](#agent-status). | `src/channel.rs`, `src/pull.rs`, `src/status.rs` |
 | Inboxes | One durable pull consumer per agent, named after it, filtered on `agents.<name>.>` (one subject per sender), with `max_waiting = 1`. A message waits until its agent reads and acknowledges it, and a restarted reader goes on where it stopped. | `src/channel.rs` |
 | Recorder consumer | `_record`, a durable pull consumer on `agents.>` (every message, both ways), deliver all, `max_waiting = 1`, `max_ack_pending = 1`. Created by `bus start`; read only by a host command catching the record up. See [The record](#the-record). | `src/channel.rs` |
 | Record | `agent-bus.db` in the host's state directory: an embedded Turso database holding every message read from `_record`, and the tasks, runs and models derived from them, past the stream's 7 days. See [The record](#the-record). | `src/store/`, `src/record.rs`, `sql/` |
@@ -167,15 +167,34 @@ open an inbox whose consumer already has a pull waiting (`num_waiting > 0`), nam
 cause (an earlier `agent-bus listen <agent>` still running). A killed reader leaves no claim
 behind.
 
-Every reader (`Channel::reader`, for an inbox and for `_record`) pulls one message at a time
-(`PULL_BATCH = 1`). async-nats's default pull asks for 200 and sends the next pull once 100 of
-them are delivered, while the first is still open. With `max_waiting = 1` the bus (nats-server
-2.15.2) drops that second pull without replying: no 409, no heartbeat, nothing after the first
-pull ends either. The client counts it as open, so it waits until it misses two idle heartbeats
-(about 30 s) and pulls again. A pull for one message is over once that message is delivered, so
-the next pull never overlaps it. Each message then costs a pull as well as its acknowledgement;
-both go out together, so it is one round trip per message, which `_record` already paid
-through `max_ack_pending = 1`. A reader has a pull waiting only while it waits for a message, not
+Every reader (`Channel::reader`, for an inbox and for `_record`) pulls one message at a time,
+with its own pull loop (`src/pull.rs`), not async-nats's pull stream. A pull asks for one
+message, expires after 10 s, and has its own reply subject; the next pull is sent only once the
+last one is over (its message came, it expired with a 408, or it was refused), so a reader's
+pulls never overlap. The bus allows one waiting pull per consumer (`max_waiting = 1`), and
+async-nats's stream overlaps its own pulls (its default asks for 200 and sends the next pull
+once 100 are delivered) and retries what the bus refuses without a word (#527). What
+nats-server 2.15.2 does with a pull while another waits on the same consumer:
+
+| The refused pull | What the bus answers |
+|---|---|
+| no `idle_heartbeat` | 409 `Exceeded MaxWaiting`, at once |
+| with an `idle_heartbeat` | nothing at all: no 409, no heartbeat, no expiry |
+
+So a pull asks for no heartbeat, and a refusal comes back named. The reader writes a notice
+(`pull::Watch`) to the writer it was opened with (`Channel::inbox` and `Channel::recorder` take
+it; every command passes stderr) for every answer that is not routine: a refusal ("another reader holds it"), any
+other status (such as 503 while the bus has no JetStream), and a pull the bus says nothing about
+for 15 s (`SILENCE_LIMIT`, the expiry and 5 s), which is counted lost and pulled again. A refusal
+or a status is pulled again after 1 s, not at once, so a held inbox is not spun on. A trouble
+that repeats is reported once, and the reader says once when a pull is taken again. 409s for a
+deleted or push consumer, or a pull over the consumer's limits, end the reader with an error.
+Messages and expiries are not reported. Each message costs a pull as well as its
+acknowledgement, and the acknowledgement is flushed (`channel::acknowledge`): it is a plain
+publish, and a command that exits right after its last one would otherwise leave that message
+unacknowledged for the bus's acknowledgement wait. That is one round trip per message, which
+`_record` already paid through `max_ack_pending = 1`. An idle reader pulls every 10 s.
+A reader has a pull waiting only while it waits for a message, not
 while it handles one, so the second-reader check above does not see a reader in that window.
 The guest acknowledges each message as it reads it and `listen` journals, prints and
 acknowledges it, so the window is milliseconds per message.
@@ -293,16 +312,25 @@ listener acknowledged is never delivered again, so if the Monitor was gone when 
 the journal is where it is left: `agent-bus listen host --since 30m` prints the journal's
 messages from the last 30 minutes (units `s`, `m`, `h`, `d`), then listens live. A message that
 cannot be journaled is neither printed nor acknowledged, and the listener exits; the bus delivers
-it to the next listener. The guest
+it to the next listener. The same holds for a message that cannot be printed (stdout's reader
+gone): it is in the journal, not acknowledged, and the listener exits. An unacknowledged message
+is delivered again once the inbox's acknowledgement wait is over (the bus's default, 30 s, with
+no limit on deliveries), to whichever listener pulls next; the journal does not deduplicate, so
+it then holds that message twice, each entry with the `at_ms` of its delivery. Messages go to
+stdout only. On stderr the listener says once that it
+is attached, "Listening on 'host': the bus took the pull", when the bus first answers its pull
+(a message at once, or the 408 when an idle pull expires, so within 10 s), and reports each pull
+the bus refuses or leaves unanswered (see [One reader per inbox](#one-reader-per-inbox)). A
+listener that prints neither within 15 s of starting never reached the bus's inbox. Keep its
+stderr (`2>&1` into the same log, before any filter) so a stall shows where it stopped. The guest
 agent acknowledges each inbox message as soon as it reads it, before running it: a task runs far
 longer than the bus waits for an acknowledgement, and must not be delivered twice.
 
 A reader (the guest agent, and `listen`) outlives a short bus outage, such as `bus start` run
-again. async-nats reconnects by itself, and its pull stream ends only after a deleted consumer,
-a push consumer, or a pull over the consumer's limits. Those end the reader with an error. Any
-other stream error (a missed heartbeat, a pull that could not be sent, no responders) is logged
-as `Reading the inbox: ...; still reading`, and the reader goes on and pulls again once
-reconnected (`channel::recoverable`).
+again. async-nats reconnects by itself; the pull open when the bus went away gets no answer, so
+the reader reports the silence after 15 s and pulls again, and goes on once the bus answers
+("Reading '<name>' again"). Only a deleted consumer, a push consumer, a pull over the consumer's
+limits, or a pull that cannot be sent end the reader with an error (`pull::step`).
 
 ### A question and its answer
 

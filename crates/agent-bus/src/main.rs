@@ -24,6 +24,7 @@ mod keys;
 mod listen;
 mod message;
 mod model;
+mod pull;
 mod record;
 mod registry;
 mod report;
@@ -1032,7 +1033,7 @@ echo '{"type":"result","is_error":false,"result":"done","session_id":"sess-1"}'
     /// hold any of `secrets`.
     async fn run_task(server: &Endpoint, host_seed: &str, secrets: &[&str]) -> Result<Message> {
         let channel = Channel::connect(server, host_seed).await?;
-        let mut inbox = channel.inbox("host").await?;
+        let mut inbox = channel.inbox("host", io::stderr()).await?;
         let task = new_task_id();
         channel
             .send(&Message {
