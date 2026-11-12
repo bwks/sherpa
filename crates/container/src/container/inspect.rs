@@ -1,8 +1,10 @@
 use anyhow::{Context, Result, bail};
 use bollard::Docker;
 use bollard::query_parameters::InspectContainerOptions;
-use bollard::secret::ContainerStateStatusEnum;
+use bollard::secret::{ContainerState, ContainerStateStatusEnum};
 use tracing::instrument;
+
+use crate::status::is_missing;
 
 /// Get the PID of a running container.
 ///
@@ -50,6 +52,32 @@ pub async fn container_status(
         .await
         .with_context(|| format!("failed to inspect container {container_name}"))?;
     Ok(details.state.and_then(|state| state.status))
+}
+
+/// The current state of the container `container_name`: its status, and how it ended when it
+/// is not running. `None` when the container does not exist or Docker reports no state.
+///
+/// # Errors
+///
+/// Fails when the container cannot be inspected for another reason.
+#[instrument(skip(docker), fields(%container_name), level = "debug")]
+pub async fn container_state(
+    docker: &Docker,
+    container_name: &str,
+) -> Result<Option<ContainerState>> {
+    match docker
+        .inspect_container(
+            container_name,
+            Some(InspectContainerOptions { size: false }),
+        )
+        .await
+    {
+        Ok(details) => Ok(details.state),
+        Err(error) if is_missing(&error) => Ok(None),
+        Err(error) => {
+            Err(error).with_context(|| format!("failed to inspect container {container_name}"))
+        }
+    }
 }
 
 /// The host path mounted at `destination` in a container, if one is.

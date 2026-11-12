@@ -19,11 +19,20 @@ use crate::services::talos;
 
 use container::ContainerSpec;
 use shared::data;
-use shared::data::{NodeState, OperationEvent, StatusKind};
+use shared::data::{Halt, NodeState, OperationEvent, Runtime, StatusKind};
 use shared::konst::{
     CONTAINER_SECRETS_DIR, READINESS_SLEEP, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR,
     SSH_PORT,
 };
+
+/// How long a started container must keep running before it counts as ready. Containers have
+/// no readiness probe, and an image whose entrypoint fails, such as mysql without a root
+/// password, exits a moment after Docker reports it running.
+const CONTAINER_SETTLE: Duration = Duration::from_secs(5);
+/// The shortest wait between two polls, so a container between states is not polled in a loop.
+const MIN_POLL_INTERVAL: Duration = Duration::from_secs(1);
+/// How many of its last log lines a container that exited reports.
+const EXIT_LOG_LINES: u32 = 10;
 
 /// What waiting for the nodes needs besides the build.
 pub(super) struct ReadinessInputs<'a> {
@@ -49,12 +58,14 @@ pub(super) struct NodesReady {
 }
 
 /// Start the containers and wait for every node to become ready, until `inputs.timeout`
-/// (phase 13). A node that is not ready in time, or a container that exits, is a non-critical
-/// error: the rest of the lab is kept.
+/// (phase 13). A node that is not ready in time is a non-critical error, and a container that
+/// exits a critical one; either way the rest of the lab is kept.
 ///
-/// Every node is `Building` until here. A ready node is recorded `Running`, a node with its
-/// check skipped `Running`, a Talos cluster worker or a node not ready in time `Starting` (the
-/// scanner records it running once it answers), and a container that exits `Failed`.
+/// Every node is `Building` until here. A started container is recorded `Starting`, and
+/// `Running` once it has kept running for `CONTAINER_SETTLE`. A ready node is recorded
+/// `Running`, a node with its check skipped `Running`, a Talos cluster worker or a node not
+/// ready in time `Starting` (the scanner records it running once it answers), and a container
+/// that exits, at start, while it settles or by the end of polling, `Failed`.
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
 pub(super) async fn wait_for_nodes(
     build: &LabBuild<'_>,
@@ -86,6 +97,7 @@ pub(super) async fn wait_for_nodes(
         p2p,
         secret_mounts: write_secret_mounts(build, inputs.node_secrets)?,
         connected: HashSet::new(),
+        settling: HashMap::new(),
         nodes: Vec::new(),
         errors: Vec::new(),
     };
@@ -98,8 +110,12 @@ pub(super) async fn wait_for_nodes(
 
     while started.elapsed() < inputs.timeout && readiness.connected.len() < all_nodes.len() {
         for container in inputs.container_nodes {
-            if !readiness.connected.contains(&container.name) {
-                readiness.start_container(container).await?;
+            if readiness.connected.contains(&container.name) {
+                continue;
+            }
+            match readiness.settling.get(&container.name) {
+                Some(started) => readiness.check_container(container, *started).await?,
+                None => readiness.start_container(container).await?,
             }
         }
         for vm in inputs.vm_nodes {
@@ -113,9 +129,14 @@ pub(super) async fn wait_for_nodes(
             }
         }
         if readiness.connected.len() < all_nodes.len() {
-            operation
-                .sleep(Duration::from_secs(READINESS_SLEEP))
-                .await?;
+            let interval = poll_interval(
+                readiness
+                    .settling
+                    .iter()
+                    .filter(|(name, _)| !readiness.connected.contains(*name))
+                    .map(|(_, started)| started.elapsed()),
+            );
+            operation.sleep(interval).await?;
         }
     }
 
@@ -175,6 +196,8 @@ struct Readiness<'a, 'b> {
     secret_mounts: HashMap<&'a str, String>,
     /// Nodes that need no more polling: ready, skipped or failed.
     connected: HashSet<String>,
+    /// Containers started and waited for, by node name, with when each was started.
+    settling: HashMap<String, Instant>,
     nodes: Vec<data::NodeInfo>,
     errors: Vec<data::UpError>,
 }
@@ -330,47 +353,155 @@ impl Readiness<'_, '_> {
         .await?;
 
         if !is_running {
-            // A skipped container is started once and not waited for.
-            if container.skip_ready_check.unwrap_or(false) {
-                tracing::info!(node_name = %container.name, "Container not running; ready check skipped");
-                let _ = self.build.progress.send_status(
-                    format!("Node {} - Not running, ready check skipped", container.name),
-                    StatusKind::Done,
-                );
-                // The scanner records what it is once it looks.
-                let state = self
-                    .record(&container.name, &[OperationEvent::Launched], None)
-                    .await?;
-                self.connected(container, state, mgmt_ipv4, None);
-            } else {
-                // Starting it again would fail on its name, so the node is reported failed and
-                // the rest of the lab carries on.
-                tracing::warn!(node_name = %container.name, "Container exited right after starting");
-                let _ = self.build.progress.send_status(
-                    format!("Node {} - Exited right after starting", container.name),
-                    StatusKind::Waiting,
-                );
-                self.errors
-                    .push(exited_container_error(&container.name, &container_name));
-                let state = self
-                    .record(&container.name, &[OperationEvent::Failed], None)
-                    .await?;
-                self.connected(container, state, mgmt_ipv4, None);
-            }
+            tracing::warn!(node_name = %container.name, "Container exited right after starting");
+            // Starting it again would fail on its name, so the node is reported failed and the
+            // rest of the lab carries on.
+            let state = self
+                .fail_exited_container(container, &container_name)
+                .await?;
+            self.connected(container, state, mgmt_ipv4, None);
             return Ok(());
         }
 
-        self.create_p2p_interfaces(container, &container_name)
+        if let Err(error) = self.create_p2p_interfaces(container, &container_name).await {
+            // Its namespace goes with its process, so a container that exited meanwhile fails
+            // here; that is the container's failure, not the lab's.
+            if self.is_running(&container_name).await {
+                return Err(error);
+            }
+            tracing::warn!(node_name = %container.name, error = %error, "Container exited while its P2p interfaces were created");
+            let state = self
+                .fail_exited_container(container, &container_name)
+                .await?;
+            self.connected(container, state, mgmt_ipv4, None);
+            return Ok(());
+        }
+
+        // A skipped container is started once and not waited for.
+        if container.skip_ready_check.unwrap_or(false) {
+            tracing::info!(node_name = %container.name, "Container started; ready check skipped");
+            let _ = self.build.progress.send_status(
+                format!("Node {} - Ready check skipped", container.name),
+                StatusKind::Done,
+            );
+            let state = self
+                .record(
+                    &container.name,
+                    &[OperationEvent::Launched, OperationEvent::Ready],
+                    None,
+                )
+                .await?;
+            self.connected(container, state, mgmt_ipv4, Some(SSH_PORT));
+            return Ok(());
+        }
+
+        self.record(&container.name, &[OperationEvent::Launched], None)
             .await?;
-        let state = self
-            .record(
-                &container.name,
-                &[OperationEvent::Launched, OperationEvent::Ready],
-                None,
-            )
-            .await?;
-        self.connected(container, state, mgmt_ipv4, Some(SSH_PORT));
+        self.settling.insert(container.name.clone(), Instant::now());
         Ok(())
+    }
+
+    /// Check a container started `started`: ready once it has kept running for
+    /// `CONTAINER_SETTLE`, failed when it stopped running before.
+    async fn check_container(
+        &mut self,
+        container: &topology::NodeExpanded,
+        started: Instant,
+    ) -> Result<()> {
+        let container_name = format!("{}-{}", container.name, self.build.lab_id);
+        let status = match container::container_state(self.build.docker_conn, &container_name).await
+        {
+            Ok(state) => state.and_then(|state| state.status),
+            Err(error) => {
+                // Docker did not answer; the next poll asks again, and the readiness timeout
+                // ends the wait.
+                tracing::warn!(node_name = %container.name, %error, "Cannot check the container");
+                return Ok(());
+            }
+        };
+        let mgmt_ipv4 = container.ipv4_address.map(|ip| ip.to_string());
+        match check_started_container(status, started.elapsed()) {
+            ContainerCheck::Settling => {
+                tracing::debug!(node_name = %container.name, ?status, "Waiting for the container to settle");
+                let _ = self.build.progress.send_status(
+                    format!(
+                        "Node {} - Waiting for the container to keep running",
+                        container.name
+                    ),
+                    StatusKind::Waiting,
+                );
+            }
+            ContainerCheck::Ready => {
+                tracing::info!(node_name = %container.name, "Container ready");
+                let _ = self.build.progress.send_status(
+                    format!("Node {} - Ready (container running)", container.name),
+                    StatusKind::Done,
+                );
+                let state = self
+                    .record(&container.name, &[OperationEvent::Ready], None)
+                    .await?;
+                self.connected(container, state, mgmt_ipv4, Some(SSH_PORT));
+            }
+            ContainerCheck::Exited => {
+                tracing::warn!(node_name = %container.name, ?status, "Container stopped running before it was ready");
+                let state = self
+                    .fail_exited_container(container, &container_name)
+                    .await?;
+                self.connected(container, state, mgmt_ipv4, None);
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether Docker reports the container `container_name` running. A container Docker cannot
+    /// inspect is not.
+    async fn is_running(&self, container_name: &str) -> bool {
+        matches!(
+            container::container_status(self.build.docker_conn, container_name).await,
+            Ok(Some(ContainerStateStatusEnum::RUNNING))
+        )
+    }
+
+    /// Report a container node that stopped running, with its exit code and last log lines,
+    /// and record it `Failed`. Returns its new state.
+    async fn fail_exited_container(
+        &mut self,
+        container: &topology::NodeExpanded,
+        container_name: &str,
+    ) -> Result<NodeState> {
+        let docker = self.build.docker_conn;
+        let exit_code = match container::container_state(docker, container_name).await {
+            Ok(state) => state.and_then(|state| state.exit_code),
+            Err(error) => {
+                tracing::warn!(node_name = %container.name, %error, "Cannot read the container's exit code");
+                None
+            }
+        };
+        let log_tail = match container::container_log_tail(docker, container_name, EXIT_LOG_LINES)
+            .await
+        {
+            Ok(log) => Some(log),
+            Err(error) => {
+                tracing::warn!(node_name = %container.name, %error, "Cannot read the container's log");
+                None
+            }
+        };
+        let exit = ContainerExit {
+            exit_code,
+            log_tail,
+        };
+        tracing::warn!(node_name = %container.name, ?exit_code, "Container stopped running");
+        let _ = self.build.progress.send_status(
+            format!("Node {} - {}", container.name, exit.summary()),
+            StatusKind::Waiting,
+        );
+        self.errors.push(exited_container_error(
+            &container.name,
+            container_name,
+            &exit,
+        ));
+        self.record(&container.name, &[OperationEvent::Failed], None)
+            .await
     }
 
     /// Create a started P2p container's data interfaces in its network namespace, named and
@@ -486,8 +617,8 @@ impl Readiness<'_, '_> {
         Ok(())
     }
 
-    /// Check each started container again: a container counts as ready once it starts, so one
-    /// that exited since is reported here and recorded failed.
+    /// Check each ready container again, as VMs may have kept polling going long after it
+    /// settled: one that exited since is reported here and recorded failed.
     async fn recheck_containers(&mut self) -> Result<()> {
         for container in self.inputs.container_nodes {
             if container.skip_ready_check.unwrap_or(false) {
@@ -507,10 +638,8 @@ impl Readiness<'_, '_> {
                 }
                 Ok(_) => {
                     tracing::warn!(node_name = %container.name, "Container exited after starting");
-                    self.errors
-                        .push(exited_container_error(&container.name, &container_name));
                     let state = self
-                        .record(&container.name, &[OperationEvent::Failed], None)
+                        .fail_exited_container(container, &container_name)
                         .await?;
                     if let Some(info) = self
                         .nodes
@@ -595,14 +724,82 @@ fn not_ready_error(node_name: &str) -> data::UpError {
     }
 }
 
-/// The critical error for a container node whose process exited after it started. The node is
-/// `Failed` and stays so until it is redeployed, so the lab is only partly created.
-fn exited_container_error(node_name: &str, container_name: &str) -> data::UpError {
+/// How a container that stopped running ended, as far as Docker could tell.
+struct ContainerExit {
+    exit_code: Option<i64>,
+    /// Its last log lines; `None` when they could not be read.
+    log_tail: Option<String>,
+}
+
+impl ContainerExit {
+    /// One line on how it ended, without the log.
+    fn summary(&self) -> String {
+        match self.exit_code {
+            Some(code) => format!("exited with code {code} before it was ready"),
+            None => "stopped running before it was ready".to_string(),
+        }
+    }
+}
+
+/// Whether a container started and waited for is ready, from Docker's status for it and how long
+/// ago it was started.
+#[derive(Debug, PartialEq, Eq)]
+enum ContainerCheck {
+    /// It has kept running for `CONTAINER_SETTLE`.
+    Ready,
+    /// It runs, but not for long enough yet, or it is between states.
+    Settling,
+    /// It stopped running, or is gone.
+    Exited,
+}
+
+/// Decide whether a started container is ready: running for `CONTAINER_SETTLE`, from Docker's
+/// `status` and the time `running_for` since it was started.
+fn check_started_container(
+    status: Option<ContainerStateStatusEnum>,
+    running_for: Duration,
+) -> ContainerCheck {
+    match node_lifecycle::container_runtime(status) {
+        Runtime::Running if running_for >= CONTAINER_SETTLE => ContainerCheck::Ready,
+        Runtime::Running | Runtime::Transitional(_) | Runtime::Stopped(Halt::Paused) => {
+            ContainerCheck::Settling
+        }
+        Runtime::Stopped(Halt::Off) | Runtime::Faulted(_) | Runtime::Absent => {
+            ContainerCheck::Exited
+        }
+    }
+}
+
+/// How long to wait before the next poll: until the first settling container is due, given how
+/// long each has run, but never longer than `READINESS_SLEEP` or shorter than
+/// `MIN_POLL_INTERVAL`.
+fn poll_interval(settling_for: impl Iterator<Item = Duration>) -> Duration {
+    settling_for
+        .map(|running_for| CONTAINER_SETTLE.saturating_sub(running_for))
+        .min()
+        .unwrap_or(Duration::from_secs(READINESS_SLEEP))
+        .clamp(MIN_POLL_INTERVAL, Duration::from_secs(READINESS_SLEEP))
+}
+
+/// The critical error for a container node whose process stopped running before it was ready,
+/// with its exit code and last log lines. The node is `Failed` and stays so until it is
+/// redeployed, so the lab is only partly created.
+fn exited_container_error(
+    node_name: &str,
+    container_name: &str,
+    exit: &ContainerExit,
+) -> data::UpError {
+    let mut message = format!(
+        "Node {node_name} {}; see `docker logs {container_name}` on the server",
+        exit.summary()
+    );
+    if let Some(log) = exit.log_tail.as_deref().filter(|log| !log.is_empty()) {
+        message.push_str(". Its last log lines:\n");
+        message.push_str(log);
+    }
     data::UpError {
         phase: "NodeReadiness".to_string(),
-        message: format!(
-            "Node {node_name} exited right after starting; see `docker logs {container_name}` on the server"
-        ),
+        message,
         is_critical: true,
     }
 }
@@ -611,12 +808,128 @@ fn exited_container_error(node_name: &str, container_name: &str) -> data::UpErro
 mod tests {
     use super::*;
 
+    fn exit(exit_code: Option<i64>, log_tail: Option<&str>) -> ContainerExit {
+        ContainerExit {
+            exit_code,
+            log_tail: log_tail.map(str::to_string),
+        }
+    }
+
     #[test]
     fn an_up_with_a_node_that_will_not_recover_did_not_succeed() {
         // M6.1: every error used to be a warning, so `up` reported success for a lab with a
         // container that exited. A node that is only slow to answer still is a warning.
-        assert!(exited_container_error("r1", "r1-ab12cd34").is_critical);
+        assert!(exited_container_error("r1", "r1-ab12cd34", &exit(Some(1), None)).is_critical);
         assert!(!not_ready_error("r1").is_critical);
+    }
+
+    #[test]
+    fn an_exited_container_error_names_its_exit_code_and_log() {
+        let error = exited_container_error(
+            "db01",
+            "db01-ab12cd34",
+            &exit(Some(1), Some("[ERROR] password option is not specified")),
+        );
+        assert_eq!(
+            error.message,
+            "Node db01 exited with code 1 before it was ready; see `docker logs db01-ab12cd34` \
+             on the server. Its last log lines:\n[ERROR] password option is not specified"
+        );
+    }
+
+    #[test]
+    fn an_exited_container_error_without_a_code_or_log_still_says_where_to_look() {
+        let error = exited_container_error("db01", "db01-ab12cd34", &exit(None, Some("")));
+        assert_eq!(
+            error.message,
+            "Node db01 stopped running before it was ready; see `docker logs db01-ab12cd34` on \
+             the server"
+        );
+    }
+
+    #[test]
+    fn a_running_container_is_ready_once_it_has_run_for_the_settle_time() {
+        let running = Some(ContainerStateStatusEnum::RUNNING);
+        assert_eq!(
+            check_started_container(running, Duration::ZERO),
+            ContainerCheck::Settling
+        );
+        assert_eq!(
+            check_started_container(
+                running,
+                CONTAINER_SETTLE.saturating_sub(Duration::from_millis(1))
+            ),
+            ContainerCheck::Settling
+        );
+        assert_eq!(
+            check_started_container(running, CONTAINER_SETTLE),
+            ContainerCheck::Ready
+        );
+    }
+
+    #[test]
+    fn a_container_that_stopped_running_after_it_started_has_exited() {
+        // The mysql image exits about a second after it starts without a root password.
+        for status in [
+            Some(ContainerStateStatusEnum::EXITED),
+            Some(ContainerStateStatusEnum::DEAD),
+            Some(ContainerStateStatusEnum::CREATED),
+            None,
+        ] {
+            assert_eq!(
+                check_started_container(status, Duration::ZERO),
+                ContainerCheck::Exited,
+                "{status:?}"
+            );
+            assert_eq!(
+                check_started_container(status, CONTAINER_SETTLE * 10),
+                ContainerCheck::Exited,
+                "{status:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_container_between_states_is_waited_for() {
+        for status in [
+            ContainerStateStatusEnum::RESTARTING,
+            ContainerStateStatusEnum::REMOVING,
+            ContainerStateStatusEnum::PAUSED,
+            ContainerStateStatusEnum::EMPTY,
+        ] {
+            assert_eq!(
+                check_started_container(Some(status), CONTAINER_SETTLE * 10),
+                ContainerCheck::Settling,
+                "{status:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn polling_wakes_when_the_first_settling_container_is_due() {
+        let interval = poll_interval([Duration::from_secs(1), Duration::from_secs(4)].into_iter());
+        assert_eq!(
+            interval,
+            CONTAINER_SETTLE.saturating_sub(Duration::from_secs(4))
+        );
+    }
+
+    #[test]
+    fn polling_without_settling_containers_waits_the_readiness_sleep() {
+        assert_eq!(
+            poll_interval(std::iter::empty()),
+            Duration::from_secs(READINESS_SLEEP)
+        );
+    }
+
+    #[test]
+    fn polling_a_container_due_already_waits_at_least_a_second() {
+        // A container settling longer than the settle time is between states; polling it
+        // again at once would spin.
+        assert_eq!(
+            poll_interval([CONTAINER_SETTLE * 3].into_iter()),
+            MIN_POLL_INTERVAL
+        );
     }
 
     #[test]

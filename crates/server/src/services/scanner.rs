@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -245,7 +244,7 @@ async fn probe_node(state: &AppState, node: &DbNode) -> (Probe, bool) {
 async fn query_runtimes(state: &AppState) -> Runtimes {
     let (domains, containers) = tokio::join!(
         query_libvirt_states(state.qemu.clone()),
-        query_docker_states(state.docker.clone()),
+        node_lifecycle::container_states(&state.docker),
     );
     Runtimes {
         domains: domains
@@ -303,33 +302,6 @@ async fn query_libvirt_states(qemu: Arc<libvirt::Qemu>) -> Result<HashMap<String
     })
     .await
     .context("libvirt query task panicked")?
-}
-
-/// Query Docker for all container states.
-async fn query_docker_states(
-    docker: Arc<bollard::Docker>,
-) -> Result<HashMap<String, ContainerStateStatusEnum>> {
-    let containers = container::list_containers(&docker)
-        .await
-        .context("Failed to list Docker containers")?;
-
-    let mut states = HashMap::with_capacity(containers.len());
-    for c in &containers {
-        let name = match &c.names {
-            Some(names) if !names.is_empty() => {
-                // Docker names have a leading '/'
-                names[0].trim_start_matches('/').to_string()
-            }
-            _ => continue,
-        };
-        // The listing's states are the inspection's, under another type.
-        if let Some(status) = c.state
-            && let Ok(status) = ContainerStateStatusEnum::from_str(status.as_ref())
-        {
-            states.insert(name, status);
-        }
-    }
-    Ok(states)
 }
 
 #[cfg(test)]
