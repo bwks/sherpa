@@ -66,6 +66,9 @@ jobs:
       - name: Check formatting
         run: cargo fmt -- --check
 
+      - name: Check lint exceptions
+        run: dev/check-lint-exceptions.sh
+
       - name: Run clippy
         run: cargo clippy --workspace -- -D warnings
 

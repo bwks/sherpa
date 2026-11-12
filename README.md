@@ -69,6 +69,15 @@ cargo clippy           # lint
 cargo test             # run tests
 ```
 
+Enable the pre-commit hook once per checkout:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+It runs `dev/check-lint-exceptions.sh`, which refuses new `allow`/`expect` lint exceptions. CI
+runs the same check.
+
 ### Dev Scripts
 
 Helper scripts are in the `dev/` directory:
@@ -77,6 +86,7 @@ Helper scripts are in the `dev/` directory:
 dev/serve              # run the server in development mode
 dev/dbreset            # reset the database
 dev/rebuild            # Rebuild the project and copy binaries to path
+dev/check-lint-exceptions.sh  # refuse lint exceptions not on its allowlist
 ```
 
 ## Logging
