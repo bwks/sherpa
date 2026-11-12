@@ -164,6 +164,34 @@ messages not taken are counted on one line. 6,050 messages now take one command,
 of it commits), where before each command took about 3 s for 200 (30 commands). The same
 overlapping pull may be behind #527 (`listen` inboxes also have `max_waiting = 1`); not proven.
 
+Follow-up on #527 (2026-11-12, against a throwaway bus, nats-server 2.15.2). On an inbox
+consumer, a pull sent while another waits is answered with 409 `Exceeded MaxWaiting` when the
+request has no `idle_heartbeat`, and not at all when it has one (no 409, no heartbeat, no
+expiry), from the same connection or another. async-nats 0.52's pull stream swallows that 409
+and pulls again at once, printing nothing. A lone listener on 1-message pulls was not stalled
+by 70 s idle, a bus restart or a 20 s pause; each message came in about 50 ms. The 30-minute
+silent listeners of #527 were not reproduced. Readers now use their own pull loop that reports
+refusals and silences (`src/pull.rs`; see "One reader per inbox" in
+`docs/architecture/AGENT_BUS.md`).
+
+The print and acknowledgement path, checked against the host's journal (2026-11-12). Task
+359ab3b7's completion was journaled once, at 2026-11-10T08:06:09Z (`at_ms` 1794297969659),
+seconds after its last progress line, so a listener pulled it promptly. Selecting the journal on
+`message.task == "359ab3b7"` finds that one completion entry and no other. The entry matching
+"359ab3b7" journaled at 2026-11-12T08:44:44Z is the completion of task 152443bd, whose text quotes
+the ID: a different message, not a redelivery. A redelivery would have meant the message was
+never acknowledged: a listener that journals and then fails to print exits without
+acknowledging, and the next listener journals the message again after the 30 s acknowledgement
+wait (test `a_message_a_listener_cannot_print_is_delivered_again_and_journaled_twice`). A stdout
+pipe nobody reads blocks `print` once the pipe buffer (64 KiB) is full, which would also stop the
+acknowledgement and show up the same way.
+
+Conclusion: the listener journaled, printed and acknowledged 359ab3b7's completion; `print`
+returned, so the line was written to the listener's stdout. The loss was after that, in the
+Monitor pipeline that turns the listener's stdout into notifications for the host agent, not in
+`agent-bus` or the bus. The 30-minute silent listeners of #527 were therefore not an `agent-bus`
+fault; the reader changes above make any stall in pulling visible on stderr rather than silent.
+
 ### Keeping the stream as the history
 
 The option the first version skipped: raise the `AGENTS` stream's `max_age` (to a year, say) and

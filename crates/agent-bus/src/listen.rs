@@ -145,7 +145,8 @@ pub fn parse_since(text: &str) -> Result<Duration> {
 
 /// Print each message sent to `agent` as one JSON line, until the bus closes. Each is kept in
 /// the journal first, then printed, then acknowledged. With `since`, the journal's entries from
-/// that long ago are printed first.
+/// that long ago are printed first. Stderr gets one line once the bus has taken the listener's
+/// pull, and one for each pull the bus refuses or leaves unanswered.
 ///
 /// # Errors
 ///
@@ -176,7 +177,10 @@ pub async fn serve(
     since: Option<Duration>,
     out: &mut impl Write,
 ) -> Result<()> {
-    let mut inbox = channel.inbox(agent).await?;
+    let mut inbox = channel.inbox(agent, io::stderr()).await?;
+    // One line on stderr once the bus holds the listener's pull, so a listener that never
+    // gets that far is told from one that waits for messages.
+    inbox.announce();
     let now = now_ms();
     match journal.prune(now) {
         Ok(0) => {}

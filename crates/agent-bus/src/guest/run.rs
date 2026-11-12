@@ -4,6 +4,7 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::env;
+use std::io::{Stderr, stderr};
 use std::path::Path;
 use std::time::Duration;
 
@@ -223,7 +224,7 @@ async fn start(
         eprintln!("No GitHub write token: --github tasks will fail");
     }
     let channel = &Channel::connect(server, setup.secrets.seed().expose()).await?;
-    let inbox = channel.inbox(name).await?;
+    let inbox = channel.inbox(name, stderr()).await?;
     let mut terminate = signal(SignalKind::terminate()).context("Unable to watch for SIGTERM")?;
     let mut interrupt = signal(SignalKind::interrupt()).context("Unable to watch for SIGINT")?;
     let (stop_tx, stop_rx) = watch::channel(false);
@@ -278,7 +279,7 @@ async fn start(
 /// Move messages from the inbox to the engine, acknowledging each at once: a task can run far
 /// longer than the bus waits for an acknowledgement, and it must not be delivered twice.
 async fn read_inbox(
-    mut inbox: Inbox,
+    mut inbox: Inbox<Stderr>,
     incoming: UnboundedSender<Message>,
     mut stop: watch::Receiver<bool>,
 ) -> Result<()> {

@@ -17,6 +17,7 @@
 //! it within `LOCK_WAIT` fails naming that PID. When the bus cannot be reached, or the host's
 //! seed is missing, the command answers from what is recorded and says it did not catch up.
 
+use std::io::{Stderr, stderr};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -195,7 +196,7 @@ async fn lock_within(path: &Path, wait: Duration) -> Result<FileLock> {
 /// it.
 #[instrument(level = "debug", skip_all)]
 async fn catch_up(conn: &mut Connection, channel: &Channel) -> Result<Tally> {
-    let (mut inbox, waiting) = channel.recorder().await?;
+    let (mut inbox, waiting) = channel.recorder(stderr()).await?;
     let mut tally = Tally::default();
     if waiting == 0 {
         return Ok(tally);
@@ -222,7 +223,7 @@ async fn catch_up(conn: &mut Connection, channel: &Channel) -> Result<Tally> {
 #[instrument(level = "debug", skip_all, fields(waiting = waiting))]
 async fn read_until_current(
     conn: &mut Connection,
-    inbox: &mut Inbox,
+    inbox: &mut Inbox<Stderr>,
     waiting: u64,
     tally: &mut Tally,
 ) -> Result<()> {
