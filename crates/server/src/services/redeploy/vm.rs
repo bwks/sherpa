@@ -60,7 +60,7 @@ pub(super) async fn redeploy_vm(
     let loopback_host = u8::try_from(node_idx)
         .with_context(|| format!("Node '{node_name}' has an index past the loopback network"))?;
     let isolated_net = node_ops::node_isolated_network_data(node_name, node_idx, lab_id);
-    let reserved_network = if redeploy.node_image.reserved_interface_count > 0 {
+    let reserved_network = if redeploy.node_image.interfaces.reserved_count > 0 {
         node_ops::node_reserved_network_data(node_name, node_idx, lab_id).network_name
     } else {
         String::new()
@@ -177,9 +177,9 @@ fn vm_interfaces(
     bridge_interfaces: &HashMap<String, String>,
 ) -> Result<Vec<data::Interface>> {
     let mut interfaces = vec![data::Interface {
-        name: util::dasher(&node_image.management_interface.to_string()),
+        name: util::dasher(&node_image.interfaces.management.to_string()),
         num: 0,
-        mtu: node_image.interface_mtu,
+        mtu: node_image.interfaces.mtu,
         mac_address: mgmt_mac.to_owned(),
         connection_type: data::ConnectionTypes::Management,
     }];
@@ -188,7 +188,7 @@ fn vm_interfaces(
         interfaces.push(data::Interface {
             name: format!("int{idx}"),
             num: idx,
-            mtu: node_image.interface_mtu,
+            mtu: node_image.interfaces.mtu,
             mac_address: util::random_mac(KVM_OUI),
             connection_type: data::ConnectionTypes::Reserved,
         });
@@ -209,13 +209,13 @@ fn vm_interfaces(
             (Some(tap), _) => (tap.clone(), MTU_JUMBO_NET, data::ConnectionTypes::P2p),
             (None, Some(bridge_name)) => (
                 bridge_name.clone(),
-                node_image.interface_mtu,
+                node_image.interfaces.mtu,
                 data::ConnectionTypes::PrivateBridge,
             ),
             // Disabled: on the node's isolated network.
             (None, None) => (
                 util::dasher(&interface_name),
-                node_image.interface_mtu,
+                node_image.interfaces.mtu,
                 data::ConnectionTypes::Disabled,
             ),
         };
@@ -335,7 +335,7 @@ mod tests {
     #[test]
     fn each_data_interface_takes_its_link_or_bridge_or_is_disabled() {
         let mut image = data::NodeConfig::ubuntu_linux();
-        image.reserved_interface_count = 1;
+        image.interfaces.reserved_count = 1;
         let first = util::interface_from_idx(&image.model, 2).unwrap();
         let second = util::interface_from_idx(&image.model, 3).unwrap();
         let third = util::interface_from_idx(&image.model, 4).unwrap();
@@ -363,7 +363,7 @@ mod tests {
             vec![
                 (
                     0,
-                    util::dasher(&image.management_interface.to_string()).as_str(),
+                    util::dasher(&image.interfaces.management.to_string()).as_str(),
                     &ConnectionTypes::Management
                 ),
                 (1, "int1", &ConnectionTypes::Reserved),

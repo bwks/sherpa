@@ -101,7 +101,7 @@ pub fn validate_and_resolve_node_versions(
                     &resolved_version,
                     images_dir,
                     &node_image.kind,
-                    node_image.boot_mode.as_ref(),
+                    node_image.compute.boot_mode.as_ref(),
                 )?;
             }
         }
@@ -196,8 +196,8 @@ fn validate_disk_image(
 mod tests {
     use super::*;
     use shared::data::{
-        BiosTypes, CpuArchitecture, CpuModels, DiskBuses, InterfaceType, MachineType,
-        MgmtInterfaces, OsVariant, ZtpSettings,
+        BiosTypes, ComputeSettings, CpuArchitecture, CpuModels, DiskBuses, DiskSettings,
+        InterfaceSettings, InterfaceType, MachineType, MgmtInterfaces, OsVariant, ZtpSettings,
     };
 
     fn create_test_node_image(model: NodeModel, version: &str, kind: NodeKind) -> NodeConfig {
@@ -208,26 +208,32 @@ mod tests {
             repo: Some("test-repo".to_string()),
             os_variant: OsVariant::Linux,
             kind,
-            bios: BiosTypes::SeaBios,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 1024,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings::default(),
-            data_interface_count: 4,
-            interface_prefix: "eth".to_string(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: 1500,
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 4,
+                prefix: "eth".to_string(),
+                kind: InterfaceType::Virtio,
+                mtu: 1500,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: false,
-            boot_mode: None,
         }
     }
 

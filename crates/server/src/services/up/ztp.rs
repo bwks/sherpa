@@ -473,20 +473,20 @@ fn domain_interfaces(
     for interface in &node_data.interfaces {
         let (name, mtu, mac, connection_type) = match &interface.data {
             data::NodeInterface::Management => (
-                util::dasher(&node_image.management_interface.to_string()),
-                node_image.interface_mtu,
+                util::dasher(&node_image.interfaces.management.to_string()),
+                node_image.interfaces.mtu,
                 mac_address.to_owned(),
                 data::ConnectionTypes::Management,
             ),
             data::NodeInterface::Reserved => (
                 format!("int{}", interface.index),
-                node_image.interface_mtu,
+                node_image.interfaces.mtu,
                 util::random_mac(KVM_OUI),
                 data::ConnectionTypes::Reserved,
             ),
             data::NodeInterface::Bridge(bridge) => (
                 bridge.name.clone(),
-                node_image.interface_mtu,
+                node_image.interfaces.mtu,
                 util::random_mac(KVM_OUI),
                 data::ConnectionTypes::PrivateBridge,
             ),
@@ -504,7 +504,7 @@ fn domain_interfaces(
             }
             data::NodeInterface::Disabled => (
                 util::dasher(&util::interface_from_idx(&node.model, interface.index)?),
-                node_image.interface_mtu,
+                node_image.interfaces.mtu,
                 util::random_mac(KVM_OUI),
                 data::ConnectionTypes::Disabled,
             ),

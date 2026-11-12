@@ -58,7 +58,7 @@ pub(crate) fn validate_disk_method(
     if method.unwrap_or_default() == DiskImageCloneMethod::Copy {
         return Ok(());
     }
-    let filename = image_filename(&image.kind, image.boot_mode.as_ref());
+    let filename = image_filename(&image.kind, image.compute.boot_mode.as_ref());
     let path = Path::new(images_dir)
         .join(image.model.to_string())
         .join(&image.version)
@@ -143,7 +143,10 @@ mod tests {
             .join(image.model.to_string())
             .join(&image.version);
         fs::create_dir_all(&directory).unwrap();
-        let base = directory.join(image_filename(&image.kind, image.boot_mode.as_ref()));
+        let base = directory.join(image_filename(
+            &image.kind,
+            image.compute.boot_mode.as_ref(),
+        ));
         fs::write(&base, "not a QCOW2 image").unwrap();
         let images_dir = root.path().to_str().unwrap();
         assert!(validate_disk_method(None, &image, images_dir, None).is_err());

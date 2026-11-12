@@ -27,8 +27,8 @@ pub fn planned_resources(node: &topology::NodeExpanded, image: &NodeConfig) -> N
                 .map(PerformanceTuning::qemu_thread_cpus)
                 .filter(|cpus| !cpus.is_empty());
             NodeResources {
-                cpu_count: Some(node.cpu_count.unwrap_or(image.cpu_count)),
-                memory: Some(node.memory.unwrap_or(image.memory)),
+                cpu_count: Some(node.cpu_count.unwrap_or(image.compute.cpu_count)),
+                memory: Some(node.memory.unwrap_or(image.compute.memory)),
                 vnc_port: None,
                 cpu_pinning: tuning.and_then(|tuning| tuning.cpu_pinning.clone()),
                 qemu_thread_cpus,
@@ -249,8 +249,8 @@ mod tests {
             }
         );
         let defaults = planned_resources(&node(None, None), &image);
-        assert_eq!(defaults.cpu_count, Some(image.cpu_count));
-        assert_eq!(defaults.memory, Some(image.memory));
+        assert_eq!(defaults.cpu_count, Some(image.compute.cpu_count));
+        assert_eq!(defaults.memory, Some(image.compute.memory));
 
         let unikernel = NodeConfig::get_model(NodeModel::NanosUnikernel);
         assert_eq!(

@@ -883,7 +883,95 @@ pub struct ZtpSettings {
     pub password_auth: bool,
 }
 
+/// How a node image's machine is built: its CPUs, memory, firmware and boot. `NodeConfig`
+/// flattens it, so on the wire and in the database the fields keep their names.
+//
+// The groups' fields carry `//` comments, not doc comments, and are declared in the order
+// `NodeConfig` declared them before it was grouped: schemars turns doc comments into schema
+// descriptions and takes the schema's `required` list from declaration order, so either would
+// change the published `OpenAPI` schema.
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ComputeSettings {
+    pub bios: BiosTypes,
+    pub cpu_count: u8,
+    pub cpu_architecture: CpuArchitecture,
+    pub cpu_model: CpuModels,
+    pub machine_type: MachineType,
+    // Whether the guest sees the host's hardware virtualisation, to run VMs of its own.
+    pub vmx_enabled: bool,
+    // In MiB.
+    pub memory: u16,
+    // How a unikernel boots; `None` for every other kind of node.
+    pub boot_mode: Option<UnikernelBootMode>,
+}
+
+impl Default for ComputeSettings {
+    fn default() -> Self {
+        Self {
+            bios: BiosTypes::default(),
+            cpu_count: 1,
+            cpu_architecture: CpuArchitecture::default(),
+            cpu_model: CpuModels::default(),
+            machine_type: MachineType::default(),
+            vmx_enabled: false,
+            memory: 1024,
+            boot_mode: None,
+        }
+    }
+}
+
+/// The buses a node image's disks attach to, and the CD-ROM it boots with, if any.
+/// `NodeConfig` flattens it, so on the wire and in the database the fields keep their names.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
+pub struct DiskSettings {
+    pub hdd_bus: DiskBuses,
+    // The file name of a CD-ROM image shipped with the node image.
+    pub cdrom: Option<String>,
+    pub cdrom_bus: DiskBuses,
+}
+
+/// A node image's network interfaces: how many, of which type, and how they are named.
+/// `NodeConfig` flattens it, so on the wire and in the database the fields keep their
+/// `interface` names.
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+pub struct InterfaceSettings {
+    // The number of data interfaces, not counting the management interface.
+    #[serde(rename = "data_interface_count")]
+    pub data_count: u8,
+    #[serde(rename = "interface_prefix")]
+    pub prefix: String,
+    // The interface device for a VM, or the network mode for a container.
+    #[serde(rename = "interface_type")]
+    pub kind: InterfaceType,
+    #[serde(rename = "interface_mtu")]
+    pub mtu: u16,
+    #[serde(rename = "first_interface_index")]
+    pub first_index: u8,
+    #[serde(rename = "management_interface")]
+    pub management: MgmtInterfaces,
+    // Interfaces the node holds back from the data interfaces a lab can link.
+    #[serde(rename = "reserved_interface_count")]
+    pub reserved_count: u8,
+}
+
+impl Default for InterfaceSettings {
+    fn default() -> Self {
+        Self {
+            data_count: 0,
+            prefix: "eth".to_owned(),
+            kind: InterfaceType::default(),
+            mtu: 1500,
+            first_index: 0,
+            management: MgmtInterfaces::default(),
+            reserved_count: 0,
+        }
+    }
+}
+
 /// A node image: the model and version, and how Sherpa builds and boots its nodes.
+//
+// Each group is flattened, so the JSON and the schema list the groups' fields as `NodeConfig`'s
+// own. The doc comment above is the schema's description.
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 pub struct NodeConfig {
     #[schemars(skip)]
@@ -893,27 +981,15 @@ pub struct NodeConfig {
     pub repo: Option<String>,
     pub os_variant: OsVariant,
     pub kind: NodeKind,
-    pub bios: BiosTypes,
-    pub cpu_count: u8,
-    pub cpu_architecture: CpuArchitecture,
-    pub cpu_model: CpuModels,
-    pub machine_type: MachineType,
-    pub vmx_enabled: bool,
-    pub memory: u16,
-    pub hdd_bus: DiskBuses,
-    pub cdrom: Option<String>,
-    pub cdrom_bus: DiskBuses,
+    #[serde(flatten)]
+    pub compute: ComputeSettings,
+    #[serde(flatten)]
+    pub disks: DiskSettings,
     #[serde(flatten)]
     pub ztp: ZtpSettings,
-    pub data_interface_count: u8,
-    pub interface_prefix: String,
-    pub interface_type: InterfaceType,
-    pub interface_mtu: u16,
-    pub first_interface_index: u8,
-    pub management_interface: MgmtInterfaces,
-    pub reserved_interface_count: u8,
+    #[serde(flatten)]
+    pub interfaces: InterfaceSettings,
     pub default: bool,
-    pub boot_mode: Option<UnikernelBootMode>,
 }
 
 impl Default for NodeConfig {
@@ -925,31 +1001,11 @@ impl Default for NodeConfig {
             repo: None,
             os_variant: OsVariant::default(),
             kind: NodeKind::default(),
-            bios: BiosTypes::default(),
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::default(),
-            cpu_model: CpuModels::default(),
-            machine_type: MachineType::default(),
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::default(),
-            cdrom: None,
-            cdrom_bus: DiskBuses::default(),
-            ztp: ZtpSettings {
-                mode: Ztp::Disabled,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            data_interface_count: 0,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::default(),
-            interface_mtu: 1500,
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::default(),
-            reserved_interface_count: 0,
+            compute: ComputeSettings::default(),
+            disks: DiskSettings::default(),
+            ztp: ZtpSettings::default(),
+            interfaces: InterfaceSettings::default(),
             default: false,
-            boot_mode: None,
         }
     }
 }
@@ -1078,31 +1134,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Eos,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 52,
-            interface_prefix: "Eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_STD,
-            cpu_count: 2,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Pc,
-            vmx_enabled: false,
-            memory: 2048,
-            hdd_bus: DiskBuses::Sata,
-            cdrom: Some("aboot.iso".to_owned()),
-            cdrom_bus: DiskBuses::Ide,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 2,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Pc,
+                vmx_enabled: false,
+                memory: 2048,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Sata,
+                cdrom: Some("aboot.iso".to_owned()),
+                cdrom_bus: DiskBuses::Ide,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Tftp,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 1,
-            management_interface: MgmtInterfaces::Management1,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 52,
+                prefix: "Eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_STD,
+                first_index: 1,
+                management: MgmtInterfaces::Management1,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1114,31 +1176,37 @@ impl NodeConfig {
             repo: Some(CONTAINER_ARISTA_CEOS_REPO.to_string()),
             os_variant: OsVariant::Eos,
             kind: NodeKind::Container,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 52,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_STD,
-            cpu_count: 2,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 4096,
-            hdd_bus: DiskBuses::Sata,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 2,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 4096,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Sata,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Volume,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 1,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 52,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_STD,
+                first_index: 1,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1150,31 +1218,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Aos,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 52,
-            interface_prefix: "1/1/".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 2,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 4096,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 2,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 4096,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Tftp,
                 username: None,
                 password: None,
                 password_auth: true,
             },
-            first_interface_index: 1,
-            management_interface: MgmtInterfaces::Mgmt,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 52,
+                prefix: "1/1/".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 1,
+                management: MgmtInterfaces::Mgmt,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1186,31 +1260,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Asa,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 8,
-            interface_prefix: "GigabitEthernet0".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Pc,
-            vmx_enabled: false,
-            memory: 2048,
-            hdd_bus: DiskBuses::Sata,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Ide,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Pc,
+                vmx_enabled: false,
+                memory: 2048,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Sata,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Ide,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 1,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 8,
+                prefix: "GigabitEthernet0".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 1,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1222,31 +1302,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Iosxe,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 15,
-            interface_prefix: "Gig".to_owned(),
-            interface_type: InterfaceType::Vmxnet3,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 3072,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 3072,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: true,
             },
-            first_interface_index: 1,
-            management_interface: MgmtInterfaces::GigabitEthernet1,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 15,
+                prefix: "Gig".to_owned(),
+                kind: InterfaceType::Vmxnet3,
+                mtu: MTU_JUMBO_INT,
+                first_index: 1,
+                management: MgmtInterfaces::GigabitEthernet1,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1258,31 +1344,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Iosxe,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 15,
-            interface_prefix: "Gig".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 4096,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 4096,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::GigabitEthernet1,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 15,
+                prefix: "Gig".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::GigabitEthernet1,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1294,31 +1386,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Iosxe,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 8,
-            interface_prefix: "Gig0/0/".to_owned(),
-            interface_type: InterfaceType::E1000,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 4,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 18432,
-            hdd_bus: DiskBuses::Sata,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 4,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 18432,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Sata,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 1,
-            management_interface: MgmtInterfaces::GigabitEthernet0_0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 8,
+                prefix: "Gig0/0/".to_owned(),
+                kind: InterfaceType::E1000,
+                mtu: MTU_JUMBO_INT,
+                first_index: 1,
+                management: MgmtInterfaces::GigabitEthernet0_0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1330,31 +1428,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Iosxr,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::Uefi,
-            data_interface_count: 31,
-            interface_prefix: "Gig0/0/0/".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 4,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Pc,
-            vmx_enabled: false,
-            memory: 20480,
-            hdd_bus: DiskBuses::Sata,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::Uefi,
+                cpu_count: 4,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Pc,
+                vmx_enabled: false,
+                memory: 20480,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Sata,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::MgmtEth0Rp0Cpu0_0,
-            reserved_interface_count: 2,
+            interfaces: InterfaceSettings {
+                data_count: 31,
+                prefix: "Gig0/0/0/".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::MgmtEth0Rp0Cpu0_0,
+                reserved_count: 2,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1366,31 +1470,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Nxos,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::Uefi,
-            data_interface_count: 64,
-            interface_prefix: "Eth1/".to_owned(),
-            interface_type: InterfaceType::E1000,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 2,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Pc,
-            vmx_enabled: false,
-            memory: 12288,
-            hdd_bus: DiskBuses::Sata,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Ide,
+            compute: ComputeSettings {
+                bios: BiosTypes::Uefi,
+                cpu_count: 2,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Pc,
+                vmx_enabled: false,
+                memory: 12288,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Sata,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Ide,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 1,
-            management_interface: MgmtInterfaces::Mgmt0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 64,
+                prefix: "Eth1/".to_owned(),
+                kind: InterfaceType::E1000,
+                mtu: MTU_JUMBO_INT,
+                first_index: 1,
+                management: MgmtInterfaces::Mgmt0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1402,31 +1512,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Ios,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 15,
-            interface_prefix: "Gig0/".to_owned(),
-            interface_type: InterfaceType::E1000,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Pc,
-            vmx_enabled: false,
-            memory: 768,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Virtio,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Pc,
+                vmx_enabled: false,
+                memory: 768,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Virtio,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Disk,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::GigabitEthernet0_0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 15,
+                prefix: "Gig0/".to_owned(),
+                kind: InterfaceType::E1000,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::GigabitEthernet0_0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1438,32 +1554,38 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Ios,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            // IOSvL2 crashes with more than 16 NICs: GigabitEthernet0/0 for management plus 15 data.
-            data_interface_count: 15,
-            interface_prefix: "Gig".to_owned(),
-            interface_type: InterfaceType::E1000,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Pc,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Virtio,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Pc,
+                vmx_enabled: false,
+                memory: 1024,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Virtio,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Disk,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::GigabitEthernet0_0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                // IOSvL2 crashes with more than 16 NICs: GigabitEthernet0/0 for management plus 15 data.
+                data_count: 15,
+                prefix: "Gig".to_owned(),
+                kind: InterfaceType::E1000,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::GigabitEthernet0_0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1475,31 +1597,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Ise,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 4,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Pc,
-            vmx_enabled: false,
-            memory: 16384,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 4,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Pc,
+                vmx_enabled: false,
+                memory: 16384,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Disk,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1511,31 +1639,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Fxos,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 8,
-            interface_prefix: "gig0/".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 4,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Pc,
-            vmx_enabled: false,
-            memory: 8192,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 4,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Pc,
+                vmx_enabled: false,
+                memory: 8192,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Management0_0,
-            reserved_interface_count: 1,
+            interfaces: InterfaceSettings {
+                data_count: 8,
+                prefix: "gig0/".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Management0_0,
+                reserved_count: 1,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1547,31 +1681,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Junos,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 10,
-            interface_prefix: "ge-0/0/".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_NET,
-            cpu_count: 4,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::IvyBridge,
-            machine_type: MachineType::Pc,
-            vmx_enabled: true,
-            memory: 5120,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 4,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::IvyBridge,
+                machine_type: MachineType::Pc,
+                vmx_enabled: true,
+                memory: 5120,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Fxp0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 10,
+                prefix: "ge-0/0/".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_NET,
+                first_index: 0,
+                management: MgmtInterfaces::Fxp0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1583,31 +1723,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Junos,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 10,
-            interface_prefix: "ge-0/0/".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_NET,
-            cpu_count: 4,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::IvyBridge,
-            machine_type: MachineType::Pc,
-            vmx_enabled: true,
-            memory: 5120,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 4,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::IvyBridge,
+                machine_type: MachineType::Pc,
+                vmx_enabled: true,
+                memory: 5120,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Fxp0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 10,
+                prefix: "ge-0/0/".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_NET,
+                first_index: 0,
+                management: MgmtInterfaces::Fxp0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1619,31 +1765,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Junos,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::Uefi,
-            data_interface_count: 12,
-            interface_prefix: "et-0/0/".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_NET,
-            cpu_count: 4,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::IvyBridge,
-            machine_type: MachineType::Pc,
-            vmx_enabled: true,
-            memory: 8192,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::Uefi,
+                cpu_count: 4,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::IvyBridge,
+                machine_type: MachineType::Pc,
+                vmx_enabled: true,
+                memory: 8192,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Tftp,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Re0Mgmt0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 12,
+                prefix: "et-0/0/".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_NET,
+                first_index: 0,
+                management: MgmtInterfaces::Re0Mgmt0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1655,31 +1807,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Junos,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 8,
-            interface_prefix: "ge-0/0/".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_NET,
-            cpu_count: 2,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::SandyBridge,
-            machine_type: MachineType::PcI440Fx8_0,
-            vmx_enabled: true,
-            memory: 4096,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Ide,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 2,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::SandyBridge,
+                machine_type: MachineType::PcI440Fx8_0,
+                vmx_enabled: true,
+                memory: 4096,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Ide,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Fxp0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 8,
+                prefix: "ge-0/0/".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_NET,
+                first_index: 0,
+                management: MgmtInterfaces::Fxp0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1691,31 +1849,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Sata,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 1024,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Sata,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1727,31 +1891,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::Uefi,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Sata,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::Uefi,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 1024,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Sata,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1763,31 +1933,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 2,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 1024,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 2,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1798,32 +1974,38 @@ impl NodeConfig {
             version: "0.0.0".to_owned(),
             repo: None,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 52,
-            interface_prefix: "swp".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 2,
             os_variant: OsVariant::Nvue,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 2048,
-            hdd_bus: DiskBuses::Sata,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 2,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 2048,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Sata,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Usb,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 1,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 52,
+                prefix: "swp".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 1,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     /// cJunosEvolved. The vCPUs and memory are its EVO VM's, given to the container as
@@ -1837,31 +2019,37 @@ impl NodeConfig {
             repo: Some(CONTAINER_JUNIPER_CEVOLVED_REPO.to_string()),
             os_variant: OsVariant::Junos,
             kind: NodeKind::Container,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 12,
-            interface_prefix: "et-0/0/".to_owned(),
-            interface_type: InterfaceType::default(),
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 4,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 6292,
-            hdd_bus: DiskBuses::Sata,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 4,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 6292,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Sata,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Volume,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 1,
-            management_interface: MgmtInterfaces::Re0Mgmt0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 12,
+                prefix: "et-0/0/".to_owned(),
+                kind: InterfaceType::default(),
+                mtu: MTU_JUMBO_INT,
+                first_index: 1,
+                management: MgmtInterfaces::Re0Mgmt0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1873,31 +2061,37 @@ impl NodeConfig {
             repo: Some(CONTAINER_NOKIA_SRLINUX_REPO.to_string()),
             os_variant: OsVariant::Srlinux,
             kind: NodeKind::Container,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 34,
-            interface_prefix: "eth-1/".to_owned(),
-            interface_type: InterfaceType::default(),
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 2,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 4096,
-            hdd_bus: DiskBuses::Sata,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 2,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 4096,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Sata,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Volume,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 1,
-            management_interface: MgmtInterfaces::Mgmt0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 34,
+                prefix: "eth-1/".to_owned(),
+                kind: InterfaceType::default(),
+                mtu: MTU_JUMBO_INT,
+                first_index: 1,
+                management: MgmtInterfaces::Mgmt0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1909,31 +2103,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Sata,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 1024,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Sata,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1945,31 +2145,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Sata,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 1024,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Sata,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -1981,31 +2187,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Sata,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 1024,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Sata,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2017,31 +2229,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Sata,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 1024,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Sata,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2053,31 +2271,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Sata,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 1024,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Sata,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2089,31 +2313,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Sata,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 1024,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Sata,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2125,31 +2355,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 1024,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     /// Talos Linux: immutable, API-managed Kubernetes OS with no SSH or shell.
@@ -2160,8 +2396,11 @@ impl NodeConfig {
         let ubuntu = NodeConfig::ubuntu_linux();
         NodeConfig {
             model: NodeModel::TalosLinux,
-            cpu_count: 2,
-            memory: 4096,
+            compute: ComputeSettings {
+                cpu_count: 2,
+                memory: 4096,
+                ..ubuntu.compute
+            },
             ztp: ZtpSettings {
                 mode: Ztp::NoCloud,
                 ..ubuntu.ztp
@@ -2173,22 +2412,33 @@ impl NodeConfig {
     /// distros, because rebuilding the system runs Nix on the node.
     #[tracing::instrument(level = "debug")]
     pub fn nixos_linux() -> NodeConfig {
+        let ubuntu = NodeConfig::ubuntu_linux();
         NodeConfig {
             model: NodeModel::NixosLinux,
-            cpu_count: 2,
-            memory: 2048,
-            ..NodeConfig::ubuntu_linux()
+            compute: ComputeSettings {
+                cpu_count: 2,
+                memory: 2048,
+                ..ubuntu.compute
+            },
+            ..ubuntu
         }
     }
     #[tracing::instrument(level = "debug")]
     pub fn omarchy_linux() -> NodeConfig {
+        let ubuntu = NodeConfig::ubuntu_linux();
         NodeConfig {
             model: NodeModel::OmarchyLinux,
-            bios: BiosTypes::Uefi,
-            cpu_count: 4,
-            memory: 8192,
-            interface_mtu: MTU_STD,
-            ..NodeConfig::ubuntu_linux()
+            compute: ComputeSettings {
+                bios: BiosTypes::Uefi,
+                cpu_count: 4,
+                memory: 8192,
+                ..ubuntu.compute
+            },
+            interfaces: InterfaceSettings {
+                mtu: MTU_STD,
+                ..ubuntu.interfaces
+            },
+            ..ubuntu
         }
     }
     #[must_use]
@@ -2200,31 +2450,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 1024,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2236,31 +2492,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 52,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 2,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 4096,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Virtio,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 2,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 4096,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Virtio,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Http,
                 username: None,
                 password: None,
                 password_auth: true,
             },
-            first_interface_index: 1,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 52,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 1,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2272,31 +2534,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 2048,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 2048,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Ignition,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2308,31 +2576,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Bsd,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 1024,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2344,31 +2618,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Bsd,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 1024,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2380,31 +2660,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Server,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 4,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Pc,
-            vmx_enabled: false,
-            memory: 8192,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 4,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Pc,
+                vmx_enabled: false,
+                memory: 8192,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2416,31 +2702,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Server,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 4,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Pc,
-            vmx_enabled: false,
-            memory: 8192,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 4,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Pc,
+                vmx_enabled: false,
+                memory: 8192,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2452,31 +2744,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 2,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 4096,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 2,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 4096,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: true,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2488,31 +2786,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 2,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 4096,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 2,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 4096,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: true,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2524,31 +2828,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 2,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 4096,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 2,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 4096,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: true,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2560,31 +2870,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 2,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 4096,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 2,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 4096,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: true,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2596,31 +2912,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 6,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 12288,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 6,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 12288,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: true,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2632,31 +2954,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 4,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 8192,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 4,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 8192,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: true,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_JUMBO_INT,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2667,20 +2995,26 @@ impl NodeConfig {
             repo: Some(CONTAINER_FORGEJO_REPO.to_string()),
             version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
-            data_interface_count: 0,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::MacVlan,
-            cpu_count: 1,
-            memory: 1024,
+            compute: ComputeSettings {
+                cpu_count: 1,
+                memory: 1024,
+                ..ComputeSettings::default()
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 0,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::MacVlan,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+                ..InterfaceSettings::default()
+            },
             default: true,
             ..Default::default()
         }
@@ -2693,20 +3027,26 @@ impl NodeConfig {
             repo: Some(CONTAINER_GITLAB_CE_REPO.to_string()),
             version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
-            data_interface_count: 0,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::MacVlan,
-            cpu_count: 2,
-            memory: 4096,
+            compute: ComputeSettings {
+                cpu_count: 2,
+                memory: 4096,
+                ..ComputeSettings::default()
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 0,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::MacVlan,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+                ..InterfaceSettings::default()
+            },
             default: true,
             ..Default::default()
         }
@@ -2719,20 +3059,26 @@ impl NodeConfig {
             repo: Some(CONTAINER_SURREAL_DB_REPO.to_string()),
             version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
-            data_interface_count: 0,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::MacVlan,
-            cpu_count: 1,
-            memory: 1024,
+            compute: ComputeSettings {
+                cpu_count: 1,
+                memory: 1024,
+                ..ComputeSettings::default()
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 0,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::MacVlan,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+                ..InterfaceSettings::default()
+            },
             default: true,
             ..Default::default()
         }
@@ -2745,20 +3091,26 @@ impl NodeConfig {
             repo: Some(CONTAINER_HASHICORP_VAULT_REPO.to_string()),
             version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
-            data_interface_count: 0,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::MacVlan,
-            cpu_count: 1,
-            memory: 1024,
+            compute: ComputeSettings {
+                cpu_count: 1,
+                memory: 1024,
+                ..ComputeSettings::default()
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 0,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::MacVlan,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+                ..InterfaceSettings::default()
+            },
             default: true,
             ..Default::default()
         }
@@ -2771,20 +3123,26 @@ impl NodeConfig {
             repo: Some(CONTAINER_KEYCLOAK_REPO.to_string()),
             version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
-            data_interface_count: 0,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::MacVlan,
-            cpu_count: 2,
-            memory: 2048,
+            compute: ComputeSettings {
+                cpu_count: 2,
+                memory: 2048,
+                ..ComputeSettings::default()
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 0,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::MacVlan,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+                ..InterfaceSettings::default()
+            },
             default: true,
             ..Default::default()
         }
@@ -2797,20 +3155,26 @@ impl NodeConfig {
             repo: None,
             version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::MacVlan,
-            cpu_count: 1,
-            memory: 1024,
+            compute: ComputeSettings {
+                cpu_count: 1,
+                memory: 1024,
+                ..ComputeSettings::default()
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::MacVlan,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+                ..InterfaceSettings::default()
+            },
             default: true,
             ..Default::default()
         }
@@ -2823,20 +3187,26 @@ impl NodeConfig {
             repo: Some(CONTAINER_MONGO_DB_REPO.to_string()),
             version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::MacVlan,
-            cpu_count: 1,
-            memory: 1024,
+            compute: ComputeSettings {
+                cpu_count: 1,
+                memory: 1024,
+                ..ComputeSettings::default()
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::MacVlan,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+                ..InterfaceSettings::default()
+            },
             default: true,
             ..Default::default()
         }
@@ -2849,20 +3219,26 @@ impl NodeConfig {
             repo: Some(CONTAINER_NATS_REPO.to_string()),
             version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::MacVlan,
-            cpu_count: 1,
-            memory: 512,
+            compute: ComputeSettings {
+                cpu_count: 1,
+                memory: 512,
+                ..ComputeSettings::default()
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::MacVlan,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+                ..InterfaceSettings::default()
+            },
             default: true,
             ..Default::default()
         }
@@ -2875,20 +3251,26 @@ impl NodeConfig {
             repo: None,
             version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::MacVlan,
-            cpu_count: 1,
-            memory: 1024,
+            compute: ComputeSettings {
+                cpu_count: 1,
+                memory: 1024,
+                ..ComputeSettings::default()
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::MacVlan,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+                ..InterfaceSettings::default()
+            },
             default: true,
             ..Default::default()
         }
@@ -2902,31 +3284,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Routeros,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 8,
-            interface_prefix: "ether".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_STD,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Pc,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Ide,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Ide,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Pc,
+                vmx_enabled: false,
+                memory: 1024,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Ide,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Ide,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Disk,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 1,
-            management_interface: MgmtInterfaces::Ether1,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 8,
+                prefix: "ether".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_STD,
+                first_index: 1,
+                management: MgmtInterfaces::Ether1,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2938,31 +3326,37 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Panos,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 24,
-            interface_prefix: "ethernet1/".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: MTU_STD,
-            cpu_count: 2,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 8192,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 2,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 8192,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Virtio,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Cdrom,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Management,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 24,
+                prefix: "ethernet1/".to_owned(),
+                kind: InterfaceType::Virtio,
+                mtu: MTU_STD,
+                first_index: 0,
+                management: MgmtInterfaces::Management,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -2974,31 +3368,37 @@ impl NodeConfig {
             repo: Some(CONTAINER_FRR_REPO.to_string()),
             os_variant: OsVariant::Linux,
             kind: NodeKind::Container,
-            bios: BiosTypes::SeaBios,
-            data_interface_count: 8,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::default(),
-            interface_mtu: MTU_STD,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 512,
-            hdd_bus: DiskBuses::Sata,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                bios: BiosTypes::SeaBios,
+                cpu_count: 1,
+                cpu_architecture: CpuArchitecture::X86_64,
+                cpu_model: CpuModels::HostModel,
+                machine_type: MachineType::Q35,
+                vmx_enabled: false,
+                memory: 512,
+                boot_mode: None,
+            },
+            disks: DiskSettings {
+                hdd_bus: DiskBuses::Sata,
+                cdrom: None,
+                cdrom_bus: DiskBuses::Sata,
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Volume,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 8,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::default(),
+                mtu: MTU_STD,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
             default: true,
-            boot_mode: None,
         }
     }
     #[must_use]
@@ -3009,20 +3409,26 @@ impl NodeConfig {
             repo: None,
             version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::MacVlan,
-            cpu_count: 1,
-            memory: 1024,
+            compute: ComputeSettings {
+                cpu_count: 1,
+                memory: 1024,
+                ..ComputeSettings::default()
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::MacVlan,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+                ..InterfaceSettings::default()
+            },
             default: true,
             ..Default::default()
         }
@@ -3035,22 +3441,28 @@ impl NodeConfig {
             repo: None,
             version: "0.0.0".to_owned(),
             kind: NodeKind::Unikernel,
-            data_interface_count: 0,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            cpu_count: 1,
-            memory: 512,
+            compute: ComputeSettings {
+                cpu_count: 1,
+                memory: 512,
+                boot_mode: Some(UnikernelBootMode::DirectKernel),
+                ..ComputeSettings::default()
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 0,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+                ..InterfaceSettings::default()
+            },
             default: true,
-            boot_mode: Some(UnikernelBootMode::DirectKernel),
             ..Default::default()
         }
     }
@@ -3062,22 +3474,28 @@ impl NodeConfig {
             repo: None,
             version: "0.0.0".to_owned(),
             kind: NodeKind::Unikernel,
-            data_interface_count: 0,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            cpu_count: 1,
-            memory: 512,
+            compute: ComputeSettings {
+                cpu_count: 1,
+                memory: 512,
+                boot_mode: Some(UnikernelBootMode::DirectKernel),
+                ..ComputeSettings::default()
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 0,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+                ..InterfaceSettings::default()
+            },
             default: true,
-            boot_mode: Some(UnikernelBootMode::DirectKernel),
             ..Default::default()
         }
     }
@@ -3089,22 +3507,28 @@ impl NodeConfig {
             repo: None,
             version: "0.0.0".to_owned(),
             kind: NodeKind::Unikernel,
-            data_interface_count: 0,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            cpu_count: 1,
-            memory: 512,
+            compute: ComputeSettings {
+                cpu_count: 1,
+                memory: 512,
+                boot_mode: Some(UnikernelBootMode::DiskBoot),
+                ..ComputeSettings::default()
+            },
             ztp: ZtpSettings {
                 mode: Ztp::Disabled,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 0,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+                ..InterfaceSettings::default()
+            },
             default: true,
-            boot_mode: Some(UnikernelBootMode::DiskBoot),
             ..Default::default()
         }
     }
@@ -3116,21 +3540,30 @@ impl NodeConfig {
             repo: None,
             version: "0.0.0".to_owned(),
             kind: NodeKind::VirtualMachine,
-            data_interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceType::Virtio,
-            cpu_count: 1,
-            memory: 1024,
-            cdrom_bus: DiskBuses::Sata,
+            compute: ComputeSettings {
+                cpu_count: 1,
+                memory: 1024,
+                ..ComputeSettings::default()
+            },
+            disks: DiskSettings {
+                cdrom_bus: DiskBuses::Sata,
+                ..DiskSettings::default()
+            },
             ztp: ZtpSettings {
                 mode: Ztp::CloudInit,
                 username: None,
                 password: None,
                 password_auth: false,
             },
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
+            interfaces: InterfaceSettings {
+                data_count: 1,
+                prefix: "eth".to_owned(),
+                kind: InterfaceType::Virtio,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+                ..InterfaceSettings::default()
+            },
             default: true,
             ..Default::default()
         }
@@ -3296,7 +3729,7 @@ mod tests {
         for model in [NodeModel::GenericUnikernel, NodeModel::UnikraftUnikernel] {
             let config = NodeConfig::get_model(model);
             assert_eq!(
-                config.boot_mode,
+                config.compute.boot_mode,
                 Some(UnikernelBootMode::DirectKernel),
                 "Model {model} should default to DirectKernel"
             );
@@ -3305,7 +3738,7 @@ mod tests {
         // DiskBoot model
         let nanos_config = NodeConfig::get_model(NodeModel::NanosUnikernel);
         assert_eq!(
-            nanos_config.boot_mode,
+            nanos_config.compute.boot_mode,
             Some(UnikernelBootMode::DiskBoot),
             "NanosUnikernel should default to DiskBoot"
         );
@@ -3331,9 +3764,9 @@ mod tests {
     #[test]
     fn test_unikernel_config_defaults() {
         let config = NodeConfig::get_model(NodeModel::UnikraftUnikernel);
-        assert_eq!(config.memory, 512);
-        assert_eq!(config.cpu_count, 1);
-        assert_eq!(config.interface_type.to_string(), "virtio");
+        assert_eq!(config.compute.memory, 512);
+        assert_eq!(config.compute.cpu_count, 1);
+        assert_eq!(config.interfaces.kind.to_string(), "virtio");
     }
 
     #[test]
@@ -3346,7 +3779,7 @@ mod tests {
         for model in vm_models {
             let config = NodeConfig::get_model(model);
             assert_eq!(
-                config.boot_mode, None,
+                config.compute.boot_mode, None,
                 "VM model {model} should not have boot_mode set"
             );
         }
@@ -3356,12 +3789,12 @@ mod tests {
         let model: super::NodeModel = "omarchy_linux".parse().unwrap();
         let config = super::NodeConfig::get_model(model);
         assert_eq!(model.to_string(), "omarchy_linux");
-        assert!(matches!(config.bios, super::BiosTypes::Uefi));
+        assert!(matches!(config.compute.bios, super::BiosTypes::Uefi));
         assert_eq!(config.ztp.mode, super::Ztp::CloudInit);
-        assert!(matches!(config.hdd_bus, super::DiskBuses::Virtio));
-        assert!(config.cdrom.is_none());
-        assert_eq!(config.memory, 8192);
-        assert_eq!(config.cpu_count, 4);
+        assert!(matches!(config.disks.hdd_bus, super::DiskBuses::Virtio));
+        assert!(config.disks.cdrom.is_none());
+        assert_eq!(config.compute.memory, 8192);
+        assert_eq!(config.compute.cpu_count, 4);
         let encoded = serde_json::to_string(&model).unwrap();
         assert_eq!(
             serde_json::from_str::<super::NodeModel>(&encoded).unwrap(),
@@ -3376,21 +3809,21 @@ mod tests {
         assert_eq!(model.to_string(), "nixos_linux");
         assert_eq!(config.kind, super::NodeKind::VirtualMachine);
         assert!(matches!(config.os_variant, super::OsVariant::Linux));
-        assert!(matches!(config.bios, super::BiosTypes::SeaBios));
+        assert!(matches!(config.compute.bios, super::BiosTypes::SeaBios));
         assert_eq!(config.ztp.mode, super::Ztp::CloudInit);
-        assert!(matches!(config.hdd_bus, super::DiskBuses::Virtio));
+        assert!(matches!(config.disks.hdd_bus, super::DiskBuses::Virtio));
         assert!(matches!(
-            config.interface_type,
+            config.interfaces.kind,
             super::InterfaceType::Virtio
         ));
-        assert_eq!(config.interface_prefix, "eth");
+        assert_eq!(config.interfaces.prefix, "eth");
         assert!(matches!(
-            config.management_interface,
+            config.interfaces.management,
             super::MgmtInterfaces::Eth0
         ));
-        assert!(config.cdrom.is_none());
-        assert_eq!(config.cpu_count, 2);
-        assert_eq!(config.memory, 2048);
+        assert!(config.disks.cdrom.is_none());
+        assert_eq!(config.compute.cpu_count, 2);
+        assert_eq!(config.compute.memory, 2048);
         let encoded = serde_json::to_string(&model).unwrap();
         assert_eq!(
             serde_json::from_str::<super::NodeModel>(&encoded).unwrap(),
@@ -3405,18 +3838,24 @@ mod tests {
         assert_eq!(model.to_string(), "talos_linux");
         assert_eq!(config.kind, super::NodeKind::VirtualMachine);
         assert!(matches!(config.os_variant, super::OsVariant::Linux));
-        assert!(matches!(config.machine_type, super::MachineType::Q35));
-        assert!(matches!(config.cpu_model, super::CpuModels::HostModel));
-        assert_eq!(config.ztp.mode, super::Ztp::NoCloud);
-        assert!(matches!(config.hdd_bus, super::DiskBuses::Virtio));
-        assert!(matches!(config.cdrom_bus, super::DiskBuses::Sata));
         assert!(matches!(
-            config.interface_type,
+            config.compute.machine_type,
+            super::MachineType::Q35
+        ));
+        assert!(matches!(
+            config.compute.cpu_model,
+            super::CpuModels::HostModel
+        ));
+        assert_eq!(config.ztp.mode, super::Ztp::NoCloud);
+        assert!(matches!(config.disks.hdd_bus, super::DiskBuses::Virtio));
+        assert!(matches!(config.disks.cdrom_bus, super::DiskBuses::Sata));
+        assert!(matches!(
+            config.interfaces.kind,
             super::InterfaceType::Virtio
         ));
-        assert!(config.cdrom.is_none());
-        assert_eq!(config.cpu_count, 2);
-        assert_eq!(config.memory, 4096);
+        assert!(config.disks.cdrom.is_none());
+        assert_eq!(config.compute.cpu_count, 2);
+        assert_eq!(config.compute.memory, 4096);
         assert!(!config.ztp.password_auth);
         assert_eq!(model.default_boot_disk_size(), Some(20));
         assert!(!model.has_ssh());
@@ -3575,5 +4014,57 @@ mod tests {
         assert_eq!(json["ztp"], "volume");
         assert!(json.get("ztp_enable").is_none());
         assert!(json.get("ztp_method").is_none());
+    }
+
+    /// The groups are flattened under the flat names the image API and the `node_image`
+    /// columns have always used, so every model's JSON has exactly these fields and reads back
+    /// to the same JSON.
+    #[test]
+    fn test_node_config_json_keeps_the_flat_field_names() {
+        let mut expected = vec![
+            "id",
+            "model",
+            "version",
+            "repo",
+            "os_variant",
+            "kind",
+            "bios",
+            "cpu_count",
+            "cpu_architecture",
+            "cpu_model",
+            "machine_type",
+            "vmx_enabled",
+            "memory",
+            "boot_mode",
+            "hdd_bus",
+            "cdrom",
+            "cdrom_bus",
+            "ztp",
+            "ztp_username",
+            "ztp_password",
+            "ztp_password_auth",
+            "data_interface_count",
+            "interface_prefix",
+            "interface_type",
+            "interface_mtu",
+            "first_interface_index",
+            "management_interface",
+            "reserved_interface_count",
+            "default",
+        ];
+        expected.sort_unstable();
+        for model in NodeModel::iter() {
+            let json = serde_json::to_value(NodeConfig::get_model(model)).unwrap();
+            let mut keys: Vec<&str> = json
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect();
+            keys.sort_unstable();
+            assert_eq!(keys, expected, "{model}");
+            let back: NodeConfig = serde_json::from_value(json.clone()).unwrap();
+            assert_eq!(serde_json::to_value(back).unwrap(), json, "{model}");
+        }
     }
 }

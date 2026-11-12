@@ -79,7 +79,7 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
             &node.name,
             &node_image.model,
             data_interface_count,
-            node_image.reserved_interface_count,
+            node_image.interfaces.reserved_count,
             &links_detailed,
             &bridges_detailed,
         )?;

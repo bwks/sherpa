@@ -21,7 +21,7 @@ pub fn effective_data_interface_count(
             validate_data_interface_count_override(node_name, count, node_image)?;
             Ok(count)
         }
-        None => Ok(node_image.data_interface_count),
+        None => Ok(node_image.interfaces.data_count),
     }
 }
 
@@ -37,7 +37,7 @@ pub fn validate_data_interface_count_override(
     node_image: &NodeConfig,
 ) -> Result<()> {
     let requested_max_idx = node_image
-        .reserved_interface_count
+        .interfaces.reserved_count
         .checked_add(requested_count)
         .ok_or_else(|| {
             anyhow!(
@@ -45,7 +45,7 @@ pub fn validate_data_interface_count_override(
                 node_name,
                 node_image.model,
                 requested_count,
-                node_image.reserved_interface_count
+                node_image.interfaces.reserved_count
             )
         })?;
 
@@ -56,7 +56,7 @@ pub fn validate_data_interface_count_override(
             .max()
             .unwrap_or(0);
         let max_allowed_count =
-            max_supported_idx.saturating_sub(node_image.reserved_interface_count);
+            max_supported_idx.saturating_sub(node_image.interfaces.reserved_count);
 
         bail!(
             "Node '{}' (model: {}) requested data_interface_count {} but only 0..={} data interfaces are supported (reserved: {}, max interface index: {})",
@@ -64,7 +64,7 @@ pub fn validate_data_interface_count_override(
             node_image.model,
             requested_count,
             max_allowed_count,
-            node_image.reserved_interface_count,
+            node_image.interfaces.reserved_count,
             max_supported_idx
         );
     }
@@ -81,7 +81,7 @@ mod tests {
     fn test_effective_data_interface_count_uses_default_without_override() {
         let node_image = NodeConfig::ubuntu_linux();
         let count = effective_data_interface_count("dev01", None, &node_image).unwrap();
-        assert_eq!(count, node_image.data_interface_count);
+        assert_eq!(count, node_image.interfaces.data_count);
     }
 
     #[test]
@@ -105,7 +105,7 @@ mod tests {
     #[test]
     fn test_validate_data_interface_count_override_rejects_index_overflow() {
         let mut node_image = NodeConfig::ubuntu_linux();
-        node_image.reserved_interface_count = 250;
+        node_image.interfaces.reserved_count = 250;
         let result = effective_data_interface_count("dev01", Some(10), &node_image);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("overflow"));
@@ -118,7 +118,7 @@ mod tests {
             let node_image = NodeConfig::get_model(model);
             if let Err(err) = validate_data_interface_count_override(
                 "default",
-                node_image.data_interface_count,
+                node_image.interfaces.data_count,
                 &node_image,
             ) {
                 overruns.push(format!("{model}: {err}"));

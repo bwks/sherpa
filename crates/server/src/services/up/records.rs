@@ -154,11 +154,13 @@ fn plan_interfaces(
     let data_interface_count =
         effective_data_interface_count(&node.name, node.data_interface_count, node_image)?;
     let first_data_interface_idx = node_image
-        .reserved_interface_count
+        .interfaces
+        .reserved_count
         .checked_add(1)
         .ok_or_else(|| anyhow!("Reserved interface count overflow for node {}", node.name))?;
     let max_interface_idx = node_image
-        .reserved_interface_count
+        .interfaces
+        .reserved_count
         .checked_add(data_interface_count)
         .ok_or_else(|| anyhow!("Data interface count overflow for node {}", node.name))?;
 
@@ -226,7 +228,7 @@ async fn node_setup(
     };
 
     let node_reserved_network = if matches!(node_image.kind, data::NodeKind::VirtualMachine)
-        && node_image.reserved_interface_count > 0
+        && node_image.interfaces.reserved_count > 0
     {
         Some(node_ops::node_reserved_network_data(
             &node.name, node.index, lab_id,

@@ -11,8 +11,9 @@ use serde::de::DeserializeOwned;
 use turso::{Row, Value};
 
 use shared::data::{
-    BridgeMember, DbBridge, DbLab, DbLink, DbNode, DbSession, DbSessionUser, DbUser,
-    LinkImpairment, NodeConfig, RecordId, Ztp, ZtpSettings,
+    BridgeMember, ComputeSettings, DbBridge, DbLab, DbLink, DbNode, DbSession, DbSessionUser,
+    DbUser, DiskSettings, InterfaceSettings, LinkImpairment, NodeConfig, RecordId, Ztp,
+    ZtpSettings,
 };
 use shared::konst::{SHERPA_DB_KEY_CHARSET, SHERPA_DB_KEY_LENGTH};
 
@@ -463,16 +464,22 @@ pub(crate) fn node_image_from_row(row: &Row) -> Result<NodeConfig> {
         repo: cells.optional_text("repo")?,
         os_variant: cells.enumeration("os_variant")?,
         kind: cells.enumeration("kind")?,
-        bios: cells.enumeration("bios")?,
-        cpu_count: cells.integer("cpu_count")?,
-        cpu_architecture: cells.enumeration("cpu_architecture")?,
-        cpu_model: cells.enumeration("cpu_model")?,
-        machine_type: cells.enumeration("machine_type")?,
-        vmx_enabled: cells.boolean("vmx_enabled")?,
-        memory: cells.integer("memory")?,
-        hdd_bus: cells.enumeration("hdd_bus")?,
-        cdrom: cells.optional_text("cdrom")?,
-        cdrom_bus: cells.enumeration("cdrom_bus")?,
+        compute: ComputeSettings {
+            bios: cells.enumeration("bios")?,
+            cpu_count: cells.integer("cpu_count")?,
+            cpu_architecture: cells.enumeration("cpu_architecture")?,
+            cpu_model: cells.enumeration("cpu_model")?,
+            machine_type: cells.enumeration("machine_type")?,
+            vmx_enabled: cells.boolean("vmx_enabled")?,
+            memory: cells.integer("memory")?,
+            // The `boot_mode` column follows `default`, read below.
+            boot_mode: None,
+        },
+        disks: DiskSettings {
+            hdd_bus: cells.enumeration("hdd_bus")?,
+            cdrom: cells.optional_text("cdrom")?,
+            cdrom_bus: cells.enumeration("cdrom_bus")?,
+        },
         ztp: ZtpSettings {
             // The `ztp` column is the table's last, read below.
             mode: Ztp::default(),
@@ -480,16 +487,18 @@ pub(crate) fn node_image_from_row(row: &Row) -> Result<NodeConfig> {
             password: cells.optional_text("ztp_password")?,
             password_auth: cells.boolean("ztp_password_auth")?,
         },
-        data_interface_count: cells.integer("data_interface_count")?,
-        interface_prefix: cells.text("interface_prefix")?,
-        interface_type: cells.enumeration("interface_type")?,
-        interface_mtu: cells.integer("interface_mtu")?,
-        first_interface_index: cells.integer("first_interface_index")?,
-        management_interface: cells.enumeration("management_interface")?,
-        reserved_interface_count: cells.integer("reserved_interface_count")?,
+        interfaces: InterfaceSettings {
+            data_count: cells.integer("data_interface_count")?,
+            prefix: cells.text("interface_prefix")?,
+            kind: cells.enumeration("interface_type")?,
+            mtu: cells.integer("interface_mtu")?,
+            first_index: cells.integer("first_interface_index")?,
+            management: cells.enumeration("management_interface")?,
+            reserved_count: cells.integer("reserved_interface_count")?,
+        },
         default: cells.boolean("default")?,
-        boot_mode: cells.optional_enumeration("boot_mode")?,
     };
+    image.compute.boot_mode = cells.optional_enumeration("boot_mode")?;
     image.ztp.mode = cells.enumeration("ztp")?;
     Ok(image)
 }
@@ -503,28 +512,29 @@ pub(crate) fn node_image_values(image: &NodeConfig, key: &str) -> Result<Vec<Val
         image.repo.as_deref().into(),
         enum_text(&image.os_variant, "os_variant")?.into(),
         enum_text(&image.kind, "kind")?.into(),
-        enum_text(&image.bios, "bios")?.into(),
-        image.cpu_count.into(),
-        enum_text(&image.cpu_architecture, "cpu_architecture")?.into(),
-        enum_text(&image.cpu_model, "cpu_model")?.into(),
-        enum_text(&image.machine_type, "machine_type")?.into(),
-        image.vmx_enabled.into(),
-        image.memory.into(),
-        enum_text(&image.hdd_bus, "hdd_bus")?.into(),
-        image.cdrom.as_deref().into(),
-        enum_text(&image.cdrom_bus, "cdrom_bus")?.into(),
+        enum_text(&image.compute.bios, "bios")?.into(),
+        image.compute.cpu_count.into(),
+        enum_text(&image.compute.cpu_architecture, "cpu_architecture")?.into(),
+        enum_text(&image.compute.cpu_model, "cpu_model")?.into(),
+        enum_text(&image.compute.machine_type, "machine_type")?.into(),
+        image.compute.vmx_enabled.into(),
+        image.compute.memory.into(),
+        enum_text(&image.disks.hdd_bus, "hdd_bus")?.into(),
+        image.disks.cdrom.as_deref().into(),
+        enum_text(&image.disks.cdrom_bus, "cdrom_bus")?.into(),
         image.ztp.username.as_deref().into(),
         image.ztp.password.as_deref().into(),
         image.ztp.password_auth.into(),
-        image.data_interface_count.into(),
-        image.interface_prefix.as_str().into(),
-        enum_text(&image.interface_type, "interface_type")?.into(),
-        image.interface_mtu.into(),
-        image.first_interface_index.into(),
-        enum_text(&image.management_interface, "management_interface")?.into(),
-        image.reserved_interface_count.into(),
+        image.interfaces.data_count.into(),
+        image.interfaces.prefix.as_str().into(),
+        enum_text(&image.interfaces.kind, "interface_type")?.into(),
+        image.interfaces.mtu.into(),
+        image.interfaces.first_index.into(),
+        enum_text(&image.interfaces.management, "management_interface")?.into(),
+        image.interfaces.reserved_count.into(),
         image.default.into(),
         image
+            .compute
             .boot_mode
             .as_ref()
             .map(|mode| enum_text(mode, "boot_mode"))

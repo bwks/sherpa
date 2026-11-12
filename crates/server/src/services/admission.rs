@@ -424,7 +424,7 @@ mod tests {
         let unikernel_memory = requests[1].memory.as_ref().unwrap();
         assert_eq!(
             unikernel_memory.memory_mib,
-            u64::from(unikernel_image.memory)
+            u64::from(unikernel_image.compute.memory)
         );
         assert_eq!(unikernel_memory.numa_node, None);
         assert_eq!(requests[2].memory, None);

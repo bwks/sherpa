@@ -33,7 +33,7 @@ pub fn check_performance_tuning(node: &NodeExpanded, image: &NodeConfig) -> Resu
             "Manifest - node: '{name}' sets `cpu_topology`, `cpu_pinning` or \
              `interface_queues`; set `cpu_count` too"
         ),
-        None => u32::from(image.cpu_count),
+        None => u32::from(image.compute.cpu_count),
     };
 
     if let Some(topology) = &tuning.cpu_topology {
@@ -92,12 +92,12 @@ pub fn check_performance_tuning(node: &NodeExpanded, image: &NodeConfig) -> Resu
         );
     }
 
-    if tuning.disk_io_thread_cpus.is_some() && image.hdd_bus != DiskBuses::Virtio {
+    if tuning.disk_io_thread_cpus.is_some() && image.disks.hdd_bus != DiskBuses::Virtio {
         bail!(
             "Manifest - node: '{name}' sets `disk_io_thread_cpus`, which needs virtio disks; \
              '{}' uses {}",
             image.model,
-            image.hdd_bus
+            image.disks.hdd_bus
         );
     }
 
@@ -108,12 +108,12 @@ pub fn check_performance_tuning(node: &NodeExpanded, image: &NodeConfig) -> Resu
                  its `cpu_count`"
             );
         }
-        if image.interface_type != InterfaceType::Virtio {
+        if image.interfaces.kind != InterfaceType::Virtio {
             bail!(
                 "Manifest - node: '{name}' sets `interface_queues`, which needs virtio \
                  interfaces; '{}' uses {:?}",
                 image.model,
-                image.interface_type
+                image.interfaces.kind
             );
         }
     }
@@ -335,7 +335,7 @@ mod tests {
     #[test]
     fn test_io_thread_needs_virtio_disks() {
         let mut image = ubuntu();
-        image.hdd_bus = DiskBuses::Sata;
+        image.disks.hdd_bus = DiskBuses::Sata;
         let tuning = PerformanceTuning {
             disk_io_thread_cpus: Some(vec![8]),
             ..PerformanceTuning::default()
@@ -353,7 +353,7 @@ mod tests {
         let message = error(&node(Some(4), tuning.clone()), &ubuntu());
         assert!(message.contains("between 1 and 4"), "{message}");
         let mut image = ubuntu();
-        image.interface_type = InterfaceType::E1000;
+        image.interfaces.kind = InterfaceType::E1000;
         let message = error(&node(Some(8), tuning), &image);
         assert!(message.contains("virtio interfaces"), "{message}");
     }

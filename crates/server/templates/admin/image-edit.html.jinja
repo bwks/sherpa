@@ -86,7 +86,7 @@
                 <!-- CPU Count -->
                 <div>
                     <label for="cpu_count" class="block text-sm font-medium text-body mb-2">CPU Count *</label>
-                    <input type="number" id="cpu_count" name="cpu_count" value="{{ config.cpu_count }}" min="1" max="255" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
+                    <input type="number" id="cpu_count" name="cpu_count" value="{{ config.compute.cpu_count }}" min="1" max="255" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
                     <p class="mt-1 text-xs text-muted">Range: 1-255</p>
                 </div>
 
@@ -113,7 +113,7 @@
                 <!-- Memory -->
                 <div>
                     <label for="memory" class="block text-sm font-medium text-body mb-2">Memory (MB) *</label>
-                    <input type="number" id="memory" name="memory" value="{{ config.memory }}" min="64" max="65535" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
+                    <input type="number" id="memory" name="memory" value="{{ config.compute.memory }}" min="64" max="65535" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
                     <p class="mt-1 text-xs text-muted">Range: 64-65535 MB</p>
                 </div>
 
@@ -139,7 +139,7 @@
 
                 <!-- VMX Enabled -->
                 <div class="flex items-center">
-                    <input type="checkbox" id="vmx_enabled" name="vmx_enabled" {% if config.vmx_enabled %}checked{% endif %} class="h-4 w-4 text-accent focus:ring-accent border-border-strong rounded">
+                    <input type="checkbox" id="vmx_enabled" name="vmx_enabled" {% if config.compute.vmx_enabled %}checked{% endif %} class="h-4 w-4 text-accent focus:ring-accent border-border-strong rounded">
                     <label for="vmx_enabled" class="ml-2 block text-sm font-medium text-body">Enable VMX (Nested Virtualization)</label>
                 </div>
             </div>
@@ -173,7 +173,7 @@
                 <!-- CD-ROM -->
                 <div class="md:col-span-2">
                     <label for="cdrom" class="block text-sm font-medium text-body mb-2">CD-ROM Path</label>
-                    {% match config.cdrom %}
+                    {% match config.disks.cdrom %}
                     {% when Some with (cdrom_value) %}
                     <input type="text" id="cdrom" name="cdrom" value="{{ cdrom_value }}" class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
                     {% when None %}
@@ -237,14 +237,14 @@
                 <!-- Data Interface Count -->
                 <div>
                     <label for="data_interface_count" class="block text-sm font-medium text-body mb-2">Data Interface Count *</label>
-                    <input type="number" id="data_interface_count" name="data_interface_count" value="{{ config.data_interface_count }}" min="0" max="255" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
+                    <input type="number" id="data_interface_count" name="data_interface_count" value="{{ config.interfaces.data_count }}" min="0" max="255" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
                     <p class="mt-1 text-xs text-muted">Range: 0-255</p>
                 </div>
 
                 <!-- Interface Prefix -->
                 <div>
                     <label for="interface_prefix" class="block text-sm font-medium text-body mb-2">Interface Prefix *</label>
-                    <input type="text" id="interface_prefix" name="interface_prefix" value="{{ config.interface_prefix }}" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
+                    <input type="text" id="interface_prefix" name="interface_prefix" value="{{ config.interfaces.prefix }}" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
                     <p class="mt-1 text-xs text-muted">e.g., eth, ens, enp</p>
                 </div>
 
@@ -261,26 +261,26 @@
                 <!-- Interface MTU -->
                 <div>
                     <label for="interface_mtu" class="block text-sm font-medium text-body mb-2">Interface MTU *</label>
-                    <input type="number" id="interface_mtu" name="interface_mtu" value="{{ config.interface_mtu }}" min="576" max="9600" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
+                    <input type="number" id="interface_mtu" name="interface_mtu" value="{{ config.interfaces.mtu }}" min="576" max="9600" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
                     <p class="mt-1 text-xs text-muted">Range: 576-9600</p>
                 </div>
 
                 <!-- First Interface Index -->
                 <div>
                     <label for="first_interface_index" class="block text-sm font-medium text-body mb-2">First Interface Index *</label>
-                    <input type="number" id="first_interface_index" name="first_interface_index" value="{{ config.first_interface_index }}" min="0" max="255" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
+                    <input type="number" id="first_interface_index" name="first_interface_index" value="{{ config.interfaces.first_index }}" min="0" max="255" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
                 </div>
 
                 <!-- Reserved Interface Count -->
                 <div>
                     <label for="reserved_interface_count" class="block text-sm font-medium text-body mb-2">Reserved Interface Count *</label>
-                    <input type="number" id="reserved_interface_count" name="reserved_interface_count" value="{{ config.reserved_interface_count }}" min="0" max="255" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
+                    <input type="number" id="reserved_interface_count" name="reserved_interface_count" value="{{ config.interfaces.reserved_count }}" min="0" max="255" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
                 </div>
 
                 <!-- Management Interface (Read-only) -->
                 <div>
                     <label for="management_interface" class="block text-sm font-medium text-body mb-2">Management Interface</label>
-                    <input type="text" value="{{ config.management_interface }}" disabled class="w-full px-3 py-2 border border-border-strong rounded-md bg-surface text-muted cursor-not-allowed">
+                    <input type="text" value="{{ config.interfaces.management }}" disabled class="w-full px-3 py-2 border border-border-strong rounded-md bg-surface text-muted cursor-not-allowed">
                     <p class="mt-1 text-xs text-muted">Read-only identifier</p>
                 </div>
             </div>

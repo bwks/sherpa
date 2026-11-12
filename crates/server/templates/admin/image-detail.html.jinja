@@ -75,31 +75,31 @@
         <div class="grid grid-cols-2 gap-4">
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">CPU Count:</span>
-                <span class="text-sm text-body font-medium">{{ config.cpu_count }}</span>
+                <span class="text-sm text-body font-medium">{{ config.compute.cpu_count }}</span>
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">CPU Architecture:</span>
-                <span class="text-sm text-body font-medium">{{ config.cpu_architecture }}</span>
+                <span class="text-sm text-body font-medium">{{ config.compute.cpu_architecture }}</span>
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">CPU Model:</span>
-                <span class="text-sm text-body font-medium">{{ config.cpu_model }}</span>
+                <span class="text-sm text-body font-medium">{{ config.compute.cpu_model }}</span>
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Memory:</span>
-                <span class="text-sm text-body font-medium">{{ config.memory }} MB</span>
+                <span class="text-sm text-body font-medium">{{ config.compute.memory }} MB</span>
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Machine Type:</span>
-                <span class="text-sm text-body font-medium">{{ config.machine_type }}</span>
+                <span class="text-sm text-body font-medium">{{ config.compute.machine_type }}</span>
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">BIOS:</span>
-                <span class="text-sm text-body font-medium">{{ config.bios }}</span>
+                <span class="text-sm text-body font-medium">{{ config.compute.bios }}</span>
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">VMX Enabled:</span>
-                <span class="text-sm text-body font-medium">{% if config.vmx_enabled %}Yes{% else %}No{% endif %}</span>
+                <span class="text-sm text-body font-medium">{% if config.compute.vmx_enabled %}Yes{% else %}No{% endif %}</span>
             </div>
         </div>
     </div>
@@ -110,13 +110,13 @@
         <div class="grid grid-cols-2 gap-4">
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">HDD Bus:</span>
-                <span class="text-sm text-body font-medium">{{ config.hdd_bus }}</span>
+                <span class="text-sm text-body font-medium">{{ config.disks.hdd_bus }}</span>
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">CD-ROM Bus:</span>
-                <span class="text-sm text-body font-medium">{{ config.cdrom_bus }}</span>
+                <span class="text-sm text-body font-medium">{{ config.disks.cdrom_bus }}</span>
             </div>
-            {% if let Some(cdrom_value) = config.cdrom %}
+            {% if let Some(cdrom_value) = config.disks.cdrom %}
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">CD-ROM:</span>
                 <span class="text-sm text-body font-medium">{{ cdrom_value }}</span>
@@ -158,31 +158,31 @@
         <div class="grid grid-cols-2 gap-4">
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Data Interfaces:</span>
-                <span class="text-sm text-body font-medium">{{ config.data_interface_count }}</span>
+                <span class="text-sm text-body font-medium">{{ config.interfaces.data_count }}</span>
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Interface Prefix:</span>
-                <span class="text-sm text-body font-medium font-mono">{{ config.interface_prefix }}</span>
+                <span class="text-sm text-body font-medium font-mono">{{ config.interfaces.prefix }}</span>
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Interface Type:</span>
-                <span class="text-sm text-body font-medium">{{ config.interface_type }}</span>
+                <span class="text-sm text-body font-medium">{{ config.interfaces.kind }}</span>
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Interface MTU:</span>
-                <span class="text-sm text-body font-medium">{{ config.interface_mtu }}</span>
+                <span class="text-sm text-body font-medium">{{ config.interfaces.mtu }}</span>
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">First Interface Index:</span>
-                <span class="text-sm text-body font-medium">{{ config.first_interface_index }}</span>
+                <span class="text-sm text-body font-medium">{{ config.interfaces.first_index }}</span>
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Management Interface:</span>
-                <span class="text-sm text-body font-medium font-mono">{{ config.management_interface }}</span>
+                <span class="text-sm text-body font-medium font-mono">{{ config.interfaces.management }}</span>
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Reserved Interfaces:</span>
-                <span class="text-sm text-body font-medium">{{ config.reserved_interface_count }}</span>
+                <span class="text-sm text-body font-medium">{{ config.interfaces.reserved_count }}</span>
             </div>
         </div>
     </div>

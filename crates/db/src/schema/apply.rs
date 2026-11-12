@@ -373,7 +373,7 @@ mod tests {
             NodeModel::UbuntuLinux,
         ] {
             let mut image = NodeConfig::get_model(model);
-            image.data_interface_count = 16;
+            image.interfaces.data_count = 16;
             insert_into_older_schema(&db, &image, true, "cloud-init").await;
         }
 
@@ -384,7 +384,7 @@ mod tests {
             .await
             .unwrap()
             .into_iter()
-            .map(|image| (image.model, image.data_interface_count))
+            .map(|image| (image.model, image.interfaces.data_count))
             .collect();
         assert!(
             counts.contains(&(NodeModel::CiscoCsr1000v, 15)),
@@ -413,7 +413,7 @@ mod tests {
         }
         for model in [NodeModel::GenericVm, NodeModel::CiscoIosv] {
             let mut image = NodeConfig::get_model(model);
-            image.cdrom_bus = DiskBuses::Virtio;
+            image.disks.cdrom_bus = DiskBuses::Virtio;
             insert_into_older_schema(&db, &image, true, "cloud-init").await;
         }
 
@@ -439,7 +439,7 @@ mod tests {
             .await
             .unwrap()
             .into_iter()
-            .map(|image| (image.model, image.cdrom_bus))
+            .map(|image| (image.model, image.disks.cdrom_bus))
             .collect();
         assert!(
             buses.contains(&(NodeModel::GenericVm, DiskBuses::Sata)),

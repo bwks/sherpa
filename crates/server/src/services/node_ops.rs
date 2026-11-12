@@ -716,8 +716,8 @@ fn cevolved_start(
     setup.env_vars = cevolved_env_vars(
         node.platform.unwrap_or_default(),
         data_interfaces,
-        node.cpu_count.unwrap_or(node_image.cpu_count),
-        node.memory.unwrap_or(node_image.memory),
+        node.cpu_count.unwrap_or(node_image.compute.cpu_count),
+        node.memory.unwrap_or(node_image.compute.memory),
     );
 
     // Update node fields for consistency
@@ -749,7 +749,7 @@ fn cevolved_volume_ztp(
             hostname: node.name.clone(),
             user: sherpa_user.clone(),
             owner: guest_account::owner_user(guest_account, KeyFormat::Junos)?,
-            mgmt_interface: node_image.management_interface.to_string(),
+            mgmt_interface: node_image.interfaces.management.to_string(),
             mgmt_ipv4_address: Some(node_ipv4_address),
             mgmt_ipv4: mgmt_net.v4.clone(),
             mgmt_ipv6_address: node.ipv6_address,
@@ -1053,7 +1053,7 @@ pub(crate) fn generate_vm_ztp(
     let setting = effective_ztp(node.ztp, node_image);
     let media = generate_vm_ztp_media(node, node_image, &ztp, setting)?;
     // The image's own CD-ROM, such as vEOS's Aboot, unless the ZTP method brings one.
-    let image_cdrom = node_image.cdrom.as_ref().map(|src_iso| {
+    let image_cdrom = node_image.disks.cdrom.as_ref().map(|src_iso| {
         (
             format!(
                 "{}/{}/{}/{}",
@@ -1176,9 +1176,9 @@ fn vm_disks(
     node_name_with_lab: &str,
     media: &VmZtpMedia,
 ) -> Result<(Vec<data::CloneDisk>, Vec<data::NodeDisk>)> {
-    let hdd_bus = &node_image.hdd_bus;
-    let cdrom_bus = &node_image.cdrom_bus;
-    let filename = util::image_filename(&node_image.kind, node_image.boot_mode.as_ref());
+    let hdd_bus = &node_image.disks.hdd_bus;
+    let cdrom_bus = &node_image.disks.cdrom_bus;
+    let filename = util::image_filename(&node_image.kind, node_image.compute.boot_mode.as_ref());
     let dst_boot_disk = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-hdd.qcow2");
     let mut clone_disks = vec![data::CloneDisk {
         src: format!(
@@ -2262,7 +2262,7 @@ fn generate_tftp_ztp(
                     hostname: node.name.clone(),
                     user: sherpa_user.clone(),
                     owner: guest_account::owner_user(guest_account, KeyFormat::Junos)?,
-                    mgmt_interface: node_image.management_interface.to_string(),
+                    mgmt_interface: node_image.interfaces.management.to_string(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
                     mgmt_ipv6_address: node.ipv6_address,
@@ -2357,7 +2357,7 @@ fn cdrom_config(
             hostname: node.name.clone(),
             user: sherpa_user.clone(),
             owner: guest_account::owner_user(guest_account, KeyFormat::Junos)?,
-            mgmt_interface: node_image.management_interface.to_string(),
+            mgmt_interface: node_image.interfaces.management.to_string(),
             mgmt_ipv4_address: Some(node_ipv4_address),
             mgmt_ipv4: mgmt_net.v4.clone(),
             mgmt_ipv6_address: node.ipv6_address,
@@ -2399,7 +2399,7 @@ fn iosxe_config(
         hostname: node.name.clone(),
         user,
         owner: guest_account::owner_user(guest_account, KeyFormat::CiscoMd5)?,
-        mgmt_interface: node_image.management_interface.to_string(),
+        mgmt_interface: node_image.interfaces.management.to_string(),
         dns: dns.clone(),
         license_boot_command,
         mgmt_ipv4_address: Some(node_ipv4_address),
@@ -2598,7 +2598,7 @@ fn iosv_config(
     let mut user = sherpa_user.clone();
     user.ssh_public_key.key = util::pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
     let owner = guest_account::owner_user(guest_account, KeyFormat::CiscoMd5)?;
-    let mgmt_interface = node_image.management_interface.to_string();
+    let mgmt_interface = node_image.interfaces.management.to_string();
     let rendered = if node.model == data::NodeModel::CiscoIosvl2 {
         template::CiscoIosvl2ZtpTemplate {
             hostname: node.name.clone(),
@@ -2731,7 +2731,7 @@ fn mikrotik_config_disk(
             user: sherpa_user.clone(),
             owner,
             owner_key_files: owner_key_paths,
-            mgmt_interface: node_image.management_interface.to_string(),
+            mgmt_interface: node_image.interfaces.management.to_string(),
             dns: dns.clone(),
             mgmt_ipv4: mgmt_net.v4.clone(),
             mgmt_ipv4_address: Some(node_ipv4_address),
@@ -2832,7 +2832,7 @@ fn generate_usb_ztp(
                     hostname: node.name.clone(),
                     user,
                     owner: guest_account::owner_user(guest_account, KeyFormat::Junos)?,
-                    mgmt_interface: node_image.management_interface.to_string(),
+                    mgmt_interface: node_image.interfaces.management.to_string(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
                     mgmt_ipv6_address: node.ipv6_address,
@@ -3195,29 +3195,29 @@ pub fn build_domain_template(
     let tuning = node.performance_tuning.as_ref();
     let cpu_model = match tuning.and_then(|tuning| tuning.cpu_mode) {
         Some(mode) => data::CpuModels::from(mode),
-        None => node_image.cpu_model.clone(),
+        None => node_image.compute.cpu_model.clone(),
     };
     let management_interface_type =
-        management_interface_type_for_model(node_image.model, &node_image.interface_type);
+        management_interface_type_for_model(node_image.model, &node_image.interfaces.kind);
 
     Ok(template::DomainTemplate {
         qemu_bin: qemu_bin.to_string(),
         name: node_name_with_lab,
         memory,
-        cpu_architecture: node_image.cpu_architecture.clone(),
+        cpu_architecture: node_image.compute.cpu_architecture.clone(),
         cpu_model,
-        machine_type: node_image.machine_type.clone(),
+        machine_type: node_image.compute.machine_type.clone(),
         cpu_count,
-        vmx_enabled: node_image.vmx_enabled,
-        bios: node_image.bios.clone(),
+        vmx_enabled: node_image.compute.vmx_enabled,
+        bios: node_image.compute.bios.clone(),
         disks: parts.disks,
         interfaces: parts.interfaces,
-        interface_type: node_image.interface_type.clone(),
+        interface_type: node_image.interfaces.kind.clone(),
         tuning: template::DomainTuning::from_tuning(tuning, &management_interface_type),
         management_interface_type,
         reserved_interface_type: reserved_interface_type_for_model(
             node_image.model,
-            &node_image.interface_type,
+            &node_image.interfaces.kind,
         ),
         loopback_ipv4: parts.loopback_ipv4,
         telnet_port: TELNET_PORT,
@@ -3630,13 +3630,14 @@ pub fn generate_unikernel_setup(
     images_dir: &str,
 ) -> Result<UnikernelSetupResult> {
     let boot_mode = node_image
+        .compute
         .boot_mode
         .clone()
         .unwrap_or(data::UnikernelBootMode::DirectKernel);
 
     let mac_address = util::random_mac(KVM_OUI);
     let version = node.version.as_deref().unwrap_or(&node_image.version);
-    let filename = util::image_filename(&node_image.kind, node_image.boot_mode.as_ref());
+    let filename = util::image_filename(&node_image.kind, node_image.compute.boot_mode.as_ref());
 
     match boot_mode {
         data::UnikernelBootMode::DiskBoot => {
@@ -3708,6 +3709,7 @@ pub fn build_unikernel_domain_template(
 ) -> template::UnikernelDomainTemplate {
     let node_name_with_lab = format!("{}-{}", node.name, lab_id);
     let boot_mode = node_image
+        .compute
         .boot_mode
         .clone()
         .unwrap_or(data::UnikernelBootMode::DirectKernel);
@@ -3720,19 +3722,19 @@ pub fn build_unikernel_domain_template(
     template::UnikernelDomainTemplate {
         qemu_bin: qemu_bin.to_string(),
         name: node_name_with_lab,
-        memory: node.memory.unwrap_or(node_image.memory),
-        cpu_architecture: node_image.cpu_architecture.clone(),
-        cpu_model: node_image.cpu_model.clone(),
-        machine_type: node_image.machine_type.clone(),
-        cpu_count: node.cpu_count.unwrap_or(node_image.cpu_count),
+        memory: node.memory.unwrap_or(node_image.compute.memory),
+        cpu_architecture: node_image.compute.cpu_architecture.clone(),
+        cpu_model: node_image.compute.cpu_model.clone(),
+        machine_type: node_image.compute.machine_type.clone(),
+        cpu_count: node.cpu_count.unwrap_or(node_image.compute.cpu_count),
         boot_mode,
         kernel_path,
         kernel_cmdline,
         disks: parts.disks,
         interfaces: parts.interfaces,
-        interface_type: node_image.interface_type.clone(),
-        management_interface_type: node_image.interface_type.clone(),
-        reserved_interface_type: node_image.interface_type.clone(),
+        interface_type: node_image.interfaces.kind.clone(),
+        management_interface_type: node_image.interfaces.kind.clone(),
+        reserved_interface_type: node_image.interfaces.kind.clone(),
         loopback_ipv4: parts.loopback_ipv4,
         telnet_port: TELNET_PORT,
         management_network: parts.management_network,
@@ -4684,7 +4686,7 @@ mod tests {
         assert!(xml.contains("OVMF_CODE_4M.fd"));
         assert!(xml.find("<boot dev='cdrom'/>").unwrap() < xml.find("<boot dev='hd'/>").unwrap());
         assert_eq!(config.ztp.mode, data::Ztp::CloudInit);
-        assert!(config.cdrom.is_none());
+        assert!(config.disks.cdrom.is_none());
     }
 
     /// The sherpa login every Ignition test uses, with a fixture key.

@@ -23,7 +23,7 @@ pub fn check_ptx_platform(node: &NodeExpanded, image: &NodeConfig) -> Result<()>
     let platform = node.platform.unwrap_or_default();
     let interfaces = node
         .data_interface_count
-        .unwrap_or(image.data_interface_count);
+        .unwrap_or(image.interfaces.data_count);
     if interfaces > platform.max_data_interfaces() {
         bail!(
             "Manifest - node: '{}' has {} data interfaces, but platform {} has at most {}",
@@ -33,22 +33,22 @@ pub fn check_ptx_platform(node: &NodeExpanded, image: &NodeConfig) -> Result<()>
             platform.max_data_interfaces()
         );
     }
-    let cpu_count = node.cpu_count.unwrap_or(image.cpu_count);
-    if cpu_count < image.cpu_count {
+    let cpu_count = node.cpu_count.unwrap_or(image.compute.cpu_count);
+    if cpu_count < image.compute.cpu_count {
         bail!(
             "Manifest - node: '{}' has {} vCPUs; juniper_cevolved needs at least {}",
             node.name,
             cpu_count,
-            image.cpu_count
+            image.compute.cpu_count
         );
     }
-    let memory = node.memory.unwrap_or(image.memory);
-    if memory < image.memory {
+    let memory = node.memory.unwrap_or(image.compute.memory);
+    if memory < image.compute.memory {
         bail!(
             "Manifest - node: '{}' has {} MB of memory; juniper_cevolved needs at least {}",
             node.name,
             memory,
-            image.memory
+            image.compute.memory
         );
     }
     Ok(())
