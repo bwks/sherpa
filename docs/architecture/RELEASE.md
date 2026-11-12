@@ -71,9 +71,26 @@ group, so runs queue rather than overlap. Every job checks out the commit the ru
    section. That section, without its heading, is the release notes. A second run at the same
    version, queued behind the first, finds the tag and fails here.
 2. `build-app` builds `sherpa` for Linux, macOS (x86_64 and aarch64) and Windows, and `sherpad`
-   for Linux.
+   and `agent-bus` for Linux x86_64. Each build uploads its archive as an artifact named
+   `build-<binary>-<target>`.
 3. `release` tags `GITHUB_SHA`, not main's tip, which may have moved on, pushes the tag with the
-   workflow's token, and creates the GitHub release with the archives and the notes.
+   workflow's token, and creates the GitHub release with every `build-*` archive and the notes.
+
+The release assets:
+
+| Asset | Holds |
+|---|---|
+| `sherpa-x86_64-unknown-linux-gnu.tar.gz` | The CLI, Linux x86_64 |
+| `sherpa-x86_64-apple-darwin.tar.gz` | The CLI, macOS x86_64 |
+| `sherpa-aarch64-apple-darwin.tar.gz` | The CLI, macOS aarch64 |
+| `sherpa-x86_64-pc-windows-msvc.zip` | The CLI, Windows x86_64 |
+| `sherpad-x86_64-unknown-linux-gnu.tar.gz` | The server, Linux x86_64 |
+| `agent-bus-x86_64-unknown-linux-gnu.tar.gz` | `agent-bus` and `agent-bus-start-agent` (`dev/agent-bus/start-agent.sh`) |
+
+`agent-bus` is a development tool, the host side of the agent bus (see
+[`AGENT_BUS.md`](AGENT_BUS.md)). The install and update scripts do not install it and it has no
+user documentation. Its place in the release is under review: if it shows no value it is removed
+before 0.6.0.
 
 The release makes no commit and opens no pull request; nothing in CI generates the changelog.
 Clicking Release without a bump fails at the tag check.

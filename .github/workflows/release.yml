@@ -116,6 +116,15 @@ jobs:
             runner: ubuntu-latest
             archive: tar.gz
 
+          # Development tool, not installed by the install scripts. Its archive also holds the
+          # host's start script, under the name it is installed as.
+          - binary: agent-bus
+            package: agent-bus
+            target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            archive: tar.gz
+            extra: agent-bus-start-agent
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -140,12 +149,16 @@ jobs:
       - name: Build
         run: cargo build --release -p ${{ matrix.package }} --target ${{ matrix.target }}
 
+      - name: Add the agent start script
+        if: matrix.package == 'agent-bus'
+        run: cp dev/agent-bus/start-agent.sh target/${{ matrix.target }}/release/agent-bus-start-agent
+
       - name: Package (tar.gz)
         if: matrix.archive == 'tar.gz'
         shell: bash
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf ../../../${{ matrix.binary }}-${{ matrix.target }}.tar.gz ${{ matrix.binary }}
+          tar czf ../../../${{ matrix.binary }}-${{ matrix.target }}.tar.gz ${{ matrix.binary }} ${{ matrix.extra }}
 
       - name: Package (zip)
         if: matrix.archive == 'zip'
@@ -153,10 +166,11 @@ jobs:
         run: |
           Compress-Archive -Path "target/${{ matrix.target }}/release/${{ matrix.binary }}.exe" -DestinationPath "${{ matrix.binary }}-${{ matrix.target }}.zip"
 
+      # The build- prefix lets the release job download every archive and not the notes.
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.binary }}-${{ matrix.target }}
+          name: build-${{ matrix.binary }}-${{ matrix.target }}
           path: ${{ matrix.binary }}-${{ matrix.target }}.${{ matrix.archive }}
 
   release:
@@ -173,7 +187,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-          pattern: sherpa*
+          pattern: build-*
           merge-multiple: true
 
       - name: Download the release notes

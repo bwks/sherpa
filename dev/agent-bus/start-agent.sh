@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Enroll a lab node's guest agent on the bus and start it, from the host. The agent's name is
 # <agent>, or the node's when none is given. Run it on the host, where the bus runs. The host has no checkout and builds
-# nothing: the agent-bus binary and this script are built and copied from the dev guest, and
-# installed as ~/.local/bin/agent-bus and ~/.local/bin/agent-bus-start-agent.
+# nothing: the agent-bus binary and this script come in a Sherpa release's
+# agent-bus-x86_64-unknown-linux-gnu.tar.gz, extracted to ~/.local/bin as
+# ~/.local/bin/agent-bus and ~/.local/bin/agent-bus-start-agent.
 #
 #   agent-bus-start-agent <lab dir> <node> [agent]
 #

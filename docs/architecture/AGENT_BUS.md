@@ -10,9 +10,13 @@ tracked in issue #494.
 
 ## Purpose and scope
 
-- **A development tool, not released.** `agent-bus` has `publish = false`, is not installed by
-  the install scripts, and is not part of `sherpad` or the `sherpa` CLI. It has no user-facing
-  documentation in `../sherpa-docs`.
+- **A development tool, released for the host only.** Each Sherpa release attaches
+  `agent-bus-x86_64-unknown-linux-gnu.tar.gz` (Linux x86_64 only), holding the `agent-bus`
+  binary and `agent-bus-start-agent` (`dev/agent-bus/start-agent.sh`), for the host to install
+  (see [Operating it](#operating-it)). It is not on crates.io (`publish = false`), is not installed
+  by the install scripts, and is not part of `sherpad` or the `sherpa` CLI. It has no user-facing
+  documentation in `../sherpa-docs`. Releasing it is on trial: if it shows no value it is taken
+  out of the release again before 0.6.0.
 - **Two roles.** The host agent sends tasks, answers and cancels, and reads the replies. A guest
   agent (`agent-bus guest`), running in a lab guest such as the dev server
   (`tests/environments/dev`), takes each task to Claude Code in its checkout and replies.
@@ -1273,11 +1277,33 @@ The only bus secret stored is the host's seed: guests get a fresh key each time 
 `agent-bus:agent` replaces the per-agent tasks that piped a stored seed for each guest. It holds
 no secret itself; `<load secrets>` stands for however the other tasks load the host's
 `AGENT_BUS_SEED`, `CLAUDE_CODE_OAUTH_TOKEN` and `GH_TOKEN` (the write token) from the secret
-store. Without `GH_TOKEN` the agent starts with no write token, and its `--github` tasks fail. The host has no checkout and builds nothing: build `agent-bus` in the dev guest and
-install the binary and the script on the host as `~/.local/bin/agent-bus` and
-`~/.local/bin/agent-bus-start-agent` (from `dev/agent-bus/start-agent.sh`). The script uses
-`agent-bus` on PATH, or the binary named by `AGENT_BUS_BIN`, and fails if it is missing or not
-executable:
+store. Without `GH_TOKEN` the agent starts with no write token, and its `--github` tasks fail.
+
+The host has no checkout and builds nothing: it installs `agent-bus` from a Sherpa release. The
+release archive `agent-bus-x86_64-unknown-linux-gnu.tar.gz` holds the binary and the script, the
+script already named `agent-bus-start-agent` (from `dev/agent-bus/start-agent.sh`); both are
+extracted to `~/.local/bin`. With `gh`, the latest release:
+
+```bash
+mkdir -p ~/.local/bin
+gh release download --repo bwks/sherpa --pattern 'agent-bus-x86_64-unknown-linux-gnu.tar.gz' -O - \
+  | tar xzf - -C ~/.local/bin agent-bus agent-bus-start-agent
+```
+
+Or with `curl`, without a GitHub login:
+
+```bash
+mkdir -p ~/.local/bin
+curl -fsSL https://github.com/bwks/sherpa/releases/latest/download/agent-bus-x86_64-unknown-linux-gnu.tar.gz \
+  | tar xzf - -C ~/.local/bin agent-bus agent-bus-start-agent
+```
+
+For a given version, name its tag: `gh release download vX.Y.Z ...`, or
+`.../releases/download/vX.Y.Z/agent-bus-x86_64-unknown-linux-gnu.tar.gz`. The guests build
+`agent-bus` from their own checkout, so a guest on main can be ahead of the host's release:
+`start-guest.sh` names an `agent-bus-start-agent` of an older stdin layout when it gets one.
+The script uses `agent-bus` on PATH, or the binary named by `AGENT_BUS_BIN`, and fails if it is
+missing or not executable:
 
 ```toml
 [tasks."agent-bus:agent"]

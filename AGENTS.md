@@ -78,10 +78,13 @@ Functional boundaries are separated into crates, found in the `crates/` director
 
 ### Crates and their purpose
 agent-bus:
-- Development tool, not released: a NATS message channel between the host agent and agents in
+- Development tool: a NATS message channel between the host agent and agents in
   lab guests, with the host's record of every message in an embedded Turso file. See
   `docs/architecture/AGENT_BUS.md`; the investigation notes are in
   `docs/investigations/agent-bus.md` and `docs/investigations/agent-bus-database.md`.
+- Released for the host with each Sherpa release (Linux x86_64 archive); not installed by the
+  install scripts and not documented for users. Removed from the release before 0.6.0 if it
+  shows no value.
 
 client:
 - Client binary CLI tool for interacting with the Sherpa Server. This is installed on user machines.
