@@ -150,10 +150,10 @@ Clippy:
   function that clamps the value carries `#[expect(clippy::cast_possible_truncation,
   clippy::cast_sign_loss, reason = "...")]`, as `network::tc::percent_to_kernel` does.
 - `dev/check-lint-exceptions.sh` refuses any `allow` or `expect` attribute, including inside
-  `cfg_attr`, that is not on the allowlist at the top of the script, and any allowlist entry
-  that no longer exists. It runs in the pre-commit hook (`git config core.hooksPath .githooks`)
-  and in the CI Lint job. Adding to the allowlist needs the user's approval; remove an entry
-  when its exception is removed.
+  `cfg_attr`, in any tracked Rust file (`crates/ebpf-redirect` included) that is not on the
+  allowlist at the top of the script, and any allowlist entry that no longer exists. It runs in
+  the pre-commit hook (`git config core.hooksPath .githooks`) and in the CI Lint job. Adding to
+  the allowlist needs the user's approval; remove an entry when its exception is removed.
 - Crates with `[lints] workspace = true` in their `Cargo.toml` inherit the workspace lints in the
   root `Cargo.toml`, which include `clippy::pedantic`. Crates are moved onto them one at a time,
   each with its pedantic warnings fixed.

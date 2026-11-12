@@ -3,9 +3,10 @@
 # Refuse new lint exceptions: `allow` and `expect` attributes, including inside `cfg_attr`.
 #
 # `clippy::allow_attributes` already refuses `#[allow]` in workspace crates, but no lint refuses
-# `#[expect]`. This script scans the tracked Rust files and compares every exception it finds
-# with the allowlist below. It fails when an exception is not on the list, and when a listed
-# exception no longer exists, so the list shrinks as exceptions are removed.
+# `#[expect]`. This script scans every tracked Rust file, including `crates/ebpf-redirect`
+# (outside the workspace and its lints), and compares every exception it finds with the
+# allowlist below. It fails when an exception is not on the list, and when a listed exception
+# no longer exists, so the list shrinks as exceptions are removed.
 #
 # Adding to the allowlist needs the user's approval (AGENTS.md, "Clippy").
 #
@@ -24,8 +25,7 @@ crates/network/src/tc.rs clippy::cast_sign_loss
 
 cd "$(git rev-parse --show-toplevel)"
 
-# crates/ebpf-redirect is no_std and outside the workspace and its lints.
-mapfile -t files < <(git ls-files -- '*.rs' ':!:crates/ebpf-redirect/**')
+mapfile -t files < <(git ls-files -- '*.rs')
 
 if [[ ${#files[@]} -eq 0 ]]; then
     echo "check-lint-exceptions: no Rust files found" >&2
