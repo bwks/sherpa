@@ -229,6 +229,9 @@ tools from mise are on the `PATH` of login shells, so run commands through one:
 - **Tests:** formatting, clippy, unit and database tests, integration tests and the lab tests all
   run in the guest, as described in [running tests](../../README.md). The guest's `sherpa` CLI
   is already logged in as `dev`.
+- **Pre-commit hook:** enable it once in each checkout with
+  `git config core.hooksPath .githooks`. It runs `dev/check-lint-exceptions.sh`, which refuses
+  new `allow`/`expect` lint exceptions; CI runs the same check.
 
 Nested lab VMs run slower in the guest than on the host, so run the final check on the host
 before a release.

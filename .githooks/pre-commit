@@ -1,0 +1,7 @@
+#! /usr/bin/bash
+#
+# Enable with: git config core.hooksPath .githooks
+
+set -euo pipefail
+
+exec "$(git rev-parse --show-toplevel)/dev/check-lint-exceptions.sh"
