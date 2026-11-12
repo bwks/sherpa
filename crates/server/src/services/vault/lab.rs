@@ -7,7 +7,7 @@ use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
@@ -22,6 +22,9 @@ use crate::tls::generator::write_file_with_permissions;
 const VAULT_DIR: &str = "vault";
 /// How often to check whether an unsealed Vault is active; it takes a second or two.
 const ACTIVE_POLL_INTERVAL: Duration = Duration::from_secs(1);
+/// Init requests sent to a Vault node in one operation. Each after the first is sent only once
+/// Vault has confirmed it is still not initialised.
+const INIT_ATTEMPTS: u32 = 2;
 
 /// A Vault node's credentials, saved as `<lab>/vault/<node>.toml`, readable only by the server.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,6 +32,18 @@ pub struct VaultCredentials {
     pub address: String,
     pub unseal_key: String,
     pub root_token: String,
+}
+
+/// What to do after an init request failed, decided by [`after_failed_init`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AfterFailedInit {
+    /// Vault is not initialised: send init again.
+    Retry,
+    /// Vault is not initialised and every init attempt failed.
+    GiveUp,
+    /// Vault is initialised: the request initialised it, but its response, the only copy of
+    /// the unseal key and root token, never reached Sherpa.
+    LostInitResponse,
 }
 
 impl VaultCredentials {
@@ -89,38 +104,36 @@ pub async fn ensure_vault_unsealed(
     timeout: Duration,
     progress: &ProgressSender,
 ) -> Result<VaultInfo> {
-    let dir = vault_dir(lab_id);
     let client = VaultClient::new(node_address, lab_ca_pem)?;
-    let status = wait_for_api(&client, node_name, timeout).await?;
+    let credentials =
+        unseal_with_client(&client, &vault_dir(lab_id), node_name, timeout, progress).await?;
+    Ok(credentials.into_info(node_name))
+}
 
-    let credentials = if status.initialized {
-        load_credentials(&dir, node_name)?.with_context(|| {
-            format!(
-                "Vault node '{node_name}' was initialised outside Sherpa, so Sherpa has no unseal key or root token for it"
-            )
-        })?
+/// [`ensure_vault_unsealed`] on a Vault client, keeping the credentials in `dir`.
+#[instrument(level = "debug", skip(client, progress), fields(address = %client.address(), dir = %dir.display()))]
+async fn unseal_with_client(
+    client: &VaultClient,
+    dir: &Path,
+    node_name: &str,
+    timeout: Duration,
+    progress: &ProgressSender,
+) -> Result<VaultCredentials> {
+    let status = wait_for_api(client, node_name, timeout).await?;
+    // Initialised before Sherpa sent any init request: Sherpa saved its credentials when it
+    // initialised it, or it was initialised outside Sherpa.
+    let (credentials, sealed) = if status.initialized {
+        let saved = load_credentials(dir, node_name)?;
+        (saved_credentials(node_name, saved)?, status.sealed)
     } else {
-        let init = client
-            .init()
-            .await
-            .with_context(|| format!("Failed to initialise Vault node '{node_name}'"))?;
-        let unseal_key = init
-            .keys_base64
-            .into_iter()
-            .next()
-            .with_context(|| format!("Vault node '{node_name}' returned no unseal key"))?;
-        let credentials = VaultCredentials {
-            address: client.address().to_owned(),
-            unseal_key,
-            root_token: init.root_token,
-        };
-        save_credentials(&dir, node_name, &credentials)?;
-        let _ = progress.send_status(format!("Vault {node_name} - initialised"), StatusKind::Done);
-        credentials
+        // A newly initialised Vault is sealed.
+        (
+            initialise(client, dir, node_name, timeout, progress).await?,
+            true,
+        )
     };
 
-    // A newly initialised Vault is sealed.
-    if !status.initialized || status.sealed {
+    if sealed {
         let status = client
             .unseal(&credentials.unseal_key)
             .await
@@ -130,8 +143,122 @@ pub async fn ensure_vault_unsealed(
         }
         let _ = progress.send_status(format!("Vault {node_name} - unsealed"), StatusKind::Done);
     }
-    wait_until_active(&client, node_name, timeout).await?;
-    Ok(credentials.into_info(node_name))
+    wait_until_active(client, node_name, timeout).await?;
+    Ok(credentials)
+}
+
+/// The saved credentials of a Vault node that was already initialised when Sherpa first read
+/// its seal status. With none saved, Sherpa did not initialise it.
+fn saved_credentials(node_name: &str, saved: Option<VaultCredentials>) -> Result<VaultCredentials> {
+    saved.with_context(|| {
+        format!(
+            "Vault node '{node_name}' was initialised outside Sherpa, so Sherpa has no unseal key or root token for it"
+        )
+    })
+}
+
+/// Initialise a new Vault and save its credentials.
+///
+/// An init request that fails may still complete inside Vault, which hands out the unseal key
+/// and root token in the response only. So after a failed request the seal status is read
+/// again first, and init is sent again only when Vault confirms it is not initialised.
+async fn initialise(
+    client: &VaultClient,
+    dir: &Path,
+    node_name: &str,
+    timeout: Duration,
+    progress: &ProgressSender,
+) -> Result<VaultCredentials> {
+    let mut failed_inits = 0;
+    loop {
+        let init_error = match client.init().await {
+            Ok(init) => {
+                let unseal_key =
+                    init.keys_base64.into_iter().next().with_context(|| {
+                        format!("Vault node '{node_name}' returned no unseal key")
+                    })?;
+                let credentials = VaultCredentials {
+                    address: client.address().to_owned(),
+                    unseal_key,
+                    root_token: init.root_token,
+                };
+                save_credentials(dir, node_name, &credentials)?;
+                let _ = progress
+                    .send_status(format!("Vault {node_name} - initialised"), StatusKind::Done);
+                return Ok(credentials);
+            }
+            Err(error) => error,
+        };
+        failed_inits += 1;
+        let status = match wait_for_api(client, node_name, timeout).await {
+            Ok(status) => status,
+            Err(status_error) => {
+                return Err(status_unknown_error(node_name, &init_error, &status_error));
+            }
+        };
+        match after_failed_init(status, failed_inits) {
+            AfterFailedInit::Retry => {
+                tracing::warn!(
+                    %node_name,
+                    error = %format!("{init_error:#}"),
+                    "Vault init failed and Vault is not initialised; sending init again"
+                );
+            }
+            AfterFailedInit::LostInitResponse => {
+                return Err(lost_init_response_error(node_name, &init_error));
+            }
+            AfterFailedInit::GiveUp => {
+                return Err(init_error.context(format!(
+                    "Failed to initialise Vault node '{node_name}' in {failed_inits} attempts; it is not initialised"
+                )));
+            }
+        }
+    }
+}
+
+/// What to do after an init request of this operation failed, from the seal status read
+/// right after it and the number of init requests that have failed.
+fn after_failed_init(status: SealStatus, failed_inits: u32) -> AfterFailedInit {
+    if status.initialized {
+        AfterFailedInit::LostInitResponse
+    } else if failed_inits < INIT_ATTEMPTS {
+        AfterFailedInit::Retry
+    } else {
+        AfterFailedInit::GiveUp
+    }
+}
+
+/// How to recover a Vault node whose credentials Sherpa does not have.
+fn reset_instructions(node_name: &str) -> String {
+    format!(
+        "Sherpa has not reset it. To recover, reset the node's Vault data with \
+         `sherpa redeploy --node {node_name}` in the lab directory: the node starts again with \
+         empty Vault storage, and Sherpa initialises and unseals it and saves its new credentials. \
+         Anything already written to this Vault is lost"
+    )
+}
+
+fn lost_init_response_error(node_name: &str, init_error: &anyhow::Error) -> anyhow::Error {
+    anyhow!(
+        "Vault node '{node_name}' is initialised, but Sherpa lost the init response carrying its \
+         unseal key and root token: the init request failed ({init_error:#}) after Vault had \
+         started it. Vault gives these out only once, so Sherpa cannot unseal the node. {}",
+        reset_instructions(node_name)
+    )
+}
+
+fn status_unknown_error(
+    node_name: &str,
+    init_error: &anyhow::Error,
+    status_error: &anyhow::Error,
+) -> anyhow::Error {
+    anyhow!(
+        "Failed to initialise Vault node '{node_name}' ({init_error:#}), and its seal status \
+         could not be read afterwards ({status_error:#}), so Sherpa cannot tell whether the init \
+         completed. If it did, Sherpa lost the init response carrying the node's unseal key and \
+         root token. {}",
+        reset_instructions(node_name)
+    )
 }
 
 /// Poll until the node is active, within `timeout`. Right after an unseal, Raft storage elects
@@ -206,9 +333,165 @@ pub fn read_vault_credentials(dir: &Path) -> Result<Vec<VaultInfo>> {
 mod tests {
     use super::*;
 
+    use std::collections::HashMap;
+    use std::net::IpAddr;
     use std::os::unix::fs::PermissionsExt;
 
+    use bollard::Docker;
+    use bollard::models::{ContainerCreateBody, HostConfig};
+    use bollard::query_parameters::{
+        CreateContainerOptions, InspectContainerOptions, RemoveContainerOptions,
+        StartContainerOptions,
+    };
     use tempfile::TempDir;
+    use tokio::sync::mpsc;
+
+    use crate::tls::generator::{
+        CaSpec, KeyAlgorithm, ServerSubject, generate_ca, issue_server_certificate,
+    };
+
+    /// The Vault image the integration tests run, as on a lab node.
+    const TEST_VAULT_IMAGE: &str = "hashicorp/vault:1.21";
+    /// Where a test Vault finds its config and certificate.
+    const TEST_VAULT_DIR: &str = "/sherpa-test";
+    /// How long a test waits for its Vault, as a lab's readiness timeout.
+    const TEST_TIMEOUT: Duration = Duration::from_secs(120);
+
+    const NOT_INITIALISED: SealStatus = SealStatus {
+        initialized: false,
+        sealed: true,
+    };
+    const INITIALISED: SealStatus = SealStatus {
+        initialized: true,
+        sealed: true,
+    };
+
+    /// A Vault container running Sherpa's Raft and TLS config, removed when dropped. It waits
+    /// for its certificate, issued for the address Docker gives it, before Vault starts.
+    struct TestVault {
+        docker: Docker,
+        name: String,
+        address: Ipv4Addr,
+        lab_ca: String,
+        _files: TempDir,
+    }
+
+    impl TestVault {
+        async fn start(name: &str) -> TestVault {
+            let docker = Docker::connect_with_local_defaults().unwrap();
+            let files = TempDir::new().unwrap();
+            let config = format!(
+                "storage \"raft\" {{\n  path = \"/vault/data\"\n  node_id = \"{name}\"\n}}\n\
+                 listener \"tcp\" {{\n  address = \"0.0.0.0:8200\"\n  \
+                 tls_cert_file = \"{TEST_VAULT_DIR}/node.crt\"\n  \
+                 tls_key_file = \"{TEST_VAULT_DIR}/node.key\"\n}}\n\
+                 disable_mlock = true\napi_addr = \"https://127.0.0.1:8200\"\n\
+                 cluster_addr = \"https://127.0.0.1:8201\"\n"
+            );
+            fs::write(files.path().join("config.hcl"), config).unwrap();
+            let command = format!(
+                "until [ -f {TEST_VAULT_DIR}/ready ]; do sleep 0.1; done; mkdir -p /vault/data \
+                 && exec vault server -config={TEST_VAULT_DIR}/config.hcl"
+            );
+            let _ = docker
+                .remove_container(
+                    name,
+                    Some(RemoveContainerOptions {
+                        force: true,
+                        ..Default::default()
+                    }),
+                )
+                .await;
+            docker
+                .create_container(
+                    Some(CreateContainerOptions {
+                        name: Some(name.to_owned()),
+                        ..Default::default()
+                    }),
+                    ContainerCreateBody {
+                        image: Some(TEST_VAULT_IMAGE.to_owned()),
+                        cmd: Some(vec!["sh".to_owned(), "-c".to_owned(), command]),
+                        host_config: Some(HostConfig {
+                            binds: Some(vec![format!(
+                                "{}:{TEST_VAULT_DIR}",
+                                files.path().display()
+                            )]),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+            docker
+                .start_container(name, None::<StartContainerOptions>)
+                .await
+                .unwrap();
+            let details = docker
+                .inspect_container(name, None::<InspectContainerOptions>)
+                .await
+                .unwrap();
+            let networks: HashMap<_, _> = details.network_settings.unwrap().networks.unwrap();
+            let address: Ipv4Addr = networks
+                .values()
+                .find_map(|network| network.ip_address.clone().filter(|ip| !ip.is_empty()))
+                .unwrap()
+                .parse()
+                .unwrap();
+
+            let ca_spec = CaSpec {
+                common_name: Some("Vault test CA"),
+                organization: Some("Sherpa"),
+                key_algorithm: KeyAlgorithm::EcdsaP256,
+            };
+            let ca = generate_ca(&ca_spec, 1).unwrap();
+            let node = issue_server_certificate(
+                &ca_spec,
+                &ca.key,
+                ServerSubject {
+                    common_name: name,
+                    organization: "Sherpa",
+                    dns_names: &[],
+                    ip_addresses: &[IpAddr::V4(address)],
+                },
+                KeyAlgorithm::EcdsaP256,
+                1,
+            )
+            .unwrap();
+            fs::write(files.path().join("node.crt"), &node.cert).unwrap();
+            fs::write(files.path().join("node.key"), &node.key).unwrap();
+            fs::write(files.path().join("ready"), "").unwrap();
+            TestVault {
+                docker,
+                name: name.to_owned(),
+                address,
+                lab_ca: ca.cert,
+                _files: files,
+            }
+        }
+
+        fn client(&self) -> VaultClient {
+            VaultClient::new(self.address, &self.lab_ca).unwrap()
+        }
+
+        async fn remove(self) {
+            self.docker
+                .remove_container(
+                    &self.name,
+                    Some(RemoveContainerOptions {
+                        force: true,
+                        ..Default::default()
+                    }),
+                )
+                .await
+                .unwrap();
+        }
+    }
+
+    fn progress() -> ProgressSender {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        ProgressSender::new(tx)
+    }
 
     fn credentials(token: &str) -> VaultCredentials {
         VaultCredentials {
@@ -253,5 +536,172 @@ mod tests {
             read_vault_credentials(&dir.path().join("missing")).unwrap(),
             [] as [shared::data::VaultInfo; 0]
         );
+    }
+
+    #[test]
+    fn init_is_sent_again_only_while_vault_is_not_initialised() {
+        assert_eq!(
+            after_failed_init(NOT_INITIALISED, 1),
+            AfterFailedInit::Retry
+        );
+        assert_eq!(
+            after_failed_init(NOT_INITIALISED, INIT_ATTEMPTS),
+            AfterFailedInit::GiveUp
+        );
+    }
+
+    #[test]
+    fn a_vault_initialised_after_a_failed_init_lost_its_init_response() {
+        for failed_inits in 1..=INIT_ATTEMPTS {
+            assert_eq!(
+                after_failed_init(INITIALISED, failed_inits),
+                AfterFailedInit::LostInitResponse
+            );
+            let unsealed = SealStatus {
+                initialized: true,
+                sealed: false,
+            };
+            assert_eq!(
+                after_failed_init(unsealed, failed_inits),
+                AfterFailedInit::LostInitResponse
+            );
+        }
+    }
+
+    #[test]
+    fn a_vault_initialised_before_sherpa_sent_init_uses_its_saved_credentials() {
+        assert_eq!(
+            saved_credentials("vault01", Some(credentials("hvs.one"))).unwrap(),
+            credentials("hvs.one")
+        );
+        let message = format!("{:#}", saved_credentials("vault01", None).unwrap_err());
+        assert!(message.contains("initialised outside Sherpa"), "{message}");
+    }
+
+    #[test]
+    fn a_lost_init_response_says_so_and_how_to_reset_the_node() {
+        let init_error = anyhow!("operation timed out").context("Vault API did not answer");
+        let message = format!("{:#}", lost_init_response_error("vault01", &init_error));
+        assert!(
+            message.contains("Sherpa lost the init response"),
+            "{message}"
+        );
+        assert!(
+            message.contains("Vault API did not answer: operation timed out"),
+            "{message}"
+        );
+        assert!(message.contains("Sherpa has not reset it"), "{message}");
+        assert!(
+            message.contains("`sherpa redeploy --node vault01`"),
+            "{message}"
+        );
+        assert!(!message.contains("outside Sherpa"), "{message}");
+    }
+
+    #[test]
+    fn an_unknown_status_after_a_failed_init_says_how_to_reset_the_node() {
+        let message = format!(
+            "{:#}",
+            status_unknown_error(
+                "vault01",
+                &anyhow!("operation timed out"),
+                &anyhow!("connection refused")
+            )
+        );
+        assert!(message.contains("operation timed out"), "{message}");
+        assert!(message.contains("connection refused"), "{message}");
+        assert!(
+            message.contains("cannot tell whether the init"),
+            "{message}"
+        );
+        assert!(
+            message.contains("`sherpa redeploy --node vault01`"),
+            "{message}"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a Docker daemon and the hashicorp/vault:1.21 image"]
+    async fn a_new_vault_is_initialised_then_unsealed_with_its_saved_credentials() {
+        let vault = TestVault::start("sherpa-test-vault-init").await;
+        let dir = TempDir::new().unwrap();
+        let client = vault.client();
+        let first = unseal_with_client(&client, dir.path(), "vault01", TEST_TIMEOUT, &progress())
+            .await
+            .unwrap();
+        assert_eq!(
+            load_credentials(dir.path(), "vault01").unwrap(),
+            Some(first.clone())
+        );
+        let again = unseal_with_client(&client, dir.path(), "vault01", TEST_TIMEOUT, &progress())
+            .await
+            .unwrap();
+        assert_eq!(again, first);
+
+        let elsewhere = TempDir::new().unwrap();
+        let error = unseal_with_client(
+            &client,
+            elsewhere.path(),
+            "vault01",
+            TEST_TIMEOUT,
+            &progress(),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            format!("{error:#}").contains("initialised outside Sherpa"),
+            "{error:#}"
+        );
+        vault.remove().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a Docker daemon and the hashicorp/vault:1.21 image"]
+    async fn a_timed_out_init_that_completes_in_vault_is_reported_as_a_lost_init_response() {
+        let name = "sherpa-test-vault-lost-init";
+        let dir = TempDir::new().unwrap();
+        // Saved for the node's earlier Vault, as before a redeploy: they must not be used.
+        save_credentials(dir.path(), "vault01", &credentials("hvs.stale")).unwrap();
+
+        // Raft init takes seconds, so the request times out and Vault finishes it anyway.
+        let vault = TestVault::start(name).await;
+        let client = vault.client().with_init_timeout(Duration::from_millis(200));
+        let error = unseal_with_client(&client, dir.path(), "vault01", TEST_TIMEOUT, &progress())
+            .await
+            .unwrap_err();
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("Sherpa lost the init response"),
+            "{message}"
+        );
+        assert!(!message.contains("outside Sherpa"), "{message}");
+        assert_eq!(
+            load_credentials(dir.path(), "vault01").unwrap(),
+            Some(credentials("hvs.stale"))
+        );
+        // Mid-init, Vault answers the seal status with a 500, so poll it as Sherpa does.
+        let status = wait_for_api(&vault.client(), "vault01", TEST_TIMEOUT)
+            .await
+            .unwrap();
+        assert!(status.initialized);
+        vault.remove().await;
+
+        // The reset the error asks for: the node again with empty Vault storage.
+        let vault = TestVault::start(name).await;
+        let fresh = unseal_with_client(
+            &vault.client(),
+            dir.path(),
+            "vault01",
+            TEST_TIMEOUT,
+            &progress(),
+        )
+        .await
+        .unwrap();
+        assert_ne!(fresh.root_token, "hvs.stale");
+        assert_eq!(
+            load_credentials(dir.path(), "vault01").unwrap(),
+            Some(fresh)
+        );
+        vault.remove().await;
     }
 }

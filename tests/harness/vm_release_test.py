@@ -30,6 +30,8 @@ import uuid
 from urllib.parse import urlsplit
 
 import build_cache
+from host_memory import (JOURNAL_HINT, MACHINE_SLICE_EVENTS, MEMCG_KILL, MEMORY_REFUSED_EXIT, OOM_KILL, UP_REFUSED,
+                         classify_guest_loss, domain_stopped, memory_refusal, oom_kills)
 from vm_release_guest import validate_upgrade_evidence
 
 
@@ -60,6 +62,10 @@ GUEST_UV = "/usr/local/bin/uv"
 GUEST_PYTHON = "3.15"
 # System-wide, so root finds the interpreter whichever user installed it.
 GUEST_PYTHON_DIRECTORY = "/opt/uv/python"
+
+
+class MemoryRefused(RuntimeError):
+    """The server refused the lab for memory before creating anything."""
 
 
 def validate_upgrade_config(config):
@@ -273,6 +279,8 @@ class Runner:
         self.guest_uuid = ""
         self.jump_host = ""
         self.keep_vm = keep_vm
+        # The host's machine.slice OOM kill count when the VM was bound, for guest_loss.
+        self.oom_kills_before = None
         self.secrets = []
         self.sequence = 0
         self.result_file = result_file.resolve() if result_file else None
@@ -302,7 +310,7 @@ class Runner:
         runner.config, runner.report, runner.directory = config, report, directory
         runner.run_id, runner.lab_name, runner.node_name = run["id"], run["lab_name"], run["node_name"]
         runner.lab_id, runner.guest_uuid, runner.jump_host = run.get("lab_id", ""), run.get("guest_uuid", ""), run.get("jump_host", "")
-        runner.keep_vm, runner.secrets = False, []
+        runner.keep_vm, runner.secrets, runner.oom_kills_before = False, [], None
         runner.sequence = max((int(path.name.split("-", 1)[0]) for path in directory.glob("[0-9]*-*.log")), default=0)
         payload = directory / "guest.toml"
         if payload.exists():
@@ -499,17 +507,18 @@ class Runner:
         self.report["run"]["resource_state"] = "provisioning"
         self.save()
         print(f"[provision] Creating fresh lab {self.lab_name}", flush=True)
+        info_path = self.directory / ".sherpa" / "lab-info.toml"
         try:
             UP_LOCK.parent.mkdir(exist_ok=True)
             with UP_LOCK.open("w") as lock:
                 print("[provision] Waiting for any other Sherpa lab creation to finish", flush=True)
                 fcntl.flock(lock, fcntl.LOCK_EX)
-                _, up_output = self.sherpa("up", ["up"], self.config["timeouts"]["provision"])
-            if self.report["run"].get("scenario") == "fault-provision":
+                up_code, up_output = self.sherpa("up", ["up"], self.config["timeouts"]["provision"], check=False)
+            up_log = self.directory / f"{self.sequence:02d}-up.log"
+            if not up_code and self.report["run"].get("scenario") == "fault-provision":
                 self.report["run"]["readiness_timed_out"] = "[NodeReadiness]" in up_output
                 self.save()
         finally:
-            info_path = self.directory / ".sherpa" / "lab-info.toml"
             if info_path.exists():
                 info = tomllib.loads(info_path.read_text())
                 check_lab(info, self.lab_name, self.lab_id)
@@ -520,6 +529,15 @@ class Runner:
                 self.save()
             # A failed up can have created the domain without writing local SSH files.
             self.bind_vm(required=False)
+        if up_code:
+            refusal = memory_refusal(up_output)
+            if refusal and not info_path.exists() and not self.guest_uuid:
+                # Refused in validation, before anything was created: there is nothing to retain.
+                self.report["run"]["retained"] = False
+                self.report["run"]["resource_state"] = "none"
+                self.save()
+                raise MemoryRefused(f"The server refused the lab: {refusal}")
+            raise RuntimeError(f"up exited {up_code}; see {up_log}")
         _, expanded = self.command("ssh-settings", ["ssh", "-G", "-F",
                        str(self.directory / ".sherpa" / "ssh" / "config"), f"{self.node_name}.{self.lab_id}"],
                        self.config["timeouts"]["command"])
@@ -528,6 +546,7 @@ class Runner:
         if self.jump_host == "none" or "," in self.jump_host:
             raise ValueError("A single Sherpa SSH jump host is required")
         self.bind_vm()
+        self.oom_kills_before = self.machine_oom_kills()
 
     def bind_vm(self, required=True):
         code, output = self.host("domain-uuid", ["virsh", "-c", self.config["host"]["libvirt_uri"],
@@ -554,6 +573,47 @@ class Runner:
         self.report["run"]["owned_disks"] = sources
         self.report["run"]["resource_state"] = "allocated"
         self.save()
+
+    def machine_oom_kills(self):
+        """The host's OOM kills under libvirt's machine.slice so far, or None when unreadable."""
+        code, output = self.host("oom-kills", ["cat", MACHINE_SLICE_EVENTS], check=False)
+        return None if code else oom_kills(output)
+
+    def guest_loss(self):
+        """Why the bound test domain stopped on the host, or None while it runs or is unbound.
+
+        Reads `virsh domstate --reason` and, once the domain has stopped, the kernel log's
+        oom-kill lines as this user: journalctl, then dmesg. Neither needs sudo when the user may
+        read them; when neither may, machine.slice's OOM kill counter is the evidence.
+        """
+        if not self.guest_uuid or not self.lab_id:
+            return None
+        domain = f"{self.node_name}-{self.lab_id}"
+        code, state = self.host("domain-state", ["virsh", "-c", self.config["host"]["libvirt_uri"],
+                                                 "domstate", "--reason", domain], check=False)
+        if code or not domain_stopped(state):
+            return None
+        _, journal = self.host("kernel-log-oom", ["journalctl", "--dmesg", "--boot", "--no-pager",
+                                                  "--output=short-iso", f"--grep={OOM_KILL}"], check=False)
+        _, dmesg = self.host("kernel-ring-oom", ["sh", "-c", f"dmesg | grep -F -- {shlex.quote(OOM_KILL)}"],
+                             check=False)
+        return classify_guest_loss(domain, state, journal, dmesg, self.oom_kills_before,
+                                   self.machine_oom_kills())
+
+    def explain_failure(self, error):
+        """Record why the guest stopped when the host stopped it, and return the error to report."""
+        if isinstance(error, (KeyboardInterrupt, MemoryRefused)):
+            return self.redact(str(error))
+        try:
+            loss = self.guest_loss()
+        except (Exception, KeyboardInterrupt) as reason:
+            self.report["run"]["guest_loss_error"] = self.redact(str(reason))
+            return self.redact(str(error))
+        if not loss:
+            return self.redact(str(error))
+        self.report["run"]["failure_kind"] = loss.kind
+        self.report["run"]["guest_loss_evidence"] = list(loss.evidence)
+        return self.redact(f"{loss.summary} (the run reported: {error})")
 
     def wait_guest(self):
         deadline = time.monotonic() + self.config["timeouts"]["startup"]
@@ -736,6 +796,7 @@ class Runner:
         try:
             if self.report["run"].get("scenario") != "code" or self.report["run"].get("resource_state") != "allocated":
                 raise ValueError("Only a retained code-scenario run can be rerun")
+            self.oom_kills_before = self.machine_oom_kills()
             self.report["run"]["status"] = "running"
             self.report["run"]["reruns"] = self.report["run"].get("reruns", 0) + 1
             self.report["run"]["completed_steps"] = [step for step in self.report["run"]["completed_steps"]
@@ -760,8 +821,8 @@ class Runner:
                 self.step(step)
             success = True
         except (Exception, KeyboardInterrupt) as error:
-            self.report["run"]["error"] = self.redact(str(error))
-            print(f"[fail] {self.redact(str(error))}", flush=True)
+            self.report["run"]["error"] = self.explain_failure(error)
+            print(f"[fail] {self.report['run']['error']}", flush=True)
         finally:
             try:
                 self.collect()
@@ -828,6 +889,7 @@ class Runner:
 
     def run(self, scenario):
         success = False
+        refused = False
         required = STEPS if scenario == "lifecycle" else STEPS[:2]
         if scenario == "upgrade":
             validate_upgrade_config(self.config)
@@ -855,13 +917,15 @@ class Runner:
         except (Exception, KeyboardInterrupt) as error:
             self.report["run"]["failure_kind"] = ("interrupted" if isinstance(error, KeyboardInterrupt)
                                                   else "timeout" if isinstance(error, (TimeoutError, subprocess.TimeoutExpired))
+                                                  else "memory-refused" if isinstance(error, MemoryRefused)
                                                   else "error")
             if isinstance(error, KeyboardInterrupt):
                 signal.signal(signal.SIGTERM, signal.SIG_IGN)
-            self.report["run"]["error"] = self.redact(str(error))
+            refused = isinstance(error, MemoryRefused)
+            self.report["run"]["error"] = self.explain_failure(error)
             self.report["run"]["status"] = "failed"
             self.save()
-            print(f"[fail] {self.redact(str(error))}", flush=True)
+            print(f"[fail] {self.report['run']['error']}", flush=True)
         finally:
             if not success and hasattr(self, "remote_directory"):
                 try:
@@ -871,13 +935,15 @@ class Runner:
                     self.report["run"]["cancel_error"] = self.redact(str(error))
                     print(f"[fail] Guest cancellation failed: {self.redact(str(error))}", flush=True)
             try:
-                self.collect()
+                # A refused lab was never created: there is nothing to collect or clean up.
+                if not refused:
+                    self.collect()
             except (Exception, KeyboardInterrupt) as error:
                 success = False
                 self.report["run"]["evidence_error"] = self.redact(str(error))
                 print(f"[fail] Evidence collection failed: {self.redact(str(error))}", flush=True)
             retain = self.config["runner"]["retain_successful" if success else "retain_failed"]
-            if self.lab_id and not (retain or self.keep_vm):
+            if self.lab_id and not refused and not (retain or self.keep_vm):
                 try:
                     self.cleanup()
                 except (Exception, KeyboardInterrupt) as error:
@@ -888,7 +954,7 @@ class Runner:
             self.save()
             signal.signal(signal.SIGTERM, previous)
             print(f"[result] {self.report['run']['status']}: {self.directory / 'result.toml'}", flush=True)
-        return 0 if success else 1
+        return 0 if success else MEMORY_REFUSED_EXIT if refused else 1
 
 
 def main():
@@ -1181,6 +1247,105 @@ sys.exit(runner.run('preflight'))
                     runner.provision()
             receipt = tomllib.loads((runner.directory / "result.toml").read_text())
             self.assertTrue(receipt["run"]["retained"])
+
+    def refused_up(self, runner, up_output, lab_info=False):
+        def sherpa(label, arguments, timeout, check=True):
+            if label == "inspect-before":
+                return 1, f"Sherpa Environment - {runner.lab_name}-12345678"
+            if label == "up":
+                if lab_info:
+                    (runner.directory / ".sherpa").mkdir()
+                    (runner.directory / ".sherpa" / "lab-info.toml").write_text(
+                        f'name = "{runner.lab_name}"\nid = "12345678"\n')
+                return 1, up_output
+            return 0, ""
+        return sherpa
+
+    def test_a_memory_refusal_is_reported_and_leaves_nothing_retained(self):
+        config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
+        with tempfile.TemporaryDirectory() as directory:
+            config["runner"]["output_directory"] = directory
+            runner = Runner(config)
+            with patch.object(runner, "sherpa", side_effect=self.refused_up(runner, UP_REFUSED)), \
+                 patch.object(runner, "host", return_value=(1, "")), redirect_stdout(io.StringIO()), \
+                 self.assertRaisesRegex(MemoryRefused, "Memory admission failed: Not enough memory"):
+                runner.provision()
+            receipt = tomllib.loads((runner.directory / "result.toml").read_text())
+            self.assertFalse(receipt["run"]["retained"])
+            self.assertEqual(receipt["run"]["resource_state"], "none")
+
+    def test_a_failed_up_is_not_a_refusal_without_the_admission_error_or_with_a_lab(self):
+        config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
+        for output, lab_info in (("Lab creation failed: CPU pins overlap (code: -32000)", False),
+                                 (UP_REFUSED, True)):
+            with self.subTest(lab_info=lab_info), tempfile.TemporaryDirectory() as directory:
+                config["runner"]["output_directory"] = directory
+                runner = Runner(config)
+                with patch.object(runner, "sherpa", side_effect=self.refused_up(runner, output, lab_info)), \
+                     patch.object(runner, "host", return_value=(1, "")), redirect_stdout(io.StringIO()), \
+                     self.assertRaisesRegex(RuntimeError, "up exited 1") as raised:
+                    runner.provision()
+                self.assertNotIsInstance(raised.exception, MemoryRefused)
+                self.assertTrue(tomllib.loads((runner.directory / "result.toml").read_text())["run"]["retained"])
+
+    def test_a_refused_run_exits_for_a_retry_without_collecting_or_cleaning_up(self):
+        config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
+        config["runner"]["retain_failed"] = False
+        with tempfile.TemporaryDirectory() as directory:
+            config["runner"]["output_directory"] = directory
+            runner = Runner(config)
+            runner.lab_id = "12345678"
+            refusal = MemoryRefused("The server refused the lab: Memory admission failed: short")
+            with patch.object(runner, "inputs"), patch.object(runner, "provision", side_effect=refusal), \
+                 patch.object(runner, "collect") as collect, patch.object(runner, "cleanup") as cleanup, \
+                 patch.object(runner, "host") as host, redirect_stdout(io.StringIO()):
+                self.assertEqual(runner.run("code"), MEMORY_REFUSED_EXIT)
+            collect.assert_not_called()
+            cleanup.assert_not_called()
+            host.assert_not_called()
+            run = tomllib.loads((runner.directory / "result.toml").read_text())["run"]
+            self.assertEqual((run["status"], run["failure_kind"]), ("failed", "memory-refused"))
+            self.assertIn("Memory admission failed", run["error"])
+
+    def guest_lost_run(self, state, kernel_ring):
+        """A code run whose unit tests lose SSH, with the host answering as given."""
+        config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        config["runner"]["output_directory"] = directory.name
+        runner = Runner(config)
+        runner.node_name, runner.lab_id, runner.guest_uuid = "small", "cb2dd9af", str(uuid.uuid4())
+        runner.oom_kills_before = 0
+        answers = {"domain-state": (0, state), "kernel-log-oom": (1, JOURNAL_HINT),
+                   "kernel-ring-oom": (0, kernel_ring), "oom-kills": (0, "oom 3\noom_kill 1\n")}
+        def step(name, label=None):
+            if name == "unit-tests":
+                raise RuntimeError("unit-tests exited 255; see the run directory")
+            runner.report["run"]["completed_steps"].append(name)
+        with patch.object(runner, "inputs"), patch.object(runner, "provision"), patch.object(runner, "transfer"), \
+             patch.object(runner, "collect"), patch.object(runner, "step", side_effect=step), \
+             patch.object(runner, "host", side_effect=lambda label, command, check=True: answers[label]) as host, \
+             redirect_stdout(io.StringIO()):
+            self.assertEqual(runner.run("code"), 1)
+        return tomllib.loads((runner.directory / "result.toml").read_text())["run"], host
+
+    def test_a_guest_the_host_oom_killed_is_reported_with_the_kernel_line(self):
+        run, host = self.guest_lost_run("shut off (crashed)\n", MEMCG_KILL + "\n")
+        self.assertEqual(run["failure_kind"], "oom-killed")
+        self.assertTrue(run["error"].startswith("small-cb2dd9af was killed by the host OOM killer: "))
+        self.assertIn("unit-tests exited 255", run["error"])
+        self.assertEqual(run["guest_loss_evidence"],
+                         ["virsh domstate --reason small-cb2dd9af: shut off (crashed)", MEMCG_KILL])
+        domstate = host.call_args_list[0].args[1]
+        self.assertEqual(domstate[-3:], ["domstate", "--reason", "small-cb2dd9af"])
+        self.assertNotIn("sudo", [word for call in host.call_args_list for word in call.args[1]])
+
+    def test_a_running_guest_keeps_the_steps_error(self):
+        run, host = self.guest_lost_run("running (booted)\n", "")
+        self.assertEqual(run["failure_kind"], "error")
+        self.assertEqual(run["error"], "unit-tests exited 255; see the run directory")
+        self.assertNotIn("guest_loss_evidence", run)
+        self.assertEqual([call.args[0] for call in host.call_args_list], ["domain-state"])
 
     def test_custom_output_directory_does_not_expose_credentials_to_git(self):
         config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")

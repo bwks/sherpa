@@ -21,10 +21,12 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 from typing import NamedTuple
 import unittest
+from unittest import mock
 import uuid
 
 
@@ -307,11 +309,18 @@ class LabRun:
 
     def up(self):
         self.started = True
-        self.up_output = self.sherpa("sherpa up", ["up"], UP_TIMEOUT).output
-        info = tomllib.loads((self.directory / ".sherpa" / "lab-info.toml").read_text())
-        require(info["name"] == self.name, f".sherpa/lab-info.toml names {info['name']}, not {self.name}")
-        self.lab_id = info["id"]
-        self.ipv4_network = info["ipv4_network"]
+        outcome = self.sherpa("sherpa up", ["up"], UP_TIMEOUT, check=False)
+        self.up_output = outcome.output
+        # A partly created lab exits non-zero after writing lab-info.toml: record its ID first, so
+        # destroy can check what it leaves behind.
+        info_path = self.directory / ".sherpa" / "lab-info.toml"
+        if info_path.exists():
+            info = tomllib.loads(info_path.read_text())
+            require(info["name"] == self.name, f".sherpa/lab-info.toml names {info['name']}, not {self.name}")
+            self.lab_id = info["id"]
+            self.ipv4_network = info["ipv4_network"]
+        require(outcome.code == 0, f"sherpa up failed (exit {outcome.code}); see {self.log.name}")
+        require(self.lab_id is not None, "sherpa up wrote no .sherpa/lab-info.toml")
         for name in (KUBECONFIG, TALOSCONFIG):
             path = self.directory / name
             require(path.is_file(), f"sherpa up did not write {name}")
@@ -600,6 +609,31 @@ def main():
 class SelfTest(unittest.TestCase):
     def manifest(self, lab):
         return tomllib.loads((LABS / lab / "manifest.toml").read_text())
+
+    def test_a_partly_created_lab_keeps_its_id_for_cleanup(self):
+        # `sherpa up` exits 1 on a partly created lab after writing lab-info.toml; the run must
+        # still know the lab's ID, so destroy checks for leftovers instead of crashing.
+        with tempfile.TemporaryDirectory() as temp:
+            run = LabRun(LAB_NAMES[0], Path(temp) / "talos-linux-000000abcdef", keep_failed=False)
+            (run.directory / ".sherpa").mkdir(parents=True)
+            (run.directory / ".sherpa" / "lab-info.toml").write_text(
+                f'id = "4ed6360e"\nname = "{run.name}"\nipv4_network = "172.31.0.0/24"\n')
+            run.log = (run.directory / "commands.log").open("w")
+            self.addCleanup(run.log.close)
+
+            def failing_up(log, label, arguments, *rest):
+                return Outcome(1 if arguments[:2] == ["sherpa", "up"] else 0, "", "")
+
+            with mock.patch(f"{__name__}.run_logged", failing_up), self.assertRaises(TestFailure):
+                run.up()
+            self.assertEqual(run.lab_id, "4ed6360e")
+
+            def leftover(log, label, arguments, *rest):
+                return Outcome(1 if "inspect" in arguments else 0, "node-4ed6360e-x\n", "")
+
+            with (mock.patch(f"{__name__}.run_logged", leftover),
+                  mock.patch("shutil.which", return_value="/usr/bin/true")):
+                self.assertIsInstance(run.destroy(), TestFailure)
 
     def test_rendered_manifests_round_trip_with_a_new_name_and_absolute_tools_path(self):
         for lab in LAB_NAMES:

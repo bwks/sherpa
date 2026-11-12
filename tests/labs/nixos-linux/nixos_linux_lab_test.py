@@ -19,10 +19,12 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 from typing import NamedTuple
 import unittest
+from unittest import mock
 import uuid
 
 
@@ -224,10 +226,16 @@ class LabRun:
 
     def up(self):
         self.started = True
-        self.sherpa("sherpa up", ["up"], UP_TIMEOUT)
-        info = tomllib.loads((self.directory / ".sherpa" / "lab-info.toml").read_text())
-        require(info["name"] == self.name, f".sherpa/lab-info.toml names {info['name']}, not {self.name}")
-        self.lab_id = info["id"]
+        outcome = self.sherpa("sherpa up", ["up"], UP_TIMEOUT, check=False)
+        # A partly created lab exits non-zero after writing lab-info.toml: record its ID first, so
+        # destroy can check what it leaves behind.
+        info_path = self.directory / ".sherpa" / "lab-info.toml"
+        if info_path.exists():
+            info = tomllib.loads(info_path.read_text())
+            require(info["name"] == self.name, f".sherpa/lab-info.toml names {info['name']}, not {self.name}")
+            self.lab_id = info["id"]
+        require(outcome.code == 0, f"sherpa up failed (exit {outcome.code}); see {self.log.name}")
+        require(self.lab_id is not None, "sherpa up wrote no .sherpa/lab-info.toml")
 
     def checks(self):
         for node in self.manifest["nodes"]:
@@ -405,6 +413,31 @@ def main():
 class SelfTest(unittest.TestCase):
     def manifest(self):
         return tomllib.loads((LAB / "manifest.toml").read_text())
+
+    def test_a_partly_created_lab_keeps_its_id_for_cleanup(self):
+        # `sherpa up` exits 1 on a partly created lab after writing lab-info.toml; the run must
+        # still know the lab's ID, so destroy checks for leftovers instead of crashing.
+        with tempfile.TemporaryDirectory() as temp:
+            run = LabRun(Path(temp) / "nixos-linux-000000abcdef", keep_failed=False)
+            (run.directory / ".sherpa").mkdir(parents=True)
+            (run.directory / ".sherpa" / "lab-info.toml").write_text(
+                f'id = "4ed6360e"\nname = "{run.name}"\n')
+            run.log = (run.directory / "commands.log").open("w")
+            self.addCleanup(run.log.close)
+
+            def failing_up(log, label, arguments, *rest):
+                return Outcome(1 if arguments[:2] == ["sherpa", "up"] else 0, "", "")
+
+            with mock.patch(f"{__name__}.run_logged", failing_up), self.assertRaises(TestFailure):
+                run.up()
+            self.assertEqual(run.lab_id, "4ed6360e")
+
+            def leftover(log, label, arguments, *rest):
+                return Outcome(1 if "inspect" in arguments else 0, "node-4ed6360e-x\n", "")
+
+            with (mock.patch(f"{__name__}.run_logged", leftover),
+                  mock.patch("shutil.which", return_value="/usr/bin/true")):
+                self.assertIsInstance(run.destroy(), TestFailure)
 
     def test_rendered_manifest_round_trips_with_a_new_name(self):
         manifest = self.manifest()
