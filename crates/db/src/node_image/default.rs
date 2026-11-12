@@ -14,7 +14,7 @@ use turso::Connection;
 
 use crate::persistence::{enum_text, node_image_from_row};
 use crate::queries;
-use crate::sql::query_optional;
+use crate::sql::{execute, query_optional};
 
 /// What a write asks for one version's `default` flag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,8 +81,8 @@ pub(crate) async fn claim_default(
     let kind_text = enum_text(kind, "kind")?;
     let current = query_optional(
         conn,
-        queries::node_image::FIND_DEFAULT,
-        (model_text.as_str(), kind_text.as_str()),
+        queries::node_image::FIND_DEFAULT
+            .bind([model_text.as_str().into(), kind_text.as_str().into()]),
         node_image_from_row,
     )
     .await
@@ -94,9 +94,13 @@ pub(crate) async fn claim_default(
         version: version.to_owned(),
     })?;
     if is_default && holder == DefaultHolder::OtherVersion {
-        conn.execute(
-            queries::node_image::CLEAR_DEFAULT_EXCEPT_VERSION,
-            (model_text.as_str(), kind_text.as_str(), version),
+        execute(
+            conn,
+            queries::node_image::CLEAR_DEFAULT_EXCEPT_VERSION.bind([
+                model_text.as_str().into(),
+                kind_text.as_str().into(),
+                version.into(),
+            ]),
         )
         .await
         .with_context(|| format!("Failed to clear the default image of {model} ({kind})"))?;

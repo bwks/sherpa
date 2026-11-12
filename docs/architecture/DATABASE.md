@@ -71,7 +71,7 @@ flowchart LR
     queries["sql/queries/&lt;table&gt;/*.sql"] --> build
     build -->|"applies the schema and every migration to an in-memory Turso database, prepares every query"| out["OUT_DIR/queries.rs"]
     build --> mig["OUT_DIR/migrations.rs"]
-    out -->|"include!"| mod["queries::lab::FIND_BY_ID, ..."]
+    out -->|"include!"| mod["queries::lab::FIND_BY_ID: Query&lt;1&gt;, ..."]
     mig -->|"include!"| apply["schema::migrations::ALL"]
 ```
 
@@ -84,28 +84,46 @@ flowchart LR
   the script adds about 14 seconds.
 - **Constants.** The build script generates one constant per file, holding the file with
   `include_str!`, in a module per directory: `sql/queries/lab/find_by_id.sql` is
-  `queries::lab::FIND_BY_ID`. A statement used by more than one module, such as
-  `queries::node::COUNT_BY_LAB`, is one file. Triggers are migrations. Only `PRAGMA
-  user_version`, which takes no bound parameter, is built in `schema/apply.rs`.
+  `queries::lab::FIND_BY_ID`, a `Query<1>`. A statement used by more than one module, such as
+  `queries::node::COUNT_BY_LAB`, is one file. Triggers are migrations.
 - **Column order checked.** A statement that returns every column of a table must return them in
   the table's order (`PRAGMA table_info`), or the build fails naming the file: the mappers read by
   position, and two columns of one type, such as `gateway_ipv4` and `router_ipv4`, would otherwise
   swap silently. A statement returning some columns, such as the network readers' `lab_id` and
-  network, is not checked, nor is a statement's parameter count.
+  network, is not checked.
+- **Parameter count checked.** Every query numbers its bound parameters, `?1`, `?2`, ...; a
+  number may repeat. `build/placeholders.rs` reads them from the SQL text, skipping string
+  literals, quoted identifiers and comments, and the count is the highest number. A bare `?`, a
+  named parameter (`:name`, `@name`, `$name`), `?0` or a gap in the numbering fails the build,
+  naming the file, so the highest number is always the count. Turso's public `Statement` has no
+  parameter count to cross-check against. The count is the constant's type, `Query<N>`
+  (`src/sql.rs`), and the only way to run a query is `Query::bind`, which takes `[Value; N]`, so
+  binding another number of values is a type error at the call site; a doc test on `Query`
+  checks that it does not compile. Only the count is checked, not the values' types. The
+  `*_values` mappers return fixed-size arrays (`lab_values` returns `[Value; 18]`), so a
+  statement that writes a whole row and its mapper must agree too. `Query` and `Bound` are public
+  only for that doc test; the helpers that run a `Bound` are crate-private. The rules' tests are
+  in the same file, which the crate includes under `cfg(test)`, so `cargo test -p db` runs them.
+- **Built-in statements.** `PRAGMA user_version` is a `Query<0>` written in `schema/apply.rs`;
+  setting the version, triggers and `VACUUM INTO` take no bound parameter and are plain
+  strings.
 - **Schema order.** The build script applies `sql/schema/` in the order `apply_schema` does,
   parents first (`SCHEMA_FILES`), and refuses a schema file missing from that list.
 
-`crates/db/src/sql.rs` has the three query helpers: `query_optional`, `query_all` and
-`query_count`. The first two take a mapper, a plain `fn(&Row) -> Result<T>`. A failed statement
-is named by its first line, and a row that does not map by its first column, its id.
+`crates/db/src/sql.rs` has `Query<N>`, `Bound` and the four query helpers: `query_optional`,
+`query_all`, `query_count` and `execute`. Each takes a `Bound` query,
+`queries::lab::FIND_BY_LAB_ID.bind([lab_id.into()])`. The first two take a mapper, a plain
+`fn(&Row) -> Result<T>`. A failed statement is named by its first line, and a row that does not
+map by its first column, its id.
 
 `crates/db/src/persistence.rs` maps rows to records:
 
 - **Column order.** Statements list a table's columns in its `CREATE TABLE` order, and the mappers
   read and write them in that order.
 - **Reading.** `Cells` reads a row's columns in order and names the field in every error.
-  `*_from_row` builds a record; `*_values` gives a record's values in column order, for
-  positional parameters (`?1`, `?2`, ...). SQL never contains formatted values.
+  `*_from_row` builds a record; `*_values` gives a record's values in column order, as an array
+  of the table's width, for positional parameters (`?1`, `?2`, ...). SQL never contains
+  formatted values.
 - **Types.** Unit enums are stored as text, by their serde names (`enum_text`). Lists such as
   `ssh_keys` and `cpu_pinning` are JSON text. Timestamps are RFC 3339 text from `jiff`, which keeps
   nanoseconds. Booleans are `0` and `1`. A link's impairments are flattened into `a_to_b_*` and

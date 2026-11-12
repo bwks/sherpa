@@ -227,8 +227,8 @@ pub(crate) fn session_user_from_row(row: &Row) -> Result<DbSessionUser> {
 }
 
 /// A session's column values in the `session` table's column order.
-pub(crate) fn session_values(session: &DbSession) -> Result<Vec<Value>> {
-    Ok(vec![
+pub(crate) fn session_values(session: &DbSession) -> Result<[Value; 5]> {
+    Ok([
         session.id.as_str().into(),
         key_of(&session.user, USER_TABLE)?.into(),
         enum_text(&session.channel, "channel")?.into(),
@@ -238,8 +238,8 @@ pub(crate) fn session_values(session: &DbSession) -> Result<Vec<Value>> {
 }
 
 /// A user's column values in the `user` table's column order, under `key`.
-pub(crate) fn user_values(user: &DbUser, key: &str) -> Result<Vec<Value>> {
-    Ok(vec![
+pub(crate) fn user_values(user: &DbUser, key: &str) -> Result<[Value; 7]> {
+    Ok([
         key.into(),
         user.username.as_str().into(),
         user.password_hash.as_str().into(),
@@ -275,8 +275,8 @@ pub(crate) fn lab_from_row(row: &Row) -> Result<DbLab> {
 }
 
 /// A lab's column values in the `lab` table's column order, under `key`.
-pub(crate) fn lab_values(lab: &DbLab, key: &str) -> Result<Vec<Value>> {
-    Ok(vec![
+pub(crate) fn lab_values(lab: &DbLab, key: &str) -> Result<[Value; 18]> {
+    Ok([
         key.into(),
         lab.lab_id.as_str().into(),
         lab.name.as_str().into(),
@@ -320,8 +320,8 @@ pub(crate) fn node_from_row(row: &Row) -> Result<DbNode> {
 }
 
 /// A node's column values in the `node` table's column order, under `key`.
-pub(crate) fn node_values(node: &DbNode, key: &str) -> Result<Vec<Value>> {
-    Ok(vec![
+pub(crate) fn node_values(node: &DbNode, key: &str) -> Result<[Value; 15]> {
+    Ok([
         key.into(),
         node.name.as_str().into(),
         node.index.into(),
@@ -387,8 +387,12 @@ pub(crate) fn link_from_row(row: &Row) -> Result<DbLink> {
 }
 
 /// A link's column values in the `link` table's column order, under `key`.
-pub(crate) fn link_values(link: &DbLink, key: &str) -> Result<Vec<Value>> {
-    let mut values = vec![
+pub(crate) fn link_values(link: &DbLink, key: &str) -> Result<[Value; 20]> {
+    let [a_delay, a_jitter, a_loss, a_reorder, a_corrupt] =
+        impairment_values(&link.impairment_a_to_b);
+    let [b_delay, b_jitter, b_loss, b_reorder, b_corrupt] =
+        impairment_values(&link.impairment_b_to_a);
+    Ok([
         key.into(),
         link.index.into(),
         enum_text(&link.kind, "kind")?.into(),
@@ -399,10 +403,17 @@ pub(crate) fn link_values(link: &DbLink, key: &str) -> Result<Vec<Value>> {
         key_of(&link.lab, LAB_TABLE)?.into(),
         link.tap_a.as_str().into(),
         link.tap_b.as_str().into(),
-    ];
-    values.extend(impairment_values(&link.impairment_a_to_b));
-    values.extend(impairment_values(&link.impairment_b_to_a));
-    Ok(values)
+        a_delay,
+        a_jitter,
+        a_loss,
+        a_reorder,
+        a_corrupt,
+        b_delay,
+        b_jitter,
+        b_loss,
+        b_reorder,
+        b_corrupt,
+    ])
 }
 
 /// A bridge without its members, which live in their own table.
@@ -419,8 +430,8 @@ pub(crate) fn bridge_from_row(row: &Row) -> Result<DbBridge> {
 }
 
 /// A bridge's column values in the `bridge` table's column order, under `key`.
-pub(crate) fn bridge_values(bridge: &DbBridge, key: &str) -> Result<Vec<Value>> {
-    Ok(vec![
+pub(crate) fn bridge_values(bridge: &DbBridge, key: &str) -> Result<[Value; 5]> {
+    Ok([
         key.into(),
         bridge.index.into(),
         bridge.bridge_name.as_str().into(),
@@ -443,8 +454,8 @@ pub(crate) fn bridge_member_values(
     member: &BridgeMember,
     bridge_key: &str,
     position: usize,
-) -> Result<Vec<Value>> {
-    Ok(vec![
+) -> Result<[Value; 4]> {
+    Ok([
         bridge_key.into(),
         i64::try_from(position)
             .context("Bridge member position is too large")?
@@ -495,8 +506,8 @@ pub(crate) fn node_image_from_row(row: &Row) -> Result<NodeConfig> {
 }
 
 /// A node image's column values in the `node_image` table's column order, under `key`.
-pub(crate) fn node_image_values(image: &NodeConfig, key: &str) -> Result<Vec<Value>> {
-    Ok(vec![
+pub(crate) fn node_image_values(image: &NodeConfig, key: &str) -> Result<[Value; 29]> {
+    Ok([
         key.into(),
         enum_text(&image.model, "model")?.into(),
         image.version.as_str().into(),

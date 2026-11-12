@@ -21,14 +21,25 @@ pub async fn update_link_impairments(
     a_to_b: &LinkImpairment,
     b_to_a: &LinkImpairment,
 ) -> Result<DbLink> {
-    let mut values = vec![Value::from(key_of(id, LINK_TABLE)?)];
-    values.extend(impairment_values(a_to_b));
-    values.extend(impairment_values(b_to_a));
+    let [a_delay, a_jitter, a_loss, a_reorder, a_corrupt] = impairment_values(a_to_b);
+    let [b_delay, b_jitter, b_loss, b_reorder, b_corrupt] = impairment_values(b_to_a);
+    let values = [
+        Value::from(key_of(id, LINK_TABLE)?),
+        a_delay,
+        a_jitter,
+        a_loss,
+        a_reorder,
+        a_corrupt,
+        b_delay,
+        b_jitter,
+        b_loss,
+        b_reorder,
+        b_corrupt,
+    ];
     let writer = db.writer().await?;
     let updated = query_optional(
         &writer.conn,
-        queries::link::UPDATE_IMPAIRMENTS,
-        values,
+        queries::link::UPDATE_IMPAIRMENTS.bind(values),
         link_from_row,
     )
     .await

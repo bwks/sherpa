@@ -31,8 +31,7 @@ pub async fn delete_user(db: &Database, id: RecordId) -> Result<()> {
     let writer = db.writer().await?;
     let deleted: Option<DbUser> = query_optional(
         &writer.conn,
-        queries::user::DELETE_BY_ID,
-        [key_of(&id, USER_TABLE)?],
+        queries::user::DELETE_BY_ID.bind([key_of(&id, USER_TABLE)?.into()]),
         user_from_row,
     )
     .await

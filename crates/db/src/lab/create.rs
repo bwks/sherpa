@@ -128,8 +128,7 @@ pub async fn create_lab(
 async fn insert_lab(conn: &Connection, lab: &DbLab) -> Result<Option<DbLab>> {
     query_optional(
         conn,
-        queries::lab::CREATE,
-        lab_values(lab, &new_key())?,
+        queries::lab::CREATE.bind(lab_values(lab, &new_key())?),
         lab_from_row,
     )
     .await

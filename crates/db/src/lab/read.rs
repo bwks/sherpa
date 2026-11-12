@@ -9,7 +9,7 @@ use turso::Row;
 use crate::Database;
 use crate::persistence::{Cells, USER_TABLE, key_of, lab_from_row};
 use crate::queries;
-use crate::sql::{query_all, query_count, query_optional};
+use crate::sql::{Query, query_all, query_count, query_optional};
 
 /// Get a lab by its `lab_id` (business key)
 ///
@@ -42,9 +42,13 @@ pub async fn get_lab(db: &Database, lab_id: &str) -> Result<DbLab> {
 #[instrument(skip(db), level = "debug")]
 pub async fn find_lab(db: &Database, lab_id: &str) -> Result<Option<DbLab>> {
     let conn = db.reader().await?;
-    query_optional(&conn, queries::lab::FIND_BY_LAB_ID, [lab_id], lab_from_row)
-        .await
-        .context(format!("Failed to query lab from database: {lab_id}"))
+    query_optional(
+        &conn,
+        queries::lab::FIND_BY_LAB_ID.bind([lab_id.into()]),
+        lab_from_row,
+    )
+    .await
+    .context(format!("Failed to query lab from database: {lab_id}"))
 }
 
 /// List all labs in the database
@@ -61,7 +65,7 @@ pub async fn find_lab(db: &Database, lab_id: &str) -> Result<Option<DbLab>> {
 #[instrument(skip(db), level = "debug")]
 pub async fn list_labs(db: &Database) -> Result<Vec<DbLab>> {
     let conn = db.reader().await?;
-    query_all(&conn, queries::lab::LIST, (), lab_from_row)
+    query_all(&conn, queries::lab::LIST.bind([]), lab_from_row)
         .await
         .context("Failed to list labs from database")
 }
@@ -83,8 +87,7 @@ pub async fn list_labs_by_user(db: &Database, user_id: RecordId) -> Result<Vec<D
     let conn = db.reader().await?;
     query_all(
         &conn,
-        queries::lab::LIST_BY_USER,
-        [key_of(&user_id, USER_TABLE)?],
+        queries::lab::LIST_BY_USER.bind([key_of(&user_id, USER_TABLE)?.into()]),
         lab_from_row,
     )
     .await
@@ -108,8 +111,7 @@ pub async fn count_labs_by_user(db: &Database, user_id: RecordId) -> Result<usiz
     let conn = db.reader().await?;
     query_count(
         &conn,
-        queries::lab::COUNT_BY_USER,
-        [key_of(&user_id, USER_TABLE)?],
+        queries::lab::COUNT_BY_USER.bind([key_of(&user_id, USER_TABLE)?.into()]),
     )
     .await
     .context("Failed to count labs for user")
@@ -179,14 +181,14 @@ pub async fn get_used_ipv6_loopback_networks(db: &Database) -> Result<Vec<Ipv6Ne
     .await
 }
 
-/// The networks labs hold in `column`, read with `sql`, each parsed as a `T`.
-async fn used_networks<T>(db: &Database, sql: &str, column: &str) -> Result<Vec<T>>
+/// The networks labs hold in `column`, read with `query`, each parsed as a `T`.
+async fn used_networks<T>(db: &Database, query: Query<0>, column: &str) -> Result<Vec<T>>
 where
     T: FromStr,
     T::Err: std::error::Error + Send + Sync + 'static,
 {
     let conn = db.reader().await?;
-    let rows = query_all(&conn, sql, (), lab_network_from_row)
+    let rows = query_all(&conn, query.bind([]), lab_network_from_row)
         .await
         .with_context(|| format!("Failed to query labs for their {column}"))?;
     rows.into_iter()

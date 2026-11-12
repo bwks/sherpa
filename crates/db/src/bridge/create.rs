@@ -5,7 +5,7 @@ use tracing::instrument;
 use crate::Database;
 use crate::persistence::{bridge_from_row, bridge_member_values, bridge_values, new_key};
 use crate::queries;
-use crate::sql::query_optional;
+use crate::sql::{execute, query_optional};
 
 /// Create a new shared bridge for a lab
 ///
@@ -54,8 +54,7 @@ pub async fn create_bridge(
 
     let bridge = query_optional(
         &tx,
-        queries::bridge::CREATE,
-        bridge_values(&domain, &key)?,
+        queries::bridge::CREATE.bind(bridge_values(&domain, &key)?),
         bridge_from_row,
     )
     .await
@@ -68,9 +67,9 @@ pub async fn create_bridge(
     })?;
 
     for (position, member) in domain.members.iter().enumerate() {
-        tx.execute(
-            queries::bridge::ADD_MEMBER,
-            bridge_member_values(member, &key, position)?,
+        execute(
+            &tx,
+            queries::bridge::ADD_MEMBER.bind(bridge_member_values(member, &key, position)?),
         )
         .await
         .context(format!(

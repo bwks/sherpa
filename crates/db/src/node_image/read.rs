@@ -15,9 +15,13 @@ use crate::sql::{query_all, query_count, query_optional};
 #[instrument(skip(db), level = "debug")]
 pub async fn list_node_images(db: &Database) -> Result<Vec<NodeConfig>> {
     let conn = db.reader().await?;
-    query_all(&conn, queries::node_image::LIST, (), node_image_from_row)
-        .await
-        .context("Failed to query all node_images from database")
+    query_all(
+        &conn,
+        queries::node_image::LIST.bind([]),
+        node_image_from_row,
+    )
+    .await
+    .context("Failed to query all node_images from database")
 }
 
 /// Get `node_image` by model, kind, and version
@@ -35,12 +39,11 @@ pub async fn find_node_image_by_model_kind_version(
     let conn = db.reader().await?;
     query_optional(
         &conn,
-        queries::node_image::FIND_BY_MODEL_KIND_VERSION,
-        (
-            enum_text(model, "model")?,
-            enum_text(kind, "kind")?,
-            version,
-        ),
+        queries::node_image::FIND_BY_MODEL_KIND_VERSION.bind([
+            enum_text(model, "model")?.into(),
+            enum_text(kind, "kind")?.into(),
+            version.into(),
+        ]),
         node_image_from_row,
     )
     .await
@@ -63,8 +66,10 @@ pub async fn find_default_node_image(
     let conn = db.reader().await?;
     query_optional(
         &conn,
-        queries::node_image::FIND_DEFAULT,
-        (enum_text(model, "model")?, enum_text(kind, "kind")?),
+        queries::node_image::FIND_DEFAULT.bind([
+            enum_text(model, "model")?.into(),
+            enum_text(kind, "kind")?.into(),
+        ]),
         node_image_from_row,
     )
     .await
@@ -83,8 +88,7 @@ pub async fn list_node_images_by_kind(db: &Database, kind: &NodeKind) -> Result<
     let conn = db.reader().await?;
     query_all(
         &conn,
-        queries::node_image::LIST_BY_KIND,
-        [enum_text(kind, "kind")?],
+        queries::node_image::LIST_BY_KIND.bind([enum_text(kind, "kind")?.into()]),
         node_image_from_row,
     )
     .await
@@ -107,8 +111,10 @@ pub async fn get_node_image_versions(
     let conn = db.reader().await?;
     query_all(
         &conn,
-        queries::node_image::LIST_BY_MODEL_AND_KIND,
-        (enum_text(model, "model")?, enum_text(kind, "kind")?),
+        queries::node_image::LIST_BY_MODEL_AND_KIND.bind([
+            enum_text(model, "model")?.into(),
+            enum_text(kind, "kind")?.into(),
+        ]),
         node_image_from_row,
     )
     .await
@@ -139,8 +145,7 @@ pub async fn list_node_images_by_ids(db: &Database, ids: Vec<RecordId>) -> Resul
     let conn = db.reader().await?;
     let found = query_all(
         &conn,
-        queries::node_image::LIST_BY_IDS,
-        [keys_json],
+        queries::node_image::LIST_BY_IDS.bind([keys_json.into()]),
         node_image_from_row,
     )
     .await
@@ -165,8 +170,7 @@ pub async fn find_node_image_by_id(db: &Database, id: RecordId) -> Result<Option
     let conn = db.reader().await?;
     query_optional(
         &conn,
-        queries::node_image::FIND_BY_ID,
-        [key_of(&id, NODE_IMAGE_TABLE)?],
+        queries::node_image::FIND_BY_ID.bind([key_of(&id, NODE_IMAGE_TABLE)?.into()]),
         node_image_from_row,
     )
     .await
@@ -181,7 +185,7 @@ pub async fn find_node_image_by_id(db: &Database, id: RecordId) -> Result<Option
 #[instrument(skip(db), level = "debug")]
 pub async fn count_node_images(db: &Database) -> Result<usize> {
     let conn = db.reader().await?;
-    query_count(&conn, queries::node_image::COUNT, ())
+    query_count(&conn, queries::node_image::COUNT.bind([]))
         .await
         .context("Failed to count node_images from database")
 }

@@ -43,8 +43,7 @@ pub async fn find_user(db: &Database, username: &str) -> Result<Option<DbUser>> 
     let conn = db.reader().await?;
     query_optional(
         &conn,
-        queries::user::FIND_BY_USERNAME,
-        [normalize_username(username)],
+        queries::user::FIND_BY_USERNAME.bind([normalize_username(username).into()]),
         user_from_row,
     )
     .await
@@ -69,8 +68,7 @@ pub async fn find_user_by_id(db: &Database, id: RecordId) -> Result<Option<DbUse
     let conn = db.reader().await?;
     query_optional(
         &conn,
-        queries::user::FIND_BY_ID,
-        [key_of(&id, USER_TABLE)?],
+        queries::user::FIND_BY_ID.bind([key_of(&id, USER_TABLE)?.into()]),
         user_from_row,
     )
     .await
@@ -91,7 +89,7 @@ pub async fn find_user_by_id(db: &Database, id: RecordId) -> Result<Option<DbUse
 #[instrument(skip(db), level = "debug")]
 pub async fn list_users(db: &Database) -> Result<Vec<DbUser>> {
     let conn = db.reader().await?;
-    query_all(&conn, queries::user::LIST, (), user_from_row)
+    query_all(&conn, queries::user::LIST.bind([]), user_from_row)
         .await
         .context("Failed to query all users from database")
 }
