@@ -952,22 +952,27 @@ tag)`, which is `{repo}:{tag}` with the repo kept as written:
 
 #### Container image scan
 
-`import::scan_images` records local Docker tags the database does not have. Docker's tag list
-(`container::get_local_images`) goes to `container_scan::match_container_images`, which is pure:
+`import::scan_images` records local Docker tags the database does not have.
+`container_scan::plan_container_scan`, which is pure, decides which repos to ask Docker for:
 
-- With no target, each container model with a built-in repo gets that repo's tags, and the
-  models with none (`generic_container`, `mysql_db`, `postgresql_db`) come back as
-  `SkippedModel`s, which the response lists so the CLI can say why they were not matched.
-- With a target, the request's `model` and `repo`, only that repo's tags are matched, as
-  versions of that model, and the disk scan is not run. `validate::validate_image_scan` checks
-  the pair first: both or neither, a container model, a repo without a tag, and no other kind.
+- With no target, each container model with a built-in repo, and the models with none
+  (`generic_container`, `mysql_db`, `postgresql_db`) come back as `SkippedModel`s, which the
+  response lists so the CLI can say why they were not matched.
+- With a target, the request's `model` and `repo`, only that repo, as versions of that model,
+  and the disk scan is not run. `validate::validate_image_scan` checks the pair first: both or
+  neither, a container model, a repo without a tag, and no other kind.
 
-A repo matches a listed tag by the name Docker lists it under: `docker.io/` and
-`index.docker.io/` and Docker Hub's `library/` namespace are dropped from both sides, so
-`docker.io/library/mysql` matches `mysql:8.4`. Nothing else is rewritten, and the repo is
-recorded as given. Tags that are not valid image versions are left out. Each match is recorded
-through `scan_version`, with `DefaultRequest::Keep`, so only a model's first version becomes its
-default and an existing record, repo included, is left as it is.
+Docker matches each repo to its images: `container::get_local_images` lists images with the
+Docker API's `reference` filter, as `docker images <repo>` does. Sherpa does not rewrite or
+compare names. Docker matches a Docker Hub image by its short name (`mysql`) or its full name
+(`docker.io/library/mysql`), but not by `docker.io/mysql` or `index.docker.io/...`, which find
+nothing, and never by a prefix (`nats` does not match `natsio/nats-box` or `nats-streaming`).
+Docker returns plain `repo:tag` strings, under its own name for the repo (`mysql:8.4` for
+`docker.io/library/mysql`), so `container_scan::tagged_versions` reads the tag after the last
+`:`, skips digest entries (`nats@sha256:...`, how the containerd image store lists an untagged
+image) and leaves out tags that are not valid image versions. The repo is recorded as given.
+Each version is recorded through `scan_version`, with `DefaultRequest::Keep`, so only a model's
+first version becomes its default and an existing record, repo included, is left as it is.
 
 ### Scanner service architecture
 

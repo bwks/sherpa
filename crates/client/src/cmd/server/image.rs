@@ -64,8 +64,8 @@ pub struct ScanArgs {
         conflicts_with_all = ["unikernel", "virtual_machine"]
     )]
     model: Option<NodeModel>,
-    /// Image repository without a tag (e.g., mysql or ghcr.io/nokia/srlinux); each of its
-    /// local tags is recorded as a version of --model
+    /// Image repository without a tag (e.g., mysql, docker.io/library/mysql or
+    /// ghcr.io/nokia/srlinux); each of its local tags is recorded as a version of --model
     #[arg(short, long, requires = "model")]
     repo: Option<String>,
 }
@@ -344,7 +344,11 @@ async fn scan_images(
             }
             if response.scanned.is_empty() {
                 match repo {
-                    Some(repo) => println!("\nNo local Docker images found for repo {repo}"),
+                    Some(repo) => println!(
+                        "\nNo local Docker images found for repo {repo}. Docker matches the \
+                         repo as `docker images` does: give a Docker Hub image by its short \
+                         name (mysql) or as docker.io/library/<name>"
+                    ),
                     None => println!("\nNo images found"),
                 }
             } else {

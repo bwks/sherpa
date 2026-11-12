@@ -1,6 +1,8 @@
-//! Matching the images in local Docker to container models, for an image scan.
+//! Planning a container image scan, and reading versions off the tags Docker lists for it.
 //!
-//! Pure: the Docker listing is passed in, so the matching is tested without a daemon.
+//! Docker matches local images to a repo (`container::get_local_images` with a reference);
+//! this module decides which repos to ask for, for which models, and reads the versions off
+//! what Docker returns. It is pure, so it is tested without a daemon.
 
 use shared::data::{NodeConfig, NodeKind, NodeModel, SkippedModel};
 
@@ -9,178 +11,111 @@ use crate::validate::validate_image_version;
 /// Why a container model with no built-in repo is skipped.
 pub(crate) const NO_BUILT_IN_REPO: &str = "no built-in repo";
 
-/// The Docker Hub registry names Docker drops when it lists an image.
-const DOCKER_HUB_PREFIXES: [&str; 2] = ["docker.io/", "index.docker.io/"];
-
-/// The namespace of Docker Hub's official images, which Docker also drops.
-const DOCKER_HUB_OFFICIAL: &str = "library/";
-
-/// A local Docker image to record as a version of a container model.
+/// A container model and the repo whose local tags are its versions.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ContainerImageMatch {
+pub(crate) struct ScanTarget {
     pub model: NodeModel,
-    /// The repo the version is recorded with, and that its nodes run.
+    /// The repo Docker is asked for, recorded with each version as given.
     pub repo: String,
-    pub version: String,
 }
 
-/// What a container scan matched, and the models it could not match images to.
+/// The repos a container scan asks Docker for, and the models it cannot ask for.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub(crate) struct ContainerScanMatches {
-    pub matches: Vec<ContainerImageMatch>,
+pub(crate) struct ContainerScanPlan {
+    pub targets: Vec<ScanTarget>,
     pub skipped: Vec<SkippedModel>,
 }
 
-/// A container model and the repo whose local tags are its versions.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct ScanTarget<'a> {
-    pub model: NodeModel,
-    pub repo: &'a str,
-}
-
-/// Match `local_images`, Docker's `repo:tag` listing, to container models.
-///
-/// With a `target`, only its repo's tags are matched, as versions of its model. Without one,
-/// each container model with a built-in repo gets that repo's tags, and the models with none
-/// are skipped. Tags that are not valid image versions are left out.
+/// The repos to scan: `target` alone when given, else each container model's built-in repo,
+/// with the container models that have none skipped.
 #[must_use]
-pub(crate) fn match_container_images(
-    local_images: &[String],
-    target: Option<ScanTarget<'_>>,
-) -> ContainerScanMatches {
-    let tagged: Vec<(&str, &str)> = local_images
-        .iter()
-        .filter_map(|reference| split_tagged(reference))
-        .collect();
-
+pub(crate) fn plan_container_scan(target: Option<ScanTarget>) -> ContainerScanPlan {
     if let Some(target) = target {
-        return ContainerScanMatches {
-            matches: repo_matches(&tagged, target.model, target.repo),
+        return ContainerScanPlan {
+            targets: vec![target],
             skipped: Vec::new(),
         };
     }
 
-    let mut result = ContainerScanMatches::default();
+    let mut plan = ContainerScanPlan::default();
     for model in NodeModel::to_vec() {
         let config = NodeConfig::get_model(model);
         if config.kind != NodeKind::Container {
             continue;
         }
         match config.repo {
-            Some(repo) => result.matches.extend(repo_matches(&tagged, model, &repo)),
-            None => result.skipped.push(SkippedModel {
+            Some(repo) => plan.targets.push(ScanTarget { model, repo }),
+            None => plan.skipped.push(SkippedModel {
                 model,
                 reason: NO_BUILT_IN_REPO.to_string(),
             }),
         }
     }
-    result
+    plan
 }
 
-/// The versions of `model` in `tagged`: the tags of `repo`, recorded with `repo` as given.
-fn repo_matches(tagged: &[(&str, &str)], model: NodeModel, repo: &str) -> Vec<ContainerImageMatch> {
-    let wanted = docker_listed_name(repo);
-    tagged
+/// The versions in `repo_tags`, the `repo:tag`s Docker matched to one repo: each tag that is a
+/// valid image version.
+#[must_use]
+pub(crate) fn tagged_versions(repo_tags: &[String]) -> Vec<&str> {
+    repo_tags
         .iter()
-        .filter(|(local_repo, _)| docker_listed_name(local_repo) == wanted)
-        .filter(|(_, tag)| validate_image_version(tag).is_ok())
-        .map(|(_, tag)| ContainerImageMatch {
-            model,
-            repo: repo.to_string(),
-            version: (*tag).to_string(),
-        })
+        .filter_map(|repo_tag| listed_tag(repo_tag))
+        .filter(|tag| validate_image_version(tag).is_ok())
         .collect()
 }
 
-/// The repo and tag of a listed `repo:tag`. The tag follows the last `:` and has no `/`, so a
-/// registry port is not taken for one.
-fn split_tagged(reference: &str) -> Option<(&str, &str)> {
-    reference
-        .rsplit_once(':')
-        .filter(|(repo, tag)| !repo.is_empty() && !tag.is_empty() && !tag.contains('/'))
-}
-
-/// `repo` as Docker lists it: a Docker Hub image without its registry, and an official image
-/// without its `library/` namespace.
-fn docker_listed_name(repo: &str) -> &str {
-    let unregistered = DOCKER_HUB_PREFIXES
-        .iter()
-        .find_map(|prefix| repo.strip_prefix(prefix))
-        .unwrap_or(repo);
-    unregistered
-        .strip_prefix(DOCKER_HUB_OFFICIAL)
-        .unwrap_or(unregistered)
+/// The tag of a `repo:tag` Docker listed, which follows the last `:`. Docker has no structured
+/// tag field, and lists a repo by its own name for it (`mysql:8.4` for
+/// `docker.io/library/mysql`), so the tag is read off the string rather than the repo stripped.
+/// An untagged image is listed by digest (`nats@sha256:…`) and has no tag. A registry port is
+/// not a valid version, so `localhost:5000/app` is left out by the version check.
+fn listed_tag(repo_tag: &str) -> Option<&str> {
+    if repo_tag.contains('@') {
+        return None;
+    }
+    repo_tag.rsplit_once(':').map(|(_, tag)| tag)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn images(references: &[&str]) -> Vec<String> {
-        references.iter().map(ToString::to_string).collect()
+    fn listed(repo_tags: &[&str]) -> Vec<String> {
+        repo_tags.iter().map(ToString::to_string).collect()
     }
 
-    fn found(model: NodeModel, repo: &str, version: &str) -> ContainerImageMatch {
-        ContainerImageMatch {
+    fn target(model: NodeModel, repo: &str) -> ScanTarget {
+        ScanTarget {
             model,
             repo: repo.to_string(),
-            version: version.to_string(),
         }
     }
 
     #[test]
-    fn built_in_repo_tags_match_their_models() {
-        let local = images(&[
-            "ghcr.io/nokia/srlinux:24.10.1",
-            "localrepo/arista_ceos:4.32.0F",
-            "nats:2.11",
-            "ubuntu:24.04",
-        ]);
+    fn a_scan_asks_for_each_built_in_container_repo() {
+        let plan = plan_container_scan(None);
 
-        let result = match_container_images(&local, None);
-
-        assert_eq!(
-            result.matches,
-            [
-                found(NodeModel::AristaCeos, "localrepo/arista_ceos", "4.32.0F"),
-                found(NodeModel::NokiaSrlinux, "ghcr.io/nokia/srlinux", "24.10.1"),
-                found(NodeModel::NatsBus, "nats", "2.11"),
-            ]
+        for expected in [
+            target(NodeModel::AristaCeos, "localrepo/arista_ceos"),
+            target(NodeModel::NokiaSrlinux, "ghcr.io/nokia/srlinux"),
+            target(NodeModel::NatsBus, "nats"),
+        ] {
+            assert!(plan.targets.contains(&expected), "{expected:?}: {plan:?}");
+        }
+        assert!(
+            plan.targets
+                .iter()
+                .all(|t| NodeConfig::get_model(t.model).kind == NodeKind::Container),
+            "{plan:?}"
         );
     }
 
     #[test]
-    fn every_tag_of_a_repo_is_a_version() {
-        let local = images(&["nats:2.10", "nats:2.11", "nats:latest"]);
-
-        let versions: Vec<String> = match_container_images(&local, None)
-            .matches
-            .into_iter()
-            .map(|m| m.version)
-            .collect();
-
-        assert_eq!(versions, ["2.10", "2.11", "latest"]);
-    }
-
-    #[test]
-    fn a_repo_is_not_matched_by_its_prefix() {
-        let local = images(&[
-            "natsio/nats-box:0.14",
-            "nats-streaming:0.25",
-            "mongo-express:1",
-        ]);
-
-        assert_eq!(match_container_images(&local, None).matches, []);
-    }
-
-    #[test]
     fn container_models_with_no_built_in_repo_are_skipped() {
-        let skipped: Vec<NodeModel> = match_container_images(&images(&["mysql:8.4"]), None)
-            .skipped
-            .into_iter()
-            .map(|s| s.model)
-            .collect();
+        let plan = plan_container_scan(None);
 
+        let skipped: Vec<NodeModel> = plan.skipped.iter().map(|s| s.model).collect();
         assert_eq!(
             skipped,
             [
@@ -189,105 +124,56 @@ mod tests {
                 NodeModel::GenericContainer
             ]
         );
-    }
-
-    #[test]
-    fn a_skipped_model_says_it_has_no_built_in_repo() {
-        let result = match_container_images(&[], None);
-
-        assert_eq!(result.skipped.len(), 3);
         assert!(
-            result.skipped.iter().all(|s| s.reason == NO_BUILT_IN_REPO),
-            "{result:?}"
+            plan.skipped.iter().all(|s| s.reason == NO_BUILT_IN_REPO),
+            "{plan:?}"
         );
     }
 
     #[test]
-    fn a_target_matches_only_its_repo_for_its_model() {
-        let local = images(&["mysql:8.4", "mysql:9.1", "nats:2.11", "mariadb:11"]);
-        let target = ScanTarget {
-            model: NodeModel::MysqlDb,
-            repo: "mysql",
-        };
-
-        let result = match_container_images(&local, Some(target));
+    fn a_target_is_the_only_repo_scanned_and_kept_as_given() {
+        let given = target(NodeModel::NokiaSrlinux, "registry.lab:5000/mirror/srlinux");
 
         assert_eq!(
-            result,
-            ContainerScanMatches {
-                matches: vec![
-                    found(NodeModel::MysqlDb, "mysql", "8.4"),
-                    found(NodeModel::MysqlDb, "mysql", "9.1"),
-                ],
+            plan_container_scan(Some(given.clone())),
+            ContainerScanPlan {
+                targets: vec![given],
                 skipped: Vec::new(),
             }
         );
     }
 
     #[test]
-    fn a_target_can_give_a_built_in_model_another_repo() {
-        let local = images(&["registry.lab:5000/mirror/srlinux:24.10.1"]);
-        let target = ScanTarget {
-            model: NodeModel::NokiaSrlinux,
-            repo: "registry.lab:5000/mirror/srlinux",
-        };
+    fn every_listed_tag_is_a_version() {
+        let repo_tags = listed(&["nats:2.10-alpine", "nats:2.11", "nats:latest"]);
 
         assert_eq!(
-            match_container_images(&local, Some(target)).matches,
-            [found(
-                NodeModel::NokiaSrlinux,
-                "registry.lab:5000/mirror/srlinux",
-                "24.10.1"
-            )]
+            tagged_versions(&repo_tags),
+            ["2.10-alpine", "2.11", "latest"]
         );
     }
 
     #[test]
-    fn a_docker_hub_target_matches_the_short_name_docker_lists() {
-        let local = images(&["postgres:17", "bitnami/postgresql:17"]);
-        for repo in [
-            "postgres",
-            "docker.io/postgres",
-            "docker.io/library/postgres",
-        ] {
-            let target = ScanTarget {
-                model: NodeModel::PostgresqlDb,
-                repo,
-            };
+    fn a_digest_listing_is_not_a_version() {
+        let repo_tags = listed(&[
+            "nats@sha256:afae2fdbe2e326c65e1246cb83b9d05d319188734f3bd577ac8072daae78a10f",
+            "nats:2.11",
+        ]);
 
-            assert_eq!(
-                match_container_images(&local, Some(target)).matches,
-                [found(NodeModel::PostgresqlDb, repo, "17")],
-                "{repo}"
-            );
-        }
+        assert_eq!(tagged_versions(&repo_tags), ["2.11"]);
     }
 
     #[test]
     fn untagged_and_invalid_tags_are_left_out() {
-        let local = images(&["<none>:<none>", "nats:-bad", "nats:2.11"]);
+        let repo_tags = listed(&["<none>:<none>", "nats:-bad", "nats", "nats:2.11"]);
 
-        assert_eq!(
-            match_container_images(&local, None).matches,
-            [found(NodeModel::NatsBus, "nats", "2.11")]
-        );
+        assert_eq!(tagged_versions(&repo_tags), ["2.11"]);
     }
 
     #[test]
     fn a_registry_port_is_not_taken_for_a_tag() {
-        let local = images(&["localhost:5000/app:1"]);
-        let target = ScanTarget {
-            model: NodeModel::GenericContainer,
-            repo: "localhost:5000/app",
-        };
+        let repo_tags = listed(&["localhost:5000/app:1", "localhost:5000/app"]);
 
-        assert_eq!(
-            match_container_images(&local, Some(target)).matches,
-            [found(
-                NodeModel::GenericContainer,
-                "localhost:5000/app",
-                "1"
-            )]
-        );
+        assert_eq!(tagged_versions(&repo_tags), ["1"]);
     }
 }

@@ -19,7 +19,7 @@ use shared::util::{file_exists, image_filename};
 use tracing::instrument;
 
 use crate::daemon::state::AppState;
-use crate::services::container_scan::{ScanTarget, match_container_images};
+use crate::services::container_scan::{ScanTarget, plan_container_scan, tagged_versions};
 use crate::services::image_lifecycle::lock_image;
 use crate::services::image_store::{ExistingDisk, ImagePaths, PlacedDisk, StagedDisk};
 use crate::services::progress::ProgressSender;
@@ -359,7 +359,10 @@ pub async fn scan_images(
     let target = request
         .model
         .zip(request.repo.as_deref())
-        .map(|(model, repo)| ScanTarget { model, repo });
+        .map(|(model, repo)| ScanTarget {
+            model,
+            repo: repo.to_string(),
+        });
     let wants = |kind: NodeKind| request.kind.as_ref().is_none_or(|k| *k == kind);
 
     let mut tally = ScanTally::default();
@@ -548,35 +551,36 @@ async fn scan_version_dirs(
     Ok(())
 }
 
-/// Record the Docker daemon's local image tags that [`match_container_images`] matches to
-/// container models, each with the repo it was matched by.
+/// Record the local Docker tags of each repo [`plan_container_scan`] gives, as versions of its
+/// model, each with the repo it was asked for. Docker matches the repo to its images.
 #[instrument(skip_all, level = "debug")]
 async fn scan_container_images(
-    target: Option<ScanTarget<'_>>,
+    target: Option<ScanTarget>,
     dry_run: bool,
     state: &AppState,
     tally: &mut ScanTally,
 ) -> Result<()> {
-    let docker_tags = container::get_local_images(&state.docker)
-        .await
-        .context("Failed to list local Docker images")?;
-    let found = match_container_images(&docker_tags, target);
-    for model in &found.skipped {
+    let plan = plan_container_scan(target);
+    for model in &plan.skipped {
         tracing::debug!(model = %model.model, reason = %model.reason, "Skipping container model");
     }
-    tally.skipped = found.skipped;
+    tally.skipped = plan.skipped;
 
-    for versions in found.matches.chunk_by(|a, b| a.model == b.model) {
-        let Some(first) = versions.first() else {
+    for target in plan.targets {
+        let repo_tags = container::get_local_images(&state.docker, Some(&target.repo))
+            .await
+            .with_context(|| format!("Failed to list local Docker images of {}", target.repo))?;
+        let versions = tagged_versions(&repo_tags);
+        if versions.is_empty() {
             continue;
-        };
-        let mut scan = ModelScan::new(&state.db, first.model, "container node_image").await?;
-        scan.config.repo = Some(first.repo.clone());
-        for image in versions {
+        }
+        let mut scan = ModelScan::new(&state.db, target.model, "container node_image").await?;
+        scan.config.repo = Some(target.repo);
+        for version in versions {
             scan_version(
                 &state.db,
                 &mut scan,
-                image.version.clone(),
+                version.to_string(),
                 None,
                 dry_run,
                 tally,

@@ -70,7 +70,7 @@ fn validate_image_repo(repo: &str) -> Result<()> {
     }
     Err(ServiceError::Invalid(format!(
         "'{repo}' is not a valid repo: use an image repository without a tag, such as mysql, \
-         library/mysql or ghcr.io/nokia/srlinux"
+         docker.io/library/mysql or ghcr.io/nokia/srlinux"
     ))
     .into())
 }

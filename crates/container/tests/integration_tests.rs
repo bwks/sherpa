@@ -12,6 +12,7 @@
 /// even when it fails, so one failure cannot cascade into the others.
 use anyhow::{Result, ensure};
 use bollard::Docker;
+use bollard::query_parameters::{RemoveImageOptions, TagImageOptions};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
@@ -364,7 +365,7 @@ async fn test_list_networks_includes_default() -> Result<()> {
 #[ignore = "requires a Docker daemon"]
 async fn test_get_local_images() -> Result<()> {
     let docker = docker_connection()?;
-    let images = get_local_images(&docker).await?;
+    let images = get_local_images(&docker, None).await?;
 
     // We pulled alpine:latest earlier, it should be in the list
     assert!(
@@ -395,6 +396,56 @@ async fn an_official_image_is_found_by_its_full_and_short_name() -> Result<()> {
         !image_exists(&docker, "docker.io/library/busybox:sherpa-no-such-tag").await?,
         "a tag that was never pulled was found"
     );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon and internet access to pull an image"]
+async fn a_docker_hub_repo_is_listed_by_its_short_and_full_name_only() -> Result<()> {
+    let docker = docker_connection()?;
+    pull_image("docker.io/library/busybox", "1.36", |_| {}).await?;
+
+    for reference in ["busybox", "docker.io/library/busybox"] {
+        let images = get_local_images(&docker, Some(reference)).await?;
+        ensure!(
+            images.contains(&"busybox:1.36".to_string()),
+            "{reference} did not list busybox:1.36: {images:?}"
+        );
+    }
+    for reference in ["docker.io/busybox", "index.docker.io/library/busybox"] {
+        let images = get_local_images(&docker, Some(reference)).await?;
+        ensure!(images.is_empty(), "{reference} listed {images:?}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon"]
+async fn a_repo_does_not_list_names_it_is_a_prefix_or_suffix_of() -> Result<()> {
+    const REPO: &str = "sherpa-test-scan";
+    let docker = docker_connection()?;
+    let tags = [REPO, "sherpa-test-scan-box", "sherpa-test/sherpa-test-scan"];
+    for repo in tags {
+        docker
+            .tag_image(
+                TEST_IMAGE,
+                Some(TagImageOptions {
+                    repo: Some(repo.to_string()),
+                    tag: Some("1".to_string()),
+                }),
+            )
+            .await?;
+    }
+
+    let listed = get_local_images(&docker, Some(REPO)).await;
+
+    for repo in tags {
+        docker
+            .remove_image(&format!("{repo}:1"), None::<RemoveImageOptions>, None)
+            .await?;
+    }
+    let listed = listed?;
+    ensure!(listed == ["sherpa-test-scan:1"], "{REPO} listed {listed:?}");
     Ok(())
 }
 
