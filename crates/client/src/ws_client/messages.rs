@@ -1,6 +1,6 @@
-use std::fmt::Write as _;
+use std::fmt::{self, Write as _};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use shared::error::RpcErrorCode;
@@ -30,6 +30,23 @@ pub struct RpcError {
     pub message: String,
     pub context: Option<String>,
 }
+
+/// A call the server answered with an error, with its code, so the CLI can choose an exit code
+/// without reading the message.
+#[derive(Debug)]
+pub struct RpcFailure {
+    pub code: RpcErrorCode,
+    /// What failed, the server's message and context, and how to recover.
+    text: String,
+}
+
+impl fmt::Display for RpcFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
+impl std::error::Error for RpcFailure {}
 
 impl RpcRequest {
     /// Create a new RPC request with a generated UUID
@@ -64,14 +81,48 @@ impl RpcResponse {
 
 impl RpcError {
     /// This error after `failure`, with how to log in again when the token was refused.
+    /// The error is an [`RpcFailure`].
     pub fn into_error(self, failure: &str) -> anyhow::Error {
-        let mut message = format!("{failure}: {} (code: {})", self.message, self.code);
+        let mut text = format!("{failure}: {} (code: {})", self.message, self.code);
         if let Some(context) = self.context {
-            let _ = write!(message, "\n  Context: {context}");
+            let _ = write!(text, "\n  Context: {context}");
         }
         if self.code == RpcErrorCode::AuthRequired {
-            message.push_str("\n  Your login has expired or is invalid; run: sherpa login");
+            text.push_str("\n  Your login has expired or is invalid; run: sherpa login");
         }
-        anyhow!(message)
+        anyhow::Error::new(RpcFailure {
+            code: self.code,
+            text,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn error(code: RpcErrorCode) -> RpcError {
+        RpcError {
+            code,
+            message: "Not enough memory on the server".to_string(),
+            context: None,
+        }
+    }
+
+    #[test]
+    fn a_server_error_keeps_its_code_and_message() {
+        let error = error(RpcErrorCode::InsufficientMemory).into_error("Lab creation failed");
+        let failure = error.downcast_ref::<RpcFailure>().unwrap();
+        assert_eq!(failure.code, RpcErrorCode::InsufficientMemory);
+        assert_eq!(
+            error.to_string(),
+            "Lab creation failed: Not enough memory on the server (code: -32005)"
+        );
+    }
+
+    #[test]
+    fn an_expired_login_says_how_to_log_in_again() {
+        let error = error(RpcErrorCode::AuthRequired).into_error("Up failed");
+        assert!(error.to_string().ends_with("run: sherpa login"), "{error}");
     }
 }

@@ -4,6 +4,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
+use serde_json::Value;
+use shared::error::MemoryShortfall;
 
 use crate::services::error::ServiceError;
 
@@ -25,6 +27,14 @@ pub enum ApiError {
     /// 409 Conflict - Allowed, but the current state forbids the operation
     Conflict { message: String },
 
+    /// 507 Insufficient Storage - The nodes to start do not fit in the server's memory now.
+    /// Its own status, so a client can tell it from a conflict and retry later; not 503, which
+    /// proxies and monitors read as the server being down.
+    InsufficientMemory {
+        message: String,
+        shortfall: MemoryShortfall,
+    },
+
     /// 500 Internal Server Error - Server-side errors
     InternalError { message: String },
 }
@@ -36,10 +46,14 @@ struct ErrorResponse {
 
 #[derive(Serialize)]
 struct ErrorDetail {
-    code: String,
+    code: &'static str,
     message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     details: Option<String>,
+    /// Structured detail for codes that define it: the `MemoryShortfall` of
+    /// `INSUFFICIENT_MEMORY`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<Value>,
 }
 
 impl ApiError {
@@ -89,62 +103,93 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (status, code, message, details) = match self {
-            ApiError::Unauthorized { message } => (
-                StatusCode::UNAUTHORIZED,
-                "UNAUTHORIZED".to_string(),
-                "Authentication required".to_string(),
-                Some(message),
-            ),
-            ApiError::Forbidden { message } => (
-                StatusCode::FORBIDDEN,
-                "FORBIDDEN".to_string(),
-                "Access denied".to_string(),
-                Some(message),
-            ),
-            ApiError::NotFound { resource, message } => (
-                StatusCode::NOT_FOUND,
-                "NOT_FOUND".to_string(),
-                format!("{resource} not found"),
-                Some(message),
-            ),
-            ApiError::BadRequest { message } => (
-                StatusCode::BAD_REQUEST,
-                "BAD_REQUEST".to_string(),
-                "Invalid request".to_string(),
-                Some(message),
-            ),
-            ApiError::Conflict { message } => (
-                StatusCode::CONFLICT,
-                "CONFLICT".to_string(),
-                message.clone(),
-                Some(message),
-            ),
-            ApiError::InternalError { message } => {
-                // Log internal errors with context
-                tracing::error!("Internal API error: {}", message);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "INTERNAL_ERROR".to_string(),
-                    "An internal error occurred".to_string(),
-                    None, // Don't expose internal details to client
-                )
+        let status = self.status();
+        if let ApiError::InternalError { message } = &self {
+            // Log internal errors with context
+            tracing::error!("Internal API error: {}", message);
+        }
+        (status, Json(ErrorResponse::from(self))).into_response()
+    }
+}
+
+impl ApiError {
+    /// The HTTP status of this error.
+    fn status(&self) -> StatusCode {
+        match self {
+            ApiError::Unauthorized { .. } => StatusCode::UNAUTHORIZED,
+            ApiError::Forbidden { .. } => StatusCode::FORBIDDEN,
+            ApiError::NotFound { .. } => StatusCode::NOT_FOUND,
+            ApiError::BadRequest { .. } => StatusCode::BAD_REQUEST,
+            ApiError::Conflict { .. } => StatusCode::CONFLICT,
+            ApiError::InsufficientMemory { .. } => StatusCode::INSUFFICIENT_STORAGE,
+            ApiError::InternalError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+
+    /// The error's `code` in the response body.
+    fn code(&self) -> &'static str {
+        match self {
+            ApiError::Unauthorized { .. } => "UNAUTHORIZED",
+            ApiError::Forbidden { .. } => "FORBIDDEN",
+            ApiError::NotFound { .. } => "NOT_FOUND",
+            ApiError::BadRequest { .. } => "BAD_REQUEST",
+            ApiError::Conflict { .. } => "CONFLICT",
+            ApiError::InsufficientMemory { .. } => "INSUFFICIENT_MEMORY",
+            ApiError::InternalError { .. } => "INTERNAL_ERROR",
+        }
+    }
+}
+
+impl From<ApiError> for ErrorResponse {
+    fn from(err: ApiError) -> Self {
+        let code = err.code();
+        let (message, details, data) = match err {
+            ApiError::Unauthorized { message } => {
+                ("Authentication required".to_string(), Some(message), None)
+            }
+            ApiError::Forbidden { message } => ("Access denied".to_string(), Some(message), None),
+            ApiError::NotFound { resource, message } => {
+                (format!("{resource} not found"), Some(message), None)
+            }
+            ApiError::BadRequest { message } => {
+                ("Invalid request".to_string(), Some(message), None)
+            }
+            ApiError::Conflict { message } => (message.clone(), Some(message), None),
+            ApiError::InsufficientMemory { message, shortfall } => {
+                (message, None, serde_json::to_value(shortfall).ok())
+            }
+            // Don't expose internal details to client
+            ApiError::InternalError { .. } => {
+                ("An internal error occurred".to_string(), None, None)
             }
         };
-
-        let body = ErrorResponse {
+        ErrorResponse {
             error: ErrorDetail {
                 code,
                 message,
                 details,
+                data,
             },
-        };
-
-        (status, Json(body)).into_response()
+        }
     }
 }
 
-/// Convert a typed service refusal to `ApiError`: 403, 404 or 409.
+/// The JSON of a streaming operation's SSE `error` event: the error's message chain, and for a
+/// typed service refusal the `code` and `data` its REST error would have, since the stream's
+/// HTTP status was sent before the operation failed.
+pub fn stream_error_event(error: &anyhow::Error) -> Value {
+    let mut event = serde_json::json!({ "error": format!("{error:#}") });
+    if let Some(refusal) = ServiceError::find(error) {
+        let api_error = ApiError::from(refusal);
+        event["code"] = Value::from(api_error.code());
+        if let Some(data) = ErrorResponse::from(api_error).error.data {
+            event["data"] = data;
+        }
+    }
+    event
+}
+
+/// Convert a typed service refusal to `ApiError`: 400, 403, 404, 409 or 507.
 impl From<&ServiceError> for ApiError {
     fn from(err: &ServiceError) -> Self {
         match err {
@@ -152,6 +197,12 @@ impl From<&ServiceError> for ApiError {
             ServiceError::NotFound(message) => ApiError::not_found("Resource", message.clone()),
             ServiceError::Conflict(message) => ApiError::conflict(message.clone()),
             ServiceError::Invalid(message) => ApiError::bad_request(message.clone()),
+            ServiceError::InsufficientMemory { message, shortfall } => {
+                ApiError::InsufficientMemory {
+                    message: message.clone(),
+                    shortfall: *shortfall,
+                }
+            }
         }
     }
 }
@@ -191,6 +242,7 @@ impl From<anyhow::Error> for ApiError {
 mod tests {
     use super::*;
     use axum::response::IntoResponse;
+    use shared::error::MemoryShortfall;
 
     #[test]
     fn test_unauthorized_status_code() {
@@ -321,5 +373,58 @@ mod tests {
         let api_err: ApiError = err.into();
         let response = api_err.into_response();
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    fn memory_refusal() -> anyhow::Error {
+        anyhow::Error::new(ServiceError::InsufficientMemory {
+            message: "Not enough memory on the server".to_owned(),
+            shortfall: MemoryShortfall {
+                requested_mib: 8192,
+                available_mib: 2048,
+                numa_node: Some(1),
+            },
+        })
+        .context("Memory admission failed")
+    }
+
+    #[tokio::test]
+    async fn a_memory_refusal_is_507_with_its_code_and_shortfall() {
+        let api_err: ApiError = memory_refusal().into();
+        let response = api_err.into_response();
+        assert_eq!(response.status(), StatusCode::INSUFFICIENT_STORAGE);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"]["code"], "INSUFFICIENT_MEMORY");
+        assert_eq!(json["error"]["message"], "Not enough memory on the server");
+        assert_eq!(
+            json["error"]["data"],
+            serde_json::json!({ "requested_mib": 8192, "available_mib": 2048, "numa_node": 1 })
+        );
+    }
+
+    #[test]
+    fn a_streamed_memory_refusal_carries_its_code_and_shortfall() {
+        let event = stream_error_event(&memory_refusal());
+        assert_eq!(event["code"], "INSUFFICIENT_MEMORY");
+        assert_eq!(event["data"]["available_mib"], 2048);
+        assert_eq!(
+            event["error"],
+            "Memory admission failed: Not enough memory on the server"
+        );
+    }
+
+    #[test]
+    fn a_streamed_unclassified_failure_has_no_code() {
+        let event = stream_error_event(&anyhow::anyhow!("disk full"));
+        assert_eq!(event, serde_json::json!({ "error": "disk full" }));
+    }
+
+    #[test]
+    fn other_errors_carry_no_data() {
+        let json =
+            serde_json::to_value(ErrorResponse::from(ApiError::conflict("owns labs"))).unwrap();
+        assert!(json["error"].get("data").is_none(), "{json}");
     }
 }

@@ -8,6 +8,7 @@ use serde::Serialize;
 use shared::data::{DestroyResponse, StatusKind, StatusMessage, UpResponse};
 use tokio::sync::mpsc;
 
+use crate::api::errors::stream_error_event;
 use crate::templates::{
     CreateSummaryFailedFragment, CreateSummarySuccessFragment, DestroyProgressLineFragment,
     DestroySummaryErrorsFragment, DestroySummaryFailedFragment, DestroySummarySuccessFragment,
@@ -122,7 +123,7 @@ pub fn json_progress_stream<T: Serialize + Send + 'static>(
                 }
             }
             Ok(Err(e)) => {
-                let error = serde_json::json!({ "error": format!("{:#}", e) });
+                let error = stream_error_event(&e);
                 let event = Event::default().event("error").data(error.to_string());
                 yield Ok(event);
             }

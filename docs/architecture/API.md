@@ -95,12 +95,60 @@ REST errors return:
   "error": {
     "code": "ERROR_CODE",
     "message": "Human-readable message",
-    "details": "Additional context (optional)"
+    "details": "Additional context (optional)",
+    "data": { "structured": "detail, for codes that define it (optional)" }
   }
 }
 ```
 
-WebSocket RPC errors follow JSON-RPC 2.0 error format.
+WebSocket RPC errors follow JSON-RPC 2.0 error format: `code`, `message`, Sherpa's `context`
+(the error chain of an unclassified failure) and, for codes that define it, `data`.
+
+### Typed refusals
+
+Services return a typed `ServiceError` (`crates/server/src/services/error.rs`) inside
+`anyhow::Error` for refusals a caller can act on. Each transport finds it with
+`ServiceError::find`, which sees through added context, and maps it to its own code; nothing
+classifies an error by its text. Untyped failures are operational failures.
+
+| `ServiceError` | JSON-RPC code (`shared::error::RpcErrorCode`) | REST status, `code` |
+| --- | --- | --- |
+| `Denied` | `AccessDenied` (-32003) | 403 `FORBIDDEN` |
+| `NotFound` | `NotFound` (-32004) | 404 `NOT_FOUND` |
+| `Conflict` | `ServerError` (-32000) | 409 `CONFLICT` |
+| `Invalid` | `InvalidParams` (-32602) | 400 `BAD_REQUEST` |
+| `InsufficientMemory` | `InsufficientMemory` (-32005) | 507 `INSUFFICIENT_MEMORY` |
+| none | `ServerError` (-32000), with `context` | 500 `INTERNAL_ERROR` (the REST conversion still guesses 400 and 404 from the text of some untyped errors) |
+
+The RPC mapping is `service_error` in `crates/server/src/api/websocket/rpc/dispatch.rs`; the REST
+one is `From<&ServiceError> for ApiError` in `crates/server/src/api/errors.rs`.
+
+`InsufficientMemory` is the admission refusal: the VMs and unikernels an `up`, `redeploy` or
+`resume` would start do not fit in the server's memory, on the whole server or on the NUMA node
+they are held to (`validate::check_memory_fits`, called from `services/admission.rs`). Nothing
+was started, and the same request can succeed once other nodes stop. Its `data` is a
+`shared::error::MemoryShortfall`:
+
+```json
+{ "requested_mib": 16384, "available_mib": 11614, "numa_node": null }
+```
+
+`numa_node` is the NUMA node that is short, or `null` when the whole server is. A NUMA node the
+server does not have is not this error. The REST status is 507 Insufficient Storage: its own
+status, so clients tell it from a 409 conflict, and a server capacity limit rather than a fault
+in the request. 503 was not used because proxies and monitors read it as the server being down.
+
+Streaming REST operations (`POST /api/v1/labs`, redeploy) have sent `200` before they can fail,
+so their SSE `error` event carries the code instead: `{"error": "<message chain>", "code":
+"INSUFFICIENT_MEMORY", "data": {...}}`. Typed refusals add `code` (and `data` where defined);
+untyped failures send only `error` (`stream_error_event` in `api/errors.rs`).
+
+### CLI exit status
+
+The client turns an RPC error into an `RpcFailure` (`crates/client/src/ws_client/messages.rs`),
+which keeps its code. `cmd::exit_status` (`crates/client/src/cmd/exit_status.rs`) picks the exit
+status from the error's type: the node shell's code for `sherpa ssh`, 75 (`EX_TEMPFAIL`) for an
+`InsufficientMemory` refusal, and 1 for any other failure.
 
 ## TLS
 

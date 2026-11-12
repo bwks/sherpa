@@ -61,7 +61,10 @@ connection drops.
 - A refusal has no structured form. `up`'s admission error is a plain `anyhow` context, so the
   server sends the generic JSON-RPC server error (-32000), as for any failed `up`, and the CLI
   exits 1. The harness matches `Memory admission failed` in the output. A distinct RPC code or
-  `ServiceError` variant for refusals would let clients match without text.
+  `ServiceError` variant for refusals would let clients match without text. Done in #599: the
+  refusal is `ServiceError::InsufficientMemory`, RPC code -32005, REST 507, CLI exit 75, and the
+  harness reads the exit code; see "Typed refusals" in
+  [`../architecture/API.md`](../architecture/API.md).
 - The refusal comes in `up`'s validation phase, before the lab is stored, so it leaves nothing:
   `sherpa inspect` reports the lab not found.
 - After an OOM kill of QEMU, libvirt reports `virsh domstate --reason` as `shut off (crashed)`.

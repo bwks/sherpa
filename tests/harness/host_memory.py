@@ -7,8 +7,8 @@
 
 Two things the release runner reads from the Sherpa server:
 
-- a `sherpa up` the server refused for memory (`Memory admission failed`), which the suite
-  runs again on its own once the other releases finish;
+- a `sherpa up` the server refused for memory (the CLI exits 75), which the suite runs again on
+  its own once the other releases finish;
 - a test guest the host's OOM killer killed, which the runner reports instead of the dropped
   SSH connection's `exited 255`.
 
@@ -22,9 +22,9 @@ import sys
 import unittest
 
 
-# The context the server adds to a memory refusal (`services/admission.rs`). The server returns it
-# as a generic JSON-RPC server error (-32000) and the CLI exits 1, so the message is all there is.
-ADMISSION_REFUSED = "Memory admission failed"
+# `sherpa`'s exit code for a command the server refused for memory: the server's InsufficientMemory
+# JSON-RPC error (-32005), mapped in `crates/client/src/cmd/exit_status.rs`.
+SHERPA_MEMORY_REFUSED = 75
 # The runner's exit code for a release the server refused for memory (EX_TEMPFAIL).
 MEMORY_REFUSED_EXIT = 75
 # The kernel's one-line summary of an OOM kill, naming the victim's cgroup.
@@ -51,12 +51,15 @@ class GuestLoss:
     evidence: tuple[str, ...]
 
 
-def memory_refusal(output):
-    """The server's memory refusal in a failed `sherpa up`'s output, or an empty string."""
-    for line in output.splitlines():
-        if ADMISSION_REFUSED in line:
-            return line[line.index(ADMISSION_REFUSED):].strip()
-    return ""
+def memory_refusal(code, output):
+    """The server's memory refusal of a failed `sherpa up`, or an empty string.
+
+    The exit code decides; the output only describes it. The CLI prints the error last.
+    """
+    if code != SHERPA_MEMORY_REFUSED:
+        return ""
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    return lines[-1] if lines else f"sherpa up exited {code}"
 
 
 def machine_name(domain_id, domain):
@@ -176,18 +179,21 @@ DMESG_HINT = "dmesg: read kernel buffer failed: Operation not permitted\n"
 UP_REFUSED = """Manifest Validation
 ───────────────────
 🔄 Validating manifest structure
-Lab creation failed: Up operation failed (code: -32000)
-  Context: Memory admission failed: Not enough memory on the server: node 'bigb' needs 16384 MiB, but only 11614 MiB of guest memory is left, 4770 MiB short.
+Lab creation failed: Not enough memory on the server: node 'bigb' needs 16384 MiB, but only 11614 MiB of guest memory is left, 4770 MiB short. (code: -32005)
 """
 
 
 class HostMemoryTests(unittest.TestCase):
-    def test_a_refused_up_is_found_by_the_admission_context(self):
-        self.assertEqual(memory_refusal(UP_REFUSED),
-                         "Memory admission failed: Not enough memory on the server: node 'bigb' needs "
-                         "16384 MiB, but only 11614 MiB of guest memory is left, 4770 MiB short.")
-        self.assertEqual(memory_refusal("Lab creation failed: CPU pins overlap (code: -32000)"), "")
-        self.assertEqual(memory_refusal(""), "")
+    def test_a_refused_up_is_found_by_its_exit_code(self):
+        self.assertEqual(memory_refusal(SHERPA_MEMORY_REFUSED, UP_REFUSED),
+                         "Lab creation failed: Not enough memory on the server: node 'bigb' needs "
+                         "16384 MiB, but only 11614 MiB of guest memory is left, 4770 MiB short. (code: -32005)")
+        self.assertEqual(memory_refusal(SHERPA_MEMORY_REFUSED, ""), "sherpa up exited 75")
+
+    def test_other_failed_ups_are_not_refusals_whatever_they_say(self):
+        self.assertEqual(memory_refusal(1, UP_REFUSED), "")
+        self.assertEqual(memory_refusal(1, "Context: Memory admission failed: Not enough memory"), "")
+        self.assertEqual(memory_refusal(1, "Lab creation failed: CPU pins overlap (code: -32000)"), "")
 
     def test_machine_name_follows_libvirt(self):
         self.assertEqual(machine_name(9, "small-cb2dd9af"), "qemu-9-small-cb2dd9af")

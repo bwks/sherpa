@@ -46,6 +46,13 @@ pub enum RpcErrorCode {
     /// Not found: Requested resource does not exist (-32004)
     NotFound,
 
+    /// Insufficient memory: The VMs and unikernels the operation would start do not fit in the
+    /// server's memory now (-32005). The error's `data` is a [`MemoryShortfall`]. Nothing was
+    /// started; the same request can succeed once other nodes stop.
+    ///
+    /// [`MemoryShortfall`]: super::MemoryShortfall
+    InsufficientMemory,
+
     /// Unknown error code: Used when deserializing an unrecognized code
     Unknown(i32),
 }
@@ -66,6 +73,7 @@ impl RpcErrorCode {
             Self::AuthRequired => -32002,
             Self::AccessDenied => -32003,
             Self::NotFound => -32004,
+            Self::InsufficientMemory => -32005,
             Self::Unknown(code) => *code,
         }
     }
@@ -96,6 +104,7 @@ impl From<i32> for RpcErrorCode {
             -32002 => Self::AuthRequired,
             -32003 => Self::AccessDenied,
             -32004 => Self::NotFound,
+            -32005 => Self::InsufficientMemory,
             _ => Self::Unknown(code),
         }
     }
@@ -138,6 +147,7 @@ mod tests {
         assert_eq!(RpcErrorCode::AuthRequired.code(), -32002);
         assert_eq!(RpcErrorCode::AccessDenied.code(), -32003);
         assert_eq!(RpcErrorCode::NotFound.code(), -32004);
+        assert_eq!(RpcErrorCode::InsufficientMemory.code(), -32005);
     }
 
     #[test]
@@ -152,6 +162,7 @@ mod tests {
         assert_eq!(RpcErrorCode::from(-32002), RpcErrorCode::AuthRequired);
         assert_eq!(RpcErrorCode::from(-32003), RpcErrorCode::AccessDenied);
         assert_eq!(RpcErrorCode::from(-32004), RpcErrorCode::NotFound);
+        assert_eq!(RpcErrorCode::from(-32005), RpcErrorCode::InsufficientMemory);
     }
 
     #[test]
