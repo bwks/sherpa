@@ -536,7 +536,9 @@ fn display_up_results(response: &UpResponse) {
             } else {
                 Emoji::Warning
             };
-            println!("  {} [{}] {}", icon, error.phase, error.message);
+            // A message with lines of a node's log keeps them under its first line.
+            let message = error.message.replace('\n', "\n      ");
+            println!("  {} [{}] {}", icon, error.phase, message);
         }
     }
 

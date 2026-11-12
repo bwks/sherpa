@@ -13,14 +13,16 @@
 use anyhow::{Result, ensure};
 use bollard::Docker;
 use bollard::query_parameters::{RemoveImageOptions, TagImageOptions};
+use bollard::secret::ContainerStateStatusEnum;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use container::{
-    ContainerSpec, create_docker_bridge_network, delete_network, docker_connection, exec_container,
-    exec_container_detached, exec_container_with_retry, get_local_images, image_exists,
-    kill_container, list_containers, list_networks, load_image, pause_container, pull_image,
-    remove_container, run_container, start_container, stop_container, unpause_container,
+    ContainerSpec, container_log_tail, container_state, create_docker_bridge_network,
+    delete_network, docker_connection, exec_container, exec_container_detached,
+    exec_container_with_retry, get_local_images, image_exists, kill_container, list_containers,
+    list_networks, load_image, pause_container, pull_image, remove_container, run_container,
+    start_container, stop_container, unpause_container,
 };
 use shared::data::ContainerNetworkAttachment;
 
@@ -667,5 +669,72 @@ async fn test_run_container_removes_a_container_it_cannot_set_up() -> Result<()>
     cleanup(&docker, name, &net.name).await;
     ensure!(result.is_err(), "attaching a missing network must fail");
     ensure!(!left, "the container that failed to attach must be removed");
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon"]
+async fn a_container_that_exits_at_once_reports_its_exit_code_and_last_log_lines() -> Result<()> {
+    let docker = docker_connection()?;
+    let name = "sherpa-test-exits";
+    let net = TestNet::new("exits", 54);
+    cleanup(&docker, name, &net.name).await;
+    create_test_network(&docker, &net).await?;
+    let checks: Result<()> = async {
+        run_container(
+            &docker,
+            ContainerSpec {
+                name: name.to_string(),
+                image: TEST_IMAGE.to_string(),
+                env_vars: vec![],
+                volumes: vec![],
+                capabilities: vec![],
+                management_network: test_network(&net.name),
+                additional_networks: vec![],
+                commands: vec![
+                    "sh".to_string(),
+                    "-c".to_string(),
+                    "for i in 1 2 3 4 5; do echo line $i; done; exit 3".to_string(),
+                ],
+                privileged: false,
+                shm_size: None,
+                user: None,
+            },
+        )
+        .await?;
+        let mut state = container_state(&docker, name).await?;
+        for _ in 0..50 {
+            if state.as_ref().and_then(|state| state.status)
+                == Some(ContainerStateStatusEnum::EXITED)
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            state = container_state(&docker, name).await?;
+        }
+        let state = state.ok_or_else(|| anyhow::anyhow!("no state for {name}"))?;
+        ensure!(
+            state.status == Some(ContainerStateStatusEnum::EXITED),
+            "the container did not exit: {state:?}"
+        );
+        ensure!(state.exit_code == Some(3), "wrong exit code: {state:?}");
+        let log = container_log_tail(&docker, name, 2).await?;
+        ensure!(log == "line 4\nline 5", "unexpected log tail: {log:?}");
+        Ok(())
+    }
+    .await;
+    cleanup(&docker, name, &net.name).await;
+    checks
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon"]
+async fn a_missing_container_has_no_state() -> Result<()> {
+    let docker = docker_connection()?;
+    let state = container_state(&docker, "sherpa-test-never-created").await?;
+    ensure!(
+        state.is_none(),
+        "a missing container has a state: {state:?}"
+    );
     Ok(())
 }

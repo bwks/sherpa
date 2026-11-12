@@ -1,11 +1,13 @@
 use anyhow::{Context, Result, anyhow};
+use bollard::secret::ContainerStateStatusEnum;
 use libvirt::is_device_volume;
 use shared::data::{
     BridgeInfo, DbLab, DbNode, DeviceInfo, InspectResponse, LabInfo, LabState, LinkInfo,
-    NodeConfig, NodeState, RecordId,
+    NodeConfig, NodeKind, NodeState, Observation, Probe, RecordId,
 };
 use shared::konst::{LAB_FILE_NAME, SHERPA_LABS_PATH, SHERPA_STORAGE_POOL};
 use shared::util::load_file;
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Instant;
 use tracing::Instrument;
@@ -16,13 +18,15 @@ use virt::storage_pool::StoragePool;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
+use crate::services::node_lifecycle;
 
 /// Inspect a lab and return its current state
 ///
 /// This function queries:
 /// - Database for lab metadata and nodes
-/// - libvirt for VM domains and storage
-/// - Docker for containers (future)
+/// - libvirt for VM disks in the storage pool
+/// - Docker for the containers' states, which are reported as the scanner would record them
+///   (`reported_state`); the record is left to the scanner
 ///
 /// The caller must own the lab or be an admin.
 #[instrument(skip(ctx, state), fields(username = %ctx.username, %lab_id))]
@@ -143,18 +147,8 @@ async fn inspect_lab_inner(
         })
         .collect();
 
-    let node_states: Vec<NodeState> = db_nodes.iter().map(|node| node.state).collect();
-
-    // Process each node
-    let mut devices = Vec::new();
-
-    for node in &db_nodes {
-        // Look up node image from pre-fetched list
-        let node_image = find_node_image(&node_images, &node.image)
-            .ok_or_else(|| anyhow!("Node image not found for node '{}'", node.name))?;
-
-        devices.push(device_info(node, node_image, &volumes, lab_id));
-    }
+    let devices = devices(state, &db_nodes, &node_images, &volumes, lab_id).await?;
+    let node_states: Vec<NodeState> = devices.iter().map(|device| device.state).collect();
 
     Ok(InspectResponse {
         tailscale,
@@ -166,6 +160,45 @@ async fn inspect_lab_inner(
         links,
         bridges,
     })
+}
+
+/// Each node's details, with a container's state as Docker reports it (`reported_state`). When
+/// Docker does not answer, containers are reported as recorded.
+#[instrument(skip_all, fields(%lab_id), level = "debug")]
+async fn devices(
+    state: &AppState,
+    db_nodes: &[DbNode],
+    node_images: &[NodeConfig],
+    volumes: &[String],
+    lab_id: &str,
+) -> Result<Vec<DeviceInfo>> {
+    let has_containers = node_images
+        .iter()
+        .any(|image| image.kind == NodeKind::Container);
+    let containers = if has_containers {
+        node_lifecycle::container_states(&state.docker)
+            .await
+            .inspect_err(|error| {
+                tracing::warn!(%error, "Cannot query Docker; reporting the recorded container states");
+            })
+            .ok()
+    } else {
+        None
+    };
+
+    let mut devices = Vec::new();
+    for node in db_nodes {
+        let node_image = find_node_image(node_images, &node.image)
+            .ok_or_else(|| anyhow!("Node image not found for node '{}'", node.name))?;
+
+        let mut device = device_info(node, node_image, volumes, lab_id);
+        device.state = reported_state(node, &node_image.kind, lab_id, containers.as_ref());
+        if device.state != node.state {
+            tracing::debug!(node = %node.name, recorded = %node.state, reported = %device.state, "Reporting the container's state from Docker");
+        }
+        devices.push(device);
+    }
+    Ok(devices)
 }
 
 /// The lab's details: from its lab file, or from its record when it has none, as for a lab `up`
@@ -241,6 +274,27 @@ fn device_info(node: &DbNode, image: &NodeConfig, volumes: &[String], lab_id: &s
     }
 }
 
+/// The state to report for `node` of `kind` in lab `lab_id`. A container's comes from Docker's
+/// `containers` listing, moved from the recorded state as the scanner would record it: a running
+/// container that exited is `Stopped`, a gone one `Missing`, and a failed or building node stays
+/// as recorded. Other nodes, and containers when Docker did not answer (`None`), are reported as
+/// recorded.
+fn reported_state(
+    node: &DbNode,
+    kind: &NodeKind,
+    lab_id: &str,
+    containers: Option<&HashMap<String, ContainerStateStatusEnum>>,
+) -> NodeState {
+    let Some(containers) = containers.filter(|_| *kind == NodeKind::Container) else {
+        return node.state;
+    };
+    let status = containers.get(&format!("{}-{lab_id}", node.name)).copied();
+    node.state.on_observation(Observation {
+        runtime: node_lifecycle::container_runtime(status),
+        probe: Probe::NotProbed,
+    })
+}
+
 /// Find a node image by `RecordId` in the pre-fetched list.
 fn find_node_image<'a>(images: &'a [NodeConfig], id: &RecordId) -> Option<&'a NodeConfig> {
     images.iter().find(|img| img.id.as_ref() == Some(id))
@@ -277,6 +331,110 @@ mod tests {
             cpu_pinning: None,
             qemu_thread_cpus: None,
         }
+    }
+
+    fn listing(status: ContainerStateStatusEnum) -> HashMap<String, ContainerStateStatusEnum> {
+        HashMap::from([("db01-ab12cd34".to_string(), status)])
+    }
+
+    fn container_in(state: NodeState) -> DbNode {
+        DbNode {
+            state,
+            ..db_node("db01")
+        }
+    }
+
+    #[test]
+    fn a_running_container_that_exited_is_reported_stopped() {
+        let node = container_in(NodeState::Running);
+        let containers = listing(ContainerStateStatusEnum::EXITED);
+        let state = reported_state(&node, &NodeKind::Container, "ab12cd34", Some(&containers));
+        assert_eq!(state, NodeState::Stopped);
+    }
+
+    #[test]
+    fn a_container_that_is_gone_is_reported_missing() {
+        let node = container_in(NodeState::Running);
+        let state = reported_state(
+            &node,
+            &NodeKind::Container,
+            "ab12cd34",
+            Some(&HashMap::new()),
+        );
+        assert_eq!(state, NodeState::Missing);
+    }
+
+    #[test]
+    fn a_container_reported_as_docker_has_it_moves_as_the_scanner_would() {
+        let cases = [
+            (
+                NodeState::Running,
+                ContainerStateStatusEnum::RUNNING,
+                NodeState::Running,
+            ),
+            (
+                NodeState::Starting,
+                ContainerStateStatusEnum::RUNNING,
+                NodeState::Running,
+            ),
+            (
+                NodeState::Stopped,
+                ContainerStateStatusEnum::PAUSED,
+                NodeState::Stopped,
+            ),
+            (
+                NodeState::Running,
+                ContainerStateStatusEnum::DEAD,
+                NodeState::Failed,
+            ),
+            // A failed node stays failed until it is redeployed, and one being built is left
+            // to the operation building it.
+            (
+                NodeState::Failed,
+                ContainerStateStatusEnum::EXITED,
+                NodeState::Failed,
+            ),
+            (
+                NodeState::Failed,
+                ContainerStateStatusEnum::RUNNING,
+                NodeState::Failed,
+            ),
+            (
+                NodeState::Building,
+                ContainerStateStatusEnum::EXITED,
+                NodeState::Building,
+            ),
+        ];
+        for (recorded, status, reported) in cases {
+            let containers = listing(status);
+            let state = reported_state(
+                &container_in(recorded),
+                &NodeKind::Container,
+                "ab12cd34",
+                Some(&containers),
+            );
+            assert_eq!(state, reported, "{recorded} with Docker {status:?}");
+        }
+    }
+
+    #[test]
+    fn a_container_is_reported_as_recorded_when_docker_did_not_answer() {
+        let node = container_in(NodeState::Running);
+        let state = reported_state(&node, &NodeKind::Container, "ab12cd34", None);
+        assert_eq!(state, NodeState::Running);
+    }
+
+    #[test]
+    fn a_virtual_machine_is_reported_as_recorded() {
+        let node = container_in(NodeState::Running);
+        let containers = listing(ContainerStateStatusEnum::EXITED);
+        let state = reported_state(
+            &node,
+            &NodeKind::VirtualMachine,
+            "ab12cd34",
+            Some(&containers),
+        );
+        assert_eq!(state, NodeState::Running);
     }
 
     #[test]
