@@ -69,8 +69,7 @@ fn ip_link_show(name: &str) -> String {
     Command::new("ip")
         .args(["link", "show", name])
         .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-        .unwrap_or_default()
+        .map_or_default(|o| String::from_utf8_lossy(&o.stdout).into_owned())
 }
 
 /// A process holding a network namespace of its own, standing in for a container. Killed on
@@ -105,8 +104,7 @@ impl NetnsHolder {
                 name,
             ])
             .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default()
+            .map_or_default(|o| String::from_utf8_lossy(&o.stdout).into_owned())
     }
 }
 

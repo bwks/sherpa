@@ -1077,8 +1077,7 @@ echo '{"type":"result","is_error":false,"result":"done","session_id":"sess-1"}'
             let path = entry?.path();
             let name = path
                 .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default();
+                .map_or_default(|name| name.to_string_lossy().into_owned());
             let text = fs::read_to_string(&path)?;
             if let Some(pid) = name.strip_prefix("reach.") {
                 runs += 1;
