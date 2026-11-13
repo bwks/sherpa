@@ -260,7 +260,9 @@ the build checks them:
 
 ## Upgrades from before 0.5.0
 
-Releases before 0.5.0 kept their data in a SurrealDB container. Releases 0.5.0 to 0.5.12 moved it
-into the embedded database with `sherpad migrate-db`, which `scripts/sherpa_update.sh` ran on the
-first update. Later releases have no importer: the update script refuses such a server before
-changing anything and tells the user to update to 0.5.12 first.
+Releases before 0.5.0 kept their data in a SurrealDB container, `sherpa-db`, with its files in
+`/opt/sherpa/db/sherpa.db`. Releases 0.5.0 to 0.5.12 moved it into the embedded database with
+`sherpad migrate-db`, which their `scripts/sherpa_update.sh` ran on the first update. No later
+release reads SurrealDB. While a server has no `sherpa.sqlite` but has the container or its files,
+`scripts/sherpa_update.sh` refuses it before changing anything and tells the user to update with
+the v0.5.12 update script first; `scripts/sherpa_install.sh` refuses any server with the container.

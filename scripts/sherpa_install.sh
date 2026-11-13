@@ -25,8 +25,9 @@
 set -e  # Exit on error
 
 # Script configuration
-# The SurrealDB container of releases before 0.5.0. sherpa_update.sh moves its data.
+# The SurrealDB container of releases before 0.5.0, and the last release that moves its data.
 LEGACY_DB_CONTAINER="sherpa-db"
+LAST_MIGRATING_VERSION="v0.5.12"
 SHERPA_ROUTER_IMAGE="ghcr.io/bwks/sherpa-router:latest"
 SHERPA_BASE_DIR="/opt/sherpa"
 SHERPA_DB_DIR="${SHERPA_BASE_DIR}/db"
@@ -92,8 +93,9 @@ Installs QEMU/KVM, libvirt, Docker, and supporting tools, then installs the
 Sherpa binaries from GitHub releases. sherpad keeps its database in
 ${SHERPA_DB_FILE}; no database server is installed.
 
-To upgrade a server older than 0.5.0, use sherpa_update.sh instead: it moves
-the data out of the old SurrealDB container.
+To upgrade a server older than 0.5.0, do not use this script: update it to
+${LAST_MIGRATING_VERSION} with that release's sherpa_update.sh, which moves the
+data out of the old SurrealDB container, then update with sherpa_update.sh.
 
 Options:
   --version VERSION     Install a specific version (e.g. v0.3.4)
@@ -308,9 +310,13 @@ check_legacy_database() {
         print_error "Found the ${LEGACY_DB_CONTAINER} SurrealDB container of a Sherpa server older than 0.5.0"
         echo ""
         echo "Its users, images and labs must be moved into the embedded database, and"
-        echo "reinstalling would replace the settings that move needs. Upgrade with"
-        echo "sherpa_update.sh instead, which moves the data and keeps the container"
-        echo "for rollback."
+        echo "reinstalling would replace the settings that move needs. Update to"
+        echo "${LAST_MIGRATING_VERSION} first with that release's update script, which moves"
+        echo "the data, then update with sherpa_update.sh:"
+        echo ""
+        echo "  curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPO}/${LAST_MIGRATING_VERSION}/scripts/sherpa_update.sh | sudo bash -s -- --version ${LAST_MIGRATING_VERSION}"
+        echo ""
+        echo "If the data has already moved, remove the old container: docker rm ${LEGACY_DB_CONTAINER}"
         echo ""
         exit 1
     fi

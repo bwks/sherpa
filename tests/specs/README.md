@@ -224,7 +224,7 @@ The main installation script that deploys Sherpa on Ubuntu 24.04+ systems.
 
 | File | Purpose |
 |------|---------|
-| `sherpa-install.md` | What to test for `scripts/sherpa_install.sh`: CLI argument parsing, pre-flight checks (Ubuntu version, root, curl, virtualization, pre-0.5.0 SurrealDB container), IP validation, system package installation, Docker/libvirt setup, sherpa user/group creation, directory structure, SurrealDB container management, health checks, binary download/install from GitHub releases, systemd service/env file/logrotate setup, and error cleanup. |
+| `sherpa-install.md` | What to test for `scripts/sherpa_install.sh`: CLI argument parsing, pre-flight checks (Ubuntu version, root, curl, virtualization, pre-0.5.0 SurrealDB container), IP validation, system package installation, Docker/libvirt setup, sherpa user/group creation, directory structure, health checks, binary download/install from GitHub releases, systemd service/env file/logrotate setup, and error cleanup. |
 
 ### `integration/` — Cross-Crate End-to-End Tests
 

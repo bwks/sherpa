@@ -19,7 +19,7 @@ build = "20260927"
 sha256 = "8800651811af9a85465ad1d552add729947bb16488dddb4a9b5305a3d97332b2"
 
 [candidate]
-version = "v0.3.79"
+version = "v0.5.35"
 # Optional directory containing the two normal release tarballs.
 artifact_directory = ""
 target = "x86_64-unknown-linux-gnu"
@@ -38,10 +38,6 @@ client_host = "localhost"
 ws_port = 3030
 http_port = 3031
 admin_prefix = "release-admin-"
-# Only for an upgrade baseline older than 0.5.0, whose installer runs SurrealDB in a container.
-# From 0.5.0 sherpad embeds its database and the installer takes no database settings.
-db_port = 8000
-surrealdb_image = "surrealdb/surrealdb:v3.0.0"
 router_image = "ghcr.io/bwks/sherpa-router:latest"
 
 [timeouts]

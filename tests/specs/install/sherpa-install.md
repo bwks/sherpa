@@ -61,7 +61,7 @@
 ## Upgrade Check (`check_legacy_database`)
 
 **What to test:**
-- Refuses, pointing to `sherpa_update.sh`, when the `sherpa-db` SurrealDB container of a release before 0.5.0 exists `[unit]` **P0**
+- Refuses, pointing to the v0.5.12 `sherpa_update.sh`, which moves the data, when the `sherpa-db` SurrealDB container of a release before 0.5.0 exists `[unit]` **P0**
 - Passes when no `sherpa-db` container exists `[unit]` **P0**
 - Passes when Docker is not installed yet `[unit]` **P1**
 

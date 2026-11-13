@@ -320,7 +320,8 @@ _stub_docker_with_containers() {
     "
     [ "$status" -eq 1 ]
     [[ "$output" == *"sherpa-db"* ]]
-    [[ "$output" == *"sherpa_update.sh"* ]]
+    [[ "$output" == *"v0.5.12/scripts/sherpa_update.sh"* ]]
+    [[ "$output" == *"--version v0.5.12"* ]]
 }
 
 @test "check_legacy_database: passes when no sherpa-db container exists" {
