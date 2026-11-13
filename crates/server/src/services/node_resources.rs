@@ -7,16 +7,22 @@ use std::net::{Ipv4Addr, TcpListener};
 use anyhow::{Context, Result, bail};
 use tracing::instrument;
 
-use shared::data::{DbNode, NodeConfig, NodeCpuPins, NodeKind, NodeResources, RecordId};
-use shared::konst::{VNC_PORT_ALLOCATION_ATTEMPTS, VNC_PORT_FIRST, VNC_PORT_LAST};
+use shared::data::{DbNode, NodeConfig, NodeCpuPins, NodeKind, NodeModel, NodeResources, RecordId};
+use shared::konst::{
+    JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB, VNC_PORT_ALLOCATION_ATTEMPTS, VNC_PORT_FIRST,
+    VNC_PORT_LAST,
+};
 use topology::validate::check_cpu_pin_overlap;
 use virt::connect::Connect;
 
 use crate::validate::check_host_resources;
 
-/// The vCPUs and memory a node gets: the manifest's values, else the image's, and the host
-/// CPUs its `cpu` and `boot_disk` settings pin. Containers get none, as Sherpa does not limit them. The
-/// VNC port is reserved separately.
+/// The vCPUs and memory a node gets, and the host CPUs its `cpu` and `boot_disk` settings pin.
+/// A VM or unikernel gets the manifest's values, else the image's. A container gets the
+/// manifest's as Docker limits, and is not limited in what the manifest leaves out; the image's
+/// values are not limits. `juniper_cevolved` sizes its EVO VM from the manifest or image values,
+/// so its container's memory limit is that and its overhead, with no CPU quota, which would
+/// throttle the EVO VM. The VNC port is reserved separately.
 pub fn planned_resources(node: &topology::NodeExpanded, image: &NodeConfig) -> NodeResources {
     match image.kind {
         NodeKind::VirtualMachine | NodeKind::Unikernel => {
@@ -29,7 +35,20 @@ pub fn planned_resources(node: &topology::NodeExpanded, image: &NodeConfig) -> N
                 qemu_thread_cpus: Some(pins.qemu_thread_cpus).filter(|cpus| !cpus.is_empty()),
             }
         }
-        NodeKind::Container => NodeResources::default(),
+        NodeKind::Container if image.model == NodeModel::JuniperCevolved => NodeResources {
+            // `check_ptx_platform` leaves room for the overhead.
+            memory: Some(
+                node.memory
+                    .unwrap_or(image.memory)
+                    .saturating_add(JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB),
+            ),
+            ..NodeResources::default()
+        },
+        NodeKind::Container => NodeResources {
+            cpu_count: node.cpu.count,
+            memory: node.memory,
+            ..NodeResources::default()
+        },
     }
 }
 
@@ -223,7 +242,7 @@ fn host_port_free(port: u16) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::{NodeCpu, NodeModel, NodeState};
+    use shared::data::{NodeCpu, NodeState};
 
     fn node(cpu_count: Option<u8>, memory: Option<u16>) -> topology::NodeExpanded {
         topology::NodeExpanded {
@@ -276,12 +295,35 @@ mod tests {
     }
 
     #[test]
-    fn containers_get_no_limits() {
+    fn containers_get_the_manifest_limits_only() {
         let image = NodeConfig::get_model(NodeModel::MongoDb);
         assert_eq!(
             planned_resources(&node(Some(4), Some(4096)), &image),
+            NodeResources {
+                cpu_count: Some(4),
+                memory: Some(4096),
+                ..NodeResources::default()
+            }
+        );
+        // The image's values are not limits: an unset container is not limited.
+        assert_eq!(
+            planned_resources(&node(None, None), &image),
             NodeResources::default()
         );
+    }
+
+    #[test]
+    fn cevolved_gets_its_evo_vm_memory_and_overhead_and_no_cpu_quota() {
+        let image = NodeConfig::get_model(NodeModel::JuniperCevolved);
+        let defaults = planned_resources(&node(None, None), &image);
+        assert_eq!(
+            defaults.memory,
+            Some(image.memory + JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB)
+        );
+        assert_eq!(defaults.cpu_count, None);
+        let sized = planned_resources(&node(Some(8), Some(16384)), &image);
+        assert_eq!(sized.memory, Some(16384 + 2048));
+        assert_eq!(sized.cpu_count, None);
     }
 
     fn stored(name: &str, lab_id: Option<&str>, cpus: Vec<u16>) -> (Option<String>, DbNode) {

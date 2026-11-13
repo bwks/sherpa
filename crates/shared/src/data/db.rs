@@ -85,7 +85,7 @@ pub struct DbNode {
     pub mgmt_ipv6: Option<String>,
     pub mgmt_mac: Option<String>,
     pub state: NodeState,
-    /// vCPUs the node was given. `None` for containers, which Sherpa does not limit.
+    /// vCPUs the node was given: a container's CPU quota. `None` for a container without one.
     #[serde(default)]
     pub cpu_count: Option<u8>,
     /// Memory in MB the node was given; `None` as for `cpu_count`.

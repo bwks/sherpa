@@ -91,7 +91,7 @@ fn device_cells(device: &DeviceInfo, lab_id: &str) -> [String; 10] {
         Some(port) => port.to_string(),
         None => "-".to_string(),
     };
-    // Containers have no limits, so they show "-".
+    // A container without a limit shows "-".
     let cpu_count = match device.cpu_count {
         Some(count) => count.to_string(),
         None => "-".to_string(),

@@ -215,7 +215,7 @@ impl Default for TailscaleGatewaySettings {
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct HostMemorySettings {
-    /// Memory in MiB kept back for the host and the containers, which Sherpa does not limit.
+    /// Memory in MiB kept back for the host and the containers without a memory limit.
     pub reserve_mib: u32,
     /// The percentage of the memory left after the reserve guests may be given in total, at
     /// least 1. 100 gives out no more than the server has; 150 gives out 1.5 times as much,

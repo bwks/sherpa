@@ -235,7 +235,7 @@ pub struct NodeDetailTemplate {
 }
 
 impl NodeDetailTemplate {
-    /// The node's vCPUs. Sherpa does not limit containers.
+    /// The node's vCPUs, or a container's CPU quota; "Not limited" for a container without one.
     pub fn cpu_display(&self) -> String {
         resource_display(self.device.cpu_count.map(u16::from), &self.device.kind)
     }

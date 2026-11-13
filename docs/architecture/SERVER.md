@@ -766,14 +766,16 @@ operation will start, one request at a time, before anything is created:
 - `redeploy` calls it in stage 1 (`check_fits_server` in `redeploy/context.rs`), before the
   node is torn down, and holds it in `Redeploy`. The node being replaced does not count
   against itself;
-- `resume` and node start call `admit_stopped_nodes` (`resume.rs`) for the target VMs and
-  unikernels that are shut off, before the Tailscale gateway is enrolled or any node starts.
-  Paused and running domains already hold their memory, and stopped nodes keep their stored
-  pins.
+- `resume` and node start call `admit_stopped_nodes` (`resume.rs`) for the target VMs,
+  unikernels and memory-limited containers that are stopped, before the Tailscale gateway is
+  enrolled or any node starts. Paused and running ones already hold their memory, and stopped
+  nodes keep their stored pins.
 
 Requests wait on a Tokio mutex, which grants the lock in arrival order. Under it, the request's
 CPU pins are checked (`node_resources::check_cpu_pins_on_server`) against the stored pinned
-nodes and against the pins in the pending ledger, and its memory against the server
+nodes and against the pins in the pending ledger, its containers' CPU quotas against the
+server's CPUs (`validate::check_container_cpus`; containers take no part in pinning), and its
+memory against the server
 (`validate::check_memory_fits`). Admitted nodes go into the ledger, keyed by domain name
 (`<node>-<lab id>`), so the next request counts them before libvirt shows them running. Dropping
 the `Admission` when the operation ends releases them; by then libvirt counts the ones that
@@ -793,8 +795,10 @@ capabilities XML) less its hugepages and its share of the reserve, against the d
 strictly on it (`numatune` mode `strict` or `restrictive` with one node). Memory that is not
 bound to one node, including a VM with `numa.memory_mode = "preferred"`, whose memory falls
 back to other nodes when its node is full, counts only against the whole server, both as a
-request and once it runs. Containers are not counted; Sherpa does not limit them,
-and the reserve covers them and QEMU's own memory. A refusal names the numbers that fell short
+request and once it runs. A container with a memory limit counts like a domain: its limit
+when it is requested, and, read from Docker (`container::list_container_memory`), while it
+runs or is paused, Sherpa's and others'; its memory is not bound to a NUMA node. A container
+without a limit counts as nothing; the reserve covers those and QEMU's own memory. A refusal names the numbers that fell short
 and the two settings. `libvirt::host_memory` and `libvirt::list_domain_memory` read the server
 (`crates/libvirt/src/host.rs`). See `docs/investigations/host-memory-oom.md` for why.
 
@@ -862,8 +866,8 @@ flowchart LR
 
 Services check owner-or-admin access first, then inspect node kind and call the right runtime backend: Docker for containers and libvirt for VMs/unikernels. The service returns a `LabNodeActionResponse` describing what changed and what failed.
 
-After the access checks, and before starting anything, resume admits the stopped VMs and
-unikernels against the server's memory (see [Admission](#admission-memory-and-cpu-pins)); a
+After the access checks, and before starting anything, resume admits the stopped VMs,
+unikernels and memory-limited containers against the server's memory (see [Admission](#admission-memory-and-cpu-pins)); a
 refusal fails the whole call.
 
 Both hold the lab's operation lease (`lab_operations::begin`), so a destroy waits for them and
@@ -1231,7 +1235,11 @@ What a node is given is stored on its database record (`DbNode`), not read back 
 hypervisor, by `services::node_resources`:
 
 - `planned_resources`: VMs and unikernels get the manifest's `cpu.count` and `memory`, else the
-  image's. Containers get none, as Sherpa does not limit them.
+  image's. Containers get the manifest's, which become their Docker limits, and nothing for
+  what it leaves out; `juniper_cevolved` gets its EVO VM's memory plus its container overhead,
+  and no CPU count (see `NODE_SETTINGS.md`). `up` (`readiness.rs`) and redeploy
+  (`redeploy/container.rs`) create the container with the stored values, so Docker and the
+  database agree; resume starts the existing container, which keeps its limits.
 - `reserve_node_resources` (`up`, right after each node record is created, and `redeploy`): a
   VM also gets a VNC port, the lowest in `konst::VNC_PORT_FIRST..=VNC_PORT_LAST` that no node
   holds and nothing on the server listens on. `unique_node_vnc_port` settles a race with a

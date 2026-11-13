@@ -605,6 +605,8 @@ pub(super) async fn start_boot_container(
             privileged: false,
             shm_size: None,
             user: None,
+            memory_mib: None,
+            cpu_count: None,
         },
     )
     .await?;
