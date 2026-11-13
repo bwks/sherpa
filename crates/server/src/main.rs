@@ -1,8 +1,11 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 #![cfg_attr(not(test), forbid(unsafe_code))]
 
+use std::path::Path;
+
 use anyhow::Result;
 use clap::Parser;
+use shared::konst::SHERPA_DB_FILE_PATH;
 use sherpad::cli::{Cli, Commands};
 use sherpad::daemon::manager::{
     logs_daemon, restart_daemon, run_background_child, start_daemon, status_daemon, stop_daemon,
@@ -37,6 +40,9 @@ async fn main() -> Result<()> {
             ws_port,
             http_port,
         } => sherpad::init::init(force, server_ipv4, server_ipv6, ws_port, http_port).await,
+        Commands::CheckDatabase => {
+            sherpad::check_database::check_database(Path::new(SHERPA_DB_FILE_PATH)).await
+        }
         Commands::Doctor { boxes } => sherpad::doctor::doctor(boxes),
     }
 }

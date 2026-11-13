@@ -704,7 +704,6 @@ mod tests {
             client_host: None,
             client_folder: None,
             description: None,
-            ssh_key: data::LabSshKey::Lab,
         };
 
         let redeployed = lab_id_taken(

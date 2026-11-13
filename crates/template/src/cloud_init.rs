@@ -215,8 +215,7 @@ pub struct CloudInitUser {
     pub shell: String,
 }
 impl CloudInitUser {
-    /// Sherpa's own account, logging in with `ssh_key`: the lab's key, or the server's for labs
-    /// created before lab keys.
+    /// Sherpa's own account, logging in with `ssh_key`, the lab's key.
     #[must_use]
     pub fn sherpa(ssh_key: &SshPublicKey) -> Self {
         Self {

@@ -97,7 +97,6 @@ mod tests {
             client_host: None,
             client_folder: None,
             description: None,
-            ssh_key: shared::data::LabSshKey::Lab,
         }
     }
 

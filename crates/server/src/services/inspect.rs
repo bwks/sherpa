@@ -311,7 +311,7 @@ fn node_name_from_id(nodes: &[DbNode], rid: &RecordId) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::{LabPhase, LabSshKey, NodeModel};
+    use shared::data::{LabPhase, NodeModel};
 
     fn db_node(name: &str) -> DbNode {
         DbNode {
@@ -474,7 +474,6 @@ mod tests {
             client_host: Some("dev01".to_string()),
             client_folder: None,
             description: Some("BGP".to_string()),
-            ssh_key: LabSshKey::Lab,
         };
 
         let info = lab_info_from_record(&lab, "alice".to_string()).unwrap();

@@ -18,7 +18,3 @@ sudo install -d -o sherpa -g kvm -m 2750 "$POOL"
 
 # Make real (non-symlink) image files read only
 sudo find /opt/sherpa/images -type f -exec chmod 444 {} \;
-
-# SSH Keys
-sudo chmod 0600 /opt/sherpa/ssh/sherpa_ssh_key
-sudo chmod 0644 /opt/sherpa/ssh/sherpa_ssh_key.pub

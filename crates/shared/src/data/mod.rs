@@ -78,8 +78,8 @@ pub use interface::{
 };
 pub use lab::{
     BridgeInterface, InterfaceData, InterfaceState, LabIdentity, LabInfo, LabIsolatedNetwork,
-    LabLinkData, LabNodeData, LabReservedNetwork, LabSshKey, LabState, LabSummary,
-    ListLabsResponse, NodeInterface, NodeSetupData, NodeSshUsername, PeerInterface, PeerSide,
+    LabLinkData, LabNodeData, LabReservedNetwork, LabState, LabSummary, ListLabsResponse,
+    NodeInterface, NodeSetupData, NodeSshUsername, PeerInterface, PeerSide,
 };
 pub use lab_lifecycle::{LabEvent, LabNotReady, LabPhase, LabRefused, LabTransition};
 pub use link_report::{LinkReport, LinkState};

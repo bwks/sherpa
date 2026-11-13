@@ -30,8 +30,8 @@ pub fn normalize_username(username: &str) -> String {
     username.trim().to_lowercase()
 }
 
-/// The `sherpa` account on a lab's nodes, with sudo, logging in with the public key at
-/// `public_key_path`: the lab's own key, or the server's for labs created before lab keys.
+/// The `sherpa` account on a lab's nodes, with sudo, logging in with the lab's own public key at
+/// `public_key_path`.
 ///
 /// # Errors
 ///

@@ -15,7 +15,7 @@ The folder name is `konst::LAB_STATE_DIR`; `shared` uses `LabFolder` too, to fin
 | `.sherpa/` and every folder in it | `lab_files::ensure_lab_subdir` | 0700 |
 | `.sherpa/lab-info.toml` | `lab_files::save_lab_files` | default |
 | `.sherpa/ssh/config` | `lab_files::save_lab_files` | default |
-| `.sherpa/ssh/key` | `lab_files::save_lab_files` (only for nodes using the server's key) | 0600 |
+| `.sherpa/ssh/key` | `lab_files::save_lab_files` (only when the SSH config uses the lab's key) | 0600 |
 | `.sherpa/ssh/known_hosts` | `lab_files::write_known_hosts`, also on a host key refresh | 0600 |
 | `.sherpa/ca/lab-ca.crt` | `lab_files::write_lab_ca` | default |
 | `.sherpa/vault/vault-<node>.toml` | `vault_credentials` | 0600 |
