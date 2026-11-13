@@ -20,6 +20,7 @@ mod link_report;
 mod mapping;
 mod network;
 mod node;
+mod node_base;
 mod node_lifecycle;
 mod performance;
 mod provider;
