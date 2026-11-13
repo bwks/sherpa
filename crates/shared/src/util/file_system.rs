@@ -11,7 +11,7 @@ use std::process::Command;
 use anyhow::bail;
 use anyhow::{Context, Result};
 
-use crate::data::{NodeKind, UnikernelBootMode};
+use crate::data::{NodeKind, UnikernelBootMode, UnikernelSettings};
 use crate::konst::{UNIKERNEL_DISK_FILENAME, UNIKERNEL_KERNEL_FILENAME, VM_DISK_FILENAME};
 
 /// Convert a `Path` to an owned `String`, using lossy UTF-8 conversion.
@@ -260,16 +260,18 @@ pub fn create_config_archive(src_path: &str, dst_path: &str) -> Result<()> {
     Ok(())
 }
 
-/// Return the expected image filename for a given node kind and boot mode.
+/// Return the expected image filename for a given node kind and its unikernel settings.
 ///
 /// - VMs: `virtioa.qcow2`
 /// - Unikernel `DirectKernel`: `kernel.elf`
 /// - Unikernel `DiskBoot`: `disk.qcow2`
 #[must_use]
-pub fn image_filename(kind: &NodeKind, boot_mode: Option<&UnikernelBootMode>) -> &'static str {
+pub fn image_filename(kind: &NodeKind, unikernel: Option<&UnikernelSettings>) -> &'static str {
     match kind {
-        NodeKind::Unikernel => match boot_mode {
-            Some(UnikernelBootMode::DiskBoot) => UNIKERNEL_DISK_FILENAME,
+        NodeKind::Unikernel => match unikernel {
+            Some(UnikernelSettings {
+                boot_mode: UnikernelBootMode::DiskBoot,
+            }) => UNIKERNEL_DISK_FILENAME,
             _ => UNIKERNEL_KERNEL_FILENAME,
         },
         _ => VM_DISK_FILENAME,

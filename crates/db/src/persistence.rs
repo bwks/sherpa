@@ -11,8 +11,9 @@ use serde::de::DeserializeOwned;
 use turso::{Row, Value};
 
 use shared::data::{
-    BridgeMember, DbBridge, DbLab, DbLink, DbNode, DbSession, DbSessionUser, DbUser,
-    LinkImpairment, NodeConfig, RecordId, Ztp, ZtpSettings,
+    BootDiskSettings, BridgeMember, CdromSettings, CpuSettings, DbBridge, DbLab, DbLink, DbNode,
+    DbSession, DbSessionUser, DbUser, InterfaceSettings, LinkImpairment, MachineSettings,
+    NodeConfig, RecordId, UnikernelSettings, ZtpSettings,
 };
 use shared::konst::{SHERPA_DB_KEY_CHARSET, SHERPA_DB_KEY_LENGTH};
 
@@ -466,44 +467,74 @@ pub(crate) fn bridge_member_values(
     ])
 }
 
+/// A node image from its `node_image` row. `Cells` reads the columns in the table's order,
+/// which is not the order of the groups, so each column is read into a local first.
 pub(crate) fn node_image_from_row(row: &Row) -> Result<NodeConfig> {
     let mut cells = Cells::new(row);
-    let mut image = NodeConfig {
-        id: Some(cells.record(NODE_IMAGE_TABLE, "id")?),
-        model: cells.enumeration("model")?,
-        version: cells.text("version")?,
-        repo: cells.optional_text("repo")?,
-        os_variant: cells.enumeration("os_variant")?,
-        kind: cells.enumeration("kind")?,
-        bios: cells.enumeration("bios")?,
-        cpu_count: cells.integer("cpu_count")?,
-        cpu_architecture: cells.enumeration("cpu_architecture")?,
-        cpu_model: cells.enumeration("cpu_model")?,
-        machine_type: cells.enumeration("machine_type")?,
-        vmx_enabled: cells.boolean("vmx_enabled")?,
-        memory: cells.integer("memory")?,
-        hdd_bus: cells.enumeration("hdd_bus")?,
-        cdrom: cells.optional_text("cdrom")?,
-        cdrom_bus: cells.enumeration("cdrom_bus")?,
-        ztp: ZtpSettings {
-            // The `ztp` column is the table's last, read below.
-            mode: Ztp::default(),
-            username: cells.optional_text("ztp_username")?,
-            password: cells.optional_text("ztp_password")?,
-            password_auth: cells.boolean("ztp_password_auth")?,
-        },
-        data_interface_count: cells.integer("data_interface_count")?,
-        interface_prefix: cells.text("interface_prefix")?,
-        interface_type: cells.enumeration("interface_type")?,
-        interface_mtu: cells.integer("interface_mtu")?,
-        first_interface_index: cells.integer("first_interface_index")?,
-        management_interface: cells.enumeration("management_interface")?,
-        reserved_interface_count: cells.integer("reserved_interface_count")?,
-        default: cells.boolean("default")?,
-        boot_mode: cells.optional_enumeration("boot_mode")?,
+    let id = cells.record(NODE_IMAGE_TABLE, "id")?;
+    let model = cells.enumeration("model")?;
+    let version = cells.text("version")?;
+    let repo = cells.optional_text("repo")?;
+    let os_variant = cells.enumeration("os_variant")?;
+    let kind = cells.enumeration("kind")?;
+    let bios = cells.enumeration("bios")?;
+    let cpu_count = cells.integer("cpu_count")?;
+    let cpu_architecture = cells.enumeration("cpu_architecture")?;
+    let cpu_model = cells.enumeration("cpu_model")?;
+    let machine_type = cells.enumeration("machine_type")?;
+    let vmx_enabled = cells.boolean("vmx_enabled")?;
+    let memory = cells.integer("memory")?;
+    let hdd_bus = cells.enumeration("hdd_bus")?;
+    let cdrom = cells.optional_text("cdrom")?;
+    let cdrom_bus = cells.enumeration("cdrom_bus")?;
+    let ztp_username = cells.optional_text("ztp_username")?;
+    let ztp_password = cells.optional_text("ztp_password")?;
+    let ztp_password_auth = cells.boolean("ztp_password_auth")?;
+    let interfaces = InterfaceSettings {
+        data_count: cells.integer("data_interface_count")?,
+        prefix: cells.text("interface_prefix")?,
+        kind: cells.enumeration("interface_type")?,
+        mtu: cells.integer("interface_mtu")?,
+        first_index: cells.integer("first_interface_index")?,
+        management: cells.enumeration("management_interface")?,
+        reserved_count: cells.integer("reserved_interface_count")?,
     };
-    image.ztp.mode = cells.enumeration("ztp")?;
-    Ok(image)
+    let default = cells.boolean("default")?;
+    let boot_mode = cells.optional_enumeration("boot_mode")?;
+    let ztp_method = cells.enumeration("ztp")?;
+    Ok(NodeConfig {
+        id: Some(id),
+        model,
+        version,
+        repo,
+        os_variant,
+        kind,
+        default,
+        memory,
+        cpu: CpuSettings {
+            count: cpu_count,
+            architecture: cpu_architecture,
+            model: cpu_model,
+            vmx: vmx_enabled,
+        },
+        machine: MachineSettings {
+            kind: machine_type,
+            bios,
+        },
+        boot_disk: BootDiskSettings { bus: hdd_bus },
+        cdrom: CdromSettings {
+            image: cdrom,
+            bus: cdrom_bus,
+        },
+        interfaces,
+        ztp: ZtpSettings {
+            method: ztp_method,
+            username: ztp_username,
+            password: ztp_password,
+            password_auth: ztp_password_auth,
+        },
+        unikernel: boot_mode.map(|boot_mode| UnikernelSettings { boot_mode }),
+    })
 }
 
 /// A node image's column values in the `node_image` table's column order, under `key`.
@@ -515,34 +546,34 @@ pub(crate) fn node_image_values(image: &NodeConfig, key: &str) -> Result<[Value;
         image.repo.as_deref().into(),
         enum_text(&image.os_variant, "os_variant")?.into(),
         enum_text(&image.kind, "kind")?.into(),
-        enum_text(&image.bios, "bios")?.into(),
-        image.cpu_count.into(),
-        enum_text(&image.cpu_architecture, "cpu_architecture")?.into(),
-        enum_text(&image.cpu_model, "cpu_model")?.into(),
-        enum_text(&image.machine_type, "machine_type")?.into(),
-        image.vmx_enabled.into(),
+        enum_text(&image.machine.bios, "bios")?.into(),
+        image.cpu.count.into(),
+        enum_text(&image.cpu.architecture, "cpu_architecture")?.into(),
+        enum_text(&image.cpu.model, "cpu_model")?.into(),
+        enum_text(&image.machine.kind, "machine_type")?.into(),
+        image.cpu.vmx.into(),
         image.memory.into(),
-        enum_text(&image.hdd_bus, "hdd_bus")?.into(),
-        image.cdrom.as_deref().into(),
-        enum_text(&image.cdrom_bus, "cdrom_bus")?.into(),
+        enum_text(&image.boot_disk.bus, "hdd_bus")?.into(),
+        image.cdrom.image.as_deref().into(),
+        enum_text(&image.cdrom.bus, "cdrom_bus")?.into(),
         image.ztp.username.as_deref().into(),
         image.ztp.password.as_deref().into(),
         image.ztp.password_auth.into(),
-        image.data_interface_count.into(),
-        image.interface_prefix.as_str().into(),
-        enum_text(&image.interface_type, "interface_type")?.into(),
-        image.interface_mtu.into(),
-        image.first_interface_index.into(),
-        enum_text(&image.management_interface, "management_interface")?.into(),
-        image.reserved_interface_count.into(),
+        image.interfaces.data_count.into(),
+        image.interfaces.prefix.as_str().into(),
+        enum_text(&image.interfaces.kind, "interface_type")?.into(),
+        image.interfaces.mtu.into(),
+        image.interfaces.first_index.into(),
+        enum_text(&image.interfaces.management, "management_interface")?.into(),
+        image.interfaces.reserved_count.into(),
         image.default.into(),
         image
-            .boot_mode
+            .unikernel
             .as_ref()
-            .map(|mode| enum_text(mode, "boot_mode"))
+            .map(|unikernel| enum_text(&unikernel.boot_mode, "boot_mode"))
             .transpose()?
             .into(),
-        enum_text(&image.ztp.mode, "ztp")?.into(),
+        enum_text(&image.ztp.method, "ztp")?.into(),
     ])
 }
 

@@ -461,8 +461,8 @@ Web UI create and destroy run as jobs: the POST queues a `Job` in `AppState::pen
 - Edits of a user row are compare-and-set: `db::update_user` writes only if the row's `updated_at` is still the one it read, and otherwise fails with `db::UserChanged`. `ServiceError::from_user_write` turns that into a `Conflict` ("reload and try again"), so of two concurrent SSH-key edits the second is refused instead of overwriting the first. A password change writes only the hash (`db::change_user_password`), so it cannot undo a concurrent key edit.
 - User info operations allow admins to target anyone and regular users to target themselves. These checks are still in the transports, not in services.
 - Logins on every route go through `auth::login::check_credentials`. An unknown username is checked against a dummy hash, so it takes as long as a wrong password and response times do not show which usernames exist.
-- `auth::policy::require_host_access` refuses `up` and `redeploy` manifests from non-admins whose nodes are `privileged` or bind-mount host paths (`volumes`). Either is root on the host.
-- The server never opens a path a manifest names. The CLI reads `text_files`, `binary_files`, `systemd_units`, `ssh_authorized_key_files` and the scripts on the client and sends their contents in the matching `*_data` fields; `topology::validate::check_client_read_files` refuses a manifest that lists files without them, and binary file and unit names that are not plain file names.
+- `auth::policy::require_host_access` refuses `up` and `redeploy` manifests from non-admins whose nodes are `container.privileged` or bind-mount host paths (`container.volumes`). Either is root on the host.
+- The server never opens a path a manifest names. The CLI reads `text_files`, `binary_files`, `systemd_units`, `ssh.authorized_key_files` and the scripts on the client and sends their contents in the matching `*_data` fields; `topology::validate::check_client_read_files` refuses a manifest that lists files without them, and binary file and unit names that are not plain file names.
 - Signup is closed unless `allow_signup = true` in `sherpa.toml`. With it off, `GET` and `POST /signup` return 404 and the login page does not link to it.
 - User deletion goes through `services::user_delete::delete_user` on every transport. It is admin only and refuses self-delete, the last admin account, and any user who owns labs (`Conflict`, listing the labs). The web admin page shows a refusal in its `#user-delete-error` notification using `HX-Retarget`. The database backs up the owned-lab rule: `lab.user` is `REFERENCE ON DELETE REJECT`, because deleting only the records would leave the labs' VMs, containers and networks running unmanaged. With identity read from the database, the last-admin rule can only be hit by a race (two admins deleting each other at once); there is no transaction around the check and the delete.
 - `clean_lab_resources` is the unchecked clean used internally, to roll back a failed `up` on behalf of the user who started it. User requests go through `clean_lab`. Both validate the lab ID first (`Invalid`, a 400 or `InvalidParams`): resources are matched by it and the lab folder is built from it, so an empty or path-like ID would reach every lab.
@@ -600,7 +600,7 @@ flowchart TB
     ssh --> secrets
     subgraph phase13["13. NodeReadiness"]
         secrets["write container secret files to RAM"] --> startctr["start containers (node_ops::start_container_node)<br/>P2p containers: veths created into the container netns,<br/>then attach_ready_p2p_links for links now complete<br/>node_lifecycle::record Launched, Ready"]
-        startctr --> ready["poll VMs with node_ops::check_vm_ready, record host keys<br/>poll unikernels with check_unikernel_ready<br/>no wait for skip_ready_check nodes or Talos cluster workers"]
+        startctr --> ready["poll VMs with node_ops::check_vm_ready, record host keys<br/>poll unikernels with check_unikernel_ready<br/>no wait for ready_check.skip nodes or Talos cluster workers"]
         ready --> refresh["ssh_config::refresh_lab_ssh_files with recorded host keys<br/>bootstrap Kubernetes clusters"]
     end
     refresh --> response["Return UpResponse { success, lab_info, summary, errors, total_time_secs }"]
@@ -789,11 +789,11 @@ guest memory is its total (`virNodeGetInfo`) less its hugepage pools and
 `sherpa.toml`, 4096 MiB and 100 by default; startup refuses a percentage below 1). The limit is
 computed in whole MiB with saturating integer arithmetic, rounded down. Against it count every running or
 paused domain's maximum memory, Sherpa's and others', the pending nodes, and the request. A VM
-held strictly on a NUMA node (`numa_node`, with `numa_memory_mode` `strict` or left out;
-`PerformanceTuning::strict_numa_node`) is also checked against that node: its memory (from the
+held strictly on a NUMA node (`numa.node`, with `numa.memory_mode` `strict` or left out;
+`NodeNuma::strict_node`) is also checked against that node: its memory (from the
 capabilities XML) less its hugepages and its share of the reserve, against the domains held
 strictly on it (`numatune` mode `strict` or `restrictive` with one node). Memory that is not
-bound to one node, including a VM with `numa_memory_mode = "preferred"`, whose memory falls
+bound to one node, including a VM with `numa.memory_mode = "preferred"`, whose memory falls
 back to other nodes when its node is full, counts only against the whole server, both as a
 request and once it runs. Containers are not counted; Sherpa does not limit them,
 and the reserve covers them and QEMU's own memory. A refusal names the numbers that fell short
@@ -812,7 +812,7 @@ flowchart TB
     request["redeploy_node (node.rs)"] --> owner["require_lab_owner in the service<br/>(owner only, admins included), owner has an SSH key<br/>lab_operations::begin, require_lab_owner again<br/>the lab's redeploy lock"]
     owner --> load
     subgraph stage1["1. load_redeploy (context.rs): nothing is changed"]
-        load["manifest checks: host access, client files, provisioners, secrets<br/>node and image from the DB; same model; unikernels refused<br/>resolve and check the container image<br/>lease the image, check the disk method<br/>lab info, management network, DNS, lab CA, Talos worker config<br/>the sherpa account with the lab's SSH key (lab.ssh_key)<br/>saved management addresses, owner account and node login<br/>performance tuning, watchdog, platform<br/>admission: CPU pins and memory"]
+        load["manifest checks: host access, client files, provisioners, secrets<br/>node and image from the DB; same model; unikernels refused<br/>resolve and check the container image<br/>lease the image, check the disk method<br/>lab info, management network, DNS, lab CA, Talos worker config<br/>the sherpa account with the lab's SSH key (lab.ssh_key)<br/>saved management addresses, owner account and node login<br/>node settings by kind, VM tuning, platform<br/>admission: CPU pins and memory"]
     end
     load --> starting["clear the host key, node Starting"]
     starting --> destroy
@@ -895,7 +895,7 @@ written files on every VM without a guest agent, which includes Talos and the Ub
 
 Resume then waits for the nodes it cold-booted, as `up` does. It loads the lab's saved
 manifest (`manifest.toml` in the lab directory, written by `up`) for `ready_timeout`,
-`skip_ready_check` and `ready_port`; labs without a readable saved manifest use the default
+`ready_check.skip` and `ready_check.port`; labs without a readable saved manifest use the default
 timeout and SSH checks. VMs are probed on SSH, unikernels with `check_unikernel_ready`.
 Containers and paused nodes are not waited for. A node that is not ready within the timeout
 is reported in its result message, not as an error, and stays `Starting` until the scanner's
@@ -1116,7 +1116,7 @@ what each phase does.
 ### Node readiness
 
 `up`, `redeploy` and `resume` poll each VM's readiness port (`node_ops::vm_ready_port`: the
-manifest's `ready_port`, else the model's) with `node_ops::check_vm_ready`. Unikernels use
+manifest's `ready_check.port`, else the model's) with `node_ops::check_vm_ready`. Unikernels use
 `check_unikernel_ready`, and containers are ready once running.
 
 A container that is not running right after it starts is reported as a failed node, a
@@ -1235,7 +1235,7 @@ Destroy and clean paths must account for all of these locations. That is why cle
 What a node is given is stored on its database record (`DbNode`), not read back from the
 hypervisor, by `services::node_resources`:
 
-- `planned_resources`: VMs and unikernels get the manifest's `cpu_count` and `memory`, else the
+- `planned_resources`: VMs and unikernels get the manifest's `cpu.count` and `memory`, else the
   image's. Containers get none, as Sherpa does not limit them.
 - `reserve_node_resources` (`up`, right after each node record is created, and `redeploy`): a
   VM also gets a VNC port, the lowest in `konst::VNC_PORT_FIRST..=VNC_PORT_LAST` that no node
@@ -1248,10 +1248,12 @@ hypervisor, by `services::node_resources`:
 
 ### VM performance tuning
 
-A node's `[nodes.performance_tuning]` (`shared::data::PerformanceTuning`) reaches the domain as
-`template::DomainTuning`, built in `node_ops::build_domain_template`. The domain then renders:
+A VM node's tuning in its `cpu`, `numa`, `boot_disk` and `interfaces` groups
+(`shared::data::NodeCpu`, `NodeNuma`, `NodeBootDisk`, `NodeInterfaces`; see
+[`NODE_SETTINGS.md`](NODE_SETTINGS.md)) reaches the domain as `template::DomainTuning`, built by
+`DomainTuning::from_node_settings` in `node_ops::build_domain_template`. The domain then renders:
 - `<cputune>` with `vcpupin`, `emulatorpin` and `iothreadpin`;
-- `<numatune>`, with `<memory mode>` from `numa_memory_mode` (`strict` by default, or
+- `<numatune>`, with `<memory mode>` from `numa.memory_mode` (`strict` by default, or
   `preferred`);
 - `<iothreads>`;
 - the CPU mode and `<topology>`;
@@ -1259,10 +1261,11 @@ A node's `[nodes.performance_tuning]` (`shared::data::PerformanceTuning`) reache
 - `<driver queues>` on virtio interfaces.
 
 The checks run in three places:
-- **`topology::validate::check_performance_tuning`** (client `validate` and server `up` and
-  `redeploy`): the node's own settings against its image. VMs only; topology and pinning
-  match `cpu_count`; I/O threads need virtio disks; queues need virtio interfaces;
-  `numa_memory_mode` needs `numa_node`.
+- **`topology::validate::check_vm_tuning`** (client `validate` and server `up` and
+  `redeploy`): the node's own settings against its image. `check_node_kind_settings` refuses
+  these settings on other kinds first; `cpu.topology` and `cpu.pinning` match `cpu.count`; I/O
+  threads need virtio disks; `interfaces.queues` needs virtio interfaces; `numa.memory_mode`
+  needs `numa.node`.
 - **`topology::validate::check_cpu_pin_overlap`**: a host CPU pinned to a vCPU belongs to one
   node, and no node runs QEMU or I/O threads on it. QEMU and I/O threads may share CPUs.
 - **`node_resources::check_cpu_pins_on_server`** (`up` and `redeploy`, before anything is
@@ -1281,11 +1284,11 @@ removes that rule.
 
 ### VM hardware watchdog
 
-A VM has an i6300esb watchdog only when its node sets `watchdog` (`shared::data::WatchdogAction`,
+A VM has an i6300esb watchdog only when its node sets `vm.watchdog` (`shared::data::WatchdogAction`,
 libvirt's action names). `node_ops::build_domain_template` copies it to
 `DomainTemplate::watchdog`, and the domain renders `<watchdog model='i6300esb' action='...'/>`
-for it. `topology::validate::check_watchdog` (client `validate`, server `up` and `redeploy`)
-refuses it on containers and unikernels. Nothing is stored: the domain keeps it across down and
+for it. `topology::validate::check_node_kind_settings` (client `validate`, server `up` and
+`redeploy`) refuses the `vm` group on containers and unikernels. Nothing is stored: the domain keeps it across down and
 resume, and `redeploy` reads it from the manifest again.
 
 libvirt (10.0 on Ubuntu 24.04) also lists the q35 chipset's iTCO watchdog on every q35 domain,

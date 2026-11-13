@@ -8,5 +8,7 @@ provision_current_user = true
 name = "win"
 model = "devbox_windows"
 version = "windows11-20261030"
-cpu_count = 8
 memory = 16384
+
+[nodes.cpu]
+count = 8

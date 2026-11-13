@@ -61,7 +61,7 @@ async fn test_upsert_node_image() -> Result<()> {
 async fn test_upsert_refuses_a_ztp_method_the_model_does_not_take() -> Result<()> {
     let db = setup_db().await?;
     let mut config = create_test_config(NodeModel::FrrLinux);
-    config.ztp.mode = Ztp::Cdrom;
+    config.ztp.method = Ztp::Cdrom;
 
     let error = upsert_node_image(&db, config, DefaultRequest::Keep)
         .await
@@ -82,13 +82,13 @@ async fn test_upsert_refuses_a_ztp_method_the_model_does_not_take() -> Result<()
 async fn test_upsert_stores_disabled_and_a_listed_method() -> Result<()> {
     let db = setup_db().await?;
     let mut off = create_test_config(NodeModel::FrrLinux);
-    off.ztp.mode = Ztp::Disabled;
+    off.ztp.method = Ztp::Disabled;
     let stored = upsert_node_image(&db, off, DefaultRequest::Keep).await?;
-    assert_eq!(stored.ztp.mode, Ztp::Disabled);
+    assert_eq!(stored.ztp.method, Ztp::Disabled);
 
     let mut tftp = create_test_config(NodeModel::JuniperVsrxv3);
-    tftp.ztp.mode = Ztp::Tftp;
+    tftp.ztp.method = Ztp::Tftp;
     let stored = upsert_node_image(&db, tftp, DefaultRequest::Keep).await?;
-    assert_eq!(stored.ztp.mode, Ztp::Tftp);
+    assert_eq!(stored.ztp.method, Ztp::Tftp);
     Ok(())
 }

@@ -29,7 +29,7 @@ pub(super) async fn destroy_node(redeploy: &Redeploy<'_>) -> Result<()> {
                 node_name,
                 lab_id,
                 redeploy.db_node.index,
-                redeploy.node_image.reserved_interface_count,
+                redeploy.node_image.interfaces.reserved_count,
             )
             .await?;
         }
@@ -72,7 +72,7 @@ pub(super) fn recreate_vm_networks(redeploy: &Redeploy<'_>) -> Result<()> {
     }
     .create(&redeploy.qemu_conn)?;
 
-    if redeploy.node_image.reserved_interface_count > 0 {
+    if redeploy.node_image.interfaces.reserved_count > 0 {
         let reserved = node_ops::node_reserved_network_data(node_name, node_idx, lab_id);
         libvirt::ReservedNetwork {
             network_name: reserved.network_name,

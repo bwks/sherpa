@@ -64,11 +64,13 @@ pub(crate) fn data_interface_indices(
     node_name: &str,
 ) -> Result<RangeInclusive<u8>> {
     let first = node_image
-        .reserved_interface_count
+        .interfaces
+        .reserved_count
         .checked_add(1)
         .ok_or_else(|| anyhow!("Reserved interface count overflow for node {node_name}"))?;
     let last = node_image
-        .reserved_interface_count
+        .interfaces
+        .reserved_count
         .checked_add(data_interface_count)
         .ok_or_else(|| anyhow!("Data interface count overflow for node {node_name}"))?;
     Ok(first..=last)
@@ -223,21 +225,21 @@ mod tests {
     #[test]
     fn data_interfaces_follow_the_reserved_ones() {
         let mut image = data::NodeConfig::ubuntu_linux();
-        image.reserved_interface_count = 2;
+        image.interfaces.reserved_count = 2;
         assert_eq!(data_interface_indices(&image, 3, "n1").unwrap(), 3..=5);
     }
 
     #[test]
     fn a_node_without_data_interfaces_has_none() {
         let mut image = data::NodeConfig::ubuntu_linux();
-        image.reserved_interface_count = 0;
+        image.interfaces.reserved_count = 0;
         assert!(data_interface_indices(&image, 0, "n1").unwrap().is_empty());
     }
 
     #[test]
     fn an_interface_count_past_the_index_range_is_an_error() {
         let mut image = data::NodeConfig::ubuntu_linux();
-        image.reserved_interface_count = u8::MAX;
+        image.interfaces.reserved_count = u8::MAX;
         assert!(data_interface_indices(&image, 1, "n1").is_err());
     }
 

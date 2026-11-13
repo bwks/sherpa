@@ -2,7 +2,7 @@ use std::fmt;
 
 use serde_derive::{Deserialize, Serialize};
 
-/// What QEMU does when a VM's hardware watchdog expires: `watchdog` on a node in the manifest.
+/// What QEMU does when a VM's hardware watchdog expires: `vm.watchdog` on a node in the manifest.
 ///
 /// The watchdog is an emulated Intel 6300ESB timer. It does nothing until the guest arms it, and
 /// the guest must keep resetting it; if the guest hangs and stops, QEMU takes this action. The

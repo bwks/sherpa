@@ -17,17 +17,17 @@ async fn test_update_node_image_success() -> Result<()> {
     // Modify multiple fields
     let mut updated_config = created.clone();
     updated_config.memory = 4096;
-    updated_config.cpu_count = 4;
-    updated_config.data_interface_count = 24;
+    updated_config.cpu.count = 4;
+    updated_config.interfaces.data_count = 24;
 
     // Update the config
     let result = update_node_image(&db, updated_config, DefaultRequest::Keep).await?;
 
     // Verify changes were applied
     assert_eq!(result.memory, 4096, "Memory should be updated");
-    assert_eq!(result.cpu_count, 4, "CPU count should be updated");
+    assert_eq!(result.cpu.count, 4, "CPU count should be updated");
     assert_eq!(
-        result.data_interface_count, 24,
+        result.interfaces.data_count, 24,
         "Interface count should be updated"
     );
     assert_eq!(result.id, original_id, "ID should remain unchanged");
@@ -135,7 +135,7 @@ async fn test_update_refuses_a_ztp_method_the_model_does_not_take() -> Result<()
     let id = created.id.clone().expect("the image has an ID");
 
     let mut edited = created.clone();
-    edited.ztp.mode = Ztp::Volume;
+    edited.ztp.method = Ztp::Volume;
     edited.memory = 8192;
     let error = update_node_image(&db, edited, DefaultRequest::Keep)
         .await
@@ -148,7 +148,7 @@ async fn test_update_refuses_a_ztp_method_the_model_does_not_take() -> Result<()
     let stored = find_node_image_by_id(&db, id)
         .await?
         .expect("the image is stored");
-    assert_eq!(stored.ztp.mode, Ztp::Tftp, "the setting is unchanged");
+    assert_eq!(stored.ztp.method, Ztp::Tftp, "the setting is unchanged");
     assert_eq!(stored.memory, created.memory, "nothing else is written");
     Ok(())
 }
@@ -164,9 +164,9 @@ async fn test_update_stores_a_ztp_setting_the_model_takes() -> Result<()> {
     .await?;
 
     let mut edited = created;
-    edited.ztp.mode = Ztp::Disabled;
+    edited.ztp.method = Ztp::Disabled;
     let stored = update_node_image(&db, edited, DefaultRequest::Keep).await?;
 
-    assert_eq!(stored.ztp.mode, Ztp::Disabled);
+    assert_eq!(stored.ztp.method, Ztp::Disabled);
     Ok(())
 }

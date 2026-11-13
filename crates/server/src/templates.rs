@@ -810,7 +810,7 @@ mod tests {
             actions: NodeActions::for_state(device.state),
             device,
             node_config: NodeConfig::get_model(model),
-            ztp: NodeConfig::get_model(model).ztp.mode,
+            ztp: NodeConfig::get_model(model).ztp.method,
             mgmt_mac: None,
         }
         .render()

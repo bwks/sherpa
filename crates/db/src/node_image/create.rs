@@ -32,7 +32,7 @@ pub async fn upsert_node_image(
     mut config: NodeConfig,
     request: DefaultRequest,
 ) -> Result<NodeConfig> {
-    check_ztp(config.model, config.ztp.mode).context(format!(
+    check_ztp(config.model, config.ztp.method).context(format!(
         "Refusing to store node_image: model={}, kind={}, version={}",
         config.model, config.kind, config.version
     ))?;

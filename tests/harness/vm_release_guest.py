@@ -236,9 +236,9 @@ def check_bare_ubuntu(command, vm, initialize_timeout):
             and release["VERSION_ID"].strip('"') == ubuntu_version(vm["version"]),
             "Guest operating system differs from the manifest")
     print("OS: " + release["PRETTY_NAME"])
-    require(os.cpu_count() == vm["cpu_count"], "Guest vCPU count differs from the manifest")
+    require(os.cpu_count() == vm["cpu"]["count"], "Guest vCPU count differs from the manifest")
     _, disk = command(["lsblk", "-bdno", "SIZE", "/dev/vda"])
-    require(int(disk.strip()) == vm["boot_disk_size"] * 1024**3,
+    require(int(disk.strip()) == vm["boot_disk"]["size"] * 1024**3,
             "Guest disk size differs from the manifest")
     for binary in ("sherpa", "sherpad", "docker", "dockerd", "virsh"):
         code, _ = command(["bash", "-c", 'command -v "$1"', "bash", binary], check=False)

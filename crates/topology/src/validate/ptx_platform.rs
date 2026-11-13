@@ -3,27 +3,32 @@ use anyhow::{Result, bail};
 use crate::NodeExpanded;
 use shared::data::{NodeConfig, NodeModel};
 
-/// Check a node's `platform` and, for `juniper_cevolved`, that its data interfaces fit the
+/// Check a node's `container.platform` and, for `juniper_cevolved`, that its data interfaces fit the
 /// platform and its vCPUs and memory meet cJunosEvolved's minimums.
 ///
 /// # Errors
 ///
-/// Fails when `platform` is set on another model, or the node does not fit its platform.
+/// Fails when `container.platform` is set on another model, or the node does not fit its platform.
 pub fn check_ptx_platform(node: &NodeExpanded, image: &NodeConfig) -> Result<()> {
+    let platform = node
+        .container
+        .as_ref()
+        .and_then(|container| container.platform);
     if image.model != NodeModel::JuniperCevolved {
-        if node.platform.is_some() {
+        if platform.is_some() {
             bail!(
-                "Manifest - node: '{}' sets `platform`, which is only for juniper_cevolved, not {}",
+                "Manifest - node: '{}' sets `container.platform`, which is only for juniper_cevolved, not {}",
                 node.name,
                 image.model
             );
         }
         return Ok(());
     }
-    let platform = node.platform.unwrap_or_default();
+    let platform = platform.unwrap_or_default();
     let interfaces = node
-        .data_interface_count
-        .unwrap_or(image.data_interface_count);
+        .interfaces
+        .data_count
+        .unwrap_or(image.interfaces.data_count);
     if interfaces > platform.max_data_interfaces() {
         bail!(
             "Manifest - node: '{}' has {} data interfaces, but platform {} has at most {}",
@@ -33,13 +38,13 @@ pub fn check_ptx_platform(node: &NodeExpanded, image: &NodeConfig) -> Result<()>
             platform.max_data_interfaces()
         );
     }
-    let cpu_count = node.cpu_count.unwrap_or(image.cpu_count);
-    if cpu_count < image.cpu_count {
+    let cpu_count = node.cpu.count.unwrap_or(image.cpu.count);
+    if cpu_count < image.cpu.count {
         bail!(
             "Manifest - node: '{}' has {} vCPUs; juniper_cevolved needs at least {}",
             node.name,
             cpu_count,
-            image.cpu_count
+            image.cpu.count
         );
     }
     let memory = node.memory.unwrap_or(image.memory);
@@ -57,13 +62,17 @@ pub fn check_ptx_platform(node: &NodeExpanded, image: &NodeConfig) -> Result<()>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::NodeContainer;
     use shared::data::PtxPlatform;
 
     fn node(model: NodeModel, platform: Option<PtxPlatform>) -> NodeExpanded {
         NodeExpanded {
             name: "node1".to_string(),
             model,
-            platform,
+            container: Some(NodeContainer {
+                platform,
+                ..NodeContainer::default()
+            }),
             ..NodeExpanded::default()
         }
     }
@@ -98,7 +107,7 @@ mod tests {
     fn bt_takes_12_data_interfaces_and_bx_36() {
         let image = NodeConfig::get_model(NodeModel::JuniperCevolved);
         let mut bt = node(NodeModel::JuniperCevolved, None);
-        bt.data_interface_count = Some(13);
+        bt.interfaces.data_count = Some(13);
         let error = check_ptx_platform(&bt, &image).unwrap_err();
         assert!(
             error.to_string().contains("platform bt has at most 12"),
@@ -106,7 +115,7 @@ mod tests {
         );
 
         let mut bx = node(NodeModel::JuniperCevolved, Some(PtxPlatform::Bx));
-        bx.data_interface_count = Some(36);
+        bx.interfaces.data_count = Some(36);
         check_ptx_platform(&bx, &image).unwrap();
     }
 
@@ -114,7 +123,7 @@ mod tests {
     fn fewer_vcpus_or_less_memory_than_cevolved_needs_is_refused() {
         let image = NodeConfig::get_model(NodeModel::JuniperCevolved);
         let mut small_cpu = node(NodeModel::JuniperCevolved, None);
-        small_cpu.cpu_count = Some(2);
+        small_cpu.cpu.count = Some(2);
         assert!(check_ptx_platform(&small_cpu, &image).is_err());
 
         let mut small_memory = node(NodeModel::JuniperCevolved, None);
@@ -122,7 +131,7 @@ mod tests {
         assert!(check_ptx_platform(&small_memory, &image).is_err());
 
         let mut large = node(NodeModel::JuniperCevolved, None);
-        large.cpu_count = Some(8);
+        large.cpu.count = Some(8);
         large.memory = Some(16384);
         check_ptx_platform(&large, &image).unwrap();
     }

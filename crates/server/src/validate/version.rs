@@ -2,7 +2,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use std::collections::HashMap;
 use std::path::Path;
 
-use shared::data::{NodeConfig, NodeKind, NodeModel, UnikernelBootMode};
+use shared::data::{NodeConfig, NodeKind, NodeModel, UnikernelSettings};
 use shared::util::image_filename;
 use topology::Node;
 
@@ -101,7 +101,7 @@ pub fn validate_and_resolve_node_versions(
                     &resolved_version,
                     images_dir,
                     &node_image.kind,
-                    node_image.boot_mode.as_ref(),
+                    node_image.unikernel.as_ref(),
                 )?;
             }
         }
@@ -170,9 +170,9 @@ fn validate_disk_image(
     version: &str,
     images_dir: &str,
     kind: &NodeKind,
-    boot_mode: Option<&UnikernelBootMode>,
+    unikernel: Option<&UnikernelSettings>,
 ) -> Result<()> {
-    let filename = image_filename(kind, boot_mode);
+    let filename = image_filename(kind, unikernel);
     let disk_path = format!("{images_dir}/{model}/{version}/{filename}");
     let path = Path::new(&disk_path);
 
@@ -196,8 +196,9 @@ fn validate_disk_image(
 mod tests {
     use super::*;
     use shared::data::{
-        BiosTypes, CpuArchitecture, CpuModels, DiskBuses, InterfaceType, MachineType,
-        MgmtInterfaces, OsVariant, ZtpSettings,
+        BiosTypes, BootDiskSettings, CdromSettings, CpuArchitecture, CpuModels, CpuSettings,
+        DiskBuses, InterfaceSettings, InterfaceType, MachineSettings, MachineType, MgmtInterfaces,
+        OsVariant, UnikernelBootMode, ZtpSettings,
     };
 
     fn create_test_node_image(model: NodeModel, version: &str, kind: NodeKind) -> NodeConfig {
@@ -208,26 +209,36 @@ mod tests {
             repo: Some("test-repo".to_string()),
             os_variant: OsVariant::Linux,
             kind,
-            bios: BiosTypes::SeaBios,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineType::Q35,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
-            ztp: ZtpSettings::default(),
-            data_interface_count: 4,
-            interface_prefix: "eth".to_string(),
-            interface_type: InterfaceType::Virtio,
-            interface_mtu: 1500,
-            first_interface_index: 0,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
             default: false,
-            boot_mode: None,
+            memory: 1024,
+            cpu: CpuSettings {
+                count: 1,
+                architecture: CpuArchitecture::X86_64,
+                model: CpuModels::HostModel,
+                vmx: false,
+            },
+            machine: MachineSettings {
+                kind: MachineType::Q35,
+                bios: BiosTypes::SeaBios,
+            },
+            boot_disk: BootDiskSettings {
+                bus: DiskBuses::Virtio,
+            },
+            cdrom: CdromSettings {
+                image: None,
+                bus: DiskBuses::Sata,
+            },
+            ztp: ZtpSettings::default(),
+            interfaces: InterfaceSettings {
+                data_count: 4,
+                prefix: "eth".to_string(),
+                kind: InterfaceType::Virtio,
+                mtu: 1500,
+                first_index: 0,
+                management: MgmtInterfaces::Eth0,
+                reserved_count: 0,
+            },
+            unikernel: None,
         }
     }
 
@@ -326,7 +337,9 @@ mod tests {
             "latest",
             "/opt/images",
             &NodeKind::Unikernel,
-            Some(&UnikernelBootMode::DirectKernel),
+            Some(&UnikernelSettings {
+                boot_mode: UnikernelBootMode::DirectKernel,
+            }),
         );
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
@@ -341,7 +354,9 @@ mod tests {
             "latest",
             "/opt/images",
             &NodeKind::Unikernel,
-            Some(&UnikernelBootMode::DiskBoot),
+            Some(&UnikernelSettings {
+                boot_mode: UnikernelBootMode::DiskBoot,
+            }),
         );
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();

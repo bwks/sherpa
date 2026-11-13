@@ -567,7 +567,7 @@ fn saved_node_ztp(lab_id: &str, node_name: &str) -> Option<Ztp> {
     }
 }
 
-/// The `ztp` a manifest sets on its node `node_name`.
+/// The `ztp.method` a manifest sets on its node `node_name`.
 fn manifest_node_ztp(manifest: serde_json::Value, node_name: &str) -> anyhow::Result<Option<Ztp>> {
     let manifest: Manifest =
         serde_json::from_value(manifest).context("Failed to deserialize the saved manifest")?;
@@ -575,7 +575,7 @@ fn manifest_node_ztp(manifest: serde_json::Value, node_name: &str) -> anyhow::Re
         .nodes
         .iter()
         .find(|node| node.name == node_name)
-        .and_then(|node| node.ztp))
+        .and_then(|node| node.ztp.method))
 }
 
 // ============================================================================
@@ -1009,7 +1009,7 @@ mod tests {
             "name": "lab",
             "nodes": [
                 { "name": "frr01", "model": "frr_linux" },
-                { "name": "frr02", "model": "frr_linux", "ztp": "disabled" },
+                { "name": "frr02", "model": "frr_linux", "ztp": { "method": "disabled" } },
             ],
         });
         assert_eq!(manifest_node_ztp(manifest.clone(), "frr01").unwrap(), None);

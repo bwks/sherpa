@@ -15,7 +15,8 @@ pub use bridge::{Bridge, BridgeDetailed, BridgeExpanded, BridgeLink, BridgeLinkD
 pub use link::{Link2, LinkDetailed, LinkExpanded};
 pub use manifest::Manifest;
 pub use node::{
-    AuthorizedKeyFile, BinaryFile, BinaryFileData, Node, NodeExpanded, StartupScript, SystemdUnit,
+    AuthorizedKeyFile, BinaryFile, BinaryFileData, ExpandedSsh, Node, NodeContainer, NodeExpanded,
+    NodeReadyCheck, NodeSsh, NodeUnikernel, NodeVm, NodeZtp, StartupScript, SystemdUnit,
     SystemdUnitData, TextFile, TextFileData, VolumeMount,
 };
 pub use provisioner::{

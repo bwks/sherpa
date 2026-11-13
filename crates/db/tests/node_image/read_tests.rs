@@ -5,7 +5,7 @@ use db::{
     find_node_image_by_model_kind_version, get_node_image_versions, list_node_images,
     upsert_node_image,
 };
-use shared::data::{NodeKind, NodeModel};
+use shared::data::{NodeConfig, NodeKind, NodeModel};
 
 use crate::{create_test_config, setup_db};
 
@@ -115,10 +115,10 @@ async fn test_list_configs_returns_all_fields() -> Result<()> {
 
     // Verify key fields
     assert!(ubuntu_config.id.is_some());
-    assert!(ubuntu_config.cpu_count > 0);
+    assert!(ubuntu_config.cpu.count > 0);
     assert!(ubuntu_config.memory > 0);
-    assert!(ubuntu_config.data_interface_count > 0);
-    assert_ne!(ubuntu_config.interface_prefix, "");
+    assert!(ubuntu_config.interfaces.data_count > 0);
+    assert_ne!(ubuntu_config.interfaces.prefix, "");
 
     Ok(())
 }
@@ -157,5 +157,30 @@ async fn image_versions_are_in_order_and_one_is_the_default() -> Result<()> {
         .map(|image| image.version.as_str())
         .collect();
     assert_eq!(defaults, ["3"]);
+    Ok(())
+}
+
+/// Every model's built-in image reads back as it was written: the mapper reads the columns by
+/// position, so a field read out of column order would land in another field or fail to decode.
+#[tokio::test]
+async fn test_every_model_image_reads_back_as_written() -> Result<()> {
+    let db = setup_db().await?;
+
+    for model in NodeModel::to_vec() {
+        let written = NodeConfig::get_model(model);
+        let created = upsert_node_image(&db, written.clone(), DefaultRequest::Keep).await?;
+        let id = created.id.clone().expect("Created image should have an ID");
+
+        let read = find_node_image_by_id(&db, id)
+            .await?
+            .expect("Created image should be found");
+
+        let mut read_json = serde_json::to_value(&read)?;
+        let mut written_json = serde_json::to_value(&written)?;
+        read_json["id"] = serde_json::Value::Null;
+        written_json["id"] = serde_json::Value::Null;
+        assert_eq!(read_json, written_json, "{model}");
+    }
+
     Ok(())
 }

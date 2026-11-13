@@ -47,14 +47,17 @@
 - Node with all optional fields parsed correctly `[unit]` **P0**
 - Node with only required fields (name, model) uses defaults `[unit]` **P0**
 - `ready_timeout` field parsed as u64 seconds `[unit]` **P0**
-- `skip_ready_check` per-node flag parsed `[unit]` **P0**
-- `ztp_config` field parsed (file path or base64) `[unit]` **P0**
-- `volumes` parsed as Vec<VolumeMount> (src, dst) `[unit]` **P1**
+- `ready_check.skip` and `ready_check.port` parsed `[unit]` **P0**
+- `ztp.config` field parsed (file path or base64) `[unit]` **P0**
+- `container.volumes` parsed as Vec<VolumeMount> (src, dst) `[unit]` **P1**
 - `startup_scripts` parsed as Vec<String> (file paths) `[unit]` **P1**
 - `text_files`, `binary_files`, `systemd_units` parsed `[unit]` **P1**
 - `environment_variables` parsed as Vec<String> `[unit]` **P1**
-- `cpu_count`, `memory`, `boot_disk_size` optional overrides `[unit]` **P1**
-- `data_interface_count` optional per-node data interface override parsed correctly `[unit]` **P0**
+- `cpu.count`, `memory`, `boot_disk.size` optional overrides `[unit]` **P1**
+- Every group parsed: `cpu`, `numa`, `boot_disk`, `interfaces`, `ztp`, `ssh`, `ready_check`, `vm`, `container`, `unikernel` `[unit]` **P0**
+- A flat key of an earlier manifest (`cpu_count`, `performance_tuning`, ...) or an old key inside a group is refused with serde's `unknown field` error `[unit]` **P0**
+- A kind group or setting the node's kind does not take is refused, naming the node, the key and the kind (`check_node_kind_settings`) `[unit]` **P0**
+- `interfaces.data_count` optional per-node data interface override parsed correctly `[unit]` **P0**
 - `ipv4_address` and `ipv6_address` are rejected as unknown fields; management addresses are always allocated by the server `[unit]` **P1**
 
 ---

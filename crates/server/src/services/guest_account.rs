@@ -112,7 +112,8 @@ pub(crate) fn supports_guest_account(model: NodeModel, ztp: Ztp) -> bool {
 /// ZTP config, which replaces the generated config the account is written into.
 #[instrument(level = "debug", skip(node, image))]
 pub(crate) fn provisions_owner(node: &topology::NodeExpanded, image: &NodeConfig) -> bool {
-    supports_guest_account(image.model, effective_ztp(node.ztp, image)) && node.ztp_config.is_none()
+    supports_guest_account(image.model, effective_ztp(node.ztp.method, image))
+        && node.ztp.config.is_none()
 }
 
 /// The owner keys a model takes, from each vendor's documentation of user public keys.
@@ -693,7 +694,7 @@ mod tests {
             NodeModel::SonicLinux,
         ] {
             let image = NodeConfig::get_model(model);
-            assert!(supports_guest_account(model, image.ztp.mode), "{model}");
+            assert!(supports_guest_account(model, image.ztp.method), "{model}");
             assert!(!supports_guest_account(model, Ztp::Disabled), "{model}");
         }
         for model in [
@@ -704,7 +705,7 @@ mod tests {
             NodeModel::NanosUnikernel,
         ] {
             assert!(
-                !supports_guest_account(model, NodeConfig::get_model(model).ztp.mode),
+                !supports_guest_account(model, NodeConfig::get_model(model).ztp.method),
                 "{model}"
             );
         }
@@ -812,7 +813,7 @@ mod tests {
             ..Default::default()
         };
         assert!(provisions_owner(&node, &image));
-        node.ztp = Some(Ztp::Disabled);
+        node.ztp.method = Some(Ztp::Disabled);
         assert!(!provisions_owner(&node, &image));
     }
 
@@ -821,14 +822,17 @@ mod tests {
         let node = topology::Node {
             name: "r1".to_owned(),
             model: NodeModel::CiscoIosv,
-            ztp_config: Some("opaque".to_owned()),
+            ztp: topology::NodeZtp {
+                method: None,
+                config: Some("opaque".to_owned()),
+            },
             ..Default::default()
         };
         let nodes = crate::services::up::process_manifest_nodes(&[node]);
         let image = NodeConfig::get_model(NodeModel::CiscoIosv);
         assert!(!provisions_owner(&nodes[0], &image));
         let mut node = nodes[0].clone();
-        node.ztp_config = None;
+        node.ztp.config = None;
         assert!(provisions_owner(&node, &image));
     }
 

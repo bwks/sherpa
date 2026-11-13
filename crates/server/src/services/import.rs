@@ -176,7 +176,7 @@ async fn import_disk_image(
     progress: &ProgressSender,
 ) -> Result<ImportResponse> {
     let kind = db_config.kind.clone();
-    let filename = image_filename(&kind, db_config.boot_mode.as_ref());
+    let filename = image_filename(&kind, db_config.unikernel.as_ref());
     let version_dir = paths.version_dir(request.model, &request.version);
     let version_disk = version_dir.join(filename);
 
@@ -524,7 +524,7 @@ async fn scan_version_dirs(
         }
 
         let version = version_entry.file_name().to_string_lossy().to_string();
-        let filename = image_filename(&scan.kind, scan.config.boot_mode.as_ref());
+        let filename = image_filename(&scan.kind, scan.config.unikernel.as_ref());
         let disk_path = format!("{model_dir}/{version}/{filename}");
 
         // Check if image file exists in this version directory
@@ -875,7 +875,7 @@ pub async fn download_image(
     let download_url =
         resolve_download_url(&request.model, &request.version, request.url.as_deref()).await?;
 
-    let filename = image_filename(&kind, config.boot_mode.as_ref());
+    let filename = image_filename(&kind, config.unikernel.as_ref());
     let version_dir = ImagePaths::installed().version_dir(request.model, &request.version);
     let version_disk = version_dir.join(filename);
     tokio::fs::create_dir_all(&version_dir)
@@ -1147,7 +1147,7 @@ mod tests {
         let config = NodeConfig::get_model(NodeModel::UbuntuLinux);
         paths
             .version_dir(config.model, version)
-            .join(image_filename(&config.kind, config.boot_mode.as_ref()))
+            .join(image_filename(&config.kind, config.unikernel.as_ref()))
     }
 
     async fn schema_db() -> Database {

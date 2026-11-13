@@ -412,8 +412,8 @@ async fn only_admins_may_give_a_container_host_access() -> Result<()> {
     let token = user_token(&server, &mut ws, "alice", false).await?;
 
     for extra in [
-        json!({ "privileged": true }),
-        json!({ "volumes": [{ "src": "/", "dst": "/host" }] }),
+        json!({ "container": { "privileged": true } }),
+        json!({ "container": { "volumes": [{ "src": "/", "dst": "/host" }] } }),
     ] {
         let response = up_container(&mut ws, &token, extra.clone()).await?;
         ensure!(
@@ -434,7 +434,7 @@ async fn the_server_never_reads_a_file_a_manifest_names() -> Result<()> {
     let token = user_token(&server, &mut ws, "alice", false).await?;
 
     for extra in [
-        json!({ "ssh_authorized_key_files": [{ "source": "/etc/ssh/ssh_host_ed25519_key.pub" }] }),
+        json!({ "ssh": { "authorized_key_files": [{ "source": "/etc/ssh/ssh_host_ed25519_key.pub" }] } }),
         json!({ "systemd_units": [{ "name": "x.service", "source": "/etc/passwd", "enabled": true }] }),
         json!({ "binary_files": [{ "source": "/etc/shadow" }] }),
     ] {

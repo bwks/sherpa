@@ -5,8 +5,8 @@ Design: `docs/architecture/TALOS.md`.
 ## Node model
 
 - `talos_linux` defaults: 2 vCPU, 4 GiB, NoCloud ZTP, 20 GB default boot disk, Talos API readiness port, no SSH `[unit]` **P0**
-- A manifest `boot_disk_size` overrides the 20 GB default `[unit]` **P0**
-- VM readiness uses the manifest `ready_port`, else the model port (50000 for Talos, 22 otherwise), in `up`, `resume` and `redeploy` `[unit]` **P0**
+- A manifest `boot_disk.size` overrides the 20 GB default `[unit]` **P0**
+- VM readiness uses the manifest `ready_check.port`, else the model port (50000 for Talos, 22 otherwise), in `up`, `resume` and `redeploy` `[unit]` **P0**
 - Nodes without SSH are left out of the lab SSH config `[unit]` **P0**
 - Talos is not a guest-account (`provision_current_user`) target `[unit]` **P1**
 - `image pull` builds the NoCloud URL from the schematic ID returned by the Image Factory, with or without a leading `v` `[unit]`; the live lookup `[integration]` (needs internet) **P1**

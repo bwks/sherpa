@@ -2,8 +2,9 @@ use askama::Template;
 
 use shared::data::{
     BiosTypes, CloneDisk, ConnectionTypes, CpuArchitecture, CpuFeature, CpuModels, CpuTopology,
-    DiskBuses, DiskCache, DiskDevices, DiskIo, Interface, InterfaceType, MachineType, NodeDisk,
-    NumaMemoryMode, PerformanceTuning, QemuCommand, UnikernelBootMode, WatchdogAction, cpuset,
+    DiskBuses, DiskCache, DiskDevices, DiskIo, Interface, InterfaceType, MachineType, NodeBootDisk,
+    NodeCpu, NodeDisk, NodeInterfaces, NodeNuma, NumaMemoryMode, QemuCommand, UnikernelBootMode,
+    WatchdogAction, cpuset,
 };
 
 #[derive(Debug, Template)]
@@ -50,7 +51,8 @@ impl DomainTemplate {
     }
 }
 
-/// A node's performance tuning, as the domain renders it. The default renders no tuning.
+/// A VM's CPU, NUMA, boot disk and interface tuning, as the domain renders it. The default
+/// renders no tuning.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DomainTuning {
     pub cpu_topology: Option<CpuTopology>,
@@ -71,29 +73,30 @@ pub struct DomainTuning {
 }
 
 impl DomainTuning {
-    /// The domain tuning for a node's performance tuning.
-    pub fn from_tuning(
-        tuning: Option<&PerformanceTuning>,
+    /// The domain tuning for a node's `cpu`, `numa`, `boot_disk` and `interfaces` settings.
+    #[must_use]
+    pub fn from_node_settings(
+        cpu: &NodeCpu,
+        numa: &NodeNuma,
+        boot_disk: &NodeBootDisk,
+        interfaces: &NodeInterfaces,
         management_interface_type: &InterfaceType,
     ) -> Self {
-        let Some(tuning) = tuning else {
-            return Self::default();
-        };
         let management_interface_queues = if *management_interface_type == InterfaceType::Virtio {
-            tuning.interface_queues
+            interfaces.queues
         } else {
             None
         };
         Self {
-            cpu_topology: tuning.cpu_topology,
-            cpu_pinning: tuning.cpu_pinning.clone().unwrap_or_default(),
-            qemu_cpuset: tuning.qemu_cpus.as_deref().map(cpuset),
-            io_thread_cpuset: tuning.disk_io_thread_cpus.as_deref().map(cpuset),
-            numa_node: tuning.numa_node,
-            numa_memory_mode: tuning.numa_memory_mode.unwrap_or_default(),
-            disk_cache: tuning.disk_cache,
-            disk_io: tuning.disk_io,
-            interface_queues: tuning.interface_queues,
+            cpu_topology: cpu.topology,
+            cpu_pinning: cpu.pinning.clone().unwrap_or_default(),
+            qemu_cpuset: cpu.emulator_pinning.as_deref().map(cpuset),
+            io_thread_cpuset: boot_disk.io_thread_cpus.as_deref().map(cpuset),
+            numa_node: numa.node,
+            numa_memory_mode: numa.memory_mode.unwrap_or_default(),
+            disk_cache: boot_disk.cache,
+            disk_io: boot_disk.io,
+            interface_queues: interfaces.queues,
             management_interface_queues,
         }
     }
@@ -144,16 +147,31 @@ mod tests {
     use shared::data::{DiskDrivers, DiskFormats, DiskTargets};
 
     #[test]
-    fn test_domain_tuning_from_performance_tuning() {
-        let tuning = PerformanceTuning {
-            cpu_pinning: Some(vec![9, 25]),
-            qemu_cpus: Some(vec![8, 24]),
-            disk_io_thread_cpus: Some(vec![8]),
-            numa_node: Some(1),
-            interface_queues: Some(4),
-            ..PerformanceTuning::default()
+    fn test_domain_tuning_from_node_settings() {
+        let cpu = NodeCpu {
+            pinning: Some(vec![9, 25]),
+            emulator_pinning: Some(vec![8, 24]),
+            ..NodeCpu::default()
         };
-        let domain = DomainTuning::from_tuning(Some(&tuning), &InterfaceType::Virtio);
+        let numa = NodeNuma {
+            node: Some(1),
+            memory_mode: None,
+        };
+        let disk = NodeBootDisk {
+            io_thread_cpus: Some(vec![8]),
+            ..NodeBootDisk::default()
+        };
+        let interfaces = NodeInterfaces {
+            data_count: None,
+            queues: Some(4),
+        };
+        let domain = DomainTuning::from_node_settings(
+            &cpu,
+            &numa,
+            &disk,
+            &interfaces,
+            &InterfaceType::Virtio,
+        );
         assert_eq!(domain.cpu_pinning, vec![9, 25]);
         assert_eq!(domain.qemu_cpuset.as_deref(), Some("8,24"));
         assert_eq!(domain.io_thread_cpuset.as_deref(), Some("8"));
@@ -164,23 +182,40 @@ mod tests {
         assert!(domain.has_cputune());
 
         // An e1000 management interface has no queues to set.
-        let e1000 = DomainTuning::from_tuning(Some(&tuning), &InterfaceType::E1000);
+        let e1000 = DomainTuning::from_node_settings(
+            &cpu,
+            &numa,
+            &disk,
+            &interfaces,
+            &InterfaceType::E1000,
+        );
         assert_eq!(e1000.management_interface_queues, None);
         assert_eq!(e1000.interface_queues, Some(4));
 
-        let untuned = DomainTuning::from_tuning(None, &InterfaceType::Virtio);
+        let untuned = DomainTuning::from_node_settings(
+            &NodeCpu::default(),
+            &NodeNuma::default(),
+            &NodeBootDisk::default(),
+            &NodeInterfaces::default(),
+            &InterfaceType::Virtio,
+        );
         assert_eq!(untuned, DomainTuning::default());
         assert!(!untuned.has_cputune());
     }
 
     #[test]
     fn test_domain_tuning_takes_the_numa_memory_mode() {
-        let tuning = PerformanceTuning {
-            numa_node: Some(0),
-            numa_memory_mode: Some(NumaMemoryMode::Preferred),
-            ..PerformanceTuning::default()
+        let numa = NodeNuma {
+            node: Some(0),
+            memory_mode: Some(NumaMemoryMode::Preferred),
         };
-        let domain = DomainTuning::from_tuning(Some(&tuning), &InterfaceType::Virtio);
+        let domain = DomainTuning::from_node_settings(
+            &NodeCpu::default(),
+            &numa,
+            &NodeBootDisk::default(),
+            &NodeInterfaces::default(),
+            &InterfaceType::Virtio,
+        );
         assert_eq!(domain.numa_node, Some(0));
         assert_eq!(domain.numa_memory_mode, NumaMemoryMode::Preferred);
     }

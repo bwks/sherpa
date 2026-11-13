@@ -18,10 +18,10 @@ const ALLOWED_CONTROLLER_COUNTS: [usize; 2] = [1, 3];
 ///
 /// - cluster names are unique, lowercase DNS labels;
 /// - every cluster has one or three controllers;
-/// - every member is a defined `talos_linux` node without `ztp_config` (Sherpa generates
+/// - every member is a defined `talos_linux` node without `ztp.config` (Sherpa generates
 ///   member machine configs), listed once across all clusters;
 /// - `oidc` names a defined `keycloak_server` node, and `vault` a defined `hashicorp_vault` node
-///   without `ztp_config` (Sherpa configures only the Vault it initialises);
+///   without `ztp.config` (Sherpa configures only the Vault it initialises);
 /// - there are no more clusters with three controllers than shared VIP addresses;
 /// - there are no more Cilium clusters than blocks of load balancer addresses.
 ///
@@ -74,9 +74,9 @@ pub fn validate_talos_clusters(manifest: &Manifest) -> Result<()> {
                     node.model
                 );
             }
-            if node.ztp_config.is_some() {
+            if node.ztp.config.is_some() {
                 bail!(
-                    "Manifest - node '{member}' sets ztp_config but joins talos cluster '{}'; Sherpa generates the machine configs of cluster nodes",
+                    "Manifest - node '{member}' sets ztp.config but joins talos cluster '{}'; Sherpa generates the machine configs of cluster nodes",
                     cluster.name
                 );
             }
@@ -103,9 +103,9 @@ pub fn validate_talos_clusters(manifest: &Manifest) -> Result<()> {
                 vault,
                 NodeModel::HashicorpVault,
             )?;
-            if node.ztp_config.is_some() {
+            if node.ztp.config.is_some() {
                 bail!(
-                    "Manifest - talos cluster '{}' sets vault = '{vault}', but that node sets ztp_config; Sherpa configures only the Vault it initialises with its own config",
+                    "Manifest - talos cluster '{}' sets vault = '{vault}', but that node sets ztp.config; Sherpa configures only the Vault it initialises with its own config",
                     cluster.name
                 );
             }
@@ -263,9 +263,9 @@ nodes = [
         assert!(error(&toml).contains("only talos_linux nodes"));
         let toml = VALID.replace(
             r#"{ name = "w1", model = "talos_linux" }"#,
-            r#"{ name = "w1", model = "talos_linux", ztp_config = "w1.yaml" }"#,
+            r#"{ name = "w1", model = "talos_linux", ztp = { config = "w1.yaml" } }"#,
         );
-        assert!(error(&toml).contains("sets ztp_config"));
+        assert!(error(&toml).contains("sets ztp.config"));
     }
 
     #[test]
@@ -363,8 +363,8 @@ nodes = [
         let toml = with_cluster(r#"{ name = "k8s", controllers = ["cp1"], vault = "vault01" }"#)
             .replace(
                 r#"{ name = "vault01", model = "hashicorp_vault" }"#,
-                r#"{ name = "vault01", model = "hashicorp_vault", ztp_config = "dWk=" }"#,
+                r#"{ name = "vault01", model = "hashicorp_vault", ztp = { config = "dWk=" } }"#,
             );
-        assert!(error(&toml).contains("sets ztp_config"));
+        assert!(error(&toml).contains("sets ztp.config"));
     }
 }

@@ -71,8 +71,8 @@ def main():
     parser.add_argument("--initialize-timeout", type=int, default=900)
     args = parser.parse_args()
     require(os.geteuid() == 0, "Guest checks require passwordless sudo")
-    vm = {"version": args.version, "cpu_count": args.cpu_count,
-          "boot_disk_size": args.boot_disk_size}
+    vm = {"version": args.version, "cpu": {"count": args.cpu_count},
+          "boot_disk": {"size": args.boot_disk_size}}
     check_bare_ubuntu(run, vm, args.initialize_timeout)
     print("PASS bare Ubuntu baseline, cloud-init and nested KVM")
     check_network()

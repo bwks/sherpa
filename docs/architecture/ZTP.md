@@ -26,10 +26,11 @@ be stored.
 
 The word is the same everywhere: the serde name, `Display` (derived with `strum`, held equal to
 serde by `crates/shared/tests/enum_strings.rs`), the `node_image.ztp` column, the API field
-`ztp`, the manifest node field `ztp`, the web form's option value and the CLI table.
+`ztp.method`, the manifest node key `ztp.method`, the web form's option value and the CLI table.
 
-`ZtpSettings` holds it as `mode`, serialised as `ztp`, beside `ztp_username`, `ztp_password` and
-`ztp_password_auth`, which are only displayed.
+`ZtpSettings`, the image's `ztp` group, holds it as `method`, beside `username`, `password` and
+`password_auth`, which are only displayed. In the `node_image` table the setting is the `ztp`
+column and the credentials keep their `ztp_` column names.
 
 ## Methods per model
 
@@ -64,25 +65,26 @@ when the model lists it. Its error names the model, the value and the allowed va
 |---|---|---|
 | Every image write | `db::upsert_node_image`, `db::update_node_image` | import, scan, download, pull, set-default and the web form all write through these two |
 | Web form | `server::validate::validate_node_image_update` | before the image lock and the write, for the form's error message |
-| Manifest | `topology::validate::check_node_ztp` | `sherpa validate`, for a node that sets `ztp` |
+| Manifest | `topology::validate::check_node_ztp` | `sherpa validate`, for a node that sets `ztp.method` |
 | `up` | `server::validate::validate_node_ztp`, from `plan_lab` | phase 2, before anything is created |
 | Redeploy | `validate_node_ztp`, from `load_node` | before the node is torn down |
 
-`validate_node_ztp` checks the setting the node runs with, and the node's `ztp_config` against
+`validate_node_ztp` checks the setting the node runs with, and the node's `ztp.config` against
 it:
 
-- `tftp`, `cdrom`, `disk`, `usb`, `nocloud` and `volume` use a `ztp_config` in place of the
+- `tftp`, `cdrom`, `disk`, `usb`, `nocloud` and `volume` use a `ztp.config` in place of the
   generated config.
 - `cloud-init`, `ignition` and `http` do not, and a node that sets one is refused.
-- With `disabled` a `ztp_config` is refused, except on `hashicorp_vault`, whose `ztp_config` is
+- With `disabled` a `ztp.config` is refused, except on `hashicorp_vault`, whose `ztp.config` is
   its own `config.hcl`, a start setting.
 - A Talos cluster member with `disabled` is refused: the machine config Sherpa generates for it
   would not reach it.
 
 ## The setting a node runs with
 
-A manifest node may set `ztp` to any of the ten words (`topology::Node.ztp`, carried to
-`NodeExpanded.ztp`). `shared::validators::effective_ztp` resolves the two sources: the node's
+A manifest node may set `ztp.method` to any of the ten words (`topology::Node.ztp.method`,
+carried to `NodeExpanded.ztp.method`). Unikernels take no `ztp` group
+(`check_node_kind_settings`). `shared::validators::effective_ztp` resolves the two sources: the node's
 when it sets one, or else its image's. Every reader below takes its result; none reads the image's
 setting directly.
 
@@ -116,9 +118,9 @@ error saying the setting was not validated. It is reached only if a write or a p
 | `nokia_srlinux` | image repo, privileged, user `0:0`, environment, command | `config.json` and its mount |
 | `juniper_cevolved` | image repo, privileged, the `CPTX_*` environment its entrypoint reads | `juniper.conf` in `configdisk` and its mount |
 | `frr_linux` | image repo, privileged, environment | the `daemons` file, `frr.conf`, `sherpa-init.sh`, their mounts, and the command that runs the script |
-| `hashicorp_vault` | image, `config.hcl` (generated, or the node's `ztp_config`), its mount, environment, command, capabilities | nothing; its only setting is `disabled` |
+| `hashicorp_vault` | image, `config.hcl` (generated, or the node's `ztp.config`), its mount, environment, command, capabilities | nothing; its only setting is `disabled` |
 | `keycloak_server` | image, user, environment, command; needs the lab certificate | nothing |
-| `gitlab_ce` | image, command, `shm_size` | nothing |
+| `gitlab_ce` | image, command, `container.shm_size` | nothing |
 | `forgejo_forge`, `surreal_db`, `mongo_db`, `nats_bus` | image, command | nothing |
 | `mysql_db`, `postgresql_db`, `generic_container` | the manifest's settings | nothing |
 

@@ -348,7 +348,7 @@ pub fn take_custom_ztp_config(
     node: &mut topology::NodeExpanded,
     progress: &ProgressSender,
 ) -> Option<String> {
-    match node.ztp_config.take() {
+    match node.ztp.config.take() {
         Some(config) => {
             tracing::info!(node_name = %node.name, "Using custom ZTP config for node");
             let _ = progress.send_status(
@@ -415,18 +415,19 @@ pub(crate) fn generate_container_ztp(
         node_ipv4_address,
         cert_paths,
     };
+    let container = node.container.clone().unwrap_or_default();
     let mut setup = ContainerSetup {
         image: node.image.clone().unwrap_or_default(),
         env_vars: node.environment_variables.clone().unwrap_or_default(),
         volumes: Vec::new(),
-        commands: node.commands.clone().unwrap_or_default(),
+        commands: container.commands.unwrap_or_default(),
         capabilities: Vec::new(),
-        privileged: node.privileged.unwrap_or(false),
-        shm_size: node.shm_size,
-        user: node.user.clone(),
+        privileged: container.privileged.unwrap_or(false),
+        shm_size: container.shm_size,
+        user: container.user,
     };
 
-    let setting = effective_ztp(node.ztp, node_image);
+    let setting = effective_ztp(node.ztp.method, node_image);
     container_model_setup(node, node_image, &ztp, setting, &mut setup)?;
     add_container_volumes(node, setting, cert_paths, &mut setup.volumes);
 
@@ -505,7 +506,7 @@ fn container_start_settings(
             if setup.shm_size.is_none() {
                 setup.shm_size = Some(CONTAINER_GITLAB_CE_SHM_SIZE * 1024 * 1024);
             }
-            node.shm_size = setup.shm_size;
+            node.container.get_or_insert_default().shm_size = setup.shm_size;
         }
         data::NodeModel::SurrealDb => app_container(node, setup, CONTAINER_SURREAL_DB_COMMANDS),
         data::NodeModel::MongoDb => app_container(node, setup, CONTAINER_MONGO_DB_COMMANDS),
@@ -557,7 +558,10 @@ fn add_container_volumes(
                 | data::NodeModel::SurrealDb
                 | data::NodeModel::HashicorpVault
         );
-    if let Some(node_volumes) = &node.volumes
+    if let Some(node_volumes) = node
+        .container
+        .as_ref()
+        .and_then(|container| container.volumes.as_ref())
         && !drops_manifest_volumes
     {
         *volumes = node_volumes
@@ -589,9 +593,9 @@ fn arista_ceos_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSet
         .collect();
 
     // Update node fields for consistency
-    node.privileged = Some(setup.privileged);
+    node.container.get_or_insert_default().privileged = Some(setup.privileged);
     node.environment_variables = Some(setup.env_vars.clone());
-    node.commands = Some(setup.commands.clone());
+    node.container.get_or_insert_default().commands = Some(setup.commands.clone());
 }
 
 /// cEOS ZTP: its startup config, mounted read-only and copied into flash on first boot.
@@ -636,8 +640,8 @@ fn arista_ceos_volume_ztp(
     setup.volumes = vec![format!("{}:{}:ro", ztp_volume.src, ztp_volume.dst)];
     setup.commands = ceos_startup_commands();
 
-    node.volumes = Some(vec![ztp_volume]);
-    node.commands = Some(setup.commands.clone());
+    node.container.get_or_insert_default().volumes = Some(vec![ztp_volume]);
+    node.container.get_or_insert_default().commands = Some(setup.commands.clone());
     Ok(())
 }
 
@@ -655,10 +659,13 @@ fn srlinux_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup) 
         .collect();
 
     // Update node fields
-    node.privileged = Some(setup.privileged);
-    node.user.clone_from(&setup.user);
+    node.container.get_or_insert_default().privileged = Some(setup.privileged);
+    node.container
+        .get_or_insert_default()
+        .user
+        .clone_from(&setup.user);
     node.environment_variables = Some(setup.env_vars.clone());
-    node.commands = Some(setup.commands.clone());
+    node.container.get_or_insert_default().commands = Some(setup.commands.clone());
 }
 
 /// SR Linux ZTP: its startup config as JSON, mounted over the image's.
@@ -698,7 +705,7 @@ fn srlinux_volume_ztp(
     util::create_file(&ztp_config, srlinux_config)?;
 
     setup.volumes = vec![format!("{}:{}", ztp_volume.src, ztp_volume.dst)];
-    node.volumes = Some(vec![ztp_volume]);
+    node.container.get_or_insert_default().volumes = Some(vec![ztp_volume]);
     Ok(())
 }
 
@@ -711,17 +718,20 @@ fn cevolved_start(
 ) -> Result<()> {
     // The entrypoint waits for this many data interfaces before it starts the EVO VM.
     let data_interfaces =
-        effective_data_interface_count(&node.name, node.data_interface_count, node_image)?;
+        effective_data_interface_count(&node.name, node.interfaces.data_count, node_image)?;
     setup.privileged = true;
     setup.env_vars = cevolved_env_vars(
-        node.platform.unwrap_or_default(),
+        node.container
+            .as_ref()
+            .and_then(|container| container.platform)
+            .unwrap_or_default(),
         data_interfaces,
-        node.cpu_count.unwrap_or(node_image.cpu_count),
+        node.cpu.count.unwrap_or(node_image.cpu.count),
         node.memory.unwrap_or(node_image.memory),
     );
 
     // Update node fields for consistency
-    node.privileged = Some(setup.privileged);
+    node.container.get_or_insert_default().privileged = Some(setup.privileged);
     node.environment_variables = Some(setup.env_vars.clone());
     Ok(())
 }
@@ -749,7 +759,7 @@ fn cevolved_volume_ztp(
             hostname: node.name.clone(),
             user: sherpa_user.clone(),
             owner: guest_account::owner_user(guest_account, KeyFormat::Junos)?,
-            mgmt_interface: node_image.management_interface.to_string(),
+            mgmt_interface: node_image.interfaces.management.to_string(),
             mgmt_ipv4_address: Some(node_ipv4_address),
             mgmt_ipv4: mgmt_net.v4.clone(),
             mgmt_ipv6_address: node.ipv6_address,
@@ -771,7 +781,7 @@ fn cevolved_volume_ztp(
     )?;
 
     setup.volumes = vec![format!("{}:{}:ro", config_volume.src, config_volume.dst)];
-    node.volumes = Some(vec![config_volume]);
+    node.container.get_or_insert_default().volumes = Some(vec![config_volume]);
     Ok(())
 }
 
@@ -784,7 +794,7 @@ fn frr_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup) {
         .map(std::string::ToString::to_string)
         .collect();
 
-    node.privileged = Some(setup.privileged);
+    node.container.get_or_insert_default().privileged = Some(setup.privileged);
     node.environment_variables = Some(setup.env_vars.clone());
 }
 
@@ -854,8 +864,9 @@ fn frr_volume_ztp(
     ];
     setup.commands = vec!["/bin/sh".to_string(), FRR_ZTP_STARTUP_MOUNT.to_string()];
 
-    node.volumes = Some(vec![daemons_volume, config_volume, startup_volume]);
-    node.commands = Some(setup.commands.clone());
+    node.container.get_or_insert_default().volumes =
+        Some(vec![daemons_volume, config_volume, startup_volume]);
+    node.container.get_or_insert_default().commands = Some(setup.commands.clone());
     Ok(())
 }
 
@@ -865,7 +876,7 @@ fn app_container(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup, 
         .iter()
         .map(std::string::ToString::to_string)
         .collect();
-    node.commands = Some(setup.commands.clone());
+    node.container.get_or_insert_default().commands = Some(setup.commands.clone());
 }
 
 /// Vault: its config, serving the API over TLS with the lab certificate unless the config is
@@ -925,8 +936,8 @@ fn vault_container(
     setup.capabilities = model_capabilities(node.model);
 
     node.environment_variables = Some(setup.env_vars.clone());
-    node.volumes = Some(vec![config_volume]);
-    node.commands = Some(setup.commands.clone());
+    node.container.get_or_insert_default().volumes = Some(vec![config_volume]);
+    node.container.get_or_insert_default().commands = Some(setup.commands.clone());
     Ok(())
 }
 
@@ -953,8 +964,11 @@ fn keycloak_container(
         .collect();
 
     node.environment_variables = Some(setup.env_vars.clone());
-    node.commands = Some(setup.commands.clone());
-    node.user.clone_from(&setup.user);
+    node.container.get_or_insert_default().commands = Some(setup.commands.clone());
+    node.container
+        .get_or_insert_default()
+        .user
+        .clone_from(&setup.user);
     Ok(())
 }
 
@@ -1050,10 +1064,10 @@ pub(crate) fn generate_vm_ztp(
         cert_paths,
         guest_account,
     };
-    let setting = effective_ztp(node.ztp, node_image);
+    let setting = effective_ztp(node.ztp.method, node_image);
     let media = generate_vm_ztp_media(node, node_image, &ztp, setting)?;
     // The image's own CD-ROM, such as vEOS's Aboot, unless the ZTP method brings one.
-    let image_cdrom = node_image.cdrom.as_ref().map(|src_iso| {
+    let image_cdrom = node_image.cdrom.image.as_ref().map(|src_iso| {
         (
             format!(
                 "{}/{}/{}/{}",
@@ -1176,9 +1190,9 @@ fn vm_disks(
     node_name_with_lab: &str,
     media: &VmZtpMedia,
 ) -> Result<(Vec<data::CloneDisk>, Vec<data::NodeDisk>)> {
-    let hdd_bus = &node_image.hdd_bus;
-    let cdrom_bus = &node_image.cdrom_bus;
-    let filename = util::image_filename(&node_image.kind, node_image.boot_mode.as_ref());
+    let hdd_bus = &node_image.boot_disk.bus;
+    let cdrom_bus = &node_image.cdrom.bus;
+    let filename = util::image_filename(&node_image.kind, node_image.unikernel.as_ref());
     let dst_boot_disk = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-hdd.qcow2");
     let mut clone_disks = vec![data::CloneDisk {
         src: format!(
@@ -1186,8 +1200,8 @@ fn vm_disks(
             images_dir, node_image.model, node_image.version, filename
         ),
         dst: dst_boot_disk.clone(),
-        disk_size: node.boot_disk_size,
-        method: node.boot_disk_clone_method.unwrap_or_default(),
+        disk_size: node.boot_disk.size,
+        method: node.boot_disk.clone_method.unwrap_or_default(),
     }];
     let mut disks: Vec<data::NodeDisk> = vec![];
 
@@ -2262,7 +2276,7 @@ fn generate_tftp_ztp(
                     hostname: node.name.clone(),
                     user: sherpa_user.clone(),
                     owner: guest_account::owner_user(guest_account, KeyFormat::Junos)?,
-                    mgmt_interface: node_image.management_interface.to_string(),
+                    mgmt_interface: node_image.interfaces.management.to_string(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
                     mgmt_ipv6_address: node.ipv6_address,
@@ -2357,7 +2371,7 @@ fn cdrom_config(
             hostname: node.name.clone(),
             user: sherpa_user.clone(),
             owner: guest_account::owner_user(guest_account, KeyFormat::Junos)?,
-            mgmt_interface: node_image.management_interface.to_string(),
+            mgmt_interface: node_image.interfaces.management.to_string(),
             mgmt_ipv4_address: Some(node_ipv4_address),
             mgmt_ipv4: mgmt_net.v4.clone(),
             mgmt_ipv6_address: node.ipv6_address,
@@ -2399,7 +2413,7 @@ fn iosxe_config(
         hostname: node.name.clone(),
         user,
         owner: guest_account::owner_user(guest_account, KeyFormat::CiscoMd5)?,
-        mgmt_interface: node_image.management_interface.to_string(),
+        mgmt_interface: node_image.interfaces.management.to_string(),
         dns: dns.clone(),
         license_boot_command,
         mgmt_ipv4_address: Some(node_ipv4_address),
@@ -2598,7 +2612,7 @@ fn iosv_config(
     let mut user = sherpa_user.clone();
     user.ssh_public_key.key = util::pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
     let owner = guest_account::owner_user(guest_account, KeyFormat::CiscoMd5)?;
-    let mgmt_interface = node_image.management_interface.to_string();
+    let mgmt_interface = node_image.interfaces.management.to_string();
     let rendered = if node.model == data::NodeModel::CiscoIosvl2 {
         template::CiscoIosvl2ZtpTemplate {
             hostname: node.name.clone(),
@@ -2731,7 +2745,7 @@ fn mikrotik_config_disk(
             user: sherpa_user.clone(),
             owner,
             owner_key_files: owner_key_paths,
-            mgmt_interface: node_image.management_interface.to_string(),
+            mgmt_interface: node_image.interfaces.management.to_string(),
             dns: dns.clone(),
             mgmt_ipv4: mgmt_net.v4.clone(),
             mgmt_ipv4_address: Some(node_ipv4_address),
@@ -2832,7 +2846,7 @@ fn generate_usb_ztp(
                     hostname: node.name.clone(),
                     user,
                     owner: guest_account::owner_user(guest_account, KeyFormat::Junos)?,
-                    mgmt_interface: node_image.management_interface.to_string(),
+                    mgmt_interface: node_image.interfaces.management.to_string(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
                     mgmt_ipv6_address: node.ipv6_address,
@@ -2996,12 +3010,12 @@ fn ignition_sherpa_user(
         user.ssh_public_key.key,
         user.ssh_public_key.comment.clone().unwrap_or_default()
     )];
-    let manifest_authorized_key_files = node.ssh_authorized_key_files.clone().unwrap_or_default();
+    let manifest_authorized_key_files = node.ssh.authorized_key_files.clone().unwrap_or_default();
     for key in &manifest_authorized_key_files {
         validate_ssh_key(key)
-            .with_context(|| format!("Node '{}' ssh_authorized_key_files", node.name))?;
+            .with_context(|| format!("Node '{}' ssh.authorized_key_files", node.name))?;
     }
-    authorized_keys.extend(node.ssh_authorized_keys.clone().unwrap_or_default());
+    authorized_keys.extend(node.ssh.authorized_keys.clone().unwrap_or_default());
     authorized_keys.extend(manifest_authorized_key_files);
 
     Ok(template::IgnitionUser {
@@ -3192,32 +3206,37 @@ pub fn build_domain_template(
     let vnc_port = resources
         .vnc_port
         .with_context(|| format!("Node '{}' has no VNC port reserved", node.name))?;
-    let tuning = node.performance_tuning.as_ref();
-    let cpu_model = match tuning.and_then(|tuning| tuning.cpu_mode) {
+    let cpu_model = match node.cpu.mode {
         Some(mode) => data::CpuModels::from(mode),
-        None => node_image.cpu_model.clone(),
+        None => node_image.cpu.model.clone(),
     };
     let management_interface_type =
-        management_interface_type_for_model(node_image.model, &node_image.interface_type);
+        management_interface_type_for_model(node_image.model, &node_image.interfaces.kind);
 
     Ok(template::DomainTemplate {
         qemu_bin: qemu_bin.to_string(),
         name: node_name_with_lab,
         memory,
-        cpu_architecture: node_image.cpu_architecture.clone(),
+        cpu_architecture: node_image.cpu.architecture.clone(),
         cpu_model,
-        machine_type: node_image.machine_type.clone(),
+        machine_type: node_image.machine.kind.clone(),
         cpu_count,
-        vmx_enabled: node_image.vmx_enabled,
-        bios: node_image.bios.clone(),
+        vmx_enabled: node_image.cpu.vmx,
+        bios: node_image.machine.bios.clone(),
         disks: parts.disks,
         interfaces: parts.interfaces,
-        interface_type: node_image.interface_type.clone(),
-        tuning: template::DomainTuning::from_tuning(tuning, &management_interface_type),
+        interface_type: node_image.interfaces.kind.clone(),
+        tuning: template::DomainTuning::from_node_settings(
+            &node.cpu,
+            &node.numa,
+            &node.boot_disk,
+            &node.interfaces,
+            &management_interface_type,
+        ),
         management_interface_type,
         reserved_interface_type: reserved_interface_type_for_model(
             node_image.model,
-            &node_image.interface_type,
+            &node_image.interfaces.kind,
         ),
         loopback_ipv4: parts.loopback_ipv4,
         telnet_port: TELNET_PORT,
@@ -3234,7 +3253,7 @@ pub fn build_domain_template(
         video_model: video_model.to_owned(),
         video_vram,
         vnc_port,
-        watchdog: node.watchdog,
+        watchdog: node.vm.as_ref().and_then(|vm| vm.watchdog),
     })
 }
 
@@ -3629,14 +3648,11 @@ pub fn generate_unikernel_setup(
     lab_id: &str,
     images_dir: &str,
 ) -> Result<UnikernelSetupResult> {
-    let boot_mode = node_image
-        .boot_mode
-        .clone()
-        .unwrap_or(data::UnikernelBootMode::DirectKernel);
+    let boot_mode = node_image.unikernel.clone().unwrap_or_default().boot_mode;
 
     let mac_address = util::random_mac(KVM_OUI);
     let version = node.version.as_deref().unwrap_or(&node_image.version);
-    let filename = util::image_filename(&node_image.kind, node_image.boot_mode.as_ref());
+    let filename = util::image_filename(&node_image.kind, node_image.unikernel.as_ref());
 
     match boot_mode {
         data::UnikernelBootMode::DiskBoot => {
@@ -3652,7 +3668,7 @@ pub fn generate_unikernel_setup(
             let clone_disk = data::CloneDisk {
                 src: src_disk,
                 dst: dst_disk.clone(),
-                disk_size: node.boot_disk_size,
+                disk_size: node.boot_disk.size,
                 method: data::DiskImageCloneMethod::Copy,
             };
 
@@ -3707,32 +3723,32 @@ pub fn build_unikernel_domain_template(
     kernel_path: Option<String>,
 ) -> template::UnikernelDomainTemplate {
     let node_name_with_lab = format!("{}-{}", node.name, lab_id);
-    let boot_mode = node_image
-        .boot_mode
-        .clone()
-        .unwrap_or(data::UnikernelBootMode::DirectKernel);
+    let boot_mode = node_image.unikernel.clone().unwrap_or_default().boot_mode;
 
     // Only the manifest sets a kernel cmdline: Unikraft's pre-built images take their address
     // by DHCP, from the static MAC-to-IP binding on the Sherpa router, and treat the cmdline as
     // the application path.
-    let kernel_cmdline = node.kernel_cmdline.clone();
+    let kernel_cmdline = node
+        .unikernel
+        .as_ref()
+        .and_then(|unikernel| unikernel.cmdline.clone());
 
     template::UnikernelDomainTemplate {
         qemu_bin: qemu_bin.to_string(),
         name: node_name_with_lab,
         memory: node.memory.unwrap_or(node_image.memory),
-        cpu_architecture: node_image.cpu_architecture.clone(),
-        cpu_model: node_image.cpu_model.clone(),
-        machine_type: node_image.machine_type.clone(),
-        cpu_count: node.cpu_count.unwrap_or(node_image.cpu_count),
+        cpu_architecture: node_image.cpu.architecture.clone(),
+        cpu_model: node_image.cpu.model.clone(),
+        machine_type: node_image.machine.kind.clone(),
+        cpu_count: node.cpu.count.unwrap_or(node_image.cpu.count),
         boot_mode,
         kernel_path,
         kernel_cmdline,
         disks: parts.disks,
         interfaces: parts.interfaces,
-        interface_type: node_image.interface_type.clone(),
-        management_interface_type: node_image.interface_type.clone(),
-        reserved_interface_type: node_image.interface_type.clone(),
+        interface_type: node_image.interfaces.kind.clone(),
+        management_interface_type: node_image.interfaces.kind.clone(),
+        reserved_interface_type: node_image.interfaces.kind.clone(),
         loopback_ipv4: parts.loopback_ipv4,
         telnet_port: TELNET_PORT,
         management_network: parts.management_network,
@@ -4683,8 +4699,8 @@ mod tests {
         assert!(xml.contains("<model type='virtio' heads='1'/>"));
         assert!(xml.contains("OVMF_CODE_4M.fd"));
         assert!(xml.find("<boot dev='cdrom'/>").unwrap() < xml.find("<boot dev='hd'/>").unwrap());
-        assert_eq!(config.ztp.mode, data::Ztp::CloudInit);
-        assert!(config.cdrom.is_none());
+        assert_eq!(config.ztp.method, data::Ztp::CloudInit);
+        assert!(config.cdrom.image.is_none());
     }
 
     /// The sherpa login every Ignition test uses, with a fixture key.
@@ -5060,7 +5076,7 @@ mod tests {
             node: &mut topology::NodeExpanded,
             ztp: Option<data::Ztp>,
         ) -> Result<ContainerZtpResult> {
-            node.ztp = ztp;
+            node.ztp.method = ztp;
             generate_container_ztp(
                 node,
                 &data::NodeConfig::get_model(node.model),
@@ -5112,7 +5128,7 @@ mod tests {
     fn a_vm_with_ztp_off_gets_no_media_and_a_disabled_record() {
         let mut lab = ZtpLab::new();
         let mut node = named_node("vm01", data::NodeModel::UbuntuLinux);
-        node.ztp = Some(data::Ztp::Disabled);
+        node.ztp.method = Some(data::Ztp::Disabled);
         let image = data::NodeConfig::get_model(data::NodeModel::UbuntuLinux);
 
         let result = generate_vm_ztp(
@@ -5174,7 +5190,7 @@ mod tests {
     fn volume_on_a_vm_is_an_error_not_a_skipped_step() {
         let lab = ZtpLab::new();
         let mut node = named_node("vm01", data::NodeModel::UbuntuLinux);
-        node.ztp = Some(data::Ztp::Volume);
+        node.ztp.method = Some(data::Ztp::Volume);
         let image = data::NodeConfig::get_model(data::NodeModel::UbuntuLinux);
 
         let error = generate_vm_ztp(
@@ -5447,7 +5463,7 @@ mod tests {
             let lab = ZtpLab::new();
             let mut node = named_node("app01", model);
             node.image = Some("example/app".to_owned());
-            node.commands = Some(strings(&["serve"]));
+            node.container.get_or_insert_default().commands = Some(strings(&["serve"]));
             node.environment_variables = Some(strings(&["KEY=value"]));
             let result = lab.container(&mut node, None).unwrap();
             assert_eq!(result.ztp_record.ztp, data::Ztp::Disabled, "{model}");
@@ -5462,7 +5478,7 @@ mod tests {
     fn vault_keeps_its_own_config_as_a_start_setting_with_ztp_off() {
         let lab = ZtpLab::new();
         let mut node = named_node("vault01", data::NodeModel::HashicorpVault);
-        node.ztp_config = Some("ui = true".to_owned());
+        node.ztp.config = Some("ui = true".to_owned());
 
         let result = lab.container(&mut node, None).unwrap();
 
@@ -5514,13 +5530,13 @@ mod tests {
         for model in MOUNTED_CONFIG_MODELS {
             let lab = ZtpLab::new();
             let mut node = named_node("node1", model);
-            node.volumes = Some(manifest_volume());
+            node.container.get_or_insert_default().volumes = Some(manifest_volume());
             let off = lab.container(&mut node, Some(data::Ztp::Disabled)).unwrap();
             assert_eq!(off.volumes, ["/srv/own.conf:/etc/own.conf"], "{model}");
 
             let lab = ZtpLab::new();
             let mut node = named_node("node1", model);
-            node.volumes = Some(manifest_volume());
+            node.container.get_or_insert_default().volumes = Some(manifest_volume());
             let with_ztp = lab.container(&mut node, None).unwrap();
             assert!(
                 !with_ztp
@@ -5543,8 +5559,8 @@ mod tests {
         ] {
             let lab = ZtpLab::new();
             let mut node = named_node("app01", model);
-            node.volumes = Some(manifest_volume());
-            node.ztp_config = Some("ui = true".to_owned());
+            node.container.get_or_insert_default().volumes = Some(manifest_volume());
+            node.ztp.config = Some("ui = true".to_owned());
             let result = lab.container(&mut node, None).unwrap();
             assert!(
                 !result
@@ -5558,7 +5574,7 @@ mod tests {
         // The other application containers take them, as before.
         let lab = ZtpLab::new();
         let mut node = named_node("db01", data::NodeModel::MongoDb);
-        node.volumes = Some(manifest_volume());
+        node.container.get_or_insert_default().volumes = Some(manifest_volume());
         let result = lab.container(&mut node, None).unwrap();
         assert_eq!(result.volumes, ["/srv/own.conf:/etc/own.conf"]);
     }

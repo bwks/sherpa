@@ -54,13 +54,13 @@ async fn importing_a_version_again_keeps_its_edited_settings() -> Result<()> {
     let db = setup_db().await?;
     let mut edited = record(&db, "1", DefaultRequest::Keep).await?;
     edited.memory = 8192;
-    edited.cpu_count = 6;
+    edited.cpu.count = 6;
     update_node_image(&db, edited, DefaultRequest::Keep).await?;
 
     let again = record(&db, "1", DefaultRequest::Keep).await?;
 
     assert_eq!(again.memory, 8192);
-    assert_eq!(again.cpu_count, 6);
+    assert_eq!(again.cpu.count, 6);
     Ok(())
 }
 

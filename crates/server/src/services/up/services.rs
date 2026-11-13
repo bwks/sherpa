@@ -75,7 +75,7 @@ pub(super) async fn start_lab_services(
     let mut vaults = Vec::new();
     for node in inputs.manifest_nodes {
         let initialises_vault =
-            vault::sherpa_initialises_vault(node.model, node.ztp_config.is_some());
+            vault::sherpa_initialises_vault(node.model, node.ztp.config.is_some());
         if node.model != data::NodeModel::KeycloakServer && !initialises_vault {
             continue;
         }

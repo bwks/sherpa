@@ -2,7 +2,7 @@ use std::fmt;
 
 use serde_derive::{Deserialize, Serialize};
 
-/// The PTX router a `juniper_cevolved` node emulates: `platform` on a node in the manifest.
+/// The PTX router a `juniper_cevolved` node emulates: `container.platform` on a node in the manifest.
 ///
 /// cJunosEvolved simulates the forwarding chipset of one of two fixed PTX routers.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]

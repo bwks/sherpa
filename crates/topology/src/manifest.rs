@@ -231,10 +231,10 @@ Unicode: café"#,
     fn disk_method_defaults_and_unknown_values() {
         let manifest: Manifest =
             toml::from_str("name='test'\nnodes=[{name='vm',model='ubuntu_linux'}]").unwrap();
-        assert_eq!(manifest.nodes[0].boot_disk_clone_method, None);
+        assert_eq!(manifest.nodes[0].boot_disk.clone_method, None);
         assert!(
             toml::from_str::<Manifest>(
-                "name='test'\nnodes=[{name='vm',model='ubuntu_linux',boot_disk_clone_method='snapshot'}]"
+                "name='test'\nnodes=[{name='vm',model='ubuntu_linux',boot_disk={clone_method='snapshot'}}]"
             )
             .is_err()
         );
@@ -243,15 +243,40 @@ Unicode: café"#,
     #[test]
     fn boot_disk_clone_method_round_trip() {
         let manifest: Manifest = toml::from_str(
-            "name='test'\nnodes=[{name='vm',model='ubuntu_linux',boot_disk_clone_method='copy'}]",
+            "name='test'\nnodes=[{name='vm',model='ubuntu_linux',boot_disk={clone_method='copy'}}]",
         )
         .unwrap();
         let value = toml::Value::try_from(&manifest).unwrap();
         assert!(value.get("boot_disk_clone_method").is_none());
         assert_eq!(
-            value["nodes"][0]["boot_disk_clone_method"].as_str(),
+            value["nodes"][0]["boot_disk"]["clone_method"].as_str(),
             Some("copy")
         );
+    }
+
+    #[test]
+    fn a_written_manifest_has_only_the_groups_its_nodes_set() {
+        let manifest: Manifest = toml::from_str(
+            "name='test'\n[[nodes]]\nname='vm'\nmodel='ubuntu_linux'\n[nodes.cpu]\ncount=2\n",
+        )
+        .unwrap();
+        let text = toml::to_string_pretty(&manifest).unwrap();
+        assert!(text.contains("[nodes.cpu]\ncount = 2"), "{text}");
+        for group in [
+            "numa",
+            "boot_disk",
+            "interfaces",
+            "ztp",
+            "ssh",
+            "ready_check",
+        ] {
+            assert!(
+                !text.contains(&format!("[nodes.{group}]")),
+                "{group}: {text}"
+            );
+        }
+        let restored: Manifest = toml::from_str(&text).unwrap();
+        assert_eq!(restored.nodes[0].cpu.count, Some(2));
     }
 
     #[test]
@@ -280,7 +305,7 @@ nodes = [
         assert_eq!(manifest.name, "my-lab");
         assert_eq!(manifest.ready_timeout, Some(300));
         assert_eq!(manifest.nodes.len(), 1);
-        assert_eq!(manifest.nodes[0].skip_ready_check, None);
+        assert_eq!(manifest.nodes[0].ready_check.skip, None);
     }
 
     #[test]
@@ -290,14 +315,14 @@ name = "my-lab"
 
 nodes = [
   { name = "dev01", model = "cisco_iosv" },
-  { name = "dev02", model = "cisco_cat8000v", skip_ready_check = true },
+  { name = "dev02", model = "cisco_cat8000v", ready_check = { skip = true } },
 ]
 "#;
         let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
         assert_eq!(manifest.ready_timeout, None);
         assert_eq!(manifest.nodes.len(), 2);
-        assert_eq!(manifest.nodes[0].skip_ready_check, None);
-        assert_eq!(manifest.nodes[1].skip_ready_check, Some(true));
+        assert_eq!(manifest.nodes[0].ready_check.skip, None);
+        assert_eq!(manifest.nodes[1].ready_check.skip, Some(true));
     }
 
     #[test]
@@ -306,17 +331,17 @@ nodes = [
 name = "my-lab"
 
 nodes = [
-  { name = "dev01", model = "cisco_cat8000v", ztp_config = "configs/dev01.txt" },
+  { name = "dev01", model = "cisco_cat8000v", ztp = { config = "configs/dev01.txt" } },
   { name = "dev02", model = "cisco_iosv" },
 ]
 "#;
         let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
         assert_eq!(manifest.nodes.len(), 2);
         assert_eq!(
-            manifest.nodes[0].ztp_config,
+            manifest.nodes[0].ztp.config,
             Some("configs/dev01.txt".to_string())
         );
-        assert_eq!(manifest.nodes[1].ztp_config, None);
+        assert_eq!(manifest.nodes[1].ztp.config, None);
     }
 
     #[test]
@@ -326,42 +351,36 @@ name = "my-lab"
 
 nodes = [
   { name = "frr01", model = "frr_linux" },
-  { name = "frr02", model = "frr_linux", ztp = "disabled" },
-  { name = "srx01", model = "juniper_vsrxv3", ztp = "cdrom" },
+  { name = "frr02", model = "frr_linux", ztp = { method = "disabled" } },
+  { name = "srx01", model = "juniper_vsrxv3", ztp = { method = "cdrom" } },
 ]
 "#;
         let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
-        let set: Vec<Option<Ztp>> = manifest.nodes.iter().map(|node| node.ztp).collect();
+        let set: Vec<Option<Ztp>> = manifest.nodes.iter().map(|node| node.ztp.method).collect();
         assert_eq!(set, [None, Some(Ztp::Disabled), Some(Ztp::Cdrom)]);
         let expanded: Vec<Option<Ztp>> = manifest
             .nodes
             .iter()
-            .map(|node| NodeExpanded::new(1, node).ztp)
+            .map(|node| NodeExpanded::new(1, node).ztp.method)
             .collect();
         assert_eq!(expanded, set);
     }
 
     #[test]
     fn test_manifest_refuses_a_ztp_that_is_not_one_of_the_words() {
-        for value in [
-            "false",
-            "true",
-            r#"{ method = "cdrom" }"#,
-            r#""ipxe""#,
-            r#""none""#,
-        ] {
+        for value in ["false", "true", r#""ipxe""#, r#""none""#] {
             let toml_str = format!(
                 r#"name = "my-lab"
 
 nodes = [
-  {{ name = "dev01", model = "frr_linux", ztp = {value} }},
+  {{ name = "dev01", model = "frr_linux", ztp = {{ method = {value} }} }},
 ]
 "#
             );
             let error = toml::from_str::<Manifest>(&toml_str)
                 .expect_err("the manifest is refused")
                 .to_string();
-            assert!(error.contains("ztp = "), "{value}: {error}");
+            assert!(error.contains("method = "), "{value}: {error}");
         }
     }
 
@@ -373,15 +392,16 @@ ready_timeout = 120
 
 nodes = [
   { name = "dev01", model = "cisco_iosv" },
-  { name = "dev02", model = "cisco_cat8000v", skip_ready_check = true },
-  { name = "dev03", model = "ubuntu_linux", skip_ready_check = false },
+  { name = "dev02", model = "cisco_cat8000v", ready_check = { skip = true } },
+  { name = "dev03", model = "ubuntu_linux", ready_check = { skip = false, port = 2222 } },
 ]
 "#;
         let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
         assert_eq!(manifest.ready_timeout, Some(120));
-        assert_eq!(manifest.nodes[0].skip_ready_check, None);
-        assert_eq!(manifest.nodes[1].skip_ready_check, Some(true));
-        assert_eq!(manifest.nodes[2].skip_ready_check, Some(false));
+        assert_eq!(manifest.nodes[0].ready_check.skip, None);
+        assert_eq!(manifest.nodes[1].ready_check.skip, Some(true));
+        assert_eq!(manifest.nodes[2].ready_check.skip, Some(false));
+        assert_eq!(manifest.nodes[2].ready_check.port, Some(2222));
     }
     #[test]
     fn disabled_and_legacy_manifests_do_not_require_auth_keys() {

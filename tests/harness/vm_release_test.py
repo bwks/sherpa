@@ -103,7 +103,19 @@ def value_toml(value):
         return str(value).lower()
     if isinstance(value, (str, int, float, list)):
         return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, dict):
+        return "{ " + ", ".join(f"{key} = {value_toml(item)}" for key, item in value.items()) + " }"
     raise ValueError(f"Unsupported TOML value: {type(value).__name__}")
+
+
+def node_toml(node):
+    """A manifest node's keys, then each of its groups (`cpu`, `boot_disk`, ...) as a table."""
+    lines = [f"{key} = {value_toml(value)}" for key, value in node.items() if not isinstance(value, dict)]
+    for group, values in node.items():
+        if isinstance(values, dict):
+            lines.append(f"\n[nodes.{group}]")
+            lines.extend(f"{key} = {value_toml(value)}" for key, value in values.items())
+    return "\n".join(lines) + "\n"
 
 
 def encode_toml(data):
@@ -487,9 +499,9 @@ class Runner:
         node["name"] = self.node_name
         if self.report["run"].get("scenario") == "fault-provision":
             manifest["ready_timeout"] = self.config["faults"]["ready_timeout"]
-            node["ready_port"] = self.config["faults"]["ready_port"]
+            node["ready_check"] = {**node.get("ready_check", {}), "port": self.config["faults"]["ready_port"]}
         text = f"name = {value_toml(self.lab_name)}\nready_timeout = {manifest['ready_timeout']}\n\n[[nodes]]\n"
-        text += "\n".join(f"{key} = {value_toml(value)}" for key, value in node.items()) + "\n"
+        text += node_toml(node)
         (self.directory / "manifest.toml").write_text(text)
         self.report["vm"] = node
         self.sherpa("validate", ["validate"], self.config["timeouts"]["command"])
@@ -1547,8 +1559,16 @@ install_system_packages
 
     def test_report_is_valid_toml(self):
         data = {"run": {"status": "failed", "detail": "quote\"\nline", "retained": True},
-                "checks": {"steps": ["baseline", "install"], "count": 2}}
+                "checks": {"steps": ["baseline", "install"], "count": 2},
+                "vm": {"version": "26.04", "cpu": {"count": 8}, "boot_disk": {"size": 100}}}
         self.assertEqual(tomllib.loads(encode_toml(data)), data)
+
+    def test_node_is_written_with_its_groups_as_tables(self):
+        node = {"name": "rt1", "model": "ubuntu_linux", "version": "26.04", "memory": 4096,
+                "cpu": {"count": 8}, "boot_disk": {"size": 100}, "ready_check": {"port": 65534}}
+        text = "name = \"lab\"\n\n[[nodes]]\n" + node_toml(node)
+        self.assertEqual(tomllib.loads(text)["nodes"], [node])
+        self.assertIn("[nodes.cpu]\ncount = 8", text)
 
     def test_cleanup_rejects_different_lab(self):
         with self.assertRaises(ValueError):

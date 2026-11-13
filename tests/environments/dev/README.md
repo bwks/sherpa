@@ -41,12 +41,12 @@ node: 12 vCPUs on six whole cores, and one more core for QEMU's emulator and dis
 The node's first core stays with the host, for `sherpad`, libvirt, Docker, the bus container and
 the host agent. The two VMs never share a core, a cache or a memory controller.
 
-Memory prefers the VM's own node (`numa_memory_mode = "preferred"`) and falls back to the other
+Memory prefers the VM's own node (`numa.memory_mode = "preferred"`) and falls back to the other
 node when it is full, rather than the host OOM killer ending the VM (#514), at the cost of slower
 remote memory. `numactl -H` on the host shows each node's free memory. Other VMs on the host,
 such as the release test environments, are not pinned and can take memory on either node; see
 [the OOM investigation](../../../docs/investigations/host-memory-oom.md). On another host,
-change `performance_tuning` to match `lscpu -e`.
+change the `cpu`, `numa` and `boot_disk` pinning to match `lscpu -e`.
 
 ## Provisioning
 
@@ -303,5 +303,5 @@ sherpa destroy
 This host has no cores left for a third dev server of this size: each NUMA node holds one, and
 the host keeps one core per node. A third means smaller servers, sharing cores on purpose, or
 another host; decide that before copying a directory. A copy (`cp -a`, which keeps the
-`provision` link) changes the lab name, the node name and `performance_tuning`, and the node's
+`provision` link) changes the lab name, the node name and the CPU, NUMA and disk I/O pinning (`cpu`, `numa`, `boot_disk`), and the node's
 memory should fit on the NUMA node it prefers.

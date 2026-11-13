@@ -8,8 +8,10 @@ name = "private-bridge"
 name = "dev01"
 model = "alpine_linux"
 version = "3.23.0"
+
 # More data interfaces than the VM uses, so redeploy has unused interfaces to leave alone.
-data_interface_count = 4
+[nodes.interfaces]
+data_count = 4
 
 [[nodes]]
 name = "fr01"
