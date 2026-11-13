@@ -49,7 +49,7 @@ pub enum Commands {
 
     /// Initialise the Sherpa server environment
     Init {
-        /// Overwrite existing config and keys
+        /// Overwrite the existing config
         #[arg(short, long, action = clap::ArgAction::SetTrue)]
         force: bool,
 
@@ -70,6 +70,10 @@ pub enum Commands {
         http_port: u16,
     },
 
+    /// Check, without changing it, that this release can use the server's database. It names
+    /// the labs to destroy first, if any
+    CheckDatabase,
+
     /// Fix up server environment
     Doctor {
         /// Set base box permissions to read-only
@@ -81,6 +85,13 @@ pub enum Commands {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn check_database_takes_no_arguments() {
+        let cli = Cli::try_parse_from(["sherpad", "check-database"]).unwrap();
+        assert!(matches!(cli.command, Commands::CheckDatabase));
+        assert!(Cli::try_parse_from(["sherpad", "check-database", "extra"]).is_err());
+    }
 
     #[test]
     fn init_defaults_to_the_built_in_address_and_ports() {

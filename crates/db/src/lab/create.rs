@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use shared::data::{DbLab, DbUser, LabPhase, LabSshKey};
+use shared::data::{DbLab, DbUser, LabPhase};
 use tracing::instrument;
 use turso::Connection;
 
@@ -113,7 +113,6 @@ pub async fn create_lab(
         client_host: details.client_host.clone(),
         client_folder: details.client_folder.clone(),
         description: details.description.clone(),
-        ssh_key: LabSshKey::Lab,
         phase: LabPhase::Creating,
     };
     let writer = db.writer().await?;

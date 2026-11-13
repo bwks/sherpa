@@ -59,7 +59,7 @@ The important boundary is between handlers and services. Handlers know about tra
 
 The binary entry point is `crates/server/src/main.rs`. Its job is intentionally small: initialize rustls, detect the internal background-child mode, parse the `sherpad` CLI, and dispatch to daemon management.
 
-`sherpad` is also a library, for `main.rs` and the integration tests (`crates/server/tests/integration/`, one test binary). It exports only what they use: `cli`, `init`, `doctor`, `daemon::{manager, metrics, state}`, `api::build_router`, `api::websocket::{connection, handler}` and `auth::cookies`. Everything else is `pub(crate)`, so the compiler reports unused code and the pedantic API lints apply only to that surface.
+`sherpad` is also a library, for `main.rs` and the integration tests (`crates/server/tests/integration/`, one test binary). It exports only what they use: `cli`, `init`, `doctor`, `check_database`, `daemon::{manager, metrics, state}`, `api::build_router`, `api::websocket::{connection, handler}` and `auth::cookies`. Everything else is `pub(crate)`, so the compiler reports unused code and the pedantic API lints apply only to that surface.
 
 ```mermaid
 flowchart TB
@@ -70,6 +70,7 @@ flowchart TB
     bgcheck -->|no| parse["parse Cli from cli.rs"]
     parse -->|init| init["init::init(...)"]
     parse -->|doctor| doctor["doctor::doctor(...)"]
+    parse -->|check-database| checkdb["check_database::check_database(path)"]
     parse -->|start| startd["daemon::manager::start_daemon(foreground)"]
     parse -->|stop| stopd["daemon::manager::stop_daemon(force)"]
     parse -->|restart| restartd["daemon::manager::restart_daemon(foreground)"]
@@ -114,7 +115,7 @@ flowchart TB
     signals --> envoverrides["apply env overrides<br/>SHERPA_SERVER_IPV4<br/>SHERPA_SERVER_IPV6<br/>SHERPA_SERVER_WS_PORT<br/>SHERPA_SERVER_HTTP_PORT"]
     envoverrides --> jwt
     subgraph appstate["AppState::new(config, metrics)"]
-        jwt["load JWT secret, or generate it if missing<br/>(a new one written 0600 in a 0700 directory;<br/>a file of the wrong length stops startup)"] --> database["open the database file"] --> schema["apply DB schema"] --> seed["optionally seed admin user"] --> storage["restrict lab and database storage<br/>and the server SSH key<br/>(daemon::storage::secure_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
+        jwt["load JWT secret, or generate it if missing<br/>(a new one written 0600 in a 0700 directory;<br/>a file of the wrong length stops startup)"] --> database["open the database file"] --> schema["apply DB schema"] --> seed["optionally seed admin user"] --> storage["restrict lab and database storage<br/>(daemon::storage::secure_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
     end
     registry --> recover["services::lab_lifecycle::recover:<br/>labs left Creating become Interrupted,<br/>left Destroying become DestroyFailed,<br/>nodes left Building become Failed"]
     recover --> cancel["create CancellationToken for background services"]
@@ -168,9 +169,6 @@ every start and calls `restrict_dir` on:
   does not create these directories: one it created would not be owned by `sherpa`. The install
   and update scripts set the same owner and modes as root, and `scripts/fix-permissions.sh` keeps
   them.
-- `secure_storage` also sets the server's SSH private key, `/opt/sherpa/ssh/sherpa_ssh_key`, to
-  `0600` (`SHERPA_SSH_PRIVATE_KEY_MODE`) when it exists, with `restrict_file`; see
-  [Lab SSH keys](#lab-ssh-keys).
 
 ### Container secret files
 
@@ -1180,32 +1178,29 @@ reached as `sherpa` with a key pair, the `IdentityFile sherpa_ssh_key` hosts of
 `sherpa_ssh_config`. Each lab has its own pair, so one lab's key opens no other lab's nodes.
 `services::lab_ssh_key` holds the rules:
 
-- **Recorded on the lab.** `lab.ssh_key` (`shared::data::LabSshKey`, migration 11) is `lab`
-  for a lab with its own key and `server` for one created before. `db::create_lab` always
-  writes `lab`. `LabSshKeyPaths::of(kind, lab_dir)` maps it to the key files:
-  `{lab_dir}/sherpa_ssh_key` and `.pub`, or the server's `/opt/sherpa/ssh/sherpa_ssh_key`.
+- **In the lab folder.** `LabSshKeyPaths::in_lab(lab_dir)` is `{lab_dir}/sherpa_ssh_key` and
+  `.pub`. Nothing records which key a lab uses: there is no other.
 - **`up`** makes the pair in phase 4 (`create_lab_ssh_key`), once the lab folder exists, and
   builds the `sherpa` account (`util::sherpa_user`) from its public key for every node's
-  configuration. It is RSA like the server key, as some network operating systems take no
-  other kind, and the private key is `0600` (`konst::LAB_SSH_PRIVATE_KEY_MODE`). A failed `up`
-  rolls the folder back with the key.
-- **The server key** is `0600` too (`konst::SHERPA_SSH_PRIVATE_KEY_MODE`): only sherpad reads
-  it. `sherpad init` sets the mode when it generates the key, and
-  `daemon::storage::secure_storage` sets it on an existing key on every start, as older
-  releases made it `0640` for the `sherpa` group.
+  configuration. It is RSA, as some network operating systems take no other kind, and the
+  private key is `0600` (`konst::LAB_SSH_PRIVATE_KEY_MODE`). A failed `up` rolls the folder back
+  with the key.
 - **Node configuration** takes the key only from the `sherpa_user` it is given: the template
   crate's `CloudInitUser::sherpa` and `CloudbaseInitUser::sherpa` take the public key, and the
-  MikroTik config disk gets `sherpa_ssh_key.pub` written from it. Nothing outside `init` and
-  `lab_ssh_key` reads the server key path.
-- **`redeploy`** builds the account from `lab.ssh_key`, so a lab created before keeps the server
-  key on the redeployed node: its other nodes still take only that key, and the client holds
-  one key per lab (`.sherpa/ssh/key`). `resume` changes no node configuration.
+  MikroTik config disk gets `sherpa_ssh_key.pub` written from it.
+- **`redeploy`** builds the account from the lab's key, as `up` did. `resume` changes no node
+  configuration.
 - **`up`'s response and `download`** return the private key only when the SSH config uses it
-  (`LabSshFiles::uses_lab_key`), and only to the owner or an admin (`require_lab_access`). A lab
-  with its own key whose file is missing is an error (`read_private_key`), never the server key.
+  (`LabSshFiles::uses_lab_key`), and only to the owner or an admin (`require_lab_access`). A
+  missing key file is an error (`read_private_key`).
   The response and file names are unchanged: the client saves the key as `.sherpa/ssh/key`
   (see [`LAB_FOLDER.md`](LAB_FOLDER.md)).
 - **`destroy` and `clean`** delete the key with the lab folder (`cleanup_lab_metadata`).
+- **No server key.** Releases before 0.6.0 had a shared key pair in `/opt/sherpa/ssh/`, made by
+  `sherpad init`, which labs created before lab keys kept (`lab.ssh_key = 'server'`). 0.6.0
+  removed it: `sherpad` and the update script refuse to take over a database that still has
+  such labs, naming them ([`DATABASE.md`](DATABASE.md#labs-on-the-servers-ssh-key)), and the
+  update script deletes `/opt/sherpa/ssh/sherpa_ssh_key*` once the new release has started.
 
 ### Runtime resource model for a lab
 

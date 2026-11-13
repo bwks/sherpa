@@ -7,7 +7,7 @@
 use anyhow::{Context, Result, bail};
 use tracing::instrument;
 
-use super::{bridge, lab, link, migrations, node, node_image, user};
+use super::{bridge, lab, link, migrations, node, node_image, server_key, user};
 use crate::Database;
 use crate::sql::{Query, query_count};
 
@@ -35,6 +35,8 @@ pub const SCHEMA_VERSION: usize = 1 + migrations::ALL.len();
 ///
 /// - If the database has a newer schema version than this build knows, for example after a
 ///   downgrade of Sherpa
+/// - If a lab still uses the server's shared SSH key when the migration that drops
+///   `lab.ssh_key` is next; each one is named, and nothing is migrated
 /// - If any statement fails
 ///
 #[instrument(skip(db), level = "debug")]
@@ -49,12 +51,7 @@ pub async fn apply_schema(db: &Database) -> Result<()> {
     let version = query_count(&tx, USER_VERSION.bind([]))
         .await
         .context("Failed to read the database schema version")?;
-    if version > SCHEMA_VERSION {
-        bail!(
-            "The database has schema version {version}, newer than {SCHEMA_VERSION} that this \
-             Sherpa build supports"
-        );
-    }
+    refuse_newer_version(version)?;
 
     for target in (version + 1)..=SCHEMA_VERSION {
         tracing::info!(from = target - 1, to = target, "Migrating database schema");
@@ -65,6 +62,9 @@ pub async fn apply_schema(db: &Database) -> Result<()> {
                 .context(format!("Schema version {target} has no migration"))?,
         };
         for batch in batches {
+            if *batch == migrations::DROP_LAB_SSH_KEY {
+                server_key::refuse_server_key_labs(&server_key::server_key_labs(&tx).await?)?;
+            }
             tx.execute_batch(batch)
                 .await
                 .context(format!("Failed to migrate the schema to version {target}"))?;
@@ -80,11 +80,39 @@ pub async fn apply_schema(db: &Database) -> Result<()> {
     Ok(())
 }
 
+/// Check that `apply_schema` can bring the database to this build's schema version, without
+/// changing it. It makes the same refusals.
+///
+/// # Errors
+///
+/// - If the database has a newer schema version than this build knows
+/// - If a lab still uses the server's shared SSH key, which this build removes; each one is named
+/// - If the database cannot be read
+#[instrument(skip(db), level = "debug")]
+pub async fn check_schema_upgrade(db: &Database) -> Result<()> {
+    let conn = db.reader().await?;
+    let version = query_count(&conn, USER_VERSION.bind([]))
+        .await
+        .context("Failed to read the database schema version")?;
+    refuse_newer_version(version)?;
+    server_key::refuse_server_key_labs(&server_key::server_key_labs(&conn).await?)
+}
+
+/// Refuse a database whose schema `version` is newer than this build knows, for example after a
+/// downgrade of Sherpa.
+fn refuse_newer_version(version: usize) -> Result<()> {
+    if version > SCHEMA_VERSION {
+        bail!(
+            "The database has schema version {version}, newer than {SCHEMA_VERSION} that this \
+             Sherpa build supports"
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use shared::data::{
-        DiskBuses, LabPhase, LabSshKey, NodeConfig, NodeKind, NodeModel, NodeState, Ztp,
-    };
+    use shared::data::{DiskBuses, LabPhase, NodeConfig, NodeKind, NodeModel, NodeState, Ztp};
     use shared::validators::check_ztp;
     use turso::Value;
 
@@ -534,35 +562,140 @@ mod tests {
         assert_eq!(list_node_images(&db).await.unwrap().len(), 1);
     }
 
-    #[tokio::test]
-    async fn labs_created_before_lab_keys_keep_the_server_key() {
-        let db = open_in_memory().await.unwrap();
+    /// User `alice`, the owner of the old labs.
+    const OLD_USER: &str = "INSERT INTO user (id, username, password_hash, is_admin, ssh_keys,
+             created_at, updated_at)
+         VALUES ('u1', 'alice', 'x', 0, '[]', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');";
+
+    /// `alice`'s lab `lab-0001`, named `Old`, in a database from before lab keys, which still
+    /// stored the lab's status. The `ssh_key` column gives it the server's key.
+    const LAB_BEFORE_LAB_KEYS: &str = "INSERT INTO lab (id, lab_id, name, user,
+             loopback_network, management_network, gateway_ipv4, router_ipv4, status)
+         VALUES ('l1', 'lab-0001', 'Old', 'u1', '127.127.1.0/24', '172.31.1.0/24',
+             '172.31.1.1', '172.31.1.2', 'running');";
+
+    /// A database at the version before `lab.ssh_key` was dropped, with `alice`'s lab
+    /// `lab-0001`, named `Old`, recording `ssh_key`.
+    async fn database_before_lab_keys_only(ssh_key: &str) -> Database {
+        let db = database_at(migrations::ALL.len() - 1).await;
         {
             let writer = db.writer().await.unwrap();
-            for batch in TABLES.iter().chain(&migrations::ALL[..9]) {
-                writer.conn.execute_batch(batch).await.unwrap();
-            }
+            writer.conn.execute_batch(OLD_USER).await.unwrap();
             writer
                 .conn
-                .execute_batch(
-                    "PRAGMA user_version = 10;
-                     INSERT INTO user (id, username, password_hash, is_admin, ssh_keys,
-                         created_at, updated_at)
-                     VALUES ('u1', 'alice', 'x', 0, '[]', '2026-01-01T00:00:00Z',
-                         '2026-01-01T00:00:00Z');
-                     INSERT INTO lab (id, lab_id, name, user, loopback_network,
-                         management_network, gateway_ipv4, router_ipv4, status)
+                .execute(
+                    "INSERT INTO lab (id, lab_id, name, user, loopback_network,
+                         management_network, gateway_ipv4, router_ipv4, ssh_key)
                      VALUES ('l1', 'lab-0001', 'Old', 'u1', '127.127.1.0/24', '172.31.1.0/24',
-                         '172.31.1.1', '172.31.1.2', 'running');",
+                         '172.31.1.1', '172.31.1.2', ?1)",
+                    [ssh_key],
                 )
                 .await
                 .unwrap();
         }
+        db
+    }
+
+    async fn has_ssh_key_column(db: &Database) -> bool {
+        let conn = db.reader().await.unwrap();
+        query_count(
+            &conn,
+            Query::new("SELECT count(*) FROM pragma_table_info('lab') WHERE name = 'ssh_key'")
+                .bind([]),
+        )
+        .await
+        .unwrap()
+            == 1
+    }
+
+    #[tokio::test]
+    async fn a_lab_created_before_lab_keys_is_refused_and_named() {
+        // A database from before lab keys: its lab gets the server's key when migrated.
+        let db = database_at(9).await;
+        {
+            let writer = db.writer().await.unwrap();
+            writer.conn.execute_batch(OLD_USER).await.unwrap();
+            writer
+                .conn
+                .execute_batch(LAB_BEFORE_LAB_KEYS)
+                .await
+                .unwrap();
+        }
+
+        let error = format!("{:#}", apply_schema(&db).await.unwrap_err());
+
+        assert!(error.contains("lab-0001 (Old, owned by alice)"), "{error}");
+        assert!(error.contains("server's shared SSH key"), "{error}");
+        // Not one migration of the run is kept.
+        assert_eq!(version(&db).await, 10);
+    }
+
+    #[tokio::test]
+    async fn a_lab_on_the_server_key_stops_the_column_from_being_dropped() {
+        let db = database_before_lab_keys_only("server").await;
+
+        let error = format!("{:#}", apply_schema(&db).await.unwrap_err());
+
+        assert!(error.contains("lab-0001 (Old, owned by alice)"), "{error}");
+        assert_eq!(version(&db).await, SCHEMA_VERSION - 1);
+        assert!(has_ssh_key_column(&db).await);
+    }
+
+    #[tokio::test]
+    async fn the_ssh_key_column_is_dropped_once_every_lab_has_its_own_key() {
+        let db = database_before_lab_keys_only("lab").await;
 
         apply_schema(&db).await.unwrap();
 
-        let lab = find_lab(&db, "lab-0001").await.unwrap().unwrap();
-        assert_eq!(lab.ssh_key, LabSshKey::Server);
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
+        assert!(!has_ssh_key_column(&db).await);
+        assert_eq!(
+            find_lab(&db, "lab-0001").await.unwrap().unwrap().name,
+            "Old"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_upgrade_check_refuses_without_changing_the_database() {
+        let db = database_before_lab_keys_only("server").await;
+
+        let error = format!("{:#}", check_schema_upgrade(&db).await.unwrap_err());
+
+        assert!(error.contains("lab-0001 (Old, owned by alice)"), "{error}");
+        assert_eq!(version(&db).await, SCHEMA_VERSION - 1);
+        assert!(has_ssh_key_column(&db).await);
+    }
+
+    #[tokio::test]
+    async fn the_upgrade_check_passes_a_database_this_release_can_use() {
+        let fresh = open_in_memory().await.unwrap();
+        check_schema_upgrade(&fresh).await.unwrap();
+        assert_eq!(version(&fresh).await, 0);
+
+        let own_keys = database_before_lab_keys_only("lab").await;
+        check_schema_upgrade(&own_keys).await.unwrap();
+        assert_eq!(version(&own_keys).await, SCHEMA_VERSION - 1);
+
+        let current = open_in_memory().await.unwrap();
+        apply_schema(&current).await.unwrap();
+        check_schema_upgrade(&current).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_upgrade_check_refuses_a_newer_schema() {
+        let db = database_at(migrations::ALL.len()).await;
+        {
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute(&format!("PRAGMA user_version = {}", SCHEMA_VERSION + 1), ())
+                .await
+                .unwrap();
+        }
+
+        let error = format!("{:#}", check_schema_upgrade(&db).await.unwrap_err());
+
+        assert!(error.contains("newer than"), "{error}");
     }
 
     /// A database at the version before the node lifecycle was explicit, with one lab and a
@@ -583,9 +716,9 @@ mod tests {
                      VALUES ('u1', 'alice', 'x', 0, '[]', '2026-01-01T00:00:00Z',
                          '2026-01-01T00:00:00Z');
                      INSERT INTO lab (id, lab_id, name, user, loopback_network,
-                         management_network, gateway_ipv4, router_ipv4, status)
+                         management_network, gateway_ipv4, router_ipv4, status, ssh_key)
                      VALUES ('l1', 'lab-0001', 'Old', 'u1', '127.127.1.0/24', '172.31.1.0/24',
-                         '172.31.1.1', '172.31.1.2', 'running');",
+                         '172.31.1.1', '172.31.1.2', 'running', 'lab');",
                 )
                 .await
                 .unwrap();
@@ -705,9 +838,9 @@ mod tests {
                      VALUES ('u1', 'alice', 'x', 0, '[]', '2026-01-01T00:00:00Z',
                          '2026-01-01T00:00:00Z');
                      INSERT INTO lab (id, lab_id, name, user, loopback_network,
-                         management_network, gateway_ipv4, router_ipv4, status)
+                         management_network, gateway_ipv4, router_ipv4, status, ssh_key)
                      VALUES ('l1', 'lab-0001', 'Old', 'u1', '127.127.1.0/24', '172.31.1.0/24',
-                         '172.31.1.1', '172.31.1.2', 'stopped');",
+                         '172.31.1.1', '172.31.1.2', 'stopped', 'lab');",
                 )
                 .await
                 .unwrap();

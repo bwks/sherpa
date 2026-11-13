@@ -14,24 +14,22 @@ use shared::konst::{
     ADMIN_USERNAME, SHERPA_ADMIN_PASSWORD_ENV, SHERPA_BASE_DIR, SHERPA_BINS_PATH,
     SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME,
     SHERPA_CONFIG_FILE_PATH, SHERPA_CONFIG_PATH, SHERPA_CONTAINERS_PATH, SHERPA_DB_BACKUP_PATH,
-    SHERPA_DB_FILE_PATH, SHERPA_DB_PATH, SHERPA_IMAGES_PATH, SHERPA_SSH_PATH,
-    SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PRIVATE_KEY_MODE, SHERPA_SSH_PUBLIC_KEY_PATH,
-    SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, SHERPA_USER_IS_ADMIN_ENV, SHERPA_USER_NAME_ENV,
+    SHERPA_DB_FILE_PATH, SHERPA_DB_PATH, SHERPA_IMAGES_PATH, SHERPA_STORAGE_POOL,
+    SHERPA_STORAGE_POOL_PATH, SHERPA_USER_IS_ADMIN_ENV, SHERPA_USER_NAME_ENV,
     SHERPA_USER_PASSWORD_ENV, SHERPA_USER_SSH_KEY_ENV,
 };
 use shared::util::{
-    create_config, create_dir, default_config, file_exists, generate_ssh_keypair,
-    normalize_username, term_msg_highlight, term_msg_surround, term_msg_underline,
+    create_config, create_dir, default_config, file_exists, normalize_username, term_msg_highlight,
+    term_msg_surround, term_msg_underline,
 };
 use shared::validators::{validate_ssh_key, validate_username};
-use ssh_key::Algorithm;
 
-/// Set up a new server: its directories, `sherpa.toml`, SSH key pair, libvirt network and
-/// storage pool, database, admin account and first user.
+/// Set up a new server: its directories, `sherpa.toml`, libvirt network and storage pool,
+/// database, admin account and first user.
 ///
 /// # Errors
 ///
-/// Fails when a directory, file or key cannot be written, libvirt cannot create the network or
+/// Fails when a directory or file cannot be written, libvirt cannot create the network or
 /// pool, the database cannot be opened or migrated, or the first user's details are invalid or
 /// cannot be read.
 pub async fn init(
@@ -47,7 +45,6 @@ pub async fn init(
     term_msg_highlight("Creating Directories");
     create_dir(SHERPA_BASE_DIR)?;
     create_dir(SHERPA_CONFIG_PATH)?;
-    create_dir(SHERPA_SSH_PATH)?;
     create_dir(SHERPA_CONTAINERS_PATH)?;
     create_dir(SHERPA_BINS_PATH)?;
     create_dir(SHERPA_DB_PATH)?;
@@ -87,19 +84,6 @@ pub async fn init(
         config.http_port = http_port;
         create_config(&config, SHERPA_CONFIG_FILE_PATH)?;
         println!("Config written to: {SHERPA_CONFIG_FILE_PATH}");
-    }
-
-    // SSH Keys
-    if file_exists(SHERPA_SSH_PUBLIC_KEY_PATH) && !force {
-        println!("SSH keys already exist: {SHERPA_SSH_PUBLIC_KEY_PATH}");
-    } else {
-        term_msg_underline("Creating SSH Keypair");
-        generate_ssh_keypair(
-            SHERPA_SSH_PATH,
-            SHERPA_SSH_PRIVATE_KEY_FILE,
-            &Algorithm::Rsa { hash: None },
-            SHERPA_SSH_PRIVATE_KEY_MODE,
-        )?;
     }
 
     // Libvirt network and storage pool

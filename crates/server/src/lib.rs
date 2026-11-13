@@ -3,6 +3,7 @@
 
 pub mod api;
 pub mod auth;
+pub mod check_database;
 pub mod cli;
 pub mod daemon;
 pub mod doctor;

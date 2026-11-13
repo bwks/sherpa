@@ -3,7 +3,7 @@ use db::{
     LabDetails, LabNetworks, create_lab, create_user, get_lab, list_labs, update_lab_phase_from,
     validate_lab_id,
 };
-use shared::data::{LabPhase, LabSshKey};
+use shared::data::LabPhase;
 
 use crate::helper::{ipv4_lab_networks, setup_db};
 
@@ -34,39 +34,6 @@ async fn test_create_lab_success() -> Result<()> {
     assert_eq!(lab.lab_id, "lab-0001");
     assert_eq!(lab.user, user.id.unwrap());
     assert!(lab.id.is_some(), "Lab should have an ID");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn a_new_lab_logs_in_with_its_own_ssh_key() -> Result<()> {
-    let db = setup_db().await?;
-    let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
-
-    let created = create_lab(
-        &db,
-        "Keyed",
-        "lab-0004",
-        &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
-        &LabDetails::default(),
-    )
-    .await?;
-
-    assert_eq!(created.ssh_key, LabSshKey::Lab);
-    let stored = get_lab(&db, "lab-0004").await?;
-    assert_eq!(stored.ssh_key, LabSshKey::Lab);
-    // Moving the lab to another phase keeps its key.
-    let updated = update_lab_phase_from(&db, "lab-0004", LabPhase::Creating, LabPhase::Ready)
-        .await?
-        .unwrap();
-    assert_eq!(updated.ssh_key, LabSshKey::Lab);
-    assert_eq!(list_labs(&db).await?[0].ssh_key, LabSshKey::Lab);
 
     Ok(())
 }

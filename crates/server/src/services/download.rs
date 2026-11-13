@@ -20,15 +20,14 @@ use crate::services::vault;
 /// Download lab files (lab-info, SSH config, `known_hosts`, SSH key) for CLI use.
 ///
 /// The caller must own the lab or be an admin. The lab's SSH private key is included only when
-/// the lab's SSH config uses it: the lab's own key, or the server's for a lab created before
-/// lab keys.
+/// the lab's SSH config uses it.
 #[instrument(skip(ctx, state), fields(username = %ctx.username, %lab_id))]
 pub async fn download_lab_files(
     ctx: &AuthContext,
     lab_id: &str,
     state: &AppState,
 ) -> Result<DownloadLabResponse> {
-    let db_lab = require_lab_access(ctx, &state.db, lab_id).await?;
+    require_lab_access(ctx, &state.db, lab_id).await?;
 
     let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
     let lab_info: LabInfo = tokio::fs::read_to_string(format!("{lab_dir}/{LAB_FILE_NAME}"))
@@ -58,7 +57,7 @@ pub async fn download_lab_files(
         .lines()
         .any(|line| line.trim() == format!("IdentityFile {SHERPA_SSH_PRIVATE_KEY_FILE}"))
     {
-        read_private_key(&LabSshKeyPaths::of(db_lab.ssh_key, &lab_dir)).await?
+        read_private_key(&LabSshKeyPaths::in_lab(&lab_dir)).await?
     } else {
         String::new()
     };

@@ -1059,19 +1059,18 @@ stateDiagram-v2
 
 ### 20. `sherpad init`
 
-**Where.** `crates/server/src/init.rs:37-138`.
+**Where.** `crates/server/src/init.rs:35-123`.
 
 **Stages:**
 
 1. directories;
-2. config, skipped if the file exists and `--force` is not set (`:79`);
-3. SSH keys, skipped likewise (`:93`);
-4. libvirt network (`:114`) and storage pool (`:122`);
-5. database;
-6. admin account;
-7. first user, guarded by a lookup (`:147-184`).
+2. config, skipped if the file exists and `--force` is not set (`:76`);
+3. libvirt network (`:99`) and storage pool (`:107`);
+4. database;
+5. admin account;
+6. first user, guarded by a lookup (`:161-215`).
 
-No step is undone on failure. Re-running is the recovery: the doc comment at `:142-143`
+No step is undone on failure. Re-running is the recovery: the doc comment at `:127-128`
 says it is safe to re-run.
 
 ---

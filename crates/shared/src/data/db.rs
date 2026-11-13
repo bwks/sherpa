@@ -1,7 +1,7 @@
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
-use super::{BridgeKind, LabPhase, LabSshKey, LinkImpairment, NodeState, RecordId};
+use super::{BridgeKind, LabPhase, LinkImpairment, NodeState, RecordId};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DbUser {
@@ -72,9 +72,6 @@ pub struct DbLab {
     /// The lab's description, from its manifest.
     #[serde(default)]
     pub description: Option<String>,
-    /// The key pair the `sherpa` account on the lab's nodes logs in with.
-    #[serde(default)]
-    pub ssh_key: LabSshKey,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

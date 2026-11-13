@@ -55,7 +55,7 @@ pub use node::{
 // Link CRUD operations
 pub use link::{create_link, list_links_by_lab, update_link_impairments};
 
-pub use schema::{SCHEMA_VERSION, apply_schema};
+pub use schema::{SCHEMA_VERSION, apply_schema, check_schema_upgrade};
 pub use seed::admin_user::seed_admin_user;
 
 // User CRUD operations
