@@ -1347,6 +1347,80 @@ mod tests {
         }
     }
 
+    /// The labels of the image detail page's machine type, and of its firmware and disks.
+    const IMAGE_MACHINE_TYPE: &str = ">Machine Type:</span>";
+    const IMAGE_FIRMWARE_AND_DISKS: [&str; 4] = [
+        ">BIOS:</span>",
+        ">HDD Bus:</span>",
+        ">CD-ROM Bus:</span>",
+        "Storage Configuration",
+    ];
+
+    fn image_detail(config: NodeConfig) -> String {
+        AdminImageDetailTemplate {
+            username: "admin".to_string(),
+            is_admin: true,
+            nav: NavPage::AdminImages.into(),
+            kind_badge: KindBadge::full(config.kind.clone()),
+            config,
+        }
+        .render()
+        .expect("template should render")
+    }
+
+    #[test]
+    fn the_image_page_shows_each_kind_the_machine_and_disk_settings_it_uses() {
+        // A VM uses them all, a unikernel only its machine type, a container none.
+        for (model, machine_type, firmware_and_disks) in [
+            (NodeModel::UbuntuLinux, true, true),
+            (NodeModel::NanosUnikernel, true, false),
+            (NodeModel::NokiaSrlinux, false, false),
+            (NodeModel::MongoDb, false, false),
+        ] {
+            let html = image_detail(NodeConfig::get_model(model));
+            assert_eq!(html.contains(IMAGE_MACHINE_TYPE), machine_type, "{model}");
+            for label in IMAGE_FIRMWARE_AND_DISKS {
+                assert_eq!(html.contains(label), firmware_and_disks, "{model} {label}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_node_page_shows_each_kind_the_machine_and_disk_settings_it_uses() {
+        let firmware_and_disks = [
+            ">BIOS</span>",
+            ">HDD Bus</span>",
+            ">CDROM</span>",
+            ">CDROM Bus</span>",
+        ];
+        for (model, kind, machine_type, uses_firmware_and_disks) in [
+            (NodeModel::UbuntuLinux, NodeKind::VirtualMachine, true, true),
+            (NodeModel::NanosUnikernel, NodeKind::Unikernel, true, false),
+            (NodeModel::NokiaSrlinux, NodeKind::Container, false, false),
+        ] {
+            let device = DeviceInfo {
+                model,
+                kind,
+                ..test_device()
+            };
+            let html = node_detail(device, model);
+            assert_eq!(
+                html.contains(">Machine Type</span>"),
+                machine_type,
+                "{model}"
+            );
+            for label in firmware_and_disks {
+                assert_eq!(
+                    html.contains(label),
+                    uses_firmware_and_disks,
+                    "{model} {label}"
+                );
+            }
+            // The node's own disks are listed for every kind.
+            assert!(html.contains(">Disks</span>"), "{model}");
+        }
+    }
+
     #[test]
     fn the_image_pages_show_each_kind_by_its_full_label() {
         for ((kind, colours), (model, label)) in KIND_PILLS.into_iter().zip([

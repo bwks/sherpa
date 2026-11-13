@@ -46,8 +46,30 @@ built from another, and no model is built from another model, so changing a base
 the models built from it. The network OS bases take memory, OS variant and interfaces as
 arguments because every model on them sets its own, so none can inherit a placeholder.
 
-Container models carry `machine`, `boot_disk` and `cdrom` values that containers do not use,
-and `app_container` and `network_os_container` set different ones; see #610.
+### Settings a kind does not use
+
+Every image carries every group, so the image API and the `node_image` table have one shape for
+all kinds. Not every kind reads them all:
+
+| Setting | VM | Container | Unikernel |
+|---|---|---|---|
+| `machine.kind` | yes | | yes |
+| `machine.bios`, `boot_disk.bus`, `cdrom.image`, `cdrom.bus` | yes | | |
+
+`NodeKind::uses_machine_type` and `NodeKind::uses_firmware_and_disks` say which. An image of a
+kind that does not use a setting carries its default (`pc`, `sea_bios`, `virtio`, no CD-ROM
+image, `virtio`): the container and unikernel bases set the defaults, a unit test holds every
+model to them, and migration 18 resets images stored with other values (see
+[`DATABASE.md`](DATABASE.md#versions)). The image edit form still writes what it is given, and
+nothing reads it.
+
+The read-only views leave out the settings the image's kind does not use: the client's
+`image show` table (`table::image::render_image_detail_table`), and the web UI's image page and
+node page, whose templates ask the image's `NodeKind`. The image API's JSON keeps every group.
+
+Containers do not read `cpu.architecture`, `cpu.model`, `cpu.vmx`, `interfaces.kind` or
+`interfaces.mtu` either, and `interfaces.kind` differs between the two container bases; see
+#614, and #613 for images that carry only their kind's groups.
 
 The `node_image` table keeps one flat column per field; `db::persistence` maps the groups to
 the columns by hand (see [`DATABASE.md`](DATABASE.md)).

@@ -89,14 +89,18 @@
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Memory:</span>
                 <span class="text-sm text-body font-medium">{{ config.memory }} MB</span>
             </div>
+            {% if config.kind.uses_machine_type() %}
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Machine Type:</span>
                 <span class="text-sm text-body font-medium">{{ config.machine.kind }}</span>
             </div>
+            {% endif %}
+            {% if config.kind.uses_firmware_and_disks() %}
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">BIOS:</span>
                 <span class="text-sm text-body font-medium">{{ config.machine.bios }}</span>
             </div>
+            {% endif %}
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">VMX Enabled:</span>
                 <span class="text-sm text-body font-medium">{% if config.cpu.vmx %}Yes{% else %}No{% endif %}</span>
@@ -104,6 +108,7 @@
         </div>
     </div>
 
+    {% if config.kind.uses_firmware_and_disks() %}
     <!-- Storage Card -->
     <div class="bg-card rounded-lg shadow-sm border border-border p-6">
         <h3 class="text-lg font-semibold text-heading mb-4">Storage Configuration</h3>
@@ -124,6 +129,7 @@
             {% endif %}
         </div>
     </div>
+    {% endif %}
 
     <!-- ZTP Configuration Card -->
     <div class="bg-card rounded-lg shadow-sm border border-border p-6">

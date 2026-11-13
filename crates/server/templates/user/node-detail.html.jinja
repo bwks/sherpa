@@ -76,14 +76,18 @@
             <span class="block text-sm font-medium text-muted mb-1">Memory (MB)</span>
             <span class="block text-base text-heading font-mono">{{ memory_display() }}</span>
         </div>
+        {% if node_config.kind.uses_firmware_and_disks() %}
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">BIOS</span>
             <span class="block text-base text-heading font-mono">{{ node_config.machine.bios }}</span>
         </div>
+        {% endif %}
+        {% if node_config.kind.uses_machine_type() %}
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">Machine Type</span>
             <span class="block text-base text-heading font-mono">{{ node_config.machine.kind }}</span>
         </div>
+        {% endif %}
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">VMX Enabled</span>
             <span class="block text-base text-heading font-mono">{% if node_config.cpu.vmx %}Yes{% else %}No{% endif %}</span>
@@ -99,6 +103,7 @@
 <div class="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
     <h2 class="text-xl font-semibold text-heading mb-4">Storage</h2>
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% if node_config.kind.uses_firmware_and_disks() %}
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">HDD Bus</span>
             <span class="block text-base text-heading font-mono">{{ node_config.boot_disk.bus }}</span>
@@ -111,6 +116,7 @@
             <span class="block text-sm font-medium text-muted mb-1">CDROM Bus</span>
             <span class="block text-base text-heading font-mono">{{ node_config.cdrom.bus }}</span>
         </div>
+        {% endif %}
         <div class="flex flex-col gap-1 md:col-span-2 lg:col-span-3">
             <span class="block text-sm font-medium text-muted mb-1">Disks</span>
             {% if device.disks.is_empty() %}
