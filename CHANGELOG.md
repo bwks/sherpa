@@ -2,36 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.1] - 2026-11-13
+
+### Upgrade notes
+
+- Container nodes now get Docker CPU and memory limits from `cpu.count` and `memory` when the manifest sets them. A container without them stays unlimited. `juniper_cevolved` gets its EVO VM's memory plus 2048 MiB and no CPU quota. Container memory limits now count in memory admission, so a lab that fitted before may be refused with the memory refusal error.
+- If Docker can't be reached, admission counts containers as using no memory and logs a warning, instead of failing.
+- Database migration 18 resets the unused machine, disk and CD-ROM settings of stored container and unikernel images to the defaults. VM images are unchanged. A 0.6.0 server cannot open the database after this, so take a backup (`sherpa server backup`) before updating.
+- Update the `sherpa` CLI on every client along with the server.
+
+### Bug Fixes
+
+- Give container and unikernel images the default machine and disk settings by @bwks ([ac117f5](https://github.com/bwks/sherpa/commit/ac117f543afc8bf428be0c19742559daf49496b4))
+
+### Features
+
+- CPU and memory limits for container nodes, counted in admission by @bwks ([4e3eb5d](https://github.com/bwks/sherpa/commit/4e3eb5d86fa1e67ffc3e45b4db8ed555b1be428a))
+
+### Miscellaneous
+
+- Drop SurrealDB image from testdeps and reword DB key doc by @bwks ([b32ce30](https://github.com/bwks/sherpa/commit/b32ce302aa85dd48e51fc5bfff0aedc748f2c48c))
+
+### Refactor
+
+- Build node models from five base shapes by @bwks ([8775ddf](https://github.com/bwks/sherpa/commit/8775ddfa4131b97e49aa4e5d60ce5758cd1f6e6e))
+
+### Testing
+
+- Remove the node model JSON snapshot by @bwks ([c4dfbe6](https://github.com/bwks/sherpa/commit/c4dfbe6980015a2622ddc95e169a92d87ee75a88))
+- Snapshot every node model's JSON byte for byte by @bwks ([22fd3db](https://github.com/bwks/sherpa/commit/22fd3db4f15ee9ced7844de36dc72eb477ae87e4))
 ## [0.6.0] - 2026-11-13
-
-### Breaking changes: read before updating
-
-0.6.0 is a breaking release. Before you update a server:
-
-1. **Servers older than 0.5.0** must update to v0.5.12 first, with that release's update
-   script, which moves their data into the embedded database. 0.6.0 no longer reads the old
-   SurrealDB database, and its install and update scripts refuse such a server.
-2. **Destroy every lab created before 0.5.15** with the release the server runs now. 0.6.0
-   removes the server's shared SSH key, which those labs use to reach their nodes. The update
-   script checks first: it names those labs, installs nothing and starts the running release
-   again. A 0.6.0 `sherpad` refuses to start while such labs exist. `sherpad check-database`
-   runs the same check.
-3. **Update every manifest.** Node settings are now grouped: `[nodes.cpu]`, `[nodes.numa]`,
-   `[nodes.boot_disk]`, `[nodes.interfaces]`, `[nodes.ztp]`, `[nodes.ssh]`,
-   `[nodes.ready_check]`, `[nodes.vm]`, `[nodes.container]` and `[nodes.unikernel]`.
-   `[nodes.performance_tuning]` is gone. An old flat key such as `cpu_count` is refused with an
-   `unknown field` error that names it, and a setting the node's kind does not take is refused.
-   See the [old → new key table](https://docs.sherpalabs.net/manifest/#upgrading-manifests-from-flat-keys).
-4. **Recreate long-lived labs.** Labs created before the update keep running, but their saved
-   manifests use the old keys, so `sherpa resume` falls back to the default readiness settings.
-   Destroy and recreate them with an updated manifest.
-5. **Image API JSON is nested by group**, both in `sherpa server --output json image show` and
-   `GET /api/v1/images/...`. Update any script that reads image details. See the
-   [API reference](https://docs.sherpalabs.net/api-reference/#node-images).
-6. **A memory refusal has its own codes**: JSON-RPC `-32005`, HTTP `507 INSUFFICIENT_MEMORY`,
-   and `sherpa` exit status 75.
-
-Full upgrade notes: [Updating Sherpa](https://docs.sherpalabs.net/install-update/update/sherpa/#updating-to-060).
 
 ### Bug Fixes
 
