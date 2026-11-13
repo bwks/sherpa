@@ -2,6 +2,75 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2026-11-13
+
+### Breaking changes: read before updating
+
+0.6.0 is a breaking release. Before you update a server:
+
+1. **Servers older than 0.5.0** must update to v0.5.12 first, with that release's update
+   script, which moves their data into the embedded database. 0.6.0 no longer reads the old
+   SurrealDB database, and its install and update scripts refuse such a server.
+2. **Destroy every lab created before 0.5.15** with the release the server runs now. 0.6.0
+   removes the server's shared SSH key, which those labs use to reach their nodes. The update
+   script checks first: it names those labs, installs nothing and starts the running release
+   again. A 0.6.0 `sherpad` refuses to start while such labs exist. `sherpad check-database`
+   runs the same check.
+3. **Update every manifest.** Node settings are now grouped: `[nodes.cpu]`, `[nodes.numa]`,
+   `[nodes.boot_disk]`, `[nodes.interfaces]`, `[nodes.ztp]`, `[nodes.ssh]`,
+   `[nodes.ready_check]`, `[nodes.vm]`, `[nodes.container]` and `[nodes.unikernel]`.
+   `[nodes.performance_tuning]` is gone. An old flat key such as `cpu_count` is refused with an
+   `unknown field` error that names it, and a setting the node's kind does not take is refused.
+   See the [old → new key table](https://docs.sherpalabs.net/manifest/#upgrading-manifests-from-flat-keys).
+4. **Recreate long-lived labs.** Labs created before the update keep running, but their saved
+   manifests use the old keys, so `sherpa resume` falls back to the default readiness settings.
+   Destroy and recreate them with an updated manifest.
+5. **Image API JSON is nested by group**, both in `sherpa server --output json image show` and
+   `GET /api/v1/images/...`. Update any script that reads image details. See the
+   [API reference](https://docs.sherpalabs.net/api-reference/#node-images).
+6. **A memory refusal has its own codes**: JSON-RPC `-32005`, HTTP `507 INSUFFICIENT_MEMORY`,
+   and `sherpa` exit status 75.
+
+Full upgrade notes: [Updating Sherpa](https://docs.sherpalabs.net/install-update/update/sherpa/#updating-to-060).
+
+### Bug Fixes
+
+- Read impairment percentages as checked f64, with no lint exception by @bwks ([0ffbbd4](https://github.com/bwks/sherpa/commit/0ffbbd4f3e9688a2611521247879b50c55b03179))
+- A timed-out Vault init no longer looks initialised outside Sherpa by @bwks ([5061755](https://github.com/bwks/sherpa/commit/50617556eb3e5ca70cedd242819daf81ee6b294b))
+- Build on Rust 1.100: clippy map_unwrap_or and unused dependencies by @bwks ([7202bd3](https://github.com/bwks/sherpa/commit/7202bd36ec1b3cb3286f00c7c4da29857297b862))
+- Every lab runner keeps a partly created lab's ID by @bwks ([ce45518](https://github.com/bwks/sherpa/commit/ce455186f7be0b58dd9ab2db42bd4db30620b476))
+- The P2p containers runner keeps a partly created lab's ID by @bwks ([08717fc](https://github.com/bwks/sherpa/commit/08717fcdbc1f5d15e700a02431c427868c5bbe16))
+- A container that exits during up fails its node by @bwks ([462c139](https://github.com/bwks/sherpa/commit/462c139d5db4f38e87dbf726a33de9f1fc75d841))
+- A reader reports refused and unanswered pulls by @bwks ([1784088](https://github.com/bwks/sherpa/commit/17840885bc37cf9a727234d944f4a3dffd1ee94a))
+
+### CI
+
+- Check lint exceptions in ebpf-redirect too by @bwks ([0caa79f](https://github.com/bwks/sherpa/commit/0caa79fd1c35bfad77feee2f5da285e19850a95a))
+- Refuse new lint exceptions in a pre-commit hook and CI by @bwks ([751fdef](https://github.com/bwks/sherpa/commit/751fdef9994798e10e37016b06764b653cbbb415))
+
+### Documentation
+
+- No code blocks in Rust doc comments by @bwks ([faa394c](https://github.com/bwks/sherpa/commit/faa394cfb8344e0832f48973cbf24d098a2f02f6))
+
+### Features
+
+- Remove the shared server SSH key by @bwks ([e2c9c2b](https://github.com/bwks/sherpa/commit/e2c9c2b655bd922c1918842b44751b175a4db307))
+- Refuse pre-0.5.0 servers instead of migrating them by @bwks ([9189dc6](https://github.com/bwks/sherpa/commit/9189dc6adadb5ddcd5f05ee7b120960c5eb2945b))
+- A memory refusal has its own error code by @bwks ([7a8b652](https://github.com/bwks/sherpa/commit/7a8b6529e14612f575e33a9433100d9ce13cab26))
+- A query bound with the wrong parameter count fails to compile by @bwks ([93739a5](https://github.com/bwks/sherpa/commit/93739a5365f81c813315997989fc9699bf3225f9))
+- VM suite reports host OOM kills and retries memory refusals alone by @bwks ([61feea4](https://github.com/bwks/sherpa/commit/61feea430f7e26f1578e05f01502f836bbf9b11a))
+- Image scan registers container images from local Docker by @bwks ([3cf96b0](https://github.com/bwks/sherpa/commit/3cf96b0de996158c7dffa95b86015b8b84ff317e))
+
+### Miscellaneous
+
+- Drop the persistence.rs allowlist entry, its exception is gone by @bwks ([e31d424](https://github.com/bwks/sherpa/commit/e31d42489c4b54dec78b292444e4550468207625))
+
+### Refactor
+
+- Nest node settings by group in the image API and the manifest by @bwks ([8025b24](https://github.com/bwks/sherpa/commit/8025b24d807d9e5bc6014511224e0f4b2aa7a1c7))
+- Drop the Query doc tests and make Query and Bound crate-private by @bwks ([d529fd5](https://github.com/bwks/sherpa/commit/d529fd5e42bf113d04cfe9187138da6b66556882))
+- Group NodeConfig fields into settings structs by @bwks ([e81290a](https://github.com/bwks/sherpa/commit/e81290af735553e342e64a0c2956a54253c71996))
+- Let Docker match images for the container scan by @bwks ([c16e9fc](https://github.com/bwks/sherpa/commit/c16e9fce48ad68511c8c2a10a28bdccdf6fdbecb))
 ## [0.5.35] - 2026-11-12
 
 ### Bug Fixes
