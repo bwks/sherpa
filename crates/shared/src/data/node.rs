@@ -4273,4 +4273,14 @@ mod tests {
             .to_string();
         assert!(error.contains("unknown field `cpu_count`"), "{error}");
     }
+
+    /// Every model's built-in image, serialised in field order, is byte-for-byte the checked-in
+    /// fixture. Any change to a model, or to a base it is built from, shows up as a fixture diff
+    /// naming every model it touched.
+    #[test]
+    fn test_every_model_config_matches_the_snapshot() {
+        let models: Vec<NodeConfig> = NodeModel::iter().map(NodeConfig::get_model).collect();
+        let json = format!("{}\n", serde_json::to_string_pretty(&models).unwrap());
+        assert_eq!(json, include_str!("node_models.json"));
+    }
 }

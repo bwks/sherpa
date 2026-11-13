@@ -1,0 +1,2717 @@
+[
+  {
+    "id": null,
+    "model": "arista_veos",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "eos",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 2048,
+    "cpu": {
+      "count": 2,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "sata"
+    },
+    "cdrom": {
+      "image": "aboot.iso",
+      "bus": "ide"
+    },
+    "interfaces": {
+      "data_count": 52,
+      "kind": "virtio",
+      "mtu": 1500,
+      "prefix": "Eth",
+      "first_index": 1,
+      "management": "Management1",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "tftp",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "arista_ceos",
+    "version": "0.0.0",
+    "repo": "localrepo/arista_ceos",
+    "os_variant": "eos",
+    "kind": "container",
+    "default": true,
+    "memory": 4096,
+    "cpu": {
+      "count": 2,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "sata"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 52,
+      "kind": "virtio",
+      "mtu": 1500,
+      "prefix": "eth",
+      "first_index": 1,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "volume",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "aruba_aoscx",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "aos",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 4096,
+    "cpu": {
+      "count": 2,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 52,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "1/1/",
+      "first_index": 1,
+      "management": "mgmt",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "tftp",
+      "username": null,
+      "password": null,
+      "password_auth": true
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "cisco_asav",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "asa",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 2048,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "sata"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "ide"
+    },
+    "interfaces": {
+      "data_count": 8,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "GigabitEthernet0",
+      "first_index": 1,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cdrom",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "cisco_csr1000v",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "iosxe",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 3072,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 15,
+      "kind": "vmxnet3",
+      "mtu": 9216,
+      "prefix": "Gig",
+      "first_index": 1,
+      "management": "GigabitEthernet1",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cdrom",
+      "username": null,
+      "password": null,
+      "password_auth": true
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "cisco_cat8000v",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "iosxe",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 4096,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 15,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "Gig",
+      "first_index": 0,
+      "management": "GigabitEthernet1",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cdrom",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "cisco_cat9000v",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "iosxe",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 18432,
+    "cpu": {
+      "count": 4,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "sata"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 8,
+      "kind": "e1000",
+      "mtu": 9216,
+      "prefix": "Gig0/0/",
+      "first_index": 1,
+      "management": "GigabitEthernet0/0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cdrom",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "cisco_iosxrv9000",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "iosxr",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 20480,
+    "cpu": {
+      "count": 4,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "uefi"
+    },
+    "boot_disk": {
+      "bus": "sata"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 31,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "Gig0/0/0/",
+      "first_index": 0,
+      "management": "MgmtEth0/RP0/CPU0/0",
+      "reserved_count": 2
+    },
+    "ztp": {
+      "method": "cdrom",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "cisco_nexus9300v",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "nxos",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 12288,
+    "cpu": {
+      "count": 2,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "uefi"
+    },
+    "boot_disk": {
+      "bus": "sata"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "ide"
+    },
+    "interfaces": {
+      "data_count": 64,
+      "kind": "e1000",
+      "mtu": 9216,
+      "prefix": "Eth1/",
+      "first_index": 1,
+      "management": "mgmt0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cdrom",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "cisco_iosv",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "ios",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 768,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "virtio"
+    },
+    "interfaces": {
+      "data_count": 15,
+      "kind": "e1000",
+      "mtu": 9216,
+      "prefix": "Gig0/",
+      "first_index": 0,
+      "management": "GigabitEthernet0/0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "disk",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "cisco_iosvl2",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "ios",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "virtio"
+    },
+    "interfaces": {
+      "data_count": 15,
+      "kind": "e1000",
+      "mtu": 9216,
+      "prefix": "Gig",
+      "first_index": 0,
+      "management": "GigabitEthernet0/0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "disk",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "cisco_ise",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "ise",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 16384,
+    "cpu": {
+      "count": 4,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "disk",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "cisco_ftdv",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "fxos",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 8192,
+    "cpu": {
+      "count": 4,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 8,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "gig0/",
+      "first_index": 0,
+      "management": "Management0/0",
+      "reserved_count": 1
+    },
+    "ztp": {
+      "method": "cdrom",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "juniper_vrouter",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "junos",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 5120,
+    "cpu": {
+      "count": 4,
+      "architecture": "x86_64",
+      "model": "IvyBridge",
+      "vmx": true
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 10,
+      "kind": "virtio",
+      "mtu": 9600,
+      "prefix": "ge-0/0/",
+      "first_index": 0,
+      "management": "fxp0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cdrom",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "juniper_vswitch",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "junos",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 5120,
+    "cpu": {
+      "count": 4,
+      "architecture": "x86_64",
+      "model": "IvyBridge",
+      "vmx": true
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 10,
+      "kind": "virtio",
+      "mtu": 9600,
+      "prefix": "ge-0/0/",
+      "first_index": 0,
+      "management": "fxp0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cdrom",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "juniper_vevolved",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "junos",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 8192,
+    "cpu": {
+      "count": 4,
+      "architecture": "x86_64",
+      "model": "IvyBridge",
+      "vmx": true
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "uefi"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 12,
+      "kind": "virtio",
+      "mtu": 9600,
+      "prefix": "et-0/0/",
+      "first_index": 0,
+      "management": "re0:mgmt-0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "tftp",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "juniper_cevolved",
+    "version": "0.0.0",
+    "repo": "localrepo/juniper_cevolved",
+    "os_variant": "junos",
+    "kind": "container",
+    "default": true,
+    "memory": 6292,
+    "cpu": {
+      "count": 4,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "sata"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 12,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "et-0/0/",
+      "first_index": 1,
+      "management": "re0:mgmt-0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "volume",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "juniper_vsrxv3",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "junos",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 4096,
+    "cpu": {
+      "count": 2,
+      "architecture": "x86_64",
+      "model": "SandyBridge",
+      "vmx": true
+    },
+    "machine": {
+      "kind": "pc-i440fx-8.0",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "ide"
+    },
+    "interfaces": {
+      "data_count": 8,
+      "kind": "virtio",
+      "mtu": 9600,
+      "prefix": "ge-0/0/",
+      "first_index": 0,
+      "management": "fxp0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cdrom",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "nokia_srlinux",
+    "version": "0.0.0",
+    "repo": "ghcr.io/nokia/srlinux",
+    "os_variant": "srlinux",
+    "kind": "container",
+    "default": true,
+    "memory": 4096,
+    "cpu": {
+      "count": 2,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "sata"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 34,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth-1/",
+      "first_index": 1,
+      "management": "mgmt0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "volume",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "paloalto_panos",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "panos",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 8192,
+    "cpu": {
+      "count": 2,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 24,
+      "kind": "virtio",
+      "mtu": 1500,
+      "prefix": "ethernet1/",
+      "first_index": 0,
+      "management": "management",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cdrom",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "mikrotik_chr",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "routeros",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "ide"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "ide"
+    },
+    "interfaces": {
+      "data_count": 8,
+      "kind": "virtio",
+      "mtu": 1500,
+      "prefix": "ether",
+      "first_index": 1,
+      "management": "ether1",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "disk",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "frr_linux",
+    "version": "0.0.0",
+    "repo": "quay.io/frrouting/frr",
+    "os_variant": "linux",
+    "kind": "container",
+    "default": true,
+    "memory": 512,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "sata"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 8,
+      "kind": "virtio",
+      "mtu": 1500,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "volume",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "alma_linux",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "sata"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "rocky_linux",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "uefi"
+    },
+    "boot_disk": {
+      "bus": "sata"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "alpine_linux",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 2,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "cumulus_linux",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "nvue",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 2048,
+    "cpu": {
+      "count": 2,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "sata"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 52,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "swp",
+      "first_index": 1,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "usb",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "centos_linux",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "sata"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "devbox_linux",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "sata"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "fedora_linux",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "sata"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "redhat_linux",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "sata"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "opensuse_linux",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "sata"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "suse_linux",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "sata"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "ubuntu_linux",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "omarchy_linux",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 8192,
+    "cpu": {
+      "count": 4,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "uefi"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 1500,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "nixos_linux",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 2048,
+    "cpu": {
+      "count": 2,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "kali_linux",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "flatcar_linux",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 2048,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "ignition",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "sonic_linux",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 4096,
+    "cpu": {
+      "count": 2,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "virtio"
+    },
+    "interfaces": {
+      "data_count": 52,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 1,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "http",
+      "username": null,
+      "password": null,
+      "password_auth": true
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "talos_linux",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 4096,
+    "cpu": {
+      "count": 2,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "nocloud",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "devbox_windows",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "server",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 8192,
+    "cpu": {
+      "count": 4,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "windows_server",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "server",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 8192,
+    "cpu": {
+      "count": 4,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "free_bsd",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "bsd",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "open_bsd",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "bsd",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "forgejo_forge",
+    "version": "0.0.0",
+    "repo": "codeberg.org/forgejo/forgejo",
+    "os_variant": "unknown",
+    "kind": "container",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "virtio"
+    },
+    "interfaces": {
+      "data_count": 0,
+      "kind": "mac_vlan",
+      "mtu": 1500,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "disabled",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "gitlab_ce",
+    "version": "0.0.0",
+    "repo": "gitlab/gitlab-ce",
+    "os_variant": "unknown",
+    "kind": "container",
+    "default": true,
+    "memory": 4096,
+    "cpu": {
+      "count": 2,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "virtio"
+    },
+    "interfaces": {
+      "data_count": 0,
+      "kind": "mac_vlan",
+      "mtu": 1500,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "disabled",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "infrahub_server",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 12288,
+    "cpu": {
+      "count": 6,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": true
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "jenkins_server",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 4096,
+    "cpu": {
+      "count": 2,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": true
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "nautobot_server",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 4096,
+    "cpu": {
+      "count": 2,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": true
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "netbox_server",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 4096,
+    "cpu": {
+      "count": 2,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": true
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "signoz_server",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 8192,
+    "cpu": {
+      "count": 4,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": true
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "virt_server",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "linux",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 4096,
+    "cpu": {
+      "count": 2,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "q35",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 9216,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": true
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "nats_bus",
+    "version": "0.0.0",
+    "repo": "nats",
+    "os_variant": "unknown",
+    "kind": "container",
+    "default": true,
+    "memory": 512,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "virtio"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "mac_vlan",
+      "mtu": 1500,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "disabled",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "surreal_db",
+    "version": "0.0.0",
+    "repo": "surrealdb/surrealdb",
+    "os_variant": "unknown",
+    "kind": "container",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "virtio"
+    },
+    "interfaces": {
+      "data_count": 0,
+      "kind": "mac_vlan",
+      "mtu": 1500,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "disabled",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "mysql_db",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "unknown",
+    "kind": "container",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "virtio"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "mac_vlan",
+      "mtu": 1500,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "disabled",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "mongo_db",
+    "version": "0.0.0",
+    "repo": "mongo",
+    "os_variant": "unknown",
+    "kind": "container",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "virtio"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "mac_vlan",
+      "mtu": 1500,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "disabled",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "postgresql_db",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "unknown",
+    "kind": "container",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "virtio"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "mac_vlan",
+      "mtu": 1500,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "disabled",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "hashicorp_vault",
+    "version": "0.0.0",
+    "repo": "hashicorp/vault",
+    "os_variant": "unknown",
+    "kind": "container",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "virtio"
+    },
+    "interfaces": {
+      "data_count": 0,
+      "kind": "mac_vlan",
+      "mtu": 1500,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "disabled",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "keycloak_server",
+    "version": "0.0.0",
+    "repo": "quay.io/keycloak/keycloak",
+    "os_variant": "unknown",
+    "kind": "container",
+    "default": true,
+    "memory": 2048,
+    "cpu": {
+      "count": 2,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "virtio"
+    },
+    "interfaces": {
+      "data_count": 0,
+      "kind": "mac_vlan",
+      "mtu": 1500,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "disabled",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "generic_container",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "unknown",
+    "kind": "container",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "virtio"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "mac_vlan",
+      "mtu": 1500,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "disabled",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "generic_unikernel",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "unknown",
+    "kind": "unikernel",
+    "default": true,
+    "memory": 512,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "virtio"
+    },
+    "interfaces": {
+      "data_count": 0,
+      "kind": "virtio",
+      "mtu": 1500,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "disabled",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": {
+      "boot_mode": "direct_kernel"
+    }
+  },
+  {
+    "id": null,
+    "model": "generic_vm",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "unknown",
+    "kind": "virtual_machine",
+    "default": true,
+    "memory": 1024,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "sata"
+    },
+    "interfaces": {
+      "data_count": 1,
+      "kind": "virtio",
+      "mtu": 1500,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "cloud-init",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": null
+  },
+  {
+    "id": null,
+    "model": "unikraft_unikernel",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "unknown",
+    "kind": "unikernel",
+    "default": true,
+    "memory": 512,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "virtio"
+    },
+    "interfaces": {
+      "data_count": 0,
+      "kind": "virtio",
+      "mtu": 1500,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "disabled",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": {
+      "boot_mode": "direct_kernel"
+    }
+  },
+  {
+    "id": null,
+    "model": "nanos_unikernel",
+    "version": "0.0.0",
+    "repo": null,
+    "os_variant": "unknown",
+    "kind": "unikernel",
+    "default": true,
+    "memory": 512,
+    "cpu": {
+      "count": 1,
+      "architecture": "x86_64",
+      "model": "host-model",
+      "vmx": false
+    },
+    "machine": {
+      "kind": "pc",
+      "bios": "sea_bios"
+    },
+    "boot_disk": {
+      "bus": "virtio"
+    },
+    "cdrom": {
+      "image": null,
+      "bus": "virtio"
+    },
+    "interfaces": {
+      "data_count": 0,
+      "kind": "virtio",
+      "mtu": 1500,
+      "prefix": "eth",
+      "first_index": 0,
+      "management": "eth0",
+      "reserved_count": 0
+    },
+    "ztp": {
+      "method": "disabled",
+      "username": null,
+      "password": null,
+      "password_auth": false
+    },
+    "unikernel": {
+      "boot_mode": "disk_boot"
+    }
+  }
+]
