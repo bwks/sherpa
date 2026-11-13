@@ -26,8 +26,31 @@ of releases before the grouping (`cpu_count`, `hdd_bus`, `ztp_username`) is refu
 as defaults. There is no `#[serde(flatten)]` and no rename. The groups' doc comments are the
 schema's descriptions.
 
-The 63 constructors (`NodeConfig::ubuntu_linux()` and the rest) are written as groups. Talos,
-NixOS and Omarchy start from `ubuntu_linux()` and override a group with `..ubuntu.cpu`.
+### Base shapes
+
+The 63 constructors (`NodeConfig::ubuntu_linux()` and the rest) each start from one of five
+bases in `crates/shared/src/data/node_base.rs` and state only what differs, with struct update
+syntax: a whole group (`boot_disk: BootDiskSettings { .. }`), or the fields of a group that
+differ, keeping the rest of it from the base (`cpu: CpuSettings { count: 2, ..base.cpu }`).
+
+| Base | Models | Shape |
+|---|---|---|
+| `cloud_init_vm(model)` | Linux, BSD and Windows VMs, app VMs, `generic_vm` | cloud-init, q35/SeaBIOS, virtio disk, 1 jumbo-MTU virtio data interface |
+| `network_os_vm(model, memory, os_variant, interfaces)` | network OS VMs | config CD-ROM ZTP, pc/SeaBIOS, virtio disk |
+| `app_container(model)` | application containers | no ZTP, 1 macvlan data interface |
+| `network_os_container(model, memory, os_variant, interfaces)` | network OS containers | config volume ZTP |
+| `unikernel(model)` | unikernels | direct-kernel boot, no data interfaces |
+
+The bases are `pub(super)`, used only by the constructors. They are one level deep: no base is
+built from another, and no model is built from another model, so changing a base changes only
+the models built from it. The network OS bases take memory, OS variant and interfaces as
+arguments because every model on them sets its own, so none can inherit a placeholder.
+
+`test_every_model_config_matches_the_snapshot` compares every model's JSON, byte for byte, with
+the fixture `crates/shared/src/data/node_models.json`. A change to a base or a model shows up as
+a diff to that file naming every model it touched; update the fixture in the same change.
+Container models keep `machine`, `boot_disk` and `cdrom` values they do not use, and the two
+container bases differ in them; see #610.
 
 The `node_image` table keeps one flat column per field; `db::persistence` maps the groups to
 the columns by hand (see [`DATABASE.md`](DATABASE.md)).

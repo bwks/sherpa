@@ -19,6 +19,7 @@ use crate::konst::{
 };
 
 use super::RecordId;
+use super::node_base;
 
 #[derive(
     Default,
@@ -1130,23 +1131,24 @@ impl NodeConfig {
     }
     #[must_use]
     pub fn arista_veos() -> NodeConfig {
+        let base = node_base::network_os_vm(
+            NodeModel::AristaVeos,
+            2048,
+            OsVariant::Eos,
+            InterfaceSettings {
+                data_count: 52,
+                kind: InterfaceType::Virtio,
+                mtu: MTU_STD,
+                prefix: "Eth".to_owned(),
+                first_index: 1,
+                management: MgmtInterfaces::Management1,
+                reserved_count: 0,
+            },
+        );
         NodeConfig {
-            id: None,
-            model: NodeModel::AristaVeos,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Eos,
-            kind: NodeKind::VirtualMachine,
-            memory: 2048,
             cpu: CpuSettings {
                 count: 2,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Pc,
-                bios: BiosTypes::SeaBios,
+                ..base.cpu
             },
             boot_disk: BootDiskSettings {
                 bus: DiskBuses::Sata,
@@ -1155,2613 +1157,1113 @@ impl NodeConfig {
                 image: Some("aboot.iso".to_owned()),
                 bus: DiskBuses::Ide,
             },
-            unikernel: None,
             ztp: ZtpSettings {
                 method: Ztp::Tftp,
-                username: None,
-                password: None,
-                password_auth: false,
+                ..base.ztp
             },
-            interfaces: InterfaceSettings {
-                data_count: 52,
-                prefix: "Eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_STD,
-                first_index: 1,
-                management: MgmtInterfaces::Management1,
-                reserved_count: 0,
-            },
-            default: true,
+            ..base
         }
     }
     #[must_use]
     pub fn arista_ceos() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::AristaCeos,
-            version: "0.0.0".to_owned(),
-            repo: Some(CONTAINER_ARISTA_CEOS_REPO.to_string()),
-            os_variant: OsVariant::Eos,
-            kind: NodeKind::Container,
-            memory: 4096,
-            cpu: CpuSettings {
-                count: 2,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Sata,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Volume,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_container(
+            NodeModel::AristaCeos,
+            4096,
+            OsVariant::Eos,
+            InterfaceSettings {
                 data_count: 52,
-                prefix: "eth".to_owned(),
                 kind: InterfaceType::Virtio,
                 mtu: MTU_STD,
+                prefix: "eth".to_owned(),
                 first_index: 1,
                 management: MgmtInterfaces::Eth0,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            repo: Some(CONTAINER_ARISTA_CEOS_REPO.to_string()),
+            cpu: CpuSettings {
+                count: 2,
+                ..base.cpu
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn aruba_aoscx() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::ArubaAoscx,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Aos,
-            kind: NodeKind::VirtualMachine,
-            memory: 4096,
-            cpu: CpuSettings {
-                count: 2,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Tftp,
-                username: None,
-                password: None,
-                password_auth: true,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::ArubaAoscx,
+            4096,
+            OsVariant::Aos,
+            InterfaceSettings {
                 data_count: 52,
-                prefix: "1/1/".to_owned(),
                 kind: InterfaceType::Virtio,
                 mtu: MTU_JUMBO_INT,
+                prefix: "1/1/".to_owned(),
                 first_index: 1,
                 management: MgmtInterfaces::Mgmt,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            cpu: CpuSettings {
+                count: 2,
+                ..base.cpu
+            },
+            machine: MachineSettings {
+                kind: MachineType::Q35,
+                ..base.machine
+            },
+            ztp: ZtpSettings {
+                method: Ztp::Tftp,
+                password_auth: true,
+                ..base.ztp
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn cisco_asav() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::CiscoAsav,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Asa,
-            kind: NodeKind::VirtualMachine,
-            memory: 2048,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Pc,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Sata,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Ide,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Cdrom,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::CiscoAsav,
+            2048,
+            OsVariant::Asa,
+            InterfaceSettings {
                 data_count: 8,
-                prefix: "GigabitEthernet0".to_owned(),
                 kind: InterfaceType::Virtio,
                 mtu: MTU_JUMBO_INT,
+                prefix: "GigabitEthernet0".to_owned(),
                 first_index: 1,
                 management: MgmtInterfaces::Eth0,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            boot_disk: BootDiskSettings {
+                bus: DiskBuses::Sata,
+            },
+            cdrom: CdromSettings {
+                bus: DiskBuses::Ide,
+                ..base.cdrom
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn cisco_csr1000v() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::CiscoCsr1000v,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Iosxe,
-            kind: NodeKind::VirtualMachine,
-            memory: 3072,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Cdrom,
-                username: None,
-                password: None,
-                password_auth: true,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::CiscoCsr1000v,
+            3072,
+            OsVariant::Iosxe,
+            InterfaceSettings {
                 data_count: 15,
-                prefix: "Gig".to_owned(),
                 kind: InterfaceType::Vmxnet3,
                 mtu: MTU_JUMBO_INT,
+                prefix: "Gig".to_owned(),
                 first_index: 1,
                 management: MgmtInterfaces::GigabitEthernet1,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            machine: MachineSettings {
+                kind: MachineType::Q35,
+                ..base.machine
+            },
+            ztp: ZtpSettings {
+                password_auth: true,
+                ..base.ztp
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn cisco_cat8000v() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::CiscoCat8000v,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Iosxe,
-            kind: NodeKind::VirtualMachine,
-            memory: 4096,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Cdrom,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::CiscoCat8000v,
+            4096,
+            OsVariant::Iosxe,
+            InterfaceSettings {
                 data_count: 15,
-                prefix: "Gig".to_owned(),
                 kind: InterfaceType::Virtio,
                 mtu: MTU_JUMBO_INT,
+                prefix: "Gig".to_owned(),
                 first_index: 0,
                 management: MgmtInterfaces::GigabitEthernet1,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            machine: MachineSettings {
+                kind: MachineType::Q35,
+                ..base.machine
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn cisco_cat9000v() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::CiscoCat9000v,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Iosxe,
-            kind: NodeKind::VirtualMachine,
-            memory: 18432,
-            cpu: CpuSettings {
-                count: 4,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Sata,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Cdrom,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::CiscoCat9000v,
+            18432,
+            OsVariant::Iosxe,
+            InterfaceSettings {
                 data_count: 8,
-                prefix: "Gig0/0/".to_owned(),
                 kind: InterfaceType::E1000,
                 mtu: MTU_JUMBO_INT,
+                prefix: "Gig0/0/".to_owned(),
                 first_index: 1,
                 management: MgmtInterfaces::GigabitEthernet0_0,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            cpu: CpuSettings {
+                count: 4,
+                ..base.cpu
+            },
+            machine: MachineSettings {
+                kind: MachineType::Q35,
+                ..base.machine
+            },
+            boot_disk: BootDiskSettings {
+                bus: DiskBuses::Sata,
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn cisco_iosxrv9000() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::CiscoIosxrv9000,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Iosxr,
-            kind: NodeKind::VirtualMachine,
-            memory: 20480,
-            cpu: CpuSettings {
-                count: 4,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Pc,
-                bios: BiosTypes::Uefi,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Sata,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Cdrom,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::CiscoIosxrv9000,
+            20480,
+            OsVariant::Iosxr,
+            InterfaceSettings {
                 data_count: 31,
-                prefix: "Gig0/0/0/".to_owned(),
                 kind: InterfaceType::Virtio,
                 mtu: MTU_JUMBO_INT,
+                prefix: "Gig0/0/0/".to_owned(),
                 first_index: 0,
                 management: MgmtInterfaces::MgmtEth0Rp0Cpu0_0,
                 reserved_count: 2,
             },
-            default: true,
+        );
+        NodeConfig {
+            cpu: CpuSettings {
+                count: 4,
+                ..base.cpu
+            },
+            machine: MachineSettings {
+                bios: BiosTypes::Uefi,
+                ..base.machine
+            },
+            boot_disk: BootDiskSettings {
+                bus: DiskBuses::Sata,
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn cisco_nexus9300v() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::CiscoNexus9300v,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Nxos,
-            kind: NodeKind::VirtualMachine,
-            memory: 12288,
-            cpu: CpuSettings {
-                count: 2,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Pc,
-                bios: BiosTypes::Uefi,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Sata,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Ide,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Cdrom,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::CiscoNexus9300v,
+            12288,
+            OsVariant::Nxos,
+            InterfaceSettings {
                 data_count: 64,
-                prefix: "Eth1/".to_owned(),
                 kind: InterfaceType::E1000,
                 mtu: MTU_JUMBO_INT,
+                prefix: "Eth1/".to_owned(),
                 first_index: 1,
                 management: MgmtInterfaces::Mgmt0,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            cpu: CpuSettings {
+                count: 2,
+                ..base.cpu
+            },
+            machine: MachineSettings {
+                bios: BiosTypes::Uefi,
+                ..base.machine
+            },
+            boot_disk: BootDiskSettings {
+                bus: DiskBuses::Sata,
+            },
+            cdrom: CdromSettings {
+                bus: DiskBuses::Ide,
+                ..base.cdrom
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn cisco_iosv() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::CiscoIosv,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Ios,
-            kind: NodeKind::VirtualMachine,
-            memory: 768,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Pc,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Virtio,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Disk,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::CiscoIosv,
+            768,
+            OsVariant::Ios,
+            InterfaceSettings {
                 data_count: 15,
-                prefix: "Gig0/".to_owned(),
                 kind: InterfaceType::E1000,
                 mtu: MTU_JUMBO_INT,
+                prefix: "Gig0/".to_owned(),
                 first_index: 0,
                 management: MgmtInterfaces::GigabitEthernet0_0,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            cdrom: CdromSettings {
+                bus: DiskBuses::Virtio,
+                ..base.cdrom
+            },
+            ztp: ZtpSettings {
+                method: Ztp::Disk,
+                ..base.ztp
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn cisco_iosvl2() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::CiscoIosvl2,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Ios,
-            kind: NodeKind::VirtualMachine,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Pc,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Virtio,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Disk,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::CiscoIosvl2,
+            1024,
+            OsVariant::Ios,
+            InterfaceSettings {
                 // IOSvL2 crashes with more than 16 NICs: GigabitEthernet0/0 for management plus 15 data.
                 data_count: 15,
-                prefix: "Gig".to_owned(),
                 kind: InterfaceType::E1000,
                 mtu: MTU_JUMBO_INT,
+                prefix: "Gig".to_owned(),
                 first_index: 0,
                 management: MgmtInterfaces::GigabitEthernet0_0,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            cdrom: CdromSettings {
+                bus: DiskBuses::Virtio,
+                ..base.cdrom
+            },
+            ztp: ZtpSettings {
+                method: Ztp::Disk,
+                ..base.ztp
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn cisco_ise() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::CiscoIse,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Ise,
-            kind: NodeKind::VirtualMachine,
-            memory: 16384,
-            cpu: CpuSettings {
-                count: 4,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Pc,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Disk,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::CiscoIse,
+            16384,
+            OsVariant::Ise,
+            InterfaceSettings {
                 data_count: 1,
-                prefix: "eth".to_owned(),
                 kind: InterfaceType::Virtio,
                 mtu: MTU_JUMBO_INT,
+                prefix: "eth".to_owned(),
                 first_index: 0,
                 management: MgmtInterfaces::Eth0,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            cpu: CpuSettings {
+                count: 4,
+                ..base.cpu
+            },
+            ztp: ZtpSettings {
+                method: Ztp::Disk,
+                ..base.ztp
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn cisco_ftdv() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::CiscoFtdv,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Fxos,
-            kind: NodeKind::VirtualMachine,
-            memory: 8192,
-            cpu: CpuSettings {
-                count: 4,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Pc,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Cdrom,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::CiscoFtdv,
+            8192,
+            OsVariant::Fxos,
+            InterfaceSettings {
                 data_count: 8,
-                prefix: "gig0/".to_owned(),
                 kind: InterfaceType::Virtio,
                 mtu: MTU_JUMBO_INT,
+                prefix: "gig0/".to_owned(),
                 first_index: 0,
                 management: MgmtInterfaces::Management0_0,
                 reserved_count: 1,
             },
-            default: true,
+        );
+        NodeConfig {
+            cpu: CpuSettings {
+                count: 4,
+                ..base.cpu
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn juniper_vrouter() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::JuniperVrouter,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Junos,
-            kind: NodeKind::VirtualMachine,
-            memory: 5120,
-            cpu: CpuSettings {
-                count: 4,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::IvyBridge,
-                vmx: true,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Pc,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Cdrom,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::JuniperVrouter,
+            5120,
+            OsVariant::Junos,
+            InterfaceSettings {
                 data_count: 10,
-                prefix: "ge-0/0/".to_owned(),
                 kind: InterfaceType::Virtio,
                 mtu: MTU_JUMBO_NET,
+                prefix: "ge-0/0/".to_owned(),
                 first_index: 0,
                 management: MgmtInterfaces::Fxp0,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            cpu: CpuSettings {
+                count: 4,
+                model: CpuModels::IvyBridge,
+                vmx: true,
+                ..base.cpu
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn juniper_vswitch() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::JuniperVswitch,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Junos,
-            kind: NodeKind::VirtualMachine,
-            memory: 5120,
-            cpu: CpuSettings {
-                count: 4,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::IvyBridge,
-                vmx: true,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Pc,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Cdrom,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::JuniperVswitch,
+            5120,
+            OsVariant::Junos,
+            InterfaceSettings {
                 data_count: 10,
-                prefix: "ge-0/0/".to_owned(),
                 kind: InterfaceType::Virtio,
                 mtu: MTU_JUMBO_NET,
+                prefix: "ge-0/0/".to_owned(),
                 first_index: 0,
                 management: MgmtInterfaces::Fxp0,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            cpu: CpuSettings {
+                count: 4,
+                model: CpuModels::IvyBridge,
+                vmx: true,
+                ..base.cpu
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn juniper_vevolved() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::JuniperVevolved,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Junos,
-            kind: NodeKind::VirtualMachine,
-            memory: 8192,
-            cpu: CpuSettings {
-                count: 4,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::IvyBridge,
-                vmx: true,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Pc,
-                bios: BiosTypes::Uefi,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Tftp,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::JuniperVevolved,
+            8192,
+            OsVariant::Junos,
+            InterfaceSettings {
                 data_count: 12,
-                prefix: "et-0/0/".to_owned(),
                 kind: InterfaceType::Virtio,
                 mtu: MTU_JUMBO_NET,
+                prefix: "et-0/0/".to_owned(),
                 first_index: 0,
                 management: MgmtInterfaces::Re0Mgmt0,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            cpu: CpuSettings {
+                count: 4,
+                model: CpuModels::IvyBridge,
+                vmx: true,
+                ..base.cpu
+            },
+            machine: MachineSettings {
+                bios: BiosTypes::Uefi,
+                ..base.machine
+            },
+            ztp: ZtpSettings {
+                method: Ztp::Tftp,
+                ..base.ztp
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn juniper_vsrxv3() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::JuniperVsrxv3,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Junos,
-            kind: NodeKind::VirtualMachine,
-            memory: 4096,
-            cpu: CpuSettings {
-                count: 2,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::SandyBridge,
-                vmx: true,
-            },
-            machine: MachineSettings {
-                kind: MachineType::PcI440Fx8_0,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Ide,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Cdrom,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::JuniperVsrxv3,
+            4096,
+            OsVariant::Junos,
+            InterfaceSettings {
                 data_count: 8,
-                prefix: "ge-0/0/".to_owned(),
                 kind: InterfaceType::Virtio,
                 mtu: MTU_JUMBO_NET,
+                prefix: "ge-0/0/".to_owned(),
                 first_index: 0,
                 management: MgmtInterfaces::Fxp0,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            cpu: CpuSettings {
+                count: 2,
+                model: CpuModels::SandyBridge,
+                vmx: true,
+                ..base.cpu
+            },
+            machine: MachineSettings {
+                kind: MachineType::PcI440Fx8_0,
+                ..base.machine
+            },
+            cdrom: CdromSettings {
+                bus: DiskBuses::Ide,
+                ..base.cdrom
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn alma_linux() -> NodeConfig {
         NodeConfig {
-            id: None,
-            model: NodeModel::AlmaLinux,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
             boot_disk: BootDiskSettings {
                 bus: DiskBuses::Sata,
             },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..node_base::cloud_init_vm(NodeModel::AlmaLinux)
         }
     }
     #[must_use]
     pub fn rocky_linux() -> NodeConfig {
+        let base = node_base::cloud_init_vm(NodeModel::RockyLinux);
         NodeConfig {
-            id: None,
-            model: NodeModel::RockyLinux,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
             machine: MachineSettings {
-                kind: MachineType::Q35,
                 bios: BiosTypes::Uefi,
+                ..base.machine
             },
             boot_disk: BootDiskSettings {
                 bus: DiskBuses::Sata,
             },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..base
         }
     }
     #[must_use]
     pub fn alpine_linux() -> NodeConfig {
+        let base = node_base::cloud_init_vm(NodeModel::AlpineLinux);
         NodeConfig {
-            id: None,
-            model: NodeModel::AlpineLinux,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
             interfaces: InterfaceSettings {
                 data_count: 2,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
+                ..base.interfaces
             },
-            default: true,
+            ..base
         }
     }
     #[must_use]
     pub fn cumulus_linux() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::CumulusLinux,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            kind: NodeKind::VirtualMachine,
-            os_variant: OsVariant::Nvue,
-            memory: 2048,
-            cpu: CpuSettings {
-                count: 2,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Sata,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Usb,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::CumulusLinux,
+            2048,
+            OsVariant::Nvue,
+            InterfaceSettings {
                 data_count: 52,
-                prefix: "swp".to_owned(),
                 kind: InterfaceType::Virtio,
                 mtu: MTU_JUMBO_INT,
+                prefix: "swp".to_owned(),
                 first_index: 1,
                 management: MgmtInterfaces::Eth0,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            cpu: CpuSettings {
+                count: 2,
+                ..base.cpu
+            },
+            machine: MachineSettings {
+                kind: MachineType::Q35,
+                ..base.machine
+            },
+            boot_disk: BootDiskSettings {
+                bus: DiskBuses::Sata,
+            },
+            ztp: ZtpSettings {
+                method: Ztp::Usb,
+                ..base.ztp
+            },
+            ..base
         }
     }
     /// cJunosEvolved. The vCPUs and memory are its EVO VM's, given to the container as
     /// `CPTX_EVOVM_CPU` and `CPTX_EVOVM_MEM_MB`; they are cJunosEvolved's minimums.
     #[must_use]
     pub fn juniper_cevolved() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::JuniperCevolved,
-            version: "0.0.0".to_owned(),
-            repo: Some(CONTAINER_JUNIPER_CEVOLVED_REPO.to_string()),
-            os_variant: OsVariant::Junos,
-            kind: NodeKind::Container,
-            memory: 6292,
-            cpu: CpuSettings {
-                count: 4,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Sata,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Volume,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_container(
+            NodeModel::JuniperCevolved,
+            6292,
+            OsVariant::Junos,
+            InterfaceSettings {
                 data_count: 12,
-                prefix: "et-0/0/".to_owned(),
-                kind: InterfaceType::default(),
+                kind: InterfaceType::Virtio,
                 mtu: MTU_JUMBO_INT,
+                prefix: "et-0/0/".to_owned(),
                 first_index: 1,
                 management: MgmtInterfaces::Re0Mgmt0,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            repo: Some(CONTAINER_JUNIPER_CEVOLVED_REPO.to_string()),
+            cpu: CpuSettings {
+                count: 4,
+                ..base.cpu
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn nokia_srlinux() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::NokiaSrlinux,
-            version: "0.0.0".to_owned(),
-            repo: Some(CONTAINER_NOKIA_SRLINUX_REPO.to_string()),
-            os_variant: OsVariant::Srlinux,
-            kind: NodeKind::Container,
-            memory: 4096,
-            cpu: CpuSettings {
-                count: 2,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Sata,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Volume,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_container(
+            NodeModel::NokiaSrlinux,
+            4096,
+            OsVariant::Srlinux,
+            InterfaceSettings {
                 data_count: 34,
-                prefix: "eth-1/".to_owned(),
-                kind: InterfaceType::default(),
+                kind: InterfaceType::Virtio,
                 mtu: MTU_JUMBO_INT,
+                prefix: "eth-1/".to_owned(),
                 first_index: 1,
                 management: MgmtInterfaces::Mgmt0,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            repo: Some(CONTAINER_NOKIA_SRLINUX_REPO.to_string()),
+            cpu: CpuSettings {
+                count: 2,
+                ..base.cpu
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn centos_linux() -> NodeConfig {
         NodeConfig {
-            id: None,
-            model: NodeModel::CentosLinux,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
             boot_disk: BootDiskSettings {
                 bus: DiskBuses::Sata,
             },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..node_base::cloud_init_vm(NodeModel::CentosLinux)
         }
     }
     #[must_use]
     pub fn devbox_linux() -> NodeConfig {
         NodeConfig {
-            id: None,
-            model: NodeModel::DevboxLinux,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
             boot_disk: BootDiskSettings {
                 bus: DiskBuses::Sata,
             },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..node_base::cloud_init_vm(NodeModel::DevboxLinux)
         }
     }
     #[must_use]
     pub fn fedora_linux() -> NodeConfig {
         NodeConfig {
-            id: None,
-            model: NodeModel::FedoraLinux,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
             boot_disk: BootDiskSettings {
                 bus: DiskBuses::Sata,
             },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..node_base::cloud_init_vm(NodeModel::FedoraLinux)
         }
     }
     #[must_use]
     pub fn redhat_linux() -> NodeConfig {
         NodeConfig {
-            id: None,
-            model: NodeModel::RedhatLinux,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
             boot_disk: BootDiskSettings {
                 bus: DiskBuses::Sata,
             },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..node_base::cloud_init_vm(NodeModel::RedhatLinux)
         }
     }
     #[must_use]
     pub fn suse_linux() -> NodeConfig {
         NodeConfig {
-            id: None,
-            model: NodeModel::SuseLinux,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
             boot_disk: BootDiskSettings {
                 bus: DiskBuses::Sata,
             },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..node_base::cloud_init_vm(NodeModel::SuseLinux)
         }
     }
     #[must_use]
     pub fn opensuse_linux() -> NodeConfig {
         NodeConfig {
-            id: None,
-            model: NodeModel::OpensuseLinux,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
             boot_disk: BootDiskSettings {
                 bus: DiskBuses::Sata,
             },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..node_base::cloud_init_vm(NodeModel::OpensuseLinux)
         }
     }
     #[must_use]
     pub fn ubuntu_linux() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::UbuntuLinux,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
-        }
+        node_base::cloud_init_vm(NodeModel::UbuntuLinux)
     }
     /// Talos Linux: immutable, API-managed Kubernetes OS with no SSH or shell.
     ///
     /// The machine config is delivered as `NoCloud` `user-data` on a `cidata` CD-ROM.
     #[must_use]
     pub fn talos_linux() -> NodeConfig {
-        let ubuntu = NodeConfig::ubuntu_linux();
+        let base = node_base::cloud_init_vm(NodeModel::TalosLinux);
         NodeConfig {
-            model: NodeModel::TalosLinux,
             memory: 4096,
             cpu: CpuSettings {
                 count: 2,
-                ..ubuntu.cpu
+                ..base.cpu
             },
             ztp: ZtpSettings {
                 method: Ztp::NoCloud,
-                ..ubuntu.ztp
+                ..base.ztp
             },
-            ..ubuntu
+            ..base
         }
     }
     /// NixOS, built from the image recipe in `bwks/nixos-image`. More memory than the other
     /// distros, because rebuilding the system runs Nix on the node.
-    #[tracing::instrument(level = "debug")]
+    #[must_use]
     pub fn nixos_linux() -> NodeConfig {
-        let ubuntu = NodeConfig::ubuntu_linux();
+        let base = node_base::cloud_init_vm(NodeModel::NixosLinux);
         NodeConfig {
-            model: NodeModel::NixosLinux,
             memory: 2048,
             cpu: CpuSettings {
                 count: 2,
-                ..ubuntu.cpu
+                ..base.cpu
             },
-            ..ubuntu
+            ..base
         }
     }
-    #[tracing::instrument(level = "debug")]
+    #[must_use]
     pub fn omarchy_linux() -> NodeConfig {
-        let ubuntu = NodeConfig::ubuntu_linux();
+        let base = node_base::cloud_init_vm(NodeModel::OmarchyLinux);
         NodeConfig {
-            model: NodeModel::OmarchyLinux,
             memory: 8192,
             cpu: CpuSettings {
                 count: 4,
-                ..ubuntu.cpu
+                ..base.cpu
             },
             machine: MachineSettings {
                 bios: BiosTypes::Uefi,
-                ..ubuntu.machine
+                ..base.machine
             },
             interfaces: InterfaceSettings {
                 mtu: MTU_STD,
-                ..ubuntu.interfaces
+                ..base.interfaces
             },
-            ..ubuntu
+            ..base
         }
     }
     #[must_use]
     pub fn kali_linux() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::KaliLinux,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
-        }
+        node_base::cloud_init_vm(NodeModel::KaliLinux)
     }
     #[must_use]
     pub fn sonic_linux() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::SonicLinux,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
-            memory: 4096,
-            cpu: CpuSettings {
-                count: 2,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Virtio,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Http,
-                username: None,
-                password: None,
-                password_auth: true,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::SonicLinux,
+            4096,
+            OsVariant::Linux,
+            InterfaceSettings {
                 data_count: 52,
-                prefix: "eth".to_owned(),
                 kind: InterfaceType::Virtio,
                 mtu: MTU_JUMBO_INT,
+                prefix: "eth".to_owned(),
                 first_index: 1,
                 management: MgmtInterfaces::Eth0,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            cpu: CpuSettings {
+                count: 2,
+                ..base.cpu
+            },
+            machine: MachineSettings {
+                kind: MachineType::Q35,
+                ..base.machine
+            },
+            cdrom: CdromSettings {
+                bus: DiskBuses::Virtio,
+                ..base.cdrom
+            },
+            ztp: ZtpSettings {
+                method: Ztp::Http,
+                password_auth: true,
+                ..base.ztp
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn flatcar_linux() -> NodeConfig {
+        let base = node_base::cloud_init_vm(NodeModel::FlatcarLinux);
         NodeConfig {
-            id: None,
-            model: NodeModel::FlatcarLinux,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
             memory: 2048,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
             ztp: ZtpSettings {
                 method: Ztp::Ignition,
-                username: None,
-                password: None,
-                password_auth: false,
+                ..base.ztp
             },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..base
         }
     }
     #[must_use]
     pub fn free_bsd() -> NodeConfig {
         NodeConfig {
-            id: None,
-            model: NodeModel::FreeBsd,
-            version: "0.0.0".to_owned(),
-            repo: None,
             os_variant: OsVariant::Bsd,
-            kind: NodeKind::VirtualMachine,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..node_base::cloud_init_vm(NodeModel::FreeBsd)
         }
     }
     #[must_use]
     pub fn open_bsd() -> NodeConfig {
         NodeConfig {
-            id: None,
-            model: NodeModel::OpenBsd,
-            version: "0.0.0".to_owned(),
-            repo: None,
             os_variant: OsVariant::Bsd,
-            kind: NodeKind::VirtualMachine,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..node_base::cloud_init_vm(NodeModel::OpenBsd)
         }
     }
     #[must_use]
     pub fn devbox_windows() -> NodeConfig {
+        let base = node_base::cloud_init_vm(NodeModel::DevboxWindows);
         NodeConfig {
-            id: None,
-            model: NodeModel::DevboxWindows,
-            version: "0.0.0".to_owned(),
-            repo: None,
             os_variant: OsVariant::Server,
-            kind: NodeKind::VirtualMachine,
             memory: 8192,
             cpu: CpuSettings {
                 count: 4,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
+                ..base.cpu
             },
             machine: MachineSettings {
                 kind: MachineType::Pc,
-                bios: BiosTypes::SeaBios,
+                ..base.machine
             },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..base
         }
     }
     #[must_use]
     pub fn windows_server() -> NodeConfig {
+        let base = node_base::cloud_init_vm(NodeModel::WindowsServer);
         NodeConfig {
-            id: None,
-            model: NodeModel::WindowsServer,
-            version: "0.0.0".to_owned(),
-            repo: None,
             os_variant: OsVariant::Server,
-            kind: NodeKind::VirtualMachine,
             memory: 8192,
             cpu: CpuSettings {
                 count: 4,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
+                ..base.cpu
             },
             machine: MachineSettings {
                 kind: MachineType::Pc,
-                bios: BiosTypes::SeaBios,
+                ..base.machine
             },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..base
         }
     }
     #[must_use]
     pub fn jenkins_server() -> NodeConfig {
+        let base = node_base::cloud_init_vm(NodeModel::JenkinsServer);
         NodeConfig {
-            id: None,
-            model: NodeModel::JenkinsServer,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
             memory: 4096,
             cpu: CpuSettings {
                 count: 2,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
+                ..base.cpu
             },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
             ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
                 password_auth: true,
+                ..base.ztp
             },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..base
         }
     }
     #[must_use]
     pub fn nautobot_server() -> NodeConfig {
+        let base = node_base::cloud_init_vm(NodeModel::NautobotServer);
         NodeConfig {
-            id: None,
-            model: NodeModel::NautobotServer,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
             memory: 4096,
             cpu: CpuSettings {
                 count: 2,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
+                ..base.cpu
             },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
             ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
                 password_auth: true,
+                ..base.ztp
             },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..base
         }
     }
     #[must_use]
     pub fn virt_server() -> NodeConfig {
+        let base = node_base::cloud_init_vm(NodeModel::VirtServer);
         NodeConfig {
-            id: None,
-            model: NodeModel::VirtServer,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
             memory: 4096,
             cpu: CpuSettings {
                 count: 2,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
+                ..base.cpu
             },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
             ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
                 password_auth: true,
+                ..base.ztp
             },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..base
         }
     }
     #[must_use]
     pub fn netbox_server() -> NodeConfig {
+        let base = node_base::cloud_init_vm(NodeModel::NetboxServer);
         NodeConfig {
-            id: None,
-            model: NodeModel::NetboxServer,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
             memory: 4096,
             cpu: CpuSettings {
                 count: 2,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
+                ..base.cpu
             },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
             ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
                 password_auth: true,
+                ..base.ztp
             },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..base
         }
     }
     #[must_use]
     pub fn infrahub_server() -> NodeConfig {
+        let base = node_base::cloud_init_vm(NodeModel::InfrahubServer);
         NodeConfig {
-            id: None,
-            model: NodeModel::InfrahubServer,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
             memory: 12288,
             cpu: CpuSettings {
                 count: 6,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
+                ..base.cpu
             },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
             ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
                 password_auth: true,
+                ..base.ztp
             },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..base
         }
     }
     #[must_use]
     pub fn signoz_server() -> NodeConfig {
+        let base = node_base::cloud_init_vm(NodeModel::SignozServer);
         NodeConfig {
-            id: None,
-            model: NodeModel::SignozServer,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::VirtualMachine,
             memory: 8192,
             cpu: CpuSettings {
                 count: 4,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
+                ..base.cpu
             },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
             ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
                 password_auth: true,
+                ..base.ztp
             },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                mtu: MTU_JUMBO_INT,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            default: true,
+            ..base
         }
     }
     #[must_use]
     pub fn forgejo_forge() -> NodeConfig {
+        let base = node_base::app_container(NodeModel::ForgejoForge);
         NodeConfig {
-            id: None,
-            model: NodeModel::ForgejoForge,
             repo: Some(CONTAINER_FORGEJO_REPO.to_string()),
-            version: "0.0.0".to_owned(),
-            kind: NodeKind::Container,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                ..CpuSettings::default()
-            },
-            ztp: ZtpSettings {
-                method: Ztp::Disabled,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
             interfaces: InterfaceSettings {
                 data_count: 0,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::MacVlan,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-                ..InterfaceSettings::default()
+                ..base.interfaces
             },
-            default: true,
-            ..Default::default()
+            ..base
         }
     }
     #[must_use]
     pub fn gitlab_ce() -> NodeConfig {
+        let base = node_base::app_container(NodeModel::GitlabCe);
         NodeConfig {
-            id: None,
-            model: NodeModel::GitlabCe,
             repo: Some(CONTAINER_GITLAB_CE_REPO.to_string()),
-            version: "0.0.0".to_owned(),
-            kind: NodeKind::Container,
             memory: 4096,
             cpu: CpuSettings {
                 count: 2,
-                ..CpuSettings::default()
-            },
-            ztp: ZtpSettings {
-                method: Ztp::Disabled,
-                username: None,
-                password: None,
-                password_auth: false,
+                ..base.cpu
             },
             interfaces: InterfaceSettings {
                 data_count: 0,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::MacVlan,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-                ..InterfaceSettings::default()
+                ..base.interfaces
             },
-            default: true,
-            ..Default::default()
+            ..base
         }
     }
     #[must_use]
     pub fn surreal_db() -> NodeConfig {
+        let base = node_base::app_container(NodeModel::SurrealDb);
         NodeConfig {
-            id: None,
-            model: NodeModel::SurrealDb,
             repo: Some(CONTAINER_SURREAL_DB_REPO.to_string()),
-            version: "0.0.0".to_owned(),
-            kind: NodeKind::Container,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                ..CpuSettings::default()
-            },
-            ztp: ZtpSettings {
-                method: Ztp::Disabled,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
             interfaces: InterfaceSettings {
                 data_count: 0,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::MacVlan,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-                ..InterfaceSettings::default()
+                ..base.interfaces
             },
-            default: true,
-            ..Default::default()
+            ..base
         }
     }
     #[must_use]
     pub fn hashicorp_vault() -> NodeConfig {
+        let base = node_base::app_container(NodeModel::HashicorpVault);
         NodeConfig {
-            id: None,
-            model: NodeModel::HashicorpVault,
             repo: Some(CONTAINER_HASHICORP_VAULT_REPO.to_string()),
-            version: "0.0.0".to_owned(),
-            kind: NodeKind::Container,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                ..CpuSettings::default()
-            },
-            ztp: ZtpSettings {
-                method: Ztp::Disabled,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
             interfaces: InterfaceSettings {
                 data_count: 0,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::MacVlan,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-                ..InterfaceSettings::default()
+                ..base.interfaces
             },
-            default: true,
-            ..Default::default()
+            ..base
         }
     }
     #[must_use]
     pub fn keycloak_server() -> NodeConfig {
+        let base = node_base::app_container(NodeModel::KeycloakServer);
         NodeConfig {
-            id: None,
-            model: NodeModel::KeycloakServer,
             repo: Some(CONTAINER_KEYCLOAK_REPO.to_string()),
-            version: "0.0.0".to_owned(),
-            kind: NodeKind::Container,
             memory: 2048,
             cpu: CpuSettings {
                 count: 2,
-                ..CpuSettings::default()
-            },
-            ztp: ZtpSettings {
-                method: Ztp::Disabled,
-                username: None,
-                password: None,
-                password_auth: false,
+                ..base.cpu
             },
             interfaces: InterfaceSettings {
                 data_count: 0,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::MacVlan,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-                ..InterfaceSettings::default()
+                ..base.interfaces
             },
-            default: true,
-            ..Default::default()
+            ..base
         }
     }
     #[must_use]
     pub fn mysql_db() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::MysqlDb,
-            repo: None,
-            version: "0.0.0".to_owned(),
-            kind: NodeKind::Container,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                ..CpuSettings::default()
-            },
-            ztp: ZtpSettings {
-                method: Ztp::Disabled,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::MacVlan,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-                ..InterfaceSettings::default()
-            },
-            default: true,
-            ..Default::default()
-        }
+        node_base::app_container(NodeModel::MysqlDb)
     }
     #[must_use]
     pub fn mongo_db() -> NodeConfig {
         NodeConfig {
-            id: None,
-            model: NodeModel::MongoDb,
             repo: Some(CONTAINER_MONGO_DB_REPO.to_string()),
-            version: "0.0.0".to_owned(),
-            kind: NodeKind::Container,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                ..CpuSettings::default()
-            },
-            ztp: ZtpSettings {
-                method: Ztp::Disabled,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::MacVlan,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-                ..InterfaceSettings::default()
-            },
-            default: true,
-            ..Default::default()
+            ..node_base::app_container(NodeModel::MongoDb)
         }
     }
     #[must_use]
     pub fn nats_bus() -> NodeConfig {
         NodeConfig {
-            id: None,
-            model: NodeModel::NatsBus,
             repo: Some(CONTAINER_NATS_REPO.to_string()),
-            version: "0.0.0".to_owned(),
-            kind: NodeKind::Container,
             memory: 512,
-            cpu: CpuSettings {
-                count: 1,
-                ..CpuSettings::default()
-            },
-            ztp: ZtpSettings {
-                method: Ztp::Disabled,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::MacVlan,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-                ..InterfaceSettings::default()
-            },
-            default: true,
-            ..Default::default()
+            ..node_base::app_container(NodeModel::NatsBus)
         }
     }
     #[must_use]
     pub fn postgresql_db() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::PostgresqlDb,
-            repo: None,
-            version: "0.0.0".to_owned(),
-            kind: NodeKind::Container,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                ..CpuSettings::default()
-            },
-            ztp: ZtpSettings {
-                method: Ztp::Disabled,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::MacVlan,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-                ..InterfaceSettings::default()
-            },
-            default: true,
-            ..Default::default()
-        }
+        node_base::app_container(NodeModel::PostgresqlDb)
     }
     #[must_use]
     pub fn mikrotik_chr() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::MikrotikChr,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Routeros,
-            kind: NodeKind::VirtualMachine,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Pc,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Ide,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Ide,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Disk,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::MikrotikChr,
+            1024,
+            OsVariant::Routeros,
+            InterfaceSettings {
                 data_count: 8,
-                prefix: "ether".to_owned(),
                 kind: InterfaceType::Virtio,
                 mtu: MTU_STD,
+                prefix: "ether".to_owned(),
                 first_index: 1,
                 management: MgmtInterfaces::Ether1,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            boot_disk: BootDiskSettings {
+                bus: DiskBuses::Ide,
+            },
+            cdrom: CdromSettings {
+                bus: DiskBuses::Ide,
+                ..base.cdrom
+            },
+            ztp: ZtpSettings {
+                method: Ztp::Disk,
+                ..base.ztp
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn paloalto_panos() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::PaloaltoPanos,
-            version: "0.0.0".to_owned(),
-            repo: None,
-            os_variant: OsVariant::Panos,
-            kind: NodeKind::VirtualMachine,
-            memory: 8192,
-            cpu: CpuSettings {
-                count: 2,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Cdrom,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_vm(
+            NodeModel::PaloaltoPanos,
+            8192,
+            OsVariant::Panos,
+            InterfaceSettings {
                 data_count: 24,
-                prefix: "ethernet1/".to_owned(),
                 kind: InterfaceType::Virtio,
                 mtu: MTU_STD,
+                prefix: "ethernet1/".to_owned(),
                 first_index: 0,
                 management: MgmtInterfaces::Management,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            cpu: CpuSettings {
+                count: 2,
+                ..base.cpu
+            },
+            machine: MachineSettings {
+                kind: MachineType::Q35,
+                ..base.machine
+            },
+            ..base
         }
     }
     #[must_use]
     pub fn frr_linux() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::FrrLinux,
-            version: "0.0.0".to_owned(),
-            repo: Some(CONTAINER_FRR_REPO.to_string()),
-            os_variant: OsVariant::Linux,
-            kind: NodeKind::Container,
-            memory: 512,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Sata,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            unikernel: None,
-            ztp: ZtpSettings {
-                method: Ztp::Volume,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
+        let base = node_base::network_os_container(
+            NodeModel::FrrLinux,
+            512,
+            OsVariant::Linux,
+            InterfaceSettings {
                 data_count: 8,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::default(),
+                kind: InterfaceType::Virtio,
                 mtu: MTU_STD,
+                prefix: "eth".to_owned(),
                 first_index: 0,
                 management: MgmtInterfaces::Eth0,
                 reserved_count: 0,
             },
-            default: true,
+        );
+        NodeConfig {
+            repo: Some(CONTAINER_FRR_REPO.to_string()),
+            ..base
         }
     }
     #[must_use]
     pub fn generic_container() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::GenericContainer,
-            repo: None,
-            version: "0.0.0".to_owned(),
-            kind: NodeKind::Container,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                ..CpuSettings::default()
-            },
-            ztp: ZtpSettings {
-                method: Ztp::Disabled,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::MacVlan,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-                ..InterfaceSettings::default()
-            },
-            default: true,
-            ..Default::default()
-        }
+        node_base::app_container(NodeModel::GenericContainer)
     }
     #[must_use]
     pub fn generic_unikernel() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::GenericUnikernel,
-            repo: None,
-            version: "0.0.0".to_owned(),
-            kind: NodeKind::Unikernel,
-            memory: 512,
-            cpu: CpuSettings {
-                count: 1,
-                ..CpuSettings::default()
-            },
-            unikernel: Some(UnikernelSettings {
-                boot_mode: UnikernelBootMode::DirectKernel,
-            }),
-            ztp: ZtpSettings {
-                method: Ztp::Disabled,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 0,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-                ..InterfaceSettings::default()
-            },
-            default: true,
-            ..Default::default()
-        }
+        node_base::unikernel(NodeModel::GenericUnikernel)
     }
     #[must_use]
     pub fn unikraft_unikernel() -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model: NodeModel::UnikraftUnikernel,
-            repo: None,
-            version: "0.0.0".to_owned(),
-            kind: NodeKind::Unikernel,
-            memory: 512,
-            cpu: CpuSettings {
-                count: 1,
-                ..CpuSettings::default()
-            },
-            unikernel: Some(UnikernelSettings {
-                boot_mode: UnikernelBootMode::DirectKernel,
-            }),
-            ztp: ZtpSettings {
-                method: Ztp::Disabled,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 0,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-                ..InterfaceSettings::default()
-            },
-            default: true,
-            ..Default::default()
-        }
+        node_base::unikernel(NodeModel::UnikraftUnikernel)
     }
     #[must_use]
     pub fn nanos_unikernel() -> NodeConfig {
         NodeConfig {
-            id: None,
-            model: NodeModel::NanosUnikernel,
-            repo: None,
-            version: "0.0.0".to_owned(),
-            kind: NodeKind::Unikernel,
-            memory: 512,
-            cpu: CpuSettings {
-                count: 1,
-                ..CpuSettings::default()
-            },
             unikernel: Some(UnikernelSettings {
                 boot_mode: UnikernelBootMode::DiskBoot,
             }),
-            ztp: ZtpSettings {
-                method: Ztp::Disabled,
-                username: None,
-                password: None,
-                password_auth: false,
-            },
-            interfaces: InterfaceSettings {
-                data_count: 0,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-                ..InterfaceSettings::default()
-            },
-            default: true,
-            ..Default::default()
+            ..node_base::unikernel(NodeModel::NanosUnikernel)
         }
     }
     #[must_use]
     pub fn generic_vm() -> NodeConfig {
+        let base = node_base::cloud_init_vm(NodeModel::GenericVm);
         NodeConfig {
-            id: None,
-            model: NodeModel::GenericVm,
-            repo: None,
-            version: "0.0.0".to_owned(),
-            kind: NodeKind::VirtualMachine,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                ..CpuSettings::default()
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            ztp: ZtpSettings {
-                method: Ztp::CloudInit,
-                username: None,
-                password: None,
-                password_auth: false,
+            os_variant: OsVariant::Unknown,
+            machine: MachineSettings {
+                kind: MachineType::Pc,
+                ..base.machine
             },
             interfaces: InterfaceSettings {
-                data_count: 1,
-                prefix: "eth".to_owned(),
-                kind: InterfaceType::Virtio,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-                ..InterfaceSettings::default()
+                mtu: MTU_STD,
+                ..base.interfaces
             },
-            default: true,
-            ..Default::default()
+            ..base
         }
     }
 }
