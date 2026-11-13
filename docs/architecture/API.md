@@ -123,8 +123,8 @@ classifies an error by its text. Untyped failures are operational failures.
 The RPC mapping is `service_error` in `crates/server/src/api/websocket/rpc/dispatch.rs`; the REST
 one is `From<&ServiceError> for ApiError` in `crates/server/src/api/errors.rs`.
 
-`InsufficientMemory` is the admission refusal: the VMs and unikernels an `up`, `redeploy` or
-`resume` would start do not fit in the server's memory, on the whole server or on the NUMA node
+`InsufficientMemory` is the admission refusal: the VMs, unikernels and memory-limited
+containers an `up`, `redeploy` or `resume` would start do not fit in the server's memory, on the whole server or on the NUMA node
 they are held to (`validate::check_memory_fits`, called from `services/admission.rs`). Nothing
 was started, and the same request can succeed once other nodes stop. Its `data` is a
 `shared::error::MemoryShortfall`:

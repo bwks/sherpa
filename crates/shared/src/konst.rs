@@ -412,6 +412,9 @@ pub const CONTAINER_ARISTA_CEOS_REPO: &str = "localrepo/arista_ceos";
 pub const CONTAINER_JUNIPER_CEVOLVED_REPO: &str = "localrepo/juniper_cevolved";
 /// The directory the cJunosEvolved entrypoint reads a startup `juniper.conf` from.
 pub const JUNIPER_CEVOLVED_CONFIG_DIR: &str = "/home/evo/configdisk";
+/// The memory, in MiB, a cJunosEvolved container needs beyond its EVO VM's: its Docker memory
+/// limit is the EVO VM's memory plus this.
+pub const JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB: u16 = 2048;
 pub const CONTAINER_ARISTA_CEOS_ENV_VARS: &[&str] = &[
     "INTFTYPE=eth",
     "ETBA=1",
@@ -503,8 +506,8 @@ pub const OTEL_DEFAULT_SERVICE_NAME: &str = "sherpad";
 pub const OTEL_DEFAULT_SAMPLE_RATIO: f64 = 1.0;
 
 // Host memory admission
-/// Memory in MiB kept back for the host (its OS, sherpad, QEMU's own use and containers, which
-/// Sherpa does not limit) when deciding whether nodes fit on the server.
+/// Memory in MiB kept back for the host (its OS, sherpad, QEMU's own use and containers without
+/// a memory limit) when deciding whether nodes fit on the server.
 pub const HOST_MEMORY_DEFAULT_RESERVE_MIB: u32 = 4096;
 /// The percentage of the server's memory guests may be given in total. 100 never gives out more
 /// memory than the server has.

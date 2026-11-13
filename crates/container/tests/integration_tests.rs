@@ -12,17 +12,18 @@
 /// even when it fails, so one failure cannot cascade into the others.
 use anyhow::{Result, ensure};
 use bollard::Docker;
-use bollard::query_parameters::{RemoveImageOptions, TagImageOptions};
+use bollard::query_parameters::{InspectContainerOptions, RemoveImageOptions, TagImageOptions};
 use bollard::secret::ContainerStateStatusEnum;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use container::{
-    ContainerSpec, container_log_tail, container_state, create_docker_bridge_network,
-    delete_network, docker_connection, exec_container, exec_container_detached,
-    exec_container_with_retry, get_local_images, image_exists, kill_container, list_containers,
-    list_networks, load_image, pause_container, pull_image, remove_container, run_container,
-    start_container, stop_container, unpause_container,
+    ContainerMemory, ContainerSpec, container_log_tail, container_state,
+    create_docker_bridge_network, delete_network, docker_connection, exec_container,
+    exec_container_detached, exec_container_with_retry, get_local_images, image_exists,
+    kill_container, list_container_memory, list_containers, list_networks, load_image,
+    pause_container, pull_image, remove_container, run_container, start_container, stop_container,
+    unpause_container,
 };
 use shared::data::ContainerNetworkAttachment;
 
@@ -105,6 +106,8 @@ async fn create_test_container(docker: &Docker, name: &str, net: &TestNet) -> Re
             privileged: false,
             shm_size: None,
             user: None,
+            memory_mib: None,
+            cpu_count: None,
         },
     )
     .await?;
@@ -498,6 +501,8 @@ async fn test_run_container_with_env_vars() -> Result<()> {
                 privileged: false,
                 shm_size: None,
                 user: None,
+                memory_mib: None,
+                cpu_count: None,
             },
         )
         .await?;
@@ -537,7 +542,7 @@ async fn test_run_container_privileged() -> Result<()> {
         run_container(
             &docker,
             ContainerSpec { name: name.to_string(), image: TEST_IMAGE.to_string(), env_vars: vec![], volumes: vec![], capabilities: vec![], management_network: test_network(&net.name), additional_networks: vec![], commands: vec!["sleep".to_string(), "3600".to_string()], privileged: true, shm_size: // privileged
-            None, user: None },
+            None, user: None, memory_mib: None, cpu_count: None },
         )
         .await?;
 
@@ -640,6 +645,73 @@ async fn test_load_image_reports_a_read_error() -> Result<()> {
     Ok(())
 }
 
+/// A container created with limits runs with a hard memory limit, no swap beyond it and a CPU
+/// quota, and lists its memory limit for admission.
+#[tokio::test]
+#[ignore = "requires a Docker daemon"]
+async fn a_container_runs_with_its_memory_and_cpu_limits() -> Result<()> {
+    let docker = docker_connection()?;
+    let name = "sherpa-test-limits";
+    let net = TestNet::new("limits", 55);
+    cleanup(&docker, name, &net.name).await;
+    create_test_network(&docker, &net).await?;
+    let checks: Result<()> = async {
+        run_container(
+            &docker,
+            ContainerSpec {
+                name: name.to_string(),
+                image: TEST_IMAGE.to_string(),
+                env_vars: vec![],
+                volumes: vec![],
+                capabilities: vec![],
+                management_network: test_network(&net.name),
+                additional_networks: vec![],
+                commands: vec!["sleep".to_string(), "3600".to_string()],
+                privileged: false,
+                shm_size: None,
+                user: None,
+                memory_mib: Some(256),
+                cpu_count: Some(1),
+            },
+        )
+        .await?;
+        let details = docker
+            .inspect_container(name, None::<InspectContainerOptions>)
+            .await?;
+        let host_config = details
+            .host_config
+            .ok_or_else(|| anyhow::anyhow!("no host config for {name}"))?;
+        ensure!(
+            host_config.memory == Some(268_435_456),
+            "wrong memory limit: {:?}",
+            host_config.memory
+        );
+        ensure!(
+            host_config.memory_swap == Some(268_435_456),
+            "swap is allowed: {:?}",
+            host_config.memory_swap
+        );
+        ensure!(
+            host_config.nano_cpus == Some(1_000_000_000),
+            "wrong CPU quota: {:?}",
+            host_config.nano_cpus
+        );
+        let listed = list_container_memory(&docker).await?;
+        ensure!(
+            listed.contains(&ContainerMemory {
+                name: name.to_string(),
+                active: true,
+                limit_bytes: 268_435_456,
+            }),
+            "the limit is not listed: {listed:?}"
+        );
+        Ok(())
+    }
+    .await;
+    cleanup(&docker, name, &net.name).await;
+    checks
+}
+
 #[tokio::test]
 #[ignore = "requires a Docker daemon"]
 async fn test_run_container_removes_a_container_it_cannot_set_up() -> Result<()> {
@@ -662,6 +734,8 @@ async fn test_run_container_removes_a_container_it_cannot_set_up() -> Result<()>
             privileged: false,
             shm_size: None,
             user: None,
+            memory_mib: None,
+            cpu_count: None,
         },
     )
     .await;
@@ -699,6 +773,8 @@ async fn a_container_that_exits_at_once_reports_its_exit_code_and_last_log_lines
                 privileged: false,
                 shm_size: None,
                 user: None,
+                memory_mib: None,
+                cpu_count: None,
             },
         )
         .await?;

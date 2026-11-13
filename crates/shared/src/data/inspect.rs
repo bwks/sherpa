@@ -39,7 +39,7 @@ pub struct DeviceInfo {
     /// The VM's VNC console port on the server.
     pub vnc_port: Option<u16>,
     pub disks: Vec<String>,
-    /// vCPUs the node was given. `None` for containers, which Sherpa does not limit.
+    /// vCPUs the node was given: a container's CPU quota. `None` for a container without one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_count: Option<u8>,
     /// Memory in MB the node was given; `None` as for `cpu_count`.

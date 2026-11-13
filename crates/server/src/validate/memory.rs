@@ -66,8 +66,8 @@ pub fn check_memory_fits(
             "Not enough memory on the server: {} {needed} MiB, but only {left} MiB of guest \
              memory is left, {} MiB short. The server has {total_mib} MiB; less \
              {hugepages_mib} MiB in hugepages and the {reserve_mib} MiB host reserve, at an \
-             overcommit of {percent}%, guests may have {limit} MiB. Running VMs and \
-             unikernels hold {running} MiB ({}), and nodes other operations are starting hold \
+             overcommit of {percent}%, guests may have {limit} MiB. Running VMs, \
+             unikernels and containers hold {running} MiB ({}), and nodes other operations are starting hold \
              {starting} MiB ({}). Stop or destroy nodes to free memory, or an admin can lower \
              `host_memory.reserve_mib` or raise `host_memory.overcommit_percent` in sherpa.toml.",
             needing(requested),
@@ -310,7 +310,7 @@ mod tests {
             "16384 MiB host reserve",
             "overcommit of 100%",
             "guests may have 147456 MiB",
-            "Running VMs and unikernels hold 120832 MiB (4)",
+            "Running VMs, unikernels and containers hold 120832 MiB (4)",
             "`host_memory.reserve_mib`",
             "`host_memory.overcommit_percent`",
             "sherpa.toml",

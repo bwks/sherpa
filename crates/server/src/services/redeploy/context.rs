@@ -431,6 +431,7 @@ async fn check_fits_server(
     let admitted = admission::admit_lab_nodes(
         &state.db,
         &qemu_conn,
+        &state.docker,
         state.config.host_memory,
         lab_id,
         &[(target_node, node_image)],

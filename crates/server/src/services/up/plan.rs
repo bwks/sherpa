@@ -70,11 +70,7 @@ pub(super) async fn plan_lab(
         ..
     } = *build;
 
-    tracing::info!(
-        lab_id = %lab_id,
-        lab_name = %manifest.name,
-        "Validating lab manifest"
-    );
+    tracing::info!(lab_id = %lab_id, lab_name = %manifest.name, "Validating lab manifest");
 
     tracing::debug!(lab_id = %lab_id, node_images = node_images.len(), "Fetched node configs from database");
 
@@ -143,8 +139,15 @@ pub(super) async fn plan_lab(
         .collect::<Result<Vec<_>>>()?;
     let admitted: Vec<(&topology::NodeExpanded, &data::NodeConfig)> =
         nodes_expanded.iter().zip(&images).collect();
-    let admission =
-        admission::admit_lab_nodes(db, qemu_conn, config.host_memory, lab_id, &admitted).await?;
+    let admission = admission::admit_lab_nodes(
+        db,
+        qemu_conn,
+        docker_conn,
+        config.host_memory,
+        lab_id,
+        &admitted,
+    )
+    .await?;
 
     // Connection Validators
     if !links_detailed.is_empty() {

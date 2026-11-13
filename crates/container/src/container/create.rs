@@ -25,6 +25,10 @@ const DATA_INTERFACE_SCRIPT: &str = r#"ip link set "$1" promisc on && ip link se
 const DATA_INTERFACE_RETRIES: u32 = 3;
 /// The pause between data interface command attempts.
 const DATA_INTERFACE_RETRY_DELAY: Duration = Duration::from_secs(2);
+/// Bytes in a MiB, the unit of a node's memory.
+const BYTES_PER_MIB: u64 = 1024 * 1024;
+/// Docker's CPU quota unit, `NanoCpus`, in billionths of a CPU.
+const NANO_CPUS_PER_CPU: i64 = 1_000_000_000;
 
 /// A container for `run_container` to create and start.
 #[derive(Clone, Debug)]
@@ -43,6 +47,10 @@ pub struct ContainerSpec {
     pub privileged: bool,
     pub shm_size: Option<i64>,
     pub user: Option<String>,
+    /// The hard memory limit, in MiB, with no swap. `None` leaves memory unlimited.
+    pub memory_mib: Option<u64>,
+    /// The CPU quota, in CPUs. `None` leaves CPU unlimited.
+    pub cpu_count: Option<u8>,
 }
 
 /// Create and start a container, then attach its data networks in order. Returns whether the
@@ -69,6 +77,8 @@ pub async fn run_container(docker: &Docker, spec: ContainerSpec) -> Result<bool>
         privileged,
         shm_size,
         user,
+        memory_mib,
+        cpu_count,
     } = spec;
 
     // Only the management network is attached at creation, so it is the first interface.
@@ -93,7 +103,8 @@ pub async fn run_container(docker: &Docker, spec: ContainerSpec) -> Result<bool>
             auto_remove: Some(false),
             privileged: Some(privileged),
             shm_size,
-            ..Default::default()
+            ..resource_limits(memory_mib, cpu_count)
+                .with_context(|| format!("Invalid resource limits for container {name}"))?
         }),
         networking_config: Some(NetworkingConfig {
             endpoints_config: Some(endpoints_config),
@@ -193,6 +204,25 @@ async fn start_and_attach(
     Ok(state.status == Some(ContainerStateStatusEnum::RUNNING))
 }
 
+/// The host config of a container's limits: `memory_mib` as a hard limit in bytes, with the
+/// swap limit equal to it so the container cannot swap, and `cpu_count` as a CPU quota in
+/// billionths of a CPU. A limit that is not set stays unlimited, Docker's default.
+fn resource_limits(memory_mib: Option<u64>, cpu_count: Option<u8>) -> Result<HostConfig> {
+    let memory = memory_mib
+        .map(|mib| {
+            mib.checked_mul(BYTES_PER_MIB)
+                .and_then(|bytes| i64::try_from(bytes).ok())
+                .with_context(|| format!("Memory limit of {mib} MiB is too large"))
+        })
+        .transpose()?;
+    Ok(HostConfig {
+        memory,
+        memory_swap: memory,
+        nano_cpus: cpu_count.map(|count| i64::from(count) * NANO_CPUS_PER_CPU),
+        ..Default::default()
+    })
+}
+
 /// Docker endpoint settings for a data network. Docker names the interface in the container, so
 /// no command has to run in the image to rename it.
 fn data_endpoint_settings(attachment: &ContainerNetworkAttachment) -> EndpointSettings {
@@ -243,6 +273,27 @@ mod tests {
             linux_interface_name: linux_interface_name.map(str::to_string),
             admin_down,
         }
+    }
+
+    #[test]
+    fn limits_are_bytes_without_swap_and_nano_cpus() {
+        let limits = resource_limits(Some(512), Some(2)).unwrap();
+        assert_eq!(limits.memory, Some(536_870_912));
+        assert_eq!(limits.memory_swap, Some(536_870_912));
+        assert_eq!(limits.nano_cpus, Some(2_000_000_000));
+    }
+
+    #[test]
+    fn unset_limits_stay_unlimited() {
+        let limits = resource_limits(None, None).unwrap();
+        assert_eq!(limits.memory, None);
+        assert_eq!(limits.memory_swap, None);
+        assert_eq!(limits.nano_cpus, None);
+    }
+
+    #[test]
+    fn a_memory_limit_too_large_for_docker_is_refused() {
+        assert!(resource_limits(Some(u64::MAX / 1024), None).is_err());
     }
 
     #[test]

@@ -37,6 +37,18 @@ pub fn check_host_resources(
     Ok(())
 }
 
+/// Check that a container's CPU quota, `cpu.count`, is no more than the server's CPUs, which
+/// Docker refuses.
+pub fn check_container_cpus(node_name: &str, cpu_count: u8, host_cpus: u32) -> Result<()> {
+    if u32::from(cpu_count) > host_cpus {
+        bail!(
+            "Node '{node_name}' `cpu.count` is {cpu_count}, but the server has {host_cpus} CPUs; \
+             a container's CPU quota cannot be more than the server's CPUs"
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,5 +101,19 @@ mod tests {
     fn test_numa_node_must_exist() {
         let message = error(&tuned(), 32, 1);
         assert!(message.contains("NUMA node 1"), "{message}");
+    }
+
+    #[test]
+    fn a_container_cpu_quota_up_to_the_servers_cpus_is_allowed() {
+        check_container_cpus("db", 4, 4).unwrap();
+        check_container_cpus("db", 1, 4).unwrap();
+    }
+
+    #[test]
+    fn a_container_cpu_quota_over_the_servers_cpus_is_refused() {
+        let error = check_container_cpus("db", 8, 4).unwrap_err().to_string();
+        assert!(error.contains("'db'"), "{error}");
+        assert!(error.contains("`cpu.count` is 8"), "{error}");
+        assert!(error.contains("4 CPUs"), "{error}");
     }
 }

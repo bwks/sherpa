@@ -2,9 +2,11 @@ use anyhow::{Result, bail};
 
 use crate::NodeExpanded;
 use shared::data::{NodeConfig, NodeModel};
+use shared::konst::JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB;
 
 /// Check a node's `container.platform` and, for `juniper_cevolved`, that its data interfaces fit the
-/// platform and its vCPUs and memory meet cJunosEvolved's minimums.
+/// platform, its vCPUs and memory meet cJunosEvolved's minimums, and its memory leaves room for
+/// the container's overhead in a node's memory field.
 ///
 /// # Errors
 ///
@@ -54,6 +56,17 @@ pub fn check_ptx_platform(node: &NodeExpanded, image: &NodeConfig) -> Result<()>
             node.name,
             memory,
             image.memory
+        );
+    }
+    let largest = u16::MAX - JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB;
+    if memory > largest {
+        bail!(
+            "Manifest - node: '{}' has {} MB of memory; juniper_cevolved takes at most {}, as its \
+             container needs {} MB more",
+            node.name,
+            memory,
+            largest,
+            JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB
         );
     }
     Ok(())
@@ -134,5 +147,19 @@ mod tests {
         large.cpu.count = Some(8);
         large.memory = Some(16384);
         check_ptx_platform(&large, &image).unwrap();
+    }
+
+    #[test]
+    fn cevolved_memory_must_leave_room_for_the_container_overhead() {
+        let image = NodeConfig::get_model(NodeModel::JuniperCevolved);
+        let mut largest = node(NodeModel::JuniperCevolved, None);
+        largest.memory = Some(u16::MAX - JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB);
+        check_ptx_platform(&largest, &image).unwrap();
+        let mut too_large = node(NodeModel::JuniperCevolved, None);
+        too_large.memory = Some(u16::MAX);
+        let error = check_ptx_platform(&too_large, &image)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("at most"), "{error}");
     }
 }

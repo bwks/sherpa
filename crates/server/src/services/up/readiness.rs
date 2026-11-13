@@ -268,6 +268,15 @@ impl Readiness<'_, '_> {
         });
     }
 
+    /// The data of node `name`, with its record.
+    fn node_data(&self, name: &str) -> Result<&data::LabNodeData> {
+        self.inputs
+            .lab_node_data
+            .iter()
+            .find(|node| node.name == name)
+            .with_context(|| format!("Node {name} has no record"))
+    }
+
     /// Record `events` for node `name`, in order, with the SSH host key it offered when given,
     /// and return its state after them.
     async fn record(
@@ -276,12 +285,7 @@ impl Readiness<'_, '_> {
         events: &[OperationEvent],
         host_key: Option<&str>,
     ) -> Result<NodeState> {
-        let node = self
-            .inputs
-            .lab_node_data
-            .iter()
-            .find(|node| node.name == name)
-            .with_context(|| format!("Node {name} has no record"))?;
+        let node = self.node_data(name)?;
         let record_id = db::get_node_id(&node.record)?;
         if host_key.is_some() {
             db::update_node_host_key(self.build.db, record_id.clone(), host_key).await?;
@@ -332,6 +336,8 @@ impl Readiness<'_, '_> {
             .cloned()
             .unwrap_or_default();
         let settings = container.container.clone().unwrap_or_default();
+        // Its limits are the resources recorded for it.
+        let record = &self.node_data(&container.name)?.record;
 
         let is_running = node_ops::start_container_node(
             self.build.docker_conn,
@@ -347,6 +353,8 @@ impl Readiness<'_, '_> {
                 privileged: settings.privileged.unwrap_or(false),
                 shm_size: settings.shm_size,
                 user: settings.user,
+                memory_mib: record.memory.map(u64::from),
+                cpu_count: record.cpu_count,
             },
             container.model,
             self.build.progress,

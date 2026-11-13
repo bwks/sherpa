@@ -1528,27 +1528,29 @@ stateDiagram-v2
 ### 31. Node resource reservation
 
 **Where.** `reserve_node_resources`
-(`crates/server/src/services/node_resources.rs:166-219`). It reserves `vnc_port`,
+(`crates/server/src/services/node_resources.rs:182-235`). It reserves `vnc_port`,
 `cpu_count`, `memory`, `cpu_pinning` and `qemu_thread_cpus` on the node row, and
 `update_node_resources` writes all five together. Before that, the node is admitted by
 `services/admission.rs`, which holds its memory and pins in an in-memory ledger.
 
 **Transitions.**
 
-- **Admit.** `admit_lab_nodes` (`admission.rs:88`, for `up` and redeploy) and
-  `admit_stopped_nodes` (`admission.rs:126`, for resume and node start) wait on a fair, FIFO
-  Tokio mutex (`admission.rs:31`). Under it they check the pins
-  (`check_cpu_pins_on_server`, `node_resources.rs:65-107`) against the stored nodes and the
+- **Admit.** `admit_lab_nodes` (`admission.rs:93`, for `up` and redeploy) and
+  `admit_stopped_nodes` (`admission.rs:134`, for resume and node start) wait on a fair, FIFO
+  Tokio mutex (`admission.rs:35`). Under it they check the pins
+  (`check_cpu_pins_on_server`, `node_resources.rs:79-123`) against the stored nodes and the
   ledger, and the memory against the server (`validate::check_memory_fits`, limited by
   `host_memory.reserve_mib` and `host_memory.overcommit_percent`), then add the nodes
-  to the ledger (`admission.rs:33`). Memory counts against the whole server, and that of a VM
+  to the ledger (`admission.rs:37`). Memory counts against the whole server, and that of a VM
   held strictly on a NUMA node also against that node. A VM with
-  `numa_memory_mode = "preferred"` counts against the server only, requested or running.
+  `numa_memory_mode = "preferred"` counts against the server only, requested or running. A
+  container counts its Docker memory limit, and nothing without one.
   Checked: a request that does not fit is refused before anything is created.
 - **Reserve.** A VM that already has a port keeps it. Otherwise the code picks a free port,
   retrying when the unique index loses a race.
-- **Release from the ledger.** Dropping the `Admission` (`admission.rs:62`) when the operation
-  returns, whether it succeeded or failed. Running domains are then counted from libvirt.
+- **Release from the ledger.** Dropping the `Admission` (`admission.rs:66`) when the operation
+  returns, whether it succeeded or failed. Running domains are then counted from libvirt, and
+  running containers' memory limits from Docker.
 - **Release.** Only by deleting the node row.
 
 A stopped lab keeps its ports and pins. Before admission, `up` checked pins in its planning

@@ -103,9 +103,20 @@ It runs in `sherpa validate`, in the server's `up` before images are leased, and
 | `unikernel` | | | yes |
 
 - A `disk_boot` unikernel's disk is cloned at `boot_disk.size` (`node_ops::generate_unikernel_setup`).
-- Containers take `cpu.count` and `memory`, but only `juniper_cevolved` uses them, to size its
-  EVO VM (`cevolved_env_vars`, checked against the image's minimums by `check_ptx_platform`).
-  Other containers run without CPU or memory limits.
+- A container's `cpu.count` and `memory` are Docker limits (`node_resources::planned_resources`,
+  stored on the node record, then `ContainerSpec` in `container::run_container`): `memory` is a
+  hard limit, `HostConfig.memory` in bytes, with `memory_swap` equal to it so the container
+  cannot swap, and `cpu.count` a CPU quota, `HostConfig.nano_cpus` (count × 10⁹). A container
+  that sets neither is not limited: the image's values are not limits, as several are
+  placeholders (`generic_container` runs any image). The quota is not pinning: it holds no
+  particular host CPUs, and must be no more than the server's CPUs
+  (`validate::check_container_cpus`).
+- `juniper_cevolved` sizes its EVO VM from `cpu.count` and `memory`, else the image's
+  (`cevolved_env_vars`, checked against the image's minimums by `check_ptx_platform`). Its
+  container gets a memory limit of that memory plus
+  `konst::JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB` (2048 MiB), always, and no CPU quota, which
+  would throttle the EVO VM beside the processes the container also runs. `check_ptx_platform`
+  keeps the memory low enough for the overhead to fit the node's memory field (a `u16`).
 - Containers have no port probe; their readiness is that they keep running, so they take
   `ready_check.skip` but not `ready_check.port`.
 - `container.platform` is for `juniper_cevolved` only (`check_ptx_platform`).

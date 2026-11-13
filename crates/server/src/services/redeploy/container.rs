@@ -60,8 +60,6 @@ pub(super) async fn redeploy_container(
     );
 
     let container_name = format!("{node_name}-{lab_id}");
-    let container_image =
-        container::image_reference(&ztp_result.image, &redeploy.node_image.version);
 
     let DataInterfaces {
         lab_links,
@@ -96,7 +94,7 @@ pub(super) async fn redeploy_container(
         &redeploy.state.docker,
         ContainerSpec {
             name: container_name.clone(),
-            image: container_image,
+            image: container::image_reference(&ztp_result.image, &redeploy.node_image.version),
             env_vars: ztp_result.env_vars,
             volumes,
             capabilities: ztp_result.capabilities,
@@ -106,6 +104,8 @@ pub(super) async fn redeploy_container(
             privileged: ztp_result.privileged,
             shm_size: ztp_result.shm_size,
             user: ztp_result.user,
+            memory_mib: redeploy.db_node.memory.map(u64::from),
+            cpu_count: redeploy.db_node.cpu_count,
         },
         redeploy.target_node.model,
         redeploy.progress,
