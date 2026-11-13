@@ -8,12 +8,10 @@
 # GitHub releases, stops the service, replaces the binaries, and restarts
 # the service. Does NOT re-run full installation (packages, users, etc.).
 #
-# Servers older than 0.5.0 kept their data in a SurrealDB container. An update
-# to a release from 0.5.0 to 0.5.12 moves that data into sherpad's embedded
-# database with 'sherpad migrate-db'. The container and its data are kept,
-# stopped, for rollback. If the move fails, the previous sherpad is put back and
-# started. Later releases have no 'migrate-db', so such a server is refused
-# before anything changes, and told to update to 0.5.12 first.
+# Servers older than 0.5.0 kept their data in a SurrealDB container. This
+# script cannot move that data, so it refuses such a server before anything
+# changes, and tells the user to update to 0.5.12 first with that release's
+# update script, which moves the data into sherpad's embedded database.
 #
 # Requirements:
 #   - Root/sudo access
@@ -33,13 +31,10 @@ SHERPA_BASE_DIR="/opt/sherpa"
 SHERPA_BIN_DIR="${SHERPA_BASE_DIR}/bin"
 SHERPA_LABS_DIR="${SHERPA_BASE_DIR}/labs"
 SHERPA_POOL_DIR="${SHERPA_BASE_DIR}/libvirt/images"
-SHERPA_ENV_FILE="${SHERPA_BASE_DIR}/env/sherpa.env"
 SHERPA_DB_FILE="${SHERPA_BASE_DIR}/db/sherpa.sqlite"
-# The SurrealDB container of releases before 0.5.0, the port SurrealDB listens on inside it, and
-# the host port it was published on by default.
+# The SurrealDB container of releases before 0.5.0, and the data it kept on the host.
 LEGACY_DB_CONTAINER="sherpa-db"
-LEGACY_DB_CONTAINER_PORT="8000/tcp"
-LEGACY_DB_PORT=8000
+LEGACY_DB_DATA="${SHERPA_BASE_DIR}/db/sherpa.db"
 # The last release with 'sherpad migrate-db', which moves the data of a server older than 0.5.0.
 LAST_MIGRATING_VERSION="v0.5.12"
 
@@ -95,10 +90,9 @@ Update Sherpa binaries to the latest (or specified) release.
 
 This script downloads new binaries from GitHub releases, stops the sherpad
 service, replaces the binaries, and restarts the service. It does NOT
-reinstall system packages, users or Docker. A server older than 0.5.0 has its
-data moved from the SurrealDB container into the embedded database by an update
-to ${LAST_MIGRATING_VERSION} or older; update to ${LAST_MIGRATING_VERSION} first,
-then to a later release.
+reinstall system packages, users or Docker. A server older than 0.5.0 is
+refused: update it to ${LAST_MIGRATING_VERSION} first with that release's update
+script, which moves its data into the embedded database.
 
 Options:
   --version VERSION     Install a specific version (e.g. v0.3.18)
@@ -334,10 +328,6 @@ update_binaries() {
                 fi
             fi
 
-            # Keep the running sherpad so a failed database move can put it back.
-            if [ "$binary" = "sherpad" ] && [ -x "${SHERPA_BIN_DIR}/sherpad" ]; then
-                cp -p "${SHERPA_BIN_DIR}/sherpad" "${SHERPA_BIN_DIR}/sherpad.previous"
-            fi
             cp "${tmp_dir}/${binary}" "${SHERPA_BIN_DIR}/${binary}"
             chmod 755 "${SHERPA_BIN_DIR}/${binary}"
             chown sherpa:sherpa "${SHERPA_BIN_DIR}/${binary}"
@@ -374,114 +364,38 @@ ensure_symlinks() {
 }
 
 ################################################################################
-# Database Migration
+# Upgrade Check
 ################################################################################
 
-# True when the data of a pre-0.5.0 server is still only in its SurrealDB container.
-needs_database_migration() {
+# True when a server older than 0.5.0 still keeps its data only in SurrealDB: there is no
+# embedded database file, and there is the sherpa-db container or the data it kept on the host.
+has_legacy_database() {
     [ ! -f "${SHERPA_DB_FILE}" ] || return 1
+    [ -e "${LEGACY_DB_DATA}" ] && return 0
     command -v docker >/dev/null 2>&1 || return 1
     docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "${LEGACY_DB_CONTAINER}"
 }
 
-# True when release $1 is newer than release $2, such as v0.5.13 and v0.5.12.
-version_newer_than() {
-    local candidate="${1#v}" reference="${2#v}"
-    [ "${candidate}" != "${reference}" ] &&
-        [ "$(printf '%s\n%s\n' "${candidate}" "${reference}" | sort -V | tail -n 1)" = "${candidate}" ]
-}
+# Refuse, before anything changes, to update a server whose data is still in SurrealDB. The
+# release it updates to would start on an empty database and leave that data behind.
+check_legacy_database() {
+    print_info "Checking for a server older than 0.5.0..."
 
-# Refuse, before anything changes, an update of a server whose data is still in SurrealDB to a
-# release that cannot move it.
-check_database_can_move() {
-    if needs_database_migration && version_newer_than "${SHERPA_VERSION}" "${LAST_MIGRATING_VERSION}"; then
-        print_error "This server keeps its data in the ${LEGACY_DB_CONTAINER} SurrealDB container of a release older than 0.5.0."
-        print_error "${SHERPA_VERSION} cannot move that data. Update to ${LAST_MIGRATING_VERSION} first, which moves it,"
-        print_error "then to ${SHERPA_VERSION}:"
-        print_error "  sudo $0 --version ${LAST_MIGRATING_VERSION}"
-        exit 1
-    fi
-}
-
-# The host port sherpa-db publishes SurrealDB on, as Docker recorded it when the container was
-# created.
-legacy_db_port() {
-    local port
-    port=$(docker inspect --format \
-        "{{with index .HostConfig.PortBindings \"${LEGACY_DB_CONTAINER_PORT}\"}}{{(index . 0).HostPort}}{{end}}" \
-        "${LEGACY_DB_CONTAINER}" 2>/dev/null)
-    echo "${port:-${LEGACY_DB_PORT}}"
-}
-
-wait_for_legacy_database() {
-    local port="$1"
-    local attempt=0
-    while [ $attempt -lt 30 ]; do
-        if curl -sf "http://localhost:${port}/health" >/dev/null 2>&1; then
-            return 0
-        fi
-        attempt=$((attempt + 1))
-        sleep 1
-    done
-    return 1
-}
-
-# Put back the sherpad that ran before this update, after a failed database move.
-restore_previous_sherpad() {
-    if [ -x "${SHERPA_BIN_DIR}/sherpad.previous" ]; then
-        cp -p "${SHERPA_BIN_DIR}/sherpad.previous" "${SHERPA_BIN_DIR}/sherpad"
-        print_warning "Restored the previous sherpad"
-    else
-        print_warning "No previous sherpad to restore"
-    fi
-}
-
-# Remove the database files that a failed 'sherpad migrate-db' created. It runs only when
-# there was no database file before, so nothing that existed is removed.
-remove_failed_database() {
-    rm -f "${SHERPA_DB_FILE}" "${SHERPA_DB_FILE}-wal" "${SHERPA_DB_FILE}-shm"
-}
-
-migrate_database() {
-    if ! needs_database_migration; then
-        return 0
-    fi
-
-    print_header "Moving the Database"
-    print_info "Found the ${LEGACY_DB_CONTAINER} SurrealDB container of a server older than 0.5.0"
-
-    if ! docker ps --format '{{.Names}}' | grep -qx "${LEGACY_DB_CONTAINER}"; then
-        print_info "Starting ${LEGACY_DB_CONTAINER}..."
-        docker start "${LEGACY_DB_CONTAINER}" >/dev/null
-    fi
-    local port
-    port=$(legacy_db_port)
-    if ! wait_for_legacy_database "${port}"; then
-        print_error "SurrealDB in ${LEGACY_DB_CONTAINER} did not become ready"
-        restore_previous_sherpad
-        start_sherpad
+    if has_legacy_database; then
+        print_error "This server keeps its data in the SurrealDB database of a Sherpa release older than 0.5.0"
+        print_error "(the ${LEGACY_DB_CONTAINER} container or ${LEGACY_DB_DATA}). This script cannot move that data."
+        echo ""
+        echo "Update to ${LAST_MIGRATING_VERSION} first with that release's update script, which moves the"
+        echo "data into the embedded database, then run this script again:"
+        echo ""
+        echo "  curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPO}/${LAST_MIGRATING_VERSION}/scripts/sherpa_update.sh | sudo bash -s -- --version ${LAST_MIGRATING_VERSION}"
+        echo ""
+        echo "It moves the data out of the ${LEGACY_DB_CONTAINER} container, so that container must still exist."
+        echo ""
         exit 1
     fi
 
-    print_info "Importing users, images and labs into ${SHERPA_DB_FILE}..."
-    # Run it as the service runs, so systemd reads the SurrealDB password from sherpa.env exactly
-    # as it did for the old sherpad, quotes and escapes included. Standard input is closed, so a
-    # script piped into bash is not read by it.
-    if systemd-run --quiet --wait --pipe --collect --uid=sherpa \
-        --property="EnvironmentFile=-${SHERPA_ENV_FILE}" \
-        "${SHERPA_BIN_DIR}/sherpad" migrate-db --db-port "${port}" </dev/null; then
-        docker stop "${LEGACY_DB_CONTAINER}" >/dev/null
-        docker update --restart=no "${LEGACY_DB_CONTAINER}" >/dev/null
-        print_success "Database moved to ${SHERPA_DB_FILE}"
-        print_info "${LEGACY_DB_CONTAINER} is stopped and kept, with its data in ${SHERPA_BASE_DIR}/db/sherpa.db,"
-        print_info "for rollback. Remove both once the server works: docker rm ${LEGACY_DB_CONTAINER}"
-    else
-        print_error "Database move failed; the SurrealDB data is unchanged"
-        remove_failed_database
-        restore_previous_sherpad
-        start_sherpad
-        exit 1
-    fi
+    print_success "No SurrealDB database from an older release"
 }
 
 # Restrict lab data to sherpa, its group and QEMU (kvm). Directory modes also cover files
@@ -600,6 +514,7 @@ main() {
     check_root_privileges
     check_curl_installed
     check_sherpa_installed
+    check_legacy_database
 
     # Determine target version
     if [ -n "$SHERPA_VERSION" ]; then
@@ -607,7 +522,6 @@ main() {
     else
         get_latest_version
     fi
-    check_database_can_move
 
     # Check if any binary needs updating
     local needs_update=false
@@ -626,12 +540,7 @@ main() {
     if [ "$needs_update" = false ]; then
         ensure_symlinks
         secure_lab_storage
-    secure_database_storage
-        if needs_database_migration; then
-            stop_sherpad
-            migrate_database
-            start_sherpad
-        fi
+        secure_database_storage
         print_success "All binaries already at ${SHERPA_VERSION} — nothing to do"
         exit 0
     fi
@@ -643,7 +552,6 @@ main() {
     secure_lab_storage
     secure_database_storage
     ensure_runtime_directory
-    migrate_database
     start_sherpad
     verify_update
 

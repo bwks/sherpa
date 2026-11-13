@@ -84,7 +84,6 @@ Helper scripts are in the `dev/` directory:
 
 ```bash
 dev/serve              # run the server in development mode
-dev/dbreset            # reset the database
 dev/rebuild            # Rebuild the project and copy binaries to path
 dev/check-lint-exceptions.sh  # refuse lint exceptions not on its allowlist
 ```

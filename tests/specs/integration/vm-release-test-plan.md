@@ -119,9 +119,9 @@ and produces an unambiguous pass or fail result without manual intervention.
 - [x] Fresh installation: verify exit status, binary versions, symlinks,
   account/group setup, directory ownership and permissions.
 - [x] Runtime setup: verify Docker and libvirt availability, required images,
-  and the database: from 0.5.0 no database container and no database settings in
-  `sherpa.env`; for an upgrade baseline older than 0.5.0, SurrealDB persistence and
-  health, and after the upgrade the embedded `sherpa.sqlite` with the users kept.
+  and the database: no `sherpa-db` container and no database settings in
+  `sherpa.env`, and after an upgrade the embedded `sherpa.sqlite` with the users kept.
+  Only releases from 0.5.0 are tested.
 - [x] Service setup: verify the systemd unit, environment file permissions and
   enablement. Account for the installer leaving startup until initialization.
 - [x] Server startup: complete initialization, start the service and verify

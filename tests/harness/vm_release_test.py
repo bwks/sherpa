@@ -33,7 +33,7 @@ import build_cache
 from host_memory import (JOURNAL_HINT, MACHINE_SLICE_EVENTS, MEMCG_KILL, MEMORY_REFUSED_EXIT, OOM_KILL,
                          SHERPA_MEMORY_REFUSED, UP_REFUSED, classify_guest_loss, domain_stopped, memory_refusal,
                          oom_kills)
-from vm_release_guest import validate_upgrade_evidence
+from vm_release_guest import release_numbers, validate_upgrade_evidence
 
 
 HARNESS = Path(__file__).resolve().parent
@@ -49,6 +49,8 @@ UPGRADE_STEPS = ("baseline", "install-baseline", "initialize", "authenticate",
 CODE_STEPS = ("baseline", "install", "initialize", "authenticate", "source", "toolchain",
               "test-images", "build-tests", "unit-tests", "integration-tests")
 RERUN_STEPS = ("source", "test-images", "build-tests", "unit-tests", "integration-tests")
+# The oldest release the harness installs, as candidate or as upgrade baseline.
+OLDEST_SUPPORTED_RELEASE = (0, 5, 0)
 # A tailnet auth key in this variable when a code run starts enables the live tailnet test.
 TAILNET_KEY_VARIABLE = "SHERPA_TEST_TAILSCALE_AUTH_KEY"
 # Older host servers can give concurrent `sherpa up` requests the same subnet; serialize it.
@@ -69,12 +71,19 @@ class MemoryRefused(RuntimeError):
     """The server refused the lab for memory before creating anything."""
 
 
+def require_supported_release(version, role):
+    if release_numbers(version) < OLDEST_SUPPORTED_RELEASE:
+        raise ValueError(f"The {role} {version} is older than v0.5.0: the harness tests releases from 0.5.0. "
+                         "A server on a release before 0.5.0 must update to 0.5.x first")
+
+
 def validate_upgrade_config(config):
     baseline = config.get("baseline", {})
     if set(baseline) != {"version", "artifact_directory"}:
         raise ValueError("Upgrade requires an explicit baseline version and artifact selection")
     if not re.fullmatch(r"v\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.]+)?", baseline["version"]):
         raise ValueError("Select an explicit baseline release version")
+    require_supported_release(baseline["version"], "baseline")
     if baseline["version"] == config["candidate"]["version"]:
         raise ValueError("Upgrade requires distinct baseline and candidate versions")
     if not config["candidate"]["artifact_directory"]:
@@ -227,8 +236,8 @@ def validate_config(config):
         "image": ("path", "build", "sha256"),
         "candidate": ("version", "artifact_directory", "target", "download_url", "scripts_directory"),
         "runner": ("output_directory", "retain_failed", "retain_successful"),
-        "guest": ("workspace_prefix", "listen_ip", "client_host", "ws_port", "http_port", "db_port",
-                  "admin_prefix", "surrealdb_image", "router_image"),
+        "guest": ("workspace_prefix", "listen_ip", "client_host", "ws_port", "http_port",
+                  "admin_prefix", "router_image"),
         "timeouts": ("provision", "connect", "command", "download", "install", "initialize",
                      "startup", "reboot", "cleanup", "poll", "terminate", "build", "tests", "images"),
         "faults": ("wait", "command_timeout", "ready_timeout", "ready_port", "trigger_timeout"),
@@ -252,7 +261,8 @@ def validate_config(config):
     if config["faults"]["ready_port"] > 65535:
         raise ValueError("Invalid fault readiness port")
     if not re.fullmatch(r"v\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.]+)?", config["candidate"]["version"]):
-        raise ValueError("Select an explicit release version, such as v0.3.79")
+        raise ValueError("Select an explicit release version, such as v0.5.35")
+    require_supported_release(config["candidate"]["version"], "candidate")
     for value in (config["image"]["sha256"], config["tests"]["vm_image_sha256"]):
         if not re.fullmatch(r"[0-9a-f]{64}", value):
             raise ValueError("Image SHA-256 must contain 64 lowercase hex digits")
@@ -271,7 +281,7 @@ def validate_config(config):
     for key in ("lab_prefix", "node_prefix"):
         if not re.fullmatch(r"[a-z][a-z0-9-]*", config["vm"][key]):
             raise ValueError(f"Invalid {key}")
-    for key in ("ws_port", "http_port", "db_port"):
+    for key in ("ws_port", "http_port"):
         if type(config["guest"][key]) is not int or not 1 <= config["guest"][key] <= 65535:
             raise ValueError(f"Invalid {key}")
     return config
@@ -332,8 +342,8 @@ class Runner:
             if validate["uuid"] != runner.guest_uuid or validate["nonce"] != runner.run_id:
                 raise ValueError("Refusing cleanup: guest payload identity changed")
             runner.remote_directory = validate["workspace"]
-            runner.secrets = [data["credentials"][key] for key in ("db_password", "admin_password",
-                                                                   "build_cache_password", "tailnet_auth_key")
+            runner.secrets = [data["credentials"][key] for key in ("admin_password", "build_cache_password",
+                                                                   "tailnet_auth_key")
                               if key in data["credentials"]]
         return runner
 
@@ -452,8 +462,8 @@ class Runner:
             baseline = {**candidate, **self.config["baseline"]}
             baseline_directory = self.directory / "baseline"
             baseline_directory.mkdir(mode=0o700)
-            # The baseline is installed by its own release's installer: the candidate's may no
-            # longer install it (from 0.5.0 it refuses to set up SurrealDB).
+            # The baseline is installed by its own release's installer: the candidate's installer
+            # may differ from the baseline's and need not install it.
             baseline_installer = baseline_directory / "sherpa_install.sh"
             baseline_installer.write_text(self.command(
                 "baseline-installer",
@@ -655,9 +665,8 @@ class Runner:
         # The copied workspace belongs to the SSH login user, not to the service installation.
         self.ssh("workspace-owner", ["sudo", "-n", "chown", "--reference=.", remote],
                  self.config["timeouts"]["command"])
-        database_password = "Aa1!" + secrets.token_hex(24)
         admin_password = "Bb2!" + secrets.token_hex(24)
-        self.secrets.extend([database_password, admin_password])
+        self.secrets.append(admin_password)
         payload = {
             "identity": {"uuid": self.guest_uuid, "hostname": self.node_name, "nonce": self.run_id,
                          "workspace": remote},
@@ -666,7 +675,7 @@ class Runner:
             "vm": dict(self.report["vm"]),
             "timeouts": dict(self.config["timeouts"]),
             "faults": dict(self.config["faults"]),
-            "credentials": {"db_password": database_password, "admin_password": admin_password,
+            "credentials": {"admin_password": admin_password,
                             "admin_username": self.config["guest"]["admin_prefix"] + self.run_id[:8]},
         }
         if self.report["run"]["scenario"] == "upgrade":
@@ -1051,17 +1060,42 @@ class HarnessTests(unittest.TestCase):
 
     def upgrade_config(self):
         config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
-        config["candidate"].update(version="v0.3.80", artifact_directory="/candidate")
-        config["baseline"] = {"version": "v0.3.79", "artifact_directory": ""}
+        config["candidate"].update(version="v0.6.0", artifact_directory="/candidate")
+        config["baseline"] = {"version": "v0.5.35", "artifact_directory": ""}
         return config
 
     def test_upgrade_requires_distinct_versions_and_local_candidate(self):
         validate_upgrade_config(self.upgrade_config())
-        for field, value in (("version", "v0.3.79"), ("artifact_directory", "")):
+        for field, value in (("version", "v0.5.35"), ("artifact_directory", "")):
             config = self.upgrade_config()
             config["candidate"][field] = value
             with self.subTest(field=field), self.assertRaises(ValueError):
                 validate_upgrade_config(config)
+
+    def test_releases_before_0_5_0_are_refused_as_candidate_and_baseline(self):
+        for version in ("v0.4.18", "v0.3.79", "v0.4.99-rc1"):
+            config = self.upgrade_config()
+            config["baseline"]["version"] = version
+            with self.subTest(baseline=version), self.assertRaisesRegex(ValueError, "update to 0.5.x first"):
+                validate_upgrade_config(config)
+            config = self.upgrade_config()
+            config["candidate"]["version"] = version
+            with self.subTest(candidate=version), self.assertRaisesRegex(ValueError, "from 0.5.0"):
+                validate_config(config)
+        for version in ("v0.5.0", "v0.5.35", "v0.6.0", "v1.0.0"):
+            config = self.upgrade_config()
+            config["candidate"]["version"] = version
+            validate_config(config)
+            config["baseline"]["version"] = "v0.5.0" if version != "v0.5.0" else "v0.5.35"
+            validate_upgrade_config(config)
+
+    def test_runner_config_has_no_database_settings_or_credentials(self):
+        config = self.upgrade_config()
+        self.assertNotIn("db_port", config["guest"])
+        self.assertNotIn("surrealdb_image", config["guest"])
+        config["guest"]["db_port"] = 8000
+        with self.assertRaises(ValueError):
+            validate_config(config)
 
     def test_upgrade_refuses_identical_baseline_and_candidate_bytes(self):
         baseline = {f"{binary}_binary_sha256": "a" * 64 for binary in ("sherpa", "sherpad")}
@@ -1460,7 +1494,7 @@ install_system_packages
         with tempfile.TemporaryDirectory() as directory:
             env = dict(os.environ, SHERPA_ARTIFACT_DIR=directory)
             result = subprocess.run(["bash", str(ROOT / "scripts/sherpa_install.sh"),
-                                     "--version", "v0.3.79"], env=env,
+                                     "--version", "v0.5.35"], env=env,
                                     capture_output=True, text=True, timeout=5)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("artifact not found", result.stderr)

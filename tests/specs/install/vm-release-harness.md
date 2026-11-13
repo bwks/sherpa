@@ -41,7 +41,7 @@ server URL uses the existing
 CLI connection. Each run generates a unique lab name, guest name and credentials.
 
 The default tests the current checkout's installer/uninstaller scripts with
-explicitly selected published `v0.3.79` binaries. It records the checkout commit,
+explicitly selected published `v0.5.35` binaries. It records the checkout commit,
 whether it is dirty, script hashes, archive and installed binary hashes, base
 image checksum and VM identity. This is a published-release baseline for the
 current scripts, not proof that unpublished source changes are in those binaries.
@@ -49,7 +49,7 @@ current scripts, not proof that unpublished source changes are in those binaries
 To test locally built candidate archives:
 
 ```sh
-./tests/harness/test_install.sh --version v0.3.80 --artifact-dir /path/to/release-artifacts
+./tests/harness/test_install.sh --version v0.6.0 --artifact-dir /path/to/release-artifacts
 ```
 
 Use `--result-file /path/to/result-reference.toml` to write a stable, nonsecret
@@ -90,7 +90,7 @@ runs in foreground mode and writes its server logs to the journal.
 Select both versions explicitly and supply locally built candidate archives:
 
 ```sh
-./tests/harness/test_install.sh --scenario upgrade --baseline-version v0.3.79 --version v0.3.80 --artifact-dir /path/to/release-artifacts --result-file /path/to/upgrade-reference.toml
+./tests/harness/test_install.sh --scenario upgrade --baseline-version v0.5.35 --version v0.6.0 --artifact-dir /path/to/release-artifacts --result-file /path/to/upgrade-reference.toml
 ```
 
 The runner downloads the previous release on the controller and transfers it
@@ -101,12 +101,10 @@ The baseline is installed with its own release's installer, taken from the
 release tag in the recorded checkout (`git show <baseline>:scripts/sherpa_install.sh`),
 as users of that release installed it. The upgrade then runs the recorded
 checkout's `sherpa_update.sh` with the candidate archives (`SHERPA_ARTIFACT_DIR`),
-as users upgrade. From a baseline older than 0.5.0 that includes moving the data
-out of SurrealDB with `sherpad migrate-db`. Before recording the baseline state, the
-scenario quotes `SHERPA_DB_PASSWORD` in `sherpa.env`, as hand-edited servers have it,
-restarts the baseline `sherpad` and authenticates again, so the move must read the
-password as systemd does. The checks below then confirm every
-user, setting and identity survived the move. Both input archive/binary hashes and
+as users upgrade. The harness tests releases from 0.5.0, as candidate and as
+baseline; an older version is rejected before provisioning, and a server on a release
+before 0.5.0 must update to 0.5.x first. The checks below confirm every
+user, setting and identity survived the upgrade. Both input archive/binary hashes and
 the baseline installer hash/source are recorded. Equal versions, identical binary bytes or a missing
 local candidate selection are rejected before provisioning.
 
@@ -134,7 +132,7 @@ targeted cleanup use the same settings and ownership checks as other scenarios.
 Run the live harness failure suite with the same candidate inputs:
 
 ```sh
-./tests/harness/test_install.sh --scenario failure-checks --version v0.3.80 --artifact-dir /path/to/release-artifacts
+./tests/harness/test_install.sh --scenario failure-checks --version v0.6.0 --artifact-dir /path/to/release-artifacts
 ```
 
 It creates separate fresh guests for a timed-out command, SIGTERM interruption
@@ -148,7 +146,7 @@ faults count as a passing failure-suite result, never as a passing lifecycle run
 After a complete lifecycle run, verify the exact archives and checkout:
 
 ```sh
-uv run tests/harness/verify_release_test.py --receipt /path/to/run/result.toml --artifact-dir /path/to/release-artifacts --version v0.3.80
+uv run tests/harness/verify_release_test.py --receipt /path/to/run/result.toml --artifact-dir /path/to/release-artifacts --version v0.6.0
 ```
 
 Alternatively use `--result-file` with the reference written by the runner.

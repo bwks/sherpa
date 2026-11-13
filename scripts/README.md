@@ -5,13 +5,12 @@ This directory contains utility scripts for Sherpa installation, maintenance, an
 ## Installation Scripts
 
 ### `sherpa_install.sh`
-Installs the Sherpa server binaries, Docker, QEMU/libvirt and a SurrealDB container.
+Installs the Sherpa server binaries, Docker, QEMU/libvirt and the Sherpa router container image.
+sherpad keeps its database in `/opt/sherpa/db/sherpa.sqlite`; no database server is installed.
 
 **Usage:**
 ```bash
-# Using environment variable
-export SHERPA_DB_PASSWORD="YourPassword"
-sudo -E ./scripts/sherpa_install.sh
+sudo ./scripts/sherpa_install.sh
 
 # View help
 ./scripts/sherpa_install.sh --help
@@ -20,16 +19,18 @@ sudo -E ./scripts/sherpa_install.sh
 **What it does:**
 - Creates sherpa user and groups
 - Sets up directory structure at `/opt/sherpa/`
-- Pulls SurrealDB v3.0.0 and the Sherpa router container images
-- Starts container with persistent storage at `/opt/sherpa/db/`
-- Configures restart policy for auto-start on boot
-- Verifies database health
+- Pulls the Sherpa router container image
+- Installs the binaries, the sherpad systemd service and its environment file
+- Refuses a server older than 0.5.0 (a `sherpa-db` SurrealDB container exists)
 
 **Requirements:**
 - Ubuntu 24.04 or later, curl, virtualization support and internet access
 - Root/sudo privileges
-- Port 8000 available
-- Password at least 8 characters
+
+### `sherpa_update.sh`
+Replaces the Sherpa binaries with the latest, or a given, release and restarts sherpad. It
+refuses, before changing anything, a server older than 0.5.0 whose data is still in SurrealDB:
+such a server updates to 0.5.12 first with that release's update script, which moves the data.
 
 ### `sherpa_client_install.ps1`
 Installs or updates the Sherpa CLI client on Windows. No administrator privileges required.
@@ -64,14 +65,15 @@ irm https://raw.githubusercontent.com/bwks/sherpa/main/scripts/sherpa_client_ins
 - Internet access to GitHub
 
 ### `sherpa_uninstall.sh`
-Removes the SurrealDB container and optionally cleans up data.
+Removes the sherpad service and binaries, the `sherpa-db` container of a release before 0.5.0
+if one is left, and optionally the data.
 
 **Usage:**
 ```bash
-# Remove container only (keep data)
+# Remove the service, keep the data
 sudo ./scripts/sherpa_uninstall.sh
 
-# Remove container and database files
+# Remove the service and the database files
 sudo ./scripts/sherpa_uninstall.sh --remove-data
 
 # Remove everything without confirmation
@@ -135,19 +137,6 @@ sudo systemctl status docker
 sudo systemctl start docker
 ```
 
-### Port 8000 Already in Use
-```bash
-# Find what's using port 8000
-sudo ss -tulnp | grep :8000
-
-# OR
-sudo netstat -tulnp | grep :8000
-
-# Stop existing SurrealDB container
-docker stop sherpa-db
-docker rm sherpa-db
-```
-
 ### Permission Denied
 ```bash
 # Run with sudo
@@ -157,14 +146,9 @@ sudo -E ./scripts/sherpa_install.sh
 chmod +x scripts/*.sh
 ```
 
-### Database Not Starting
+### Server Not Starting
 ```bash
-# Check container logs
-docker logs sherpa-db
-
-# Check container status
-docker ps -a | grep sherpa-db
-
-# Restart container
-docker restart sherpa-db
+# Check the service status and logs
+sudo systemctl status sherpad
+journalctl -u sherpad --no-pager -n 50
 ```

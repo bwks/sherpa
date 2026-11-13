@@ -191,9 +191,6 @@ def validate_upgrade_evidence(evidence, baseline, candidate):
             require(evidence[phase].get(key) == inputs[key], f"Incorrect {phase} {binary} bytes")
 
 
-# The first release whose sherpad embeds its database; older ones ran SurrealDB in a container.
-EMBEDDED_DATABASE_VERSION = (0, 5, 0)
-LEGACY_DB_CONTAINER = "sherpa-db"
 # The first release whose installer makes the database directory 0750; older ones made it 0775.
 PRIVATE_DATABASE_DIRECTORY_VERSION = (0, 5, 13)
 
@@ -201,11 +198,6 @@ PRIVATE_DATABASE_DIRECTORY_VERSION = (0, 5, 13)
 def release_numbers(version):
     """The numbers of a Sherpa release such as v0.5.0, for comparing releases."""
     return tuple(int(part) for part in version.removeprefix("v").split("-", 1)[0].split("."))
-
-
-def embeds_database(version):
-    """Whether a Sherpa release such as v0.5.0 keeps its database inside sherpad."""
-    return release_numbers(version) >= EMBEDDED_DATABASE_VERSION
 
 
 def database_directory_mode(version):
@@ -264,7 +256,7 @@ class Guest:
         self.credentials = self.config["credentials"]
         self.marker = self.workspace / ".owner"
         self.base = Path("/opt/sherpa")
-        self.passwords = [self.credentials["db_password"], self.credentials["admin_password"]]
+        self.passwords = [self.credentials["admin_password"]]
         for key in ("build_cache_password", "tailnet_auth_key"):
             if key in self.credentials:
                 self.passwords.append(self.credentials[key])
@@ -312,14 +304,6 @@ class Guest:
             require(process.returncode == 0, f"Command failed ({process.returncode}): {command[0]}")
         return process.returncode, output
 
-    def legacy(self, selection="candidate"):
-        """Whether the selected release runs SurrealDB in a container (before 0.5.0)."""
-        return not embeds_database(self.config[selection]["version"])
-
-    def upgraded_from_legacy(self):
-        """Whether this run upgrades from a baseline that kept its data in SurrealDB."""
-        return "baseline" in self.config and self.legacy("baseline")
-
     def environment(self, selection="candidate"):
         env = dict(os.environ)
         env.update(SHERPA_SERVER_IPV4=self.settings["listen_ip"],
@@ -328,9 +312,6 @@ class Guest:
                    DEBIAN_FRONTEND="noninteractive")
         env.pop("SHERPA_DB_PASSWORD", None)
         env.pop("SHERPA_DB_PORT", None)
-        if self.legacy(selection):
-            env.update(SHERPA_DB_PASSWORD=self.credentials["db_password"],
-                       SHERPA_DB_PORT=str(self.settings["db_port"]))
         env.pop("SHERPA_ARTIFACT_DIR", None)
         if selection == "baseline":
             env["SHERPA_ARTIFACT_DIR"] = str(self.workspace / "baseline")
@@ -410,11 +391,8 @@ class Guest:
         for key, value in self.environment(selection).items():
             if key.startswith("SHERPA_") and key != "SHERPA_ARTIFACT_DIR":
                 require(env_values.get(key) == value, f"Environment setting mismatch: {key}")
-        # An upgrade from a release before 0.5.0 keeps that release's database settings, which
-        # only sherpad migrate-db reads; a fresh install of 0.5.0 or later never writes them.
-        if not self.legacy(selection) and not self.upgraded_from_legacy():
-            for key in ("SHERPA_DB_PASSWORD", "SHERPA_DB_PORT"):
-                require(key not in env_values, f"Embedded-database install wrote {key}")
+        for key in ("SHERPA_DB_PASSWORD", "SHERPA_DB_PORT"):
+            require(key not in env_values, f"Embedded-database install wrote {key}")
         _, groups = self.command(["id", "-nG", "sherpa"])
         require({"libvirt", "docker", "kvm"}.issubset(groups.split()), "Missing runtime groups")
         self.check_runtimes()
@@ -432,24 +410,11 @@ class Guest:
                 require(f"w {THP_ENABLED} - - - - madvise" in THP_BOOT_RULE.read_text(),
                         "Missing transparent hugepages boot rule")
         self.command(["docker", "image", "inspect", "--format", "{{.Id}}", self.settings["router_image"]])
-        code, state = self.command(["docker", "inspect", "--format",
-                                    "{{.Config.Image}} {{.State.Running}} {{.HostConfig.RestartPolicy.Name}}",
-                                    LEGACY_DB_CONTAINER], check=False)
-        if self.legacy(selection):
-            require(code == 0 and state.strip() == self.settings["surrealdb_image"] + " true unless-stopped",
-                    "Incorrect database image, state or restart policy")
-            self.command(["curl", "-fsS",
-                          f"http://{self.settings['client_host']}:{self.settings['db_port']}/health"])
-            require(any((self.base / "db").iterdir()), "Database storage is empty")
-        elif self.upgraded_from_legacy() and selection == "candidate":
-            # The update keeps the old container, stopped and not restarting, for rollback.
-            require(code == 0, "The upgrade removed the legacy database container")
-            require(state.strip().endswith(" false no"), "Legacy database container still runs")
-        elif code == 0:
-            require(state.strip().endswith(" false no"), "Legacy database container still runs")
+        code, _ = self.command(["docker", "inspect", "--format", "{{.Id}}", "sherpa-db"], check=False)
+        require(code != 0, "A sherpa-db container exists; releases from 0.5.0 embed the database")
 
     def verify_embedded_database(self):
-        """After an upgrade from a release before 0.5.0, the data lives in sherpad's file."""
+        """The database is the file sherpad embeds."""
         require((self.base / "db/sherpa.sqlite").is_file(), "Embedded database file missing")
 
     def init_command(self):
@@ -614,23 +579,7 @@ class Guest:
         state["users"] = [json.dumps(entry, sort_keys=True) for entry in selected]
         return state
 
-    def quote_legacy_db_password(self):
-        """Quote the SurrealDB password in sherpa.env, as hand-edited servers have it. systemd
-        strips the quotes, so the old sherpad still signs in, and the migration must too."""
-        env_file = self.base / "env/sherpa.env"
-        lines = env_file.read_text().splitlines(keepends=True)
-        prefix = "SHERPA_DB_PASSWORD="
-        matches = [index for index, line in enumerate(lines) if line.startswith(prefix)]
-        require(len(matches) == 1, "Expected one SHERPA_DB_PASSWORD line in sherpa.env")
-        value = lines[matches[0]][len(prefix):].rstrip("\n")
-        lines[matches[0]] = f'{prefix}"{value}"\n'
-        env_file.write_text("".join(lines))
-
     def seed_upgrade(self):
-        if self.upgraded_from_legacy():
-            self.quote_legacy_db_password()
-            self.command(["systemctl", "restart", "sherpad"])
-            self.authenticate()
         admin = self.login(self.credentials["admin_username"])
         username = "persist-" + self.config["identity"]["nonce"][:8]
         created = self.request("/api/v1/admin/users",
@@ -643,8 +592,7 @@ class Guest:
         print("PASS baseline persistent users, settings and identity recorded")
 
     def upgrade(self):
-        """Upgrade with the update script, as users do. From a release before 0.5.0 it also
-        moves the data out of SurrealDB with sherpad migrate-db."""
+        """Upgrade with the update script, as users do."""
         evidence = tomllib.loads((self.workspace / "upgrade-state.toml").read_text())
         validate_upgrade_state(evidence["before"], self.upgrade_state())
         self.command(self.updater(), timeout=self.timeouts["install"], env=self.environment())
@@ -726,9 +674,8 @@ class Guest:
             "images": sorted(query(["docker", "image", "ls", "--no-trunc", "--format",
                                     "{{.Repository}}:{{.Tag}} {{.ID}}"] ).splitlines()),
             "volumes": sorted(query(["docker", "volume", "ls", "--format", "{{.Name}}"] ).splitlines()),
-            "containers": sorted(line for line in query(["docker", "ps", "-a", "--no-trunc", "--format",
-                                "{{.Names}} {{.ID}} {{.Image}} {{.State}}"] ).splitlines()
-                                 if line.split()[0] != "sherpa-db"),
+            "containers": sorted(query(["docker", "ps", "-a", "--no-trunc", "--format",
+                                        "{{.Names}} {{.ID}} {{.Image}} {{.State}}"] ).splitlines()),
         }
         for kind, category in (("net", "networks"), ("pool", "pools"), ("dom", "domains")):
             list_command = "list" if kind == "dom" else kind + "-list"
@@ -751,19 +698,16 @@ class Guest:
         return inventory
 
     def diagnostics(self, required=False):
-        print("Collecting server/database logs, systemd status and boot diagnostics", flush=True)
+        print("Collecting server logs, systemd status and boot diagnostics", flush=True)
         commands = (["systemctl", "status", "--no-pager", "sherpad", "docker", "libvirtd"],
                     ["journalctl", "--no-pager", "-u", "sherpad", "-n", "200"],
                     ["journalctl", "--no-pager", "-b", "-p", "warning", "-n", "100"],
-                    ["docker", "logs", "--tail", "100", "sherpa-db"],
                     ["docker", "ps", "-a", "--format", "{{.Names}} {{.Status}}"],
                     ["cloud-init", "status", "--long"],
                     ["df", "-h"])
         for command in commands:
             try:
                 code, output = self.command(command, check=False)
-                if required and command[:2] == ["docker", "logs"] and self.legacy_container_present():
-                    require(code == 0, "Database logs unavailable before uninstall")
                 if required and command[0] == "journalctl" and "sherpad" in command:
                     require(code == 0 and output.strip() and output.strip() != "-- No entries --",
                             "Server journal unavailable before uninstall")
@@ -773,12 +717,7 @@ class Guest:
         if log.is_file():
             self.command(["tail", "-n", "200", str(log)])
         if required:
-            print("PASS live server and database logs captured before uninstall")
-
-    def legacy_container_present(self):
-        code, _ = self.command(["docker", "inspect", "--format", "{{.Id}}", LEGACY_DB_CONTAINER],
-                               check=False, display=False)
-        return code == 0
+            print("PASS live server logs captured before uninstall")
 
     def login_user(self):
         name = os.environ.get("SUDO_USER", "")
@@ -1149,11 +1088,11 @@ class GuestTests(unittest.TestCase):
     def test_baseline_install_uses_separate_verified_inputs(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
-            payload = {"candidate": {"version": "v0.3.80", "artifact_directory": "/candidate"},
-                       "baseline": {"version": "v0.3.79", "artifact_directory": "/baseline"},
+            payload = {"candidate": {"version": "v0.6.0", "artifact_directory": "/candidate"},
+                       "baseline": {"version": "v0.5.35", "artifact_directory": "/baseline"},
                        "guest": {"listen_ip": "127.0.0.1", "ws_port": 3030,
-                                 "http_port": 3031, "db_port": 8000},
-                       "timeouts": {}, "credentials": {"db_password": "test-db", "admin_password": "test-admin"}}
+                                 "http_port": 3031},
+                       "timeouts": {}, "credentials": {"admin_password": "test-admin"}}
             lines = []
             for section, values in payload.items():
                 lines.append(f"[{section}]")
@@ -1161,9 +1100,9 @@ class GuestTests(unittest.TestCase):
             path = workspace / "guest.toml"
             path.write_text("\n".join(lines))
             guest = Guest(path)
-            self.assertEqual(guest.installer("baseline")[-1], "v0.3.79")
+            self.assertEqual(guest.installer("baseline")[-1], "v0.5.35")
             self.assertEqual(guest.environment("baseline")["SHERPA_ARTIFACT_DIR"], str(workspace / "baseline"))
-            self.assertEqual(guest.installer()[-1], "v0.3.80")
+            self.assertEqual(guest.installer()[-1], "v0.6.0")
 
     def test_initialization_allows_child_to_exit_after_terminal_closes(self):
         guest = Guest.__new__(Guest)
@@ -1196,20 +1135,6 @@ class GuestTests(unittest.TestCase):
         self.assertEqual(guest.init_command(),
                          ["sudo", "-u", "sherpa", "-H", "/opt/sherpa/bin/sherpad", "init",
                           "--server-ipv4", "192.0.2.10", "--ws-port", "4030", "--http-port", "4031"])
-
-    def test_legacy_database_password_is_quoted_like_a_hand_edited_file(self):
-        with tempfile.TemporaryDirectory() as directory:
-            guest = Guest.__new__(Guest)
-            guest.base = Path(directory)
-            (guest.base / "env").mkdir()
-            env_file = guest.base / "env/sherpa.env"
-            env_file.write_text("SHERPA_SERVER_IPV4=127.0.0.1\nSHERPA_DB_PASSWORD=test-db\nSHERPA_DB_PORT=8000\n")
-            guest.quote_legacy_db_password()
-            self.assertEqual(env_file.read_text(),
-                             'SHERPA_SERVER_IPV4=127.0.0.1\nSHERPA_DB_PASSWORD="test-db"\nSHERPA_DB_PORT=8000\n')
-            env_file.write_text("SHERPA_SERVER_IPV4=127.0.0.1\n")
-            with self.assertRaises(RuntimeError):
-                guest.quote_legacy_db_password()
 
     def test_initialization_timeout_reports_timeout_after_reaping_child(self):
         guest = Guest.__new__(Guest)
@@ -1313,23 +1238,14 @@ class GuestTests(unittest.TestCase):
                                                       "skips": ['quote " and \\ slash']}})
         self.assertEqual(tomllib.loads(document)["integration-db"]["skips"], ['quote " and \\ slash'])
 
-    def test_only_an_upgrade_from_before_0_5_0_counts_as_upgraded_from_legacy(self):
-        guest = Guest.__new__(Guest)
-        guest.config = {"candidate": {"version": "v0.5.0"}}
-        self.assertFalse(guest.upgraded_from_legacy())
-        guest.config["baseline"] = {"version": "v0.5.0"}
-        self.assertFalse(guest.upgraded_from_legacy())
-        guest.config["baseline"] = {"version": "v0.4.18"}
-        self.assertTrue(guest.upgraded_from_legacy())
-
     def test_baseline_installs_with_its_own_installer_and_upgrade_uses_the_updater(self):
         guest = Guest.__new__(Guest)
         guest.workspace = Path("/var/tmp/workspace")
-        guest.config = {"baseline": {"version": "v0.4.18"}, "candidate": {"version": "v0.5.0"}}
+        guest.config = {"baseline": {"version": "v0.5.35"}, "candidate": {"version": "v0.6.0"}}
         self.assertEqual(guest.installer("baseline")[1], "/var/tmp/workspace/baseline/sherpa_install.sh")
         self.assertEqual(guest.installer()[1], "/var/tmp/workspace/sherpa_install.sh")
         self.assertEqual(guest.updater(),
-                         ["bash", "/var/tmp/workspace/sherpa_update.sh", "--version", "v0.5.0"])
+                         ["bash", "/var/tmp/workspace/sherpa_update.sh", "--version", "v0.6.0"])
 
     def test_upgrade_runs_the_update_script_and_starts_sherpad(self):
         guest = Guest.__new__(Guest)
@@ -1454,45 +1370,37 @@ class GuestTests(unittest.TestCase):
             config = Path(directory) / "guest.toml"
             config.write_text(toml_document({
                 "guest": {}, "timeouts": {},
-                "credentials": {"db_password": "db", "admin_password": "admin", "tailnet_auth_key": "tskey-test"}}))
+                "credentials": {"admin_password": "admin", "tailnet_auth_key": "tskey-test"}}))
             guest = Guest(config)
         self.assertIn("tskey-test", guest.passwords)
-
-    def test_releases_from_0_5_0_embed_the_database(self):
-        for version in ("v0.5.0", "0.5.1", "v1.0.0", "v0.10.0"):
-            self.assertTrue(embeds_database(version), version)
-        for version in ("v0.4.18", "0.3.80", "v0.4.99"):
-            self.assertFalse(embeds_database(version), version)
 
     def test_releases_from_0_5_13_keep_the_database_directory_private(self):
         for version in ("v0.5.13", "0.5.14", "v0.10.0", "v1.0.0"):
             self.assertEqual(database_directory_mode(version), 0o750, version)
-        for version in ("v0.5.12", "0.5.0", "v0.4.18"):
+        for version in ("v0.5.12", "0.5.0", "v0.5.1"):
             self.assertEqual(database_directory_mode(version), 0o775, version)
 
-    def test_embedded_database_install_has_no_database_settings(self):
+    def test_install_never_inherits_database_settings(self):
         guest = Guest.__new__(Guest)
-        guest.settings = {"listen_ip": "127.0.0.1", "ws_port": 3030, "http_port": 3031, "db_port": 8000}
-        guest.credentials = {"db_password": "test-db"}
+        guest.settings = {"listen_ip": "127.0.0.1", "ws_port": 3030, "http_port": 3031}
         guest.workspace = Path("/unused")
-        guest.config = {"candidate": {"version": "v0.5.0", "artifact_directory": ""},
-                        "baseline": {"version": "v0.4.18", "artifact_directory": "/baseline"}}
-        candidate = guest.environment()
-        self.assertNotIn("SHERPA_DB_PASSWORD", candidate)
-        self.assertNotIn("SHERPA_DB_PORT", candidate)
-        baseline = guest.environment("baseline")
-        self.assertEqual(baseline["SHERPA_DB_PASSWORD"], "test-db")
-        self.assertEqual(baseline["SHERPA_DB_PORT"], "8000")
+        guest.config = {"candidate": {"version": "v0.6.0", "artifact_directory": ""},
+                        "baseline": {"version": "v0.5.35", "artifact_directory": "/baseline"}}
+        with patch.dict(os.environ, {"SHERPA_DB_PASSWORD": "leaked", "SHERPA_DB_PORT": "8000"}):
+            for selection in ("candidate", "baseline"):
+                env = guest.environment(selection)
+                self.assertNotIn("SHERPA_DB_PASSWORD", env)
+                self.assertNotIn("SHERPA_DB_PORT", env)
 
     def test_ubuntu_version_ignores_build_suffix(self):
         self.assertEqual(ubuntu_version("26.04"), "26.04")
         self.assertEqual(ubuntu_version("24.04-20260926"), "24.04")
 
     def test_binary_version_requires_exact_match(self):
-        validate_binary_version("sherpad", "v0.3.79", "sherpad 0.3.79\n")
-        for output in ("sherpad 0.3.790", "other 0.3.79"):
+        validate_binary_version("sherpad", "v0.5.35", "sherpad 0.5.35\n")
+        for output in ("sherpad 0.5.350", "other 0.5.35"):
             with self.assertRaises(RuntimeError):
-                validate_binary_version("sherpad", "v0.3.79", output)
+                validate_binary_version("sherpad", "v0.5.35", output)
 
     def test_refuses_host_or_another_vm(self):
         for actual_uuid, actual_hostname in (("other", "test"), ("expected", "production")):
