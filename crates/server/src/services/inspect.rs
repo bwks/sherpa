@@ -2,8 +2,8 @@ use anyhow::{Context, Result, anyhow};
 use bollard::secret::ContainerStateStatusEnum;
 use libvirt::is_device_volume;
 use shared::data::{
-    BridgeInfo, DbLab, DbNode, DeviceInfo, InspectResponse, LabInfo, LabState, LinkInfo,
-    NodeConfig, NodeKind, NodeState, Observation, Probe, RecordId,
+    BridgeInfo, DbLab, DbLink, DbNode, DeviceInfo, InspectResponse, LabInfo, LabState, LinkInfo,
+    LinkState, NodeConfig, NodeKind, NodeState, Observation, Probe, RecordId,
 };
 use shared::konst::{LAB_FILE_NAME, SHERPA_LABS_PATH, SHERPA_STORAGE_POOL};
 use shared::util::load_file;
@@ -27,6 +27,8 @@ use crate::services::node_lifecycle;
 /// - libvirt for VM disks in the storage pool
 /// - Docker for the containers' states, which are reported as the scanner would record them
 ///   (`reported_state`); the record is left to the scanner
+/// - the server's in-memory link states (`AppState::link_states`) for each P2p link's last
+///   state: none before the scanner first checks the lab
 ///
 /// The caller must own the lab or be an admin.
 #[instrument(skip(ctx, state), fields(username = %ctx.username, %lab_id))]
@@ -120,16 +122,7 @@ async fn inspect_lab_inner(
     );
     tracing::debug!("inspect_lab: total elapsed {:?}", t0.elapsed());
 
-    let links: Vec<LinkInfo> = db_links
-        .into_iter()
-        .map(|link| LinkInfo {
-            node_a_name: node_name_from_id(&db_nodes, &link.node_a),
-            int_a: link.int_a,
-            node_b_name: node_name_from_id(&db_nodes, &link.node_b),
-            int_b: link.int_b,
-            kind: link.kind,
-        })
-        .collect();
+    let links = link_infos(db_links, &db_nodes, &state.link_states.of_lab(lab_id));
 
     let bridges: Vec<BridgeInfo> = db_bridges
         .into_iter()
@@ -295,6 +288,26 @@ fn reported_state(
     })
 }
 
+/// Each link for display, with the state the server last found or left it in (`link_states`,
+/// by link index). A link with no state has not been checked since the server started.
+fn link_infos(
+    links: Vec<DbLink>,
+    nodes: &[DbNode],
+    link_states: &HashMap<u16, LinkState>,
+) -> Vec<LinkInfo> {
+    links
+        .into_iter()
+        .map(|link| LinkInfo {
+            node_a_name: node_name_from_id(nodes, &link.node_a),
+            int_a: link.int_a,
+            node_b_name: node_name_from_id(nodes, &link.node_b),
+            int_b: link.int_b,
+            kind: link.kind,
+            state: link_states.get(&link.index).cloned(),
+        })
+        .collect()
+}
+
 /// Find a node image by `RecordId` in the pre-fetched list.
 fn find_node_image<'a>(images: &'a [NodeConfig], id: &RecordId) -> Option<&'a NodeConfig> {
     images.iter().find(|img| img.id.as_ref() == Some(id))
@@ -311,7 +324,7 @@ fn node_name_from_id(nodes: &[DbNode], rid: &RecordId) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::{LabPhase, NodeModel};
+    use shared::data::{BridgeKind, LabPhase, LinkImpairment, NodeModel};
 
     fn db_node(name: &str) -> DbNode {
         DbNode {
@@ -435,6 +448,47 @@ mod tests {
             Some(&containers),
         );
         assert_eq!(state, NodeState::Running);
+    }
+
+    fn db_link(index: u16) -> DbLink {
+        DbLink {
+            id: None,
+            index,
+            kind: BridgeKind::P2p,
+            node_a: RecordId::new("node", "dev01"),
+            node_b: RecordId::new("node", "db01"),
+            int_a: format!("eth{}", index + 1),
+            int_b: format!("eth{}", index + 1),
+            lab: RecordId::new("lab", "lab1"),
+            tap_a: format!("tpa{index}"),
+            tap_b: format!("tpb{index}"),
+            impairment_a_to_b: LinkImpairment::default(),
+            impairment_b_to_a: LinkImpairment::default(),
+        }
+    }
+
+    #[test]
+    fn each_link_is_shown_with_its_last_state_and_none_before_it_is_checked() {
+        let nodes = [
+            DbNode {
+                id: Some(RecordId::new("node", "dev01")),
+                ..db_node("dev01")
+            },
+            DbNode {
+                id: Some(RecordId::new("node", "db01")),
+                ..db_node("db01")
+            },
+        ];
+        let peer_down = LinkState::PeerDown {
+            peer: "db01".to_string(),
+        };
+        let states = HashMap::from([(1, peer_down.clone())]);
+        let links = link_infos(vec![db_link(0), db_link(1)], &nodes, &states);
+        assert_eq!(links[0].state, None);
+        assert_eq!(links[1].state, Some(peer_down));
+        assert_eq!(links[1].node_a_name, "dev01");
+        assert_eq!(links[1].node_b_name, "db01");
+        assert_eq!(links[1].int_a, "eth2");
     }
 
     #[test]

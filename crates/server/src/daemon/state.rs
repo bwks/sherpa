@@ -15,6 +15,7 @@ use crate::api::websocket::connection::ConnectionRegistry;
 use crate::auth::context::AuthContext;
 use crate::auth::jwt;
 use crate::auth::session::{self, SessionLookup};
+use crate::daemon::link_states::LinkStates;
 use crate::daemon::metrics::Metrics;
 use crate::daemon::storage::secure_storage;
 use crate::validate::{check_host_memory_settings, validate_tailscale_gateway_settings};
@@ -84,6 +85,8 @@ pub struct AppState {
     /// Pending jobs awaiting SSE stream pickup.
     /// Keyed by `job_id`, consumed once by the stream handler.
     pub pending_jobs: Arc<DashMap<String, Job>>,
+    /// The last known state of each lab's P2p links, for `inspect`.
+    pub link_states: LinkStates,
 }
 
 impl AppState {
@@ -142,6 +145,7 @@ impl AppState {
             jwt_secret: Arc::new(jwt_secret),
             metrics,
             pending_jobs: Arc::new(DashMap::new()),
+            link_states: LinkStates::default(),
         })
     }
 }

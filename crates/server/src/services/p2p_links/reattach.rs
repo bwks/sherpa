@@ -10,6 +10,7 @@ use tracing::instrument;
 use super::host::LinkHost;
 use super::transition::{End, EndAt, LinkStep, Side, step};
 use super::veths::{ContainerVeth, node_links};
+use crate::daemon::link_states::LinkStates;
 use crate::services::progress::ProgressSender;
 
 use shared::data::{DbLink, DbNode, LinkImpairment, LinkReport, LinkState, RecordId, StatusKind};
@@ -33,6 +34,14 @@ pub(crate) enum RecreatedEnd {
     },
     /// The node's ends could not be planned, and why. Each of its links fails.
     Unplanned(String),
+}
+
+/// What re-attaching left one link in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LinkOutcome {
+    /// The link's index in its lab.
+    pub(crate) index: u16,
+    pub(crate) report: LinkReport,
 }
 
 /// A link's two ends, with their indexes and impairments: what attaching it sets.
@@ -73,7 +82,7 @@ impl LabLinks {
     }
 
     /// The name of node `id`, or its record ID when it has none.
-    fn name(&self, id: &RecordId) -> String {
+    pub(crate) fn name(&self, id: &RecordId) -> String {
         self.names
             .get(id)
             .cloned()
@@ -81,7 +90,7 @@ impl LabLinks {
     }
 
     /// `link` as the user knows it: `node::interface <-> node::interface`.
-    fn label(&self, link: &DbLink) -> String {
+    pub(crate) fn label(&self, link: &DbLink) -> String {
         format!(
             "{}::{} <-> {}::{}",
             self.name(&link.node_a),
@@ -93,7 +102,7 @@ impl LabLinks {
 }
 
 /// Re-attach every link of `node`, whose ends were made again as `end` says, and report what
-/// each link was left in.
+/// each link was left in, in the order of the links' indexes.
 ///
 /// Each link is decided on its own (see `transition`), so one that fails does not stop the
 /// others. A link whose peer is down is left for the peer's own re-attach. Nothing here fails
@@ -104,7 +113,7 @@ pub(crate) async fn reattach_node_links(
     lab: &LabLinks,
     node: &RecordId,
     end: RecreatedEnd,
-) -> Vec<LinkReport> {
+) -> Vec<LinkOutcome> {
     let mut links = node_links(&lab.links, node);
     links.sort_by_key(|link| link.index);
     let broken = match end {
@@ -161,15 +170,19 @@ pub(crate) async fn reattach_node_links(
             }
             LinkStep::Leave(state) => state,
         };
-        reports.push(LinkReport {
-            link: lab.label(link),
-            state,
+        reports.push(LinkOutcome {
+            index: link.index,
+            report: LinkReport {
+                link: lab.label(link),
+                state,
+            },
         });
     }
     reports
 }
 
-/// Make a started container's veths in its network namespace. Returns the host ends that could
+/// Make a started container's veths in its network namespace; with none to make, the container
+/// is not looked up. Returns the host ends that could
 /// not be made, each with why: the others are made whatever happens to one.
 #[instrument(skip(host, veths), level = "debug")]
 async fn make_container_ends(
@@ -177,6 +190,9 @@ async fn make_container_ends(
     container: &str,
     veths: &[ContainerVeth],
 ) -> HashMap<String, String> {
+    if veths.is_empty() {
+        return HashMap::new();
+    }
     let pid = match host.container_pid(container).await {
         Ok(pid) => pid,
         Err(error) => {
@@ -232,15 +248,20 @@ pub(crate) async fn attach_link(host: &impl LinkHost, wiring: &LinkWiring<'_>) -
     Ok(())
 }
 
-/// Tell the user about each of `node_name`'s links that is not attached, and log it.
+/// Record what each of `node_name`'s links in lab `lab_id` was left in, for `inspect`, and
+/// tell the user about each that is not attached, and log it. Returns the links' reports.
 pub(crate) fn report_links(
     progress: Option<&ProgressSender>,
+    link_states: &LinkStates,
+    lab_id: &str,
     node_name: &str,
-    reports: &[LinkReport],
-) {
-    for report in reports {
+    outcomes: Vec<LinkOutcome>,
+) -> Vec<LinkReport> {
+    let mut reports = Vec::with_capacity(outcomes.len());
+    for LinkOutcome { index, report } in outcomes {
+        link_states.record(lab_id, index, report.state.clone());
         match &report.state {
-            LinkState::Attached => continue,
+            LinkState::Attached => {}
             LinkState::PeerDown { .. } => {
                 tracing::info!(node = %node_name, link = %report.link, "P2p link waits for its peer");
             }
@@ -248,10 +269,14 @@ pub(crate) fn report_links(
                 tracing::warn!(node = %node_name, link = %report.link, %reason, "P2p link not re-attached");
             }
         }
-        if let Some(progress) = progress {
+        if report.state != LinkState::Attached
+            && let Some(progress) = progress
+        {
             let _ = progress.send_status(format!("Node {node_name}: {report}"), StatusKind::Info);
         }
+        reports.push(report);
     }
+    reports
 }
 
 #[cfg(test)]
@@ -320,6 +345,10 @@ mod tests {
         RecordId::new("node", name)
     }
 
+    fn reports_of(outcomes: Vec<LinkOutcome>) -> Vec<LinkReport> {
+        outcomes.into_iter().map(|outcome| outcome.report).collect()
+    }
+
     fn states(reports: &[LinkReport]) -> Vec<(&str, &LinkState)> {
         reports
             .iter()
@@ -339,6 +368,7 @@ mod tests {
         // A cold boot gives vm1 new taps: each peer's redirect is stale.
         host.make(&["tpa0", "tpa1", "tpa2"]);
         let reports = reattach_node_links(&host, &lab, &id("vm1"), RecreatedEnd::Domain).await;
+        let reports = reports_of(reports);
         assert!(
             reports.iter().all(|r| r.state == LinkState::Attached),
             "{reports:?}"
@@ -355,6 +385,7 @@ mod tests {
         host.remove(&["tpb0"]);
         host.make(&["tpa0", "tpa1", "tpa2"]);
         let reports = reattach_node_links(&host, &lab, &id("vm1"), RecreatedEnd::Domain).await;
+        let reports = reports_of(reports);
         assert_eq!(
             states(&reports),
             vec![
@@ -375,6 +406,7 @@ mod tests {
         host.failing_lookups.insert("tpb1".to_string());
         host.make(&["tpa0", "tpa1", "tpa2"]);
         let reports = reattach_node_links(&host, &lab, &id("vm1"), RecreatedEnd::Domain).await;
+        let reports = reports_of(reports);
         assert!(reports[0].failed(), "{reports:?}");
         assert!(reports[1].failed(), "{reports:?}");
         assert_eq!(reports[2].state, LinkState::Attached);
@@ -388,11 +420,13 @@ mod tests {
         host.remove(&["tpb0"]);
         host.make(&["tpa0"]);
         let reports = reattach_node_links(&host, &lab, &id("vm1"), RecreatedEnd::Domain).await;
+        let reports = reports_of(reports);
         assert_eq!(reports[0].state, peer_down("vm2"));
         assert!(!host.wired("tpa0", "tpb0"));
 
         host.make(&["tpb0"]);
         let reports = reattach_node_links(&host, &lab, &id("vm2"), RecreatedEnd::Domain).await;
+        let reports = reports_of(reports);
         assert_eq!(
             states(&reports),
             vec![("vm1::eth1 <-> vm2::eth1", &LinkState::Attached)]
@@ -408,6 +442,7 @@ mod tests {
         let (host, lab) = lab();
         host.remove(&["tpa2"]);
         let reports = reattach_node_links(&host, &lab, &id("vm1"), RecreatedEnd::Domain).await;
+        let reports = reports_of(reports);
         assert_eq!(
             reports[2].state,
             LinkState::Failed {
@@ -445,6 +480,7 @@ mod tests {
             },
         )
         .await;
+        let reports = reports_of(reports);
         assert_eq!(
             states(&reports),
             vec![("vm1::eth2 <-> ctr1::eth1", &LinkState::Attached)]
@@ -476,6 +512,7 @@ mod tests {
             },
         )
         .await;
+        let reports = reports_of(reports);
         assert_eq!(reports.len(), 1);
         assert!(reports[0].failed(), "{reports:?}");
         assert!(
@@ -499,6 +536,7 @@ mod tests {
             },
         )
         .await;
+        let reports = reports_of(reports);
         assert_eq!(reports.len(), 1);
         assert!(reports[0].failed(), "{reports:?}");
     }
@@ -513,6 +551,7 @@ mod tests {
             RecreatedEnd::Unplanned("no manifest".to_string()),
         )
         .await;
+        let reports = reports_of(reports);
         assert_eq!(reports.len(), 3);
         assert!(reports.iter().all(LinkReport::failed), "{reports:?}");
     }
@@ -529,6 +568,7 @@ mod tests {
         let ifindex_a = host.index("tpa0").unwrap();
         host.netem.borrow_mut().insert(ifindex_a, delay);
         let reports = reattach_node_links(&host, &lab, &id("vm2"), RecreatedEnd::Domain).await;
+        let reports = reports_of(reports);
         assert_eq!(reports[0].state, LinkState::Attached);
         let netem = host.netem.borrow();
         assert_eq!(netem.get(&host.index("tpb0").unwrap()), Some(&delay));
@@ -564,17 +604,20 @@ mod tests {
         let host = KernelHost::new(&docker);
 
         let reports = reattach_node_links(&host, &lab, &id("vm1"), RecreatedEnd::Domain).await;
+        let reports = reports_of(reports);
         assert_eq!(reports[0].state, LinkState::Attached, "{reports:?}");
         assert!(has_redirect(a) && has_redirect(b));
 
         // vm2's end goes, as a shut-off VM's tap does: vm1's re-attach waits for it.
         network::delete_interface(b).await.unwrap();
         let reports = reattach_node_links(&host, &lab, &id("vm1"), RecreatedEnd::Domain).await;
+        let reports = reports_of(reports);
         assert_eq!(reports[0].state, peer_down("vm2"));
 
         // vm2 comes back with a new end: its own re-attach sets both directions.
         make_end(b).await;
         let reports = reattach_node_links(&host, &lab, &id("vm2"), RecreatedEnd::Domain).await;
+        let reports = reports_of(reports);
         assert_eq!(reports[0].state, LinkState::Attached, "{reports:?}");
         assert!(has_redirect(a) && has_redirect(b));
 

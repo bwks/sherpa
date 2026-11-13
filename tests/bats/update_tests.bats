@@ -220,6 +220,30 @@ EOF
     _run_function "SERVER_SSH_KEY_DIR='${WORK_DIR}/ssh'; SHERPA_VERSION=v0.6.0; remove_server_ssh_key"
     [ "$status" -eq 0 ]
     [ ! -e "${WORK_DIR}/ssh" ]
+    [[ "$output" == *"Removed the server's shared SSH key"* ]]
+}
+
+@test "remove_server_ssh_key: says nothing when there is no key and no folder" {
+    _run_function "SERVER_SSH_KEY_DIR='${WORK_DIR}/ssh'; SHERPA_VERSION=v0.6.1; remove_server_ssh_key"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"Removed"* ]]
+}
+
+@test "remove_server_ssh_key: says nothing when the folder holds no key and is kept" {
+    mkdir -p "${WORK_DIR}/ssh"
+    touch "${WORK_DIR}/ssh/other"
+    _run_function "SERVER_SSH_KEY_DIR='${WORK_DIR}/ssh'; SHERPA_VERSION=v0.6.1; remove_server_ssh_key"
+    [ "$status" -eq 0 ]
+    [ -e "${WORK_DIR}/ssh/other" ]
+    [[ "$output" != *"Removed"* ]]
+}
+
+@test "remove_server_ssh_key: reports an empty folder it removed" {
+    mkdir -p "${WORK_DIR}/ssh"
+    _run_function "SERVER_SSH_KEY_DIR='${WORK_DIR}/ssh'; SHERPA_VERSION=v0.6.1; remove_server_ssh_key"
+    [ "$status" -eq 0 ]
+    [ ! -e "${WORK_DIR}/ssh" ]
+    [[ "$output" == *"Removed the server's shared SSH key"* ]]
 }
 
 @test "remove_server_ssh_key: keeps other files in the folder, and the key for releases before v0.6.0" {

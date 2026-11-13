@@ -491,14 +491,26 @@ check_new_sherpad_can_use_database() {
 }
 
 # Delete the server's shared SSH key pair, which no release from
-# ${FIRST_RELEASE_WITHOUT_SERVER_KEY} uses, and its folder once empty.
+# ${FIRST_RELEASE_WITHOUT_SERVER_KEY} uses, and its folder once empty. Says so only when a key
+# file or the folder was there to remove: every update from that release on runs this.
 remove_server_ssh_key() {
     if version_newer_than "${FIRST_RELEASE_WITHOUT_SERVER_KEY}" "${SHERPA_VERSION}"; then
         return 0
     fi
-    rm -f "${SERVER_SSH_KEY_DIR}"/sherpa_ssh_key*
-    rmdir "${SERVER_SSH_KEY_DIR}" 2>/dev/null || true
-    print_success "Removed the server's shared SSH key"
+    local removed=false
+    local key
+    for key in "${SERVER_SSH_KEY_DIR}"/sherpa_ssh_key*; do
+        # An unmatched pattern stays as it is, naming no file.
+        [ -e "${key}" ] || continue
+        rm -f "${key}"
+        removed=true
+    done
+    if [ -d "${SERVER_SSH_KEY_DIR}" ] && rmdir "${SERVER_SSH_KEY_DIR}" 2>/dev/null; then
+        removed=true
+    fi
+    if [ "${removed}" = true ]; then
+        print_success "Removed the server's shared SSH key"
+    fi
 }
 
 ################################################################################

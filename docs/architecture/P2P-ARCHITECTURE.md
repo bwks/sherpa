@@ -50,8 +50,11 @@ end has a new ifindex, so the peer's redirect is stale. All of these go through 
    redirect is pointed at the other, and each direction's impairment is synced from the
    database. The peer's end absent: the link is left `PeerDown`, and the peer's own re-attach,
    when it starts, sets both directions. Anything else: `Failed`, with the reason.
-3. The per-link states go back to the user with the resume or redeploy result. None of them
-   fails the node.
+3. The per-link states go back to the user with the resume or redeploy result, and are kept
+   for `sherpa inspect`. None of them fails the node.
+
+Ends made again outside Sherpa are repaired by the scanner through the same function; see
+[Repair by the scanner](#repair-by-the-scanner).
 
 The states and the transition are described in
 [`STATE_MACHINES.md`, section 25](STATE_MACHINES.md#25-p2p-link-attachment).
@@ -248,9 +251,44 @@ Since each endpoint has a standard kernel network interface on the host:
 
 ## Crash Resilience
 
-If one side of a P2p link crashes (VM or container destroyed):
+If one side of a P2p link stops (VM shut off or crashed, container stopped or killed):
 
-- The surviving side's eBPF program continues redirecting packets to the now-stale ifindex
-- The kernel silently drops these packets (TC_ACT_SHOT) — no errors or panics
-- When the crashed node's interface is deleted, the BPF program on the surviving side becomes a no-op
-- Full cleanup happens during lab destroy
+- Its taps or veths are deleted, with their TC filters and programs.
+- The surviving side's eBPF program keeps redirecting to the deleted ifindex, and the kernel
+  drops those frames. The surviving side keeps its carrier.
+- When the node starts again, its ends have new ifindexes. Started through Sherpa (`resume`,
+  `redeploy`), they are re-attached at once. Started outside Sherpa, the scanner repairs them
+  within `scanner.interval_secs`; see [Repair by the scanner](#repair-by-the-scanner).
+- A reboot from inside a guest, `virsh reboot`, a pause and unpause, and a sherpad restart
+  change nothing: the same tap and filter stay.
+- Full cleanup happens during lab destroy.
+
+### Repair by the scanner
+
+A redirect is tied to an ifindex in two places: the filter and its program on the end's own
+interface, which die with it, and the peer's ifindex in the *other* end's map, which nothing
+updates. So making one end again breaks both directions. The scanner finds such ends from the
+kernel alone, with nothing remembered:
+
+- **a running node's end does not exist.** `docker restart`, or `docker stop` then `start`,
+  destroys the container's network namespace and every data veth with it (links, bridge
+  members, disabled interfaces); the new namespace has only `eth0`.
+- **an end exists with no `p2p_redirect` filter, and its peer's end exists.** `virsh destroy`
+  then `start`: libvirt makes a new, bare tap. A filter cannot move between interfaces, so a
+  new interface never has one. `network::has_p2p_redirect` reads the end's ingress filters
+  over netlink.
+
+For each node with such an end, `repair_node` runs `reattach_node_links`. A container's veths
+are planned as resume plans them (`p2p_links::recreated_end`), and only those that do not exist
+are made, so its working interfaces are not deleted and made again. Then both redirects of
+each of the node's links are set again, with their impairments.
+
+Only nodes that are running are checked; a stopped or paused node is left alone and its links
+are `PeerDown`. The repair runs under the scanner's hold on the lab, so never beside a resume,
+redeploy or `up`. Each link's last state is kept in memory for `sherpa inspect`. The states,
+the rule and its limits are in
+[`STATE_MACHINES.md`, section 25](STATE_MACHINES.md#25-p2p-link-attachment).
+
+A guest that cached its peer's MAC address keeps sending to the old one after the peer's
+container restarted (the new veth has a new MAC), until its neighbour entry is probed again,
+which Linux does within seconds.

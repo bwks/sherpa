@@ -47,7 +47,7 @@ fn psched_ticks(micros: u32, what: &str) -> Result<u32> {
 }
 
 /// `iface_index` as the signed index a TC message carries.
-fn tc_index(iface_index: u32) -> Result<i32> {
+pub(crate) fn tc_index(iface_index: u32) -> Result<i32> {
     i32::try_from(iface_index)
         .with_context(|| format!("Interface index {iface_index} is out of range for TC"))
 }

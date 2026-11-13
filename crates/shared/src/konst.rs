@@ -263,6 +263,9 @@ pub const NETNS_VETH_INDEX_ATTEMPTS: u32 = 64;
 pub const NETEM_QOPT_LEN: usize = 24;
 /// Netlink attribute that carries a qdisc's options (`TCA_OPTIONS`).
 pub const TCA_OPTIONS: u16 = 2;
+/// `bpf` filter option attribute that carries the name of the filter's program
+/// (`TCA_BPF_NAME`).
+pub const TCA_BPF_NAME: u16 = 7;
 /// netem option attribute for packet reordering (`TCA_NETEM_REORDER`).
 pub const TCA_NETEM_REORDER: u16 = 3;
 /// netem option attribute for bit-flip corruption (`TCA_NETEM_CORRUPT`).

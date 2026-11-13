@@ -501,7 +501,7 @@ The services are not symmetrical. Some are short CRUD-style orchestrators, and s
 | | `container_pull.rs` | Docker/OCI image pull with progress |
 | | `clean.rs` | admin force-clean path |
 | Network mutation services | `impairment.rs` | update delay/jitter/loss/reorder/corrupt settings on P2P links |
-| Background service | `scanner.rs` | observe Docker/libvirt runtime state into the node lifecycle, for labs no operation holds |
+| Background service | `scanner.rs` | observe Docker/libvirt runtime state into the node lifecycle, and check and repair P2p links, for labs no operation holds |
 | Node lifecycle | `node_lifecycle.rs` | the only writer of node states: `record` for operations, `observe` for the scanner, the runtime mapping table |
 | Lab lifecycle | `lab_lifecycle.rs` | the only writer of lab phases (`record`, under the lab's lease), `require_ready` for operations on nodes, and startup `recover` |
 | Shared helpers | `node_ops.rs` | common node setup/building helpers |
@@ -723,7 +723,8 @@ a stop reason:
   until they return;
 - the scanner calls `lab_operations::try_observe`, which takes the write lease without waiting
   and without cancelling anything; a lab an operation holds is skipped that cycle, and an
-  operation that starts meanwhile waits the few milliseconds the scanner holds it;
+  operation that starts meanwhile waits while the scanner holds it: a few milliseconds, or a
+  few netlink calls and two program loads per link when it repairs P2p links;
 - `lab_operations::stop(lab_id, reason)` cancels the token, then waits for the write lease, so
   it returns once every operation on the lab has ended.
 
@@ -1039,6 +1040,15 @@ records the key it offers and lets the node be recorded `Running`. A `Running` V
 is not probed again, so the scanner makes no SSH connections to settled nodes; a key that
 changes without a state change, as on a reboot from inside the guest, is read when a client
 finds it does not match. Other nodes have no probe: running counts as ready.
+
+Still under the hold, the scanner checks the P2p links of a `Ready` lab in the kernel and
+repairs the ends of running nodes that were made again outside Sherpa (`repair_links`): a VM
+started with `virsh`, a container started or restarted with `docker`. It keeps each link's
+state in `AppState::link_states`, which `inspect` reports. The check and the repair are in
+[`STATE_MACHINES.md`, section 25](STATE_MACHINES.md#25-p2p-link-attachment) and
+[`P2P-ARCHITECTURE.md`](P2P-ARCHITECTURE.md#repair-by-the-scanner). With `scanner.enabled =
+false` nothing repairs them, and `inspect` shows links as not checked until a resume or
+redeploy re-attaches them.
 
 ## HTTP routing architecture
 
