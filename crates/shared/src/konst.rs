@@ -202,8 +202,9 @@ pub const SHERPA_DB_MEMORY: &str = ":memory:";
 pub const SHERPA_DB_FILE_MODE: u32 = 0o600;
 /// How long a connection waits for a lock held by another connection.
 pub const SHERPA_DB_BUSY_TIMEOUT_SECS: u64 = 5;
-/// Generated record keys: the length and alphabet of the keys of releases before 0.5.0, which
-/// servers that were upgraded still hold.
+/// Generated record keys are 20 characters drawn from lowercase ASCII letters and digits, about
+/// 103 bits of randomness. Databases upgraded from earlier releases keep the keys they already
+/// hold, so changing the length or alphabet would leave two key shapes in use.
 pub const SHERPA_DB_KEY_LENGTH: usize = 20;
 pub const SHERPA_DB_KEY_CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
 pub const SHERPA_SERVER_WS_PORT: u16 = 3030;

@@ -3,7 +3,6 @@
 set -euo pipefail
 
 DOCKER_IMAGES=(
-    "surrealdb/surrealdb:v3.0.0"
     "alpine:latest"
 )
 
