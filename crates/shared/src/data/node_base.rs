@@ -153,8 +153,7 @@ pub(super) fn app_container(model: NodeModel) -> NodeConfig {
 
 /// A network operating system container, provisioned from a config volume: one vCPU. Every
 /// such model has its own memory, OS and interface layout, so they are arguments rather than
-/// defaults. Its machine, boot disk and CD-ROM values are the ones these models have always
-/// carried; a container does not use them.
+/// defaults. The machine, boot disk and CD-ROM are the defaults; a container does not use them.
 #[must_use]
 pub(super) fn network_os_container(
     model: NodeModel,
@@ -175,17 +174,9 @@ pub(super) fn network_os_container(
             count: 1,
             ..CpuSettings::default()
         },
-        machine: MachineSettings {
-            kind: MachineType::Q35,
-            bios: BiosTypes::SeaBios,
-        },
-        boot_disk: BootDiskSettings {
-            bus: DiskBuses::Sata,
-        },
-        cdrom: CdromSettings {
-            image: None,
-            bus: DiskBuses::Sata,
-        },
+        machine: MachineSettings::default(),
+        boot_disk: BootDiskSettings::default(),
+        cdrom: CdromSettings::default(),
         interfaces,
         ztp: ZtpSettings {
             method: Ztp::Volume,
@@ -198,7 +189,8 @@ pub(super) fn network_os_container(
 }
 
 /// A unikernel booted straight from its kernel: one vCPU, 512 MiB, no provisioning and no data
-/// interfaces.
+/// interfaces. The machine, boot disk and CD-ROM are the defaults; a unikernel uses only the
+/// machine type.
 #[must_use]
 pub(super) fn unikernel(model: NodeModel) -> NodeConfig {
     NodeConfig {

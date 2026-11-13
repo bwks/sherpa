@@ -792,6 +792,21 @@ impl NodeKind {
     pub fn to_vec() -> Vec<NodeKind> {
         NodeKind::iter().collect()
     }
+
+    /// Whether this kind's nodes run on the image's QEMU machine type, `machine.kind`: virtual
+    /// machines and unikernels. A container image carries the default, which nothing reads.
+    #[must_use]
+    pub fn uses_machine_type(&self) -> bool {
+        matches!(self, NodeKind::VirtualMachine | NodeKind::Unikernel)
+    }
+
+    /// Whether this kind's nodes use the image's firmware, boot disk bus and CD-ROM:
+    /// `machine.bios`, `boot_disk` and `cdrom`. Only virtual machines do; container and
+    /// unikernel images carry the defaults, which nothing reads.
+    #[must_use]
+    pub fn uses_firmware_and_disks(&self) -> bool {
+        matches!(self, NodeKind::VirtualMachine)
+    }
 }
 
 /// A node's place in its lifecycle. The allowed moves between states are in
@@ -904,7 +919,7 @@ impl Default for CpuSettings {
 }
 
 /// The machine a node image's guest runs on: the QEMU machine type and the firmware.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MachineSettings {
     /// The QEMU machine type.
@@ -913,7 +928,7 @@ pub struct MachineSettings {
 }
 
 /// The disk a node image boots from.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BootDiskSettings {
     /// The bus the boot disk attaches to.
@@ -921,7 +936,7 @@ pub struct BootDiskSettings {
 }
 
 /// The CD-ROM a node image boots with, if any, and the bus CD-ROMs attach to.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CdromSettings {
     /// The file name of a CD-ROM image shipped with the node image.
@@ -2774,5 +2789,34 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("unknown field `cpu_count`"), "{error}");
+    }
+
+    #[test]
+    fn only_virtual_machines_and_unikernels_use_the_machine_type() {
+        assert!(NodeKind::VirtualMachine.uses_machine_type());
+        assert!(NodeKind::Unikernel.uses_machine_type());
+        assert!(!NodeKind::Container.uses_machine_type());
+    }
+
+    #[test]
+    fn only_virtual_machines_use_the_firmware_and_disks() {
+        assert!(NodeKind::VirtualMachine.uses_firmware_and_disks());
+        assert!(!NodeKind::Unikernel.uses_firmware_and_disks());
+        assert!(!NodeKind::Container.uses_firmware_and_disks());
+    }
+
+    #[test]
+    fn models_carry_the_defaults_for_the_settings_their_kind_does_not_use() {
+        for model in NodeModel::to_vec() {
+            let config = NodeConfig::get_model(model);
+            if !config.kind.uses_machine_type() {
+                assert_eq!(config.machine.kind, MachineType::default(), "{model}");
+            }
+            if !config.kind.uses_firmware_and_disks() {
+                assert_eq!(config.machine.bios, BiosTypes::default(), "{model}");
+                assert_eq!(config.boot_disk, BootDiskSettings::default(), "{model}");
+                assert_eq!(config.cdrom, CdromSettings::default(), "{model}");
+            }
+        }
     }
 }

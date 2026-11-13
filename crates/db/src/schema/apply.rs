@@ -112,7 +112,10 @@ fn refuse_newer_version(version: usize) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use shared::data::{DiskBuses, LabPhase, NodeConfig, NodeKind, NodeModel, NodeState, Ztp};
+    use shared::data::{
+        BiosTypes, BootDiskSettings, CdromSettings, DiskBuses, LabPhase, MachineSettings,
+        MachineType, NodeConfig, NodeKind, NodeModel, NodeState, Ztp,
+    };
     use shared::validators::check_ztp;
     use turso::Value;
 
@@ -574,10 +577,18 @@ mod tests {
          VALUES ('l1', 'lab-0001', 'Old', 'u1', '127.127.1.0/24', '172.31.1.0/24',
              '172.31.1.1', '172.31.1.2', 'running');";
 
+    /// The number of migrations before the one that drops `lab.ssh_key`.
+    fn migrations_before_lab_key_drop() -> usize {
+        migrations::ALL
+            .iter()
+            .position(|batch| *batch == migrations::DROP_LAB_SSH_KEY)
+            .unwrap()
+    }
+
     /// A database at the version before `lab.ssh_key` was dropped, with `alice`'s lab
     /// `lab-0001`, named `Old`, recording `ssh_key`.
     async fn database_before_lab_keys_only(ssh_key: &str) -> Database {
-        let db = database_at(migrations::ALL.len() - 1).await;
+        let db = database_at(migrations_before_lab_key_drop()).await;
         {
             let writer = db.writer().await.unwrap();
             writer.conn.execute_batch(OLD_USER).await.unwrap();
@@ -637,7 +648,7 @@ mod tests {
         let error = format!("{:#}", apply_schema(&db).await.unwrap_err());
 
         assert!(error.contains("lab-0001 (Old, owned by alice)"), "{error}");
-        assert_eq!(version(&db).await, SCHEMA_VERSION - 1);
+        assert_eq!(version(&db).await, migrations_before_lab_key_drop() + 1);
         assert!(has_ssh_key_column(&db).await);
     }
 
@@ -662,7 +673,7 @@ mod tests {
         let error = format!("{:#}", check_schema_upgrade(&db).await.unwrap_err());
 
         assert!(error.contains("lab-0001 (Old, owned by alice)"), "{error}");
-        assert_eq!(version(&db).await, SCHEMA_VERSION - 1);
+        assert_eq!(version(&db).await, migrations_before_lab_key_drop() + 1);
         assert!(has_ssh_key_column(&db).await);
     }
 
@@ -674,7 +685,10 @@ mod tests {
 
         let own_keys = database_before_lab_keys_only("lab").await;
         check_schema_upgrade(&own_keys).await.unwrap();
-        assert_eq!(version(&own_keys).await, SCHEMA_VERSION - 1);
+        assert_eq!(
+            version(&own_keys).await,
+            migrations_before_lab_key_drop() + 1
+        );
 
         let current = open_in_memory().await.unwrap();
         apply_schema(&current).await.unwrap();
@@ -981,5 +995,64 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(old_columns, 0);
+    }
+
+    #[tokio::test]
+    async fn apply_schema_resets_the_settings_a_kind_does_not_use_and_keeps_the_rest() {
+        // A version 17 database. Every model is stored twice: as it ships, and edited to
+        // settings other than the defaults, as the web form or an older release could store.
+        let db = database_at(16).await;
+        let mut stored = Vec::new();
+        for model in NodeModel::to_vec() {
+            let shipped = NodeConfig::get_model(model);
+            let edited = NodeConfig {
+                version: "edited".to_owned(),
+                machine: MachineSettings {
+                    kind: MachineType::Q35,
+                    bios: BiosTypes::Uefi,
+                },
+                boot_disk: BootDiskSettings {
+                    bus: DiskBuses::Sata,
+                },
+                cdrom: CdromSettings {
+                    image: Some("extra.iso".to_owned()),
+                    bus: DiskBuses::Sata,
+                },
+                ..shipped.clone()
+            };
+            for (image, request) in [
+                (shipped, DefaultRequest::Make),
+                (edited, DefaultRequest::Keep),
+            ] {
+                stored.push(upsert_node_image(&db, image, request).await.unwrap());
+            }
+        }
+
+        apply_schema(&db).await.unwrap();
+
+        let read = list_node_images(&db).await.unwrap();
+        assert_eq!(read.len(), stored.len());
+        for before in stored {
+            let mut expected = before.clone();
+            if !expected.kind.uses_machine_type() {
+                expected.machine.kind = MachineType::default();
+            }
+            if !expected.kind.uses_firmware_and_disks() {
+                expected.machine.bios = BiosTypes::default();
+                expected.boot_disk = BootDiskSettings::default();
+                expected.cdrom = CdromSettings::default();
+            }
+            let after = read
+                .iter()
+                .find(|image| image.id == before.id)
+                .unwrap_or_else(|| panic!("{} {} is gone", before.model, before.version));
+            assert_eq!(
+                serde_json::to_value(after).unwrap(),
+                serde_json::to_value(&expected).unwrap(),
+                "{} {}",
+                before.model,
+                before.version
+            );
+        }
     }
 }

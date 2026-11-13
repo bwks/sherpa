@@ -73,12 +73,13 @@ fn skipped_model_cells(model: &SkippedModel) -> [String; 2] {
     [model.model.to_string(), model.reason.clone()]
 }
 
-/// Renders a two-column key-value table with all `NodeConfig` fields for an image. Each row
-/// is named by its key in the image JSON, as `group.field` for the grouped settings.
+/// Renders a two-column key-value table with the `NodeConfig` fields of an image. Each row
+/// is named by its key in the image JSON, as `group.field` for the grouped settings. The
+/// machine, firmware and disk settings its kind does not use are left out.
 #[must_use]
 pub fn render_image_detail_table(image: &NodeConfig) -> String {
     let optional = |value: Option<&str>| value.unwrap_or("none").to_owned();
-    let rows = [
+    let mut rows = vec![
         ["model".to_owned(), image.model.to_string()],
         ["kind".to_owned(), image.kind.to_string()],
         ["version".to_owned(), image.version.clone()],
@@ -93,14 +94,22 @@ pub fn render_image_detail_table(image: &NodeConfig) -> String {
         ],
         ["cpu.model".to_owned(), image.cpu.model.to_string()],
         ["cpu.vmx".to_owned(), image.cpu.vmx.to_string()],
-        ["machine.kind".to_owned(), image.machine.kind.to_string()],
-        ["machine.bios".to_owned(), image.machine.bios.to_string()],
-        ["boot_disk.bus".to_owned(), image.boot_disk.bus.to_string()],
-        [
-            "cdrom.image".to_owned(),
-            optional(image.cdrom.image.as_deref()),
-        ],
-        ["cdrom.bus".to_owned(), image.cdrom.bus.to_string()],
+    ];
+    if image.kind.uses_machine_type() {
+        rows.push(["machine.kind".to_owned(), image.machine.kind.to_string()]);
+    }
+    if image.kind.uses_firmware_and_disks() {
+        rows.extend([
+            ["machine.bios".to_owned(), image.machine.bios.to_string()],
+            ["boot_disk.bus".to_owned(), image.boot_disk.bus.to_string()],
+            [
+                "cdrom.image".to_owned(),
+                optional(image.cdrom.image.as_deref()),
+            ],
+            ["cdrom.bus".to_owned(), image.cdrom.bus.to_string()],
+        ]);
+    }
+    rows.extend([
         [
             "interfaces.data_count".to_owned(),
             image.interfaces.data_count.to_string(),
@@ -145,7 +154,7 @@ pub fn render_image_detail_table(image: &NodeConfig) -> String {
                 |unikernel| unikernel.boot_mode.to_string(),
             ),
         ],
-    ];
+    ]);
     render_table(
         IMAGE_DETAIL_HEADERS,
         &rows,
@@ -307,6 +316,40 @@ mod tests {
         assert!(table.contains("┌") || table.contains("│"));
 
         println!("\n{table}");
+    }
+
+    /// The rows of the machine type, and of the firmware and disks.
+    const MACHINE_TYPE_ROW: &str = "│ machine.kind ";
+    const FIRMWARE_AND_DISK_ROWS: [&str; 4] = [
+        "│ machine.bios ",
+        "│ boot_disk.bus ",
+        "│ cdrom.image ",
+        "│ cdrom.bus ",
+    ];
+
+    #[test]
+    fn image_detail_table_leaves_out_the_settings_a_container_does_not_use() {
+        for model in [NodeModel::NokiaSrlinux, NodeModel::MongoDb] {
+            let table = render_image_detail_table(&NodeConfig::get_model(model));
+            assert!(!table.contains(MACHINE_TYPE_ROW), "{model}\n{table}");
+            for row in FIRMWARE_AND_DISK_ROWS {
+                assert!(!table.contains(row), "{model} {row}\n{table}");
+            }
+            assert!(table.contains("│ cpu.count "), "{model}\n{table}");
+            assert!(
+                table.contains("│ interfaces.data_count "),
+                "{model}\n{table}"
+            );
+        }
+    }
+
+    #[test]
+    fn image_detail_table_shows_a_unikernel_its_machine_type_only() {
+        let table = render_image_detail_table(&NodeConfig::get_model(NodeModel::NanosUnikernel));
+        assert!(table.contains(MACHINE_TYPE_ROW), "{table}");
+        for row in FIRMWARE_AND_DISK_ROWS {
+            assert!(!table.contains(row), "{row}\n{table}");
+        }
     }
 
     #[test]
