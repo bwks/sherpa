@@ -328,6 +328,10 @@ update_binaries() {
                 fi
             fi
 
+            if [ "$binary" = "sherpad" ]; then
+                check_new_sherpad_can_use_database "${tmp_dir}/sherpad"
+            fi
+
             cp "${tmp_dir}/${binary}" "${SHERPA_BIN_DIR}/${binary}"
             chmod 755 "${SHERPA_BIN_DIR}/${binary}"
             chown sherpa:sherpa "${SHERPA_BIN_DIR}/${binary}"
@@ -374,6 +378,13 @@ has_legacy_database() {
     [ -e "${LEGACY_DB_DATA}" ] && return 0
     command -v docker >/dev/null 2>&1 || return 1
     docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "${LEGACY_DB_CONTAINER}"
+}
+
+# True when release $1 is newer than release $2, such as v0.6.1 and v0.6.0.
+version_newer_than() {
+    local candidate="${1#v}" reference="${2#v}"
+    [ "${candidate}" != "${reference}" ] &&
+        [ "$(printf '%s\n%s\n' "${candidate}" "${reference}" | sort -V | tail -n 1)" = "${candidate}" ]
 }
 
 # Refuse, before anything changes, to update a server whose data is still in SurrealDB. The
@@ -445,6 +456,49 @@ UNIT
     chmod 644 "${dropin_dir}/runtime-directory.conf"
     systemctl daemon-reload
     print_success "sherpad service uses /run/sherpa"
+}
+
+################################################################################
+# Server SSH Key
+################################################################################
+
+# The first release without the server's shared SSH key, which labs created before lab keys log
+# in to their nodes with.
+FIRST_RELEASE_WITHOUT_SERVER_KEY="v0.6.0"
+SERVER_SSH_KEY_DIR="${SHERPA_BASE_DIR}/ssh"
+
+# Refuse, before it is installed, a new sherpad that cannot use this server's database. From
+# ${FIRST_RELEASE_WITHOUT_SERVER_KEY} it refuses labs that still use the server's key, and names
+# them. The running release, stopped for the update, is started again unchanged.
+check_new_sherpad_can_use_database() {
+    local new_sherpad="$1"
+    if [ ! -f "${SHERPA_DB_FILE}" ] ||
+        version_newer_than "${FIRST_RELEASE_WITHOUT_SERVER_KEY}" "${SHERPA_VERSION}"; then
+        return 0
+    fi
+
+    print_info "Checking that ${SHERPA_VERSION} can use the database..."
+    # Run it as the service runs, so it creates no file sherpad cannot open. The download folder
+    # is root's alone, so open it to sherpa; it holds only the release archives.
+    chmod 755 "$(dirname "${new_sherpad}")"
+    if ! runuser -u sherpa -- "${new_sherpad}" check-database </dev/null; then
+        print_error "${SHERPA_VERSION} cannot use this server's database; nothing was installed."
+        print_error "Destroy the labs named above with the running release, then update again."
+        start_sherpad
+        exit 1
+    fi
+    print_success "${SHERPA_VERSION} can use the database"
+}
+
+# Delete the server's shared SSH key pair, which no release from
+# ${FIRST_RELEASE_WITHOUT_SERVER_KEY} uses, and its folder once empty.
+remove_server_ssh_key() {
+    if version_newer_than "${FIRST_RELEASE_WITHOUT_SERVER_KEY}" "${SHERPA_VERSION}"; then
+        return 0
+    fi
+    rm -f "${SERVER_SSH_KEY_DIR}"/sherpa_ssh_key*
+    rmdir "${SERVER_SSH_KEY_DIR}" 2>/dev/null || true
+    print_success "Removed the server's shared SSH key"
 }
 
 ################################################################################
@@ -553,6 +607,7 @@ main() {
     secure_database_storage
     ensure_runtime_directory
     start_sherpad
+    remove_server_ssh_key
     verify_update
 
     print_success "Sherpa update complete!"

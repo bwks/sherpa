@@ -193,18 +193,6 @@ pub struct LabReservedNetwork {
     pub bridge_name: String,
 }
 
-/// The key pair the `sherpa` account on a lab's nodes logs in with, on nodes that cannot take
-/// their owner's own key.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum LabSshKey {
-    /// The server's key pair, the same for every lab. Labs created before lab keys keep it.
-    #[default]
-    Server,
-    /// The lab's own key pair, made by `up` in the lab folder.
-    Lab,
-}
-
 /// Lab status enumeration for displaying current state.
 ///
 /// Derived from the aggregate state of all nodes in the lab.

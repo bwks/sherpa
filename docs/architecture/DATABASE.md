@@ -192,15 +192,37 @@ table, copy the rows, drop the old one, rename.
 | 8 | `0008_static_triggers.sql`: drops the enum rule triggers, which earlier releases rebuilt from the Rust enums on every start, and creates the admin protection triggers as fixed text |
 | 9 | `0009_drop_dedicated_management_interface.sql`: drops `node_image.dedicated_management_interface`. Index 0 of every model's interface table is its management interface, so the flag changed nothing |
 | 10 | `0010_lab_description.sql`: `lab.description`, the manifest's optional `description` (see below) |
-| 11 | `0011_lab_ssh_key.sql`: `lab.ssh_key`, the key pair the `sherpa` account on the lab's nodes logs in with: `lab` for the lab's own, `server` (the default, for every lab created before) for the server's shared key. See [`SERVER.md`](SERVER.md#lab-ssh-keys) |
+| 11 | `0011_lab_ssh_key.sql`: `lab.ssh_key`, the key pair the `sherpa` account on the lab's nodes logs in with: `lab` for the lab's own, `server` (the default, for every lab created before) for the server's shared key. Dropped by version 17 |
 | 12 | `0012_session.sql`: the `session` table, one row per login session, with indexes on `user` and `expires_at`. Tokens issued before it name no session, so every user logs in again after the upgrade. See [`SERVER.md`](SERVER.md#sessions-and-identity) |
 | 13 | `0013_node_lifecycle.sql`: nodes left `created` by the scanner become `stopped`. See [`STATE_MACHINES.md`](STATE_MACHINES.md) |
 | 14 | `0014_promote_missing_default_image.sql`: a model with images and no default, left by an earlier release, gets its most recently added image as the default. Writes keep it that way; see [`STATE_MACHINES.md`](STATE_MACHINES.md#28-node-images) |
 | 15 | `0015_lab_phase.sql`: `lab.phase`, which operation owns the lab's record (`ready` for every lab created before), and drops `lab.status`: a lab's status is derived from its nodes when it is read. See [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate) |
 | 16 | `0016_ztp_setting.sql`: `node_image.ztp`, the image's one ZTP setting (`disabled` or a method), filled from the `ztp_enable` and `ztp_method` columns, which are dropped. See [`ZTP.md`](ZTP.md#storage-and-migration). |
+| 17 | `0017_drop_lab_ssh_key.sql`: drops `lab.ssh_key`. Every lab has its own key and the server's shared key is gone (0.6.0). Refused while a lab is still `server`; see [Labs on the server's SSH key](#labs-on-the-servers-ssh-key) |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
+
+### Labs on the server's SSH key
+
+Labs created before lab keys log in to their nodes with the server's shared key
+(`lab.ssh_key = 'server'`, version 11). 0.6.0 removes that key, and with it version 17 drops the
+column, so such a lab would lose SSH access to its nodes. The schema does not move past
+version 16 while one exists:
+
+- **`apply_schema`**, before it runs `DROP_LAB_SSH_KEY`, reads the labs on the server's key with
+  their owners (`schema::server_key`) and fails, naming each one (`lab_id (name, owned by user)`)
+  and saying to destroy them with the release the server ran before. The whole run is one
+  transaction, so the database keeps the version it had. sherpad's startup applies the schema
+  first, so it does not start; `sherpad init` fails the same way.
+- **`check_schema_upgrade`** makes the same refusals as `apply_schema` (a newer version, labs on
+  the server's key) without writing. `sherpad check-database` runs it on the server's database,
+  and `scripts/sherpa_update.sh` runs the new release's `check-database`, as `sherpa`, before
+  installing it: a refusal leaves the running release installed and starts it again, so the
+  labs can be destroyed with it.
+- The two statements read a column the current schema no longer has, so they are `Query::new`
+  constants in `server_key.rs`, not query files the build checks. Once the column is gone there
+  is nothing to read, and the check passes.
 
 ### What the user said about a lab
 

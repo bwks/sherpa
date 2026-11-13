@@ -271,13 +271,12 @@ pub(crate) fn lab_from_row(row: &Row) -> Result<DbLab> {
         client_host: cells.optional_text("client_host")?,
         client_folder: cells.optional_text("client_folder")?,
         description: cells.optional_text("description")?,
-        ssh_key: cells.enumeration("ssh_key")?,
         phase: cells.enumeration("phase")?,
     })
 }
 
 /// A lab's column values in the `lab` table's column order, under `key`.
-pub(crate) fn lab_values(lab: &DbLab, key: &str) -> Result<[Value; 18]> {
+pub(crate) fn lab_values(lab: &DbLab, key: &str) -> Result<[Value; 17]> {
     Ok([
         key.into(),
         lab.lab_id.as_str().into(),
@@ -295,7 +294,6 @@ pub(crate) fn lab_values(lab: &DbLab, key: &str) -> Result<[Value; 18]> {
         lab.client_host.as_deref().into(),
         lab.client_folder.as_deref().into(),
         lab.description.as_deref().into(),
-        enum_text(&lab.ssh_key, "ssh_key")?.into(),
         enum_text(&lab.phase, "phase")?.into(),
     ])
 }

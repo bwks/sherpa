@@ -743,28 +743,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::konst::{LAB_SSH_PRIVATE_KEY_MODE, SHERPA_SSH_PRIVATE_KEY_MODE};
-
-    #[cfg(unix)]
-    #[test]
-    fn the_server_private_key_is_readable_by_its_owner_only() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let key = dir.path().join("lab_key");
-        std::fs::write(&key, "old").unwrap();
-        std::fs::set_permissions(&key, Permissions::from_mode(0o644)).unwrap();
-
-        generate_ssh_keypair(
-            dir.path().to_str().unwrap(),
-            "lab_key",
-            &Algorithm::Ed25519,
-            SHERPA_SSH_PRIVATE_KEY_MODE,
-        )
-        .unwrap();
-
-        let mode = std::fs::metadata(&key).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600);
-        assert!(PrivateKey::from_openssh(std::fs::read_to_string(&key).unwrap()).is_ok());
-    }
+    use crate::konst::LAB_SSH_PRIVATE_KEY_MODE;
 
     #[cfg(unix)]
     #[test]

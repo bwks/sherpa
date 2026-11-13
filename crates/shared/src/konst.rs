@@ -25,7 +25,6 @@ pub const UNIKERNEL_DISK_FILENAME: &str = "disk.qcow2";
 // Full directory paths
 // ============================================================================
 pub const SHERPA_CONFIG_PATH: &str = "/opt/sherpa/config";
-pub const SHERPA_SSH_PATH: &str = "/opt/sherpa/ssh";
 pub const SHERPA_IMAGES_PATH: &str = "/opt/sherpa/images";
 pub const SHERPA_CONTAINERS_PATH: &str = "/opt/sherpa/containers";
 pub const SHERPA_BINS_PATH: &str = "/opt/sherpa/bins";
@@ -38,8 +37,6 @@ pub const SHERPA_LOG_PATH: &str = "/opt/sherpa/logs";
 // Full file paths
 // ============================================================================
 pub const SHERPA_CONFIG_FILE_PATH: &str = "/opt/sherpa/config/sherpa.toml";
-pub const SHERPA_SSH_PUBLIC_KEY_PATH: &str = "/opt/sherpa/ssh/sherpa_ssh_key.pub";
-pub const SHERPA_SSH_PRIVATE_KEY_PATH: &str = "/opt/sherpa/ssh/sherpa_ssh_key";
 pub const SHERPAD_PID_FILE_PATH: &str = "/opt/sherpa/run/sherpad.pid";
 pub const SHERPAD_LOG_FILE_PATH: &str = "/opt/sherpa/logs/sherpad.log";
 pub const SHERPA_SERVER_CERT_PATH: &str = "/opt/sherpa/.certs/server.crt";
@@ -162,11 +159,8 @@ pub const SHERPA_PASSWORD_HASH: &str = "$6$rounds=4096$amTfvavVzUSS6wQS$4jB1NvmL
 pub const SHERPA_PASSWORD_HASH_SHA256: &str =
     "$5$mhhcowfq$qKK.CiKWZxuOfadgSyOawx6srN3knX4jRgfa8hZxcB0";
 pub const SHERPA_SSH_PRIVATE_KEY_FILE: &str = "sherpa_ssh_key";
-/// The public half of `SHERPA_SSH_PRIVATE_KEY_FILE`, in the server's SSH folder or a lab folder.
+/// The public half of `SHERPA_SSH_PRIVATE_KEY_FILE`, in a lab folder.
 pub const SHERPA_SSH_PUBLIC_KEY_FILE: &str = "sherpa_ssh_key.pub";
-/// Mode of the server's private key: only sherpad reads it. It is set on every start, as older
-/// releases let the `sherpa` group read it.
-pub const SHERPA_SSH_PRIVATE_KEY_MODE: u32 = 0o600;
 /// Mode of a lab's private key: only sherpad reads it.
 pub const LAB_SSH_PRIVATE_KEY_MODE: u32 = 0o600;
 pub const SHERPA_SSH_CONFIG_FILE: &str = "sherpa_ssh_config";
