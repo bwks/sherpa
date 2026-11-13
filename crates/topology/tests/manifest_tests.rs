@@ -1,4 +1,7 @@
-use shared::data::NodeModel;
+use shared::data::{
+    CpuMode, CpuTopology, DiskCache, DiskImageCloneMethod, DiskIo, NodeModel, NumaMemoryMode,
+    PtxPlatform, WatchdogAction, Ztp,
+};
 use topology::{Bridge, Link2, Manifest, Node};
 
 // ============================================================================
@@ -19,29 +22,70 @@ ready_timeout = 600
 
 [[nodes]]
 name = "router1"
-model = "cisco_iosv"
-version = "15.9"
-cpu_count = 2
+model = "ubuntu_linux"
+version = "24.04"
 memory = 2048
-data_interface_count = 4
-boot_disk_size = 16
-skip_ready_check = true
-ztp_config = "configs/router1.cfg"
-commands = ["show version", "show ip route"]
 environment_variables = ["TERM=xterm", "LANG=en_US.UTF-8"]
 startup_scripts = ["scripts/init.sh"]
 
+[nodes.cpu]
+count = 2
+mode = "host-passthrough"
+topology = { sockets = 1, cores = 2, threads = 1 }
+pinning = [2, 3]
+emulator_pinning = [1]
+
+[nodes.numa]
+node = 0
+memory_mode = "preferred"
+
+[nodes.boot_disk]
+size = 16
+clone_method = "copy"
+cache = "none"
+io = "native"
+io_thread_cpus = [1]
+
+[nodes.interfaces]
+data_count = 4
+queues = 2
+
+[nodes.ztp]
+method = "cloud-init"
+config = "configs/router1.cfg"
+
+[nodes.ssh]
+authorized_keys = ["ssh-rsa AAAA... user@host"]
+authorized_key_files = [{ source = "keys/admin.pub" }]
+
+[nodes.ready_check]
+port = 2222
+skip = true
+
+[nodes.vm]
+watchdog = "reset"
+
 [[nodes]]
 name = "server1"
-model = "ubuntu_linux"
+model = "juniper_cevolved"
+
+[nodes.container]
+user = "root"
 privileged = true
 shm_size = 67108864
-user = "root"
+commands = ["show version", "show ip route"]
 volumes = [
   { src = "/data", dst = "/mnt/data" },
   { src = "/logs", dst = "/var/log/app" },
 ]
-ssh_authorized_keys = ["ssh-rsa AAAA... user@host"]
+platform = "bx"
+
+[[nodes]]
+name = "uk1"
+model = "nanos_unikernel"
+
+[nodes.unikernel]
+cmdline = "console=ttyS0"
 
 [[links]]
 src = "router1::eth1"
@@ -104,7 +148,9 @@ name = "vol-lab"
 
 [[nodes]]
 name = "app1"
-model = "ubuntu_linux"
+model = "generic_container"
+
+[nodes.container]
 volumes = [
   { src = "/host/data", dst = "/container/data" },
   { src = "/host/config", dst = "/etc/app" },
@@ -136,24 +182,47 @@ fn test_parse_full_manifest() {
     assert_eq!(manifest.name, "full-lab");
     assert_eq!(manifest.ready_timeout, Some(600));
 
-    // Node 1 — router with all optional fields
+    // Node 1 — a VM with every shared group and the vm group
     let r1 = &manifest.nodes[0];
     assert_eq!(r1.name, "router1");
-    assert_eq!(r1.model, NodeModel::CiscoIosv);
-    assert_eq!(r1.version, Some("15.9".to_string()));
-    assert_eq!(r1.cpu_count, Some(2));
+    assert_eq!(r1.model, NodeModel::UbuntuLinux);
+    assert_eq!(r1.version, Some("24.04".to_string()));
     assert_eq!(r1.memory, Some(2048));
-    assert_eq!(r1.boot_disk_size, Some(16));
-    assert_eq!(r1.data_interface_count, Some(4));
-    assert_eq!(r1.skip_ready_check, Some(true));
-    assert_eq!(r1.ztp_config, Some("configs/router1.cfg".to_string()));
+    assert_eq!(r1.cpu.count, Some(2));
+    assert_eq!(r1.cpu.mode, Some(CpuMode::HostPassthrough));
     assert_eq!(
-        r1.commands,
-        Some(vec![
-            "show version".to_string(),
-            "show ip route".to_string()
-        ])
+        r1.cpu.topology,
+        Some(CpuTopology {
+            sockets: 1,
+            cores: 2,
+            threads: 1
+        })
     );
+    assert_eq!(r1.cpu.pinning, Some(vec![2, 3]));
+    assert_eq!(r1.cpu.emulator_pinning, Some(vec![1]));
+    assert_eq!(r1.numa.node, Some(0));
+    assert_eq!(r1.numa.memory_mode, Some(NumaMemoryMode::Preferred));
+    assert_eq!(r1.boot_disk.size, Some(16));
+    assert_eq!(r1.boot_disk.clone_method, Some(DiskImageCloneMethod::Copy));
+    assert_eq!(r1.boot_disk.cache, Some(DiskCache::None));
+    assert_eq!(r1.boot_disk.io, Some(DiskIo::Native));
+    assert_eq!(r1.boot_disk.io_thread_cpus, Some(vec![1]));
+    assert_eq!(r1.interfaces.data_count, Some(4));
+    assert_eq!(r1.interfaces.queues, Some(2));
+    assert_eq!(r1.ztp.method, Some(Ztp::CloudInit));
+    assert_eq!(r1.ztp.config, Some("configs/router1.cfg".to_string()));
+    let keys = r1.ssh.authorized_keys.as_ref().expect("has keys");
+    assert_eq!(keys[0], "ssh-rsa AAAA... user@host");
+    let key_files = r1.ssh.authorized_key_files.as_ref().expect("has key files");
+    assert_eq!(key_files[0].source, "keys/admin.pub");
+    assert_eq!(r1.ready_check.port, Some(2222));
+    assert_eq!(r1.ready_check.skip, Some(true));
+    assert_eq!(
+        r1.vm.as_ref().and_then(|vm| vm.watchdog),
+        Some(WatchdogAction::Reset)
+    );
+    assert!(r1.container.is_none());
+    assert!(r1.unikernel.is_none());
     assert_eq!(
         r1.environment_variables,
         Some(vec![
@@ -166,21 +235,37 @@ fn test_parse_full_manifest() {
         Some(vec!["scripts/init.sh".to_string()])
     );
 
-    // Node 2 — container-style with volumes, privileged, user
+    // Node 2 — a container with the container group
     let s1 = &manifest.nodes[1];
     assert_eq!(s1.name, "server1");
-    assert_eq!(s1.model, NodeModel::UbuntuLinux);
-    assert_eq!(s1.privileged, Some(true));
-    assert_eq!(s1.shm_size, Some(67_108_864));
-    assert_eq!(s1.user, Some("root".to_string()));
-    let vols = s1.volumes.as_ref().expect("has volumes");
+    assert_eq!(s1.model, NodeModel::JuniperCevolved);
+    let container = s1.container.as_ref().expect("has a container group");
+    assert_eq!(container.privileged, Some(true));
+    assert_eq!(container.shm_size, Some(67_108_864));
+    assert_eq!(container.user, Some("root".to_string()));
+    assert_eq!(
+        container.commands,
+        Some(vec![
+            "show version".to_string(),
+            "show ip route".to_string()
+        ])
+    );
+    assert_eq!(container.platform, Some(PtxPlatform::Bx));
+    let vols = container.volumes.as_ref().expect("has volumes");
     assert_eq!(vols.len(), 2);
     assert_eq!(vols[0].src, "/data");
     assert_eq!(vols[0].dst, "/mnt/data");
     assert_eq!(vols[1].src, "/logs");
     assert_eq!(vols[1].dst, "/var/log/app");
-    let keys = s1.ssh_authorized_keys.as_ref().expect("has keys");
-    assert_eq!(keys[0], "ssh-rsa AAAA... user@host");
+
+    // Node 3 — a unikernel with the unikernel group
+    let u1 = &manifest.nodes[2];
+    assert_eq!(
+        u1.unikernel
+            .as_ref()
+            .and_then(|unikernel| unikernel.cmdline.clone()),
+        Some("console=ttyS0".to_string())
+    );
 
     // Links
     let links = manifest.links.as_ref().expect("has links");
@@ -208,7 +293,11 @@ fn test_parse_full_manifest() {
 #[test]
 fn test_parse_volumes() {
     let manifest: Manifest = toml::from_str(MANIFEST_WITH_VOLUMES).expect("parses");
-    let vols = manifest.nodes[0].volumes.as_ref().expect("has volumes");
+    let vols = manifest.nodes[0]
+        .container
+        .as_ref()
+        .and_then(|container| container.volumes.as_ref())
+        .expect("has volumes");
     assert_eq!(vols.len(), 2);
     assert_eq!(vols[0].src, "/host/data");
     assert_eq!(vols[0].dst, "/container/data");
@@ -482,16 +571,16 @@ fn test_node_defaults() {
         ..Default::default()
     };
     assert!(node.version.is_none());
-    assert!(node.cpu_count.is_none());
+    assert!(node.cpu.count.is_none());
     assert!(node.memory.is_none());
-    assert!(node.boot_disk_size.is_none());
-    assert!(node.data_interface_count.is_none());
-    assert!(node.volumes.is_none());
-    assert!(node.commands.is_none());
+    assert!(node.boot_disk.size.is_none());
+    assert!(node.interfaces.data_count.is_none());
+    assert!(node.container.is_none());
+    assert!(node.vm.is_none());
+    assert!(node.unikernel.is_none());
     assert!(node.environment_variables.is_none());
-    assert!(node.privileged.is_none());
-    assert!(node.skip_ready_check.is_none());
-    assert!(node.ztp_config.is_none());
+    assert!(node.ready_check.skip.is_none());
+    assert!(node.ztp.config.is_none());
     assert!(node.startup_scripts.is_none());
     assert!(node.text_files.is_none());
 }
@@ -530,4 +619,61 @@ fn test_parse_text_files_rejects_unknown_fields() {
 fn test_config_management_section_rejected() {
     let toml = format!("{MINIMAL_MANIFEST}\n[config_management]\nansible = true\n");
     assert!(toml::from_str::<Manifest>(&toml).is_err());
+}
+
+// ============================================================================
+// Tests — keys of earlier manifests are refused
+// ============================================================================
+
+/// Each flat key of earlier manifests, and a group key under its old name, with a value of
+/// its type. Each is refused with serde's unknown-field error naming it.
+#[test]
+fn test_old_flat_keys_are_refused() {
+    for (key, value) in [
+        ("cpu_count", "2"),
+        ("boot_disk_size", "20"),
+        ("boot_disk_clone_method", "'copy'"),
+        ("data_interface_count", "2"),
+        ("ssh_authorized_keys", "['ssh-ed25519 AAAA']"),
+        ("ssh_authorized_key_files", "[{ source = 'a.pub' }]"),
+        ("commands", "['ls']"),
+        ("volumes", "[{ src = '/a', dst = '/b' }]"),
+        ("privileged", "true"),
+        ("shm_size", "1024"),
+        ("user", "'root'"),
+        ("skip_ready_check", "true"),
+        ("ready_port", "22"),
+        ("ztp_config", "'a.cfg'"),
+        ("kernel_cmdline", "'console=ttyS0'"),
+        ("watchdog", "'reset'"),
+        ("platform", "'bt'"),
+        ("performance_tuning", "{ cpu_mode = 'host-model' }"),
+    ] {
+        let manifest = format!(
+            "name = 'lab'\n[[nodes]]\nname = 'dev01'\nmodel = 'ubuntu_linux'\n{key} = {value}\n"
+        );
+        let error = toml::from_str::<Manifest>(&manifest)
+            .expect_err("an old key is refused")
+            .to_string();
+        assert!(
+            error.contains(&format!("unknown field `{key}`")),
+            "{key}: {error}"
+        );
+    }
+}
+
+#[test]
+fn test_old_keys_inside_a_group_are_refused() {
+    let manifest = "name = 'lab'\n[[nodes]]\nname = 'dev01'\nmodel = 'ubuntu_linux'\n[nodes.cpu]\ncpu_pinning = [1]\n";
+    let error = toml::from_str::<Manifest>(manifest)
+        .expect_err("an old key in a group is refused")
+        .to_string();
+    assert!(error.contains("unknown field `cpu_pinning`"), "{error}");
+}
+
+#[test]
+fn test_ztp_as_a_bare_word_is_refused() {
+    let manifest =
+        "name = 'lab'\n[[nodes]]\nname = 'dev01'\nmodel = 'ubuntu_linux'\nztp = 'cloud-init'\n";
+    assert!(toml::from_str::<Manifest>(manifest).is_err());
 }

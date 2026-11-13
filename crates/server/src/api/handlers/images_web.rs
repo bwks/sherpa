@@ -28,9 +28,9 @@ use crate::api::extractors::AdminUser;
 
 use crate::validate::validate_node_image_update;
 use shared::data::{
-    BiosTypes, ComputeSettings, CpuArchitecture, CpuModels, DiskBuses, DiskSettings, ImportRequest,
-    InterfaceSettings, InterfaceType, MachineType, NodeConfig, NodeModel, OsVariant, Ztp,
-    ZtpSettings,
+    BiosTypes, BootDiskSettings, CdromSettings, CpuArchitecture, CpuModels, CpuSettings, DiskBuses,
+    ImportRequest, InterfaceSettings, InterfaceType, MachineSettings, MachineType, NodeConfig,
+    NodeModel, OsVariant, Ztp, ZtpSettings,
 };
 
 /// Helper struct for extracting image path parameters with optional version
@@ -76,8 +76,8 @@ pub async fn admin_images_list_handler(
             model: model_key.clone(),
             kind_badge: KindBadge::short(config.kind),
             version: config.version,
-            cpu_count: config.compute.cpu_count,
-            memory: config.compute.memory,
+            cpu_count: config.cpu.count,
+            memory: config.memory,
             data_interface_count: config.interfaces.data_count,
             default: config.default,
         };
@@ -240,23 +240,27 @@ fn updated_image_config(
         version: config.version, // Keep original (names the image's files)
         repo: form.repo.filter(|s| !s.trim().is_empty()),
         os_variant: choices.os_variant,
-        compute: ComputeSettings {
-            bios: choices.bios,
-            cpu_count: form.cpu_count,
-            cpu_architecture: choices.cpu_architecture,
-            cpu_model: choices.cpu_model,
-            machine_type: choices.machine_type,
-            vmx_enabled: form.vmx_enabled.is_some(),
-            memory: form.memory,
-            boot_mode: config.compute.boot_mode, // Keep original
+        default: config.default, // Decided by the default rule in `db`
+        memory: form.memory,
+        cpu: CpuSettings {
+            count: form.cpu_count,
+            architecture: choices.cpu_architecture,
+            model: choices.cpu_model,
+            vmx: form.vmx_enabled.is_some(),
         },
-        disks: DiskSettings {
-            hdd_bus: choices.hdd_bus,
-            cdrom: form.cdrom.filter(|s| !s.trim().is_empty()),
-            cdrom_bus: choices.cdrom_bus,
+        machine: MachineSettings {
+            kind: choices.machine_type,
+            bios: choices.bios,
+        },
+        boot_disk: BootDiskSettings {
+            bus: choices.hdd_bus,
+        },
+        cdrom: CdromSettings {
+            image: form.cdrom.filter(|s| !s.trim().is_empty()),
+            bus: choices.cdrom_bus,
         },
         ztp: ZtpSettings {
-            mode: form.ztp,
+            method: form.ztp,
             username: form.ztp_username.filter(|s| !s.trim().is_empty()),
             password: form.ztp_password.filter(|s| !s.trim().is_empty()),
             password_auth: form.ztp_password_auth.is_some(),
@@ -270,7 +274,7 @@ fn updated_image_config(
             management: config.interfaces.management, // Keep original (read-only)
             reserved_count: form.reserved_interface_count,
         },
-        default: config.default, // Decided by the default rule in `db`
+        unikernel: config.unikernel, // Keep original
     }
 }
 
@@ -324,13 +328,13 @@ fn image_edit_template(username: String, config: NodeConfig) -> AdminImageEditTe
         nav: NavPage::AdminImages.into(),
         kind_label: kind_label(&config.kind),
         os_variant_choices: form_choices::<OsVariant>(&config.os_variant),
-        bios_choices: form_choices::<BiosTypes>(&config.compute.bios),
-        cpu_architecture_choices: form_choices::<CpuArchitecture>(&config.compute.cpu_architecture),
-        cpu_model_choices: form_choices::<CpuModels>(&config.compute.cpu_model),
-        machine_type_choices: form_choices::<MachineType>(&config.compute.machine_type),
-        hdd_bus_choices: form_choices::<DiskBuses>(&config.disks.hdd_bus),
-        cdrom_bus_choices: form_choices::<DiskBuses>(&config.disks.cdrom_bus),
-        ztp_choices: ztp_choices(config.model, config.ztp.mode),
+        bios_choices: form_choices::<BiosTypes>(&config.machine.bios),
+        cpu_architecture_choices: form_choices::<CpuArchitecture>(&config.cpu.architecture),
+        cpu_model_choices: form_choices::<CpuModels>(&config.cpu.model),
+        machine_type_choices: form_choices::<MachineType>(&config.machine.kind),
+        hdd_bus_choices: form_choices::<DiskBuses>(&config.boot_disk.bus),
+        cdrom_bus_choices: form_choices::<DiskBuses>(&config.cdrom.bus),
+        ztp_choices: ztp_choices(config.model, config.ztp.method),
         interface_type_choices: form_choices::<InterfaceType>(&config.interfaces.kind),
         config,
     }
@@ -837,17 +841,17 @@ mod tests {
             version: version.to_owned(),
             repo: None,
             os_variant: choice(&config.os_variant),
-            bios: choice(&config.compute.bios),
-            cpu_count: config.compute.cpu_count,
-            cpu_architecture: choice(&config.compute.cpu_architecture),
-            cpu_model: choice(&config.compute.cpu_model),
-            machine_type: choice(&config.compute.machine_type),
+            bios: choice(&config.machine.bios),
+            cpu_count: config.cpu.count,
+            cpu_architecture: choice(&config.cpu.architecture),
+            cpu_model: choice(&config.cpu.model),
+            machine_type: choice(&config.machine.kind),
             vmx_enabled: None,
-            memory: config.compute.memory,
-            hdd_bus: choice(&config.disks.hdd_bus),
+            memory: config.memory,
+            hdd_bus: choice(&config.boot_disk.bus),
             cdrom: None,
-            cdrom_bus: choice(&config.disks.cdrom_bus),
-            ztp: config.ztp.mode,
+            cdrom_bus: choice(&config.cdrom.bus),
+            ztp: config.ztp.method,
             ztp_username: None,
             ztp_password: None,
             ztp_password_auth: None,
@@ -928,19 +932,23 @@ mod tests {
         let ubuntu = NodeConfig::get_model(NodeModel::UbuntuLinux);
         let config = NodeConfig {
             os_variant: OsVariant::iter().next_back().expect("an OS variant"),
-            compute: ComputeSettings {
-                bios: BiosTypes::iter().next_back().expect("a BIOS"),
-                cpu_architecture: CpuArchitecture::iter()
+            cpu: CpuSettings {
+                architecture: CpuArchitecture::iter()
                     .next_back()
                     .expect("an architecture"),
-                cpu_model: CpuModels::iter().next_back().expect("a CPU model"),
-                machine_type: MachineType::iter().next_back().expect("a machine type"),
-                ..ubuntu.compute
+                model: CpuModels::iter().next_back().expect("a CPU model"),
+                ..ubuntu.cpu
             },
-            disks: DiskSettings {
-                hdd_bus: DiskBuses::iter().next_back().expect("a bus"),
-                cdrom_bus: DiskBuses::iter().next().expect("a bus"),
-                ..ubuntu.disks
+            machine: MachineSettings {
+                kind: MachineType::iter().next_back().expect("a machine type"),
+                bios: BiosTypes::iter().next_back().expect("a BIOS"),
+            },
+            boot_disk: BootDiskSettings {
+                bus: DiskBuses::iter().next_back().expect("a bus"),
+            },
+            cdrom: CdromSettings {
+                bus: DiskBuses::iter().next().expect("a bus"),
+                ..ubuntu.cdrom
             },
             interfaces: InterfaceSettings {
                 kind: InterfaceType::iter()
@@ -955,16 +963,13 @@ mod tests {
             .expect("template should render");
         for (name, value) in [
             ("os_variant", config.os_variant.to_string()),
-            ("bios", config.compute.bios.to_string()),
-            (
-                "cpu_architecture",
-                config.compute.cpu_architecture.to_string(),
-            ),
-            ("cpu_model", config.compute.cpu_model.to_string()),
-            ("machine_type", config.compute.machine_type.to_string()),
-            ("hdd_bus", config.disks.hdd_bus.to_string()),
-            ("cdrom_bus", config.disks.cdrom_bus.to_string()),
-            ("ztp", config.ztp.mode.to_string()),
+            ("bios", config.machine.bios.to_string()),
+            ("cpu_architecture", config.cpu.architecture.to_string()),
+            ("cpu_model", config.cpu.model.to_string()),
+            ("machine_type", config.machine.kind.to_string()),
+            ("hdd_bus", config.boot_disk.bus.to_string()),
+            ("cdrom_bus", config.cdrom.bus.to_string()),
+            ("ztp", config.ztp.method.to_string()),
             ("interface_type", config.interfaces.kind.to_string()),
         ] {
             assert_eq!(selected_option(&html, name), value, "{name}");
@@ -1049,6 +1054,6 @@ mod tests {
 
         let updated = updated_image_config(config, form, choices);
 
-        assert_eq!(updated.ztp.mode, Ztp::Tftp);
+        assert_eq!(updated.ztp.method, Ztp::Tftp);
     }
 }

@@ -20,6 +20,7 @@ Do not document user-facing behaviour here; document it there.
 | [`SERVER.md`](SERVER.md) | Server startup, daemon manager, routing, auth, services, TLS, scanner, destroy flow, source map. |
 | [`API.md`](API.md) | API transports (REST, WebSocket RPC, CLI), generated spec and OpenAPI, auth levels, streaming, error format. |
 | [`P2P-ARCHITECTURE.md`](P2P-ARCHITECTURE.md) | Point-to-point link implementation: eBPF redirect, veth/tap plumbing, netem coexistence. |
+| [`NODE_SETTINGS.md`](NODE_SETTINGS.md) | A node's settings groups in the image definition (`NodeConfig`) and the manifest node (`topology::Node`): the groups, where their types live, unknown keys refused, which kinds take which settings and the validators. |
 | [`OTEL.md`](OTEL.md) | OpenTelemetry tracing and metrics instrumentation and exported metric names. |
 | [`TALOS.md`](TALOS.md) | Talos Linux nodes and Kubernetes clusters: NoCloud delivery, cluster plan, secrets, machine configs, Cilium, Keycloak login and Vault secrets, bootstrap, lifecycle. |
 | [`ZTP.md`](ZTP.md) | Zero touch provisioning: the one `Ztp` setting, the methods each model takes, the validator and its callers, the manifest override, the readers, container start settings against ZTP, and migration 0016. |

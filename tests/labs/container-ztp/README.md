@@ -2,7 +2,7 @@
 
 Tests the ZTP setting on container nodes end to end through the `sherpa` CLI. Each model whose
 config Sherpa mounts runs twice: with its image's setting (`volume`), and with
-`ztp = "disabled"` in the manifest.
+`ztp.method = "disabled"` in the manifest.
 
 | Node | Model | ZTP |
 |---|---|---|
@@ -40,7 +40,7 @@ Each run logs every command and its output under
 
 ## What it checks
 
-- `sherpa validate` refuses `ztp = "cdrom"` on a container, naming the node and the settings its
+- `sherpa validate` refuses `ztp.method = "cdrom"` on a container, naming the node and the settings its
   model takes, and accepts the lab's manifest;
 - a node with ZTP on has every config mount of its model and takes an SSH login as `sherpa`
   through the lab's SSH config;

@@ -7,25 +7,31 @@ ready_timeout = 600
 name = "dev"
 model = "ubuntu_linux"
 version = "24.04-20260926"
-cpu_count = 12
 memory = 32768
-boot_disk_size = 300
-boot_disk_clone_method = "copy"
 
 # NUMA node 1: vCPUs on sibling pairs 10/26 to 15/31, QEMU and disk I/O on 9/25; the host keeps
 # 8/24. Memory prefers node 1 and falls back to node 0 when node 1 is full, instead of the host
 # OOM killer ending the VM.
-[nodes.performance_tuning]
-cpu_mode = "host-passthrough"
-cpu_topology = { sockets = 1, cores = 6, threads = 2 }
-cpu_pinning = [10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31]
-qemu_cpus = [9, 25]
-numa_node = 1
-numa_memory_mode = "preferred"
-disk_cache = "none"
-disk_io = "native"
-disk_io_thread_cpus = [9, 25]
-interface_queues = 4
+[nodes.cpu]
+count = 12
+mode = "host-passthrough"
+topology = { sockets = 1, cores = 6, threads = 2 }
+pinning = [10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31]
+emulator_pinning = [9, 25]
+
+[nodes.numa]
+node = 1
+memory_mode = "preferred"
+
+[nodes.boot_disk]
+size = 300
+clone_method = "copy"
+cache = "none"
+io = "native"
+io_thread_cpus = [9, 25]
+
+[nodes.interfaces]
+queues = 4
 
 [[nodes.provisioners]]
 type = "ssh"

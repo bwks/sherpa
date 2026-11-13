@@ -35,7 +35,7 @@ use shared::util;
 use shared::validators::effective_data_interface_count;
 use topology::find_talos_cluster;
 use topology::validate::{
-    check_client_read_files, check_performance_tuning, check_ptx_platform, check_watchdog,
+    check_client_read_files, check_node_kind_settings, check_ptx_platform, check_vm_tuning,
 };
 
 /// The node being redeployed and its lab, loaded and checked before the node is torn down.
@@ -152,7 +152,7 @@ pub(super) async fn load_redeploy<'a>(
     } = load_lab_files(&lab_id)?;
     // A cluster worker rejoins with a config built from the cluster's saved secrets.
     if let Some((talos_cluster, _)) = talos_membership {
-        target_node.ztp_config = Some(worker_rejoin_config(
+        target_node.ztp.config = Some(worker_rejoin_config(
             &lab_id,
             &target_node,
             &node_image,
@@ -280,10 +280,10 @@ async fn load_node(
     );
     validate_node_ztp(target_node, &node_image, talos_clusters)?;
     let data_interface_count =
-        effective_data_interface_count(node_name, target_node.data_interface_count, &node_image)
+        effective_data_interface_count(node_name, target_node.interfaces.data_count, &node_image)
             .context(format!(
-                "Data interface count validation failed for node: {node_name}"
-            ))?;
+            "Data interface count validation failed for node: {node_name}"
+        ))?;
 
     let image_guard = lease_image(node_image.model, &node_image.version).await;
     if node_image.kind == data::NodeKind::Container {
@@ -304,10 +304,10 @@ async fn load_node(
         target_node.image = Some(repo);
     }
     validate_disk_method(
-        target_node.boot_disk_clone_method,
+        target_node.boot_disk.clone_method,
         &node_image,
         &state.config.images_dir,
-        target_node.boot_disk_size,
+        target_node.boot_disk.size,
     )?;
     Ok(LoadedNode {
         db_node,
@@ -405,7 +405,7 @@ fn node_login(
     Ok(Some(node_account.account.username))
 }
 
-/// The node's performance tuning, watchdog, platform, CPU pins and memory must still fit the
+/// The node's settings by kind, VM tuning, platform, CPU pins and memory must still fit the
 /// server before the node is destroyed. The node being replaced does not count against itself.
 /// Returns the libvirt connection the redeploy uses, and the node's admission.
 #[instrument(skip_all, fields(node_name = %target_node.name), level = "debug")]
@@ -416,11 +416,11 @@ async fn check_fits_server(
     node_image: &data::NodeConfig,
 ) -> Result<(Arc<QemuConnection>, Admission)> {
     let node_name = target_node.name.as_str();
-    check_performance_tuning(target_node, node_image).context(format!(
-        "Performance tuning validation failed for node: {node_name}"
+    check_node_kind_settings(target_node).context(format!(
+        "Node settings validation failed for node: {node_name}"
     ))?;
-    check_watchdog(target_node, node_image)
-        .context(format!("Watchdog validation failed for node: {node_name}"))?;
+    check_vm_tuning(target_node, node_image)
+        .context(format!("VM tuning validation failed for node: {node_name}"))?;
     check_ptx_platform(target_node, node_image)
         .context(format!("Platform validation failed for node: {node_name}"))?;
     let qemu_conn = Arc::new(
@@ -446,10 +446,10 @@ fn manifest_node(manifest: &topology::Manifest, node_name: &str) -> Result<topol
         .into_iter()
         .find(|n| n.name == node_name)
         .ok_or_else(|| anyhow!("Node '{node_name}' not found in manifest"))?;
-    if let Some(ref encoded) = node.ztp_config {
+    if let Some(ref encoded) = node.ztp.config {
         let decoded = util::base64_decode(encoded)
-            .with_context(|| format!("Failed to decode ztp_config for node '{node_name}'"))?;
-        node.ztp_config = Some(decoded);
+            .with_context(|| format!("Failed to decode ztp.config for node '{node_name}'"))?;
+        node.ztp.config = Some(decoded);
     }
     Ok(node)
 }

@@ -7,25 +7,31 @@ ready_timeout = 600
 name = "agent-2"
 model = "ubuntu_linux"
 version = "24.04-20260926"
-cpu_count = 12
 memory = 32768
-boot_disk_size = 300
-boot_disk_clone_method = "copy"
 
 # NUMA node 0: vCPUs on sibling pairs 2/18 to 7/23, QEMU and disk I/O on 1/17; the host keeps
 # 0/16. Memory prefers node 0 and falls back to node 1 when node 0 is full, instead of the host
 # OOM killer ending the VM.
-[nodes.performance_tuning]
-cpu_mode = "host-passthrough"
-cpu_topology = { sockets = 1, cores = 6, threads = 2 }
-cpu_pinning = [2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23]
-qemu_cpus = [1, 17]
-numa_node = 0
-numa_memory_mode = "preferred"
-disk_cache = "none"
-disk_io = "native"
-disk_io_thread_cpus = [1, 17]
-interface_queues = 4
+[nodes.cpu]
+count = 12
+mode = "host-passthrough"
+topology = { sockets = 1, cores = 6, threads = 2 }
+pinning = [2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23]
+emulator_pinning = [1, 17]
+
+[nodes.numa]
+node = 0
+memory_mode = "preferred"
+
+[nodes.boot_disk]
+size = 300
+clone_method = "copy"
+cache = "none"
+io = "native"
+io_thread_cpus = [1, 17]
+
+[nodes.interfaces]
+queues = 4
 
 # provision is a link to ../dev/provision: one copy of the provisioning for both dev servers.
 [[nodes.provisioners]]

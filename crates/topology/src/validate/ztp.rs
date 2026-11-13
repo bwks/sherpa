@@ -3,16 +3,16 @@ use anyhow::{Context, Result};
 use crate::NodeExpanded;
 use shared::validators::check_ztp;
 
-/// Check a node's `ztp` against the methods its model takes. A node that does not set it runs
+/// Check a node's `ztp.method` against the methods its model takes. A node that does not set it runs
 /// with its image's setting, which is checked where the image is known.
 ///
 /// # Errors
 ///
 /// Fails when the node sets a method its model does not take.
 pub fn check_node_ztp(node: &NodeExpanded) -> Result<()> {
-    match node.ztp {
+    match node.ztp.method {
         Some(ztp) => check_ztp(node.model, ztp)
-            .with_context(|| format!("Manifest - node: '{}' sets `ztp`", node.name)),
+            .with_context(|| format!("Manifest - node: '{}' sets `ztp.method`", node.name)),
         None => Ok(()),
     }
 }
@@ -20,13 +20,17 @@ pub fn check_node_ztp(node: &NodeExpanded) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::NodeZtp;
     use shared::data::{NodeModel, Ztp};
 
-    fn node(model: NodeModel, ztp: Option<Ztp>) -> NodeExpanded {
+    fn node(model: NodeModel, method: Option<Ztp>) -> NodeExpanded {
         NodeExpanded {
             name: "node1".to_string(),
             model,
-            ztp,
+            ztp: NodeZtp {
+                method,
+                config: None,
+            },
             ..NodeExpanded::default()
         }
     }

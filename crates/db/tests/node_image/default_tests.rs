@@ -53,14 +53,14 @@ async fn importing_the_default_again_without_the_option_keeps_it_the_default() -
 async fn importing_a_version_again_keeps_its_edited_settings() -> Result<()> {
     let db = setup_db().await?;
     let mut edited = record(&db, "1", DefaultRequest::Keep).await?;
-    edited.compute.memory = 8192;
-    edited.compute.cpu_count = 6;
+    edited.memory = 8192;
+    edited.cpu.count = 6;
     update_node_image(&db, edited, DefaultRequest::Keep).await?;
 
     let again = record(&db, "1", DefaultRequest::Keep).await?;
 
-    assert_eq!(again.compute.memory, 8192);
-    assert_eq!(again.compute.cpu_count, 6);
+    assert_eq!(again.memory, 8192);
+    assert_eq!(again.cpu.count, 6);
     Ok(())
 }
 

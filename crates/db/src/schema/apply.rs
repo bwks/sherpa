@@ -194,7 +194,7 @@ mod tests {
         }
         if image.kind != NodeKind::VirtualMachine {
             // The four models with mounted configs are the only ones whose default is not off.
-            return image.ztp.mode;
+            return image.ztp.method;
         }
         let stored: Option<Ztp> =
             serde_json::from_value(serde_json::Value::String(method.to_owned())).ok();
@@ -202,7 +202,7 @@ mod tests {
             Some(ztp) if model.ztp_methods().contains(&ztp) => ztp,
             // `volume` on a VM, `none` and `ipxe`: their arms generated nothing.
             Some(Ztp::Volume) | None => Ztp::Disabled,
-            Some(_) => image.ztp.mode,
+            Some(_) => image.ztp.method,
         }
     }
 
@@ -420,7 +420,7 @@ mod tests {
         }
         for model in [NodeModel::GenericVm, NodeModel::CiscoIosv] {
             let mut image = NodeConfig::get_model(model);
-            image.disks.cdrom_bus = DiskBuses::Virtio;
+            image.cdrom.bus = DiskBuses::Virtio;
             insert_into_older_schema(&db, &image, true, "cloud-init").await;
         }
 
@@ -431,7 +431,7 @@ mod tests {
             .await
             .unwrap()
             .into_iter()
-            .map(|image| (image.model, image.ztp.mode))
+            .map(|image| (image.model, image.ztp.method))
             .collect();
         assert!(
             methods.contains(&(NodeModel::CiscoIse, Ztp::Disk)),
@@ -446,7 +446,7 @@ mod tests {
             .await
             .unwrap()
             .into_iter()
-            .map(|image| (image.model, image.disks.cdrom_bus))
+            .map(|image| (image.model, image.cdrom.bus))
             .collect();
         assert!(
             buses.contains(&(NodeModel::GenericVm, DiskBuses::Sata)),
@@ -483,7 +483,7 @@ mod tests {
             .await
             .unwrap()
             .into_iter()
-            .map(|image| (image.model, image.ztp.mode))
+            .map(|image| (image.model, image.ztp.method))
             .collect();
         assert!(
             methods.contains(&(NodeModel::JuniperVsrxv3, Ztp::Cdrom)),
@@ -775,11 +775,11 @@ mod tests {
             let (enable, method) = image.version.split_once('-').unwrap();
             let expected = migrated_ztp(image.model, enable == "true", method);
             assert_eq!(
-                image.ztp.mode, expected,
+                image.ztp.method, expected,
                 "{} stored as {}",
                 image.model, image.version
             );
-            check_ztp(image.model, image.ztp.mode).unwrap();
+            check_ztp(image.model, image.ztp.method).unwrap();
         }
     }
 
@@ -792,7 +792,7 @@ mod tests {
             let mut image = NodeConfig::get_model(model);
             image.default = false;
             let (enable, method) = match image.kind {
-                NodeKind::VirtualMachine => (true, image.ztp.mode.to_string()),
+                NodeKind::VirtualMachine => (true, image.ztp.method.to_string()),
                 NodeKind::Container => (true, "none".to_owned()),
                 NodeKind::Unikernel => (false, "none".to_owned()),
             };
@@ -802,8 +802,8 @@ mod tests {
         apply_schema(&db).await.unwrap();
 
         for image in list_node_images(&db).await.unwrap() {
-            let default = NodeConfig::get_model(image.model).ztp.mode;
-            assert_eq!(image.ztp.mode, default, "{}", image.model);
+            let default = NodeConfig::get_model(image.model).ztp.method;
+            assert_eq!(image.ztp.method, default, "{}", image.model);
         }
     }
 

@@ -54,7 +54,7 @@ which to make them explicit, are in
 | 27 | [Bridges and management networks](#27-bridges-and-management-networks) | server, libvirt, container, network | side effects |
 | 28 | [Node images](#28-node-images) | server, db | `node_image` row, `default` flag, files |
 | 29 | [ZTP setting](#29-ztp-setting) | shared, db, server, template, topology | one `Ztp` enum on the image, with an optional manifest override |
-| 30 | [The `ztp_config` field](#30-the-ztp_config-field) | topology, client, server | one `Option<String>` with four meanings |
+| 30 | [The `ztp.config` field](#30-the-ztpconfig-field) | topology, client, server | one `Option<String>` with four meanings |
 | 31 | [Node resource reservation](#31-node-resource-reservation) | server, db | `vnc_port`, `cpu_pinning` Options, admission ledger |
 | 32 | [Database schema version](#32-database-schema-version) | db | `PRAGMA user_version` |
 
@@ -439,7 +439,7 @@ running. While containers settle, the poll wakes when the next one is due, not a
 | EXITED, CREATED, DEAD, missing | `Failed` | `Failed` |
 
 A container not running right after its start is `Failed` at once, with or without
-`skip_ready_check`. With `skip_ready_check`, a container running after its start is `Running`
+`ready_check.skip`. With `ready_check.skip`, a container running after its start is `Running`
 at once and not checked again. Every other container that is `Running` is checked once more
 when polling ends, as VMs may have kept it going long after the container settled. Each
 `Failed` container adds a critical error with its exit code and its last ten log lines
@@ -632,7 +632,7 @@ stateDiagram-v2
   in its new namespace first. Each node's result carries its links' states; a link that is not
   attached does not fail the node.
 - `ColdBooted` nodes are waited on for readiness (`wait_for_cold_booted`). Those that become
-  ready, and those with no check (containers, `skip_ready_check`), are recorded `Running`; the
+  ready, and those with no check (containers, `ready_check.skip`), are recorded `Running`; the
   others stay `Starting`.
 
 ```mermaid
@@ -1447,8 +1447,8 @@ stateDiagram-v2
 ### 29. ZTP setting
 
 **Where.** `shared::data::Ztp` (`crates/shared/src/data/node.rs`), held by the image as
-`ZtpSettings.mode` (column and JSON field `ztp`) and optionally by a manifest node as
-`topology::Node.ztp`. The full description, with the per-model table, is in
+`ZtpSettings.method` (column `ztp`, JSON field `ztp.method`) and optionally by a manifest node
+as `topology::Node.ztp.method`. The full description, with the per-model table, is in
 [`ZTP.md`](ZTP.md).
 
 **States.** Ten values: `disabled` and nine methods. There is no flag beside the method, so the
@@ -1462,7 +1462,7 @@ method" and "on with no method". Which methods a model takes is `NodeModel::ztp_
 - Import, scan, download, pull and set-default write through `db::upsert_node_image`, and the
   admin web form through `db::update_node_image`; both refuse a setting the model does not take.
   An existing row keeps its settings on a re-import (see [Node images](#28-node-images)).
-- A manifest node's `ztp`, checked by `topology::validate::check_node_ztp` and again by the
+- A manifest node's `ztp.method`, checked by `topology::validate::check_node_ztp` and again by the
   server before `up` or redeploy changes anything.
 - Migration 0016 folded the old pair into the one column, once.
 
@@ -1496,10 +1496,10 @@ stateDiagram-v2
     Effective --> Generated : one match per reader
 ```
 
-### 30. The `ztp_config` field
+### 30. The `ztp.config` field
 
-**Where.** `topology::Node.ztp_config` and `NodeExpanded.ztp_config`, both `Option<String>`
-(`crates/topology/src/node.rs:36`, `:95`).
+**Where.** `topology::Node.ztp.config` and `NodeExpanded.ztp.config`, both `Option<String>` in
+`topology::NodeZtp` (`crates/topology/src/node.rs`).
 
 **States.** The same field holds a different thing at each stage, and nothing in the value
 says which:
@@ -1510,7 +1510,7 @@ says which:
 4. a generated Talos config, for cluster members;
 5. `None` once it has been taken (`take_custom_ztp_config`, `node_ops.rs:350-363`).
 
-**Ordering.** `provisions_owner` reads `ztp_config.is_none()` to mean "no custom config"
+**Ordering.** `provisions_owner` reads `ztp.config.is_none()` to mean "no custom config"
 (`guest_account.rs:181-182`). It is evaluated (`node_ops.rs:991`) before the field is taken
 (`:1096`), and the result depends on that order.
 

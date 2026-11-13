@@ -73,74 +73,77 @@ fn skipped_model_cells(model: &SkippedModel) -> [String; 2] {
     [model.model.to_string(), model.reason.clone()]
 }
 
-/// Renders a two-column key-value table with all `NodeConfig` fields for an image
+/// Renders a two-column key-value table with all `NodeConfig` fields for an image. Each row
+/// is named by its key in the image JSON, as `group.field` for the grouped settings.
 #[must_use]
 pub fn render_image_detail_table(image: &NodeConfig) -> String {
+    let optional = |value: Option<&str>| value.unwrap_or("none").to_owned();
     let rows = [
-        ["Model".to_owned(), image.model.to_string()],
-        ["Kind".to_owned(), image.kind.to_string()],
-        ["Version".to_owned(), image.version.clone()],
-        ["Default".to_owned(), image.default.to_string()],
-        ["OS Variant".to_owned(), image.os_variant.to_string()],
-        ["BIOS".to_owned(), image.compute.bios.to_string()],
+        ["model".to_owned(), image.model.to_string()],
+        ["kind".to_owned(), image.kind.to_string()],
+        ["version".to_owned(), image.version.clone()],
+        ["default".to_owned(), image.default.to_string()],
+        ["os_variant".to_owned(), image.os_variant.to_string()],
+        ["repo".to_owned(), optional(image.repo.as_deref())],
+        ["memory".to_owned(), format!("{} MB", image.memory)],
+        ["cpu.count".to_owned(), image.cpu.count.to_string()],
         [
-            "CPU Architecture".to_owned(),
-            image.compute.cpu_architecture.to_string(),
+            "cpu.architecture".to_owned(),
+            image.cpu.architecture.to_string(),
         ],
-        ["CPU Model".to_owned(), image.compute.cpu_model.to_string()],
-        ["CPU Count".to_owned(), image.compute.cpu_count.to_string()],
-        ["Memory (MB)".to_owned(), image.compute.memory.to_string()],
+        ["cpu.model".to_owned(), image.cpu.model.to_string()],
+        ["cpu.vmx".to_owned(), image.cpu.vmx.to_string()],
+        ["machine.kind".to_owned(), image.machine.kind.to_string()],
+        ["machine.bios".to_owned(), image.machine.bios.to_string()],
+        ["boot_disk.bus".to_owned(), image.boot_disk.bus.to_string()],
         [
-            "Machine Type".to_owned(),
-            image.compute.machine_type.to_string(),
+            "cdrom.image".to_owned(),
+            optional(image.cdrom.image.as_deref()),
         ],
+        ["cdrom.bus".to_owned(), image.cdrom.bus.to_string()],
         [
-            "VMX Enabled".to_owned(),
-            image.compute.vmx_enabled.to_string(),
-        ],
-        ["HDD Bus".to_owned(), image.disks.hdd_bus.to_string()],
-        [
-            "CDROM".to_owned(),
-            image.disks.cdrom.as_deref().unwrap_or("none").to_owned(),
-        ],
-        ["CDROM Bus".to_owned(), image.disks.cdrom_bus.to_string()],
-        [
-            "Interface Type".to_owned(),
-            image.interfaces.kind.to_string(),
-        ],
-        [
-            "Interface Prefix".to_owned(),
-            image.interfaces.prefix.clone(),
-        ],
-        ["Interface MTU".to_owned(), image.interfaces.mtu.to_string()],
-        [
-            "Data Interface Count".to_owned(),
+            "interfaces.data_count".to_owned(),
             image.interfaces.data_count.to_string(),
         ],
         [
-            "First Interface Index".to_owned(),
+            "interfaces.kind".to_owned(),
+            image.interfaces.kind.to_string(),
+        ],
+        [
+            "interfaces.mtu".to_owned(),
+            image.interfaces.mtu.to_string(),
+        ],
+        [
+            "interfaces.prefix".to_owned(),
+            image.interfaces.prefix.clone(),
+        ],
+        [
+            "interfaces.first_index".to_owned(),
             image.interfaces.first_index.to_string(),
         ],
         [
-            "Management Interface".to_owned(),
+            "interfaces.management".to_owned(),
             image.interfaces.management.to_string(),
         ],
         [
-            "Reserved Interface Count".to_owned(),
+            "interfaces.reserved_count".to_owned(),
             image.interfaces.reserved_count.to_string(),
         ],
+        ["ztp.method".to_owned(), image.ztp.method.to_string()],
         [
-            "Repo".to_owned(),
-            image.repo.as_deref().unwrap_or("none").to_owned(),
-        ],
-        ["ZTP".to_owned(), image.ztp.mode.to_string()],
-        [
-            "ZTP Username".to_owned(),
-            image.ztp.username.as_deref().unwrap_or("none").to_owned(),
+            "ztp.username".to_owned(),
+            optional(image.ztp.username.as_deref()),
         ],
         [
-            "ZTP Password Auth".to_owned(),
+            "ztp.password_auth".to_owned(),
             image.ztp.password_auth.to_string(),
+        ],
+        [
+            "unikernel.boot_mode".to_owned(),
+            image.unikernel.as_ref().map_or_else(
+                || "none".to_owned(),
+                |unikernel| unikernel.boot_mode.to_string(),
+            ),
         ],
     ];
     render_table(
@@ -259,36 +262,39 @@ mod tests {
 
         let table = render_image_detail_table(&image);
 
-        // Check that all property labels are present
-        assert!(table.contains("Model"));
-        assert!(table.contains("Kind"));
-        assert!(table.contains("Version"));
-        assert!(table.contains("Default"));
-        assert!(table.contains("OS Variant"));
-        assert!(table.contains("BIOS"));
-        assert!(table.contains("CPU Architecture"));
-        assert!(table.contains("CPU Model"));
-        assert!(table.contains("CPU Count"));
-        assert!(table.contains("Memory (MB)"));
-        assert!(table.contains("Machine Type"));
-        assert!(table.contains("VMX Enabled"));
-        assert!(table.contains("HDD Bus"));
-        assert!(table.contains("CDROM"));
-        assert!(table.contains("CDROM Bus"));
-        assert!(table.contains("Interface Type"));
-        assert!(table.contains("Interface Prefix"));
-        assert!(table.contains("Interface MTU"));
-        assert!(table.contains("Data Interface Count"));
-        assert!(table.contains("First Interface Index"));
-        assert!(table.contains("Management Interface"));
-        assert!(table.contains("Reserved Interface Count"));
-        assert!(table.contains("Repo"));
-        assert!(table.contains("│ ZTP "));
+        // Each row is named by its key in the image JSON, groups included.
+        for key in [
+            "model",
+            "kind",
+            "version",
+            "default",
+            "os_variant",
+            "repo",
+            "memory",
+            "cpu.count",
+            "cpu.architecture",
+            "cpu.model",
+            "cpu.vmx",
+            "machine.kind",
+            "machine.bios",
+            "boot_disk.bus",
+            "cdrom.image",
+            "cdrom.bus",
+            "interfaces.data_count",
+            "interfaces.kind",
+            "interfaces.mtu",
+            "interfaces.prefix",
+            "interfaces.first_index",
+            "interfaces.management",
+            "interfaces.reserved_count",
+            "ztp.method",
+            "ztp.username",
+            "ztp.password_auth",
+            "unikernel.boot_mode",
+        ] {
+            assert!(table.contains(&format!("│ {key} ")), "{key}\n{table}");
+        }
         assert!(table.contains("cdrom"));
-        assert!(!table.contains("ZTP Enabled"));
-        assert!(!table.contains("ZTP Method"));
-        assert!(table.contains("ZTP Username"));
-        assert!(table.contains("ZTP Password Auth"));
 
         // Check that model-specific values are present
         assert!(table.contains("cisco_cat8000v"));

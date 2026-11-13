@@ -48,7 +48,7 @@ pub(super) async fn redeploy_container(
     // Read before the node's ZTP takes a custom config out of it.
     let initialises_vault = vault::sherpa_initialises_vault(
         redeploy.target_node.model,
-        redeploy.target_node.ztp_config.is_some(),
+        redeploy.target_node.ztp.config.is_some(),
     );
     let ztp_result = configure_container(redeploy, cert_paths)?;
 

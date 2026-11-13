@@ -7,9 +7,7 @@ use std::net::{Ipv4Addr, TcpListener};
 use anyhow::{Context, Result, bail};
 use tracing::instrument;
 
-use shared::data::{
-    DbNode, NodeConfig, NodeCpuPins, NodeKind, NodeResources, PerformanceTuning, RecordId,
-};
+use shared::data::{DbNode, NodeConfig, NodeCpuPins, NodeKind, NodeResources, RecordId};
 use shared::konst::{VNC_PORT_ALLOCATION_ATTEMPTS, VNC_PORT_FIRST, VNC_PORT_LAST};
 use topology::validate::check_cpu_pin_overlap;
 use virt::connect::Connect;
@@ -17,21 +15,18 @@ use virt::connect::Connect;
 use crate::validate::check_host_resources;
 
 /// The vCPUs and memory a node gets: the manifest's values, else the image's, and the host
-/// CPUs its performance tuning pins. Containers get none, as Sherpa does not limit them. The
+/// CPUs its `cpu` and `boot_disk` settings pin. Containers get none, as Sherpa does not limit them. The
 /// VNC port is reserved separately.
 pub fn planned_resources(node: &topology::NodeExpanded, image: &NodeConfig) -> NodeResources {
     match image.kind {
         NodeKind::VirtualMachine | NodeKind::Unikernel => {
-            let tuning = node.performance_tuning.as_ref();
-            let qemu_thread_cpus = tuning
-                .map(PerformanceTuning::qemu_thread_cpus)
-                .filter(|cpus| !cpus.is_empty());
+            let pins = NodeCpuPins::of(&node.name, &node.cpu, &node.boot_disk);
             NodeResources {
-                cpu_count: Some(node.cpu_count.unwrap_or(image.compute.cpu_count)),
-                memory: Some(node.memory.unwrap_or(image.compute.memory)),
+                cpu_count: Some(node.cpu.count.unwrap_or(image.cpu.count)),
+                memory: Some(node.memory.unwrap_or(image.memory)),
                 vnc_port: None,
-                cpu_pinning: tuning.and_then(|tuning| tuning.cpu_pinning.clone()),
-                qemu_thread_cpus,
+                cpu_pinning: node.cpu.pinning.clone(),
+                qemu_thread_cpus: Some(pins.qemu_thread_cpus).filter(|cpus| !cpus.is_empty()),
             }
         }
         NodeKind::Container => NodeResources::default(),
@@ -57,7 +52,7 @@ pub struct PendingPins {
     pub pins: NodeCpuPins,
 }
 
-/// Check the performance tuning of `nodes`, in lab `lab_id`, against the server: the host CPUs
+/// Check the CPU pins and NUMA node of `nodes`, in lab `lab_id`, against the server: the host CPUs
 /// and NUMA nodes it names must exist, and its pins must not overlap those of the nodes already
 /// on the server, in any lab, or those `pending` in other operations. A stored node that is one
 /// of `nodes`, as in a redeploy, is being replaced, so its stored pins are its own.
@@ -69,13 +64,15 @@ pub async fn check_cpu_pins_on_server(
     nodes: &[&topology::NodeExpanded],
     pending: &[PendingPins],
 ) -> Result<()> {
-    let tuned: Vec<(&str, &PerformanceTuning)> = nodes
+    let tuned: Vec<(&topology::NodeExpanded, NodeCpuPins)> = nodes
         .iter()
-        .filter_map(|node| {
-            node.performance_tuning
-                .as_ref()
-                .map(|tuning| (node.name.as_str(), tuning))
+        .map(|node| {
+            (
+                *node,
+                NodeCpuPins::of(&node.name, &node.cpu, &node.boot_disk),
+            )
         })
+        .filter(|(node, pins)| !pins.is_empty() || node.numa.node.is_some())
         .collect();
     if tuned.is_empty() {
         return Ok(());
@@ -83,9 +80,9 @@ pub async fn check_cpu_pins_on_server(
 
     let host = libvirt::host_cpus(qemu_conn)?;
     let mut pins = Vec::new();
-    for (name, tuning) in tuned {
-        check_host_resources(name, tuning, host.cpus, host.numa_nodes)?;
-        pins.push(NodeCpuPins::of(name, tuning));
+    for (node, node_pins) in tuned {
+        check_host_resources(node, host.cpus, host.numa_nodes)?;
+        pins.push(node_pins);
     }
     let requested: HashSet<String> = nodes
         .iter()
@@ -226,12 +223,15 @@ fn host_port_free(port: u16) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::{NodeModel, NodeState};
+    use shared::data::{NodeCpu, NodeModel, NodeState};
 
     fn node(cpu_count: Option<u8>, memory: Option<u16>) -> topology::NodeExpanded {
         topology::NodeExpanded {
             name: "dev01".to_string(),
-            cpu_count,
+            cpu: NodeCpu {
+                count: cpu_count,
+                ..NodeCpu::default()
+            },
             memory,
             ..Default::default()
         }
@@ -249,8 +249,8 @@ mod tests {
             }
         );
         let defaults = planned_resources(&node(None, None), &image);
-        assert_eq!(defaults.cpu_count, Some(image.compute.cpu_count));
-        assert_eq!(defaults.memory, Some(image.compute.memory));
+        assert_eq!(defaults.cpu_count, Some(image.cpu.count));
+        assert_eq!(defaults.memory, Some(image.memory));
 
         let unikernel = NodeConfig::get_model(NodeModel::NanosUnikernel);
         assert_eq!(
@@ -263,12 +263,9 @@ mod tests {
     fn a_tuned_vm_gets_its_pinned_cpus() {
         let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
         let mut tuned = node(Some(2), None);
-        tuned.performance_tuning = Some(PerformanceTuning {
-            cpu_pinning: Some(vec![9, 25]),
-            qemu_cpus: Some(vec![24, 8]),
-            disk_io_thread_cpus: Some(vec![8]),
-            ..PerformanceTuning::default()
-        });
+        tuned.cpu.pinning = Some(vec![9, 25]);
+        tuned.cpu.emulator_pinning = Some(vec![24, 8]);
+        tuned.boot_disk.io_thread_cpus = Some(vec![8]);
         let resources = planned_resources(&tuned, &image);
         assert_eq!(resources.cpu_pinning, Some(vec![9, 25]));
         assert_eq!(resources.qemu_thread_cpus, Some(vec![8, 24]));

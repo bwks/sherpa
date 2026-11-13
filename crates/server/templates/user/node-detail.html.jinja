@@ -66,11 +66,11 @@
         </div>
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">CPU Architecture</span>
-            <span class="block text-base text-heading font-mono">{{ node_config.compute.cpu_architecture }}</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.cpu.architecture }}</span>
         </div>
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">CPU Model</span>
-            <span class="block text-base text-heading font-mono">{{ node_config.compute.cpu_model }}</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.cpu.model }}</span>
         </div>
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">Memory (MB)</span>
@@ -78,15 +78,15 @@
         </div>
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">BIOS</span>
-            <span class="block text-base text-heading font-mono">{{ node_config.compute.bios }}</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.machine.bios }}</span>
         </div>
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">Machine Type</span>
-            <span class="block text-base text-heading font-mono">{{ node_config.compute.machine_type }}</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.machine.kind }}</span>
         </div>
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">VMX Enabled</span>
-            <span class="block text-base text-heading font-mono">{% if node_config.compute.vmx_enabled %}Yes{% else %}No{% endif %}</span>
+            <span class="block text-base text-heading font-mono">{% if node_config.cpu.vmx %}Yes{% else %}No{% endif %}</span>
         </div>
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">OS Variant</span>
@@ -101,15 +101,15 @@
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">HDD Bus</span>
-            <span class="block text-base text-heading font-mono">{{ node_config.disks.hdd_bus }}</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.boot_disk.bus }}</span>
         </div>
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">CDROM</span>
-            <span class="block text-base text-heading font-mono">{% if let Some(cdrom) = node_config.disks.cdrom %}{{ cdrom }}{% else %}-{% endif %}</span>
+            <span class="block text-base text-heading font-mono">{% if let Some(cdrom) = node_config.cdrom.image %}{{ cdrom }}{% else %}-{% endif %}</span>
         </div>
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">CDROM Bus</span>
-            <span class="block text-base text-heading font-mono">{{ node_config.disks.cdrom_bus }}</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.cdrom.bus }}</span>
         </div>
         <div class="flex flex-col gap-1 md:col-span-2 lg:col-span-3">
             <span class="block text-sm font-medium text-muted mb-1">Disks</span>

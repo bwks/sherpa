@@ -20,7 +20,7 @@ use tracing::instrument;
 use virt::connect::Connect;
 
 use libvirt::DomainMemory;
-use shared::data::{HostMemorySettings, NodeConfig, NodeCpuPins, NodeKind, PerformanceTuning};
+use shared::data::{HostMemorySettings, NodeConfig, NodeCpuPins, NodeKind};
 
 use super::node_resources::{
     PendingPins, check_cpu_pins_on_server, domain_name, planned_resources,
@@ -40,7 +40,7 @@ struct Request {
     domain: String,
     /// Its memory, for VMs and unikernels; `None` for containers, which Sherpa does not limit.
     memory: Option<MemoryClaim>,
-    /// Its CPU pins, when it has performance tuning.
+    /// Its CPU pins, when it pins any.
     pins: Option<NodeCpuPins>,
 }
 
@@ -176,14 +176,12 @@ fn lab_requests(lab_id: &str, nodes: &[(&topology::NodeExpanded, &NodeConfig)]) 
     nodes
         .iter()
         .map(|(node, image)| {
-            let tuning = node.performance_tuning.as_ref();
             let numa_node = if image.kind == NodeKind::VirtualMachine {
-                tuning
-                    .and_then(PerformanceTuning::strict_numa_node)
-                    .map(u32::from)
+                node.numa.strict_node().map(u32::from)
             } else {
                 None
             };
+            let pins = NodeCpuPins::of(&node.name, &node.cpu, &node.boot_disk);
             let memory = planned_resources(node, image)
                 .memory
                 .map(|memory| MemoryClaim {
@@ -194,7 +192,7 @@ fn lab_requests(lab_id: &str, nodes: &[(&topology::NodeExpanded, &NodeConfig)]) 
             Request {
                 domain: domain_name(&node.name, lab_id),
                 memory,
-                pins: tuning.map(|tuning| NodeCpuPins::of(&node.name, tuning)),
+                pins: Some(pins).filter(|pins| !pins.is_empty()),
             }
         })
         .collect()
@@ -291,7 +289,7 @@ mod tests {
     use super::*;
     use crate::services::error::ServiceError;
     use libvirt::Qemu;
-    use shared::data::{NodeModel, NumaMemoryMode};
+    use shared::data::{NodeCpu, NodeModel, NodeNuma, NumaMemoryMode};
 
     fn running(name: &str, mib: u64, numa_node: Option<u32>) -> DomainMemory {
         DomainMemory {
@@ -380,20 +378,25 @@ mod tests {
         let vm_image = NodeConfig::get_model(NodeModel::UbuntuLinux);
         let unikernel_image = NodeConfig::get_model(NodeModel::NanosUnikernel);
         let container_image = NodeConfig::get_model(NodeModel::MongoDb);
-        let tuning = PerformanceTuning {
-            cpu_pinning: Some(vec![2, 3]),
-            numa_node: Some(1),
-            ..PerformanceTuning::default()
+        let cpu = NodeCpu {
+            pinning: Some(vec![2, 3]),
+            ..NodeCpu::default()
+        };
+        let numa = NodeNuma {
+            node: Some(1),
+            memory_mode: None,
         };
         let vm = topology::NodeExpanded {
             name: "vm".to_string(),
             memory: Some(8192),
-            performance_tuning: Some(tuning.clone()),
+            cpu: cpu.clone(),
+            numa: numa.clone(),
             ..Default::default()
         };
         let unikernel = topology::NodeExpanded {
             name: "uk".to_string(),
-            performance_tuning: Some(tuning),
+            cpu,
+            numa,
             ..Default::default()
         };
         let container = topology::NodeExpanded {
@@ -425,7 +428,7 @@ mod tests {
         let unikernel_memory = requests[1].memory.as_ref().unwrap();
         assert_eq!(
             unikernel_memory.memory_mib,
-            u64::from(unikernel_image.compute.memory)
+            u64::from(unikernel_image.memory)
         );
         assert_eq!(unikernel_memory.numa_node, None);
         assert_eq!(requests[2].memory, None);
@@ -438,11 +441,10 @@ mod tests {
         let vm = |numa_memory_mode| topology::NodeExpanded {
             name: "vm".to_string(),
             memory: Some(8192),
-            performance_tuning: Some(PerformanceTuning {
-                numa_node: Some(1),
-                numa_memory_mode,
-                ..PerformanceTuning::default()
-            }),
+            numa: NodeNuma {
+                node: Some(1),
+                memory_mode: numa_memory_mode,
+            },
             ..Default::default()
         };
         let preferred = vm(Some(NumaMemoryMode::Preferred));
@@ -633,10 +635,10 @@ mod tests {
         let node = |name: &str| topology::NodeExpanded {
             name: name.to_string(),
             memory: Some(256),
-            performance_tuning: Some(PerformanceTuning {
-                cpu_pinning: Some(vec![0]),
-                ..PerformanceTuning::default()
-            }),
+            cpu: NodeCpu {
+                pinning: Some(vec![0]),
+                ..NodeCpu::default()
+            },
             ..Default::default()
         };
         let (first, second) = (node("first"), node("second"));

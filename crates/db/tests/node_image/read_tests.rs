@@ -115,8 +115,8 @@ async fn test_list_configs_returns_all_fields() -> Result<()> {
 
     // Verify key fields
     assert!(ubuntu_config.id.is_some());
-    assert!(ubuntu_config.compute.cpu_count > 0);
-    assert!(ubuntu_config.compute.memory > 0);
+    assert!(ubuntu_config.cpu.count > 0);
+    assert!(ubuntu_config.memory > 0);
     assert!(ubuntu_config.interfaces.data_count > 0);
     assert_ne!(ubuntu_config.interfaces.prefix, "");
 

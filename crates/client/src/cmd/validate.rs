@@ -7,8 +7,8 @@ use shared::validators::effective_data_interface_count;
 use topology::validate::{
     check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_lab_description,
-    check_link_impairments, check_no_p2p_field, check_node_names, check_node_ztp,
-    check_performance_tuning, check_ptx_platform, check_text_file_modes, check_watchdog,
+    check_link_impairments, check_no_p2p_field, check_node_kind_settings, check_node_names,
+    check_node_ztp, check_ptx_platform, check_text_file_modes, check_vm_tuning,
     validate_provisioners, validate_tailscale, validate_talos_clusters,
 };
 use topology::{Manifest, process_manifest_bridges, process_manifest_links};
@@ -57,6 +57,12 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
 
     // Process manifest data (same as up.rs)
     let nodes_expanded = process_manifest_nodes(&manifest.nodes);
+    println!("→ Checking node settings against each node's kind...");
+    for node in &nodes_expanded {
+        check_node_kind_settings(node)?;
+    }
+    println!("  ✓ Every node sets only what its kind takes");
+
     println!("→ Checking links and bridges...");
     let links = manifest.links.as_deref().unwrap_or_default();
     let bridges = manifest.bridges.as_deref().unwrap_or_default();
@@ -72,7 +78,7 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
         let node_image = get_node_image(node.model, &node_images)?;
 
         let data_interface_count =
-            effective_data_interface_count(&node.name, node.data_interface_count, &node_image)?;
+            effective_data_interface_count(&node.name, node.interfaces.data_count, &node_image)?;
 
         // Interface bounds check
         check_interface_bounds(
@@ -86,24 +92,20 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     }
     println!("  ✓ All interface configurations valid");
 
-    println!("→ Checking performance tuning...");
+    println!("→ Checking VM tuning...");
     for node in &nodes_expanded {
         let node_image = get_node_image(node.model, &node_images)?;
-        check_performance_tuning(node, &node_image)?;
-        check_watchdog(node, &node_image)?;
+        check_vm_tuning(node, &node_image)?;
         check_ptx_platform(node, &node_image)?;
         check_node_ztp(node)?;
     }
     let pins: Vec<NodeCpuPins> = nodes_expanded
         .iter()
-        .filter_map(|node| {
-            node.performance_tuning
-                .as_ref()
-                .map(|tuning| NodeCpuPins::of(&node.name, tuning))
-        })
+        .map(|node| NodeCpuPins::of(&node.name, &node.cpu, &node.boot_disk))
+        .filter(|pins| !pins.is_empty())
         .collect();
     check_cpu_pin_overlap(&pins)?;
-    println!("  ✓ Performance tuning is valid");
+    println!("  ✓ VM tuning is valid");
 
     // Connection validators
     if !links_detailed.is_empty() || !bridges_detailed.is_empty() {
@@ -137,8 +139,8 @@ mod tests {
 name = "override-lab"
 
 nodes = [
-  { name = "dev01", model = "ubuntu_linux", data_interface_count = 4 },
-  { name = "dev02", model = "ubuntu_linux", data_interface_count = 4 },
+  { name = "dev01", model = "ubuntu_linux", interfaces = { data_count = 4 } },
+  { name = "dev02", model = "ubuntu_linux", interfaces = { data_count = 4 } },
 ]
 
 links = [
@@ -178,8 +180,8 @@ name = "ztp-lab"
 
 nodes = [
   { name = "frr01", model = "frr_linux" },
-  { name = "frr02", model = "frr_linux", ztp = "disabled" },
-  { name = "srx01", model = "juniper_vsrxv3", ztp = "tftp" },
+  { name = "frr02", model = "frr_linux", ztp = { method = "disabled" } },
+  { name = "srx01", model = "juniper_vsrxv3", ztp = { method = "tftp" } },
 ]
 "#;
         let path = write_temp_manifest("ztp-pass", manifest);
@@ -194,7 +196,7 @@ nodes = [
 name = "ztp-lab"
 
 nodes = [
-  { name = "frr01", model = "frr_linux", ztp = "cdrom" },
+  { name = "frr01", model = "frr_linux", ztp = { method = "cdrom" } },
 ]
 "#;
         let path = write_temp_manifest("ztp-fail", manifest);

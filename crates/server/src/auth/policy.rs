@@ -98,7 +98,7 @@ pub fn require_self_or_admin(ctx: &AuthContext, username: &str) -> Result<(), Se
 
 /// Refuse manifest nodes that reach into the host unless the caller is an admin.
 ///
-/// A `privileged` container, or one that bind-mounts a host path through `volumes`, is root on
+/// A `container.privileged` container, or one that bind-mounts a host path through `container.volumes`, is root on
 /// the host: it can read the database, other labs and the server's keys. Only admins may ask
 /// for either.
 pub fn require_host_access(ctx: &AuthContext, nodes: &[Node]) -> Result<(), ServiceError> {
@@ -107,10 +107,13 @@ pub fn require_host_access(ctx: &AuthContext, nodes: &[Node]) -> Result<(), Serv
     }
     let mut requests = Vec::new();
     for node in nodes {
-        if node.privileged == Some(true) {
+        let Some(container) = &node.container else {
+            continue;
+        };
+        if container.privileged == Some(true) {
             requests.push(format!("'{}' asks for privileged", node.name));
         }
-        if node
+        if container
             .volumes
             .as_ref()
             .is_some_and(|volumes| !volumes.is_empty())
@@ -187,7 +190,7 @@ async fn authorize_lab(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use topology::VolumeMount;
+    use topology::{NodeContainer, VolumeMount};
 
     fn ctx(username: &str, is_admin: bool) -> AuthContext {
         AuthContext::for_test(username, is_admin)
@@ -196,8 +199,11 @@ mod tests {
     fn container(name: &str, privileged: Option<bool>, volumes: Option<Vec<VolumeMount>>) -> Node {
         Node {
             name: name.to_owned(),
-            privileged,
-            volumes,
+            container: Some(NodeContainer {
+                privileged,
+                volumes,
+                ..Default::default()
+            }),
             ..Default::default()
         }
     }

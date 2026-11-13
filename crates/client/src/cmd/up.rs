@@ -68,7 +68,7 @@ pub async fn up(
 
     let tailscale_auth_key = resolve_tailscale_key(&manifest, server_url, config)?;
 
-    // Read ztp_config, text_files and scripts relative to the manifest, and $VAR values.
+    // Read ztp.config, text_files and scripts relative to the manifest, and $VAR values.
     resolve_manifest_files(&mut manifest, manifest_path)?;
 
     // Container secret files go outside the manifest, so the server never stores them.
@@ -190,9 +190,9 @@ fn ssh_ready_nodes(nodes: &[NodeInfo]) -> Vec<String> {
     ready
 }
 
-/// Resolve `ztp_config` file paths in manifest nodes.
+/// Resolve `ztp.config` file paths in manifest nodes.
 ///
-/// For each node with a `ztp_config` field, the value is treated as a file path.
+/// For each node with a `ztp.config` field, the value is treated as a file path.
 /// The file is read, base64 encoded, and the value is replaced with the encoded contents.
 /// Relative paths are resolved from the manifest file's parent directory.
 pub(crate) fn resolve_ztp_configs(
@@ -202,7 +202,7 @@ pub(crate) fn resolve_ztp_configs(
     let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
 
     for node in &mut manifest.nodes {
-        let ztp_path_str = match &node.ztp_config {
+        let ztp_path_str = match &node.ztp.config {
             Some(s) => s.clone(),
             None => continue,
         };
@@ -211,7 +211,7 @@ pub(crate) fn resolve_ztp_configs(
 
         let contents = fs::read_to_string(&resolved_path).with_context(|| {
             format!(
-                "Failed to read ztp_config for node '{}': {}",
+                "Failed to read ztp.config for node '{}': {}",
                 node.name,
                 resolved_path.display()
             )
@@ -219,13 +219,13 @@ pub(crate) fn resolve_ztp_configs(
 
         if contents.is_empty() {
             bail!(
-                "ztp_config for node '{}' is empty: {}",
+                "ztp.config for node '{}' is empty: {}",
                 node.name,
                 resolved_path.display()
             );
         }
 
-        node.ztp_config = Some(base64_encode(&contents));
+        node.ztp.config = Some(base64_encode(&contents));
     }
 
     Ok(())
@@ -347,7 +347,7 @@ pub(crate) fn resolve_text_files(
     Ok(())
 }
 
-/// Read each node's `binary_files`, `systemd_units` and `ssh_authorized_key_files` and fill in
+/// Read each node's `binary_files`, `systemd_units` and `ssh.authorized_key_files` and fill in
 /// their `*_data` fields. The server never opens manifest paths: it uses what the client read.
 /// Paths may start with `~`; relative paths start at the manifest's folder.
 pub(crate) fn resolve_node_files(
@@ -362,7 +362,7 @@ pub(crate) fn resolve_node_files(
         if let Some(units) = node.systemd_units.as_deref() {
             node.systemd_units_data = Some(read_systemd_units(&node.name, units, manifest_dir)?);
         }
-        if let Some(files) = node.ssh_authorized_key_files.as_deref() {
+        if let Some(files) = node.ssh.authorized_key_files.as_deref() {
             node.ssh_authorized_key_files_data =
                 Some(read_authorized_key_files(&node.name, files, manifest_dir)?);
         }
@@ -560,6 +560,7 @@ mod tests {
     use shared::util::base64_decode;
     use std::io::Write;
     use tempfile::NamedTempFile;
+    use topology::{NodeSsh, NodeZtp};
 
     fn test_manifest(nodes: Vec<topology::Node>) -> topology::Manifest {
         topology::Manifest {
@@ -628,7 +629,10 @@ mod tests {
             topology::Node {
                 name: "dev01".to_string(),
                 model: NodeModel::CiscoCat8000v,
-                ztp_config: Some(config_path),
+                ztp: NodeZtp {
+                    method: None,
+                    config: Some(config_path),
+                },
                 ..Default::default()
             },
             topology::Node {
@@ -640,16 +644,17 @@ mod tests {
 
         resolve_ztp_configs(&mut manifest, "/tmp/manifest.toml").expect("resolve should succeed");
 
-        // dev01: ztp_config is now base64 encoded contents
+        // dev01: ztp.config is now base64 encoded contents
         let encoded = manifest.nodes[0]
-            .ztp_config
+            .ztp
+            .config
             .as_ref()
             .expect("should have value");
         let decoded = base64_decode(encoded).expect("should decode");
         assert_eq!(decoded, "hostname dev01");
 
-        // dev02: unchanged, no ztp_config
-        assert!(manifest.nodes[1].ztp_config.is_none());
+        // dev02: unchanged, no ztp.config
+        assert!(manifest.nodes[1].ztp.config.is_none());
     }
 
     #[test]
@@ -663,7 +668,10 @@ mod tests {
         let mut manifest = test_manifest(vec![topology::Node {
             name: "r01".to_string(),
             model: NodeModel::AristaVeos,
-            ztp_config: Some("my_config.txt".to_string()),
+            ztp: NodeZtp {
+                method: None,
+                config: Some("my_config.txt".to_string()),
+            },
             ..Default::default()
         }]);
 
@@ -671,7 +679,8 @@ mod tests {
             .expect("resolve should succeed");
 
         let encoded = manifest.nodes[0]
-            .ztp_config
+            .ztp
+            .config
             .as_ref()
             .expect("should have value");
         let decoded = base64_decode(encoded).expect("should decode");
@@ -686,7 +695,10 @@ mod tests {
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
             model: NodeModel::CiscoCat8000v,
-            ztp_config: Some(config_path),
+            ztp: NodeZtp {
+                method: None,
+                config: Some(config_path),
+            },
             ..Default::default()
         }]);
 
@@ -701,7 +713,10 @@ mod tests {
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
             model: NodeModel::CiscoCat8000v,
-            ztp_config: Some("/nonexistent/path/config.txt".to_string()),
+            ztp: NodeZtp {
+                method: None,
+                config: Some("/nonexistent/path/config.txt".to_string()),
+            },
             ..Default::default()
         }]);
 
@@ -815,9 +830,12 @@ mod tests {
                 source: "units/app.service".to_string(),
                 enabled: true,
             }]),
-            ssh_authorized_key_files: Some(vec![AuthorizedKeyFile {
-                source: "key.pub".to_string(),
-            }]),
+            ssh: NodeSsh {
+                authorized_keys: None,
+                authorized_key_files: Some(vec![AuthorizedKeyFile {
+                    source: "key.pub".to_string(),
+                }]),
+            },
             ..Default::default()
         }]);
 

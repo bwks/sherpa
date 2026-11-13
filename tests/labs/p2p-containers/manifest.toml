@@ -29,32 +29,42 @@ version = "8.2.7-rc0"
 name = "surreal01"
 model = "surreal_db"
 version = "v3.0.0"
-data_interface_count = 1
+
+[nodes.interfaces]
+data_count = 1
 
 [[nodes]]
 name = "vault01"
 model = "hashicorp_vault"
 version = "1.21"
-data_interface_count = 1
 
-# skip_ready_check must still start the container and wire its links.
+[nodes.interfaces]
+data_count = 1
+
+# ready_check.skip must still start the container and wire its links.
 [[nodes]]
 name = "nats01"
 model = "nats_bus"
 version = "2.11"
-skip_ready_check = true
+
+[nodes.ready_check]
+skip = true
 
 [[nodes]]
 name = "forgejo01"
 model = "forgejo_forge"
 version = "11"
-data_interface_count = 1
+
+[nodes.interfaces]
+data_count = 1
 
 [[nodes]]
 name = "gitlab01"
 model = "gitlab_ce"
 version = "18.7.6-ce.0"
-data_interface_count = 1
+
+[nodes.interfaces]
+data_count = 1
 
 [[nodes]]
 name = "mysql01"

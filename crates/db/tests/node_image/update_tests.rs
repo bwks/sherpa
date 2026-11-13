@@ -16,16 +16,16 @@ async fn test_update_node_image_success() -> Result<()> {
 
     // Modify multiple fields
     let mut updated_config = created.clone();
-    updated_config.compute.memory = 4096;
-    updated_config.compute.cpu_count = 4;
+    updated_config.memory = 4096;
+    updated_config.cpu.count = 4;
     updated_config.interfaces.data_count = 24;
 
     // Update the config
     let result = update_node_image(&db, updated_config, DefaultRequest::Keep).await?;
 
     // Verify changes were applied
-    assert_eq!(result.compute.memory, 4096, "Memory should be updated");
-    assert_eq!(result.compute.cpu_count, 4, "CPU count should be updated");
+    assert_eq!(result.memory, 4096, "Memory should be updated");
+    assert_eq!(result.cpu.count, 4, "CPU count should be updated");
     assert_eq!(
         result.interfaces.data_count, 24,
         "Interface count should be updated"
@@ -90,7 +90,7 @@ async fn test_update_preserves_id() -> Result<()> {
     // Update multiple times
     for i in 1..=3 {
         let mut updated_config = created.clone();
-        updated_config.compute.memory = 1024 * i;
+        updated_config.memory = 1024 * i;
         updated_config.id = original_id.clone().into();
 
         let result = update_node_image(&db, updated_config, DefaultRequest::Keep).await?;
@@ -101,7 +101,7 @@ async fn test_update_preserves_id() -> Result<()> {
             "ID should remain constant after update {i}"
         );
         assert_eq!(
-            result.compute.memory,
+            result.memory,
             1024 * i,
             "Memory should be updated to {}",
             1024 * i
@@ -118,10 +118,7 @@ async fn test_update_preserves_id() -> Result<()> {
         original_id.into(),
         "Retrieved config should have original ID"
     );
-    assert_eq!(
-        retrieved.compute.memory, 3072,
-        "Final memory value should be 3072"
-    );
+    assert_eq!(retrieved.memory, 3072, "Final memory value should be 3072");
 
     Ok(())
 }
@@ -138,8 +135,8 @@ async fn test_update_refuses_a_ztp_method_the_model_does_not_take() -> Result<()
     let id = created.id.clone().expect("the image has an ID");
 
     let mut edited = created.clone();
-    edited.ztp.mode = Ztp::Volume;
-    edited.compute.memory = 8192;
+    edited.ztp.method = Ztp::Volume;
+    edited.memory = 8192;
     let error = update_node_image(&db, edited, DefaultRequest::Keep)
         .await
         .expect_err("the edit is refused");
@@ -151,11 +148,8 @@ async fn test_update_refuses_a_ztp_method_the_model_does_not_take() -> Result<()
     let stored = find_node_image_by_id(&db, id)
         .await?
         .expect("the image is stored");
-    assert_eq!(stored.ztp.mode, Ztp::Tftp, "the setting is unchanged");
-    assert_eq!(
-        stored.compute.memory, created.compute.memory,
-        "nothing else is written"
-    );
+    assert_eq!(stored.ztp.method, Ztp::Tftp, "the setting is unchanged");
+    assert_eq!(stored.memory, created.memory, "nothing else is written");
     Ok(())
 }
 
@@ -170,9 +164,9 @@ async fn test_update_stores_a_ztp_setting_the_model_takes() -> Result<()> {
     .await?;
 
     let mut edited = created;
-    edited.ztp.mode = Ztp::Disabled;
+    edited.ztp.method = Ztp::Disabled;
     let stored = update_node_image(&db, edited, DefaultRequest::Keep).await?;
 
-    assert_eq!(stored.ztp.mode, Ztp::Disabled);
+    assert_eq!(stored.ztp.method, Ztp::Disabled);
     Ok(())
 }

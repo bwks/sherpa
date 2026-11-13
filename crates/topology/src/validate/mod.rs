@@ -8,13 +8,13 @@ mod client_files;
 mod description;
 mod device;
 mod link;
-mod performance_tuning;
+mod node_kind;
 mod provisioner;
 mod ptx_platform;
 mod tailscale;
 mod talos_cluster;
 mod text_files;
-mod watchdog;
+mod vm_tuning;
 mod ztp;
 
 pub use client_files::check_client_read_files;
@@ -24,11 +24,11 @@ pub use link::{
     check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
     check_no_p2p_field,
 };
-pub use performance_tuning::{check_cpu_pin_overlap, check_performance_tuning};
+pub use node_kind::check_node_kind_settings;
 pub use provisioner::validate_provisioners;
 pub use ptx_platform::check_ptx_platform;
 pub use tailscale::validate_tailscale;
 pub use talos_cluster::validate_talos_clusters;
 pub use text_files::check_text_file_modes;
-pub use watchdog::check_watchdog;
+pub use vm_tuning::{check_cpu_pin_overlap, check_vm_tuning};
 pub use ztp::check_node_ztp;

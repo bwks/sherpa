@@ -50,7 +50,7 @@ pub async fn update_node_image(
     .context(format!("Failed to read node_image {id:?} for update"))?
     .ok_or_else(|| anyhow!("Node image not found for update: {id:?}"))?;
 
-    check_ztp(stored.model, config.ztp.mode)
+    check_ztp(stored.model, config.ztp.method)
         .context(format!("Refusing to update node_image {id:?}"))?;
     let default = claim_default(&tx, stored.model, &stored.kind, &stored.version, request).await?;
     let config = NodeConfig {

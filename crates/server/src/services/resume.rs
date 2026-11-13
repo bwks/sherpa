@@ -84,7 +84,7 @@ struct ReadinessTarget {
 /// `Running`; one already running is left as it is.
 ///
 /// Cold-booted VMs and unikernels are then polled for readiness like `up` does, using the
-/// lab's saved manifest for `ready_timeout`, `skip_ready_check` and `ready_port`. A node that
+/// lab's saved manifest for `ready_timeout`, `ready_check.skip` and `ready_check.port`. A node that
 /// does not become ready within the timeout is reported in its result message; it is not an
 /// error, as with `up`.
 ///
@@ -343,7 +343,10 @@ fn readiness_check(
     manifest_node: Option<&topology::Node>,
 ) -> Option<ReadinessCheck> {
     let (skip, ready_port) = match manifest_node {
-        Some(node) => (node.skip_ready_check.unwrap_or(false), node.ready_port),
+        Some(node) => (
+            node.ready_check.skip.unwrap_or(false),
+            node.ready_check.port,
+        ),
         None => (false, None),
     };
     if !cold_booted || skip {
@@ -821,7 +824,7 @@ fn container_end(
     let bridges = bridges.map_err(|error| anyhow!("Failed to list the lab's bridges: {error}"))?;
     let manifest_count = manifest
         .and_then(|manifest| manifest.nodes.iter().find(|n| n.name == name))
-        .and_then(|n| n.data_interface_count);
+        .and_then(|n| n.interfaces.data_count);
     let count = effective_data_interface_count(name, manifest_count, image)?;
     let veths = container_veths(
         &ContainerNode {
@@ -944,8 +947,8 @@ mod tests {
 name = "lab"
 ready_timeout = 120
 nodes = [
-  { name = "skip", model = "ubuntu_linux", skip_ready_check = true },
-  { name = "uk", model = "generic_unikernel", ready_port = 8080 },
+  { name = "skip", model = "ubuntu_linux", ready_check = { skip = true } },
+  { name = "uk", model = "generic_unikernel", ready_check = { port = 8080 } },
   { name = "vm", model = "ubuntu_linux" },
 ]
 "#,
@@ -970,7 +973,7 @@ nodes = [
 name = "lab"
 nodes = [
   { name = "talos", model = "talos_linux" },
-  { name = "talos-custom", model = "talos_linux", ready_port = 6443 },
+  { name = "talos-custom", model = "talos_linux", ready_check = { port = 6443 } },
   { name = "vm", model = "ubuntu_linux" },
 ]
 "#,
@@ -995,7 +998,7 @@ nodes = [
             r#"
 name = "lab"
 nodes = [
-  { name = "skip", model = "ubuntu_linux", skip_ready_check = true },
+  { name = "skip", model = "ubuntu_linux", ready_check = { skip = true } },
   { name = "vm", model = "ubuntu_linux" },
   { name = "ct", model = "nokia_srlinux" },
 ]
@@ -1067,7 +1070,7 @@ nodes = [
                 image,
             },
             Some(&manifest(
-                "name = \"l\"\n[[nodes]]\nname = \"ctr1\"\nmodel = \"frr_linux\"\ndata_interface_count = 2\n",
+                "name = \"l\"\n[[nodes]]\nname = \"ctr1\"\nmodel = \"frr_linux\"\n[nodes.interfaces]\ndata_count = 2\n",
             )),
             &linked_lab(),
             Ok(&bridges),

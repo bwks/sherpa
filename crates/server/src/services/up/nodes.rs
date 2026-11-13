@@ -13,9 +13,10 @@ pub(crate) fn process_manifest_nodes(
     // check_device_count caps a lab far below u16::MAX nodes.
     (1..=u16::MAX)
         .zip(manifest_nodes)
-        .map(|(index, node)| topology::NodeExpanded {
-            boot_disk_size: node.boot_disk_size.or(node.model.default_boot_disk_size()),
-            ..topology::NodeExpanded::new(index, node)
+        .map(|(index, node)| {
+            let mut expanded = topology::NodeExpanded::new(index, node);
+            expanded.boot_disk.size = node.boot_disk.size.or(node.model.default_boot_disk_size());
+            expanded
         })
         .collect()
 }
@@ -51,7 +52,7 @@ mod tests {
             ..Default::default()
         }]);
         assert!(
-            serde_json::to_value(expanded[0].boot_disk_clone_method)
+            serde_json::to_value(expanded[0].boot_disk.clone_method)
                 .unwrap()
                 .is_null()
         );
@@ -68,7 +69,10 @@ mod tests {
             topology::Node {
                 name: "talos-big".into(),
                 model: data::NodeModel::TalosLinux,
-                boot_disk_size: Some(50),
+                boot_disk: data::NodeBootDisk {
+                    size: Some(50),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             topology::Node {
@@ -77,9 +81,9 @@ mod tests {
                 ..Default::default()
             },
         ]);
-        assert_eq!(expanded[0].boot_disk_size, Some(20));
-        assert_eq!(expanded[1].boot_disk_size, Some(50));
-        assert_eq!(expanded[2].boot_disk_size, None);
+        assert_eq!(expanded[0].boot_disk.size, Some(20));
+        assert_eq!(expanded[1].boot_disk.size, Some(50));
+        assert_eq!(expanded[2].boot_disk.size, None);
     }
 
     #[test]
@@ -93,13 +97,19 @@ mod tests {
             topology::Node {
                 name: "copy-vm".into(),
                 model: data::NodeModel::UbuntuLinux,
-                boot_disk_clone_method: Some(data::DiskImageCloneMethod::Copy),
+                boot_disk: data::NodeBootDisk {
+                    clone_method: Some(data::DiskImageCloneMethod::Copy),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             topology::Node {
                 name: "overlay-vm".into(),
                 model: data::NodeModel::UbuntuLinux,
-                boot_disk_clone_method: Some(data::DiskImageCloneMethod::Overlay),
+                boot_disk: data::NodeBootDisk {
+                    clone_method: Some(data::DiskImageCloneMethod::Overlay),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             topology::Node {
@@ -115,25 +125,28 @@ mod tests {
             topology::Node {
                 name: "unsupported-overlay".into(),
                 model: data::NodeModel::GenericContainer,
-                boot_disk_clone_method: Some(data::DiskImageCloneMethod::Overlay),
+                boot_disk: data::NodeBootDisk {
+                    clone_method: Some(data::DiskImageCloneMethod::Overlay),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         ];
         let expanded = process_manifest_nodes(&nodes);
-        assert_eq!(expanded[0].boot_disk_clone_method, None);
+        assert_eq!(expanded[0].boot_disk.clone_method, None);
         assert_eq!(
-            expanded[1].boot_disk_clone_method,
+            expanded[1].boot_disk.clone_method,
             Some(data::DiskImageCloneMethod::Copy)
         );
         assert_eq!(
-            expanded[2].boot_disk_clone_method,
+            expanded[2].boot_disk.clone_method,
             Some(data::DiskImageCloneMethod::Overlay)
         );
-        assert_eq!(expanded[3].boot_disk_clone_method, None);
-        assert_eq!(expanded[4].boot_disk_clone_method, None);
+        assert_eq!(expanded[3].boot_disk.clone_method, None);
+        assert_eq!(expanded[4].boot_disk.clone_method, None);
         // Preserve an explicit unsupported request so validation rejects it.
         assert_eq!(
-            expanded[5].boot_disk_clone_method,
+            expanded[5].boot_disk.clone_method,
             Some(data::DiskImageCloneMethod::Overlay)
         );
     }

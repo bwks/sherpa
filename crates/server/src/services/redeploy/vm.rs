@@ -242,7 +242,7 @@ async fn wait_until_ready(redeploy: &Redeploy<'_>) -> Result<()> {
         StatusKind::Waiting,
     );
 
-    let skip_ready = redeploy.target_node.skip_ready_check.unwrap_or(false);
+    let skip_ready = redeploy.target_node.ready_check.skip.unwrap_or(false);
     if skip_ready {
         let _ = progress.send_status(
             format!("Node {node_name} - Ready check skipped"),
@@ -272,7 +272,7 @@ async fn wait_until_ready(redeploy: &Redeploy<'_>) -> Result<()> {
 async fn poll_until_ready(redeploy: &Redeploy<'_>) -> Result<bool> {
     let node_name = redeploy.node_name.as_str();
     let target_node = &redeploy.target_node;
-    let ready_port = node_ops::vm_ready_port(target_node.model, target_node.ready_port);
+    let ready_port = node_ops::vm_ready_port(target_node.model, target_node.ready_check.port);
     let ready_label = node_ops::ready_port_label(ready_port);
     let ip = redeploy.ipv4.to_string();
     let start = Instant::now();

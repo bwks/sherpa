@@ -203,7 +203,7 @@ struct Readiness<'a, 'b> {
 }
 
 impl Readiness<'_, '_> {
-    /// Mark the nodes that are not polled as done: VMs and unikernels with `skip_ready_check`,
+    /// Mark the nodes that are not polled as done: VMs and unikernels with `ready_check.skip`,
     /// and Talos cluster workers, which are checked as Kubernetes nodes once their cluster is
     /// bootstrapped. Skipped containers are handled when they start.
     async fn skip_unpolled_nodes(&mut self, all_nodes: &[&topology::NodeExpanded]) -> Result<()> {
@@ -216,7 +216,7 @@ impl Readiness<'_, '_> {
                 .iter()
                 .any(|container| container.name == node.name);
             if !skips_readiness_before_polling(
-                node.skip_ready_check.unwrap_or(false),
+                node.ready_check.skip.unwrap_or(false),
                 is_container,
                 cluster_worker,
             ) {
@@ -331,6 +331,7 @@ impl Readiness<'_, '_> {
             .get(&container.name)
             .cloned()
             .unwrap_or_default();
+        let settings = container.container.clone().unwrap_or_default();
 
         let is_running = node_ops::start_container_node(
             self.build.docker_conn,
@@ -342,10 +343,10 @@ impl Readiness<'_, '_> {
                 capabilities: node_ops::model_capabilities(container.model),
                 management_network,
                 additional_networks: data_networks,
-                commands: container.commands.clone().unwrap_or_default(),
-                privileged: container.privileged.unwrap_or(false),
-                shm_size: container.shm_size,
-                user: container.user.clone(),
+                commands: settings.commands.unwrap_or_default(),
+                privileged: settings.privileged.unwrap_or(false),
+                shm_size: settings.shm_size,
+                user: settings.user,
             },
             container.model,
             self.build.progress,
@@ -378,7 +379,7 @@ impl Readiness<'_, '_> {
         }
 
         // A skipped container is started once and not waited for.
-        if container.skip_ready_check.unwrap_or(false) {
+        if container.ready_check.skip.unwrap_or(false) {
             tracing::info!(node_name = %container.name, "Container started; ready check skipped");
             let _ = self.build.progress.send_status(
                 format!("Node {} - Ready check skipped", container.name),
@@ -550,7 +551,7 @@ impl Readiness<'_, '_> {
         else {
             return Ok(());
         };
-        let ready_port = node_ops::vm_ready_port(vm.model, vm.ready_port);
+        let ready_port = node_ops::vm_ready_port(vm.model, vm.ready_check.port);
         let ready_label = node_ops::ready_port_label(ready_port);
         match node_ops::check_vm_ready(&record.ipv4_address.to_string(), ready_port).await? {
             VmReadiness::Ready { host_key } => {
@@ -590,7 +591,7 @@ impl Readiness<'_, '_> {
         let ready = node_ops::check_unikernel_ready(
             self.build.qemu_conn,
             &domain_name,
-            unikernel.ready_port,
+            unikernel.ready_check.port,
             mgmt_ip.as_deref(),
         )?;
         if !ready {
@@ -621,7 +622,7 @@ impl Readiness<'_, '_> {
     /// settled: one that exited since is reported here and recorded failed.
     async fn recheck_containers(&mut self) -> Result<()> {
         for container in self.inputs.container_nodes {
-            if container.skip_ready_check.unwrap_or(false) {
+            if container.ready_check.skip.unwrap_or(false) {
                 continue;
             }
             let running = self
@@ -704,7 +705,7 @@ impl Readiness<'_, '_> {
 }
 
 /// Whether a node counts as ready before readiness polling starts: one with
-/// `skip_ready_check`, or a Talos cluster worker, which is checked as a Kubernetes node later.
+/// `ready_check.skip`, or a Talos cluster worker, which is checked as a Kubernetes node later.
 /// Containers are started during polling, so a skipped container is handled when it starts.
 fn skips_readiness_before_polling(
     skip_ready_check: bool,

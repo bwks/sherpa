@@ -86,7 +86,7 @@
                 <!-- CPU Count -->
                 <div>
                     <label for="cpu_count" class="block text-sm font-medium text-body mb-2">CPU Count *</label>
-                    <input type="number" id="cpu_count" name="cpu_count" value="{{ config.compute.cpu_count }}" min="1" max="255" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
+                    <input type="number" id="cpu_count" name="cpu_count" value="{{ config.cpu.count }}" min="1" max="255" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
                     <p class="mt-1 text-xs text-muted">Range: 1-255</p>
                 </div>
 
@@ -113,7 +113,7 @@
                 <!-- Memory -->
                 <div>
                     <label for="memory" class="block text-sm font-medium text-body mb-2">Memory (MB) *</label>
-                    <input type="number" id="memory" name="memory" value="{{ config.compute.memory }}" min="64" max="65535" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
+                    <input type="number" id="memory" name="memory" value="{{ config.memory }}" min="64" max="65535" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
                     <p class="mt-1 text-xs text-muted">Range: 64-65535 MB</p>
                 </div>
 
@@ -139,7 +139,7 @@
 
                 <!-- VMX Enabled -->
                 <div class="flex items-center">
-                    <input type="checkbox" id="vmx_enabled" name="vmx_enabled" {% if config.compute.vmx_enabled %}checked{% endif %} class="h-4 w-4 text-accent focus:ring-accent border-border-strong rounded">
+                    <input type="checkbox" id="vmx_enabled" name="vmx_enabled" {% if config.cpu.vmx %}checked{% endif %} class="h-4 w-4 text-accent focus:ring-accent border-border-strong rounded">
                     <label for="vmx_enabled" class="ml-2 block text-sm font-medium text-body">Enable VMX (Nested Virtualization)</label>
                 </div>
             </div>
@@ -173,7 +173,7 @@
                 <!-- CD-ROM -->
                 <div class="md:col-span-2">
                     <label for="cdrom" class="block text-sm font-medium text-body mb-2">CD-ROM Path</label>
-                    {% match config.disks.cdrom %}
+                    {% match config.cdrom.image %}
                     {% when Some with (cdrom_value) %}
                     <input type="text" id="cdrom" name="cdrom" value="{{ cdrom_value }}" class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
                     {% when None %}

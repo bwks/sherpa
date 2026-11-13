@@ -22,8 +22,8 @@ use shared::validators::{effective_data_interface_count, effective_ztp};
 use topology::validate::{
     check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
-    check_no_p2p_field, check_node_names, check_performance_tuning, check_ptx_platform,
-    check_text_file_modes, check_watchdog, validate_talos_clusters,
+    check_no_p2p_field, check_node_kind_settings, check_node_names, check_ptx_platform,
+    check_text_file_modes, check_vm_tuning, validate_talos_clusters,
 };
 use topology::{process_manifest_bridges, process_manifest_links};
 
@@ -86,6 +86,9 @@ pub(super) async fn plan_lab(
             .context("Manifest validation failed: version/image validation")?;
 
     let nodes_expanded = process_manifest_nodes(&validated_nodes);
+    for node in &nodes_expanded {
+        check_node_kind_settings(node).context("Manifest validation failed: node settings")?;
+    }
     let ImageLeases {
         selected_images,
         image_guards,
@@ -94,10 +97,10 @@ pub(super) async fn plan_lab(
     for node in &nodes_expanded {
         let image = get_node_image(node.model, node.version.as_deref(), &node_images)?;
         validate_disk_method(
-            node.boot_disk_clone_method,
+            node.boot_disk.clone_method,
             &image,
             &config.images_dir,
-            node.boot_disk_size,
+            node.boot_disk.size,
         )
         .with_context(|| format!("Disk provisioning validation failed for node {}", node.name))?;
         validate_node_ztp(
@@ -130,11 +133,8 @@ pub(super) async fn plan_lab(
     )?;
     let manifest_pins: Vec<NodeCpuPins> = nodes_expanded
         .iter()
-        .filter_map(|node| {
-            node.performance_tuning
-                .as_ref()
-                .map(|tuning| NodeCpuPins::of(&node.name, tuning))
-        })
+        .map(|node| NodeCpuPins::of(&node.name, &node.cpu, &node.boot_disk))
+        .filter(|pins| !pins.is_empty())
         .collect();
     check_cpu_pin_overlap(&manifest_pins).context("CPU pinning validation failed")?;
     let images = nodes_expanded
@@ -252,7 +252,7 @@ fn owner_accounts(
                 personal_nodes.push((node.name.clone(), image));
             } else if guest_account::supports_guest_account(
                 image.model,
-                effective_ztp(node.ztp, &image),
+                effective_ztp(node.ztp.method, &image),
             ) {
                 let _ = progress.send_status(
                     format!(
@@ -302,7 +302,7 @@ fn owner_accounts(
     Ok((personal_account, ssh_usernames))
 }
 
-/// Each node's interface bounds, performance tuning, watchdog and platform, against its image.
+/// Each node's interface bounds, VM tuning and platform, against its image.
 fn check_node_limits(
     nodes_expanded: &[topology::NodeExpanded],
     node_images: &[data::NodeConfig],
@@ -314,7 +314,7 @@ fn check_node_limits(
             .context(format!("Node config not found for model: {}", node.model))?;
 
         let data_interface_count =
-            effective_data_interface_count(&node.name, node.data_interface_count, &node_image)
+            effective_data_interface_count(&node.name, node.interfaces.data_count, &node_image)
                 .context(format!(
                     "Data interface count validation failed for node: {}",
                     node.name
@@ -333,12 +333,8 @@ fn check_node_limits(
             node.name
         ))?;
 
-        check_performance_tuning(node, &node_image).context(format!(
-            "Performance tuning validation failed for node: {}",
-            node.name
-        ))?;
-        check_watchdog(node, &node_image).context(format!(
-            "Watchdog validation failed for node: {}",
+        check_vm_tuning(node, &node_image).context(format!(
+            "VM tuning validation failed for node: {}",
             node.name
         ))?;
         check_ptx_platform(node, &node_image).context(format!(

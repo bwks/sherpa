@@ -152,7 +152,7 @@ fn plan_interfaces(
 ) -> Result<Vec<data::InterfaceData>> {
     let mut node_interfaces_detailed: Vec<data::InterfaceData> = vec![];
     let data_interface_count =
-        effective_data_interface_count(&node.name, node.data_interface_count, node_image)?;
+        effective_data_interface_count(&node.name, node.interfaces.data_count, node_image)?;
     let first_data_interface_idx = node_image
         .interfaces
         .reserved_count

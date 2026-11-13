@@ -65,8 +65,9 @@ def environment_node(manifest):
     require(len(nodes) == 1 and nodes[0].get("model") == "ubuntu_linux",
             "Test environments require a single ubuntu_linux node")
     node = nodes[0]
-    for key in ("version", "cpu_count", "boot_disk_size"):
-        require(key in node, f"Test environment node must set {key} explicitly")
+    require("version" in node, "Test environment node must set version explicitly")
+    for group, key in (("cpu", "count"), ("boot_disk", "size")):
+        require(key in node.get(group, {}), f"Test environment node must set {group}.{key} explicitly")
     return node
 
 
@@ -92,8 +93,8 @@ def ssh_options(directory):
 
 def guest_command(node):
     return ["sudo", "-n", *guest_python(f"{GUEST_DIRECTORY}/test_env_guest.py",
-                                        "--version", node["version"], "--cpu-count", str(node["cpu_count"]),
-                                        "--boot-disk-size", str(node["boot_disk_size"]))]
+                                        "--version", node["version"], "--cpu-count", str(node["cpu"]["count"]),
+                                        "--boot-disk-size", str(node["boot_disk"]["size"]))]
 
 
 def check(directory):
@@ -372,7 +373,7 @@ def unsigned_token(exp):
 class HostTests(unittest.TestCase):
     def test_node_requires_single_pinned_ubuntu_node(self):
         node = {"name": "testbox", "model": "ubuntu_linux", "version": "26.04",
-                "cpu_count": 8, "boot_disk_size": 100}
+                "cpu": {"count": 8}, "boot_disk": {"size": 100}}
         self.assertEqual(environment_node({"nodes": [node]}), node)
         for manifest in ({"nodes": []}, {"nodes": [node, node]},
                          {"nodes": [{**node, "model": "devbox_linux"}]},
@@ -489,7 +490,7 @@ class HostTests(unittest.TestCase):
             self.assertIn("[run] second: running it alone", output.getvalue())
 
     def test_guest_command_passes_manifest_expectations(self):
-        node = {"version": "24.04-20260926", "cpu_count": 8, "boot_disk_size": 100}
+        node = {"version": "24.04-20260926", "cpu": {"count": 8}, "boot_disk": {"size": 100}}
         command = guest_command(node)
         self.assertEqual(command[-6:],
                          ["--version", "24.04-20260926", "--cpu-count", "8", "--boot-disk-size", "100"])

@@ -6,19 +6,19 @@ use topology::{NodeExpanded, TalosCluster, find_talos_cluster};
 
 /// Check a node's ZTP before anything is created or torn down, and return the setting it runs
 /// with: the manifest's or else its image's, which its model must take, and which must be able
-/// to use the node's `ztp_config` and, for a Talos cluster member, the machine config Sherpa
+/// to use the node's `ztp.config` and, for a Talos cluster member, the machine config Sherpa
 /// generates for it.
 ///
 /// # Errors
 ///
 /// Fails when the setting is a method the model does not take, when the node sets a
-/// `ztp_config` its setting would not use, and when a Talos cluster member has ZTP off.
+/// `ztp.config` its setting would not use, and when a Talos cluster member has ZTP off.
 pub fn validate_node_ztp(
     node: &NodeExpanded,
     image: &NodeConfig,
     talos_clusters: &[TalosCluster],
 ) -> Result<Ztp> {
-    let ztp = effective_ztp(node.ztp, image);
+    let ztp = effective_ztp(node.ztp.method, image);
     check_ztp(node.model, ztp)
         .with_context(|| format!("ZTP validation failed for node: {}", node.name))?;
     if let Some((cluster, _)) = find_talos_cluster(talos_clusters, &node.name)
@@ -31,26 +31,26 @@ pub fn validate_node_ztp(
             cluster.name
         );
     }
-    if node.ztp_config.is_some() {
+    if node.ztp.config.is_some() {
         check_ztp_config_is_used(&node.name, node.model, ztp)?;
     }
     Ok(ztp)
 }
 
-/// Whether a node's own `ztp_config` is used with its ZTP setting. The methods that deliver a
+/// Whether a node's own `ztp.config` is used with its ZTP setting. The methods that deliver a
 /// config file take it in place of the generated one. Cloud-init, Ignition and the HTTP
 /// config of `sonic_linux` are built from the manifest's other fields, and with ZTP off nothing delivers it;
-/// the one exception is Vault, whose `ztp_config` is its own `config.hcl`, a start setting.
+/// the one exception is Vault, whose `ztp.config` is its own `config.hcl`, a start setting.
 fn check_ztp_config_is_used(node_name: &str, model: NodeModel, ztp: Ztp) -> Result<()> {
     match ztp {
         Ztp::Tftp | Ztp::Cdrom | Ztp::Disk | Ztp::Usb | Ztp::NoCloud | Ztp::Volume => Ok(()),
         Ztp::Disabled if model == NodeModel::HashicorpVault => Ok(()),
         Ztp::Disabled => bail!(
-            "Node '{node_name}' sets ztp_config, but its ZTP is disabled, so the config would \
+            "Node '{node_name}' sets ztp.config, but its ZTP is disabled, so the config would \
              not be used"
         ),
         Ztp::CloudInit | Ztp::Ignition | Ztp::Http => bail!(
-            "Node '{node_name}' sets ztp_config, which ZTP method '{ztp}' does not use. Only \
+            "Node '{node_name}' sets ztp.config, which ZTP method '{ztp}' does not use. Only \
              tftp, cdrom, disk, usb, nocloud and volume take a custom ZTP config"
         ),
     }
@@ -59,13 +59,16 @@ fn check_ztp_config_is_used(node_name: &str, model: NodeModel, ztp: Ztp) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use topology::NodeZtp;
 
     fn node(model: NodeModel, ztp: Option<Ztp>, ztp_config: Option<&str>) -> NodeExpanded {
         NodeExpanded {
             name: "node1".to_owned(),
             model,
-            ztp,
-            ztp_config: ztp_config.map(str::to_owned),
+            ztp: NodeZtp {
+                method: ztp,
+                config: ztp_config.map(str::to_owned),
+            },
             ..NodeExpanded::default()
         }
     }
@@ -103,7 +106,7 @@ mod tests {
 
         // An image whose stored setting its model does not take, however it got there.
         let mut image = NodeConfig::get_model(NodeModel::UbuntuLinux);
-        image.ztp.mode = Ztp::Volume;
+        image.ztp.method = Ztp::Volume;
         let error =
             validate_node_ztp(&node(NodeModel::UbuntuLinux, None, None), &image, &[]).unwrap_err();
         assert!(format!("{error:#}").contains("allows: disabled, cloud-init"));

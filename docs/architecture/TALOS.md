@@ -11,9 +11,9 @@ SATA CD-ROM, `host-model` CPU (Talos needs x86-64-v2).
 
 - **Disk.** `NodeModel::default_boot_disk_size()` returns 20 GB for Talos; the NoCloud image is
   about 4 GB virtual and Talos needs at least 10. `process_manifest_nodes` (`up/nodes.rs`) applies it
-  when the manifest sets no `boot_disk_size`.
+  when the manifest sets no `boot_disk.size`.
 - **Readiness.** `NodeModel::ready_port()` returns the Talos API port (50000); every other VM
-  model returns SSH (22). `node_ops::vm_ready_port` prefers a manifest `ready_port`. `up`,
+  model returns SSH (22). `node_ops::vm_ready_port` prefers a manifest `ready_check.port`. `up`,
   `resume` and `redeploy` all probe this port with `node_ops::check_vm_ready`: a TCP connection
   for the Talos API, an SSH handshake for SSH.
 - **No SSH.** `NodeModel::has_ssh()` is false. `ZtpRecord::ssh_port` is `None` for such nodes,
@@ -33,8 +33,8 @@ SATA CD-ROM, `host-model` CPU (Talos needs x86-64-v2).
 - `user-data`: the node's machine config, written byte for byte, when there is one. Without
   it any earlier `user-data` is removed and Talos waits in maintenance mode.
 
-The machine config comes from the node's `ztp_config`: the user's file, or the config Sherpa
-generates for cluster nodes (validation forbids users setting `ztp_config` on those).
+The machine config comes from the node's `ztp.config`: the user's file, or the config Sherpa
+generates for cluster nodes (validation forbids users setting `ztp.config` on those).
 
 ## Clusters
 
@@ -46,8 +46,8 @@ read secrets from (`vault`). Nodes carry no cluster
 fields; `topology::find_talos_cluster` looks up a node's cluster and role (`ClusterRole`, which
 keeps the Talos term `ControlPlane` internally). `topology::validate::validate_talos_clusters` enforces the
 rules (names, one or three controllers, members are defined `talos_linux` nodes listed once
-without a user `ztp_config`, VIP capacity, load balancer capacity for Cilium clusters, `oidc` and
-`vault` naming nodes of the right model, and a `vault` node without its own `ztp_config`). Two controllers are refused: etcd needs a majority,
+without a user `ztp.config`, VIP capacity, load balancer capacity for Cilium clusters, `oidc` and
+`vault` naming nodes of the right model, and a `vault` node without its own `ztp.config`). Two controllers are refused: etcd needs a majority,
 so two members tolerate no failure and are less available than one.
 
 ```mermaid
@@ -57,7 +57,7 @@ flowchart LR
         plan["plan_clusters<br/>(endpoint / VIP / load balancer block)"]
         secrets["generate_cluster_secrets"]
         machine["node_machine_config per node"]
-        ztp["node.ztp_config"]
+        ztp["node.ztp.config"]
         iso["NoCloud ISO"]
         plan --> secrets --> machine --> ztp --> iso
     end

@@ -86,13 +86,14 @@ pub use link_report::{LinkReport, LinkState};
 pub use mapping::{CloneDisk, NodeDisk, QemuCommand};
 pub use network::{BridgeKind, LabSubnets, NetworkV4, NetworkV6, SherpaNetwork};
 pub use node::{
-    BiosTypes, ComputeSettings, CpuArchitecture, DiskSettings, InterfaceSettings, InterfaceType,
-    MachineType, NodeConfig, NodeKind, NodeModel, NodeState, OsVariant, UnikernelBootMode, Ztp,
-    ZtpSettings,
+    BiosTypes, BootDiskSettings, CdromSettings, CpuArchitecture, CpuSettings, InterfaceSettings,
+    InterfaceType, MachineSettings, MachineType, NodeConfig, NodeKind, NodeModel, NodeState,
+    OsVariant, UnikernelBootMode, UnikernelSettings, Ztp, ZtpSettings,
 };
 pub use node_lifecycle::{Halt, Observation, OperationEvent, Probe, Refused, Runtime};
 pub use performance::{
-    CpuMode, CpuTopology, DiskCache, DiskIo, NodeCpuPins, NumaMemoryMode, PerformanceTuning, cpuset,
+    CpuMode, CpuTopology, DiskCache, DiskIo, NodeBootDisk, NodeCpu, NodeCpuPins, NodeInterfaces,
+    NodeNuma, NumaMemoryMode, cpuset,
 };
 pub use provider::VmProviders;
 pub use provision::{ProvisionResult, ProvisionStatus};

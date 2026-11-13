@@ -122,7 +122,7 @@ pub fn check_link_impairments(links: &[Link2]) -> Result<()> {
 /// Interfaces defined in connections should not be:
 /// - the management interface, index 0 on every model
 /// - reserved interfaces
-/// - greater than the maximum interface index calculated from `data_interface_count`
+/// - greater than the maximum interface index calculated from `interfaces.data_count`
 ///
 /// # Errors
 ///

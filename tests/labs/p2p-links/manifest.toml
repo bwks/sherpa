@@ -8,20 +8,26 @@ name = "p2p-links"
 name = "u1"
 model = "ubuntu_linux"
 version = "24.04"
-data_interface_count = 2
+
+[nodes.interfaces]
+data_count = 2
 
 [[nodes]]
 name = "u2"
 model = "ubuntu_linux"
 version = "24.04"
-data_interface_count = 1
+
+[nodes.interfaces]
+data_count = 1
 
 [[nodes]]
 name = "c1"
 model = "generic_container"
 image = "alpine"
 version = "3.22"
-data_interface_count = 2
+
+[nodes.interfaces]
+data_count = 2
 
 [[nodes]]
 name = "c2"

@@ -6,7 +6,7 @@
 """End-to-end test of the ZTP setting on container nodes through the sherpa CLI (Python 3.15+, stdlib only).
 
 Brings up each container model whose config Sherpa mounts (cEOS, SR Linux, cJunosEvolved, FRR)
-twice, with its image's ZTP setting and with `ztp = "disabled"`, plus an application container.
+twice, with its image's ZTP setting and with `ztp.method = "disabled"`, plus an application container.
 Checks a node with ZTP on has Sherpa's config mounts and takes an SSH login as `sherpa`, and a
 node with ZTP off is running with no such mount and no `sherpa` login, for the reason its model
 has (SR Linux: no management address; FRR: no SSH server): after `sherpa up`, and after
@@ -139,6 +139,8 @@ def value_toml(value):
         return str(value)
     if isinstance(value, str):
         return json.dumps(value)
+    if isinstance(value, dict):
+        return "{ " + ", ".join(f"{key} = {value_toml(item)}" for key, item in value.items()) + " }"
     raise TypeError(f"Unsupported TOML value: {value!r}")
 
 
@@ -163,7 +165,7 @@ def select_nodes(manifest, models):
 
 
 def ztp_is_off(node):
-    return node.get("ztp") == DISABLED
+    return node.get("ztp", {}).get("method") == DISABLED
 
 
 def mount_problems(node, mounts):
@@ -204,7 +206,7 @@ def redeployed_nodes(nodes):
 def refused_manifest(nodes, name):
     """A manifest whose first mounted-config node asks for a method its model does not take."""
     node = next(node for node in nodes if node["model"] in ZTP_MOUNTS)
-    return render_manifest([{**node, "ztp": REFUSED_METHOD}], name), node["name"]
+    return render_manifest([{**node, "ztp": {"method": REFUSED_METHOD}}], name), node["name"]
 
 
 class LabRun:
@@ -281,7 +283,7 @@ class LabRun:
         (directory / "manifest.toml").write_text(manifest)
         outcome = self.sherpa("sherpa validate (unsupported method)", ["validate"], check=False,
                               cwd=directory)
-        require(outcome.code != 0, f"sherpa validate accepted ztp = {REFUSED_METHOD!r} on {node}")
+        require(outcome.code != 0, f"sherpa validate accepted ztp.method = {REFUSED_METHOD!r} on {node}")
         require(node in outcome.output and "allows: disabled, volume" in outcome.output,
                 f"sherpa validate did not say why {node} was refused: {outcome.output.strip()}")
         self.sherpa("sherpa validate", ["validate"])
@@ -505,7 +507,7 @@ class SelfTest(unittest.TestCase):
 
     def test_mounts_are_required_with_ztp_on_and_forbidden_with_it_off(self):
         on = {"name": "frr01", "model": "frr_linux"}
-        off = {"name": "frr02", "model": "frr_linux", "ztp": DISABLED}
+        off = {"name": "frr02", "model": "frr_linux", "ztp": {"method": DISABLED}}
         mounts = list(ZTP_MOUNTS["frr_linux"])
         self.assertEqual(mount_problems(on, mounts), [])
         self.assertEqual(mount_problems(off, ["/etc/own.conf"]), [])
@@ -525,7 +527,7 @@ class SelfTest(unittest.TestCase):
         parsed = tomllib.loads(manifest)
         self.assertEqual(node, "ceos01")
         self.assertEqual(parsed["nodes"], [{"name": "ceos01", "model": "arista_ceos",
-                                            "version": "4.35.1F", "ztp": REFUSED_METHOD}])
+                                            "version": "4.35.1F", "ztp": {"method": REFUSED_METHOD}}])
 
     def test_ssh_refusals_are_read_from_its_message(self):
         self.assertEqual(ssh_refusal("channel 0: open failed: connect failed: No route to host\n"),

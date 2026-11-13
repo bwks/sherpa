@@ -310,7 +310,7 @@ impl Configuring<'_, '_> {
         // Cluster nodes get a generated machine config (validation forbids their own).
         if let Some((cluster, _)) = find_talos_cluster(self.inputs.talos_clusters, &node.name) {
             let cluster = talos::find_cluster(lab_clusters, &cluster.name)?;
-            node.ztp_config = Some(talos::node_machine_config(
+            node.ztp.config = Some(talos::node_machine_config(
                 cluster,
                 &node.name,
                 &self.inputs.mgmt_net.v4,
@@ -450,12 +450,12 @@ impl Configuring<'_, '_> {
     }
 }
 
-/// Replace the client's base64 `ztp_config` on `node` with the config itself.
+/// Replace the client's base64 `ztp.config` on `node` with the config itself.
 fn decode_ztp_config(node: &mut topology::NodeExpanded) -> Result<()> {
-    if let Some(encoded) = &node.ztp_config {
+    if let Some(encoded) = &node.ztp.config {
         let decoded = util::base64_decode(encoded)
-            .with_context(|| format!("Failed to decode ztp_config for node '{}'", node.name))?;
-        node.ztp_config = Some(decoded);
+            .with_context(|| format!("Failed to decode ztp.config for node '{}'", node.name))?;
+        node.ztp.config = Some(decoded);
     }
     Ok(())
 }

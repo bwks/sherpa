@@ -68,7 +68,7 @@ before the lab CA.
 The generated Vault config (`template/templates/vault/vault_config.jinja`) serves the API on
 8200 over TLS with the node's certificate and advertises `https://<management address>:8200`.
 In the container, `VAULT_ADDR` is that address and `VAULT_CACERT` the mounted CA
-(`node_ops::vault_env_vars`). A node with its own `ztp_config` keeps the old plain HTTP
+(`node_ops::vault_env_vars`). A node with its own `ztp.config` keeps the old plain HTTP
 environment, and Sherpa does not initialise it (`vault::sherpa_initialises_vault`).
 
 `vault::ensure_vault_unsealed` runs after node readiness in `up`, and after a Vault node is

@@ -128,9 +128,16 @@ map by its first column, its id.
   `ssh_keys` and `cpu_pinning` are JSON text. Timestamps are RFC 3339 text from `jiff`, which keeps
   nanoseconds. Booleans are `0` and `1`. A link's impairments are flattened into `a_to_b_*` and
   `b_to_a_*` columns, and a bridge's members are rows of `bridge_member`, ordered by `position`.
-  A node image's settings groups (`NodeConfig.compute`, `.disks`, `.ztp` and `.interfaces`) are
-  flat `node_image` columns under the names the image API's JSON uses, such as `cpu_count` and
-  `interface_mtu` for `compute.cpu_count` and `interfaces.mtu`.
+  A node image's settings groups (`NodeConfig.cpu`, `.machine`, `.boot_disk`, `.cdrom`,
+  `.interfaces`, `.ztp` and `.unikernel`) are flat `node_image` columns, mapped by hand in
+  `db::persistence`: `cpu.count` is `cpu_count`, `machine.kind` is `machine_type`,
+  `boot_disk.bus` is `hdd_bus`, `cdrom.image` and `cdrom.bus` are `cdrom` and `cdrom_bus`,
+  `interfaces.mtu` is `interface_mtu`, `ztp.method` is `ztp` and `unikernel.boot_mode` is
+  `boot_mode` (`NULL` for a node that is not a unikernel). The image JSON nests by group; the
+  columns kept their flat names, so grouping needed no migration. `node_image_from_row` reads
+  every column into a local in column order and then builds the groups, because `Cells` reads
+  positionally and the groups are not in column order. `test_every_model_image_reads_back_as_written`
+  writes every model's built-in image and checks it reads back as the same JSON.
   Impairment percentages are `f64` in `LinkImpairment`, the width of a `REAL`, so they read back
   exactly as written. `Cells::percent` refuses a value outside 0 to 100, which includes `NaN` and
   infinity, naming the field: netem would otherwise clamp it silently.
