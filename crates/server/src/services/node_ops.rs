@@ -27,13 +27,15 @@ use shared::data;
 use shared::data::StatusKind;
 use shared::konst::{
     ARISTA_ABOOT_DIR, ARISTA_CEOS_STARTUP_CONFIG, ARISTA_CEOS_ZTP_VOLUME_MOUNT,
-    CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG,
+    CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG, CISCO_IOL_CONFIG_DIR, CISCO_IOL_MAX_APP_ID,
+    CISCO_IOL_RUN_DIR, CISCO_IOL_STARTUP_CONFIG, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG,
     CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG, CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA,
     CLOUD_INIT_NETWORK_CONFIG, CLOUD_INIT_USER_DATA, CONTAINER_ARISTA_CEOS_COMMANDS,
-    CONTAINER_ARISTA_CEOS_ENV_VARS, CONTAINER_DISK_NAME, CONTAINER_FORGEJO_COMMANDS,
-    CONTAINER_FRR_ENV_VARS, CONTAINER_GITLAB_CE_COMMANDS, CONTAINER_GITLAB_CE_SHM_SIZE,
-    CONTAINER_HASHICORP_VAULT_CAPABILITIES, CONTAINER_HASHICORP_VAULT_COMMANDS,
-    CONTAINER_HASHICORP_VAULT_ENV_VARS, CONTAINER_KEYCLOAK_COMMANDS, CONTAINER_KEYCLOAK_USER,
+    CONTAINER_ARISTA_CEOS_ENV_VARS, CONTAINER_CISCO_IOL_CAPABILITIES, CONTAINER_DISK_NAME,
+    CONTAINER_FORGEJO_COMMANDS, CONTAINER_FRR_ENV_VARS, CONTAINER_GITLAB_CE_COMMANDS,
+    CONTAINER_GITLAB_CE_SHM_SIZE, CONTAINER_HASHICORP_VAULT_CAPABILITIES,
+    CONTAINER_HASHICORP_VAULT_COMMANDS, CONTAINER_HASHICORP_VAULT_ENV_VARS,
+    CONTAINER_KEYCLOAK_COMMANDS, CONTAINER_KEYCLOAK_USER, CONTAINER_MGMT_INTERFACE,
     CONTAINER_MONGO_DB_COMMANDS, CONTAINER_NATS_COMMANDS, CONTAINER_NOKIA_SRLINUX_COMMANDS,
     CONTAINER_NOKIA_SRLINUX_ENV_VARS, CONTAINER_NOKIA_SRLINUX_USER, CONTAINER_SURREAL_DB_COMMANDS,
     CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT, FRR_ZTP_DAEMONS_MOUNT, FRR_ZTP_STARTUP_MOUNT,
@@ -380,6 +382,10 @@ pub fn model_capabilities(model: data::NodeModel) -> Vec<String> {
             .iter()
             .map(std::string::ToString::to_string)
             .collect(),
+        data::NodeModel::CiscoIol | data::NodeModel::CiscoIolL2 => CONTAINER_CISCO_IOL_CAPABILITIES
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect(),
         _ => Vec::new(),
     }
 }
@@ -499,6 +505,9 @@ fn container_start_settings(
         data::NodeModel::AristaCeos => arista_ceos_start(node, setup),
         data::NodeModel::NokiaSrlinux => srlinux_start(node, setup),
         data::NodeModel::JuniperCevolved => cevolved_start(node, node_image, setup)?,
+        data::NodeModel::CiscoIol | data::NodeModel::CiscoIolL2 => {
+            iol_start(node, node_image, ztp, setup)?;
+        }
         data::NodeModel::FrrLinux => frr_start(node, setup),
         data::NodeModel::GitlabCe => {
             app_container(node, setup, CONTAINER_GITLAB_CE_COMMANDS);
@@ -533,6 +542,9 @@ fn container_volume_ztp(
         data::NodeModel::AristaCeos => arista_ceos_volume_ztp(node, ztp, setup),
         data::NodeModel::NokiaSrlinux => srlinux_volume_ztp(node, ztp, setup),
         data::NodeModel::JuniperCevolved => cevolved_volume_ztp(node, node_image, ztp, setup),
+        data::NodeModel::CiscoIol | data::NodeModel::CiscoIolL2 => {
+            iol_volume_ztp(node, node_image, ztp, setup)
+        }
         data::NodeModel::FrrLinux => frr_volume_ztp(node, ztp, setup),
         model => bail!(
             "ZTP setting 'volume' of container node '{}' was not validated: Sherpa generates \
@@ -542,9 +554,10 @@ fn container_volume_ztp(
     }
 }
 
-/// The manifest's mounts and the node certificate mounts. The manifest's are dropped for a
-/// node whose config Sherpa mounts (`volume`), and for Vault, GitLab CE and `SurrealDB`. A node
-/// with ZTP off keeps them: they are how its user mounts a config of their own.
+/// The manifest's mounts and the node certificate mounts, after the mounts its model's setup
+/// added. The manifest's are dropped for a node whose config Sherpa mounts (`volume`), and for
+/// Vault, GitLab CE and `SurrealDB`. A node with ZTP off keeps them: they are how its user
+/// mounts a config of their own.
 fn add_container_volumes(
     node: &topology::NodeExpanded,
     setting: data::Ztp,
@@ -564,10 +577,7 @@ fn add_container_volumes(
         .and_then(|container| container.volumes.as_ref())
         && !drops_manifest_volumes
     {
-        *volumes = node_volumes
-            .iter()
-            .map(|v| format!("{}:{}", v.src, v.dst))
-            .collect();
+        volumes.extend(node_volumes.iter().map(|v| format!("{}:{}", v.src, v.dst)));
     }
     // Add TLS certificate volume mounts if cert paths are provided
     if let Some(certs) = cert_paths {
@@ -782,6 +792,106 @@ fn cevolved_volume_ztp(
 
     setup.volumes = vec![format!("{}:{}:ro", config_volume.src, config_volume.dst)];
     node.container.get_or_insert_default().volumes = Some(vec![config_volume]);
+    Ok(())
+}
+
+/// IOL start settings: not privileged, `NET_ADMIN`, the launcher's settings in the environment
+/// the image's entrypoint writes its config from, and IOL's NVRAM directory in the node's
+/// folder, so a config saved with `write memory` survives a cold boot. A redeploy makes the
+/// folder again, which clears it.
+fn iol_start(
+    node: &mut topology::NodeExpanded,
+    node_image: &data::NodeConfig,
+    ztp: &ContainerZtp<'_>,
+    setup: &mut ContainerSetup,
+) -> Result<()> {
+    let data_interfaces =
+        effective_data_interface_count(&node.name, node.interfaces.data_count, node_image)?;
+    setup.env_vars = vec![
+        format!("IOL_ID={}", iol_app_id(&node.name, node.index)?),
+        format!("IOL_MEMORY_MB={}", node.memory.unwrap_or(node_image.memory)),
+        format!("IOL_ETH_PORTS={}", u16::from(data_interfaces) + 1),
+    ];
+    setup.capabilities = model_capabilities(node.model);
+
+    let run_dir = format!("{}/run", ztp.dir);
+    util::create_dir(&run_dir)?;
+    setup.volumes.push(format!("{run_dir}:{CISCO_IOL_RUN_DIR}"));
+
+    node.environment_variables = Some(setup.env_vars.clone());
+    Ok(())
+}
+
+/// The IOL application ID of the node `node_name`, the `index`th of its lab: its index, unique
+/// in the lab. IOL derives its MAC addresses from the ID, so two IOL nodes with the same one
+/// cannot talk.
+pub(crate) fn iol_app_id(node_name: &str, index: u16) -> Result<u16> {
+    if (1..=CISCO_IOL_MAX_APP_ID).contains(&index) {
+        Ok(index)
+    } else {
+        bail!(
+            "IOL node '{node_name}' is node {index} of its lab; an IOL node must be one of the \
+             first {CISCO_IOL_MAX_APP_ID}, as its application ID is its place in the lab"
+        )
+    }
+}
+
+/// IOL ZTP: its startup config in a mounted config directory, which the launcher copies into
+/// IOL's NVRAM directory at each start. A config saved in NVRAM wins over it.
+fn iol_volume_ztp(
+    node: &mut topology::NodeExpanded,
+    node_image: &data::NodeConfig,
+    ztp: &ContainerZtp<'_>,
+    setup: &mut ContainerSetup,
+) -> Result<()> {
+    let ContainerZtp {
+        dir,
+        custom_ztp,
+        sherpa_user,
+        guest_account,
+        dns,
+        mgmt_net,
+        node_ipv4_address,
+        ..
+    } = *ztp;
+    let rendered_template = if let Some(config) = custom_ztp {
+        config.to_owned()
+    } else {
+        let mut user = sherpa_user.clone();
+        user.ssh_public_key.key = util::pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
+        template::CiscoIolZtpTemplate {
+            hostname: node.name.clone(),
+            user,
+            owner: guest_account::owner_user(guest_account, KeyFormat::CiscoMd5)?,
+            mgmt_interface: node_image.interfaces.management.to_string(),
+            dns: dns.clone(),
+            mgmt_ipv4: mgmt_net.v4.clone(),
+            mgmt_ipv4_address: node_ipv4_address,
+            mgmt_ipv6_address: node.ipv6_address,
+            mgmt_ipv6: mgmt_net.v6.clone(),
+            switch: node.model == data::NodeModel::CiscoIolL2,
+        }
+        .render()?
+    };
+    let config_dir = format!("{dir}/config");
+    let config_volume = topology::VolumeMount {
+        src: config_dir.clone(),
+        dst: CISCO_IOL_CONFIG_DIR.to_string(),
+    };
+    util::create_dir(&config_dir)?;
+    util::create_file(
+        &format!("{config_dir}/{CISCO_IOL_STARTUP_CONFIG}"),
+        rendered_template,
+    )?;
+
+    setup
+        .volumes
+        .push(format!("{}:{}:ro", config_volume.src, config_volume.dst));
+    let run_volume = topology::VolumeMount {
+        src: format!("{dir}/run"),
+        dst: CISCO_IOL_RUN_DIR.to_string(),
+    };
+    node.container.get_or_insert_default().volumes = Some(vec![run_volume, config_volume]);
     Ok(())
 }
 
@@ -3533,6 +3643,7 @@ pub async fn start_container_node(
     if !is_running {
         return Ok(false);
     }
+    finish_management_checksums(docker, &container_name, model).await?;
 
     // SR Linux: flush default namespace IP to avoid DUP pings
     if model == data::NodeModel::NokiaSrlinux {
@@ -3547,6 +3658,30 @@ pub async fn start_container_node(
     let _ = progress.send_status(format!("Node {container_name} - Started"), StatusKind::Done);
 
     Ok(true)
+}
+
+/// Turn transmit checksum offload off on the host end of a started container's management
+/// veth, for a model whose container needs finished checksums. Docker makes the veth again at
+/// every start of the container, so this follows every start.
+#[instrument(skip(docker), level = "debug")]
+pub(crate) async fn finish_management_checksums(
+    docker: &bollard::Docker,
+    container_name: &str,
+    model: data::NodeModel,
+) -> Result<()> {
+    if !model.needs_host_checksums() {
+        return Ok(());
+    }
+    let pid = container::get_container_pid(docker, container_name).await?;
+    let ifindex = network::container_veth_peer_ifindex(pid, CONTAINER_MGMT_INTERFACE).await?;
+    network::disable_tx_checksum_offload(ifindex).with_context(|| {
+        format!(
+            "Failed to turn transmit checksum offload off on the management veth of \
+             {container_name}"
+        )
+    })?;
+    tracing::info!(%container_name, ifindex, "Management veth checksum offload off");
+    Ok(())
 }
 
 // ============================================================================
@@ -5343,6 +5478,186 @@ mod tests {
         assert!(off.privileged);
     }
 
+    const IOL_MODELS: [data::NodeModel; 2] =
+        [data::NodeModel::CiscoIol, data::NodeModel::CiscoIolL2];
+
+    /// An RSA public key, which IOS takes as an MD5 `key-hash`.
+    const IOL_TEST_RSA_KEY: &str = "AAAAB3NzaC1yc2EAAAADAQABAAAAgQDGEYEVRGlFrL++QeLlNvvFXeyzaAz9rlYEQIgvCRNqCDvYz/6dHMa8PSnaDTq45TBaIpFvaq7VExU80ny8zLzg94fVrTS3PvJkYvc8cMo5Dr7jX3x6OUGbCSDLKjFklhN4CUGFxB7oSB/5u2XdLViODw3XE2mjg0IcrkFGyFWlWw==";
+
+    /// A lab whose Sherpa user has an RSA key, as IOS needs.
+    fn iol_lab() -> ZtpLab {
+        let mut lab = ZtpLab::new();
+        lab.user.ssh_public_key = data::SshPublicKey {
+            algorithm: data::SshKeyAlgorithms::SshRsa,
+            key: IOL_TEST_RSA_KEY.to_owned(),
+            comment: None,
+        };
+        lab
+    }
+
+    /// An IOL node, the `index`th node of its lab.
+    fn iol_node(name: &str, model: data::NodeModel, index: u16) -> topology::NodeExpanded {
+        topology::NodeExpanded {
+            index,
+            ..named_node(name, model)
+        }
+    }
+
+    #[test]
+    fn iol_with_volume_ztp_mounts_its_config_directory_and_its_nvram() {
+        for model in IOL_MODELS {
+            let lab = iol_lab();
+            let mut node = iol_node("r1", model, 3);
+
+            let result = lab.container(&mut node, None).unwrap();
+
+            let dir = format!("{}/r1", lab.root());
+            assert_eq!(result.ztp_record.ztp, data::Ztp::Volume, "{model}");
+            assert_eq!(
+                lab.files(),
+                [format!("r1/config/{CISCO_IOL_STARTUP_CONFIG}")],
+                "{model}"
+            );
+            assert_eq!(
+                result.volumes,
+                [
+                    format!("{dir}/run:{CISCO_IOL_RUN_DIR}"),
+                    format!("{dir}/config:{CISCO_IOL_CONFIG_DIR}:ro"),
+                ],
+                "{model}"
+            );
+            assert!(Path::new(&format!("{dir}/run")).is_dir(), "{model}");
+            let config =
+                fs::read_to_string(format!("{dir}/config/{CISCO_IOL_STARTUP_CONFIG}")).unwrap();
+            assert!(config.contains("hostname r1\n"), "{model}");
+            assert!(
+                config.contains("interface Ethernet0/0\n description management\n"),
+                "{model}"
+            );
+            assert!(config.contains(" ip address 192.0.2.10 "), "{model}");
+            assert_eq!(
+                config.contains("no switchport"),
+                model == data::NodeModel::CiscoIolL2,
+                "{model}"
+            );
+        }
+    }
+
+    #[test]
+    fn iol_runs_unprivileged_with_net_admin_and_its_launcher_settings() {
+        for model in IOL_MODELS {
+            let lab = iol_lab();
+            let mut node = iol_node("r1", model, 3);
+
+            let result = lab.container(&mut node, None).unwrap();
+
+            assert!(!result.privileged, "{model}");
+            assert_eq!(result.capabilities, ["NET_ADMIN"], "{model}");
+            assert_eq!(
+                result.env_vars,
+                ["IOL_ID=3", "IOL_MEMORY_MB=768", "IOL_ETH_PORTS=16"],
+                "{model}"
+            );
+            assert!(result.commands.is_empty(), "{model}: {:?}", result.commands);
+            assert_eq!(node.environment_variables, Some(result.env_vars), "{model}");
+        }
+    }
+
+    #[test]
+    fn iol_takes_the_manifest_memory_and_data_interface_count() {
+        let lab = iol_lab();
+        let mut node = iol_node("r1", data::NodeModel::CiscoIol, 1);
+        node.memory = Some(1024);
+        node.interfaces.data_count = Some(5);
+
+        let result = lab.container(&mut node, None).unwrap();
+
+        assert_eq!(
+            result.env_vars,
+            ["IOL_ID=1", "IOL_MEMORY_MB=1024", "IOL_ETH_PORTS=6"]
+        );
+    }
+
+    #[test]
+    fn iol_with_ztp_off_boots_without_a_config_but_keeps_its_nvram_and_the_manifest_mounts() {
+        let lab = iol_lab();
+        let mut node = iol_node("r1", data::NodeModel::CiscoIol, 2);
+        node.container.get_or_insert_default().volumes = Some(manifest_volume());
+
+        let result = lab.container(&mut node, Some(data::Ztp::Disabled)).unwrap();
+
+        assert_eq!(result.ztp_record.ztp, data::Ztp::Disabled);
+        assert!(lab.files().is_empty(), "{:?}", lab.files());
+        assert_eq!(
+            result.volumes,
+            [
+                format!("{}/r1/run:{CISCO_IOL_RUN_DIR}", lab.root()),
+                "/srv/own.conf:/etc/own.conf".to_owned(),
+            ]
+        );
+        assert_eq!(
+            result.env_vars,
+            ["IOL_ID=2", "IOL_MEMORY_MB=768", "IOL_ETH_PORTS=16"]
+        );
+    }
+
+    #[test]
+    fn iol_with_a_custom_config_writes_it_as_the_startup_config() {
+        let lab = iol_lab();
+        let mut node = iol_node("r1", data::NodeModel::CiscoIol, 1);
+        node.ztp.config = Some("hostname custom\nend\n".to_owned());
+
+        lab.container(&mut node, None).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(format!(
+                "{}/r1/config/{CISCO_IOL_STARTUP_CONFIG}",
+                lab.root()
+            ))
+            .unwrap(),
+            "hostname custom\nend\n"
+        );
+    }
+
+    #[test]
+    fn iol_application_ids_are_the_node_index_from_1_to_999() {
+        assert_eq!(iol_app_id("r1", 1).unwrap(), 1);
+        assert_eq!(iol_app_id("r1", 999).unwrap(), 999);
+        for index in [0, 1000, u16::MAX] {
+            let error = iol_app_id("r1", index).unwrap_err().to_string();
+            assert!(error.contains("r1"), "{error}");
+            assert!(error.contains("999"), "{error}");
+        }
+    }
+
+    #[test]
+    fn iol_application_ids_of_the_nodes_of_a_lab_are_unique() {
+        let ids: HashSet<u16> = (1..=999)
+            .map(|index| iol_app_id("r", index).unwrap())
+            .collect();
+        assert_eq!(ids.len(), 999);
+    }
+
+    #[test]
+    fn an_iol_node_past_the_999th_is_refused() {
+        let lab = iol_lab();
+        let mut node = iol_node("r1000", data::NodeModel::CiscoIol, 1000);
+        let error = lab.container(&mut node, None).err().unwrap().to_string();
+        assert!(error.contains("r1000"), "{error}");
+    }
+
+    #[test]
+    fn iol_is_the_only_network_os_container_given_net_admin() {
+        assert_eq!(model_capabilities(data::NodeModel::CiscoIol), ["NET_ADMIN"]);
+        assert_eq!(
+            model_capabilities(data::NodeModel::CiscoIolL2),
+            ["NET_ADMIN"]
+        );
+        for model in MOUNTED_CONFIG_MODELS {
+            assert!(model_capabilities(model).is_empty(), "{model}");
+        }
+    }
+
     #[test]
     fn a_container_refuses_a_method_that_is_not_volume() {
         for model in MOUNTED_CONFIG_MODELS {
@@ -5426,10 +5741,12 @@ mod tests {
                 config.kind == data::NodeKind::Container && config.repo.is_some()
             })
             .collect();
-        assert_eq!(models.len(), 11, "{models:?}");
+        assert_eq!(models.len(), 13, "{models:?}");
         for model in models {
-            let lab = ZtpLab::new();
-            let mut node = named_node("node1", model);
+            // IOL's logins take an RSA key, and its application ID is the node's place in the
+            // lab, from 1.
+            let lab = iol_lab();
+            let mut node = iol_node("node1", model, 1);
             node.image = Some("registry.example:5000/mirror/image".to_owned());
 
             let result = generate_container_ztp(

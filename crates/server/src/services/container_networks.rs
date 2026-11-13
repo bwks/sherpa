@@ -63,10 +63,14 @@ pub(crate) fn data_attachment(
     connection: ContainerDataInterface,
     lab_id: &str,
 ) -> Result<data::ContainerNetworkAttachment> {
-    // SR Linux and cJunosEvolved need their own interface names. Other models are named by
-    // attach order, except disabled interfaces, which are named so they stay down.
+    // SR Linux and cJunosEvolved need their own interface names, and IOL's bridge relays
+    // `eth<N>` to port N. Other models are named by attach order, except disabled interfaces,
+    // which are named so they stay down.
     let fixed_name = match model {
-        data::NodeModel::NokiaSrlinux | data::NodeModel::JuniperCevolved => {
+        data::NodeModel::NokiaSrlinux
+        | data::NodeModel::JuniperCevolved
+        | data::NodeModel::CiscoIol
+        | data::NodeModel::CiscoIolL2 => {
             Some(util::container_interface_name(&model, interface_idx)?)
         }
         _ => None,
@@ -236,6 +240,33 @@ mod tests {
         )
         .unwrap();
         assert_eq!(attachment.linux_interface_name.as_deref(), Some("e1-1"));
+    }
+
+    #[test]
+    fn iol_interfaces_are_eth_by_index_bridged_or_disabled() {
+        for model in [data::NodeModel::CiscoIol, data::NodeModel::CiscoIolL2] {
+            let bridged = data_attachment(
+                "r1",
+                model,
+                "Ethernet1/2",
+                6,
+                ContainerDataInterface::Bridged,
+                LAB_ID,
+            )
+            .unwrap();
+            assert_eq!(bridged.linux_interface_name.as_deref(), Some("eth6"));
+            let disabled = data_attachment(
+                "r1",
+                model,
+                "Ethernet0/3",
+                3,
+                ContainerDataInterface::Disabled,
+                LAB_ID,
+            )
+            .unwrap();
+            assert_eq!(disabled.linux_interface_name.as_deref(), Some("eth3"));
+            assert!(disabled.admin_down);
+        }
     }
 
     #[test]

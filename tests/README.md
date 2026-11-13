@@ -27,6 +27,7 @@ instead of repeating these instructions.
 | Private bridge lab test | `uv run tests/labs/private-bridge/private_bridge_lab_test.py` | Sherpa host with the alpine and FRR images, logged-in CLI | about 5–10 min |
 | P2p containers lab test | `uv run tests/labs/p2p-containers/p2p_containers_lab_test.py` | On the Sherpa server: the node images, Docker access, logged-in CLI | about 2–5 min |
 | Container ZTP lab test | `uv run tests/labs/container-ztp/container_ztp_lab_test.py` | On the Sherpa server: the node images, Docker access, logged-in CLI, internet for the FRR node's packages | about 5–15 min |
+| Cisco IOL lab test | `uv run tests/labs/cisco-iol/cisco_iol_lab_test.py` | On the Sherpa server: the `cisco_iol` image built with docker-cisco-iol, `alpine:3.22`, Docker access, logged-in CLI | about 3–5 min |
 | P2p links lab test | `uv run tests/labs/p2p-links/p2p_links_lab_test.py` | On the Sherpa server: the node images, `nicolaka/netshoot:v0.14`, Docker access, logged-in CLI | about 15–20 min |
 | Talos lab test | `uv run tests/labs/talos-linux/talos_lab_test.py` | Sherpa host with the Talos image, logged-in CLI, internet | about 25–35 min |
 | Web UI JavaScript | `node tests/web/test_theme.cjs` | Node.js | seconds |
@@ -81,7 +82,7 @@ tests. Run the crates you need:
 | Crate | Command | Needs |
 |---|---|---|
 | db (importer) | `cargo test -p db --test mod import -- --ignored` | Test database |
-| container | `cargo test -p container -- --ignored --test-threads=1` | Docker, `alpine:latest` |
+| container | `cargo test -p container -- --ignored --test-threads=1` | Docker, `alpine:latest`; the IOL test also needs a `localrepo/cisco_iol` image built with docker-cisco-iol, and passes without running when there is none |
 | network | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p network -- --ignored --test-threads=1` | root (rtnetlink) |
 | libvirt | `cargo test -p libvirt -- --ignored --test-threads=1` | libvirtd, `sherpa-pool` |
 | sherpad | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p sherpad -- --ignored --test-threads=1` | root, Docker, libvirt, test images; `SHERPA_GUEST_TEST_KEY` and `SHERPA_GUEST_TEST_ROTATED_KEY`, two different unencrypted private keys with `.pub` files beside them, and optionally `SHERPA_GUEST_TEST_MODEL` (default `ubuntu_linux`) and `SHERPA_GUEST_TEST_IMAGES_DIR`, for the personal VM account test ([spec](specs/integration/current-user.md)) |
@@ -252,6 +253,7 @@ uv run tests/labs/private-bridge/private_bridge_lab_test.py  # private bridges: 
 uv run tests/labs/p2p-containers/p2p_containers_lab_test.py  # P2p links on NOS, app and OS containers
 uv run tests/labs/container-ztp/container_ztp_lab_test.py    # ZTP on and off on the mounted-config containers
 uv run tests/labs/p2p-links/p2p_links_lab_test.py            # P2p link requirements on every pair of node kinds
+uv run tests/labs/cisco-iol/cisco_iol_lab_test.py            # Cisco IOL: config, SSH, links, TCP, write memory
 uv run tests/labs/talos-linux/talos_lab_test.py         # Talos clusters: single and ha labs in parallel
 ```
 

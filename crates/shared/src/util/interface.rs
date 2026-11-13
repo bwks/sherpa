@@ -4,7 +4,7 @@ use anyhow::{Result, bail};
 
 use crate::data::{
     AristaCeosInt, AristaVeosInt, ArubaAoscxInt, CiscoAsavInt, CiscoCat8000vInt, CiscoCat9000vInt,
-    CiscoCsr1000vInt, CiscoFtdvInt, CiscoIosvInt, CiscoIosvl2Int, CiscoIosxrv9000Int,
+    CiscoCsr1000vInt, CiscoFtdvInt, CiscoIolInt, CiscoIosvInt, CiscoIosvl2Int, CiscoIosxrv9000Int,
     CiscoNexus9300vInt, CumulusLinuxInt, EthernetInt, InterfaceTrait, JuniperCevolvedInt,
     JuniperVevolvedInt, JuniperVrouterInt, JuniperVsrxv3Int, JuniperVswitchInt, MikrotikChrInt,
     NodeModel, NokiaSrlinuxInt, PaloaltoPanosInt,
@@ -31,6 +31,7 @@ pub fn interface_to_idx(device_model: &NodeModel, interface: &str) -> Result<u8>
         NodeModel::CiscoNexus9300v => CiscoNexus9300vInt::from_str(interface)?.to_idx(),
         NodeModel::CiscoIosv => CiscoIosvInt::from_str(interface)?.to_idx(),
         NodeModel::CiscoIosvl2 => CiscoIosvl2Int::from_str(interface)?.to_idx(),
+        NodeModel::CiscoIol | NodeModel::CiscoIolL2 => CiscoIolInt::from_str(interface)?.to_idx(),
         NodeModel::CiscoFtdv => CiscoFtdvInt::from_str(interface)?.to_idx(),
         NodeModel::JuniperVrouter => JuniperVrouterInt::from_str(interface)?.to_idx(),
         NodeModel::JuniperVswitch => JuniperVswitchInt::from_str(interface)?.to_idx(),
@@ -64,6 +65,7 @@ pub fn interface_from_idx(device_model: &NodeModel, idx: u8) -> Result<String> {
         NodeModel::CiscoNexus9300v => CiscoNexus9300vInt::from_idx(idx)?,
         NodeModel::CiscoIosv => CiscoIosvInt::from_idx(idx)?,
         NodeModel::CiscoIosvl2 => CiscoIosvl2Int::from_idx(idx)?,
+        NodeModel::CiscoIol | NodeModel::CiscoIolL2 => CiscoIolInt::from_idx(idx)?,
         NodeModel::CiscoFtdv => CiscoFtdvInt::from_idx(idx)?,
         NodeModel::JuniperVrouter => JuniperVrouterInt::from_idx(idx)?,
         NodeModel::JuniperVswitch => JuniperVswitchInt::from_idx(idx)?,
@@ -93,6 +95,7 @@ pub fn node_model_interfaces(device_model: &NodeModel) -> Vec<String> {
         NodeModel::CiscoNexus9300v => CiscoNexus9300vInt::all_interfaces(),
         NodeModel::CiscoIosv => CiscoIosvInt::all_interfaces(),
         NodeModel::CiscoIosvl2 => CiscoIosvl2Int::all_interfaces(),
+        NodeModel::CiscoIol | NodeModel::CiscoIolL2 => CiscoIolInt::all_interfaces(),
         NodeModel::CiscoFtdv => CiscoFtdvInt::all_interfaces(),
         NodeModel::JuniperVrouter => JuniperVrouterInt::all_interfaces(),
         NodeModel::JuniperVswitch => JuniperVswitchInt::all_interfaces(),
@@ -146,6 +149,7 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use super::*;
+    use crate::data::NodeConfig;
 
     #[test]
     fn container_interface_names_follow_each_model() {
@@ -165,6 +169,30 @@ mod tests {
             container_interface_name(&NodeModel::AristaCeos, 2).unwrap(),
             "eth2"
         );
+    }
+
+    #[test]
+    fn cisco_iol_interfaces_are_ethernet_slot_and_port_and_container_eth_by_index() {
+        for model in [NodeModel::CiscoIol, NodeModel::CiscoIolL2] {
+            for idx in 0..16u8 {
+                let name = format!("Ethernet{}/{}", idx / 4, idx % 4);
+                assert_eq!(interface_from_idx(&model, idx).unwrap(), name);
+                assert_eq!(interface_to_idx(&model, &name).unwrap(), idx);
+                assert_eq!(
+                    container_interface_name(&model, idx).unwrap(),
+                    format!("eth{idx}")
+                );
+            }
+            assert!(interface_from_idx(&model, 16).is_err());
+            assert_eq!(node_model_interfaces(&model).len(), 16);
+            assert_eq!(
+                NodeConfig::get_model(model)
+                    .interfaces
+                    .management
+                    .to_string(),
+                "Ethernet0/0"
+            );
+        }
     }
 
     #[test]
@@ -261,6 +289,8 @@ mod tests {
             NodeModel::CiscoNexus9300v,
             NodeModel::CiscoIosv,
             NodeModel::CiscoIosvl2,
+            NodeModel::CiscoIol,
+            NodeModel::CiscoIolL2,
             NodeModel::CiscoFtdv,
             NodeModel::JuniperVrouter,
             NodeModel::JuniperVswitch,

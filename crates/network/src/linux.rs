@@ -1,6 +1,9 @@
-use anyhow::{Context, Result};
-use futures::TryStreamExt;
+use anyhow::{Context, Result, bail};
+use futures::{StreamExt, TryStreamExt};
+use rtnetlink::packet_core::{NLM_F_ACK, NLM_F_REQUEST, NetlinkMessage, NetlinkPayload};
+use rtnetlink::packet_route::RouteNetlinkMessage;
 use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkMessage};
+use rtnetlink::packet_route::nsid::{NsidAttribute, NsidMessage};
 use rtnetlink::{Error, Handle, LinkBridge, LinkVeth, new_connection};
 use shared::konst::MTU_JUMBO_NET;
 use tracing::instrument;
@@ -44,6 +47,105 @@ pub(crate) async fn get_link_index(handle: &Handle, name: &str) -> Result<u32> {
     find_link_index(handle, name)
         .await?
         .with_context(|| format!("Link {name} not found"))
+}
+
+/// Send `message` and return the first answer: the message the kernel sent back, or `None` for
+/// an acknowledgement.
+async fn request_one(
+    handle: &mut Handle,
+    message: RouteNetlinkMessage,
+    flags: u16,
+) -> Result<Option<RouteNetlinkMessage>> {
+    let mut request = NetlinkMessage::from(message);
+    request.header.flags = flags;
+    let mut responses = handle
+        .request(request)
+        .context("Failed to send a netlink request")?;
+    while let Some(response) = responses.next().await {
+        match response.payload {
+            NetlinkPayload::InnerMessage(answer) => return Ok(Some(answer)),
+            NetlinkPayload::Error(error) if error.code.is_none() => return Ok(None),
+            NetlinkPayload::Error(error) => {
+                return Err(Error::NetlinkError(error)).context("Netlink refused the request");
+            }
+            _ => {}
+        }
+    }
+    bail!("Netlink sent no answer")
+}
+
+/// The ID this network namespace has for the network namespace of process `pid`, or `None`
+/// when it has none yet.
+async fn netns_id_of_pid(handle: &mut Handle, pid: u32) -> Result<Option<i32>> {
+    let mut message = NsidMessage::default();
+    message.attributes.push(NsidAttribute::Pid(pid));
+    let answer = request_one(handle, RouteNetlinkMessage::GetNsId(message), NLM_F_REQUEST)
+        .await
+        .with_context(|| format!("Failed to look up the network namespace of process {pid}"))?;
+    let Some(RouteNetlinkMessage::NewNsId(reply)) = answer else {
+        bail!("Unexpected answer to the namespace lookup of process {pid}");
+    };
+    let id = reply
+        .attributes
+        .iter()
+        .find_map(|attribute| match attribute {
+            NsidAttribute::Id(id) => Some(*id),
+            _ => None,
+        });
+    // -1: not assigned.
+    Ok(id.filter(|id| *id >= 0))
+}
+
+/// The ID this network namespace has for the network namespace of process `pid`, assigning
+/// one when it has none.
+async fn netns_id(handle: &mut Handle, pid: u32) -> Result<i32> {
+    if let Some(id) = netns_id_of_pid(handle, pid).await? {
+        return Ok(id);
+    }
+    let mut message = NsidMessage::default();
+    message.attributes.push(NsidAttribute::Pid(pid));
+    message.attributes.push(NsidAttribute::Id(-1));
+    request_one(
+        handle,
+        RouteNetlinkMessage::NewNsId(message),
+        NLM_F_REQUEST | NLM_F_ACK,
+    )
+    .await
+    .with_context(|| format!("Failed to name the network namespace of process {pid}"))?;
+    netns_id_of_pid(handle, pid)
+        .await?
+        .with_context(|| format!("The network namespace of process {pid} has no ID"))
+}
+
+/// The index, in this network namespace, of the veth peer of interface `iface` of process
+/// `pid`: the host end of a container's veth. Read through netlink with the namespace's ID,
+/// which needs `CAP_NET_ADMIN` only.
+///
+/// # Errors
+///
+/// Fails when the process, its interface or the interface's peer does not exist.
+#[instrument(level = "debug")]
+pub async fn container_veth_peer_ifindex(pid: u32, iface: &str) -> Result<u32> {
+    let mut handle = setup_netlink().await?;
+    let nsid = netns_id(&mut handle, pid).await?;
+    let mut request = handle.link().get().match_name(iface.to_string());
+    request
+        .message_mut()
+        .attributes
+        .push(LinkAttribute::IfNetnsId(nsid));
+    let link = request
+        .execute()
+        .try_next()
+        .await
+        .with_context(|| format!("Failed to look up {iface} of process {pid}"))?
+        .with_context(|| format!("Process {pid} has no interface {iface}"))?;
+    link.attributes
+        .iter()
+        .find_map(|attribute| match attribute {
+            LinkAttribute::Link(peer) => Some(*peer),
+            _ => None,
+        })
+        .with_context(|| format!("{iface} of process {pid} has no peer"))
 }
 
 /// Set a link to DOWN state.

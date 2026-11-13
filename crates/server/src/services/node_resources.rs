@@ -9,8 +9,8 @@ use tracing::instrument;
 
 use shared::data::{DbNode, NodeConfig, NodeCpuPins, NodeKind, NodeModel, NodeResources, RecordId};
 use shared::konst::{
-    JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB, VNC_PORT_ALLOCATION_ATTEMPTS, VNC_PORT_FIRST,
-    VNC_PORT_LAST,
+    CISCO_IOL_CONTAINER_OVERHEAD_MIB, JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB,
+    VNC_PORT_ALLOCATION_ATTEMPTS, VNC_PORT_FIRST, VNC_PORT_LAST,
 };
 use topology::validate::check_cpu_pin_overlap;
 use virt::connect::Connect;
@@ -22,7 +22,8 @@ use crate::validate::check_host_resources;
 /// manifest's as Docker limits, and is not limited in what the manifest leaves out; the image's
 /// values are not limits. `juniper_cevolved` sizes its EVO VM from the manifest or image values,
 /// so its container's memory limit is that and its overhead, with no CPU quota, which would
-/// throttle the EVO VM. The VNC port is reserved separately.
+/// throttle the EVO VM. IOL takes the manifest or image memory as its own, so its container's
+/// limit is that and the launcher's overhead. The VNC port is reserved separately.
 pub fn planned_resources(node: &topology::NodeExpanded, image: &NodeConfig) -> NodeResources {
     match image.kind {
         NodeKind::VirtualMachine | NodeKind::Unikernel => {
@@ -44,6 +45,21 @@ pub fn planned_resources(node: &topology::NodeExpanded, image: &NodeConfig) -> N
             ),
             ..NodeResources::default()
         },
+        NodeKind::Container
+            if matches!(image.model, NodeModel::CiscoIol | NodeModel::CiscoIolL2) =>
+        {
+            NodeResources {
+                // IOL's own memory, its `-m`, is the manifest or image value; the launcher and
+                // the bridge need the overhead on top.
+                cpu_count: node.cpu.count,
+                memory: Some(
+                    node.memory
+                        .unwrap_or(image.memory)
+                        .saturating_add(CISCO_IOL_CONTAINER_OVERHEAD_MIB),
+                ),
+                ..NodeResources::default()
+            }
+        }
         NodeKind::Container => NodeResources {
             cpu_count: node.cpu.count,
             memory: node.memory,
@@ -324,6 +340,23 @@ mod tests {
         let sized = planned_resources(&node(Some(8), Some(16384)), &image);
         assert_eq!(sized.memory, Some(16384 + 2048));
         assert_eq!(sized.cpu_count, None);
+    }
+
+    #[test]
+    fn iol_gets_its_memory_and_overhead_as_its_limit_and_the_manifest_cpus() {
+        for model in [NodeModel::CiscoIol, NodeModel::CiscoIolL2] {
+            let image = NodeConfig::get_model(model);
+            let defaults = planned_resources(&node(None, None), &image);
+            assert_eq!(
+                defaults.memory,
+                Some(image.memory + CISCO_IOL_CONTAINER_OVERHEAD_MIB),
+                "{model}"
+            );
+            assert_eq!(defaults.cpu_count, None, "{model}");
+            let sized = planned_resources(&node(Some(2), Some(1024)), &image);
+            assert_eq!(sized.memory, Some(1024 + 128), "{model}");
+            assert_eq!(sized.cpu_count, Some(2), "{model}");
+        }
     }
 
     fn stored(name: &str, lab_id: Option<&str>, cpus: Vec<u16>) -> (Option<String>, DbNode) {

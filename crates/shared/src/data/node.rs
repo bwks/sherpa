@@ -11,11 +11,12 @@ use super::cpu::CpuModels;
 use super::disk::DiskBuses;
 use super::interface::MgmtInterfaces;
 use crate::konst::{
-    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_FORGEJO_REPO, CONTAINER_FRR_REPO,
-    CONTAINER_GITLAB_CE_REPO, CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_JUNIPER_CEVOLVED_REPO,
-    CONTAINER_KEYCLOAK_REPO, CONTAINER_MONGO_DB_REPO, CONTAINER_NATS_REPO,
-    CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD,
-    SSH_PORT, TALOS_API_PORT, TALOS_DEFAULT_BOOT_DISK_SIZE,
+    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_CISCO_IOL_L2_REPO, CONTAINER_CISCO_IOL_REPO,
+    CONTAINER_FORGEJO_REPO, CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO,
+    CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_JUNIPER_CEVOLVED_REPO, CONTAINER_KEYCLOAK_REPO,
+    CONTAINER_MONGO_DB_REPO, CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_REPO,
+    CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD, SSH_PORT, TALOS_API_PORT,
+    TALOS_DEFAULT_BOOT_DISK_SIZE,
 };
 
 use super::RecordId;
@@ -55,6 +56,8 @@ pub enum NodeModel {
     CiscoNexus9300v,
     CiscoIosv,
     CiscoIosvl2,
+    CiscoIol,
+    CiscoIolL2,
     CiscoIse,
     CiscoFtdv,
 
@@ -157,6 +160,8 @@ impl fmt::Display for NodeModel {
             NodeModel::CiscoNexus9300v => write!(f, "cisco_nexus9300v"),
             NodeModel::CiscoIosv => write!(f, "cisco_iosv"),
             NodeModel::CiscoIosvl2 => write!(f, "cisco_iosvl2"),
+            NodeModel::CiscoIol => write!(f, "cisco_iol"),
+            NodeModel::CiscoIolL2 => write!(f, "cisco_iol_l2"),
             NodeModel::CiscoIse => write!(f, "cisco_ise"),
             NodeModel::CiscoFtdv => write!(f, "cisco_ftdv"),
 
@@ -263,6 +268,8 @@ impl std::str::FromStr for NodeModel {
             "cisco_nexus9300v" => Ok(NodeModel::CiscoNexus9300v),
             "cisco_iosv" => Ok(NodeModel::CiscoIosv),
             "cisco_iosvl2" => Ok(NodeModel::CiscoIosvl2),
+            "cisco_iol" => Ok(NodeModel::CiscoIol),
+            "cisco_iol_l2" => Ok(NodeModel::CiscoIolL2),
             "cisco_ise" => Ok(NodeModel::CiscoIse),
             "cisco_ftdv" => Ok(NodeModel::CiscoFtdv),
 
@@ -419,6 +426,8 @@ impl NodeModel {
             NodeModel::AristaCeos
             | NodeModel::NokiaSrlinux
             | NodeModel::JuniperCevolved
+            | NodeModel::CiscoIol
+            | NodeModel::CiscoIolL2
             | NodeModel::FrrLinux => &[Ztp::Volume],
             NodeModel::GitlabCe
             | NodeModel::ForgejoForge
@@ -447,6 +456,15 @@ impl NodeModel {
     #[must_use]
     pub fn keeps_data_interfaces_up(&self) -> bool {
         matches!(self, NodeModel::JuniperCevolved)
+    }
+
+    /// Whether the host must finish the checksums of packets it sends to a container of this
+    /// model, so transmit checksum offload goes off on the host end of its veths. IOL reads its
+    /// interfaces through packet sockets, which hand it a packet whose checksum a veth left for
+    /// the "hardware" to fill in, and IOL drops it.
+    #[must_use]
+    pub fn needs_host_checksums(&self) -> bool {
+        matches!(self, NodeModel::CiscoIol | NodeModel::CiscoIolL2)
     }
 
     /// TCP port that shows a virtual machine of this model is ready.
@@ -1049,6 +1067,8 @@ impl NodeConfig {
             NodeModel::CiscoNexus9300v => NodeConfig::cisco_nexus9300v(),
             NodeModel::CiscoIosv => NodeConfig::cisco_iosv(),
             NodeModel::CiscoIosvl2 => NodeConfig::cisco_iosvl2(),
+            NodeModel::CiscoIol => NodeConfig::cisco_iol(),
+            NodeModel::CiscoIolL2 => NodeConfig::cisco_iol_l2(),
             NodeModel::CiscoIse => NodeConfig::cisco_ise(),
             NodeModel::CiscoFtdv => NodeConfig::cisco_ftdv(),
 
@@ -1468,6 +1488,33 @@ impl NodeConfig {
                 ..base.ztp
             },
             ..base
+        }
+    }
+    /// Cisco IOL XE, from the user's CML image rebuilt by docker-cisco-iol. 16 Ethernet ports in
+    /// slots of 4: `Ethernet0/0` for management and 15 data ports.
+    #[must_use]
+    pub fn cisco_iol() -> NodeConfig {
+        NodeConfig {
+            repo: Some(CONTAINER_CISCO_IOL_REPO.to_string()),
+            ..node_base::network_os_container(
+                NodeModel::CiscoIol,
+                768,
+                OsVariant::Ios,
+                cisco_iol_interfaces(),
+            )
+        }
+    }
+    /// Cisco IOL XE L2, the switch image; as `cisco_iol`.
+    #[must_use]
+    pub fn cisco_iol_l2() -> NodeConfig {
+        NodeConfig {
+            repo: Some(CONTAINER_CISCO_IOL_L2_REPO.to_string()),
+            ..node_base::network_os_container(
+                NodeModel::CiscoIolL2,
+                768,
+                OsVariant::Ios,
+                cisco_iol_interfaces(),
+            )
         }
     }
     #[must_use]
@@ -2283,6 +2330,19 @@ impl NodeConfig {
     }
 }
 
+/// The interfaces of both IOL models. IOL's MTU is fixed at 1500.
+fn cisco_iol_interfaces() -> InterfaceSettings {
+    InterfaceSettings {
+        data_count: 15,
+        kind: InterfaceType::Virtio,
+        mtu: MTU_STD,
+        prefix: "Ethernet".to_owned(),
+        first_index: 1,
+        management: MgmtInterfaces::Ethernet0_0,
+        reserved_count: 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2516,6 +2576,49 @@ mod tests {
     }
 
     #[test]
+    fn cisco_iol_models_are_network_os_containers_with_16_ethernet_ports() {
+        for (name, repo) in [
+            ("cisco_iol", "localrepo/cisco_iol"),
+            ("cisco_iol_l2", "localrepo/cisco_iol_l2"),
+        ] {
+            let model: NodeModel = name.parse().unwrap();
+            assert_eq!(model.to_string(), name);
+            let config = NodeConfig::get_model(model);
+            assert_eq!(config.model, model);
+            assert_eq!(config.kind, NodeKind::Container, "{name}");
+            assert!(matches!(config.os_variant, OsVariant::Ios), "{name}");
+            assert_eq!(config.memory, 768, "{name}");
+            assert_eq!(config.cpu.count, 1, "{name}");
+            assert_eq!(config.interfaces.data_count, 15, "{name}");
+            assert_eq!(config.interfaces.mtu, MTU_STD, "{name}");
+            assert_eq!(config.interfaces.prefix, "Ethernet", "{name}");
+            assert_eq!(config.interfaces.first_index, 1, "{name}");
+            assert_eq!(config.interfaces.reserved_count, 0, "{name}");
+            assert_eq!(
+                config.interfaces.management,
+                MgmtInterfaces::Ethernet0_0,
+                "{name}"
+            );
+            assert_eq!(config.repo.as_deref(), Some(repo), "{name}");
+            assert_eq!(config.ztp.method, Ztp::Volume, "{name}");
+            assert_eq!(model.ztp_methods(), &[Ztp::Volume], "{name}");
+            let encoded = serde_json::to_string(&model).unwrap();
+            assert_eq!(serde_json::from_str::<NodeModel>(&encoded).unwrap(), model);
+        }
+    }
+
+    #[test]
+    fn only_cisco_iol_containers_need_the_host_to_finish_checksums() {
+        for model in NodeModel::iter() {
+            assert_eq!(
+                model.needs_host_checksums(),
+                matches!(model, NodeModel::CiscoIol | NodeModel::CiscoIolL2),
+                "{model}"
+            );
+        }
+    }
+
+    #[test]
     fn test_nixos_model_defaults() {
         let model: super::NodeModel = "nixos_linux".parse().unwrap();
         let config = super::NodeConfig::get_model(model);
@@ -2647,6 +2750,8 @@ mod tests {
             NodeModel::AristaCeos
             | NodeModel::NokiaSrlinux
             | NodeModel::JuniperCevolved
+            | NodeModel::CiscoIol
+            | NodeModel::CiscoIolL2
             | NodeModel::FrrLinux => vec![Ztp::Volume],
             NodeModel::GitlabCe
             | NodeModel::ForgejoForge
@@ -2702,6 +2807,8 @@ mod tests {
             NodeModel::AristaCeos,
             NodeModel::NokiaSrlinux,
             NodeModel::JuniperCevolved,
+            NodeModel::CiscoIol,
+            NodeModel::CiscoIolL2,
             NodeModel::FrrLinux,
         ];
         for model in NodeModel::iter() {

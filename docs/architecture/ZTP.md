@@ -50,7 +50,7 @@ allowed for every model and is never listed.
 | `http` | `sonic_linux` |
 | `ignition` | `flatcar_linux` |
 | `nocloud` | `talos_linux` |
-| `volume` | `arista_ceos`, `nokia_srlinux`, `juniper_cevolved`, `frr_linux` |
+| `volume` | `arista_ceos`, `nokia_srlinux`, `juniper_cevolved`, `cisco_iol`, `cisco_iol_l2`, `frr_linux` |
 | none | every other container, and the unikernels |
 
 Each model's default from `NodeConfig::get_model` is `Disabled` or a listed method; unit tests in
@@ -117,6 +117,7 @@ error saying the setting was not validated. It is reached only if a write or a p
 | `arista_ceos` | image repo, privileged, environment, the init command | the startup config, its read-only mount, and the "copy into flash unless one is saved" prefix on the command |
 | `nokia_srlinux` | image repo, privileged, user `0:0`, environment, command | `config.json` and its mount |
 | `juniper_cevolved` | image repo, privileged, the `CPTX_*` environment its entrypoint reads | `juniper.conf` in `configdisk` and its mount |
+| `cisco_iol`, `cisco_iol_l2` | image repo, not privileged, `NET_ADMIN`, the `IOL_ID`, `IOL_MEMORY_MB` and `IOL_ETH_PORTS` environment its entrypoint writes the launcher config from, and IOL's NVRAM directory `run/` mounted at `/tmp/run` | `ios_config.txt` in `config/` and its read-only mount at `/config` |
 | `frr_linux` | image repo, privileged, environment | the `daemons` file, `frr.conf`, `sherpa-init.sh`, their mounts, and the command that runs the script |
 | `hashicorp_vault` | image, `config.hcl` (generated, or the node's `ztp.config`), its mount, environment, command, capabilities | nothing; its only setting is `disabled` |
 | `keycloak_server` | image, user, environment, command; needs the lab certificate | nothing |
@@ -124,7 +125,8 @@ error saying the setting was not validated. It is reached only if a write or a p
 | `forgejo_forge`, `surreal_db`, `mongo_db`, `nats_bus` | image, command | nothing |
 | `mysql_db`, `postgresql_db`, `generic_container` | the manifest's settings | nothing |
 
-With ZTP off, a node of the first four has no generated config, no Sherpa mount and no logins:
+With ZTP off, a node of the first five has no generated config, no Sherpa config mount and no
+logins (IOL keeps its NVRAM mount):
 the `sherpa` login and the owner's are written into the generated config or script. FRR then runs
 its image's own entrypoint and `daemons` file, with no SSH server. A container is ready when it
 is running, so readiness does not depend on the setting.
@@ -141,15 +143,38 @@ FRR 10.5.2):
 | `arista_ceos` | none: EOS takes `eth0` as `Management0` and leaves it unassigned; its own ZTP is off | enabled, not reachable | `docker exec ... Cli` |
 | `juniper_cevolved` | the node's: the image's entrypoint puts it on `re0:mgmt-0` from the image's own `juniper.conf` | answers, refuses `sherpa`: the image's config has only its own `admin` user | `docker exec` (SSH as `admin` was not tried) |
 | `frr_linux` | the node's: a plain Linux container | none | `docker exec` |
+| `cisco_iol`, `cisco_iol_l2` | none: the entrypoint removes Docker's address from `eth0`, and IOL boots to its factory state and runs its own autoinstall | none | `docker attach`, the IOL console |
 
 While SR Linux and cEOS boot, the container still holds the address: SR Linux's SSH server
 answers there for about a minute, refusing `sherpa`, and on cEOS nothing listens yet. The
 containers stay running with no restarts. The lab test asserts each booted state. The node's
 entry in the lab's SSH config is still written.
 
-`add_container_volumes` applies the manifest's `volumes` unless the node's setting is `volume`,
-or the model is `hashicorp_vault`, `gitlab_ce` or `surreal_db`. So a node of the first four with
-ZTP off takes the manifest's volumes, which is how a user mounts a config of their own.
+`add_container_volumes` adds the manifest's `volumes` to the mounts the model's setup made,
+unless the node's setting is `volume`, or the model is `hashicorp_vault`, `gitlab_ce` or
+`surreal_db`. So a node of the first five with ZTP off takes the manifest's volumes, which is how
+a user mounts a config of their own.
+
+### Cisco IOL
+
+The image is the user's CML image rebuilt by
+[docker-cisco-iol](https://github.com/bwks/docker-cisco-iol): Cisco's launcher, `/iol-runner`,
+starts IOL, and a bridge relays each container interface `eth<N>` to IOL port `N`,
+`Ethernet<N / 4>/<N % 4>`. The launcher's config is the image's business: Sherpa passes three
+environment variables and the entrypoint writes it.
+
+- `IOL_ID` is IOL's application ID, the node's index in the lab (`node_ops::iol_app_id`), 1 to
+  `konst::CISCO_IOL_MAX_APP_ID` (999; the launcher takes 1000). IOL derives its MAC addresses
+  from it, so two IOL nodes of one lab never share one.
+- `IOL_MEMORY_MB` is the node's `memory`, else the image's: IOL's `-m`, the whole IOL process.
+- `IOL_ETH_PORTS` is the data interface count plus management.
+
+`cisco_iol.jinja` gives `Ethernet0/0` the node's management address, static, and the default
+route; the L2 model makes the port routed (`no switchport`) and turns `ip routing` on. The
+launcher copies `/config/ios_config.txt` into `/tmp/run` at every start, but IOL boots from its
+NVRAM once a config has been saved there with `write memory`. `/tmp/run` is `<lab>/<node>/run`,
+so a saved config survives `down` and `resume`; a redeploy makes the node's folder again, which
+clears it. The `sherpa` and owner logins use MD5 `key-hash` RSA keys, as on IOSv.
 
 ## Storage and migration
 

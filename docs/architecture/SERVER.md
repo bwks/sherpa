@@ -1247,7 +1247,8 @@ hypervisor, by `services::node_resources`:
 - `planned_resources`: VMs and unikernels get the manifest's `cpu.count` and `memory`, else the
   image's. Containers get the manifest's, which become their Docker limits, and nothing for
   what it leaves out; `juniper_cevolved` gets its EVO VM's memory plus its container overhead,
-  and no CPU count (see `NODE_SETTINGS.md`). `up` (`readiness.rs`) and redeploy
+  and no CPU count, and `cisco_iol` and `cisco_iol_l2` get IOL's memory plus the launcher's
+  overhead (see `NODE_SETTINGS.md`). `up` (`readiness.rs`) and redeploy
   (`redeploy/container.rs`) create the container with the stored values, so Docker and the
   database agree; resume starts the existing container, which keeps its limits.
 - `reserve_node_resources` (`up`, right after each node record is created, and `redeploy`): a

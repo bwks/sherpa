@@ -1,0 +1,31 @@
+name = "cisco-iol"
+
+# Two IOL routers and a Linux host on P2p links. The IOL image is built by the user from their
+# own CML image with docker-cisco-iol, so this lab is run only where it is present.
+
+[[nodes]]
+name = "r1"
+model = "cisco_iol"
+version = "17.18.02"
+
+[[nodes]]
+name = "r2"
+model = "cisco_iol"
+version = "17.18.02"
+
+[[nodes]]
+name = "linux01"
+model = "generic_container"
+image = "alpine"
+version = "3.22"
+
+[nodes.interfaces]
+data_count = 1
+
+[[links]]
+src = "r1::Ethernet0/1"
+dst = "r2::Ethernet0/1"
+
+[[links]]
+src = "r1::Ethernet0/2"
+dst = "linux01::eth1"

@@ -4,6 +4,7 @@ mod arista_eos;
 mod aruba_aos;
 mod cisco_asa;
 mod cisco_ftdv;
+mod cisco_iol;
 mod cisco_ios;
 mod cisco_iosxe;
 mod cisco_iosxr;
