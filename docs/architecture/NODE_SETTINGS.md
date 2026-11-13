@@ -159,7 +159,7 @@ It runs in `sherpa validate`, in the server's `up` before images are leased, and
   `konst::JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB` (2048 MiB), always, and no CPU quota, which
   would throttle the EVO VM beside the processes the container also runs. `check_ptx_platform`
   keeps the memory low enough for the overhead to fit the node's memory field (a `u16`).
-- `cisco_iol` and `cisco_iol_l2` give IOL the node's `memory`, else the image's (768 MiB), as
+- `cisco_iol` and `cisco_ioll2` give IOL the node's `memory`, else the image's (768 MiB), as
   its `-m`, the size of the whole IOL process. The container's memory limit is that plus
   `konst::CISCO_IOL_CONTAINER_OVERHEAD_MIB` (128 MiB) for the launcher and the bridge, always,
   so IOL fits inside the limit. `cpu.count` is a CPU quota as for any container; IOL is

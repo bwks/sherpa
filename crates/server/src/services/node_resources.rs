@@ -46,7 +46,7 @@ pub fn planned_resources(node: &topology::NodeExpanded, image: &NodeConfig) -> N
             ..NodeResources::default()
         },
         NodeKind::Container
-            if matches!(image.model, NodeModel::CiscoIol | NodeModel::CiscoIolL2) =>
+            if matches!(image.model, NodeModel::CiscoIol | NodeModel::CiscoIoll2) =>
         {
             NodeResources {
                 // IOL's own memory, its `-m`, is the manifest or image value; the launcher and
@@ -344,7 +344,7 @@ mod tests {
 
     #[test]
     fn iol_gets_its_memory_and_overhead_as_its_limit_and_the_manifest_cpus() {
-        for model in [NodeModel::CiscoIol, NodeModel::CiscoIolL2] {
+        for model in [NodeModel::CiscoIol, NodeModel::CiscoIoll2] {
             let image = NodeConfig::get_model(model);
             let defaults = planned_resources(&node(None, None), &image);
             assert_eq!(

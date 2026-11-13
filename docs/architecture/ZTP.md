@@ -50,7 +50,7 @@ allowed for every model and is never listed.
 | `http` | `sonic_linux` |
 | `ignition` | `flatcar_linux` |
 | `nocloud` | `talos_linux` |
-| `volume` | `arista_ceos`, `nokia_srlinux`, `juniper_cevolved`, `cisco_iol`, `cisco_iol_l2`, `frr_linux` |
+| `volume` | `arista_ceos`, `nokia_srlinux`, `juniper_cevolved`, `cisco_iol`, `cisco_ioll2`, `frr_linux` |
 | none | every other container, and the unikernels |
 
 Each model's default from `NodeConfig::get_model` is `Disabled` or a listed method; unit tests in
@@ -117,7 +117,7 @@ error saying the setting was not validated. It is reached only if a write or a p
 | `arista_ceos` | image repo, privileged, environment, the init command | the startup config, its read-only mount, and the "copy into flash unless one is saved" prefix on the command |
 | `nokia_srlinux` | image repo, privileged, user `0:0`, environment, command | `config.json` and its mount |
 | `juniper_cevolved` | image repo, privileged, the `CPTX_*` environment its entrypoint reads | `juniper.conf` in `configdisk` and its mount |
-| `cisco_iol`, `cisco_iol_l2` | image repo, not privileged, `NET_ADMIN`, the `IOL_ID`, `IOL_MEMORY_MB` and `IOL_ETH_PORTS` environment its entrypoint writes the launcher config from, and IOL's NVRAM directory `run/` mounted at `/tmp/run` | `ios_config.txt` in `config/` and its read-only mount at `/config` |
+| `cisco_iol`, `cisco_ioll2` | image repo, not privileged, `NET_ADMIN`, the `IOL_ID`, `IOL_MEMORY_MB` and `IOL_ETH_PORTS` environment its entrypoint writes the launcher config from, and IOL's NVRAM directory `run/` mounted at `/tmp/run` | `ios_config.txt` in `config/` and its read-only mount at `/config` |
 | `frr_linux` | image repo, privileged, environment | the `daemons` file, `frr.conf`, `sherpa-init.sh`, their mounts, and the command that runs the script |
 | `hashicorp_vault` | image, `config.hcl` (generated, or the node's `ztp.config`), its mount, environment, command, capabilities | nothing; its only setting is `disabled` |
 | `keycloak_server` | image, user, environment, command; needs the lab certificate | nothing |
@@ -143,7 +143,7 @@ FRR 10.5.2):
 | `arista_ceos` | none: EOS takes `eth0` as `Management0` and leaves it unassigned; its own ZTP is off | enabled, not reachable | `docker exec ... Cli` |
 | `juniper_cevolved` | the node's: the image's entrypoint puts it on `re0:mgmt-0` from the image's own `juniper.conf` | answers, refuses `sherpa`: the image's config has only its own `admin` user | `docker exec` (SSH as `admin` was not tried) |
 | `frr_linux` | the node's: a plain Linux container | none | `docker exec` |
-| `cisco_iol`, `cisco_iol_l2` | none: the entrypoint removes Docker's address from `eth0`, and IOL boots to its factory state and runs its own autoinstall | none | `docker attach`, the IOL console |
+| `cisco_iol`, `cisco_ioll2` | none: the entrypoint removes Docker's address from `eth0`, and IOL boots to its factory state and runs its own autoinstall | none | `docker attach`, the IOL console |
 
 While SR Linux and cEOS boot, the container still holds the address: SR Linux's SSH server
 answers there for about a minute, refusing `sherpa`, and on cEOS nothing listens yet. The

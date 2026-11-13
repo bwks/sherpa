@@ -123,7 +123,7 @@ fn key_rules(model: NodeModel) -> KeyRules {
         NodeModel::CiscoIosv
         | NodeModel::CiscoIosvl2
         | NodeModel::CiscoIol
-        | NodeModel::CiscoIolL2
+        | NodeModel::CiscoIoll2
         | NodeModel::CiscoCsr1000v
         | NodeModel::CiscoCat8000v
         | NodeModel::CiscoCat9000v => (AcceptedKeys::Only(RSA_KEY), 2),
@@ -677,7 +677,7 @@ mod tests {
             NodeModel::CiscoIosv,
             NodeModel::CiscoIosvl2,
             NodeModel::CiscoIol,
-            NodeModel::CiscoIolL2,
+            NodeModel::CiscoIoll2,
             NodeModel::CiscoCsr1000v,
             NodeModel::CiscoCat8000v,
             NodeModel::CiscoCat9000v,
@@ -788,7 +788,7 @@ mod tests {
                             | NodeModel::FrrLinux
                             | NodeModel::JuniperCevolved
                             | NodeModel::CiscoIol
-                            | NodeModel::CiscoIolL2
+                            | NodeModel::CiscoIoll2
                     )
             }
             NodeKind::Unikernel => false,
@@ -884,7 +884,7 @@ mod tests {
 
     #[test]
     fn iol_takes_rsa_keys_only_as_ios_key_hashes_do() {
-        for model in [NodeModel::CiscoIol, NodeModel::CiscoIolL2] {
+        for model in [NodeModel::CiscoIol, NodeModel::CiscoIoll2] {
             let image = NodeConfig::get_model(model);
             let node_account =
                 node_account(&account(&[KEY, RSA_KEY, ECDSA_KEY]), "r1", &image).unwrap();

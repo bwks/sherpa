@@ -417,7 +417,7 @@ pub const CONTAINER_ARISTA_CEOS_REPO: &str = "localrepo/arista_ceos";
 pub const CONTAINER_MGMT_INTERFACE: &str = "eth0";
 
 pub const CONTAINER_CISCO_IOL_REPO: &str = "localrepo/cisco_iol";
-pub const CONTAINER_CISCO_IOL_L2_REPO: &str = "localrepo/cisco_iol_l2";
+pub const CONTAINER_CISCO_IOLL2_REPO: &str = "localrepo/cisco_ioll2";
 /// Docker's default capabilities run the IOL launcher; the entrypoint also removes Docker's
 /// address from `eth0`, which IOL owns.
 pub const CONTAINER_CISCO_IOL_CAPABILITIES: &[&str] = &["NET_ADMIN"];

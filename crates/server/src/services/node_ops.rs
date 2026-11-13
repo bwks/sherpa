@@ -382,7 +382,7 @@ pub fn model_capabilities(model: data::NodeModel) -> Vec<String> {
             .iter()
             .map(std::string::ToString::to_string)
             .collect(),
-        data::NodeModel::CiscoIol | data::NodeModel::CiscoIolL2 => CONTAINER_CISCO_IOL_CAPABILITIES
+        data::NodeModel::CiscoIol | data::NodeModel::CiscoIoll2 => CONTAINER_CISCO_IOL_CAPABILITIES
             .iter()
             .map(std::string::ToString::to_string)
             .collect(),
@@ -505,7 +505,7 @@ fn container_start_settings(
         data::NodeModel::AristaCeos => arista_ceos_start(node, setup),
         data::NodeModel::NokiaSrlinux => srlinux_start(node, setup),
         data::NodeModel::JuniperCevolved => cevolved_start(node, node_image, setup)?,
-        data::NodeModel::CiscoIol | data::NodeModel::CiscoIolL2 => {
+        data::NodeModel::CiscoIol | data::NodeModel::CiscoIoll2 => {
             iol_start(node, node_image, ztp, setup)?;
         }
         data::NodeModel::FrrLinux => frr_start(node, setup),
@@ -542,7 +542,7 @@ fn container_volume_ztp(
         data::NodeModel::AristaCeos => arista_ceos_volume_ztp(node, ztp, setup),
         data::NodeModel::NokiaSrlinux => srlinux_volume_ztp(node, ztp, setup),
         data::NodeModel::JuniperCevolved => cevolved_volume_ztp(node, node_image, ztp, setup),
-        data::NodeModel::CiscoIol | data::NodeModel::CiscoIolL2 => {
+        data::NodeModel::CiscoIol | data::NodeModel::CiscoIoll2 => {
             iol_volume_ztp(node, node_image, ztp, setup)
         }
         data::NodeModel::FrrLinux => frr_volume_ztp(node, ztp, setup),
@@ -869,7 +869,7 @@ fn iol_volume_ztp(
             mgmt_ipv4_address: node_ipv4_address,
             mgmt_ipv6_address: node.ipv6_address,
             mgmt_ipv6: mgmt_net.v6.clone(),
-            switch: node.model == data::NodeModel::CiscoIolL2,
+            switch: node.model == data::NodeModel::CiscoIoll2,
         }
         .render()?
     };
@@ -5479,7 +5479,7 @@ mod tests {
     }
 
     const IOL_MODELS: [data::NodeModel; 2] =
-        [data::NodeModel::CiscoIol, data::NodeModel::CiscoIolL2];
+        [data::NodeModel::CiscoIol, data::NodeModel::CiscoIoll2];
 
     /// An RSA public key, which IOS takes as an MD5 `key-hash`.
     const IOL_TEST_RSA_KEY: &str = "AAAAB3NzaC1yc2EAAAADAQABAAAAgQDGEYEVRGlFrL++QeLlNvvFXeyzaAz9rlYEQIgvCRNqCDvYz/6dHMa8PSnaDTq45TBaIpFvaq7VExU80ny8zLzg94fVrTS3PvJkYvc8cMo5Dr7jX3x6OUGbCSDLKjFklhN4CUGFxB7oSB/5u2XdLViODw3XE2mjg0IcrkFGyFWlWw==";
@@ -5537,7 +5537,7 @@ mod tests {
             assert!(config.contains(" ip address 192.0.2.10 "), "{model}");
             assert_eq!(
                 config.contains("no switchport"),
-                model == data::NodeModel::CiscoIolL2,
+                model == data::NodeModel::CiscoIoll2,
                 "{model}"
             );
         }
@@ -5650,7 +5650,7 @@ mod tests {
     fn iol_is_the_only_network_os_container_given_net_admin() {
         assert_eq!(model_capabilities(data::NodeModel::CiscoIol), ["NET_ADMIN"]);
         assert_eq!(
-            model_capabilities(data::NodeModel::CiscoIolL2),
+            model_capabilities(data::NodeModel::CiscoIoll2),
             ["NET_ADMIN"]
         );
         for model in MOUNTED_CONFIG_MODELS {

@@ -199,7 +199,7 @@ kernel stack in the container accepts that; a program that reads the interface t
 socket gets the unfinished packet. Cisco IOL reads its interfaces that way (through the bridge
 in the docker-cisco-iol image), so its TCP failed while ping worked.
 
-For a model whose `NodeModel::needs_host_checksums` is true (`cisco_iol`, `cisco_iol_l2`),
+For a model whose `NodeModel::needs_host_checksums` is true (`cisco_iol`, `cisco_ioll2`),
 Sherpa turns transmit checksum offload off on the host end of every veth facing the container,
 so the kernel finishes the checksum before the veth sends the packet. Segmentation offload goes
 off with it. The other end of the link is unchanged: a redirected packet is sent on the IOL

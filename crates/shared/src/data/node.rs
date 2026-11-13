@@ -11,7 +11,7 @@ use super::cpu::CpuModels;
 use super::disk::DiskBuses;
 use super::interface::MgmtInterfaces;
 use crate::konst::{
-    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_CISCO_IOL_L2_REPO, CONTAINER_CISCO_IOL_REPO,
+    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_CISCO_IOL_REPO, CONTAINER_CISCO_IOLL2_REPO,
     CONTAINER_FORGEJO_REPO, CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO,
     CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_JUNIPER_CEVOLVED_REPO, CONTAINER_KEYCLOAK_REPO,
     CONTAINER_MONGO_DB_REPO, CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_REPO,
@@ -57,7 +57,7 @@ pub enum NodeModel {
     CiscoIosv,
     CiscoIosvl2,
     CiscoIol,
-    CiscoIolL2,
+    CiscoIoll2,
     CiscoIse,
     CiscoFtdv,
 
@@ -161,7 +161,7 @@ impl fmt::Display for NodeModel {
             NodeModel::CiscoIosv => write!(f, "cisco_iosv"),
             NodeModel::CiscoIosvl2 => write!(f, "cisco_iosvl2"),
             NodeModel::CiscoIol => write!(f, "cisco_iol"),
-            NodeModel::CiscoIolL2 => write!(f, "cisco_iol_l2"),
+            NodeModel::CiscoIoll2 => write!(f, "cisco_ioll2"),
             NodeModel::CiscoIse => write!(f, "cisco_ise"),
             NodeModel::CiscoFtdv => write!(f, "cisco_ftdv"),
 
@@ -269,7 +269,7 @@ impl std::str::FromStr for NodeModel {
             "cisco_iosv" => Ok(NodeModel::CiscoIosv),
             "cisco_iosvl2" => Ok(NodeModel::CiscoIosvl2),
             "cisco_iol" => Ok(NodeModel::CiscoIol),
-            "cisco_iol_l2" => Ok(NodeModel::CiscoIolL2),
+            "cisco_ioll2" => Ok(NodeModel::CiscoIoll2),
             "cisco_ise" => Ok(NodeModel::CiscoIse),
             "cisco_ftdv" => Ok(NodeModel::CiscoFtdv),
 
@@ -427,7 +427,7 @@ impl NodeModel {
             | NodeModel::NokiaSrlinux
             | NodeModel::JuniperCevolved
             | NodeModel::CiscoIol
-            | NodeModel::CiscoIolL2
+            | NodeModel::CiscoIoll2
             | NodeModel::FrrLinux => &[Ztp::Volume],
             NodeModel::GitlabCe
             | NodeModel::ForgejoForge
@@ -464,7 +464,7 @@ impl NodeModel {
     /// the "hardware" to fill in, and IOL drops it.
     #[must_use]
     pub fn needs_host_checksums(&self) -> bool {
-        matches!(self, NodeModel::CiscoIol | NodeModel::CiscoIolL2)
+        matches!(self, NodeModel::CiscoIol | NodeModel::CiscoIoll2)
     }
 
     /// TCP port that shows a virtual machine of this model is ready.
@@ -1068,7 +1068,7 @@ impl NodeConfig {
             NodeModel::CiscoIosv => NodeConfig::cisco_iosv(),
             NodeModel::CiscoIosvl2 => NodeConfig::cisco_iosvl2(),
             NodeModel::CiscoIol => NodeConfig::cisco_iol(),
-            NodeModel::CiscoIolL2 => NodeConfig::cisco_iol_l2(),
+            NodeModel::CiscoIoll2 => NodeConfig::cisco_ioll2(),
             NodeModel::CiscoIse => NodeConfig::cisco_ise(),
             NodeModel::CiscoFtdv => NodeConfig::cisco_ftdv(),
 
@@ -1506,11 +1506,11 @@ impl NodeConfig {
     }
     /// Cisco IOL XE L2, the switch image; as `cisco_iol`.
     #[must_use]
-    pub fn cisco_iol_l2() -> NodeConfig {
+    pub fn cisco_ioll2() -> NodeConfig {
         NodeConfig {
-            repo: Some(CONTAINER_CISCO_IOL_L2_REPO.to_string()),
+            repo: Some(CONTAINER_CISCO_IOLL2_REPO.to_string()),
             ..node_base::network_os_container(
-                NodeModel::CiscoIolL2,
+                NodeModel::CiscoIoll2,
                 768,
                 OsVariant::Ios,
                 cisco_iol_interfaces(),
@@ -2579,7 +2579,7 @@ mod tests {
     fn cisco_iol_models_are_network_os_containers_with_16_ethernet_ports() {
         for (name, repo) in [
             ("cisco_iol", "localrepo/cisco_iol"),
-            ("cisco_iol_l2", "localrepo/cisco_iol_l2"),
+            ("cisco_ioll2", "localrepo/cisco_ioll2"),
         ] {
             let model: NodeModel = name.parse().unwrap();
             assert_eq!(model.to_string(), name);
@@ -2612,7 +2612,7 @@ mod tests {
         for model in NodeModel::iter() {
             assert_eq!(
                 model.needs_host_checksums(),
-                matches!(model, NodeModel::CiscoIol | NodeModel::CiscoIolL2),
+                matches!(model, NodeModel::CiscoIol | NodeModel::CiscoIoll2),
                 "{model}"
             );
         }
@@ -2751,7 +2751,7 @@ mod tests {
             | NodeModel::NokiaSrlinux
             | NodeModel::JuniperCevolved
             | NodeModel::CiscoIol
-            | NodeModel::CiscoIolL2
+            | NodeModel::CiscoIoll2
             | NodeModel::FrrLinux => vec![Ztp::Volume],
             NodeModel::GitlabCe
             | NodeModel::ForgejoForge
@@ -2808,7 +2808,7 @@ mod tests {
             NodeModel::NokiaSrlinux,
             NodeModel::JuniperCevolved,
             NodeModel::CiscoIol,
-            NodeModel::CiscoIolL2,
+            NodeModel::CiscoIoll2,
             NodeModel::FrrLinux,
         ];
         for model in NodeModel::iter() {

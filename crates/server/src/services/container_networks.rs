@@ -70,7 +70,7 @@ pub(crate) fn data_attachment(
         data::NodeModel::NokiaSrlinux
         | data::NodeModel::JuniperCevolved
         | data::NodeModel::CiscoIol
-        | data::NodeModel::CiscoIolL2 => {
+        | data::NodeModel::CiscoIoll2 => {
             Some(util::container_interface_name(&model, interface_idx)?)
         }
         _ => None,
@@ -244,7 +244,7 @@ mod tests {
 
     #[test]
     fn iol_interfaces_are_eth_by_index_bridged_or_disabled() {
-        for model in [data::NodeModel::CiscoIol, data::NodeModel::CiscoIolL2] {
+        for model in [data::NodeModel::CiscoIol, data::NodeModel::CiscoIoll2] {
             let bridged = data_attachment(
                 "r1",
                 model,

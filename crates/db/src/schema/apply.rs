@@ -223,7 +223,7 @@ mod tests {
     fn models_before_the_ztp_setting() -> Vec<NodeModel> {
         NodeModel::to_vec()
             .into_iter()
-            .filter(|model| !matches!(model, NodeModel::CiscoIol | NodeModel::CiscoIolL2))
+            .filter(|model| !matches!(model, NodeModel::CiscoIol | NodeModel::CiscoIoll2))
             .collect()
     }
 
