@@ -2,7 +2,7 @@
 //! Tailscale gateway.
 
 use shared::data::{
-    BridgeInfo, DeviceInfo, LabInfo, LinkInfo, NodeInfo, ProvisionResult, TailnetStatus,
+    BridgeInfo, DeviceInfo, LabInfo, LinkInfo, LinkState, NodeInfo, ProvisionResult, TailnetStatus,
 };
 use shared::util::{TableLayout, render_table};
 use tracing::instrument;
@@ -20,7 +20,14 @@ const DEVICE_HEADERS: [&str; 10] = [
     "VNC Port",
     "Disks",
 ];
-const LINK_HEADERS: [&str; 5] = ["Node A", "Interface A", "Node B", "Interface B", "Type"];
+const LINK_HEADERS: [&str; 6] = [
+    "Node A",
+    "Interface A",
+    "Node B",
+    "Interface B",
+    "Type",
+    "State",
+];
 const BRIDGE_HEADERS: [&str; 3] = ["Bridge", "Network", "Connected Nodes"];
 const PROVISION_HEADERS: [&str; 3] = ["Node", "Status", "Detail"];
 const TAILNET_HEADERS: [&str; 2] = ["Tailscale", "Details"];
@@ -117,7 +124,7 @@ fn device_cells(device: &DeviceInfo, lab_id: &str) -> [String; 10] {
 /// Renders a table of point-to-point links between nodes
 #[must_use]
 pub fn render_links_table(links: &[LinkInfo]) -> String {
-    let rows: Vec<[String; 5]> = links.iter().map(link_cells).collect();
+    let rows: Vec<[String; 6]> = links.iter().map(link_cells).collect();
     render_table(
         LINK_HEADERS,
         &rows,
@@ -128,14 +135,26 @@ pub fn render_links_table(links: &[LinkInfo]) -> String {
     )
 }
 
-fn link_cells(link: &LinkInfo) -> [String; 5] {
+fn link_cells(link: &LinkInfo) -> [String; 6] {
     [
         link.node_a_name.clone(),
         link.int_a.clone(),
         link.node_b_name.clone(),
         link.int_b.clone(),
         link.kind.to_string(),
+        link_state_cell(link.state.as_ref()),
     ]
+}
+
+/// A link's state as the table shows it. A link the server has not checked since it started
+/// is "not checked".
+fn link_state_cell(state: Option<&LinkState>) -> String {
+    match state {
+        None => "not checked".to_string(),
+        Some(LinkState::Attached) => "attached".to_string(),
+        Some(LinkState::PeerDown { peer }) => format!("peer down: {peer}"),
+        Some(LinkState::Failed { reason }) => format!("failed: {reason}"),
+    }
 }
 
 /// Renders a table of shared bridges connecting multiple nodes
@@ -271,7 +290,43 @@ mod tests {
     use std::net::Ipv4Addr;
 
     use super::*;
-    use shared::data::{NodeKind, NodeModel, NodeState, ProvisionStatus};
+    use shared::data::{BridgeKind, NodeKind, NodeModel, NodeState, ProvisionStatus};
+
+    #[test]
+    fn links_table_shows_each_link_state() {
+        let link = |node_b: &str, state| LinkInfo {
+            node_a_name: "vm1".to_string(),
+            int_a: "eth1".to_string(),
+            node_b_name: node_b.to_string(),
+            int_b: "eth1".to_string(),
+            kind: BridgeKind::P2p,
+            state,
+        };
+        let table = render_links_table(&[
+            link("vm2", Some(LinkState::Attached)),
+            link(
+                "ctr1",
+                Some(LinkState::PeerDown {
+                    peer: "ctr1".to_string(),
+                }),
+            ),
+            link(
+                "uk1",
+                Some(LinkState::Failed {
+                    reason: "its end tpb2 does not exist".to_string(),
+                }),
+            ),
+            link("vm3", None),
+        ]);
+        assert!(table.contains("State"), "{table}");
+        assert!(table.contains("attached"), "{table}");
+        assert!(table.contains("peer down: ctr1"), "{table}");
+        assert!(
+            table.contains("failed: its end tpb2 does not exist"),
+            "{table}"
+        );
+        assert!(table.contains("not checked"), "{table}");
+    }
 
     #[test]
     fn provision_table_shows_each_node_with_its_status() {

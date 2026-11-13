@@ -172,6 +172,8 @@ pub(crate) async fn tear_down_lab(
     };
 
     destroy_lab_resources(lab_id, state, summary, errors, progress).await;
+    // Its links are gone with its interfaces.
+    state.link_states.forget_lab(lab_id);
 
     let remove_record = async {
         if recorded {

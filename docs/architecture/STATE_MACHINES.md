@@ -49,7 +49,7 @@ which to make them explicit, are in
 | 22 | [Client token](#22-client-token) | client | `~/.sherpa/token` file |
 | 23 | [Client operation outcome and local lab files](#23-client-operation-outcome-and-local-lab-files) | client | files in the lab folder |
 | 24 | [CLI provisioners](#24-cli-provisioners) | client | per-run `ProvisionStatus` |
-| 25 | [P2p link attachment](#25-p2p-link-attachment) | network, server | `LinkState` enum and `step` transition over the kernel's ends and TC filters |
+| 25 | [P2p link attachment](#25-p2p-link-attachment) | network, server | `LinkState` enum and `step` transition over the kernel's ends and TC filters; last state per link in memory |
 | 26 | [Link impairment](#26-link-impairment) | server, network, db | `impairment_*` columns, netem qdisc; kernel put back on a failed DB write |
 | 27 | [Bridges and management networks](#27-bridges-and-management-networks) | server, libvirt, container, network | side effects |
 | 28 | [Node images](#28-node-images) | server, db | `node_image` row, `default` flag, files |
@@ -344,8 +344,9 @@ stateDiagram-v2
 - `shutdown_lab_nodes` (down) takes a read lease with `begin`, like the other operations.
 - The scanner takes the write lease with `try_observe`, without waiting and without
   cancelling anything, and skips a lab an operation holds. It holds the lease only while it
-  queries the runtimes and writes what it saw; its SSH probes run before. An operation that
-  starts meanwhile waits for it. A `stop` that finds the scanner holding the lease reports
+  queries the runtimes, writes what it saw, and checks and repairs the lab's P2p links
+  (machine 25); its SSH probes run before. An operation that starts meanwhile waits for it.
+  So the repair never runs beside a `resume`, `redeploy` or `up` that makes link ends itself. A `stop` that finds the scanner holding the lease reports
   `was_running`, as if an operation had held it.
 
 **Proof of the lease.** `LabHold` is a sealed trait implemented by `LabOperation` and
@@ -408,6 +409,8 @@ container is ready.
   container".
 - If a runtime query fails, the scanner keeps the recorded state of that runtime's nodes.
 - `down` pauses containers, so a container that is down is `Stopped(Paused)`.
+- The scanner's P2p link repair (machine 25) checks only nodes that are `Running` here and not
+  `Building`; a `Stopped(Paused)` node, and any other, is left as it is.
 
 ### 5. Node readiness and host keys
 
@@ -1208,11 +1211,18 @@ confirmation from the server (`container.rs:32-42`).
   - `transition.rs`: the states and the one transition, `step`, a pure function;
   - `reattach.rs`: `reattach_node_links`, the one function every event that makes a link end
     again calls, and `attach_link`, the per-link kernel step that `up` uses too;
-  - `host.rs`: the `LinkHost` trait (look up an end, attach a redirect, set netem, make a
-    container's veths) and `KernelHost`, its implementation over `network` and Docker. Tests
+  - `host.rs`: the `LinkHost` trait (look up an end, tell whether it has its redirect, attach
+    a redirect, set netem, make a container's veths) and `KernelHost`, its implementation over `network` and Docker. Tests
     use a fake (`fake.rs`);
-  - `veths.rs`: a container's veth plan from the database rows.
-- `crates/network/src/ebpf.rs`, `tap.rs` and `tc.rs`.
+  - `veths.rs`: a container's veth plan from the database rows;
+  - `plan.rs`: how a node's ends are made again (`recreated_end`), for resume and the scanner;
+  - `repair.rs`: the scanner's check of a lab's links in the kernel (`check_lab_links`) and
+    its repair of a node (`repair_node`).
+- `crates/server/src/services/scanner.rs`: `repair_links`, which runs the check and the repair
+  under the scanner's hold.
+- `crates/server/src/daemon/link_states.rs`: `LinkStates`, each link's last state in memory.
+- `crates/network/src/ebpf.rs` (`attach_p2p_redirect`, `has_p2p_redirect`), `tap.rs` and
+  `tc.rs`.
 
 `DbLink` has `tap_a` and `tap_b`, and no status field: the link's state is in the kernel
 (whether each end's tap or veth exists, and the peer ifindex in each end's BPF map,
@@ -1229,8 +1239,9 @@ so far.
   up, or the kernel refused the redirect or the qdisc.
 
 Between an event and its re-attach the link is *stale*: one end has a new ifindex and the other
-end's redirect still points at the old one. Stale is never reported; every event that makes it
-re-attaches.
+end's redirect still points at the old one. Stale is never reported. Every event Sherpa makes
+re-attaches at once; an event outside Sherpa is repaired by the next scan (see "Repair by the
+scanner" below), and until then the link shows the state it had at the last scan.
 
 **The transition.** `step(side, a, b, peer)` looks at the two ends, as `End::Present(ifindex)`,
 `Absent` or `Broken(reason)`:
@@ -1254,7 +1265,8 @@ of `node`, in index order, each on its own: one link's failure never stops the n
 | container started from exited by resume | `resume::reattach_cold_booted` | `Container { veths }`: every data interface planned again from the database rows (links, bridges) and the saved manifest's interface count, made in the new namespace first |
 | VM redeploy | `redeploy/vm.rs` | `Domain` |
 | container redeploy | `redeploy/container.rs` | `Container { veths }` |
-| the container's plan failed | resume | `Unplanned(reason)`: each link `Failed` |
+| the container's plan failed | resume, scanner | `Unplanned(reason)`: each link `Failed` |
+| an end made again outside Sherpa (`virsh start`, `docker start` or `restart`, a restart policy) | `scanner::repair_links`, through `repair_node` | `Domain`, or `Container { veths }` with only the veths that do not exist |
 
 A container on no link has Docker networks, which Docker connects again; it is not
 re-attached. A paused container or VM keeps its ends, so unpausing re-attaches nothing.
@@ -1268,11 +1280,46 @@ peer are `PeerDown`. When the peer starts (resume cold boot, or redeploy), the p
 re-attach finds both ends and sets both directions, so the surviving end's redirect moves to the
 peer's new ifindex. No state is kept between the two events: the kernel and the rows decide.
 
+**Repair by the scanner.** Each scan of a `Ready` lab, under the scanner's hold (machine 3),
+runs `check_lab_links` over every link and remembers nothing from the scan before, so the
+first scan after sherpad starts catches up on whatever changed while it was down. Only the
+ends of nodes whose runtime is `Running` and that are not `Building` are checked:
+
+| The running node's end | The other end | Fault | What the scan does |
+|---|---|---|---|
+| does not exist | any | `Missing` | repair the node (a restarted container's veths went with its namespace) |
+| exists, no `p2p_redirect` filter on ingress | exists | `NoRedirect` | repair the node (libvirt made a bare tap) |
+| exists, no filter | does not exist | none | nothing: the link is `PeerDown`, and is repaired when the peer's end comes back |
+| exists, with the filter | any | none | nothing |
+| cannot be read | any | none | nothing: the link is `Failed` with the reason |
+
+A link with no fault is `Failed` if an end could not be read, `PeerDown` naming the first of
+its nodes that is not running (stopped, paused, faulted or absent), and `Attached` otherwise.
+`repair_node` runs `reattach_node_links` for each node with a fault; for a container it makes
+only the veths that do not exist, because making a veth deletes its host end first and would
+take a working interface down. Every repaired link is logged at info, every failure at warn.
+A repair that fails half-way leaves an end without its filter (the attach removes the old
+program before it loads the new one), which the next scan finds again. The scanner never
+starts, stops or unpauses a node; when it repairs a running node, the redirect on a paused
+peer's end is pointed at the new end too, as a resume would.
+
+The check cannot see an end whose filter survived but whose peer index is stale: a filter on
+an end that was not made again, whose peer's end was made again and attached by something
+other than Sherpa. Reading the index back from the BPF map would; it is not done.
+
 **Reporting.** The function returns a `LinkReport` per link and fails nothing. Resume puts them
 in the node's `NodeActionResult.links`, redeploy in `RedeployResponse.links`, and both stream a
 status line per link that is not attached. The CLI prints those under the node's line, and the
 web UI adds them to its notification. A link that is not attached does not mark the node
 `Failed` and does not make the command fail: the node is up.
+
+Each link's last state is kept in memory in `AppState::link_states` (`LinkStates`), by lab and
+link index: the scanner replaces a lab's states on each scan it makes of the lab, resume and
+redeploy record the links they re-attached (`report_links`), and a destroy or clean forgets
+the lab. `inspect` returns it as `LinkInfo.state`. Nothing is stored in the database: the
+kernel holds the state and one scan rebuilds it. After sherpad starts, and while the scanner
+is disabled, a lab's links have no state until a scan, resume or redeploy, and `inspect`
+reports them as not checked (`state` absent).
 
 `up` does not use `reattach_node_links`. It attaches each link once both ends exist (VM links
 in phase 11b, links with a container end as each container starts), with `attach_link`, and a
@@ -1289,8 +1336,10 @@ stateDiagram-v2
     Stale --> Attached : reattach_node_links, both ends present
     Stale --> PeerDown : reattach_node_links, peer end absent
     Stale --> Failed : own end absent, or kernel refuses
-    PeerDown --> Attached : the peer's own re-attach when it starts
-    Failed --> Attached : next re-attach of either end
+    Attached --> Stale : end made again outside Sherpa
+    Stale --> Attached : next scan, repair_node
+    PeerDown --> Attached : the peer's own re-attach when it starts, or the next scan
+    Failed --> Attached : next re-attach of either end, or the next scan if an end is bare
 ```
 
 ### 26. Link impairment

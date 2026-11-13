@@ -26,6 +26,10 @@ pub(crate) struct FakeHost {
     /// Interfaces whose netem cannot be changed.
     pub(crate) failing_netem: HashSet<String>,
     pub(crate) no_container: bool,
+    /// Interfaces whose redirect cannot be read.
+    pub(crate) failing_filter_reads: HashSet<String>,
+    /// How many changes were made: redirects attached, impairments set, veths made.
+    pub(crate) writes: Cell<u32>,
 }
 
 impl FakeHost {
@@ -81,7 +85,31 @@ impl FakeHost {
         Ok(self.index(iface))
     }
 
+    /// The name of the interface with index `ifindex`.
+    fn name_of(&self, ifindex: u32) -> Option<String> {
+        self.interfaces
+            .borrow()
+            .iter()
+            .find(|(_, index)| **index == ifindex)
+            .map(|(name, _)| name.clone())
+    }
+
+    fn read_redirect(&self, ifindex: u32) -> Result<bool> {
+        let Some(name) = self.name_of(ifindex) else {
+            bail!("no interface has index {ifindex}");
+        };
+        if self.failing_filter_reads.contains(&name) {
+            bail!("netlink refused the filter dump of {name}");
+        }
+        Ok(self.redirect(&name).is_some())
+    }
+
+    fn wrote(&self) {
+        self.writes.set(self.writes.get() + 1);
+    }
+
     fn set_netem(&self, ifindex: u32, impairment: &LinkImpairment) -> Result<()> {
+        self.wrote();
         let refused = self
             .interfaces
             .borrow()
@@ -106,6 +134,7 @@ impl FakeHost {
     }
 
     fn make_veth(&self, veth: &ContainerVeth) -> Result<()> {
+        self.wrote();
         if self.failing_veths.contains(&veth.host_veth) {
             bail!("netlink refused {}", veth.host_veth);
         }
@@ -119,8 +148,16 @@ impl LinkHost for FakeHost {
         ready(self.look_up(iface))
     }
 
+    fn has_redirect(&self, ifindex: u32) -> impl Future<Output = Result<bool>> {
+        ready(self.read_redirect(ifindex))
+    }
+
     fn attach_redirect(&self, iface: &str, peer_ifindex: u32) -> Result<()> {
+        self.wrote();
         if self.failing_redirects.contains(iface) {
+            // The real attach detaches the old program before it loads the new one, so the
+            // end is left bare.
+            self.redirects.borrow_mut().remove(iface);
             bail!("failed to attach the eBPF redirect on {iface}");
         }
         self.redirects

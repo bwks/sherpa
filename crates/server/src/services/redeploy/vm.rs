@@ -97,14 +97,20 @@ pub(super) async fn redeploy_vm(
     )
     .await?;
 
-    let link_reports = reattach_node_links(
+    let outcomes = reattach_node_links(
         &KernelHost::new(&redeploy.state.docker),
         &lab_links,
         &redeploy.node_record_id,
         RecreatedEnd::Domain,
     )
     .await;
-    report_links(Some(progress), node_name, &link_reports);
+    let link_reports = report_links(
+        Some(progress),
+        &redeploy.state.link_states,
+        lab_id,
+        node_name,
+        outcomes,
+    );
 
     // Set isolated bridge DOWN to remove carrier from disabled VM interfaces
     if has_disabled {

@@ -130,23 +130,7 @@ pub(super) async fn redeploy_container(
         network::set_link_down(&isolated.bridge_name).await?;
     }
 
-    // The container's veths are made in its namespace, then its links attached.
-    let link_reports = if p2p_veths.is_empty() {
-        vec![]
-    } else {
-        let reports = reattach_node_links(
-            &KernelHost::new(&redeploy.state.docker),
-            &lab_links,
-            &redeploy.node_record_id,
-            RecreatedEnd::Container {
-                container: container_name,
-                veths: p2p_veths,
-            },
-        )
-        .await;
-        report_links(Some(redeploy.progress), node_name, &reports);
-        reports
-    };
+    let link_reports = attach_links(redeploy, &lab_links, container_name, p2p_veths).await;
 
     ready_after_restore(
         db,
@@ -156,6 +140,36 @@ pub(super) async fn redeploy_container(
     )
     .await?;
     Ok(link_reports)
+}
+
+/// Make the redeployed container's veths in its namespace, then attach its links, and report
+/// what each link was left in. A container on no link has none.
+async fn attach_links(
+    redeploy: &Redeploy<'_>,
+    lab_links: &LabLinks,
+    container_name: String,
+    veths: Vec<ContainerVeth>,
+) -> Vec<LinkReport> {
+    if veths.is_empty() {
+        return vec![];
+    }
+    let outcomes = reattach_node_links(
+        &KernelHost::new(&redeploy.state.docker),
+        lab_links,
+        &redeploy.node_record_id,
+        RecreatedEnd::Container {
+            container: container_name,
+            veths,
+        },
+    )
+    .await;
+    report_links(
+        Some(redeploy.progress),
+        &redeploy.state.link_states,
+        &redeploy.lab_id,
+        &redeploy.node_name,
+        outcomes,
+    )
 }
 
 /// The data interfaces of a container: Docker networks, made now, for one on no link, or, for

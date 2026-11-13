@@ -4,17 +4,19 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// The state a P2p link, or another data connection of a node, is left in after the node's end
-/// was made again: by a cold boot, a container start or a redeploy.
+/// was made again (by a cold boot, a container start or a redeploy), or as the scanner last
+/// found it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum LinkState {
     /// Both ends exist and redirect to each other, with the link's impairments.
     Attached,
-    /// The peer's end does not exist, because the peer is down. Nothing is wrong: the link is
-    /// attached both ways when the peer starts again.
+    /// The peer is down: stopped, paused or gone, so its end does not exist or is left alone.
+    /// Nothing is wrong: the link is attached both ways when the peer starts again.
     PeerDown { peer: String },
     /// The link could not be attached, and why. The node is up; the link carries no traffic
-    /// until it is attached again, by resuming or redeploying either end.
+    /// until it is attached again: by resuming or redeploying either end, or by the scanner
+    /// when it finds an end it can repair.
     Failed { reason: String },
 }
 

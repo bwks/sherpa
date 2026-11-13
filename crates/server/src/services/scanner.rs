@@ -1,10 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use bollard::secret::ContainerStateStatusEnum;
-use shared::data::{DbLab, DbNode, NodeKind, NodeState, Observation, Probe, RecordId, Runtime};
+use shared::data::{
+    DbLab, DbNode, LabPhase, NodeKind, NodeState, Observation, Probe, RecordId, Runtime,
+};
 use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
@@ -13,6 +15,10 @@ use crate::daemon::state::AppState;
 use crate::services::lab_operations;
 use crate::services::node_lifecycle;
 use crate::services::node_ops::{self, VmReadiness};
+use crate::services::p2p_links::{
+    KernelHost, LabLinks, PlannedNode, check_lab_links, load_lab_manifest, recreated_end,
+    repair_node,
+};
 use crate::services::ssh_config;
 
 /// What libvirt and Docker reported in one query. A runtime that did not answer is `None`:
@@ -40,8 +46,11 @@ struct ScannedNode<'a> {
 /// Virtual machines with SSH that run and are not yet known ready, or have no host key
 /// recorded, are probed on SSH first: the probe records the host key they offer, and a node
 /// whose probe answered is recorded running. So a node whose readiness wait timed out, or that
-/// was started outside Sherpa, becomes `Running` once it answers. Exits cleanly when the
-/// cancellation token is triggered.
+/// was started outside Sherpa, becomes `Running` once it answers.
+///
+/// Under the same hold, the P2p links of a `Ready` lab are checked in the kernel, and the ends
+/// of running nodes that were made again outside Sherpa are repaired (`repair_links`). Exits
+/// cleanly when the cancellation token is triggered.
 #[instrument(skip_all)]
 pub async fn run_scanner(state: AppState, cancel: CancellationToken) {
     let interval_secs = state.config.scanner.interval_secs;
@@ -120,20 +129,27 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
         let nodes = db::list_nodes_by_lab(&state.db, lab_record_id.clone())
             .await
             .context("Failed to list nodes for lab")?;
-        for node in scanned_nodes(state, lab, &nodes).await? {
-            let Some(runtime) = runtimes.runtime_of(&node) else {
+        let scanned = scanned_nodes(state, lab, &nodes).await?;
+        for node in &scanned {
+            let Some(runtime) = runtimes.runtime_of(node) else {
                 tracing::debug!(node = %node.node.name, "Runtime not queried this cycle; keeping its state");
                 continue;
             };
             let observation = Observation {
                 runtime,
-                probe: probe_for(&node, probes.get(&node.node.name).copied()),
+                probe: probe_for(node, probes.get(&node.node.name).copied()),
             };
             if let Err(error) =
                 node_lifecycle::observe(&state.db, &observed, node.node, observation).await
             {
                 tracing::warn!(node = %node.node.name, error = %error, "Failed to update node state");
             }
+        }
+        // Still under the hold: no resume, redeploy or `up` is making the ends this repairs.
+        if lab.phase == LabPhase::Ready
+            && let Err(error) = repair_links(state, lab, &nodes, &scanned, &runtimes).await
+        {
+            tracing::warn!(error = %error, "Failed to check the lab's P2p links");
         }
     } else {
         tracing::debug!("An operation holds the lab; leaving it for the next cycle");
@@ -142,6 +158,96 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
     if key_recorded {
         refresh_ssh_files(state, lab, lab_record_id).await?;
     }
+    Ok(())
+}
+
+/// Check the lab's P2p links in the kernel, repair the ends of running nodes that were made
+/// again outside Sherpa (see `p2p_links::repair`), and keep each link's state for `inspect`.
+///
+/// Called under the scanner's hold on the lab, so it never runs beside an operation that makes
+/// ends itself. Only nodes the runtime reports running, and that no operation is building, are
+/// checked; nothing is started, stopped or unpaused.
+#[instrument(skip_all, fields(lab_id = %lab.lab_id), level = "debug")]
+async fn repair_links(
+    state: &AppState,
+    lab: &DbLab,
+    nodes: &[DbNode],
+    scanned: &[ScannedNode<'_>],
+    runtimes: &Runtimes,
+) -> Result<()> {
+    let lab_record_id = lab.id.as_ref().context("Lab missing record ID")?;
+    let links = db::list_links_by_lab(&state.db, lab_record_id.clone())
+        .await
+        .context("Failed to list the lab's links")?;
+    if links.is_empty() {
+        return Ok(());
+    }
+    let lab_links = LabLinks::new(links, nodes);
+    let running: HashSet<RecordId> = scanned
+        .iter()
+        .filter(|node| {
+            runtimes.runtime_of(node) == Some(Runtime::Running)
+                && node.node.state != NodeState::Building
+        })
+        .filter_map(|node| node.node.id.clone())
+        .collect();
+
+    let host = KernelHost::new(&state.docker);
+    let mut check = check_lab_links(&host, &lab_links, &running).await;
+    let broken: Vec<&ScannedNode<'_>> = check
+        .broken_nodes()
+        .into_iter()
+        .filter_map(|id| {
+            scanned
+                .iter()
+                .find(|node| node.node.id.as_ref() == Some(&id))
+        })
+        .collect();
+    if !broken.is_empty() {
+        // A container's veths are planned as resume plans them: from its image, the lab's
+        // bridges and the saved manifest's interface count.
+        let has_container = broken.iter().any(|node| node.kind == NodeKind::Container);
+        let manifest = has_container
+            .then(|| load_lab_manifest(&lab.lab_id))
+            .flatten();
+        let bridges = if has_container {
+            db::list_bridges(&state.db, lab_record_id)
+                .await
+                .map_err(|error| format!("{error:#}"))
+        } else {
+            Ok(vec![])
+        };
+        let images = db::list_node_images_by_ids(
+            &state.db,
+            broken.iter().map(|node| node.node.image.clone()).collect(),
+        )
+        .await
+        .context("Failed to fetch the node images")?;
+        for node in broken {
+            let Some(node_id) = &node.node.id else {
+                continue;
+            };
+            let planned = PlannedNode {
+                lab_id: &lab.lab_id,
+                node: node.node,
+                node_id,
+                kind: &node.kind,
+                image: images
+                    .iter()
+                    .find(|image| image.id.as_ref() == Some(&node.node.image)),
+            };
+            let Some(end) =
+                recreated_end(&planned, manifest.as_ref(), &lab_links, bridges.as_deref())
+            else {
+                continue;
+            };
+            let outcomes = repair_node(&host, &lab_links, node_id, end).await;
+            check.record(&outcomes);
+        }
+    }
+    state
+        .link_states
+        .replace_lab(&lab.lab_id, check.into_states());
     Ok(())
 }
 

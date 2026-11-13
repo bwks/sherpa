@@ -2,7 +2,9 @@ use super::TailnetStatus;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::data::{BridgeKind, LabInfo, LabPhase, LabState, NodeKind, NodeModel, NodeState};
+use crate::data::{
+    BridgeKind, LabInfo, LabPhase, LabState, LinkState, NodeKind, NodeModel, NodeState,
+};
 
 /// Request type for inspecting a lab
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -55,6 +57,11 @@ pub struct LinkInfo {
     pub node_b_name: String,
     pub int_b: String,
     pub kind: BridgeKind,
+    /// What the server last found or left the link in: a scan of the lab, a resume or a
+    /// redeploy. `None` when the server has not checked it since it started, and from servers
+    /// that do not report link states.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<LinkState>,
 }
 
 /// Display-ready information about a shared bridge connecting multiple nodes
@@ -63,4 +70,38 @@ pub struct BridgeInfo {
     pub bridge_name: String,
     pub network_name: String,
     pub connected_nodes: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn link(state: Option<LinkState>) -> LinkInfo {
+        LinkInfo {
+            node_a_name: "vm1".to_string(),
+            int_a: "eth1".to_string(),
+            node_b_name: "ctr1".to_string(),
+            int_b: "eth1".to_string(),
+            kind: BridgeKind::P2p,
+            state,
+        }
+    }
+
+    #[test]
+    fn a_link_carries_its_state_and_none_before_it_is_checked() {
+        let checked = serde_json::to_value(link(Some(LinkState::PeerDown {
+            peer: "ctr1".to_string(),
+        })))
+        .unwrap();
+        assert_eq!(
+            checked["state"],
+            serde_json::json!({"state": "peer_down", "peer": "ctr1"})
+        );
+        let unchecked = serde_json::to_value(link(None)).unwrap();
+        assert!(unchecked.get("state").is_none(), "{unchecked}");
+        // A server before link states sends none.
+        let mut old = unchecked;
+        let back: LinkInfo = serde_json::from_value(old.take()).unwrap();
+        assert_eq!(back.state, None);
+    }
 }

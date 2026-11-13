@@ -11,11 +11,15 @@ use crate::services::node_ops;
 use shared::data::LinkImpairment;
 use shared::util;
 
-/// The host operations that re-attach a link: look up an end, point its redirect at its peer,
-/// set its impairment, and make a container's veths.
+/// The host operations that re-attach a link: look up an end and whether it has its redirect,
+/// point its redirect at its peer, set its impairment, and make a container's veths.
 pub(crate) trait LinkHost {
     /// The index of interface `iface`, or `None` when it does not exist.
     async fn ifindex(&self, iface: &str) -> Result<Option<u32>>;
+
+    /// Whether the interface with index `ifindex` has the P2p redirect on its ingress. An end
+    /// made again never has it.
+    async fn has_redirect(&self, ifindex: u32) -> Result<bool>;
 
     /// Redirect what arrives on `iface` to the interface with index `peer_ifindex`, replacing
     /// any redirect it has.
@@ -47,6 +51,12 @@ impl<'a> KernelHost<'a> {
 impl LinkHost for KernelHost<'_> {
     async fn ifindex(&self, iface: &str) -> Result<Option<u32>> {
         network::find_ifindex(iface).await
+    }
+
+    async fn has_redirect(&self, ifindex: u32) -> Result<bool> {
+        network::has_p2p_redirect(ifindex)
+            .await
+            .with_context(|| format!("failed to read the redirect of ifindex {ifindex}"))
     }
 
     fn attach_redirect(&self, iface: &str, peer_ifindex: u32) -> Result<()> {
