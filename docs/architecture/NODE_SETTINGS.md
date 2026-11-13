@@ -46,11 +46,8 @@ built from another, and no model is built from another model, so changing a base
 the models built from it. The network OS bases take memory, OS variant and interfaces as
 arguments because every model on them sets its own, so none can inherit a placeholder.
 
-`test_every_model_config_matches_the_snapshot` compares every model's JSON, byte for byte, with
-the fixture `crates/shared/src/data/node_models.json`. A change to a base or a model shows up as
-a diff to that file naming every model it touched; update the fixture in the same change.
-Container models keep `machine`, `boot_disk` and `cdrom` values they do not use, and the two
-container bases differ in them; see #610.
+Container models carry `machine`, `boot_disk` and `cdrom` values that containers do not use,
+and `app_container` and `network_os_container` set different ones; see #610.
 
 The `node_image` table keeps one flat column per field; `db::persistence` maps the groups to
 the columns by hand (see [`DATABASE.md`](DATABASE.md)).

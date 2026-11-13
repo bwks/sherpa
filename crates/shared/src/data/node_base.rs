@@ -3,7 +3,7 @@
 //! Each model's constructor in `node` starts from one of these bases and states only what differs
 //! from it, with struct update syntax. The bases are one level deep: none is built from another,
 //! and no model is built from another model, so changing a base changes only the models built
-//! from it. The node-model JSON snapshot test shows every model such a change touches.
+//! from it.
 
 use super::cpu::CpuModels;
 use super::disk::DiskBuses;
