@@ -20,7 +20,7 @@ instead of repeating these instructions.
 | Test | Command | Needs | Time |
 |---|---|---|---|
 | Format and lint | `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings` | Rust toolchain | about 1–5 min |
-| Unit and database tests | `cargo test --workspace` | Nothing external | about 1–3 min |
+| Unit and database tests | `cargo test --workspace` or `cargo nextest run --workspace` | Nothing external (nextest from `mise install`) | about 1 min once built |
 | Other crate integration | see [Crate integration tests](#crate-integration-tests) | Docker, libvirt, sudo | minutes |
 | VM code suite | `uv run tests/harness/test_env.py run [ubuntu-2404] [ubuntu-2604]` | Sherpa host, logged-in CLI | about 40 min per release, in parallel when the server has the memory |
 | Installer suite | `./tests/harness/test_install.sh --config tests/environments/<env>/release-test.toml` | Sherpa host, logged-in CLI | about 20–30 min |
@@ -71,6 +71,17 @@ cargo test --workspace
 Unit tests need no Docker, libvirt or network access. The database tests run here too:
 sherpad embeds its database, and each test opens its own in-memory database
 (`db::open_in_memory`). Integration tests are marked `#[ignore]` and are skipped here.
+
+[cargo-nextest](https://nexte.st/) runs the same tests, each in its own process, and reports
+the time of each test. `mise install` installs the version pinned in `mise.toml`; CI runs it
+through `cargo llvm-cov nextest`. Use it locally the same way as `cargo test`:
+
+```sh
+cargo nextest run --workspace
+cargo nextest run -p sherpad lab_ssh_key
+```
+
+nextest does not run doctests; the workspace has none (doc comments carry no code blocks).
 
 ## Crate integration tests
 
