@@ -1,7 +1,8 @@
 #! /usr/bin/bash
 
 # Prepares a version bump for a bump pull request: sets the workspace version, updates the
-# workspace crates' lockfile entries and regenerates CHANGELOG.md. It does not commit.
+# workspace crates' lockfile entries and adds the new version's section to the top of
+# CHANGELOG.md, leaving the earlier sections as they are. It does not commit.
 # Run it with `mise run release:bump [VERSION]`; see docs/architecture/RELEASE.md.
 
 set -euo pipefail
@@ -26,6 +27,48 @@ section() {
         $1 == "##" { found = ($2 == version) }
         found { print }
     ' CHANGELOG.md
+}
+
+# Splits a changelog read from stdin at its "## [...]" section headings and prints one part:
+# "header" is the text before the first section, "sections" the text from the first section to
+# the end, "first" the first section, and "rest" the text from the second section to the end.
+changelog_part() {
+    awk -v part="$1" '
+        $1 == "##" && $2 ~ /^\[/ { sections++ }
+        (part == "header" && sections == 0) \
+            || (part == "sections" && sections >= 1) \
+            || (part == "first" && sections == 1) \
+            || (part == "rest" && sections >= 2) { print }
+    '
+}
+
+# Prints a part of the changelog, as changelog_part does: "old" is the committed CHANGELOG.md
+# and "new" the working tree's.
+old_part() { git show HEAD:CHANGELOG.md | changelog_part "$1"; }
+new_part() { changelog_part "$1" < CHANGELOG.md; }
+
+# Fails unless CHANGELOG.md is the committed changelog with one section added on top: the same
+# header, a section for the version ending in one blank line, then the committed sections byte
+# for byte.
+check_changelog() {
+    local version="$1" first last_two
+
+    cmp -s <(old_part header) <(new_part header) \
+        || fail "git-cliff changed the CHANGELOG.md header."
+
+    first=$(new_part first | head -n 1)
+    [[ "$first" == "## [${version}] - "* ]] \
+        || fail "the first CHANGELOG.md section is \"${first}\", not ## [${version}]."
+
+    mapfile -t last_two < <(new_part first | tail -n 2)
+    [ "${#last_two[@]}" -eq 2 ] && [ -n "${last_two[0]}" ] && [ -z "${last_two[1]}" ] \
+        || fail "the ## [${version}] section does not end with one blank line."
+
+    if ! cmp -s <(old_part sections) <(new_part rest); then
+        diff -u --label HEAD:CHANGELOG.md --label CHANGELOG.md \
+            <(old_part sections) <(new_part rest) >&2 || true
+        fail "the bump changed CHANGELOG.md below the ## [${version}] section (diff above); it must add only that section. CHANGELOG.md is left as written."
+    fi
 }
 
 case "${1:-}" in
@@ -79,8 +122,12 @@ versions=$(cargo metadata --no-deps --locked --format-version 1 \
     | jq -r '[.packages[].version] | unique | join(" ")')
 [ "$versions" = "$version" ] || fail "the workspace crates are at ${versions}, not ${version}."
 
-git cliff --tag "$next" --output CHANGELOG.md
+# Only the commits since the last tag, as the new version's section, written above the
+# existing sections. git-cliff keeps the header once; the earlier sections, and any notes
+# written into them by hand, are not regenerated.
+git cliff --unreleased --tag "$next" --prepend CHANGELOG.md
 [ -n "$(section "$version")" ] || fail "CHANGELOG.md has no ## [${version}] section."
+check_changelog "$version"
 
 extra=$(git diff --name-only | grep -vxE 'Cargo\.toml|Cargo\.lock|CHANGELOG\.md' || true)
 [ -z "$extra" ] || fail "the bump changes more than the version and the changelog: ${extra}"

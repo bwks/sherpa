@@ -27,9 +27,14 @@ body = """
             {{ " " }}([{{ commit.id | truncate(length=7, end="") }}]({{ self::remote_url() }}/commit/{{ commit.id }}))
     {%- endfor %}
 {% endfor %}
+<!-- end of release -->
 """
 footer = ""
 trim = true
+# trim strips the blank line that ends a release's section, which dev/release-bump needs between
+# the section it prepends and the previous version's heading. The body ends with this marker so
+# the blank line survives the trim; the postprocessor, which runs after it, removes the marker.
+postprocessors = [{ pattern = '<!-- end of release -->\z', replace = "" }]
 
 [git]
 conventional_commits = true
