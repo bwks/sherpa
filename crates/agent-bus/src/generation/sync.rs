@@ -1,0 +1,900 @@
+//! Writing the Generation sections of pull requests: which are due, and writing them with `gh`.
+//!
+//! A sync renders, under the record's lock, the section of each pull request it looks at from
+//! the record's rows merged into the section it last wrote, and compares the two: unchanged
+//! text makes no `gh` call at all. It then lets the record go before any network call, reads
+//! each due body and state with `gh pr view`, rewrites the section (`section::update_body`)
+//! and sets the body with `gh pr edit --body-file -`, then takes the record again to keep the
+//! text written, the state and any error (`generation_pr`).
+//!
+//! - A change in the host's rows alone is written at most once every `DEBOUNCE` per pull
+//!   request; a change in a task's row (a new outcome) is written at once, and so is every
+//!   change when the sync is forced (`generation sync`, the `SessionEnd` hook).
+//! - A pull request seen merged or closed gets that one last write, and is frozen from then on.
+//! - A pull request never written is looked at only when its item was active since the first
+//!   sync, so the first sync does not rewrite the bodies of long-merged pull requests;
+//!   `generation sync --all` and `--pr` look at it anyway.
+//!
+//! `gh` is `AGENT_BUS_GH`, else `gh` from `PATH`, with `GH_TOKEN` from agent-bus's own
+//! environment and no other token variable. Without `GH_TOKEN` nothing is written: the writes
+//! stay pending.
+
+use std::collections::HashMap;
+use std::env;
+use std::time::Duration;
+
+use anyhow::{Context, Result, bail};
+use serde::Deserialize;
+use tracing::instrument;
+
+use crate::files::millis;
+use crate::generation::section::{Rows, hand_written, read, section_of, update_body};
+use crate::gh::{GH, GH_TOKEN_VARIABLE, gh_command, run, stderr};
+use crate::record::{Paths, Record};
+use crate::store::generation::{LastWrite, PullRequest, pull_requests, rows, save, since, written};
+
+/// The variable naming the `gh` to run instead of the one on `PATH`.
+pub const GH_VARIABLE: &str = "AGENT_BUS_GH";
+/// How long a change in the host's rows alone waits after the last write.
+const DEBOUNCE: Duration = Duration::from_mins(10);
+/// The states of a pull request whose section is frozen.
+const FROZEN: [&str; 2] = ["MERGED", "CLOSED"];
+
+/// The GitHub CLI and the token it runs with. No `Debug`: it holds the token.
+pub struct Github {
+    pub gh: String,
+    /// `GH_TOKEN`; `None` leaves every write pending.
+    pub token: Option<String>,
+}
+
+/// Which pull requests a sync looks at.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Scope {
+    /// Those written before, and those whose item was active since the first sync.
+    Due,
+    /// Every pull request that names an item.
+    All,
+    /// This one only.
+    One { repo: String, number: u64 },
+}
+
+/// What a sync does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Request {
+    pub scope: Scope,
+    /// Write at once, without the debounce of the host's rows.
+    pub force: bool,
+}
+
+/// What happened to one pull request's section.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome {
+    /// Written, or found already as it should be, in a pull request in this state.
+    Written { state: String },
+    /// The text is what was last written: no `gh` call.
+    Unchanged,
+    /// Only the host's rows changed, and the last write is less than `DEBOUNCE` ago.
+    Debounced,
+    /// The pull request was merged or closed, and has had its last write.
+    Frozen,
+    /// Due, but there is no `GH_TOKEN` to write with.
+    Pending,
+    /// Not written: why.
+    Failed(String),
+}
+
+/// What one sync did.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Synced {
+    /// Each pull request looked at, with what happened to it.
+    pub outcomes: Vec<(String, u64, Outcome)>,
+    /// The pull requests whose body has a Generation heading or table written by hand outside
+    /// the markers.
+    pub hand_written: Vec<(String, u64)>,
+    /// Why the outcomes could not be kept in the record: the next sync tries them again.
+    pub unsaved: Option<String>,
+}
+
+/// A pull request due a write, with the rows it gets.
+struct Due {
+    prior: LastWrite,
+    rows: Rows,
+}
+
+/// What a pull request needs, from what was last written and the record's rows.
+#[derive(Debug, PartialEq, Eq)]
+enum Decision {
+    Frozen,
+    Unchanged,
+    Debounced,
+    Write,
+}
+
+/// A pull request as `gh pr view --json body,state` gives it.
+#[derive(Debug, Deserialize)]
+struct View {
+    body: String,
+    state: String,
+}
+
+impl Github {
+    /// `gh` from `AGENT_BUS_GH`, else `PATH`, and `GH_TOKEN`, from agent-bus's environment.
+    pub fn from_environment() -> Self {
+        Self {
+            gh: env::var(GH_VARIABLE)
+                .ok()
+                .filter(|gh| !gh.is_empty())
+                .unwrap_or_else(|| GH.to_owned()),
+            token: env::var(GH_TOKEN_VARIABLE)
+                .ok()
+                .filter(|token| !token.is_empty()),
+        }
+    }
+}
+
+impl Synced {
+    /// How many pull requests are left to write for want of `GH_TOKEN`.
+    pub fn pending(&self) -> usize {
+        self.outcomes
+            .iter()
+            .filter(|(_, _, outcome)| *outcome == Outcome::Pending)
+            .count()
+    }
+}
+
+/// Sync the sections `request` names, with the record at `paths` (waiting up to `wait` for
+/// it) and `github`, at `now_ms`.
+///
+/// # Errors
+///
+/// Fails when the record is busy for longer than `wait` (`Busy`) or cannot be read, or `--pr`
+/// names a pull request no item has. A pull request that cannot be written is an outcome, not
+/// an error.
+#[instrument(skip_all, fields(scope = ?request.scope, force = request.force))]
+pub async fn sync(
+    paths: &Paths,
+    request: &Request,
+    github: &Github,
+    wait: Duration,
+    now_ms: u64,
+) -> Result<Synced> {
+    let record = Record::open_recorded(paths, wait).await?;
+    let conn = record.conn();
+    let since_ms = since(conn, now_ms).await?;
+    let mut prior = written(conn).await?;
+    let looked_at: Vec<PullRequest> = pull_requests(conn)
+        .await?
+        .into_iter()
+        .filter(|pull_request| in_scope(&request.scope, pull_request, &prior, since_ms))
+        .collect();
+    if let Scope::One { repo, number } = &request.scope
+        && looked_at.is_empty()
+    {
+        bail!(
+            "No work item has pull request {repo}#{number}: link a task to it with `link <task> \
+             --pr {number}`"
+        );
+    }
+    let mut synced = Synced::default();
+    let mut due = Vec::new();
+    for pull_request in looked_at {
+        let key = (pull_request.repo.clone(), pull_request.number);
+        let mut last = prior.remove(&key).unwrap_or(LastWrite {
+            repo: pull_request.repo.clone(),
+            number: pull_request.number,
+            ..LastWrite::default()
+        });
+        last.work = pull_request.work;
+        let ours = rows(conn, pull_request.work).await?;
+        let outcome = match decide(&last, &ours, request.force, now_ms) {
+            Ok(Decision::Write) if github.token.is_none() => Outcome::Pending,
+            Ok(Decision::Write) => {
+                due.push(Due {
+                    prior: last,
+                    rows: ours,
+                });
+                continue;
+            }
+            Ok(Decision::Frozen) => Outcome::Frozen,
+            Ok(Decision::Unchanged) => Outcome::Unchanged,
+            Ok(Decision::Debounced) => Outcome::Debounced,
+            Err(error) => Outcome::Failed(format!("{error:#}")),
+        };
+        synced.outcomes.push((key.0, key.1, outcome));
+    }
+    // No network call while the record is held.
+    drop(record);
+    if due.is_empty() {
+        return Ok(synced);
+    }
+    let mut results = Vec::new();
+    for item in due {
+        let (written, hand) = write(github, item, now_ms).await;
+        if hand {
+            synced
+                .hand_written
+                .push((written.repo.clone(), written.number));
+        }
+        let outcome = match (&written.last_error, &written.state) {
+            (Some(error), _) => Outcome::Failed(error.clone()),
+            (None, state) => Outcome::Written {
+                state: state.clone().unwrap_or_default(),
+            },
+        };
+        synced
+            .outcomes
+            .push((written.repo.clone(), written.number, outcome));
+        results.push(written);
+    }
+    if let Err(error) = keep(paths, wait, &results).await {
+        synced.unsaved = Some(format!("{error:#}"));
+    }
+    Ok(synced)
+}
+
+/// Whether `scope` looks at `pull_request`, with `prior` the pull requests written before and
+/// `since_ms` when the first sync ran.
+fn in_scope(
+    scope: &Scope,
+    pull_request: &PullRequest,
+    prior: &HashMap<(String, u64), LastWrite>,
+    since_ms: u64,
+) -> bool {
+    match scope {
+        Scope::Due => {
+            prior.contains_key(&(pull_request.repo.clone(), pull_request.number))
+                || pull_request.active_ms.is_some_and(|at| at >= since_ms)
+        }
+        Scope::All => true,
+        Scope::One { repo, number } => *repo == pull_request.repo && *number == pull_request.number,
+    }
+}
+
+/// Keep `results` in the record at `paths`, taken again within `wait`.
+async fn keep(paths: &Paths, wait: Duration, results: &[LastWrite]) -> Result<()> {
+    let record = Record::open_recorded(paths, wait).await?;
+    for written in results {
+        save(record.conn(), written).await?;
+    }
+    Ok(())
+}
+
+/// What the pull request last written as `prior` needs for the record's rows `ours` at
+/// `now_ms`: a frozen one nothing, unchanged text nothing, a change in the host's rows alone
+/// within `DEBOUNCE` of the last write nothing yet unless `force`, anything else a write.
+///
+/// # Errors
+///
+/// Fails when the section last written cannot be read or the rows cannot be shown.
+fn decide(prior: &LastWrite, ours: &Rows, force: bool, now_ms: u64) -> Result<Decision> {
+    if prior
+        .state
+        .as_deref()
+        .is_some_and(|state| FROZEN.contains(&state))
+    {
+        return Ok(Decision::Frozen);
+    }
+    let Some(last) = prior.section.as_deref() else {
+        return Ok(Decision::Write);
+    };
+    let next = update_body(last, ours)?;
+    if next == last {
+        return Ok(Decision::Unchanged);
+    }
+    let recent = prior
+        .written_at_ms
+        .is_some_and(|at| now_ms < at.saturating_add(millis(DEBOUNCE)));
+    if !force && recent && read(last)?.tasks == read(&next)?.tasks {
+        return Ok(Decision::Debounced);
+    }
+    Ok(Decision::Write)
+}
+
+/// Write `due`'s section into its pull request's body with `github` at `now_ms`. Returns what
+/// to keep (the text written and the state, or the error with the last write kept) and
+/// whether the body has a Generation section written by hand outside the markers.
+#[instrument(level = "debug", skip_all, fields(repo = %due.prior.repo, number = due.prior.number))]
+async fn write(github: &Github, due: Due, now_ms: u64) -> (LastWrite, bool) {
+    let Due { prior, rows } = due;
+    let mut kept = prior.clone();
+    let (repo, number) = (prior.repo.as_str(), prior.number);
+    let view = match view(github, repo, number).await {
+        Ok(view) => view,
+        Err(error) => {
+            kept.last_error = Some(format!("{error:#}"));
+            return (kept, false);
+        }
+    };
+    let hand = hand_written(&view.body).unwrap_or_default();
+    let written = match update_body(&view.body, &rows) {
+        Ok(body) if body == view.body => Ok(body),
+        Ok(body) => edit(github, repo, number, &body).await.map(|()| body),
+        Err(error) => Err(error),
+    };
+    match written.and_then(|body| written_section(&body)) {
+        Ok(section) => {
+            kept.section = Some(section);
+            kept.written_at_ms = Some(now_ms);
+            kept.state = Some(view.state);
+            kept.last_error = None;
+        }
+        Err(error) => kept.last_error = Some(format!("{error:#}")),
+    }
+    (kept, hand)
+}
+
+/// The section of `body`, which was just rewritten.
+///
+/// # Errors
+///
+/// Fails when it has none, which a rewritten body always has.
+fn written_section(body: &str) -> Result<String> {
+    section_of(body)?
+        .map(str::to_owned)
+        .context("The rewritten body has no Generation section")
+}
+
+/// The body and state of pull request `number` of `repo`.
+#[instrument(level = "debug", skip(github))]
+async fn view(github: &Github, repo: &str, number: u64) -> Result<View> {
+    let mut command = gh_command(&github.gh);
+    if let Some(token) = &github.token {
+        command.env(GH_TOKEN_VARIABLE, token);
+    }
+    command
+        .args(["pr", "view", &number.to_string()])
+        .args(["--repo", repo])
+        .args(["--json", "body,state"]);
+    let output = run(&mut command, None, "gh pr view").await?;
+    if !output.status.success() {
+        bail!("gh pr view failed: {}", stderr(&output));
+    }
+    serde_json::from_slice(&output.stdout).context("Unable to read the output of gh pr view")
+}
+
+/// Set the body of pull request `number` of `repo` to `body`, given on stdin.
+#[instrument(level = "debug", skip(github, body))]
+async fn edit(github: &Github, repo: &str, number: u64, body: &str) -> Result<()> {
+    let mut command = gh_command(&github.gh);
+    if let Some(token) = &github.token {
+        command.env(GH_TOKEN_VARIABLE, token);
+    }
+    command
+        .args(["pr", "edit", &number.to_string()])
+        .args(["--repo", repo])
+        .args(["--body-file", "-"]);
+    let output = run(&mut command, Some(body), "gh pr edit").await?;
+    if !output.status.success() {
+        bail!("gh pr edit failed: {}", stderr(&output));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+    use std::{env, process};
+
+    use serde_json::json;
+
+    use super::*;
+    use crate::generation::section::{END, START};
+    use crate::host::transcript::Response;
+    use crate::message::{
+        Ended, Kind, Message, ModelUsage, PullRequestRef, RefKind, TaskUsage, Usage,
+    };
+    use crate::price::Tokens;
+    use crate::record::{Busy, LOCK_WAIT};
+    use crate::store::host::{add_focus, attribute, keep_prompt, keep_response};
+    use crate::store::{Recorded, Ref, record, ref_item};
+
+    const REPO: &str = "o/r";
+    const NOW: u64 = 1_800_000_000_000;
+    const MINUTE: u64 = 60_000;
+    const MODEL: &str = "claude-opus-5-5";
+    const SESSION: &str = "host-session";
+
+    /// A stand-in for `gh`: `pr view <n>` prints `view-<n>.json` from its directory, or fails
+    /// when `view-fails` is there; `pr edit <n>` saves the body it is given as `body-<n>.md`.
+    /// Every call is logged to `gh.log`, with whether it had `GH_TOKEN` and another token
+    /// variable, never their values.
+    const FAKE_GH: &str = r#"#!/bin/bash
+cd "$(dirname "$0")"
+echo "$* token=$([ -n "$GH_TOKEN" ] && echo set || echo none) other=$([ -n "$GITHUB_TOKEN" ] && echo set || echo none)" >> gh.log
+case "$1 $2" in
+"pr view")
+    if [ -e view-fails ]; then echo "HTTP 401: Bad credentials" >&2; exit 1; fi
+    cat "view-$3.json"
+    ;;
+"pr edit")
+    cat > "body-$3.md"
+    ;;
+*)
+    exit 2
+    ;;
+esac
+"#;
+
+    /// A record in a scratch state directory with one task on pull request 7 of `REPO`, and a
+    /// stand-in `gh`.
+    struct Bench {
+        dir: PathBuf,
+        paths: Paths,
+        github: Github,
+        seq: u64,
+    }
+
+    impl Bench {
+        async fn new(name: &str) -> Self {
+            let dir = env::temp_dir().join(format!("agent-bus-sync-{name}-{}", process::id()));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap();
+            let gh = dir.join("fake-gh");
+            fs::write(&gh, FAKE_GH).unwrap();
+            fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
+            let mut bench = Self {
+                paths: Paths::in_dir(&dir.join("state")),
+                github: Github {
+                    gh: gh.to_string_lossy().into_owned(),
+                    token: Some("test-token".to_owned()),
+                },
+                dir,
+                seq: 0,
+            };
+            bench.message(&task("t1"), NOW).await;
+            bench.outcome("t1", 1, 0.5, NOW).await;
+            bench.view(7, "Body", "OPEN");
+            bench
+        }
+
+        async fn message(&mut self, message: &Message, at_ms: u64) {
+            self.seq += 1;
+            let mut opened = Record::open_recorded(&self.paths, LOCK_WAIT).await.unwrap();
+            let recorded = Recorded {
+                seq: self.seq,
+                at_ms,
+                message,
+            };
+            assert!(
+                record(opened.conn_mut(), &recorded, Some(REPO))
+                    .await
+                    .unwrap()
+            );
+        }
+
+        /// An outcome of `task`, which has had `runs` runs costing `cost_usd` in all, ended on
+        /// pull request 7.
+        async fn outcome(&mut self, task: &str, runs: u64, cost_usd: f64, at_ms: u64) {
+            let outcome = Message {
+                task: task.to_owned(),
+                from: "dev01".to_owned(),
+                to: "host".to_owned(),
+                kind: Kind::Completed,
+                text: "done".to_owned(),
+                usage: Some(Usage {
+                    input: 10,
+                    output: 100,
+                    cost_usd: 0.5,
+                    models: vec![ModelUsage {
+                        model: MODEL.to_owned(),
+                        input: 10,
+                        output: 100,
+                        cost_usd: 0.5,
+                        ..ModelUsage::default()
+                    }],
+                    work_ms: Some(2 * MINUTE),
+                    testing_ms: Some(MINUTE),
+                    ..Usage::default()
+                }),
+                task_usage: Some(TaskUsage {
+                    runs,
+                    cost_usd,
+                    input: 10 * runs,
+                    output: 100 * runs,
+                    ..TaskUsage::default()
+                }),
+                github: true,
+                model: Some(MODEL.to_owned()),
+                work: None,
+                ended: Some(Ended {
+                    repo: REPO.to_owned(),
+                    branch: Some("feat/x".to_owned()),
+                    pull_requests: vec![PullRequestRef {
+                        repo: REPO.to_owned(),
+                        number: 7,
+                        url: "https://github.com/o/r/pull/7".to_owned(),
+                    }],
+                }),
+            };
+            self.message(&outcome, at_ms).await;
+        }
+
+        /// A response of the host at `at_ms`, after a prompt of the user a minute before,
+        /// charged to the item of pull request 7.
+        async fn host(&self, id: &str, at_ms: u64) {
+            let record = Record::open_recorded(&self.paths, LOCK_WAIT).await.unwrap();
+            let conn = record.conn();
+            let item = ref_item(conn, &Ref::new(REPO, RefKind::PullRequest, "7"))
+                .await
+                .unwrap()
+                .unwrap();
+            add_focus(conn, NOW - 60 * MINUTE, None, Some(item), "use", None)
+                .await
+                .unwrap();
+            keep_prompt(
+                conn,
+                &format!("p-{id}"),
+                SESSION,
+                None,
+                at_ms - MINUTE,
+                true,
+            )
+            .await
+            .unwrap();
+            keep_response(
+                conn,
+                &Response {
+                    message_id: id.to_owned(),
+                    session: SESSION.to_owned(),
+                    agent_id: None,
+                    at_ms,
+                    model: MODEL.to_owned(),
+                    speed: "standard".to_owned(),
+                    tokens: Tokens {
+                        input: 5,
+                        output: 50,
+                        ..Tokens::default()
+                    },
+                    calls: Vec::new(),
+                },
+            )
+            .await
+            .unwrap();
+            attribute(conn).await.unwrap();
+        }
+
+        /// What `gh pr view <number>` says: `body`, in `state`.
+        fn view(&self, number: u64, body: &str, state: &str) {
+            let view = json!({"body": body, "state": state});
+            fs::write(
+                self.dir.join(format!("view-{number}.json")),
+                view.to_string(),
+            )
+            .unwrap();
+        }
+
+        /// The body last given to `gh pr edit 7`, which `gh pr view 7` gives from now on.
+        fn edited(&self) -> String {
+            let body = fs::read_to_string(self.dir.join("body-7.md")).unwrap();
+            self.view(7, &body, "OPEN");
+            body
+        }
+
+        /// The calls made to `gh` so far, and forget them.
+        fn calls(&self) -> Vec<String> {
+            let log = self.dir.join("gh.log");
+            let calls = fs::read_to_string(&log).unwrap_or_default();
+            let _ = fs::remove_file(&log);
+            calls.lines().map(str::to_owned).collect()
+        }
+
+        async fn sync(&self, scope: Scope, force: bool, now_ms: u64) -> Synced {
+            let request = Request { scope, force };
+            sync(&self.paths, &request, &self.github, LOCK_WAIT, now_ms)
+                .await
+                .unwrap()
+        }
+
+        async fn stored(&self) -> Option<LastWrite> {
+            let record = Record::open_recorded(&self.paths, LOCK_WAIT).await.unwrap();
+            written(record.conn())
+                .await
+                .unwrap()
+                .remove(&(REPO.to_owned(), 7))
+        }
+    }
+
+    impl Drop for Bench {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    fn task(id: &str) -> Message {
+        Message {
+            task: id.to_owned(),
+            from: "host".to_owned(),
+            to: "dev01".to_owned(),
+            kind: Kind::Task,
+            text: "work on it".to_owned(),
+            usage: None,
+            task_usage: None,
+            github: true,
+            model: None,
+            work: None,
+            ended: None,
+        }
+    }
+
+    fn written_once() -> Vec<String> {
+        vec![
+            "pr view 7 --repo o/r --json body,state token=set other=none".to_owned(),
+            "pr edit 7 --repo o/r --body-file - token=set other=none".to_owned(),
+        ]
+    }
+
+    fn outcome_of(synced: &Synced) -> &Outcome {
+        &synced.outcomes[0].2
+    }
+
+    #[tokio::test]
+    async fn the_section_gets_task_and_host_rows_with_their_time() {
+        let bench = Bench::new("rows").await;
+        bench.host("m1", NOW + MINUTE).await;
+        let synced = bench.sync(Scope::Due, false, NOW + MINUTE).await;
+        assert_eq!(
+            synced.outcomes,
+            [(
+                REPO.to_owned(),
+                7,
+                Outcome::Written {
+                    state: "OPEN".to_owned()
+                }
+            )]
+        );
+        assert_eq!(bench.calls(), written_once());
+        let body = bench.edited();
+        assert!(body.starts_with(&format!("Body\n\n{START}\n")), "{body}");
+        assert!(body.trim_end().ends_with(END), "{body}");
+        for row in [
+            "| t1 | dev01 | claude-opus-5-5 | 1 | $0.5000 | 0.0% | 10 | 100 | 0 | 0 | 2m 00s | 1m 00s | 0s |",
+            "| host | host | claude-opus-5-5 | | $0.0010 | 0.0% | 5 | 50 | 0 | 0 | 1m 00s | 0s | 0s |",
+            "| **Total** | | | **1** | **$0.5010** | **0.0%** | **15** | **150** | **0** | **0** | **3m 00s** | **1m 00s** | **0s** |",
+        ] {
+            assert!(body.contains(row), "{row}\n{body}");
+        }
+        let stored = bench.stored().await.unwrap();
+        assert_eq!(stored.state.as_deref(), Some("OPEN"));
+        assert_eq!(stored.written_at_ms, Some(NOW + MINUTE));
+        assert_eq!(stored.last_error, None);
+        assert!(body.contains(stored.section.as_deref().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn unchanged_text_makes_no_gh_call() {
+        let bench = Bench::new("unchanged").await;
+        bench.sync(Scope::Due, false, NOW).await;
+        assert_eq!(bench.calls(), written_once());
+        bench.edited();
+        for force in [false, true] {
+            let synced = bench.sync(Scope::Due, force, NOW + 30 * MINUTE).await;
+            assert_eq!(outcome_of(&synced), &Outcome::Unchanged);
+            assert_eq!(bench.calls(), Vec::<String>::new());
+        }
+    }
+
+    #[tokio::test]
+    async fn host_rows_alone_wait_ten_minutes_and_an_outcome_or_a_forced_sync_does_not() {
+        let mut bench = Bench::new("debounce").await;
+        bench.sync(Scope::Due, false, NOW).await;
+        bench.calls();
+        bench.edited();
+
+        // Only the host's rows changed, a minute after the write: not yet.
+        bench.host("m1", NOW + MINUTE).await;
+        let synced = bench.sync(Scope::Due, false, NOW + MINUTE).await;
+        assert_eq!(outcome_of(&synced), &Outcome::Debounced);
+        assert_eq!(bench.calls(), Vec::<String>::new());
+
+        // A new outcome is written at once, host rows and all.
+        bench.outcome("t1", 2, 1.0, NOW + 2 * MINUTE).await;
+        let synced = bench.sync(Scope::Due, false, NOW + 2 * MINUTE).await;
+        assert!(matches!(outcome_of(&synced), Outcome::Written { .. }));
+        assert_eq!(bench.calls(), written_once());
+        let body = bench.edited();
+        assert!(
+            body.contains("| t1 | dev01 | claude-opus-5-5 | 2 |"),
+            "{body}"
+        );
+        assert!(body.contains("| host | host |"), "{body}");
+
+        // More host rows: they wait, until ten minutes after the last write.
+        bench.host("m2", NOW + 3 * MINUTE).await;
+        let synced = bench.sync(Scope::Due, false, NOW + 11 * MINUTE).await;
+        assert_eq!(outcome_of(&synced), &Outcome::Debounced);
+        let synced = bench.sync(Scope::Due, false, NOW + 12 * MINUTE).await;
+        assert!(matches!(outcome_of(&synced), Outcome::Written { .. }));
+        assert_eq!(bench.calls(), written_once());
+        bench.edited();
+
+        // `generation sync` and the SessionEnd hook do not wait.
+        bench.host("m3", NOW + 13 * MINUTE).await;
+        let synced = bench.sync(Scope::Due, true, NOW + 13 * MINUTE).await;
+        assert!(matches!(outcome_of(&synced), Outcome::Written { .. }));
+        assert_eq!(bench.calls(), written_once());
+    }
+
+    #[tokio::test]
+    async fn a_merged_pull_request_is_written_once_then_frozen() {
+        let mut bench = Bench::new("merged").await;
+        bench.view(7, "Body", "MERGED");
+        let synced = bench.sync(Scope::Due, false, NOW).await;
+        assert_eq!(
+            outcome_of(&synced),
+            &Outcome::Written {
+                state: "MERGED".to_owned()
+            }
+        );
+        assert_eq!(bench.calls(), written_once());
+        assert_eq!(
+            bench.stored().await.unwrap().state.as_deref(),
+            Some("MERGED")
+        );
+
+        // Later work on the item stays in the record; the body is left alone.
+        bench.outcome("t1", 2, 1.0, NOW + MINUTE).await;
+        bench.host("m1", NOW + MINUTE).await;
+        for scope in [
+            Scope::Due,
+            Scope::All,
+            Scope::One {
+                repo: REPO.to_owned(),
+                number: 7,
+            },
+        ] {
+            let synced = bench.sync(scope, true, NOW + 60 * MINUTE).await;
+            assert_eq!(outcome_of(&synced), &Outcome::Frozen);
+        }
+        assert_eq!(bench.calls(), Vec::<String>::new());
+    }
+
+    #[tokio::test]
+    async fn a_hand_written_section_outside_the_markers_is_named_and_left_alone() {
+        let bench = Bench::new("hand-written").await;
+        let by_hand = "Body\n\n## Generation\n\n| host (Opus 5.5) | not measured |\n";
+        bench.view(7, by_hand, "OPEN");
+        let synced = bench.sync(Scope::Due, true, NOW).await;
+        assert_eq!(synced.hand_written, [(REPO.to_owned(), 7)]);
+        let body = bench.edited();
+        assert!(body.starts_with(by_hand), "{body}");
+        assert!(body.contains(START), "{body}");
+        // A body without one is not named.
+        bench.host("m1", NOW + MINUTE).await;
+        let synced = bench.sync(Scope::Due, true, NOW + MINUTE).await;
+        assert_eq!(synced.hand_written, [(REPO.to_owned(), 7)]);
+        bench.view(7, "Body", "OPEN");
+        bench.host("m2", NOW + 2 * MINUTE).await;
+        let synced = bench.sync(Scope::Due, true, NOW + 2 * MINUTE).await;
+        assert_eq!(synced.hand_written, Vec::<(String, u64)>::new());
+    }
+
+    #[tokio::test]
+    async fn rows_of_tasks_the_record_does_not_know_are_carried_over() {
+        let bench = Bench::new("carried").await;
+        // The section a guest wrote before the record: an older task, and t1 with older
+        // figures.
+        let guest = format!(
+            "Body\n\n{START}\n## Generation\n\n| old table |\n\n<!-- agent-bus:generation-data\n\
+             [[task]]\ntask = \"0ld7a5k\"\nagent = \"dev02\"\nmodels = [\"claude-sonnet-5-5\"]\n\n\
+             [task.usage]\nruns = 2\ncost_usd = 3.25\ninput = 1\noutput = 2\ncache_creation = 0\n\
+             cache_read = 0\nnum_turns = 0\nduration_ms = 0\nduration_api_ms = 0\n\n\
+             [[task]]\ntask = \"t1\"\nagent = \"dev01\"\nmodels = [\"claude-opus-5-5\"]\n\n\
+             [task.usage]\nruns = 0\ncost_usd = 0.1\ninput = 0\noutput = 0\ncache_creation = 0\n\
+             cache_read = 0\nnum_turns = 0\nduration_ms = 0\nduration_api_ms = 0\n-->\n{END}\n"
+        );
+        bench.view(7, &guest, "OPEN");
+        bench.sync(Scope::Due, true, NOW).await;
+        let body = bench.edited();
+        assert!(
+            body.contains(
+                "| 0ld7a5k | dev02 | claude-sonnet-5-5 | 2 | $3.2500 | 0.0% | 1 | 2 | 0 | 0 | n/a | n/a | n/a |"
+            ),
+            "{body}"
+        );
+        assert!(
+            body.contains("| t1 | dev01 | claude-opus-5-5 | 1 | $0.5000 |"),
+            "{body}"
+        );
+        assert!(body.contains("**$3.7500**"), "{body}");
+        assert!(!body.contains("old table"), "{body}");
+        let at = body.find("0ld7a5k").unwrap();
+        assert!(at < body.find("| t1 |").unwrap(), "{body}");
+    }
+
+    #[tokio::test]
+    async fn without_gh_token_the_writes_stay_pending() {
+        let mut bench = Bench::new("no-token").await;
+        bench.github.token = None;
+        let synced = bench.sync(Scope::Due, true, NOW).await;
+        assert_eq!(outcome_of(&synced), &Outcome::Pending);
+        assert_eq!(synced.pending(), 1);
+        assert_eq!(bench.calls(), Vec::<String>::new());
+        assert_eq!(bench.stored().await, None);
+        // With the token, the next sync writes it.
+        bench.github.token = Some("test-token".to_owned());
+        let synced = bench.sync(Scope::Due, false, NOW + MINUTE).await;
+        assert!(matches!(outcome_of(&synced), Outcome::Written { .. }));
+        assert_eq!(bench.calls(), written_once());
+    }
+
+    #[tokio::test]
+    async fn a_failed_gh_call_is_kept_and_tried_again() {
+        let bench = Bench::new("fails").await;
+        fs::write(bench.dir.join("view-fails"), "").unwrap();
+        let synced = bench.sync(Scope::Due, false, NOW).await;
+        assert!(
+            matches!(outcome_of(&synced), Outcome::Failed(why) if why.contains("Bad credentials")),
+            "{synced:?}"
+        );
+        let stored = bench.stored().await.unwrap();
+        assert_eq!(stored.section, None);
+        assert!(stored.last_error.unwrap().contains("Bad credentials"));
+        fs::remove_file(bench.dir.join("view-fails")).unwrap();
+        bench.calls();
+        let synced = bench.sync(Scope::Due, false, NOW + MINUTE).await;
+        assert!(matches!(outcome_of(&synced), Outcome::Written { .. }));
+        assert_eq!(bench.stored().await.unwrap().last_error, None);
+    }
+
+    #[tokio::test]
+    async fn a_pull_request_never_written_waits_for_activity_since_the_first_sync() {
+        let mut bench = Bench::new("since").await;
+        // The first sync runs a day after the item's last activity: it is left alone.
+        let later = NOW + 24 * 60 * MINUTE;
+        let synced = bench.sync(Scope::Due, false, later).await;
+        assert_eq!(synced.outcomes, []);
+        assert_eq!(bench.calls(), Vec::<String>::new());
+        // `--pr` and `--all` look at it anyway.
+        let one = Scope::One {
+            repo: REPO.to_owned(),
+            number: 7,
+        };
+        let synced = bench.sync(one, true, later).await;
+        assert!(matches!(outcome_of(&synced), Outcome::Written { .. }));
+        bench.calls();
+        // A pull request no item has is refused by name.
+        let request = Request {
+            scope: Scope::One {
+                repo: REPO.to_owned(),
+                number: 8,
+            },
+            force: true,
+        };
+        let error = sync(&bench.paths, &request, &bench.github, LOCK_WAIT, later)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("o/r#8"), "{error}");
+        // New activity on an item makes its pull request due.
+        bench.message(&task("t2"), later + MINUTE).await;
+        bench.outcome("t2", 1, 0.25, later + MINUTE).await;
+        let synced = bench.sync(Scope::Due, false, later + MINUTE).await;
+        assert!(matches!(outcome_of(&synced), Outcome::Written { .. }));
+    }
+
+    #[tokio::test]
+    async fn a_busy_record_fails_the_sync_with_busy() {
+        let bench = Bench::new("busy").await;
+        let held = Record::open_recorded(&bench.paths, LOCK_WAIT)
+            .await
+            .unwrap();
+        let request = Request {
+            scope: Scope::Due,
+            force: false,
+        };
+        let error = sync(
+            &bench.paths,
+            &request,
+            &bench.github,
+            Duration::from_millis(100),
+            NOW,
+        )
+        .await
+        .err()
+        .unwrap();
+        assert!(error.downcast_ref::<Busy>().is_some(), "{error:#}");
+        drop(held);
+        assert_eq!(bench.calls(), Vec::<String>::new());
+    }
+}

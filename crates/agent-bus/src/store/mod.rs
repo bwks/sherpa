@@ -12,10 +12,12 @@
 //! - `read`: what the commands read.
 //! - `items`: what the work commands read: items, open tasks and runs by model.
 //! - `host`: the host's usage and time: the import's rows, attribution and what reports read.
+//! - `generation`: the pull requests whose Generation section the host keeps, and their rows.
 
 mod cells;
 mod database;
 mod facts;
+pub mod generation;
 pub mod host;
 pub mod items;
 mod kind;

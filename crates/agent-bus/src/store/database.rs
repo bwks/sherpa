@@ -307,6 +307,7 @@ mod tests {
             "host_span",
             "host_focus",
             "host_meta",
+            "generation_pr",
         ] {
             let mut rows = conn
                 .query(&format!("SELECT count(*) FROM {table}"), ())

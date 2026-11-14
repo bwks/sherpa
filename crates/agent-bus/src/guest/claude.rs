@@ -12,8 +12,9 @@ use tokio::process::{Child, Command};
 use tokio::time::{Instant, sleep, timeout};
 use tracing::instrument;
 
-use super::github::{Access, GH_TOKEN_VARIABLE, OTHER_GITHUB_TOKEN_VARIABLES};
+use super::github::Access;
 use super::secrets::{ClaudeToken, TOKEN_VARIABLE};
+use crate::gh::{GH_TOKEN_VARIABLE, OTHER_GITHUB_TOKEN_VARIABLES};
 use crate::keys::SEED_VARIABLE;
 
 pub(super) const CLAUDE: &str = "claude";

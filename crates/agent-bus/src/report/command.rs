@@ -1,7 +1,8 @@
-//! The commands that read the host's record: `usage`, `show`, `history`, `open`, `link`, `work`
-//! and `host`. Each opens the record, caught up from the bus first and with the host's
-//! transcripts imported when `AGENT_BUS_HOST_PROJECT` is set, answers from it (`link`, `work`
-//! and `host import` write to it) and closes it.
+//! The commands that read the host's record: `usage`, `show`, `history`, `open`, `link`, `work`,
+//! `host` and `generation`. Each opens the record, caught up from the bus first and with the
+//! host's transcripts imported when `AGENT_BUS_HOST_PROJECT` is set, answers from it (`link`,
+//! `work` and `host import` write to it) and closes it. Then it syncs the Generation sections
+//! that are due (`report::generation`).
 
 use std::env;
 use std::time::Duration;
@@ -12,11 +13,13 @@ use jiff::Timestamp;
 
 use crate::bus::{self, Bus};
 use crate::files::{millis, now_ms, standard_state_dir};
+use crate::generation::sync::{Request, Scope};
 use crate::host::import::Options;
 use crate::keys::seed_from_environment;
 use crate::listen;
 use crate::message::{RefKind, check_agent_name, check_repo};
 use crate::record::{BusAccess, Busy, HOOK_LOCK_WAIT, LOCK_WAIT, Paths, Record};
+use crate::report::generation::{GenerationAction, sync_after_command, sync_now};
 use crate::report::grouped::{self, By};
 use crate::report::host::{self, HostAction};
 use crate::report::{history, usage, work};
@@ -140,6 +143,11 @@ pub enum Command {
         #[command(subcommand)]
         action: HostAction,
     },
+    /// The `## Generation` sections the host keeps in pull request bodies
+    Generation {
+        #[command(subcommand)]
+        action: GenerationAction,
+    },
 }
 
 /// What `work` does.
@@ -242,12 +250,29 @@ pub struct ItemArgs {
     pub branch: Option<String>,
 }
 
-/// Run the record command `command` names.
+/// Run the record command `command` names, then sync the Generation sections that are due,
+/// unless it was `host status` or `generation` itself.
 ///
 /// # Errors
 ///
 /// Fails when a name is invalid, or the record cannot be opened or read.
 pub async fn run(command: Command) -> Result<()> {
+    let then_sync = !matches!(
+        command,
+        Command::Generation { .. }
+            | Command::Host {
+                action: HostAction::Status { .. }
+            }
+    );
+    execute(command).await?;
+    if then_sync {
+        sync_after_command().await;
+    }
+    Ok(())
+}
+
+/// Run the record command `command` names.
+async fn execute(command: Command) -> Result<()> {
     match command {
         Command::Usage {
             server,
@@ -332,7 +357,43 @@ pub async fn run(command: Command) -> Result<()> {
             )
             .await
         }
+        Command::Generation {
+            action:
+                GenerationAction::Sync {
+                    server,
+                    pr,
+                    all,
+                    repo,
+                },
+        } => run_generation_sync(server, pr, all, repo).await,
     }
+}
+
+/// Catch the record up and import the host's transcripts, then write the Generation sections
+/// at once: of pull request `pr` of `repo`, of every work item's pull requests with `all`, else
+/// those that are due.
+async fn run_generation_sync(
+    server: Option<String>,
+    pr: Option<u64>,
+    all: bool,
+    repo: Option<String>,
+) -> Result<()> {
+    let repo = repo_or_environment(repo);
+    let scope = match (pr, all) {
+        (Some(number), _) => {
+            let repo = repo.clone().with_context(|| {
+                format!("Give the repository of --pr with --repo or {REPO_ENV}")
+            })?;
+            check_repo(&repo)?;
+            Scope::One { repo, number }
+        }
+        (None, true) => Scope::All,
+        (None, false) => Scope::Due,
+    };
+    drop(open_record(server, repo.as_deref(), LOCK_WAIT).await?);
+    let request = Request { scope, force: true };
+    let paths = Paths::in_dir(&standard_state_dir()?);
+    sync_now(&paths, &request, LOCK_WAIT, true).await
 }
 
 /// An item named on the command line: `issue:N`, `pr:N`, `branch:NAME`, `item:ID`, or
@@ -719,14 +780,18 @@ async fn open_record(
 }
 
 /// After `send`: catch the record up and import the host's transcripts, so the task's tag sets
-/// the host's active item at once. Waits `HOOK_LOCK_WAIT` for a busy record, and only warns:
-/// the task is sent whatever happens here.
+/// the host's active item at once, then sync the Generation sections that are due. Waits
+/// `HOOK_LOCK_WAIT` for a busy record, and only warns: the task is sent whatever happens here.
 pub async fn refresh_after_send(home_repo: Option<&str>) {
     match open_record(None, home_repo, HOOK_LOCK_WAIT).await {
         Ok(record) => drop(record),
-        Err(error) if error.downcast_ref::<Busy>().is_some() => {}
-        Err(error) => eprintln!("Sent, but the record was not updated: {error:#}"),
+        Err(error) if error.downcast_ref::<Busy>().is_some() => return,
+        Err(error) => {
+            eprintln!("Sent, but the record was not updated: {error:#}");
+            return;
+        }
     }
+    sync_after_command().await;
 }
 
 /// Make the item `target` names (none without one) the host's active item from now on, for
