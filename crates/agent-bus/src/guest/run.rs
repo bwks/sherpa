@@ -1114,6 +1114,7 @@ mod tests {
     use super::*;
 
     use std::fs;
+    use std::os::unix::fs::PermissionsExt;
 
     use tokio::sync::oneshot;
     use tokio::time::timeout;
@@ -1305,7 +1306,6 @@ esac
 
         /// A guest agent started with `write_token`.
         fn start_with(label: &str, write_token: Option<&str>) -> Self {
-            use std::os::unix::fs::PermissionsExt;
             let dir =
                 env::temp_dir().join(format!("agent-bus-cancel-{label}-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
