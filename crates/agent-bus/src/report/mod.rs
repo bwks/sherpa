@@ -1,5 +1,5 @@
 //! The host's record, read by the commands behind the `record` feature: `usage`, `show`,
-//! `history`, `open`, `link`, `work` and `host`, and the tables they print.
+//! `history`, `open`, `link`, `work`, `host` and `generation`, and the tables they print.
 //!
 //! - `command`: the commands, and opening the record caught up from the bus.
 //! - `usage`: the table of `usage`.
@@ -8,8 +8,10 @@
 //! - `work`: what `work show`, `open`, `link` and `work backfill` print.
 //! - `host`: `host import` and `host status`, the `SessionEnd` hook, and the import every
 //!   record command runs.
+//! - `generation`: `generation sync`, and the sync every record command runs after it.
 
 mod command;
+mod generation;
 mod grouped;
 mod history;
 mod host;

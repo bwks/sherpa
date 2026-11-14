@@ -46,14 +46,17 @@ database is Turso, embedded in sherpad as a single file (see `docs/architecture/
 - Add `[skip ci]` to the commit message of changes that contain no code, such as documentation-only
   changes.
 - Every pull request description ends with a `## Generation` section recording the AI work that
-  produced it: a table of the agent tasks with their models and cost in US dollars, and a total.
-  The cost is agent-bus list-price cost, not what was charged. The guest agent-bus process keeps
-  the section, not the model: after each run of a `--github` task it rewrites everything between
-  `<!-- agent-bus:generation -->` and `<!-- /agent-bus:generation -->` in the open pull requests
-  of the branch it ended on, counting every task that worked on that branch, from implementation
-  to review fixes. Agents do not write the section themselves (see "Pull request Generation
-  section" in `docs/architecture/AGENT_BUS.md`). Work done outside the agent bus is listed by
-  hand, outside the markers, as not measured.
+  produced it: a table of the agent tasks and the host's own work with their models, cost in US
+  dollars and time (work, testing and waiting on the user), and a total. The cost is agent-bus
+  list-price cost, not what was charged. The host's agent-bus keeps the section, not the model:
+  after each agent-bus command on the host (and `agent-bus generation sync`) it rewrites
+  everything between `<!-- agent-bus:generation -->` and `<!-- /agent-bus:generation -->` in the
+  pull requests of the work item, counting every task of the item, from implementation to review
+  fixes, and the host's usage charged to it. Agents do not write the section themselves (see "Pull
+  request Generation section" in `docs/architecture/AGENT_BUS.md`). Only work done outside both
+  the agent bus and the host's Claude Code sessions is listed by hand, outside the markers, as
+  not measured; host work is measured now, so a hand-written "host: not measured" row is out of
+  date, and `agent-bus generation sync` names the pull requests that still have one.
 
 ## Versions and Releases
 - Sherpa has one version, `[workspace.package] version` in the root `Cargo.toml`. Every

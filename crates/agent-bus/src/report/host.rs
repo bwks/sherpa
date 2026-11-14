@@ -17,9 +17,11 @@ use serde::{Deserialize, Serialize};
 use shared::util::{TableLayout, render_table};
 
 use crate::files::{PRIVATE_FILE_MODE, now_ms, standard_state_dir, write_atomic};
+use crate::generation::sync::{Request as SyncRequest, Scope};
 use crate::host::hook::{Exit, project, read_input};
 use crate::host::import::{Imported, Options, import};
 use crate::record::{BusAccess, Busy, HOOK_LOCK_WAIT, LOCK_WAIT, Paths, Record};
+use crate::report::generation::sync_now;
 use crate::report::history::utc_minute;
 use crate::store::host::{Totals, TranscriptRow, totals, transcripts};
 
@@ -185,9 +187,10 @@ pub fn configured(flag: Option<PathBuf>) -> Option<PathBuf> {
     })
 }
 
-/// Run the `SessionEnd` hook with its `stdin`: catch the record at `paths` up through `access`
-/// and import the project `request` names, else the transcript's. A record busy for longer
-/// than `HOOK_LOCK_WAIT` is left to the command holding it.
+/// Run the `SessionEnd` hook with its `stdin`: catch the record at `paths` up through `access`,
+/// import the project `request` names, else the transcript's, and write the Generation
+/// sections that are due at once. A record busy for longer than `HOOK_LOCK_WAIT` is left to
+/// the command holding it; a section that cannot be written is only a warning.
 pub async fn hook(
     stdin: &str,
     paths: &Paths,
@@ -221,10 +224,17 @@ pub async fn hook(
         rescan: request.rescan,
         reprice: request.reprice,
     };
-    match import_noted(&mut record, &paths.host_status, &options, now_ms).await {
-        Ok(_) => Exit::Done,
-        Err(error) => fail(error),
+    if let Err(error) = import_noted(&mut record, &paths.host_status, &options, now_ms).await {
+        return fail(error);
     }
+    drop(record);
+    // The session ended: its last host rows are written at once.
+    let sync = SyncRequest {
+        scope: Scope::Due,
+        force: true,
+    };
+    let _ = sync_now(paths, &sync, HOOK_LOCK_WAIT, false).await;
+    Exit::Done
 }
 
 /// Import `options` into `record` at `now_ms`, and keep how it went in the status file at

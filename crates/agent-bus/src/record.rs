@@ -88,6 +88,8 @@ pub enum CatchUp {
     Read(Tally),
     /// The record could not be caught up; it holds what was recorded before.
     Failed(Error),
+    /// The record was not caught up on purpose: the command before did it.
+    Skipped,
 }
 
 /// The record, open and caught up for one command. Dropping it closes the record, then
@@ -163,6 +165,27 @@ impl Record {
         })
     }
 
+    /// Open the record at `paths` as it is, without catching up from the bus, waiting up to
+    /// `wait` for another command to let it go: for the Generation sync, which runs right after
+    /// a command that caught it up.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `Busy` when another process holds the record for longer than `wait`, or when
+    /// the record cannot be opened.
+    #[instrument(skip_all, fields(record = %paths.record.display()))]
+    pub async fn open_recorded(paths: &Paths, wait: Duration) -> Result<Self> {
+        let lock = lock_within(&paths.lock, wait).await?;
+        let store = Store::open(&paths.record).await?;
+        let conn = store.connect()?;
+        Ok(Self {
+            conn,
+            _store: store,
+            _lock: lock,
+            catch_up: CatchUp::Skipped,
+        })
+    }
+
     /// The connection to query the record on.
     pub fn conn(&self) -> &Connection {
         &self.conn
@@ -182,7 +205,7 @@ impl Record {
     /// The warning to print when the record was not caught up; `None` when it is current.
     pub fn behind(&self) -> Option<String> {
         match &self.catch_up {
-            CatchUp::Read(_) => None,
+            CatchUp::Read(_) | CatchUp::Skipped => None,
             CatchUp::Failed(error) => Some(format!(
                 "Showing what was recorded before: not caught up with the bus: {error:#}"
             )),

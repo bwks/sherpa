@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use serde::{Deserialize, Serialize};
 use shared::util::{TableLayout, render_table};
 
 use crate::message::{TaskUsage, cache_hit_permille};
@@ -60,10 +61,13 @@ pub struct Row {
 }
 
 /// A row's time buckets, in milliseconds, each `None` when not known.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Time {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub testing: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waiting: Option<u64>,
 }
 
@@ -74,6 +78,13 @@ impl From<Times> for Time {
             testing: Some(times.testing),
             waiting: Some(times.waiting),
         }
+    }
+}
+
+impl Time {
+    /// Whether no bucket is known.
+    pub fn is_unknown(&self) -> bool {
+        self.work.is_none() && self.testing.is_none() && self.waiting.is_none()
     }
 }
 
@@ -155,7 +166,7 @@ pub fn host_group_rows(rows: &[HostRow]) -> Vec<Row> {
 }
 
 /// Add one host response to `usage`; its cost when it has one.
-fn add_host(usage: &mut TaskUsage, row: &HostRow) {
+pub fn add_host(usage: &mut TaskUsage, row: &HostRow) {
     usage.cost_usd += row.cost_usd.unwrap_or_default();
     usage.input = usage.input.saturating_add(row.tokens.input);
     usage.output = usage.output.saturating_add(row.tokens.output);

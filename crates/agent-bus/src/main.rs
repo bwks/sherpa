@@ -19,6 +19,9 @@ mod bus;
 mod channel;
 mod config;
 mod files;
+#[cfg(feature = "record")]
+mod generation;
+mod gh;
 mod guest;
 #[cfg(feature = "record")]
 mod host;
@@ -838,6 +841,9 @@ mod tests {
             &["usage", "--by", "week"],
             &["usage", "--by", "model", "--agent", "dev01"],
             &["open", "--json"],
+            &["generation", "sync"],
+            &["generation", "sync", "--all"],
+            &["generation", "sync", "--pr", "612", "--repo", "o/r"],
         ] {
             assert!(parse(args).is_ok(), "{args:?}");
         }
@@ -846,6 +852,8 @@ mod tests {
             &["work", "show", "--issue", "1", "--branch", "x"],
             &["usage", "--by", "week", "--issue", "580"],
             &["usage", "--by", "month"],
+            &["generation", "sync", "--pr", "612", "--all"],
+            &["generation", "sync", "--pr", "x"],
         ] {
             assert!(parse(args).is_err(), "{args:?}");
         }
@@ -853,7 +861,15 @@ mod tests {
 
     #[test]
     fn the_record_commands_are_there_only_with_the_record_feature() {
-        for command in ["usage", "show", "history", "open", "link", "work"] {
+        for command in [
+            "usage",
+            "show",
+            "history",
+            "open",
+            "link",
+            "work",
+            "generation",
+        ] {
             let kind = Cli::try_parse_from(["agent-bus", command, "--help"])
                 .err()
                 .map(|error| error.kind());

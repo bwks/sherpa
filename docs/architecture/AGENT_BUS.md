@@ -40,7 +40,7 @@ tracked in issue #494.
 | Starting a guest | `dev/agent-bus/start-agent.sh` on the host enrolls a node's agent (named after the node, or given its own name) and pipes the Claude token, the GitHub write token, its seed and the bus's CA certificate over SSH to `dev/agent-bus/start-guest.sh` in the guest. | `dev/agent-bus/` |
 | Guest agent | `agent-bus guest`: reads its inbox, queues tasks, runs them one at a time through Claude Code, and replies. | `src/guest/` |
 | Claude Code | `claude -p` with `stream-json` output, one process (and process group) per run, in the guest's checkout. | `src/guest/claude.rs` |
-| Generation section | After each run of a `--github` task, the guest agent rewrites the `## Generation` section of the open pull requests of the branch the run ended on, from its ledger of what each task cost. See [Pull request Generation section](#pull-request-generation-section). | `src/guest/generation.rs`, `src/guest/ledger.rs`, `src/guest/pull_request.rs` |
+| Generation section | After each record command, the host rewrites the `## Generation` section of the pull requests of the work items, from its record: each task's and the host's cost and time. See [Pull request Generation section](#pull-request-generation-section). | `src/generation/`, `src/store/generation.rs`, `src/report/generation.rs` |
 
 The flowchart shows the parts and how they connect. The only path between the host and a lab
 guest is NATS over TLS on the lab's management bridge; nothing goes over SSH once the guest agent
@@ -549,11 +549,9 @@ when its own `GH_TOKEN` is the write token, since every task would have it. A gu
 without a write token runs; its `--github` tasks fail at once, saying it has none.
 
 The write token is set as `GH_TOKEN` only in the environment of the Claude Code process of a
-`--github` task (`claude::claude_command` with `Access::Write`), and, after that task's run
-ends, in the environment of the `gh pr list` and `gh pr edit` the agent runs itself to update
-the pull requests' Generation section (`pull_request::update`, see
-[Pull request Generation section](#pull-request-generation-section)). A run of a task without
-`--github` never leads to either. Every text the agent sends on
+`--github` task (`claude::claude_command` with `Access::Write`). The guest agent never uses it
+itself: the host writes the pull requests' Generation section, with its own `GH_TOKEN` (see
+[Pull request Generation section](#pull-request-generation-section)). Every text the agent sends on
 the bus (progress, outcomes, errors) and every result event it records has the token replaced by
 `[GitHub write token]`, and the agent's own log lines that can carry Claude Code's text are
 redacted the same way, so a task that prints it does not put it in the journal or
@@ -1147,7 +1145,8 @@ without default features, and `cargo test -p agent-bus --no-default-features` ru
 but the record's.
 
 **Schema.** The SQL is under `crates/agent-bus/sql/`: `migrations/0001_record.sql`,
-`migrations/0002_work.sql`, `migrations/0003_host.sql` and one file per statement in `queries/`, included in the binary (`src/store/sql.rs`). The record's
+`migrations/0002_work.sql`, `migrations/0003_host.sql`, `migrations/0004_generation.sql` and
+one file per statement in `queries/`, included in the binary (`src/store/sql.rs`). The record's
 `PRAGMA user_version` is the number of migrations applied; opening it applies the rest in one
 transaction, and a record newer than the binary is refused. A unit test
 (`store::database::tests`) applies every migration to an in-memory database, prepares every
@@ -1232,8 +1231,8 @@ write token is never used for it. When the checkout is not a git checkout or its
 cannot be read, the outcome has no `ended` and the guest log says why; a docs checkout that
 cannot be listed is left out. Outcomes of a task that never ran in the checkout (canceled while
 queued, a cancel of an unknown task, or a task failed by a restart while it ran) carry no
-`ended`. The Generation step is unchanged: the guest still writes the section of a `--github`
-run.
+`ended`. Guests no longer write the Generation section or the line about it; the host does
+(see [Pull request Generation section](#pull-request-generation-section)).
 
 **The parsed Generation line** (`facts::parse_generation_line`), first line of the text only:
 
@@ -1277,8 +1276,8 @@ $ agent-bus open
 
 A wrong `link` is not undone by the record: merges keep `merged_into`, and `work show` lists the
 merged items, so what moved can be traced. A merge moves the host's usage and focus rows of the
-merged item too. Not yet: the Generation section written by the host, with the host's rows and
-the time columns.
+merged item too. A work item's pull requests get their Generation section from the host (see
+[Pull request Generation section](#pull-request-generation-section)).
 
 ## Host usage and time
 
@@ -1462,7 +1461,7 @@ does not change rows already kept).
 
 ### The SessionEnd hook
 
-A safety net: a final import when a host session ends. `agent-bus host import --hook` reads the
+A safety net: a final import, and a Generation write, when a host session ends. `agent-bus host import --hook` reads the
 hook's JSON on stdin and uses `transcript_path` (its directory is the project to sweep when
 `--project` and `AGENT_BUS_HOST_PROJECT` name none); it logs nothing of `session_id` or
 `hook_event_name` and ignores the rest. It prints nothing on stdout. It exits 0 when it
@@ -1474,74 +1473,144 @@ The entry is in [Operating it](#operating-it).
 ## Pull request Generation section
 
 AGENTS.md asks every pull request description to end with a `## Generation` section: the agent
-tasks behind it, their models and cost, and a total. The guest agent process keeps it, not the
-model: after every run of a `--github` task that sent a `result` event, before it sends the
-outcome, the engine (`Engine::generation` in `src/guest/run.rs`):
+tasks and the host work behind it, their models, cost and time, and a total. The host keeps it,
+from its record (`src/generation/`, `store::generation`); neither the models nor the guests
+write it. Guests only report where each run ended (`ended`, see [Work items](#work-items)).
 
-1. finds the branch the checkout ended on, `git symbolic-ref --quiet --short HEAD`
-   (`pull_request::current_branch`); a detached HEAD or a git error means no branch;
-2. records the run in the ledger, every run of every task, `--github` or not (`ledger::Ledger`):
-   the task's agent, the branch when known (an unknown one keeps the branch recorded before), the
-   models (the keys of the run's `model_usage_since_last_result`, or the task's model when it
-   gave none) and the task's cumulative `task_usage`, priming runs included; it returns every
-   task the ledger has on the branch;
-3. for a `--github` task only, in the checkout and in `../sherpa-docs` beside it when that is a
-   git checkout (`pull_request::checkouts`), lists the open pull requests whose head is the
-   branch, `gh pr list --state open --head=<branch> --json number,url,body,isCrossRepository`,
-   leaves out those from forks, rewrites each body (`generation::update_body`) and, when it
-   changed, sets it with `gh pr edit <n> --body-file -`, the body on stdin. The body is written
-   while `gh` runs. A `gh` that is refused can exit before reading it, and the write then fails
-   with a broken pipe; the failure reported is `gh`'s own stderr, and the write error only when
-   `gh` succeeded or failed with nothing on stderr.
+**Which section a pull request gets.** A pull request belongs to the work item it names (a
+`pull_request` ref). Its section has one row per agent task of the item that the host sent and
+that has usage, in the order the record first saw them, and one row per model for the host's own
+usage charged to the item (agent `host`, subagents folded in), then a bold total. Every row has
+the work, testing and waiting-on-the-user time of [Time](#time): a task's work and testing from
+its runs, its waiting from its questions; the host's from its main conversations, charged to the
+model of the response being written at the time. Times print as `1h 07m`, `12m 30s` or `45s`,
+and `n/a` where not known (rows of older guests and older sections). The total adds up every
+column, times included. A host model with responses that have no price (fast mode, a model
+without a rate, see [Pricing](#pricing)) shows its cost as `$x + N unpriced`, and the total cost
+is marked `(incomplete)`; so is a total time when some row does not know that time, as it is
+then a lower bound.
 
-A task without `--github` is only recorded: the write token is for `--github` tasks alone, so its
-work shows up at the next `--github` run on the same branch. The docs pull request is found only
-when its branch has the same name. A task is credited to the branch its last run ended on, in
-full.
+**Triggers.** There is no daemon. Every record command (`send`, `show`, `history`, `usage`,
+`open`, `link`, `work ...`, `host import`, the `SessionEnd` hook) syncs after it has caught the
+record up and imported the host's transcripts, and `generation sync` does it by hand:
 
-Nothing here fails the task. The outcome text of a `--github` run starts with one line saying
-what happened, then a blank line, then Claude's own text, so a `QUESTION:` stays the last line:
+| Command | Looks at | Host-only changes |
+|---|---|---|
+| any record command but `host status` | the pull requests due | wait 10 minutes after the last write |
+| `host import --hook` (`SessionEnd`) | the pull requests due | written at once |
+| `generation sync` | the pull requests due | written at once |
+| `generation sync --all` | every pull request of every item | written at once |
+| `generation sync --pr N [--repo R]` | that one, frozen or not; an error when no item has it | written at once |
 
-| Line | When |
+A pull request is due when it was written before, or its item had a message or a host response
+since the first sync (the import fact `generation_since_ms`, set by the first sync). That check
+is per item, so it is followed by one per pull request: an automatic sync that finds a pull
+request never written already merged or closed before the first sync (its `closedAt`) stores it
+frozen and writes nothing. So neither the first sync nor later work on an item rewrites the
+bodies of its pull requests merged long ago; `--all` and `--pr` still write them.
+
+**A sync** (`generation::sync::sync`):
+
+1. Under the record's lock (`Record::open_recorded`, no second catch-up): for each pull request
+   looked at, render the section from the record's rows merged into the section last written
+   (`generation_pr.section`) and compare. Frozen (merged or closed at its last write): nothing,
+   unless `--pr` names it. The last attempt failed less than 10 minutes ago and the sync is not
+   forced: nothing yet. Equal text: nothing, and no `gh` call at all. Only the host's rows
+   differ, and the last write is less than 10 minutes ago, and the sync is not forced: nothing
+   yet. Otherwise it is due.
+2. Let the record and its lock go before any network call.
+3. Without `GH_TOKEN` in agent-bus's environment, write nothing: one warning says how many
+   sections are left to write, and nothing is kept, so the next sync with the token writes them.
+4. For each due pull request, `gh pr view <n> --repo <r> --json body,state,closedAt`, rewrite the section
+   in the body (`section::update_body`) and, when the body changed, `gh pr edit <n> --repo <r>
+   --body-file -`, the body on stdin. 60 s per command, killed after. A body that is already
+   right counts as written.
+5. Take the lock again and keep, in `generation_pr`, the section now in the body, the state `gh`
+   gave and the time; or the error, with the last write kept. A failed write is tried again 10
+   minutes after the attempt, or at once by a forced sync, so a pull request that cannot be read
+   does not cost a `gh` call and a warning after every command. When the record holds a write
+   newer than the one this sync read (two syncs overlapped: a command's and the hook's), this
+   sync's result is not kept, so the stored text never runs ahead of the body.
+
+`gh` is `AGENT_BUS_GH`, else `gh` from `PATH`, run with `GH_PROMPT_DISABLED` and `NO_COLOR`,
+with `GH_TOKEN` from agent-bus's own environment and no other token variable (`gh::gh_command`).
+The mise tasks that run agent-bus on the host load it; agent-bus names no secret store. A busy
+record, a failed `gh` call or a missing token is a warning: it never fails the command that
+triggered the sync. After a command, the sync says only what it wrote, what failed, and the
+notices, on stderr; `generation sync` prints every pull request it looked at on stdout.
+
+**Merged and closed pull requests.** A pull request whose `gh pr view` state is `MERGED` or
+`CLOSED` gets that write, its last, and is frozen from then on: no automatic sync looks at its
+body again. Later cost stays in the record, under the item. `generation sync --pr N` views a
+frozen one again: still merged or closed, it is left alone; reopened (`OPEN`), it is written and
+unfrozen.
+
+**Debounce.** It is kept in `generation_pr`: `written_at_ms` is when the section was last
+written, and a change is "the host's rows alone" when the task rows of the new section's data
+equal those of the section last written. A new outcome changes its task's row, so it is written
+at once.
+
+**`generation_pr`** (migration `0004`), one row per pull request the host has tried to write:
+
+| Column | Holds |
 |---|---|
-| `Generation section for branch <b>: updated <url>; up to date <url>; not updated: <url>: <why>` | The pull requests of the branch were looked at; one entry each, and one per checkout whose list failed |
-| `Generation section: no open pull request for branch <b>` | None is open |
-| `Generation section not updated: <why>` | No branch (detached HEAD, not a checkout), or the ledger could not be written |
-
-The same line goes to the guest log. Each `git` and `gh` command has 60 s and is killed if it
-takes longer; `gh` runs with `GH_PROMPT_DISABLED`, and with the write token as `GH_TOKEN` and no
-other token variable in its environment (see [GitHub tokens](#github-tokens)).
+| `repo`, `number` | the key |
+| `work` | its item when last looked at |
+| `state` | `OPEN`, `MERGED` or `CLOSED` at the last write; `MERGED` and `CLOSED` freeze it |
+| `section` | the text last written, from the start marker to the end marker; NULL until a write succeeds |
+| `written_at_ms` | when; the debounce counts from it |
+| `last_error` | why the last attempt failed; NULL after a success |
+| `attempted_at_ms` | when the last attempt was; a failure waits 10 minutes from it |
 
 **The section.** Everything between `<!-- agent-bus:generation -->` and
-`<!-- /agent-bus:generation -->` is the agent's; the rest of the body is never changed. A body
+`<!-- /agent-bus:generation -->` is agent-bus's; the rest of the body is never changed. A body
 without the markers gets the section appended after a blank line. A marker counts only on a line
 of its own (surrounding whitespace and CRLF allowed) outside a fenced code block, so a description
 that quotes the markers inline or in a code block is not taken for the section. Markers out of
 order or more than once are an error, reported, and the body is left alone. The section holds:
 
-- the heading `## Generation` and a line saying the figures are agent-bus list-price cost, not
-  billed, and that work outside the bus is not measured;
+- the heading `## Generation` and a note: the figures are agent-bus list-price cost, not billed;
+  guest tasks cost what Claude Code reports, the host's own work is priced from its transcripts
+  ([Pricing](#pricing)); host cost and time are included from the first host import, and earlier
+  host work is not measured;
 - a table: task, agent, models, runs, cost (USD, 4 decimals), cache hit (as `agent-bus usage`,
-  see [Usage and cost](#usage-and-cost)), input, output, cache read and cache write tokens, one
-  row per task, and a bold total row;
-- the same rows as TOML (`[[task]]` with `task`, `agent`, `models` and `[task.usage]`, the
-  `TaskUsage` fields) in an HTML comment, `<!-- agent-bus:generation-data ... -->`.
+  see [Usage and cost](#usage-and-cost)), input, output, cache read and cache write tokens, work,
+  testing and waiting on user, one row per task, one per host model (runs left empty), and a bold
+  total row;
+- the same rows as TOML in an HTML comment, `<!-- agent-bus:generation-data ... -->`:
+  `version = 2`, `[[task]]` with `task`, `agent`, `models`, `[task.usage]` (the `TaskUsage`
+  fields) and `[task.time]` (`work`, `testing`, `waiting`, milliseconds, each only when known),
+  and `[[host]]` with `model`, `[host.usage]` and `[host.time]`.
 
-The data comment is what is read back, with serde, never the table. Each guest VM keeps its own
-ledger, so a guest rewriting the section keeps the rows of tasks it does not know, in their
-order, replaces the rows of the tasks in its ledger (their figures are cumulative) and adds its
-new ones after. Every task ID, agent name and model, ours or read back, must be short and of
-letters, digits and `-._` (models also `:/@[]`), so nothing can break the table or close the
-comment early; a row that is not is an error. Work outside the bus (the host's own, for example)
-is added by hand outside the markers.
+The data comment is what is read back, with serde, never the table. Rewriting a section keeps
+the rows of tasks the record does not know (written by guests before the record existed), in
+their order, replaces the rows of the item's tasks with the record's figures, adds its new ones
+after, and replaces the host's rows whole. A row of a task the record has in another item is
+dropped: an older guest counted tasks by branch, the record by item, so such a row belongs to
+the other item's pull requests. `[[host]]` rows carry `unpriced`, the count of responses
+without a price, when there are any. Every task ID, agent name and
+model, the record's or read back, must be short and of letters, digits and `-._` (models also
+`:/@[]`), so nothing can break the table or close the comment early; a row that is not is an
+error.
 
-**The ledger.** `<state>/generation.toml` in the guest, TOML, no secrets: `[tasks.<id>]` with
-`agent`, `branch`, `models`, `first_at_ms`, `updated_at_ms` and `[tasks.<id>.usage]`. It is
-shared by every guest agent of the user, whatever its name, so it survives a rename; each change
-is a read, update and atomic write under an exclusive lock on `generation.lock`
-(`files::lock_exclusive`). Entries are dropped 30 days after their last run, as pull requests stay open long. A file that cannot be read is moved aside to
-`generation.toml.corrupt-<unix seconds>` and the ledger starts fresh. Without a state directory
-there is no ledger, and a `--github` run says the section was not updated.
+**Format versions.** Guests wrote format 1: no `version`, no host rows, no time. The host reads
+it as it is (its rows show `n/a` for time) and writes format 2. Data of a newer format than this
+agent-bus writes is refused. Guests read the comment with `deny_unknown_fields`, so a guest still
+running an older agent-bus refuses a host-written section (`unknown field version`), reports it
+not updated, and leaves the body alone: it cannot undo the host's section
+(`section::tests::an_old_guest_refuses_a_host_written_section_and_reads_its_own`). Upgrade the
+host and the guests together all the same.
+
+**Rows written by hand.** Work outside the bus that is not measured is still written by hand,
+outside the markers, and never touched. Since the host's work is now measured, a hand-written
+`Generation` heading, or a table row saying `not measured`, outside the markers (and outside code
+blocks) is probably out of date: a sync that writes such a body names the pull request in a
+notice for the user to tidy, and still edits nothing outside the markers.
+
+**What guests do.** Nothing with the section. The ledger (`generation.toml`) and the outcome's
+first `Generation section ...` line are gone; `generation.toml` and `generation.lock` stay in
+the guests' state directories, unused, until deleted by hand. The line is still parsed from
+outcomes recorded before (see [Work items](#work-items)).
 
 **Models.** The models of a run are the keys of `model_usage_since_last_result`, which holds
 one entry per model the run used, subagents' included. Confirmed with a real run: an Opus run
@@ -1579,8 +1648,7 @@ real-bus tests start the bus with its state in a 0700 directory.
 | Guest | `<state>/guest-<name>.toml` | 0600, directory 0700 | The guest agent's state (below). Written with `files::write_atomic` (below). A file that cannot be read or parsed is moved to `guest-<name>.toml.corrupt-<unix seconds>` and the agent starts fresh. | `guest::state` |
 | Guest | `<state>/guest-<name>.lock` | 0600, directory 0700 | The PID of the agent holding the lock. Never removed. | `guest::lock` |
 | Guest | `<state>/results.jsonl` | 0600, directory 0700 | One JSON line per `result` event: `task`, `session`, `run` (0 for priming, then 1, 2, ...), `at_ms`, and `raw`, the event line unchanged. Appended; pruned to 7 days (below). | `guest::record` |
-| Guest | `<state>/generation.toml` | 0600, directory 0700 | The generation ledger: per task, its agent, last branch, models and cumulative usage. Written with `files::write_atomic` under `generation.lock`; entries dropped 30 days after their last run. A file that cannot be read is moved to `generation.toml.corrupt-<unix seconds>`. See [Pull request Generation section](#pull-request-generation-section). | `guest::ledger` |
-| Guest | `<state>/generation.lock` | 0600, directory 0700 | Empty; the exclusive `flock` held while the ledger is changed. Never removed. | `files::lock_exclusive` |
+| Guest | `<state>/generation.toml`, `<state>/generation.lock` | 0600, directory 0700 | Left by older guests, which kept a ledger of each task's cost for the Generation section. No longer read or written; delete by hand. See [Pull request Generation section](#pull-request-generation-section). | none |
 | Guest | `~/agent-bus-<name>.log` | default (umask) | The guest agent's stdout and stderr, Claude Code's stderr included. Truncated on each start. | `start-guest.sh` |
 
 Claude Code keeps its sessions in its own files; the guest agent only records which session is
@@ -1604,7 +1672,6 @@ logged and the append goes on.
 | The `AGENTS` stream's messages, read or not | 30 days | `channel::STREAM_MAX_AGE`, the stream's `max_age` |
 | The listener's journal, the guest's `results.jsonl`, and finished tasks in the guest state file | 7 days | `files::FILE_RETENTION` |
 | A guest's status in `AGENT_STATUS` | 7 days | `status::STATUS_MAX_AGE`, the bucket's `max_age` |
-| The generation ledger's entries | 30 days after their last run | `guest::ledger::KEEP` |
 | The record | as long as the host keeps the file | |
 
 The stream keeps messages longer than the files so that the record can catch up after weeks
@@ -1677,6 +1744,11 @@ The only bus secret stored is the host's seed: guests get a fresh key each time 
 | `agent-bus:usage` | `agent-bus usage` |
 | `agent-bus:show` | `agent-bus show <task>` |
 | `agent-bus:history` | `agent-bus history` |
+
+The tasks that run record commands also write the pull requests' Generation sections, so they
+need `GH_TOKEN` loaded with the seed; without it the sections stay pending, with a warning.
+`agent-bus generation sync` writes them by hand (`--pr N` for one, `--all` for every work item's
+pull requests); `AGENT_BUS_GH` names a `gh` other than the one on `PATH`.
 
 `agent-bus:agent` replaces the per-agent tasks that piped a stored seed for each guest. It holds
 no secret itself; `<load secrets>` stands for however the other tasks load the host's
@@ -1751,8 +1823,8 @@ and lab and its agent takes a new name, with no rebuild. For node `dev` to run a
 
 History stays under the old name. The record keeps each task under the agent it went to, so old
 tasks show agent `dev` in `usage` and `history` (and `--agent dev` finds them); nothing is
-rewritten. The generation ledger is shared by every name, so the old tasks' rows keep
-`dev` as their agent and still count in a pull request's Generation section.
+rewritten. The host's record keeps the old tasks under `dev`, so their rows keep `dev` as their
+agent and still count in a pull request's Generation section.
 
 **Moving from stored guest keys.** Guests listed in the agents file keep their fixed keys and
 cannot be enrolled. To move one to enrollment, remove it from the agents file, run `bus start`

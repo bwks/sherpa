@@ -7,6 +7,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../sql/migrations/0001_record.sql"),
     include_str!("../../sql/migrations/0002_work.sql"),
     include_str!("../../sql/migrations/0003_host.sql"),
+    include_str!("../../sql/migrations/0004_generation.sql"),
 ];
 
 pub const INSERT_MESSAGE: &str = include_str!("../../sql/queries/insert_message.sql");
@@ -59,6 +60,11 @@ pub const HOST_RESPONSES: &str = include_str!("../../sql/queries/host_responses.
 pub const TASK_WAITS: &str = include_str!("../../sql/queries/task_waits.sql");
 pub const HOST_TRANSCRIPTS: &str = include_str!("../../sql/queries/host_transcripts.sql");
 pub const HOST_TOTALS: &str = include_str!("../../sql/queries/host_totals.sql");
+pub const GENERATION_PRS: &str = include_str!("../../sql/queries/generation_prs.sql");
+pub const UPSERT_GENERATION_PR: &str = include_str!("../../sql/queries/upsert_generation_pr.sql");
+pub const PULL_REQUEST_REFS: &str = include_str!("../../sql/queries/pull_request_refs.sql");
+pub const TASK_MODELS: &str = include_str!("../../sql/queries/task_models.sql");
+pub const ITEM_TASK_IDS: &str = include_str!("../../sql/queries/item_task_ids.sql");
 
 /// Every query, by its file name, for the test that prepares them.
 #[cfg(test)]
@@ -113,4 +119,9 @@ pub const QUERIES: &[(&str, &str)] = &[
     ("task_waits.sql", TASK_WAITS),
     ("host_transcripts.sql", HOST_TRANSCRIPTS),
     ("host_totals.sql", HOST_TOTALS),
+    ("generation_prs.sql", GENERATION_PRS),
+    ("upsert_generation_pr.sql", UPSERT_GENERATION_PR),
+    ("pull_request_refs.sql", PULL_REQUEST_REFS),
+    ("task_models.sql", TASK_MODELS),
+    ("item_task_ids.sql", ITEM_TASK_IDS),
 ];

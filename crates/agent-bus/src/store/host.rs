@@ -24,7 +24,8 @@ use crate::store::sql::{
     UPSERT_TRANSCRIPT,
 };
 use crate::timing::{
-    Call, Class, Prompt, Response as TimedResponse, Timeline, Times, segments, waiting_on_answers,
+    Call, Class, Prompt, Response as TimedResponse, Segment, Timeline, Times, segments,
+    waiting_on_answers,
 };
 
 /// The import fact holding the time of the first import.
@@ -682,6 +683,38 @@ pub async fn host_times(
     conn: &Connection,
     since_ms: Option<u64>,
 ) -> Result<HashMap<Option<i64>, Times>> {
+    let mut times: HashMap<Option<i64>, Times> = HashMap::new();
+    for (segment, (item, _)) in charged_segments(conn).await? {
+        if since_ms.is_some_and(|since| segment.start_ms < since) {
+            continue;
+        }
+        times.entry(item).or_default().add(&segment);
+    }
+    Ok(times)
+}
+
+/// The host's time in `item`, by the model of its main conversation at the time.
+///
+/// # Errors
+///
+/// Fails when a query fails or a row is not one.
+#[instrument(level = "debug", skip(conn))]
+pub async fn host_model_times(conn: &Connection, item: i64) -> Result<BTreeMap<String, Times>> {
+    let mut times: BTreeMap<String, Times> = BTreeMap::new();
+    for (segment, (charged, model)) in charged_segments(conn).await? {
+        if charged == Some(item) {
+            times.entry(model).or_default().add(&segment);
+        }
+    }
+    Ok(times)
+}
+
+/// Every segment of the host's main conversations, oldest first in each session, with the item
+/// and the model of the response it is charged to.
+///
+/// `timing::segments` charges a segment to the `item` of a response. Here each response's
+/// `item` holds an index into the list of (item, model) pairs instead, so one cut gives both.
+async fn charged_segments(conn: &Connection) -> Result<Vec<(Segment, (Option<i64>, String))>> {
     let mut timelines: BTreeMap<String, Timeline> = BTreeMap::new();
     let mut rows = conn
         .query(HOST_SPANS, ())
@@ -717,6 +750,7 @@ pub async fn host_times(
         });
     }
     drop(rows);
+    let mut charges: Vec<(Option<i64>, String)> = Vec::new();
     let mut rows = conn
         .query(HOST_RESPONSES, ())
         .await
@@ -730,7 +764,14 @@ pub async fn host_times(
         let session = cells.text("session")?;
         let first_ms = cells.count("at_ms")?;
         let last_ms = cells.count("last_at_ms")?;
-        let item = cells.optional_id("work")?;
+        let charge = (cells.optional_id("work")?, cells.text("model")?);
+        let index = if let Some(index) = charges.iter().position(|known| *known == charge) {
+            index
+        } else {
+            charges.push(charge);
+            charges.len() - 1
+        };
+        let label = i64::try_from(index).context("Too many items and models")?;
         timelines
             .entry(session)
             .or_default()
@@ -738,20 +779,23 @@ pub async fn host_times(
             .push(TimedResponse {
                 first_ms,
                 last_ms,
-                item,
+                item: Some(label),
             });
     }
     drop(rows);
-    let mut times: HashMap<Option<i64>, Times> = HashMap::new();
+    let mut found = Vec::new();
     for timeline in timelines.values() {
         for segment in segments(timeline) {
-            if since_ms.is_some_and(|since| segment.start_ms < since) {
-                continue;
-            }
-            times.entry(segment.item).or_default().add(&segment);
+            let charge = segment
+                .item
+                .and_then(|label| usize::try_from(label).ok())
+                .and_then(|index| charges.get(index))
+                .cloned()
+                .unwrap_or_default();
+            found.push((segment, charge));
         }
     }
-    Ok(times)
+    Ok(found)
 }
 
 /// How long each task waited on the user: each question to its answer, summed.
