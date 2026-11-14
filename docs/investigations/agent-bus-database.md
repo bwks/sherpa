@@ -228,7 +228,8 @@ alone.
 this branch. A smaller raise does have a use, as the record's buffer: with no long-running
 writer, the stream holds every message until a command catches the record up, and more than
 7 days with no command loses what the stream dropped. Raising `max_age` to 30 days (about 20 MB at the estimate above),
-with `RETENTION` split from the file retention, is in phase 2.
+with `RETENTION` split from the file retention, is in phase 2. Done: the stream keeps 30 days and the files 7, see
+"Retention" in [`AGENT_BUS.md`](../architecture/AGENT_BUS.md#retention).
 
 ### Reading the record
 
@@ -461,7 +462,8 @@ review findings, agents and heartbeats (the `AGENT_STATUS` bucket is another str
    parsing, `link`, `usage --issue/--pr/--branch/--by`, `open`. `agents` shows the `_record`
    consumer's lag. `RETENTION` split from the file retention, and the stream's `max_age` raised
    to 30 days as the record's buffer between commands. A cargo feature that leaves the record
-   out of the guest's build.
+   out of the guest's build. The upkeep part is done; see "Retention", "Agent status" and "The
+   record" in [`AGENT_BUS.md`](../architecture/AGENT_BUS.md).
 3. **Per-agent sessions.** `follow --agent <name> [--after <seq> | --since <d>]`, a loop on the
    same path: lock, catch up, read past the cursor, release, print, wait. The host agent setup
    moves from one `listen host` to one `follow` per session; `listen host` stays for anyone not

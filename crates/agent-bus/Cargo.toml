@@ -49,8 +49,14 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 # Task IDs
 uuid = { workspace = true }
 
-# The host's record of every message (see src/store)
-turso = { workspace = true }
+# The host's record of every message (see src/store), behind the `record` feature
+turso = { workspace = true, optional = true }
+
+[features]
+default = ["record"]
+# The host's record: the Turso store, and the commands that open it (`usage`, `show`,
+# `history`). A guest agent never opens it; dev/agent-bus/start-guest.sh builds without it.
+record = ["dep:turso"]
 
 [lints]
 workspace = true

@@ -7,7 +7,7 @@ use tracing::instrument;
 use turso::{Connection, Value};
 
 use crate::message::{Kind, Message};
-use crate::report::Row;
+use crate::report::usage::Row;
 use crate::store::cells::{Cells, integer, optional_integer, optional_text};
 use crate::store::sql::{HISTORY, TASK_MESSAGES, USAGE};
 use crate::store::task::TaskState;

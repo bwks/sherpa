@@ -1,4 +1,4 @@
-//! The usage report of `agent-bus usage`: one row per task from the record, and a total row.
+//! The table of `agent-bus usage`: one row per task from the record, and a total row.
 
 use shared::util::{TableLayout, render_table};
 
@@ -31,6 +31,16 @@ pub struct Row {
     pub usage: Option<TaskUsage>,
     /// Where the task is, from its last outcome message.
     pub state: TaskState,
+}
+
+impl TaskUsage {
+    /// All tokens of every kind.
+    pub fn tokens(&self) -> u64 {
+        self.input
+            .saturating_add(self.output)
+            .saturating_add(self.cache_creation)
+            .saturating_add(self.cache_read)
+    }
 }
 
 /// The report as a table, or a sentence when there is nothing to report.
@@ -125,6 +135,15 @@ mod tests {
             usage,
             state,
         }
+    }
+
+    #[test]
+    fn tokens_add_every_kind_and_saturate() {
+        let mut usage = used(1, 0.0, 4, 7);
+        usage.cache_creation = 3;
+        assert_eq!(usage.tokens(), 4 + 5 + 3 + 7);
+        usage.input = u64::MAX;
+        assert_eq!(usage.tokens(), u64::MAX);
     }
 
     #[test]

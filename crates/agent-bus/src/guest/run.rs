@@ -462,7 +462,7 @@ impl<'a> Engine<'a> {
         Ok(())
     }
 
-    /// Drop the result records older than the stream's retention. A failure is reported and the
+    /// Drop the result records older than `FILE_RETENTION`. A failure is reported and the
     /// agent goes on; the next append tries again a day later.
     fn prune_results(&mut self) {
         if let Some(log) = &mut self.results {

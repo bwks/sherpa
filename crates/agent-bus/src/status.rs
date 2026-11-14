@@ -16,6 +16,9 @@ use crate::files::millis;
 
 /// The key-value bucket of guest statuses; its stream is `KV_AGENT_STATUS`.
 pub const BUCKET: &str = "AGENT_STATUS";
+/// How long the bucket keeps a status no guest has written again: a guest that is gone drops
+/// out of it after this.
+pub const STATUS_MAX_AGE: Duration = Duration::from_hours(7 * 24);
 /// How often a guest agent writes its status when nothing changes.
 pub const HEARTBEAT: Duration = Duration::from_secs(10);
 /// A status older than this is stale: three heartbeats missed, and some slack.
@@ -70,6 +73,9 @@ pub struct Observed {
     pub inbox: Option<InboxState>,
     /// `None` when the agent never wrote a status, or the bus has no status bucket.
     pub heartbeat: Option<Heartbeat>,
+    /// The recorder's consumer, `_record`, which the host's record is caught up from. Only the
+    /// host's row shows it; `None` when the bus has no recorder's consumer.
+    pub record: Option<InboxState>,
 }
 
 /// Whether an agent is there now.
@@ -89,6 +95,17 @@ pub struct RunningRow {
     pub task: String,
     /// How long it has run, in seconds.
     pub age_secs: u64,
+}
+
+/// How far the host's record is behind the bus: what its consumer, `_record`, has not yet had
+/// recorded, and when it last delivered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct RecordLag {
+    /// Messages not yet delivered to the record, or delivered and not acknowledged.
+    pub unread: u64,
+    /// Milliseconds since the Unix epoch; `None` when it never delivered.
+    pub last_delivered_ms: Option<u64>,
+    pub last_delivered_age_secs: Option<u64>,
 }
 
 /// One agent in `agent-bus agents`, also its JSON.
@@ -111,6 +128,9 @@ pub struct Row {
     /// Milliseconds since the Unix epoch; `None` when never seen.
     pub last_active_ms: Option<u64>,
     pub last_active_age_secs: Option<u64>,
+    /// The host's record's lag, in the host's row; `None` for a guest, and for a host whose bus
+    /// has no recorder's consumer.
+    pub record: Option<RecordLag>,
 }
 
 impl Online {
@@ -188,6 +208,16 @@ pub fn row(observed: &Observed, now_ms: u64, stale: Duration) -> Row {
         reader_attached,
         last_active_ms,
         last_active_age_secs: last_active_ms.map(|at| now_ms.saturating_sub(at) / 1000),
+        record: match observed.role {
+            Role::Host => observed.record.map(|record| RecordLag {
+                unread: record.unread,
+                last_delivered_ms: record.last_delivered_ms,
+                last_delivered_age_secs: record
+                    .last_delivered_ms
+                    .map(|at| now_ms.saturating_sub(at) / 1000),
+            }),
+            Role::Guest => None,
+        },
     }
 }
 
@@ -229,6 +259,7 @@ mod tests {
             role: Role::Guest,
             inbox,
             heartbeat,
+            record: None,
         }
     }
 
@@ -352,6 +383,7 @@ mod tests {
             inbox: Some(inbox),
             // A status under the host's name is not the host's: only guests write them.
             heartbeat: Some(beat(true, 0, None, 9)),
+            record: None,
         };
         let listening = row(&host(inbox(1, true)), NOW, STALE);
         assert_eq!(listening.online, Online::Yes);
@@ -368,12 +400,63 @@ mod tests {
             role: Role::Host,
             inbox: Some(inbox(2, false)),
             heartbeat: None,
+            record: None,
         };
         let row = row(&host, NOW, STALE);
         assert_eq!((row.queued, row.inbox_unread), (None, Some(2)));
         let json = serde_json::to_value(&row).unwrap();
         assert!(json["queued"].is_null(), "{json}");
         assert_eq!(json["inbox_unread"], 2);
+    }
+
+    #[test]
+    fn the_host_row_carries_the_recorder_s_lag() {
+        let host = Observed {
+            name: "host".to_owned(),
+            role: Role::Host,
+            inbox: Some(inbox(1, true)),
+            heartbeat: None,
+            record: Some(InboxState {
+                unread: 3,
+                reader_attached: false,
+                last_delivered_ms: Some(NOW - 125_000),
+            }),
+        };
+        let row = row(&host, NOW, STALE);
+        assert_eq!(
+            row.record,
+            Some(RecordLag {
+                unread: 3,
+                last_delivered_ms: Some(NOW - 125_000),
+                last_delivered_age_secs: Some(125),
+            })
+        );
+        // The host's own inbox is apart from the recorder's.
+        assert_eq!(row.inbox_unread, Some(1));
+        let json = serde_json::to_value(&row).unwrap();
+        assert_eq!(json["record"]["unread"], 3);
+        assert_eq!(json["record"]["last_delivered_age_secs"], 125);
+        // A recorder's consumer that never delivered has no last delivery.
+        let fresh = Observed {
+            record: Some(InboxState {
+                unread: 0,
+                reader_attached: false,
+                last_delivered_ms: None,
+            }),
+            ..host.clone()
+        };
+        let lag = super::row(&fresh, NOW, STALE).record.unwrap();
+        assert_eq!(
+            (lag.last_delivered_ms, lag.last_delivered_age_secs),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn only_the_host_row_has_a_recorder() {
+        let mut dev = guest(Some(inbox(0, true)), None);
+        dev.record = Some(inbox(5, false));
+        assert_eq!(row(&dev, NOW, STALE).record, None);
     }
 
     #[test]

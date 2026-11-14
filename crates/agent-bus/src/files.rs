@@ -3,11 +3,17 @@
 //! The directory is private to the user (0700) on the host and in the guest alike; every command
 //! that writes into it makes it so with `private_dir`. The JSON Lines files (`results.jsonl` in
 //! the guest, `listen-<agent>.jsonl` on the host) are 0600, one object per line with an `at_ms`
-//! field, and are pruned to the stream's retention: on start, and at most once a day before an
+//! field, and are pruned to `FILE_RETENTION`: on start, and at most once a day before an
 //! append.
 //!
 //! Files that more than one process changes (the host's registry, the guest's generation ledger)
 //! are changed under an exclusive lock on a file beside them (`lock_exclusive`).
+//!
+//! - `record_lock`: the lock the host's record is opened under, which a command does not wait
+//!   for long and which names its holder (the `record` feature).
+
+#[cfg(feature = "record")]
+pub mod record_lock;
 
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
@@ -17,13 +23,15 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
-use nix::errno::Errno;
 use nix::fcntl::{Flock, FlockArg};
 use serde::Deserialize;
 use tracing::instrument;
 
-use crate::channel::RETENTION;
-
+/// How long the files that follow the messages keep them: the guest's task records and
+/// `results.jsonl`, and the listener's journal. Shorter than the stream keeps messages
+/// (`channel::STREAM_MAX_AGE`): these files are a local log, and the host's record keeps the
+/// history.
+pub const FILE_RETENTION: Duration = Duration::from_hours(7 * 24);
 /// The directory under `$XDG_STATE_HOME`.
 const STATE_SUBDIR: &str = "agent-bus";
 /// The mode of the state directory: private to the user.
@@ -45,7 +53,7 @@ pub struct FileLock {
     _lock: Flock<File>,
 }
 
-/// A JSON Lines file in the state directory, pruned to the stream's retention.
+/// A JSON Lines file in the state directory, pruned to `FILE_RETENTION`.
 #[derive(Debug, Clone)]
 pub struct JsonLines {
     path: PathBuf,
@@ -192,7 +200,7 @@ impl JsonLines {
             .with_context(|| format!("Unable to write {}", self.path.display()))
     }
 
-    /// Drop the lines whose `at_ms` is older than the stream's retention. A line without one (a
+    /// Drop the lines whose `at_ms` is older than `FILE_RETENTION`. A line without one (a
     /// line cut short by a crash, say) is kept. The file is rewritten only when a line is
     /// dropped: to a temporary file next to it, mode 0600, flushed to disk, then renamed over
     /// it. Returns how many lines were dropped. A missing file has none.
@@ -212,7 +220,7 @@ impl JsonLines {
                 });
             }
         };
-        let cutoff = now_ms.saturating_sub(millis(RETENTION));
+        let cutoff = now_ms.saturating_sub(millis(FILE_RETENTION));
         let mut kept = String::with_capacity(text.len());
         let mut dropped = 0;
         for line in text.split_inclusive('\n') {
@@ -252,28 +260,6 @@ pub fn lock_exclusive(path: &Path) -> Result<FileLock> {
     held(lock, path)
 }
 
-/// As `lock_exclusive`, without waiting: `None` when another holds the lock.
-///
-/// # Errors
-///
-/// Fails when the file cannot be created, or locking fails other than by being held.
-#[instrument(level = "debug", skip_all, fields(path = %path.display()))]
-pub fn try_lock_exclusive(path: &Path) -> Result<Option<FileLock>> {
-    match Flock::lock(lock_file(path)?, FlockArg::LockExclusiveNonblock) {
-        Ok(lock) => held(lock, path).map(Some),
-        Err((_, Errno::EWOULDBLOCK)) => Ok(None),
-        Err((_, errno)) => {
-            Err(anyhow!(errno).context(format!("Unable to lock {}", path.display())))
-        }
-    }
-}
-
-/// The process that holds, or last held, the lock at `path`, as it wrote itself into the file;
-/// `None` when the file is missing or names no process.
-pub fn lock_holder(path: &Path) -> Option<u32> {
-    fs::read_to_string(path).ok()?.trim().parse().ok()
-}
-
 /// The lock just taken on the file at `path`, with this process's PID written into the file.
 fn held(lock: Flock<File>, path: &Path) -> Result<FileLock> {
     let mut file: &File = &lock;
@@ -302,22 +288,34 @@ fn lock_file(path: &Path) -> Result<File> {
 mod tests {
     use super::*;
 
+    use crate::channel::STREAM_MAX_AGE;
+    use crate::status::STATUS_MAX_AGE;
+
     const NOW: u64 = 1_800_000_000_000;
     const DAY: u64 = 24 * 60 * 60 * 1000;
 
-    fn scratch(name: &str) -> PathBuf {
+    pub(super) fn scratch(name: &str) -> PathBuf {
         let dir =
             std::env::temp_dir().join(format!("agent-bus-files-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
     }
 
-    fn mode(path: &Path) -> u32 {
+    pub(super) fn mode(path: &Path) -> u32 {
         fs::metadata(path).unwrap().permissions().mode() & 0o777
     }
 
     fn line(at_ms: u64, text: &str) -> String {
         format!(r#"{{"at_ms":{at_ms},"text":"{text}"}}"#)
+    }
+
+    #[test]
+    fn files_keep_messages_7_days_and_the_stream_30() {
+        assert_eq!(FILE_RETENTION, Duration::from_hours(7 * 24));
+        assert_eq!(millis(FILE_RETENTION), 7 * DAY);
+        assert_eq!(millis(STREAM_MAX_AGE), 30 * DAY);
+        // The status bucket is not a message log: it stays at 7 days.
+        assert_eq!(STATUS_MAX_AGE, Duration::from_hours(7 * 24));
     }
 
     #[test]
@@ -422,38 +420,6 @@ mod tests {
         drop(held);
         let file = OpenOptions::new().write(true).open(&path).unwrap();
         assert!(Flock::lock(file, FlockArg::LockExclusiveNonblock).is_ok());
-        fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn a_held_lock_is_not_waited_for() {
-        let dir = scratch("try-lock");
-        let path = dir.join("record.lock");
-        let held = try_lock_exclusive(&path).unwrap();
-        assert!(held.is_some());
-        assert_eq!(mode(&path), PRIVATE_FILE_MODE);
-        assert!(try_lock_exclusive(&path).unwrap().is_none());
-        drop(held);
-        assert!(try_lock_exclusive(&path).unwrap().is_some());
-        fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn a_lock_names_its_holder() {
-        let dir = scratch("holder");
-        let path = dir.join("record.lock");
-        // A stale or foreign file names nobody.
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(&path, "not a pid").unwrap();
-        assert_eq!(lock_holder(&path), None);
-        let lock = try_lock_exclusive(&path).unwrap().unwrap();
-        assert_eq!(lock_holder(&path), Some(std::process::id()));
-        drop(lock);
-        fs::write(&path, "").unwrap();
-        let lock = lock_exclusive(&path).unwrap();
-        assert_eq!(lock_holder(&path), Some(std::process::id()));
-        drop(lock);
-        assert_eq!(lock_holder(&dir.join("missing.lock")), None);
         fs::remove_dir_all(&dir).unwrap();
     }
 }

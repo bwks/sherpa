@@ -1,5 +1,5 @@
 //! A record of every `result` event Claude Code prints, to find out what its cost and time
-//! figures mean across resumed runs. Lines older than the stream's retention are pruned (see
+//! figures mean across resumed runs. Lines older than `FILE_RETENTION` are pruned (see
 //! `files::JsonLines`).
 
 use std::path::PathBuf;
@@ -57,7 +57,7 @@ impl ResultLog {
         Some(event["session_id"].as_str().unwrap_or_default().to_owned())
     }
 
-    /// Drop the lines older than the stream's retention; how many were dropped.
+    /// Drop the lines older than `FILE_RETENTION`; how many were dropped.
     ///
     /// # Errors
     ///

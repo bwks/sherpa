@@ -72,6 +72,9 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace -- -D warnings
 
+      - name: Run clippy on the guest build of agent-bus
+        run: cargo clippy -p agent-bus --all-targets --no-default-features -- -D warnings
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
