@@ -1,9 +1,7 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use bollard::secret::ContainerStateStatusEnum;
 use shared::data::{
     DbLab, DbNode, LabPhase, NodeKind, NodeModel, NodeState, Observation, Probe, RecordId, Runtime,
 };
@@ -13,20 +11,13 @@ use tracing::instrument;
 
 use crate::daemon::state::AppState;
 use crate::services::lab_operations;
-use crate::services::node_lifecycle;
+use crate::services::node_lifecycle::{self, Runtimes, query_runtimes};
 use crate::services::node_ops::{self, VmReadiness};
 use crate::services::p2p_links::{
     KernelHost, LabLinks, LinkHost, PlannedNode, check_lab_links, follow_carrier,
     load_lab_manifest, recreated_end, repair_node,
 };
 use crate::services::ssh_config;
-
-/// What libvirt and Docker reported in one query. A runtime that did not answer is `None`:
-/// unknown this time, not empty, as empty would make every one of its nodes missing.
-struct Runtimes {
-    domains: Option<HashMap<String, u32>>,
-    containers: Option<HashMap<String, ContainerStateStatusEnum>>,
-}
 
 /// A node with what the scanner needs to know about its image.
 struct ScannedNode<'a> {
@@ -83,7 +74,7 @@ pub async fn run_scanner(state: AppState, cancel: CancellationToken) {
 /// Execute a single scan cycle: query runtimes, then scan every lab.
 #[instrument(skip_all, level = "debug")]
 async fn scan_cycle(state: &AppState) -> Result<()> {
-    let snapshot = query_runtimes(state).await;
+    let snapshot = query_runtimes(&state.docker, &state.qemu).await;
 
     let labs = db::list_labs(&state.db)
         .await
@@ -117,7 +108,7 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
     let mut probes = HashMap::new();
     let mut key_recorded = false;
     for node in &scanned {
-        let running = snapshot.runtime_of(node) == Some(Runtime::Running);
+        let running = snapshot.runtime_of(&node.kind, &node.runtime_name) == Some(Runtime::Running);
         if !wants_probe(node, running) {
             continue;
         }
@@ -129,13 +120,13 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
     if let Some(observed) = lab_operations::try_observe(&lab.lab_id) {
         // Under the hold: what an operation wrote before it ended is in the database, and what
         // it did to the runtimes is in this query.
-        let runtimes = query_runtimes(state).await;
+        let runtimes = query_runtimes(&state.docker, &state.qemu).await;
         let nodes = db::list_nodes_by_lab(&state.db, lab_record_id.clone())
             .await
             .context("Failed to list nodes for lab")?;
         let scanned = scanned_nodes(state, lab, &nodes).await?;
         for node in &scanned {
-            let Some(runtime) = runtimes.runtime_of(node) else {
+            let Some(runtime) = runtimes.runtime_of(&node.kind, &node.runtime_name) else {
                 tracing::debug!(node = %node.node.name, "Runtime not queried this cycle; keeping its state");
                 continue;
             };
@@ -201,7 +192,7 @@ async fn repair_links(
     let running: HashSet<RecordId> = scanned
         .iter()
         .filter(|node| {
-            runtimes.runtime_of(node) == Some(Runtime::Running)
+            runtimes.runtime_of(&node.kind, &node.runtime_name) == Some(Runtime::Running)
                 && node.node.state != NodeState::Building
         })
         .filter_map(|node| node.node.id.clone())
@@ -291,7 +282,7 @@ async fn repair_management_checksums(
         };
         if node.kind != NodeKind::Container
             || node.node.state == NodeState::Building
-            || runtimes.runtime_of(node) != Some(Runtime::Running)
+            || runtimes.runtime_of(&node.kind, &node.runtime_name) != Some(Runtime::Running)
         {
             continue;
         }
@@ -399,75 +390,11 @@ async fn probe_node(state: &AppState, node: &DbNode) -> (Probe, bool) {
     }
 }
 
-/// Query libvirt and Docker at the same time.
-async fn query_runtimes(state: &AppState) -> Runtimes {
-    let (domains, containers) = tokio::join!(
-        query_libvirt_states(state.qemu.clone()),
-        node_lifecycle::container_states(&state.docker),
-    );
-    Runtimes {
-        domains: domains
-            .inspect_err(|e| tracing::error!(error = %e, "Failed to query libvirt states"))
-            .ok(),
-        containers: containers
-            .inspect_err(|e| tracing::error!(error = %e, "Failed to query Docker states"))
-            .ok(),
-    }
-}
-
-impl Runtimes {
-    /// What the runtime reports for `node`, or `None` when its runtime was not queried.
-    fn runtime_of(&self, node: &ScannedNode<'_>) -> Option<Runtime> {
-        let name = node.runtime_name.as_str();
-        Some(match node.kind {
-            NodeKind::VirtualMachine | NodeKind::Unikernel => {
-                node_lifecycle::libvirt_runtime(self.domains.as_ref()?.get(name).copied())
-            }
-            NodeKind::Container => {
-                node_lifecycle::container_runtime(self.containers.as_ref()?.get(name).copied())
-            }
-        })
-    }
-}
-
-/// Query libvirt for all domain states. Must run in `spawn_blocking` since
-/// libvirt calls are blocking FFI.
-async fn query_libvirt_states(qemu: Arc<libvirt::Qemu>) -> Result<HashMap<String, u32>> {
-    tokio::task::spawn_blocking(move || -> Result<HashMap<String, u32>> {
-        let conn = qemu.connect().context("Failed to connect to libvirt")?;
-        let domains = conn
-            .list_all_domains(0)
-            .context("Failed to list libvirt domains")?;
-
-        let mut states = HashMap::with_capacity(domains.len());
-        for domain in &domains {
-            let name = match domain.get_name() {
-                Ok(name) => name,
-                Err(e) => {
-                    tracing::debug!(error = %e, "Failed to get domain name, skipping");
-                    continue;
-                }
-            };
-            let state_code = match domain.get_state() {
-                Ok((state, _reason)) => state,
-                Err(e) => {
-                    tracing::debug!(domain = %name, error = %e, "Failed to get domain state");
-                    continue;
-                }
-            };
-            states.insert(name, state_code);
-        }
-        Ok(states)
-    })
-    .await
-    .context("libvirt query task panicked")?
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bollard::secret::ContainerStateStatusEnum;
     use shared::data::NodeModel;
-    use virt::sys::VIR_DOMAIN_RUNNING;
 
     use crate::services::p2p_links::fake::FakeHost;
 
@@ -568,69 +495,6 @@ mod tests {
                 Probe::NotProbed
             );
         }
-    }
-
-    #[test]
-    fn a_runtime_that_could_not_be_queried_leaves_its_nodes_undecided() {
-        let node = db_node(NodeState::Running, true);
-        let containers =
-            HashMap::from([("r1-abc12345".to_string(), ContainerStateStatusEnum::RUNNING)]);
-        let runtimes = Runtimes {
-            domains: None,
-            containers: Some(containers),
-        };
-        // libvirt did not answer: its nodes are undecided, not missing.
-        assert_eq!(
-            runtimes.runtime_of(&scanned(&node, NodeKind::VirtualMachine, true)),
-            None
-        );
-        assert_eq!(
-            runtimes.runtime_of(&scanned(&node, NodeKind::Unikernel, false)),
-            None
-        );
-        // Docker answered, so its nodes are still decided.
-        assert_eq!(
-            runtimes.runtime_of(&scanned(&node, NodeKind::Container, false)),
-            Some(Runtime::Running)
-        );
-    }
-
-    #[test]
-    fn a_node_with_no_domain_or_container_is_absent_not_stopped() {
-        // M4.2: missing used to be read as stopped.
-        let node = db_node(NodeState::Running, true);
-        let runtimes = Runtimes {
-            domains: Some(HashMap::from([(
-                "other-abc12345".to_string(),
-                VIR_DOMAIN_RUNNING,
-            )])),
-            containers: Some(HashMap::new()),
-        };
-        assert_eq!(
-            runtimes.runtime_of(&scanned(&node, NodeKind::VirtualMachine, true)),
-            Some(Runtime::Absent)
-        );
-        assert_eq!(
-            runtimes.runtime_of(&scanned(&node, NodeKind::Container, false)),
-            Some(Runtime::Absent)
-        );
-    }
-
-    #[test]
-    fn a_dead_container_is_faulted() {
-        // M4.1: a dead container used to look stopped, so the UI offered Start.
-        let node = db_node(NodeState::Running, true);
-        let runtimes = Runtimes {
-            domains: Some(HashMap::new()),
-            containers: Some(HashMap::from([(
-                "r1-abc12345".to_string(),
-                ContainerStateStatusEnum::DEAD,
-            )])),
-        };
-        assert_eq!(
-            runtimes.runtime_of(&scanned(&node, NodeKind::Container, false)),
-            Some(Runtime::Faulted("dead"))
-        );
     }
 
     #[tokio::test]

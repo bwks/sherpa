@@ -636,6 +636,9 @@ stateDiagram-v2
   VMs and unikernels have new taps; a container started from exited has its veths made again
   in its new namespace first. Each node's result carries its links' states; a link that is not
   attached does not fail the node.
+- The links of every `ColdBooted` and `Resumed` node are then decided as a scan would decide
+  them, and their carrier set at once (`follow_started`, machine 25): an unpaused node's peers
+  get their carrier back without waiting for the scanner.
 - `ColdBooted` nodes are waited on for readiness (`wait_for_cold_booted`). Those that become
   ready, and those with no check (containers, `ready_check.skip`), are recorded `Running`; the
   others stay `Starting`.
@@ -670,7 +673,8 @@ stateDiagram-v2
      VM is created or the container runs;
    - re-attach its P2p links with `reattach_node_links` (machine 25), making a container's
      veths first. The link states go in the response; a link that is not attached, such as
-     one whose peer is down, does not fail the redeploy;
+     one whose peer is down, does not fail the redeploy. Its links are then decided as a scan
+     would decide them (`follow_started_links`), so a paused peer's link goes down at once;
    - record `Running`:
      - containers: after Vault and Keycloak are restored (`ready_after_restore`,
        `container.rs`);
@@ -1222,7 +1226,9 @@ confirmation from the server (`container.rs:32-42`).
   - `repair.rs`: the scanner's check of a lab's links in the kernel (`check_lab_links`) and
     its repair of a node (`repair_node`);
   - `carrier.rs`: each end's carrier following its link's state (`carrier_moves`, a pure
-    function, and `follow_carrier`).
+    function, and `follow_carrier`);
+  - `started.rs`: the links of the nodes resume or redeploy started, decided as a scan would
+    decide them (`follow_started_links`).
 - `crates/server/src/services/scanner.rs`: `repair_links`, which runs the check and the repair
   under the scanner's hold.
 - `crates/server/src/daemon/link_states.rs`: `LinkStates`, each link's last state in memory.
@@ -1278,6 +1284,25 @@ of `node`, in index order, each on its own: one link's failure never stops the n
 
 A container on no link has Docker networks, which Docker connects again; it is not
 re-attached. A paused container or VM keeps its ends, so unpausing re-attaches nothing.
+
+**Started nodes.** Re-attach takes a peer whose end exists as up, though a paused peer is down
+to the scanner, and an unpaused node is not re-attached at all. So after its re-attach, resume
+(`resume::follow_started`, for every `ColdBooted` and `Resumed` node) and redeploy (the
+redeployed node) call `follow_started_links(host, lab_links, started, runtimes, link_states)`.
+It runs `check_lab_links` with the nodes `runtimes` reports running (`LabLinks::running`; a
+`Building` node is not left out as the scanner does, as the operation holds the lab). It keeps
+the links of the `started` nodes, follows their carrier from the recorded states, and records
+them:
+
+| Case | Recorded before | Decided | Carrier |
+|---|---|---|---|
+| container unpaused, its VM peer running | `PeerDown { ctr }` | `Attached` | VM's end up |
+| container unpaused, its VM peer off | `PeerDown { vm }` | `PeerDown { vm }` | nothing |
+| VM booted, its container peer paused | `Attached` (from its re-attach) | `PeerDown { ctr }` | VM's end down |
+| an end missing or with no filter | any | `Failed`: not kept | nothing; the scan repairs it |
+| libvirt or Docker did not answer | any | nothing | nothing |
+
+The next scan finds the states recorded, so it moves no carrier.
 
 **Carrier.** After the transition, and after the scanner's repair, each end's carrier is made
 to follow its link's state (`follow_carrier`), behind `LinkHost`: a container end's host veth is
@@ -1355,7 +1380,8 @@ web UI adds them to its notification. A link that is not attached does not mark 
 Each link's last state is kept in memory in `AppState::link_states` (`LinkStates`), by lab and
 link index: the scanner replaces a lab's states on each scan it makes of the lab, after it set
 the carrier from them, resume and redeploy record the links they re-attached (`report_links`,
-which sets the carrier first), and a destroy or clean forgets the lab. The recorded state is
+which sets the carrier first) and then the links of the nodes they started
+(`follow_started_links`, which does too), and a destroy or clean forgets the lab. The recorded state is
 also what the carrier compares with. `inspect` returns it as `LinkInfo.state`. Nothing is stored in the database: the
 kernel holds the state and one scan rebuilds it. After sherpad starts, and while the scanner
 is disabled, a lab's links have no state until a scan, resume or redeploy, and `inspect`
@@ -1378,8 +1404,8 @@ stateDiagram-v2
     Stale --> Failed : own end absent, or kernel refuses
     Attached --> Stale : end made again outside Sherpa
     Stale --> Attached : next scan, repair_node
-    Attached --> PeerDown : the peer stops or is paused (next scan), survivor's carrier down
-    PeerDown --> Attached : the peer's own re-attach when it starts, or the next scan, carrier up
+    Attached --> PeerDown : the peer stops or is paused (next scan), or resume or redeploy boots a node beside a paused peer, survivor's carrier down
+    PeerDown --> Attached : the peer's re-attach when it boots, resume unpausing it, or the next scan, carrier up
     Attached --> Failed : an end cannot be read, or an attach fails, both carriers down
     Failed --> Attached : next re-attach of either end, or the next scan if an end is bare, carrier up
 ```

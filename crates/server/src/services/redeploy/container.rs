@@ -1,7 +1,7 @@
 //! Stages 4 and 5 for a container: its configuration, its data networks or P2p veths, and
 //! starting it; then the services a container node runs.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::RangeInclusive;
 use std::path::Path;
 
@@ -12,12 +12,13 @@ use super::context::Redeploy;
 use crate::services::container_networks::{self, ContainerDataInterface};
 use crate::services::keycloak;
 use crate::services::lab_operations::LabOperation;
-use crate::services::node_lifecycle;
+use crate::services::node_lifecycle::{self, query_runtimes};
 use crate::services::node_ops::{self, ContainerZtpResult, LabZtp};
 use crate::services::node_secrets::secrets_for_redeploy;
 use crate::services::p2p_links::{
     ContainerNode, ContainerVeth, KernelHost, LabLinks, RecreatedEnd, container_veths,
-    data_interface_indices, node_bridge_interfaces, node_links, reattach_node_links, report_links,
+    data_interface_indices, follow_started_links, node_bridge_interfaces, node_links,
+    reattach_node_links, report_links,
 };
 use crate::services::talos;
 use crate::services::vault;
@@ -165,7 +166,7 @@ async fn attach_links(
         },
     )
     .await;
-    report_links(
+    let reports = report_links(
         &host,
         lab_links,
         &redeploy.node_record_id,
@@ -173,7 +174,17 @@ async fn attach_links(
         &redeploy.state.link_states,
         outcomes,
     )
-    .await
+    .await;
+    // Re-attach takes a paused peer as up; decide the links as the next scan would.
+    follow_started_links(
+        &host,
+        lab_links,
+        &HashSet::from([redeploy.node_record_id.clone()]),
+        &query_runtimes(&redeploy.state.docker, &redeploy.state.qemu).await,
+        &redeploy.state.link_states,
+    )
+    .await;
+    reports
 }
 
 /// The data interfaces of a container: Docker networks, made now, for one on no link, or, for
