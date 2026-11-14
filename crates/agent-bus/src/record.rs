@@ -27,7 +27,8 @@ use tracing::{debug, instrument};
 use turso::Connection;
 
 use crate::channel::{Channel, Delivery, DropReason, Endpoint, Inbox, Position, Received};
-use crate::files::{FileLock, lock_holder, try_lock_exclusive};
+use crate::files::FileLock;
+use crate::files::record_lock::{lock_holder, try_lock_exclusive};
 use crate::store::{self, Recorded, Store, record};
 
 /// The lock whose holder alone opens the record.

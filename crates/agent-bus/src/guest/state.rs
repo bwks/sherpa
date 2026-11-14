@@ -19,8 +19,9 @@ use tracing::instrument;
 
 use super::base::Base;
 use super::engine::Session;
-use crate::channel::RETENTION;
-use crate::files::{PRIVATE_FILE_MODE, millis, private_dir, standard_state_dir, write_atomic};
+use crate::files::{
+    FILE_RETENTION, PRIVATE_FILE_MODE, millis, private_dir, standard_state_dir, write_atomic,
+};
 use crate::message::{Kind, Message, TaskUsage};
 
 /// Where a task's session's API time stood after its last run. The figure counts the whole
@@ -222,15 +223,14 @@ pub(super) fn restart(saved: Saved, name: &str, now_ms: u64) -> Restart {
     }
 }
 
-/// Drop the tasks that finished longer ago than the stream keeps messages (after which the host
-/// cannot have a question of theirs left to answer), unless `keep` says a
+/// Drop the tasks that finished longer ago than `FILE_RETENTION`, unless `keep` says a
 /// task is still needed (queued or running).
 pub(super) fn prune(
     tasks: &mut HashMap<String, TaskRecord>,
     now_ms: u64,
     keep: impl Fn(&str) -> bool,
 ) {
-    let cutoff = now_ms.saturating_sub(millis(RETENTION));
+    let cutoff = now_ms.saturating_sub(millis(FILE_RETENTION));
     tasks.retain(|task, record| keep(task) || record.finished_at_ms.is_none_or(|at| at >= cutoff));
 }
 

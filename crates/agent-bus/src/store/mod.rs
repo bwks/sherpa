@@ -2,6 +2,7 @@
 //! messages, and the tasks, runs and models derived from them, for as long as the host keeps
 //! the file. `crate::record` opens it, for one command at a time.
 //!
+//! - `kind`: what the record reads of a message's kind.
 //! - `database`: opening the file and migrating its schema.
 //! - `sql`: the statements, one file each under `sql/`.
 //! - `task`: how a message changes its task's row, without I/O.
@@ -10,6 +11,7 @@
 
 mod cells;
 mod database;
+mod kind;
 pub mod read;
 mod sql;
 mod task;

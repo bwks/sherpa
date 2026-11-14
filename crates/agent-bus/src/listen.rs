@@ -6,7 +6,7 @@
 //! whoever read the listener's output was gone when it was printed. `--since` prints the
 //! journal's recent entries first, so a restarted listener catches up. Each line is
 //! `{"at_ms":<when it was received>,"message":<the message as printed>}`; the journal is pruned
-//! to the stream's retention, like `results.jsonl`.
+//! to `FILE_RETENTION`, like `results.jsonl`.
 
 use std::fs;
 use std::io::{self, ErrorKind, Write};
@@ -73,7 +73,7 @@ impl Journal {
         })
     }
 
-    /// Drop the entries older than the stream's retention; how many were dropped.
+    /// Drop the entries older than `FILE_RETENTION`; how many were dropped.
     ///
     /// # Errors
     ///

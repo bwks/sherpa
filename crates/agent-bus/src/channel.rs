@@ -10,6 +10,11 @@
 //! message whose `from` is not the subject's, so a guest cannot pose as another. Each connection
 //! takes its replies under its own prefix, `_INBOX_<public key>`, the only one its user may
 //! subscribe to, so no agent reads another's replies.
+//!
+//! - `recorder`: reading the recorder's consumer, for the host's record (the `record` feature).
+
+#[cfg(feature = "record")]
+mod recorder;
 
 use std::fmt;
 use std::io::Write;
@@ -29,16 +34,17 @@ use tracing::{Span, instrument};
 use crate::keys::public_key_of;
 use crate::message::{Message, check_agent_name};
 use crate::pull::Puller;
-use crate::status::{BUCKET, Heartbeat, InboxState, Status};
+use crate::status::{BUCKET, Heartbeat, InboxState, STATUS_MAX_AGE, Status, age};
 use crate::tls::CA_ENV;
 
 /// The stream holding every inbox.
 pub const STREAM: &str = "AGENTS";
 /// Each agent's inbox is `agents.<name>.>`, one subject per sender.
 pub const SUBJECT_PREFIX: &str = "agents";
-/// How long the stream keeps a message, read or not. Files that follow the messages (the
-/// guest's task records, `results.jsonl`, the listener's journal) keep them as long.
-pub const RETENTION: Duration = Duration::from_hours(7 * 24);
+/// How long the stream keeps a message, read or not: the `max_age` of `STREAM`. It is longer
+/// than the files that follow the messages keep them (`files::FILE_RETENTION`), so the host's
+/// record can catch up after a long time away. `bus start` brings an existing stream to it.
+pub const STREAM_MAX_AGE: Duration = Duration::from_hours(30 * 24);
 
 /// The durable consumer the recorder reads: every message on `agents.>`, each acknowledged
 /// once it is in the record. Agent names are lowercase letters, digits and hyphens, so no
@@ -83,6 +89,35 @@ impl fmt::Display for InboxChange {
             Self::Updated => write!(f, "updated"),
             Self::Recreated { from_sequence } => {
                 write!(f, "recreated from sequence {from_sequence}")
+            }
+            Self::Unchanged => write!(f, "unchanged"),
+        }
+    }
+}
+
+/// What `prepare_stream` did to the inbox stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamChange {
+    Created,
+    /// Its `max_age` was `from` and is now `to`. Messages already dropped do not come back.
+    MaxAge {
+        from: Duration,
+        to: Duration,
+    },
+    Unchanged,
+}
+
+impl fmt::Display for StreamChange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Created => write!(f, "created"),
+            Self::MaxAge { from, to } => {
+                write!(
+                    f,
+                    "max_age {} -> {}",
+                    max_age_text(*from),
+                    max_age_text(*to)
+                )
             }
             Self::Unchanged => write!(f, "unchanged"),
         }
@@ -171,6 +206,45 @@ impl Channel {
         })
     }
 
+    /// Create the inbox stream, or bring an existing one's `max_age` to `STREAM_MAX_AGE` in
+    /// place. Every other setting of an existing stream is left as the bus has it. This is the
+    /// host's job, run by `bus start` before `create_inboxes`. It is safe to repeat.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the stream cannot be read, or the bus refuses to create or update it.
+    #[instrument(skip_all)]
+    pub async fn prepare_stream(&self) -> Result<StreamChange> {
+        let mut stream = match self.jetstream.get_stream(STREAM).await {
+            Ok(stream) => stream,
+            Err(error)
+                if matches!(error.kind(), GetStreamErrorKind::JetStream(ref inner)
+                    if inner.error_code() == ErrorCode::STREAM_NOT_FOUND) =>
+            {
+                self.jetstream
+                    .create_stream(stream_config())
+                    .await
+                    .context("Unable to create the inbox stream")?;
+                return Ok(StreamChange::Created);
+            }
+            Err(error) => return Err(error).context("Unable to open the inbox stream"),
+        };
+        let current = stream
+            .info()
+            .await
+            .context("Unable to read the inbox stream")?
+            .config
+            .clone();
+        let change = stream_change(&current);
+        if change != StreamChange::Unchanged {
+            self.jetstream
+                .update_stream(updated_stream_config(&current))
+                .await
+                .context("Unable to update the inbox stream")?;
+        }
+        Ok(change)
+    }
+
     /// Create the inbox stream, the status bucket, and an inbox consumer for every agent in
     /// `names`. This is the host's job: only the host may do it. It is safe to repeat.
     ///
@@ -184,12 +258,7 @@ impl Channel {
     ) -> Result<Vec<(String, InboxChange)>> {
         let stream = self
             .jetstream
-            .get_or_create_stream(stream::Config {
-                name: STREAM.to_owned(),
-                subjects: vec![format!("{SUBJECT_PREFIX}.>")],
-                max_age: RETENTION,
-                ..Default::default()
-            })
+            .get_or_create_stream(stream_config())
             .await
             .context("Unable to create the inbox stream")?;
         self.jetstream
@@ -197,7 +266,7 @@ impl Channel {
                 bucket: BUCKET.to_owned(),
                 description: "The status of each guest agent, under its name".to_owned(),
                 history: 1,
-                max_age: RETENTION,
+                max_age: STATUS_MAX_AGE,
                 ..Default::default()
             })
             .await
@@ -332,27 +401,6 @@ impl Channel {
         Ok(inbox)
     }
 
-    /// Open the recorder's consumer, with its reader's notices written to `notices`, and say how
-    /// many messages wait in it, unread or unacknowledged. Like an inbox, it takes one reader at
-    /// a time.
-    ///
-    /// # Errors
-    ///
-    /// Fails when there is no recorder consumer (the bus was started by an older agent-bus) or
-    /// another reader is attached.
-    #[instrument(skip_all)]
-    pub async fn recorder<W: Write>(&self, notices: W) -> Result<(Inbox<W>, u64)> {
-        self.reader(
-            RECORDER,
-            &format!(
-                "Unable to open the recorder's consumer '{RECORDER}'. `agent-bus bus start` \
-                 creates it; run it again if the bus was started by an older agent-bus"
-            ),
-            notices,
-        )
-        .await
-    }
-
     /// Open the durable consumer `name` as its only reader, and say how many messages wait in
     /// it. `missing` is the error when it cannot be opened; the reader's notices go to `notices`.
     async fn reader<W: Write>(
@@ -458,26 +506,28 @@ impl Channel {
         Ok(Some(found))
     }
 
-    /// What the bus says about `agent`'s inbox consumer; `None` when it has none. This is for
-    /// the host.
+    /// What the bus says about the consumer `name`, an agent's inbox or the recorder's
+    /// (`RECORDER`); `None` when there is none. This is for the host.
     ///
     /// # Errors
     ///
-    /// Fails when the name is invalid or the consumer cannot be read.
-    #[instrument(level = "debug", skip_all, fields(%agent))]
-    pub async fn inbox_state(&self, agent: &str) -> Result<Option<InboxState>> {
-        check_agent_name(agent)?;
+    /// Fails when the name is neither an agent's nor the recorder's, or the consumer cannot be
+    /// read.
+    #[instrument(level = "debug", skip_all, fields(consumer = %name))]
+    pub async fn consumer_state(&self, name: &str) -> Result<Option<InboxState>> {
+        if name != RECORDER {
+            check_agent_name(name)?;
+        }
         let stream = self
             .jetstream
             .get_stream(STREAM)
             .await
             .context("Unable to open the inbox stream")?;
-        let info = match stream.consumer_info(agent).await {
+        let info = match stream.consumer_info(name).await {
             Ok(info) => info,
             Err(error) if error.kind() == ConsumerInfoErrorKind::NotFound => return Ok(None),
             Err(error) => {
-                return Err(error)
-                    .with_context(|| format!("Unable to read the inbox of '{agent}'"));
+                return Err(error).with_context(|| format!("Unable to read the consumer '{name}'"));
             }
         };
         Ok(Some(InboxState {
@@ -647,15 +697,6 @@ impl<W: Write> Inbox<W> {
 }
 
 impl Delivery {
-    /// Where the message is in the stream, from its delivery's metadata.
-    ///
-    /// # Errors
-    ///
-    /// Fails when the delivery has no `JetStream` metadata.
-    pub fn position(&self) -> Result<Position> {
-        position_of(&self.raw)
-    }
-
     /// Tell the bus this message is handled, so it is not delivered again.
     ///
     /// # Errors
@@ -701,6 +742,50 @@ fn position_of(raw: &jetstream::Message) -> Result<Position> {
         at_ms: unix_ms(info.published.unix_timestamp_nanos()),
         pending: info.pending,
     })
+}
+
+/// The inbox stream: every agent's inbox, kept for `STREAM_MAX_AGE`.
+fn stream_config() -> stream::Config {
+    stream::Config {
+        name: STREAM.to_owned(),
+        subjects: vec![format!("{SUBJECT_PREFIX}.>")],
+        max_age: STREAM_MAX_AGE,
+        ..Default::default()
+    }
+}
+
+/// What `prepare_stream` changes in an existing stream whose config is `current`. Only
+/// `max_age` is compared: the host manages nothing else on an existing stream.
+fn stream_change(current: &stream::Config) -> StreamChange {
+    if current.max_age == STREAM_MAX_AGE {
+        StreamChange::Unchanged
+    } else {
+        StreamChange::MaxAge {
+            from: current.max_age,
+            to: STREAM_MAX_AGE,
+        }
+    }
+}
+
+/// `current` with `STREAM_MAX_AGE`, and every other setting as the bus has it.
+fn updated_stream_config(current: &stream::Config) -> stream::Config {
+    stream::Config {
+        max_age: STREAM_MAX_AGE,
+        ..current.clone()
+    }
+}
+
+/// A stream's `max_age` for the log: whole days as days, 0 as no limit, anything else as an
+/// age.
+fn max_age_text(max_age: Duration) -> String {
+    let secs = max_age.as_secs();
+    if secs == 0 {
+        "no limit".to_owned()
+    } else if secs.is_multiple_of(86_400) {
+        format!("{} days", secs / 86_400)
+    } else {
+        age(secs)
+    }
 }
 
 /// The consumer behind `agent`'s inbox.
@@ -972,6 +1057,76 @@ mod tests {
         );
         // A difference that cannot be updated wins over one that can.
         assert_eq!(plan(&existing(512, "agents.old"), &wanted), Plan::Recreate);
+    }
+
+    #[test]
+    fn the_stream_keeps_messages_30_days() {
+        assert_eq!(STREAM_MAX_AGE, Duration::from_hours(30 * 24));
+        assert_eq!(stream_config().max_age, STREAM_MAX_AGE);
+        assert_eq!(stream_config().subjects, ["agents.>"]);
+    }
+
+    #[test]
+    fn a_stream_with_another_max_age_is_brought_to_the_stream_s() {
+        let mut current = stream_config();
+        assert_eq!(stream_change(&current), StreamChange::Unchanged);
+        current.max_age = Duration::from_hours(7 * 24);
+        assert_eq!(
+            stream_change(&current),
+            StreamChange::MaxAge {
+                from: Duration::from_hours(7 * 24),
+                to: STREAM_MAX_AGE,
+            }
+        );
+        // Lowering is a change too, and so is no limit at all.
+        current.max_age = Duration::from_hours(90 * 24);
+        assert!(matches!(
+            stream_change(&current),
+            StreamChange::MaxAge { .. }
+        ));
+        current.max_age = Duration::ZERO;
+        assert!(matches!(
+            stream_change(&current),
+            StreamChange::MaxAge { .. }
+        ));
+        // Only `max_age` is compared: a setting the host does not manage is left as it is.
+        let mut other = stream_config();
+        other.max_messages = 1000;
+        other.description = Some("set by hand".to_owned());
+        assert_eq!(stream_change(&other), StreamChange::Unchanged);
+    }
+
+    #[test]
+    fn a_max_age_update_keeps_every_other_setting() {
+        let mut current = stream_config();
+        current.max_age = Duration::from_hours(7 * 24);
+        current.max_messages = 1000;
+        let updated = updated_stream_config(&current);
+        assert_eq!(updated.max_age, STREAM_MAX_AGE);
+        assert_eq!(updated.max_messages, 1000);
+        assert_eq!(updated.subjects, current.subjects);
+    }
+
+    #[test]
+    fn stream_changes_read_for_the_log() {
+        assert_eq!(StreamChange::Created.to_string(), "created");
+        assert_eq!(StreamChange::Unchanged.to_string(), "unchanged");
+        assert_eq!(
+            StreamChange::MaxAge {
+                from: Duration::from_hours(7 * 24),
+                to: STREAM_MAX_AGE,
+            }
+            .to_string(),
+            "max_age 7 days -> 30 days"
+        );
+        assert_eq!(
+            StreamChange::MaxAge {
+                from: Duration::ZERO,
+                to: Duration::from_secs(90),
+            }
+            .to_string(),
+            "max_age no limit -> 1m 30s"
+        );
     }
 
     #[test]

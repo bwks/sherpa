@@ -70,7 +70,9 @@ chmod 644 "${CA_FILE}.$$.tmp"
 mv -f "${CA_FILE}.$$.tmp" "${CA_FILE}"
 
 cd "${REPO}"
-cargo build --release --quiet -p agent-bus
+# A guest never opens the host's record, so it is built without the `record` feature: no Turso,
+# and no `usage`, `show` or `history` commands.
+cargo build --release --quiet -p agent-bus --no-default-features
 # Stop the old agent and wait until it has exited before starting the new one: the two must
 # never share the state file, nor the checkout. That is any agent of this name, and any agent
 # working in this checkout under another name. A stopping agent stops its Claude Code within its

@@ -1,12 +1,11 @@
-//! The tables agent-bus prints. `agents` shows one row per agent from `status::Row`; `history`
-//! one row per task from the record.
+//! The table of `agent-bus agents`: one row per agent from `status::Row`, and the host's record's
+//! lag under it. The record's own tables are in `report`.
 
-use jiff::Timestamp;
 use shared::util::{TableLayout, render_table};
 
 use crate::agents::Role;
-use crate::status::{Row, age};
-use crate::store::HistoryRow;
+use crate::channel::RECORDER;
+use crate::status::{RecordLag, Row, age};
 
 const AGENT_HEADERS: [&str; 7] = [
     "Agent",
@@ -22,33 +21,48 @@ const AGENT_HEADERS: [&str; 7] = [
 /// waiting for a listener, and are in the JSON's `inbox_unread`.
 const AGENT_NUMBER_COLUMNS: [usize; 1] = [5];
 
-const HISTORY_HEADERS: [&str; 7] = [
-    "Task",
-    "Agent",
-    "State",
-    "Model",
-    "Last active (UTC)",
-    "Cost (not billed)",
-    "Prompt",
-];
-/// The cost column is right-aligned.
-const HISTORY_NUMBER_COLUMNS: [usize; 1] = [5];
-/// How much of a task's prompt the history shows: the start of its first line.
-const PROMPT_CHARS: usize = 60;
-
-/// The agents table, or a sentence when there are no agents.
+/// The agents table, or a sentence when there are no agents. Under it, for the host, a line
+/// with its record's lag: what the recorder's consumer has not had recorded, and when it last
+/// delivered.
 pub fn agents(rows: &[Row]) -> String {
     if rows.is_empty() {
         return "No agents".to_owned();
     }
     let cells: Vec<[String; 7]> = rows.iter().map(agent_cells).collect();
-    render_table(
+    let mut text = render_table(
         AGENT_HEADERS,
         &cells,
         &TableLayout {
             right: &AGENT_NUMBER_COLUMNS,
             ..TableLayout::default()
         },
+    );
+    for row in rows.iter().filter(|row| row.role == Role::Host) {
+        text.push('\n');
+        text.push_str(&record_line(row.record.as_ref()));
+    }
+    text
+}
+
+/// The line under the agents table for the host's record.
+fn record_line(lag: Option<&RecordLag>) -> String {
+    let Some(lag) = lag else {
+        return format!(
+            "Record ({RECORDER}): no consumer on the bus; `agent-bus bus start` creates it"
+        );
+    };
+    let messages = if lag.unread == 1 {
+        "message"
+    } else {
+        "messages"
+    };
+    let delivered = match lag.last_delivered_age_secs {
+        Some(secs) => format!("last delivered {} ago", age(secs)),
+        None => "never delivered".to_owned(),
+    };
+    format!(
+        "Record ({RECORDER}): {} {messages} not recorded yet, {delivered}",
+        lag.unread
     )
 }
 
@@ -77,62 +91,10 @@ fn agent_cells(row: &Row) -> [String; 7] {
     ]
 }
 
-/// The history table, or a sentence when there are no tasks.
-pub fn history(rows: &[HistoryRow]) -> String {
-    if rows.is_empty() {
-        return "No tasks recorded".to_owned();
-    }
-    let cells: Vec<[String; 7]> = rows.iter().map(history_cells).collect();
-    render_table(
-        HISTORY_HEADERS,
-        &cells,
-        &TableLayout {
-            right: &HISTORY_NUMBER_COLUMNS,
-            ..TableLayout::default()
-        },
-    )
-}
-
-fn history_cells(row: &HistoryRow) -> [String; 7] {
-    let none = || "-".to_owned();
-    [
-        row.task.clone(),
-        row.agent.clone(),
-        row.state.as_str().to_owned(),
-        row.model.clone().unwrap_or_else(|| "default".to_owned()),
-        utc_minute(row.last_at_ms),
-        row.cost_usd.map_or_else(none, |cost| format!("${cost:.4}")),
-        row.prompt.as_deref().map_or_else(none, prompt_start),
-    ]
-}
-
-/// `at_ms`, milliseconds since the Unix epoch, as `YYYY-MM-DD HH:MM` in UTC.
-fn utc_minute(at_ms: u64) -> String {
-    i64::try_from(at_ms)
-        .ok()
-        .and_then(|ms| Timestamp::from_millisecond(ms).ok())
-        .map_or_else(
-            || "?".to_owned(),
-            |at| at.strftime("%Y-%m-%d %H:%M").to_string(),
-        )
-}
-
-/// The start of `prompt`'s first line, with `…` when there is more.
-fn prompt_start(prompt: &str) -> String {
-    let first = prompt.lines().next().unwrap_or_default();
-    let start: String = first.chars().take(PROMPT_CHARS).collect();
-    if start.len() < prompt.trim_end().len() {
-        format!("{start}…")
-    } else {
-        start
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::status::{Online, RunningRow};
-    use crate::store::TaskState;
 
     fn row(name: &str, role: Role, online: Online, running: Option<RunningRow>) -> Row {
         Row {
@@ -149,6 +111,7 @@ mod tests {
             reader_attached: true,
             last_active_ms: Some(1),
             last_active_age_secs: Some(42),
+            record: None,
         }
     }
 
@@ -200,68 +163,50 @@ mod tests {
     }
 
     #[test]
+    fn the_record_s_lag_is_shown_under_the_table() {
+        let host = Row {
+            record: Some(RecordLag {
+                unread: 3,
+                last_delivered_ms: Some(1),
+                last_delivered_age_secs: Some(125),
+            }),
+            ..row("host", Role::Host, Online::Yes, None)
+        };
+        let dev = row("dev", Role::Guest, Online::Yes, None);
+        let table = agents(&[host.clone(), dev.clone()]);
+        let last = table.lines().last().unwrap_or_default();
+        assert_eq!(
+            last,
+            "Record (_record): 3 messages not recorded yet, last delivered 2m 05s ago"
+        );
+        // Beside the host's own inbox, whose unread count stays in the JSON.
+        assert!(table.contains(" host "), "{table}");
+
+        let idle = Row {
+            record: Some(RecordLag {
+                unread: 0,
+                last_delivered_ms: None,
+                last_delivered_age_secs: None,
+            }),
+            ..host.clone()
+        };
+        assert!(
+            agents(&[idle])
+                .ends_with("Record (_record): 0 messages not recorded yet, never delivered"),
+        );
+        let missing = Row {
+            record: None,
+            ..host
+        };
+        assert!(agents(&[missing]).ends_with(
+            "Record (_record): no consumer on the bus; `agent-bus bus start` creates it"
+        ),);
+        // Without a host there is no record to speak of.
+        assert!(!agents(&[dev]).contains("Record"));
+    }
+
+    #[test]
     fn no_agents_is_a_sentence() {
         assert_eq!(agents(&[]), "No agents");
-    }
-
-    fn task(task: &str, prompt: Option<&str>) -> HistoryRow {
-        HistoryRow {
-            task: task.to_owned(),
-            agent: "dev".to_owned(),
-            state: TaskState::Completed,
-            model: Some("claude-opus-5-5".to_owned()),
-            github: false,
-            prompt: prompt.map(str::to_owned),
-            sent_at_ms: Some(1_794_300_000_000),
-            last_at_ms: 1_794_300_060_000,
-            runs: Some(2),
-            cost_usd: Some(0.5),
-        }
-    }
-
-    #[test]
-    fn each_task_has_a_row_with_the_start_of_its_prompt() {
-        let long = format!("{}\nsecond line", "x".repeat(70));
-        let rows = [
-            task("a", Some("Fix the bug\nDetails follow")),
-            task("b", Some(&long)),
-            HistoryRow {
-                model: None,
-                cost_usd: None,
-                ..task("c", None)
-            },
-        ];
-        let table = history(&rows);
-        for header in HISTORY_HEADERS {
-            assert!(table.contains(header), "{header} missing from\n{table}");
-        }
-        let line = |name: &str| {
-            table
-                .lines()
-                .find(|line| line.contains(&format!(" {name} ")))
-                .unwrap_or_default()
-                .to_owned()
-        };
-        let a = line("a");
-        for cell in [
-            "completed",
-            "claude-opus-5-5",
-            "2026-11-10 08:41",
-            "$0.5000",
-            "Fix the bug…",
-        ] {
-            assert!(a.contains(cell), "{cell} missing from {a}");
-        }
-        assert!(!a.contains("Details"), "{a}");
-        assert!(line("b").contains(&format!("{}…", "x".repeat(PROMPT_CHARS))));
-        let c = line("c");
-        assert!(c.contains("default") && c.contains(" - "), "{c}");
-    }
-
-    #[test]
-    fn a_one_line_prompt_is_shown_whole() {
-        assert_eq!(prompt_start("Fix it"), "Fix it");
-        assert_eq!(prompt_start("Fix it\n"), "Fix it");
-        assert_eq!(history(&[]), "No tasks recorded");
     }
 }

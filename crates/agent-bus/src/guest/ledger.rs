@@ -5,8 +5,8 @@
 //!
 //! It holds no secrets. It is shared by every guest agent of the user, whatever its name, so it
 //! outlives a rename; each change is made under an exclusive lock on `generation.lock` beside it
-//! and written atomically. Entries are dropped 30 days after their last run, longer than the
-//! stream keeps messages, as pull requests stay open longer than that.
+//! and written atomically. Entries are dropped 30 days after their last run, as long as the
+//! stream keeps messages, as pull requests stay open long.
 
 use std::collections::BTreeMap;
 use std::fs;

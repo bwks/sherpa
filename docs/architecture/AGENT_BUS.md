@@ -31,12 +31,12 @@ tracked in issue #494.
 | Server config | `nats.conf`, rendered from the agents file and the registry of enrolled guests. Its directory is bind-mounted read-only at `/etc/agent-bus/` (`-c /etc/agent-bus/nats.conf`), and SIGHUP reloads it. | `src/config.rs` |
 | TLS | The bus's own private CA (not the Sherpa lab CA), made once by `bus start`, and the server certificate it signs for the listen address, in the same mounted directory as the config. The server takes TLS only, handshake first. See [TLS](#tls). | `src/tls.rs` |
 | Registry | `enrolled.toml`: the guests `enroll` added, with their public keys. Host-managed, never edited by hand. | `src/registry.rs` |
-| Stream | One JetStream stream, `AGENTS`, on `agents.>`, keeping messages for 7 days (`max_age`). | `src/channel.rs` |
-| Status bucket | A JetStream key-value bucket, `AGENT_STATUS` (stream `KV_AGENT_STATUS`), one key per guest, history 1, kept 7 days. Each guest agent's heartbeat. See [Agent status](#agent-status). | `src/channel.rs`, `src/pull.rs`, `src/status.rs` |
+| Stream | One JetStream stream, `AGENTS`, on `agents.>`, keeping messages for 30 days (`max_age`, `channel::STREAM_MAX_AGE`). `bus start` brings an existing stream's `max_age` to it in place. See [Retention](#retention). | `src/channel.rs` |
+| Status bucket | A JetStream key-value bucket, `AGENT_STATUS` (stream `KV_AGENT_STATUS`), one key per guest, history 1, kept 7 days (`status::STATUS_MAX_AGE`). Each guest agent's heartbeat. See [Agent status](#agent-status). | `src/channel.rs`, `src/pull.rs`, `src/status.rs` |
 | Inboxes | One durable pull consumer per agent, named after it, filtered on `agents.<name>.>` (one subject per sender), with `max_waiting = 1`. A message waits until its agent reads and acknowledges it, and a restarted reader goes on where it stopped. | `src/channel.rs` |
 | Recorder consumer | `_record`, a durable pull consumer on `agents.>` (every message, both ways), deliver all, `max_waiting = 1`, `max_ack_pending = 1`. Created by `bus start`; read only by a host command catching the record up. See [The record](#the-record). | `src/channel.rs` |
-| Record | `agent-bus.db` in the host's state directory: an embedded Turso database holding every message read from `_record`, and the tasks, runs and models derived from them, past the stream's 7 days. See [The record](#the-record). | `src/store/`, `src/record.rs`, `sql/` |
-| Host commands | `key new`, `bus start/stop/status`, `enroll`, `unenroll`, `send`, `cancel`, `listen`, `usage`, `show`, `history`, `agents`. | `src/main.rs`, `src/bus.rs`, `src/listen.rs`, `src/record.rs`, `src/report.rs`, `src/table.rs` |
+| Record | `agent-bus.db` in the host's state directory: an embedded Turso database holding every message read from `_record`, and the tasks, runs and models derived from them, past the stream's 30 days. Built only with the `record` cargo feature. See [The record](#the-record). | `src/store/`, `src/record.rs`, `src/report/`, `sql/` |
+| Host commands | `key new`, `bus start/stop/status`, `enroll`, `unenroll`, `send`, `cancel`, `listen`, `agents`, and, with the `record` feature, `usage`, `show`, `history`. | `src/main.rs`, `src/bus.rs`, `src/listen.rs`, `src/table.rs`, `src/report/`, `src/record.rs` |
 | Starting a guest | `dev/agent-bus/start-agent.sh` on the host enrolls a node's agent (named after the node, or given its own name) and pipes the Claude token, the GitHub write token, its seed and the bus's CA certificate over SSH to `dev/agent-bus/start-guest.sh` in the guest. | `dev/agent-bus/` |
 | Guest agent | `agent-bus guest`: reads its inbox, queues tasks, runs them one at a time through Claude Code, and replies. | `src/guest/` |
 | Claude Code | `claude -p` with `stream-json` output, one process (and process group) per run, in the guest's checkout. | `src/guest/claude.rs` |
@@ -110,11 +110,19 @@ Exactly one of `--lab` and `--listen <ipv4>` is required (`src/main.rs`, `src/st
    the container loses nothing.
    A `nats.conf` left in the state directory by a version that mounted the file itself is
    removed.
-5. Connect as the host over TLS (20 attempts, 500 ms apart), create or check the `AGENTS` stream, and
-   bring each agent's inbox, the host's and every enrolled guest's included, to the wanted
-   consumer config.
-6. Record the URL, the agents file's absolute path (and the lab) in `bus.toml`, and print one
-   `Inbox ready: <agent> (<change>)` line per agent.
+5. Connect as the host over TLS (20 attempts, 500 ms apart), create the `AGENTS` stream or
+   bring an existing one's `max_age` to 30 days (`Channel::prepare_stream`), and bring each
+   agent's inbox, the host's and every enrolled guest's included, to the wanted consumer config.
+6. Record the URL, the agents file's absolute path (and the lab) in `bus.toml`, and print
+   `Inbox stream ready: AGENTS (<change>)` and one `Inbox ready: <agent> (<change>)` line per
+   agent.
+
+The stream is reported as `created`, `max_age <old> -> <new>` (such as `max_age 7 days -> 30
+days`) or `unchanged`. Only `max_age` is compared (`channel::stream_change`); an existing
+stream's other settings are sent back as the bus has them (`channel::updated_stream_config`), and
+NATS changes `max_age` in place, keeping the stream, its consumers and its messages. Raising it
+does not bring back messages the stream already dropped. `enroll` creates the stream only when
+there is none (`get_or_create_stream`) and leaves an existing one as it is.
 
 Each inbox is reported as `created`, `updated`, `recreated from sequence N` or `unchanged`
 (`Channel::ensure_inbox`). A missing consumer is created. A different filter subject is updated
@@ -750,6 +758,19 @@ table (`src/table.rs`), or with `--json` as a JSON array of the same rows with t
 figure apart (`status::Row`). Nothing is consumed: the host reads each inbox consumer's info and
 each guest's status.
 
+Under the table, beside the host's row, a line gives the record's lag, from the recorder's
+consumer `_record` (`Channel::consumer_state`): the messages it has not delivered to the record
+or that were delivered and not acknowledged (`num_pending + num_ack_pending`), and when it last
+delivered (`delivered.last_active`):
+
+    Record (_record): 12 messages not recorded yet, last delivered 3h 05m ago
+
+A bus without the consumer gives "no consumer on the bus; `agent-bus bus start` creates it". In
+the JSON the host's row has the same figures as `record` (`unread`, `last_delivered_ms`,
+`last_delivered_age_secs`, `status::RecordLag`); a guest's is `null`. Nothing records while no
+command that opens the record runs, so a lag that only grows says the record is falling behind
+the stream's 30 days.
+
 ### Why a heartbeat
 
 The guest agent acknowledges each message as soon as it reads it and keeps tasks in its own
@@ -1009,7 +1030,7 @@ one line per priming run. Every `result` event line is also appended unchanged t
 [The record](#the-record)). It prints one row per task sent by `--host` (default `host`) that
 had an outcome (`question`, `completed`, `failed`, `canceled`): task, agent, model (from its
 outcomes' `model`, `n/a` before guests sent it), runs, cost, cache hit, tokens (the four kinds
-added) and its state, then a total row, as a `tabled` modern table (`src/report.rs`). A task's
+added) and its state, then a total row, as a `tabled` modern table (`src/report/usage.rs`). A task's
 figures are the `task_usage` of its last outcome that carried one. Tasks with no usage are left
 out unless `--all` is given; `--since 7d` keeps the tasks with a message in the last 7 days.
 `agent-bus show <task>` prints every recorded message of one task that `--host` sent or
@@ -1036,7 +1057,7 @@ process does not see.
    `AGENT_BUS_SEED`). This comes before the lock, so a bus that is slow to refuse does not keep
    other commands waiting.
 2. Take `record.lock`, waiting up to 5 s (tried every 50 ms). The holder writes its PID into the
-   file (`files::lock_holder` reads it); a command that cannot take the lock in time fails with
+   file (`files::record_lock::lock_holder` reads it); a command that cannot take the lock in time fails with
    "The record is busy: process <pid> has held <state>/record.lock for more than 5s".
 3. Open the record and bring its schema up to date.
 4. Catch up from `_record` (`record::catch_up`): read until a delivery's metadata says the
@@ -1079,8 +1100,21 @@ one does not change its state, result, model or usage; it still adds its counts 
 `listen` are untouched. Between commands, the stream keeps what the record has not taken yet.
 
 **Backfill.** `_record` is created delivering all, so the first command records every message
-the stream still holds (7 days). If no command runs for longer than the stream keeps messages,
-the record loses what the stream dropped.
+the stream still holds (30 days). If no command runs for longer than the stream keeps messages,
+the record loses what the stream dropped; `agents` shows the lag.
+
+**The `record` feature.** The record is behind the crate's default cargo feature `record`: it
+owns the `turso` dependency, `src/store/`, `src/record.rs`, `src/report/` (the `usage`, `show`
+and `history` commands and their tables), and the parts of other modules only the record uses,
+each its own module: `channel::recorder` (reading `_record`), `files::record_lock` (the lock
+taken without waiting, naming its holder). The host binary is built with it. A guest never opens
+the record, so `dev/agent-bus/start-guest.sh` builds with `--no-default-features`: no Turso, and
+the three commands are not in its CLI at all (`agent-bus usage` is an unrecognized subcommand;
+`--help` does not list them). They are one flattened clap subcommand enum,
+`report::Command`, behind the feature, so nothing else in `main.rs` changes. `bus start`,
+`agents` and `_record`'s creation are not behind it. The CI Lint job runs clippy on agent-bus
+without default features, and `cargo test -p agent-bus --no-default-features` runs every test
+but the record's.
 
 **Schema.** The SQL is under `crates/agent-bus/sql/`: `migrations/0001_record.sql` and one file
 per statement in `queries/`, included in the binary (`src/store/sql.rs`). The record's
@@ -1174,8 +1208,7 @@ is added by hand outside the markers.
 `agent`, `branch`, `models`, `first_at_ms`, `updated_at_ms` and `[tasks.<id>.usage]`. It is
 shared by every guest agent of the user, whatever its name, so it survives a rename; each change
 is a read, update and atomic write under an exclusive lock on `generation.lock`
-(`files::lock_exclusive`). Entries are dropped 30 days after their last run, longer than the
-stream's 7 days, as pull requests stay open longer. A file that cannot be read is moved aside to
+(`files::lock_exclusive`). Entries are dropped 30 days after their last run, as pull requests stay open long. A file that cannot be read is moved aside to
 `generation.toml.corrupt-<unix seconds>` and the ledger starts fresh. Without a state directory
 there is no ledger, and a `--github` run says the section was not updated.
 
@@ -1206,7 +1239,7 @@ real-bus tests start the bus with its state in a 0700 directory.
 | Host | `<state>/enroll.lock` | 0600, directory 0700 | Empty; the exclusive `flock` that `bus start`, `enroll` and `unenroll` hold while they change the registry or render the config. Never removed. | `files::lock_exclusive` |
 | Host | `<state>/bus.toml` | 0600, directory 0700 | `url`, `agents` (the agents file's absolute path), and `[lab]` with `id` and `name` when started with `--lab`. Written with `files::write_atomic`. Removed by `bus stop`. | `state::write` |
 | Host | `<state>/agent-bus.db`, `<state>/agent-bus.db-wal` | 0600, directory 0700 | The record (see [The record](#the-record)). Opened only by the holder of `record.lock`; its mode is set on every open. | `store::Store::open` |
-| Host | `<state>/record.lock` | 0600, directory 0700 | The exclusive `flock` whose holder alone opens the record: the command reading it. Holds the PID of its holder, or its last one. Never removed. | `record::Record::open`, `files::try_lock_exclusive` |
+| Host | `<state>/record.lock` | 0600, directory 0700 | The exclusive `flock` whose holder alone opens the record: the command reading it. Holds the PID of its holder, or its last one. Never removed. | `record::Record::open`, `files::record_lock::try_lock_exclusive` |
 | Host | `<state>/listen-<agent>.jsonl` | 0600, directory 0700 | The listener's journal: one line per message received, `{"at_ms":..,"message":{..}}`, the message as `listen` prints it. Appended and in the file before the message is printed and acknowledged. Pruned to 7 days (below). | `listen::Journal` |
 | Host | the agents file | the user's | The host's and any fixed guests' names, public keys and roles. Only read. | the user |
 | Host | Docker volume `sherpa-agent-bus-data` | Docker's | JetStream's store: the `AGENTS` stream and the consumers, `_record` among them. | nats-server |
@@ -1221,8 +1254,8 @@ real-bus tests start the bus with its state in a 0700 directory.
 Claude Code keeps its sessions in its own files; the guest agent only records which session is
 whose.
 
-`results.jsonl` and the listener's journal are pruned to the stream's retention, 7 days
-(`files::JsonLines`): lines whose `at_ms` is older are dropped, and a line without one (cut short
+`results.jsonl` and the listener's journal are pruned to the file retention, 7 days
+(`files::FILE_RETENTION`, see [Retention](#retention); `files::JsonLines`): lines whose `at_ms` is older are dropped, and a line without one (cut short
 by a crash) is kept. Each is pruned when its program starts, and again before an append once a
 day has passed since the last prune; a file that is not appended to does not grow. The file is
 read whole and rewritten only when a line is dropped, with `files::write_atomic`, which every
@@ -1231,6 +1264,21 @@ rewritten file goes through: to `<file>.<pid>.tmp`, with the file's mode (0600 f
 synced. Pruning and appending happen in the same task (the
 guest's engine, the listener's loop), so no append is lost to the rename. A failed prune is
 logged and the append goes on.
+
+### Retention
+
+| What | Kept | Constant |
+|---|---|---|
+| The `AGENTS` stream's messages, read or not | 30 days | `channel::STREAM_MAX_AGE`, the stream's `max_age` |
+| The listener's journal, the guest's `results.jsonl`, and finished tasks in the guest state file | 7 days | `files::FILE_RETENTION` |
+| A guest's status in `AGENT_STATUS` | 7 days | `status::STATUS_MAX_AGE`, the bucket's `max_age` |
+| The generation ledger's entries | 30 days after their last run | `guest::ledger::KEEP` |
+| The record | as long as the host keeps the file | |
+
+The stream keeps messages longer than the files so that the record can catch up after weeks
+without a command that opens it. The files are local logs of a few days' work, and the record
+keeps the history. A bus started before the split has a 7-day stream; `bus start` raises it in
+place (see [Starting the bus](#starting-the-bus)).
 
 ### The guest state file
 
@@ -1259,7 +1307,7 @@ goes on with its state in memory.
   its queue are queued; the final state, with `running` empty, is written. Once stopping, the
   inbox reader acknowledges nothing more, so the bus delivers those messages again after the
   restart.
-- **Cleanup.** Tasks whose last run ended more than 7 days ago (the stream's retention) are
+- **Cleanup.** Tasks whose last run ended more than 7 days ago (`files::FILE_RETENTION`) are
   dropped on start and after each task, unless one of their messages is queued.
 
 ### The instance lock
@@ -1471,7 +1519,8 @@ not reach the builds and tests Claude runs.
   waits more than 5 s fails naming the holder's PID. Each command catches up first, about 5 ms a
   message (half a minute for 6,000), so a command started while another catches up a large
   backlog can fail on the lock and must be run again; and nothing records
-  while no command runs: the stream holds those messages for 7 days. The record holds every
+  while no command runs: the stream holds those messages for 30 days, and `agents` shows the
+  lag. The record holds every
   task's text and results, so it is as private as the state directory.
 - **The registry is trusted as written.** Anyone who can write the host's state directory can
   enroll a key; it is 0700 for that reason.

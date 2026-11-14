@@ -462,7 +462,7 @@ impl<'a> Engine<'a> {
         Ok(())
     }
 
-    /// Drop the result records older than the stream's retention. A failure is reported and the
+    /// Drop the result records older than `FILE_RETENTION`. A failure is reported and the
     /// agent goes on; the next append tries again a day later.
     fn prune_results(&mut self) {
         if let Some(log) = &mut self.results {
@@ -1114,6 +1114,7 @@ mod tests {
     use super::*;
 
     use std::fs;
+    use std::os::unix::fs::PermissionsExt;
 
     use tokio::sync::oneshot;
     use tokio::time::timeout;
@@ -1305,7 +1306,6 @@ esac
 
         /// A guest agent started with `write_token`.
         fn start_with(label: &str, write_token: Option<&str>) -> Self {
-            use std::os::unix::fs::PermissionsExt;
             let dir =
                 env::temp_dir().join(format!("agent-bus-cancel-{label}-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
