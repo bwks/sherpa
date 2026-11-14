@@ -15,10 +15,9 @@ use crate::timing::{Class, classify};
 
 /// The model of the lines Claude Code makes up itself, such as an API error.
 const SYNTHETIC_MODEL: &str = "<synthetic>";
-/// The `origin.kind` of prompts Claude Code wrote itself, not the user.
-const NOT_USER_ORIGINS: &[&str] = &["task-notification"];
-/// What a prompt Claude Code wrote for a background task starts with.
-const NOTIFICATION_START: &str = "<task-notification>";
+/// The `origin.kind` of a prompt the user wrote. Any other origin, or none, is Claude Code's
+/// own: a task notification, a compaction summary.
+const USER_ORIGIN: &str = "human";
 
 /// What a transcript line says.
 #[derive(Debug, Clone, PartialEq)]
@@ -133,22 +132,7 @@ pub fn parse(line: &str, session: &str, agent_id: Option<&str>) -> Result<Entry>
     let Some(id) = value["uuid"].as_str() else {
         return Ok(Entry::Nothing);
     };
-    let origin = value["origin"]["kind"]
-        .as_str()
-        .or_else(|| value["origin"].as_str());
-    let text = content.as_str().map_or_else(
-        || {
-            content
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find_map(|block| block["text"].as_str())
-                .unwrap_or_default()
-        },
-        |text| text,
-    );
-    let from_user = !origin.is_some_and(|origin| NOT_USER_ORIGINS.contains(&origin))
-        && !text.trim_start().starts_with(NOTIFICATION_START);
+    let from_user = value["origin"]["kind"].as_str() == Some(USER_ORIGIN);
     Ok(Entry::Prompt {
         id: id.to_owned(),
         session,
@@ -332,6 +316,7 @@ mod tests {
         );
         let prompt = json!({
             "type": "user", "sessionId": "s1", "timestamp": AT, "uuid": "u3",
+            "origin": { "kind": "human" },
             "message": { "role": "user", "content": "Implement it" }
         });
         assert_eq!(
@@ -361,6 +346,43 @@ mod tests {
             "message": { "role": "user", "content": [{ "type": "text", "text": "skill" }] }
         });
         assert_eq!(parse(&meta.to_string(), "s", None).unwrap(), Entry::Nothing);
+    }
+
+    /// A prompt line with `origin`, or none when it is `None`.
+    fn prompt_line(origin: Option<Value>, content: &str) -> String {
+        let mut line = json!({
+            "type": "user", "sessionId": "s1", "timestamp": AT, "uuid": "u9",
+            "message": { "role": "user", "content": content }
+        });
+        if let Some(origin) = origin {
+            line["origin"] = origin;
+        }
+        line.to_string()
+    }
+
+    fn from_user(line: &str) -> bool {
+        match parse(line, "s", None).unwrap() {
+            Entry::Prompt { from_user, .. } => from_user,
+            other => panic!("not a prompt: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn only_a_human_origin_is_the_users_prompt() {
+        assert!(from_user(&prompt_line(
+            Some(json!({ "kind": "human" })),
+            "Implement it"
+        )));
+        assert!(!from_user(&prompt_line(
+            Some(json!({ "kind": "task-notification" })),
+            "<task-notification>done</task-notification>"
+        )));
+        // No origin: a bus task given to a guest's session, a compaction summary.
+        assert!(!from_user(&prompt_line(None, "Implement it")));
+        assert!(!from_user(&prompt_line(
+            None,
+            "This session is being continued from a previous conversation"
+        )));
     }
 
     #[test]

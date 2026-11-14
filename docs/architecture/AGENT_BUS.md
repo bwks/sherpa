@@ -1302,8 +1302,9 @@ uses agent-bus, through the mise tasks that already load its secrets.
 - **What counts** (`host::transcript::parse`). An `assistant` line with `message.id`,
   `message.usage` and a real model (`<synthetic>` is not one) is an API response; its
   `tool_use` blocks start tool calls. A `user` line with `tool_result` blocks ends them. Any
-  other `user` line that is not `isMeta` is a prompt: the user's, unless its `origin.kind` is
-  `task-notification` or its text starts `<task-notification>`, which Claude Code wrote. Every
+  other `user` line that is not `isMeta` is a prompt: the user's only when its `origin.kind` is
+  `human`. Any other origin, or none, is a prompt Claude Code wrote (a `task-notification`, a
+  compaction summary): it starts a turn, but it neither ends nor starts a wait on the user. Every
   other line (`cost-state`, `attachment`, `api-request` and the rest) means nothing here.
 - **Dedupe.** Claude Code writes one line per content block, each with the response's
   `message.id` and usage, and a resumed or forked session copies its history (same ids, same
@@ -1400,12 +1401,12 @@ Time is recorded in three buckets, for each agent task and for the host (`src/ti
 |---|---|
 | Work | the model writing, and tool calls that are not testing |
 | Testing | tool calls that build or test |
-| Waiting on user | a question until its answer; for the host, a turn's end until the user's next prompt |
+| Waiting on user | a question until its answer; for the host, the host's last output until the user's next prompt (`origin.kind` `human`), at most 30 minutes of each gap |
 
 Not recorded at all: time a task waits in the queue (the clock starts when its run does);
-Monitor, background-task waits, `sleep` and CI watches; the gap before a prompt Claude Code made
-itself (a task notification: the host was waiting on background work or on agents, whose own
-time covers it).
+Monitor, background-task waits, `sleep` and CI watches; the gap before a prompt that is not the
+user's (a task notification or a compaction summary: the host was waiting on background work or
+on agents, whose own time covers it); and anything past 30 minutes in one wait on the user.
 
 **Classification** (`timing::classify`), against two fixed lists in that one file, with tests:
 
@@ -1424,8 +1425,10 @@ time covers it).
 **Cutting a timeline** (`timing::segments`, the same code for the host and the guest): prompts
 start turns; a turn ends at its last response or tool result before the next prompt. Inside a
 turn, each stretch is testing when a testing call covers it, not counted when an excluded call
-does, and work otherwise, so parallel calls count once. Between turns, the stretch before a
-user's prompt is waiting on the user.
+does, and work otherwise, so parallel calls count once. Between turns, the stretch from the
+last turn's end (the host's last output, after any turn a notification started) to a user's
+prompt is waiting on the user, capped at 30 minutes (`timing::MAX_WAITING_ON_USER_MS`): an
+overnight gap counts as 30 minutes, the rest is dropped.
 
 **Agents.** The guest stamps each line of Claude Code's `stream-json` with the time it reads it
 (the stream carries no times): an `assistant` event is a response and starts its `tool_use`
@@ -1451,9 +1454,11 @@ its items can change later (late focus, reassign). An agent's run is reduced to 
 the guest, which saw the whole run, and its task never changes item, so they are columns on
 `run`.
 
-**Between turns there is no cap.** Within a session, the gap from a turn's end to the user's
-next prompt is waiting on the user however long it is, nights included, as decided. A new
-session starts with no waiting: its first prompt has no turn before it.
+**The cap.** Each wait on the user counts at most 30 minutes, as decided, so a night or a
+weekend between two prompts is not counted as waiting. A new session starts with no waiting: its
+first prompt has no turn before it. Prompts are classified when imported: a record imported
+before this rule keeps the old classification of the lines it has read (`host import --rescan`
+does not change rows already kept).
 
 ### The SessionEnd hook
 

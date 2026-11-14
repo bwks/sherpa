@@ -8,9 +8,10 @@
 //! - inside a turn, from its prompt to its last response or tool result, time covered by a
 //!   tool call that builds or tests is `Testing`, time covered by an excluded wait (a monitor,
 //!   a background wait, `sleep`, a CI watch) is not counted, and the rest is `Work`;
-//! - between turns, the time from a turn's end to the user's next prompt is `WaitingOnUser`;
-//!   before a prompt Claude Code made itself (a task notification), it is not counted: that is
-//!   waiting on background work.
+//! - between turns, the time from a turn's end (the host's last output) to the user's next
+//!   prompt is `WaitingOnUser`, at most `MAX_WAITING_ON_USER_MS` of each gap; before a prompt
+//!   that is not the user's (a task notification, a compaction summary), it is not counted:
+//!   that is waiting on background work.
 //!
 //! A tool call is classified by `classify`, against `TESTING` and `EXCLUDED`, the two fixed
 //! lists below and nowhere else. Anything on neither is work.
@@ -55,6 +56,9 @@ const SHELLS: &[&str] = &["bash", "sh"];
 const BASH_TOOL: &str = "Bash";
 /// Characters that end one part of a shell command, outside quotes.
 const PART_ENDS: &[char] = &[';', '&', '|', '(', ')', '\n', '`'];
+/// The most of one gap between the host's last output and the user's next prompt counted as
+/// waiting on the user: 30 minutes. The rest (a night, a weekend) is dropped.
+const MAX_WAITING_ON_USER_MS: u64 = 30 * 60 * 1000;
 /// How deep commands within commands (`ssh host 'sh -c ...'`) are looked into.
 const MAX_NESTING: usize = 3;
 
@@ -403,7 +407,9 @@ pub fn segments(timeline: &Timeline) -> Vec<Segment> {
             if turn.start_ms > previous {
                 found.push(Segment {
                     start_ms: previous,
-                    end_ms: turn.start_ms,
+                    end_ms: turn
+                        .start_ms
+                        .min(previous.saturating_add(MAX_WAITING_ON_USER_MS)),
                     bucket: Bucket::WaitingOnUser,
                     item: item_at(&responses, previous, previous),
                 });
@@ -878,6 +884,66 @@ mod tests {
                 waiting: 0,
             }
         );
+    }
+
+    /// The waiting on the user of a turn ending at 1,000 and the user's next prompt `gap_ms`
+    /// later.
+    fn waiting_after(gap_ms: u64) -> u64 {
+        let timeline = Timeline {
+            prompts: vec![user(0), user(1_000 + gap_ms)],
+            responses: vec![response(0, 1_000), response(1_000 + gap_ms, 1_000 + gap_ms)],
+            calls: vec![],
+        };
+        total(&segments(&timeline)).waiting
+    }
+
+    #[test]
+    fn waiting_on_the_user_is_capped_at_thirty_minutes_a_gap() {
+        let minute = 60_000;
+        assert_eq!(MAX_WAITING_ON_USER_MS, 30 * minute);
+        // Under the cap: all of it.
+        assert_eq!(waiting_after(12 * minute), 12 * minute);
+        // At the cap: all of it.
+        assert_eq!(waiting_after(30 * minute), 30 * minute);
+        // Over it, overnight: thirty minutes.
+        assert_eq!(waiting_after(30 * minute + 1), 30 * minute);
+        assert_eq!(waiting_after(10 * 60 * minute), 30 * minute);
+    }
+
+    #[test]
+    fn a_prompt_not_from_the_user_neither_ends_nor_starts_a_wait() {
+        // The turn ends at 100; a notification at 1,000 runs a turn to 1,200; the user's prompt
+        // comes at 5,000. Waiting runs from the host's last output, 1,200.
+        let timeline = Timeline {
+            prompts: vec![
+                user(0),
+                Prompt {
+                    at_ms: 1_000,
+                    from_user: false,
+                },
+                user(5_000),
+            ],
+            responses: vec![
+                response(0, 100),
+                response(1_000, 1_200),
+                response(5_000, 5_000),
+            ],
+            calls: vec![],
+        };
+        assert_eq!(total(&segments(&timeline)).waiting, 3_800);
+        // Only prompts not from the user: no waiting at all.
+        let timeline = Timeline {
+            prompts: vec![
+                user(0),
+                Prompt {
+                    at_ms: 10_000,
+                    from_user: false,
+                },
+            ],
+            responses: vec![response(0, 100), response(10_000, 10_100)],
+            calls: vec![],
+        };
+        assert_eq!(total(&segments(&timeline)).waiting, 0);
     }
 
     #[cfg(feature = "record")]
