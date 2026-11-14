@@ -1,5 +1,5 @@
-//! A host for tests: interfaces, redirects and impairments are maps, and the failures are
-//! chosen by the test.
+//! A host for tests: interfaces, redirects, impairments and carriers are maps, and the failures
+//! are chosen by the test.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -7,7 +7,7 @@ use std::future::{Future, ready};
 
 use anyhow::{Result, bail};
 
-use super::host::LinkHost;
+use super::host::{EndDevice, LinkHost};
 use super::veths::ContainerVeth;
 
 use shared::data::LinkImpairment;
@@ -30,6 +30,12 @@ pub(crate) struct FakeHost {
     pub(crate) failing_filter_reads: HashSet<String>,
     /// How many changes were made: redirects attached, impairments set, veths made.
     pub(crate) writes: Cell<u32>,
+    /// The interfaces whose carrier is down. A new interface has carrier.
+    pub(crate) carrier_down: RefCell<HashSet<String>>,
+    /// Each carrier change, in order.
+    pub(crate) carrier_writes: RefCell<Vec<(EndDevice, bool)>>,
+    /// Interfaces whose carrier cannot be read or set.
+    pub(crate) failing_carrier: HashSet<String>,
 }
 
 impl FakeHost {
@@ -41,8 +47,9 @@ impl FakeHost {
             self.interfaces
                 .borrow_mut()
                 .insert((*name).to_string(), index);
-            // A new interface has no filter and no qdisc.
+            // A new interface has no filter and no qdisc, and has carrier.
             self.redirects.borrow_mut().remove(*name);
+            self.carrier_down.borrow_mut().remove(*name);
         }
     }
 
@@ -51,7 +58,27 @@ impl FakeHost {
         for name in names {
             self.interfaces.borrow_mut().remove(*name);
             self.redirects.borrow_mut().remove(*name);
+            self.carrier_down.borrow_mut().remove(*name);
         }
+    }
+
+    /// Whether interface `name` exists and has carrier.
+    pub(crate) fn has_carrier(&self, name: &str) -> bool {
+        self.index(name).is_some() && !self.carrier_down.borrow().contains(name)
+    }
+
+    /// Take, or give back, the carrier of interface `name`, as a user's `ip link set` would.
+    pub(crate) fn set_carrier_by_hand(&self, name: &str, up: bool) {
+        if up {
+            self.carrier_down.borrow_mut().remove(name);
+        } else {
+            self.carrier_down.borrow_mut().insert(name.to_string());
+        }
+    }
+
+    /// The carrier changes made, in order, and forget them.
+    pub(crate) fn take_carrier_writes(&self) -> Vec<(EndDevice, bool)> {
+        self.carrier_writes.take()
     }
 
     /// The impairment on interface `name`'s egress, if it has one.
@@ -133,6 +160,27 @@ impl FakeHost {
         Ok(4242)
     }
 
+    fn read_carrier(&self, end: &EndDevice) -> Result<Option<bool>> {
+        let iface = iface_of(end);
+        if self.failing_carrier.contains(iface) {
+            bail!("cannot read the carrier of {iface}");
+        }
+        Ok(self.index(iface).map(|_| self.has_carrier(iface)))
+    }
+
+    fn write_carrier(&self, end: &EndDevice, up: bool) -> Result<()> {
+        let iface = iface_of(end);
+        if self.failing_carrier.contains(iface) {
+            bail!("cannot set the carrier of {iface}");
+        }
+        if self.index(iface).is_none() {
+            bail!("no interface {iface}");
+        }
+        self.carrier_writes.borrow_mut().push((end.clone(), up));
+        self.set_carrier_by_hand(iface, up);
+        Ok(())
+    }
+
     fn make_veth(&self, veth: &ContainerVeth) -> Result<()> {
         self.wrote();
         if self.failing_veths.contains(&veth.host_veth) {
@@ -140,6 +188,13 @@ impl FakeHost {
         }
         self.make(&[veth.host_veth.as_str()]);
         Ok(())
+    }
+}
+
+/// The host interface of end `end`.
+fn iface_of(end: &EndDevice) -> &str {
+    match end {
+        EndDevice::Veth(iface) | EndDevice::Tap { tap: iface, .. } => iface,
     }
 }
 
@@ -180,5 +235,13 @@ impl LinkHost for FakeHost {
 
     fn create_veth(&self, veth: &ContainerVeth, _pid: u32) -> impl Future<Output = Result<()>> {
         ready(self.make_veth(veth))
+    }
+
+    fn carrier(&self, end: &EndDevice) -> impl Future<Output = Result<Option<bool>>> {
+        ready(self.read_carrier(end))
+    }
+
+    fn set_carrier(&self, end: &EndDevice, up: bool) -> impl Future<Output = Result<()>> {
+        ready(self.write_carrier(end, up))
     }
 }

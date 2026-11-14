@@ -10,7 +10,7 @@ pub mod tc;
 
 pub use linux::{
     container_veth_peer_ifindex, create_bridge, create_veth_pair, delete_interface,
-    enslave_to_bridge, list_interface_names, set_link_down,
+    enslave_to_bridge, link_is_up, list_interface_names, set_link_state,
 };
 
 pub use ebpf::{attach_p2p_redirect, has_p2p_redirect};

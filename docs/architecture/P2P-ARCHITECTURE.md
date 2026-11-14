@@ -50,8 +50,10 @@ end has a new ifindex, so the peer's redirect is stale. All of these go through 
    redirect is pointed at the other, and each direction's impairment is synced from the
    database. The peer's end absent: the link is left `PeerDown`, and the peer's own re-attach,
    when it starts, sets both directions. Anything else: `Failed`, with the reason.
-3. The per-link states go back to the user with the resume or redeploy result, and are kept
-   for `sherpa inspect`. None of them fails the node.
+3. The carrier of each link's ends is set to follow its state (see
+   [Carrier propagation](#carrier-propagation)), and the per-link states go back to the user
+   with the resume or redeploy result, and are kept for `sherpa inspect`. None of them fails
+   the node.
 
 Ends made again outside Sherpa are repaired by the scanner through the same function; see
 [Repair by the scanner](#repair-by-the-scanner).
@@ -285,12 +287,14 @@ If one side of a P2p link stops (VM shut off or crashed, container stopped or ki
 
 - Its taps or veths are deleted, with their TC filters and programs.
 - The surviving side's eBPF program keeps redirecting to the deleted ifindex, and the kernel
-  drops those frames. The surviving side keeps its carrier.
+  drops those frames. The scanner finds the link `PeerDown` within `scanner.interval_secs` and
+  takes the surviving end's carrier down; see [Carrier propagation](#carrier-propagation).
 - When the node starts again, its ends have new ifindexes. Started through Sherpa (`resume`,
   `redeploy`), they are re-attached at once. Started outside Sherpa, the scanner repairs them
   within `scanner.interval_secs`; see [Repair by the scanner](#repair-by-the-scanner).
 - A reboot from inside a guest, `virsh reboot`, a pause and unpause, and a sherpad restart
-  change nothing: the same tap and filter stay.
+  change nothing in the redirects: the same tap and filter stay. A paused node counts as down
+  for carrier, so its peer loses carrier while it is paused.
 - Full cleanup happens during lab destroy.
 
 ### Repair by the scanner
@@ -318,6 +322,61 @@ are `PeerDown`. The repair runs under the scanner's hold on the lab, so never be
 redeploy or `up`. Each link's last state is kept in memory for `sherpa inspect`. The states,
 the rule and its limits are in
 [`STATE_MACHINES.md`, section 25](STATE_MACHINES.md#25-p2p-link-attachment).
+
+### Carrier propagation
+
+The carrier of a link's ends follows its state (`p2p_links::carrier`), as a cable's would:
+
+| State | End of the running node | Peer's end |
+|---|---|---|
+| `Attached` | carrier | carrier |
+| `PeerDown` | no carrier | left alone (gone, or its node paused) |
+| `Failed` | no carrier | no carrier |
+
+When both nodes are down, `PeerDown` names the first, and the second's end is taken down, so a
+node that comes back before its peer has no carrier.
+
+How an end's carrier is set, behind `LinkHost::carrier` and `LinkHost::set_carrier`:
+
+- **Container end:** its host veth is set down (`network::set_link_state`). The container's
+  interface goes `NO-CARRIER`, and back to `LOWER_UP` when the host end comes up. The filter
+  and the netem qdisc stay. Setting the veth inside the namespace down is not used: it shows as
+  admin-down, and the NOS can bring it back up itself.
+- **VM or unikernel end:** the interface's link state in the live domain
+  (`libvirt::set_interface_link`, as `virsh domif-setlink` does it: the interface's live XML
+  with its `<link state>` set, through `Domain::update_device_flags` with
+  `VIR_DOMAIN_AFFECT_LIVE`). The tap, its ifindex and its filter are unchanged. A host tap set
+  down is not seen by the guest, so it is not used. The persistent definition is not changed:
+  a domain started again has its links up, and the re-attach or repair that follows sets them
+  again.
+
+The eBPF program is not changed. It already drops what it cannot deliver.
+
+**When carrier is set.** Only when a link's state changes, so a user who takes an end down by
+hand (`ip link set tpb3-lab down`) to simulate a failure keeps it down while the link's state
+stays the same. The change is per end: an end is set when the carrier its link's new state
+wants differs from what the last recorded state (`LinkStates`) wants. Two cases set it without
+a change:
+
+- **Nothing is recorded for the link.** The in-memory states are empty after sherpad starts.
+  The first scan then sets every end to what its link's state wants, which repairs a carrier
+  left wrong by a change made while sherpad was down. It cannot tell an end Sherpa took down
+  from one a user took down, so it brings a link a user took down while its state is
+  `Attached` back up, once.
+- **The end was made again** (a cold boot, a container start, a redeploy, or an end the
+  scanner found missing or with no filter). A new end starts with carrier, whatever was set on
+  the old one: a VM cold-booted while its peer is still down gets its link taken down again.
+
+Each end's carrier is read first, and set only when it differs. So none of these flap an end
+that already has the carrier wanted: the first scan after a restart changes nothing on a lab
+whose carrier is right. An end that does not exist is left; one whose carrier cannot be read
+or set is logged, and is not retried until the link's state changes again.
+
+Where the states come from: the scanner (every link of a `Ready` lab, after its repair), and
+the re-attach of resume and redeploy (the node's links). A paused node is not running to the
+scanner, so `docker pause` and `sherpa down`, which pauses containers, take their peers'
+carrier down within one scan interval, and the scan after `unpause` or `resume` brings it back.
+With `scanner.enabled = false`, only resume and redeploy set carrier.
 
 A guest that cached its peer's MAC address keeps sending to the old one after the peer's
 container restarted (the new veth has a new MAC), until its neighbour entry is probed again,

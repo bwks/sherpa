@@ -127,7 +127,7 @@ pub(super) async fn redeploy_container(
     if has_disabled {
         let isolated =
             node_ops::node_isolated_network_data(node_name, redeploy.db_node.index, lab_id);
-        network::set_link_down(&isolated.bridge_name).await?;
+        network::set_link_state(&isolated.bridge_name, false).await?;
     }
 
     let link_reports = attach_links(redeploy, &lab_links, container_name, p2p_veths).await;
@@ -153,8 +153,9 @@ async fn attach_links(
     if veths.is_empty() {
         return vec![];
     }
+    let host = KernelHost::new(&redeploy.state.docker, &redeploy.state.qemu);
     let outcomes = reattach_node_links(
-        &KernelHost::new(&redeploy.state.docker),
+        &host,
         lab_links,
         &redeploy.node_record_id,
         RecreatedEnd::Container {
@@ -164,12 +165,14 @@ async fn attach_links(
     )
     .await;
     report_links(
+        &host,
+        lab_links,
+        &redeploy.node_record_id,
         Some(redeploy.progress),
         &redeploy.state.link_states,
-        &redeploy.lab_id,
-        &redeploy.node_name,
         outcomes,
     )
+    .await
 }
 
 /// The data interfaces of a container: Docker networks, made now, for one on no link, or, for
@@ -177,7 +180,7 @@ async fn attach_links(
 /// only handles its management network.
 async fn plan_data_interfaces(redeploy: &Redeploy<'_>) -> Result<DataInterfaces> {
     let db = &redeploy.state.db;
-    let lab_links = LabLinks::load(db, &redeploy.lab_record_id).await?;
+    let lab_links = LabLinks::load(db, &redeploy.lab_id, &redeploy.lab_record_id).await?;
     let links = node_links(lab_links.links(), &redeploy.node_record_id);
     let db_bridges = db::list_bridges(db, &redeploy.lab_record_id).await?;
     let bridge_interfaces = node_bridge_interfaces(&db_bridges, &redeploy.node_record_id);

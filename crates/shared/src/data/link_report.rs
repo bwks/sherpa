@@ -12,11 +12,12 @@ pub enum LinkState {
     /// Both ends exist and redirect to each other, with the link's impairments.
     Attached,
     /// The peer is down: stopped, paused or gone, so its end does not exist or is left alone.
-    /// Nothing is wrong: the link is attached both ways when the peer starts again.
+    /// Nothing is wrong: the surviving end has no carrier, and the link is attached both ways,
+    /// with carrier, when the peer starts again.
     PeerDown { peer: String },
-    /// The link could not be attached, and why. The node is up; the link carries no traffic
-    /// until it is attached again: by resuming or redeploying either end, or by the scanner
-    /// when it finds an end it can repair.
+    /// The link could not be attached, and why. The node is up; the link carries no traffic,
+    /// and neither end has carrier, until it is attached again: by resuming or redeploying
+    /// either end, or by the scanner when it finds an end it can repair.
     Failed { reason: String },
 }
 

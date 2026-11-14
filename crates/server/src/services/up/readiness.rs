@@ -529,7 +529,7 @@ impl Readiness<'_, '_> {
         if veths.is_empty() {
             return Ok(());
         }
-        let host = KernelHost::new(self.build.docker_conn);
+        let host = KernelHost::new(self.build.docker_conn, self.build.qemu);
         let pid = host.container_pid(container_name).await?;
         for P2pContainerVeth { veth, .. } in veths {
             host.create_veth(veth, pid).await.with_context(|| {

@@ -344,8 +344,8 @@ stateDiagram-v2
 - `shutdown_lab_nodes` (down) takes a read lease with `begin`, like the other operations.
 - The scanner takes the write lease with `try_observe`, without waiting and without
   cancelling anything, and skips a lab an operation holds. It holds the lease only while it
-  queries the runtimes, writes what it saw, and checks and repairs the lab's P2p links
-  (machine 25); its SSH probes run before. An operation that starts meanwhile waits for it.
+  queries the runtimes, writes what it saw, and checks and repairs the lab's P2p links and
+  sets the carrier of those whose state changed (machine 25); its SSH probes run before. An operation that starts meanwhile waits for it.
   So the repair never runs beside a `resume`, `redeploy` or `up` that makes link ends itself. A `stop` that finds the scanner holding the lease reports
   `was_running`, as if an operation had held it.
 
@@ -410,7 +410,9 @@ container is ready.
 - If a runtime query fails, the scanner keeps the recorded state of that runtime's nodes.
 - `down` pauses containers, so a container that is down is `Stopped(Paused)`.
 - The scanner's P2p link repair (machine 25) checks only nodes that are `Running` here and not
-  `Building`; a `Stopped(Paused)` node, and any other, is left as it is.
+  `Building`; a `Stopped(Paused)` node, and any other, is left as it is. Such a node counts as
+  down for its links: they are `PeerDown`, and its peers' ends lose carrier, so a `down`, which
+  pauses containers, takes their peers' links down too.
 
 ### 5. Node readiness and host keys
 
@@ -1212,17 +1214,22 @@ confirmation from the server (`container.rs:32-42`).
   - `reattach.rs`: `reattach_node_links`, the one function every event that makes a link end
     again calls, and `attach_link`, the per-link kernel step that `up` uses too;
   - `host.rs`: the `LinkHost` trait (look up an end, tell whether it has its redirect, attach
-    a redirect, set netem, make a container's veths) and `KernelHost`, its implementation over `network` and Docker. Tests
-    use a fake (`fake.rs`);
+    a redirect, set netem, make a container's veths, read and set an end's carrier) and
+    `KernelHost`, its implementation over `network`, Docker and libvirt. Tests use a fake
+    (`fake.rs`);
   - `veths.rs`: a container's veth plan from the database rows;
   - `plan.rs`: how a node's ends are made again (`recreated_end`), for resume and the scanner;
   - `repair.rs`: the scanner's check of a lab's links in the kernel (`check_lab_links`) and
-    its repair of a node (`repair_node`).
+    its repair of a node (`repair_node`);
+  - `carrier.rs`: each end's carrier following its link's state (`carrier_moves`, a pure
+    function, and `follow_carrier`).
 - `crates/server/src/services/scanner.rs`: `repair_links`, which runs the check and the repair
   under the scanner's hold.
 - `crates/server/src/daemon/link_states.rs`: `LinkStates`, each link's last state in memory.
-- `crates/network/src/ebpf.rs` (`attach_p2p_redirect`, `has_p2p_redirect`), `tap.rs` and
-  `tc.rs`.
+- `crates/network/src/ebpf.rs` (`attach_p2p_redirect`, `has_p2p_redirect`), `tap.rs`,
+  `tc.rs`, and `linux.rs` (`set_link_state`, `link_is_up`: a container end's carrier).
+- `crates/libvirt/src/interface.rs` (`interface_link_up`, `set_interface_link`): a VM or
+  unikernel end's carrier, the interface's link state in the live domain.
 
 `DbLink` has `tap_a` and `tap_b`, and no status field: the link's state is in the kernel
 (whether each end's tap or veth exists, and the peer ifindex in each end's BPF map,
@@ -1233,10 +1240,11 @@ so far.
 **States per link** (`shared::data::LinkState`, reported to the user):
 
 - `Attached`: both ends exist and redirect to each other, with the link's impairments;
-- `PeerDown { peer }`: the node's end exists and the peer's does not, because the peer is
-  down. Nothing is touched. This is expected, not a failure;
+- `PeerDown { peer }`: the node's end exists and the peer's does not, or the peer is not
+  running, because the peer is down. The redirects are not touched; the surviving end's carrier
+  is taken down. This is expected, not a failure;
 - `Failed { reason }`: the node's own end does not exist, an end could not be made or looked
-  up, or the kernel refused the redirect or the qdisc.
+  up, or the kernel refused the redirect or the qdisc. Both ends' carrier is taken down.
 
 Between an event and its re-attach the link is *stale*: one end has a new ifindex and the other
 end's redirect still points at the old one. Stale is never reported. Every event Sherpa makes
@@ -1271,6 +1279,36 @@ of `node`, in index order, each on its own: one link's failure never stops the n
 A container on no link has Docker networks, which Docker connects again; it is not
 re-attached. A paused container or VM keeps its ends, so unpausing re-attaches nothing.
 
+**Carrier.** After the transition, and after the scanner's repair, each end's carrier is made
+to follow its link's state (`follow_carrier`), behind `LinkHost`: a container end's host veth is
+set down or up, a VM or unikernel end's interface link state is set in the live domain only.
+
+| State | Each end whose peer is down | The down peer's own end |
+|---|---|---|
+| `Attached` | carrier | carrier |
+| `PeerDown` | no carrier | left alone |
+| `Failed` | no carrier | no carrier |
+
+`carrier_moves(previous, state, names, fresh)` decides per end. It sets an end only when the
+carrier its link's new state wants differs from what the previous state wants, so an end a user
+took down by hand stays down while the state stays the same. It also sets an end when there is
+no previous state (the in-memory states are empty after sherpad starts, so the first scan
+sets every end to what its state wants) or when the end is *fresh*, made again: the node's
+ends for a resume or redeploy (`report_links`), the ends a scan found missing or with no filter
+(`LinkCheck::fresh_ends`). A new end starts with carrier whatever was set on the old one.
+`follow_carrier` reads each end's carrier before it sets it, and sets only what differs, so
+none of this flaps an end that already has the carrier wanted. An end that does not exist is
+left; a read or set that fails is logged and is not retried until the state changes again.
+
+| Previous | New | Moves (A, B), with A the end of `vm1` |
+|---|---|---|
+| `Attached` | `PeerDown { vm2 }` | A down |
+| `PeerDown { vm2 }` | `Attached` | A up, B up (B is new, or was never touched) |
+| `Attached` | `Failed` | A down, B down |
+| `PeerDown { vm1 }` | `PeerDown { vm2 }` | A down (vm1 came back while vm2 stayed down) |
+| same state | same state | nothing, unless an end is fresh |
+| none (sherpad restarted) | any | every end to what the state wants, if it differs |
+
 Attaching (`attach_link`) points each end's redirect at the other and *syncs* each direction's
 impairment from the database onto the end it leaves through: set, or removed when clear. So a
 re-attach also clears a qdisc a direction recorded clear should not have (machine 26).
@@ -1281,8 +1319,9 @@ re-attach finds both ends and sets both directions, so the surviving end's redir
 peer's new ifindex. No state is kept between the two events: the kernel and the rows decide.
 
 **Repair by the scanner.** Each scan of a `Ready` lab, under the scanner's hold (machine 3),
-runs `check_lab_links` over every link and remembers nothing from the scan before, so the
-first scan after sherpad starts catches up on whatever changed while it was down. Only the
+runs `check_lab_links` over every link and needs nothing from the scan before, so the first
+scan after sherpad starts catches up on whatever changed while it was down. Only the carrier
+compares with the states the last scan recorded (see "Carrier" above). Only the
 ends of nodes whose runtime is `Running` and that are not `Building` are checked:
 
 | The running node's end | The other end | Fault | What the scan does |
@@ -1314,9 +1353,10 @@ web UI adds them to its notification. A link that is not attached does not mark 
 `Failed` and does not make the command fail: the node is up.
 
 Each link's last state is kept in memory in `AppState::link_states` (`LinkStates`), by lab and
-link index: the scanner replaces a lab's states on each scan it makes of the lab, resume and
-redeploy record the links they re-attached (`report_links`), and a destroy or clean forgets
-the lab. `inspect` returns it as `LinkInfo.state`. Nothing is stored in the database: the
+link index: the scanner replaces a lab's states on each scan it makes of the lab, after it set
+the carrier from them, resume and redeploy record the links they re-attached (`report_links`,
+which sets the carrier first), and a destroy or clean forgets the lab. The recorded state is
+also what the carrier compares with. `inspect` returns it as `LinkInfo.state`. Nothing is stored in the database: the
 kernel holds the state and one scan rebuilds it. After sherpad starts, and while the scanner
 is disabled, a lab's links have no state until a scan, resume or redeploy, and `inspect`
 reports them as not checked (`state` absent).
@@ -1338,8 +1378,10 @@ stateDiagram-v2
     Stale --> Failed : own end absent, or kernel refuses
     Attached --> Stale : end made again outside Sherpa
     Stale --> Attached : next scan, repair_node
-    PeerDown --> Attached : the peer's own re-attach when it starts, or the next scan
-    Failed --> Attached : next re-attach of either end, or the next scan if an end is bare
+    Attached --> PeerDown : the peer stops or is paused (next scan), survivor's carrier down
+    PeerDown --> Attached : the peer's own re-attach when it starts, or the next scan, carrier up
+    Attached --> Failed : an end cannot be read, or an attach fails, both carriers down
+    Failed --> Attached : next re-attach of either end, or the next scan if an end is bare, carrier up
 ```
 
 ### 26. Link impairment

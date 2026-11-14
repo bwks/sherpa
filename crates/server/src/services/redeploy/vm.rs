@@ -40,7 +40,7 @@ pub(super) async fn redeploy_vm(
     let progress = redeploy.progress;
 
     let db = &redeploy.state.db;
-    let lab_links = LabLinks::load(db, &redeploy.lab_record_id).await?;
+    let lab_links = LabLinks::load(db, lab_id, &redeploy.lab_record_id).await?;
     let links = node_links(lab_links.links(), &redeploy.node_record_id);
     let db_bridges = db::list_bridges(db, &redeploy.lab_record_id).await?;
     let interfaces = vm_interfaces(
@@ -97,24 +97,27 @@ pub(super) async fn redeploy_vm(
     )
     .await?;
 
+    let host = KernelHost::new(&redeploy.state.docker, &redeploy.state.qemu);
     let outcomes = reattach_node_links(
-        &KernelHost::new(&redeploy.state.docker),
+        &host,
         &lab_links,
         &redeploy.node_record_id,
         RecreatedEnd::Domain,
     )
     .await;
     let link_reports = report_links(
+        &host,
+        &lab_links,
+        &redeploy.node_record_id,
         Some(progress),
         &redeploy.state.link_states,
-        lab_id,
-        node_name,
         outcomes,
-    );
+    )
+    .await;
 
     // Set isolated bridge DOWN to remove carrier from disabled VM interfaces
     if has_disabled {
-        network::set_link_down(&isolated_net.bridge_name).await?;
+        network::set_link_state(&isolated_net.bridge_name, false).await?;
     }
 
     wait_until_ready(redeploy).await?;

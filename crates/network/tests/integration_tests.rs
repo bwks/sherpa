@@ -18,8 +18,8 @@ use anyhow::Result;
 use network::{
     NetemRemoval, NetnsVethState, apply_netem, attach_p2p_redirect, container_veth_peer_ifindex,
     create_bridge, create_tap, create_veth_in_netns, create_veth_pair, delete_interface,
-    disable_tx_checksum_offload, enslave_to_bridge, find_ifindex, get_ifindex,
-    list_interface_names, remove_netem, set_link_down, sync_netem, update_netem,
+    disable_tx_checksum_offload, enslave_to_bridge, find_ifindex, get_ifindex, link_is_up,
+    list_interface_names, remove_netem, set_link_state, sync_netem, update_netem,
 };
 use shared::data::LinkImpairment;
 
@@ -858,12 +858,12 @@ async fn test_ebpf_and_netem_coexist() -> Result<()> {
 }
 
 // ============================================================================
-// set_link_down
+// set_link_state
 // ============================================================================
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_set_link_down() -> Result<()> {
+async fn test_set_link_state() -> Result<()> {
     let src = "st-down-a";
     let dst = "st-down-b";
 
@@ -874,20 +874,21 @@ async fn test_set_link_down() -> Result<()> {
     // Both should be UP after creation
     assert!(
         interface_is_up(src),
-        "src should be UP before set_link_down"
+        "src should be UP before set_link_state"
     );
     assert!(
         interface_is_up(dst),
-        "dst should be UP before set_link_down"
+        "dst should be UP before set_link_state"
     );
 
     // Set src DOWN
-    set_link_down(src).await?;
+    set_link_state(src, false).await?;
 
     assert!(
         !interface_is_up(src),
-        "src should be DOWN after set_link_down"
+        "src should be DOWN after set_link_state"
     );
+    assert_eq!(link_is_up(src).await?, Some(false));
 
     // dst loses carrier when peer goes down, but its admin state (UP flag)
     // remains set — verify dst still has UP flag
@@ -895,6 +896,12 @@ async fn test_set_link_down() -> Result<()> {
         interface_is_up(dst),
         "dst admin state should still have UP flag (carrier lost, not admin down)"
     );
+    assert_eq!(link_is_up(dst).await?, Some(true));
+
+    // Set src UP again: dst has its carrier back.
+    set_link_state(src, true).await?;
+    assert!(interface_is_up(src), "src should be UP again");
+    assert_eq!(link_is_up(src).await?, Some(true));
 
     delete_interface(src).await?;
 
@@ -903,12 +910,13 @@ async fn test_set_link_down() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_set_link_down_nonexistent_fails() -> Result<()> {
-    let result = set_link_down("st-noexist99").await;
+async fn test_set_link_state_nonexistent_fails() -> Result<()> {
+    let result = set_link_state("st-noexist99", false).await;
     assert!(
         result.is_err(),
         "Setting down a nonexistent interface should fail"
     );
+    assert_eq!(link_is_up("st-noexist99").await?, None);
     Ok(())
 }
 
@@ -1123,7 +1131,7 @@ async fn test_create_veth_in_netns_named_like_a_host_interface() -> Result<()> {
     cleanup_interface(host).await;
     cleanup_interface(clash).await;
     create_veth_pair(clash, "st-nsv-eth1p", "clash", "clash-peer").await?;
-    set_link_down(clash).await?;
+    set_link_state(clash, false).await?;
     let holder = NetnsHolder::start();
 
     create_veth_in_netns(

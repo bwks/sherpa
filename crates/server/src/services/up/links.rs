@@ -407,7 +407,7 @@ pub(super) async fn attach_vm_links(
     };
     if !p2p_links.is_empty() {
         let attached = attach_ready_p2p_links(
-            &KernelHost::new(build.docker_conn),
+            &KernelHost::new(build.docker_conn, build.qemu),
             build.lab_id,
             p2p_links,
             links_detailed,

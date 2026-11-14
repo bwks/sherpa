@@ -542,7 +542,7 @@ pub(super) async fn set_isolated_bridges_down(
                 bridge_name = %network.bridge_name,
                 "Setting isolated bridge down to remove carrier from disabled interfaces"
             );
-            network::set_link_down(&network.bridge_name).await?;
+            network::set_link_state(&network.bridge_name, false).await?;
         }
     }
     Ok(())
