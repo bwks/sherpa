@@ -191,3 +191,29 @@ jobs:
 
       - name: Test native private key permissions
         run: cargo test -p sherpa private_key::tests
+
+  macos-client:
+    name: macOS Client
+    # macos-latest is Apple silicon, so this builds and tests aarch64-apple-darwin natively.
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          # PR runs restore the cache saved on main; only main saves, so PR branches do not
+          # crowd the repository's cache limit.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Run client clippy
+        run: cargo clippy -p sherpa --all-targets -- -D warnings
+
+      - name: Test the client
+        run: cargo test -p sherpa
