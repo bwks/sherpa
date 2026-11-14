@@ -1,9 +1,6 @@
 use anyhow::{Result, anyhow};
-use argon2::{
-    Argon2,
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-};
-use rand::rngs::OsRng;
+use argon2::password_hash::Error as HashError;
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 
 use crate::validators::validate_password_strength;
 
@@ -19,13 +16,11 @@ pub fn hash_password(password: &str) -> Result<String> {
     // Validate password strength first
     validate_password_strength(password)?;
 
-    // Generate a random salt
-    let salt = SaltString::generate(&mut OsRng);
-
-    // Hash the password with Argon2id (default parameters)
+    // Hash the password with Argon2id (default parameters) and a random 16-byte salt from the
+    // operating system
     let argon2 = Argon2::default();
     let password_hash = argon2
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password(password.as_bytes())
         .map_err(|e| anyhow!("Failed to hash password: {e}"))?
         .to_string();
 
@@ -50,7 +45,7 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool> {
     // Only a mismatch is a wrong password; a hash argon2 cannot check is an error to report.
     match argon2.verify_password(password.as_bytes(), &parsed_hash) {
         Ok(()) => Ok(true),
-        Err(argon2::password_hash::Error::Password) => Ok(false),
+        Err(HashError::PasswordInvalid) => Ok(false),
         Err(error) => Err(anyhow!("Cannot check the password hash: {error}")),
     }
 }
@@ -106,6 +101,22 @@ mod tests {
 
         let result = verify_password("WrongPassword123!", &hash).expect("Should verify password");
         assert!(!result, "Incorrect password should not verify");
+    }
+
+    #[test]
+    fn a_hash_keeps_argon2id_v19_with_the_default_costs() {
+        let hash = hash_password("SecurePass123!").expect("Should hash password");
+        assert!(
+            hash.starts_with("$argon2id$v=19$m=19456,t=2,p=1$"),
+            "unexpected parameters in {hash}"
+        );
+    }
+
+    #[test]
+    fn a_hash_stored_by_argon2_0_5_still_verifies() {
+        let stored = "$argon2id$v=19$m=19456,t=2,p=1$2FJMSCOFArFldYJuaUcZXg$FsJQ0y+UxlbmOc7owiv4HqEGA6KuBQC2uIHm3NA2UQ8";
+        assert!(verify_password("StoredPass123!", stored).expect("Should verify password"));
+        assert!(!verify_password("WrongPass123!", stored).expect("Should verify password"));
     }
 
     #[test]

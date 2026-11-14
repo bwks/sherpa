@@ -42,6 +42,28 @@ dependency (`opt-level = 1`) gave the same test time but doubled the cold build.
 Cargo applies `[profile.dev.package."*"]` and then the crate's own override; the crate
 overrides set only `opt-level`, so these crates are optimised and have no debug info.
 
+## Crypto dependencies
+
+The workspace builds one TLS crypto provider, aws-lc-rs; `ring` is not built.
+`cargo tree -i ring --workspace --target all` prints nothing, and should stay that way. Three
+dependencies would bring `ring` back with their defaults:
+
+- `async-nats` (agent-bus): default features are off in the root `Cargo.toml`, and
+  `crates/agent-bus/Cargo.toml` turns on only what the bus uses: `aws-lc-rs`, `jetstream`,
+  `kv`, `nkeys`, `nuid` and the `server_2_*` JetStream fields.
+- `rcgen` (server and agent-bus): `default-features = false` with `aws_lc_rs` and `pem`.
+- `x509-parser` (server tests): signature checks use `verify-aws`, not `verify`.
+
+`ring` still has an entry in `Cargo.lock`, because `rustls-webpki` and `quinn-proto` list it as
+an optional dependency. Every binary installs the aws-lc-rs `CryptoProvider` in `main` and does
+not rely on rustls picking one, so a crate that enabled `ring` again would build without error.
+`cargo tree -i ring` is the check.
+
+Two generations of the RustCrypto stack are still built: `shared` uses `ssh-key` 0.6 (with
+`rsa` 0.9), and `jato` → `russh` uses `ssh-key` 0.7 (with `rsa` 0.10). `shared` moves to
+`ssh-key` 0.7 when it has a stable release. `argon2` is already on the generation `russh`
+uses (0.6).
+
 ## Linker
 
 rustc 1.90 and later links `x86_64-unknown-linux-gnu` with its bundled `rust-lld` by default,

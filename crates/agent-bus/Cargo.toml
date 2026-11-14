@@ -10,8 +10,20 @@ publish = false
 anyhow = { workspace = true }
 
 # Message bus
-# aws-lc-rs: the crypto provider the rest of the workspace uses, through async-nats's rustls
-async-nats = { workspace = true, features = ["aws-lc-rs"] }
+# Only what the bus uses: JetStream with its key-value store, nkey auth, and TLS on aws-lc-rs,
+# the crypto provider the rest of the workspace uses. The defaults would also build ring. The
+# server_2_* features keep the JetStream config fields of the NATS server releases the bus runs.
+async-nats = { workspace = true, features = [
+    "aws-lc-rs",
+    "jetstream",
+    "kv",
+    "nkeys",
+    "nuid",
+    "server_2_10",
+    "server_2_11",
+    "server_2_12",
+    "server_2_14",
+] }
 futures-util = { workspace = true }
 nkeys = { workspace = true }
 
@@ -38,7 +50,7 @@ toml = { workspace = true }
 
 # The bus's private CA and server certificate. rcgen takes time::OffsetDateTime; every other
 # time is jiff's
-rcgen = "0.13"
+rcgen = { version = "0.13", default-features = false, features = ["aws_lc_rs", "pem"] }
 time = "0.3"
 jiff = { workspace = true }
 
