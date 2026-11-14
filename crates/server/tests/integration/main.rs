@@ -4,6 +4,7 @@
 //! see `tests/README.md`.
 
 mod auth;
+mod cpu_pins;
 mod helpers;
 mod image_management;
 mod lab_authorization;

@@ -14,7 +14,7 @@ pub struct RpcError {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
     /// JSON-RPC 2.0 `data`: structured detail for codes that define it, such as the
-    /// `MemoryShortfall` of `InsufficientMemory`.
+    /// `MemoryShortfall` of `InsufficientMemory` and the `CpuPinConflict` of `CpuPinsHeld`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
 }

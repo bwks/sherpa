@@ -198,7 +198,7 @@ pub async fn up_lab(
         config: &state.config,
         progress: &progress,
     };
-    let mut plan = validate(&build, &operation, &manifest, &db_user, node_images).await?;
+    let mut plan = validate(&build, ctx, &operation, &manifest, &db_user, node_images).await?;
     // Held until `up` returns: the containers start during readiness polling.
     let _container_image_guards = mem::take(&mut plan.container_image_guards);
 
@@ -235,12 +235,13 @@ pub async fn up_lab(
 /// VMs. Nothing has been created yet, so a failure gives the reservation back.
 async fn validate(
     build: &LabBuild<'_>,
+    requester: &AuthContext,
     operation: &LabOperation,
     manifest: &topology::Manifest,
     db_user: &data::DbUser,
     node_images: Vec<data::NodeConfig>,
 ) -> Result<LabPlan> {
-    let planned = plan_lab(build, manifest, db_user, node_images)
+    let planned = plan_lab(build, requester, manifest, db_user, node_images)
         .await
         .and_then(|plan| {
             ensure_no_earlier_attempt(build.qemu_conn, build.lab_id, &plan.selected_images)?;

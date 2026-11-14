@@ -121,7 +121,12 @@ pub async fn start_lab_nodes(
         load_target_nodes(&state.db, lab_record_id.clone(), lab_id, node_name).await?;
 
     // Stopped VMs and unikernels must fit in the server's memory before any node starts.
-    let _admission = admit_stopped_nodes(state, lab_id, &target_nodes).await?;
+    let admission = admit_stopped_nodes(state, ctx, lab_id, &target_nodes).await?;
+    if let Some(progress) = progress {
+        for warning in admission.shared_cpus() {
+            let _ = progress.send_status(format!("Warning: {warning}"), StatusKind::Info);
+        }
+    }
 
     let tailscale =
         resume_tailscale(state, &db_lab, node_name, tailscale_auth_key, progress).await?;
@@ -211,20 +216,22 @@ pub async fn start_lab_nodes(
 #[instrument(skip_all, fields(%lab_id), level = "debug")]
 async fn admit_stopped_nodes(
     state: &AppState,
+    requester: &AuthContext,
     lab_id: &str,
     target_nodes: &[data::DbNode],
 ) -> Result<Admission> {
-    let node_names: Vec<&str> = target_nodes.iter().map(|node| node.name.as_str()).collect();
     let conn = state
         .qemu
         .connect()
         .context("Failed to connect to libvirt")?;
     admission::admit_stopped_nodes(
+        &state.db,
         &conn,
         &state.docker,
+        requester,
         state.config.host_memory,
         lab_id,
-        &node_names,
+        target_nodes,
     )
     .await
 }

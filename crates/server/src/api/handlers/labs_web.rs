@@ -393,7 +393,8 @@ fn lab_error_page(
         Some(
             ServiceError::Conflict(_)
             | ServiceError::Invalid(_)
-            | ServiceError::InsufficientMemory { .. },
+            | ServiceError::InsufficientMemory { .. }
+            | ServiceError::CpuPinsHeld { .. },
         )
         | None => {
             tracing::error!(
@@ -425,8 +426,11 @@ fn lab_error_fragment(error: &anyhow::Error, failure_message: &str) -> Response 
         Some(ServiceError::NotFound(_)) => {
             (StatusCode::NOT_FOUND, ErrorTemplate { message }).into_response()
         }
-        // The refusal names the memory that fell short; the outer context would not.
-        Some(refusal @ ServiceError::InsufficientMemory { .. }) => {
+        // The refusal names the memory that fell short or the CPUs held; the outer context
+        // would not.
+        Some(
+            refusal @ (ServiceError::InsufficientMemory { .. } | ServiceError::CpuPinsHeld { .. }),
+        ) => {
             tracing::warn!("{failure_message}: {refusal}");
             ErrorTemplate {
                 message: format!("{failure_message}: {refusal}"),

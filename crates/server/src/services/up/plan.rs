@@ -5,6 +5,7 @@ use tracing::instrument;
 
 use super::context::LabBuild;
 use super::nodes::{get_node_image, process_manifest_nodes};
+use crate::auth::context::AuthContext;
 use crate::services::admission::{self, Admission};
 use crate::services::guest_account;
 use crate::services::guest_account::GuestAccount;
@@ -56,6 +57,7 @@ struct ImageLeases {
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
 pub(super) async fn plan_lab(
     build: &LabBuild<'_>,
+    requester: &AuthContext,
     manifest: &topology::Manifest,
     db_user: &data::DbUser,
     node_images: Vec<data::NodeConfig>,
@@ -64,7 +66,6 @@ pub(super) async fn plan_lab(
         lab_id,
         db,
         docker_conn,
-        qemu_conn,
         config,
         progress,
         ..
@@ -127,27 +128,7 @@ pub(super) async fn plan_lab(
         &links_detailed,
         &bridges_detailed,
     )?;
-    let manifest_pins: Vec<NodeCpuPins> = nodes_expanded
-        .iter()
-        .map(|node| NodeCpuPins::of(&node.name, &node.cpu, &node.boot_disk))
-        .filter(|pins| !pins.is_empty())
-        .collect();
-    check_cpu_pin_overlap(&manifest_pins).context("CPU pinning validation failed")?;
-    let images = nodes_expanded
-        .iter()
-        .map(|node| get_node_image(node.model, node.version.as_deref(), &node_images))
-        .collect::<Result<Vec<_>>>()?;
-    let admitted: Vec<(&topology::NodeExpanded, &data::NodeConfig)> =
-        nodes_expanded.iter().zip(&images).collect();
-    let admission = admission::admit_lab_nodes(
-        db,
-        qemu_conn,
-        docker_conn,
-        config.host_memory,
-        lab_id,
-        &admitted,
-    )
-    .await?;
+    let admission = admit_nodes(build, requester, &nodes_expanded, &node_images).await?;
 
     // Connection Validators
     if !links_detailed.is_empty() {
@@ -169,6 +150,44 @@ pub(super) async fn plan_lab(
         bridges_detailed,
         _admission: admission,
     })
+}
+
+/// Admit the lab's nodes to the server's CPUs and memory, once their pins do not overlap each
+/// other's. A warning for each overlap their stored pins already had goes to the user.
+async fn admit_nodes(
+    build: &LabBuild<'_>,
+    requester: &AuthContext,
+    nodes_expanded: &[topology::NodeExpanded],
+    node_images: &[data::NodeConfig],
+) -> Result<Admission> {
+    let manifest_pins: Vec<NodeCpuPins> = nodes_expanded
+        .iter()
+        .map(|node| NodeCpuPins::of(&node.name, &node.cpu, &node.boot_disk))
+        .filter(|pins| !pins.is_empty())
+        .collect();
+    check_cpu_pin_overlap(&manifest_pins).context("CPU pinning validation failed")?;
+    let images = nodes_expanded
+        .iter()
+        .map(|node| get_node_image(node.model, node.version.as_deref(), node_images))
+        .collect::<Result<Vec<_>>>()?;
+    let admitted: Vec<(&topology::NodeExpanded, &data::NodeConfig)> =
+        nodes_expanded.iter().zip(&images).collect();
+    let admission = admission::admit_lab_nodes(
+        build.db,
+        build.qemu_conn,
+        build.docker_conn,
+        requester,
+        build.config.host_memory,
+        build.lab_id,
+        &admitted,
+    )
+    .await?;
+    for warning in admission.shared_cpus() {
+        let _ = build
+            .progress
+            .send_status(format!("Warning: {warning}"), StatusKind::Info);
+    }
+    Ok(admission)
 }
 
 /// The manifest's node checks that need nothing from the server: names, duplicates, count,

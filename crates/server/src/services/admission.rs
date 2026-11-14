@@ -2,8 +2,10 @@
 //!
 //! Before `up`, `redeploy` or a resume starts nodes, it asks for admission. Requests are
 //! handled one at a time, in the order they arrive: the queue is a fair (FIFO) Tokio mutex.
-//! Under it, the nodes' CPU pins are checked against the stored nodes and the nodes other
-//! operations were admitted with, and their memory against the server's (see
+//! Under it, the nodes' CPU pins are checked against every stored node's and the nodes other
+//! operations were admitted with (see `node_resources::check_cpu_pins_free`); a node another
+//! operation redeploys holds both its stored pins and its new ones until that operation ends.
+//! Their memory is checked against the server's (see
 //! `validate::check_memory_fits`). Memory held is that of libvirt's running domains and of
 //! Docker's running containers with a memory limit; a container without one counts as nothing.
 //! Containers take no part in CPU pinning: their CPU quota holds no particular host CPUs, and
@@ -24,11 +26,12 @@ use virt::connect::Connect;
 
 use container::{ContainerMemory, Docker};
 use libvirt::DomainMemory;
-use shared::data::{HostMemorySettings, NodeConfig, NodeCpuPins, NodeKind};
+use shared::data::{DbNode, HostMemorySettings, NodeConfig, NodeCpuPins, NodeKind};
 
 use super::node_resources::{
-    PendingPins, check_cpu_pins_on_server, domain_name, planned_resources,
+    PendingPins, check_cpu_pins_free, check_cpu_pins_on_server, domain_name, planned_resources,
 };
+use crate::auth::context::AuthContext;
 use crate::validate::{CommittedMemory, MemoryClaim, check_container_cpus, check_memory_fits};
 
 /// The admission queue. Tokio's mutex grants the lock in the order it was asked for.
@@ -40,6 +43,8 @@ static NEXT_TICKET: AtomicU64 = AtomicU64::new(1);
 /// A node an operation asks to start.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Request {
+    /// The ID of the node's lab.
+    lab_id: String,
     /// The node's domain name, `<node>-<lab id>`.
     domain: String,
     /// Its memory; `None` for a container without a memory limit.
@@ -61,6 +66,8 @@ struct Pending {
 #[derive(Debug)]
 pub struct Admission {
     ticket: u64,
+    /// Overlaps the nodes' stored pins already had with other nodes' when they were admitted.
+    shared_cpus: Vec<String>,
 }
 
 impl Drop for Admission {
@@ -72,6 +79,15 @@ impl Drop for Admission {
     }
 }
 
+impl Admission {
+    /// A warning for each overlap, against the pinning rules, that the admitted nodes' stored
+    /// pins already had with another node's. The nodes start anyway; the caller shows these
+    /// to the user.
+    pub fn shared_cpus(&self) -> &[String] {
+        &self.shared_cpus
+    }
+}
+
 fn queue() -> &'static FifoMutex<()> {
     QUEUE.get_or_init(|| FifoMutex::new(()))
 }
@@ -80,20 +96,25 @@ fn ledger() -> &'static Mutex<Vec<Pending>> {
     LEDGER.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-/// Admit `nodes` of lab `lab_id`, each with its image, to be created: by `up`, or by a
-/// redeploy, which replaces a node of the same name. Their CPU pins must fit beside every other
-/// node's, a container's CPU quota in the server's CPUs, and their memory in the server's.
+/// Admit `nodes` of lab `lab_id`, each with its image, to be created for `requester`: by `up`,
+/// or by a redeploy, which replaces a node of the same name. Their CPU pins must be free (see
+/// `node_resources::check_cpu_pins_free`), a container's CPU quota no more than the server's
+/// CPUs, and their memory must fit in the server's.
 ///
 /// # Errors
 ///
-/// Fails when the pins overlap or name host CPUs or NUMA nodes the server does not have, when
-/// a container's CPU quota is more than the server's CPUs, when the memory does not fit, or
-/// when the database, libvirt or Docker cannot be read.
-#[instrument(skip(db, qemu_conn, docker, settings, nodes), fields(%lab_id))]
+/// Fails with [`ServiceError::CpuPinsHeld`] when another node holds host CPUs the nodes pin,
+/// and with `InsufficientMemory` when their memory does not fit. Fails too when the pins name
+/// host CPUs or NUMA nodes the server does not have, when a container's CPU quota is more than
+/// the server's CPUs, or when the database, libvirt or Docker cannot be read.
+///
+/// [`ServiceError::CpuPinsHeld`]: crate::services::error::ServiceError::CpuPinsHeld
+#[instrument(skip(db, qemu_conn, docker, requester, settings, nodes), fields(username = %requester.username, %lab_id))]
 pub async fn admit_lab_nodes(
     db: &db::Database,
     qemu_conn: &Connect,
     docker: &Docker,
+    requester: &AuthContext,
     settings: HostMemorySettings,
     lab_id: &str,
     nodes: &[(&topology::NodeExpanded, &NodeConfig)],
@@ -101,51 +122,96 @@ pub async fn admit_lab_nodes(
     let requests = lab_requests(lab_id, nodes);
     let _queue = queue().lock().await;
     let pending = pending_entries();
-    let pending_pins: Vec<PendingPins> = pending
-        .iter()
-        .filter_map(|entry| {
-            entry.request.pins.clone().map(|pins| PendingPins {
-                domain: entry.request.domain.clone(),
-                pins,
-            })
-        })
-        .collect();
     let expanded: Vec<&topology::NodeExpanded> = nodes.iter().map(|(node, _)| *node).collect();
-    check_cpu_pins_on_server(db, qemu_conn, lab_id, &expanded, &pending_pins)
-        .await
-        .context("CPU pinning validation failed")?;
+    let shared_cpus = check_cpu_pins_on_server(
+        db,
+        qemu_conn,
+        requester,
+        lab_id,
+        &expanded,
+        &pending_pins(&pending),
+    )
+    .await
+    .context("CPU pinning validation failed")?;
     check_container_quotas(qemu_conn, nodes)?;
     if requests.iter().any(|request| request.memory.is_some()) {
         let guests = guest_memory(qemu_conn, docker).await?;
         check_memory(qemu_conn, settings, &requests, &pending, &guests)?;
     }
-    Ok(record(requests))
+    warn_shared_cpus(lab_id, &shared_cpus);
+    Ok(record(requests, shared_cpus))
 }
 
-/// Admit the stopped nodes among `node_names` of lab `lab_id` to be started again: VMs,
-/// unikernels and containers with a memory limit. Running and paused ones already hold their
-/// memory, and their pins stay stored while they are stopped, so only the memory of stopped
-/// ones is checked.
+/// Admit the stopped nodes among `nodes` of lab `lab_id` to be started again for `requester`:
+/// VMs, unikernels and containers with a memory limit. Running and paused ones already hold
+/// their memory, and the pins of all of them stay stored while they are stopped, so only the
+/// memory of stopped ones is checked. Their stored pins are refused nothing: an overlap with
+/// another node's, against the rules, is returned as a warning.
 ///
 /// # Errors
 ///
-/// Fails when their memory does not fit in the server's, or libvirt or Docker cannot be read.
-#[instrument(skip(qemu_conn, docker, settings, node_names), fields(%lab_id))]
+/// Fails when their memory does not fit in the server's, or the database, libvirt or Docker
+/// cannot be read.
+#[instrument(skip(db, qemu_conn, docker, requester, settings, nodes), fields(username = %requester.username, %lab_id))]
 pub async fn admit_stopped_nodes(
+    db: &db::Database,
     qemu_conn: &Connect,
     docker: &Docker,
+    requester: &AuthContext,
     settings: HostMemorySettings,
     lab_id: &str,
-    node_names: &[&str],
+    nodes: &[DbNode],
 ) -> Result<Admission> {
     let _queue = queue().lock().await;
     let pending = pending_entries();
     let guests = guest_memory(qemu_conn, docker).await?;
-    let requests = stopped_requests(lab_id, node_names, &guests);
+    let node_names: Vec<&str> = nodes.iter().map(|node| node.name.as_str()).collect();
+    let requests = stopped_requests(lab_id, &node_names, &guests);
     if !requests.is_empty() {
         check_memory(qemu_conn, settings, &requests, &pending, &guests)?;
     }
-    Ok(record(requests))
+    let started: Vec<NodeCpuPins> = nodes
+        .iter()
+        .filter(|node| {
+            requests
+                .iter()
+                .any(|request| request.domain == domain_name(&node.name, lab_id))
+        })
+        .map(stored_pins)
+        .collect();
+    // Only stored pins are compared: the nodes' own are stored, so any overlap is carried.
+    let shared_cpus = check_cpu_pins_free(db, requester, lab_id, &started, &[]).await?;
+    warn_shared_cpus(lab_id, &shared_cpus);
+    Ok(record(requests, shared_cpus))
+}
+
+/// The pins stored on `node`.
+fn stored_pins(node: &DbNode) -> NodeCpuPins {
+    NodeCpuPins {
+        node_name: node.name.clone(),
+        vcpu_cpus: node.cpu_pinning.clone().unwrap_or_default(),
+        qemu_thread_cpus: node.qemu_thread_cpus.clone().unwrap_or_default(),
+    }
+}
+
+/// The pins of the nodes in the ledger.
+fn pending_pins(pending: &[Pending]) -> Vec<PendingPins> {
+    pending
+        .iter()
+        .filter_map(|entry| {
+            entry.request.pins.clone().map(|pins| PendingPins {
+                lab_id: entry.request.lab_id.clone(),
+                pins,
+            })
+        })
+        .collect()
+}
+
+/// Log each overlap the admitted nodes' stored pins already had.
+fn warn_shared_cpus(lab_id: &str, shared_cpus: &[String]) {
+    for warning in shared_cpus {
+        tracing::warn!(%lab_id, "{warning}");
+    }
 }
 
 /// The memory of every guest on the server, running or not: libvirt's domains, and Docker's
@@ -248,6 +314,7 @@ fn lab_requests(lab_id: &str, nodes: &[(&topology::NodeExpanded, &NodeConfig)]) 
                     numa_node,
                 });
             Request {
+                lab_id: lab_id.to_string(),
                 domain: domain_name(&node.name, lab_id),
                 memory,
                 pins: Some(pins).filter(|pins| !pins.is_empty()),
@@ -271,6 +338,7 @@ fn stopped_requests(lab_id: &str, node_names: &[&str], domains: &[DomainMemory])
                     memory_mib: found.memory_kib.div_ceil(1024),
                     numa_node: found.strict_numa_node,
                 }),
+                lab_id: lab_id.to_string(),
                 domain,
                 pins: None,
             })
@@ -327,7 +395,7 @@ fn pending_entries() -> Vec<Pending> {
 }
 
 /// Put `requests` in the ledger under a new ticket.
-fn record(requests: Vec<Request>) -> Admission {
+fn record(requests: Vec<Request>, shared_cpus: Vec<String>) -> Admission {
     let ticket = NEXT_TICKET.fetch_add(1, Ordering::Relaxed);
     ledger()
         .lock()
@@ -337,7 +405,10 @@ fn record(requests: Vec<Request>) -> Admission {
                 .into_iter()
                 .map(|request| Pending { ticket, request }),
         );
-    Admission { ticket }
+    Admission {
+        ticket,
+        shared_cpus,
+    }
 }
 
 #[cfg(test)]
@@ -352,6 +423,7 @@ mod tests {
     };
     use libvirt::Qemu;
     use shared::data::{ContainerNetworkAttachment, NodeCpu, NodeModel, NodeNuma, NumaMemoryMode};
+    use shared::error::CpuPinRole;
 
     fn running(name: &str, mib: u64, numa_node: Option<u32>) -> DomainMemory {
         DomainMemory {
@@ -364,6 +436,7 @@ mod tests {
 
     fn request(domain: &str, mib: Option<u64>) -> Request {
         Request {
+            lab_id: "lab1".to_string(),
             domain: domain.to_string(),
             memory: mib.map(|memory_mib| MemoryClaim {
                 name: "node".to_string(),
@@ -379,6 +452,11 @@ mod tests {
             ticket,
             request: request(domain, mib),
         }
+    }
+
+    /// An admin, who sees every holder named.
+    fn requester() -> AuthContext {
+        AuthContext::new("tester".to_string(), true, "session".to_string())
     }
 
     fn names(claims: &[MemoryClaim]) -> Vec<&str> {
@@ -599,8 +677,8 @@ mod tests {
 
     #[test]
     fn dropping_an_admission_releases_only_its_nodes() {
-        let first = record(vec![request("ledger-test-a", Some(1))]);
-        let second = record(vec![request("ledger-test-b", Some(1))]);
+        let first = record(vec![request("ledger-test-a", Some(1))], Vec::new());
+        let second = record(vec![request("ledger-test-b", Some(1))], Vec::new());
         let domains = |entries: Vec<Pending>| -> Vec<String> {
             entries
                 .into_iter()
@@ -704,6 +782,7 @@ mod tests {
             &db,
             &conn,
             &docker,
+            &requester(),
             settings,
             "admtest1",
             &[(&first, &image)],
@@ -714,6 +793,7 @@ mod tests {
             &db,
             &conn,
             &docker,
+            &requester(),
             settings,
             "admtest2",
             &[(&second, &image)],
@@ -745,6 +825,7 @@ mod tests {
             &db,
             &conn,
             &docker,
+            &requester(),
             settings,
             "admtest2",
             &[(&second, &image)],
@@ -782,6 +863,7 @@ mod tests {
             &db,
             &conn,
             &docker,
+            &requester(),
             settings,
             "pintest1",
             &[(&first, &image)],
@@ -792,6 +874,7 @@ mod tests {
             &db,
             &conn,
             &docker,
+            &requester(),
             settings,
             "pintest2",
             &[(&second, &image)],
@@ -804,7 +887,11 @@ mod tests {
             "{message}"
         );
         assert!(
-            message.contains("being created by another operation"),
+            matches!(
+                ServiceError::find(&refused),
+                Some(ServiceError::CpuPinsHeld { conflict, .. })
+                    if conflict.host_cpus == [0] && conflict.held_role == CpuPinRole::Vcpu
+            ),
             "{message}"
         );
 
@@ -813,6 +900,7 @@ mod tests {
             &db,
             &conn,
             &docker,
+            &requester(),
             settings,
             "pintest2",
             &[(&second, &image)],
@@ -844,9 +932,17 @@ mod tests {
             .collect();
         let admitted: Vec<(&topology::NodeExpanded, &NodeConfig)> =
             nodes.iter().map(|node| (node, &image)).collect();
-        let refused = admit_lab_nodes(&db, &conn, &docker, settings, "ctrtest1", &admitted)
-            .await
-            .unwrap_err();
+        let refused = admit_lab_nodes(
+            &db,
+            &conn,
+            &docker,
+            &requester(),
+            settings,
+            "ctrtest1",
+            &admitted,
+        )
+        .await
+        .unwrap_err();
         let message = format!("{refused:#}");
         assert!(
             matches!(
@@ -921,6 +1017,7 @@ mod tests {
             &db,
             &conn,
             &docker,
+            &requester(),
             settings,
             "ctrtest2",
             &[(&node, &image)],
@@ -941,6 +1038,7 @@ mod tests {
             &db,
             &conn,
             &docker,
+            &requester(),
             settings,
             "ctrtest2",
             &[(&node, &image)],
@@ -948,5 +1046,112 @@ mod tests {
         .await
         .unwrap();
         drop(admitted);
+    }
+
+    /// A VM pinning vCPU host CPU 0, the CPU every server has.
+    fn pinned_vm(name: &str) -> topology::NodeExpanded {
+        topology::NodeExpanded {
+            name: name.to_string(),
+            memory: Some(256),
+            cpu: NodeCpu {
+                pinning: Some(vec![0]),
+                ..NodeCpu::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    /// Against the real libvirt: many labs asking at once for the same host CPU, on one
+    /// database. Exactly one is admitted, and every other is refused with the pin refusal.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "requires a libvirt daemon and a Docker daemon"]
+    async fn of_many_concurrent_requests_for_the_same_cpu_exactly_one_is_admitted() {
+        let db = Arc::new(db::open_in_memory().await.unwrap());
+        db::apply_schema(&db).await.unwrap();
+        let mut requests = Vec::new();
+        for index in 0..8 {
+            let db = db.clone();
+            requests.push(tokio::spawn(async move {
+                let conn = Qemu::default().connect().unwrap();
+                let docker = docker_connection().unwrap();
+                let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+                let node = pinned_vm("vm");
+                admit_lab_nodes(
+                    &db,
+                    &conn,
+                    &docker,
+                    &requester(),
+                    HostMemorySettings::default(),
+                    &format!("race{index:04}"),
+                    &[(&node, &image)],
+                )
+                .await
+            }));
+        }
+        let mut admitted = Vec::new();
+        let mut refused = 0;
+        for request in requests {
+            match request.await.unwrap() {
+                Ok(admission) => admitted.push(admission),
+                Err(error) => {
+                    assert!(
+                        matches!(
+                            ServiceError::find(&error),
+                            Some(ServiceError::CpuPinsHeld { .. })
+                        ),
+                        "{error:#}"
+                    );
+                    refused += 1;
+                }
+            }
+        }
+        assert_eq!((admitted.len(), refused), (1, 7));
+    }
+
+    /// Against the real libvirt: requests that queue behind a held admission are answered in
+    /// the order they arrived, so the first of several asking for the same CPU is the one
+    /// admitted.
+    #[tokio::test]
+    #[ignore = "requires a libvirt daemon and a Docker daemon"]
+    async fn requests_are_admitted_in_arrival_order() {
+        let db = Arc::new(db::open_in_memory().await.unwrap());
+        db::apply_schema(&db).await.unwrap();
+        let answered = Arc::new(Mutex::new(Vec::new()));
+        let held = queue().lock().await;
+        let mut waiters = Vec::new();
+        for index in 0..3 {
+            let db = db.clone();
+            let answered = answered.clone();
+            waiters.push(tokio::spawn(async move {
+                let conn = Qemu::default().connect().unwrap();
+                let docker = docker_connection().unwrap();
+                let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+                let node = pinned_vm("vm");
+                let result = admit_lab_nodes(
+                    &db,
+                    &conn,
+                    &docker,
+                    &requester(),
+                    HostMemorySettings::default(),
+                    &format!("fifo{index:04}"),
+                    &[(&node, &image)],
+                )
+                .await;
+                answered.lock().unwrap().push((index, result.is_ok()));
+                result.ok()
+            }));
+            // Let each request reach the queue before the next one.
+            tokio::task::yield_now().await;
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        drop(held);
+        let mut admissions = Vec::new();
+        for waiter in waiters {
+            admissions.push(waiter.await.unwrap());
+        }
+        assert_eq!(
+            *answered.lock().unwrap(),
+            [(0, true), (1, false), (2, false)]
+        );
     }
 }
