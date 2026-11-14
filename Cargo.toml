@@ -2,7 +2,6 @@
 # Workspace crates keep line tables, so panics and backtraces still show file and line; a
 # debugger shows no local variables. CARGO_PROFILE_DEV_DEBUG=true gives workspace crates full
 # debug info for a session.
-# Measurements: #583.
 [profile.dev]
 incremental = true
 opt-level = 0
@@ -14,7 +13,7 @@ debug = "line-tables-only"
 debug = false
 
 # Optimise the hashing and bignum crates behind Argon2 password hashing and RSA key generation.
-# At opt-level 0 they make the test run slow (318 s against 129 s in #583); at opt-level 3 they
+# At opt-level 0 they make the test run slow (318 s against 129 s when measured); at opt-level 3 they
 # cost no measurable build time. Each entry covers every version of the crate in Cargo.lock.
 # These are dev-only: release and dist build everything at opt-level 3 already.
 [profile.dev.package.argon2]
