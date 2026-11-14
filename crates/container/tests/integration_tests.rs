@@ -814,3 +814,134 @@ async fn a_missing_container_has_no_state() -> Result<()> {
     );
     Ok(())
 }
+
+// ============================================================================
+// Cisco IOL
+// ============================================================================
+
+/// The repo docker-cisco-iol builds the `cisco_iol` image as.
+const IOL_REPO: &str = "localrepo/cisco_iol";
+
+/// A `localrepo/cisco_iol` image, or `None` without one. The image is built from the user's
+/// own CML image, so the IOL tests are skipped where there is none.
+async fn iol_image(docker: &Docker) -> Result<Option<String>> {
+    Ok(get_local_images(docker, Some(IOL_REPO))
+        .await?
+        .into_iter()
+        .next())
+}
+
+/// Whether `address` answers a ping from the host within `attempts` seconds or so.
+async fn answers_ping(address: &str, attempts: u32) -> bool {
+    for _ in 0..attempts {
+        let answered = std::process::Command::new("ping")
+            .args(["-c", "1", "-W", "1", address])
+            .output()
+            .is_ok_and(|output| output.status.success());
+        if answered {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    false
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon and a localrepo/cisco_iol image built by docker-cisco-iol"]
+async fn iol_runs_unprivileged_owns_its_management_address_and_relays_its_interfaces() -> Result<()>
+{
+    let docker = docker_connection()?;
+    let Some(image) = iol_image(&docker).await? else {
+        eprintln!("skipped: no {IOL_REPO} image");
+        return Ok(());
+    };
+    let name = "sherpa-test-iol";
+    let net = TestNet::new("iol", 40);
+    let data_net = TestNet::new("iol-data", 41);
+    cleanup(&docker, name, &net.name).await;
+    let _ = delete_network(&docker, &data_net.name).await;
+    create_test_network(&docker, &net).await?;
+    create_test_network(&docker, &data_net).await?;
+
+    let config_dir = std::env::temp_dir().join(format!("sherpa-test-iol-{}", std::process::id()));
+    std::fs::create_dir_all(&config_dir)?;
+    std::fs::write(
+        config_dir.join("ios_config.txt"),
+        "hostname iol-test\n\
+         ip domain name test.local\n\
+         interface Ethernet0/0\n \
+         ip address 192.168.240.10 255.255.255.0\n \
+         no shutdown\n\
+         !\n\
+         line con 0\n \
+         logging synchronous\n\
+         !\n\
+         end\n",
+    )?;
+
+    let checks: Result<()> = async {
+        let running = run_container(
+            &docker,
+            ContainerSpec {
+                name: name.to_string(),
+                image: image.clone(),
+                env_vars: vec![
+                    "IOL_ID=7".to_string(),
+                    "IOL_MEMORY_MB=768".to_string(),
+                    "IOL_ETH_PORTS=4".to_string(),
+                ],
+                volumes: vec![format!("{}:/config:ro", config_dir.display())],
+                capabilities: vec!["NET_ADMIN".to_string()],
+                management_network: ContainerNetworkAttachment {
+                    ipv4_address: Some("192.168.240.10".to_string()),
+                    ..test_network(&net.name)
+                },
+                additional_networks: vec![ContainerNetworkAttachment {
+                    linux_interface_name: Some("eth1".to_string()),
+                    ..test_network(&data_net.name)
+                }],
+                commands: vec![],
+                privileged: false,
+                shm_size: None,
+                user: None,
+                memory_mib: Some(768 + 128),
+                cpu_count: Some(1),
+            },
+        )
+        .await?;
+        ensure!(running, "{image} is not running");
+
+        // The entrypoint takes Docker's address off eth0, so only IOL answers for it.
+        exec_container_with_retry(
+            &docker,
+            name,
+            vec!["sh", "-c", "! ip -4 addr show dev eth0 | grep -q inet"],
+            10,
+            Duration::from_secs(1),
+        )
+        .await?;
+        exec_container_with_retry(
+            &docker,
+            name,
+            vec![
+                "sh",
+                "-c",
+                "grep -q 'eth0 attached' /tmp/iol-bridge.log && \
+                 grep -q 'eth1 attached' /tmp/iol-bridge.log",
+            ],
+            10,
+            Duration::from_secs(1),
+        )
+        .await?;
+        ensure!(
+            answers_ping("192.168.240.10", 240).await,
+            "IOL did not answer on its management address"
+        );
+        Ok(())
+    }
+    .await;
+    cleanup(&docker, name, &net.name).await;
+    let _ = delete_network(&docker, &data_net.name).await;
+    let _ = std::fs::remove_dir_all(&config_dir);
+    checks
+}

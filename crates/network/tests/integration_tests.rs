@@ -16,9 +16,10 @@ use std::time::Duration;
 use anyhow::Result;
 
 use network::{
-    NetemRemoval, NetnsVethState, apply_netem, attach_p2p_redirect, create_bridge, create_tap,
-    create_veth_in_netns, create_veth_pair, delete_interface, enslave_to_bridge, find_ifindex,
-    get_ifindex, list_interface_names, remove_netem, set_link_down, sync_netem, update_netem,
+    NetemRemoval, NetnsVethState, apply_netem, attach_p2p_redirect, container_veth_peer_ifindex,
+    create_bridge, create_tap, create_veth_in_netns, create_veth_pair, delete_interface,
+    disable_tx_checksum_offload, enslave_to_bridge, find_ifindex, get_ifindex,
+    list_interface_names, remove_netem, set_link_down, sync_netem, update_netem,
 };
 use shared::data::LinkImpairment;
 
@@ -1224,5 +1225,82 @@ async fn test_create_veth_in_netns_with_host_end_taken_fails() -> Result<()> {
         "nothing should be created in the namespace"
     );
     delete_interface(host).await?;
+    Ok(())
+}
+
+// ============================================================================
+// Transmit checksum offload
+// ============================================================================
+
+/// The state of feature `feature` in `ethtool -k <iface>`, such as `on` or `off [fixed]`.
+fn ethtool_feature(iface: &str, feature: &str) -> String {
+    let output = Command::new("ethtool")
+        .args(["-k", iface])
+        .output()
+        .expect("ethtool command failed");
+    let prefix = format!("{feature}: ");
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(&prefix).map(str::to_owned))
+        .unwrap_or_default()
+}
+
+#[tokio::test]
+#[ignore = "requires root or CAP_NET_ADMIN"]
+async fn test_disable_tx_checksum_offload_turns_off_checksum_and_segmentation_offload() -> Result<()>
+{
+    let host = "st-csum-a";
+    let peer = "st-csum-b";
+    cleanup_interface(host).await;
+    create_veth_pair(host, peer, "test-csum-host", "test-csum-peer").await?;
+    assert!(ethtool_feature(host, "tx-checksum-ip-generic").starts_with("on"));
+
+    let ifindex = get_ifindex(host).await?;
+    disable_tx_checksum_offload(ifindex)?;
+    assert!(ethtool_feature(host, "tx-checksum-ip-generic").starts_with("off"));
+    assert!(ethtool_feature(host, "tcp-segmentation-offload").starts_with("off"));
+    // Only the end it was asked for.
+    assert!(ethtool_feature(peer, "tx-checksum-ip-generic").starts_with("on"));
+
+    // Again, with it off already, changes nothing.
+    disable_tx_checksum_offload(ifindex)?;
+    assert!(ethtool_feature(host, "tx-checksum-ip-generic").starts_with("off"));
+
+    delete_interface(host).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires root or CAP_NET_ADMIN"]
+async fn test_disable_tx_checksum_offload_of_a_missing_interface_fails() -> Result<()> {
+    let result = disable_tx_checksum_offload(u32::MAX - 1);
+    assert!(result.is_err(), "expected an error, got {result:?}");
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires root or CAP_NET_ADMIN"]
+async fn test_container_veth_peer_ifindex_is_the_host_end() -> Result<()> {
+    let container = NetnsHolder::start();
+    let host = "st-peer-host";
+    cleanup_interface(host).await;
+    create_veth_in_netns(
+        host,
+        "test-peer-host",
+        "eth0",
+        container.pid(),
+        NetnsVethState::Enabled,
+    )
+    .await?;
+
+    let peer = container_veth_peer_ifindex(container.pid(), "eth0").await;
+    let expected = get_ifindex(host).await?;
+    delete_interface(host).await?;
+    assert_eq!(peer?, expected);
+    assert!(
+        container_veth_peer_ifindex(container.pid(), "eth9")
+            .await
+            .is_err()
+    );
     Ok(())
 }

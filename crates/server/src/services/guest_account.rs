@@ -122,6 +122,8 @@ fn key_rules(model: NodeModel) -> KeyRules {
         // IOS `key-hash` and IOS XE take RSA only, two keys per user.
         NodeModel::CiscoIosv
         | NodeModel::CiscoIosvl2
+        | NodeModel::CiscoIol
+        | NodeModel::CiscoIoll2
         | NodeModel::CiscoCsr1000v
         | NodeModel::CiscoCat8000v
         | NodeModel::CiscoCat9000v => (AcceptedKeys::Only(RSA_KEY), 2),
@@ -674,6 +676,8 @@ mod tests {
             NodeModel::ArubaAoscx,
             NodeModel::CiscoIosv,
             NodeModel::CiscoIosvl2,
+            NodeModel::CiscoIol,
+            NodeModel::CiscoIoll2,
             NodeModel::CiscoCsr1000v,
             NodeModel::CiscoCat8000v,
             NodeModel::CiscoCat9000v,
@@ -783,6 +787,8 @@ mod tests {
                             | NodeModel::NokiaSrlinux
                             | NodeModel::FrrLinux
                             | NodeModel::JuniperCevolved
+                            | NodeModel::CiscoIol
+                            | NodeModel::CiscoIoll2
                     )
             }
             NodeKind::Unikernel => false,
@@ -874,6 +880,21 @@ mod tests {
         );
         assert!(error.contains("'ssh-keygen -t rsa -b 4096'"), "{error}");
         assert!(error.contains(SSH_KEYS_DOCS_URL), "{error}");
+    }
+
+    #[test]
+    fn iol_takes_rsa_keys_only_as_ios_key_hashes_do() {
+        for model in [NodeModel::CiscoIol, NodeModel::CiscoIoll2] {
+            let image = NodeConfig::get_model(model);
+            let node_account =
+                node_account(&account(&[KEY, RSA_KEY, ECDSA_KEY]), "r1", &image).unwrap();
+            assert_eq!(node_account.account.ssh_keys, vec![RSA_KEY], "{model}");
+            assert_eq!(
+                node_account.skipped_keys,
+                vec!["ssh-ed25519", "ecdsa-sha2-nistp256"],
+                "{model}"
+            );
+        }
     }
 
     #[test]

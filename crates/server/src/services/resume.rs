@@ -129,8 +129,8 @@ pub async fn start_lab_nodes(
 
     for node in &target_nodes {
         let device_name = format!("{}-{}", node.name, lab_id);
-        let kind = match startable_kind(node, &node_images) {
-            Ok(kind) => kind,
+        let (kind, model) = match startable_image(node, &node_images) {
+            Ok(image) => (image.kind.clone(), image.model),
             Err(refused) => {
                 immediate_results.push(refused);
                 continue;
@@ -146,7 +146,7 @@ pub async fn start_lab_nodes(
                 NodeKind::VirtualMachine | NodeKind::Unikernel => {
                     start_vm(&device_name, &state).await
                 }
-                NodeKind::Container => start_container_node(&device_name, &state).await,
+                NodeKind::Container => start_container_node(&device_name, model, &state).await,
             };
 
             (outcome, node_name, node_id, kind)
@@ -555,27 +555,26 @@ fn start_step(runtime: Runtime, what: &str) -> Result<StartStep, String> {
     }
 }
 
-/// The kind of `node`, from its image, if it may be started: or the result that says why not,
-/// for a node with no image, or one whose state does not allow a start.
-fn startable_kind(
+/// The image of `node`, if it may be started: or the result that says why not, for a node with
+/// no image, or one whose state does not allow a start.
+fn startable_image<'a>(
     node: &data::DbNode,
-    node_images: &[data::NodeConfig],
-) -> Result<NodeKind, NodeActionResult> {
+    node_images: &'a [data::NodeConfig],
+) -> Result<&'a data::NodeConfig, NodeActionResult> {
     let refused = |message: String| NodeActionResult {
         name: node.name.clone(),
         success: false,
         message,
         links: Vec::new(),
     };
-    let kind = node_images
+    let image = node_images
         .iter()
         .find(|image| image.id.as_ref() == Some(&node.image))
-        .map(|image| image.kind.clone())
         .ok_or_else(|| refused("Node image not found in database".to_string()))?;
     node.state
         .on_operation(OperationEvent::Launched)
         .map_err(|refusal| refused(format!("Cannot start: {refusal}")))?;
-    Ok(kind)
+    Ok(image)
 }
 
 /// Record what starting each node did, add each node's result to `results`, and return the
@@ -657,7 +656,13 @@ async fn start_vm(device_name: &str, state: &AppState) -> StartOutcome {
     }
 }
 
-async fn start_container_node(device_name: &str, state: &AppState) -> StartOutcome {
+/// Start a stopped container, or unpause a paused one. A cold-booted container has a new
+/// management veth, which some models need checksum offload off on.
+async fn start_container_node(
+    device_name: &str,
+    model: data::NodeModel,
+    state: &AppState,
+) -> StartOutcome {
     // As for VMs, a running node is left alone and a stopped one is started.
     let status = match container::container_status(&state.docker, device_name).await {
         Ok(status) => status,
@@ -670,10 +675,15 @@ async fn start_container_node(device_name: &str, state: &AppState) -> StartOutco
                 Err(e) => StartOutcome::Failed(format!("Failed to unpause: {e:#}")),
             }
         }
-        Ok(StartStep::Boot) => match container::start_container(&state.docker, device_name).await {
-            Ok(()) => StartOutcome::ColdBooted,
-            Err(e) => StartOutcome::Failed(format!("Failed to start: {e:#}")),
-        },
+        Ok(StartStep::Boot) => {
+            if let Err(e) = container::start_container(&state.docker, device_name).await {
+                return StartOutcome::Failed(format!("Failed to start: {e:#}"));
+            }
+            match node_ops::finish_management_checksums(&state.docker, device_name, model).await {
+                Ok(()) => StartOutcome::ColdBooted,
+                Err(e) => StartOutcome::Failed(format!("{e:#}")),
+            }
+        }
         Ok(StartStep::Nothing) => StartOutcome::AlreadyRunning,
         Err(reason) => StartOutcome::Failed(reason),
     }

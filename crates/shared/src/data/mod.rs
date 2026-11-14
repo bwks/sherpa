@@ -72,7 +72,7 @@ pub use import::{
 pub use inspect::{BridgeInfo, DeviceInfo, InspectRequest, InspectResponse, LinkInfo};
 pub use interface::{
     AristaCeosInt, AristaVeosInt, ArubaAoscxInt, CiscoAsavInt, CiscoCat8000vInt, CiscoCat9000vInt,
-    CiscoCsr1000vInt, CiscoFtdvInt, CiscoIosvInt, CiscoIosvl2Int, CiscoIosxrv9000Int,
+    CiscoCsr1000vInt, CiscoFtdvInt, CiscoIolInt, CiscoIosvInt, CiscoIosvl2Int, CiscoIosxrv9000Int,
     CiscoNexus9300vInt, ConnectionTypes, CumulusLinuxInt, EthernetInt, Interface, InterfaceTrait,
     JuniperCevolvedInt, JuniperVevolvedInt, JuniperVrouterInt, JuniperVsrxv3Int, JuniperVswitchInt,
     MgmtInterfaces, MikrotikChrInt, NokiaSrlinuxInt, PaloaltoPanosInt,

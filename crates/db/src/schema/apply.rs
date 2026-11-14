@@ -218,6 +218,15 @@ mod tests {
     }
 
     /// What the migration to the one `ztp` column makes of a stored `(enable, method)` pair.
+    /// The models a database from before the one `ztp` setting can hold: every model but those
+    /// added since, which migration `0016` does not name.
+    fn models_before_the_ztp_setting() -> Vec<NodeModel> {
+        NodeModel::to_vec()
+            .into_iter()
+            .filter(|model| !matches!(model, NodeModel::CiscoIol | NodeModel::CiscoIoll2))
+            .collect()
+    }
+
     fn migrated_ztp(model: NodeModel, enable: bool, method: &str) -> Ztp {
         let image = NodeConfig::get_model(model);
         if !enable {
@@ -902,7 +911,7 @@ mod tests {
     async fn apply_schema_folds_every_ztp_pair_into_the_one_setting() {
         // A version 15 database, before the one `ztp` column.
         let db = database_at(14).await;
-        for model in NodeModel::to_vec() {
+        for model in models_before_the_ztp_setting() {
             for enable in [false, true] {
                 for method in OLD_ZTP_METHODS {
                     let mut image = NodeConfig::get_model(model);
@@ -917,7 +926,7 @@ mod tests {
         assert_eq!(version(&db).await, SCHEMA_VERSION);
 
         let images = list_node_images(&db).await.unwrap();
-        assert_eq!(images.len(), NodeModel::to_vec().len() * 22);
+        assert_eq!(images.len(), models_before_the_ztp_setting().len() * 22);
         for image in images {
             let (enable, method) = image.version.split_once('-').unwrap();
             let expected = migrated_ztp(image.model, enable == "true", method);
@@ -935,7 +944,7 @@ mod tests {
         // The pairs the model defaults of the release before stored: enabled with the model's
         // method, `none` for every container, and off for unikernels.
         let db = database_at(14).await;
-        for model in NodeModel::to_vec() {
+        for model in models_before_the_ztp_setting() {
             let mut image = NodeConfig::get_model(model);
             image.default = false;
             let (enable, method) = match image.kind {

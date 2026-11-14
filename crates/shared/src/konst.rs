@@ -413,6 +413,27 @@ pub const CONTAINER_NOKIA_SRLINUX_COMMANDS: &[&str] = &["bash", "/opt/srlinux/bi
 
 pub const CONTAINER_ARISTA_CEOS_REPO: &str = "localrepo/arista_ceos";
 
+/// A container's management interface, the one Docker attaches to the management network.
+pub const CONTAINER_MGMT_INTERFACE: &str = "eth0";
+
+pub const CONTAINER_CISCO_IOL_REPO: &str = "localrepo/cisco_iol";
+pub const CONTAINER_CISCO_IOLL2_REPO: &str = "localrepo/cisco_ioll2";
+/// Docker's default capabilities run the IOL launcher; the entrypoint also removes Docker's
+/// address from `eth0`, which IOL owns.
+pub const CONTAINER_CISCO_IOL_CAPABILITIES: &[&str] = &["NET_ADMIN"];
+/// The directory the IOL launcher reads the startup config from.
+pub const CISCO_IOL_CONFIG_DIR: &str = "/config";
+/// The startup config's name in `CISCO_IOL_CONFIG_DIR`.
+pub const CISCO_IOL_STARTUP_CONFIG: &str = "ios_config.txt";
+/// IOL's NVRAM directory, kept in the node's lab folder so a saved config survives a cold boot.
+pub const CISCO_IOL_RUN_DIR: &str = "/tmp/run";
+/// The memory, in MiB, an IOL container needs beyond IOL's own (its `-m`) for the launcher and
+/// the bridge: its Docker memory limit is IOL's memory plus this.
+pub const CISCO_IOL_CONTAINER_OVERHEAD_MIB: u16 = 128;
+/// The highest IOL application ID Sherpa gives a node. IOL derives its MAC addresses from the
+/// ID, and the launcher takes 1000 for itself.
+pub const CISCO_IOL_MAX_APP_ID: u16 = 999;
+
 pub const CONTAINER_JUNIPER_CEVOLVED_REPO: &str = "localrepo/juniper_cevolved";
 /// The directory the cJunosEvolved entrypoint reads a startup `juniper.conf` from.
 pub const JUNIPER_CEVOLVED_CONFIG_DIR: &str = "/home/evo/configdisk";

@@ -1,0 +1,60 @@
+!
+hostname {{ hostname }}
+ip domain name {{ dns.domain }}
+{%- for server in dns.name_servers %}
+ip name-server {{ server.ipv4_address }}
+{%- endfor %}
+!
+aaa new-model
+aaa authentication login default local
+aaa authorization exec default local
+!
+username {{ user.username }} privilege 15{% if let Some(password) = user.password %} secret {{ password }}{% endif %}
+{%- if let Some(owner) = owner %}
+username {{ owner.username }} privilege 15 secret {{ owner.secret }}
+{%- endif %}
+!
+ip ssh pubkey-chain
+  username {{ user.username }}
+   key-hash {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
+{%- if let Some(owner) = owner %}
+  username {{ owner.username }}
+{%- for key in owner.ssh_keys %}
+   key-hash {{ key.kind }} {{ key.value }}
+{%- endfor %}
+{%- endif %}
+!
+crypto key generate rsa modulus 2048
+ip ssh version 2
+ip scp server enable
+{%- if switch %}
+!
+{#- The management port is routed, and the default route needs routing on. #}
+ip routing
+{%- endif %}
+!
+interface {{ mgmt_interface }}
+ description management
+{%- if switch %}
+ no switchport
+{%- endif %}
+ ip address {{ mgmt_ipv4_address }} {{ mgmt_ipv4.subnet_mask }}
+{%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
+ ipv6 address {{ mgmt_ipv6_address }}/{{ mgmt_ipv6.prefix_length }}
+{%- endif %}{% endif %}
+ no shutdown
+!
+ip route 0.0.0.0 0.0.0.0 {{ mgmt_ipv4.first }}
+{%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
+ipv6 unicast-routing
+ipv6 route ::/0 {{ mgmt_ipv6.first }}
+{%- endif %}{% endif %}
+!
+line con 0
+ logging synchronous
+!
+line vty 0 4
+ logging synchronous
+ transport input ssh
+!
+end

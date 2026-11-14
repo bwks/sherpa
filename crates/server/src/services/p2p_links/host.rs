@@ -33,7 +33,8 @@ pub(crate) trait LinkHost {
     async fn container_pid(&self, container: &str) -> Result<u32>;
 
     /// Make `veth` in the network namespace of process `pid`, and join its host end to its
-    /// bridge, if it has one.
+    /// bridge, if it has one. For a model whose container needs finished checksums, transmit
+    /// checksum offload goes off on the host end.
     async fn create_veth(&self, veth: &ContainerVeth, pid: u32) -> Result<()>;
 }
 
@@ -83,6 +84,15 @@ impl LinkHost for KernelHost<'_> {
             .with_context(|| {
                 format!("failed to create interface {target_name} in the container")
             })?;
+        if veth.node_model.needs_host_checksums() {
+            let ifindex = network::get_ifindex(&veth.host_veth).await?;
+            network::disable_tx_checksum_offload(ifindex).with_context(|| {
+                format!(
+                    "failed to turn transmit checksum offload off on {}",
+                    veth.host_veth
+                )
+            })?;
+        }
         if let Some(bridge_name) = &veth.bridge {
             network::enslave_to_bridge(&veth.host_veth, bridge_name).await?;
         }

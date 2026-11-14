@@ -127,6 +127,8 @@ pub enum MgmtInterfaces {
     Ether1, // ether1 - mikrotik chr
     #[serde(rename = "management")]
     Management, // management - paloalto panos
+    #[serde(rename = "Ethernet0/0")]
+    Ethernet0_0, // Ethernet0/0 - iol
 }
 impl fmt::Display for MgmtInterfaces {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -144,6 +146,7 @@ impl fmt::Display for MgmtInterfaces {
             MgmtInterfaces::MgmtEth0Rp0Cpu0_0 => write!(f, "MgmtEth0/RP0/CPU0/0"),
             MgmtInterfaces::Ether1 => write!(f, "ether1"),
             MgmtInterfaces::Management => write!(f, "management"),
+            MgmtInterfaces::Ethernet0_0 => write!(f, "Ethernet0/0"),
         }
     }
 }
@@ -516,6 +519,29 @@ interface_enum!(
         Gig3_1 => 13, "gig3/1",
         Gig3_2 => 14, "gig3/2",
         Gig3_3 => 15, "gig3/3"
+    ]
+);
+
+interface_enum!(
+    CiscoIolInt,
+    "CiscoIol",
+    [
+        Ethernet0_0 => 0, "Ethernet0/0",
+        Ethernet0_1 => 1, "Ethernet0/1",
+        Ethernet0_2 => 2, "Ethernet0/2",
+        Ethernet0_3 => 3, "Ethernet0/3",
+        Ethernet1_0 => 4, "Ethernet1/0",
+        Ethernet1_1 => 5, "Ethernet1/1",
+        Ethernet1_2 => 6, "Ethernet1/2",
+        Ethernet1_3 => 7, "Ethernet1/3",
+        Ethernet2_0 => 8, "Ethernet2/0",
+        Ethernet2_1 => 9, "Ethernet2/1",
+        Ethernet2_2 => 10, "Ethernet2/2",
+        Ethernet2_3 => 11, "Ethernet2/3",
+        Ethernet3_0 => 12, "Ethernet3/0",
+        Ethernet3_1 => 13, "Ethernet3/1",
+        Ethernet3_2 => 14, "Ethernet3/2",
+        Ethernet3_3 => 15, "Ethernet3/3"
     ]
 );
 

@@ -192,6 +192,36 @@ chosen by `node_ops::netns_veth_state`): up, but still with no carrier. Its cont
 named from `eth4`, since the image creates `eth1` to `eth3` itself
 (`util::container_interface_name`).
 
+### Transmit checksum offload
+
+A veth leaves the checksum of a TCP or UDP packet it sends for the "hardware" to fill in. A
+kernel stack in the container accepts that; a program that reads the interface through a packet
+socket gets the unfinished packet. Cisco IOL reads its interfaces that way (through the bridge
+in the docker-cisco-iol image), so its TCP failed while ping worked.
+
+For a model whose `NodeModel::needs_host_checksums` is true (`cisco_iol`, `cisco_ioll2`),
+Sherpa turns transmit checksum offload off on the host end of every veth facing the container,
+so the kernel finishes the checksum before the veth sends the packet. Segmentation offload goes
+off with it. The other end of the link is unchanged: a redirected packet is sent on the IOL
+node's host end, whatever it came from.
+
+- P2p, disabled and bridge-member veths: `KernelHost::create_veth`, after the veth is made, so
+  `up`, redeploy, cold-boot resume and the scanner's repair all do it.
+- The management veth, which Docker makes at every start of the container:
+  `node_ops::finish_management_checksums` after `up` and redeploy start the container
+  (`start_container_node`) and after a cold-boot resume. Its host end is found from the
+  container's own sysfs (`network::container_veth_peer_ifindex`).
+- The change is made through the kernel's ethtool netlink family
+  (`network::disable_tx_checksum_offload`), with netlink-sys through rtnetlink.
+
+Not covered: a container restarted outside Sherpa gets its P2p veths back from the scanner, with
+offload off, but its new management veth keeps offload on until Sherpa next starts it. An IOL
+node on a private bridge with no P2p link takes its bridge interfaces as Docker macvlan
+interfaces, which have no host end to change.
+
+IOL's MTU is fixed at 1500, while Sherpa's veths are 9600. A Linux node linked to an IOL node
+must use MTU 1500 on that interface, or it advertises a larger TCP MSS and its TCP stalls.
+
 ### Teardown
 
 Host-side veths are cleaned up during lab destroy by matching the `tpa*`, `tpb*`, `cb*` and `cd*` prefixes via fuzzy interface search. Deleting a host end deletes its container end, and a container's ends go when its namespace does.
