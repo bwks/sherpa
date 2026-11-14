@@ -12,11 +12,12 @@ use super::host::{EndDevice, LinkHost};
 use super::transition::{End, EndAt, LinkStep, Side, step};
 use super::veths::{ContainerVeth, node_links};
 use crate::daemon::link_states::LinkStates;
+use crate::services::node_lifecycle::Runtimes;
 use crate::services::node_resources::domain_name;
 use crate::services::progress::ProgressSender;
 
 use shared::data::{
-    DbLink, DbNode, LinkImpairment, LinkReport, LinkState, NodeKind, RecordId, StatusKind,
+    DbLink, DbNode, LinkImpairment, LinkReport, LinkState, NodeKind, RecordId, Runtime, StatusKind,
 };
 
 /// The lab's links, and its nodes' names and kinds, as the database has them: what re-attach
@@ -132,6 +133,23 @@ impl LabLinks {
                 tap: iface.to_string(),
             },
         }
+    }
+
+    /// The lab's nodes that `runtimes` reports running. A node with no kind is taken as a
+    /// virtual machine.
+    ///
+    /// The scanner also leaves out a node an operation is building. This is called by an
+    /// operation that holds the lab, so no other builds a node meanwhile.
+    pub(crate) fn running(&self, runtimes: &Runtimes) -> HashSet<RecordId> {
+        self.names
+            .iter()
+            .filter(|(id, name)| {
+                let kind = self.kinds.get(*id).unwrap_or(&NodeKind::VirtualMachine);
+                runtimes.runtime_of(kind, &domain_name(name, &self.lab_id))
+                    == Some(Runtime::Running)
+            })
+            .map(|(id, _)| id.clone())
+            .collect()
     }
 
     /// The lab's links.
@@ -359,11 +377,13 @@ mod tests {
     use std::sync::Arc;
 
     use bollard::Docker;
+    use bollard::secret::ContainerStateStatusEnum;
     use libvirt::Qemu;
 
     use crate::services::p2p_links::KernelHost;
     use crate::services::p2p_links::fake::FakeHost;
     use shared::data::{BridgeKind, NodeKind, NodeModel, NodeState};
+    use virt::sys::{VIR_DOMAIN_PAUSED, VIR_DOMAIN_RUNNING};
 
     fn node(name: &str) -> DbNode {
         DbNode {
@@ -440,6 +460,35 @@ mod tests {
         LinkState::PeerDown {
             peer: peer.to_string(),
         }
+    }
+
+    #[test]
+    fn the_running_nodes_are_those_their_runtime_reports_running() {
+        let (_, lab) = lab();
+        let runtimes = Runtimes {
+            domains: Some(HashMap::from([
+                ("vm1-lab".to_string(), VIR_DOMAIN_RUNNING),
+                ("vm2-lab".to_string(), VIR_DOMAIN_PAUSED),
+                ("uk1-lab".to_string(), VIR_DOMAIN_RUNNING),
+            ])),
+            containers: Some(HashMap::from([(
+                "ctr1-lab".to_string(),
+                ContainerStateStatusEnum::RUNNING,
+            )])),
+        };
+        assert_eq!(
+            lab.running(&runtimes),
+            HashSet::from([id("vm1"), id("ctr1"), id("uk1")])
+        );
+        // A container named like a node of another kind is not that node.
+        let runtimes = Runtimes {
+            domains: Some(HashMap::new()),
+            containers: Some(HashMap::from([(
+                "vm1-lab".to_string(),
+                ContainerStateStatusEnum::RUNNING,
+            )])),
+        };
+        assert_eq!(lab.running(&runtimes), HashSet::new());
     }
 
     #[tokio::test]

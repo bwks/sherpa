@@ -16,11 +16,15 @@
 
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use bollard::Docker;
 use bollard::secret::ContainerStateStatusEnum;
-use shared::data::{DbNode, Halt, NodeState, Observation, OperationEvent, RecordId, Runtime};
+use libvirt::Qemu;
+use shared::data::{
+    DbNode, Halt, NodeKind, NodeState, Observation, OperationEvent, RecordId, Runtime,
+};
 use tracing::instrument;
 use virt::sys::{
     VIR_DOMAIN_BLOCKED, VIR_DOMAIN_CRASHED, VIR_DOMAIN_NOSTATE, VIR_DOMAIN_PAUSED,
@@ -28,6 +32,13 @@ use virt::sys::{
 };
 
 use crate::services::lab_operations::{LabOperation, ObservedLab};
+
+/// What libvirt and Docker reported in one query. A runtime that did not answer is `None`:
+/// unknown this time, not empty, as empty would make every one of its nodes missing.
+pub(crate) struct Runtimes {
+    pub(crate) domains: Option<HashMap<String, u32>>,
+    pub(crate) containers: Option<HashMap<String, ContainerStateStatusEnum>>,
+}
 
 /// How often a write that lost a race to another writer is tried again.
 const WRITE_ATTEMPTS: usize = 3;
@@ -97,6 +108,76 @@ pub async fn container_states(
     Ok(states)
 }
 
+impl Runtimes {
+    /// Whether both libvirt and Docker answered.
+    pub(crate) fn answered(&self) -> bool {
+        self.domains.is_some() && self.containers.is_some()
+    }
+
+    /// What the runtime reports for the node of `kind` whose domain or container is named
+    /// `runtime_name`, or `None` when its runtime was not queried.
+    pub(crate) fn runtime_of(&self, kind: &NodeKind, runtime_name: &str) -> Option<Runtime> {
+        Some(match kind {
+            NodeKind::VirtualMachine | NodeKind::Unikernel => {
+                libvirt_runtime(self.domains.as_ref()?.get(runtime_name).copied())
+            }
+            NodeKind::Container => {
+                container_runtime(self.containers.as_ref()?.get(runtime_name).copied())
+            }
+        })
+    }
+}
+
+/// Query libvirt and Docker at the same time, for every domain's and container's state.
+#[instrument(skip_all, level = "debug")]
+pub(crate) async fn query_runtimes(docker: &Docker, qemu: &Arc<Qemu>) -> Runtimes {
+    let (domains, containers) = tokio::join!(
+        query_libvirt_states(Arc::clone(qemu)),
+        container_states(docker),
+    );
+    Runtimes {
+        domains: domains
+            .inspect_err(|e| tracing::error!(error = %e, "Failed to query libvirt states"))
+            .ok(),
+        containers: containers
+            .inspect_err(|e| tracing::error!(error = %e, "Failed to query Docker states"))
+            .ok(),
+    }
+}
+
+/// Query libvirt for all domain states. Must run in `spawn_blocking` since
+/// libvirt calls are blocking FFI.
+async fn query_libvirt_states(qemu: Arc<Qemu>) -> Result<HashMap<String, u32>> {
+    tokio::task::spawn_blocking(move || -> Result<HashMap<String, u32>> {
+        let conn = qemu.connect().context("Failed to connect to libvirt")?;
+        let domains = conn
+            .list_all_domains(0)
+            .context("Failed to list libvirt domains")?;
+
+        let mut states = HashMap::with_capacity(domains.len());
+        for domain in &domains {
+            let name = match domain.get_name() {
+                Ok(name) => name,
+                Err(e) => {
+                    tracing::debug!(error = %e, "Failed to get domain name, skipping");
+                    continue;
+                }
+            };
+            let state_code = match domain.get_state() {
+                Ok((state, _reason)) => state,
+                Err(e) => {
+                    tracing::debug!(domain = %name, error = %e, "Failed to get domain state");
+                    continue;
+                }
+            };
+            states.insert(name, state_code);
+        }
+        Ok(states)
+    })
+    .await
+    .context("libvirt query task panicked")?
+}
+
 /// Apply `event`, from the operation holding `_operation`, to node `node_id`, and return the
 /// node's new state.
 ///
@@ -162,6 +243,66 @@ pub(crate) mod tests {
         upsert_node_image,
     };
     use shared::data::{LabState, NodeConfig, NodeModel, Probe, Refused};
+
+    #[test]
+    fn a_runtime_that_could_not_be_queried_leaves_its_nodes_undecided() {
+        let containers =
+            HashMap::from([("r1-abc12345".to_string(), ContainerStateStatusEnum::RUNNING)]);
+        let runtimes = Runtimes {
+            domains: None,
+            containers: Some(containers),
+        };
+        // libvirt did not answer: its nodes are undecided, not missing.
+        assert_eq!(
+            runtimes.runtime_of(&NodeKind::VirtualMachine, "r1-abc12345"),
+            None
+        );
+        assert_eq!(
+            runtimes.runtime_of(&NodeKind::Unikernel, "r1-abc12345"),
+            None
+        );
+        // Docker answered, so its nodes are still decided.
+        assert_eq!(
+            runtimes.runtime_of(&NodeKind::Container, "r1-abc12345"),
+            Some(Runtime::Running)
+        );
+    }
+
+    #[test]
+    fn a_node_with_no_domain_or_container_is_absent_not_stopped() {
+        // M4.2: missing used to be read as stopped.
+        let runtimes = Runtimes {
+            domains: Some(HashMap::from([(
+                "other-abc12345".to_string(),
+                VIR_DOMAIN_RUNNING,
+            )])),
+            containers: Some(HashMap::new()),
+        };
+        assert_eq!(
+            runtimes.runtime_of(&NodeKind::VirtualMachine, "r1-abc12345"),
+            Some(Runtime::Absent)
+        );
+        assert_eq!(
+            runtimes.runtime_of(&NodeKind::Container, "r1-abc12345"),
+            Some(Runtime::Absent)
+        );
+    }
+
+    #[test]
+    fn a_dead_container_is_faulted() {
+        // M4.1: a dead container used to look stopped, so the UI offered Start.
+        let runtimes = Runtimes {
+            domains: Some(HashMap::new()),
+            containers: Some(HashMap::from([(
+                "r1-abc12345".to_string(),
+                ContainerStateStatusEnum::DEAD,
+            )])),
+        };
+        assert_eq!(
+            runtimes.runtime_of(&NodeKind::Container, "r1-abc12345"),
+            Some(Runtime::Faulted("dead"))
+        );
+    }
 
     #[test]
     fn every_libvirt_state_has_one_meaning() {

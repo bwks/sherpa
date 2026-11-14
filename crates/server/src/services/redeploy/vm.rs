@@ -1,7 +1,7 @@
 //! Stages 4 to 6 for a VM: its configuration, disks, interfaces and domain, and waiting for it
 //! to become ready.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::ops::RangeInclusive;
 use std::time::{Duration, Instant};
@@ -10,12 +10,12 @@ use anyhow::{Context, Result};
 use tracing::instrument;
 
 use super::context::Redeploy;
-use crate::services::node_lifecycle;
+use crate::services::node_lifecycle::{self, query_runtimes};
 use crate::services::node_ops::{self, DomainParts, LabZtp, VmReadiness, VmZtpResult};
 use crate::services::node_resources;
 use crate::services::p2p_links::{
-    KernelHost, LabLinks, RecreatedEnd, data_interface_indices, node_bridge_interfaces, node_links,
-    reattach_node_links, report_links,
+    KernelHost, LabLinks, RecreatedEnd, data_interface_indices, follow_started_links,
+    node_bridge_interfaces, node_links, reattach_node_links, report_links,
 };
 use crate::tls::lab_ca::NodeCertPaths;
 
@@ -112,6 +112,15 @@ pub(super) async fn redeploy_vm(
         Some(progress),
         &redeploy.state.link_states,
         outcomes,
+    )
+    .await;
+    // Re-attach takes a paused peer as up; decide the links as the next scan would.
+    follow_started_links(
+        &host,
+        &lab_links,
+        &HashSet::from([redeploy.node_record_id.clone()]),
+        &query_runtimes(&redeploy.state.docker, &redeploy.state.qemu).await,
+        &redeploy.state.link_states,
     )
     .await;
 

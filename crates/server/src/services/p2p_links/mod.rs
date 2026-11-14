@@ -1,7 +1,8 @@
 //! P2p link attachment: the state machine of a link whose end was made again, the one
 //! function that re-attaches a node's links after any event that makes its ends again, the
 //! scanner's check and repair of ends made again outside Sherpa, the carrier of each end
-//! following its link's state, and the host operations they use. See
+//! following its link's state, the links of the nodes an operation started, and the host
+//! operations they use. See
 //! `docs/architecture/STATE_MACHINES.md`, section 25.
 
 mod carrier;
@@ -11,6 +12,7 @@ mod host;
 mod plan;
 mod reattach;
 mod repair;
+mod started;
 mod transition;
 mod veths;
 
@@ -21,6 +23,7 @@ pub(crate) use reattach::{
     LabLinks, LinkWiring, RecreatedEnd, attach_link, reattach_node_links, report_links,
 };
 pub(crate) use repair::{check_lab_links, repair_node};
+pub(crate) use started::follow_started_links;
 pub(crate) use veths::{
     ContainerNode, ContainerVeth, container_veths, data_interface_indices, node_bridge_interfaces,
     node_links,

@@ -16,11 +16,11 @@ use super::admission::{self, Admission};
 use super::lab_lifecycle;
 use super::lab_nodes::load_target_nodes;
 use super::lab_operations::{self, LabOperation};
-use super::node_lifecycle;
+use super::node_lifecycle::{self, query_runtimes};
 use super::node_ops::{self, VmReadiness};
 use super::p2p_links::{
-    KernelHost, LabLinks, PlannedNode, load_lab_manifest, reattach_node_links, recreated_end,
-    report_links,
+    KernelHost, LabLinks, PlannedNode, follow_started_links, load_lab_manifest,
+    reattach_node_links, recreated_end, report_links,
 };
 use super::progress::ProgressSender;
 use super::ssh_config;
@@ -156,6 +156,12 @@ pub async fn start_lab_nodes(
     // Run all operations concurrently
     let concurrent_results = join_all(futures).await;
 
+    // Booted or unpaused: their links' states and carrier are decided once they are re-attached.
+    let started: HashSet<RecordId> = concurrent_results
+        .iter()
+        .filter(|(outcome, ..)| matches!(outcome, StartOutcome::ColdBooted | StartOutcome::Resumed))
+        .filter_map(|(_, _, node_id, _)| node_id.clone())
+        .collect();
     let mut results = immediate_results;
     let cold_booted = record_outcomes(state, &operation, concurrent_results, &mut results).await;
     let manifest = load_lab_manifest(lab_id);
@@ -172,6 +178,9 @@ pub async fn start_lab_nodes(
     // A cold boot makes a node's link ends again, so its links are re-attached before its
     // readiness is awaited, as `up` does.
     reattach_cold_booted(&lab, &node_images, &cold_booted, &mut results).await;
+    // An unpaused node made no ends again, and a booted one's re-attach takes a paused peer as
+    // up: the links of both are decided now, as the next scan would, and their carrier set.
+    follow_started(&lab, &started).await;
     let ready = wait_for_cold_booted(&lab, &cold_booted, &mut results).await?;
     // A node not ready in time stays `Starting`; the scanner records it running once it answers.
     for node in target_nodes
@@ -771,6 +780,32 @@ async fn reattach_cold_booted(
             result.links = reports;
         }
     }
+}
+
+/// Decide the links of the `started` nodes as the next scan would, and set their carrier at
+/// once: an unpaused node's peers get their link back, and a node booted beside a paused peer
+/// has its link taken down. See `p2p_links::started`.
+#[instrument(skip_all, fields(lab_id = %lab.lab_id), level = "debug")]
+async fn follow_started(lab: &ResumedLab<'_>, started: &HashSet<RecordId>) {
+    if started.is_empty() {
+        return;
+    }
+    let lab_links = match LabLinks::load(&lab.state.db, lab.lab_id, lab.lab_record_id).await {
+        Ok(lab_links) => lab_links,
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "Failed to load the lab's links; their carrier is left to the scan");
+            return;
+        }
+    };
+    let runtimes = query_runtimes(&lab.state.docker, &lab.state.qemu).await;
+    follow_started_links(
+        &KernelHost::new(&lab.state.docker, &lab.state.qemu),
+        &lab_links,
+        started,
+        &runtimes,
+        &lab.state.link_states,
+    )
+    .await;
 }
 
 #[cfg(test)]

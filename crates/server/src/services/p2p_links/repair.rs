@@ -252,7 +252,7 @@ mod tests {
     use std::fs;
     use std::path::Path;
     use std::sync::Arc;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use bollard::Docker;
     use bollard::query_parameters::{
@@ -268,8 +268,10 @@ mod tests {
     use super::super::carrier::follow_carrier;
     use super::super::fake::FakeHost;
     use super::super::host::KernelHost;
+    use super::super::started::follow_started_links;
     use super::super::veths::ContainerVeth;
     use crate::daemon::link_states::LinkStates;
+    use crate::services::node_lifecycle::query_runtimes;
     use shared::data::{BridgeKind, DbNode, LinkImpairment, NodeKind, NodeModel, NodeState};
     use shared::konst::{SHERPA_IMAGES_PATH, SHERPA_STORAGE_POOL_PATH};
 
@@ -1188,6 +1190,52 @@ chmod +x /var/lib/cloud/scripts/per-boot/carrier.sh
         pair.wait_for_container_carrier(true).await;
         pair.wait_for_guest_carrier(true).await;
         assert!(has_filter(&pair.tap).await && has_filter(&pair.veth).await);
+        pair.down().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires root, Docker with alpine:latest, libvirt and the alpine_linux image: boots a VM"]
+    async fn an_unpaused_container_gives_its_vm_peer_carrier_without_waiting_for_a_scan() {
+        let pair = GuestPair::up("itcarr3", "itc3a0", "itc3b0").await;
+
+        // `sherpa down -n ctr1` pauses the container; a scan takes the VM's link down.
+        pair.docker.pause_container(&pair.container).await.unwrap();
+        assert_eq!(pair.scan(&["vm1"]).await, peer_down("ctr1"));
+        pair.wait_for_guest_carrier(false).await;
+
+        // `sherpa resume -n ctr1` unpauses it, and decides its links at once.
+        pair.docker
+            .unpause_container(&pair.container)
+            .await
+            .unwrap();
+        let started = Instant::now();
+        let host = KernelHost::new(&pair.docker, &pair.qemu);
+        let states = follow_started_links(
+            &host,
+            &pair.lab,
+            &HashSet::from([id("ctr1")]),
+            &query_runtimes(&pair.docker, &pair.qemu).await,
+            &pair.states,
+        )
+        .await;
+        assert_eq!(states[&0], LinkState::Attached);
+        assert_eq!(
+            libvirt::interface_link_up(&pair.conn, "vm1-itcarr3", &pair.tap).unwrap(),
+            Some(true),
+            "the live domain has the link up when the call returns"
+        );
+        // The guest prints its carrier once a second.
+        while pair.guest_carrier() != Some(true) && started.elapsed() < Duration::from_secs(10) {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let elapsed = started.elapsed();
+        println!("resume to guest carrier: {elapsed:?}");
+        assert_eq!(pair.guest_carrier(), Some(true), "after {elapsed:?}");
+        assert!(elapsed < Duration::from_secs(3), "{elapsed:?}");
+
+        // The next scan finds nothing changed.
+        assert_eq!(pair.scan(&["vm1", "ctr1"]).await, LinkState::Attached);
+        assert_eq!(pair.guest_carrier(), Some(true));
         pair.down().await;
     }
 }

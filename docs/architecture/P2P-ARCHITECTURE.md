@@ -58,6 +58,11 @@ end has a new ifindex, so the peer's redirect is stale. All of these go through 
 Ends made again outside Sherpa are repaired by the scanner through the same function; see
 [Repair by the scanner](#repair-by-the-scanner).
 
+Re-attach cannot tell a paused peer from a running one: a paused node keeps its ends. And
+unpausing a node makes no end again, so nothing is re-attached. So after re-attaching, resume
+and redeploy also decide the links of the nodes they started as the scanner would
+(`p2p_links::follow_started_links`; see [Carrier propagation](#carrier-propagation)).
+
 The states and the transition are described in
 [`STATE_MACHINES.md`, section 25](STATE_MACHINES.md#25-p2p-link-attachment).
 
@@ -296,7 +301,8 @@ If one side of a P2p link stops (VM shut off or crashed, container stopped or ki
   within `scanner.interval_secs`; see [Repair by the scanner](#repair-by-the-scanner).
 - A reboot from inside a guest, `virsh reboot`, a pause and unpause, and a sherpad restart
   change nothing in the redirects: the same tap and filter stay. A paused node counts as down
-  for carrier, so its peer loses carrier while it is paused.
+  for carrier, so its peer loses carrier while it is paused. A resume that unpauses it gives
+  the peer its carrier back at once (see [Carrier propagation](#carrier-propagation)).
 - Full cleanup happens during lab destroy.
 
 ### Repair by the scanner
@@ -399,8 +405,21 @@ that already has the carrier wanted: the first scan after a restart changes noth
 whose carrier is right. An end that does not exist is left; one whose carrier cannot be read
 or set is logged, and is not retried until the link's state changes again.
 
-Where the states come from: the scanner (every link of a `Ready` lab, after its repair), and
-the re-attach of resume and redeploy (the node's links). A paused node is not running to the
-scanner, so `docker pause` and `sherpa down`, which pauses containers, take their peers'
-carrier down within one scan interval, and the scan after `unpause` or `resume` brings it back.
-With `scanner.enabled = false`, only resume and redeploy set carrier.
+Where the states come from:
+
+- **The scanner:** every link of a `Ready` lab, after its repair.
+- **Resume and redeploy:** first the re-attach of the nodes whose ends were made again
+  (`report_links`). Then, for every node they booted or unpaused, the scanner's own check
+  (`check_lab_links`, with the nodes libvirt and Docker report running), which decides those
+  nodes' links. Each end's carrier follows the change from the recorded state, and the new
+  state is recorded (`follow_started_links`). So the peers of a container unpaused by
+  `sherpa resume` get their carrier back when the command returns. A node booted beside a
+  paused peer has its link taken down at once. The next scan finds the same states and changes
+  nothing. A link this check finds `Failed` is not recorded: the scan repairs what it can
+  first. When libvirt or Docker does not answer, nothing is decided here, as every node of
+  that runtime would look down.
+
+A paused node is not running to the scanner. `docker pause` and `sherpa down` (which pauses
+containers and shuts VMs off) are not followed by a check, so their peers lose carrier at the
+next scan, within one scan interval. With `scanner.enabled = false`, only resume and redeploy
+set carrier.
