@@ -3,7 +3,8 @@
 use anyhow::{Context, Result, bail};
 use turso::{Row, Value};
 
-use crate::message::TaskUsage;
+use crate::message::{RefKind, TaskUsage};
+use crate::store::facts::Ref;
 
 /// The columns of one row, read left to right.
 pub struct Cells<'a> {
@@ -90,6 +91,30 @@ impl<'a> Cells<'a> {
             duration_ms: duration_ms.unwrap_or_default(),
             duration_api_ms: duration_api_ms.unwrap_or_default(),
         }))
+    }
+
+    /// A row ID, such as an item's.
+    pub fn id(&mut self, field: &str) -> Result<i64> {
+        match self.next(field)? {
+            Value::Integer(value) => Ok(value),
+            other => bail!("{field} is not an integer: {other:?}"),
+        }
+    }
+
+    pub fn optional_id(&mut self, field: &str) -> Result<Option<i64>> {
+        match self.next(field)? {
+            Value::Null => Ok(None),
+            Value::Integer(value) => Ok(Some(value)),
+            other => bail!("{field} is not an integer: {other:?}"),
+        }
+    }
+
+    /// A ref from its three columns: `repo`, `kind` and `ref`.
+    pub fn reference(&mut self) -> Result<Ref> {
+        let repo = self.text("repo")?;
+        let kind = RefKind::parse(&self.text("kind")?)?;
+        let name = self.text("ref")?;
+        Ok(Ref { repo, kind, name })
     }
 
     pub fn boolean(&mut self, field: &str) -> Result<bool> {

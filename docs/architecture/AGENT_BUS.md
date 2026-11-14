@@ -226,6 +226,8 @@ another agent.
 | `task_usage` | object, optional | What the task has used so far, this run included. Sent with `usage`. |
 | `github` | bool, optional | Whether the task may use GitHub. Only `task` sets it. Left out of the JSON when false; a missing field reads as false. |
 | `model` | string, optional | On a `task`: the model to run on, an alias (`opus`, `sonnet`, `haiku`) or a full ID such as `claude-sonnet-5-5`. Without it the guest's own default. Ignored on an `answer`. On the guest's replies for a run: the full ID it ran on. Left out of the JSON when unset. |
+| `work` | object, optional | On a `task` sent with `--issue`/`--pr`: `refs`, a list of `repo` (`owner/name`), `kind` (`issue` or `pull_request`) and `number`; and `session`, the host's Claude Code session (`CLAUDE_CODE_SESSION_ID`) when `send` ran inside one. See [Work items](#work-items). |
+| `ended` | object, optional | On every outcome of a task that ran: where the guest's checkout was when the run ended. `repo` (`owner/name`), `branch` (left out on the repository's default branch or a detached HEAD) and `pull_requests`, a list of `repo`, `number` and `url` of the open pull requests whose head is that branch, in the checkout and in `../sherpa-docs` (left out when empty). |
 
 | Kind | Direction | Meaning |
 |---|---|---|
@@ -244,6 +246,14 @@ Code's own field names (`model`, `inputTokens`, `outputTokens`, `cacheCreationIn
 `cacheReadInputTokens`, `costUSD`, `canonicalModel`, `costBasis`), left out when empty.
 `task_usage` has `runs`, `cost_usd`, the four token counts, `num_turns`, `duration_ms` and
 `duration_api_ms`. Their meaning is in [Usage and cost](#usage-and-cost).
+
+`Message` does not deny unknown fields, and every optional field defaults when missing, so a
+peer of another version reads what it knows and ignores the rest, both ways: an older guest
+ignores `work`, an older host ignores `ended` (and records nothing of it), and a newer host
+parses an older guest's outcome without `ended` (see [Work items](#work-items)). Tests:
+`message::tests::an_older_peer_reads_a_new_message_as_before`,
+`an_old_message_parses_without_work_or_ended` and
+`a_message_with_fields_this_agent_bus_does_not_know_parses`.
 
 An outcome message from a guest:
 
@@ -1050,8 +1060,9 @@ its read-only mode reads a stale snapshot). Whoever holds the exclusive `flock` 
 guard, not the arbiter, because it is a POSIX record lock that a second open inside the same
 process does not see.
 
-**One path.** There is no long-running writer and no query protocol. `usage`, `show` and
-`history` each open the record through `record::Record::open`, the only code that opens it:
+**One path.** There is no long-running writer and no query protocol. `usage`, `show`,
+`history`, `open`, `link` and `work` each open the record through `record::Record::open`, the
+only code that opens it:
 
 1. Connect to the bus with the host's seed (`--server`, `AGENT_BUS_URL` or `bus.toml`, and
    `AGENT_BUS_SEED`). This comes before the lock, so a bus that is slow to refuse does not keep
@@ -1070,8 +1081,10 @@ process does not see.
    not agent messages"), not a line per message; `listen` and the guest still print one line
    per dropped message, since there each is a live event to see as it comes. Each message is:
    1. one transaction: the `message` row (the stream sequence is the key, `ON CONFLICT DO
-      NOTHING`), the task's row read, updated (`store::task::apply`) and written back, and for
-      an outcome that carries a run's `usage`, the `run` row and a `run_model` row per model;
+      NOTHING`), the task's row read, updated (`store::task::apply`) and written back, what
+      the message says about the task's work item applied (`store::work::apply`, see
+      [Work items](#work-items)), and for an outcome that carries a run's `usage`, the `run`
+      row and a `run_model` row per model;
    2. committed, then acknowledged. A command stopped between the two leaves the message to be
       delivered again; its sequence is already recorded, so nothing changes (`store::record`
       returns `false`). An acknowledgement the bus does not take is reported and catching up
@@ -1104,33 +1117,43 @@ the stream still holds (30 days). If no command runs for longer than the stream 
 the record loses what the stream dropped; `agents` shows the lag.
 
 **The `record` feature.** The record is behind the crate's default cargo feature `record`: it
-owns the `turso` dependency, `src/store/`, `src/record.rs`, `src/report/` (the `usage`, `show`
-and `history` commands and their tables), and the parts of other modules only the record uses,
+owns the `turso` dependency, `src/store/`, `src/record.rs`, `src/report/` (the `usage`, `show`,
+`history`, `open`, `link` and `work` commands and their tables), and the parts of other modules only the record uses,
 each its own module: `channel::recorder` (reading `_record`), `files::record_lock` (the lock
 taken without waiting, naming its holder). The host binary is built with it. A guest never opens
 the record, so `dev/agent-bus/start-guest.sh` builds with `--no-default-features`: no Turso, and
-the three commands are not in its CLI at all (`agent-bus usage` is an unrecognized subcommand;
+the record's commands are not in its CLI at all (`agent-bus usage` is an unrecognized subcommand;
 `--help` does not list them). They are one flattened clap subcommand enum,
 `report::Command`, behind the feature, so nothing else in `main.rs` changes. `bus start`,
 `agents` and `_record`'s creation are not behind it. The CI Lint job runs clippy on agent-bus
 without default features, and `cargo test -p agent-bus --no-default-features` runs every test
 but the record's.
 
-**Schema.** The SQL is under `crates/agent-bus/sql/`: `migrations/0001_record.sql` and one file
-per statement in `queries/`, included in the binary (`src/store/sql.rs`). The record's
+**Schema.** The SQL is under `crates/agent-bus/sql/`: `migrations/0001_record.sql`,
+`migrations/0002_work.sql` and one file per statement in `queries/`, included in the binary (`src/store/sql.rs`). The record's
 `PRAGMA user_version` is the number of migrations applied; opening it applies the rest in one
 transaction, and a record newer than the binary is refused. A unit test
 (`store::database::tests`) applies every migration to an in-memory database, prepares every
 query, and checks that every query file is listed and the migrations are numbered without a gap;
 there is no `build.rs`, so the guest's build does not compile Turso a second time as a build
-dependency. Times are milliseconds since the Unix epoch.
+dependency. Another test (`a_version_1_record_with_rows_migrates_and_keeps_them`) writes a
+record at version 1 with rows, opens it, and checks the rows are kept and the new columns and
+tables are there. Times are milliseconds since the Unix epoch.
+
+Migration 2 adds two columns to `message` with `ALTER TABLE … ADD COLUMN`: Turso 0.8.3 takes it
+on a `STRICT` table (checked, and covered by the test above), so no side table is needed. Rows
+recorded before have `NULL` there.
 
 | Table | One row per | Key |
 |---|---|---|
-| `message` | message read: task, from, to, kind, text, model, github, and `usage` and `task_usage` as JSON | `seq`, the stream sequence |
+| `message` | message read: task, from, to, kind, text, model, github, and `usage`, `task_usage`, `work` and `ended` as JSON, as received (so `show` prints them) | `seq`, the stream sequence |
 | `task` | task: its agent and requester, prompt, requested and actual model, `github`, state (`sent`, `running`, `question`, `completed`, `failed`, `canceled`), sent, started, finished and last-active times, last result, question and answer counts, and its last `task_usage` | `id` |
 | `run` | outcome that carried a run's `usage`: its figures | `seq` |
 | `run_model` | model in a run's `usage.models`, subagents included | (`run`, `model`) |
+| `work_item` | work item: when it was made, and `merged_into` once `link` merged it into another | `id` |
+| `work_ref` | name of an item: `repo`, `kind` (`issue`, `pull_request`, `branch`), `ref` (the number or branch), `work` (the item), `source` (`brief`, `guest`, `parsed`, `manual`), `at_ms` | (`repo`, `kind`, `ref`): a ref names one item |
+| `task_ref` | ref a task's messages named, whatever item it names: `source`, and `seq`, the message that named it first | (`task`, `repo`, `kind`, `ref`) |
+| `task_work` | task in an item: `work`, `source`, `at_ms`. One item per task, so its cost is never split | `task` |
 
 A task first seen through a later message (sent before the stream's oldest message) has no
 prompt and no sent time.
@@ -1139,6 +1162,93 @@ prompt and no sent time.
 (20 by default), newest first: task, agent, state, model (the one it ran on, else the one it asked
 for, else `default`), last activity in UTC, cost and the start of the prompt's first line, as a
 `tabled` modern table, or the rows as JSON.
+
+## Work items
+
+A work item is one piece of work: the issues, pull requests and branches that name it, and the
+tasks that worked on it. The record keeps them (`store::facts`, `store::work`, `store::items`),
+so cost can be read per item, not only per task.
+
+**Where refs come from.**
+
+| Source | From | Refs |
+|---|---|---|
+| `brief` | a `task`'s `work`, from `send --issue N --pr N [--repo R]` (both repeatable; the repository from `--repo`, else `AGENT_BUS_REPO`; never hard-coded) | the issues and pull requests |
+| `guest` | an outcome's `ended` | its branch, when not the default one, and each open pull request of the branch, in either checkout |
+| `parsed` | an outcome without `ended` (an older guest, or a message recorded before `ended`): the Generation line at the top of its text | see below |
+| `manual` | `link` | the ref given |
+
+**The rules** (`store::work::apply`, run in the transaction that records the message):
+
+- Every ref a task's messages name is kept in `task_ref`.
+- A task without an item gets the item of the first of its refs that names one, else a new
+  item: a tagged task gets its tag's item; an untagged task gets the item its branch names, or
+  a new one. A task keeps its item whatever its later messages say.
+- A ref that names no item yet then names the task's item. A ref that already names another
+  item stays there: the task is not moved, the fact stays in `task_ref`, and `work show` lists
+  it as a conflict, on both items. Only `link` merges items.
+- **The default branch is never a ref.** The guest leaves `branch` out on its repository's
+  default (from `gh repo view --json nameWithOwner,defaultBranchRef`), and lists no pull
+  requests then; otherwise every task that ended on `main` would be one item.
+- **Cross-repository.** `repo` is part of the key, so a `../sherpa-docs` pull request of the
+  same branch is another name of the same item.
+- **Display name.** The lowest issue number, else the lowest pull request (in any of the item's
+  repositories), else the first branch: `#12`, `PR #34`, `feat/x` (`facts::display_name`).
+
+**How the guest finds `ended`** (`guest::pull_request::ended`, after every run; all its `git`
+and `gh` commands together get 30 s): `git symbolic-ref --quiet --short HEAD` for the branch,
+`gh repo view` for the repository and its default branch, then for a branch that is not the
+default, `gh pr list --state open --head=<branch>` in the checkout and in `../sherpa-docs` (with
+`gh repo view` there for its repository), leaving out pull requests from forks. `gh` runs with
+the agent's own `GH_TOKEN`, the read-only token, so every task reports, `--github` or not; the
+write token is never used for it. When the checkout is not a git checkout or its repository
+cannot be read, the outcome has no `ended` and the guest log says why; a docs checkout that
+cannot be listed is left out. Outcomes of a task that never ran in the checkout (canceled while
+queued, a cancel of an unknown task, or a task failed by a restart while it ran) carry no
+`ended`. The Generation step is unchanged: the guest still writes the section of a `--github`
+run.
+
+**The parsed Generation line** (`facts::parse_generation_line`), first line of the text only:
+
+| Line | Refs |
+|---|---|
+| `Generation section for branch <b>: updated <url>; up to date <url>; not updated: <url>: <why>` | the branch, and every pull request URL in the line (`https://<host>/<owner>/<name>/pull/<n>`) |
+| `Generation section: no open pull request for branch <b>` | the branch |
+| `Generation section not updated: <why>` | none |
+
+The line does not say which repository the branch is in: it is taken from the host's own
+repository (`AGENT_BUS_REPO`, or `--repo` of the command), else from the first pull request;
+with neither, the branch is left out. Nor does it say which branch is the default: `main` and
+`master` are never taken as refs from a parsed line.
+
+**Commands** (behind the `record` feature; tables through `shared::util::render_table`):
+
+| Command | What it does |
+|---|---|
+| `send --issue N --pr N [--repo R]` | tags the task; `--answer` refuses the tags |
+| `link <task> --issue N \| --pr N \| --branch B [--repo R]` | puts the task in the ref's item. The ref names no item: it names the task's item, or a new one when the task has none. The task has no item: it joins the ref's. Both have different items: the task's item is merged into the ref's (`merged_into` set, its refs and tasks moved), and the line says what moved |
+| `work show [--issue \| --pr \| --branch] [--repo R] [--json]` | one item: its refs with their source, its tasks with a total cost, its conflicts and the items merged into it. Without a ref: every item, with its refs, task count, cost and last activity |
+| `work backfill [--repo R]` | parses the Generation line of every recorded outcome without `ended`, as catching up does for new ones; idempotent (every insert is `ON CONFLICT DO NOTHING`, and a task already in an item keeps it) |
+| `usage --issue \| --pr \| --branch [--repo R]` | `usage`, limited to the item's tasks, headed by the item and its refs |
+| `usage --by agent \| model \| week` | the tasks of `usage` added up by group, with a total row. By agent and by week (the ISO week, in UTC, the task was sent in), a task counts whole in one group. By model, each run's `run_model` figures go to their model (a run without models to the run's model), and what the task's totals hold beyond its runs (its priming runs) goes to the task's own model |
+| `open [--json]` | the tasks still `sent`, `running` or waiting on a `question`, oldest first: agent, state, item, age (since sent), and the question's last line (all of it in `--json`) |
+
+Example, from `report::work::tests` (`cargo test -p agent-bus report::work -- --nocapture`):
+
+```text
+$ agent-bus open
+┌──────────┬───────┬──────────┬──────┬────────┬──────────────────────────────────────────┐
+│ Task     │ Agent │ State    │ Item │    Age │ Question                                 │
+├──────────┼───────┼──────────┼──────┼────────┼──────────────────────────────────────────┤
+│ c9d0e1f2 │ dev01 │ running  │ #580 │ 7h 20m │ -                                        │
+├──────────┼───────┼──────────┼──────┼────────┼──────────────────────────────────────────┤
+│ f3a4b5c6 │ dev01 │ question │ -    │  7h 0m │ QUESTION: Restart the bus container now? │
+└──────────┴───────┴──────────┴──────┴────────┴──────────────────────────────────────────┘
+```
+
+A wrong `link` is not undone by the record: merges keep `merged_into`, and `work show` lists the
+merged items, so what moved can be traced. Not yet: the host's own sessions, an active item, and
+pricing (the next step), and the Generation section written by the host (the one after).
 
 ## Pull request Generation section
 

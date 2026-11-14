@@ -99,7 +99,8 @@ impl Paths {
 }
 
 impl Record {
-    /// Open the record at `paths` for one command, caught up from the bus through `access`.
+    /// Open the record at `paths` for one command, caught up from the bus through `access`, with
+    /// `home_repo` the host's repository for the branch of an outcome's parsed Generation line.
     /// When `access` is an error, the bus cannot be reached, or a message cannot be recorded,
     /// the record is opened as it is and `catch_up` says why.
     ///
@@ -108,7 +109,11 @@ impl Record {
     /// Fails when another process holds the record for longer than `LOCK_WAIT`, or the record
     /// cannot be opened.
     #[instrument(skip_all, fields(record = %paths.record.display()))]
-    pub async fn open(paths: &Paths, access: Result<BusAccess>) -> Result<Self> {
+    pub async fn open(
+        paths: &Paths,
+        access: Result<BusAccess>,
+        home_repo: Option<&str>,
+    ) -> Result<Self> {
         // Connecting can take a while when the bus is down, so it happens before the lock.
         let channel = match access {
             Ok(access) => Channel::connect(&access.server, &access.seed).await,
@@ -118,7 +123,7 @@ impl Record {
         let store = Store::open(&paths.record).await?;
         let mut conn = store.connect()?;
         let catch_up = match channel {
-            Ok(channel) => match catch_up(&mut conn, &channel).await {
+            Ok(channel) => match catch_up(&mut conn, &channel, home_repo).await {
                 Ok(read) => CatchUp::Read(read),
                 Err(error) => CatchUp::Failed(error),
             },
@@ -138,6 +143,11 @@ impl Record {
     /// The connection to query the record on.
     pub fn conn(&self) -> &Connection {
         &self.conn
+    }
+
+    /// The connection, for a command that writes: `link` and `work backfill`.
+    pub fn conn_mut(&mut self) -> &mut Connection {
+        &mut self.conn
     }
 
     /// How catching up went.
@@ -196,7 +206,11 @@ async fn lock_within(path: &Path, wait: Duration) -> Result<FileLock> {
 /// or a message cannot be recorded; that message is not acknowledged, so a later command records
 /// it.
 #[instrument(level = "debug", skip_all)]
-async fn catch_up(conn: &mut Connection, channel: &Channel) -> Result<Tally> {
+async fn catch_up(
+    conn: &mut Connection,
+    channel: &Channel,
+    home_repo: Option<&str>,
+) -> Result<Tally> {
     let (mut inbox, waiting) = channel.recorder(stderr()).await?;
     let mut tally = Tally::default();
     if waiting == 0 {
@@ -205,7 +219,7 @@ async fn catch_up(conn: &mut Connection, channel: &Channel) -> Result<Tally> {
     if waiting >= CATCH_UP_NOTICE {
         eprintln!("Recording {waiting} messages from the bus");
     }
-    let read = read_until_current(conn, &mut inbox, waiting, &mut tally).await;
+    let read = read_until_current(conn, &mut inbox, waiting, &mut tally, home_repo).await;
     if let Some(summary) = dropped_summary(&tally) {
         eprintln!("{summary}");
     }
@@ -214,7 +228,7 @@ async fn catch_up(conn: &mut Connection, channel: &Channel) -> Result<Tally> {
 
 /// Record or drop each message `inbox` delivers, counting them in `tally`, until a message
 /// says the consumer has nothing left to deliver. `waiting` is how many waited when reading
-/// started. Each read is timed on its own, so a long backlog takes as long as it takes; only a
+/// started; `home_repo` is the host's repository. Each read is timed on its own, so a long backlog takes as long as it takes; only a
 /// bus that delivers nothing for `CATCH_UP_IDLE` while messages still wait ends it early.
 ///
 /// # Errors
@@ -227,6 +241,7 @@ async fn read_until_current(
     inbox: &mut Inbox<Stderr>,
     waiting: u64,
     tally: &mut Tally,
+    home_repo: Option<&str>,
 ) -> Result<()> {
     let mut pending = waiting;
     loop {
@@ -247,7 +262,7 @@ async fn read_until_current(
         };
         let position = match received {
             Received::Taken(delivery) => {
-                let position = record_delivery(conn, &delivery).await?;
+                let position = record_delivery(conn, &delivery, home_repo).await?;
                 tally.recorded += 1;
                 position
             }
@@ -291,14 +306,19 @@ fn dropped_summary(tally: &Tally) -> Option<String> {
     ))
 }
 
-/// Record `delivery`, commit, then acknowledge it, and return its position. An acknowledgement
+/// Record `delivery`, with `home_repo` the host's repository, commit, then acknowledge it, and
+/// return its position. An acknowledgement
 /// the bus does not take is reported only: the message comes again and is skipped.
 ///
 /// # Errors
 ///
 /// Fails when the message has no position or cannot be recorded; it is not acknowledged.
 #[instrument(level = "debug", skip_all, fields(task = %delivery.message.task))]
-async fn record_delivery(conn: &mut Connection, delivery: &Delivery) -> Result<Position> {
+async fn record_delivery(
+    conn: &mut Connection,
+    delivery: &Delivery,
+    home_repo: Option<&str>,
+) -> Result<Position> {
     let position = delivery.position()?;
     record(
         conn,
@@ -307,6 +327,7 @@ async fn record_delivery(conn: &mut Connection, delivery: &Delivery) -> Result<P
             at_ms: position.at_ms,
             message: &delivery.message,
         },
+        home_repo,
     )
     .await
     .with_context(|| format!("Unable to record stream sequence {}", position.seq))?;
@@ -351,13 +372,15 @@ mod tests {
             task_usage: None,
             github: false,
             model: None,
+            work: None,
+            ended: None,
         };
         let recorded = Recorded {
             seq: 1,
             at_ms: 1000,
             message: &message,
         };
-        record(&mut store.connect().unwrap(), &recorded)
+        record(&mut store.connect().unwrap(), &recorded, None)
             .await
             .unwrap();
     }
@@ -377,7 +400,7 @@ mod tests {
         let paths = Paths::in_dir(&dir);
         record_one(&paths.record, "t1").await;
 
-        let record = Record::open(&paths, no_bus()).await.unwrap();
+        let record = Record::open(&paths, no_bus(), None).await.unwrap();
         assert_eq!(tasks(&record).await, ["t1"]);
         assert!(
             matches!(record.catch_up(), CatchUp::Failed(error) if error.to_string().contains("no bus")),
@@ -397,7 +420,7 @@ mod tests {
             seed: "not a seed".to_owned(),
         };
         drop(record);
-        let record = Record::open(&paths, Ok(unreachable)).await.unwrap();
+        let record = Record::open(&paths, Ok(unreachable), None).await.unwrap();
         assert!(matches!(record.catch_up(), CatchUp::Failed(_)));
         assert_eq!(tasks(&record).await, ["t1"]);
         fs::remove_dir_all(&dir).unwrap();
@@ -407,12 +430,12 @@ mod tests {
     async fn an_open_record_holds_the_lock_and_a_closed_one_lets_go() {
         let dir = scratch("lock");
         let paths = Paths::in_dir(&dir);
-        let record = Record::open(&paths, no_bus()).await.unwrap();
+        let record = Record::open(&paths, no_bus(), None).await.unwrap();
         assert!(try_lock_exclusive(&paths.lock).unwrap().is_none());
         drop(record);
         assert!(try_lock_exclusive(&paths.lock).unwrap().is_some());
         // A second command, in turn, opens the same record.
-        let record = Record::open(&paths, no_bus()).await.unwrap();
+        let record = Record::open(&paths, no_bus(), None).await.unwrap();
         assert_eq!(tasks(&record).await, Vec::<String>::new());
         drop(record);
         fs::remove_dir_all(&dir).unwrap();
@@ -422,7 +445,7 @@ mod tests {
     async fn a_held_record_times_out_naming_its_holder() {
         let dir = scratch("held");
         let paths = Paths::in_dir(&dir);
-        let held = Record::open(&paths, no_bus()).await.unwrap();
+        let held = Record::open(&paths, no_bus(), None).await.unwrap();
         let wait = Duration::from_millis(300);
         let started = Instant::now();
         let error = lock_within(&paths.lock, wait).await.unwrap_err();
@@ -471,7 +494,7 @@ mod tests {
     async fn a_command_waits_its_turn_for_a_short_holder() {
         let dir = scratch("turn");
         let paths = Paths::in_dir(&dir);
-        let held = Record::open(&paths, no_bus()).await.unwrap();
+        let held = Record::open(&paths, no_bus(), None).await.unwrap();
         let release = tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(200)).await;
             drop(held);

@@ -6,6 +6,7 @@ use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::io::{Stderr, stderr};
 use std::path::Path;
+use std::process::ExitStatus;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
@@ -13,7 +14,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::sync::watch;
-use tokio::time::{MissedTickBehavior, interval};
+use tokio::time::{MissedTickBehavior, interval, timeout};
 use tokio::try_join;
 use tracing::instrument;
 
@@ -25,7 +26,7 @@ use super::engine::{Control, Session, canceled_text, classify, task_github, task
 use super::github::{Access, GH_TOKEN_VARIABLE, check_environment};
 use super::ledger::{Ledger, Run};
 use super::lock::InstanceLock;
-use super::pull_request::{GH, Note, checkouts, current_branch, update};
+use super::pull_request::{GH, Note, checkouts, current_branch, ended, update};
 use super::record::ResultLog;
 use super::secrets::{Secrets, TOKEN_VARIABLE, refuse_in_environment};
 use super::state::{ApiMark, Queued, Saved, StateFile, TaskRecord, prune, restart};
@@ -33,12 +34,15 @@ use super::stream::{Update, interpret, outcome, priming_line, repeats_result, us
 use crate::channel::{Channel, Endpoint, Inbox};
 use crate::files::now_ms;
 use crate::keys::SEED_VARIABLE;
-use crate::message::{Kind, Message, TaskUsage, Usage, api_time_of_run, check_agent_name};
+use crate::message::{Ended, Kind, Message, TaskUsage, Usage, api_time_of_run, check_agent_name};
 use crate::status::{HEARTBEAT, Running, Status};
 
 /// Why a `--github` task fails on a guest agent started without a write token.
 const NO_WRITE_TOKEN: &str = "This guest agent has no GitHub write token, so it cannot run a \
 --github task: restart it with agent-bus-start-agent, with the write token in GH_TOKEN on the host";
+
+/// How long finding where a run ended may take, all its `git` and `gh` commands together.
+const ENDED_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Where replies about one task go, and the model it runs on, when known.
 struct Reply<'a> {
@@ -356,9 +360,16 @@ async fn stopped(stop: &mut watch::Receiver<bool>) {
     let _ = stop.wait_for(|stop| *stop).await;
 }
 
-/// Log what a finished run used, and send its outcome, with what the Generation step did, if
-/// anything, in a paragraph before its text: a question stays on the last line.
-fn report(reply: &Reply<'_>, model: &str, finished: Finished, note: Option<Note>) -> Result<()> {
+/// Log what a finished run used, and send its outcome, with where the run `ended` and what the
+/// Generation step did, if anything, in a paragraph before its text: a question stays on the
+/// last line.
+fn report(
+    reply: &Reply<'_>,
+    model: &str,
+    finished: Finished,
+    note: Option<Note>,
+    ended: Option<Ended>,
+) -> Result<()> {
     let kind = outcome(&finished.text, finished.failed);
     eprintln!(
         "{}",
@@ -374,12 +385,41 @@ fn report(reply: &Reply<'_>, model: &str, finished: Finished, note: Option<Note>
         Some(note) => format!("{}\n\n{}", note.text(), finished.text),
         None => finished.text,
     };
-    reply.send(kind, text, Some((finished.usage, finished.task_usage)))
+    reply.send(
+        kind,
+        text,
+        Some((finished.usage, finished.task_usage)),
+        ended,
+    )
+}
+
+/// Why a forked run failed before the task did anything, so it can still run in a fresh
+/// session: a fork that fails leaves no turn behind. `None` for any other run: one that did
+/// something and then ended without a result is the task's failure, since running it again
+/// would repeat what was done. `status` is how Claude Code exited.
+fn fork_failure(launch: &Launch, run: &RunState, status: ExitStatus) -> Option<String> {
+    let failed = matches!(launch, Launch::Fork(_))
+        && match &run.finished {
+            None => !run.progressed,
+            Some(finished) => finished.failed && finished.usage.num_turns == 0,
+        };
+    failed.then(|| {
+        run.finished.as_ref().map_or_else(
+            || format!("Claude Code exited ({status}) without a result"),
+            |finished| finished.text.clone(),
+        )
+    })
 }
 
 impl Reply<'_> {
-    /// Send `text`, with the write token replaced.
-    fn send(&self, kind: Kind, text: String, usage: Option<(Usage, TaskUsage)>) -> Result<()> {
+    /// Send `text`, with the write token replaced, and where the run `ended` for an outcome.
+    fn send(
+        &self,
+        kind: Kind,
+        text: String,
+        usage: Option<(Usage, TaskUsage)>,
+        ended: Option<Ended>,
+    ) -> Result<()> {
         let (usage, task_usage) = usage.unzip();
         let text = match self.secrets.redact(&text) {
             Cow::Borrowed(_) => text,
@@ -396,6 +436,8 @@ impl Reply<'_> {
                 task_usage,
                 github: false,
                 model: self.model.clone(),
+                work: None,
+                ended,
             })
             .map_err(|_| anyhow!("The bus connection is closed"))
     }
@@ -455,6 +497,7 @@ impl<'a> Engine<'a> {
             self.reply(&task, None).send(
                 Kind::Failed,
                 "The guest agent restarted while this task ran".to_owned(),
+                None,
                 None,
             )?;
         }
@@ -606,10 +649,12 @@ impl<'a> Engine<'a> {
                 Ok(Finish::Done | Finish::Canceled | Finish::Postponed) => self.save(),
                 Err(error) => {
                     self.save();
+                    let ended = self.ended(&message.task).await;
                     self.reply(&message.task, None).send(
                         Kind::Failed,
                         format!("{error:#}"),
                         None,
+                        ended,
                     )?;
                 }
             }
@@ -633,6 +678,7 @@ impl<'a> Engine<'a> {
                     Kind::Canceled,
                     "Canceled before it started".to_owned(),
                     None,
+                    None,
                 )?;
             }
             Control::CancelUnknown => {
@@ -642,6 +688,7 @@ impl<'a> Engine<'a> {
                         "Task {} is neither running nor queued: nothing to cancel",
                         message.task
                     ),
+                    None,
                     None,
                 )?;
             }
@@ -712,14 +759,14 @@ impl<'a> Engine<'a> {
             }
             Update::Text(said) => {
                 if let Some(earlier) = run.text.replace(said) {
-                    reply.send(Kind::Progress, earlier, None)?;
+                    reply.send(Kind::Progress, earlier, None, None)?;
                 }
             }
             Update::Tool(running) => {
                 if let Some(earlier) = run.text.take() {
-                    reply.send(Kind::Progress, earlier, None)?;
+                    reply.send(Kind::Progress, earlier, None, None)?;
                 }
-                reply.send(Kind::Progress, running.clone(), None)?;
+                reply.send(Kind::Progress, running.clone(), None, None)?;
                 run.tool = Some(running);
             }
             Update::Finished {
@@ -738,7 +785,7 @@ impl<'a> Engine<'a> {
                 if let Some(last) = run.text.take()
                     && !repeats_result(&last, &result)
                 {
-                    reply.send(Kind::Progress, last, None)?;
+                    reply.send(Kind::Progress, last, None, None)?;
                 }
                 run.finished = Some(Finished {
                     text: result,
@@ -1006,6 +1053,7 @@ impl<'a> Engine<'a> {
                             ),
                             run.finished
                                 .map(|finished| (finished.usage, finished.task_usage)),
+                            self.ended(&message.task).await,
                         )?;
                         return Ok(Attempt::Done(Finish::Canceled));
                     }
@@ -1018,6 +1066,7 @@ impl<'a> Engine<'a> {
                         "The guest agent stopped: the task was interrupted".to_owned(),
                         run.finished
                             .map(|finished| (finished.usage, finished.task_usage)),
+                        self.ended(&message.task).await,
                     )?;
                     return Ok(Attempt::Done(Finish::Stopped));
                 }
@@ -1029,27 +1078,31 @@ impl<'a> Engine<'a> {
         }
         let status = child.wait().await.context("Claude Code did not exit")?;
         finish(&mut group).await;
-        // A fork that fails leaves no turn behind: the task can still run in a fresh session.
-        // A run that did something and then ended without a result is the task's failure: run
-        // again, it would repeat what was done.
-        if matches!(launch, Launch::Fork(_))
-            && match &run.finished {
-                None => !run.progressed,
-                Some(finished) => finished.failed && finished.usage.num_turns == 0,
-            }
-        {
-            let reason = run.finished.map_or_else(
-                || format!("Claude Code exited ({status}) without a result"),
-                |finished| finished.text,
-            );
+        if let Some(reason) = fork_failure(launch, &run, status) {
             return Ok(Attempt::ForkFailed(reason));
         }
         let finished = run
             .finished
             .with_context(|| format!("Claude Code exited ({status}) without a result"))?;
         let note = self.generation(message, access, model, &finished).await;
-        report(&reply, model, finished, note)?;
+        let ended = self.ended(&message.task).await;
+        report(&reply, model, finished, note, ended)?;
         Ok(Attempt::Done(Finish::Done))
+    }
+
+    /// Where the run of `task` ended, for its outcome, found within `ENDED_TIMEOUT`; `None`, said
+    /// on stderr, when it cannot be found.
+    async fn ended(&self, task: &str) -> Option<Ended> {
+        let error = match timeout(ENDED_TIMEOUT, ended(self.gh, self.workdir)).await {
+            Ok(Ok(found)) => return Some(found),
+            Ok(Err(error)) => format!("{error:#}"),
+            Err(_) => format!("it took longer than {}s", ENDED_TIMEOUT.as_secs()),
+        };
+        eprintln!(
+            "Task {task}: unable to find where the run ended: {}",
+            self.secrets.redact(&error)
+        );
+        None
     }
 
     /// Record a finished run in the generation ledger and, for a `--github` task, rewrite the
@@ -1122,6 +1175,7 @@ mod tests {
     use crate::guest::github::{REDACTED, WriteToken};
     use crate::guest::secrets::{ClaudeToken, REDACTED_CLAUDE};
     use crate::keys::{Seed, generate};
+    use crate::message::PullRequestRef;
 
     const CLAUDE_TOKEN: &str = "sk-ant-oat01-harness0123456789";
 
@@ -1145,6 +1199,8 @@ mod tests {
             task_usage: None,
             github: false,
             model: None,
+            work: None,
+            ended: None,
         }
     }
 
@@ -1262,12 +1318,16 @@ bg*)
 esac
 "#;
 
-    /// A stand-in for `gh`: `pr list` prints `prs.json` (no pull request without it), `pr edit
-    /// <n>` saves its stdin as `body-<n>.md` or fails when `edit-fails` exists. Every call is
-    /// logged to `gh.log` with its arguments and whether `GH_TOKEN` was set.
+    /// A stand-in for `gh`: `repo view` prints `repo.json` (fails without it), `pr list` prints
+    /// `prs.json` (no pull request without it), `pr edit <n>` saves its stdin as `body-<n>.md`
+    /// or fails when `edit-fails` exists. Every call is logged to `gh.log` with its arguments,
+    /// whether `GH_TOKEN` was set and whether it was the write token.
     const FAKE_GH: &str = r#"#!/bin/bash
-echo "$* GH_TOKEN=${GH_TOKEN:+set}" >> gh.log
+echo "$* GH_TOKEN=${GH_TOKEN:+set} write=$([ "$GH_TOKEN" = "github_pat_harnesswrite0123456789" ] && echo yes || echo no)" >> gh.log
 case "$1 $2" in
+"repo view")
+    if [ -e repo.json ]; then cat repo.json; else echo "no git remotes found" >&2; exit 1; fi
+    ;;
 "pr list")
     if [ -e prs.json ]; then cat prs.json; else echo '[]'; fi
     ;;
@@ -2140,12 +2200,15 @@ esac
         harness.checkout("feat/x");
         open_pull_request(&harness, 7, "Body");
 
-        // A task without GitHub is recorded, and never runs gh: it has no write token.
+        // A task without GitHub is recorded, and never edits a pull request: it has no write
+        // token. Its gh calls only find where it ended (none here: no repo.json).
         harness.send(Kind::Task, "review", "plain");
         let outcome = harness.outcome().await;
         assert_eq!(outcome.kind, Kind::Completed);
         assert_eq!(outcome.text, "done");
-        assert!(!harness.dir.join("gh.log").exists());
+        let log = fs::read_to_string(harness.dir.join("gh.log")).unwrap();
+        assert!(!log.contains("pr edit"), "{log}");
+        assert!(!log.contains("write=yes"), "{log}");
 
         harness.send_github("write", "plain");
         let outcome = harness.outcome().await;
@@ -2224,5 +2287,106 @@ esac
             outcome.text
         );
         assert!(!harness.dir.join("gh.log").exists());
+    }
+
+    /// The checkout's repository for the fake `gh`, `o/r` with `main` its default branch.
+    fn repository(harness: &Harness) {
+        let view =
+            serde_json::json!({"nameWithOwner": "o/r", "defaultBranchRef": {"name": "main"}});
+        fs::write(harness.dir.join("repo.json"), view.to_string()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn every_outcome_of_a_task_that_ran_says_where_it_ended() {
+        let mut harness = Harness::start("ended");
+        harness.checkout("feat/x");
+        repository(&harness);
+        open_pull_request(&harness, 7, "Body");
+        let expected = Ended {
+            repo: "o/r".to_owned(),
+            branch: Some("feat/x".to_owned()),
+            pull_requests: vec![PullRequestRef {
+                repo: "o/r".to_owned(),
+                number: 7,
+                url: "https://example.invalid/pull/7".to_owned(),
+            }],
+        };
+
+        harness.send(Kind::Task, "t1", "plain");
+        let outcome = harness.outcome().await;
+        assert_eq!(outcome.kind, Kind::Completed);
+        assert_eq!(outcome.ended.as_ref(), Some(&expected));
+        // Without --github: the agent's own token, never the write token, and nothing edited.
+        let log = fs::read_to_string(harness.dir.join("gh.log")).unwrap();
+        assert!(log.contains("pr list --state open --head=feat/x"), "{log}");
+        assert!(!log.contains("pr edit"), "{log}");
+
+        harness.send(Kind::Task, "t2", "ask");
+        let outcome = harness.outcome().await;
+        assert_eq!(outcome.kind, Kind::Question);
+        assert_eq!(outcome.ended.as_ref(), Some(&expected));
+
+        harness.send(Kind::Task, "t3", "crash");
+        let outcome = harness.outcome().await;
+        assert_eq!(outcome.kind, Kind::Failed);
+        assert_eq!(outcome.ended.as_ref(), Some(&expected));
+    }
+
+    #[tokio::test]
+    #[ignore = "starts real processes and signals them; run with -- --ignored"]
+    async fn a_task_canceled_while_it_runs_says_where_it_ended_and_a_queued_one_does_not() {
+        let mut harness = Harness::start("ended-cancel");
+        harness.checkout("feat/x");
+        repository(&harness);
+        let expected = Ended {
+            repo: "o/r".to_owned(),
+            branch: Some("feat/x".to_owned()),
+            pull_requests: Vec::new(),
+        };
+        // A task canceled before it ran did not end anywhere.
+        harness.send(Kind::Task, "t4", "hang-a");
+        harness.send(Kind::Task, "t5", "never");
+        harness.send(Kind::Cancel, "t5", "");
+        let outcome = harness.outcome().await;
+        assert_eq!(
+            (outcome.task.as_str(), outcome.kind),
+            ("t5", Kind::Canceled)
+        );
+        assert_eq!(outcome.ended, None);
+        // One canceled while it runs did.
+        harness.send(Kind::Cancel, "t4", "");
+        let outcome = harness.outcome().await;
+        assert_eq!(
+            (outcome.task.as_str(), outcome.kind),
+            ("t4", Kind::Canceled)
+        );
+        assert_eq!(outcome.ended.as_ref(), Some(&expected));
+    }
+
+    #[tokio::test]
+    async fn an_outcome_on_the_default_branch_names_no_branch() {
+        let mut harness = Harness::start("ended-main");
+        harness.checkout("main");
+        repository(&harness);
+        open_pull_request(&harness, 7, "Body");
+        harness.send(Kind::Task, "t1", "plain");
+        let outcome = harness.outcome().await;
+        assert_eq!(
+            outcome.ended,
+            Some(Ended {
+                repo: "o/r".to_owned(),
+                branch: None,
+                pull_requests: Vec::new(),
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn an_outcome_outside_a_checkout_has_no_ended() {
+        let mut harness = Harness::start("ended-none");
+        harness.send(Kind::Task, "t1", "plain");
+        let outcome = harness.outcome().await;
+        assert_eq!(outcome.kind, Kind::Completed);
+        assert_eq!(outcome.ended, None);
     }
 }

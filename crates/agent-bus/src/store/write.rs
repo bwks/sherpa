@@ -1,23 +1,31 @@
-//! Recording one message: the `message` row, the task's row, and the run with its models when
-//! the message carries a run's usage, in one transaction.
+//! Recording one message: the `message` row, the task's row, the run with its models when
+//! the message carries a run's usage, and what it says about its task's work item, in one
+//! transaction.
 
 use anyhow::{Context, Result};
 use tracing::instrument;
 use turso::{Connection, Value};
 
 use crate::store::cells::{Cells, boolean, integer, optional_integer, optional_text};
+use crate::store::facts::facts;
 use crate::store::sql::{FIND_TASK, INSERT_MESSAGE, INSERT_RUN, INSERT_RUN_MODEL, UPSERT_TASK};
-use crate::store::task::{Recorded, Task, TaskState, apply};
+use crate::store::task::{self, Recorded, Task, TaskState};
+use crate::store::work::apply;
 
-/// Record `recorded` in one transaction. Returns `false`, changing nothing, when its sequence is
-/// already recorded: a message the bus delivered again, after a command stopped between
-/// committing it and acknowledging it.
+/// Record `recorded` in one transaction, with `home_repo` the host's repository for a parsed
+/// Generation line's branch. Returns `false`, changing nothing, when its sequence is already
+/// recorded: a message the bus delivered again, after a command stopped between committing it
+/// and acknowledging it.
 ///
 /// # Errors
 ///
 /// Fails when a statement or the commit fails; nothing is recorded then.
 #[instrument(level = "debug", skip_all, fields(seq = recorded.seq, task = %recorded.message.task))]
-pub async fn record(conn: &mut Connection, recorded: &Recorded<'_>) -> Result<bool> {
+pub async fn record(
+    conn: &mut Connection,
+    recorded: &Recorded<'_>,
+    home_repo: Option<&str>,
+) -> Result<bool> {
     let tx = conn
         .transaction()
         .await
@@ -31,10 +39,15 @@ pub async fn record(conn: &mut Connection, recorded: &Recorded<'_>) -> Result<bo
         return Ok(false);
     }
     let task = find_task(&tx, &message.task).await?;
-    let task = apply(task, recorded);
+    let task = task::apply(task, recorded);
     tx.execute(UPSERT_TASK, task_values(&task))
         .await
         .context("Unable to record the task")?;
+    if let Some(facts) = facts(message, home_repo) {
+        apply(&tx, &message.task, &facts, recorded.seq, recorded.at_ms)
+            .await
+            .context("Unable to record the task's work item")?;
+    }
     if let Some(usage) = &message.usage
         && message.kind.sent_by_worker()
     {
@@ -137,6 +150,18 @@ fn message_values(recorded: &Recorded<'_>) -> Result<Vec<Value>> {
         .map(serde_json::to_string)
         .transpose()
         .context("Unable to encode the task's usage")?;
+    let work = message
+        .work
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .context("Unable to encode the task's work")?;
+    let ended = message
+        .ended
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .context("Unable to encode where the run ended")?;
     Ok(vec![
         integer(recorded.seq),
         integer(recorded.at_ms),
@@ -149,6 +174,8 @@ fn message_values(recorded: &Recorded<'_>) -> Result<Vec<Value>> {
         boolean(message.github),
         optional_text(usage.as_deref()),
         optional_text(task_usage.as_deref()),
+        optional_text(work.as_deref()),
+        optional_text(ended.as_deref()),
     ])
 }
 
@@ -208,6 +235,8 @@ mod tests {
             task_usage: None,
             github: false,
             model: None,
+            work: None,
+            ended: None,
         }
     }
 
@@ -268,6 +297,7 @@ mod tests {
                 at_ms: seq * 1000,
                 message,
             },
+            None,
         )
         .await
         .unwrap()
@@ -330,6 +360,7 @@ mod tests {
                 at_ms: 1000,
                 message: &completed("t1"),
             },
+            None,
         )
         .await
         .err()

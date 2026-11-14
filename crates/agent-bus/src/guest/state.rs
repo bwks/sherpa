@@ -122,6 +122,8 @@ impl Queued {
             task_usage: None,
             github: self.github,
             model: self.model,
+            work: None,
+            ended: None,
         }
     }
 }

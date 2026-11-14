@@ -49,7 +49,7 @@ fn row_cells(row: &HistoryRow) -> [String; 7] {
 }
 
 /// `at_ms`, milliseconds since the Unix epoch, as `YYYY-MM-DD HH:MM` in UTC.
-fn utc_minute(at_ms: u64) -> String {
+pub(super) fn utc_minute(at_ms: u64) -> String {
     i64::try_from(at_ms)
         .ok()
         .and_then(|ms| Timestamp::from_millisecond(ms).ok())
@@ -60,7 +60,7 @@ fn utc_minute(at_ms: u64) -> String {
 }
 
 /// The start of `prompt`'s first line, with `…` when there is more.
-fn prompt_start(prompt: &str) -> String {
+pub(super) fn prompt_start(prompt: &str) -> String {
     let first = prompt.lines().next().unwrap_or_default();
     let start: String = first.chars().take(PROMPT_CHARS).collect();
     if start.len() < prompt.trim_end().len() {

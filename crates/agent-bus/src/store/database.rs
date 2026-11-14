@@ -159,6 +159,8 @@ mod tests {
     use std::os::unix::fs::MetadataExt;
     use std::{env, process};
 
+    use turso::Value;
+
     use super::*;
     use crate::store::sql::QUERIES;
 
@@ -243,6 +245,67 @@ mod tests {
         drop(store);
         let error = Store::open(&path).await.err().unwrap();
         assert!(format!("{error:#}").contains("newer"), "{error:#}");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_version_1_record_with_rows_migrates_and_keeps_them() {
+        let dir = env::temp_dir().join(format!("agent-bus-store-v1-{}", process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(FILE);
+        let location = path.to_str().unwrap();
+        {
+            // A record as agent-bus wrote it at schema version 1.
+            let db = Builder::new_local(location).build().await.unwrap();
+            let conn = db.connect().unwrap();
+            conn.execute_batch(MIGRATIONS[0]).await.unwrap();
+            conn.execute("PRAGMA user_version = 1", ()).await.unwrap();
+            conn.execute_batch(
+                "INSERT INTO message (seq, at_ms, task, from_agent, to_agent, kind, text, model, \
+                     github, usage, task_usage) \
+                 VALUES (1, 1000, 't1', 'host', 'dev', 'task', 'do it', NULL, 0, NULL, NULL); \
+                 INSERT INTO task (id, agent, requester, first_seq, last_seq, last_at_ms, github, \
+                     state, questions, answers, runs, cost_usd) \
+                 VALUES ('t1', 'dev', 'host', 1, 1, 1000, 0, 'completed', 0, 0, 1, 0.5);",
+            )
+            .await
+            .unwrap();
+        }
+        let store = Store::open(&path).await.unwrap();
+        let conn = store.connect().unwrap();
+        assert_eq!(schema_version(&conn).await.unwrap(), MIGRATIONS.len());
+        let mut rows = conn
+            .query("SELECT text, work, ended FROM message WHERE seq = 1", ())
+            .await
+            .unwrap();
+        let row = rows.next().await.unwrap().unwrap();
+        assert_eq!(row.get_value(0).unwrap(), Value::Text("do it".to_owned()));
+        assert_eq!(row.get_value(1).unwrap(), Value::Null);
+        assert_eq!(row.get_value(2).unwrap(), Value::Null);
+        drop(rows);
+        let mut rows = conn
+            .query("SELECT state, cost_usd FROM task WHERE id = 't1'", ())
+            .await
+            .unwrap();
+        let row = rows.next().await.unwrap().unwrap();
+        assert_eq!(
+            row.get_value(0).unwrap(),
+            Value::Text("completed".to_owned())
+        );
+        assert_eq!(row.get_value(1).unwrap(), Value::Real(0.5));
+        drop(rows);
+        // The new tables are there, empty.
+        for table in ["work_item", "work_ref", "task_ref", "task_work"] {
+            let mut rows = conn
+                .query(&format!("SELECT count(*) FROM {table}"), ())
+                .await
+                .unwrap();
+            let row = rows.next().await.unwrap().unwrap();
+            assert_eq!(row.get_value(0).unwrap(), Value::Integer(0), "{table}");
+        }
+        drop(conn);
+        drop(store);
         fs::remove_dir_all(&dir).unwrap();
     }
 }
