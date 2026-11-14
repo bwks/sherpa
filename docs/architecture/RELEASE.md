@@ -39,7 +39,13 @@ The task is defined in the root `mise.toml` and runs `dev/release-bump`. It:
   locally or on `origin`;
 - sets the workspace version and runs `cargo update --workspace`, which updates only the
   workspace crates' lockfile entries;
-- regenerates `CHANGELOG.md` with `git cliff --tag vX.Y.Z -o CHANGELOG.md`;
+- adds the new version's section to the top of `CHANGELOG.md` with
+  `git cliff --unreleased --tag vX.Y.Z --prepend CHANGELOG.md`: the commits since the last tag,
+  under the header, which git-cliff keeps once. The earlier sections are not regenerated;
+- checks the changelog against the committed one (`git show HEAD:CHANGELOG.md`): the header is
+  the same, the first section is the new version's and ends with one blank line, and the text
+  after it is the committed file's text after its header, byte for byte. Otherwise it stops,
+  shows the diff and leaves `CHANGELOG.md` as written;
 - checks that only `Cargo.toml`, `Cargo.lock` and `CHANGELOG.md` changed, and prints the diff
   stat and the new changelog section.
 
@@ -53,12 +59,25 @@ neither is. Guest agents have `GH_TOKEN_RO`. On the host, set `GH_TOKEN_RO` to a
 personal access token with read-only access to the repository (no write permissions); do not
 use the `gh` login token, which can write.
 
+### Hand-written release notes
+
+Notes written by hand into a section, such as a release's "Upgrade notes" or "Breaking changes"
+block, are kept: a bump writes only the new section and leaves every earlier one as it is. To
+add notes to a release, edit its section in the bump pull request, after running the bump; the
+Release workflow publishes the section as it is on main. The check runs only in the script and
+compares with the committed file, so an earlier section edited and committed before the bump
+stays as committed; nothing in CI checks the changelog beyond the new version's heading.
+
+`trim = true` in `cliff.toml` strips the blank line at the end of each section, so the body
+template ends with a marker that a postprocessor removes after the trim. That keeps one blank
+line between the new section and the previous version's heading.
+
 ### Caveat: the changelog is written at bump time
 
 `CHANGELOG.md` is written by the bump, not by the release. Pull requests merged after the bump
 pull request and before the Release run ship in that release, but have no lines in its section
-or its release notes. The next bump regenerates the whole file and lists them under the next
-version. Keep the gap short: bump, merge, release.
+or its release notes. The next bump lists only the commits after that release's tag, so those
+pull requests never get changelog lines. Keep the gap short: bump, merge, release.
 
 ## The release
 
