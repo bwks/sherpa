@@ -364,9 +364,18 @@ How an end's carrier is set, behind `LinkHost::carrier` and `LinkHost::set_carri
   (`libvirt::set_interface_link`, as `virsh domif-setlink` does it: the interface's live XML
   with its `<link state>` set, through `Domain::update_device_flags` with
   `VIR_DOMAIN_AFFECT_LIVE`). The tap, its ifindex and its filter are unchanged. A host tap set
-  down is not seen by the guest, so it is not used. The persistent definition is not changed:
-  a domain started again has its links up, and the re-attach or repair that follows sets them
-  again.
+  down, or its carrier taken off, is not seen by the guest's virtio-net, so neither is used;
+  libvirt's link state is the only thing the guest sees. The persistent definition is not
+  changed: a domain started again has its links up, and the re-attach or repair that follows
+  sets them again.
+
+  The interface XML is edited as a stream of `quick-xml` events, not through a model of the
+  interface: the `<interface>` whose own `<target dev>` is the tap is copied event by event,
+  with its own `<link>` replaced, or `<link state>` added before `</interface>` when it has
+  none. Every other element, attribute and value passes through with its bytes, so nothing
+  libvirt reports that Sherpa does not model is lost; libvirt refuses a live update that
+  changes a field it cannot change live. The current state is read from the same events: the
+  link is up unless its `<link state>` is `down`. Domain XML that is not well formed is refused.
 
 The eBPF program is not changed. It already drops what it cannot deliver.
 

@@ -19,6 +19,7 @@ tracing = { workspace = true }
 virt = { workspace = true }
 
 # XML
+quick-xml = { workspace = true }
 roxmltree = "0.21"
 
 [lints]
