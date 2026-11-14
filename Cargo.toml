@@ -1,10 +1,56 @@
 # Keep development builds incremental and avoid broad debug optimization for fast local iteration.
+# Workspace crates keep line tables, so panics and backtraces still show file and line; a
+# debugger shows no local variables. CARGO_PROFILE_DEV_DEBUG=true gives workspace crates full
+# debug info for a session.
 [profile.dev]
 incremental = true
 opt-level = 0
+debug = "line-tables-only"
 
-# Speed up SSH key generation in debug mode without optimizing all dependencies.
+# No debug info for dependencies. Cargo applies this, then a crate's own override; the crate
+# overrides below set only opt-level, so those crates get both.
+[profile.dev.package."*"]
+debug = false
+
+# Optimise the hashing and bignum crates behind Argon2 password hashing and RSA key generation.
+# At opt-level 0 they make the test run slow (318 s against 129 s when measured); at opt-level 3 they
+# cost no measurable build time. Each entry covers every version of the crate in Cargo.lock.
+# These are dev-only: release and dist build everything at opt-level 3 already.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
+[profile.dev.package.password-hash]
+opt-level = 3
+[profile.dev.package.rsa]
+opt-level = 3
+[profile.dev.package.num-bigint]
+opt-level = 3
 [profile.dev.package.num-bigint-dig]
+opt-level = 3
+[profile.dev.package.num-integer]
+opt-level = 3
+[profile.dev.package.num-traits]
+opt-level = 3
+[profile.dev.package.crypto-bigint]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.digest]
+opt-level = 3
+[profile.dev.package.block-buffer]
+opt-level = 3
+[profile.dev.package.rand]
+opt-level = 3
+[profile.dev.package.rand_core]
+opt-level = 3
+[profile.dev.package.rand_chacha]
+opt-level = 3
+[profile.dev.package.ppv-lite86]
+opt-level = 3
+[profile.dev.package.subtle]
+opt-level = 3
+[profile.dev.package.zeroize]
 opt-level = 3
 
 # Keep default release builds fast for local development and CI validation.

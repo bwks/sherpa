@@ -209,17 +209,19 @@ node's host end, whatever it came from.
 
 - P2p, disabled and bridge-member veths: `KernelHost::create_veth`, after the veth is made, so
   `up`, redeploy, cold-boot resume and the scanner's repair all do it.
-- The management veth, which Docker makes at every start of the container:
+- The management veth, which Docker makes at every start of the container, with offload on:
   `node_ops::finish_management_checksums` after `up` and redeploy start the container
-  (`start_container_node`) and after a cold-boot resume. Its host end is found from the
-  container's own sysfs (`network::container_veth_peer_ifindex`).
-- The change is made through the kernel's ethtool netlink family
-  (`network::disable_tx_checksum_offload`), with netlink-sys through rtnetlink.
+  (`start_container_node`), after a cold-boot resume, and from the scanner for a container
+  started outside Sherpa (see [Repair by the scanner](#repair-by-the-scanner)). Its host end is
+  found through the container's network namespace (`network::container_veth_peer_ifindex`). It
+  reads the offload first and changes it only when it is on, and logs a change at info.
+- Offload is read and changed through the kernel's ethtool netlink family
+  (`network::tx_checksum_offload_on`, `network::disable_tx_checksum_offload`), with
+  netlink-sys through rtnetlink. Offload counts as on while any of the transmit checksum
+  features that `ethtool -K <iface> tx off` turns off is active.
 
-Not covered: a container restarted outside Sherpa gets its P2p veths back from the scanner, with
-offload off, but its new management veth keeps offload on until Sherpa next starts it. An IOL
-node on a private bridge with no P2p link takes its bridge interfaces as Docker macvlan
-interfaces, which have no host end to change.
+Not covered: an IOL node on a private bridge with no P2p link takes its bridge interfaces as
+Docker macvlan interfaces, which have no host end to change.
 
 IOL's MTU is fixed at 1500, while Sherpa's veths are 9600. A Linux node linked to an IOL node
 must use MTU 1500 on that interface, or it advertises a larger TCP MSS and its TCP stalls.
@@ -323,6 +325,22 @@ redeploy or `up`. Each link's last state is kept in memory for `sherpa inspect`.
 the rule and its limits are in
 [`STATE_MACHINES.md`, section 25](STATE_MACHINES.md#25-p2p-link-attachment).
 
+Each scan of a `Ready` lab runs three steps under the lab hold, in this order: the management
+veth's checksum offload, then the link check and repair above, then carrier (see
+[Carrier propagation](#carrier-propagation)).
+
+For the first, for each running container of a model that needs finished checksums, the
+scanner reads transmit checksum offload on the host end of the management veth and turns it off
+when it is on (`repair_management_checksums`, through `finish_management_checksums`). A
+container started outside Sherpa has a new management veth with offload on, and TCP to its
+management address fails until then. This runs for every container node of a `Ready` lab,
+whether or not the lab has links, and needs nothing remembered: a veth that is right is only
+read. A failure is logged at warn and the other nodes are still checked.
+
+A guest that cached its peer's MAC address keeps sending to the old one after the peer's
+container restarted (the new veth has a new MAC), until its neighbour entry is probed again,
+which Linux does within seconds.
+
 ### Carrier propagation
 
 The carrier of a link's ends follows its state (`p2p_links::carrier`), as a cable's would:
@@ -377,7 +395,3 @@ the re-attach of resume and redeploy (the node's links). A paused node is not ru
 scanner, so `docker pause` and `sherpa down`, which pauses containers, take their peers'
 carrier down within one scan interval, and the scan after `unpause` or `resume` brings it back.
 With `scanner.enabled = false`, only resume and redeploy set carrier.
-
-A guest that cached its peer's MAC address keeps sending to the old one after the peer's
-container restarted (the new veth has a new MAC), until its neighbour entry is probed again,
-which Linux does within seconds.

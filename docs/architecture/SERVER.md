@@ -1043,8 +1043,14 @@ is not probed again, so the scanner makes no SSH connections to settled nodes; a
 changes without a state change, as on a reboot from inside the guest, is read when a client
 finds it does not match. Other nodes have no probe: running counts as ready.
 
-Still under the hold, the scanner checks the P2p links of a `Ready` lab in the kernel and
-repairs the ends of running nodes that were made again outside Sherpa (`repair_links`): a VM
+Still under the hold, in a `Ready` lab, the scanner first turns transmit checksum offload off
+on the management veth of each running IOL container where Docker made it again with offload
+on, as after a `docker start` outside Sherpa (`repair_management_checksums`). Offload is read
+from the kernel first, so a veth that is already right is not changed. This runs whether or not
+the lab has links. See
+[`P2P-ARCHITECTURE.md`](P2P-ARCHITECTURE.md#transmit-checksum-offload).
+
+Then it checks the lab's P2p links in the kernel and repairs the ends of running nodes that were made again outside Sherpa (`repair_links`): a VM
 started with `virsh`, a container started or restarted with `docker`. Then it makes the carrier
 of each link's ends follow the link's state (`p2p_links::follow_carrier`): the surviving end of
 a link whose peer is stopped or paused loses carrier, both ends of a failed link do, and an

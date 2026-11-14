@@ -341,6 +341,7 @@ impl Readiness<'_, '_> {
 
         let is_running = node_ops::start_container_node(
             self.build.docker_conn,
+            self.build.qemu,
             ContainerSpec {
                 name: container_name.clone(),
                 image: container::image_reference(image_name, version),

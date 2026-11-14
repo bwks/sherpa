@@ -8,7 +8,7 @@
 
 - [x] **Baseline build timings** — Clean debug workspace build: 8m 40s; incremental rebuild after touching `crates/shared/src/lib.rs`: 12.9s; `cargo clippy --workspace -- -D warnings`: 4m 47s.
 - [x] **Workspace profile cleanup** — Moved release profile settings to the workspace root, removed ignored package-local profile settings, and avoided `panic = "abort"` because it duplicates release all-target compilation units.
-- [x] **Optional fast linker docs** — Documented local opt-in `lld` configuration. `mold` is not used or recommended.
+- [x] **Linker** — rustc links x86-64 Linux with its bundled `rust-lld` by default since Rust 1.90, so the opt-in `lld` example and its README paragraph were removed (#583).
 - [x] **Reqwest dependency deduplication** — Upgraded direct Sherpa `reqwest` usage to workspace `reqwest` 0.13.2 and disabled default OpenTelemetry OTLP HTTP client features, removing duplicate direct `reqwest` 0.11/0.12 stacks from the lockfile.
 - [x] **Tokio feature review** — Replaced `tokio` `full` usage in workspace crates with narrower feature sets where safe.
 - [x] **Post-change build timings** — Clean debug workspace build: 9m 15s; incremental rebuild after touching `crates/shared/src/lib.rs`: 41.7s; `cargo clippy --workspace -- -D warnings`: 4m 46s. A trial with global `profile.dev.opt-level = 1` was worse at 10m 45s clean, so it was not kept.

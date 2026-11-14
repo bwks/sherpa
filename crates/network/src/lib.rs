@@ -14,6 +14,6 @@ pub use linux::{
 };
 
 pub use ebpf::{attach_p2p_redirect, has_p2p_redirect};
-pub use ethtool::disable_tx_checksum_offload;
+pub use ethtool::{disable_tx_checksum_offload, tx_checksum_offload_on};
 pub use tap::{NetnsVethState, create_tap, create_veth_in_netns, find_ifindex, get_ifindex};
 pub use tc::{NetemRemoval, apply_netem, remove_netem, sync_netem, update_netem};

@@ -28,7 +28,12 @@ pub(crate) struct FakeHost {
     pub(crate) no_container: bool,
     /// Interfaces whose redirect cannot be read.
     pub(crate) failing_filter_reads: HashSet<String>,
-    /// How many changes were made: redirects attached, impairments set, veths made.
+    /// The index of the host end of each container's management veth, by container.
+    pub(crate) management_veths: HashMap<String, u32>,
+    /// The interfaces with transmit checksum offload on, by index.
+    pub(crate) offload_on: RefCell<HashSet<u32>>,
+    /// How many changes were made: redirects attached, impairments set, veths made, offload
+    /// turned off.
     pub(crate) writes: Cell<u32>,
     /// The interfaces whose carrier is down. A new interface has carrier.
     pub(crate) carrier_down: RefCell<HashSet<String>>,
@@ -181,6 +186,13 @@ impl FakeHost {
         Ok(())
     }
 
+    fn management_veth_of(&self, container: &str) -> Result<u32> {
+        match self.management_veths.get(container) {
+            Some(ifindex) => Ok(*ifindex),
+            None => bail!("no such container: {container}"),
+        }
+    }
+
     fn make_veth(&self, veth: &ContainerVeth) -> Result<()> {
         self.wrote();
         if self.failing_veths.contains(&veth.host_veth) {
@@ -243,5 +255,19 @@ impl LinkHost for FakeHost {
 
     fn set_carrier(&self, end: &EndDevice, up: bool) -> impl Future<Output = Result<()>> {
         ready(self.write_carrier(end, up))
+    }
+
+    fn management_veth(&self, container: &str) -> impl Future<Output = Result<u32>> {
+        ready(self.management_veth_of(container))
+    }
+
+    fn tx_checksum_offload_on(&self, ifindex: u32) -> Result<bool> {
+        Ok(self.offload_on.borrow().contains(&ifindex))
+    }
+
+    fn disable_tx_checksum_offload(&self, ifindex: u32) -> Result<()> {
+        self.wrote();
+        self.offload_on.borrow_mut().remove(&ifindex);
+        Ok(())
     }
 }

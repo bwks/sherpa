@@ -12,6 +12,7 @@ use super::veths::ContainerVeth;
 use crate::services::node_ops;
 
 use shared::data::LinkImpairment;
+use shared::konst::CONTAINER_MGMT_INTERFACE;
 use shared::util;
 
 /// One end of a link, as its carrier is read and set.
@@ -27,7 +28,8 @@ pub(crate) enum EndDevice {
 
 /// The host operations that re-attach a link: look up an end and whether it has its redirect,
 /// point its redirect at its peer, set its impairment, make a container's veths, and read and
-/// set an end's carrier.
+/// set an end's carrier. Also those that keep transmit checksum offload off on a container's
+/// management veth.
 pub(crate) trait LinkHost {
     /// The index of interface `iface`, or `None` when it does not exist.
     async fn ifindex(&self, iface: &str) -> Result<Option<u32>>;
@@ -58,6 +60,15 @@ pub(crate) trait LinkHost {
 
     /// Give end `end` carrier, or take it away.
     async fn set_carrier(&self, end: &EndDevice, up: bool) -> Result<()>;
+
+    /// The index of the host end of container `container`'s management veth.
+    async fn management_veth(&self, container: &str) -> Result<u32>;
+
+    /// Whether transmit checksum offload is on for the interface with index `ifindex`.
+    fn tx_checksum_offload_on(&self, ifindex: u32) -> Result<bool>;
+
+    /// Turn transmit checksum offload off on the interface with index `ifindex`.
+    fn disable_tx_checksum_offload(&self, ifindex: u32) -> Result<()>;
 }
 
 /// The real host: the kernel through `network`, Docker, and libvirt.
@@ -161,5 +172,19 @@ impl LinkHost for KernelHost<'_> {
                 .context("The libvirt link state change panicked")?
             }
         }
+    }
+
+    #[instrument(skip(self), level = "debug")]
+    async fn management_veth(&self, container: &str) -> Result<u32> {
+        let pid = container::get_container_pid(self.docker, container).await?;
+        network::container_veth_peer_ifindex(pid, CONTAINER_MGMT_INTERFACE).await
+    }
+
+    fn tx_checksum_offload_on(&self, ifindex: u32) -> Result<bool> {
+        network::tx_checksum_offload_on(ifindex)
+    }
+
+    fn disable_tx_checksum_offload(&self, ifindex: u32) -> Result<()> {
+        network::disable_tx_checksum_offload(ifindex)
     }
 }

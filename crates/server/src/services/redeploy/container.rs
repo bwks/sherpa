@@ -92,6 +92,7 @@ pub(super) async fn redeploy_container(
     let has_disabled = additional_networks.iter().any(|n| n.admin_down);
     let is_running = node_ops::start_container_node(
         &redeploy.state.docker,
+        &redeploy.state.qemu,
         ContainerSpec {
             name: container_name.clone(),
             image: container::image_reference(&ztp_result.image, &redeploy.node_image.version),

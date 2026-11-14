@@ -16,12 +16,14 @@ use tracing::instrument;
 use crate::services::container_networks::is_node_network;
 use crate::services::guest_account::{self, GuestAccount, KeyFormat};
 use crate::services::image_lifecycle::ImageLease;
+use crate::services::p2p_links::{KernelHost, LinkHost};
 use crate::services::progress::ProgressSender;
 use crate::tls::generator::write_file_with_permissions;
 use crate::tls::lab_ca::NodeCertPaths;
 
 use container::ContainerSpec;
 use iso::create_iso;
+use libvirt::Qemu;
 use network::NetnsVethState;
 use shared::data;
 use shared::data::StatusKind;
@@ -35,18 +37,17 @@ use shared::konst::{
     CONTAINER_FORGEJO_COMMANDS, CONTAINER_FRR_ENV_VARS, CONTAINER_GITLAB_CE_COMMANDS,
     CONTAINER_GITLAB_CE_SHM_SIZE, CONTAINER_HASHICORP_VAULT_CAPABILITIES,
     CONTAINER_HASHICORP_VAULT_COMMANDS, CONTAINER_HASHICORP_VAULT_ENV_VARS,
-    CONTAINER_KEYCLOAK_COMMANDS, CONTAINER_KEYCLOAK_USER, CONTAINER_MGMT_INTERFACE,
-    CONTAINER_MONGO_DB_COMMANDS, CONTAINER_NATS_COMMANDS, CONTAINER_NOKIA_SRLINUX_COMMANDS,
-    CONTAINER_NOKIA_SRLINUX_ENV_VARS, CONTAINER_NOKIA_SRLINUX_USER, CONTAINER_SURREAL_DB_COMMANDS,
-    CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT, FRR_ZTP_DAEMONS_MOUNT, FRR_ZTP_STARTUP_MOUNT,
-    JUNIPER_CEVOLVED_CONFIG_DIR, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KEYCLOAK_HTTPS_PORT,
-    KVM_OUI, MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS,
-    NODE_CLOUD_INIT_SUDO_RULE, NODE_CONFIGS_DIR, NODE_DOAS_CONF_FILE, NODE_NIXOS_SHELL,
-    NODE_PASSWD_FILE, NODE_STAGING_DIR, NODE_STARTUP_SCRIPTS_DIR, NODE_USER_ENV_FILE,
-    NODE_USER_SCRIPTS_DIR, NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG,
-    PALOALTO_BOOTSTRAP_VOLUME_ID, PALOALTO_ZTP_CONFIG, SHERPA_BLANK_DISK_DIR,
-    SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV,
-    SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
+    CONTAINER_KEYCLOAK_COMMANDS, CONTAINER_KEYCLOAK_USER, CONTAINER_MONGO_DB_COMMANDS,
+    CONTAINER_NATS_COMMANDS, CONTAINER_NOKIA_SRLINUX_COMMANDS, CONTAINER_NOKIA_SRLINUX_ENV_VARS,
+    CONTAINER_NOKIA_SRLINUX_USER, CONTAINER_SURREAL_DB_COMMANDS, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT,
+    FRR_ZTP_DAEMONS_MOUNT, FRR_ZTP_STARTUP_MOUNT, JUNIPER_CEVOLVED_CONFIG_DIR, JUNIPER_ZTP_CONFIG,
+    JUNIPER_ZTP_CONFIG_TGZ, KEYCLOAK_HTTPS_PORT, KVM_OUI, MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR,
+    NODE_CERTS_DIR_WINDOWS, NODE_CLOUD_INIT_SUDO_RULE, NODE_CONFIGS_DIR, NODE_DOAS_CONF_FILE,
+    NODE_NIXOS_SHELL, NODE_PASSWD_FILE, NODE_STAGING_DIR, NODE_STARTUP_SCRIPTS_DIR,
+    NODE_USER_ENV_FILE, NODE_USER_SCRIPTS_DIR, NOKIA_SRLINUX_ZTP_VOLUME_MOUNT,
+    PALOALTO_BOOTSTRAP_CONFIG, PALOALTO_BOOTSTRAP_VOLUME_ID, PALOALTO_ZTP_CONFIG,
+    SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
+    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
     SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD,
     SHERPA_PASSWORD_HASH, SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
     SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
@@ -3627,12 +3628,13 @@ pub async fn create_vm(
 
 /// Start a container node with all its network attachments.
 #[instrument(
-    skip(docker, spec, progress),
+    skip(docker, qemu, spec, progress),
     fields(container_name = %spec.name, image = %spec.image),
     level = "debug"
 )]
 pub async fn start_container_node(
     docker: &Arc<bollard::Docker>,
+    qemu: &Arc<Qemu>,
     spec: ContainerSpec,
     model: data::NodeModel,
     progress: &ProgressSender,
@@ -3643,7 +3645,7 @@ pub async fn start_container_node(
     if !is_running {
         return Ok(false);
     }
-    finish_management_checksums(docker, &container_name, model).await?;
+    finish_management_checksums(&KernelHost::new(docker, qemu), &container_name, model).await?;
 
     // SR Linux: flush default namespace IP to avoid DUP pings
     if model == data::NodeModel::NokiaSrlinux {
@@ -3660,28 +3662,37 @@ pub async fn start_container_node(
     Ok(true)
 }
 
-/// Turn transmit checksum offload off on the host end of a started container's management
-/// veth, for a model whose container needs finished checksums. Docker makes the veth again at
-/// every start of the container, so this follows every start.
-#[instrument(skip(docker), level = "debug")]
+/// Turn transmit checksum offload off on the host end of a running container's management
+/// veth, when it is on, for a model whose container needs finished checksums. Docker makes the
+/// veth again, with offload on, at every start of the container, so this follows every start:
+/// Sherpa's own, and through the scanner one outside Sherpa. Returns whether it turned it off.
+#[instrument(skip(host), level = "debug")]
 pub(crate) async fn finish_management_checksums(
-    docker: &bollard::Docker,
+    host: &impl LinkHost,
     container_name: &str,
     model: data::NodeModel,
-) -> Result<()> {
+) -> Result<bool> {
     if !model.needs_host_checksums() {
-        return Ok(());
+        return Ok(false);
     }
-    let pid = container::get_container_pid(docker, container_name).await?;
-    let ifindex = network::container_veth_peer_ifindex(pid, CONTAINER_MGMT_INTERFACE).await?;
-    network::disable_tx_checksum_offload(ifindex).with_context(|| {
+    let ifindex = host
+        .management_veth(container_name)
+        .await
+        .with_context(|| format!("Failed to find the management veth of {container_name}"))?;
+    let on = host.tx_checksum_offload_on(ifindex).with_context(|| {
+        format!("Failed to read checksum offload on the management veth of {container_name}")
+    })?;
+    if !on {
+        return Ok(false);
+    }
+    host.disable_tx_checksum_offload(ifindex).with_context(|| {
         format!(
             "Failed to turn transmit checksum offload off on the management veth of \
              {container_name}"
         )
     })?;
     tracing::info!(%container_name, ifindex, "Management veth checksum offload off");
-    Ok(())
+    Ok(true)
 }
 
 // ============================================================================

@@ -53,14 +53,6 @@ cargo build -p sherpad   # builds the server daemon
 cargo build --workspace  # builds every workspace crate
 ```
 
-For faster local linking on Linux, developers may opt into LLVM `lld` locally:
-
-```bash
-cp .cargo/config.toml.example .cargo/config.toml
-```
-
-Install `lld` through your OS package manager before enabling that local config. The repository does not check in `.cargo/config.toml` because that would break builds on machines without `lld`. Sherpa does not use or recommend `mold`.
-
 ### Code Quality
 
 ```bash

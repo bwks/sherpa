@@ -679,8 +679,14 @@ async fn start_container_node(
             if let Err(e) = container::start_container(&state.docker, device_name).await {
                 return StartOutcome::Failed(format!("Failed to start: {e:#}"));
             }
-            match node_ops::finish_management_checksums(&state.docker, device_name, model).await {
-                Ok(()) => StartOutcome::ColdBooted,
+            match node_ops::finish_management_checksums(
+                &KernelHost::new(&state.docker, &state.qemu),
+                device_name,
+                model,
+            )
+            .await
+            {
+                Ok(_) => StartOutcome::ColdBooted,
                 Err(e) => StartOutcome::Failed(format!("{e:#}")),
             }
         }
