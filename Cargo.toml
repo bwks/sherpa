@@ -136,9 +136,10 @@ url = "2.5"
 uuid = { version = "1.11", features = ["v4", "serde"] }
 virt = { version = "0.4.1", features = ["qemu"] }
 
-# SSH client (bwks/jato-lib), from GitHub; not on crates.io yet. The terminal feature gives
-# `sherpa ssh` its prompts and interactive shell.
-jato = { git = "https://github.com/bwks/jato-lib", tag = "v0.4.3", features = ["terminal"] }
+# SSH and telnet client (bwks/jato-lib), from GitHub; not on crates.io yet. The terminal
+# feature gives `sherpa ssh` its prompts and interactive shell; the telnet feature gives
+# `sherpa console` its client, tunnelled through the server.
+jato = { git = "https://github.com/bwks/jato-lib", tag = "v0.5.0", features = ["terminal", "telnet"] }
 
 # HTTP client
 reqwest = { version = "0.13.2", default-features = false, features = ["rustls"] }

@@ -4,12 +4,15 @@
 //! password, with answers kept for the run in a `PromptCache`. Lab nodes whose host key the
 //! server recorded are checked against the lab's `known_hosts` file without asking; when a
 //! node's key is unknown or has changed, the current keys are fetched from the server, with a
-//! warning for a changed key, and the connection is tried once more.
+//! warning for a changed key, and the connection is tried once more. The Sherpa server itself,
+//! the last jump host on the way to a node, is reached the same way for `sherpa console`.
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
-use jato::{ConnectOptions, Error, Node, PromptCache, Route, Session, TerminalPrompter};
+use anyhow::{Context, Result, anyhow};
+use jato::{
+    ConnectOptions, Error, HostConfig, Node, PromptCache, Route, Session, TerminalPrompter,
+};
 
 use crate::ssh_client::host_keys::HostKeyRefresh;
 
@@ -46,7 +49,7 @@ pub async fn connect(
     node_name: &str,
     refresh: &HostKeyRefresh,
 ) -> Result<Session> {
-    let error = match attempt(route, options, scope, cache).await {
+    let error = match attempt(&route.jumps, &route.target, options, scope, cache).await {
         Ok(session) => return Ok(session),
         Err(error) => error,
     };
@@ -68,7 +71,7 @@ pub async fn connect(
             eprintln!("Loaded the SSH host key of {node_name} from the Sherpa server.");
         }
     }
-    match attempt(route, options, scope, cache).await {
+    match attempt(&route.jumps, &route.target, options, scope, cache).await {
         Ok(session) => Ok(session),
         Err(error) => {
             let context = match key_mismatch(&error, &route.target.node()) {
@@ -83,24 +86,46 @@ pub async fn connect(
     }
 }
 
-/// One connection attempt along `route`.
-async fn attempt(
+/// Connect to the Sherpa server: the last jump host on `route`, the way to a lab node, through
+/// the jump hosts before it. Its host key is checked and its login asked for as `connect` does
+/// for the jump hosts, with answers kept in `cache`. The session opens the server's own
+/// addresses to the client, such as the lab's node consoles on its loopback.
+#[tracing::instrument(skip(route, options, cache), fields(node = %route.target.alias))]
+pub async fn connect_server(
     route: &Route,
+    options: &ConnectOptions,
+    cache: &PromptCache,
+) -> Result<Session> {
+    let (server, jumps) = route.jumps.split_last().ok_or_else(|| {
+        anyhow!(
+            "The lab SSH config gives no Sherpa server to connect through for {}",
+            route.target.alias
+        )
+    })?;
+    attempt(jumps, server, options, PromptScope::AllHops, cache)
+        .await
+        .with_context(|| format!("Failed to connect to the Sherpa server {}", server.hostname))
+}
+
+/// One connection attempt to `target` through `jumps`.
+async fn attempt(
+    jumps: &[HostConfig],
+    target: &HostConfig,
     options: &ConnectOptions,
     scope: PromptScope,
     cache: &PromptCache,
 ) -> Result<Session, Error> {
     let prompter = cache.prompter(Arc::new(TerminalPrompter::new()));
-    let mut jumps = Vec::with_capacity(route.jumps.len());
-    for jump in &route.jumps {
-        jumps.push(jump.hop().prompter(Arc::clone(&prompter)));
+    let mut hops = Vec::with_capacity(jumps.len());
+    for jump in jumps {
+        hops.push(jump.hop().prompter(Arc::clone(&prompter)));
     }
-    let target = match scope {
-        PromptScope::AllHops => route.target.hop().prompter(prompter),
-        PromptScope::JumpHostsOnly => route.target.hop(),
+    let target_hop = match scope {
+        PromptScope::AllHops => target.hop().prompter(prompter),
+        PromptScope::JumpHostsOnly => target.hop(),
     };
-    let options = route.target.connect_options(options);
-    Session::connect_via(&jumps, &target, &options).await
+    let options = target.connect_options(options);
+    Session::connect_via(&hops, &target_hop, &options).await
 }
 
 /// Whether `error` refused the host key of `target`, the lab node, rather than of a jump host.
@@ -134,8 +159,12 @@ pub fn retryable(error: &anyhow::Error, target: &Node) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::io;
     use std::path::PathBuf;
+
+    use jato::SshConfig;
+    use tempfile::tempdir;
 
     fn node() -> Node {
         Node::new("172.31.1.21", 22)
@@ -247,5 +276,23 @@ mod tests {
             &anyhow::anyhow!("Host key verification failed"),
             &node()
         ));
+    }
+
+    #[tokio::test]
+    async fn a_route_with_no_jump_host_has_no_server_to_connect_to() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config");
+        fs::write(&path, "Host vm.abcd1234\n    HostName 192.0.2.10\n").unwrap();
+        let route = SshConfig::load_file(&path)
+            .unwrap()
+            .route("vm.abcd1234")
+            .unwrap();
+        let error = connect_server(&route, &ConnectOptions::default(), &PromptCache::new())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "The lab SSH config gives no Sherpa server to connect through for vm.abcd1234"
+        );
     }
 }

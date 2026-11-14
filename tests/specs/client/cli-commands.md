@@ -152,9 +152,14 @@
 - "boot-server" maps to device ID 255 `[unit]` **P1**
 - Missing `.sherpa/lab-info.toml` produces clear error `[unit]` **P0**
 - Unknown device name produces error `[unit]` **P0**
-- Telnet command invoked with correct address `[integration]` **P1**
+- Container node refused before connecting `[unit]` **P0**
+- Refused, timed out, in use and closed consoles each give their own message `[unit]` **P0**
+- Connect and close lines name the node and the escapes `[unit]` **P1**
+- The console is reached through the server hop, with Jato's telnet client, and shows the
+  node's prompt `[lab]` **P1**
 
-**Existing coverage:** None
+**Existing coverage:** unit tests in `crates/client/src/cmd/console.rs`; the console lab test
+in `tests/labs/console/`.
 
 ---
 

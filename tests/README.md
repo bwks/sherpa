@@ -29,6 +29,7 @@ instead of repeating these instructions.
 | Container ZTP lab test | `uv run tests/labs/container-ztp/container_ztp_lab_test.py` | On the Sherpa server: the node images, Docker access, logged-in CLI, internet for the FRR node's packages | about 5–15 min |
 | Cisco IOL lab test | `uv run tests/labs/cisco-iol/cisco_iol_lab_test.py` | On the Sherpa server: the `cisco_iol` image built with docker-cisco-iol, `alpine:3.22`, Docker access, logged-in CLI | about 3–5 min |
 | P2p links lab test | `uv run tests/labs/p2p-links/p2p_links_lab_test.py` | On the Sherpa server: the node images, `nicolaka/netshoot:v0.14`, Docker access, logged-in CLI | about 15–20 min |
+| Console lab test | `uv run tests/labs/console/console_lab_test.py` | Logged-in CLI; the `alpine_linux` and `generic_container` `alpine` 3.22 images | about 3–5 min |
 | Talos lab test | `uv run tests/labs/talos-linux/talos_lab_test.py` | Sherpa host with the Talos image, logged-in CLI, internet | about 25–35 min |
 | Web UI JavaScript | `node tests/web/test_theme.cjs` | Node.js | seconds |
 | Harness self-tests | `uv run tests/harness/<script>.py --self-test` | Python 3.15+ | seconds |
@@ -265,6 +266,7 @@ uv run tests/labs/p2p-containers/p2p_containers_lab_test.py  # P2p links on NOS,
 uv run tests/labs/container-ztp/container_ztp_lab_test.py    # ZTP on and off on the mounted-config containers
 uv run tests/labs/p2p-links/p2p_links_lab_test.py            # P2p link requirements on every pair of node kinds
 uv run tests/labs/cisco-iol/cisco_iol_lab_test.py            # Cisco IOL: config, SSH, links, TCP, write memory
+uv run tests/labs/console/console_lab_test.py               # sherpa console: prompt, escapes, in use, containers
 uv run tests/labs/talos-linux/talos_lab_test.py         # Talos clusters: single and ha labs in parallel
 ```
 
@@ -282,6 +284,7 @@ uv run tests/harness/vm_release_guest.py --self-test
 uv run tests/labs/private-bridge/private_bridge_lab_test.py --self-test
 uv run tests/labs/p2p-containers/p2p_containers_lab_test.py --self-test
 uv run tests/labs/p2p-links/p2p_links_lab_test.py --self-test
+uv run tests/labs/console/console_lab_test.py --self-test
 uv run tests/labs/talos-linux/talos_lab_test.py --self-test
 ```
 
@@ -297,6 +300,7 @@ Run these after changing anything in `tests/harness/` or a lab runner.
 | Installer or uninstaller scripts | The installer suite |
 | Lab networking (links, bridges, container or VM interfaces) | The private bridge lab test, against a server running the change; for P2p or container interfaces, also the P2p containers lab test |
 | Talos nodes or clusters | The Talos lab test, against a server running the change |
+| `sherpa console` or `sherpa ssh` terminal code | The console lab test |
 | Before a release, or periodically | The VM code suite on both releases |
 
 These are guidelines, not gates: none of them blocks a commit, a merge or a release. Run the
