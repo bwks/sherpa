@@ -17,6 +17,8 @@
 //! it within `LOCK_WAIT` fails naming that PID. When the bus cannot be reached, or the host's
 //! seed is missing, the command answers from what is recorded and says it did not catch up.
 
+use std::error;
+use std::fmt;
 use std::io::{Stderr, stderr};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -33,10 +35,15 @@ use crate::store::{self, Recorded, Store, record};
 
 /// The lock whose holder alone opens the record.
 const LOCK_FILE: &str = "record.lock";
+/// What the last host import did, beside the record.
+const HOST_STATUS_FILE: &str = "host-import.toml";
 /// How long a command waits for another to let go of the record. A command holds it for as
 /// long as it takes to catch up and query: milliseconds, or a few milliseconds a message for a
 /// backlog (about half a minute for 6,000, almost all of it one commit per message).
-const LOCK_WAIT: Duration = Duration::from_secs(5);
+pub const LOCK_WAIT: Duration = Duration::from_secs(5);
+/// How long the `SessionEnd` hook waits instead: a busy record means another command is
+/// catching up and importing, so the hook has nothing to add.
+pub const HOOK_LOCK_WAIT: Duration = Duration::from_secs(1);
 /// How often a waiting command tries the lock again.
 const LOCK_RETRY: Duration = Duration::from_millis(50);
 /// How long catching up waits for the bus to deliver the next message while messages still
@@ -45,12 +52,17 @@ const CATCH_UP_IDLE: Duration = Duration::from_secs(2);
 /// From how many waiting messages catching up says what it is doing.
 const CATCH_UP_NOTICE: u64 = 100;
 
-/// Where the record and its lock are.
+/// Where the record, its lock and the last host import's status are.
 #[derive(Debug, Clone)]
 pub struct Paths {
     pub record: PathBuf,
     pub lock: PathBuf,
+    pub host_status: PathBuf,
 }
+
+/// The record is held by another process for longer than a command waits.
+#[derive(Debug)]
+pub struct Busy(String);
 
 /// What catching up from the bus needs: where it is, and the host's seed.
 pub struct BusAccess {
@@ -94,32 +106,43 @@ impl Paths {
         Self {
             record: dir.join(store::FILE),
             lock: dir.join(LOCK_FILE),
+            host_status: dir.join(HOST_STATUS_FILE),
         }
     }
 }
 
+impl fmt::Display for Busy {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl error::Error for Busy {}
+
 impl Record {
     /// Open the record at `paths` for one command, caught up from the bus through `access`, with
-    /// `home_repo` the host's repository for the branch of an outcome's parsed Generation line.
+    /// `home_repo` the host's repository for the branch of an outcome's parsed Generation line,
+    /// waiting up to `wait` for another command to let it go (`LOCK_WAIT`, or `HOOK_LOCK_WAIT`).
     /// When `access` is an error, the bus cannot be reached, or a message cannot be recorded,
     /// the record is opened as it is and `catch_up` says why.
     ///
     /// # Errors
     ///
-    /// Fails when another process holds the record for longer than `LOCK_WAIT`, or the record
-    /// cannot be opened.
+    /// Fails with `Busy` when another process holds the record for longer than `wait`, or when
+    /// the record cannot be opened.
     #[instrument(skip_all, fields(record = %paths.record.display()))]
     pub async fn open(
         paths: &Paths,
         access: Result<BusAccess>,
         home_repo: Option<&str>,
+        wait: Duration,
     ) -> Result<Self> {
         // Connecting can take a while when the bus is down, so it happens before the lock.
         let channel = match access {
             Ok(access) => Channel::connect(&access.server, &access.seed).await,
             Err(error) => Err(error),
         };
-        let lock = lock_within(&paths.lock, LOCK_WAIT).await?;
+        let lock = lock_within(&paths.lock, wait).await?;
         let store = Store::open(&paths.record).await?;
         let mut conn = store.connect()?;
         let catch_up = match channel {
@@ -145,7 +168,7 @@ impl Record {
         &self.conn
     }
 
-    /// The connection, for a command that writes: `link` and `work backfill`.
+    /// The connection, for a command that writes: `link`, `work` and `host import`.
     pub fn conn_mut(&mut self) -> &mut Connection {
         &mut self.conn
     }
@@ -185,12 +208,13 @@ async fn lock_within(path: &Path, wait: Duration) -> Result<FileLock> {
                 || "another process".to_owned(),
                 |pid| format!("process {pid}"),
             );
-            bail!(
+            return Err(Busy(format!(
                 "The record is busy: {holder} has held {} for more than {}s. A command holds \
                  it only while it catches up and reads; if that process is stuck, stop it",
                 path.display(),
                 wait.as_secs_f32()
-            );
+            ))
+            .into());
         }
         sleep(LOCK_RETRY).await;
     }
@@ -400,7 +424,9 @@ mod tests {
         let paths = Paths::in_dir(&dir);
         record_one(&paths.record, "t1").await;
 
-        let record = Record::open(&paths, no_bus(), None).await.unwrap();
+        let record = Record::open(&paths, no_bus(), None, LOCK_WAIT)
+            .await
+            .unwrap();
         assert_eq!(tasks(&record).await, ["t1"]);
         assert!(
             matches!(record.catch_up(), CatchUp::Failed(error) if error.to_string().contains("no bus")),
@@ -420,7 +446,9 @@ mod tests {
             seed: "not a seed".to_owned(),
         };
         drop(record);
-        let record = Record::open(&paths, Ok(unreachable), None).await.unwrap();
+        let record = Record::open(&paths, Ok(unreachable), None, LOCK_WAIT)
+            .await
+            .unwrap();
         assert!(matches!(record.catch_up(), CatchUp::Failed(_)));
         assert_eq!(tasks(&record).await, ["t1"]);
         fs::remove_dir_all(&dir).unwrap();
@@ -430,12 +458,16 @@ mod tests {
     async fn an_open_record_holds_the_lock_and_a_closed_one_lets_go() {
         let dir = scratch("lock");
         let paths = Paths::in_dir(&dir);
-        let record = Record::open(&paths, no_bus(), None).await.unwrap();
+        let record = Record::open(&paths, no_bus(), None, LOCK_WAIT)
+            .await
+            .unwrap();
         assert!(try_lock_exclusive(&paths.lock).unwrap().is_none());
         drop(record);
         assert!(try_lock_exclusive(&paths.lock).unwrap().is_some());
         // A second command, in turn, opens the same record.
-        let record = Record::open(&paths, no_bus(), None).await.unwrap();
+        let record = Record::open(&paths, no_bus(), None, LOCK_WAIT)
+            .await
+            .unwrap();
         assert_eq!(tasks(&record).await, Vec::<String>::new());
         drop(record);
         fs::remove_dir_all(&dir).unwrap();
@@ -445,7 +477,9 @@ mod tests {
     async fn a_held_record_times_out_naming_its_holder() {
         let dir = scratch("held");
         let paths = Paths::in_dir(&dir);
-        let held = Record::open(&paths, no_bus(), None).await.unwrap();
+        let held = Record::open(&paths, no_bus(), None, LOCK_WAIT)
+            .await
+            .unwrap();
         let wait = Duration::from_millis(300);
         let started = Instant::now();
         let error = lock_within(&paths.lock, wait).await.unwrap_err();
@@ -494,7 +528,9 @@ mod tests {
     async fn a_command_waits_its_turn_for_a_short_holder() {
         let dir = scratch("turn");
         let paths = Paths::in_dir(&dir);
-        let held = Record::open(&paths, no_bus(), None).await.unwrap();
+        let held = Record::open(&paths, no_bus(), None, LOCK_WAIT)
+            .await
+            .unwrap();
         let release = tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(200)).await;
             drop(held);

@@ -7,6 +7,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::message::{Kind, ModelUsage, TaskUsage, Usage, cache_hit_permille};
+use crate::timing::{Tick, classify};
 
 /// A reply line starting with this asks the host agent, and through it the user, a question.
 const QUESTION_PREFIX: &str = "QUESTION:";
@@ -22,6 +23,8 @@ pub(super) enum Update {
     Text(String),
     /// A tool Claude runs, and on what.
     Tool(String),
+    /// Something that tells where the run's time goes, stamped by the guest when it reads it.
+    Clock(Tick),
     /// A run's `result` event. Its `usage.duration_api_ms` is still the session's total so far:
     /// the guest takes the previous run's off (`api_time_of_run`).
     Finished {
@@ -164,12 +167,44 @@ pub(super) fn interpret(line: &str) -> Vec<Update> {
     let session = event["session_id"].as_str().unwrap_or_default().to_owned();
     match event["type"].as_str() {
         Some("system") if !session.is_empty() => vec![Update::Session(session)],
-        Some("assistant") => event["message"]["content"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(progress)
-            .collect(),
+        Some("assistant") => {
+            let blocks = event["message"]["content"].as_array();
+            let mut updates = vec![Update::Clock(Tick::Responded)];
+            for block in blocks.into_iter().flatten() {
+                updates.extend(progress(block));
+                if block["type"] == "tool_use"
+                    && let Some(id) = block["id"].as_str()
+                {
+                    let name = block["name"].as_str().unwrap_or_default();
+                    updates.push(Update::Clock(Tick::Called {
+                        id: id.to_owned(),
+                        class: classify(name, &block["input"]),
+                    }));
+                }
+            }
+            updates
+        }
+        Some("user") => {
+            let content = &event["message"]["content"];
+            let results: Vec<Update> = content
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|block| block["type"] == "tool_result")
+                .filter_map(|block| block["tool_use_id"].as_str())
+                .map(|id| Update::Clock(Tick::Returned { id: id.to_owned() }))
+                .collect();
+            // A prompt has text: a string, or text blocks.
+            let prompted = content.is_string()
+                || content
+                    .as_array()
+                    .is_some_and(|blocks| blocks.iter().any(|block| block["type"] == "text"));
+            if results.is_empty() && prompted {
+                vec![Update::Clock(Tick::Prompted)]
+            } else {
+                results
+            }
+        }
         Some("result") => match serde_json::from_value::<ResultEvent>(event) {
             Ok(result) => {
                 let models: Vec<ModelUsage> = result
@@ -192,6 +227,8 @@ pub(super) fn interpret(line: &str) -> Vec<Update> {
                         cost_usd: models.iter().map(|model| model.cost_usd).sum(),
                         session_cost_usd: result.total_cost_usd,
                         models,
+                        work_ms: None,
+                        testing_ms: None,
                     },
                 }]
             }
@@ -242,6 +279,7 @@ mod tests {
     use super::*;
 
     use crate::message::api_time_of_run;
+    use crate::timing::Class;
 
     #[test]
     fn claude_events_become_session_progress_and_outcome() {
@@ -253,14 +291,42 @@ mod tests {
             interpret(
                 r#"{"type":"assistant","session_id":"s1","message":{"content":[
                     {"type":"text","text":" Running the tests. "},
-                    {"type":"tool_use","name":"Bash","input":{"command":"cargo test -p db"}},
-                    {"type":"tool_use","name":"Read","input":{"file_path":"/src/lib.rs"}}]}}"#
+                    {"type":"tool_use","id":"t1","name":"Bash","input":{"command":"cargo test -p db"}},
+                    {"type":"tool_use","id":"t2","name":"Read","input":{"file_path":"/src/lib.rs"}}]}}"#
             ),
             [
+                Update::Clock(Tick::Responded),
                 Update::Text("Running the tests.".to_owned()),
                 Update::Tool("Bash: cargo test -p db".to_owned()),
+                Update::Clock(Tick::Called {
+                    id: "t1".to_owned(),
+                    class: Class::Testing,
+                }),
                 Update::Tool("Read: /src/lib.rs".to_owned()),
+                Update::Clock(Tick::Called {
+                    id: "t2".to_owned(),
+                    class: Class::Work,
+                }),
             ]
+        );
+        assert_eq!(
+            interpret(
+                r#"{"type":"user","message":{"content":[
+                    {"type":"tool_result","tool_use_id":"t1","content":"ok"},
+                    {"type":"tool_result","tool_use_id":"t2","content":"ok"}]}}"#
+            ),
+            [
+                Update::Clock(Tick::Returned {
+                    id: "t1".to_owned()
+                }),
+                Update::Clock(Tick::Returned {
+                    id: "t2".to_owned()
+                }),
+            ]
+        );
+        assert_eq!(
+            interpret(r#"{"type":"user","message":{"content":"<task-notification>"}}"#),
+            [Update::Clock(Tick::Prompted)]
         );
         assert_eq!(
             interpret(

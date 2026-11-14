@@ -1,16 +1,20 @@
-//! Recording one message: the `message` row, the task's row, the run with its models when
-//! the message carries a run's usage, and what it says about its task's work item, in one
-//! transaction.
+//! Recording one message: the `message` row, the task's row, the run with its models and time
+//! when the message carries a run's usage, what it says about its task's work item, and for a
+//! tagged task the host's active item, in one transaction.
 
 use anyhow::{Context, Result};
 use tracing::instrument;
 use turso::{Connection, Value};
 
 use crate::store::cells::{Cells, boolean, integer, optional_integer, optional_text};
-use crate::store::facts::facts;
+use crate::store::facts::{Source, facts};
+use crate::store::host::add_focus;
 use crate::store::sql::{FIND_TASK, INSERT_MESSAGE, INSERT_RUN, INSERT_RUN_MODEL, UPSERT_TASK};
 use crate::store::task::{self, Recorded, Task, TaskState};
 use crate::store::work::apply;
+
+/// The source of a focus row a tagged task makes.
+const FOCUS_SEND: &str = "send";
 
 /// Record `recorded` in one transaction, with `home_repo` the host's repository for a parsed
 /// Generation line's branch. Returns `false`, changing nothing, when its sequence is already
@@ -44,9 +48,26 @@ pub async fn record(
         .await
         .context("Unable to record the task")?;
     if let Some(facts) = facts(message, home_repo) {
-        apply(&tx, &message.task, &facts, recorded.seq, recorded.at_ms)
+        let applied = apply(&tx, &message.task, &facts, recorded.seq, recorded.at_ms)
             .await
             .context("Unable to record the task's work item")?;
+        // A tagged task moves the host's active item to its own, from when the bus took it; an
+        // answer carries no tags, so it never does.
+        if facts.source == Source::Brief && !facts.refs.is_empty() {
+            let session = message
+                .work
+                .as_ref()
+                .and_then(|work| work.session.as_deref());
+            add_focus(
+                &tx,
+                recorded.at_ms,
+                session,
+                Some(applied.item),
+                FOCUS_SEND,
+                Some(&message.task),
+            )
+            .await?;
+        }
     }
     if let Some(usage) = &message.usage
         && message.kind.sent_by_worker()
@@ -67,6 +88,8 @@ pub async fn record(
                 integer(usage.duration_api_ms),
                 Value::Real(usage.cost_usd),
                 Value::Real(usage.session_cost_usd),
+                optional_integer(usage.work_ms),
+                optional_integer(usage.testing_ms),
             ],
         )
         .await
@@ -216,8 +239,11 @@ fn task_values(task: &Task) -> Vec<Value> {
 mod tests {
     use super::*;
 
-    use crate::message::{Kind, Message, ModelUsage, TaskUsage, Usage};
+    use crate::message::{Kind, Message, ModelUsage, RefKind, TaskUsage, Usage, Work, WorkRef};
     use crate::store::database::Store;
+    use crate::store::facts::Ref;
+    use crate::store::host::focus;
+    use crate::store::work::ref_item;
 
     fn message(task: &str, kind: Kind) -> Message {
         let (from, to) = if kind.sent_by_worker() {
@@ -270,6 +296,8 @@ mod tests {
                     ..ModelUsage::default()
                 },
             ],
+            work_ms: Some(4_000),
+            testing_ms: Some(900),
         });
         done.task_usage = Some(TaskUsage {
             runs: 2,
@@ -323,6 +351,49 @@ mod tests {
         let usage = task.usage.unwrap();
         assert_eq!((usage.runs, usage.input), (2, 11));
         assert!((usage.cost_usd - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[tokio::test]
+    async fn a_tagged_task_sets_the_hosts_active_item_and_an_answer_does_not() {
+        let store = Store::open_in_memory().await.unwrap();
+        let mut conn = store.connect().unwrap();
+        let mut task = message("t1", Kind::Task);
+        task.work = Some(Work {
+            refs: vec![WorkRef {
+                repo: "o/r".to_owned(),
+                kind: RefKind::Issue,
+                number: 590,
+            }],
+            session: Some("s1".to_owned()),
+        });
+        assert!(record_at(&mut conn, 1, &task).await);
+        // An untagged task, and the answer to the tagged one's question, move nothing.
+        assert!(record_at(&mut conn, 2, &message("t2", Kind::Task)).await);
+        assert!(record_at(&mut conn, 3, &message("t1", Kind::Question)).await);
+        assert!(record_at(&mut conn, 4, &message("t1", Kind::Answer)).await);
+        let rows = focus(&conn).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        let item = ref_item(&conn, &Ref::new("o/r", RefKind::Issue, "590"))
+            .await
+            .unwrap();
+        assert_eq!(rows[0].work, item);
+        assert_eq!(rows[0].session.as_deref(), Some("s1"));
+        assert_eq!((rows[0].from_ms, rows[0].source.as_str()), (1000, "send"));
+    }
+
+    #[tokio::test]
+    async fn a_runs_time_is_recorded_beside_it() {
+        let store = Store::open_in_memory().await.unwrap();
+        let mut conn = store.connect().unwrap();
+        assert!(record_at(&mut conn, 1, &message("t1", Kind::Task)).await);
+        assert!(record_at(&mut conn, 2, &completed("t1")).await);
+        let mut rows = conn
+            .query("SELECT work_ms, testing_ms FROM run", ())
+            .await
+            .unwrap();
+        let row = rows.next().await.unwrap().unwrap();
+        assert_eq!(row.get_value(0).unwrap(), Value::Integer(4_000));
+        assert_eq!(row.get_value(1).unwrap(), Value::Integer(900));
     }
 
     #[tokio::test]

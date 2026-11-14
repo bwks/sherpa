@@ -20,10 +20,14 @@ mod channel;
 mod config;
 mod files;
 mod guest;
+#[cfg(feature = "record")]
+mod host;
 mod keys;
 mod listen;
 mod message;
 mod model;
+#[cfg(feature = "record")]
+mod price;
 mod pull;
 #[cfg(feature = "record")]
 mod record;
@@ -35,6 +39,7 @@ mod status;
 #[cfg(feature = "record")]
 mod store;
 mod table;
+mod timing;
 mod tls;
 
 use std::env;
@@ -311,7 +316,12 @@ async fn execute(cli: Cli) -> Result<()> {
                 },
                 text,
             )
-            .await
+            .await?;
+            // Catch the record up, so a tag sets the host's active item now, and import the
+            // host's transcripts.
+            #[cfg(feature = "record")]
+            report::refresh_after_send(repo.as_deref()).await;
+            Ok(())
         }
         Command::Cancel {
             server,
@@ -637,7 +647,7 @@ mod tests {
     use tracing::{Event, Metadata, Subscriber};
 
     #[cfg(feature = "record")]
-    use crate::record::{BusAccess, Paths, Record as HostRecord};
+    use crate::record::{BusAccess, LOCK_WAIT, Paths, Record as HostRecord};
     #[cfg(feature = "record")]
     use crate::store::{Ref, items, ref_item};
 
@@ -1375,7 +1385,7 @@ esac
         let item_id = ref_item(record.conn(), &issue)
             .await?
             .context("the issue names no item")?;
-        let item = items::item(record.conn(), item_id).await?;
+        let item = items::item(record.conn(), item_id, Some("o/r")).await?;
         let refs: Vec<(String, &str)> = item
             .refs
             .iter()
@@ -1459,7 +1469,7 @@ esac
                 server: server.clone(),
                 seed: host.seed.clone(),
             };
-            let record = HostRecord::open(&paths, Ok(access), Some("o/r")).await?;
+            let record = HostRecord::open(&paths, Ok(access), Some("o/r"), LOCK_WAIT).await?;
             ensure!(record.behind().is_none(), "{:?}", record.behind());
             check_work_items(&record, &task).await?;
             drop(record);

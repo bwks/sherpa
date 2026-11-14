@@ -187,22 +187,35 @@ fn pull_request_url(url: &str) -> Option<Ref> {
         .then(|| Ref::new(&repo, RefKind::PullRequest, number.to_string()))
 }
 
-/// The name of an item with `refs`: its lowest issue number, else its lowest pull request, else
-/// its first branch; `None` without refs.
-pub fn display_name(refs: &[Ref]) -> Option<String> {
+/// The name of an item with `refs`, with `home_repo` the host's repository: its lowest issue
+/// number, else its lowest pull request, else its first branch, taken among its refs in
+/// `home_repo` when it has any, so an item with a docs pull request is still named by its
+/// own issue; among all its refs otherwise. `None` without refs.
+pub fn display_name(refs: &[Ref], home_repo: Option<&str>) -> Option<String> {
+    let home: Vec<&Ref> = refs
+        .iter()
+        .filter(|named| Some(named.repo.as_str()) == home_repo)
+        .collect();
+    let named: Vec<&Ref> = if home.is_empty() {
+        refs.iter().collect()
+    } else {
+        home
+    };
     let lowest = |kind: RefKind| {
-        refs.iter()
+        named
+            .iter()
             .filter(|named| named.kind == kind)
             .min_by_key(|named| named.name.parse::<u64>().unwrap_or(u64::MAX))
     };
     lowest(RefKind::Issue)
         .or_else(|| lowest(RefKind::PullRequest))
         .or_else(|| {
-            refs.iter()
+            named
+                .iter()
                 .filter(|named| named.kind == RefKind::Branch)
                 .min_by(|a, b| a.name.cmp(&b.name))
         })
-        .map(Ref::label)
+        .map(|named| named.label())
 }
 
 #[cfg(test)]
@@ -399,24 +412,64 @@ mod tests {
     fn an_item_is_named_by_its_lowest_issue_then_pull_request_then_branch() {
         let issue = |number: &str| Ref::new("o/r", RefKind::Issue, number);
         assert_eq!(
-            display_name(&[
-                branch("o/r", "feat/x"),
-                pull_request("o/r", 612),
-                issue("600"),
-                issue("580"),
-            ])
+            display_name(
+                &[
+                    branch("o/r", "feat/x"),
+                    pull_request("o/r", 612),
+                    issue("600"),
+                    issue("580"),
+                ],
+                None
+            )
             .as_deref(),
             Some("#580")
         );
         // Numbers compare as numbers, not text.
         assert_eq!(
-            display_name(&[pull_request("o/r", 99), pull_request("o/r", 100)]).as_deref(),
+            display_name(&[pull_request("o/r", 99), pull_request("o/r", 100)], None).as_deref(),
             Some("PR #99")
         );
         assert_eq!(
-            display_name(&[branch("o/r", "feat/y"), branch("o/r", "feat/x")]).as_deref(),
+            display_name(&[branch("o/r", "feat/y"), branch("o/r", "feat/x")], None).as_deref(),
             Some("feat/x")
         );
-        assert_eq!(display_name(&[]), None);
+        assert_eq!(display_name(&[], None), None);
+    }
+
+    #[test]
+    fn an_item_is_named_by_the_home_repositorys_refs_before_the_docs() {
+        let home = Some("o/r");
+        let docs_pr = pull_request("o/r-docs", 121);
+        // The docs pull request is lower, but the item is the home repository's.
+        assert_eq!(
+            display_name(
+                &[docs_pr.clone(), Ref::new("o/r", RefKind::Issue, "394")],
+                home
+            )
+            .as_deref(),
+            Some("#394")
+        );
+        assert_eq!(
+            display_name(&[docs_pr.clone(), pull_request("o/r", 600)], home).as_deref(),
+            Some("PR #600")
+        );
+        // A home branch beats a docs issue and pull request.
+        assert_eq!(
+            display_name(
+                &[
+                    Ref::new("o/r-docs", RefKind::Issue, "3"),
+                    docs_pr.clone(),
+                    branch("o/r", "feat/x")
+                ],
+                home
+            )
+            .as_deref(),
+            Some("feat/x")
+        );
+        // Only an item whose refs are all in the docs is named by them.
+        assert_eq!(
+            display_name(&[branch("o/r-docs", "feat/x"), docs_pr], home).as_deref(),
+            Some("PR #121")
+        );
     }
 }

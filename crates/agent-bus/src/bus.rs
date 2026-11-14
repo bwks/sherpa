@@ -1299,6 +1299,8 @@ mod tests {
                 cost_usd: 0.0123,
                 session_cost_usd: 0.0123,
                 models: Vec::new(),
+                work_ms: None,
+                testing_ms: None,
             });
             dev_channel.send(&done).await?;
             for n in 0..5 {
@@ -2542,7 +2544,7 @@ mod tests {
 
         use crate::files::record_lock::try_lock_exclusive;
         use crate::message::TaskUsage;
-        use crate::record::{BusAccess, CatchUp, Paths, Record, Tally};
+        use crate::record::{BusAccess, CatchUp, LOCK_WAIT, Paths, Record, Tally};
         use crate::report::usage;
         use crate::store::{TaskState, read};
 
@@ -2593,7 +2595,7 @@ mod tests {
             };
 
             // The first command catches up, then answers.
-            let record = timeout(wait, Record::open(&paths, access(), None))
+            let record = timeout(wait, Record::open(&paths, access(), None, LOCK_WAIT))
                 .await
                 .context("catching up took too long")??;
             let CatchUp::Read(tally) = record.catch_up() else {
@@ -2617,7 +2619,7 @@ mod tests {
                 .find(|row| row.task == "record1")
                 .context("the task is missing from the report")?;
             ensure!(
-                row.state == TaskState::Completed,
+                row.state == Some(TaskState::Completed),
                 "wrong state {:?}",
                 row.state
             );
@@ -2638,7 +2640,7 @@ mod tests {
 
             // The next command, in turn: nothing more to record, the same answer. `show` has the
             // task's messages both ways, oldest first.
-            let record = timeout(wait, Record::open(&paths, access(), None))
+            let record = timeout(wait, Record::open(&paths, access(), None, LOCK_WAIT))
                 .await
                 .context("catching up again took too long")??;
             ensure!(
@@ -2769,7 +2771,7 @@ mod tests {
             };
             let record = timeout(
                 Duration::from_secs(30),
-                Record::open(paths, Ok(access), None),
+                Record::open(paths, Ok(access), None, LOCK_WAIT),
             )
             .await
             .context("opening the record took too long")??;
@@ -2829,7 +2831,7 @@ mod tests {
                 };
                 let record = timeout(
                     Duration::from_secs(300),
-                    Record::open(&paths, Ok(access), None),
+                    Record::open(&paths, Ok(access), None, LOCK_WAIT),
                 )
                 .await
                 .context("catching up took too long")??;
