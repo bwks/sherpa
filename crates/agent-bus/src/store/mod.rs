@@ -11,10 +11,12 @@
 //! - `work`: work items: applying a message's facts, `link` and `work backfill`.
 //! - `read`: what the commands read.
 //! - `items`: what the work commands read: items, open tasks and runs by model.
+//! - `host`: the host's usage and time: the import's rows, attribution and what reports read.
 
 mod cells;
 mod database;
 mod facts;
+pub mod host;
 pub mod items;
 mod kind;
 pub mod read;
@@ -27,5 +29,5 @@ pub use database::{FILE, Store};
 pub use facts::Ref;
 pub use read::HistoryRow;
 pub use task::{Recorded, TaskState};
-pub use work::{Backfilled, Linked, backfill, link, ref_item};
+pub use work::{Backfilled, Linked, backfill, item_for, link, ref_item};
 pub use write::record;

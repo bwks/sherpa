@@ -18,8 +18,8 @@ use crate::store::cells::{Cells, integer};
 use crate::store::facts::{Facts, Ref, Source, parse_generation_line};
 use crate::store::sql::{
     FIND_REF_WORK, FIND_TASK, FIND_TASK_WORK, INSERT_TASK_REF, INSERT_TASK_WORK, INSERT_WORK_ITEM,
-    INSERT_WORK_REF, ITEM_REFS, ITEM_TASKS, MERGE_WORK_ITEM, MOVE_TASK_WORK, MOVE_WORK_REFS,
-    UNREPORTED_OUTCOMES,
+    INSERT_WORK_REF, ITEM_REFS, ITEM_TASKS, MERGE_WORK_ITEM, MOVE_HOST_FOCUS, MOVE_HOST_USAGE,
+    MOVE_TASK_WORK, MOVE_WORK_REFS, UNREPORTED_OUTCOMES,
 };
 
 /// What applying one message's facts changed.
@@ -29,6 +29,8 @@ pub struct Applied {
     pub new_refs: u64,
     /// Whether the task was put in an item.
     pub assigned: bool,
+    /// The task's item.
+    pub item: i64,
 }
 
 /// What `link` did.
@@ -42,7 +44,7 @@ pub enum Linked {
     Assigned { item: i64 },
     /// The ref already named the task's item.
     Already { item: i64 },
-    /// The task's item was merged into the ref's: its tasks and refs moved there.
+    /// The task's item was merged into the ref's: its tasks, refs and host usage moved there.
     Merged {
         from: i64,
         into: i64,
@@ -118,7 +120,23 @@ pub async fn apply(
     for named in &facts.refs {
         name_item(conn, named, item, facts.source, at_ms).await?;
     }
+    applied.item = item;
     Ok(applied)
+}
+
+/// The item `target` names: a new one named by it, made at `at_ms`, when it names none.
+///
+/// # Errors
+///
+/// Fails when a statement fails.
+#[instrument(level = "debug", skip(conn))]
+pub async fn item_for(conn: &Connection, target: &Ref, at_ms: u64) -> Result<i64> {
+    if let Some(item) = ref_item(conn, target).await? {
+        return Ok(item);
+    }
+    let item = new_item(conn, at_ms).await?;
+    name_item(conn, target, item, Source::Manual, at_ms).await?;
+    Ok(item)
 }
 
 /// Put `task` in the item `target` names, as a person asked: a new item when neither the task
@@ -165,7 +183,13 @@ pub async fn link(conn: &mut Connection, task: &str, target: &Ref, at_ms: u64) -
         (Some(into), Some(from)) => {
             let tasks = item_task_ids(&tx, from).await?;
             let refs = item_refs(&tx, from).await?;
-            for statement in [MERGE_WORK_ITEM, MOVE_WORK_REFS, MOVE_TASK_WORK] {
+            for statement in [
+                MERGE_WORK_ITEM,
+                MOVE_WORK_REFS,
+                MOVE_TASK_WORK,
+                MOVE_HOST_USAGE,
+                MOVE_HOST_FOCUS,
+            ] {
                 tx.execute(statement, vec![Value::Integer(from), Value::Integer(into)])
                     .await
                     .context("Unable to merge the items")?;
@@ -413,7 +437,7 @@ mod tests {
         /// The item `named` names, read in full.
         async fn item(&self, named: &Ref) -> Item {
             let id = ref_item(&self.conn, named).await.unwrap().unwrap();
-            items::item(&self.conn, id).await.unwrap()
+            items::item(&self.conn, id, None).await.unwrap()
         }
 
         async fn task_item(&self, task: &str) -> Option<i64> {

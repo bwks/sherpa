@@ -150,6 +150,14 @@ pub struct Usage {
     /// Code gave none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub models: Vec<ModelUsage>,
+    /// The run's work time, in milliseconds: the model writing and the tool calls that are not
+    /// testing, without the waits that are not counted (`timing`). The guest stamps the stream
+    /// events as it reads them. Absent from an older guest; an older host ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_ms: Option<u64>,
+    /// The run's testing time, in milliseconds: tool calls that build or test.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub testing_ms: Option<u64>,
 }
 
 /// What one model used in a run, from an entry of `model_usage_since_last_result`. The field
@@ -274,6 +282,12 @@ pub fn check_repo(repo: &str) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// A run's usage as an agent-bus from before the time buckets reads it, in part.
+    #[derive(Deserialize)]
+    struct OldUsage {
+        input: u64,
+    }
+
     /// A message as an agent-bus from before `work` and `ended` reads it.
     #[derive(Deserialize)]
     struct OldMessage {
@@ -382,6 +396,8 @@ mod tests {
             cost_usd: 0.25,
             session_cost_usd: 0.5,
             models: vec![model],
+            work_ms: Some(60_000),
+            testing_ms: Some(30_000),
         };
         let message = Message {
             task: "1a2b3c4d".to_owned(),
@@ -406,7 +422,29 @@ mod tests {
         assert_eq!(json["usage"]["models"][0]["costUSD"], 0.25);
         assert_eq!(json["usage"]["models"][0]["costBasis"], "list");
         assert_eq!(json["task_usage"]["runs"], 1);
+        assert_eq!(json["usage"]["work_ms"], 60_000);
+        assert_eq!(json["usage"]["testing_ms"], 30_000);
         assert_eq!(serde_json::from_value::<Message>(json).unwrap(), message);
+    }
+
+    #[test]
+    fn a_runs_time_is_optional_both_ways() {
+        // From an older guest: no time.
+        let old = r#"{"input":1,"output":2,"cache_creation":0,"cache_read":0,"num_turns":1,
+            "duration_ms":5,"duration_api_ms":4,"cost_usd":0.1,"session_cost_usd":0.1}"#;
+        let usage: Usage = serde_json::from_str(old).unwrap();
+        assert_eq!((usage.work_ms, usage.testing_ms), (None, None));
+        let json = serde_json::to_value(&usage).unwrap();
+        assert!(json.get("work_ms").is_none());
+        // To an older host: a struct without the fields reads it and ignores them.
+        let new = Usage {
+            input: 3,
+            work_ms: Some(1),
+            testing_ms: Some(2),
+            ..Usage::default()
+        };
+        let read: OldUsage = serde_json::from_value(serde_json::to_value(&new).unwrap()).unwrap();
+        assert_eq!(read.input, 3);
     }
 
     fn tagged_task() -> Message {
