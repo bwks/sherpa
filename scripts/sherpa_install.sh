@@ -219,7 +219,6 @@ install_system_packages() {
     local packages=(
         # Supporting tools
         cpu-checker
-        telnet
         ssh
         mtools
         e2tools

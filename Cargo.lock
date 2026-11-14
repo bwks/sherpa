@@ -2670,8 +2670,8 @@ checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
 name = "jato"
-version = "0.4.3"
-source = "git+https://github.com/bwks/jato-lib?tag=v0.4.3#03473ae6bd9dae88d5b3b5ef5632bccfd3c02790"
+version = "0.5.0"
+source = "git+https://github.com/bwks/jato-lib?tag=v0.5.0#1b8a41e37cc0f7fbc5800bc51d156b6babc41ffb"
 dependencies = [
  "crossterm",
  "crossterm_winapi",

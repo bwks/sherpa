@@ -240,7 +240,14 @@ pub const TALOS_LOAD_BALANCER_HOST_OFFSETS: RangeInclusive<u32> = 13..=20;
 pub const TALOS_LOAD_BALANCER_BLOCK_SIZE: u32 = 4;
 /// Boot disk size in GB for Talos Linux nodes; Talos needs at least 10 GB.
 pub const TALOS_DEFAULT_BOOT_DISK_SIZE: u16 = 20;
+/// The port of each VM's and unikernel's serial console, a QEMU telnet chardev on the node's
+/// address in the lab's loopback network on the server.
 pub const TELNET_PORT: u16 = 2323;
+/// Seconds `sherpa console` waits for the server to open the tunnel to a node's console.
+pub const CONSOLE_CONNECT_TIMEOUT: u64 = 10;
+/// Seconds a node's console may stay silent once connected before `sherpa console` reports it
+/// in use. QEMU negotiates at once with the client it serves and says nothing to a second one.
+pub const CONSOLE_NEGOTIATION_TIMEOUT: u64 = 3;
 /// Server ports reserved for VM VNC consoles, one per VM for its life.
 pub const VNC_PORT_FIRST: u16 = 5900;
 pub const VNC_PORT_LAST: u16 = 6999;

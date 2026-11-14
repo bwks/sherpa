@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
-use jato::{ConnectOptions, PromptCache, SshConfig};
+use jato::{ConnectOptions, InteractiveOptions, PromptCache, SshConfig};
 use topology::Manifest;
 
 use shared::data::{ClientConfig, LabInfo};
@@ -37,6 +37,18 @@ fn node_name<'a>(name: &'a str, lab_id: &str) -> &'a str {
         Some(node) => node,
         None => name.strip_suffix(&qualified).unwrap_or(name),
     }
+}
+
+/// The line on stderr once the shell is open, naming the escape.
+fn connected_line(qualified_name: &str) -> String {
+    format!("Connected to {qualified_name}. Escape: ~. at the start of a line.")
+}
+
+/// The line on stderr when the session ends. After `~.` the cursor is usually on the node's
+/// prompt, so the line starts on a new line.
+fn closed_line(qualified_name: &str, escaped: bool) -> String {
+    let gap = if escaped { "\n" } else { "" };
+    format!("{gap}Connection to {qualified_name} closed.")
 }
 
 /// The node's shell ended with this non-zero exit code; `sherpa ssh` exits with it too.
@@ -81,15 +93,19 @@ pub async fn ssh(
         &refresh,
     )
     .await?;
-    let code = session
-        .interactive_shell()
+    eprintln!("{}", connected_line(&qualified_name));
+    // Sherpa prints its own lines, with the node's name, in place of Jato's.
+    let mut interactive = InteractiveOptions::default();
+    interactive.banner = false;
+    let end = session
+        .interactive_shell(&interactive)
         .await
-        .context("The shell failed")?
-        .exit_code();
+        .context("The shell failed")?;
+    let code = end.exit_code();
     if let Err(error) = session.close().await {
         tracing::debug!(%error, "Failed to close the SSH session cleanly");
     }
-    eprintln!("Connection to {qualified_name} closed.");
+    eprintln!("{}", closed_line(&qualified_name, end.escaped));
     if code != 0 {
         return Err(ShellExit(u8::try_from(code).unwrap_or(1)).into());
     }
@@ -118,7 +134,7 @@ fn load_ssh_connection(name: &str, lab_id: &str, lab_dir: &Path) -> Result<Strin
     prepare_ssh_connection(name, lab_id, &lab_info, &ssh_config, &folder.ssh_key())
 }
 
-fn read_lab_connection_file(path: &Path, lab_id: &str) -> Result<String> {
+pub(super) fn read_lab_connection_file(path: &Path, lab_id: &str) -> Result<String> {
     match fs::read_to_string(path) {
         Ok(contents) => Ok(contents),
         Err(error) if error.kind() == ErrorKind::NotFound => {
@@ -457,5 +473,25 @@ mod tests {
         // Name contains the lab id but not as a proper suffix
         let result = qualify_device_name("a10736e8-dev01", "a10736e8");
         assert_eq!(result, "a10736e8-dev01.a10736e8");
+    }
+
+    #[test]
+    fn the_connect_line_names_the_node_and_the_escape() {
+        assert_eq!(
+            connected_line("dev01.a10736e8"),
+            "Connected to dev01.a10736e8. Escape: ~. at the start of a line."
+        );
+    }
+
+    #[test]
+    fn the_close_line_starts_on_a_new_line_after_an_escape() {
+        assert_eq!(
+            closed_line("dev01.a10736e8", false),
+            "Connection to dev01.a10736e8 closed."
+        );
+        assert_eq!(
+            closed_line("dev01.a10736e8", true),
+            "\nConnection to dev01.a10736e8 closed."
+        );
     }
 }

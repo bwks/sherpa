@@ -226,7 +226,7 @@ enum Commands {
     /// Validate configurations
     Validate,
 
-    /// Connect to a device via serial console over Telnet
+    /// Connect to a node's serial console, through the Sherpa server
     Console { name: String },
 
     /// SSH to a device.
@@ -434,7 +434,7 @@ async fn run_remote(command: &Commands, server_url: &str, config: &ClientConfig)
             let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
             let lab_id = manifest_lab_identity(&manifest)?.id;
             let lab_info = resolve_lab_info(&lab_id, server_url, config).await?;
-            console(name, &manifest, &lab_info)
+            console(name, &manifest, &lab_info).await
         }
         Commands::Ssh { name } => {
             let lab = resolve_lab_identity()?;

@@ -22,7 +22,21 @@ permissions. Then:
    `ShellEnd::exit_code`.
 
 `ssh_client` holds only what is Sherpa's to decide: which hops may ask (`PromptScope`) and,
-for provisioners, which failures are worth retrying (`retryable`).
+for provisioners, which failures are worth retrying (`retryable`). `ssh_client::connect_server`
+connects to the route's last jump host, the server, through the jump hosts before it, with the
+same hops, prompts and host key policy; `sherpa console` uses it to tunnel to a node's console
+(see [`CONSOLE_CLIENT.md`](CONSOLE_CLIENT.md)).
+
+## Lines
+
+Jato's banner is off (`InteractiveOptions::banner = false`), and Sherpa prints its own lines on
+stderr, with the node's alias, so exactly one of each appears:
+
+- once the shell is open: `Connected to <node>.<lab-id>. Escape: ~. at the start of a line.`
+- when it ends: `Connection to <node>.<lab-id> closed.` After `~.` (`ShellEnd::escaped`) the
+  line starts on a new line, as the cursor is usually on the node's prompt.
+
+The console prints lines of the same form.
 
 ## The server host key question
 
@@ -81,7 +95,8 @@ interactive shell, so it is 0 there, as with the system `ssh`.
 
 ## Limits
 
-- No agent, X11 or port forwarding, and no escapes other than `~.` and `~~`.
+- No agent, X11 or port forwarding, and no escapes other than `~.` and `~~`. `Ctrl+]` is the
+  console's alone, so it still reaches a `telnet` run inside an SSH session.
 - Tested on Linux with Ubuntu, Cisco IOSv and Windows Server nodes, and from a Windows Server
   2022 client in a ConPTY console (Windows Terminal and conhost both use it).
 
