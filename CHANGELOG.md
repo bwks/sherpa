@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.3] - 2026-11-14
+
+### Upgrade notes
+
+- No database migration. Back up with `sherpa server backup` before updating, as usual.
+- `sherpa resume` and `sherpa redeploy` now restore P2p link carrier as soon as the nodes start, instead of up to 30 seconds later.
+- The agent-bus entries below are for the development tool only and change nothing in the server or CLI.
+
+### Bug Fixes
+
+- Generation review fixes: per-PR freeze, unpriced and moved rows, backoff by @bwks ([89d0e9d](https://github.com/bwks/sherpa/commit/89d0e9da9506fc034a8005d148184e72e4dbb232))
+- Cap waiting on the user at 30 minutes, human prompts only by @bwks ([71e0599](https://github.com/bwks/sherpa/commit/71e0599a6fb7b77d6ab28fbca217f350a8245eed))
+- Resume and redeploy set P2p carrier at once for the nodes they start by @bwks ([58a6cdc](https://github.com/bwks/sherpa/commit/58a6cdc2c37f0e1e643d2d8a252ce14a7bcda76f))
+- Track files/record_lock.rs, anchor the files/ ignore rule by @bwks ([e1c6d2b](https://github.com/bwks/sherpa/commit/e1c6d2bc80356f5e759e476a49dc4af268f44dcc))
+- Prepend the new changelog section instead of regenerating by @bwks ([5da327b](https://github.com/bwks/sherpa/commit/5da327b7b09c9014c9c18812d12150334b22f2b1))
+
+### Documentation
+
+- MicroVM sandboxes for agent workloads [skip ci] by @bwks ([915ec4d](https://github.com/bwks/sherpa/commit/915ec4df09cb30f0facb3f94c6ab84ee9cf0fd0e))
+
+### Features
+
+- The host writes the Generation section, with time columns by @bwks ([df7af95](https://github.com/bwks/sherpa/commit/df7af955b3fbda18664aaf5fc43842dc28ed7b01))
+- Host usage import, pricing, attribution and time buckets by @bwks ([73c2b72](https://github.com/bwks/sherpa/commit/73c2b7227518ceac6fa430e4343e211b08c20766))
+- Work items in the record, ended on every outcome by @bwks ([5006a7c](https://github.com/bwks/sherpa/commit/5006a7c3a1065fb66f9639afcde14577263dddae))
+- Record lag in agents, retention split, record feature by @bwks ([246be7e](https://github.com/bwks/sherpa/commit/246be7e12002a2421f91a7e38cd0c8f7c3b5dfbc))
+
+### Miscellaneous
+
+- Move a use out of a test function in guest::run by @bwks ([49ed2cd](https://github.com/bwks/sherpa/commit/49ed2cd27936f68052a85453baa5ddac664c3858))
+
 ## [0.6.2] - 2026-11-14
 
 ### Upgrade notes
