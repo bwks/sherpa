@@ -25,6 +25,7 @@ Do not document user-facing behaviour here; document it there.
 | [`TALOS.md`](TALOS.md) | Talos Linux nodes and Kubernetes clusters: NoCloud delivery, cluster plan, secrets, machine configs, Cilium, Keycloak login and Vault secrets, bootstrap, lifecycle. |
 | [`ZTP.md`](ZTP.md) | Zero touch provisioning: the one `Ztp` setting, the methods each model takes, the validator and its callers, the manifest override, the readers, container start settings against ZTP, and migration 0016. |
 | [`ZTP_ISO.md`](ZTP_ISO.md) | The ISO 9660 writer for node config media: callers and labels, the primary, Rock Ridge and Joliet trees, sector layout, limits. |
+| [`BUILD.md`](BUILD.md) | Cargo profiles (`dev`, `test`, `release`, `dist`): debug info, the optimised crypto dependencies, the linker, the build scripts and nextest. |
 | [`RELEASE.md`](RELEASE.md) | The one workspace version, the bump pull request (`mise run release:bump`), the manual Release workflow, the `Version` check, and why `ebpf-redirect` is not versioned with Sherpa. |
 | [`STATE_MACHINES.md`](STATE_MACHINES.md) | Lifecycles held in enums, flags, strings and side effects: node and lab state, the scanner, operation leases, up/destroy/redeploy stages, provisioning, sessions, jobs, streams, TLS trust, links, images, the ZTP setting. States, transitions, who sets and reads them, with diagrams. |
 | [`VALIDATION.md`](VALIDATION.md) | Where validators live (`shared::validators`, `topology::validate`, crate `validate` modules) and how client and server checks relate. |

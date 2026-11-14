@@ -14,6 +14,9 @@ python.uv_venv_auto = "create|source"
 uv = "latest"
 # Links the eBPF program. 0.12 links a system LLVM of a version Ubuntu 24.04 does not ship.
 "cargo:bpf-linker" = "0.10.2"
+# Runs the workspace's tests, a process per test, for `cargo nextest run --workspace`. CI uses
+# it through `cargo llvm-cov nextest`.
+"aqua:nextest-rs/nextest/cargo-nextest" = "0.9.151"
 # Runs the install and update script tests in tests/bats.
 bats = "latest"
 # Writes CHANGELOG.md and works out the next version, for `mise run release:bump`.
