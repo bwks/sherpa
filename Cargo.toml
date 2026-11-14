@@ -96,7 +96,7 @@ version = "0.6.3"
 # Common application dependencies
 anyhow = "1.0.100"
 askama = "0.14.0"
-async-nats = "0.52.0"
+async-nats = { version = "0.52.0", default-features = false }
 base64 = "0.22.1"
 bollard = "0.19.3"
 clap = { version = "4.5.16", features = ["derive"] }

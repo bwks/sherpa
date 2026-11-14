@@ -594,7 +594,8 @@ it. Every connection is TLS from its first byte, and every client trusts only th
   bus's CA is refused (every bus CA has the same subject, so rustls reports a bad signature). The
   process's rustls provider is aws-lc-rs, as in the rest of the workspace: `main` installs it once
   at startup (async-nats's `aws-lc-rs` feature, through its rustls re-export), and the Docker
-  tests install it the same way.
+  tests install it the same way. async-nats's default features are off, so `ring` is not built
+  (see `BUILD.md`).
 - **The guests.** `start-agent.sh` sends `tls/ca.pem` down the same SSH stdin pipe as the token
   and the seed, after them, to the end of the stream. `start-guest.sh` checks it is a PEM
   certificate, writes it to `bus-ca.pem` in the guest's state directory (0644, replaced

@@ -92,7 +92,8 @@ rpassword = { workspace = true }
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
-rcgen = "0.13"
+# aws-lc-rs, the crypto provider of the rest of the workspace; the default would build ring
+rcgen = { version = "0.13", default-features = false, features = ["aws_lc_rs", "pem"] }
 
 # OpenTelemetry
 opentelemetry = { workspace = true }
@@ -101,7 +102,7 @@ opentelemetry-otlp = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 
 [dev-dependencies]
-x509-parser = { version = "0.16", features = ["verify"] }
+x509-parser = { version = "0.18", features = ["verify-aws"] }
 tempfile = { workspace = true }
 tokio-tungstenite = { workspace = true }
 reqwest = { workspace = true, features = ["cookies", "form", "json"] }
