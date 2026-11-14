@@ -16,7 +16,7 @@ target
 # Project Related
 sherpa.toml
 manifest.toml
-files/
+/files/
 .tmp/
 *.bu
 dev.sh
