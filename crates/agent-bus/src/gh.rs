@@ -12,6 +12,7 @@ use anyhow::{Context, Result};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::time::timeout;
+use tracing::instrument;
 
 /// The GitHub CLI.
 pub const GH: &str = "gh";
@@ -46,6 +47,7 @@ pub fn gh_command(gh: &str) -> Command {
 /// # Errors
 ///
 /// Fails when the command cannot be started, takes too long, or its input cannot be written.
+#[instrument(level = "debug", skip(command, input))]
 pub async fn run(command: &mut Command, input: Option<&str>, what: &str) -> Result<Output> {
     command
         .stdin(if input.is_some() {

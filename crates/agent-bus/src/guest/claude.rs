@@ -101,8 +101,8 @@ const RULES_GITHUB: &str = " This task may write to GitHub. Do only what the tas
 push, open pull requests or post only when the task tells you to. Commit \
 messages end with the Co-Authored-By line from your own attribution instructions, never one \
 copied from the task text, and have no session links and no \"Generated with\" footers. Never merge pull requests or delete anything; the user does that. Do not write a \
-## Generation section in a pull request description: agent-bus adds it and keeps it up to date \
-after each run.";
+## Generation section in a pull request description: the host's agent-bus adds it and keeps it \
+up to date after its own commands.";
 
 /// Claude Code's process group. Dropping it while armed kills everything in the group, and a
 /// run that ends normally stops what is left of it (`finish`), so no path out of a run can leave

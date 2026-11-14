@@ -2,7 +2,7 @@
 //! the rows of an item's section, and how each pull request's last write went
 //! (`generation_pr`).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use anyhow::{Context, Result};
 use tracing::instrument;
@@ -15,7 +15,8 @@ use crate::store::cells::{Cells, integer, optional_integer, optional_text};
 use crate::store::host::{host_model_times, host_rows, task_waits};
 use crate::store::read;
 use crate::store::sql::{
-    GENERATION_PRS, HOST_META, PULL_REQUEST_REFS, SET_HOST_META, TASK_MODELS, UPSERT_GENERATION_PR,
+    GENERATION_PRS, HOST_META, ITEM_TASK_IDS, PULL_REQUEST_REFS, SET_HOST_META, TASK_MODELS,
+    UPSERT_GENERATION_PR,
 };
 
 /// The import fact holding when the first sync ran.
@@ -44,6 +45,8 @@ pub struct LastWrite {
     pub written_at_ms: Option<u64>,
     /// Why the last attempt failed; `None` after a success.
     pub last_error: Option<String>,
+    /// When the last attempt was, success or failure.
+    pub attempted_at_ms: Option<u64>,
 }
 
 /// Every pull request that names an item, by repository and in the order they were learned.
@@ -109,6 +112,7 @@ pub async fn written(conn: &Connection) -> Result<HashMap<(String, u64), LastWri
             section: cells.optional_text("section")?,
             written_at_ms: cells.optional_count("written_at_ms")?,
             last_error: cells.optional_text("last_error")?,
+            attempted_at_ms: cells.optional_count("attempted_at_ms")?,
         };
         found.insert((written.repo.clone(), written.number), written);
     }
@@ -132,6 +136,7 @@ pub async fn save(conn: &Connection, written: &LastWrite) -> Result<()> {
             optional_text(written.section.as_deref()),
             optional_integer(written.written_at_ms),
             optional_text(written.last_error.as_deref()),
+            optional_integer(written.attempted_at_ms),
         ],
     )
     .await
@@ -170,7 +175,8 @@ pub async fn since(conn: &Connection, now_ms: u64) -> Result<u64> {
 }
 
 /// The rows of `item`'s section, from the record: each task the host sent that has usage, in
-/// the order they were first recorded, and the host's usage and time on each model.
+/// the order they were first recorded, the host's usage and time on each model with how many
+/// of its responses have no price, and every task the record has in an item.
 ///
 /// # Errors
 ///
@@ -197,23 +203,46 @@ pub async fn rows(conn: &Connection, item: i64) -> Result<Rows> {
             agent: row.agent,
         });
     }
-    let mut by_model: BTreeMap<String, TaskUsage> = BTreeMap::new();
+    let mut by_model: BTreeMap<String, (TaskUsage, u64)> = BTreeMap::new();
     for response in host_rows(conn, None, Some(item)).await? {
-        add_host(
-            by_model.entry(response.model.clone()).or_default(),
-            &response,
-        );
+        let (usage, unpriced) = by_model.entry(response.model.clone()).or_default();
+        add_host(usage, &response);
+        if response.cost_usd.is_none() {
+            *unpriced += 1;
+        }
     }
     let times = host_model_times(conn, item).await?;
     let host = by_model
         .into_iter()
-        .map(|(model, usage)| HostRow {
+        .map(|(model, (usage, unpriced))| HostRow {
             time: times.get(&model).copied().unwrap_or_default().into(),
             model,
             usage,
+            unpriced: (unpriced > 0).then_some(unpriced),
         })
         .collect();
-    Ok(Rows { tasks, host })
+    Ok(Rows {
+        tasks,
+        host,
+        known: known_tasks(conn).await?,
+    })
+}
+
+/// Every task the record has in a work item.
+async fn known_tasks(conn: &Connection) -> Result<BTreeSet<String>> {
+    let mut rows = conn
+        .query(ITEM_TASK_IDS, ())
+        .await
+        .context("Unable to read the tasks of the items")?;
+    let mut found = BTreeSet::new();
+    while let Some(row) = rows
+        .next()
+        .await
+        .context("Unable to read the tasks of the items")?
+    {
+        found.insert(Cells::new(&row).text("task")?);
+    }
+    Ok(found)
 }
 
 /// Every model each task of `item` used in its runs, sorted.

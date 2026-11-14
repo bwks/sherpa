@@ -5,13 +5,14 @@
 //! The section carries its rows twice: as a markdown table for people, and as TOML in an HTML
 //! comment, which is what is read back. The data has a format version. Rewriting the section
 //! keeps the rows of tasks the record does not know (written before the record, by guests),
-//! replaces the rows of tasks it knows, whose figures are cumulative, and replaces the host's
-//! rows. The table is never parsed, and nothing outside the markers is touched.
+//! replaces the rows of tasks it knows, whose figures are cumulative, drops the rows of tasks it
+//! has in another item, and replaces the host's rows. The table is never parsed, and nothing outside the markers is touched.
 //!
 //! Guests wrote format 1, with no version and no host rows, and read it with
 //! `deny_unknown_fields`: a guest still running an older agent-bus refuses a host-written
 //! section, so it cannot undo one.
 
+use std::collections::BTreeSet;
 use std::ops::Range;
 
 use anyhow::{Context, Result, bail, ensure};
@@ -47,6 +48,8 @@ Output | Cache read | Cache write | Work | Testing | Waiting on user |\n\
 |---|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|";
 /// What a time cell shows when the time is not known.
 const UNKNOWN: &str = "n/a";
+/// After a total that leaves out what is not known: unpriced responses, or rows without time.
+const INCOMPLETE: &str = " (incomplete)";
 /// The longest task ID, model name or model list kept.
 const MAX_ID: usize = 64;
 const MAX_MODELS: usize = 16;
@@ -76,8 +79,13 @@ pub struct Row {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostRow {
     pub model: String,
+    /// Its cost, the responses with a price only.
     pub usage: TaskUsage,
     pub time: Time,
+    /// How many of its responses have no price, whose cost is not in `usage`; `None` when all
+    /// have one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unpriced: Option<u64>,
 }
 
 /// Every row of a section: the agent tasks, then the host's.
@@ -85,6 +93,9 @@ pub struct HostRow {
 pub struct Rows {
     pub tasks: Vec<Row>,
     pub host: Vec<HostRow>,
+    /// Every task the record has in a work item, this one's or another's: a row of one of them
+    /// that this item no longer has is dropped, not carried. Not written in the data.
+    pub known: BTreeSet<String>,
 }
 
 /// The TOML in the data comment.
@@ -167,6 +178,7 @@ pub fn read(section: &str) -> Result<Rows> {
     let rows = Rows {
         tasks: data.task,
         host: data.host,
+        known: BTreeSet::new(),
     };
     check_rows(&rows)?;
     Ok(rows)
@@ -275,10 +287,15 @@ fn fence_run(line: &str) -> Option<(char, usize, &str)> {
 }
 
 /// `theirs` in their order, each replaced by the row of `ours` for the same task, then the rest
-/// of `ours`' tasks in their order, and `ours`' host rows.
+/// of `ours`' tasks in their order, and `ours`' host rows. A row of `theirs` that `ours` does
+/// not have is kept only when the record does not know its task (`ours.known`): a task the
+/// record has in another item has left this one.
 fn merge(theirs: Vec<Row>, ours: &Rows) -> Rows {
     let mut tasks: Vec<Row> = theirs
         .into_iter()
+        .filter(|row| {
+            !ours.known.contains(&row.task) || ours.tasks.iter().any(|our| our.task == row.task)
+        })
         .map(|row| {
             ours.tasks
                 .iter()
@@ -295,6 +312,7 @@ fn merge(theirs: Vec<Row>, ours: &Rows) -> Rows {
     Rows {
         tasks,
         host: ours.host.clone(),
+        known: BTreeSet::new(),
     }
 }
 
@@ -327,18 +345,32 @@ fn render(rows: &Rows) -> Result<String> {
     for row in &rows.host {
         add(&mut total, &row.usage);
         times.push(row.time);
+        let mut cells = figures(&row.usage);
+        if let Some(unpriced) = row.unpriced {
+            cells[0] = format!("{} + {unpriced} unpriced", cells[0]);
+        }
         lines.push(format!(
             "| {HOST} | {HOST} | {} | | {} | {} |",
             row.model,
-            figures(&row.usage).join(" | "),
+            cells.join(" | "),
             clock(&row.time).join(" | ")
         ));
+    }
+    let mut cost_cells = figures(&total);
+    if rows.host.iter().any(|row| row.unpriced.is_some()) {
+        cost_cells[0].push_str(INCOMPLETE);
+    }
+    let mut time_cells = clock(&sum(&times));
+    for (cell, missing) in time_cells.iter_mut().zip(missing(&times)) {
+        if missing && cell != UNKNOWN {
+            cell.push_str(INCOMPLETE);
+        }
     }
     lines.push(format!(
         "| **Total** | | | **{}** | {} | {} |",
         grouped(total.runs),
-        bold(figures(&total)).join(" | "),
-        bold(clock(&sum(&times))).join(" | ")
+        bold(cost_cells).join(" | "),
+        bold(time_cells).join(" | ")
     ));
     lines.push(String::new());
     // Every string in the rows is checked to hold no `-->` (`check_rows`), so the data cannot
@@ -386,6 +418,16 @@ fn sum(times: &[Time]) -> Time {
         }
     }
     total
+}
+
+/// For each time bucket (work, testing, waiting on the user), whether a row of `times` does not
+/// know it: then the total is a lower bound.
+fn missing(times: &[Time]) -> [bool; 3] {
+    [
+        times.iter().any(|time| time.work.is_none()),
+        times.iter().any(|time| time.testing.is_none()),
+        times.iter().any(|time| time.waiting.is_none()),
+    ]
 }
 
 /// The cost and token cells of a row: cost, cache hit, input, output, cache read, cache write.
@@ -490,7 +532,7 @@ mod tests {
     fn tasks(rows: &[Row]) -> Rows {
         Rows {
             tasks: rows.to_vec(),
-            host: Vec::new(),
+            ..Rows::default()
         }
     }
 
@@ -548,6 +590,7 @@ mod tests {
                 ..TaskUsage::default()
             },
             time,
+            unpriced: None,
         }
     }
 
@@ -630,6 +673,7 @@ mod tests {
                     time(90 * MINUTE, 5 * MINUTE, 30 * MINUTE),
                 ),
             ],
+            ..Rows::default()
         };
         let body = update_body("", &rows).unwrap();
         assert_eq!(
@@ -639,7 +683,7 @@ mod tests {
                 "| 7b20d4aa | dev02 | claude-sonnet-5-5 | 1 | $0.6120 | 91.7% | 88 | 9,412 | 1,402,330 | 126,004 | n/a | n/a | 1m 00s |",
                 "| host | host | claude-haiku-5-5 | | $0.2500 | 89.9% | 100 | 2,000 | 90,000 | 10,000 | 0s | 0s | 0s |",
                 "| host | host | claude-opus-5-5 | | $1.5000 | 89.9% | 100 | 2,000 | 90,000 | 10,000 | 1h 30m | 5m 00s | 30m 00s |",
-                "| **Total** | | | **4** | **$6.5493** | **93.6%** | **1,492** | **61,722** | **7,702,785** | **517,906** | **2h 37m** | **17m 30s** | **31m 45s** |",
+                "| **Total** | | | **4** | **$6.5493** | **93.6%** | **1,492** | **61,722** | **7,702,785** | **517,906** | **2h 37m (incomplete)** | **17m 30s (incomplete)** | **31m 45s** |",
             ]
         );
         assert!(body.contains("first host import"), "{body}");
@@ -729,11 +773,13 @@ mod tests {
                 host("claude-haiku-5-5", 0.1, time(1, 1, 1)),
                 host("claude-opus-5-5", 1.0, time(1, 1, 1)),
             ],
+            ..Rows::default()
         };
         let body = update_body("", &old).unwrap();
         let new = Rows {
             tasks: Vec::new(),
             host: vec![host("claude-opus-5-5", 2.0, time(2, 2, 2))],
+            ..Rows::default()
         };
         let updated = update_body(&body, &new).unwrap();
         let range = section_range(&updated).unwrap().unwrap();
@@ -742,6 +788,7 @@ mod tests {
             Rows {
                 tasks: vec![first()],
                 host: new.host,
+                ..Rows::default()
             }
         );
     }
@@ -759,6 +806,7 @@ mod tests {
         let ours = Rows {
             tasks: vec![known.clone()],
             host: vec![host("claude-opus-5-5", 1.0, time(MINUTE, 0, 0))],
+            ..Rows::default()
         };
         let upgraded = update_body(&old, &ours).unwrap();
         let range = section_range(&upgraded).unwrap().unwrap();
@@ -767,6 +815,7 @@ mod tests {
             Rows {
                 tasks: vec![first(), known],
                 host: ours.host.clone(),
+                ..Rows::default()
             }
         );
         assert!(
@@ -781,6 +830,43 @@ mod tests {
                     && line.ends_with("| n/a | n/a | n/a |")),
             "{upgraded}"
         );
+    }
+
+    #[test]
+    fn unpriced_host_responses_mark_their_cost_and_the_total_as_incomplete() {
+        let mut fast = host("claude-opus-5-5", 1.5, time(MINUTE, 0, 0));
+        fast.unpriced = Some(3);
+        let mut timed = first();
+        timed.time = time(MINUTE, 0, 0);
+        let rows = Rows {
+            tasks: vec![timed],
+            host: vec![fast],
+            ..Rows::default()
+        };
+        let body = update_body("", &rows).unwrap();
+        assert_eq!(
+            table(&body)[3..],
+            [
+                "| host | host | claude-opus-5-5 | | $1.5000 + 3 unpriced | 89.9% | 100 | 2,000 | 90,000 | 10,000 | 1m 00s | 0s | 0s |",
+                "| **Total** | | | **3** | **$5.6873 (incomplete)** | **94.1%** | **1,304** | **50,310** | **6,210,455** | **381,902** | **2m 00s** | **0s** | **0s** |",
+            ]
+        );
+        // The count reads back with the rows.
+        let range = section_range(&body).unwrap().unwrap();
+        assert_eq!(read(&body[range]).unwrap().host[0].unpriced, Some(3));
+    }
+
+    #[test]
+    fn a_carried_row_of_a_task_the_record_has_in_another_item_is_dropped() {
+        let theirs = update_body("", &tasks(&[first(), second()])).unwrap();
+        // The record knows the second task, now in another item; the first it does not know.
+        let ours = Rows {
+            known: [second().task].into_iter().collect(),
+            ..Rows::default()
+        };
+        let body = update_body(&theirs, &ours).unwrap();
+        let range = section_range(&body).unwrap().unwrap();
+        assert_eq!(read(&body[range]).unwrap().tasks, [first()]);
     }
 
     #[test]
@@ -812,6 +898,7 @@ mod tests {
         let ours = Rows {
             tasks: vec![first()],
             host: Vec::new(),
+            ..Rows::default()
         };
         for rows in [
             ours.clone(),
@@ -946,6 +1033,7 @@ mod tests {
         let bad_host = Rows {
             tasks: Vec::new(),
             host: vec![host("evil-->", 0.0, Time::default())],
+            ..Rows::default()
         };
         assert!(update_body("", &bad_host).is_err());
         // The same goes for rows read back from a body.

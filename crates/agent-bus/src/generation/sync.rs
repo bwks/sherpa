@@ -24,6 +24,7 @@ use std::env;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use jiff::Timestamp;
 use serde::Deserialize;
 use tracing::instrument;
 
@@ -79,6 +80,8 @@ pub enum Outcome {
     Frozen,
     /// Due, but there is no `GH_TOKEN` to write with.
     Pending,
+    /// The last attempt failed less than `DEBOUNCE` ago: tried again after it, or when forced.
+    Backoff(String),
     /// Not written: why.
     Failed(String),
 }
@@ -99,6 +102,9 @@ pub struct Synced {
 struct Due {
     prior: LastWrite,
     rows: Rows,
+    /// When the first sync ran, for an automatic sync: a pull request never written that was
+    /// merged or closed before it is frozen as it is. `None` for `--pr` and `--all`.
+    since_ms: Option<u64>,
 }
 
 /// What a pull request needs, from what was last written and the record's rows.
@@ -107,14 +113,18 @@ enum Decision {
     Frozen,
     Unchanged,
     Debounced,
+    Backoff(String),
     Write,
 }
 
-/// A pull request as `gh pr view --json body,state` gives it.
+/// A pull request as `gh pr view --json body,state,closedAt` gives it.
 #[derive(Debug, Deserialize)]
 struct View {
     body: String,
     state: String,
+    /// When it was merged or closed; `None` while it is open.
+    #[serde(default, rename = "closedAt")]
+    closed_at: Option<Timestamp>,
 }
 
 impl Github {
@@ -186,18 +196,20 @@ pub async fn sync(
         });
         last.work = pull_request.work;
         let ours = rows(conn, pull_request.work).await?;
-        let outcome = match decide(&last, &ours, request.force, now_ms) {
+        let outcome = match decide(&last, &ours, request, now_ms) {
             Ok(Decision::Write) if github.token.is_none() => Outcome::Pending,
             Ok(Decision::Write) => {
                 due.push(Due {
                     prior: last,
                     rows: ours,
+                    since_ms: (request.scope == Scope::Due).then_some(since_ms),
                 });
                 continue;
             }
             Ok(Decision::Frozen) => Outcome::Frozen,
             Ok(Decision::Unchanged) => Outcome::Unchanged,
             Ok(Decision::Debounced) => Outcome::Debounced,
+            Ok(Decision::Backoff(error)) => Outcome::Backoff(error),
             Err(error) => Outcome::Failed(format!("{error:#}")),
         };
         synced.outcomes.push((key.0, key.1, outcome));
@@ -209,22 +221,17 @@ pub async fn sync(
     }
     let mut results = Vec::new();
     for item in due {
-        let (written, hand) = write(github, item, now_ms).await;
+        let seen = item.prior.written_at_ms;
+        let (written, hand, outcome) = write(github, item, now_ms).await;
         if hand {
             synced
                 .hand_written
                 .push((written.repo.clone(), written.number));
         }
-        let outcome = match (&written.last_error, &written.state) {
-            (Some(error), _) => Outcome::Failed(error.clone()),
-            (None, state) => Outcome::Written {
-                state: state.clone().unwrap_or_default(),
-            },
-        };
         synced
             .outcomes
             .push((written.repo.clone(), written.number, outcome));
-        results.push(written);
+        results.push((written, seen));
     }
     if let Err(error) = keep(paths, wait, &results).await {
         synced.unsaved = Some(format!("{error:#}"));
@@ -250,29 +257,51 @@ fn in_scope(
     }
 }
 
-/// Keep `results` in the record at `paths`, taken again within `wait`.
-async fn keep(paths: &Paths, wait: Duration, results: &[LastWrite]) -> Result<()> {
+/// Keep `results` in the record at `paths`, taken again within `wait`. Each comes with the
+/// `written_at_ms` this sync read before it wrote; when the record now holds a later write,
+/// another sync wrote the body after this one read it, and its result is the one kept.
+async fn keep(paths: &Paths, wait: Duration, results: &[(LastWrite, Option<u64>)]) -> Result<()> {
     let record = Record::open_recorded(paths, wait).await?;
-    for written in results {
-        save(record.conn(), written).await?;
+    let stored = written(record.conn()).await?;
+    for (result, seen) in results {
+        let now = stored
+            .get(&(result.repo.clone(), result.number))
+            .and_then(|stored| stored.written_at_ms);
+        if now > *seen {
+            continue;
+        }
+        save(record.conn(), result).await?;
     }
     Ok(())
 }
 
 /// What the pull request last written as `prior` needs for the record's rows `ours` at
-/// `now_ms`: a frozen one nothing, unchanged text nothing, a change in the host's rows alone
-/// within `DEBOUNCE` of the last write nothing yet unless `force`, anything else a write.
+/// `now_ms`, for `request`:
+///
+/// - a frozen one nothing, except for `--pr`, which looks at it again;
+/// - one whose last attempt failed within `DEBOUNCE`, nothing yet unless the sync is forced;
+/// - unchanged text nothing;
+/// - a change in the host's rows alone within `DEBOUNCE` of the last write, nothing yet
+///   unless forced;
+/// - anything else a write.
 ///
 /// # Errors
 ///
 /// Fails when the section last written cannot be read or the rows cannot be shown.
-fn decide(prior: &LastWrite, ours: &Rows, force: bool, now_ms: u64) -> Result<Decision> {
-    if prior
-        .state
-        .as_deref()
-        .is_some_and(|state| FROZEN.contains(&state))
+fn decide(prior: &LastWrite, ours: &Rows, request: &Request, now_ms: u64) -> Result<Decision> {
+    let force = request.force;
+    if is_frozen(prior.state.as_deref()) {
+        return Ok(if matches!(request.scope, Scope::One { .. }) {
+            Decision::Write
+        } else {
+            Decision::Frozen
+        });
+    }
+    if let Some(error) = &prior.last_error
+        && !force
+        && within_debounce(prior.attempted_at_ms, now_ms)
     {
-        return Ok(Decision::Frozen);
+        return Ok(Decision::Backoff(error.clone()));
     }
     let Some(last) = prior.section.as_deref() else {
         return Ok(Decision::Write);
@@ -281,46 +310,83 @@ fn decide(prior: &LastWrite, ours: &Rows, force: bool, now_ms: u64) -> Result<De
     if next == last {
         return Ok(Decision::Unchanged);
     }
-    let recent = prior
-        .written_at_ms
-        .is_some_and(|at| now_ms < at.saturating_add(millis(DEBOUNCE)));
-    if !force && recent && read(last)?.tasks == read(&next)?.tasks {
+    if !force
+        && within_debounce(prior.written_at_ms, now_ms)
+        && read(last)?.tasks == read(&next)?.tasks
+    {
         return Ok(Decision::Debounced);
     }
     Ok(Decision::Write)
 }
 
+/// Whether `at` is less than `DEBOUNCE` before `now_ms`.
+fn within_debounce(at: Option<u64>, now_ms: u64) -> bool {
+    at.is_some_and(|at| now_ms < at.saturating_add(millis(DEBOUNCE)))
+}
+
+/// Whether a pull request in `state` is frozen: merged or closed.
+fn is_frozen(state: Option<&str>) -> bool {
+    state.is_some_and(|state| FROZEN.contains(&state))
+}
+
 /// Write `due`'s section into its pull request's body with `github` at `now_ms`. Returns what
-/// to keep (the text written and the state, or the error with the last write kept) and
-/// whether the body has a Generation section written by hand outside the markers.
+/// to keep (the text written and the state, or the error with the last write kept), whether
+/// the body has a Generation section written by hand outside the markers, and what happened.
+///
+/// A pull request that was frozen and is still merged or closed is left alone (`--pr` looked
+/// at it again). One never written, merged or closed before the first sync, is frozen as it is
+/// by an automatic sync.
 #[instrument(level = "debug", skip_all, fields(repo = %due.prior.repo, number = due.prior.number))]
-async fn write(github: &Github, due: Due, now_ms: u64) -> (LastWrite, bool) {
-    let Due { prior, rows } = due;
+async fn write(github: &Github, due: Due, now_ms: u64) -> (LastWrite, bool, Outcome) {
+    let Due {
+        prior,
+        rows,
+        since_ms,
+    } = due;
     let mut kept = prior.clone();
+    kept.attempted_at_ms = Some(now_ms);
     let (repo, number) = (prior.repo.as_str(), prior.number);
     let view = match view(github, repo, number).await {
         Ok(view) => view,
         Err(error) => {
-            kept.last_error = Some(format!("{error:#}"));
-            return (kept, false);
+            let error = format!("{error:#}");
+            kept.last_error = Some(error.clone());
+            return (kept, false, Outcome::Failed(error));
         }
     };
+    let closed_before = view
+        .closed_at
+        .and_then(|at| u64::try_from(at.as_millisecond()).ok())
+        .zip(since_ms)
+        .is_some_and(|(closed_ms, since_ms)| closed_ms < since_ms);
+    let left_as_it_is =
+        is_frozen(prior.state.as_deref()) || (prior.section.is_none() && closed_before);
+    if is_frozen(Some(&view.state)) && left_as_it_is {
+        kept.state = Some(view.state);
+        kept.last_error = None;
+        return (kept, false, Outcome::Frozen);
+    }
     let hand = hand_written(&view.body).unwrap_or_default();
     let written = match update_body(&view.body, &rows) {
         Ok(body) if body == view.body => Ok(body),
         Ok(body) => edit(github, repo, number, &body).await.map(|()| body),
         Err(error) => Err(error),
     };
-    match written.and_then(|body| written_section(&body)) {
+    let outcome = match written.and_then(|body| written_section(&body)) {
         Ok(section) => {
             kept.section = Some(section);
             kept.written_at_ms = Some(now_ms);
-            kept.state = Some(view.state);
+            kept.state = Some(view.state.clone());
             kept.last_error = None;
+            Outcome::Written { state: view.state }
         }
-        Err(error) => kept.last_error = Some(format!("{error:#}")),
-    }
-    (kept, hand)
+        Err(error) => {
+            let error = format!("{error:#}");
+            kept.last_error = Some(error.clone());
+            Outcome::Failed(error)
+        }
+    };
+    (kept, hand, outcome)
 }
 
 /// The section of `body`, which was just rewritten.
@@ -344,7 +410,7 @@ async fn view(github: &Github, repo: &str, number: u64) -> Result<View> {
     command
         .args(["pr", "view", &number.to_string()])
         .args(["--repo", repo])
-        .args(["--json", "body,state"]);
+        .args(["--json", "body,state,closedAt"]);
     let output = run(&mut command, None, "gh pr view").await?;
     if !output.status.success() {
         bail!("gh pr view failed: {}", stderr(&output));
@@ -383,7 +449,7 @@ mod tests {
     use crate::generation::section::{END, START};
     use crate::host::transcript::Response;
     use crate::message::{
-        Ended, Kind, Message, ModelUsage, PullRequestRef, RefKind, TaskUsage, Usage,
+        Ended, Kind, Message, ModelUsage, PullRequestRef, RefKind, TaskUsage, Usage, Work, WorkRef,
     };
     use crate::price::Tokens;
     use crate::record::{Busy, LOCK_WAIT};
@@ -444,7 +510,7 @@ esac
                 seq: 0,
             };
             bench.message(&task("t1"), NOW).await;
-            bench.outcome("t1", 1, 0.5, NOW).await;
+            bench.outcome("t1", 1, 0.5, NOW, &[7]).await;
             bench.view(7, "Body", "OPEN");
             bench
         }
@@ -465,8 +531,15 @@ esac
         }
 
         /// An outcome of `task`, which has had `runs` runs costing `cost_usd` in all, ended on
-        /// pull request 7.
-        async fn outcome(&mut self, task: &str, runs: u64, cost_usd: f64, at_ms: u64) {
+        /// a branch whose open pull requests are `numbers`.
+        async fn outcome(
+            &mut self,
+            task: &str,
+            runs: u64,
+            cost_usd: f64,
+            at_ms: u64,
+            numbers: &[u64],
+        ) {
             let outcome = Message {
                 task: task.to_owned(),
                 from: "dev01".to_owned(),
@@ -501,19 +574,22 @@ esac
                 ended: Some(Ended {
                     repo: REPO.to_owned(),
                     branch: Some("feat/x".to_owned()),
-                    pull_requests: vec![PullRequestRef {
-                        repo: REPO.to_owned(),
-                        number: 7,
-                        url: "https://github.com/o/r/pull/7".to_owned(),
-                    }],
+                    pull_requests: numbers
+                        .iter()
+                        .map(|number| PullRequestRef {
+                            repo: REPO.to_owned(),
+                            number: *number,
+                            url: format!("https://github.com/o/r/pull/{number}"),
+                        })
+                        .collect(),
                 }),
             };
             self.message(&outcome, at_ms).await;
         }
 
-        /// A response of the host at `at_ms`, after a prompt of the user a minute before,
-        /// charged to the item of pull request 7.
-        async fn host(&self, id: &str, at_ms: u64) {
+        /// A response of the host at `at_ms` at `speed`, after a prompt of the user a minute
+        /// before, charged to the item of pull request 7.
+        async fn host(&self, id: &str, at_ms: u64, speed: &str) {
             let record = Record::open_recorded(&self.paths, LOCK_WAIT).await.unwrap();
             let conn = record.conn();
             let item = ref_item(conn, &Ref::new(REPO, RefKind::PullRequest, "7"))
@@ -541,7 +617,7 @@ esac
                     agent_id: None,
                     at_ms,
                     model: MODEL.to_owned(),
-                    speed: "standard".to_owned(),
+                    speed: speed.to_owned(),
                     tokens: Tokens {
                         input: 5,
                         output: 50,
@@ -620,7 +696,7 @@ esac
 
     fn written_once() -> Vec<String> {
         vec![
-            "pr view 7 --repo o/r --json body,state token=set other=none".to_owned(),
+            "pr view 7 --repo o/r --json body,state,closedAt token=set other=none".to_owned(),
             "pr edit 7 --repo o/r --body-file - token=set other=none".to_owned(),
         ]
     }
@@ -632,7 +708,7 @@ esac
     #[tokio::test]
     async fn the_section_gets_task_and_host_rows_with_their_time() {
         let bench = Bench::new("rows").await;
-        bench.host("m1", NOW + MINUTE).await;
+        bench.host("m1", NOW + MINUTE, "standard").await;
         let synced = bench.sync(Scope::Due, false, NOW + MINUTE).await;
         assert_eq!(
             synced.outcomes,
@@ -683,13 +759,13 @@ esac
         bench.edited();
 
         // Only the host's rows changed, a minute after the write: not yet.
-        bench.host("m1", NOW + MINUTE).await;
+        bench.host("m1", NOW + MINUTE, "standard").await;
         let synced = bench.sync(Scope::Due, false, NOW + MINUTE).await;
         assert_eq!(outcome_of(&synced), &Outcome::Debounced);
         assert_eq!(bench.calls(), Vec::<String>::new());
 
         // A new outcome is written at once, host rows and all.
-        bench.outcome("t1", 2, 1.0, NOW + 2 * MINUTE).await;
+        bench.outcome("t1", 2, 1.0, NOW + 2 * MINUTE, &[7]).await;
         let synced = bench.sync(Scope::Due, false, NOW + 2 * MINUTE).await;
         assert!(matches!(outcome_of(&synced), Outcome::Written { .. }));
         assert_eq!(bench.calls(), written_once());
@@ -701,7 +777,7 @@ esac
         assert!(body.contains("| host | host |"), "{body}");
 
         // More host rows: they wait, until ten minutes after the last write.
-        bench.host("m2", NOW + 3 * MINUTE).await;
+        bench.host("m2", NOW + 3 * MINUTE, "standard").await;
         let synced = bench.sync(Scope::Due, false, NOW + 11 * MINUTE).await;
         assert_eq!(outcome_of(&synced), &Outcome::Debounced);
         let synced = bench.sync(Scope::Due, false, NOW + 12 * MINUTE).await;
@@ -710,7 +786,7 @@ esac
         bench.edited();
 
         // `generation sync` and the SessionEnd hook do not wait.
-        bench.host("m3", NOW + 13 * MINUTE).await;
+        bench.host("m3", NOW + 13 * MINUTE, "standard").await;
         let synced = bench.sync(Scope::Due, true, NOW + 13 * MINUTE).await;
         assert!(matches!(outcome_of(&synced), Outcome::Written { .. }));
         assert_eq!(bench.calls(), written_once());
@@ -734,20 +810,24 @@ esac
         );
 
         // Later work on the item stays in the record; the body is left alone.
-        bench.outcome("t1", 2, 1.0, NOW + MINUTE).await;
-        bench.host("m1", NOW + MINUTE).await;
-        for scope in [
-            Scope::Due,
-            Scope::All,
-            Scope::One {
-                repo: REPO.to_owned(),
-                number: 7,
-            },
-        ] {
+        bench.outcome("t1", 2, 1.0, NOW + MINUTE, &[7]).await;
+        bench.host("m1", NOW + MINUTE, "standard").await;
+        for scope in [Scope::Due, Scope::All] {
             let synced = bench.sync(scope, true, NOW + 60 * MINUTE).await;
             assert_eq!(outcome_of(&synced), &Outcome::Frozen);
         }
         assert_eq!(bench.calls(), Vec::<String>::new());
+        // `--pr` looks at it again, finds it still merged, and edits nothing.
+        let one = Scope::One {
+            repo: REPO.to_owned(),
+            number: 7,
+        };
+        let synced = bench.sync(one, true, NOW + 60 * MINUTE).await;
+        assert_eq!(outcome_of(&synced), &Outcome::Frozen);
+        assert_eq!(
+            bench.calls(),
+            ["pr view 7 --repo o/r --json body,state,closedAt token=set other=none"]
+        );
     }
 
     #[tokio::test]
@@ -761,11 +841,11 @@ esac
         assert!(body.starts_with(by_hand), "{body}");
         assert!(body.contains(START), "{body}");
         // A body without one is not named.
-        bench.host("m1", NOW + MINUTE).await;
+        bench.host("m1", NOW + MINUTE, "standard").await;
         let synced = bench.sync(Scope::Due, true, NOW + MINUTE).await;
         assert_eq!(synced.hand_written, [(REPO.to_owned(), 7)]);
         bench.view(7, "Body", "OPEN");
-        bench.host("m2", NOW + 2 * MINUTE).await;
+        bench.host("m2", NOW + 2 * MINUTE, "standard").await;
         let synced = bench.sync(Scope::Due, true, NOW + 2 * MINUTE).await;
         assert_eq!(synced.hand_written, Vec::<(String, u64)>::new());
     }
@@ -833,7 +913,7 @@ esac
         assert!(stored.last_error.unwrap().contains("Bad credentials"));
         fs::remove_file(bench.dir.join("view-fails")).unwrap();
         bench.calls();
-        let synced = bench.sync(Scope::Due, false, NOW + MINUTE).await;
+        let synced = bench.sync(Scope::Due, true, NOW + MINUTE).await;
         assert!(matches!(outcome_of(&synced), Outcome::Written { .. }));
         assert_eq!(bench.stored().await.unwrap().last_error, None);
     }
@@ -868,7 +948,7 @@ esac
         assert!(error.to_string().contains("o/r#8"), "{error}");
         // New activity on an item makes its pull request due.
         bench.message(&task("t2"), later + MINUTE).await;
-        bench.outcome("t2", 1, 0.25, later + MINUTE).await;
+        bench.outcome("t2", 1, 0.25, later + MINUTE, &[7]).await;
         let synced = bench.sync(Scope::Due, false, later + MINUTE).await;
         assert!(matches!(outcome_of(&synced), Outcome::Written { .. }));
     }
@@ -896,5 +976,222 @@ esac
         assert!(error.downcast_ref::<Busy>().is_some(), "{error:#}");
         drop(held);
         assert_eq!(bench.calls(), Vec::<String>::new());
+    }
+
+    #[tokio::test]
+    async fn a_pull_request_merged_before_the_first_sync_is_frozen_without_a_write() {
+        let mut bench = Bench::new("merged-before").await;
+        // The item's branch also had pull request 8, merged a day before the first sync.
+        bench.outcome("t1", 1, 0.5, NOW, &[7, 8]).await;
+        let merged = json!({
+            "body": "Old body",
+            "state": "MERGED",
+            "closedAt": "2027-01-14T08:00:00Z",
+        });
+        fs::write(bench.dir.join("view-8.json"), merged.to_string()).unwrap();
+        bench.sync(Scope::Due, false, NOW).await;
+        let calls = bench.calls();
+        assert!(
+            calls.iter().any(|call| call.starts_with("pr edit 7")),
+            "{calls:?}"
+        );
+        assert!(
+            !calls.iter().any(|call| call.starts_with("pr edit 8")),
+            "{calls:?}"
+        );
+        let record = Record::open_recorded(&bench.paths, LOCK_WAIT)
+            .await
+            .unwrap();
+        let eight = written(record.conn())
+            .await
+            .unwrap()
+            .remove(&(REPO.to_owned(), 8))
+            .unwrap();
+        drop(record);
+        assert_eq!(eight.state.as_deref(), Some("MERGED"));
+        assert_eq!(eight.section, None);
+
+        // New activity on the item does not reach it.
+        bench.outcome("t1", 2, 1.0, NOW + MINUTE, &[7]).await;
+        bench.sync(Scope::Due, false, NOW + MINUTE).await;
+        let calls = bench.calls();
+        assert!(
+            calls.iter().any(|call| call.starts_with("pr edit 7")),
+            "{calls:?}"
+        );
+        assert!(!calls.iter().any(|call| call.contains(" 8 ")), "{calls:?}");
+    }
+
+    #[tokio::test]
+    async fn all_writes_a_pull_request_merged_before_the_first_sync() {
+        let mut bench = Bench::new("merged-before-all").await;
+        bench.outcome("t1", 1, 0.5, NOW, &[7, 8]).await;
+        let merged = json!({
+            "body": "Old body",
+            "state": "MERGED",
+            "closedAt": "2027-01-14T08:00:00Z",
+        });
+        fs::write(bench.dir.join("view-8.json"), merged.to_string()).unwrap();
+        bench.sync(Scope::All, true, NOW).await;
+        let calls = bench.calls();
+        assert!(
+            calls.iter().any(|call| call.starts_with("pr edit 8")),
+            "{calls:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unpriced_host_response_marks_the_cost() {
+        let bench = Bench::new("unpriced").await;
+        bench.host("m1", NOW, "standard").await;
+        bench.host("m2", NOW, "fast").await;
+        bench.sync(Scope::Due, false, NOW).await;
+        let body = bench.edited();
+        assert!(
+            body.contains("| host | host | claude-opus-5-5 | | $0.0010 + 1 unpriced |"),
+            "{body}"
+        );
+        assert!(body.contains("**$0.5010 (incomplete)**"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn a_row_of_a_task_the_record_has_in_another_item_leaves_the_section() {
+        let mut bench = Bench::new("moved").await;
+        // t2 was tagged with issue 999, so it stays in that item though it ended on the branch
+        // of pull request 7, whose item is t1's.
+        let mut tagged = task("t2");
+        tagged.work = Some(Work {
+            refs: vec![WorkRef {
+                repo: REPO.to_owned(),
+                kind: RefKind::Issue,
+                number: 999,
+            }],
+            session: None,
+        });
+        bench.message(&tagged, NOW).await;
+        bench.outcome("t2", 1, 0.25, NOW, &[7]).await;
+        // An older guest, counting by branch, wrote both into the section of pull request 7.
+        let guest = format!(
+            "Body\n\n{START}\n## Generation\n\n<!-- agent-bus:generation-data\n\
+             [[task]]\ntask = \"t1\"\nagent = \"dev01\"\nmodels = []\n\n[task.usage]\nruns = 1\n\
+             cost_usd = 0.1\ninput = 0\noutput = 0\ncache_creation = 0\ncache_read = 0\n\
+             num_turns = 0\nduration_ms = 0\nduration_api_ms = 0\n\n\
+             [[task]]\ntask = \"t2\"\nagent = \"dev01\"\nmodels = []\n\n[task.usage]\nruns = 1\n\
+             cost_usd = 0.25\ninput = 0\noutput = 0\ncache_creation = 0\ncache_read = 0\n\
+             num_turns = 0\nduration_ms = 0\nduration_api_ms = 0\n-->\n{END}\n"
+        );
+        bench.view(7, &guest, "OPEN");
+        bench.sync(Scope::Due, true, NOW).await;
+        let body = bench.edited();
+        assert!(!body.contains("| t2 |"), "{body}");
+        assert!(
+            body.contains("| t1 | dev01 | claude-opus-5-5 | 1 |"),
+            "{body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_pull_request_is_tried_again_after_the_debounce_or_when_forced() {
+        let bench = Bench::new("backoff").await;
+        fs::write(bench.dir.join("view-fails"), "").unwrap();
+        bench.sync(Scope::Due, false, NOW).await;
+        assert_eq!(bench.calls().len(), 1);
+        // Within ten minutes, an automatic sync leaves it.
+        let synced = bench.sync(Scope::Due, false, NOW + MINUTE).await;
+        assert_eq!(bench.calls(), Vec::<String>::new());
+        assert!(
+            matches!(outcome_of(&synced), Outcome::Backoff(why) if why.contains("Bad credentials")),
+            "{synced:?}"
+        );
+        // After them, it tries again.
+        bench.sync(Scope::Due, false, NOW + 11 * MINUTE).await;
+        assert_eq!(bench.calls().len(), 1);
+        // `--pr` does not wait.
+        let one = Scope::One {
+            repo: REPO.to_owned(),
+            number: 7,
+        };
+        bench.sync(one, true, NOW + 12 * MINUTE).await;
+        assert_eq!(bench.calls().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_reopened_pull_request_is_written_again_by_pr() {
+        let mut bench = Bench::new("reopened").await;
+        bench.view(7, "Body", "CLOSED");
+        bench.sync(Scope::Due, false, NOW).await;
+        bench.calls();
+        // Reopened, with more work: automatic syncs leave a frozen one alone.
+        bench.view(7, "Body", "OPEN");
+        bench.outcome("t1", 2, 1.0, NOW + MINUTE, &[7]).await;
+        let synced = bench.sync(Scope::Due, true, NOW + MINUTE).await;
+        assert_eq!(outcome_of(&synced), &Outcome::Frozen);
+        assert_eq!(bench.calls(), Vec::<String>::new());
+        // `--pr` looks again, finds it open and writes it.
+        let one = Scope::One {
+            repo: REPO.to_owned(),
+            number: 7,
+        };
+        let synced = bench.sync(one, true, NOW + 2 * MINUTE).await;
+        assert_eq!(
+            outcome_of(&synced),
+            &Outcome::Written {
+                state: "OPEN".to_owned()
+            }
+        );
+        assert_eq!(bench.calls(), written_once());
+        assert_eq!(bench.stored().await.unwrap().state.as_deref(), Some("OPEN"));
+        // A frozen one still merged is looked at by `--pr` and left alone.
+        bench.view(7, "Body", "MERGED");
+        bench.outcome("t1", 3, 1.5, NOW + 3 * MINUTE, &[7]).await;
+        bench.sync(Scope::Due, false, NOW + 3 * MINUTE).await;
+        bench.calls();
+        bench.outcome("t1", 4, 2.0, NOW + 4 * MINUTE, &[7]).await;
+        let one = Scope::One {
+            repo: REPO.to_owned(),
+            number: 7,
+        };
+        let synced = bench.sync(one, true, NOW + 4 * MINUTE).await;
+        assert_eq!(outcome_of(&synced), &Outcome::Frozen);
+        let calls = bench.calls();
+        assert_eq!(calls.len(), 1, "{calls:?}");
+        assert!(calls[0].starts_with("pr view 7"), "{calls:?}");
+    }
+
+    #[tokio::test]
+    async fn a_newer_write_by_another_sync_is_not_overwritten() {
+        let bench = Bench::new("overlap").await;
+        let record = Record::open_recorded(&bench.paths, LOCK_WAIT)
+            .await
+            .unwrap();
+        let work = written(record.conn()).await.unwrap().len();
+        assert_eq!(work, 0);
+        let item = ref_item(record.conn(), &Ref::new(REPO, RefKind::PullRequest, "7"))
+            .await
+            .unwrap()
+            .unwrap();
+        // Another sync wrote at 200, after this one read the row as written at 100.
+        let newer = LastWrite {
+            repo: REPO.to_owned(),
+            number: 7,
+            work: item,
+            state: Some("OPEN".to_owned()),
+            section: Some("newer".to_owned()),
+            written_at_ms: Some(200),
+            last_error: None,
+            attempted_at_ms: Some(200),
+        };
+        save(record.conn(), &newer).await.unwrap();
+        drop(record);
+        let older = LastWrite {
+            section: Some("older".to_owned()),
+            written_at_ms: Some(150),
+            attempted_at_ms: Some(150),
+            ..newer.clone()
+        };
+        keep(&bench.paths, LOCK_WAIT, &[(older, Some(100))])
+            .await
+            .unwrap();
+        assert_eq!(bench.stored().await.unwrap(), newer);
     }
 }

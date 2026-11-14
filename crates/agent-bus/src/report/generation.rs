@@ -122,6 +122,13 @@ fn lines(synced: &Synced) -> Vec<(String, bool)> {
                 false,
             ),
             Outcome::Pending => (format!("{repo}#{number}: due, not written"), false),
+            Outcome::Backoff(why) => (
+                format!(
+                    "{repo}#{number}: the last write failed ({why}); tried again 10 minutes \
+                     after it, or by `generation sync`"
+                ),
+                false,
+            ),
             Outcome::Failed(why) => (
                 format!("Generation section of {repo}#{number} not written: {why}"),
                 true,

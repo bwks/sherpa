@@ -53,8 +53,10 @@ database is Turso, embedded in sherpad as a single file (see `docs/architecture/
   everything between `<!-- agent-bus:generation -->` and `<!-- /agent-bus:generation -->` in the
   pull requests of the work item, counting every task of the item, from implementation to review
   fixes, and the host's usage charged to it. Agents do not write the section themselves (see "Pull
-  request Generation section" in `docs/architecture/AGENT_BUS.md`). Work done outside the agent
-  bus and the host's sessions is listed by hand, outside the markers, as not measured.
+  request Generation section" in `docs/architecture/AGENT_BUS.md`). Only work done outside both
+  the agent bus and the host's Claude Code sessions is listed by hand, outside the markers, as
+  not measured; host work is measured now, so a hand-written "host: not measured" row is out of
+  date, and `agent-bus generation sync` names the pull requests that still have one.
 
 ## Versions and Releases
 - Sherpa has one version, `[workspace.package] version` in the root `Cargo.toml`. Every

@@ -1485,7 +1485,10 @@ the work, testing and waiting-on-the-user time of [Time](#time): a task's work a
 its runs, its waiting from its questions; the host's from its main conversations, charged to the
 model of the response being written at the time. Times print as `1h 07m`, `12m 30s` or `45s`,
 and `n/a` where not known (rows of older guests and older sections). The total adds up every
-column, times included.
+column, times included. A host model with responses that have no price (fast mode, a model
+without a rate, see [Pricing](#pricing)) shows its cost as `$x + N unpriced`, and the total cost
+is marked `(incomplete)`; so is a total time when some row does not know that time, as it is
+then a lower bound.
 
 **Triggers.** There is no daemon. Every record command (`send`, `show`, `history`, `usage`,
 `open`, `link`, `work ...`, `host import`, the `SessionEnd` hook) syncs after it has caught the
@@ -1497,30 +1500,37 @@ record up and imported the host's transcripts, and `generation sync` does it by 
 | `host import --hook` (`SessionEnd`) | the pull requests due | written at once |
 | `generation sync` | the pull requests due | written at once |
 | `generation sync --all` | every pull request of every item | written at once |
-| `generation sync --pr N [--repo R]` | that one; an error when no item has it | written at once |
+| `generation sync --pr N [--repo R]` | that one, frozen or not; an error when no item has it | written at once |
 
 A pull request is due when it was written before, or its item had a message or a host response
-since the first sync (the import fact `generation_since_ms`, set by the first sync). So the
-first sync does not rewrite the bodies of pull requests merged long ago; `--all` and `--pr` reach
-them.
+since the first sync (the import fact `generation_since_ms`, set by the first sync). That check
+is per item, so it is followed by one per pull request: an automatic sync that finds a pull
+request never written already merged or closed before the first sync (its `closedAt`) stores it
+frozen and writes nothing. So neither the first sync nor later work on an item rewrites the
+bodies of its pull requests merged long ago; `--all` and `--pr` still write them.
 
 **A sync** (`generation::sync::sync`):
 
 1. Under the record's lock (`Record::open_recorded`, no second catch-up): for each pull request
    looked at, render the section from the record's rows merged into the section last written
-   (`generation_pr.section`) and compare. Frozen (merged or closed at its last write): nothing.
-   Equal text: nothing, and no `gh` call at all. Only the host's rows differ, and the last write
-   is less than 10 minutes ago, and the sync is not forced: nothing yet. Otherwise it is due.
+   (`generation_pr.section`) and compare. Frozen (merged or closed at its last write): nothing,
+   unless `--pr` names it. The last attempt failed less than 10 minutes ago and the sync is not
+   forced: nothing yet. Equal text: nothing, and no `gh` call at all. Only the host's rows
+   differ, and the last write is less than 10 minutes ago, and the sync is not forced: nothing
+   yet. Otherwise it is due.
 2. Let the record and its lock go before any network call.
 3. Without `GH_TOKEN` in agent-bus's environment, write nothing: one warning says how many
    sections are left to write, and nothing is kept, so the next sync with the token writes them.
-4. For each due pull request, `gh pr view <n> --repo <r> --json body,state`, rewrite the section
+4. For each due pull request, `gh pr view <n> --repo <r> --json body,state,closedAt`, rewrite the section
    in the body (`section::update_body`) and, when the body changed, `gh pr edit <n> --repo <r>
    --body-file -`, the body on stdin. 60 s per command, killed after. A body that is already
    right counts as written.
 5. Take the lock again and keep, in `generation_pr`, the section now in the body, the state `gh`
-   gave and the time; or the error, with the last write kept. A failed write is tried again by
-   the next sync.
+   gave and the time; or the error, with the last write kept. A failed write is tried again 10
+   minutes after the attempt, or at once by a forced sync, so a pull request that cannot be read
+   does not cost a `gh` call and a warning after every command. When the record holds a write
+   newer than the one this sync read (two syncs overlapped: a command's and the hook's), this
+   sync's result is not kept, so the stored text never runs ahead of the body.
 
 `gh` is `AGENT_BUS_GH`, else `gh` from `PATH`, run with `GH_PROMPT_DISABLED` and `NO_COLOR`,
 with `GH_TOKEN` from agent-bus's own environment and no other token variable (`gh::gh_command`).
@@ -1530,8 +1540,10 @@ triggered the sync. After a command, the sync says only what it wrote, what fail
 notices, on stderr; `generation sync` prints every pull request it looked at on stdout.
 
 **Merged and closed pull requests.** A pull request whose `gh pr view` state is `MERGED` or
-`CLOSED` gets that write, its last, and is frozen from then on: no sync looks at its body again.
-Later cost stays in the record, under the item.
+`CLOSED` gets that write, its last, and is frozen from then on: no automatic sync looks at its
+body again. Later cost stays in the record, under the item. `generation sync --pr N` views a
+frozen one again: still merged or closed, it is left alone; reopened (`OPEN`), it is written and
+unfrozen.
 
 **Debounce.** It is kept in `generation_pr`: `written_at_ms` is when the section was last
 written, and a change is "the host's rows alone" when the task rows of the new section's data
@@ -1548,6 +1560,7 @@ at once.
 | `section` | the text last written, from the start marker to the end marker; NULL until a write succeeds |
 | `written_at_ms` | when; the debounce counts from it |
 | `last_error` | why the last attempt failed; NULL after a success |
+| `attempted_at_ms` | when the last attempt was; a failure waits 10 minutes from it |
 
 **The section.** Everything between `<!-- agent-bus:generation -->` and
 `<!-- /agent-bus:generation -->` is agent-bus's; the rest of the body is never changed. A body
@@ -1571,8 +1584,11 @@ order or more than once are an error, reported, and the body is left alone. The 
 
 The data comment is what is read back, with serde, never the table. Rewriting a section keeps
 the rows of tasks the record does not know (written by guests before the record existed), in
-their order, replaces the rows of the tasks it knows with the record's figures, adds its new ones
-after, and replaces the host's rows whole. Nothing is dropped. Every task ID, agent name and
+their order, replaces the rows of the item's tasks with the record's figures, adds its new ones
+after, and replaces the host's rows whole. A row of a task the record has in another item is
+dropped: an older guest counted tasks by branch, the record by item, so such a row belongs to
+the other item's pull requests. `[[host]]` rows carry `unpriced`, the count of responses
+without a price, when there are any. Every task ID, agent name and
 model, the record's or read back, must be short and of letters, digits and `-._` (models also
 `:/@[]`), so nothing can break the table or close the comment early; a row that is not is an
 error.
