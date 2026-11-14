@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, bail};
-use roxmltree::{Document, Node};
+use quick_xml::de::from_str;
+use serde::Deserialize;
 use tracing::instrument;
 use virt::connect::Connect;
 use virt::domain::Domain;
@@ -48,6 +49,67 @@ pub struct DomainMemory {
     /// `strict` or `restrictive` and its nodeset is a single node. Memory that may fall back
     /// to other nodes, or spread over several, is not bound to one.
     pub strict_numa_node: Option<u32>,
+}
+
+/// libvirt's capabilities XML, read only as far as the NUMA cells. Every other element is
+/// skipped.
+#[derive(Debug, Default, Deserialize)]
+struct Capabilities {
+    #[serde(default)]
+    host: Option<CapabilitiesHost>,
+}
+
+/// `<capabilities><host>`.
+#[derive(Debug, Default, Deserialize)]
+struct CapabilitiesHost {
+    #[serde(default)]
+    topology: Option<HostTopology>,
+}
+
+/// `<host><topology>`, the NUMA topology; not the CPU's `<cpu><topology>`.
+#[derive(Debug, Default, Deserialize)]
+struct HostTopology {
+    #[serde(default)]
+    cells: Option<TopologyCells>,
+}
+
+/// `<topology><cells>`.
+#[derive(Debug, Default, Deserialize)]
+struct TopologyCells {
+    #[serde(default, rename = "cell")]
+    cells: Vec<TopologyCell>,
+}
+
+/// One `<cell>`: its id, memory and page pools, as the text libvirt wrote. The numbers are
+/// read by `parse_numa_cell`, so its errors name what is wrong.
+#[derive(Debug, Default, Deserialize)]
+struct TopologyCell {
+    #[serde(default, rename = "@id")]
+    id: Option<String>,
+    #[serde(default)]
+    memory: Option<CellMemory>,
+    #[serde(default)]
+    pages: Vec<CellPages>,
+}
+
+/// `<memory unit='KiB'>83886080</memory>`.
+#[derive(Debug, Default, Deserialize)]
+struct CellMemory {
+    #[serde(default, rename = "@unit")]
+    unit: Option<String>,
+    #[serde(default, rename = "$text")]
+    value: Option<String>,
+}
+
+/// `<pages unit='KiB' size='2048'>1024</pages>`: a pool of `size` pages, `count` of them.
+#[derive(Debug, Default, Deserialize)]
+struct CellPages {
+    #[serde(default, rename = "@unit")]
+    unit: Option<String>,
+    #[serde(default, rename = "@size")]
+    size: Option<String>,
+    #[serde(default, rename = "$text")]
+    count: Option<String>,
 }
 
 /// The server's CPUs and NUMA nodes. The NUMA node count comes from the capabilities XML;
@@ -179,40 +241,40 @@ fn strict_numa_node(mode: Option<i32>, nodeset: Option<&str>) -> Option<u32> {
 /// The NUMA cells in libvirt's capabilities XML (`<host><topology><cells>`), with each cell's
 /// memory and hugepage pools. Empty when the XML describes no cells.
 fn parse_numa_cells(capabilities: &str) -> Result<Vec<NumaCell>> {
-    let document =
-        Document::parse(capabilities).context("The server's capabilities are not valid XML")?;
-    let Some(cells) = document
-        .descendants()
-        .find(|node| node.has_tag_name("cells"))
+    let capabilities: Capabilities =
+        from_str(capabilities).context("The server's capabilities are not valid XML")?;
+    let Some(CapabilitiesHost {
+        topology: Some(HostTopology { cells: Some(cells) }),
+    }) = capabilities.host
     else {
         return Ok(Vec::new());
     };
-    cells
-        .children()
-        .filter(|node| node.has_tag_name("cell"))
-        .map(parse_numa_cell)
-        .collect()
+    cells.cells.into_iter().map(parse_numa_cell).collect()
 }
 
 /// One `<cell>` of the capabilities: its id, memory and hugepage pools.
-fn parse_numa_cell(cell: Node) -> Result<NumaCell> {
+fn parse_numa_cell(cell: TopologyCell) -> Result<NumaCell> {
     let id: u32 = cell
-        .attribute("id")
+        .id
+        .as_deref()
         .context("A NUMA cell in the capabilities has no id")?
         .trim()
         .parse()
         .context("A NUMA cell id in the capabilities is not a number")?;
-    let total_kib = match child(cell, "memory") {
-        Some(memory) => to_kib(number(memory.text(), "memory")?, memory.attribute("unit"))
-            .with_context(|| format!("Cannot read NUMA node {id}'s memory"))?,
+    let total_kib = match cell.memory {
+        Some(memory) => to_kib(
+            number(memory.value.as_deref(), "memory")?,
+            memory.unit.as_deref(),
+        )
+        .with_context(|| format!("Cannot read NUMA node {id}'s memory"))?,
         None => 0,
     };
     let mut pages = Vec::new();
-    for pool in cell.children().filter(|node| node.has_tag_name("pages")) {
-        let size = number(pool.attribute("size"), "page size")
-            .and_then(|size| to_kib(size, pool.attribute("unit")))
+    for pool in cell.pages {
+        let size = number(pool.size.as_deref(), "page size")
+            .and_then(|size| to_kib(size, pool.unit.as_deref()))
             .with_context(|| format!("Cannot read NUMA node {id}'s page size"))?;
-        let count = number(pool.text(), "page count")
+        let count = number(pool.count.as_deref(), "page count")
             .with_context(|| format!("Cannot read NUMA node {id}'s page count"))?;
         pages.push((size, count));
     }
@@ -228,11 +290,6 @@ fn parse_numa_cell(cell: Node) -> Result<NumaCell> {
         total_kib,
         hugepages_kib,
     })
-}
-
-/// The first child element of `node` named `tag`.
-fn child<'a, 'input>(node: Node<'a, 'input>, tag: &str) -> Option<Node<'a, 'input>> {
-    node.children().find(|child| child.has_tag_name(tag))
 }
 
 /// A whole number from an element's text or an attribute; `what` names it in the error.
@@ -286,6 +343,10 @@ fn unit_bytes(unit: &str) -> Option<u128> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The capabilities of a one-node server with no hugepages, as `virsh capabilities` printed
+    /// them, with the host UUID zeroed.
+    const ONE_NODE: &str = include_str!("testdata/capabilities-one-node.xml");
 
     const TWO_NODES: &str = "<capabilities>
   <host>
@@ -366,11 +427,11 @@ mod tests {
 
     #[test]
     fn memory_in_other_units_is_converted_to_kib() {
-        let xml = "<cells num='1'><cell id='0'>\
+        let xml = "<capabilities><host><topology><cells num='1'><cell id='0'>\
             <memory unit='MiB'>2</memory>\
             <pages unit='b' size='4096'>100</pages>\
             <pages unit='GiB' size='1'>3</pages>\
-            </cell></cells>";
+            </cell></cells></topology></host></capabilities>";
         assert_eq!(
             parse_numa_cells(xml).unwrap(),
             vec![NumaCell {
@@ -395,7 +456,8 @@ mod tests {
 
     #[test]
     fn an_unknown_memory_unit_is_refused() {
-        let xml = "<cells num='1'><cell id='0'><memory unit='pages'>1</memory></cell></cells>";
+        let xml = "<capabilities><host><topology><cells num='1'><cell id='0'>\
+            <memory unit='pages'>1</memory></cell></cells></topology></host></capabilities>";
         let error = format!("{:#}", parse_numa_cells(xml).unwrap_err());
         assert!(error.contains("NUMA node 0's memory"), "{error}");
         assert!(error.contains("Unknown memory unit 'pages'"), "{error}");
@@ -403,14 +465,16 @@ mod tests {
 
     #[test]
     fn a_cell_without_an_id_is_refused() {
-        let xml = "<cells num='1'><cell><memory unit='KiB'>1</memory></cell></cells>";
+        let xml = "<capabilities><host><topology><cells num='1'><cell>\
+            <memory unit='KiB'>1</memory></cell></cells></topology></host></capabilities>";
         let error = format!("{:#}", parse_numa_cells(xml).unwrap_err());
         assert!(error.contains("has no id"), "{error}");
     }
 
     #[test]
     fn a_page_pool_without_a_size_is_refused() {
-        let xml = "<cells num='1'><cell id='1'><pages unit='KiB'>1</pages></cell></cells>";
+        let xml = "<capabilities><host><topology><cells num='1'><cell id='1'>\
+            <pages unit='KiB'>1</pages></cell></cells></topology></host></capabilities>";
         let error = format!("{:#}", parse_numa_cells(xml).unwrap_err());
         assert!(error.contains("NUMA node 1's page size"), "{error}");
         assert!(error.contains("page size has no value"), "{error}");
@@ -425,7 +489,8 @@ mod tests {
 
     #[test]
     fn a_memoryless_cell_has_none() {
-        let xml = "<cells num='1'><cell id='3'><cpus num='0'></cpus></cell></cells>";
+        let xml = "<capabilities><host><topology><cells num='1'><cell id='3'>\
+            <cpus num='0'></cpus></cell></cells></topology></host></capabilities>";
         assert_eq!(
             parse_numa_cells(xml).unwrap(),
             vec![NumaCell {
@@ -434,6 +499,38 @@ mod tests {
                 hugepages_kib: 0,
             }]
         );
+    }
+
+    #[test]
+    fn reads_a_real_one_node_servers_capabilities() {
+        assert_eq!(
+            parse_numa_cells(ONE_NODE).unwrap(),
+            vec![NumaCell {
+                id: 0,
+                total_kib: 32_864_700,
+                hugepages_kib: 0,
+            }]
+        );
+    }
+
+    #[test]
+    fn only_the_hosts_numa_topology_holds_cells() {
+        // The CPU's page sizes and topology, and the guest section, are not NUMA cells.
+        let xml = "<capabilities><host><cpu><topology sockets='1' cores='2' threads='1'/>\
+            <pages unit='KiB' size='4'/><pages unit='KiB' size='2048'/></cpu>\
+            <secmodel><model>none</model></secmodel><secmodel><model>dac</model></secmodel>\
+            </host><guest><arch name='x86_64'><cells num='1'><cell id='9'/></cells></arch>\
+            </guest></capabilities>";
+        assert_eq!(parse_numa_cells(xml).unwrap(), []);
+    }
+
+    #[test]
+    fn a_page_pool_without_a_count_is_refused() {
+        let xml = "<capabilities><host><topology><cells num='1'><cell id='2'>\
+            <pages unit='KiB' size='2048'/></cell></cells></topology></host></capabilities>";
+        let error = format!("{:#}", parse_numa_cells(xml).unwrap_err());
+        assert!(error.contains("NUMA node 2's page count"), "{error}");
+        assert!(error.contains("page count has no value"), "{error}");
     }
 
     #[test]

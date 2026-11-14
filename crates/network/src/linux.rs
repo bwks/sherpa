@@ -148,31 +148,52 @@ pub async fn container_veth_peer_ifindex(pid: u32, iface: &str) -> Result<u32> {
         .with_context(|| format!("{iface} of process {pid} has no peer"))
 }
 
-/// Set a link to DOWN state.
+/// Set the admin state of link `name`: up, or down.
 ///
-/// Used to remove carrier from a veth peer (e.g. disabled container interfaces).
+/// Setting a veth end down takes the carrier from its peer, which is how a disabled container
+/// interface, or the peer of a P2p link end whose neighbour is down, loses its link.
 ///
 /// # Errors
 ///
 /// Fails when the link does not exist or netlink refuses the change.
-#[instrument(fields(%name), level = "debug")]
-pub async fn set_link_down(name: &str) -> Result<()> {
+#[instrument(fields(%name, up), level = "debug")]
+pub async fn set_link_state(name: &str, up: bool) -> Result<()> {
     let handle = setup_netlink().await?;
     let index = get_link_index(&handle, name).await?;
 
     let mut msg = LinkMessage::default();
     msg.header.index = index;
-    msg.header.flags = LinkFlags::empty();
+    msg.header.flags = if up {
+        LinkFlags::Up
+    } else {
+        LinkFlags::empty()
+    };
     msg.header.change_mask = LinkFlags::Up;
 
-    tracing::debug!(link_name = %name, "Setting link down");
+    tracing::debug!(link_name = %name, up, "Setting link state");
     handle
         .link()
         .set(msg)
         .execute()
         .await
-        .context(format!("Error setting link down: {name}"))?;
+        .with_context(|| format!("Error setting the state of link {name}"))?;
     Ok(())
+}
+
+/// Whether link `name` is administratively up, or `None` when there is no such link.
+///
+/// # Errors
+///
+/// Fails when netlink refuses the lookup.
+#[instrument(fields(%name), level = "debug")]
+pub async fn link_is_up(name: &str) -> Result<Option<bool>> {
+    let handle = setup_netlink().await?;
+    let mut links = handle.link().get().match_name(name.to_string()).execute();
+    match links.try_next().await {
+        Ok(link) => Ok(link.map(|link| link.header.flags.contains(LinkFlags::Up))),
+        Err(error) if is_no_device(&error) => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("Failed to look up link {name}")),
+    }
 }
 
 /// Bring a link up with an alias and an MTU.

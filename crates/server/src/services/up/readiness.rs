@@ -341,6 +341,7 @@ impl Readiness<'_, '_> {
 
         let is_running = node_ops::start_container_node(
             self.build.docker_conn,
+            self.build.qemu,
             ContainerSpec {
                 name: container_name.clone(),
                 image: container::image_reference(image_name, version),
@@ -529,7 +530,7 @@ impl Readiness<'_, '_> {
         if veths.is_empty() {
             return Ok(());
         }
-        let host = KernelHost::new(self.build.docker_conn);
+        let host = KernelHost::new(self.build.docker_conn, self.build.qemu);
         let pid = host.container_pid(container_name).await?;
         for P2pContainerVeth { veth, .. } in veths {
             host.create_veth(veth, pid).await.with_context(|| {

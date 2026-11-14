@@ -23,6 +23,7 @@ use crate::tls::lab_ca::NodeCertPaths;
 
 use container::ContainerSpec;
 use iso::create_iso;
+use libvirt::Qemu;
 use network::NetnsVethState;
 use shared::data;
 use shared::data::StatusKind;
@@ -3627,12 +3628,13 @@ pub async fn create_vm(
 
 /// Start a container node with all its network attachments.
 #[instrument(
-    skip(docker, spec, progress),
+    skip(docker, qemu, spec, progress),
     fields(container_name = %spec.name, image = %spec.image),
     level = "debug"
 )]
 pub async fn start_container_node(
     docker: &Arc<bollard::Docker>,
+    qemu: &Arc<Qemu>,
     spec: ContainerSpec,
     model: data::NodeModel,
     progress: &ProgressSender,
@@ -3643,7 +3645,7 @@ pub async fn start_container_node(
     if !is_running {
         return Ok(false);
     }
-    finish_management_checksums(&KernelHost::new(docker), &container_name, model).await?;
+    finish_management_checksums(&KernelHost::new(docker, qemu), &container_name, model).await?;
 
     // SR Linux: flush default namespace IP to avoid DUP pings
     if model == data::NodeModel::NokiaSrlinux {

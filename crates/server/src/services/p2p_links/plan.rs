@@ -113,6 +113,8 @@ fn container_end(
 mod tests {
     use super::*;
 
+    use std::collections::HashMap;
+
     use shared::data::{BridgeKind, LinkImpairment, NodeModel, NodeState};
 
     fn manifest(text: &str) -> Manifest {
@@ -157,7 +159,12 @@ mod tests {
     }
 
     fn linked_lab() -> LabLinks {
-        LabLinks::new(vec![link(0, "vm1", "uk1"), link(1, "vm1", "ctr1")], &[])
+        LabLinks::new(
+            "lab1",
+            vec![link(0, "vm1", "uk1"), link(1, "vm1", "ctr1")],
+            &[],
+            HashMap::new(),
+        )
     }
 
     fn end_of(name: &str, kind: &NodeKind, image: Option<&NodeConfig>) -> Option<RecreatedEnd> {

@@ -19,7 +19,8 @@ tracing = { workspace = true }
 virt = { workspace = true }
 
 # XML
-roxmltree = "0.21"
+quick-xml = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 
 [lints]
 workspace = true

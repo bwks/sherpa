@@ -16,8 +16,8 @@ use crate::services::lab_operations;
 use crate::services::node_lifecycle;
 use crate::services::node_ops::{self, VmReadiness};
 use crate::services::p2p_links::{
-    KernelHost, LabLinks, LinkHost, PlannedNode, check_lab_links, load_lab_manifest, recreated_end,
-    repair_node,
+    KernelHost, LabLinks, LinkHost, PlannedNode, check_lab_links, follow_carrier,
+    load_lab_manifest, recreated_end, repair_node,
 };
 use crate::services::ssh_config;
 
@@ -53,8 +53,8 @@ struct ScannedNode<'a> {
 /// Under the same hold, in a `Ready` lab, transmit checksum offload goes off again on the
 /// management veth of a running container that needs it (`repair_management_checksums`), and
 /// the P2p links are checked in the kernel, the ends of running nodes that were made again
-/// outside Sherpa being repaired (`repair_links`). Exits cleanly when the cancellation token is
-/// triggered.
+/// outside Sherpa being repaired and each link's carrier made to follow its state
+/// (`repair_links`). Exits cleanly when the cancellation token is triggered.
 #[instrument(skip_all)]
 pub async fn run_scanner(state: AppState, cancel: CancellationToken) {
     let interval_secs = state.config.scanner.interval_secs;
@@ -151,7 +151,12 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
         }
         // Still under the hold: no resume, redeploy or `up` is making the ends this repairs.
         if lab.phase == LabPhase::Ready {
-            repair_management_checksums(&KernelHost::new(&state.docker), &scanned, &runtimes).await;
+            repair_management_checksums(
+                &KernelHost::new(&state.docker, &state.qemu),
+                &scanned,
+                &runtimes,
+            )
+            .await;
             if let Err(error) = repair_links(state, lab, &nodes, &scanned, &runtimes).await {
                 tracing::warn!(error = %error, "Failed to check the lab's P2p links");
             }
@@ -167,7 +172,8 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
 }
 
 /// Check the lab's P2p links in the kernel, repair the ends of running nodes that were made
-/// again outside Sherpa (see `p2p_links::repair`), and keep each link's state for `inspect`.
+/// again outside Sherpa (see `p2p_links::repair`), make each link's carrier follow its state
+/// (see `p2p_links::carrier`), and keep each link's state for `inspect`.
 ///
 /// Called under the scanner's hold on the lab, so it never runs beside an operation that makes
 /// ends itself. Only nodes the runtime reports running, and that no operation is building, are
@@ -187,7 +193,11 @@ async fn repair_links(
     if links.is_empty() {
         return Ok(());
     }
-    let lab_links = LabLinks::new(links, nodes);
+    let kinds = scanned
+        .iter()
+        .filter_map(|node| Some((node.node.id.clone()?, node.kind.clone())))
+        .collect();
+    let lab_links = LabLinks::new(&lab.lab_id, links, nodes, kinds);
     let running: HashSet<RecordId> = scanned
         .iter()
         .filter(|node| {
@@ -197,7 +207,7 @@ async fn repair_links(
         .filter_map(|node| node.node.id.clone())
         .collect();
 
-    let host = KernelHost::new(&state.docker);
+    let host = KernelHost::new(&state.docker, &state.qemu);
     let mut check = check_lab_links(&host, &lab_links, &running).await;
     let broken: Vec<&ScannedNode<'_>> = check
         .broken_nodes()
@@ -250,9 +260,13 @@ async fn repair_links(
             check.record(&outcomes);
         }
     }
-    state
-        .link_states
-        .replace_lab(&lab.lab_id, check.into_states());
+    // Carrier follows a state that changed since the last scan, resume or redeploy recorded
+    // it, and is set on the ends made again.
+    let previous = state.link_states.of_lab(&lab.lab_id);
+    let fresh = check.fresh_ends();
+    let states = check.into_states();
+    follow_carrier(&host, &lab_links, &previous, &states, &fresh).await;
+    state.link_states.replace_lab(&lab.lab_id, states);
     Ok(())
 }
 

@@ -186,6 +186,7 @@ pub async fn up_lab(
         db: &state.db,
         docker_conn: &state.docker,
         qemu_conn: &qemu_conn,
+        qemu: &state.qemu,
         config: &state.config,
         progress: &progress,
     };

@@ -10,6 +10,9 @@
 //! Only running nodes are checked and repaired: a stopped or paused node is left as it is, and
 //! its links wait for it. An end with no filter is only repaired when its peer's end exists, as
 //! nothing can be attached before that.
+//!
+//! The check also gives the ends it found made again, missing or with no filter, so their
+//! carrier is set whatever the link's state was (see `carrier`).
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -31,11 +34,14 @@ pub(crate) enum EndFault {
     NoRedirect,
 }
 
-/// One check of a lab's links: the ends to repair, and the state of each link as the kernel
-/// shows it, which a repair replaces with what it left the link in.
+/// One check of a lab's links: the ends to repair, the ends made again, and the state of each
+/// link as the kernel shows it, which a repair replaces with what it left the link in.
 pub(crate) struct LinkCheck {
     /// The nodes with an end to repair, each once, in the order their ends were found.
     broken: Vec<RecordId>,
+    /// The host interfaces of running nodes' ends that are missing or have no filter: made
+    /// again since they were attached, or about to be.
+    fresh: HashSet<String>,
     states: HashMap<u16, LinkState>,
 }
 
@@ -65,6 +71,11 @@ impl LinkCheck {
         self.broken.clone()
     }
 
+    /// The host interfaces of the ends made again: missing, or with no filter.
+    pub(crate) fn fresh_ends(&self) -> HashSet<String> {
+        self.fresh.clone()
+    }
+
     /// Take what repairing a node left its links in.
     pub(crate) fn record(&mut self, outcomes: &[LinkOutcome]) {
         for outcome in outcomes {
@@ -92,23 +103,24 @@ pub(crate) async fn check_lab_links(
     links.sort_by_key(|link| link.index);
     let mut check = LinkCheck {
         broken: vec![],
+        fresh: HashSet::new(),
         states: HashMap::new(),
     };
     for link in links {
-        let state = check_link(host, lab, link, running, &mut check.broken).await;
+        let state = check_link(host, lab, link, running, &mut check).await;
         check.states.insert(link.index, state);
     }
     check
 }
 
-/// Check one link: add the nodes of its ends that need repair to `broken`, and return its state as the
-/// kernel shows it.
+/// Check one link: add the nodes of its ends that need repair, and its ends made again, to
+/// `check`, and return its state as the kernel shows it.
 async fn check_link(
     host: &impl LinkHost,
     lab: &LabLinks,
     link: &DbLink,
     running: &HashSet<RecordId>,
-    broken: &mut Vec<RecordId>,
+    check: &mut LinkCheck,
 ) -> LinkState {
     let ends = [
         (&link.node_a, &link.tap_a, &link.tap_b),
@@ -120,7 +132,11 @@ async fn check_link(
         if !running.contains(node) {
             continue;
         }
-        let fault = match see(host, iface).await {
+        let seen = see(host, iface).await;
+        if matches!(seen, Seen::Absent | Seen::Present { redirect: false }) {
+            check.fresh.insert(iface.clone());
+        }
+        let fault = match seen {
             Seen::Absent => Some(EndFault::Missing),
             Seen::Present { redirect: false } if exists(host, peer_iface).await => {
                 Some(EndFault::NoRedirect)
@@ -134,8 +150,8 @@ async fn check_link(
         if let Some(fault) = fault {
             tracing::info!(node = %lab.name(node), link = %lab.label(link), %iface, %fault, "P2p link end needs repair");
             faults.push((iface, fault));
-            if !broken.contains(node) {
-                broken.push(node.clone());
+            if !check.broken.contains(node) {
+                check.broken.push(node.clone());
             }
         }
     }
@@ -232,6 +248,12 @@ async fn missing_veths(host: &impl LinkHost, veths: Vec<ContainerVeth>) -> Vec<C
 mod tests {
     use super::*;
 
+    use std::env;
+    use std::fs;
+    use std::path::Path;
+    use std::sync::Arc;
+    use std::time::Duration;
+
     use bollard::Docker;
     use bollard::query_parameters::{
         CreateContainerOptions, RemoveContainerOptions, RestartContainerOptions,
@@ -239,13 +261,17 @@ mod tests {
     };
     use bollard::secret::{ContainerCreateBody, HostConfig};
     use container::exec_container;
+    use libvirt::Qemu;
     use virt::connect::Connect;
     use virt::domain::Domain;
 
+    use super::super::carrier::follow_carrier;
     use super::super::fake::FakeHost;
     use super::super::host::KernelHost;
     use super::super::veths::ContainerVeth;
-    use shared::data::{BridgeKind, DbNode, LinkImpairment, NodeModel, NodeState};
+    use crate::daemon::link_states::LinkStates;
+    use shared::data::{BridgeKind, DbNode, LinkImpairment, NodeKind, NodeModel, NodeState};
+    use shared::konst::{SHERPA_IMAGES_PATH, SHERPA_STORAGE_POOL_PATH};
 
     fn node(name: &str) -> DbNode {
         DbNode {
@@ -295,7 +321,12 @@ mod tests {
     /// vm1 linked to vm2 (0) and to ctr1 (1), every end made and wired, as `up` leaves it.
     fn wired_lab() -> (FakeHost, LabLinks) {
         let nodes = ["vm1", "vm2", "ctr1"].map(node);
-        let lab = LabLinks::new(vec![link(0, "vm1", "vm2"), link(1, "vm1", "ctr1")], &nodes);
+        let lab = LabLinks::new(
+            "lab",
+            vec![link(0, "vm1", "vm2"), link(1, "vm1", "ctr1")],
+            &nodes,
+            HashMap::from([(id("ctr1"), NodeKind::Container)]),
+        );
         let host = FakeHost::default();
         host.make(&["tpa0", "tpb0", "tpa1", "tpb1", "cd1i2-lab"]);
         for (a, b) in [("tpa0", "tpb0"), ("tpa1", "tpb1")] {
@@ -641,6 +672,7 @@ mod tests {
     /// Two alpine containers joined by a P2p link through `KernelHost`, as `up` makes it.
     struct ContainerPair {
         docker: Docker,
+        qemu: Arc<Qemu>,
         lab: LabLinks,
     }
 
@@ -672,13 +704,22 @@ mod tests {
             link.int_a = "eth1".to_string();
             link.tap_a = TAP_A.to_string();
             link.tap_b = TAP_B.to_string();
-            let lab = LabLinks::new(vec![link], &[node("ctr1"), node("ctr2")]);
-            let host = KernelHost::new(&docker);
+            let lab = LabLinks::new(
+                "lab",
+                vec![link],
+                &[node("ctr1"), node("ctr2")],
+                HashMap::from([
+                    (id("ctr1"), NodeKind::Container),
+                    (id("ctr2"), NodeKind::Container),
+                ]),
+            );
+            let qemu = Arc::new(Qemu::default());
+            let host = KernelHost::new(&docker, &qemu);
             for (node, end) in [("ctr1", end_a()), ("ctr2", end_b())] {
                 let outcomes = repair_node(&host, &lab, &id(node), end).await;
                 assert!(!outcomes[0].report.failed(), "{outcomes:?}");
             }
-            let pair = Self { docker, lab };
+            let pair = Self { docker, qemu, lab };
             pair.address(CTR_A, "10.250.0.1/30").await;
             pair.address(CTR_B, "10.250.0.2/30").await;
             assert!(pair.pings().await, "the link carries traffic");
@@ -710,7 +751,7 @@ mod tests {
 
         /// One scan of the real host, with both containers' ends planned as the scanner does.
         async fn scan(&self, running: &HashSet<RecordId>) -> HashMap<u16, LinkState> {
-            let host = KernelHost::new(&self.docker);
+            let host = KernelHost::new(&self.docker, &self.qemu);
             let mut check = check_lab_links(&host, &self.lab, running).await;
             for node in check.broken_nodes() {
                 let end = if node == id("ctr1") { end_a() } else { end_b() };
@@ -832,9 +873,15 @@ mod tests {
         let mut link = link(0, "vm1", "peer");
         link.tap_a = tap.to_string();
         link.tap_b = peer.to_string();
-        let lab = LabLinks::new(vec![link], &[node("vm1"), node("peer")]);
+        let lab = LabLinks::new(
+            "lab",
+            vec![link],
+            &[node("vm1"), node("peer")],
+            HashMap::new(),
+        );
         let docker = Docker::connect_with_local_defaults().unwrap();
-        let host = KernelHost::new(&docker);
+        let qemu = Arc::new(Qemu::default());
+        let host = KernelHost::new(&docker, &qemu);
         let both = running(&["vm1", "peer"]);
         let scan_once = || async {
             let mut check = check_lab_links(&host, &lab, &both).await;
@@ -871,5 +918,276 @@ mod tests {
         domain.undefine().unwrap();
         network::delete_interface(peer).await.unwrap();
         conn.close().unwrap();
+    }
+
+    // Integration: carrier, seen from inside a real VM guest and a container's namespace. Needs
+    // root, Docker with alpine:latest, libvirt, and the alpine_linux VM image.
+
+    /// The first-boot script of the carrier test VM: it installs, and starts, a per-boot script
+    /// that prints the carrier of the guest's `eth0` to its serial port every second.
+    const CARRIER_GUEST_SCRIPT: &str = "#!/bin/sh
+mkdir -p /var/lib/cloud/scripts/per-boot
+cat > /var/lib/cloud/scripts/per-boot/carrier.sh <<'END'
+#!/bin/sh
+ip link set eth0 up
+( while true; do echo \"SHERPA-CARRIER $(cat /sys/class/net/eth0/carrier)\"; sleep 1; done ) >/dev/ttyS0 2>&1 </dev/null &
+END
+chmod +x /var/lib/cloud/scripts/per-boot/carrier.sh
+/var/lib/cloud/scripts/per-boot/carrier.sh
+";
+
+    /// A VM booted from the `alpine_linux` image with one `ethernet` interface on tap `tap`, its
+    /// `NoCloud` seed on a CD, and its serial port written to `serial`.
+    fn guest_domain_xml(name: &str, disk: &str, seed: &str, tap: &str, serial: &str) -> String {
+        format!(
+            "<domain type='kvm'><name>{name}</name><memory unit='MiB'>256</memory><vcpu>1</vcpu>\
+             <os><type arch='x86_64' machine='q35'>hvm</type><boot dev='hd'/></os>\
+             <features><acpi/><apic/></features><cpu mode='host-model'/><devices>\
+             <disk type='file' device='disk'><driver name='qemu' type='qcow2'/>\
+             <source file='{disk}'/><target dev='vda' bus='virtio'/></disk>\
+             <disk type='file' device='cdrom'><driver name='qemu' type='raw'/>\
+             <source file='{seed}'/><target dev='sda' bus='sata'/><readonly/></disk>\
+             <interface type='ethernet'><target dev='{tap}' managed='yes'/><model type='virtio'/></interface>\
+             <serial type='file'><source path='{serial}'/><target port='0'/></serial>\
+             </devices></domain>"
+        )
+    }
+
+    /// The `alpine_linux` VM image: the first version installed.
+    fn alpine_vm_image() -> String {
+        let dir = format!("{SHERPA_IMAGES_PATH}/alpine_linux");
+        let version = fs::read_dir(&dir)
+            .expect("the alpine_linux image is installed")
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .min()
+            .expect("an alpine_linux version");
+        format!("{dir}/{version}/virtioa.qcow2")
+    }
+
+    /// A VM (`vm1`) and an alpine container (`ctr1`) joined by a P2p link, checked by scans
+    /// as the scanner makes them, with each link's state kept between scans.
+    struct GuestPair {
+        lab_id: &'static str,
+        docker: Docker,
+        qemu: Arc<Qemu>,
+        conn: Connect,
+        domain: Domain,
+        lab: LabLinks,
+        states: LinkStates,
+        container: String,
+        veth: String,
+        tap: String,
+        serial: String,
+        disk: String,
+        seed: String,
+    }
+
+    impl GuestPair {
+        /// Start both nodes, and wire their link with one scan.
+        async fn up(lab_id: &'static str, tap: &str, veth: &str) -> Self {
+            let docker = Docker::connect_with_local_defaults().unwrap();
+            let container = format!("ctr1-{lab_id}");
+            start_alpine(&docker, &container).await;
+
+            let conn = Connect::open(Some("qemu:///system")).unwrap();
+            let name = format!("vm1-{lab_id}");
+            if let Ok(old) = Domain::lookup_by_name(&conn, &name) {
+                let _ = old.destroy();
+                let _ = old.undefine();
+            }
+            let disk_name = format!("{name}-it.qcow2");
+            let disk = format!("{SHERPA_STORAGE_POOL_PATH}/{disk_name}");
+            let _ = libvirt::delete_disk(&conn, &disk_name);
+            libvirt::create_overlay(&conn, &alpine_vm_image(), &disk, None).unwrap();
+            let seed_dir = env::temp_dir().join(format!("{name}-seed"));
+            let _ = fs::remove_dir_all(&seed_dir);
+            fs::create_dir_all(&seed_dir).unwrap();
+            fs::write(seed_dir.join("user-data"), CARRIER_GUEST_SCRIPT).unwrap();
+            fs::write(seed_dir.join("meta-data"), format!("instance-id: {name}\n")).unwrap();
+            let seed = format!("{SHERPA_STORAGE_POOL_PATH}/{name}-seed.iso");
+            iso::create_iso(&seed_dir, &seed, "cidata").unwrap();
+            fs::remove_dir_all(&seed_dir).unwrap();
+            let serial = format!("/var/log/libvirt/qemu/{name}-serial.log");
+            let _ = fs::remove_file(&serial);
+            let domain =
+                Domain::define_xml(&conn, &guest_domain_xml(&name, &disk, &seed, tap, &serial))
+                    .unwrap();
+            domain.create().unwrap();
+
+            let mut link = link(0, "vm1", "ctr1");
+            link.int_a = "eth0".to_string();
+            link.tap_a = tap.to_string();
+            link.tap_b = veth.to_string();
+            let lab = LabLinks::new(
+                lab_id,
+                vec![link],
+                &[node("vm1"), node("ctr1")],
+                HashMap::from([
+                    (id("vm1"), NodeKind::VirtualMachine),
+                    (id("ctr1"), NodeKind::Container),
+                ]),
+            );
+            let pair = Self {
+                lab_id,
+                docker,
+                qemu: Arc::new(Qemu::default()),
+                domain,
+                lab,
+                states: LinkStates::default(),
+                container,
+                veth: veth.to_string(),
+                tap: tap.to_string(),
+                serial,
+                disk: disk_name,
+                seed,
+                conn,
+            };
+            assert_eq!(
+                pair.scan(&["vm1", "ctr1"]).await,
+                LinkState::Attached,
+                "the first scan wires the link"
+            );
+            pair.wait_for_guest_carrier(true).await;
+            pair.wait_for_container_carrier(true).await;
+            pair
+        }
+
+        /// One scan, as the scanner makes it: check, repair, carrier, record. Returns the
+        /// link's state.
+        async fn scan(&self, running_nodes: &[&str]) -> LinkState {
+            let host = KernelHost::new(&self.docker, &self.qemu);
+            let mut check = check_lab_links(&host, &self.lab, &running(running_nodes)).await;
+            for node in check.broken_nodes() {
+                let end = if node == id("ctr1") {
+                    RecreatedEnd::Container {
+                        container: self.container.clone(),
+                        veths: vec![alpine_end(&self.veth)],
+                    }
+                } else {
+                    RecreatedEnd::Domain
+                };
+                let outcomes = repair_node(&host, &self.lab, &node, end).await;
+                check.record(&outcomes);
+            }
+            let previous = self.states.of_lab(self.lab_id);
+            let fresh = check.fresh_ends();
+            let states = check.into_states();
+            follow_carrier(&host, &self.lab, &previous, &states, &fresh).await;
+            let state = states[&0].clone();
+            self.states.replace_lab(self.lab_id, states);
+            state
+        }
+
+        /// The carrier the guest last printed on its serial port.
+        fn guest_carrier(&self) -> Option<bool> {
+            let log = fs::read_to_string(Path::new(&self.serial)).unwrap_or_default();
+            log.lines()
+                .rev()
+                .find_map(|line| line.trim().strip_prefix("SHERPA-CARRIER "))
+                .map(|carrier| carrier.trim() == "1")
+        }
+
+        /// Wait up to three minutes, as the guest boots, for it to print carrier `up`.
+        async fn wait_for_guest_carrier(&self, up: bool) {
+            for _ in 0..180 {
+                if self.guest_carrier() == Some(up) {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            panic!(
+                "the guest's eth0 carrier is not {up}: it last printed {:?}",
+                self.guest_carrier()
+            );
+        }
+
+        /// Wait up to ten seconds for the container's `eth1` to have carrier `up`, read inside
+        /// its network namespace.
+        async fn wait_for_container_carrier(&self, up: bool) {
+            let want = if up { "1" } else { "0" };
+            let check = format!("grep -qx {want} /sys/class/net/eth1/carrier");
+            for _ in 0..10 {
+                if exec_container(&self.docker, &self.container, vec!["sh", "-c", &check])
+                    .await
+                    .is_ok()
+                {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            panic!("the container's eth1 carrier is not {up}");
+        }
+
+        async fn down(self) {
+            let _ = self.domain.destroy();
+            let _ = self.domain.undefine();
+            let _ = libvirt::delete_disk(&self.conn, &self.disk);
+            let _ = fs::remove_file(&self.seed);
+            let _ = fs::remove_file(&self.serial);
+            let _ = self
+                .docker
+                .remove_container(
+                    &self.container,
+                    Some(RemoveContainerOptions {
+                        force: true,
+                        ..RemoveContainerOptions::default()
+                    }),
+                )
+                .await;
+            let _ = network::delete_interface(&self.veth).await;
+            let mut conn = self.conn;
+            let _ = conn.close();
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires root, Docker with alpine:latest, libvirt and the alpine_linux image: boots a VM"]
+    async fn a_stopped_container_takes_the_link_of_its_vm_peer_down_inside_the_guest() {
+        let pair = GuestPair::up("itcarr1", "itc1a0", "itc1b0").await;
+
+        pair.docker
+            .stop_container(&pair.container, None::<StopContainerOptions>)
+            .await
+            .unwrap();
+        assert_eq!(pair.scan(&["vm1"]).await, peer_down("ctr1"));
+        pair.wait_for_guest_carrier(false).await;
+        assert_eq!(
+            libvirt::interface_link_up(&pair.conn, "vm1-itcarr1", &pair.tap).unwrap(),
+            Some(false),
+            "the live domain has the link down"
+        );
+
+        pair.docker
+            .start_container(&pair.container, None::<StartContainerOptions>)
+            .await
+            .unwrap();
+        assert_eq!(pair.scan(&["vm1", "ctr1"]).await, LinkState::Attached);
+        pair.wait_for_guest_carrier(true).await;
+        pair.wait_for_container_carrier(true).await;
+
+        // The next scan finds nothing changed.
+        assert_eq!(pair.scan(&["vm1", "ctr1"]).await, LinkState::Attached);
+        assert_eq!(pair.guest_carrier(), Some(true));
+        pair.down().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires root, Docker with alpine:latest, libvirt and the alpine_linux image: boots a VM"]
+    async fn a_stopped_vm_takes_the_link_of_its_container_peer_down_in_its_namespace() {
+        let pair = GuestPair::up("itcarr2", "itc2a0", "itc2b0").await;
+
+        pair.domain.destroy().unwrap();
+        assert_eq!(pair.scan(&["ctr1"]).await, peer_down("vm1"));
+        pair.wait_for_container_carrier(false).await;
+        assert_eq!(network::link_is_up(&pair.veth).await.unwrap(), Some(false));
+
+        let _ = fs::remove_file(&pair.serial);
+        pair.domain.create().unwrap();
+        assert_eq!(pair.scan(&["vm1", "ctr1"]).await, LinkState::Attached);
+        pair.wait_for_container_carrier(true).await;
+        pair.wait_for_guest_carrier(true).await;
+        assert!(has_filter(&pair.tap).await && has_filter(&pair.veth).await);
+        pair.down().await;
     }
 }

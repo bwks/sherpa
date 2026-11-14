@@ -60,7 +60,7 @@ pub async fn update_impairment(
         ));
     }
 
-    let host = KernelHost::new(&state.docker);
+    let host = KernelHost::new(&state.docker, &state.qemu);
     change_impairment(
         &host,
         &db_link,

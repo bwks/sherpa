@@ -724,7 +724,8 @@ a stop reason:
 - the scanner calls `lab_operations::try_observe`, which takes the write lease without waiting
   and without cancelling anything; a lab an operation holds is skipped that cycle, and an
   operation that starts meanwhile waits while the scanner holds it: a few milliseconds, or a
-  few netlink calls and two program loads per link when it repairs P2p links;
+  few netlink calls and two program loads per link when it repairs P2p links, and a netlink call
+  or a libvirt device update per end whose carrier changes;
 - `lab_operations::stop(lab_id, reason)` cancels the token, then waits for the write lease, so
   it returns once every operation on the lab has ended.
 
@@ -801,7 +802,10 @@ when it is requested, and, read from Docker (`container::list_container_memory`)
 runs or is paused, Sherpa's and others'; its memory is not bound to a NUMA node. A container
 without a limit counts as nothing; the reserve covers those and QEMU's own memory. A refusal names the numbers that fell short
 and the two settings. `libvirt::host_memory` and `libvirt::list_domain_memory` read the server
-(`crates/libvirt/src/host.rs`). See `docs/investigations/host-memory-oom.md` for why.
+(`crates/libvirt/src/host.rs`). The capabilities XML is read with `quick-xml`'s serde
+deserialiser into private structs that hold only `<host><topology><cells>`: each cell's id,
+`<memory>` and `<pages>` pools, with every other element skipped. The numbers stay text in the
+structs and are parsed afterwards, so a missing or bad value is reported by name. See `docs/investigations/host-memory-oom.md` for why.
 
 ### Redeploy architecture
 
@@ -882,7 +886,8 @@ reads the node's runtime through the one mapping table (`node_lifecycle::libvirt
 created container, resumes or unpauses a paused one, leaves a running one, and refuses a
 crashed domain, a dead container, one between states and one that does not exist. Its result
 is a `StartOutcome` (`ColdBooted`, `Resumed`, `AlreadyRunning`, `Failed`), and that, not the
-message text, decides which nodes get their links re-attached and are waited for. A cold-booted
+message text, decides which nodes get their links re-attached, with their carrier set to follow
+each link's state, and are waited for. A cold-booted
 node is recorded `Starting`, then `Running` once ready; a resumed one `Running`; a running one
 is left as it is. `down` pauses only a running container.
 
@@ -1041,20 +1046,25 @@ is not probed again, so the scanner makes no SSH connections to settled nodes; a
 changes without a state change, as on a reboot from inside the guest, is read when a client
 finds it does not match. Other nodes have no probe: running counts as ready.
 
-Still under the hold, the scanner checks the P2p links of a `Ready` lab in the kernel and
-repairs the ends of running nodes that were made again outside Sherpa (`repair_links`): a VM
-started with `virsh`, a container started or restarted with `docker`. It keeps each link's
-state in `AppState::link_states`, which `inspect` reports. The check and the repair are in
+Still under the hold, in a `Ready` lab, the scanner first turns transmit checksum offload off
+on the management veth of each running IOL container where Docker made it again with offload
+on, as after a `docker start` outside Sherpa (`repair_management_checksums`). Offload is read
+from the kernel first, so a veth that is already right is not changed. This runs whether or not
+the lab has links. See
+[`P2P-ARCHITECTURE.md`](P2P-ARCHITECTURE.md#transmit-checksum-offload).
+
+Then it checks the lab's P2p links in the kernel and repairs the ends of running nodes that were made again outside Sherpa (`repair_links`): a VM
+started with `virsh`, a container started or restarted with `docker`. Then it makes the carrier
+of each link's ends follow the link's state (`p2p_links::follow_carrier`): the surviving end of
+a link whose peer is stopped or paused loses carrier, both ends of a failed link do, and an
+attached link's ends get it back. Carrier is set only where a link's state changed since the
+states it last recorded, or where an end was made again, so an end a user took down by hand
+stays down. It keeps each link's state in `AppState::link_states`, which `inspect` reports and
+the next scan compares with. The check, the repair and the carrier are in
 [`STATE_MACHINES.md`, section 25](STATE_MACHINES.md#25-p2p-link-attachment) and
 [`P2P-ARCHITECTURE.md`](P2P-ARCHITECTURE.md#repair-by-the-scanner). With `scanner.enabled =
-false` nothing repairs them, and `inspect` shows links as not checked until a resume or
-redeploy re-attaches them.
-
-In the same `Ready` lab and under the same hold, it turns transmit checksum offload off on the
-management veth of each running IOL container where Docker made it again with offload on, as
-after a `docker start` outside Sherpa (`repair_management_checksums`). Offload is read from the
-kernel first, so a veth that is already right is not changed. See
-[`P2P-ARCHITECTURE.md`](P2P-ARCHITECTURE.md#transmit-checksum-offload).
+false` nothing repairs them or follows a stop with carrier, and `inspect` shows links as not
+checked until a resume or redeploy re-attaches them, which sets their carrier too.
 
 ## HTTP routing architecture
 

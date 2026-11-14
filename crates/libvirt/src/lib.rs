@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 mod host;
+mod interface;
 mod names;
 mod network;
 mod overlay;
@@ -14,6 +15,7 @@ mod vm;
 pub use host::{
     DomainMemory, HostCpus, HostMemory, NumaCell, host_cpus, host_memory, list_domain_memory,
 };
+pub use interface::{interface_link_up, set_interface_link};
 pub use names::{is_device_volume, is_lab_volume};
 pub use network::{BridgeNetwork, IsolatedNetwork, NatNetwork, ReservedNetwork};
 pub use overlay::create_overlay;

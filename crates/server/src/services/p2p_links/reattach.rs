@@ -2,23 +2,30 @@
 //! event that makes an end again goes through (a VM or unikernel cold boot, a container start,
 //! a redeploy).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
 use tracing::instrument;
 
-use super::host::LinkHost;
+use super::carrier::follow_carrier;
+use super::host::{EndDevice, LinkHost};
 use super::transition::{End, EndAt, LinkStep, Side, step};
 use super::veths::{ContainerVeth, node_links};
 use crate::daemon::link_states::LinkStates;
+use crate::services::node_resources::domain_name;
 use crate::services::progress::ProgressSender;
 
-use shared::data::{DbLink, DbNode, LinkImpairment, LinkReport, LinkState, RecordId, StatusKind};
+use shared::data::{
+    DbLink, DbNode, LinkImpairment, LinkReport, LinkState, NodeKind, RecordId, StatusKind,
+};
 
-/// The lab's links and node names, as the database has them: what re-attach works from.
+/// The lab's links, and its nodes' names and kinds, as the database has them: what re-attach
+/// and the carrier work from.
 pub(crate) struct LabLinks {
+    lab_id: String,
     links: Vec<DbLink>,
     names: HashMap<RecordId, String>,
+    kinds: HashMap<RecordId, NodeKind>,
 }
 
 /// How the node's ends were made again.
@@ -55,25 +62,76 @@ pub(crate) struct LinkWiring<'a> {
 }
 
 impl LabLinks {
-    /// The lab's links and the names of its nodes.
-    pub(crate) fn new(links: Vec<DbLink>, nodes: &[DbNode]) -> Self {
+    /// The links of lab `lab_id`, with the names of its nodes and the kind of each, by node.
+    /// A node with no kind is taken as a virtual machine.
+    pub(crate) fn new(
+        lab_id: &str,
+        links: Vec<DbLink>,
+        nodes: &[DbNode],
+        kinds: HashMap<RecordId, NodeKind>,
+    ) -> Self {
         let names = nodes
             .iter()
             .filter_map(|node| node.id.clone().map(|id| (id, node.name.clone())))
             .collect();
-        Self { links, names }
+        Self {
+            lab_id: lab_id.to_string(),
+            links,
+            names,
+            kinds,
+        }
     }
 
-    /// Load the lab's links and node names.
+    /// Load the links of lab `lab_id`, record `lab`, with its nodes' names and kinds.
     #[instrument(skip(db), fields(%lab), level = "debug")]
-    pub(crate) async fn load(db: &db::Database, lab: &RecordId) -> Result<Self> {
+    pub(crate) async fn load(db: &db::Database, lab_id: &str, lab: &RecordId) -> Result<Self> {
         let links = db::list_links_by_lab(db, lab.clone())
             .await
             .context("Failed to list the lab's links")?;
         let nodes = db::list_nodes_by_lab(db, lab.clone())
             .await
             .context("Failed to list the lab's nodes")?;
-        Ok(Self::new(links, &nodes))
+        let images =
+            db::list_node_images_by_ids(db, nodes.iter().map(|node| node.image.clone()).collect())
+                .await
+                .context("Failed to fetch the node images")?;
+        let kinds = nodes
+            .iter()
+            .filter_map(|node| {
+                let image = images
+                    .iter()
+                    .find(|image| image.id.as_ref() == Some(&node.image))?;
+                Some((node.id.clone()?, image.kind.clone()))
+            })
+            .collect();
+        Ok(Self::new(lab_id, links, &nodes, kinds))
+    }
+
+    /// The lab's ID.
+    pub(crate) fn lab_id(&self) -> &str {
+        &self.lab_id
+    }
+
+    /// The host interfaces of `node`'s ends.
+    pub(crate) fn node_ends(&self, node: &RecordId) -> HashSet<String> {
+        self.links
+            .iter()
+            .flat_map(|link| [(&link.node_a, &link.tap_a), (&link.node_b, &link.tap_b)])
+            .filter(|(end_node, _)| *end_node == node)
+            .map(|(_, tap)| tap.clone())
+            .collect()
+    }
+
+    /// End `iface` of `node`, as its carrier is set: a container's host veth, or a tap of the
+    /// node's domain.
+    pub(crate) fn end_device(&self, node: &RecordId, iface: &str) -> EndDevice {
+        match self.kinds.get(node) {
+            Some(NodeKind::Container) => EndDevice::Veth(iface.to_string()),
+            Some(NodeKind::VirtualMachine | NodeKind::Unikernel) | None => EndDevice::Tap {
+                domain: domain_name(&self.name(node), &self.lab_id),
+                tap: iface.to_string(),
+            },
+        }
     }
 
     /// The lab's links.
@@ -248,18 +306,32 @@ pub(crate) async fn attach_link(host: &impl LinkHost, wiring: &LinkWiring<'_>) -
     Ok(())
 }
 
-/// Record what each of `node_name`'s links in lab `lab_id` was left in, for `inspect`, and
-/// tell the user about each that is not attached, and log it. Returns the links' reports.
-pub(crate) fn report_links(
+/// Make the carrier of `node`'s links follow what re-attaching left them in, record each
+/// link's state for `inspect`, tell the user about each link that is not attached, and log it.
+/// Returns the links' reports.
+///
+/// `node`'s ends were made again, so they are given the carrier their link's state wants even
+/// when the state is the one last recorded (see `carrier`).
+#[instrument(skip_all, fields(%node), level = "debug")]
+pub(crate) async fn report_links(
+    host: &impl LinkHost,
+    lab: &LabLinks,
+    node: &RecordId,
     progress: Option<&ProgressSender>,
     link_states: &LinkStates,
-    lab_id: &str,
-    node_name: &str,
     outcomes: Vec<LinkOutcome>,
 ) -> Vec<LinkReport> {
+    let previous = link_states.of_lab(lab.lab_id());
+    let states: HashMap<u16, LinkState> = outcomes
+        .iter()
+        .map(|outcome| (outcome.index, outcome.report.state.clone()))
+        .collect();
+    follow_carrier(host, lab, &previous, &states, &lab.node_ends(node)).await;
+
+    let node_name = lab.name(node);
     let mut reports = Vec::with_capacity(outcomes.len());
     for LinkOutcome { index, report } in outcomes {
-        link_states.record(lab_id, index, report.state.clone());
+        link_states.record(lab.lab_id(), index, report.state.clone());
         match &report.state {
             LinkState::Attached => {}
             LinkState::PeerDown { .. } => {
@@ -284,12 +356,14 @@ mod tests {
     use super::*;
 
     use std::process::Command;
+    use std::sync::Arc;
 
     use bollard::Docker;
+    use libvirt::Qemu;
 
     use crate::services::p2p_links::KernelHost;
     use crate::services::p2p_links::fake::FakeHost;
-    use shared::data::{BridgeKind, NodeModel, NodeState};
+    use shared::data::{BridgeKind, NodeKind, NodeModel, NodeState};
 
     fn node(name: &str) -> DbNode {
         DbNode {
@@ -338,7 +412,13 @@ mod tests {
         ];
         let host = FakeHost::default();
         host.make(&["tpa0", "tpb0", "tpa1", "tpb1", "tpa2", "tpb2"]);
-        (host, LabLinks::new(links, &nodes))
+        let kinds = HashMap::from([
+            (id("vm1"), NodeKind::VirtualMachine),
+            (id("vm2"), NodeKind::VirtualMachine),
+            (id("ctr1"), NodeKind::Container),
+            (id("uk1"), NodeKind::Unikernel),
+        ]);
+        (host, LabLinks::new("lab", links, &nodes, kinds))
     }
 
     fn id(name: &str) -> RecordId {
@@ -575,6 +655,40 @@ mod tests {
         assert_eq!(netem.get(&ifindex_a), None);
     }
 
+    #[tokio::test]
+    async fn a_resume_makes_the_carrier_follow_the_states_it_records() {
+        // vm2 is off: a scan took vm1's end down and recorded the link waiting for vm2.
+        let (host, lab) = lab();
+        let link_states = LinkStates::default();
+        host.remove(&["tpb0"]);
+        host.set_carrier_by_hand("tpa0", false);
+        link_states.record("lab", 0, peer_down("vm2"));
+
+        // vm1 is cold-booted: its new taps have carrier. Link 0's state is the one recorded,
+        // but its new end is taken down; the attached links' ends already have carrier.
+        host.make(&["tpa0", "tpa1", "tpa2"]);
+        let outcomes = reattach_node_links(&host, &lab, &id("vm1"), RecreatedEnd::Domain).await;
+        report_links(&host, &lab, &id("vm1"), None, &link_states, outcomes).await;
+        assert_eq!(
+            host.take_carrier_writes(),
+            vec![(
+                EndDevice::Tap {
+                    domain: "vm1-lab".to_string(),
+                    tap: "tpa0".to_string()
+                },
+                false
+            )]
+        );
+        assert_eq!(link_states.of_lab("lab")[&0], peer_down("vm2"));
+
+        // vm2 is resumed: the link is attached, and vm1's end has its carrier back.
+        host.make(&["tpb0"]);
+        let outcomes = reattach_node_links(&host, &lab, &id("vm2"), RecreatedEnd::Domain).await;
+        report_links(&host, &lab, &id("vm2"), None, &link_states, outcomes).await;
+        assert!(host.has_carrier("tpa0") && host.has_carrier("tpb0"));
+        assert_eq!(link_states.of_lab("lab")[&0], LinkState::Attached);
+    }
+
     /// Whether `iface` has a TC filter on its ingress running the redirect program.
     fn has_redirect(iface: &str) -> bool {
         let output = Command::new("tc")
@@ -599,9 +713,15 @@ mod tests {
         let mut link = link(0, "vm1", "vm2");
         link.tap_a = a.to_string();
         link.tap_b = b.to_string();
-        let lab = LabLinks::new(vec![link], &[node("vm1"), node("vm2")]);
+        let lab = LabLinks::new(
+            "lab",
+            vec![link],
+            &[node("vm1"), node("vm2")],
+            HashMap::new(),
+        );
         let docker = Docker::connect_with_local_defaults().unwrap();
-        let host = KernelHost::new(&docker);
+        let qemu = Arc::new(Qemu::default());
+        let host = KernelHost::new(&docker, &qemu);
 
         let reports = reattach_node_links(&host, &lab, &id("vm1"), RecreatedEnd::Domain).await;
         let reports = reports_of(reports);

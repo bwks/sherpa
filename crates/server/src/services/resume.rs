@@ -680,7 +680,7 @@ async fn start_container_node(
                 return StartOutcome::Failed(format!("Failed to start: {e:#}"));
             }
             match node_ops::finish_management_checksums(
-                &KernelHost::new(&state.docker),
+                &KernelHost::new(&state.docker, &state.qemu),
                 device_name,
                 model,
             )
@@ -708,7 +708,7 @@ async fn reattach_cold_booted(
         return;
     }
     let db = &lab.state.db;
-    let lab_links = match LabLinks::load(db, lab.lab_record_id).await {
+    let lab_links = match LabLinks::load(db, lab.lab_id, lab.lab_record_id).await {
         Ok(lab_links) => lab_links,
         Err(error) => {
             tracing::error!(lab_id = %lab.lab_id, error = ?error, "Failed to load the lab's links");
@@ -732,7 +732,7 @@ async fn reattach_cold_booted(
     } else {
         Ok(vec![])
     };
-    let host = KernelHost::new(&lab.state.docker);
+    let host = KernelHost::new(&lab.state.docker, &lab.state.qemu);
     for (name, kind) in cold_booted {
         let Some(node) = lab.nodes.iter().find(|node| node.name == *name) else {
             continue;
@@ -759,12 +759,14 @@ async fn reattach_cold_booted(
         };
         let outcomes = reattach_node_links(&host, &lab_links, node_id, end).await;
         let reports = report_links(
+            &host,
+            &lab_links,
+            node_id,
             lab.progress,
             &lab.state.link_states,
-            lab.lab_id,
-            name,
             outcomes,
-        );
+        )
+        .await;
         if let Some(result) = results.iter_mut().find(|result| result.name == *name) {
             result.links = reports;
         }
