@@ -1050,6 +1050,12 @@ state in `AppState::link_states`, which `inspect` reports. The check and the rep
 false` nothing repairs them, and `inspect` shows links as not checked until a resume or
 redeploy re-attaches them.
 
+In the same `Ready` lab and under the same hold, it turns transmit checksum offload off on the
+management veth of each running IOL container where Docker made it again with offload on, as
+after a `docker start` outside Sherpa (`repair_management_checksums`). Offload is read from the
+kernel first, so a veth that is already right is not changed. See
+[`P2P-ARCHITECTURE.md`](P2P-ARCHITECTURE.md#transmit-checksum-offload).
+
 ## HTTP routing architecture
 
 `api/router.rs` builds a single Axum router. It attaches HTTP tracing, embedded static asset handling, and the route table. It has no CORS layer; see `API.md`. The WebSocket route is added in `daemon/server.rs` after `build_router()` returns.

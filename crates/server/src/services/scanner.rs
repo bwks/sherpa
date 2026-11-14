@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use bollard::secret::ContainerStateStatusEnum;
 use shared::data::{
-    DbLab, DbNode, LabPhase, NodeKind, NodeState, Observation, Probe, RecordId, Runtime,
+    DbLab, DbNode, LabPhase, NodeKind, NodeModel, NodeState, Observation, Probe, RecordId, Runtime,
 };
 use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
 use tokio_util::sync::CancellationToken;
@@ -16,7 +16,7 @@ use crate::services::lab_operations;
 use crate::services::node_lifecycle;
 use crate::services::node_ops::{self, VmReadiness};
 use crate::services::p2p_links::{
-    KernelHost, LabLinks, PlannedNode, check_lab_links, load_lab_manifest, recreated_end,
+    KernelHost, LabLinks, LinkHost, PlannedNode, check_lab_links, load_lab_manifest, recreated_end,
     repair_node,
 };
 use crate::services::ssh_config;
@@ -33,6 +33,8 @@ struct ScannedNode<'a> {
     node: &'a DbNode,
     kind: NodeKind,
     has_ssh: bool,
+    /// The model of its image, or `None` when the image was not found.
+    model: Option<NodeModel>,
     runtime_name: String,
 }
 
@@ -48,9 +50,11 @@ struct ScannedNode<'a> {
 /// whose probe answered is recorded running. So a node whose readiness wait timed out, or that
 /// was started outside Sherpa, becomes `Running` once it answers.
 ///
-/// Under the same hold, the P2p links of a `Ready` lab are checked in the kernel, and the ends
-/// of running nodes that were made again outside Sherpa are repaired (`repair_links`). Exits
-/// cleanly when the cancellation token is triggered.
+/// Under the same hold, in a `Ready` lab, transmit checksum offload goes off again on the
+/// management veth of a running container that needs it (`repair_management_checksums`), and
+/// the P2p links are checked in the kernel, the ends of running nodes that were made again
+/// outside Sherpa being repaired (`repair_links`). Exits cleanly when the cancellation token is
+/// triggered.
 #[instrument(skip_all)]
 pub async fn run_scanner(state: AppState, cancel: CancellationToken) {
     let interval_secs = state.config.scanner.interval_secs;
@@ -146,10 +150,11 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
             }
         }
         // Still under the hold: no resume, redeploy or `up` is making the ends this repairs.
-        if lab.phase == LabPhase::Ready
-            && let Err(error) = repair_links(state, lab, &nodes, &scanned, &runtimes).await
-        {
-            tracing::warn!(error = %error, "Failed to check the lab's P2p links");
+        if lab.phase == LabPhase::Ready {
+            repair_management_checksums(&KernelHost::new(&state.docker), &scanned, &runtimes).await;
+            if let Err(error) = repair_links(state, lab, &nodes, &scanned, &runtimes).await {
+                tracing::warn!(error = %error, "Failed to check the lab's P2p links");
+            }
         }
     } else {
         tracing::debug!("An operation holds the lab; leaving it for the next cycle");
@@ -251,6 +256,39 @@ async fn repair_links(
     Ok(())
 }
 
+/// Turn transmit checksum offload off on the management veth of each running container whose
+/// model needs finished checksums, where it is on. Docker makes that veth again, with offload
+/// on, when the container starts, and a start outside Sherpa (`docker start`, `docker restart`)
+/// is followed by no Sherpa step that turns it off; TCP to the node's management address then
+/// fails. Offload is read from the kernel and only changed when on, so nothing is remembered
+/// between scans and a node that is right is left alone.
+///
+/// Called under the scanner's hold on the lab. A node that fails is logged and the others are
+/// still checked.
+#[instrument(skip_all, level = "debug")]
+async fn repair_management_checksums(
+    host: &impl LinkHost,
+    scanned: &[ScannedNode<'_>],
+    runtimes: &Runtimes,
+) {
+    for node in scanned {
+        let Some(model) = node.model else {
+            continue;
+        };
+        if node.kind != NodeKind::Container
+            || node.node.state == NodeState::Building
+            || runtimes.runtime_of(node) != Some(Runtime::Running)
+        {
+            continue;
+        }
+        if let Err(error) =
+            node_ops::finish_management_checksums(host, &node.runtime_name, model).await
+        {
+            tracing::warn!(node = %node.node.name, error = %format!("{error:#}"), "Failed to repair checksum offload on the management veth");
+        }
+    }
+}
+
 /// The lab's nodes, each with its kind and whether its model has SSH.
 async fn scanned_nodes<'a>(
     state: &AppState,
@@ -275,6 +313,7 @@ async fn scanned_nodes<'a>(
                 node,
                 kind: image.map_or(NodeKind::VirtualMachine, |img| img.kind.clone()),
                 has_ssh: image.is_some_and(|img| img.model.has_ssh()),
+                model: image.map(|img| img.model),
                 runtime_name: format!("{}-{}", node.name, lab.lab_id),
             }
         })
@@ -413,7 +452,10 @@ async fn query_libvirt_states(qemu: Arc<libvirt::Qemu>) -> Result<HashMap<String
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::data::NodeModel;
     use virt::sys::VIR_DOMAIN_RUNNING;
+
+    use crate::services::p2p_links::fake::FakeHost;
 
     fn db_node(state: NodeState, has_key: bool) -> DbNode {
         DbNode {
@@ -440,7 +482,19 @@ mod tests {
             node,
             kind,
             has_ssh,
+            model: None,
             runtime_name: "r1-abc12345".to_string(),
+        }
+    }
+
+    /// A container node of `model`, whose container is `runtime_name`.
+    fn container<'a>(node: &'a DbNode, model: NodeModel, runtime_name: &str) -> ScannedNode<'a> {
+        ScannedNode {
+            node,
+            kind: NodeKind::Container,
+            has_ssh: true,
+            model: Some(model),
+            runtime_name: runtime_name.to_string(),
         }
     }
 
@@ -563,5 +617,80 @@ mod tests {
             runtimes.runtime_of(&scanned(&node, NodeKind::Container, false)),
             Some(Runtime::Faulted("dead"))
         );
+    }
+
+    #[tokio::test]
+    async fn the_management_veth_of_a_running_iol_node_gets_offload_off_only_when_it_is_on() {
+        let running = db_node(NodeState::Running, true);
+        let building = db_node(NodeState::Building, true);
+        let nodes = [
+            // Restarted outside Sherpa: Docker made its management veth again, offload on.
+            container(&running, NodeModel::CiscoIol, "r1-lab"),
+            // Already off: left alone.
+            container(&running, NodeModel::CiscoIoll2, "sw1-lab"),
+            // Not IOL: never touched, though its offload is on.
+            container(&running, NodeModel::NokiaSrlinux, "srl-lab"),
+            // Stopped, and being built: not checked.
+            container(&running, NodeModel::CiscoIol, "r2-lab"),
+            container(&building, NodeModel::CiscoIol, "r3-lab"),
+        ];
+        let runtimes = Runtimes {
+            domains: Some(HashMap::new()),
+            containers: Some(HashMap::from([
+                ("r1-lab".to_string(), ContainerStateStatusEnum::RUNNING),
+                ("sw1-lab".to_string(), ContainerStateStatusEnum::RUNNING),
+                ("srl-lab".to_string(), ContainerStateStatusEnum::RUNNING),
+                ("r2-lab".to_string(), ContainerStateStatusEnum::EXITED),
+                ("r3-lab".to_string(), ContainerStateStatusEnum::RUNNING),
+            ])),
+        };
+        let host = FakeHost {
+            management_veths: HashMap::from([
+                ("r1-lab".to_string(), 11),
+                ("sw1-lab".to_string(), 12),
+                ("srl-lab".to_string(), 13),
+                ("r2-lab".to_string(), 14),
+                ("r3-lab".to_string(), 15),
+            ]),
+            ..FakeHost::default()
+        };
+        host.offload_on.borrow_mut().extend([11, 13, 14, 15]);
+
+        repair_management_checksums(&host, &nodes, &runtimes).await;
+
+        assert!(!host.offload_on.borrow().contains(&11), "IOL, offload on");
+        assert!(host.offload_on.borrow().contains(&13), "not IOL");
+        assert!(host.offload_on.borrow().contains(&14), "stopped");
+        assert!(host.offload_on.borrow().contains(&15), "being built");
+        assert_eq!(host.writes.get(), 1, "only r1's veth is changed");
+
+        // A second scan finds nothing to change.
+        repair_management_checksums(&host, &nodes, &runtimes).await;
+        assert_eq!(host.writes.get(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_node_whose_management_veth_cannot_be_found_does_not_stop_the_others() {
+        let running = db_node(NodeState::Running, true);
+        let nodes = [
+            container(&running, NodeModel::CiscoIol, "gone-lab"),
+            container(&running, NodeModel::CiscoIol, "r1-lab"),
+        ];
+        let runtimes = Runtimes {
+            domains: Some(HashMap::new()),
+            containers: Some(HashMap::from([
+                ("gone-lab".to_string(), ContainerStateStatusEnum::RUNNING),
+                ("r1-lab".to_string(), ContainerStateStatusEnum::RUNNING),
+            ])),
+        };
+        let host = FakeHost {
+            management_veths: HashMap::from([("r1-lab".to_string(), 11)]),
+            ..FakeHost::default()
+        };
+        host.offload_on.borrow_mut().insert(11);
+
+        repair_management_checksums(&host, &nodes, &runtimes).await;
+
+        assert!(!host.offload_on.borrow().contains(&11));
     }
 }
