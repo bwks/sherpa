@@ -1,7 +1,7 @@
 //! Interface offload features through the kernel's ethtool netlink interface, the generic
 //! netlink family `ethtool`.
 //!
-//! Only one change is made: transmit checksum offload off, which also takes segmentation
+//! Transmit checksum offload can be read, and one change is made: turning it off, which also takes segmentation
 //! offload with it. A veth with it on hands the peer a TCP or UDP packet whose checksum is left
 //! for "hardware" to fill in. A kernel stack accepts that; a program reading the peer through a
 //! packet socket, such as the IOL bridge, gets the unfinished packet. With it off, the kernel
@@ -33,19 +33,28 @@ const CTRL_ATTR_FAMILY_NAME: u16 = 2;
 
 const ETHTOOL_GENL_NAME: &str = "ethtool";
 const ETHTOOL_GENL_VERSION: u8 = 1;
+const ETHTOOL_MSG_FEATURES_GET: u8 = 11;
 const ETHTOOL_MSG_FEATURES_SET: u8 = 12;
+/// The kernel's reply to `ETHTOOL_MSG_FEATURES_GET`, numbered in the kernel's own sequence.
+const ETHTOOL_MSG_FEATURES_GET_REPLY: u8 = 11;
 const ETHTOOL_A_FEATURES_HEADER: u16 = 1;
 const ETHTOOL_A_FEATURES_WANTED: u16 = 3;
+const ETHTOOL_A_FEATURES_ACTIVE: u16 = 4;
 const ETHTOOL_A_HEADER_DEV_INDEX: u16 = 1;
 const ETHTOOL_A_HEADER_FLAGS: u16 = 3;
 /// No reply beyond the acknowledgement.
 const ETHTOOL_FLAG_OMIT_REPLY: u32 = 1 << 1;
+/// A bitset with no mask: it lists only the bits that are set.
+const ETHTOOL_A_BITSET_NOMASK: u16 = 1;
 const ETHTOOL_A_BITSET_BITS: u16 = 3;
 const ETHTOOL_A_BITSET_BITS_BIT: u16 = 1;
 const ETHTOOL_A_BITSET_BIT_NAME: u16 = 2;
+/// In a bitset with a mask, the flag of a bit that is set.
+const ETHTOOL_A_BITSET_BIT_VALUE: u16 = 3;
 
 /// The transmit checksum features, as `ethtool -K <iface> tx off` turns off: a feature listed
-/// with no value is turned off. A device that does not have one ignores it.
+/// with no value is turned off. A device that does not have one ignores it. Offload is on while
+/// any of them is active.
 pub(crate) const TX_CHECKSUM_FEATURES: &[&str] = &[
     "tx-checksum-ipv4",
     "tx-checksum-ip-generic",
@@ -54,7 +63,8 @@ pub(crate) const TX_CHECKSUM_FEATURES: &[&str] = &[
     "tx-checksum-sctp",
 ];
 
-/// Sequence numbers of the two requests on one socket.
+/// Sequence numbers of the two requests on one socket: the family lookup, then the features
+/// request.
 const FAMILY_SEQ: u32 = 1;
 const FEATURES_SEQ: u32 = 2;
 
@@ -157,6 +167,21 @@ fn features_off_request(family: u16, ifindex: u32, features: &[&str]) -> Result<
     message.finish()
 }
 
+/// The ethtool request for the features of the interface with index `ifindex`. With no header
+/// flags the kernel replies, with each bitset listed by name.
+fn features_get_request(family: u16, ifindex: u32) -> Result<Vec<u8>> {
+    let mut message = MessageBuilder::new(
+        family,
+        FEATURES_SEQ,
+        ETHTOOL_MSG_FEATURES_GET,
+        ETHTOOL_GENL_VERSION,
+    );
+    let header = message.start_nested(ETHTOOL_A_FEATURES_HEADER);
+    message.attr(ETHTOOL_A_HEADER_DEV_INDEX, &ifindex.to_ne_bytes())?;
+    message.end_nested(header)?;
+    message.finish()
+}
+
 /// One netlink message in a reply: its type, sequence number and payload after the header.
 struct Reply<'a> {
     kind: u16,
@@ -193,6 +218,58 @@ fn replies(datagram: &[u8]) -> Result<Vec<Reply<'_>>> {
     Ok(messages)
 }
 
+/// The attributes in `bytes`, each as its type, without the flags, and its payload, without
+/// padding. Parsing stops at a malformed attribute.
+fn parse_attrs(bytes: &[u8]) -> Vec<(u16, &[u8])> {
+    let mut attrs = Vec::new();
+    let mut at = 0;
+    while at + NLA_HEADER_LEN <= bytes.len() {
+        let (Some(len), Some(kind)) = (read_u16(bytes, at), read_u16(bytes, at + 2)) else {
+            break;
+        };
+        let len = usize::from(len);
+        if len < NLA_HEADER_LEN || at + len > bytes.len() {
+            break;
+        }
+        attrs.push((kind & NLA_TYPE_MASK, &bytes[at + NLA_HEADER_LEN..at + len]));
+        at += len.next_multiple_of(4);
+    }
+    attrs
+}
+
+/// The payload of the first attribute of type `kind` in `attrs`.
+fn attr_payload<'a>(attrs: &[(u16, &'a [u8])], kind: u16) -> Option<&'a [u8]> {
+    attrs
+        .iter()
+        .find(|(found, _)| *found == kind)
+        .map(|(_, payload)| *payload)
+}
+
+/// Whether a transmit checksum feature is set in the active features of a features reply,
+/// `attrs` being the reply's attributes after its generic netlink header.
+fn tx_checksum_active(attrs: &[u8]) -> Result<bool> {
+    let active = attr_payload(&parse_attrs(attrs), ETHTOOL_A_FEATURES_ACTIVE)
+        .context("the features reply has no active features")?;
+    let bitset = parse_attrs(active);
+    let unmasked = attr_payload(&bitset, ETHTOOL_A_BITSET_NOMASK).is_some();
+    let bits = attr_payload(&bitset, ETHTOOL_A_BITSET_BITS)
+        .context("the active features are not listed by name")?;
+    Ok(parse_attrs(bits)
+        .into_iter()
+        .filter(|(kind, _)| *kind == ETHTOOL_A_BITSET_BITS_BIT)
+        .any(|(_, bit)| {
+            let bit = parse_attrs(bit);
+            let set = unmasked || attr_payload(&bit, ETHTOOL_A_BITSET_BIT_VALUE).is_some();
+            let name = attr_payload(&bit, ETHTOOL_A_BITSET_BIT_NAME)
+                .and_then(|name| name.split(|byte| *byte == 0).next());
+            set && name.is_some_and(|name| {
+                TX_CHECKSUM_FEATURES
+                    .iter()
+                    .any(|feature| feature.as_bytes() == name)
+            })
+        }))
+}
+
 /// What a reply to request `seq` says: `Some(Ok)` for an ACK, `Some(Err)` for an error, `None`
 /// for anything else.
 fn acknowledgement(reply: &Reply<'_>, seq: u32) -> Option<Result<()>> {
@@ -216,20 +293,8 @@ fn family_id(reply: &Reply<'_>) -> Option<u16> {
     if reply.kind != GENL_ID_CTRL || reply.seq != FAMILY_SEQ {
         return None;
     }
-    let attrs = reply.payload.get(GENL_HEADER_LEN..)?;
-    let mut at = 0;
-    while at + NLA_HEADER_LEN <= attrs.len() {
-        let len = usize::from(read_u16(attrs, at)?);
-        if len < NLA_HEADER_LEN {
-            return None;
-        }
-        let kind = read_u16(attrs, at + 2)? & NLA_TYPE_MASK;
-        if kind == CTRL_ATTR_FAMILY_ID {
-            return read_u16(attrs, at + NLA_HEADER_LEN);
-        }
-        at += len.next_multiple_of(4);
-    }
-    None
+    let attrs = parse_attrs(reply.payload.get(GENL_HEADER_LEN..)?);
+    read_u16(attr_payload(&attrs, CTRL_ATTR_FAMILY_ID)?, 0)
 }
 
 /// The answer to the family request: the family's ID, or the error the kernel sent.
@@ -248,6 +313,29 @@ fn family_answer(reply: &Reply<'_>) -> Option<Result<u16>> {
 /// The answer to the features request: its acknowledgement.
 fn features_answer(reply: &Reply<'_>) -> Option<Result<()>> {
     acknowledgement(reply, FEATURES_SEQ)
+}
+
+/// The answer to the features read: whether transmit checksum offload is on, or the error the
+/// kernel sent.
+fn features_state(reply: &Reply<'_>) -> Option<Result<bool>> {
+    if reply.seq != FEATURES_SEQ {
+        return None;
+    }
+    if let Some(acknowledged) = acknowledgement(reply, FEATURES_SEQ) {
+        return Some(acknowledged.and_then(|()| {
+            bail!("the kernel acknowledged the features request without the features")
+        }));
+    }
+    if reply.payload.first() != Some(&ETHTOOL_MSG_FEATURES_GET_REPLY) {
+        return None;
+    }
+    Some(
+        reply
+            .payload
+            .get(GENL_HEADER_LEN..)
+            .context("truncated features reply")
+            .and_then(tx_checksum_active),
+    )
 }
 
 /// Send `request` and read replies until `accept` returns a value for one.
@@ -274,15 +362,8 @@ fn exchange<T>(
     }
 }
 
-/// Turn transmit checksum offload off on the interface with index `ifindex`, in this network
-/// namespace. Turning it off when it is off already changes nothing.
-///
-/// # Errors
-///
-/// Fails when the kernel has no ethtool netlink family, or refuses the change, as for a
-/// missing interface or without `CAP_NET_ADMIN`.
-#[instrument(level = "debug")]
-pub fn disable_tx_checksum_offload(ifindex: u32) -> Result<()> {
+/// A generic netlink socket connected to the kernel, and the ID of the ethtool family on it.
+fn ethtool_socket() -> Result<(Socket, u16)> {
     let mut socket =
         Socket::new(NETLINK_GENERIC).context("cannot open a generic netlink socket")?;
     socket
@@ -294,7 +375,37 @@ pub fn disable_tx_checksum_offload(ifindex: u32) -> Result<()> {
 
     let family = exchange(&socket, &family_request(ETHTOOL_GENL_NAME)?, family_answer)
         .context("the kernel has no ethtool netlink family")?;
+    Ok((socket, family))
+}
 
+/// Whether transmit checksum offload is on for the interface with index `ifindex`, in this
+/// network namespace: whether any feature `disable_tx_checksum_offload` turns off is active.
+///
+/// # Errors
+///
+/// Fails when the kernel has no ethtool netlink family, or refuses the request, as for a
+/// missing interface.
+#[instrument(level = "debug")]
+pub fn tx_checksum_offload_on(ifindex: u32) -> Result<bool> {
+    let (socket, family) = ethtool_socket()?;
+    exchange(
+        &socket,
+        &features_get_request(family, ifindex)?,
+        features_state,
+    )
+    .with_context(|| format!("cannot read the transmit checksum offload of ifindex {ifindex}"))
+}
+
+/// Turn transmit checksum offload off on the interface with index `ifindex`, in this network
+/// namespace. Turning it off when it is off already changes nothing.
+///
+/// # Errors
+///
+/// Fails when the kernel has no ethtool netlink family, or refuses the change, as for a
+/// missing interface or without `CAP_NET_ADMIN`.
+#[instrument(level = "debug")]
+pub fn disable_tx_checksum_offload(ifindex: u32) -> Result<()> {
+    let (socket, family) = ethtool_socket()?;
     let request = features_off_request(family, ifindex, TX_CHECKSUM_FEATURES)?;
     exchange(&socket, &request, features_answer).with_context(|| {
         format!("cannot turn transmit checksum offload off on ifindex {ifindex}")
@@ -306,6 +417,12 @@ pub fn disable_tx_checksum_offload(ifindex: u32) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::{create_veth_pair, delete_interface, get_ifindex};
+
+    /// Attributes the kernel puts in a bitset that the code here does not read.
+    const ETHTOOL_A_BITSET_SIZE: u16 = 2;
+    const ETHTOOL_A_BITSET_BIT_INDEX: u16 = 1;
 
     /// The attributes of a message, after its netlink and generic netlink headers.
     fn attributes(message: &[u8]) -> &[u8] {
@@ -435,5 +552,155 @@ mod tests {
         let mut datagram = reply_datagram(NLMSG_ERROR, 1, &0i32.to_ne_bytes());
         datagram[0] = 200;
         assert!(replies(&datagram).is_err());
+    }
+
+    /// The kernel's reply to a features request, listing `bits` as the active features, each
+    /// by name with whether it carries a value flag. Without `mask` the bitset is a list of the
+    /// active bits, as the kernel sends the active features.
+    fn features_reply(bits: &[(&str, bool)], mask: bool) -> Vec<u8> {
+        let mut message = MessageBuilder::new(
+            27,
+            FEATURES_SEQ,
+            ETHTOOL_MSG_FEATURES_GET_REPLY,
+            ETHTOOL_GENL_VERSION,
+        );
+        let header = message.start_nested(ETHTOOL_A_FEATURES_HEADER);
+        message
+            .attr(ETHTOOL_A_HEADER_DEV_INDEX, &42u32.to_ne_bytes())
+            .unwrap();
+        message.end_nested(header).unwrap();
+        let active = message.start_nested(ETHTOOL_A_FEATURES_ACTIVE);
+        if !mask {
+            message.attr(ETHTOOL_A_BITSET_NOMASK, &[]).unwrap();
+        }
+        message
+            .attr(ETHTOOL_A_BITSET_SIZE, &64u32.to_ne_bytes())
+            .unwrap();
+        let list = message.start_nested(ETHTOOL_A_BITSET_BITS);
+        for (index, (name, value)) in bits.iter().enumerate() {
+            let bit = message.start_nested(ETHTOOL_A_BITSET_BITS_BIT);
+            message
+                .attr(
+                    ETHTOOL_A_BITSET_BIT_INDEX,
+                    &u32::try_from(index).unwrap().to_ne_bytes(),
+                )
+                .unwrap();
+            message
+                .attr(ETHTOOL_A_BITSET_BIT_NAME, &c_string(name))
+                .unwrap();
+            if *value {
+                message.attr(ETHTOOL_A_BITSET_BIT_VALUE, &[]).unwrap();
+            }
+            message.end_nested(bit).unwrap();
+        }
+        message.end_nested(list).unwrap();
+        message.end_nested(active).unwrap();
+        message.finish().unwrap()
+    }
+
+    fn offload_in(datagram: &[u8]) -> Result<bool> {
+        let messages = replies(datagram).unwrap();
+        features_state(&messages[0]).unwrap()
+    }
+
+    #[test]
+    fn a_features_get_request_names_the_device_and_asks_for_a_reply() {
+        let message = features_get_request(27, 42).unwrap();
+        assert_eq!(read_u32(&message, 0).unwrap() as usize, message.len());
+        assert_eq!(read_u16(&message, 4).unwrap(), 27);
+        assert_eq!(message[NLMSG_HEADER_LEN], ETHTOOL_MSG_FEATURES_GET);
+        let attrs = attributes(&message);
+        let (kind, header) = first_attr(attrs);
+        assert_eq!(kind, ETHTOOL_A_FEATURES_HEADER | NLA_F_NESTED);
+        let (kind, dev_index) = first_attr(header);
+        assert_eq!(kind, ETHTOOL_A_HEADER_DEV_INDEX);
+        assert_eq!(dev_index, 42u32.to_ne_bytes());
+        // Only the device: no flags, so the reply is sent, with bitsets listed by name.
+        assert_eq!(header.len(), NLA_HEADER_LEN + 4);
+        assert_eq!(attrs.len(), NLA_HEADER_LEN + header.len());
+    }
+
+    #[test]
+    fn an_active_tx_checksum_feature_is_offload_on() {
+        let reply = features_reply(
+            &[
+                ("tx-scatter-gather", false),
+                ("tx-checksum-ip-generic", false),
+            ],
+            false,
+        );
+        assert!(offload_in(&reply).unwrap());
+    }
+
+    #[test]
+    fn active_features_with_no_tx_checksum_feature_are_offload_off() {
+        let reply = features_reply(
+            &[("tx-scatter-gather", false), ("rx-checksum", false)],
+            false,
+        );
+        assert!(!offload_in(&reply).unwrap());
+        assert!(!offload_in(&features_reply(&[], false)).unwrap());
+    }
+
+    #[test]
+    fn in_a_masked_bitset_only_a_bit_with_a_value_is_on() {
+        let off = features_reply(&[("tx-checksum-ipv4", false)], true);
+        assert!(!offload_in(&off).unwrap());
+        let on = features_reply(&[("tx-checksum-ipv4", true)], true);
+        assert!(offload_in(&on).unwrap());
+    }
+
+    #[test]
+    fn an_error_for_the_features_request_is_an_error() {
+        let error = reply_datagram(NLMSG_ERROR, FEATURES_SEQ, &(-19i32).to_ne_bytes());
+        let error = offload_in(&error).unwrap_err();
+        assert!(error.to_string().contains("No such device"), "{error:#}");
+        let ack = reply_datagram(NLMSG_ERROR, FEATURES_SEQ, &0i32.to_ne_bytes());
+        assert!(offload_in(&ack).is_err());
+    }
+
+    #[test]
+    fn a_reply_with_no_active_features_is_an_error() {
+        let mut payload = vec![ETHTOOL_MSG_FEATURES_GET_REPLY, ETHTOOL_GENL_VERSION, 0, 0];
+        payload.extend_from_slice(&8u16.to_ne_bytes());
+        payload.extend_from_slice(&ETHTOOL_A_HEADER_DEV_INDEX.to_ne_bytes());
+        payload.extend_from_slice(&42u32.to_ne_bytes());
+        let reply = reply_datagram(27, FEATURES_SEQ, &payload);
+        assert!(offload_in(&reply).is_err());
+    }
+
+    #[test]
+    fn a_reply_to_another_request_is_not_the_answer() {
+        let reply = features_reply(&[("tx-checksum-ip-generic", false)], false);
+        let messages = replies(&reply).unwrap();
+        let other = Reply {
+            kind: messages[0].kind,
+            seq: FAMILY_SEQ,
+            payload: messages[0].payload,
+        };
+        assert!(features_state(&other).is_none());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires root: makes a veth and changes its offload"]
+    async fn a_new_veth_has_tx_checksum_offload_on_until_it_is_turned_off() {
+        let (a, b) = ("it-txcsum-a", "it-txcsum-b");
+        let _ = delete_interface(a).await;
+        create_veth_pair(a, b, a, b).await.unwrap();
+        let ifindex = get_ifindex(a).await.unwrap();
+
+        assert!(tx_checksum_offload_on(ifindex).unwrap(), "a new veth");
+        disable_tx_checksum_offload(ifindex).unwrap();
+        assert!(
+            !tx_checksum_offload_on(ifindex).unwrap(),
+            "after turning it off"
+        );
+        disable_tx_checksum_offload(ifindex).unwrap();
+        assert!(
+            !tx_checksum_offload_on(ifindex).unwrap(),
+            "turned off twice"
+        );
+
+        delete_interface(a).await.unwrap();
     }
 }
