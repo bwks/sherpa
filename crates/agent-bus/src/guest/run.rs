@@ -36,6 +36,7 @@ use crate::files::now_ms;
 use crate::keys::SEED_VARIABLE;
 use crate::message::{Ended, Kind, Message, TaskUsage, Usage, api_time_of_run, check_agent_name};
 use crate::status::{HEARTBEAT, Running, Status};
+use crate::timing::RunClock;
 
 /// Why a `--github` task fails on a guest agent started without a write token.
 const NO_WRITE_TOKEN: &str = "This guest agent has no GitHub write token, so it cannot run a \
@@ -101,6 +102,8 @@ struct RunState {
     /// Whether the run named its session, said something or used a tool: it did something, so
     /// it is not run again.
     progressed: bool,
+    /// Where the run's time went, from the stream events stamped as they were read.
+    clock: RunClock,
 }
 
 /// Where and how Claude Code runs.
@@ -745,7 +748,7 @@ impl<'a> Engine<'a> {
         reply: &Reply<'_>,
         run: &mut RunState,
     ) -> Result<()> {
-        if !matches!(update, Update::Finished { .. }) {
+        if !matches!(update, Update::Finished { .. } | Update::Clock(_)) {
             run.progressed = true;
         }
         match update {
@@ -762,6 +765,7 @@ impl<'a> Engine<'a> {
                     reply.send(Kind::Progress, earlier, None, None)?;
                 }
             }
+            Update::Clock(tick) => run.clock.observe(tick, now_ms()),
             Update::Tool(running) => {
                 if let Some(earlier) = run.text.take() {
                     reply.send(Kind::Progress, earlier, None, None)?;
@@ -775,6 +779,9 @@ impl<'a> Engine<'a> {
                 failed,
                 mut usage,
             } => {
+                let times = run.clock.times(now_ms());
+                usage.work_ms = Some(times.work);
+                usage.testing_ms = Some(times.testing);
                 let task_usage = self.count(&message.task, &session, &mut usage);
                 self.tasks.entry(message.task.clone()).or_default().session = Some(Session {
                     id: session,
@@ -1013,6 +1020,8 @@ impl<'a> Engine<'a> {
             record.runs = record.runs.saturating_add(1);
             record.runs
         };
+        // The run's clock starts now: time queued before it is not counted.
+        let started_ms = now_ms();
         let mut child = command.spawn().context("Unable to start Claude Code")?;
         let mut group = Group::new(child.id());
         // The prompt goes in on stdin, so the tool lists cannot swallow it as an argument.
@@ -1024,7 +1033,10 @@ impl<'a> Engine<'a> {
         drop(stdin);
         let stdout = child.stdout.take().context("Claude Code has no output")?;
         let mut lines = BufReader::new(stdout).lines();
-        let mut run = RunState::default();
+        let mut run = RunState {
+            clock: RunClock::start(started_ms),
+            ..RunState::default()
+        };
         let mut inbox_open = true;
         loop {
             let event = tokio::select! {
@@ -1168,6 +1180,7 @@ mod tests {
 
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
+    use std::time::Instant;
 
     use tokio::sync::oneshot;
     use tokio::time::timeout;
@@ -1306,6 +1319,15 @@ token*)
 oauth*)
     echo "{\"type\":\"assistant\",\"session_id\":\"sess-1\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"saw ${CLAUDE_CODE_OAUTH_TOKEN:-none}\"}]}}"
     echo "{\"type\":\"result\",\"is_error\":false,\"result\":\"CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-none} AGENT_BUS_SEED=${AGENT_BUS_SEED:-none}\",\"session_id\":\"sess-1\"}"
+    ;;
+timed*)
+    echo '{"type":"assistant","session_id":"sess-1","message":{"content":[{"type":"tool_use","id":"c1","name":"Bash","input":{"command":"cargo test"}}]}}'
+    sleep 0.5
+    echo '{"type":"user","session_id":"sess-1","message":{"content":[{"type":"tool_result","tool_use_id":"c1","content":"ok"}]}}'
+    echo '{"type":"assistant","session_id":"sess-1","message":{"content":[{"type":"tool_use","id":"c2","name":"Bash","input":{"command":"sleep 1"}}]}}'
+    sleep 0.5
+    echo '{"type":"user","session_id":"sess-1","message":{"content":[{"type":"tool_result","tool_use_id":"c2","content":"ok"}]}}'
+    echo '{"type":"result","is_error":false,"result":"done","session_id":"sess-1"}'
     ;;
 bg*)
     ( trap '' TERM; exec sleep 300 ) >/dev/null 2>&1 &
@@ -1578,7 +1600,7 @@ esac
         assert_eq!((reply.kind, reply.task.as_str()), (Kind::Canceled, "t4"));
 
         // The running task is stopped, with its commands, in a few seconds.
-        let started = std::time::Instant::now();
+        let started = Instant::now();
         harness.send(Kind::Cancel, "t1", "");
         let reply = harness.outcome().await;
         assert_eq!((reply.kind, reply.task.as_str()), (Kind::Canceled, "t1"));
@@ -2294,6 +2316,27 @@ esac
         let view =
             serde_json::json!({"nameWithOwner": "o/r", "defaultBranchRef": {"name": "main"}});
         fs::write(harness.dir.join("repo.json"), view.to_string()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_outcome_carries_the_runs_work_and_testing_time_without_its_waits() {
+        let mut harness = Harness::start("timed");
+        let started = Instant::now();
+        harness.send(Kind::Task, "t1", "timed");
+        let outcome = harness.outcome().await;
+        let wall = u64::try_from(started.elapsed().as_millis()).unwrap();
+        assert_eq!(outcome.kind, Kind::Completed);
+        let usage = outcome.usage.unwrap();
+        // The `cargo test` call took about half a second (stamped as its lines were read), and
+        // the half second of the `sleep` call is not counted at all.
+        let testing = usage.testing_ms.unwrap();
+        let work = usage.work_ms.unwrap();
+        assert!(testing >= 300, "testing {testing} ms");
+        assert!(work < testing, "work {work} ms, testing {testing} ms");
+        assert!(
+            work + testing + 400 <= wall,
+            "work {work} ms and testing {testing} ms leave no room for the sleep in {wall} ms"
+        );
     }
 
     #[tokio::test]

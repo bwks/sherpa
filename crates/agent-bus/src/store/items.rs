@@ -117,13 +117,14 @@ pub struct RunPart {
 /// Every item's refs, by item.
 type RefsByItem = HashMap<i64, Vec<ItemRef>>;
 
-/// The item `id`, with its refs, tasks, conflicts and the items merged into it.
+/// The item `id`, with its refs, tasks, conflicts and the items merged into it; names are taken
+/// with `home_repo` the host's repository.
 ///
 /// # Errors
 ///
 /// Fails when a query fails or a row is not one.
 #[instrument(level = "debug", skip(conn))]
-pub async fn item(conn: &Connection, id: i64) -> Result<Item> {
+pub async fn item(conn: &Connection, id: i64, home_repo: Option<&str>) -> Result<Item> {
     let refs = refs_by_item(conn).await?;
     let tasks = item_tasks(conn, Some(id)).await?;
     let mut rows = conn
@@ -143,9 +144,9 @@ pub async fn item(conn: &Connection, id: i64) -> Result<Item> {
             reference,
             source,
             task_item,
-            task_item_name: name_of(&refs, task_item),
+            task_item_name: name_of(&refs, task_item, home_repo),
             ref_item,
-            ref_item_name: name_of(&refs, ref_item),
+            ref_item_name: name_of(&refs, ref_item, home_repo),
         });
     }
     drop(rows);
@@ -163,7 +164,7 @@ pub async fn item(conn: &Connection, id: i64) -> Result<Item> {
     }
     Ok(Item {
         id,
-        name: name_of(&refs, id),
+        name: name_of(&refs, id, home_repo),
         refs: refs.get(&id).cloned().unwrap_or_default(),
         tasks: tasks.into_iter().map(|(_, task)| task).collect(),
         conflicts,
@@ -171,13 +172,14 @@ pub async fn item(conn: &Connection, id: i64) -> Result<Item> {
     })
 }
 
-/// Every item not merged into another, oldest first.
+/// Every item not merged into another, oldest first, named with `home_repo` the host's
+/// repository.
 ///
 /// # Errors
 ///
 /// Fails when a query fails or a row is not one.
 #[instrument(level = "debug", skip(conn))]
-pub async fn items(conn: &Connection) -> Result<Vec<ItemSummary>> {
+pub async fn items(conn: &Connection, home_repo: Option<&str>) -> Result<Vec<ItemSummary>> {
     let refs = refs_by_item(conn).await?;
     let tasks = item_tasks(conn, None).await?;
     let mut rows = conn
@@ -192,7 +194,7 @@ pub async fn items(conn: &Connection) -> Result<Vec<ItemSummary>> {
         let of_item = tasks.iter().filter(|(item, _)| *item == id);
         items.push(ItemSummary {
             id,
-            name: name_of(&refs, id),
+            name: name_of(&refs, id, home_repo),
             refs: refs.get(&id).map_or_else(Vec::new, |named| {
                 named.iter().map(|named| named.reference.clone()).collect()
             }),
@@ -211,13 +213,13 @@ pub async fn items(conn: &Connection) -> Result<Vec<ItemSummary>> {
     Ok(items)
 }
 
-/// The open tasks, oldest first, with their item.
+/// The open tasks, oldest first, with their item, named with `home_repo` the host's repository.
 ///
 /// # Errors
 ///
 /// Fails when a query fails or a row is not one.
 #[instrument(level = "debug", skip(conn))]
-pub async fn open_tasks(conn: &Connection) -> Result<Vec<OpenTask>> {
+pub async fn open_tasks(conn: &Connection, home_repo: Option<&str>) -> Result<Vec<OpenTask>> {
     let refs = refs_by_item(conn).await?;
     let mut rows = conn
         .query(OPEN_TASKS, ())
@@ -239,11 +241,25 @@ pub async fn open_tasks(conn: &Connection) -> Result<Vec<OpenTask>> {
             state,
             since_ms: sent_at_ms.unwrap_or(last_at_ms),
             item,
-            item_name: item.map(|item| name_of(&refs, item)),
+            item_name: item.map(|item| name_of(&refs, item, home_repo)),
             question: result.filter(|_| state == TaskState::Question),
         });
     }
     Ok(open)
+}
+
+/// The name of every item with refs, by its ID, with `home_repo` the host's repository.
+///
+/// # Errors
+///
+/// Fails when the query fails or a row is not one.
+#[instrument(level = "debug", skip(conn))]
+pub async fn names(conn: &Connection, home_repo: Option<&str>) -> Result<HashMap<i64, String>> {
+    let refs = refs_by_item(conn).await?;
+    Ok(refs
+        .keys()
+        .map(|item| (*item, name_of(&refs, *item, home_repo)))
+        .collect())
 }
 
 /// Every run's parts: one per model it named, or the whole run when it named none.
@@ -356,12 +372,12 @@ async fn item_tasks(conn: &Connection, item: Option<i64>) -> Result<Vec<(i64, It
     Ok(tasks)
 }
 
-/// The name of `item`: from its refs, else `item <id>`.
-fn name_of(refs: &RefsByItem, item: i64) -> String {
+/// The name of `item`: from its refs, with `home_repo` the host's repository, else `item <id>`.
+fn name_of(refs: &RefsByItem, item: i64, home_repo: Option<&str>) -> String {
     refs.get(&item)
         .and_then(|named| {
             let named: Vec<Ref> = named.iter().map(|named| named.reference.clone()).collect();
-            display_name(&named)
+            display_name(&named, home_repo)
         })
         .unwrap_or_else(|| format!("item {item}"))
 }

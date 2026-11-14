@@ -1032,16 +1032,23 @@ cover the run, and some the whole session so far, across resumes:
 - **Cache hit** is `cache_read / (input + cache_creation + cache_read)`, in tenths of a percent
   rounded down, shown as `89.9%`, or `n/a` with no input (`message::cache_hit_permille`).
 
+- **A run's time** (`work_ms`, `testing_ms` on the outcome's `usage`): see
+  [Time](#time). Both are optional: an older guest sends neither, and an older host ignores them.
+
 The guest log has one line per finished run with the run's figures and the task's so far, and
 one line per priming run. Every `result` event line is also appended unchanged to
 `results.jsonl` (see [Files and state](#files-and-state)), to check what the figures mean.
 
 `agent-bus usage [--agent <guest>] [--host <name>] [--since <d>] [--all]` reads the record (see
 [The record](#the-record)). It prints one row per task sent by `--host` (default `host`) that
-had an outcome (`question`, `completed`, `failed`, `canceled`): task, agent, model (from its
-outcomes' `model`, `n/a` before guests sent it), runs, cost, cache hit, tokens (the four kinds
-added) and its state, then a total row, as a `tabled` modern table (`src/report/usage.rs`). A task's
-figures are the `task_usage` of its last outcome that carried one. Tasks with no usage are left
+had an outcome (`question`, `completed`, `failed`, `canceled`): task, agent, item, model (from
+its outcomes' `model`, `n/a` before guests sent it), runs, cost, cache hit, tokens (the four kinds
+added), `Work`, `Testing` and `Waiting on user` (printed as `1h 07m` or `12m 30s`, `n/a` when no
+run reported time) and its state; then one row per work item for the host's own usage (task and
+agent `host`, item `unattributed` for usage no item has; see
+[Host usage and time](#host-usage-and-time)), and a total row, as a `tabled` modern table
+(`src/report/usage.rs`). `--agent host` shows the host's rows alone, and any other `--agent`
+none of them. A task's figures are the `task_usage` of its last outcome that carried one. Tasks with no usage are left
 out unless `--all` is given; `--since 7d` keeps the tasks with a message in the last 7 days.
 `agent-bus show <task>` prints every recorded message of one task that `--host` sent or
 received, both directions (the task, answers and cancels as well as the replies), oldest first,
@@ -1061,13 +1068,15 @@ guard, not the arbiter, because it is a POSIX record lock that a second open ins
 process does not see.
 
 **One path.** There is no long-running writer and no query protocol. `usage`, `show`,
-`history`, `open`, `link` and `work` each open the record through `record::Record::open`, the
-only code that opens it:
+`history`, `open`, `link`, `work` and `host` each open the record through
+`record::Record::open`, the only code that opens it, and `send` does too after it has sent (see
+below):
 
 1. Connect to the bus with the host's seed (`--server`, `AGENT_BUS_URL` or `bus.toml`, and
    `AGENT_BUS_SEED`). This comes before the lock, so a bus that is slow to refuse does not keep
    other commands waiting.
-2. Take `record.lock`, waiting up to 5 s (tried every 50 ms). The holder writes its PID into the
+2. Take `record.lock`, waiting up to 5 s (`LOCK_WAIT`; 1 s, `HOOK_LOCK_WAIT`, for the
+   `SessionEnd` hook and for `send`) (tried every 50 ms). The holder writes its PID into the
    file (`files::record_lock::lock_holder` reads it); a command that cannot take the lock in time fails with
    "The record is busy: process <pid> has held <state>/record.lock for more than 5s".
 3. Open the record and bring its schema up to date.
@@ -1089,8 +1098,15 @@ only code that opens it:
       delivered again; its sequence is already recorded, so nothing changes (`store::record`
       returns `false`). An acknowledgement the bus does not take is reported and catching up
       goes on.
-5. Run the command's query (`store::read`), then drop the `Record`: the connection and the
+5. Import the host's transcripts when `AGENT_BUS_HOST_PROJECT` names the host's project (see
+   [Host usage and time](#host-usage-and-time)). A failed import is a warning and is kept in
+   `host-import.toml`; the command goes on.
+6. Run the command's query (`store::read`), then drop the `Record`: the connection and the
    database close, then the lock is released. The command prints after that.
+
+`send` publishes first, then opens the record the same way, waiting 1 s for the lock: a tagged
+task sets the host's active item at once, and the host's transcripts are imported. A busy record
+is left to its holder, and any other failure is a warning; the task is sent whatever happens.
 
 When catching up fails (the bus cannot be reached, `AGENT_BUS_SEED` is not set, the consumer is
 missing or has another reader, the bus stops delivering while messages still wait, or a message
@@ -1118,7 +1134,8 @@ the record loses what the stream dropped; `agents` shows the lag.
 
 **The `record` feature.** The record is behind the crate's default cargo feature `record`: it
 owns the `turso` dependency, `src/store/`, `src/record.rs`, `src/report/` (the `usage`, `show`,
-`history`, `open`, `link` and `work` commands and their tables), and the parts of other modules only the record uses,
+`history`, `open`, `link`, `work` and `host` commands and their tables), `src/host/`
+(transcripts, the import and the hook), `src/price.rs`, and the parts of other modules only the record uses,
 each its own module: `channel::recorder` (reading `_record`), `files::record_lock` (the lock
 taken without waiting, naming its holder). The host binary is built with it. A guest never opens
 the record, so `dev/agent-bus/start-guest.sh` builds with `--no-default-features`: no Turso, and
@@ -1130,7 +1147,7 @@ without default features, and `cargo test -p agent-bus --no-default-features` ru
 but the record's.
 
 **Schema.** The SQL is under `crates/agent-bus/sql/`: `migrations/0001_record.sql`,
-`migrations/0002_work.sql` and one file per statement in `queries/`, included in the binary (`src/store/sql.rs`). The record's
+`migrations/0002_work.sql`, `migrations/0003_host.sql` and one file per statement in `queries/`, included in the binary (`src/store/sql.rs`). The record's
 `PRAGMA user_version` is the number of migrations applied; opening it applies the rest in one
 transaction, and a record newer than the binary is refused. A unit test
 (`store::database::tests`) applies every migration to an in-memory database, prepares every
@@ -1154,6 +1171,13 @@ recorded before have `NULL` there.
 | `work_ref` | name of an item: `repo`, `kind` (`issue`, `pull_request`, `branch`), `ref` (the number or branch), `work` (the item), `source` (`brief`, `guest`, `parsed`, `manual`), `at_ms` | (`repo`, `kind`, `ref`): a ref names one item |
 | `task_ref` | ref a task's messages named, whatever item it names: `source`, and `seq`, the message that named it first | (`task`, `repo`, `kind`, `ref`) |
 | `task_work` | task in an item: `work`, `source`, `at_ms`. One item per task, so its cost is never split | `task` |
+| `host_transcript` | transcript file read: its project, session and subagent, `inode` and `offset` (just after the last complete line read), its first line's time, when it was read and how many lines did not parse | `path` |
+| `host_usage` | API response of the host: session (the first it was seen in), subagent, first and last line time, model, speed, the five token counts, `cost_usd` (NULL: not priced), `work` (NULL: unattributed) and `pinned` | `message_id`, across every file |
+| `host_span` | prompt (`prompt` from the user, `notice` from Claude Code) or tool call (`work`, `testing`, `excluded`) of the host, with its start and end | the line's `uuid`, or the call's ID |
+| `host_focus` | change of the host's active item: from when, for which session (NULL: every session), the item (NULL: none), `source` (`use`, `clear`, `send`) and the task a `send` tagged | `id` |
+| `host_meta` | import fact: `installed_at_ms`, the first import's time | `key` |
+
+Migration 3 also adds `work_ms` and `testing_ms` to `run` (NULL from older guests).
 
 A task first seen through a later message (sent before the stream's oldest message) has no
 prompt and no sent time.
@@ -1192,8 +1216,11 @@ so cost can be read per item, not only per task.
   requests then; otherwise every task that ended on `main` would be one item.
 - **Cross-repository.** `repo` is part of the key, so a `../sherpa-docs` pull request of the
   same branch is another name of the same item.
-- **Display name.** The lowest issue number, else the lowest pull request (in any of the item's
-  repositories), else the first branch: `#12`, `PR #34`, `feat/x` (`facts::display_name`).
+- **Display name.** The lowest issue number, else the lowest pull request, else the first
+  branch: `#12`, `PR #34`, `feat/x` (`facts::display_name`). It is taken among the item's refs
+  in the host's own repository (`AGENT_BUS_REPO`, or the command's `--repo`) when it has any, so
+  an item with a docs pull request is still named by its own issue or pull request; only an
+  item whose refs are all in another repository (`sherpa-docs`) is named by those.
 
 **How the guest finds `ended`** (`guest::pull_request::ended`, after every run; all its `git`
 and `gh` commands together get 30 s): `git symbolic-ref --quiet --short HEAD` for the branch,
@@ -1227,11 +1254,13 @@ with neither, the branch is left out. Nor does it say which branch is the defaul
 |---|---|
 | `send --issue N --pr N [--repo R]` | tags the task; `--answer` refuses the tags |
 | `link <task> --issue N \| --pr N \| --branch B [--repo R]` | puts the task in the ref's item. The ref names no item: it names the task's item, or a new one when the task has none. The task has no item: it joins the ref's. Both have different items: the task's item is merged into the ref's (`merged_into` set, its refs and tasks moved), and the line says what moved |
-| `work show [--issue \| --pr \| --branch] [--repo R] [--json]` | one item: its refs with their source, its tasks with a total cost, its conflicts and the items merged into it. Without a ref: every item, with its refs, task count, cost and last activity |
+| `work show [--issue \| --pr \| --branch] [--repo R] [--json]` | one item: its refs with their source, its tasks with a total cost, its conflicts, the items merged into it, and the host's usage and time in it. Without a ref: every item, with its refs, task count, cost and last activity, then the host's active item in each session |
 | `work backfill [--repo R]` | parses the Generation line of every recorded outcome without `ended`, as catching up does for new ones; idempotent (every insert is `ON CONFLICT DO NOTHING`, and a task already in an item keeps it) |
-| `usage --issue \| --pr \| --branch [--repo R]` | `usage`, limited to the item's tasks, headed by the item and its refs |
-| `usage --by agent \| model \| week` | the tasks of `usage` added up by group, with a total row. By agent and by week (the ISO week, in UTC, the task was sent in), a task counts whole in one group. By model, each run's `run_model` figures go to their model (a run without models to the run's model), and what the task's totals hold beyond its runs (its priming runs) goes to the task's own model |
-| `open [--json]` | the tasks still `sent`, `running` or waiting on a `question`, oldest first: agent, state, item, age (since sent), and the question's last line (all of it in `--json`) |
+| `usage --issue \| --pr \| --branch [--repo R]` | `usage`, limited to the item's tasks and the host's usage in it, headed by the item and its refs |
+| `usage --by agent \| model \| week` | the tasks of `usage` and the host's responses added up by group, with a total row; the host is agent `host`, its responses go to their model and to the week they were made in. By agent and by week (the ISO week, in UTC, the task was sent in), a task counts whole in one group. By model, each run's `run_model` figures go to their model (a run without models to the run's model), and what the task's totals hold beyond its runs (its priming runs) goes to the task's own model |
+| `open [--json] [--all]` | the tasks still `sent`, `running` or waiting on a `question`, oldest first: agent, state, item, age (since sent), and the question's last line (all of it in `--json`). Tasks of an agent no longer enrolled (not in the agents file or the registry, as `agents` lists them) never finish, so they are hidden, with a line counting them; `--all` shows them. When the enrolled agents cannot be read (no `bus.toml`, no seed), every task is shown and a line says why |
+| `work use --issue N \| --pr N \| --branch B [--repo R]`, `work clear` | sets or clears the host's active item; see [Attribution](#attribution) |
+| `work reassign --from <item \| unattributed> --to <item> [--since T] [--until T] [--session S]` | moves the host's usage and pins it; items are `issue:N`, `pr:N`, `branch:NAME` or `item:ID`, times RFC 3339 |
 
 Example, from `report::work::tests` (`cargo test -p agent-bus report::work -- --nocapture`):
 
@@ -1247,8 +1276,195 @@ $ agent-bus open
 ```
 
 A wrong `link` is not undone by the record: merges keep `merged_into`, and `work show` lists the
-merged items, so what moved can be traced. Not yet: the host's own sessions, an active item, and
-pricing (the next step), and the Generation section written by the host (the one after).
+merged items, so what moved can be traced. A merge moves the host's usage and focus rows of the
+merged item too. Not yet: the Generation section written by the host, with the host's rows and
+the time columns.
+
+## Host usage and time
+
+The host agent runs Claude Code interactively, not through the bus, so its cost is not in any
+outcome. It is read from Claude Code's own transcripts instead (`src/host/`, `store::host`).
+
+### Host import
+
+`agent-bus host import [--project <dir>] [--rescan] [--reprice]` catches the record up, then
+reads the host's transcripts into it. Every record command does the same after catching up, when
+`AGENT_BUS_HOST_PROJECT` is set, so there is no per-turn hook: the import runs whenever the host
+uses agent-bus, through the mise tasks that already load its secrets.
+
+- **Which sessions.** Only the host's sherpa checkout: Claude Code's directory of it under
+  `~/.claude/projects/` (for `~/code/rust/sherpa`, `~/.claude/projects/-home-<user>-code-rust-sherpa`).
+  It comes from `--project`, else `AGENT_BUS_HOST_PROJECT`; nothing is assumed. Without it
+  record commands import nothing, and `host import` refuses.
+- **What is read.** Every `*.jsonl` up to three levels under the project directory: the main
+  transcripts `<session>.jsonl` and the subagents'
+  `<session>/subagents/agent-<id>.jsonl`, whose lines carry the parent's `sessionId`.
+- **What counts** (`host::transcript::parse`). An `assistant` line with `message.id`,
+  `message.usage` and a real model (`<synthetic>` is not one) is an API response; its
+  `tool_use` blocks start tool calls. A `user` line with `tool_result` blocks ends them. Any
+  other `user` line that is not `isMeta` is a prompt: the user's, unless its `origin.kind` is
+  `task-notification` or its text starts `<task-notification>`, which Claude Code wrote. Every
+  other line (`cost-state`, `attachment`, `api-request` and the rest) means nothing here.
+- **Dedupe.** Claude Code writes one line per content block, each with the response's
+  `message.id` and usage, and a resumed or forked session copies its history (same ids, same
+  `uuid`s, same times) into a new file. A response is one row keyed by `message.id` across all
+  files: the first sight inserts it; a later one keeps the earliest time and its session, takes
+  the latest time as `last_at_ms`, and the largest of each count, so a partial line never lowers
+  a figure. Prompts are keyed by their line's `uuid` and tool calls by their ID. Reading the same
+  bytes twice changes nothing.
+- **Cursors** (`host_transcript`), per file:
+
+| Case | Seen as | Then |
+|---|---|---|
+| Nothing new | size equals `offset` | not opened |
+| Appended | size above `offset`, same inode | read from `offset` |
+| Half-written last line | no line end | left for the next run |
+| Truncated | size below `offset` | read from 0 |
+| Replaced or rotated | another inode | read from 0 |
+| A complete line that does not parse | parse error | counted in `skipped`, passed |
+| Rewritten in place and longer | not seen | `host import --rescan` reads every file from 0 |
+
+  Each file is one transaction: its rows and its cursor commit together, so a run stopped
+  between files leaves the next file to be read again, at no cost.
+- **Install time.** The first import records its time (`host_meta.installed_at_ms`); lines from
+  before it are not imported, so the host's history before agent-bus imported is not measured.
+  The cursors still move past them.
+- **Kept.** Rows are never pruned. Claude Code deletes transcripts after its own retention (30
+  days by default); a transcript deleted before it was read is lost.
+- **Status.** Every import writes `<state>/host-import.toml`: the project, the last success
+  with what it did, and the last error with its time. `host status [--json]` shows it, the
+  host's totals (responses, cost, unpriced, install time) and every transcript's cursor;
+  `usage` warns when the last error is newer than the last success.
+
+A full read of 103 transcripts (about 20,000 lines) took 57 s in a debug build, one statement
+per line; an import that follows a session reads only what was appended.
+
+### Pricing
+
+Transcripts carry tokens, not cost, so the host prices them (`src/price.rs`): five rates per
+model, in US dollars per million tokens, measured from Claude Code's own `costUSD` (an exact
+linear fit over its per-model figures, not a price page).
+
+| Model | Input | Output | Cache read | Cache write 5 min | Cache write 1 h |
+|---|--:|--:|--:|--:|--:|
+| `claude-opus-5-5` | 4.00 | 20.00 | 0.20 | 5.00 | 8.00 |
+| `claude-sonnet-5-5` | 2.00 | 10.00 | 0.10 | 2.50 | 4.00 |
+| `claude-haiku-5-5` | 0.10 | 0.50 | 0.01 | 0.125 | 0.20 |
+| `claude-fable-5-2` | 8.00 | 40.00 | 0.20 | 10.00 | 16.00 |
+
+- The 5-minute cache write is 1.25 × input for every model; it was measured for Sonnet only.
+- The 5-minute and one-hour writes are split by `usage.cache_creation`; without the split, all
+  writes are taken as 5-minute ones.
+- The rates are whole thousandths of a dollar per million tokens, so a cost is a whole number of
+  nanodollars until the last division: the measured figure (56 input, 18,340 output, 1,476,182
+  cache read and 85,432 one-hour writes on Opus 5.5 cost $1.3457164) is reproduced exactly.
+- **Not priced:** a model without a rate, and a response whose `usage.speed` is not
+  `standard` (fast mode). Its tokens are kept and its cost is NULL, shown as `+N unpriced`.
+  `host import --reprice` prices the NULL rows that have a rate now. A priced row is never
+  priced again, so a later rate change does not rewrite history; its cost is worked out again
+  only when a later line raises one of its counts.
+- **Checked against Claude Code.** On a dev guest, each of 101 sessions' responses priced by the
+  record against the last `cost-state` line Claude Code wrote for it: 97 equal to the cent. The
+  four others: two ran on `claude-fable-5-1`, which has no rate; one had internal Haiku calls
+  Claude Code counts but does not write to the transcript ($0.0096); one lost a response when
+  its transcript was cut mid-line (a full disk). A forked session's `cost-state` includes the
+  history it copied; the record counts that history once, in the session it was first read in.
+
+### Attribution
+
+Explicit only: nothing reads the conversation.
+
+- `work use --issue N | --pr N | --branch B` makes the item the ref names (a new one when it
+  names none) the active item from now on; `work clear` makes none active. Run inside Claude
+  Code (`CLAUDE_CODE_SESSION_ID` set) the change is for that session; from a terminal, for every
+  session.
+- `send --issue/--pr` does it too: catching up turns the task's tags into a focus row for the
+  sending session, dated by the bus's publish time (`store::write`). `send --answer` carries no
+  tags, so it never moves the active item.
+- **The rule** (`store::host::active`): a response is charged to the item of the newest focus
+  row at or before its time, among those for its session or for every session; none, or a
+  cleared one, leaves it unattributed. A turn that spans a change is split by response time.
+- **Subagents** are charged whole to the item active when they started (their transcript's
+  first line), so one started for #580 stays on #580 after the host moves on.
+- **Late facts.** Attribution is worked out again over every unpinned response after each
+  import and each `work use` or `clear` (`store::host::attribute`), so a focus row recorded late
+  (a `send` caught up after the import) moves the responses in its interval.
+- `work reassign --from <item | unattributed> --to <item> [--since] [--until] [--session]` moves
+  responses and pins them; a pinned response is never attributed again.
+
+### Time
+
+Time is recorded in three buckets, for each agent task and for the host (`src/timing.rs`):
+
+| Bucket | What counts |
+|---|---|
+| Work | the model writing, and tool calls that are not testing |
+| Testing | tool calls that build or test |
+| Waiting on user | a question until its answer; for the host, a turn's end until the user's next prompt |
+
+Not recorded at all: time a task waits in the queue (the clock starts when its run does);
+Monitor, background-task waits, `sleep` and CI watches; the gap before a prompt Claude Code made
+itself (a task notification: the host was waiting on background work or on agents, whose own
+time covers it).
+
+**Classification** (`timing::classify`), against two fixed lists in that one file, with tests:
+
+- `TESTING`: a Bash command any of whose parts starts `cargo build`, `cargo clippy`,
+  `cargo test`, `cargo nextest` (`cargo +<toolchain> …` too), `sherpa up`, `down`, `destroy`,
+  `redeploy` or `resume`, or runs a script under `tests/labs/`. Parts are split at `;`, `&`,
+  `|`, parentheses and line ends outside quotes; variable assignments and `sudo`, `time`,
+  `timeout <duration>`, `env`, `exec`, `nice` and `command` in front are skipped; a command run
+  through `ssh <host> …` or `sh -c` / `bash -c` is looked into. Quoted text is otherwise an
+  argument, so `grep 'cargo test'` is not testing.
+- `EXCLUDED`: the tools `Monitor`, `TaskOutput` and `BashOutput`, and Bash parts starting
+  `sleep`, `gh run watch`, or `gh pr checks` with `--watch`. Testing wins over an excluded wait
+  in the same command.
+- Anything else is work.
+
+**Cutting a timeline** (`timing::segments`, the same code for the host and the guest): prompts
+start turns; a turn ends at its last response or tool result before the next prompt. Inside a
+turn, each stretch is testing when a testing call covers it, not counted when an excluded call
+does, and work otherwise, so parallel calls count once. Between turns, the stretch before a
+user's prompt is waiting on the user.
+
+**Agents.** The guest stamps each line of Claude Code's `stream-json` with the time it reads it
+(the stream carries no times): an `assistant` event is a response and starts its `tool_use`
+calls by ID, a `user` event's `tool_result` blocks end them, and a `user` event with text is a
+prompt Claude Code made (`guest::stream::interpret`, `timing::RunClock`). The run's clock starts
+when Claude Code is started for it. When the `result` event comes, the run's work and testing
+are worked out and sent as `work_ms` and `testing_ms` on the outcome's `usage`, optional fields
+an older host ignores; the host keeps them on the `run` row. Priming runs are not timed. An
+agent's waiting on the user is each `question` to the next `answer` of its task, from the
+messages' `at_ms` on the host, which the bus stamps (`timing::waiting_on_answers`).
+
+**The host.** The transcripts give each line's time: a tool call runs from its `tool_use` line
+to its `tool_result` line, a response from its first line to its last. Turns are those of the
+main transcript of each session; a subagent's time is inside its parent's `Agent` call, so its
+own transcript is not timed again. The buckets are worked out when a report is printed, from
+`host_span` and `host_usage`, so a turn read in two imports is cut whole. A stretch is charged
+to the item of the response before it (the one that made the call, or the turn's first), so
+host time follows host cost, `work reassign` included.
+
+**Storage.** The host keeps raw spans (`host_span`) and cuts them when reporting, because its
+data arrives a few lines at a time, a turn can span imports, copies are deduped by line, and
+its items can change later (late focus, reassign). An agent's run is reduced to two numbers by
+the guest, which saw the whole run, and its task never changes item, so they are columns on
+`run`.
+
+**Between turns there is no cap.** Within a session, the gap from a turn's end to the user's
+next prompt is waiting on the user however long it is, nights included, as decided. A new
+session starts with no waiting: its first prompt has no turn before it.
+
+### The SessionEnd hook
+
+A safety net: a final import when a host session ends. `agent-bus host import --hook` reads the
+hook's JSON on stdin and uses `transcript_path` (its directory is the project to sweep when
+`--project` and `AGENT_BUS_HOST_PROJECT` name none); it logs nothing of `session_id` or
+`hook_event_name` and ignores the rest. It prints nothing on stdout. It exits 0 when it
+imported or the record was busy for 1 s (the command holding it imports), and 1 on a failure
+(empty or garbage stdin, a missing project, a record it cannot open), with one line on stderr,
+which Claude Code shows and goes on. It never exits 2, which would stop Claude from stopping.
+The entry is in [Operating it](#operating-it).
 
 ## Pull request Generation section
 
@@ -1349,6 +1565,7 @@ real-bus tests start the bus with its state in a 0700 directory.
 | Host | `<state>/enroll.lock` | 0600, directory 0700 | Empty; the exclusive `flock` that `bus start`, `enroll` and `unenroll` hold while they change the registry or render the config. Never removed. | `files::lock_exclusive` |
 | Host | `<state>/bus.toml` | 0600, directory 0700 | `url`, `agents` (the agents file's absolute path), and `[lab]` with `id` and `name` when started with `--lab`. Written with `files::write_atomic`. Removed by `bus stop`. | `state::write` |
 | Host | `<state>/agent-bus.db`, `<state>/agent-bus.db-wal` | 0600, directory 0700 | The record (see [The record](#the-record)). Opened only by the holder of `record.lock`; its mode is set on every open. | `store::Store::open` |
+| Host | `<state>/host-import.toml` | 0600, directory 0700 | The last host import: the project, the last success and what it did, the last error and its time. Written with `files::write_atomic` after every import. | `report::host::import_noted` |
 | Host | `<state>/record.lock` | 0600, directory 0700 | The exclusive `flock` whose holder alone opens the record: the command reading it. Holds the PID of its holder, or its last one. Never removed. | `record::Record::open`, `files::record_lock::try_lock_exclusive` |
 | Host | `<state>/listen-<agent>.jsonl` | 0600, directory 0700 | The listener's journal: one line per message received, `{"at_ms":..,"message":{..}}`, the message as `listen` prints it. Appended and in the file before the message is printed and acknowledged. Pruned to 7 days (below). | `listen::Journal` |
 | Host | the agents file | the user's | The host's and any fixed guests' names, public keys and roles. Only read. | the user |
@@ -1547,12 +1764,43 @@ on dev's lab, so it listens only on dev's gateway. agent-2's guest agent is star
 gateway. A guest on its own bridge reaches dev's gateway with no firewall change; the check and
 its result are in `tests/environments/dev/README.md`.
 
+**The host's usage.** Set `AGENT_BUS_HOST_PROJECT` in the host's mise configuration, beside
+`AGENT_BUS_REPO`, to Claude Code's directory of the host's sherpa checkout, for example
+`~/.claude/projects/-home-<user>-code-rust-sherpa` (the checkout's path with `/` and `.` as
+`-`). Every record command then imports the host's transcripts; the first import only records
+its time. Then add the `SessionEnd` hook, for a last import when a session ends, to
+`.claude/settings.local.json` of the host's checkout (outside the repository's tracked files;
+agent-bus never writes it), with `<load secrets>` standing for how the mise tasks load
+`AGENT_BUS_SEED` (without it the hook still imports, and says it did not catch up):
+
+```json
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<load secrets> ~/.local/bin/agent-bus host import --hook",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+`timeout` raises the 1.5 s that `SessionEnd` hooks share. `agent-bus host status` shows the last
+import and each transcript's cursor, to check it ran.
+
 Checking health:
 
 - `agent-bus bus status`: the container's state, the recorded URL, the lab and the CA certificate.
 - The `bus start` output: one `Inbox ready` line per agent, and `Recorder consumer ready`.
 - `<state>/enrolled.toml`: the enrolled guests and their public keys.
-- `agent-bus usage`: what each task cost, and its last outcome.
+- `agent-bus usage`: what each task and the host cost, its time, and its last outcome.
+- `agent-bus host status`: the last host import, its error if any, and every transcript's cursor.
 - `agent-bus history`: the newest tasks, their state and the start of their prompt.
 - `agent-bus listen host --since 1h`, or `<state>/listen-host.jsonl` on the host: what the
   listener received, for an outcome the host agent missed.
@@ -1632,6 +1880,11 @@ not reach the builds and tests Claude runs.
   while no command runs: the stream holds those messages for 30 days, and `agents` shows the
   lag. The record holds every
   task's text and results, so it is as private as the state directory.
+- **The host's usage is as good as its transcripts.** What Claude Code does not write to a
+  transcript (its own internal calls) or deletes before an import reads it is not measured, and
+  a rescan of every transcript holds the record lock for as long as it reads (about a minute for
+  a hundred transcripts). Usage of a model with no rate, or in fast mode, stays unpriced until a
+  rate is added.
 - **The registry is trusted as written.** Anyone who can write the host's state directory can
   enroll a key; it is 0700 for that reason.
 - **Windows left.** A message is acknowledged before it reaches the state file's queue, so a

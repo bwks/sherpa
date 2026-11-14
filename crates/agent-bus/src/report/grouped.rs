@@ -210,7 +210,10 @@ pub fn iso_week(at_ms: u64) -> String {
 mod tests {
     use super::*;
 
+    use crate::price::Tokens;
+    use crate::report::usage::{Time, host_group_rows};
     use crate::store::TaskState;
+    use crate::store::host::HostRow;
 
     /// 2026-11-14 12:00 UTC, a Saturday of ISO week 46.
     const SATURDAY: u64 = 1_794_657_600_000;
@@ -220,8 +223,10 @@ mod tests {
         Row {
             task: task.to_owned(),
             agent: agent.to_owned(),
+            work: None,
+            item: None,
             model: Some(model.to_owned()),
-            state: TaskState::Completed,
+            state: Some(TaskState::Completed),
             at_ms,
             usage: Some(TaskUsage {
                 runs,
@@ -230,6 +235,8 @@ mod tests {
                 output: 10,
                 ..TaskUsage::default()
             }),
+            time: Time::default(),
+            unpriced: 0,
         }
     }
 
@@ -313,5 +320,54 @@ mod tests {
         old.usage = None;
         assert_eq!(group(&[old], &[], By::Agent), []);
         assert_eq!(table(&[], By::Agent), "No usage recorded");
+    }
+
+    #[test]
+    fn the_host_is_an_agent_its_models_are_models_and_its_days_fall_in_weeks() {
+        let response = |model: &str, at_ms: u64, cost_usd| HostRow {
+            work: None,
+            model: model.to_owned(),
+            at_ms,
+            tokens: Tokens {
+                input: 100,
+                output: 10,
+                ..Tokens::default()
+            },
+            cost_usd,
+        };
+        // Monday 2026-11-09 and Monday 2026-11-16, UTC.
+        let monday = 1_794_182_400_000;
+        let host = host_group_rows(&[
+            response("claude-opus-5-5", monday, Some(1.0)),
+            response("claude-opus-5-5", monday + 3_600_000, Some(2.0)),
+            response("claude-haiku-5-5", monday + 7 * DAY_MS, None),
+        ]);
+        assert_eq!(host.len(), 2);
+        let mut rows = vec![row("t1", "dev01", "claude-opus-5-5", monday, 0.5, 1)];
+        rows.extend(host);
+        let by_agent = group(&rows, &[], By::Agent);
+        assert_eq!(
+            by_agent
+                .iter()
+                .map(|group| (group.key.as_str(), group.usage.cost_usd))
+                .collect::<Vec<_>>(),
+            [("dev01", 0.5), ("host", 3.0)]
+        );
+        let by_model = group(&rows, &[], By::Model);
+        assert_eq!(
+            by_model
+                .iter()
+                .map(|group| (group.key.as_str(), group.usage.cost_usd))
+                .collect::<Vec<_>>(),
+            [("claude-haiku-5-5", 0.0), ("claude-opus-5-5", 3.5)]
+        );
+        let by_week = group(&rows, &[], By::Week);
+        assert_eq!(
+            by_week
+                .iter()
+                .map(|group| (group.key.as_str(), group.usage.cost_usd))
+                .collect::<Vec<_>>(),
+            [("2026-W46", 3.5), ("2026-W47", 0.0)]
+        );
     }
 }

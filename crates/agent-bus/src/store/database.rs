@@ -250,6 +250,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_version_1_record_with_rows_migrates_and_keeps_them() {
+        // Every later migration runs over it: the run's time columns are added empty.
         let dir = env::temp_dir().join(format!("agent-bus-store-v1-{}", process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
@@ -296,7 +297,17 @@ mod tests {
         assert_eq!(row.get_value(1).unwrap(), Value::Real(0.5));
         drop(rows);
         // The new tables are there, empty.
-        for table in ["work_item", "work_ref", "task_ref", "task_work"] {
+        for table in [
+            "work_item",
+            "work_ref",
+            "task_ref",
+            "task_work",
+            "host_transcript",
+            "host_usage",
+            "host_span",
+            "host_focus",
+            "host_meta",
+        ] {
             let mut rows = conn
                 .query(&format!("SELECT count(*) FROM {table}"), ())
                 .await

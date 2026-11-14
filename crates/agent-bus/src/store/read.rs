@@ -7,7 +7,7 @@ use tracing::instrument;
 use turso::{Connection, Value};
 
 use crate::message::{Kind, Message};
-use crate::report::usage::Row;
+use crate::report::usage::{Row, Time};
 use crate::store::cells::{Cells, integer, optional_integer, optional_text};
 use crate::store::sql::{HISTORY, TASK_MESSAGES, USAGE};
 use crate::store::task::TaskState;
@@ -130,13 +130,25 @@ fn usage_row(cells: &mut Cells<'_>) -> Result<Row> {
     let state = TaskState::parse(&cells.text("state")?)?;
     let sent_at_ms = cells.optional_count("sent_at_ms")?;
     let last_at_ms = cells.count("last_at_ms")?;
+    let usage = cells.task_usage()?;
+    let work = cells.optional_id("work")?;
+    let work_ms = cells.optional_count("work_ms")?;
+    let testing_ms = cells.optional_count("testing_ms")?;
     Ok(Row {
         task,
         agent,
+        work,
+        item: None,
         model,
-        state,
+        state: Some(state),
         at_ms: sent_at_ms.unwrap_or(last_at_ms),
-        usage: cells.task_usage()?,
+        usage,
+        time: Time {
+            work: work_ms,
+            testing: testing_ms,
+            waiting: None,
+        },
+        unpriced: 0,
     })
 }
 
@@ -210,8 +222,9 @@ fn history_row(cells: &mut Cells<'_>) -> Result<HistoryRow> {
 mod tests {
     use super::*;
 
-    use crate::message::{Ended, RefKind, TaskUsage, Work, WorkRef};
+    use crate::message::{Ended, RefKind, TaskUsage, Usage, Work, WorkRef};
     use crate::store::database::Store;
+    use crate::store::host::task_waits;
     use crate::store::task::Recorded;
     use crate::store::write::record;
 
@@ -265,6 +278,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_tasks_runs_add_up_their_time_and_a_question_waits_for_its_answer() {
+        let timed = |kind: Kind, work_ms: Option<u64>| {
+            let mut outcome = outcome("a", "dev", kind, Some((1, 0.01)));
+            outcome.usage = Some(Usage {
+                work_ms,
+                testing_ms: work_ms.map(|work| work / 2),
+                ..Usage::default()
+            });
+            outcome
+        };
+        // Sent at 1 s; asks at 2 s; answered at 62 s (seq 3..61 are other tasks' messages);
+        // finishes at 63 s.
+        let mut messages = vec![
+            message("a", "host", "dev", Kind::Task),
+            timed(Kind::Question, Some(10_000)),
+        ];
+        for other in 0..59 {
+            messages.push(message(&format!("o{other}"), "host", "dev", Kind::Progress));
+        }
+        messages.push(message("a", "host", "dev", Kind::Answer));
+        messages.push(timed(Kind::Completed, Some(4_000)));
+        let conn = recorded(&messages).await;
+        let rows = usage(&conn, "host", Some("dev"), None, false, None)
+            .await
+            .unwrap();
+        let row = rows.iter().find(|row| row.task == "a").unwrap();
+        assert_eq!(row.time.work, Some(14_000));
+        assert_eq!(row.time.testing, Some(7_000));
+        let waits = task_waits(&conn).await.unwrap();
+        assert_eq!(waits.get("a"), Some(&60_000));
+
+        // A task whose runs reported no time has none.
+        let conn = recorded(&[
+            message("b", "host", "dev", Kind::Task),
+            outcome("b", "dev", Kind::Completed, Some((1, 0.01))),
+        ])
+        .await;
+        let rows = usage(&conn, "host", None, None, false, None).await.unwrap();
+        assert_eq!(rows[0].time.work, None);
+    }
+
+    #[tokio::test]
     async fn usage_has_one_row_per_task_with_its_latest_totals_and_state() {
         let conn = recorded(&[
             message("a", "host", "dev", Kind::Task),
@@ -277,13 +332,16 @@ mod tests {
         ])
         .await;
         let rows = usage(&conn, "host", None, None, true, None).await.unwrap();
-        let tasks: Vec<(&str, TaskState)> = rows
+        let tasks: Vec<(&str, Option<TaskState>)> = rows
             .iter()
             .map(|row| (row.task.as_str(), row.state))
             .collect();
         assert_eq!(
             tasks,
-            [("a", TaskState::Completed), ("b", TaskState::Failed)]
+            [
+                ("a", Some(TaskState::Completed)),
+                ("b", Some(TaskState::Failed))
+            ]
         );
         assert_eq!(rows[0].usage.as_ref().map(|usage| usage.runs), Some(2));
         assert_eq!(rows[1].usage, None);

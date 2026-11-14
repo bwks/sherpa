@@ -1,11 +1,13 @@
 //! What the work commands print: `work show` (one item, or every item), `open`, and the lines
 //! of `link` and `work backfill`.
 
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 
 use shared::util::{TableLayout, render_table};
 
 use crate::report::history::{prompt_start, utc_minute};
+use crate::store::host::Focus;
 use crate::store::items::{Item, ItemSummary, OpenTask};
 use crate::store::{Backfilled, Linked, Ref};
 
@@ -205,6 +207,61 @@ pub fn open(open: &[OpenTask], now_ms: u64) -> String {
     )
 }
 
+/// The host's active item in each session, and in every session, as a table; `None` when none
+/// was ever set. `names` are the items' names by ID.
+pub fn active(
+    current: &BTreeMap<Option<String>, Focus>,
+    names: &HashMap<i64, String>,
+) -> Option<String> {
+    if current.is_empty() {
+        return None;
+    }
+    let rows: Vec<[String; 4]> = current
+        .iter()
+        .map(|(session, focus)| {
+            [
+                session
+                    .clone()
+                    .unwrap_or_else(|| "every session".to_owned()),
+                focus.work.map_or_else(
+                    || "none".to_owned(),
+                    |work| {
+                        names
+                            .get(&work)
+                            .cloned()
+                            .unwrap_or_else(|| format!("item {work}"))
+                    },
+                ),
+                utc_minute(focus.from_ms),
+                focus.source.clone(),
+            ]
+        })
+        .collect();
+    Some(render_table(
+        ["Session", "Active item", "Since (UTC)", "Set by"],
+        &rows,
+        &TableLayout {
+            title: Some("Host"),
+            ..TableLayout::default()
+        },
+    ))
+}
+
+/// The open tasks to show: those whose agent is `enrolled`, or all of them with `all`, and how
+/// many were hidden. A task of an agent no longer enrolled never finishes.
+pub fn of_enrolled(open: Vec<OpenTask>, enrolled: &[String], all: bool) -> (Vec<OpenTask>, usize) {
+    if all {
+        return (open, 0);
+    }
+    let before = open.len();
+    let shown: Vec<OpenTask> = open
+        .into_iter()
+        .filter(|task| enrolled.contains(&task.agent))
+        .collect();
+    let hidden = before - shown.len();
+    (shown, hidden)
+}
+
 /// What `link` did to `task`, with `name` the name of the item it is in now.
 pub fn linked(task: &str, linked: &Linked, name: &str) -> String {
     match linked {
@@ -277,7 +334,7 @@ mod tests {
 
     use crate::message::{Ended, Kind, Message, PullRequestRef, RefKind, TaskUsage, Work, WorkRef};
     use crate::report::usage;
-    use crate::store::{Recorded, Ref, Store, items, read, record, ref_item};
+    use crate::store::{Recorded, Ref, Store, TaskState, items, read, record, ref_item};
 
     /// 2026-11-14 12:00 UTC.
     const NOON: u64 = 1_794_657_600_000;
@@ -388,7 +445,7 @@ mod tests {
         let (_store, conn) = recorded().await;
         let issue = Ref::new("bwks/sherpa", RefKind::Issue, "580");
         let id = ref_item(&conn, &issue).await.unwrap().unwrap();
-        let found = items::item(&conn, id).await.unwrap();
+        let found = items::item(&conn, id, None).await.unwrap();
 
         let shown = item(&found);
         println!("$ agent-bus work show --issue 580\n{shown}\n");
@@ -417,7 +474,7 @@ mod tests {
         let total = used.lines().find(|line| line.contains("total")).unwrap();
         assert!(total.contains("$4.6378"), "{total}");
 
-        let tasks = items::open_tasks(&conn).await.unwrap();
+        let tasks = items::open_tasks(&conn, None).await.unwrap();
         let listed = open(&tasks, NOON + 8 * 3_600_000);
         println!("$ agent-bus open\n{listed}");
         assert_eq!(
@@ -446,10 +503,40 @@ mod tests {
         assert_eq!(json[0]["item_name"], "#580");
     }
 
+    #[test]
+    fn open_hides_the_tasks_of_agents_no_longer_enrolled_unless_all() {
+        let task = |id: &str, agent: &str| OpenTask {
+            task: id.to_owned(),
+            agent: agent.to_owned(),
+            state: TaskState::Running,
+            since_ms: 0,
+            item: None,
+            item_name: None,
+            question: None,
+        };
+        let open = vec![
+            task("0ed09a01", "dev"),
+            task("a1", "dev01"),
+            task("a2", "dev02"),
+        ];
+        let enrolled = vec!["host".to_owned(), "dev01".to_owned(), "dev02".to_owned()];
+        let (shown, hidden) = of_enrolled(open.clone(), &enrolled, false);
+        assert_eq!(hidden, 1);
+        assert_eq!(
+            shown
+                .iter()
+                .map(|task| task.task.as_str())
+                .collect::<Vec<_>>(),
+            ["a1", "a2"]
+        );
+        let (shown, hidden) = of_enrolled(open.clone(), &enrolled, true);
+        assert_eq!((shown, hidden), (open, 0));
+    }
+
     #[tokio::test]
     async fn work_show_without_an_item_lists_every_item() {
         let (_store, conn) = recorded().await;
-        let all = items::items(&conn).await.unwrap();
+        let all = items::items(&conn, None).await.unwrap();
         let listed = items(&all);
         println!("$ agent-bus work show\n{listed}");
         assert_eq!(all.len(), 1);
@@ -478,7 +565,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let listed = items(&items::items(&conn).await.unwrap());
+        let listed = items(&items::items(&conn, None).await.unwrap());
         assert!(listed.contains("$0.0000"), "{listed}");
         assert!(!listed.contains("$-0"), "{listed}");
         assert_eq!(items(&[]), "No work items recorded");
