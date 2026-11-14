@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.2] - 2026-11-14
+
+### Upgrade notes
+
+- No database migration. Back up with `sherpa server backup` before updating, as usual.
+- P2p links now follow their peer: when one end stops, is paused or is destroyed outside Sherpa, the other end's interface loses carrier, and it comes back when the peer returns. `sherpa down` pauses containers, so their peers see link down until `sherpa resume`.
+- New container models `cisco_iol` and `cisco_ioll2`. Build the images with bwks/docker-cisco-iol from your own IOL images, then run `sherpa server image scan --container`.
+- Update the `sherpa` CLI on every client along with the server; `inspect` now shows each link's state.
+
+### Bug Fixes
+
+- Turn checksum offload off again on IOL management veths after an outside restart by @bwks ([eab693d](https://github.com/bwks/sherpa/commit/eab693df6ab10b2961d9a5c89d9a73b24d964283))
+
+### Features
+
+- Take a P2p link's carrier down when its peer is down by @bwks ([10838ae](https://github.com/bwks/sherpa/commit/10838ae6fc1f512f2e3e9096360eec5cd702bdf9))
+- Add Cisco IOL as a container node by @bwks ([26636cc](https://github.com/bwks/sherpa/commit/26636ccae4684af6f36d31b292d23f2997d15fff))
+- Repair P2p links broken outside Sherpa and show link state in inspect by @bwks ([bc34084](https://github.com/bwks/sherpa/commit/bc34084d10eacb1d4ba3769b687c6ad44409a38a))
+
+### Miscellaneous
+
+- Drop issue references from Cargo.toml comments by @bwks ([e9ad021](https://github.com/bwks/sherpa/commit/e9ad021a04a5b7a05fb403f915e441f09528844c))
+- Speed up dev builds and tests (#583 R1-R5) by @bwks ([42141b6](https://github.com/bwks/sherpa/commit/42141b6ed3abe34b70ddf9fa6ce33fe8d164cb4c))
+
+### Refactor
+
+- Read the host capabilities with quick-xml and drop roxmltree by @bwks ([aef62b7](https://github.com/bwks/sherpa/commit/aef62b74e44e47b06193d0e8fb1a103fd388ef3b))
+- Set a VM link's state with a quick-xml event edit by @bwks ([d7fba06](https://github.com/bwks/sherpa/commit/d7fba06d57aea4f86c9b5e5760face47493ef5e1))
+- Rename the cisco_iol_l2 model to cisco_ioll2 by @bwks ([7d206b4](https://github.com/bwks/sherpa/commit/7d206b44319f880597aab8d00bd9ded9c533e3da))
+
 ## [0.6.1] - 2026-11-13
 
 ### Upgrade notes
