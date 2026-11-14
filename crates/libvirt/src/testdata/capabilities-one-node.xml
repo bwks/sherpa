@@ -1,0 +1,408 @@
+<capabilities>
+
+  <host>
+    <uuid>00000000-0000-0000-0000-000000000000</uuid>
+    <cpu>
+      <arch>x86_64</arch>
+      <model>Broadwell-IBRS</model>
+      <vendor>Intel</vendor>
+      <microcode version='184549440'/>
+      <signature family='6' model='79' stepping='1'/>
+      <topology sockets='1' dies='1' cores='6' threads='2'/>
+      <maxphysaddr mode='emulate' bits='46'/>
+      <feature name='vme'/>
+      <feature name='ss'/>
+      <feature name='ht'/>
+      <feature name='vmx'/>
+      <feature name='pdcm'/>
+      <feature name='osxsave'/>
+      <feature name='f16c'/>
+      <feature name='rdrand'/>
+      <feature name='hypervisor'/>
+      <feature name='arat'/>
+      <feature name='tsc_adjust'/>
+      <feature name='umip'/>
+      <feature name='md-clear'/>
+      <feature name='stibp'/>
+      <feature name='flush-l1d'/>
+      <feature name='arch-capabilities'/>
+      <feature name='ssbd'/>
+      <feature name='xsaveopt'/>
+      <feature name='pdpe1gb'/>
+      <feature name='abm'/>
+      <feature name='ibpb'/>
+      <feature name='ibrs'/>
+      <feature name='amd-stibp'/>
+      <feature name='amd-ssbd'/>
+      <feature name='skip-l1dfl-vmentry'/>
+      <feature name='pschange-mc-no'/>
+      <feature name='gds-no'/>
+      <pages unit='KiB' size='4'/>
+      <pages unit='KiB' size='2048'/>
+      <pages unit='KiB' size='1048576'/>
+    </cpu>
+    <power_management>
+      <suspend_mem/>
+    </power_management>
+    <iommu support='no'/>
+    <migration_features>
+      <live/>
+      <uri_transports>
+        <uri_transport>tcp</uri_transport>
+        <uri_transport>rdma</uri_transport>
+      </uri_transports>
+    </migration_features>
+    <topology>
+      <cells num='1'>
+        <cell id='0'>
+          <memory unit='KiB'>32864700</memory>
+          <pages unit='KiB' size='4'>8216175</pages>
+          <pages unit='KiB' size='2048'>0</pages>
+          <pages unit='KiB' size='1048576'>0</pages>
+          <distances>
+            <sibling id='0' value='10'/>
+          </distances>
+          <cpus num='12'>
+            <cpu id='0' socket_id='0' die_id='0' core_id='0' siblings='0-1'/>
+            <cpu id='1' socket_id='0' die_id='0' core_id='0' siblings='0-1'/>
+            <cpu id='2' socket_id='0' die_id='0' core_id='1' siblings='2-3'/>
+            <cpu id='3' socket_id='0' die_id='0' core_id='1' siblings='2-3'/>
+            <cpu id='4' socket_id='0' die_id='0' core_id='2' siblings='4-5'/>
+            <cpu id='5' socket_id='0' die_id='0' core_id='2' siblings='4-5'/>
+            <cpu id='6' socket_id='0' die_id='0' core_id='3' siblings='6-7'/>
+            <cpu id='7' socket_id='0' die_id='0' core_id='3' siblings='6-7'/>
+            <cpu id='8' socket_id='0' die_id='0' core_id='4' siblings='8-9'/>
+            <cpu id='9' socket_id='0' die_id='0' core_id='4' siblings='8-9'/>
+            <cpu id='10' socket_id='0' die_id='0' core_id='5' siblings='10-11'/>
+            <cpu id='11' socket_id='0' die_id='0' core_id='5' siblings='10-11'/>
+          </cpus>
+        </cell>
+      </cells>
+    </topology>
+    <cache>
+      <bank id='0' level='3' type='both' size='16' unit='MiB' cpus='0-11'/>
+    </cache>
+    <secmodel>
+      <model>apparmor</model>
+      <doi>0</doi>
+    </secmodel>
+    <secmodel>
+      <model>dac</model>
+      <doi>0</doi>
+      <baselabel type='kvm'>+64055:+993</baselabel>
+      <baselabel type='qemu'>+64055:+993</baselabel>
+    </secmodel>
+  </host>
+
+  <guest>
+    <os_type>hvm</os_type>
+    <arch name='i686'>
+      <wordsize>32</wordsize>
+      <emulator>/usr/bin/qemu-system-i386</emulator>
+      <machine maxCpus='255'>pc-i440fx-noble-v2</machine>
+      <machine canonical='pc-i440fx-noble-v2' maxCpus='255'>ubuntu</machine>
+      <machine maxCpus='288'>pc-q35-mantic</machine>
+      <machine maxCpus='255'>pc-i440fx-impish-hpb</machine>
+      <machine maxCpus='288'>pc-q35-5.2</machine>
+      <machine maxCpus='288'>pc-q35-lunar-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-mantic</machine>
+      <machine maxCpus='255'>pc-i440fx-2.12</machine>
+      <machine maxCpus='255' deprecated='yes'>pc-i440fx-2.0</machine>
+      <machine maxCpus='255'>pc-i440fx-xenial</machine>
+      <machine maxCpus='288'>pc-q35-kinetic</machine>
+      <machine maxCpus='255'>pc-i440fx-6.2</machine>
+      <machine maxCpus='288'>pc-q35-4.2</machine>
+      <machine maxCpus='255'>pc-i440fx-mantic-maxcpus</machine>
+      <machine maxCpus='255'>pc-i440fx-2.5</machine>
+      <machine maxCpus='255'>pc-i440fx-4.2</machine>
+      <machine maxCpus='255'>pc-i440fx-focal</machine>
+      <machine maxCpus='255'>pc-i440fx-hirsute</machine>
+      <machine maxCpus='255'>pc-q35-xenial</machine>
+      <machine maxCpus='255'>pc-i440fx-jammy-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-5.2</machine>
+      <machine maxCpus='255'>pc-q35-2.7</machine>
+      <machine maxCpus='288'>pc-q35-eoan-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-disco-hpb</machine>
+      <machine maxCpus='288'>pc-q35-groovy</machine>
+      <machine maxCpus='255'>pc-i440fx-zesty</machine>
+      <machine maxCpus='288'>pc-q35-lunar</machine>
+      <machine maxCpus='1024'>pc-q35-mantic-hpb-maxcpus</machine>
+      <machine maxCpus='255'>pc-i440fx-groovy</machine>
+      <machine maxCpus='288'>pc-q35-7.1</machine>
+      <machine maxCpus='288'>pc-q35-artful</machine>
+      <machine maxCpus='255' deprecated='yes'>pc-i440fx-trusty</machine>
+      <machine maxCpus='255' deprecated='yes'>pc-i440fx-2.2</machine>
+      <machine maxCpus='255'>pc-i440fx-eoan-hpb</machine>
+      <machine maxCpus='288'>pc-q35-focal-hpb</machine>
+      <machine maxCpus='1024'>pc-q35-8.1</machine>
+      <machine maxCpus='1024'>pc-q35-jammy-maxcpus</machine>
+      <machine maxCpus='288'>pc-q35-bionic-hpb</machine>
+      <machine maxCpus='288'>pc-q35-mantic-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-artful</machine>
+      <machine maxCpus='255'>pc-i440fx-8.1</machine>
+      <machine maxCpus='255'>pc-i440fx-2.7</machine>
+      <machine maxCpus='288'>pc-q35-6.1</machine>
+      <machine maxCpus='255'>pc-i440fx-kinetic</machine>
+      <machine maxCpus='1024'>pc-i440fx-jammy-maxcpus</machine>
+      <machine maxCpus='255'>pc-i440fx-yakkety</machine>
+      <machine maxCpus='255'>pc-q35-2.4</machine>
+      <machine maxCpus='288'>pc-q35-cosmic-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-7.1</machine>
+      <machine maxCpus='288'>pc-q35-2.10</machine>
+      <machine maxCpus='1'>x-remote</machine>
+      <machine maxCpus='288'>pc-q35-5.1</machine>
+      <machine maxCpus='288'>pc-q35-2.9</machine>
+      <machine maxCpus='255'>pc-i440fx-2.11</machine>
+      <machine maxCpus='255'>pc-i440fx-jammy-hpb-maxcpus</machine>
+      <machine maxCpus='288'>pc-q35-3.1</machine>
+      <machine maxCpus='255'>pc-i440fx-6.1</machine>
+      <machine maxCpus='288'>pc-q35-4.1</machine>
+      <machine maxCpus='288'>pc-q35-jammy</machine>
+      <machine maxCpus='255'>pc-i440fx-2.4</machine>
+      <machine maxCpus='255'>pc-i440fx-4.1</machine>
+      <machine maxCpus='288'>pc-q35-eoan</machine>
+      <machine maxCpus='288'>pc-q35-jammy-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-5.1</machine>
+      <machine maxCpus='255'>pc-i440fx-2.9</machine>
+      <machine maxCpus='255'>pc-i440fx-bionic-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-lunar</machine>
+      <machine maxCpus='1'>isapc</machine>
+      <machine maxCpus='255'>pc-i440fx-mantic-hpb</machine>
+      <machine maxCpus='288'>pc-q35-cosmic</machine>
+      <machine maxCpus='255'>pc-q35-2.6</machine>
+      <machine maxCpus='1024'>pc-q35-mantic-maxcpus</machine>
+      <machine maxCpus='255'>pc-i440fx-3.1</machine>
+      <machine maxCpus='288'>pc-q35-bionic</machine>
+      <machine maxCpus='288'>pc-q35-disco-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-cosmic</machine>
+      <machine maxCpus='288'>pc-q35-2.12</machine>
+      <machine maxCpus='255'>pc-i440fx-bionic</machine>
+      <machine maxCpus='288'>pc-q35-kinetic-hpb</machine>
+      <machine maxCpus='288'>pc-q35-groovy-hpb</machine>
+      <machine maxCpus='288'>pc-q35-7.0</machine>
+      <machine maxCpus='1024'>pc-q35-noble-v2</machine>
+      <machine canonical='pc-q35-noble-v2' maxCpus='1024'>ubuntu-q35</machine>
+      <machine maxCpus='255'>pc-i440fx-lunar-hpb</machine>
+      <machine maxCpus='288'>pc-q35-disco</machine>
+      <machine maxCpus='255'>pc-i440fx-cosmic-hpb</machine>
+      <machine maxCpus='1024'>pc-q35-noble</machine>
+      <machine canonical='pc-q35-noble' maxCpus='1024'>q35</machine>
+      <machine maxCpus='255' deprecated='yes'>pc-i440fx-2.1</machine>
+      <machine maxCpus='288'>pc-q35-8.0</machine>
+      <machine maxCpus='288'>pc-q35-impish</machine>
+      <machine maxCpus='255'>pc-i440fx-wily</machine>
+      <machine maxCpus='255'>pc-i440fx-8.0</machine>
+      <machine maxCpus='255'>pc-i440fx-2.6</machine>
+      <machine maxCpus='288'>pc-q35-6.0</machine>
+      <machine maxCpus='255'>pc-i440fx-impish</machine>
+      <machine maxCpus='255'>pc-i440fx-jammy</machine>
+      <machine maxCpus='288'>pc-q35-impish-hpb</machine>
+      <machine maxCpus='288'>pc-q35-hirsute</machine>
+      <machine maxCpus='288'>pc-q35-4.0.1</machine>
+      <machine maxCpus='288'>pc-q35-hirsute-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-7.0</machine>
+      <machine maxCpus='288'>pc-q35-5.0</machine>
+      <machine maxCpus='288'>pc-q35-2.8</machine>
+      <machine maxCpus='255'>pc-i440fx-2.10</machine>
+      <machine maxCpus='288'>pc-q35-3.0</machine>
+      <machine maxCpus='255'>pc-i440fx-6.0</machine>
+      <machine maxCpus='288'>pc-q35-zesty</machine>
+      <machine maxCpus='288'>pc-q35-7.2</machine>
+      <machine maxCpus='288'>pc-q35-4.0</machine>
+      <machine maxCpus='288'>pc-q35-focal</machine>
+      <machine maxCpus='288'>microvm</machine>
+      <machine maxCpus='255' deprecated='yes'>pc-i440fx-2.3</machine>
+      <machine maxCpus='1024'>pc-q35-jammy-hpb-maxcpus</machine>
+      <machine maxCpus='1024'>pc-q35-8.2</machine>
+      <machine canonical='pc-q35-8.2' maxCpus='1024'>q35</machine>
+      <machine maxCpus='255'>pc-i440fx-kinetic-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-focal-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-4.0</machine>
+      <machine maxCpus='255'>pc-i440fx-noble</machine>
+      <machine canonical='pc-i440fx-noble' maxCpus='255'>pc</machine>
+      <machine maxCpus='255'>pc-i440fx-disco</machine>
+      <machine maxCpus='255'>pc-i440fx-groovy-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-8.2</machine>
+      <machine canonical='pc-i440fx-8.2' maxCpus='255'>pc</machine>
+      <machine maxCpus='255'>pc-i440fx-hirsute-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-5.0</machine>
+      <machine maxCpus='288'>pc-q35-6.2</machine>
+      <machine maxCpus='255'>pc-i440fx-2.8</machine>
+      <machine maxCpus='255'>pc-i440fx-eoan</machine>
+      <machine maxCpus='255'>pc-q35-2.5</machine>
+      <machine maxCpus='255'>pc-i440fx-3.0</machine>
+      <machine maxCpus='255'>pc-q35-yakkety</machine>
+      <machine maxCpus='255'>pc-i440fx-mantic-hpb-maxcpus</machine>
+      <machine maxCpus='255'>pc-i440fx-7.2</machine>
+      <machine maxCpus='288'>pc-q35-2.11</machine>
+      <domain type='qemu'/>
+      <domain type='kvm'/>
+    </arch>
+    <features>
+      <pae/>
+      <nonpae/>
+      <acpi default='on' toggle='yes'/>
+      <apic default='on' toggle='no'/>
+      <cpuselection/>
+      <deviceboot/>
+      <disksnapshot default='on' toggle='no'/>
+      <externalSnapshot/>
+    </features>
+  </guest>
+
+  <guest>
+    <os_type>hvm</os_type>
+    <arch name='x86_64'>
+      <wordsize>64</wordsize>
+      <emulator>/usr/bin/qemu-system-x86_64</emulator>
+      <machine maxCpus='255'>pc-i440fx-noble-v2</machine>
+      <machine canonical='pc-i440fx-noble-v2' maxCpus='255'>ubuntu</machine>
+      <machine maxCpus='288'>pc-q35-mantic</machine>
+      <machine maxCpus='255'>pc-i440fx-impish-hpb</machine>
+      <machine maxCpus='288'>pc-q35-5.2</machine>
+      <machine maxCpus='288'>pc-q35-lunar-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-mantic</machine>
+      <machine maxCpus='255'>pc-i440fx-2.12</machine>
+      <machine maxCpus='255' deprecated='yes'>pc-i440fx-2.0</machine>
+      <machine maxCpus='255'>pc-i440fx-xenial</machine>
+      <machine maxCpus='288'>pc-q35-kinetic</machine>
+      <machine maxCpus='255'>pc-i440fx-6.2</machine>
+      <machine maxCpus='288'>pc-q35-4.2</machine>
+      <machine maxCpus='255'>pc-i440fx-mantic-maxcpus</machine>
+      <machine maxCpus='255'>pc-i440fx-2.5</machine>
+      <machine maxCpus='255'>pc-i440fx-4.2</machine>
+      <machine maxCpus='255'>pc-i440fx-focal</machine>
+      <machine maxCpus='255'>pc-i440fx-hirsute</machine>
+      <machine maxCpus='255'>pc-q35-xenial</machine>
+      <machine maxCpus='255'>pc-i440fx-jammy-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-5.2</machine>
+      <machine maxCpus='255'>pc-q35-2.7</machine>
+      <machine maxCpus='288'>pc-q35-eoan-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-zesty</machine>
+      <machine maxCpus='288'>pc-q35-groovy</machine>
+      <machine maxCpus='255'>pc-i440fx-disco-hpb</machine>
+      <machine maxCpus='288'>pc-q35-lunar</machine>
+      <machine maxCpus='1024'>pc-q35-mantic-hpb-maxcpus</machine>
+      <machine maxCpus='255'>pc-i440fx-groovy</machine>
+      <machine maxCpus='288'>pc-q35-7.1</machine>
+      <machine maxCpus='288'>pc-q35-artful</machine>
+      <machine maxCpus='255' deprecated='yes'>pc-i440fx-trusty</machine>
+      <machine maxCpus='255' deprecated='yes'>pc-i440fx-2.2</machine>
+      <machine maxCpus='288'>pc-q35-focal-hpb</machine>
+      <machine maxCpus='1024'>pc-q35-8.1</machine>
+      <machine maxCpus='255'>pc-i440fx-eoan-hpb</machine>
+      <machine maxCpus='1024'>pc-q35-jammy-maxcpus</machine>
+      <machine maxCpus='288'>pc-q35-bionic-hpb</machine>
+      <machine maxCpus='288'>pc-q35-mantic-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-artful</machine>
+      <machine maxCpus='255'>pc-i440fx-8.1</machine>
+      <machine maxCpus='255'>pc-i440fx-2.7</machine>
+      <machine maxCpus='288'>pc-q35-6.1</machine>
+      <machine maxCpus='255'>pc-i440fx-kinetic</machine>
+      <machine maxCpus='1024'>pc-i440fx-jammy-maxcpus</machine>
+      <machine maxCpus='255'>pc-i440fx-yakkety</machine>
+      <machine maxCpus='255'>pc-q35-2.4</machine>
+      <machine maxCpus='288'>pc-q35-cosmic-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-7.1</machine>
+      <machine maxCpus='288'>pc-q35-2.10</machine>
+      <machine maxCpus='1'>x-remote</machine>
+      <machine maxCpus='288'>pc-q35-5.1</machine>
+      <machine maxCpus='288'>pc-q35-2.9</machine>
+      <machine maxCpus='255'>pc-i440fx-2.11</machine>
+      <machine maxCpus='255'>pc-i440fx-jammy-hpb-maxcpus</machine>
+      <machine maxCpus='288'>pc-q35-3.1</machine>
+      <machine maxCpus='255'>pc-i440fx-6.1</machine>
+      <machine maxCpus='288'>pc-q35-4.1</machine>
+      <machine maxCpus='288'>pc-q35-jammy</machine>
+      <machine maxCpus='255'>pc-i440fx-2.4</machine>
+      <machine maxCpus='255'>pc-i440fx-4.1</machine>
+      <machine maxCpus='288'>pc-q35-eoan</machine>
+      <machine maxCpus='288'>pc-q35-jammy-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-5.1</machine>
+      <machine maxCpus='255'>pc-i440fx-2.9</machine>
+      <machine maxCpus='255'>pc-i440fx-bionic-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-lunar</machine>
+      <machine maxCpus='1'>isapc</machine>
+      <machine maxCpus='255'>pc-i440fx-mantic-hpb</machine>
+      <machine maxCpus='288'>pc-q35-cosmic</machine>
+      <machine maxCpus='255'>pc-q35-2.6</machine>
+      <machine maxCpus='1024'>pc-q35-mantic-maxcpus</machine>
+      <machine maxCpus='255'>pc-i440fx-3.1</machine>
+      <machine maxCpus='288'>pc-q35-bionic</machine>
+      <machine maxCpus='288'>pc-q35-disco-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-cosmic</machine>
+      <machine maxCpus='288'>pc-q35-2.12</machine>
+      <machine maxCpus='255'>pc-i440fx-bionic</machine>
+      <machine maxCpus='288'>pc-q35-kinetic-hpb</machine>
+      <machine maxCpus='288'>pc-q35-groovy-hpb</machine>
+      <machine maxCpus='288'>pc-q35-7.0</machine>
+      <machine maxCpus='1024'>pc-q35-noble-v2</machine>
+      <machine canonical='pc-q35-noble-v2' maxCpus='1024'>ubuntu-q35</machine>
+      <machine maxCpus='255'>pc-i440fx-lunar-hpb</machine>
+      <machine maxCpus='288'>pc-q35-disco</machine>
+      <machine maxCpus='255'>pc-i440fx-cosmic-hpb</machine>
+      <machine maxCpus='255' deprecated='yes'>pc-i440fx-2.1</machine>
+      <machine maxCpus='1024'>pc-q35-noble</machine>
+      <machine canonical='pc-q35-noble' maxCpus='1024'>q35</machine>
+      <machine maxCpus='288'>pc-q35-8.0</machine>
+      <machine maxCpus='255'>pc-i440fx-wily</machine>
+      <machine maxCpus='288'>pc-q35-impish</machine>
+      <machine maxCpus='255'>pc-i440fx-8.0</machine>
+      <machine maxCpus='255'>pc-i440fx-2.6</machine>
+      <machine maxCpus='288'>pc-q35-6.0</machine>
+      <machine maxCpus='255'>pc-i440fx-impish</machine>
+      <machine maxCpus='255'>pc-i440fx-jammy</machine>
+      <machine maxCpus='288'>pc-q35-impish-hpb</machine>
+      <machine maxCpus='288'>pc-q35-hirsute</machine>
+      <machine maxCpus='288'>pc-q35-4.0.1</machine>
+      <machine maxCpus='288'>pc-q35-hirsute-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-7.0</machine>
+      <machine maxCpus='288'>pc-q35-5.0</machine>
+      <machine maxCpus='288'>pc-q35-2.8</machine>
+      <machine maxCpus='255'>pc-i440fx-2.10</machine>
+      <machine maxCpus='288'>pc-q35-3.0</machine>
+      <machine maxCpus='288'>pc-q35-zesty</machine>
+      <machine maxCpus='288'>pc-q35-7.2</machine>
+      <machine maxCpus='288'>pc-q35-4.0</machine>
+      <machine maxCpus='255'>pc-i440fx-6.0</machine>
+      <machine maxCpus='288'>pc-q35-focal</machine>
+      <machine maxCpus='288'>microvm</machine>
+      <machine maxCpus='255' deprecated='yes'>pc-i440fx-2.3</machine>
+      <machine maxCpus='1024'>pc-q35-jammy-hpb-maxcpus</machine>
+      <machine maxCpus='255'>pc-i440fx-disco</machine>
+      <machine maxCpus='255'>pc-i440fx-kinetic-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-4.0</machine>
+      <machine maxCpus='255'>pc-i440fx-focal-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-noble</machine>
+      <machine canonical='pc-i440fx-noble' maxCpus='255'>pc</machine>
+      <machine maxCpus='1024'>pc-q35-8.2</machine>
+      <machine canonical='pc-q35-8.2' maxCpus='1024'>q35</machine>
+      <machine maxCpus='255'>pc-i440fx-groovy-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-hirsute-hpb</machine>
+      <machine maxCpus='255'>pc-i440fx-8.2</machine>
+      <machine canonical='pc-i440fx-8.2' maxCpus='255'>pc</machine>
+      <machine maxCpus='255'>pc-i440fx-5.0</machine>
+      <machine maxCpus='255'>pc-i440fx-2.8</machine>
+      <machine maxCpus='288'>pc-q35-6.2</machine>
+      <machine maxCpus='255'>pc-i440fx-eoan</machine>
+      <machine maxCpus='255'>pc-q35-2.5</machine>
+      <machine maxCpus='255'>pc-i440fx-3.0</machine>
+      <machine maxCpus='255'>pc-q35-yakkety</machine>
+      <machine maxCpus='255'>pc-i440fx-mantic-hpb-maxcpus</machine>
+      <machine maxCpus='255'>pc-i440fx-7.2</machine>
+      <machine maxCpus='288'>pc-q35-2.11</machine>
+      <domain type='qemu'/>
+      <domain type='kvm'/>
+    </arch>
+    <features>
+      <acpi default='on' toggle='yes'/>
+      <apic default='on' toggle='no'/>
+      <cpuselection/>
+      <deviceboot/>
+      <disksnapshot default='on' toggle='no'/>
+      <externalSnapshot/>
+    </features>
+  </guest>
+
+</capabilities>
+

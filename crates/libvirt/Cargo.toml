@@ -20,7 +20,7 @@ virt = { workspace = true }
 
 # XML
 quick-xml = { workspace = true }
-roxmltree = "0.21"
+serde = { workspace = true, features = ["derive"] }
 
 [lints]
 workspace = true

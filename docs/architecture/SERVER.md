@@ -802,7 +802,10 @@ when it is requested, and, read from Docker (`container::list_container_memory`)
 runs or is paused, Sherpa's and others'; its memory is not bound to a NUMA node. A container
 without a limit counts as nothing; the reserve covers those and QEMU's own memory. A refusal names the numbers that fell short
 and the two settings. `libvirt::host_memory` and `libvirt::list_domain_memory` read the server
-(`crates/libvirt/src/host.rs`). See `docs/investigations/host-memory-oom.md` for why.
+(`crates/libvirt/src/host.rs`). The capabilities XML is read with `quick-xml`'s serde
+deserialiser into private structs that hold only `<host><topology><cells>`: each cell's id,
+`<memory>` and `<pages>` pools, with every other element skipped. The numbers stay text in the
+structs and are parsed afterwards, so a missing or bad value is reported by name. See `docs/investigations/host-memory-oom.md` for why.
 
 ### Redeploy architecture
 
