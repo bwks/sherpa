@@ -6,6 +6,8 @@ use uuid::Uuid;
 
 /// The longest agent name, in characters.
 const MAX_AGENT_NAME: usize = 32;
+/// The longest owner or name of a repository, in characters.
+const MAX_REPO_PART: usize = 100;
 
 /// What a message is for. The outcomes and `Question` follow A2A's task states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,6 +55,66 @@ pub struct Message {
     /// Without it the guest uses its own default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// What the task is for: the issues and pull requests `send --issue/--pr` tagged it with.
+    /// Only a task carries it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work: Option<Work>,
+    /// Where the guest's checkout was when the run ended. Every outcome of a task that ran
+    /// carries it, from a guest that reports it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended: Option<Ended>,
+}
+
+/// The work a task is tagged with, and the host session that sent it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Work {
+    #[serde(default)]
+    pub refs: Vec<WorkRef>,
+    /// The host's Claude Code session that sent the task (`CLAUDE_CODE_SESSION_ID`), when it
+    /// ran inside one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+}
+
+/// An issue or a pull request a task is tagged with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkRef {
+    /// The repository, `owner/name`.
+    pub repo: String,
+    pub kind: RefKind,
+    pub number: u64,
+}
+
+/// What a reference names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RefKind {
+    Issue,
+    PullRequest,
+    Branch,
+}
+
+/// Where a guest's checkout was when a run ended.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Ended {
+    /// The checkout's repository, `owner/name`.
+    pub repo: String,
+    /// The branch checked out; absent on the repository's default branch or a detached HEAD.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// The open pull requests whose head is `branch`, in the checkout's repository and in the
+    /// docs checkout's beside it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pull_requests: Vec<PullRequestRef>,
+}
+
+/// An open pull request a guest found for its branch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestRef {
+    /// Its repository, `owner/name`.
+    pub repo: String,
+    pub number: u64,
+    pub url: String,
 }
 
 /// What one Claude Code run used, from the `result` event of its `stream-json` output.
@@ -186,9 +248,41 @@ pub fn check_agent_name(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Check a repository name: `owner/name`, each part 1 to 100 ASCII letters, digits, `-`, `_` or
+/// `.`.
+///
+/// # Errors
+///
+/// Fails when the name is not of that form.
+pub fn check_repo(repo: &str) -> Result<()> {
+    let part = |text: &str| {
+        !text.is_empty()
+            && text.len() <= MAX_REPO_PART
+            && text.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+            })
+    };
+    ensure!(
+        repo.split_once('/')
+            .is_some_and(|(owner, name)| part(owner) && part(name)),
+        "Repository '{repo}' must be owner/name, such as bwks/sherpa"
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A message as an agent-bus from before `work` and `ended` reads it.
+    #[derive(Deserialize)]
+    struct OldMessage {
+        task: String,
+        kind: Kind,
+        text: String,
+        #[serde(default)]
+        github: bool,
+    }
 
     #[test]
     fn messages_use_snake_case_kinds_on_the_wire() {
@@ -202,6 +296,8 @@ mod tests {
             task_usage: None,
             github: false,
             model: None,
+            work: None,
+            ended: None,
         };
         let json = serde_json::to_value(&message).unwrap();
         assert_eq!(json["kind"], "question");
@@ -223,6 +319,8 @@ mod tests {
             task_usage: None,
             github: true,
             model: None,
+            work: None,
+            ended: None,
         };
         let json = serde_json::to_value(&message).unwrap();
         assert_eq!(json["github"], true);
@@ -243,6 +341,8 @@ mod tests {
             task_usage: None,
             github: false,
             model: Some("claude-sonnet-5-5".to_owned()),
+            work: None,
+            ended: None,
         };
         let json = serde_json::to_value(&message).unwrap();
         assert_eq!(json["model"], "claude-sonnet-5-5");
@@ -296,6 +396,8 @@ mod tests {
             }),
             github: false,
             model: None,
+            work: None,
+            ended: None,
         };
         let json = serde_json::to_value(&message).unwrap();
         assert_eq!(json["usage"]["cache_read"], 60);
@@ -305,6 +407,117 @@ mod tests {
         assert_eq!(json["usage"]["models"][0]["costBasis"], "list");
         assert_eq!(json["task_usage"]["runs"], 1);
         assert_eq!(serde_json::from_value::<Message>(json).unwrap(), message);
+    }
+
+    fn tagged_task() -> Message {
+        Message {
+            task: "1a2b3c4d".to_owned(),
+            from: "host".to_owned(),
+            to: "dev".to_owned(),
+            kind: Kind::Task,
+            text: "Fix it".to_owned(),
+            usage: None,
+            task_usage: None,
+            github: false,
+            model: None,
+            work: Some(Work {
+                refs: vec![
+                    WorkRef {
+                        repo: "o/r".to_owned(),
+                        kind: RefKind::Issue,
+                        number: 580,
+                    },
+                    WorkRef {
+                        repo: "o/r".to_owned(),
+                        kind: RefKind::PullRequest,
+                        number: 612,
+                    },
+                ],
+                session: Some("sess-host".to_owned()),
+            }),
+            ended: None,
+        }
+    }
+
+    #[test]
+    fn work_and_ended_round_trip_and_are_absent_when_unset() {
+        let task = tagged_task();
+        let json = serde_json::to_value(&task).unwrap();
+        assert_eq!(json["work"]["refs"][0]["kind"], "issue");
+        assert_eq!(json["work"]["refs"][1]["kind"], "pull_request");
+        assert_eq!(json["work"]["refs"][1]["number"], 612);
+        assert_eq!(json["work"]["session"], "sess-host");
+        assert!(json.get("ended").is_none());
+        assert_eq!(serde_json::from_value::<Message>(json).unwrap(), task);
+
+        let outcome = Message {
+            kind: Kind::Completed,
+            work: None,
+            ended: Some(Ended {
+                repo: "o/r".to_owned(),
+                branch: Some("feat/x".to_owned()),
+                pull_requests: vec![PullRequestRef {
+                    repo: "o/r-docs".to_owned(),
+                    number: 7,
+                    url: "https://github.com/o/r-docs/pull/7".to_owned(),
+                }],
+            }),
+            ..task
+        };
+        let json = serde_json::to_value(&outcome).unwrap();
+        assert!(json.get("work").is_none());
+        assert_eq!(json["ended"]["branch"], "feat/x");
+        assert_eq!(json["ended"]["pull_requests"][0]["number"], 7);
+        assert_eq!(serde_json::from_value::<Message>(json).unwrap(), outcome);
+
+        // On the default branch: no branch and no pull requests on the wire.
+        let on_default = Ended {
+            repo: "o/r".to_owned(),
+            branch: None,
+            pull_requests: Vec::new(),
+        };
+        assert_eq!(
+            serde_json::to_value(&on_default).unwrap(),
+            serde_json::json!({"repo": "o/r"})
+        );
+    }
+
+    #[test]
+    fn an_old_message_parses_without_work_or_ended() {
+        let old = r#"{"task":"t","from":"a","to":"b","kind":"completed","text":"x"}"#;
+        let message = serde_json::from_str::<Message>(old).unwrap();
+        assert_eq!((message.work, message.ended), (None, None));
+    }
+
+    #[test]
+    fn a_message_with_fields_this_agent_bus_does_not_know_parses() {
+        let newer = r#"{"task":"t","from":"a","to":"b","kind":"task","text":"x",
+            "work":{"refs":[{"repo":"o/r","kind":"issue","number":1,"title":"new"}],"focus":true},
+            "ended":{"repo":"o/r","head":"abc"},"priority":3}"#;
+        let message = serde_json::from_str::<Message>(newer).unwrap();
+        assert_eq!(message.work.unwrap().refs[0].number, 1);
+        assert_eq!(message.ended.unwrap().branch, None);
+    }
+
+    /// What an agent-bus from before `work` and `ended` reads of a message that has them: the
+    /// fields it knows, the same as before.
+    #[test]
+    fn an_older_peer_reads_a_new_message_as_before() {
+        let json = serde_json::to_string(&tagged_task()).unwrap();
+        let old: OldMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!((old.task.as_str(), old.kind), ("1a2b3c4d", Kind::Task));
+        assert_eq!(old.text, "Fix it");
+        assert!(!old.github);
+    }
+
+    #[test]
+    fn a_repository_is_owner_slash_name() {
+        for repo in ["bwks/sherpa", "o-1/r.name_2"] {
+            check_repo(repo).unwrap();
+        }
+        for repo in ["", "sherpa", "a/b/c", "/r", "o/", "o r/x", "o/r;x"] {
+            assert!(check_repo(repo).is_err(), "{repo}");
+        }
     }
 
     #[test]

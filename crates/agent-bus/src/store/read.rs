@@ -31,8 +31,8 @@ pub struct HistoryRow {
 }
 
 /// What `usage` reports: the tasks `requester` sent that have an outcome, for `agent` only when
-/// given, active at or after `since_ms` when given, in the order they were first recorded.
-/// Tasks with no usage are left out unless `all`.
+/// given, active at or after `since_ms` when given, of `item` only when given, in the order they
+/// were first recorded. Tasks with no usage are left out unless `all`.
 ///
 /// # Errors
 ///
@@ -44,6 +44,7 @@ pub async fn usage(
     agent: Option<&str>,
     since_ms: Option<u64>,
     all: bool,
+    item: Option<i64>,
 ) -> Result<Vec<Row>> {
     let mut rows = conn
         .query(
@@ -53,6 +54,7 @@ pub async fn usage(
                 optional_text(agent),
                 optional_integer(since_ms),
                 Value::Integer(i64::from(all)),
+                item.map_or(Value::Null, Value::Integer),
             ],
         )
         .await
@@ -122,11 +124,18 @@ pub async fn history(
 
 /// A row from the columns `usage.sql` selects.
 fn usage_row(cells: &mut Cells<'_>) -> Result<Row> {
+    let task = cells.text("id")?;
+    let agent = cells.text("agent")?;
+    let model = cells.optional_text("model")?;
+    let state = TaskState::parse(&cells.text("state")?)?;
+    let sent_at_ms = cells.optional_count("sent_at_ms")?;
+    let last_at_ms = cells.count("last_at_ms")?;
     Ok(Row {
-        task: cells.text("id")?,
-        agent: cells.text("agent")?,
-        model: cells.optional_text("model")?,
-        state: TaskState::parse(&cells.text("state")?)?,
+        task,
+        agent,
+        model,
+        state,
+        at_ms: sent_at_ms.unwrap_or(last_at_ms),
         usage: cells.task_usage()?,
     })
 }
@@ -151,6 +160,16 @@ fn message_row(cells: &mut Cells<'_>) -> Result<Message> {
         .map(|json| serde_json::from_str(&json))
         .transpose()
         .context("task_usage is not a task's usage")?;
+    let work = cells
+        .optional_text("work")?
+        .map(|json| serde_json::from_str(&json))
+        .transpose()
+        .context("work is not a task's work")?;
+    let ended = cells
+        .optional_text("ended")?
+        .map(|json| serde_json::from_str(&json))
+        .transpose()
+        .context("ended is not where a run ended")?;
     Ok(Message {
         task,
         from,
@@ -161,6 +180,8 @@ fn message_row(cells: &mut Cells<'_>) -> Result<Message> {
         task_usage,
         github,
         model,
+        work,
+        ended,
     })
 }
 
@@ -189,7 +210,7 @@ fn history_row(cells: &mut Cells<'_>) -> Result<HistoryRow> {
 mod tests {
     use super::*;
 
-    use crate::message::TaskUsage;
+    use crate::message::{Ended, RefKind, TaskUsage, Work, WorkRef};
     use crate::store::database::Store;
     use crate::store::task::Recorded;
     use crate::store::write::record;
@@ -205,6 +226,8 @@ mod tests {
             task_usage: None,
             github: false,
             model: None,
+            work: None,
+            ended: None,
         }
     }
 
@@ -233,6 +256,7 @@ mod tests {
                     at_ms: seq * 1000,
                     message,
                 },
+                None,
             )
             .await
             .unwrap();
@@ -252,7 +276,7 @@ mod tests {
             message("c", "host", "dev", Kind::Task),
         ])
         .await;
-        let rows = usage(&conn, "host", None, None, true).await.unwrap();
+        let rows = usage(&conn, "host", None, None, true, None).await.unwrap();
         let tasks: Vec<(&str, TaskState)> = rows
             .iter()
             .map(|row| (row.task.as_str(), row.state))
@@ -265,7 +289,7 @@ mod tests {
         assert_eq!(rows[1].usage, None);
 
         // Without `all`, only tasks with usage.
-        let rows = usage(&conn, "host", None, None, false).await.unwrap();
+        let rows = usage(&conn, "host", None, None, false, None).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].task, "a");
     }
@@ -281,18 +305,22 @@ mod tests {
         let only = |rows: Vec<Row>| rows.into_iter().map(|row| row.task).collect::<Vec<_>>();
         assert_eq!(
             only(
-                usage(&conn, "host", Some("test"), None, false)
+                usage(&conn, "host", Some("test"), None, false, None)
                     .await
                     .unwrap()
             ),
             ["b"]
         );
         assert_eq!(
-            only(usage(&conn, "host", None, Some(2000), false).await.unwrap()),
+            only(
+                usage(&conn, "host", None, Some(2000), false, None)
+                    .await
+                    .unwrap()
+            ),
             ["b", "c"]
         );
         assert_eq!(
-            usage(&conn, "other", None, None, true).await.unwrap(),
+            usage(&conn, "other", None, None, true, None).await.unwrap(),
             Vec::<Row>::new()
         );
     }
@@ -327,6 +355,30 @@ mod tests {
         assert_eq!(
             task_messages(&conn, "zzz", "host").await.unwrap(),
             Vec::<Message>::new()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_message_s_work_and_ended_read_back_as_received() {
+        let mut task = message("t1", "host", "dev", Kind::Task);
+        task.work = Some(Work {
+            refs: vec![WorkRef {
+                repo: "o/r".to_owned(),
+                kind: RefKind::Issue,
+                number: 580,
+            }],
+            session: Some("sess".to_owned()),
+        });
+        let mut done = message("t1", "dev", "host", Kind::Completed);
+        done.ended = Some(Ended {
+            repo: "o/r".to_owned(),
+            branch: Some("feat/x".to_owned()),
+            pull_requests: Vec::new(),
+        });
+        let conn = recorded(&[task.clone(), done.clone()]).await;
+        assert_eq!(
+            task_messages(&conn, "t1", "host").await.unwrap(),
+            [task, done]
         );
     }
 

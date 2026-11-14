@@ -1,9 +1,11 @@
-//! After a `--github` run: the branch the checkout ended on, and the open pull requests of that
-//! branch in this checkout and in `../sherpa-docs`, whose `## Generation` section is rewritten
-//! with `gh` (`generation::update_body`).
+//! Where a run ended, for every outcome (`ended`): the checkout's repository, its branch, and
+//! the open pull requests of that branch in this checkout and in `../sherpa-docs`. And after a
+//! `--github` run, the `## Generation` section of those pull requests, rewritten with `gh`
+//! (`generation::update_body`).
 //!
-//! `gh` runs with the write token as `GH_TOKEN` in its own environment only, as Claude Code does
-//! for a `--github` task: never in an argument, a file or the agent's environment. Each command
+//! Finding where a run ended uses the agent's own `GH_TOKEN`, the read-only one. Rewriting a
+//! section runs `gh` with the write token as `GH_TOKEN` in its own environment only, as Claude
+//! Code does for a `--github` task: never in an argument, a file or the agent's environment. Each command
 //! has a time limit and is killed if the agent drops it. Nothing here fails the task: every
 //! failure becomes an `Outcome`, which the outcome message reports.
 
@@ -21,6 +23,7 @@ use tracing::instrument;
 
 use super::generation::{Row, update_body};
 use super::github::{GH_TOKEN_VARIABLE, OTHER_GITHUB_TOKEN_VARIABLES, WriteToken};
+use crate::message::{Ended, PullRequestRef, check_repo};
 
 /// The GitHub CLI.
 pub(super) const GH: &str = "gh";
@@ -44,6 +47,22 @@ struct PullRequest {
     /// Whether its head is in a fork: a branch of the same name in someone else's repository.
     #[serde(rename = "isCrossRepository")]
     cross_repository: bool,
+}
+
+/// A repository, as `gh repo view --json nameWithOwner,defaultBranchRef` gives it.
+#[derive(Debug, Deserialize)]
+struct Repository {
+    #[serde(rename = "nameWithOwner")]
+    name: String,
+    /// `None` for an empty repository.
+    #[serde(rename = "defaultBranchRef")]
+    default_branch: Option<BranchName>,
+}
+
+/// A branch, as `gh` names it in JSON.
+#[derive(Debug, Deserialize)]
+struct BranchName {
+    name: String,
 }
 
 /// What happened to one pull request, or to one checkout's.
@@ -131,6 +150,74 @@ pub(super) async fn current_branch(workdir: &Path) -> Result<Option<String>> {
     }
 }
 
+/// Where the run in `workdir` ended, found with `gh` at `gh` and the agent's own token: the
+/// repository, the branch unless it is the repository's default or HEAD is detached, and the
+/// open pull requests whose head is that branch in `checkouts(workdir)`, those from forks left
+/// out. A docs checkout whose pull requests cannot be listed is reported on stderr and left out.
+///
+/// # Errors
+///
+/// Fails when `workdir` is not a git checkout, or its repository cannot be read.
+#[instrument(level = "debug", skip_all, fields(workdir = %workdir.display()))]
+pub(super) async fn ended(gh: &str, workdir: &Path) -> Result<Ended> {
+    let branch = current_branch(workdir).await?;
+    let home = repository(gh, workdir).await?;
+    let default_branch = home.default_branch.map(|branch| branch.name);
+    let branch = branch.filter(|branch| Some(branch) != default_branch.as_ref());
+    let mut pull_requests = Vec::new();
+    if let Some(branch) = &branch {
+        for checkout in checkouts(workdir) {
+            let listed = if checkout == workdir {
+                list(gh, &checkout, branch, None)
+                    .await
+                    .map(|listed| (home.name.clone(), listed))
+            } else {
+                match repository(gh, &checkout).await {
+                    Ok(docs) => list(gh, &checkout, branch, None)
+                        .await
+                        .map(|listed| (docs.name, listed)),
+                    Err(error) => Err(error),
+                }
+            };
+            match listed {
+                Ok((repo, listed)) => pull_requests.extend(
+                    listed
+                        .into_iter()
+                        .filter(|pull_request| !pull_request.cross_repository)
+                        .map(|pull_request| PullRequestRef {
+                            repo: repo.clone(),
+                            number: pull_request.number,
+                            url: pull_request.url,
+                        }),
+                ),
+                Err(error) => eprintln!(
+                    "Unable to list the pull requests of {}: {error:#}",
+                    checkout.display()
+                ),
+            }
+        }
+    }
+    Ok(Ended {
+        repo: home.name,
+        branch,
+        pull_requests,
+    })
+}
+
+/// The repository of `checkout`, with its default branch, from `gh repo view`.
+async fn repository(gh: &str, checkout: &Path) -> Result<Repository> {
+    let mut command = gh_command(gh, checkout, None);
+    command.args(["repo", "view", "--json", "nameWithOwner,defaultBranchRef"]);
+    let output = run(&mut command, None, "gh repo view").await?;
+    if !output.status.success() {
+        bail!("gh repo view failed: {}", stderr(&output));
+    }
+    let repository: Repository = serde_json::from_slice(&output.stdout)
+        .context("Unable to read the output of gh repo view")?;
+    check_repo(&repository.name)?;
+    Ok(repository)
+}
+
 /// Rewrite the Generation section of every open pull request of `branch` in `checkouts` to hold
 /// `rows`, with `gh` at `gh` and the write token. Pull requests from forks are left alone.
 #[instrument(level = "debug", skip_all, fields(%branch))]
@@ -143,7 +230,7 @@ pub(super) async fn update(
 ) -> Vec<Outcome> {
     let mut outcomes = Vec::new();
     for checkout in checkouts {
-        let pull_requests = match list(gh, checkout, branch, token).await {
+        let pull_requests = match list(gh, checkout, branch, Some(token)).await {
             Ok(pull_requests) => pull_requests,
             Err(error) => {
                 outcomes.push(Outcome::Failed(format!(
@@ -176,12 +263,13 @@ pub(super) async fn update(
     outcomes
 }
 
-/// The open pull requests whose head is `branch`, in the repository of `checkout`.
+/// The open pull requests whose head is `branch`, in the repository of `checkout`, with `token`,
+/// else the agent's own.
 async fn list(
     gh: &str,
     checkout: &Path,
     branch: &str,
-    token: &WriteToken,
+    token: Option<&WriteToken>,
 ) -> Result<Vec<PullRequest>> {
     let mut command = gh_command(gh, checkout, token);
     command
@@ -205,7 +293,7 @@ async fn set_body(
     body: &str,
     token: &WriteToken,
 ) -> Result<()> {
-    let mut command = gh_command(gh, checkout, token);
+    let mut command = gh_command(gh, checkout, Some(token));
     command
         .args(["pr", "edit", &number.to_string()])
         .args(["--body-file", "-"]);
@@ -216,14 +304,17 @@ async fn set_body(
     Ok(())
 }
 
-/// `gh` in `checkout`, with the write token as `GH_TOKEN` and no other token, never prompting.
-fn gh_command(gh: &str, checkout: &Path, token: &WriteToken) -> Command {
+/// `gh` in `checkout`, never prompting, with the write token as `GH_TOKEN` when given, else the
+/// agent's own `GH_TOKEN` (the read-only one), and no other token.
+fn gh_command(gh: &str, checkout: &Path, token: Option<&WriteToken>) -> Command {
     let mut command = Command::new(gh);
     command
         .current_dir(checkout)
-        .env(GH_TOKEN_VARIABLE, token.expose())
         .env("GH_PROMPT_DISABLED", "1")
         .env("NO_COLOR", "1");
+    if let Some(token) = token {
+        command.env(GH_TOKEN_VARIABLE, token.expose());
+    }
     for variable in OTHER_GITHUB_TOKEN_VARIABLES {
         command.env_remove(variable);
     }
@@ -302,11 +393,12 @@ mod tests {
 
     use super::*;
     use crate::guest::generation::END;
-    use crate::message::TaskUsage;
+    use crate::message::{PullRequestRef, TaskUsage};
 
     const TOKEN: &str = "github_pat_pullrequest0123456789";
 
-    /// A stand-in for `gh`: `pr list` prints `prs.json` from the checkout; `pr edit <n>` saves
+    /// A stand-in for `gh`: `repo view` prints `repo.json` from the checkout, or fails without
+    /// it; `pr list` prints `prs.json` from the checkout; `pr edit <n>` saves
     /// its stdin as `body-<n>.md`, or, without reading it, fails when `edit-fails` exists, fails
     /// saying nothing when `edit-fails-silently` exists and succeeds when `edit-ignores-body`
     /// exists. Every call is logged, with whether it had the token, to `gh.log` in the checkout.
@@ -316,6 +408,9 @@ case "$1 $2" in
 "pr list")
     if [ -e list-fails ]; then echo "HTTP 401: Bad credentials" >&2; exit 1; fi
     cat prs.json
+    ;;
+"repo view")
+    if [ -e repo.json ]; then cat repo.json; else echo "no git remotes found" >&2; exit 1; fi
     ;;
 "pr edit")
     if [ -e edit-fails ]; then echo "GraphQL: not allowed" >&2; exit 1; fi
@@ -526,6 +621,130 @@ esac
                 if why.contains("Unable to write to gh pr edit") && why.contains("Broken pipe")),
             "{outcomes:?}"
         );
+    }
+
+    /// Make `dir` a checkout of `repo` (default branch `main`) for the fake `gh`, on `branch`,
+    /// with the open pull requests `prs`.
+    fn fake_checkout(dir: &Path, repo: &str, branch: &str, prs: &serde_json::Value) {
+        fs::create_dir_all(dir).unwrap();
+        git(dir, &["init", "-q", "-b", branch]);
+        let view = serde_json::json!({"nameWithOwner": repo, "defaultBranchRef": {"name": "main"}});
+        fs::write(dir.join("repo.json"), view.to_string()).unwrap();
+        fs::write(dir.join("prs.json"), prs.to_string()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn ended_names_the_branch_and_its_open_pull_requests_in_both_checkouts() {
+        let dir = scratch("ended");
+        let gh = fake_gh(&dir);
+        let sherpa = dir.join("sherpa");
+        let docs = dir.join("sherpa-docs");
+        fake_checkout(
+            &sherpa,
+            "o/r",
+            "feat/x",
+            &serde_json::json!([
+                {"number": 7, "url": "https://github.com/o/r/pull/7", "body": "b", "isCrossRepository": false},
+                {"number": 9, "url": "https://github.com/fork/r/pull/9", "body": "b", "isCrossRepository": true},
+            ]),
+        );
+        fake_checkout(
+            &docs,
+            "o/r-docs",
+            "feat/x",
+            &serde_json::json!([
+                {"number": 3, "url": "https://github.com/o/r-docs/pull/3", "body": "b", "isCrossRepository": false},
+            ]),
+        );
+        let found = ended(&gh, &sherpa).await.unwrap();
+        assert_eq!(
+            found,
+            Ended {
+                repo: "o/r".to_owned(),
+                branch: Some("feat/x".to_owned()),
+                pull_requests: vec![
+                    PullRequestRef {
+                        repo: "o/r".to_owned(),
+                        number: 7,
+                        url: "https://github.com/o/r/pull/7".to_owned(),
+                    },
+                    PullRequestRef {
+                        repo: "o/r-docs".to_owned(),
+                        number: 3,
+                        url: "https://github.com/o/r-docs/pull/3".to_owned(),
+                    },
+                ],
+            }
+        );
+        // Listed with the agent's own token (the read-only one), never the write token.
+        let log = fs::read_to_string(sherpa.join("gh.log")).unwrap();
+        assert!(
+            log.contains("repo view --json nameWithOwner,defaultBranchRef"),
+            "{log}"
+        );
+        assert!(log.contains("pr list --state open --head=feat/x"), "{log}");
+        assert!(!log.contains("token=yes"), "{log}");
+        assert!(!log.contains("pr edit"), "{log}");
+
+        // A docs checkout whose repository cannot be read leaves only its own pull requests out.
+        fs::remove_file(docs.join("repo.json")).unwrap();
+        let found = ended(&gh, &sherpa).await.unwrap();
+        assert_eq!(found.pull_requests.len(), 1);
+        assert_eq!(found.pull_requests[0].number, 7);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn ended_on_the_default_branch_or_a_detached_head_names_no_branch() {
+        let dir = scratch("ended-default");
+        let gh = fake_gh(&dir);
+        let sherpa = dir.join("sherpa");
+        let prs = serde_json::json!([
+            {"number": 1, "url": "https://github.com/o/r/pull/1", "body": "b", "isCrossRepository": false},
+        ]);
+        fake_checkout(&sherpa, "o/r", "main", &prs);
+        let on_main = ended(&gh, &sherpa).await.unwrap();
+        assert_eq!(
+            on_main,
+            Ended {
+                repo: "o/r".to_owned(),
+                branch: None,
+                pull_requests: Vec::new(),
+            }
+        );
+        let log = fs::read_to_string(sherpa.join("gh.log")).unwrap();
+        assert!(!log.contains("pr list"), "{log}");
+
+        git(
+            &sherpa,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@example.invalid",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "one",
+            ],
+        );
+        git(&sherpa, &["checkout", "-q", "--detach"]);
+        assert_eq!(ended(&gh, &sherpa).await.unwrap().branch, None);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn ended_fails_outside_a_checkout_or_without_the_repository() {
+        let dir = scratch("ended-fails");
+        let gh = fake_gh(&dir);
+        assert!(ended(&gh, &dir).await.is_err());
+        let sherpa = dir.join("sherpa");
+        fake_checkout(&sherpa, "o/r", "feat/x", &serde_json::json!([]));
+        fs::remove_file(sherpa.join("repo.json")).unwrap();
+        let error = format!("{:#}", ended(&gh, &sherpa).await.unwrap_err());
+        assert!(error.contains("no git remotes found"), "{error}");
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

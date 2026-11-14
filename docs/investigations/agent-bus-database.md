@@ -446,6 +446,12 @@ optional fields that older peers ignore: `send --issue <n>` / `--pr <n>` puts a 
 catching up parses the "Generation section for branch" line, marked `parsed`. `agent-bus link <task>
 --issue|--pr|--branch` covers the rest.
 
+Done, as four tables rather than this one: `work_item`, `work_ref`, `task_ref` and `task_work`
+give an item an identity, so an issue, its branch and its pull requests are one item. The
+message fields are `work` (on a task) and `ended` (on every outcome of a task that ran, the
+branch and the open pull requests found with the read-only token). See "Work items" in
+[`AGENT_BUS.md`](../architecture/AGENT_BUS.md#work-items).
+
 Left for later: questions with answer latency (derivable from `message` already), gate results,
 review findings, agents and heartbeats (the `AGENT_STATUS` bucket is another stream), and claims.
 
@@ -462,8 +468,9 @@ review findings, agents and heartbeats (the `AGENT_STATUS` bucket is another str
    parsing, `link`, `usage --issue/--pr/--branch/--by`, `open`. `agents` shows the `_record`
    consumer's lag. `RETENTION` split from the file retention, and the stream's `max_age` raised
    to 30 days as the record's buffer between commands. A cargo feature that leaves the record
-   out of the guest's build. The upkeep part is done; see "Retention", "Agent status" and "The
-   record" in [`AGENT_BUS.md`](../architecture/AGENT_BUS.md).
+   out of the guest's build. Done: the upkeep (see "Retention", "Agent status" and "The record"
+   in [`AGENT_BUS.md`](../architecture/AGENT_BUS.md)) and the work items (see "Work items"
+   there).
 3. **Per-agent sessions.** `follow --agent <name> [--after <seq> | --since <d>]`, a loop on the
    same path: lock, catch up, read past the cursor, release, print, wait. The host agent setup
    moves from one `listen host` to one `follow` per session; `listen host` stays for anyone not

@@ -54,9 +54,14 @@ use bus::Bus;
 use channel::{Channel, Endpoint, RECORDER};
 use files::now_ms;
 use keys::seed_from_environment;
-use message::{Kind, Message, check_agent_name, new_task_id};
+use message::{Kind, Message, RefKind, Work, WorkRef, check_agent_name, check_repo, new_task_id};
 use model::{DEFAULT_MODEL, model_id};
 use status::{Observed, STALE};
+
+/// The variable holding the host's repository, `owner/name`, that `send --issue/--pr` tags.
+const REPO_ENV: &str = "AGENT_BUS_REPO";
+/// The variable Claude Code sets in the commands it runs: its session's ID.
+const SESSION_ENV: &str = "CLAUDE_CODE_SESSION_ID";
 
 #[derive(Parser)]
 #[command(
@@ -123,6 +128,16 @@ enum Command {
         /// claude-sonnet-5-5. Without it, the guest's own. An answer runs on its task's model.
         #[arg(long, conflicts_with = "answer", value_parser = model_id)]
         model: Option<String>,
+        /// Tag the task with this issue number: the task is part of the work item it names.
+        /// Repeat for more
+        #[arg(long, conflicts_with = "answer")]
+        issue: Vec<u64>,
+        /// Tag the task with this pull request number. Repeat for more
+        #[arg(long, conflicts_with = "answer")]
+        pr: Vec<u64>,
+        /// The repository of --issue and --pr, `owner/name`. Without it: `AGENT_BUS_REPO`
+        #[arg(long, conflicts_with = "answer")]
+        repo: Option<String>,
         /// The task, or the answer
         text: String,
     },
@@ -228,10 +243,11 @@ enum BusAction {
     Status,
 }
 
-/// What a new task may do and runs on. An answer carries neither: it has its task's.
+/// What a new task may do, runs on and is for. An answer carries none: it has its task's.
 struct Options {
     github: bool,
     model: Option<String>,
+    work: Option<Work>,
 }
 
 #[tokio::main]
@@ -267,8 +283,20 @@ async fn execute(cli: Cli) -> Result<()> {
             answer,
             github,
             model,
+            issue,
+            pr,
+            repo,
             text,
         } => {
+            let repo = repo_or_environment(repo);
+            let work = work_tags(
+                &issue,
+                &pr,
+                repo.as_deref(),
+                env::var(SESSION_ENV)
+                    .ok()
+                    .filter(|session| !session.is_empty()),
+            )?;
             let server = find_server(server)?;
             send(
                 &server,
@@ -276,7 +304,11 @@ async fn execute(cli: Cli) -> Result<()> {
                 from,
                 to,
                 answer,
-                Options { github, model },
+                Options {
+                    github,
+                    model,
+                    work,
+                },
                 text,
             )
             .await
@@ -429,6 +461,49 @@ fn new_key() -> Result<()> {
     Ok(())
 }
 
+/// `repo`, else `AGENT_BUS_REPO` when it is set and not empty.
+fn repo_or_environment(repo: Option<String>) -> Option<String> {
+    repo.or_else(|| env::var(REPO_ENV).ok().filter(|repo| !repo.is_empty()))
+}
+
+/// The `work` of a task tagged with `issues` and `pull_requests` in `repo`, sent from the host's
+/// Claude Code `session` when known; `None` without tags.
+///
+/// # Errors
+///
+/// Fails when there are tags and no repository, or the repository is invalid.
+fn work_tags(
+    issues: &[u64],
+    pull_requests: &[u64],
+    repo: Option<&str>,
+    session: Option<String>,
+) -> Result<Option<Work>> {
+    if issues.is_empty() && pull_requests.is_empty() {
+        return Ok(None);
+    }
+    let Some(repo) = repo else {
+        bail!(
+            "Give the repository of --issue and --pr with --repo or {REPO_ENV}, such as bwks/sherpa"
+        );
+    };
+    check_repo(repo)?;
+    let tag = |kind: RefKind, number: &u64| WorkRef {
+        repo: repo.to_owned(),
+        kind,
+        number: *number,
+    };
+    let refs = issues
+        .iter()
+        .map(|number| tag(RefKind::Issue, number))
+        .chain(
+            pull_requests
+                .iter()
+                .map(|number| tag(RefKind::PullRequest, number)),
+        )
+        .collect();
+    Ok(Some(Work { refs, session }))
+}
+
 /// Send a new task, or an answer to a task, and print the task's ID.
 async fn send(
     server: &Endpoint,
@@ -457,6 +532,8 @@ async fn send(
             task_usage: None,
             github: options.github,
             model: options.model,
+            work: options.work,
+            ended: None,
         })
         .await?;
     println!("{task}");
@@ -485,6 +562,8 @@ async fn cancel(
             task_usage: None,
             github: false,
             model: None,
+            work: None,
+            ended: None,
         })
         .await
 }
@@ -556,6 +635,11 @@ mod tests {
     use tracing::field::{Field, Visit};
     use tracing::span::{Attributes, Id, Record};
     use tracing::{Event, Metadata, Subscriber};
+
+    #[cfg(feature = "record")]
+    use crate::record::{BusAccess, Paths, Record as HostRecord};
+    #[cfg(feature = "record")]
+    use crate::store::{Ref, items, ref_item};
 
     /// A subscriber that keeps every span, with its fields, and every event as text.
     #[derive(Clone, Default)]
@@ -674,8 +758,92 @@ mod tests {
     }
 
     #[test]
+    fn a_task_takes_issue_and_pull_request_tags_and_an_answer_refuses_them() {
+        let cli = send(&[
+            "--issue", "580", "--pr", "612", "--pr", "613", "--repo", "o/r",
+        ])
+        .unwrap();
+        let Command::Send {
+            issue, pr, repo, ..
+        } = cli.command
+        else {
+            panic!("not a send");
+        };
+        assert_eq!((issue, pr), (vec![580], vec![612, 613]));
+        assert_eq!(repo.as_deref(), Some("o/r"));
+        for tag in ["--issue", "--pr", "--repo"] {
+            let error = send(&["--answer", "t1", tag, "1"]).err().unwrap();
+            assert_eq!(error.kind(), ErrorKind::ArgumentConflict, "{tag}");
+        }
+        assert!(send(&["--issue", "x"]).is_err());
+    }
+
+    #[test]
+    fn work_tags_need_a_repository_and_carry_the_session() {
+        assert_eq!(
+            work_tags(&[], &[], None, Some("s".to_owned())).unwrap(),
+            None
+        );
+        let error = work_tags(&[580], &[], None, None).unwrap_err();
+        assert!(error.to_string().contains(REPO_ENV), "{error}");
+        assert!(work_tags(&[580], &[], Some("not a repo"), None).is_err());
+        let work = work_tags(&[580], &[612], Some("o/r"), Some("sess".to_owned()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            work,
+            Work {
+                refs: vec![
+                    WorkRef {
+                        repo: "o/r".to_owned(),
+                        kind: RefKind::Issue,
+                        number: 580,
+                    },
+                    WorkRef {
+                        repo: "o/r".to_owned(),
+                        kind: RefKind::PullRequest,
+                        number: 612,
+                    },
+                ],
+                session: Some("sess".to_owned()),
+            }
+        );
+    }
+
+    #[cfg(feature = "record")]
+    #[test]
+    fn the_work_commands_parse_their_item_and_refuse_two() {
+        let parse = |args: &[&str]| {
+            let mut all = vec!["agent-bus"];
+            all.extend_from_slice(args);
+            Cli::try_parse_from(all)
+        };
+        for args in [
+            &["link", "t1", "--issue", "580"][..],
+            &["link", "t1", "--branch", "feat/x", "--repo", "o/r"],
+            &["work", "show"],
+            &["work", "show", "--pr", "612", "--json"],
+            &["work", "backfill", "--repo", "o/r"],
+            &["usage", "--issue", "580"],
+            &["usage", "--by", "week"],
+            &["usage", "--by", "model", "--agent", "dev01"],
+            &["open", "--json"],
+        ] {
+            assert!(parse(args).is_ok(), "{args:?}");
+        }
+        for args in [
+            &["link", "t1", "--issue", "580", "--pr", "612"][..],
+            &["work", "show", "--issue", "1", "--branch", "x"],
+            &["usage", "--by", "week", "--issue", "580"],
+            &["usage", "--by", "month"],
+        ] {
+            assert!(parse(args).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
     fn the_record_commands_are_there_only_with_the_record_feature() {
-        for command in ["usage", "show", "history"] {
+        for command in ["usage", "show", "history", "open", "link", "work"] {
             let kind = Cli::try_parse_from(["agent-bus", command, "--help"])
                 .err()
                 .map(|error| error.kind());
@@ -926,6 +1094,8 @@ echo '{"type":"result","is_error":false,"result":"done","session_id":"sess-1"}'
                 task_usage: None,
                 github: false,
                 model: None,
+                work: None,
+                ended: None,
             })
             .await?;
         loop {
@@ -1074,6 +1244,242 @@ echo '{"type":"result","is_error":false,"result":"done","session_id":"sess-1"}'
         .await;
 
         // Stop the agent, then clean up whatever happened.
+        if let Some(child) = agent {
+            stop_agent(child).await;
+        }
+        let docker = docker_connection().unwrap();
+        let _ = remove_container(&docker, &bus.container).await;
+        let _ = docker
+            .remove_volume(&bus.volume, None::<RemoveVolumeOptions>)
+            .await;
+        if result.is_ok() {
+            let _ = fs::remove_dir_all(&dir);
+        }
+        result.unwrap();
+    }
+
+    /// A stand-in for `claude` that answers every prompt, priming ones included, with `done`.
+    #[cfg(feature = "record")]
+    const DONE_CLAUDE: &str = r#"#!/bin/bash
+read -r prompt
+echo '{"type":"system","subtype":"init","session_id":"sess-1"}'
+echo '{"type":"result","is_error":false,"result":"done","session_id":"sess-1"}'
+"#;
+
+    /// A stand-in for `gh`: the checkout is `o/r`, default branch `main`, and every branch has
+    /// the open pull request 630.
+    #[cfg(feature = "record")]
+    const PULL_REQUEST_GH: &str = r#"#!/bin/bash
+case "$1 $2" in
+"repo view") echo '{"nameWithOwner":"o/r","defaultBranchRef":{"name":"main"}}' ;;
+"pr list") echo '[{"number":630,"url":"https://github.com/o/r/pull/630","body":"","isCrossRepository":false}]' ;;
+*) exit 2 ;;
+esac
+"#;
+
+    /// A directory for `a_task_tagged_with_an_issue_becomes_an_item_with_the_guest_s_branch`:
+    /// the agents file, `bin/claude` (`DONE_CLAUDE`), `bin/gh` (`PULL_REQUEST_GH`) and the
+    /// checkout `work` on `feat/580-x`.
+    #[cfg(feature = "record")]
+    fn work_item_test_dir(host: &keys::NewKey, guest: &keys::NewKey) -> PathBuf {
+        let dir = env::temp_dir().join(format!("agent-bus-work-item-{}", process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        for path in [dir.join("bin"), dir.join("work")] {
+            fs::create_dir_all(path).unwrap();
+        }
+        fs::write(
+            dir.join("agents.toml"),
+            format!(
+                "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n\
+                 [[agent]]\nname = \"dev\"\nkey = \"{}\"\nrole = \"guest\"\n",
+                host.public_key, guest.public_key
+            ),
+        )
+        .unwrap();
+        for (name, script) in [("claude", DONE_CLAUDE), ("gh", PULL_REQUEST_GH)] {
+            let path = dir.join("bin").join(name);
+            fs::write(&path, script).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let status = process::Command::new("git")
+            .args(["init", "-q", "-b", "feat/580-x"])
+            .current_dir(dir.join("work"))
+            .status()
+            .unwrap();
+        assert!(status.success());
+        dir
+    }
+
+    /// Send `dev` a task tagged with issue 580 of `o/r` as the host, wait for its outcome, then
+    /// send, as `dev`, the outcome an older guest would have sent for another task: no `ended`,
+    /// a Generation line. Returns the tagged task's ID and its outcome.
+    #[cfg(feature = "record")]
+    async fn tagged_task_and_an_old_outcome(
+        server: &Endpoint,
+        host_seed: &str,
+        guest_seed: &str,
+    ) -> Result<(String, Message)> {
+        let channel = Channel::connect(server, host_seed).await?;
+        let mut inbox = channel.inbox("host", io::stderr()).await?;
+        let task = new_task_id();
+        channel
+            .send(&Message {
+                task: task.clone(),
+                from: "host".to_owned(),
+                to: "dev".to_owned(),
+                kind: Kind::Task,
+                text: "work on it".to_owned(),
+                usage: None,
+                task_usage: None,
+                github: false,
+                model: None,
+                work: work_tags(&[580], &[], Some("o/r"), Some("host-session".to_owned()))?,
+                ended: None,
+            })
+            .await?;
+        let outcome = loop {
+            let delivery = timeout(Duration::from_secs(60), inbox.next())
+                .await
+                .context("no reply in time")??
+                .context("the inbox closed")?;
+            let message = delivery.message.clone();
+            delivery.ack().await?;
+            if message.task == task && message.kind != Kind::Progress {
+                break message;
+            }
+        };
+        let dev = Channel::connect(server, guest_seed).await?;
+        dev.send(&Message {
+            task: "0ld0ld00".to_owned(),
+            from: "dev".to_owned(),
+            to: "host".to_owned(),
+            kind: Kind::Completed,
+            text: "Generation section: no open pull request for branch fix/old\n\ndone".to_owned(),
+            usage: None,
+            task_usage: None,
+            github: false,
+            model: None,
+            work: None,
+            ended: None,
+        })
+        .await?;
+        Ok((task, outcome))
+    }
+
+    /// The record after `tagged_task_and_an_old_outcome`: `task` alone in the item of issue 580,
+    /// named also by the guest's branch and pull request, and the old outcome's branch naming
+    /// another item.
+    #[cfg(feature = "record")]
+    async fn check_work_items(record: &HostRecord, task: &str) -> Result<()> {
+        let issue = Ref::new("o/r", RefKind::Issue, "580");
+        let item_id = ref_item(record.conn(), &issue)
+            .await?
+            .context("the issue names no item")?;
+        let item = items::item(record.conn(), item_id).await?;
+        let refs: Vec<(String, &str)> = item
+            .refs
+            .iter()
+            .map(|named| (named.reference.qualified(), named.source.as_str()))
+            .collect();
+        ensure!(
+            refs == [
+                ("o/r branch feat/580-x".to_owned(), "guest"),
+                ("o/r #580".to_owned(), "brief"),
+                ("o/r PR #630".to_owned(), "guest"),
+            ],
+            "{refs:?}"
+        );
+        let tasks: Vec<&str> = item.tasks.iter().map(|task| task.task.as_str()).collect();
+        ensure!(tasks == [task], "{tasks:?}");
+        ensure!(item.name == "#580", "{}", item.name);
+        let old = Ref::new("o/r", RefKind::Branch, "fix/old");
+        let old_item = ref_item(record.conn(), &old)
+            .await?
+            .context("the old outcome's branch names no item")?;
+        ensure!(old_item != item_id, "one item for both");
+        Ok(())
+    }
+
+    /// Needs Docker. A task sent with `--issue` to a guest agent in its own process, whose
+    /// checkout is on a branch with an open pull request, ends up in the record as one item:
+    /// the issue (brief), and the guest's branch and pull request (guest). An older guest's
+    /// outcome on the same bus is parsed into its own item. With `AGENT_BUS_KEEP_RECORD` set
+    /// to a directory, the record is copied there for a `work backfill` by hand.
+    #[cfg(feature = "record")]
+    #[tokio::test]
+    #[ignore = "needs Docker"]
+    async fn a_task_tagged_with_an_issue_becomes_an_item_with_the_guest_s_branch() {
+        let _ = aws_lc_rs::default_provider().install_default();
+        let (host, guest) = (keys::generate().unwrap(), keys::generate().unwrap());
+        let dir = work_item_test_dir(&host, &guest);
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let id = process::id();
+        let bus = Bus {
+            container: format!("sherpa-agent-bus-work-test-{id}"),
+            volume: format!("sherpa-agent-bus-work-test-{id}-data"),
+            listen: Ipv4Addr::LOCALHOST,
+            port,
+            state_dir: dir.join("bus-state"),
+            lab: None,
+        };
+        let server = Endpoint {
+            url: format!("nats://127.0.0.1:{port}"),
+            ca: bus.state_dir.join(tls::TLS_DIR).join(tls::CA_CERT_FILE),
+        };
+        let log = dir.join("agent-bus-dev.log");
+        let paths = Paths::in_dir(&dir.join("record-state"));
+        let mut agent = None;
+
+        let result = async {
+            bus::start(&bus, &dir.join("agents.toml"), &host.seed).await?;
+            let child = agent.insert(spawn_guest_agent(
+                &dir,
+                &server,
+                "sk-ant-oat01-worktest",
+                &guest.seed,
+            )?);
+            wait_until_waiting(child, &log).await?;
+            let (task, outcome) =
+                tagged_task_and_an_old_outcome(&server, &host.seed, &guest.seed).await?;
+            ensure!(outcome.kind == Kind::Completed, "{outcome:?}");
+            ensure!(
+                outcome
+                    .ended
+                    .as_ref()
+                    .and_then(|ended| ended.branch.as_deref())
+                    == Some("feat/580-x"),
+                "{outcome:?}"
+            );
+
+            let access = BusAccess {
+                server: server.clone(),
+                seed: host.seed.clone(),
+            };
+            let record = HostRecord::open(&paths, Ok(access), Some("o/r")).await?;
+            ensure!(record.behind().is_none(), "{:?}", record.behind());
+            check_work_items(&record, &task).await?;
+            drop(record);
+            if let Some(keep) = env::var_os("AGENT_BUS_KEEP_RECORD") {
+                fs::create_dir_all(&keep)?;
+                for suffix in ["", "-wal"] {
+                    let mut from = paths.record.as_os_str().to_owned();
+                    from.push(suffix);
+                    if Path::new(&from).exists() {
+                        fs::copy(
+                            &from,
+                            Path::new(&keep).join(format!("{}{suffix}", store::FILE)),
+                        )?;
+                    }
+                }
+            }
+            Ok(())
+        }
+        .await;
+
         if let Some(child) = agent {
             stop_agent(child).await;
         }

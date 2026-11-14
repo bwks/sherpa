@@ -31,6 +31,8 @@ pub struct Row {
     pub usage: Option<TaskUsage>,
     /// Where the task is, from its last outcome message.
     pub state: TaskState,
+    /// When it was sent, else its latest message: the week `usage --by week` counts it in.
+    pub at_ms: u64,
 }
 
 impl TaskUsage {
@@ -134,6 +136,7 @@ mod tests {
             model: model.map(str::to_owned),
             usage,
             state,
+            at_ms: 0,
         }
     }
 

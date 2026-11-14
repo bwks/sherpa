@@ -896,6 +896,8 @@ mod tests {
             task_usage: None,
             github: false,
             model: None,
+            work: None,
+            ended: None,
         }
     }
 
@@ -2591,7 +2593,7 @@ mod tests {
             };
 
             // The first command catches up, then answers.
-            let record = timeout(wait, Record::open(&paths, access()))
+            let record = timeout(wait, Record::open(&paths, access(), None))
                 .await
                 .context("catching up took too long")??;
             let CatchUp::Read(tally) = record.catch_up() else {
@@ -2609,7 +2611,7 @@ mod tests {
                 record.behind().is_none(),
                 "a current record says it is behind"
             );
-            let rows = read::usage(record.conn(), "host", Some("dev"), None, false).await?;
+            let rows = read::usage(record.conn(), "host", Some("dev"), None, false, None).await?;
             let row = rows
                 .iter()
                 .find(|row| row.task == "record1")
@@ -2636,7 +2638,7 @@ mod tests {
 
             // The next command, in turn: nothing more to record, the same answer. `show` has the
             // task's messages both ways, oldest first.
-            let record = timeout(wait, Record::open(&paths, access()))
+            let record = timeout(wait, Record::open(&paths, access(), None))
                 .await
                 .context("catching up again took too long")??;
             ensure!(
@@ -2765,9 +2767,12 @@ mod tests {
                 server: bus.endpoint(),
                 seed: host.seed.clone(),
             };
-            let record = timeout(Duration::from_secs(30), Record::open(paths, Ok(access)))
-                .await
-                .context("opening the record took too long")??;
+            let record = timeout(
+                Duration::from_secs(30),
+                Record::open(paths, Ok(access), None),
+            )
+            .await
+            .context("opening the record took too long")??;
             let warning = record
                 .behind()
                 .context("a record that did not catch up says it is current")?;
@@ -2822,9 +2827,12 @@ mod tests {
                     server: bus.endpoint(),
                     seed: host.seed.clone(),
                 };
-                let record = timeout(Duration::from_secs(300), Record::open(&paths, Ok(access)))
-                    .await
-                    .context("catching up took too long")??;
+                let record = timeout(
+                    Duration::from_secs(300),
+                    Record::open(&paths, Ok(access), None),
+                )
+                .await
+                .context("catching up took too long")??;
                 ensure!(
                     record.behind().is_none(),
                     "the record is behind: {:?}",

@@ -116,6 +116,8 @@ mod tests {
             task_usage: None,
             github,
             model: None,
+            work: None,
+            ended: None,
         }
     }
 
