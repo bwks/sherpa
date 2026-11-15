@@ -2,6 +2,9 @@
 //! a QEMU telnet chardev on its address in the lab's loopback network on the Sherpa server,
 //! so the console is always reached through an SSH session to the server, the hop `sherpa ssh`
 //! takes, with Jato's telnet client over a `direct-tcpip` channel. No system `telnet` is used.
+//! The node's kind and console address come from the server's `inspect`, so a lab folder
+//! needs no manifest; a server too old to give the address falls back to the node's place in
+//! the folder's `manifest.toml`.
 
 use std::path::Path;
 use std::time::Duration;
@@ -11,23 +14,34 @@ use jato::{
     ConnectOptions, Error, InteractiveOptions, Node, PromptCache, SshConfig, Telnet, TelnetOptions,
 };
 
-use shared::data::{LabInfo, NodeKind};
+use shared::data::{ClientConfig, DeviceInfo, LabInfo, NodeKind};
 use shared::konst::{
-    BOOT_SERVER_NAME, CONSOLE_CONNECT_TIMEOUT, CONSOLE_NEGOTIATION_TIMEOUT,
+    BOOT_SERVER_NAME, CONSOLE_CONNECT_TIMEOUT, CONSOLE_NEGOTIATION_TIMEOUT, SHERPA_MANIFEST_FILE,
     SSH_PROMPT_AUTH_TIMEOUT, TELNET_PORT,
 };
 use shared::util::{LabFolder, get_ip, term_msg_surround};
 use topology::Manifest;
 
+use super::inspect::fetch_inspect;
 use super::ssh::read_lab_connection_file;
 use crate::ssh_client;
 
 /// Open the serial console of the node `name` in this process's terminal, through the Sherpa
 /// server, until the console closes or an escape (`Ctrl+]`, or `~.` at the start of a line) is
 /// typed. Containers have no serial console and are refused before anything connects.
-#[tracing::instrument(skip_all, fields(%name, lab_id = %lab_info.id))]
-pub async fn console(name: &str, manifest: &Manifest, lab_info: &LabInfo) -> Result<()> {
-    let node = console_node(name, manifest, lab_info)?;
+#[tracing::instrument(skip_all, fields(%name, %lab_id))]
+pub async fn console(
+    name: &str,
+    lab_id: &str,
+    server_url: &str,
+    config: &ClientConfig,
+) -> Result<()> {
+    let inspect = fetch_inspect(lab_id, server_url, config).await?;
+    let lab_info = &inspect.lab_info;
+    let node = match console_target(name, &inspect.devices, lab_info)? {
+        Some(node) => node,
+        None => manifest_console_node(name, Path::new(SHERPA_MANIFEST_FILE), lab_info)?,
+    };
     let lab_dir = Path::new("");
     let folder = LabFolder::new(lab_dir);
     let ssh_config = read_lab_connection_file(&folder.ssh_config(), &lab_info.id)?;
@@ -70,30 +84,53 @@ pub async fn console(name: &str, manifest: &Manifest, lab_info: &LabInfo) -> Res
     Ok(())
 }
 
-/// The console of `name` on the Sherpa server: the node's address in the lab's loopback
-/// network, from its place in the manifest, on the telnet port. A container has none.
-fn console_node(name: &str, manifest: &Manifest, lab_info: &LabInfo) -> Result<Node> {
-    let address = if name == BOOT_SERVER_NAME {
-        get_ip(&lab_info.loopback_network, 255)
-    } else {
-        let (position, device) = manifest
-            .nodes
-            .iter()
-            .enumerate()
-            .find(|(_, device)| device.name == name)
-            .ok_or_else(|| anyhow!("Device not found: {name}"))?;
-        if device.model.kind() == NodeKind::Container {
-            bail!(
-                "{name} is a container, and containers have no serial console. Connect with \
-                 'sherpa ssh {name}' instead."
-            );
-        }
-        // Node indexes start from 1, as they do for addresses.
-        let device_id = u8::try_from(position + 1)
-            .with_context(|| format!("Device ID not found for: {name}"))?;
-        get_ip(&lab_info.loopback_network, device_id)
-    };
-    Ok(Node::new(address.to_string(), TELNET_PORT))
+/// The console of `name` on the Sherpa server, from the lab's `devices` as `inspect` gives
+/// them: the node's console address on the telnet port. The boot server's is host 255 of the
+/// lab's loopback network. A container has none and is refused. `None` when the server gives
+/// no address, as servers before console addresses do.
+fn console_target(name: &str, devices: &[DeviceInfo], lab_info: &LabInfo) -> Result<Option<Node>> {
+    if name == BOOT_SERVER_NAME {
+        let address = get_ip(&lab_info.loopback_network, 255);
+        return Ok(Some(Node::new(address.to_string(), TELNET_PORT)));
+    }
+    let device = devices
+        .iter()
+        .find(|device| device.name == name)
+        .ok_or_else(|| anyhow!("Device not found: {name}"))?;
+    if device.kind == NodeKind::Container {
+        bail!(
+            "{name} is a container, and containers have no serial console. Connect with \
+             'sherpa ssh {name}' instead."
+        );
+    }
+    Ok(device
+        .console_address
+        .map(|address| Node::new(address.to_string(), TELNET_PORT)))
+}
+
+/// The console of `name` from its place in the manifest at `path`, for a server that gives no
+/// console address: node indexes follow the manifest's order, starting from 1, as `up` gives
+/// them.
+fn manifest_console_node(name: &str, path: &Path, lab_info: &LabInfo) -> Result<Node> {
+    if !path.exists() {
+        bail!(
+            "The Sherpa server did not give the console address of {name}: it is older than \
+             this client. Upgrade the server, or run 'sherpa console' in the folder the lab \
+             was started from, with its {SHERPA_MANIFEST_FILE}."
+        );
+    }
+    let manifest = Manifest::load_file(&path.to_string_lossy())?;
+    let position = manifest
+        .nodes
+        .iter()
+        .position(|device| device.name == name)
+        .ok_or_else(|| anyhow!("Device not found: {name}"))?;
+    let device_id =
+        u8::try_from(position + 1).with_context(|| format!("Device ID not found for: {name}"))?;
+    Ok(Node::new(
+        get_ip(&lab_info.loopback_network, device_id).to_string(),
+        TELNET_PORT,
+    ))
 }
 
 /// The first alias of the first `Host` block in the lab SSH config. Every block jumps through
@@ -158,15 +195,11 @@ fn closed_line(name: &str, escaped: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::io;
     use std::time::Duration;
 
-    fn manifest() -> Manifest {
-        toml::from_str(
-            "name='test'\nnodes=[{name='alp01',model='alpine_linux'},{name='srl01',model='nokia_srlinux'}]\n",
-        )
-        .unwrap()
-    }
+    use shared::data::{NodeModel, NodeState};
 
     fn lab_info() -> LabInfo {
         "id='abcd1234'\nname='test'\nuser='alice'\nipv4_network='192.0.2.0/24'\nipv4_gateway='192.0.2.1'\nipv4_router='192.0.2.2'\nloopback_network='127.127.3.0/24'".parse().unwrap()
@@ -180,17 +213,50 @@ mod tests {
         Node::new("192.0.2.1", 22)
     }
 
+    fn device(name: &str, kind: NodeKind, console_address: Option<&str>) -> DeviceInfo {
+        DeviceInfo {
+            name: name.to_string(),
+            model: NodeModel::AlpineLinux,
+            kind,
+            state: NodeState::Running,
+            mgmt_ipv4: "192.0.2.10".to_string(),
+            mgmt_ipv6: None,
+            vnc_port: None,
+            disks: Vec::new(),
+            cpu_count: None,
+            memory: None,
+            console_address: console_address.map(|address| address.parse().unwrap()),
+        }
+    }
+
+    /// The lab's nodes as a server with console addresses gives them. The VM's address is not
+    /// the one its place in a manifest would give.
+    fn devices() -> Vec<DeviceInfo> {
+        vec![
+            device("srl01", NodeKind::Container, None),
+            device("alp01", NodeKind::VirtualMachine, Some("127.127.3.7")),
+        ]
+    }
+
     #[test]
-    fn a_vm_console_is_on_its_loopback_address() {
+    fn a_vm_console_is_at_the_address_the_server_gives() {
         assert_eq!(
-            console_node("alp01", &manifest(), &lab_info()).unwrap(),
-            console()
+            console_target("alp01", &devices(), &lab_info()).unwrap(),
+            Some(Node::new("127.127.3.7", TELNET_PORT))
+        );
+    }
+
+    #[test]
+    fn the_boot_server_console_is_host_255_of_the_loopback_network() {
+        assert_eq!(
+            console_target(BOOT_SERVER_NAME, &[], &lab_info()).unwrap(),
+            Some(Node::new("127.127.3.255", TELNET_PORT))
         );
     }
 
     #[test]
     fn a_container_is_refused_before_anything_connects() {
-        let error = console_node("srl01", &manifest(), &lab_info()).unwrap_err();
+        let error = console_target("srl01", &devices(), &lab_info()).unwrap_err();
         assert_eq!(
             error.to_string(),
             "srl01 is a container, and containers have no serial console. Connect with \
@@ -199,9 +265,49 @@ mod tests {
     }
 
     #[test]
-    fn a_node_not_in_the_manifest_is_reported() {
-        let error = console_node("nope01", &manifest(), &lab_info()).unwrap_err();
+    fn a_node_not_in_the_lab_is_reported() {
+        let error = console_target("nope01", &devices(), &lab_info()).unwrap_err();
         assert_eq!(error.to_string(), "Device not found: nope01");
+    }
+
+    #[test]
+    fn an_older_server_gives_no_console_address() {
+        let devices = [device("alp01", NodeKind::VirtualMachine, None)];
+        assert_eq!(
+            console_target("alp01", &devices, &lab_info()).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn with_an_older_server_the_console_is_found_by_the_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(SHERPA_MANIFEST_FILE);
+        fs::write(
+            &path,
+            "name='test'\nnodes=[{name='srl01',model='nokia_srlinux'},{name='alp01',model='alpine_linux'}]\n",
+        )
+        .unwrap();
+        assert_eq!(
+            manifest_console_node("alp01", &path, &lab_info()).unwrap(),
+            Node::new("127.127.3.2", TELNET_PORT)
+        );
+        let error = manifest_console_node("nope01", &path, &lab_info()).unwrap_err();
+        assert_eq!(error.to_string(), "Device not found: nope01");
+    }
+
+    #[test]
+    fn with_an_older_server_and_no_manifest_the_server_is_too_old() {
+        let dir = tempfile::tempdir().unwrap();
+        let error =
+            manifest_console_node("alp01", &dir.path().join(SHERPA_MANIFEST_FILE), &lab_info())
+                .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "The Sherpa server did not give the console address of alp01: it is older than \
+             this client. Upgrade the server, or run 'sherpa console' in the folder the lab \
+             was started from, with its manifest.toml."
+        );
     }
 
     #[test]

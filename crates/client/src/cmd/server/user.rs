@@ -2,10 +2,8 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result, ensure};
-use base64::{Engine as _, engine::general_purpose};
 use clap::Subcommand;
 
-use shared::auth::jwt::Claims;
 use shared::data::{self, ServerConnection};
 use shared::konst::SSH_KEYS_DOCS_URL;
 use shared::util::{confirm, emoji_success, emoji_warning, expand_path, normalize_username};
@@ -14,7 +12,7 @@ use shared::validators::validate_username;
 use super::OutputFormat;
 use super::rpc_call;
 use crate::table::render_ssh_keys_table;
-use crate::token::load_token;
+use crate::token::{load_token, username_from_token};
 
 #[derive(Debug, Subcommand)]
 pub enum UserCommands {
@@ -523,21 +521,6 @@ async fn get_user_info(
     Ok(())
 }
 
-/// The username a login `token` is for: its `sub` claim. The signature is not checked: this only
-/// picks the default user, and the server checks the token on every call.
-fn username_from_token(token: &str) -> Result<String> {
-    let payload = token
-        .split('.')
-        .nth(1)
-        .context("The login token is not a JWT; run: sherpa login")?;
-    let payload = general_purpose::URL_SAFE_NO_PAD
-        .decode(payload)
-        .context("Failed to decode the login token")?;
-    let claims: Claims = serde_json::from_slice(&payload)
-        .context("Failed to parse the login token; run: sherpa login")?;
-    Ok(claims.sub)
-}
-
 /// Ask for a new password with `prompt`, then again to confirm it. It is always typed, never
 /// taken from `SHERPA_USER_PASSWORD`, which holds the caller's own password for `login`.
 fn prompt_new_password(prompt: &str) -> Result<String> {
@@ -559,20 +542,6 @@ mod tests {
     use clap::Parser;
 
     use super::*;
-
-    #[test]
-    fn the_username_is_read_from_a_base64url_token() {
-        let claims = br#"{"sub":"dev","sid":"s","exp":1,"iat":1,"is_admin":false,"x":"??>>~~"}"#;
-        let payload = general_purpose::URL_SAFE_NO_PAD.encode(claims);
-        assert!(payload.contains(['-', '_']), "{payload}");
-        let token = format!("header.{payload}.signature");
-        assert_eq!(username_from_token(&token).unwrap(), "dev");
-    }
-
-    #[test]
-    fn a_token_that_is_not_a_jwt_is_refused() {
-        assert!(username_from_token("not-a-jwt").is_err());
-    }
 
     #[test]
     fn a_new_password_must_be_typed_the_same_twice() {

@@ -6,6 +6,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
+use base64::{Engine as _, engine::general_purpose};
+
+use shared::auth::jwt::Claims;
 
 use crate::private_key::write_secret_file;
 
@@ -80,6 +83,25 @@ pub fn delete_token() -> Result<()> {
     TokenFile::in_home()?.delete()
 }
 
+/// The username a login `token` is for: its `sub` claim. The signature is not checked: this only
+/// names the user to the CLI, and the server checks the token on every call.
+///
+/// # Errors
+///
+/// Fails when `token` is not a JWT or its claims do not parse.
+pub fn username_from_token(token: &str) -> Result<String> {
+    let payload = token
+        .split('.')
+        .nth(1)
+        .context("The login token is not a JWT; run: sherpa login")?;
+    let payload = general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .context("Failed to decode the login token")?;
+    let claims: Claims = serde_json::from_slice(&payload)
+        .context("Failed to parse the login token; run: sherpa login")?;
+    Ok(claims.sub)
+}
+
 /// Whether a token is saved.
 pub fn token_exists() -> bool {
     TokenFile::in_home().is_ok_and(|file| file.path.exists())
@@ -135,5 +157,19 @@ mod tests {
             error.to_string(),
             "No token found. Please run: sherpa login"
         );
+    }
+
+    #[test]
+    fn the_username_is_read_from_a_base64url_token() {
+        let claims = br#"{"sub":"dev","sid":"s","exp":1,"iat":1,"is_admin":false,"x":"??>>~~"}"#;
+        let payload = general_purpose::URL_SAFE_NO_PAD.encode(claims);
+        assert!(payload.contains(['-', '_']), "{payload}");
+        let token = format!("header.{payload}.signature");
+        assert_eq!(username_from_token(&token).unwrap(), "dev");
+    }
+
+    #[test]
+    fn a_token_that_is_not_a_jwt_is_refused() {
+        assert!(username_from_token("not-a-jwt").is_err());
     }
 }

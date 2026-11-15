@@ -62,7 +62,7 @@ pub struct InterfaceData {
 }
 
 /// Minimal lab identity (name + id) used by CLI commands that don't need full `LabInfo`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LabIdentity {
     pub name: String,
     pub id: String,

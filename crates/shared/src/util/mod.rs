@@ -58,7 +58,7 @@ pub use mac::random_mac;
 pub use output::{
     confirm, display_destroy_results, term_msg_highlight, term_msg_surround, term_msg_underline,
 };
-pub use random::{generate_lab_name, get_id, get_id_for_user};
+pub use random::{generate_lab_name, get_id_for_user};
 pub use sanitizers::dasher;
 pub use ssh::{
     SshConfigCleanReport, SshConfigEntryStatus, SshConfigInspectionEntry,
@@ -70,4 +70,4 @@ pub use ssh::{
 #[cfg(feature = "table")]
 pub use table::{TableLayout, render_table};
 pub use text::split_node_int;
-pub use user::{get_username, normalize_username, sherpa_user};
+pub use user::{normalize_username, sherpa_user};

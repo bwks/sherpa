@@ -7,10 +7,9 @@ use anyhow::{Context, Result};
 use shared::data::{ClientConfig, NodeSecretsResponse, ProvisionResult, ProvisionStatus};
 use shared::konst::{CONTAINER_SECRETS_DIR, SHERPA_MANIFEST_FILE};
 use shared::util::term_msg_surround;
-use topology::Manifest;
 use topology::validate::validate_provisioners;
 
-use super::lab_identity::manifest_lab_identity;
+use super::lab_identity::{load_source_manifest, manifest_lab_identity};
 use crate::provision::{container_secrets, provision_lab};
 use crate::ssh_client::HostKeyRefresh;
 use crate::token::load_token;
@@ -20,8 +19,8 @@ use crate::ws_client::{RpcRequest, WebSocketClient};
 /// nodes' secret files, and the CLI runs ssh provisioners.
 #[tracing::instrument(skip_all, fields(?node))]
 pub async fn provision(node: Option<&str>, server_url: &str, config: &ClientConfig) -> Result<()> {
-    let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-    let lab_id = manifest_lab_identity(&manifest)?.id;
+    let manifest = load_source_manifest(Path::new(SHERPA_MANIFEST_FILE), "provision")?;
+    let lab_id = manifest_lab_identity(Path::new(""), &manifest)?.id;
     term_msg_surround(&format!("Provision Lab - {}-{lab_id}", manifest.name));
     validate_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
 
