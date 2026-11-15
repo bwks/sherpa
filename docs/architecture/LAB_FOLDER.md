@@ -51,16 +51,25 @@ Vault and Keycloak credentials, and the files read while a node exists: the dnsm
 that boot by them (`ztp/tftp/`, `ztp/configs/`) and each container's config mounts (`<node>/`).
 It does not keep:
 
-- **A VM's boot files** (`<node>/`: its seed, config files, `ztp.iso`, config disks, Ignition
-  file): they are read once, to copy the VM's media into the storage pool, and removed straight
-  after (see [`ZTP_ISO.md`](ZTP_ISO.md#from-config-files-to-the-guest)). A failed copy keeps
-  them until `destroy`. A VM named like one of the lab's own folders (`certs`, `ztp`,
-  `clusters`, `vault`, `keycloak`) keeps its files there, as that folder holds more than them.
+- **A VM's boot files** (`vm-boot.d/<node>/`: its seed, config files, `ztp.iso`, config disks,
+  Ignition file): they are read once, to copy the VM's media into the storage pool, and removed
+  straight after (see [`ZTP_ISO.md`](ZTP_ISO.md#from-config-files-to-the-guest)). A failed copy
+  keeps them until `destroy` or the node's next `redeploy`. Node names allow only letters,
+  digits, `-` and `_`, so `vm-boot.d` is never a node's folder, and `vm-boot.d/<node>` never one
+  of the lab's own folders, whatever the VM is called.
 - **A dnsmasq leases file**: dnsmasq keeps its leases inside the boot container.
 - **Unikernel certificates**: none are issued (see [`LAB_CA.md`](LAB_CA.md#node-certificates)).
 - **Another ZTP method's network boot files**: a `redeploy` that moves a VM off TFTP or HTTP
   removes that node's TFTP config or HTTP files (`node_ops::remove_stale_network_boot_files`),
-  and no other node's.
+  and no other node's. The boot server's config changes with it: see
+  [`ZTP.md`](ZTP.md#redeploy-and-the-boot-server).
+
+A node's own folder, `<node>/`, still holds a container's config mounts, and held a VM's boot
+files in releases before this one. It is removed by name (the redeploy teardown, the startup
+clean-up) only through `node_ops::node_dir`, which gives none for a node named like one of the
+lab's own folders (`certs`, `ztp`, `clusters`, `vault`, `keycloak`): that folder holds the lab
+CA, the boot server's files or credentials, so it is kept, with a warning. A container named
+like one writes its config files into it, as before.
 
 Older releases left the first three; they are removed at startup (see
 [Unread lab file clean-up](SERVER.md#unread-lab-file-clean-up)). The user's `manifest.toml` in

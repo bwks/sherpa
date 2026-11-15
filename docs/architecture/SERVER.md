@@ -226,7 +226,8 @@ every lab with a record:
 - `ztp/dnsmasq/dnsmasq.leases`, written empty and never mounted in the boot container;
 - `certs/<node>.crt` and `certs/<node>.key` of each unikernel node, issued and never delivered;
 - `<node>/` of each VM node, its boot files, read once to copy its media into the storage pool.
-  A VM named like one of the lab's own folders keeps it (`node_ops::vm_boot_dir`).
+  Releases now write them to `vm-boot.d/<node>/` and remove them after the copy. A VM named like
+  one of the lab's own folders keeps that folder (`node_ops::node_dir`).
 
 A node's kind comes from its image record. What dnsmasq, QEMU and Docker read stays: the dnsmasq
 config, the TFTP and HTTP files, the pool volumes, container and VM certificates and container
