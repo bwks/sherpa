@@ -4,13 +4,14 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use tokio::sync::{Mutex, OwnedMutexGuard};
 use tracing::instrument;
 use turso::{Builder, Connection};
 
 use shared::konst::{SHERPA_DB_BUSY_TIMEOUT_SECS, SHERPA_DB_FILE_MODE, SHERPA_DB_MEMORY};
 
+use crate::secret::SecretKey;
 use crate::sql::sql_text;
 
 /// Shared handle to Sherpa's embedded database.
@@ -19,10 +20,14 @@ use crate::sql::sql_text;
 /// tasks at once. Writes also hold the handle's write lock, which queues writers in arrival
 /// order: under contention, writers left to Turso's busy wait can wait past the busy timeout and
 /// fail.
+///
+/// The handle can carry the key that seals the database's secret values
+/// ([`Database::with_secret_key`]); a secret value cannot be written or read without it.
 #[derive(Clone)]
 pub struct Database {
     inner: turso::Database,
     writes: Arc<Mutex<()>>,
+    secret_key: Option<Arc<SecretKey>>,
 }
 
 /// A connection that holds the database's write lock until it is dropped.
@@ -32,6 +37,20 @@ pub(crate) struct Writer {
 }
 
 impl Database {
+    /// This handle with `key`, the key that seals the database's secret values.
+    #[must_use]
+    pub fn with_secret_key(mut self, key: SecretKey) -> Self {
+        self.secret_key = Some(Arc::new(key));
+        self
+    }
+
+    /// The key that seals the database's secret values.
+    pub(crate) fn secret_key(&self) -> Result<&SecretKey> {
+        self.secret_key.as_deref().ok_or_else(|| {
+            anyhow!("The database key is not loaded, so secret values cannot be sealed or opened")
+        })
+    }
+
     /// A connection for reads. Reads take no lock.
     #[instrument(skip(self), level = "debug")]
     pub(crate) async fn reader(&self) -> Result<Connection> {
@@ -147,6 +166,7 @@ pub async fn open(path: &Path) -> Result<Database> {
     Ok(Database {
         inner,
         writes: Arc::new(Mutex::new(())),
+        secret_key: None,
     })
 }
 

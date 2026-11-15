@@ -17,6 +17,7 @@ use crate::services::guest_account::{self, GuestAccount};
 use crate::services::image_lifecycle::{
     ImageLease, check_container_image, lease_image, validate_disk_method,
 };
+use crate::services::lab_definition::add_provisioning;
 use crate::services::lab_operations::LabOperation;
 use crate::services::lab_ssh_key::LabSshKeyPaths;
 use crate::services::progress::ProgressSender;
@@ -27,6 +28,7 @@ use crate::validate::{
     reject_provisioners, validate_container_repo, validate_node_secrets, validate_node_ztp,
 };
 
+use db::StoredProvisioning;
 use libvirt::QemuConnection;
 use shared::data;
 use shared::data::{DbLab, DbNode, RecordId, RedeployRequest, StatusKind};
@@ -62,6 +64,9 @@ pub(super) struct Redeploy<'a> {
     pub(super) node_image: data::NodeConfig,
     /// The node as the manifest describes it now.
     pub(super) target_node: topology::NodeExpanded,
+    /// The manifest the node is redeployed from: what the lab's definition records for the
+    /// node once it is rebuilt.
+    pub(super) definition: RedeployDefinition,
     pub(super) data_interface_count: u8,
     pub(super) ipv4: Ipv4Addr,
     pub(super) ipv6: Option<Ipv6Addr>,
@@ -70,11 +75,29 @@ pub(super) struct Redeploy<'a> {
     pub(super) owner_username: String,
     /// Secret files for a container node; `None` keeps its current ones.
     pub(super) secrets: Option<Vec<data::SecretFile>>,
-    pub(super) ready_timeout: Duration,
     /// Keeps the node's image until its disks are cloned.
     pub(super) image_guard: ImageLease,
     /// Holds the node's memory and CPU pins against other operations until the redeploy ends.
     pub(super) _admission: Admission,
+}
+
+/// The manifest a node is redeployed from, with the provisioning the client sent beside it.
+pub(super) struct RedeployDefinition {
+    pub(super) manifest: topology::Manifest,
+    /// Whether the client sent the provisioning, which then replaces the stored one.
+    pub(super) provisioning: StoredProvisioning,
+}
+
+impl Redeploy<'_> {
+    /// How long the node has to become ready: the manifest's `ready_timeout`.
+    pub(super) fn ready_timeout(&self) -> Duration {
+        Duration::from_secs(
+            self.definition
+                .manifest
+                .ready_timeout
+                .unwrap_or(READINESS_TIMEOUT),
+        )
+    }
 }
 
 /// The node's record and image, and its data interface count, as the redeploy finds them.
@@ -112,19 +135,19 @@ pub(super) async fn load_redeploy<'a>(
         node_name,
         manifest,
         secrets,
+        provisioning,
     } = request;
     let _ = progress.send_status(
         format!("Loading context for node: {node_name}"),
         StatusKind::Progress,
     );
 
-    let manifest = check_manifest(ctx, manifest, &node_name, secrets.as_deref())?;
-    let mut target_node = manifest_node(&manifest, &node_name)?;
+    let definition = check_manifest(ctx, manifest, provisioning, &node_name, secrets.as_deref())?;
+    let manifest = &definition.manifest;
+    let mut target_node = manifest_node(manifest, &node_name)?;
     let talos_clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
     let talos_membership = find_talos_cluster(talos_clusters, &node_name);
-    talos::ensure_redeployable(&node_name, talos_membership)?;
 
-    let db = &state.db;
     let lab_record_id = db::get_lab_id(db_lab).context("Failed to get lab record ID")?;
     let LoadedNode {
         db_node,
@@ -169,7 +192,7 @@ pub(super) async fn load_redeploy<'a>(
     let owner_account = if manifest.provision_current_user
         && guest_account::provisions_owner(&target_node, &node_image)
     {
-        owner_account(db, db_lab, &ctx.username, &node_name, progress).await?
+        owner_account(&state.db, db_lab, &ctx.username, &node_name, progress).await?
     } else {
         None
     };
@@ -207,7 +230,7 @@ pub(super) async fn load_redeploy<'a>(
         owner_account,
         owner_username: ctx.username.clone(),
         secrets,
-        ready_timeout: Duration::from_secs(manifest.ready_timeout.unwrap_or(READINESS_TIMEOUT)),
+        definition,
         image_guard,
         _admission: admitted,
         lab_id,
@@ -216,18 +239,24 @@ pub(super) async fn load_redeploy<'a>(
 }
 
 /// The request's manifest, with the checks a redeploy shares with `sherpa up`: host access, the
-/// files the client read, provisioners, and the node's secret files.
+/// files the client read, provisioners, and the node's secret files; and that the node, if in a
+/// Talos cluster, can be redeployed. The provisioning the client sent beside it is added.
 fn check_manifest(
     ctx: &AuthContext,
     manifest: serde_json::Value,
+    provisioning: Option<serde_json::Value>,
     node_name: &str,
     secrets: Option<&[data::SecretFile]>,
-) -> Result<topology::Manifest> {
-    let manifest: topology::Manifest =
+) -> Result<RedeployDefinition> {
+    let mut manifest: topology::Manifest =
         serde_json::from_value(manifest).context("Failed to deserialize manifest")?;
     require_host_access(ctx, &manifest.nodes)?;
+    let talos_clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
+    talos::ensure_redeployable(node_name, find_talos_cluster(talos_clusters, node_name))?;
     check_client_read_files(&manifest.nodes).context("Manifest validation failed: files")?;
     reject_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
+    let provisioning = add_provisioning(&mut manifest, provisioning)
+        .context("Manifest validation failed: provisioning")?;
     if let Some(files) = secrets
         && !files.is_empty()
     {
@@ -237,7 +266,10 @@ fn check_manifest(
         )
         .context("Manifest validation failed: container secret files")?;
     }
-    Ok(manifest)
+    Ok(RedeployDefinition {
+        manifest,
+        provisioning,
+    })
 }
 
 /// The node's record and image, leased, with the node's ZTP setting and disk method checked

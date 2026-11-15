@@ -30,10 +30,12 @@ pub(super) struct NodeRecords {
 }
 
 /// Record every node of the lab `up` reserved, and its resources, plan each node's interfaces,
-/// and create the isolated and reserved networks of nodes that need them.
+/// and create the isolated and reserved networks of nodes that need them. Then store
+/// `manifest` as the lab's definition, with the records it describes.
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
 pub(super) async fn create_node_records(
     build: &LabBuild<'_>,
+    manifest: &topology::Manifest,
     reserved: ReservedLab,
     nodes_expanded: &[topology::NodeExpanded],
     node_images: &[data::NodeConfig],
@@ -136,6 +138,9 @@ pub(super) async fn create_node_records(
         unikernels = unikernel_nodes.len(),
         "Created all node database records"
     );
+    db::store_lab_definition(db, &lab_record_id, manifest)
+        .await
+        .context("Failed to store the lab's definition")?;
 
     Ok(NodeRecords {
         lab_record,

@@ -115,10 +115,11 @@ flowchart TB
     signals --> envoverrides["apply env overrides<br/>SHERPA_SERVER_IPV4<br/>SHERPA_SERVER_IPV6<br/>SHERPA_SERVER_WS_PORT<br/>SHERPA_SERVER_HTTP_PORT"]
     envoverrides --> jwt
     subgraph appstate["AppState::new(config, metrics)"]
-        jwt["load JWT secret, or generate it if missing<br/>(a new one written 0600 in a 0700 directory;<br/>a file of the wrong length stops startup)"] --> database["open the database file"] --> schema["apply DB schema"] --> seed["optionally seed admin user"] --> storage["restrict lab and database storage<br/>(daemon::storage::secure_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
+        jwt["load JWT secret, or generate it if missing<br/>(a new one written 0600 in a 0700 directory;<br/>a file of the wrong length stops startup)"] --> database["open the database file"] --> schema["apply DB schema"] --> dbkey["load the database key, or generate it if missing<br/>and the database has no key check<br/>(0600 in the config directory); verify_secret_key"] --> seed["optionally seed admin user"] --> storage["restrict lab and database storage<br/>(daemon::storage::secure_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
     end
     registry --> recover["services::lab_lifecycle::recover:<br/>labs left Creating become Interrupted,<br/>left Destroying become DestroyFailed,<br/>nodes left Building become Failed"]
-    recover --> cancel["create CancellationToken for background services"]
+    recover --> import["services::lab_definition::import_lab_definitions:<br/>a lab with no stored definition gets one<br/>from its saved manifest"]
+    import --> cancel["create CancellationToken for background services"]
     cancel --> scanner["if scanner enabled:<br/>spawn services::scanner::run_scanner(...)"]
     scanner --> sweeper["spawn auth::session::run_sweeper<br/>(deletes expired sessions at startup, then hourly)"]
     sweeper --> router
@@ -135,9 +136,30 @@ flowchart TB
     plain6 --> serveplain["serve with graceful shutdown future"]
 ```
 
-In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
+In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), imports the definitions of labs that have none ([below](#lab-definition-import)), starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
 
 `auth::jwt::load_or_generate_secret` generates the JWT secret only when the file is missing. A file that exists with a length other than 32 bytes stops startup with an error naming the file: replacing it would silently end every session. Deleting the file generates a new secret, which logs every user out.
+
+`daemon::db_key::load_or_create_db_key` loads the database key from `SHERPA_DB_KEY_PATH`
+(`/opt/sherpa/config/db.key`), the key that seals the database's secret values (see
+[`DATABASE.md`](DATABASE.md#secret-values)). It generates one, 32 random bytes written `0600`,
+only when the file is missing and the database has no key check yet; then `db::verify_secret_key`
+records the check. A missing file for a database that has a check, a file of the wrong length,
+and a key that does not open the check each stop startup with an error naming the problem; the
+file is never replaced. The key must be backed up with the database.
+
+#### Lab definition import
+
+Labs stored before schema version 20 have no definition in the database. After `recover`,
+`lab_definition::import_lab_definitions` gives each lab whose `has_definition` is `0` one, from
+the manifest `up` saved in its directory: `manifest.toml`, else a legacy `manifest.json`
+(`shared::util::load_saved_manifest`). It is stored with `db::store_lab_definition`, which seals
+`ztp_server.password`. A lab whose file is missing or unreadable, does not parse as a current
+manifest (an old-shape one), or names nodes the lab has no records for is logged with a warning
+and left without a definition; nothing is made up for it, and the next start tries again. The
+saved manifest never held provisioners or `provision_concurrency`, so an imported lab has none.
+The files are left in place, and every reader still reads them; moving the readers to the
+database comes later. Only a failure to list the labs stops startup.
 
 Shutdown uses SIGINT/SIGTERM. The handlers are registered once, before the server binds any listener, so a registration failure stops startup with an error instead of leaving a server that cannot shut down gracefully. On shutdown, the server cancels the background-service token. With TLS, it also asks the `axum_server::Handle` to perform graceful shutdown with a short timeout. The OpenTelemetry guard flushes traces/metrics when dropped.
 
@@ -841,7 +863,10 @@ restored. Once the node is torn down, a failure records it `Failed`, which the s
 overwrites. A VM that is not ready within the ready timeout is left `Starting`, the redeploy
 succeeds, and the scanner records it `Running` once it answers on its stored ready port.
 Before the node starts, redeploy stores the new manifest node's readiness check on its record,
-and its own wait reads it from there, as `resume` and the scanner do. The node lifecycle is
+and its own wait reads it from there, as `resume` and the scanner do. It also stores the node's
+definition and the lab-level settings a redeploy applies (`db::store_redeployed_node`; see
+[`DATABASE.md`](DATABASE.md#lab-definitions)), with the provisioning the CLI sends beside the
+manifest; a request without it, from the web UI, keeps the stored provisioners. The node lifecycle is
 in [`STATE_MACHINES.md`](STATE_MACHINES.md#1-node-lifecycle-nodestate).
 
 The important boundary is that redeploy should preserve the lab-level network topology and only replace the selected node's runtime resources and generated files.
@@ -1129,7 +1154,7 @@ flowchart TB
     validation --> guard["startup guard<br/>no leftover disks or VMs"]
     subgraph created["Phases that create resources: a failure rolls back with clean_lab_resources"]
         direction TB
-        db["3. DatabaseRecords<br/>lab, nodes, per-node libvirt networks"]
+        db["3. DatabaseRecords<br/>lab, nodes, per-node libvirt networks, the lab's definition"]
         labnet["4. LabNetworkSetup<br/>lab dir and files, management networks, Tailscale"]
         links["5. LinkCreation<br/>link records"]
         ctrnets["6. ContainerNetworks"]

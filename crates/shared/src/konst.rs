@@ -187,6 +187,9 @@ pub const SHERPA_DB_PATH: &str = "/opt/sherpa/db";
 pub const SHERPA_DB_FILE_PATH: &str = "/opt/sherpa/db/sherpa.sqlite";
 /// Where database backups taken by the server are written.
 pub const SHERPA_DB_BACKUP_PATH: &str = "/opt/sherpa/db/backups";
+/// The key that seals the database's secret values, 32 bytes, mode 0600. It is never in the
+/// database or its backups, and must be backed up with them.
+pub const SHERPA_DB_KEY_PATH: &str = "/opt/sherpa/config/db.key";
 /// The database directory: `sherpa` and its group only, so no other server user can open the
 /// database or its backups, whatever their file modes.
 pub const SHERPA_DB_DIR_MODE: u32 = 0o750;

@@ -292,11 +292,17 @@ pub async fn redeploy_node_json(
         ),
     };
 
+    let provisioning = payload
+        .get("provisioning")
+        .filter(|value| !value.is_null())
+        .cloned();
+
     let request = RedeployRequest {
         lab_id,
         node_name,
         manifest,
         secrets,
+        provisioning,
     };
 
     let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();

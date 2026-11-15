@@ -15,7 +15,7 @@ use crate::konst::{
 };
 use crate::util::path_to_string;
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ZtpServer {
     pub enable: bool,

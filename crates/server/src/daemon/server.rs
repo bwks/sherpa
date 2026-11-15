@@ -9,6 +9,7 @@ use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use std::fs::OpenOptions;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -26,13 +27,14 @@ use crate::api::websocket;
 use crate::auth::session;
 use crate::daemon::metrics::Metrics;
 use crate::daemon::state::AppState;
+use crate::services::lab_definition::{self, ImportSummary};
 use crate::services::lab_lifecycle::{self, Recovery};
 use crate::services::scanner::run_scanner;
 use crate::tls::CertificateManager;
 use shared::data::{Config, OtelConfig};
 use shared::konst::{
     OTEL_METRIC_EXPORT_INTERVAL_SECS, SESSION_SWEEP_INTERVAL_SECS, SHERPA_CONFIG_FILE_PATH,
-    SHERPAD_LOG_FILE_PATH,
+    SHERPA_LABS_PATH, SHERPAD_LOG_FILE_PATH,
 };
 use shared::util::{
     get_fqdn, get_hostname, get_non_loopback_ipv4_addresses, get_non_loopback_ipv6_addresses,
@@ -248,6 +250,18 @@ pub async fn run_server(foreground: bool) -> Result<()> {
             failed_nodes = recovery.failed_nodes,
             errors = recovery.errors,
             "Recovered labs and nodes left mid-operation when the server last stopped"
+        );
+    }
+
+    // Labs stored before lab definitions were get theirs once, from their saved manifests.
+    let imported = lab_definition::import_lab_definitions(&state.db, Path::new(SHERPA_LABS_PATH))
+        .await
+        .context("Failed to import lab definitions")?;
+    if imported != ImportSummary::default() {
+        tracing::info!(
+            imported = imported.imported,
+            skipped = imported.skipped,
+            "Imported lab definitions from saved manifests"
         );
     }
 

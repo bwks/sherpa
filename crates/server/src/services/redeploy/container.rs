@@ -332,7 +332,7 @@ async fn restore_node_services(redeploy: &Redeploy<'_>, initialises_vault: bool)
             node_name,
             redeploy.ipv4,
             ca_cert,
-            redeploy.ready_timeout,
+            redeploy.ready_timeout(),
             redeploy.progress,
         )
         .await?;
@@ -352,7 +352,7 @@ async fn restore_node_services(redeploy: &Redeploy<'_>, initialises_vault: bool)
             redeploy.ipv4,
             ca_cert,
             &redeploy.owner_username,
-            redeploy.ready_timeout,
+            redeploy.ready_timeout(),
             redeploy.progress,
         )
         .await?;

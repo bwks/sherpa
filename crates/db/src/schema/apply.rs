@@ -123,8 +123,8 @@ mod tests {
     use super::*;
     use crate::persistence::{key_of, new_key, node_image_values};
     use crate::{
-        DefaultRequest, find_lab, list_node_images, list_nodes_by_lab, open_in_memory,
-        upsert_node_image,
+        DefaultRequest, find_lab, list_labs_without_definition, list_node_images,
+        list_nodes_by_lab, open_in_memory, read_lab_definition, upsert_node_image,
     };
 
     /// The eleven ZTP methods a release before the one `ztp` column could store.
@@ -1150,5 +1150,65 @@ mod tests {
         );
         assert_eq!(check_of(NodeModel::GenericContainer), ReadyCheck::default());
         assert_eq!(check_of(NodeModel::GenericUnikernel), ReadyCheck::default());
+    }
+
+    fn migrations_before_lab_definitions() -> usize {
+        migrations::ALL
+            .iter()
+            .position(|batch| *batch == migrations::LAB_DEFINITION)
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn labs_from_before_definitions_have_none_and_keep_their_records() {
+        // A database from before lab definitions were stored, with a lab and a node.
+        let db = database_at(migrations_before_lab_definitions()).await;
+        let image = upsert_node_image(
+            &db,
+            NodeConfig::get_model(NodeModel::UbuntuLinux),
+            DefaultRequest::Make,
+        )
+        .await
+        .unwrap();
+        let image = key_of(&image.id.unwrap(), "node_image").unwrap();
+        {
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute_batch(
+                    "INSERT INTO user (id, username, password_hash, is_admin, ssh_keys,
+                         created_at, updated_at)
+                     VALUES ('u1', 'alice', 'x', 0, '[]', '2026-01-01T00:00:00Z',
+                         '2026-01-01T00:00:00Z');
+                     INSERT INTO lab (id, lab_id, name, user, loopback_network,
+                         management_network, gateway_ipv4, router_ipv4, description)
+                     VALUES ('l1', 'lab-0001', 'Old', 'u1', '127.127.1.0/24', '172.31.1.0/24',
+                         '172.31.1.1', '172.31.1.2', 'Kept');",
+                )
+                .await
+                .unwrap();
+            writer
+                .conn
+                .execute(
+                    "INSERT INTO node (id, name, \"index\", image, lab, state, memory) \
+                     VALUES ('n1', 'dev01', 1, ?1, 'l1', 'running', 2048)",
+                    [image.as_str()],
+                )
+                .await
+                .unwrap();
+        }
+
+        apply_schema(&db).await.unwrap();
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
+
+        let lab = find_lab(&db, "lab-0001").await.unwrap().unwrap();
+        assert_eq!(lab.description.as_deref(), Some("Kept"));
+        let lab_id = lab.id.clone().unwrap();
+        assert_eq!(read_lab_definition(&db, &lab_id).await.unwrap(), None);
+        let without = list_labs_without_definition(&db).await.unwrap();
+        assert_eq!(without.len(), 1);
+        assert_eq!(without[0].lab_id, "lab-0001");
+        let nodes = list_nodes_by_lab(&db, lab_id).await.unwrap();
+        assert_eq!(nodes[0].memory, Some(2048));
     }
 }

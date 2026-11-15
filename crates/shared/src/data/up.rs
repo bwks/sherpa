@@ -25,6 +25,11 @@ pub struct UpRequest {
     /// The folder `sherpa up` runs in, stored with the lab. Sent only by the CLI.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_folder: Option<String>,
+    /// The manifest's `provision_concurrency` and each node's provisioners, which are not
+    /// serialized with it: paths and settings, never file contents. Stored with the lab's
+    /// definition. Sent only by the CLI; a client that does not send it stores none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provisioning: Option<serde_json::Value>,
 }
 
 /// Response type for lab startup operation

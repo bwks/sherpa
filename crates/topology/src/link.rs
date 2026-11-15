@@ -5,7 +5,7 @@ use shared::data::{LinkImpairment, NodeModel};
 use shared::util::split_node_int;
 
 /// Link impairment configuration from the manifest.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ManifestImpairment {
     /// One-way delay in milliseconds.
@@ -68,7 +68,7 @@ pub struct LinkDetailed {
 
 /// A link in the manifest, between two `node_name::int_name` ends:
 /// `{ src = "dev01::eth1", dst = "dev02::eth0" }`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Link2 {
     pub src: String,

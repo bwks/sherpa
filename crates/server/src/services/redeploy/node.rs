@@ -42,7 +42,7 @@ static REDEPLOY_LOCKS: OnceLock<DashMap<String, Weak<Mutex<()>>>> = OnceLock::ne
 /// lab lock is taken. `request.username` is ignored.
 ///
 /// A node whose rebuild fails after it was torn down is recorded `Failed`.
-#[instrument(skip(ctx, state, progress), fields(username = %ctx.username, lab_id = %request.lab_id, node_name = %request.node_name))]
+#[instrument(skip(ctx, request, state, progress), fields(username = %ctx.username, lab_id = %request.lab_id, node_name = %request.node_name))]
 pub async fn redeploy_node(
     ctx: &AuthContext,
     request: RedeployRequest,
@@ -179,6 +179,19 @@ async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
         ),
     )
     .await?;
+
+    // The node's definition, and the lab settings a redeploy applies, are what it is rebuilt
+    // from now.
+    db::store_redeployed_node(
+        &redeploy.state.db,
+        &redeploy.lab_record_id,
+        &redeploy.node_record_id,
+        &redeploy.node_name,
+        &redeploy.definition.manifest,
+        redeploy.definition.provisioning,
+    )
+    .await
+    .context("Failed to store the node's definition")?;
 
     // Reissue the node's certificate from the lab's saved CA, for its current addresses.
     let cert_paths = lab_ca::issue_node_certificate(

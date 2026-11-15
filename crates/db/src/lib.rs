@@ -7,6 +7,7 @@ pub mod bridge;
 #[path = "../build/placeholders.rs"]
 mod build_placeholders;
 mod connect;
+pub mod definition;
 mod helpers;
 pub mod lab;
 pub mod link;
@@ -15,12 +16,18 @@ pub mod node_image;
 mod persistence;
 mod queries;
 pub mod schema;
+pub mod secret;
 pub mod seed;
 pub mod session;
 mod sql;
 pub mod user;
 
 pub use connect::{Database, open, open_in_memory};
+pub use definition::{
+    StoredProvisioning, list_labs_without_definition, read_lab_definition, store_lab_definition,
+    store_redeployed_node,
+};
+pub use secret::{SecretKey, secret_key_registered, verify_secret_key};
 pub use shared::data::{
     DbBridge, DbLab, DbLink, DbNode, DbSession, DbSessionUser, DbUser, NodeConfig, SessionChannel,
 };

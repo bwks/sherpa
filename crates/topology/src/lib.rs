@@ -12,15 +12,17 @@ pub mod validate;
 
 // re-export
 pub use bridge::{Bridge, BridgeDetailed, BridgeExpanded, BridgeLink, BridgeLinkDetailed};
+pub use link::ManifestImpairment;
 pub use link::{Link2, LinkDetailed, LinkExpanded};
-pub use manifest::Manifest;
+pub use manifest::{Manifest, TailscaleConfig};
 pub use node::{
     AuthorizedKeyFile, BinaryFile, BinaryFileData, ExpandedSsh, Node, NodeContainer, NodeExpanded,
     NodeReadyCheck, NodeSsh, NodeUnikernel, NodeVm, NodeZtp, StartupScript, SystemdUnit,
     SystemdUnitData, TextFile, TextFileData, VolumeMount,
 };
 pub use provisioner::{
-    ContainerProvisioner, ContainerSecretFile, Provisioner, ProvisionerFile, SshProvisioner,
+    ContainerProvisioner, ContainerSecretFile, Provisioner, ProvisionerFile, Provisioning,
+    SshProvisioner,
 };
 pub use resolve::{process_manifest_bridges, process_manifest_links};
 pub use talos_cluster::{TalosCluster, find_talos_cluster};

@@ -83,6 +83,10 @@ pub async fn up(
     // Serialize manifest to JSON for transmission
     let manifest_value =
         serde_json::to_value(&manifest).context("Failed to serialize manifest to JSON")?;
+    // Provisioners are not serialized with the manifest; their definitions go beside it, for
+    // the server to store with the lab.
+    let provisioning = serde_json::to_value(manifest.provisioning())
+        .context("Failed to serialize the provisioning to JSON")?;
 
     // Limits the connect only: the operation streams its progress for as long as it runs.
     let timeout = Duration::from_secs(config.server_connection.timeout_secs);
@@ -108,6 +112,7 @@ pub async fn up(
             "node_secrets": node_secrets,
             "client_host": client_host,
             "client_folder": client_folder,
+            "provisioning": provisioning,
             "token": token,
         }),
     );

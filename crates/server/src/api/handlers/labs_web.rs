@@ -246,6 +246,7 @@ pub async fn node_redeploy_handler(
         node_name: node_name.clone(),
         manifest,
         secrets: None,
+        provisioning: None,
     };
 
     let progress = ProgressSender::new(tokio::sync::mpsc::unbounded_channel().0);
@@ -956,6 +957,7 @@ pub async fn lab_create_post_handler(
         node_secrets: BTreeMap::new(),
         client_host: None,
         client_folder: None,
+        provisioning: None,
     };
 
     let job_id = uuid::Uuid::new_v4().to_string();

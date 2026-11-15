@@ -307,16 +307,14 @@ mod tests {
             names(nodes_to_provision(&manifest, Some("dev03")).unwrap()),
             vec!["dev03"]
         );
-        assert!(
-            nodes_to_provision(&manifest, Some("dev02"))
-                .unwrap()
-                .is_empty()
+        assert_eq!(
+            names(nodes_to_provision(&manifest, Some("dev02")).unwrap()),
+            Vec::<String>::new()
         );
         // The server applies container provisioners.
-        assert!(
-            nodes_to_provision(&manifest, Some("db01"))
-                .unwrap()
-                .is_empty()
+        assert_eq!(
+            names(nodes_to_provision(&manifest, Some("db01")).unwrap()),
+            Vec::<String>::new()
         );
     }
 

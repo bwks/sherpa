@@ -94,6 +94,9 @@ version = "0.6.3"
 
 [workspace.dependencies]
 # Common application dependencies
+# AES-256-GCM for the database's secret values. The version russh and pkcs5 already build; its
+# own random nonces (getrandom) are off, as `rand` makes them.
+aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc"] }
 anyhow = "1.0.100"
 askama = "0.14.0"
 async-nats = { version = "0.52.0", default-features = false }

@@ -1,6 +1,8 @@
 # Provisioners
 
-Provisioners get secrets onto lab nodes without the server storing them. There are two types:
+Provisioners get secrets onto lab nodes without the server storing them: the server stores a
+provisioner's definition (its paths and settings), never the contents of a file it names. There
+are two types:
 
 - `ssh`, for Linux and BSD VMs: the `sherpa` CLI runs it on the node once it is ready, with the
   lab's `.sherpa/ssh/config`, through the server as an SSH jump host. The server only forwards the
@@ -22,9 +24,19 @@ mode }`, mode default `konst::CONTAINER_SECRET_DEFAULT_MODE`, `444`). All are
 `deny_unknown_fields`.
 
 The field is `#[serde(default, skip_serializing)]`: it is read from the user's `manifest.toml`
-but never serialized, so it is absent from the JSON the client sends and from the
+but never serialized, so it is absent from the manifest JSON the client sends and from the
 `manifest.toml` the server saves. Only `sherpa new` writes a manifest, and it writes a new one,
 so nothing is lost by not serializing it.
+
+The CLI sends the definitions beside the manifest instead, so the server can store them with the
+lab's definition (see [`DATABASE.md`](DATABASE.md#lab-definitions)): `Manifest::provisioning`
+gives a `topology::Provisioning`, `provision_concurrency` and each node's provisioners by node
+name, which `sherpa up` and `sherpa redeploy` send as the optional `provisioning` field of
+`UpRequest` and `RedeployRequest`. On the server, `services::lab_definition::add_provisioning`
+puts it back into the manifest (`Manifest::set_provisioning`, which refuses a node the manifest
+does not have) and runs `validate_provisioners`. A request without the field, from an older CLI
+or the web UI, stores none at `up` and keeps the stored ones at `redeploy`. An older server
+ignores the field.
 
 ## Validation
 
@@ -37,8 +49,9 @@ so nothing is lost by not serializing it.
   in SFTP paths and remote shell commands; modes as octal digits up to `777`; env file names
   unique per node; at least one action. `provision_concurrency`, when set, at least 1.
 - `server::validate::reject_provisioners` (`up::up_lab`, `redeploy::redeploy_node`): any node with
-  provisioners is refused. The CLI never sends them, so they only arrive from the web UI or REST,
-  which cannot run them.
+  provisioners in the manifest itself is refused. The CLI never puts them there, so they only
+  arrive from the web UI or REST, which cannot run them. The `provisioning` field is checked
+  after this, with `validate_provisioners`.
 - `server::validate::validate_node_secrets` (`up_lab`, `redeploy_node`, before anything is
   created): secret files are only for container nodes in the manifest, with valid, unique names,
   valid modes and base64 content (`validate_secret_files`, also run by every write).
@@ -116,8 +129,9 @@ Remote steps, as the node's login user:
 `provision_lab` builds one future per node (`provision_one`: skip check, `SshTarget`,
 `wait_for_node`, then the provisioners) and runs them with `buffer_unordered`, up to
 `Manifest::provision_concurrency` at once (`konst::PROVISION_CONCURRENCY`, 8, when unset). The
-field is client-only and `#[serde(default, skip_serializing)]` like `provisioners`, so servers
-never see it; `validate_provisioners` refuses `0`. All futures run on the caller's task, so
+field is `#[serde(default, skip_serializing)]` like `provisioners`, and reaches the server only
+in the `provisioning` field, to be stored; the server does not use it. `validate_provisioners`
+refuses `0`. All futures run on the caller's task, so
 nothing needs to be `'static` or `Send`.
 
 - **Readiness and work together.** Each node's readiness wait is part of its future, so its

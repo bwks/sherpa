@@ -107,6 +107,32 @@ impl<'a> Cells<'a> {
         }
     }
 
+    pub(crate) fn optional_boolean(&mut self, field: &str) -> Result<Option<bool>> {
+        match self.next(field)? {
+            Value::Null => Ok(None),
+            Value::Integer(0) => Ok(Some(false)),
+            Value::Integer(1) => Ok(Some(true)),
+            other => bail!("Database field {field} is not a boolean: {other:?}"),
+        }
+    }
+
+    /// A number a manifest gave, stored as a `REAL` exactly as written.
+    pub(crate) fn optional_real(&mut self, field: &str) -> Result<Option<f64>> {
+        match self.next(field)? {
+            Value::Null => Ok(None),
+            Value::Real(value) => Ok(Some(value)),
+            other => bail!("Database field {field} is not a number: {other:?}"),
+        }
+    }
+
+    pub(crate) fn optional_blob(&mut self, field: &str) -> Result<Option<Vec<u8>>> {
+        match self.next(field)? {
+            Value::Null => Ok(None),
+            Value::Blob(bytes) => Ok(Some(bytes)),
+            other => bail!("Database field {field} is not a blob: {other:?}"),
+        }
+    }
+
     pub(crate) fn json<T: DeserializeOwned>(&mut self, field: &str) -> Result<T> {
         let text = self.text(field)?;
         serde_json::from_str(&text)

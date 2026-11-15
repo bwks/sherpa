@@ -14,6 +14,10 @@ pub struct RedeployRequest {
     /// removes them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secrets: Option<Vec<SecretFile>>,
+    /// The manifest's `provision_concurrency` and each node's provisioners, as for `up`. `None`
+    /// keeps the stored ones, for redeploys from the web UI and older clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provisioning: Option<serde_json::Value>,
 }
 
 /// Response type for redeploy operation

@@ -5,6 +5,7 @@ use libvirt::Qemu;
 use shared::data::{Config, UpRequest};
 use shared::konst::{
     ADMIN_USERNAME, JWT_SECRET_PATH, SHERPA_ADMIN_PASSWORD_ENV, SHERPA_DB_FILE_PATH,
+    SHERPA_DB_KEY_PATH,
 };
 use std::env;
 use std::path::Path;
@@ -15,6 +16,7 @@ use crate::api::websocket::connection::ConnectionRegistry;
 use crate::auth::context::AuthContext;
 use crate::auth::jwt;
 use crate::auth::session::{self, SessionLookup};
+use crate::daemon::db_key::load_or_create_db_key;
 use crate::daemon::link_states::LinkStates;
 use crate::daemon::metrics::Metrics;
 use crate::daemon::storage::secure_storage;
@@ -95,7 +97,9 @@ impl AppState {
     /// # Errors
     ///
     /// Fails when the Tailscale gateway or host memory settings are invalid, the JWT secret cannot
-    /// be loaded or generated, the database cannot be opened or migrated, the admin account is missing (see
+    /// be loaded or generated, the database cannot be opened or migrated, the database key is
+    /// missing, damaged or not the database's (see [`load_or_create_db_key`] and
+    /// [`db::verify_secret_key`]), the admin account is missing (see
     /// [`ensure_admin_account`]), or Docker cannot be reached.
     #[instrument(skip(config, metrics))]
     pub async fn new(config: Config, metrics: Metrics) -> Result<Self> {
@@ -120,6 +124,12 @@ impl AppState {
             .await
             .context("Failed to apply database schema")?;
         tracing::debug!("Database schema applied");
+
+        // The key that seals the database's secret values, checked against the database.
+        let registered = db::secret_key_registered(&db).await?;
+        let db_key = load_or_create_db_key(Path::new(SHERPA_DB_KEY_PATH), registered)?;
+        let db = db.with_secret_key(db_key);
+        db::verify_secret_key(&db).await?;
 
         let admin_password = env::var(SHERPA_ADMIN_PASSWORD_ENV).ok();
         ensure_admin_account(&db, admin_password.as_deref()).await?;
