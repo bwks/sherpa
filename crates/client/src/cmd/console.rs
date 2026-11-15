@@ -117,8 +117,13 @@ fn console_error(name: &str, error: Error) -> anyhow::Error {
             "The console of {name} refused the connection at {node} through the Sherpa \
              server. Is the node running?"
         ),
+        // QEMU listens with a backlog of one and accepts nobody while a client is attached,
+        // so once two tries are queued behind the holder, a new one is not answered at all.
         Error::TelnetTimeout { node, after, .. } => format!(
-            "The console of {name} did not answer at {node} within {}s.",
+            "The console of {name} did not answer at {node} within {}s. Another client may \
+             hold it: while one does, the console takes only two more connections and then \
+             none until it leaves. Close the other session and try again, or check the node \
+             is running with 'sherpa inspect'.",
             after.as_secs()
         ),
         Error::TelnetInUse { after, .. } => format!(
@@ -236,7 +241,10 @@ mod tests {
         );
         assert_eq!(
             error.to_string(),
-            "The console of alp01 did not answer at 127.127.3.1:2323 within 10s."
+            "The console of alp01 did not answer at 127.127.3.1:2323 within 10s. Another \
+             client may hold it: while one does, the console takes only two more connections \
+             and then none until it leaves. Close the other session and try again, or check \
+             the node is running with 'sherpa inspect'."
         );
     }
 

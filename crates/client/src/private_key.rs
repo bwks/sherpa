@@ -130,7 +130,6 @@ pub(crate) fn ensure_private_dir(path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(unix)]
     use std::fs;
 
     #[cfg(unix)]
@@ -289,7 +288,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn a_symlink_or_file_is_refused_as_a_private_dir() {
+    fn a_symlink_is_refused_as_a_private_dir() {
         let temp_dir = tempfile::tempdir().expect("create temp directory");
         let elsewhere = temp_dir.path().join("elsewhere");
         fs::create_dir(&elsewhere).expect("create target");
@@ -300,9 +299,19 @@ mod tests {
         assert!(error.to_string().contains("symlink"), "{error}");
         let mode = fs::metadata(&elsewhere).expect("stat").permissions().mode() & 0o777;
         assert_eq!(mode, 0o755, "the link's target is untouched");
+    }
+
+    #[test]
+    fn a_missing_private_dir_is_created_and_a_file_is_refused() {
+        let temp_dir = tempfile::tempdir().expect("create temp directory");
+        let created = temp_dir.path().join("new");
+        ensure_private_dir(&created).expect("create");
+        assert!(created.is_dir());
+        ensure_private_dir(&created).expect("an existing folder is kept");
 
         let file = temp_dir.path().join("file");
         fs::write(&file, "").expect("write file");
-        assert!(ensure_private_dir(&file).is_err());
+        let error = ensure_private_dir(&file).expect_err("file refused");
+        assert!(error.to_string().contains("is not a folder"), "{error}");
     }
 }

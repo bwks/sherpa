@@ -55,6 +55,9 @@ stderr, with the node's name:
 `Ctrl+]` disconnects anywhere and is not sent to the node; `~.` disconnects at the start of a
 line and `~~` sends one `~`. Either way, and when the console closes, the exit code is 0.
 `sherpa ssh` takes only `~.`, so `Ctrl+]` still reaches a `telnet` run inside an SSH session.
+A cursor position report (`ESC [ row ; column R`), the terminal's answer to busybox `ash`
+asking for the cursor after each prompt, does not move the start of a line (Jato 0.5.1), so
+`~.` after an Alpine prompt still disconnects.
 
 ## Errors
 
@@ -64,7 +67,7 @@ the cause:
 | Jato error | Message |
 |---|---|
 | `TelnetRefused` (the server refused the channel or could not reach the console) | `The console of <node> refused the connection at <addr> through the Sherpa server. Is the node running?` |
-| `TelnetTimeout` | `The console of <node> did not answer at <addr> within 10s.` |
+| `TelnetTimeout` (no connection within 10 s: QEMU listens with a backlog of one and accepts nobody while a client is attached, so after two more tries queue behind the holder, a new connection is not answered) | `The console of <node> did not answer at <addr> within 10s. Another client may hold it: while one does, the console takes only two more connections and then none until it leaves. Close the other session and try again, or check the node is running with 'sherpa inspect'.` |
 | `TelnetInUse` (connected, then silence for 3 s: QEMU serves one client and says nothing to a second) | `The console of <node> is in use: another client holds it, and it said nothing within 3s. A console serves one client at a time; close the other session and try again.` |
 | `TelnetClosed` | `The console of <node> closed the connection at <addr>. Is the node running?` |
 | anything else, such as `Tunnel` | `Failed to open the console of <node> through the Sherpa server` |
@@ -77,6 +80,13 @@ A container gives `<node> is a container, and containers have no serial console.
 Nothing in the console is platform specific: the telnet client is Tokio TCP and SSH channels,
 and `Telnet::interactive` runs the same Jato pass-through loop as `sherpa ssh`, with VT input
 and output modes on Windows. `Ctrl+]` arrives as byte `0x1D` under VT input.
+
+A Windows desktop session (Windows Terminal, conhost) sets `USERNAME` but not `USER` or
+`LOGNAME`; Win32-OpenSSH's `sshd` sets all three. Jato before 0.5.1 read only `USER` and
+`LOGNAME`, and resolved the lab config's `ProxyJump <owner>@<server>` hop before applying its
+user, so `sherpa console` and `sherpa ssh` failed in every Windows terminal with `no User is
+configured and the local user name is unknown`, while tests driven over SSH passed. Test
+Windows changes in a desktop terminal, not only over SSH.
 
 ## Tests
 
