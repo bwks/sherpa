@@ -30,9 +30,8 @@ const SAVED_LAB_FILES: [&str; 3] = [
 pub struct SavedLabFilesSummary {
     /// Labs whose SSH accounts were copied from their `lab-info.toml`.
     pub stored: usize,
-    /// Labs whose files were kept: their `lab-info.toml` could not be read and the database
-    /// holds no SSH account for them, or storing failed. Each is logged; the next start tries
-    /// again.
+    /// Labs whose files were kept because storing their SSH accounts failed. Each is logged;
+    /// the next start tries again.
     pub kept: usize,
     /// Files deleted.
     pub deleted: usize,
@@ -45,14 +44,15 @@ enum LabOutcome {
     NoLabInfo,
     /// Its SSH accounts were stored, this many changed.
     Stored(usize),
-    /// It could not be read, and the database already holds SSH accounts for the lab.
-    UnreadableButStored,
+    /// It could not be read, so nothing in it could be stored.
+    Unreadable,
 }
 
 /// Copy the SSH accounts of every lab's `lab-info.toml` under `labs` into its node records,
-/// then delete the lab's `lab-info.toml`, SSH config and `known_hosts`. A lab whose file
-/// cannot be read keeps its files, logged at warn, unless the database already holds SSH
-/// accounts for its nodes. Folders of labs with no record are left alone.
+/// then delete the lab's `lab-info.toml`, SSH config and `known_hosts`. A file that cannot be
+/// read is logged at warn and deleted too: it holds nothing the database can take. A lab whose
+/// accounts cannot be stored keeps its files for the next start. Folders of labs with no
+/// record are left alone.
 ///
 /// # Errors
 ///
@@ -63,7 +63,7 @@ pub async fn move_saved_lab_files(db: &Database, labs: &Path) -> Result<SavedLab
     for lab in db::list_labs(db).await? {
         let lab_dir = labs.join(&lab.lab_id);
         match store_saved_ssh_usernames(db, &lab, &lab_dir).await {
-            Ok(LabOutcome::NoLabInfo | LabOutcome::UnreadableButStored) => {}
+            Ok(LabOutcome::NoLabInfo | LabOutcome::Unreadable) => {}
             Ok(LabOutcome::Stored(changed)) => {
                 tracing::info!(lab_id = %lab.lab_id, changed, "Stored the lab's SSH accounts from its lab-info.toml");
                 summary.stored += 1;
@@ -90,8 +90,7 @@ pub async fn move_saved_lab_files(db: &Database, labs: &Path) -> Result<SavedLab
 ///
 /// # Errors
 ///
-/// Fails when the file cannot be read and the database holds no SSH account for the lab, or
-/// the records cannot be read or written.
+/// Fails when the records cannot be read or written.
 #[instrument(skip(db, lab), fields(lab_id = %lab.lab_id), level = "debug")]
 async fn store_saved_ssh_usernames(
     db: &Database,
@@ -104,15 +103,14 @@ async fn store_saved_ssh_usernames(
     let usernames = match saved_ssh_usernames(lab_dir) {
         Ok(Some(usernames)) => usernames,
         Ok(None) => return Ok(LabOutcome::NoLabInfo),
-        Err(error) if nodes.iter().any(|node| node.ssh_username.is_some()) => {
+        Err(error) => {
             tracing::warn!(
                 error = format!("{error:#}"),
-                "The lab's lab-info.toml cannot be read; the database holds its SSH accounts, \
-                 so it is deleted"
+                "The lab's lab-info.toml cannot be read; nothing in it can be stored, so it is \
+                 deleted"
             );
-            return Ok(LabOutcome::UnreadableButStored);
+            return Ok(LabOutcome::Unreadable);
         }
-        Err(error) => return Err(error),
     };
     let mut changed = 0;
     for entry in usernames {
@@ -288,7 +286,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_unreadable_lab_info_is_kept_when_the_database_has_no_accounts() {
+    async fn an_unreadable_lab_info_is_deleted_when_every_node_uses_the_sherpa_account() {
         let (db, lab) = lab_with(&[("vm1", NodeModel::AlpineLinux)]).await;
         let (labs, lab_dir) = labs_dir("not [[ a lab info");
 
@@ -298,20 +296,14 @@ mod tests {
             summary,
             SavedLabFilesSummary {
                 stored: 0,
-                kept: 1,
-                deleted: 0
+                kept: 0,
+                deleted: 3
             }
         );
         assert_eq!(stored_accounts(&db, &lab).await, [("vm1".to_owned(), None)]);
         assert_eq!(
             files_in(&lab_dir),
-            [
-                LAB_CERTS_DIR,
-                LAB_FILE_NAME,
-                SHERPA_KNOWN_HOSTS_FILE,
-                SHERPA_SSH_CONFIG_FILE,
-                SHERPA_SSH_PRIVATE_KEY_FILE
-            ]
+            [LAB_CERTS_DIR, SHERPA_SSH_PRIVATE_KEY_FILE]
         );
     }
 

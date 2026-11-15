@@ -33,6 +33,7 @@ use crate::services::lab_lifecycle::{self, Recovery};
 use crate::services::node_resources;
 use crate::services::saved_lab_files::{self, SavedLabFilesSummary};
 use crate::services::scanner::run_scanner;
+use crate::services::unread_lab_files::{self, UnreadLabFilesSummary};
 use crate::tls::CertificateManager;
 use shared::data::{Config, OtelConfig};
 use shared::konst::{
@@ -201,7 +202,8 @@ fn init_meter_provider(otel_config: &OtelConfig) -> Result<SdkMeterProvider> {
 /// passwords stored as plain text are sealed, labs stored before lab definitions were get
 /// theirs from their saved manifests, which are then deleted, and the SSH accounts in each
 /// lab's `lab-info.toml` are stored with its nodes, and that file, the lab's SSH config and
-/// `known_hosts` deleted.
+/// `known_hosts` deleted. Last, the lab files nothing reads are removed: the dnsmasq leases
+/// file, unikernel certificates and VM boot files.
 #[instrument(skip(db))]
 async fn upgrade_stored_data(db: &db::Database) -> Result<()> {
     let sealed = db::seal_plain_image_passwords(db)
@@ -234,6 +236,17 @@ async fn upgrade_stored_data(db: &db::Database) -> Result<()> {
             kept = moved.kept,
             deleted = moved.deleted,
             "Stored the labs' SSH accounts from their lab-info.toml and deleted the lab files"
+        );
+    }
+    let unread = unread_lab_files::remove_unread_lab_files(db, Path::new(SHERPA_LABS_PATH))
+        .await
+        .context("Failed to remove the lab files nothing reads")?;
+    if unread != UnreadLabFilesSummary::default() {
+        tracing::info!(
+            removed = unread.removed,
+            skipped = unread.skipped,
+            "Removed the lab files nothing reads: leases files, unikernel certificates and VM \
+             boot files"
         );
     }
     Ok(())

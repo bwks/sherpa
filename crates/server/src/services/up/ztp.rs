@@ -6,11 +6,11 @@ use std::net::Ipv4Addr;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use askama::Template;
 use tracing::instrument;
 
 use super::context::LabBuild;
 use super::nodes::get_node_image;
+use crate::services::boot_server;
 use crate::services::guest_account::GuestAccount;
 use crate::services::node_ops::{self, DomainParts, LabZtp};
 use crate::services::node_resources;
@@ -22,9 +22,8 @@ use shared::data;
 use shared::data::{LabSubnets, RecordId, StatusKind};
 use shared::konst::{
     CONTAINER_DNSMASQ_CAPABILITIES, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
-    DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI, LAB_CERTS_DIR,
-    MANAGEMENT_NODE_HOST_OFFSETS, MTU_JUMBO_NET, NODE_CONFIGS_DIR, SHERPA_MANAGEMENT_NETWORK_NAME,
-    SSH_PORT, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
+    DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, KVM_OUI, LAB_CERTS_DIR, MTU_JUMBO_NET, NODE_CONFIGS_DIR,
+    SHERPA_MANAGEMENT_NETWORK_NAME, SSH_PORT, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use topology::find_talos_cluster;
@@ -68,9 +67,9 @@ struct Configuring<'a, 'b> {
     clone_disks: Vec<data::CloneDisk>,
 }
 
-/// Give every node its management addresses and TLS certificate, and generate its
-/// configuration: container volumes, Kubernetes cluster secrets and machine configs, VM boot
-/// configs, disks and domains, and unikernel domains (phase 8).
+/// Give every node its management addresses, every container and VM its TLS certificate, and
+/// generate each node's configuration: container volumes, Kubernetes cluster secrets and
+/// machine configs, VM boot configs, disks and domains, and unikernel domains (phase 8).
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
 pub(super) async fn configure_nodes(
     build: &LabBuild<'_>,
@@ -378,7 +377,8 @@ impl Configuring<'_, '_> {
         )
     }
 
-    /// Configure a unikernel node: its disk or kernel, a DHCP host entry, and its domain.
+    /// Configure a unikernel node: its disk or kernel, a DHCP host entry, and its domain. It gets
+    /// no certificate: it has no boot config or mount to carry one.
     async fn configure_unikernel(
         &mut self,
         node: &mut topology::NodeExpanded,
@@ -386,7 +386,6 @@ impl Configuring<'_, '_> {
         let node_data = node_ops::get_node_data(&node.name, self.inputs.node_setup_data)?;
         let node_image = self.image(node)?;
         let ipv4 = self.assign_addresses(node).await?;
-        self.issue_certificate(node, ipv4)?;
         let setup_result = node_ops::generate_unikernel_setup(
             node,
             &node_image,
@@ -620,51 +619,214 @@ pub(super) async fn start_boot_container(
     Ok(())
 }
 
-/// Write the dnsmasq config, with a DHCP host entry for each node, and its empty leases file.
+/// Write the dnsmasq config, with a DHCP host entry for each node. Only the config is mounted
+/// in the boot container: dnsmasq keeps its leases inside it.
 #[instrument(skip_all, level = "debug")]
 fn write_dnsmasq_config(
     dnsmasq_dir: &str,
     mgmt_net: &data::SherpaNetwork,
     ztp_records: &[data::ZtpRecord],
 ) -> Result<()> {
-    let dnsmaq_template = template::DnsmasqTemplate {
-        tftp_server_ipv4: mgmt_net.v4.boot_server.to_string(),
-        gateway_ipv4: mgmt_net.v4.first.to_string(),
-        dhcp_start: util::get_ipv4_addr(
-            &mgmt_net.v4.prefix,
-            *MANAGEMENT_NODE_HOST_OFFSETS.start(),
-        )?
-        .to_string(),
-        dhcp_end: util::get_ipv4_addr(&mgmt_net.v4.prefix, *MANAGEMENT_NODE_HOST_OFFSETS.end())?
-            .to_string(),
-        gateway_ipv6: mgmt_net.v6.as_ref().map(|v6| v6.first.to_string()),
-        dhcp6_start: mgmt_net
-            .v6
-            .as_ref()
-            .map(|v6| {
-                util::get_ipv6_addr(&v6.prefix, *MANAGEMENT_NODE_HOST_OFFSETS.start())
-                    .map(|a| a.to_string())
-            })
-            .transpose()?,
-        dhcp6_end: mgmt_net
-            .v6
-            .as_ref()
-            .map(|v6| {
-                util::get_ipv6_addr(&v6.prefix, *MANAGEMENT_NODE_HOST_OFFSETS.end())
-                    .map(|a| a.to_string())
-            })
-            .transpose()?,
-        dns_ipv6: mgmt_net.v6.as_ref().map(|v6| v6.boot_server.to_string()),
-        ztp_records: ztp_records.to_vec(),
-    };
-    let dnsmasq_rendered_template = dnsmaq_template.render()?;
     util::create_file(
         &format!("{dnsmasq_dir}/{DNSMASQ_CONFIG_FILE}"),
-        dnsmasq_rendered_template,
-    )?;
-    util::create_file(
-        &format!("{dnsmasq_dir}/{DNSMASQ_LEASES_FILE}"),
-        String::new(),
-    )?;
-    Ok(())
+        boot_server::render_dnsmasq_config(mgmt_net, ztp_records)?,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::sync::Arc;
+
+    use bollard::Docker;
+    use libvirt::Qemu;
+    use tokio::sync::mpsc;
+
+    use shared::data::{NodeKind, NodeModel};
+    use shared::konst::{LAB_CA_CERT_FILE, LAB_CA_KEY_FILE, ZTP_ISO};
+
+    use super::super::networks::management_network;
+    use super::*;
+    use crate::services::lab_definition::tests::lab_with;
+    use crate::services::progress::ProgressSender;
+
+    fn subnets() -> LabSubnets {
+        LabSubnets {
+            loopback_subnet: "127.127.1.0/24".parse().unwrap(),
+            management_subnet: "172.31.1.0/24".parse().unwrap(),
+            gateway_ipv4: "172.31.1.1".parse().unwrap(),
+            router_ipv4: "172.31.1.2".parse().unwrap(),
+            ipv6_management_subnet: "fd00:b00b:0:1::/64".parse().unwrap(),
+            ipv6_loopback_subnet: "fd00:b00c:0:1::/64".parse().unwrap(),
+            gateway_ipv6: "fd00:b00b:0:1::1".parse().unwrap(),
+            router_ipv6: "fd00:b00b:0:1::2".parse().unwrap(),
+        }
+    }
+
+    fn file_names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn the_dnsmasq_folder_holds_only_its_config() {
+        let dir = tempfile::tempdir().unwrap();
+
+        write_dnsmasq_config(
+            dir.path().to_str().unwrap(),
+            &management_network(&subnets()).unwrap(),
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(file_names(dir.path()), [DNSMASQ_CONFIG_FILE]);
+    }
+
+    /// The lab's nodes, by name and model.
+    const MODELS: [(&str, NodeModel); 3] = [
+        ("ctr", NodeModel::GenericContainer),
+        ("vm", NodeModel::AlpineLinux),
+        ("uk", NodeModel::NanosUnikernel),
+    ];
+
+    fn test_config() -> data::Config {
+        toml::from_str(
+            r#"
+            name = "test"
+            vm_provider = "libvirt"
+            qemu_bin = "/usr/bin/qemu-system-x86_64"
+            images_dir = "/opt/sherpa/images"
+            containers_dir = "/opt/sherpa/containers"
+            bins_dir = "/opt/sherpa/bins"
+            "#,
+        )
+        .unwrap()
+    }
+
+    fn sherpa_user() -> data::User {
+        data::User {
+            username: "sherpa".to_owned(),
+            password: None,
+            ssh_public_key: data::SshPublicKey {
+                algorithm: data::SshKeyAlgorithms::SshEd25519,
+                key: "lab-key-fixture".to_owned(),
+                comment: None,
+            },
+            sudo: true,
+        }
+    }
+
+    /// Each of `MODELS`' setup data and node data, from its record in `records`, with the
+    /// resources phase 6 reserves for it.
+    fn node_data(records: &[data::DbNode]) -> (Vec<data::NodeSetupData>, Vec<data::LabNodeData>) {
+        MODELS
+            .iter()
+            .map(|(name, model)| {
+                let record = records.iter().find(|record| record.name == *name).unwrap();
+                let setup = data::NodeSetupData {
+                    name: (*name).to_owned(),
+                    index: record.index,
+                    management_network: "sherpa-management-lab-0001".to_owned(),
+                    isolated_network: None,
+                    reserved_network: None,
+                    interfaces: Vec::new(),
+                };
+                let node = data::LabNodeData {
+                    name: (*name).to_owned(),
+                    model: *model,
+                    kind: model.kind(),
+                    index: record.index,
+                    record: data::DbNode {
+                        cpu_count: Some(1),
+                        memory: Some(1024),
+                        vnc_port: Some(5901),
+                        ..record.clone()
+                    },
+                };
+                (setup, node)
+            })
+            .unzip()
+    }
+
+    /// The nodes of `MODELS` of `kind`, as the manifest gives them.
+    fn nodes_of(kind: &NodeKind) -> Vec<topology::NodeExpanded> {
+        MODELS
+            .iter()
+            .filter(|(_, model)| model.kind() == *kind)
+            .map(|(name, model)| topology::NodeExpanded {
+                name: (*name).to_owned(),
+                model: *model,
+                ..Default::default()
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    #[ignore = "requires libvirt: phase 8 takes a connection, though it creates nothing in it"]
+    async fn a_unikernel_gets_no_certificate_and_containers_and_vms_get_theirs() {
+        let (db, lab) = lab_with(&MODELS).await;
+        let records = db::list_nodes_by_lab(&db, lab.id.clone().unwrap())
+            .await
+            .unwrap();
+        let (node_setup_data, lab_node_data) = node_data(&records);
+        let node_images: Vec<data::NodeConfig> = MODELS
+            .iter()
+            .map(|(_, model)| data::NodeConfig {
+                default: true,
+                ..data::NodeConfig::get_model(*model)
+            })
+            .collect();
+        let lab_dir = tempfile::tempdir().unwrap();
+        let qemu = Arc::new(Qemu::default());
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let build = LabBuild {
+            lab_id: &lab.lab_id,
+            lab_dir: lab_dir.path().to_str().unwrap(),
+            db: &db,
+            docker_conn: &Arc::new(Docker::connect_with_unix_defaults().unwrap()),
+            qemu_conn: &Arc::new(qemu.connect().unwrap()),
+            qemu: &qemu,
+            config: &test_config(),
+            progress: &ProgressSender::new(tx),
+        };
+        let mgmt_net = management_network(&subnets()).unwrap();
+
+        configure_nodes(
+            &build,
+            &ConfigInputs {
+                node_images: &node_images,
+                node_setup_data: &node_setup_data,
+                lab_node_data: &lab_node_data,
+                mgmt_net: &mgmt_net,
+                dns: &util::default_dns(&mgmt_net.v4.prefix).unwrap(),
+                subnets: &subnets(),
+                sherpa_user: &sherpa_user(),
+                personal_account: None,
+                talos_clusters: &[],
+            },
+            &mut nodes_of(&NodeKind::Container),
+            &mut nodes_of(&NodeKind::VirtualMachine),
+            &mut nodes_of(&NodeKind::Unikernel),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            file_names(&lab_dir.path().join(LAB_CERTS_DIR)),
+            [
+                LAB_CA_CERT_FILE,
+                LAB_CA_KEY_FILE,
+                "ctr.crt",
+                "ctr.key",
+                "vm.crt",
+                "vm.key"
+            ]
+        );
+        // The VM's boot files are apart from the lab's folders until its disks are cloned.
+        assert!(lab_dir.path().join("vm-boot.d/vm").join(ZTP_ISO).exists());
+    }
 }

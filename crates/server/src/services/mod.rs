@@ -1,5 +1,6 @@
 pub mod admission;
 pub mod backup;
+pub(crate) mod boot_server;
 pub mod cancel;
 pub mod clean;
 pub(crate) mod container_networks;
@@ -32,6 +33,7 @@ pub mod saved_lab_files;
 pub mod scanner;
 pub(crate) mod ssh_config;
 pub mod talos;
+pub mod unread_lab_files;
 pub mod up;
 pub mod user_delete;
 pub mod user_password;

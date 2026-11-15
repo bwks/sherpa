@@ -26,7 +26,7 @@ use crate::services::progress::ProgressSender;
 use crate::tls::generator::write_file_with_permissions;
 
 /// Directory in the lab directory holding each Keycloak node's realm users.
-const KEYCLOAK_DIR: &str = "keycloak";
+pub(crate) const KEYCLOAK_DIR: &str = "keycloak";
 /// Redirect addresses of the `kubectl oidc-login` plugin's browser login.
 const KUBELOGIN_REDIRECT_URIS: [&str; 2] = ["http://localhost:8000", "http://localhost:18000"];
 
