@@ -2,20 +2,24 @@
 //!
 //! Before `up`, `redeploy` or a resume starts nodes, it asks for admission. Requests are
 //! handled one at a time, in the order they arrive: the queue is a fair (FIFO) Tokio mutex.
-//! Under it, the nodes' CPU pins are checked against every stored node's and the nodes other
-//! operations were admitted with (see `node_resources::check_cpu_pins_free`); a node another
-//! operation redeploys holds both its stored pins and its new ones until that operation ends.
-//! Their memory is checked against the server's (see
-//! `validate::check_memory_fits`). Memory held is that of libvirt's running domains and of
-//! Docker's running containers with a memory limit; a container without one counts as nothing.
-//! Containers take no part in CPU pinning: their CPU quota holds no particular host CPUs, and
-//! only has to be no more than the server's CPUs. Admitted nodes go into a pending ledger, so the next request
-//! counts them before libvirt shows them running; the ledger keeps them until the operation
-//! drops its [`Admission`]. A domain that is both running and pending counts once, as pending.
+//! Under it, the nodes' CPU pins are checked against the `cpu_pin` table (see
+//! `node_resources::check_cpu_pins_free`), and their memory against the server's (see
+//! `validate::check_memory_fits`). Once both fit, the pins are claimed in the table in one
+//! transaction, whose trigger refuses a CPU another node holds; the refusal is the same
+//! `CpuPinsHeld` as the check's. The pins stay claimed until the lab is deleted, or a redeploy
+//! keeps one of its two sets, so they are held while the lab is stopped.
+//!
+//! Memory held is that of libvirt's running domains and of Docker's running containers with a
+//! memory limit; a container without one counts as nothing. Containers take no part in CPU
+//! pinning: their CPU quota holds no particular host CPUs, and only has to be no more than the
+//! server's CPUs. Admitted nodes' memory goes into a pending ledger, so the next request counts
+//! it before libvirt shows the nodes running; the ledger keeps it until the operation drops its
+//! [`Admission`]. A domain that is both running and pending counts once, as pending.
 //!
 //! The ledger is in memory: a server restart ends the operations it held entries for.
 
 use std::collections::HashSet;
+use std::mem;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
 
@@ -28,8 +32,9 @@ use container::{ContainerMemory, Docker};
 use libvirt::DomainMemory;
 use shared::data::{DbNode, HostMemorySettings, NodeConfig, NodeCpuPins, NodeKind};
 
+use super::error::ServiceError;
 use super::node_resources::{
-    PendingPins, check_cpu_pins_free, check_cpu_pins_on_server, domain_name, planned_resources,
+    check_cpu_pins_free, check_cpu_pins_on_server, domain_name, planned_resources,
 };
 use crate::auth::context::AuthContext;
 use crate::validate::{CommittedMemory, MemoryClaim, check_container_cpus, check_memory_fits};
@@ -49,8 +54,6 @@ struct Request {
     domain: String,
     /// Its memory; `None` for a container without a memory limit.
     memory: Option<MemoryClaim>,
-    /// Its CPU pins, when it pins any.
-    pins: Option<NodeCpuPins>,
 }
 
 /// An admitted node in the ledger.
@@ -60,14 +63,18 @@ struct Pending {
     request: Request,
 }
 
-/// The nodes one operation was admitted to start. Dropping it releases them from the ledger;
-/// by then they run, and libvirt counts them, or the operation has failed.
+/// The nodes one operation was admitted to start. Dropping it releases their memory from the
+/// ledger; by then they run, and libvirt counts them, or the operation has failed. Their CPU
+/// pins stay claimed in the database.
 #[must_use = "dropping the admission releases the nodes it holds"]
 #[derive(Debug)]
 pub struct Admission {
     ticket: u64,
     /// Overlaps the nodes' stored pins already had with other nodes' when they were admitted.
     shared_cpus: Vec<String>,
+    /// The pins each node whose pins were claimed held before the claim: none for a new node,
+    /// its old ones for a redeployed one.
+    pins_before: Vec<NodeCpuPins>,
 }
 
 impl Drop for Admission {
@@ -86,6 +93,13 @@ impl Admission {
     pub fn shared_cpus(&self) -> &[String] {
         &self.shared_cpus
     }
+
+    /// The pins each admitted node held before its new ones were claimed beside them, for a
+    /// redeploy to keep with `db::retain_cpu_pins` when it fails before its old domain is gone.
+    /// Empty once taken, as by a redeploy that kept its new pins.
+    pub fn take_pins_before(&mut self) -> Vec<NodeCpuPins> {
+        mem::take(&mut self.pins_before)
+    }
 }
 
 fn queue() -> &'static FifoMutex<()> {
@@ -99,16 +113,18 @@ fn ledger() -> &'static Mutex<Vec<Pending>> {
 /// Admit `nodes` of lab `lab_id`, each with its image, to be created for `requester`: by `up`,
 /// or by a redeploy, which replaces a node of the same name. Their CPU pins must be free (see
 /// `node_resources::check_cpu_pins_free`), a container's CPU quota no more than the server's
-/// CPUs, and their memory must fit in the server's.
+/// CPUs, and their memory must fit in the server's. The lab's record must exist. Their pins are
+/// then claimed in the `cpu_pin` table; a node's rows it already holds are kept, so a
+/// redeploying node holds its old and its new pins until the redeploy keeps one set with
+/// `db::retain_cpu_pins`.
 ///
 /// # Errors
 ///
 /// Fails with [`ServiceError::CpuPinsHeld`] when another node holds host CPUs the nodes pin,
-/// and with `InsufficientMemory` when their memory does not fit. Fails too when the pins name
-/// host CPUs or NUMA nodes the server does not have, when a container's CPU quota is more than
-/// the server's CPUs, or when the database, libvirt or Docker cannot be read.
-///
-/// [`ServiceError::CpuPinsHeld`]: crate::services::error::ServiceError::CpuPinsHeld
+/// found by the check or by the table's trigger, and with `InsufficientMemory` when their
+/// memory does not fit; nothing is claimed then. Fails too when the pins name host CPUs or NUMA
+/// nodes the server does not have, when a container's CPU quota is more than the server's CPUs,
+/// when the lab is not found, or when the database, libvirt or Docker cannot be read.
 #[instrument(skip(db, qemu_conn, docker, requester, settings, nodes), fields(username = %requester.username, %lab_id))]
 pub async fn admit_lab_nodes(
     db: &db::Database,
@@ -123,30 +139,34 @@ pub async fn admit_lab_nodes(
     let _queue = queue().lock().await;
     let pending = pending_entries();
     let expanded: Vec<&topology::NodeExpanded> = nodes.iter().map(|(node, _)| *node).collect();
-    let shared_cpus = check_cpu_pins_on_server(
-        db,
-        qemu_conn,
-        requester,
-        lab_id,
-        &expanded,
-        &pending_pins(&pending),
-    )
-    .await
-    .context("CPU pinning validation failed")?;
+    let shared_cpus = check_cpu_pins_on_server(db, qemu_conn, requester, lab_id, &expanded)
+        .await
+        .context("CPU pinning validation failed")?;
     check_container_quotas(qemu_conn, nodes)?;
     if requests.iter().any(|request| request.memory.is_some()) {
         let guests = guest_memory(qemu_conn, docker).await?;
         check_memory(qemu_conn, settings, &requests, &pending, &guests)?;
     }
+    let pins: Vec<NodeCpuPins> = expanded
+        .iter()
+        .map(|node| NodeCpuPins::of(&node.name, &node.cpu, &node.boot_disk))
+        .filter(|pins| !pins.is_empty())
+        .collect();
+    let pins_before = if pins.is_empty() {
+        Vec::new()
+    } else {
+        claim_pins(db, lab_id, &pins).await?
+    };
     warn_shared_cpus(lab_id, &shared_cpus);
-    Ok(record(requests, shared_cpus))
+    Ok(record(requests, shared_cpus, pins_before))
 }
 
 /// Admit the stopped nodes among `nodes` of lab `lab_id` to be started again for `requester`:
 /// VMs, unikernels and containers with a memory limit. Running and paused ones already hold
-/// their memory, and the pins of all of them stay stored while they are stopped, so only the
-/// memory of stopped ones is checked. Their stored pins are refused nothing: an overlap with
-/// another node's, against the rules, is returned as a warning.
+/// their memory, and all of them keep their pins in the `cpu_pin` table while they are
+/// stopped, so only the memory of stopped ones is checked, and nothing is claimed. Their pins
+/// are refused nothing: an overlap with another node's, against the rules, is returned as a
+/// warning.
 ///
 /// # Errors
 ///
@@ -170,41 +190,66 @@ pub async fn admit_stopped_nodes(
     if !requests.is_empty() {
         check_memory(qemu_conn, settings, &requests, &pending, &guests)?;
     }
-    let started: Vec<NodeCpuPins> = nodes
+    let started: Vec<&DbNode> = nodes
         .iter()
         .filter(|node| {
             requests
                 .iter()
                 .any(|request| request.domain == domain_name(&node.name, lab_id))
         })
-        .map(stored_pins)
         .collect();
-    // Only stored pins are compared: the nodes' own are stored, so any overlap is carried.
-    let shared_cpus = check_cpu_pins_free(db, requester, lab_id, &started, &[]).await?;
-    warn_shared_cpus(lab_id, &shared_cpus);
-    Ok(record(requests, shared_cpus))
-}
-
-/// The pins stored on `node`.
-fn stored_pins(node: &DbNode) -> NodeCpuPins {
-    NodeCpuPins {
-        node_name: node.name.clone(),
-        vcpu_cpus: node.cpu_pinning.clone().unwrap_or_default(),
-        qemu_thread_cpus: node.qemu_thread_cpus.clone().unwrap_or_default(),
-    }
-}
-
-/// The pins of the nodes in the ledger.
-fn pending_pins(pending: &[Pending]) -> Vec<PendingPins> {
-    pending
-        .iter()
-        .filter_map(|entry| {
-            entry.request.pins.clone().map(|pins| PendingPins {
-                lab_id: entry.request.lab_id.clone(),
-                pins,
+    let started: Vec<NodeCpuPins> = if started.is_empty() {
+        Vec::new()
+    } else {
+        db::list_cpu_pins(db)
+            .await?
+            .into_iter()
+            .filter(|held| {
+                started
+                    .iter()
+                    .any(|node| node.lab == held.lab && node.name == held.pins.node_name)
             })
+            .map(|held| held.pins)
+            .collect()
+    };
+    // Only the table's rows are compared: the nodes' own are in it, so any overlap is carried.
+    let shared_cpus = check_cpu_pins_free(db, requester, lab_id, &started).await?;
+    warn_shared_cpus(lab_id, &shared_cpus);
+    Ok(record(requests, shared_cpus, Vec::new()))
+}
+
+/// Claim the `pins` of nodes of lab `lab_id` in the `cpu_pin` table, and return the pins each
+/// of those nodes held before.
+async fn claim_pins(
+    db: &db::Database,
+    lab_id: &str,
+    pins: &[NodeCpuPins],
+) -> Result<Vec<NodeCpuPins>> {
+    let lab = db::find_lab(db, lab_id)
+        .await?
+        .with_context(|| format!("Lab not found: {lab_id}"))?;
+    let lab_record = db::get_lab_id(&lab)?;
+    let held = db::list_cpu_pins(db).await?;
+    let before = pins
+        .iter()
+        .map(|node| {
+            held.iter()
+                .find(|entry| entry.lab == lab_record && entry.pins.node_name == node.node_name)
+                .map_or_else(
+                    || NodeCpuPins {
+                        node_name: node.node_name.clone(),
+                        vcpu_cpus: Vec::new(),
+                        qemu_thread_cpus: Vec::new(),
+                    },
+                    |entry| entry.pins.clone(),
+                )
         })
-        .collect()
+        .collect();
+    db::claim_cpu_pins(db, &lab_record, pins)
+        .await
+        .map_err(ServiceError::from_cpu_pin_claim)
+        .context("CPU pinning validation failed")?;
+    Ok(before)
 }
 
 /// Log each overlap the admitted nodes' stored pins already had.
@@ -293,8 +338,8 @@ fn check_memory(
     .context("Memory admission failed")
 }
 
-/// What each node asks for: VMs, unikernels and containers with a limit their memory, VMs held strictly to a NUMA node
-/// that node, and every tuned node its CPU pins. A VM that only prefers its NUMA node claims
+/// The memory each node asks for: VMs, unikernels and containers with a limit their memory, and
+/// VMs held strictly to a NUMA node that node. A VM that only prefers its NUMA node claims
 /// memory on the whole server, since the kernel may place it on any node.
 fn lab_requests(lab_id: &str, nodes: &[(&topology::NodeExpanded, &NodeConfig)]) -> Vec<Request> {
     nodes
@@ -305,7 +350,6 @@ fn lab_requests(lab_id: &str, nodes: &[(&topology::NodeExpanded, &NodeConfig)]) 
             } else {
                 None
             };
-            let pins = NodeCpuPins::of(&node.name, &node.cpu, &node.boot_disk);
             let memory = planned_resources(node, image)
                 .memory
                 .map(|memory| MemoryClaim {
@@ -317,7 +361,6 @@ fn lab_requests(lab_id: &str, nodes: &[(&topology::NodeExpanded, &NodeConfig)]) 
                 lab_id: lab_id.to_string(),
                 domain: domain_name(&node.name, lab_id),
                 memory,
-                pins: Some(pins).filter(|pins| !pins.is_empty()),
             }
         })
         .collect()
@@ -340,7 +383,6 @@ fn stopped_requests(lab_id: &str, node_names: &[&str], domains: &[DomainMemory])
                 }),
                 lab_id: lab_id.to_string(),
                 domain,
-                pins: None,
             })
         })
         .collect()
@@ -395,7 +437,11 @@ fn pending_entries() -> Vec<Pending> {
 }
 
 /// Put `requests` in the ledger under a new ticket.
-fn record(requests: Vec<Request>, shared_cpus: Vec<String>) -> Admission {
+fn record(
+    requests: Vec<Request>,
+    shared_cpus: Vec<String>,
+    pins_before: Vec<NodeCpuPins>,
+) -> Admission {
     let ticket = NEXT_TICKET.fetch_add(1, Ordering::Relaxed);
     ledger()
         .lock()
@@ -408,6 +454,7 @@ fn record(requests: Vec<Request>, shared_cpus: Vec<String>) -> Admission {
     Admission {
         ticket,
         shared_cpus,
+        pins_before,
     }
 }
 
@@ -443,7 +490,6 @@ mod tests {
                 memory_mib,
                 numa_node: None,
             }),
-            pins: None,
         }
     }
 
@@ -457,6 +503,39 @@ mod tests {
     /// An admin, who sees every holder named.
     fn requester() -> AuthContext {
         AuthContext::new("tester".to_string(), true, "session".to_string())
+    }
+
+    /// A database with a lab record for each of `lab_ids`, as `up` reserves them before it
+    /// asks for admission.
+    async fn database_with_labs(lab_ids: &[String]) -> db::Database {
+        let db = db::open_in_memory().await.unwrap();
+        db::apply_schema(&db).await.unwrap();
+        let user = db::create_user(&db, "tester".to_string(), "TestPass123!", true, vec![])
+            .await
+            .unwrap();
+        for (index, lab_id) in lab_ids.iter().enumerate() {
+            let networks = db::LabNetworks {
+                loopback_network: format!("127.127.{index}.0/24"),
+                management_network: format!("172.31.{index}.0/24"),
+                gateway_ipv4: format!("172.31.{index}.1"),
+                router_ipv4: format!("172.31.{index}.2"),
+                management_network_v6: None,
+                loopback_network_v6: None,
+                gateway_ipv6: None,
+                router_ipv6: None,
+            };
+            db::create_lab(
+                &db,
+                lab_id,
+                lab_id,
+                &user,
+                &networks,
+                &db::LabDetails::default(),
+            )
+            .await
+            .unwrap();
+        }
+        db
     }
 
     fn names(claims: &[MemoryClaim]) -> Vec<&str> {
@@ -514,7 +593,7 @@ mod tests {
     }
 
     #[test]
-    fn lab_requests_take_memory_numa_node_and_pins_by_kind() {
+    fn lab_requests_take_memory_and_numa_node_by_kind() {
         let vm_image = NodeConfig::get_model(NodeModel::UbuntuLinux);
         let unikernel_image = NodeConfig::get_model(NodeModel::NanosUnikernel);
         let container_image = NodeConfig::get_model(NodeModel::MongoDb);
@@ -566,10 +645,6 @@ mod tests {
                 numa_node: Some(1),
             })
         );
-        assert_eq!(
-            requests[0].pins.as_ref().map(|pins| pins.vcpu_cpus.clone()),
-            Some(vec![2, 3])
-        );
         let unikernel_memory = requests[1].memory.as_ref().unwrap();
         assert_eq!(
             unikernel_memory.memory_mib,
@@ -584,7 +659,6 @@ mod tests {
                 numa_node: None,
             })
         );
-        assert_eq!(requests[2].pins, None);
         // A container without a limit claims nothing.
         assert_eq!(requests[3].memory, None);
     }
@@ -677,8 +751,16 @@ mod tests {
 
     #[test]
     fn dropping_an_admission_releases_only_its_nodes() {
-        let first = record(vec![request("ledger-test-a", Some(1))], Vec::new());
-        let second = record(vec![request("ledger-test-b", Some(1))], Vec::new());
+        let first = record(
+            vec![request("ledger-test-a", Some(1))],
+            Vec::new(),
+            Vec::new(),
+        );
+        let second = record(
+            vec![request("ledger-test-b", Some(1))],
+            Vec::new(),
+            Vec::new(),
+        );
         let domains = |entries: Vec<Pending>| -> Vec<String> {
             entries
                 .into_iter()
@@ -835,15 +917,14 @@ mod tests {
         drop(admitted);
     }
 
-    /// Against the real libvirt: two labs whose nodes pin the same host CPU are admitted one at
-    /// a time. While the first lab's admission is held, before any node of it is stored or
-    /// running, the second is refused; once it is released, the second is admitted. Checking
-    /// the pins against stored nodes only would let two `up`s both pass.
+    /// Against the real libvirt: two labs whose nodes pin the same host CPU. The first lab's
+    /// admission claims the CPU before any node of it is stored or running, so the second is
+    /// refused and claims nothing. The claim outlives the admission, as the lab stops and starts
+    /// again with its pins; deleting the lab gives them back, and the second is admitted.
     #[tokio::test]
     #[ignore = "requires a libvirt daemon and a Docker daemon"]
-    async fn a_pending_node_holds_its_cpu_pins_until_released() {
-        let db = db::open_in_memory().await.unwrap();
-        db::apply_schema(&db).await.unwrap();
+    async fn a_claimed_node_holds_its_cpu_pins_until_its_lab_is_deleted() {
+        let db = database_with_labs(&["pintest1".to_string(), "pintest2".to_string()]).await;
         let conn = Qemu::default().connect().unwrap();
         let docker = docker_connection().unwrap();
         let settings = HostMemorySettings::default();
@@ -894,8 +975,34 @@ mod tests {
             ),
             "{message}"
         );
+        let held_pins = db::list_cpu_pins(&db).await.unwrap();
+        assert_eq!(held_pins.len(), 1);
+        assert_eq!(held_pins[0].pins.node_name, "first");
 
         drop(held);
+        let still = admit_lab_nodes(
+            &db,
+            &conn,
+            &docker,
+            &requester(),
+            settings,
+            "pintest2",
+            &[(&second, &image)],
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(
+                ServiceError::find(&still),
+                Some(ServiceError::CpuPinsHeld { .. })
+            ),
+            "{still:#}"
+        );
+        assert!(
+            db::delete_lab_from(&db, "pintest1", shared::data::LabPhase::Creating)
+                .await
+                .unwrap()
+        );
         let admitted = admit_lab_nodes(
             &db,
             &conn,
@@ -1066,8 +1173,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     #[ignore = "requires a libvirt daemon and a Docker daemon"]
     async fn of_many_concurrent_requests_for_the_same_cpu_exactly_one_is_admitted() {
-        let db = Arc::new(db::open_in_memory().await.unwrap());
-        db::apply_schema(&db).await.unwrap();
+        let lab_ids: Vec<String> = (0..8).map(|index| format!("race{index:04}")).collect();
+        let db = Arc::new(database_with_labs(&lab_ids).await);
         let mut requests = Vec::new();
         for index in 0..8 {
             let db = db.clone();
@@ -1106,6 +1213,7 @@ mod tests {
             }
         }
         assert_eq!((admitted.len(), refused), (1, 7));
+        assert_eq!(db::list_cpu_pins(&db).await.unwrap().len(), 1);
     }
 
     /// Against the real libvirt: requests that queue behind a held admission are answered in
@@ -1114,8 +1222,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires a libvirt daemon and a Docker daemon"]
     async fn requests_are_admitted_in_arrival_order() {
-        let db = Arc::new(db::open_in_memory().await.unwrap());
-        db::apply_schema(&db).await.unwrap();
+        let lab_ids: Vec<String> = (0..3).map(|index| format!("fifo{index:04}")).collect();
+        let db = Arc::new(database_with_labs(&lab_ids).await);
         let answered = Arc::new(Mutex::new(Vec::new()));
         let held = queue().lock().await;
         let mut waiters = Vec::new();

@@ -137,7 +137,7 @@ map by its first column, its id.
   of the table's width, for positional parameters (`?1`, `?2`, ...). SQL never contains
   formatted values.
 - **Types.** Unit enums are stored as text, by their serde names (`enum_text`). Lists such as
-  `ssh_keys` and `cpu_pinning` are JSON text. Timestamps are RFC 3339 text from `jiff`, which keeps
+  `ssh_keys` are JSON text. Timestamps are RFC 3339 text from `jiff`, which keeps
   nanoseconds. Booleans are `0` and `1`. A link's impairments are flattened into `a_to_b_*` and
   `b_to_a_*` columns, and a bridge's members are rows of `bridge_member`, ordered by `position`.
   A node image's settings groups (`NodeConfig.cpu`, `.machine`, `.boot_disk`, `.cdrom`,
@@ -219,6 +219,7 @@ table, copy the rows, drop the old one, rename.
 | 20 | `0020_lab_definition.sql`: the [lab definition](#lab-definitions): the manifest's lab-level parameters on `lab` (with `has_definition`, `0` for every lab before), its node-level ones on `node`, the `manifest_*` tables for its lists, and `secret_key_check`. Existing labs get theirs from the startup import. Triggers refuse a `node_image.ztp_password` that is not [sealed](#secret-values); sherpad seals the plain ones at startup |
 | 21 | `0021_node_definition_imported.sql`: `node.definition_imported` (`0` or `1`, default `0`), set on every node of a lab whose definition came from a saved manifest; the web UI refuses to redeploy a marked node. Existing rows are left `0`: the startup step marks the labs that still have a saved manifest. See [Imported definitions](#imported-definitions) |
 | 22 | `0022_node_ssh_username.sql`: `node.ssh_username`, the account the lab's SSH config logs in to the node with (`NULL` for the shared `sherpa` account). Existing rows are left `NULL`: sherpad copies the accounts from each lab's `lab-info.toml` at startup. See [Node SSH accounts](#node-ssh-accounts) |
+| 23 | `0023_cpu_pin.sql`: the `cpu_pin` table, one row per host CPU and role a node holds, and its triggers. Every node's `cpu_pinning` and `qemu_thread_cpus` are copied into it, as stored, before the triggers exist, then both columns are dropped. See [CPU pins](#cpu-pins) |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
@@ -253,6 +254,60 @@ the node starts, both with `db::update_node_ready_check` and the values
 virtual machine's model port, and its `ready_check.skip`. A container or unikernel without a port
 stores `NULL`, and is ready once it runs. `create_node` stores `NULL` and `0`. What reads them is
 in [`STATE_MACHINES.md`](STATE_MACHINES.md#5-node-readiness-and-host-keys).
+
+### CPU pins
+
+The `cpu_pin` table holds the host CPUs nodes are pinned to, and is the only place they are
+stored. One row per host CPU and role a node holds:
+
+| Column | Notes |
+|---|---|
+| `lab` | References `lab(id)`, `ON DELETE CASCADE` |
+| `node_name` | The node's name in the lab. Not the node's record: admission claims the pins during `up`'s validation, before the node rows exist |
+| `host_cpu` | 0 to 65535 |
+| `role` | `vcpu` (`cpu.pinning`) or `thread` (`cpu.emulator_pinning` and `boot_disk.io_thread_cpus`) |
+
+The primary key is `(lab, node_name, host_cpu, role)`, with an index on `host_cpu`. The rules are
+triggers, so they hold for any statement, not only the application's:
+
+- **`cpu_pin_held`**, `BEFORE INSERT`: a new row is refused with "Host CPU is already pinned by
+  another node" when a row of another node (another lab, or another name in the lab) has the
+  same `host_cpu` and either row is `vcpu`. vCPUs never share a CPU; QEMU threads share with
+  threads. A node's own rows never conflict, which is how a node may hold its old and its new
+  pins together while a redeploy runs. A node's own vCPU and thread CPUs are kept apart by
+  `check_vm_tuning`, before admission.
+- **`cpu_pin_unchanged`**, `BEFORE UPDATE`: rows are claimed and given back, never changed, so
+  an `UPDATE` cannot move a pin around the first trigger.
+- **`cpu_pin_node_deleted`**, `AFTER DELETE ON node`: deleting a node record deletes its rows.
+  Deleting the lab deletes them through the foreign key.
+
+The functions are in `db::cpu_pin`:
+
+- **`claim_cpu_pins(lab, nodes)`** inserts, in one transaction, a row for each CPU and role a
+  node does not hold yet (`INSERT ... SELECT ... WHERE NOT EXISTS`). Skipping the rows it holds
+  matters: the trigger runs before the primary key is checked, so inserting a row a node already
+  holds, on a CPU another node also holds (an overlap carried from before version 23), would be
+  refused. When the trigger refuses a row, it reads which role the other node pins to the CPU and
+  fails with `db::CpuPinTaken`, naming the node, the CPU and both roles; the transaction is not
+  committed, so nothing is claimed. The server maps it to `ServiceError::CpuPinsHeld` with
+  `ServiceError::from_cpu_pin_claim`, the same refusal as admission's own check (-32006, HTTP 409,
+  exit 75).
+- **`retain_cpu_pins(lab, pins)`** deletes, in one transaction, the node's rows that are not in
+  `pins`. It only deletes, so it cannot be refused. A redeploy keeps its new pins with it once the
+  old domain is gone, or its old ones when it fails before then.
+- **`list_cpu_pins`** returns every node's pins, one `DbCpuPins` per node (its lab, and a
+  `NodeCpuPins` under its name, each list ascending).
+
+Pins are held while a lab is stopped: `down`, a node stop and `resume` do not touch the table.
+Only destroying the lab (or a failed `up`'s rollback, or the release of a refused `up`'s
+reservation) deletes them.
+
+Version 23 copies every node's stored pins with `json_each`, as they are, before it creates the
+triggers. The triggers check new rows only, so pins that two labs already shared against the
+rules stay, and the database still opens. sherpad logs a warning naming each such pair at every
+start (`node_resources::warn_shared_cpu_pins`), and each `resume`, node start or `redeploy` of
+one of the nodes warns too, as before. Redeploying one of the two on other host CPUs ends the
+overlap.
 
 ### Node SSH accounts
 
@@ -500,6 +555,8 @@ the build checks them:
   or demoting `admin`, and an `admin` row without the admin flag, with `ADMIN_PROTECTED_MESSAGE`.
   They apply to any statement, not only the application's.
 - **Interfaces used once** (`0007_interfaces_used_once.sql`).
+- **CPU pins** (`0023_cpu_pin.sql`): a host CPU on a node's vCPUs belongs to that node alone;
+  rows are never updated; deleting a node deletes its pins. See [CPU pins](#cpu-pins).
 
 ## Upgrades from before 0.5.0
 

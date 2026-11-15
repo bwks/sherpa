@@ -274,11 +274,13 @@ async fn a_refused_redeploy_keeps_its_pins_and_its_node() -> Result<()> {
             "the node was left {}",
             node.state
         );
-        ensure!(
-            node.cpu_pinning == Some(vec![2, 3]),
-            "the node's pins changed: {:?}",
-            node.cpu_pinning
-        );
+        let pins: Vec<Vec<u16>> = db::list_cpu_pins(&server.db)
+            .await?
+            .into_iter()
+            .filter(|held| held.lab == node.lab && held.pins.node_name == "n1")
+            .map(|held| held.pins.vcpu_cpus)
+            .collect();
+        ensure!(pins == [vec![2, 3]], "the node's pins changed: {pins:?}");
 
         // Its old pins are still held.
         let third = lab_id("ph");

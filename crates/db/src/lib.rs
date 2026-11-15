@@ -7,6 +7,7 @@ pub mod bridge;
 #[path = "../build/placeholders.rs"]
 mod build_placeholders;
 mod connect;
+pub mod cpu_pin;
 pub mod definition;
 mod helpers;
 pub mod lab;
@@ -23,13 +24,15 @@ mod sql;
 pub mod user;
 
 pub use connect::{Database, open, open_in_memory};
+pub use cpu_pin::{CpuPinTaken, claim_cpu_pins, list_cpu_pins, retain_cpu_pins};
 pub use definition::{
     ImportMark, list_labs_without_definition, mark_definition_imported, node_definition_imported,
     read_lab_definition, store_lab_definition, store_redeployed_node,
 };
 pub use secret::{SecretKey, secret_key_registered, verify_secret_key};
 pub use shared::data::{
-    DbBridge, DbLab, DbLink, DbNode, DbSession, DbSessionUser, DbUser, NodeConfig, SessionChannel,
+    DbBridge, DbCpuPins, DbLab, DbLink, DbNode, DbSession, DbSessionUser, DbUser, NodeConfig,
+    SessionChannel,
 };
 
 // Helper functions for extracting IDs safely
@@ -54,9 +57,9 @@ pub use node_image::{
 // Node CRUD operations
 pub use node::{
     count_nodes_by_lab, create_node, get_node, get_node_by_name_and_lab, list_node_states_by_user,
-    list_nodes_by_lab, list_pinned_nodes, list_vnc_ports, update_node_host_key,
-    update_node_mgmt_ipv4, update_node_mgmt_ipv6, update_node_mgmt_mac, update_node_ready_check,
-    update_node_resources, update_node_ssh_username, update_node_state_from,
+    list_nodes_by_lab, list_vnc_ports, update_node_host_key, update_node_mgmt_ipv4,
+    update_node_mgmt_ipv6, update_node_mgmt_mac, update_node_ready_check, update_node_resources,
+    update_node_ssh_username, update_node_state_from,
 };
 
 // Link CRUD operations
