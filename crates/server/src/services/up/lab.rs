@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::mem;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -660,12 +661,18 @@ impl LabUp<'_> {
         self.phase_done("Sherpa Router");
 
         self.start_phase(data::UpPhase::DiskCloning, "Cloning disks".to_string())?;
+        let boot_dirs: Vec<PathBuf> = records
+            .vm_nodes
+            .iter()
+            .map(|node| PathBuf::from(node_ops::vm_boot_dir(self.build.lab_dir, &node.name)))
+            .collect();
         node_ops::clone_node_disks(
             self.build.qemu_conn.clone(),
             clone_disks,
             self.build.lab_id,
             self.build.progress,
             self.plan.image_guards.clone(),
+            &boot_dirs,
         )
         .await?;
         self.phase_done("DiskCloning");

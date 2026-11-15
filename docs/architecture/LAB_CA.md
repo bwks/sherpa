@@ -24,8 +24,8 @@ issuing certificates that chain to the original `ca.crt`.
 
 ## Node certificates
 
-`lab_ca::issue_node_certificate` issues every container, VM and unikernel node a certificate,
-written as `certs/<node>.crt` (0644) and `certs/<node>.key` (0600):
+`lab_ca::issue_node_certificate` issues every container and VM node a certificate, written as
+`certs/<node>.crt` (0644) and `certs/<node>.key` (0600):
 
 | Field | Value |
 |---|---|
@@ -39,7 +39,9 @@ written as `certs/<node>.crt` (0644) and `certs/<node>.key` (0600):
 the node a new certificate for its current addresses before it rebuilds the node, so a
 redeployed node keeps one.
 
-Unikernel nodes get a certificate, but nothing delivers it to them.
+Unikernel nodes get none: no unikernel model has a boot config or a mount to carry one, so
+`configure_unikernel` does not issue it. Releases before this one issued them anyway; the
+startup clean-up removes those files (see [Unread lab file clean-up](SERVER.md#unread-lab-file-clean-up)).
 
 ## Delivery
 

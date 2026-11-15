@@ -19,7 +19,7 @@ use crate::services::progress::ProgressSender;
 use crate::tls::generator::write_file_with_permissions;
 
 /// Directory in the lab directory holding each Vault node's credentials.
-const VAULT_DIR: &str = "vault";
+pub(crate) const VAULT_DIR: &str = "vault";
 /// How often to check whether an unsealed Vault is active; it takes a second or two.
 const ACTIVE_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// Init requests sent to a Vault node in one operation. Each after the first is sent only once

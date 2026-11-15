@@ -102,6 +102,27 @@ Each reader is one `match` on `Ztp` with `Disabled` as a case in it.
 
 The dnsmasq template only loops over the option lines `boot_options` returns.
 
+## Redeploy and the boot server
+
+dnsmasq reads `dnsmasq.conf` only when it starts (`SIGHUP` rereads its host files, not the
+config), and `up` writes it once. A VM redeploy calls `boot_server::refresh_boot_server` after the
+node's ZTP is generated and before its domain is created:
+
+1. It builds the DHCP host records of the lab's nodes as `up` does (`lab_ztp_records`):
+   containers, VMs, then unikernels in index order, each from its record (management addresses,
+   MAC) and image. A node's method is its stored definition's, else its image's. The redeployed
+   node's record is the one its new ZTP made.
+2. It renders the config (`render_dnsmasq_config`, the template `up` uses) and compares it with
+   `ztp/dnsmasq/dnsmasq.conf`. Addresses and MACs are kept across a redeploy, so it differs only
+   when the node's boot options changed: a move onto TFTP or HTTP adds its options 67 (and 239),
+   a move off removes them.
+3. When it differs, it writes the file and restarts the lab's dnsmasq container through Bollard
+   (`container::restart_container`). The leases are inside the container, so they stay; DHCP
+   and DNS for the lab pause for the restart. When it is the same, nothing is restarted.
+
+A failed restart fails the redeploy before the domain is created. The node's old TFTP or HTTP
+files are removed in the same stage (see [`LAB_FOLDER.md`](LAB_FOLDER.md#layout)).
+
 A `match` must cover every variant, so the two generators each keep one arm for the values the
 validator excludes: `volume` on a VM, and the eight other methods on a container. It returns an
 error saying the setting was not validated. It is reached only if a write or a plan skipped
