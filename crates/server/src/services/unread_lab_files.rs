@@ -107,7 +107,7 @@ fn remove_node_files(lab_id: &str, lab_dir: &Path, nodes: &[(String, NodeKind)])
                 }
             }
             NodeKind::VirtualMachine => {
-                if let Some(dir) = node_ops::vm_boot_dir(lab_dir, name) {
+                if let Some(dir) = node_ops::node_dir(lab_dir, name) {
                     removed += usize::from(was_removed(lab_id, &dir, fs::remove_dir_all(&dir)));
                 }
             }

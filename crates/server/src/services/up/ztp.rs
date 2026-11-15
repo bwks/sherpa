@@ -6,11 +6,11 @@ use std::net::Ipv4Addr;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use askama::Template;
 use tracing::instrument;
 
 use super::context::LabBuild;
 use super::nodes::get_node_image;
+use crate::services::boot_server;
 use crate::services::guest_account::GuestAccount;
 use crate::services::node_ops::{self, DomainParts, LabZtp};
 use crate::services::node_resources;
@@ -22,9 +22,8 @@ use shared::data;
 use shared::data::{LabSubnets, RecordId, StatusKind};
 use shared::konst::{
     CONTAINER_DNSMASQ_CAPABILITIES, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
-    DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, KVM_OUI, LAB_CERTS_DIR, MANAGEMENT_NODE_HOST_OFFSETS,
-    MTU_JUMBO_NET, NODE_CONFIGS_DIR, SHERPA_MANAGEMENT_NETWORK_NAME, SSH_PORT, TAP_PREFIX,
-    TFTP_DIR, ZTP_DIR,
+    DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, KVM_OUI, LAB_CERTS_DIR, MTU_JUMBO_NET, NODE_CONFIGS_DIR,
+    SHERPA_MANAGEMENT_NETWORK_NAME, SSH_PORT, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use topology::find_talos_cluster;
@@ -628,42 +627,10 @@ fn write_dnsmasq_config(
     mgmt_net: &data::SherpaNetwork,
     ztp_records: &[data::ZtpRecord],
 ) -> Result<()> {
-    let dnsmaq_template = template::DnsmasqTemplate {
-        tftp_server_ipv4: mgmt_net.v4.boot_server.to_string(),
-        gateway_ipv4: mgmt_net.v4.first.to_string(),
-        dhcp_start: util::get_ipv4_addr(
-            &mgmt_net.v4.prefix,
-            *MANAGEMENT_NODE_HOST_OFFSETS.start(),
-        )?
-        .to_string(),
-        dhcp_end: util::get_ipv4_addr(&mgmt_net.v4.prefix, *MANAGEMENT_NODE_HOST_OFFSETS.end())?
-            .to_string(),
-        gateway_ipv6: mgmt_net.v6.as_ref().map(|v6| v6.first.to_string()),
-        dhcp6_start: mgmt_net
-            .v6
-            .as_ref()
-            .map(|v6| {
-                util::get_ipv6_addr(&v6.prefix, *MANAGEMENT_NODE_HOST_OFFSETS.start())
-                    .map(|a| a.to_string())
-            })
-            .transpose()?,
-        dhcp6_end: mgmt_net
-            .v6
-            .as_ref()
-            .map(|v6| {
-                util::get_ipv6_addr(&v6.prefix, *MANAGEMENT_NODE_HOST_OFFSETS.end())
-                    .map(|a| a.to_string())
-            })
-            .transpose()?,
-        dns_ipv6: mgmt_net.v6.as_ref().map(|v6| v6.boot_server.to_string()),
-        ztp_records: ztp_records.to_vec(),
-    };
-    let dnsmasq_rendered_template = dnsmaq_template.render()?;
     util::create_file(
         &format!("{dnsmasq_dir}/{DNSMASQ_CONFIG_FILE}"),
-        dnsmasq_rendered_template,
-    )?;
-    Ok(())
+        boot_server::render_dnsmasq_config(mgmt_net, ztp_records)?,
+    )
 }
 
 #[cfg(test)]
@@ -676,7 +643,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use shared::data::{NodeKind, NodeModel};
-    use shared::konst::{LAB_CA_CERT_FILE, LAB_CA_KEY_FILE};
+    use shared::konst::{LAB_CA_CERT_FILE, LAB_CA_KEY_FILE, ZTP_ISO};
 
     use super::super::networks::management_network;
     use super::*;
@@ -859,5 +826,7 @@ mod tests {
                 "vm.key"
             ]
         );
+        // The VM's boot files are apart from the lab's folders until its disks are cloned.
+        assert!(lab_dir.path().join("vm-boot.d/vm").join(ZTP_ISO).exists());
     }
 }

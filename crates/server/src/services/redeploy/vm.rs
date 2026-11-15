@@ -4,13 +4,15 @@
 use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::ops::RangeInclusive;
-use std::path::Path;
+use std::path::PathBuf;
+use std::slice;
 
 use anyhow::{Context, Result};
 use tracing::instrument;
 
 use super::context::Redeploy;
 use super::ready::wait_until_ready;
+use crate::services::boot_server;
 use crate::services::node_lifecycle::{self, query_runtimes};
 use crate::services::node_ops::{self, DomainParts, LabZtp, VmZtpResult};
 use crate::services::node_resources;
@@ -133,7 +135,8 @@ pub(super) async fn redeploy_vm(
 }
 
 /// Generate the VM's configuration again and clone its disks (stage 4): the network boot files
-/// of a ZTP method it no longer has are removed, and its boot files once its disks are cloned.
+/// of a ZTP method it no longer has are removed, the lab's boot server is restarted when the
+/// node's boot options changed, and its boot files are removed once its disks are cloned.
 /// The returned result's disks to clone are taken: they are cloned.
 async fn configure_vm(
     redeploy: &mut Redeploy<'_>,
@@ -165,12 +168,28 @@ async fn configure_vm(
     let node_name = redeploy.node_name.as_str();
     node_ops::remove_stale_network_boot_files(&redeploy.lab_dir, node_name, vm_ztp.ztp_record.ztp)?;
     let progress = redeploy.progress;
+    if boot_server::refresh_boot_server(
+        &redeploy.state.db,
+        &redeploy.state.docker,
+        lab_id,
+        &redeploy.lab_record_id,
+        &redeploy.lab_dir,
+        &redeploy.mgmt_net,
+        &vm_ztp.ztp_record,
+    )
+    .await?
+    {
+        let _ = progress.send_status(
+            format!("Boot server restarted with the new boot options of node: {node_name}"),
+            StatusKind::Done,
+        );
+    }
     let _ = progress.send_status(
         format!("ZTP regenerated for node: {node_name}"),
         StatusKind::Done,
     );
 
-    let boot_dir = node_ops::vm_boot_dir(Path::new(&redeploy.lab_dir), node_name);
+    let boot_dir = PathBuf::from(node_ops::vm_boot_dir(&redeploy.lab_dir, node_name));
     let _ = progress.send_status(
         format!("Cloning disks for node: {node_name}"),
         StatusKind::Progress,
@@ -181,7 +200,7 @@ async fn configure_vm(
         lab_id,
         progress,
         vec![redeploy.image_guard.clone()],
-        boot_dir.as_slice(),
+        slice::from_ref(&boot_dir),
     )
     .await?;
     Ok(vm_ztp)

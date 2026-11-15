@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::mem;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -664,7 +664,7 @@ impl LabUp<'_> {
         let boot_dirs: Vec<PathBuf> = records
             .vm_nodes
             .iter()
-            .filter_map(|node| node_ops::vm_boot_dir(Path::new(self.build.lab_dir), &node.name))
+            .map(|node| PathBuf::from(node_ops::vm_boot_dir(self.build.lab_dir, &node.name)))
             .collect();
         node_ops::clone_node_disks(
             self.build.qemu_conn.clone(),

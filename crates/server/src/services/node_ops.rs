@@ -73,15 +73,19 @@ use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 /// The folder in a node's lab folder that holds its binary files before they go on its disk.
 const BINARY_FILES_DIR: &str = "binary_files";
 
-/// The folders in a lab folder that hold the lab's own files. A VM named like one of them writes
-/// its boot files there too, so that folder is never removed as the VM's.
-const LAB_OWN_DIRS: [&str; 5] = [
+/// The folders in a lab folder that hold the lab's own files. A container named like one of them
+/// writes its config files there too, so that folder is never removed as the node's.
+pub(crate) const LAB_OWN_DIRS: [&str; 5] = [
     LAB_CERTS_DIR,
     ZTP_DIR,
     CLUSTERS_DIR,
     VAULT_DIR,
     KEYCLOAK_DIR,
 ];
+
+/// The folder in a lab folder holding each VM's boot files, `<node>/`, until its media are in the
+/// storage pool. Node names have no `.`, so no node's folder can be named like it.
+const VM_BOOT_DIR: &str = "vm-boot.d";
 
 // ============================================================================
 // Result structs
@@ -105,6 +109,8 @@ pub(crate) struct LabZtp<'a> {
 #[derive(Clone, Copy)]
 struct NodeZtp<'a> {
     lab_dir: &'a str,
+    /// The folder the VM's boot files are written to, `vm_boot_dir`.
+    boot_dir: &'a str,
     tftp_dir: &'a str,
     images_dir: &'a str,
     sherpa_user: &'a data::User,
@@ -307,14 +313,13 @@ fn generate_nocloud_ztp(
     user_data: Option<&str>,
 ) -> Result<()> {
     let NodeZtp {
-        lab_dir,
         mgmt_net,
         node_ipv4_address,
         mac_address,
         progress,
         ..
     } = *ztp;
-    let dir = format!("{lab_dir}/{}", node.name);
+    let dir = ztp.boot_dir.to_owned();
     if user_data.is_none() {
         let _ = progress.send_status(
             format!(
@@ -1176,8 +1181,10 @@ pub(crate) fn generate_vm_ztp(
         std::string::ToString::to_string,
     );
 
+    let boot_dir = vm_boot_dir(lab_dir, &node.name);
     let ztp = NodeZtp {
         lab_dir,
+        boot_dir: &boot_dir,
         tftp_dir: &tftp_dir,
         images_dir,
         sherpa_user,
@@ -1242,7 +1249,7 @@ fn generate_vm_ztp_media(
     setting: data::Ztp,
 ) -> Result<VmZtpMedia> {
     let NodeZtp {
-        lab_dir,
+        boot_dir,
         progress,
         node_name_with_lab,
         ..
@@ -1250,7 +1257,7 @@ fn generate_vm_ztp_media(
     let custom_ztp = take_custom_ztp_config(node, progress);
     let custom_ztp = custom_ztp.as_deref();
     let ztp_iso = (
-        format!("{lab_dir}/{}/{ZTP_ISO}", node.name),
+        format!("{boot_dir}/{ZTP_ISO}"),
         format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}.iso"),
     );
     let mut media = VmZtpMedia::default();
@@ -1991,7 +1998,7 @@ fn generate_cloud_init_ztp(
         StatusKind::Progress,
     );
 
-    let dir = format!("{}/{}", ztp.lab_dir, node.name);
+    let dir = ztp.boot_dir.to_owned();
     match node.model {
         data::NodeModel::CentosLinux
         | data::NodeModel::AlmaLinux
@@ -2433,7 +2440,7 @@ fn generate_cdrom_ztp(
         StatusKind::Progress,
     );
 
-    let dir = format!("{}/{}", ztp.lab_dir, node.name);
+    let dir = ztp.boot_dir.to_owned();
     let config = match custom_ztp {
         Some(custom_config) => custom_config.to_owned(),
         // PAN-OS boots from a bootstrap layout of its own, not one config file.
@@ -2680,7 +2687,6 @@ fn generate_disk_ztp(
     custom_ztp: Option<&str>,
 ) -> Result<(String, String)> {
     let NodeZtp {
-        lab_dir,
         images_dir,
         node_name_with_lab,
         progress,
@@ -2691,7 +2697,7 @@ fn generate_disk_ztp(
         StatusKind::Progress,
     );
 
-    let dir = format!("{lab_dir}/{}", node.name);
+    let dir = ztp.boot_dir.to_owned();
     match node.model {
         data::NodeModel::CiscoIosv | data::NodeModel::CiscoIosvl2 => {
             let rendered_template = match custom_ztp {
@@ -2915,7 +2921,6 @@ fn generate_usb_ztp(
     custom_ztp: Option<&str>,
 ) -> Result<(String, String)> {
     let NodeZtp {
-        lab_dir,
         images_dir,
         sherpa_user,
         dns,
@@ -2931,7 +2936,7 @@ fn generate_usb_ztp(
         StatusKind::Progress,
     );
 
-    let dir = format!("{lab_dir}/{}", node.name);
+    let dir = ztp.boot_dir.to_owned();
     let user = sherpa_user.clone();
 
     match node_image.model {
@@ -3264,7 +3269,6 @@ fn flatcar_ignition(
     manifest_systemd_units: Vec<template::IgnitionUnit>,
 ) -> Result<(String, String, String, String)> {
     let NodeZtp {
-        lab_dir,
         images_dir,
         mgmt_net,
         node_ipv4_address,
@@ -3273,7 +3277,7 @@ fn flatcar_ignition(
         guest_account,
         ..
     } = *ztp;
-    let dir = format!("{lab_dir}/{}", node.name);
+    let dir = ztp.boot_dir.to_owned();
     let mut units = vec![template::IgnitionUnit::mount_container_disk()];
     units.extend(manifest_systemd_units);
 
@@ -3479,13 +3483,23 @@ fn cpu_features_for_model(model: data::NodeModel) -> Vec<data::CpuFeature> {
 // Disk Cloning
 // ============================================================================
 
-/// The folder in the lab folder `lab_dir` that VM `node_name`'s boot files are written to, or
-/// `None` when the VM is named like one of the lab's own folders, which holds more than them.
-pub(crate) fn vm_boot_dir(lab_dir: &Path, node_name: &str) -> Option<PathBuf> {
+/// The folder in the lab folder `lab_dir` that VM `node_name`'s boot files are written to, until
+/// its media are in the storage pool: `vm-boot.d/<node>`. No node name has a `.`, so it is never
+/// one of the lab's own folders or a node's.
+pub(crate) fn vm_boot_dir(lab_dir: &str, node_name: &str) -> String {
+    format!("{lab_dir}/{VM_BOOT_DIR}/{node_name}")
+}
+
+/// Node `node_name`'s own folder in the lab folder `lab_dir`, `<node>`: a container's config
+/// mounts, and where releases before this one wrote a VM's boot files. `None` when the node is
+/// named like one of the lab's own folders: that folder holds the lab's files too, so it is
+/// never removed as the node's.
+pub(crate) fn node_dir(lab_dir: &Path, node_name: &str) -> Option<PathBuf> {
     (!LAB_OWN_DIRS.contains(&node_name)).then(|| lab_dir.join(node_name))
 }
 
-/// Remove a VM's boot files, the folder `dir` that `vm_boot_dir` gives. Once its media are in
+/// Remove a VM's boot files, the folder `dir` that `vm_boot_dir` gives, or that `node_dir` gave
+/// in releases before this one. Once its media are in
 /// the storage pool nothing reads them again: QEMU reads the pool's copies. Returns whether
 /// there was a folder to remove.
 ///
@@ -5034,6 +5048,7 @@ mod tests {
         for personal in [None, Some(&account)] {
             let ztp = NodeZtp {
                 lab_dir: root,
+                boot_dir: root,
                 tftp_dir: root,
                 images_dir: root,
                 sherpa_user: &user,
@@ -5095,6 +5110,7 @@ mod tests {
         let dns = util::default_dns(&network.v4.prefix).unwrap();
         let ztp = NodeZtp {
             lab_dir: root,
+            boot_dir: root,
             tftp_dir: root,
             images_dir: root,
             sherpa_user: &user,
@@ -5510,7 +5526,10 @@ mod tests {
             2,
             "the boot disk and the seed ISO"
         );
-        assert!(lab.files().contains(&format!("talos01/{ZTP_ISO}")));
+        assert!(
+            lab.files()
+                .contains(&format!("{VM_BOOT_DIR}/talos01/{ZTP_ISO}"))
+        );
     }
 
     #[test]
@@ -6165,26 +6184,43 @@ mod tests {
     }
 
     #[test]
-    fn a_vm_named_like_a_lab_folder_has_no_boot_folder_of_its_own() {
+    fn a_nodes_own_folder_is_never_one_of_the_labs_folders() {
         let lab = Path::new("/labs/lab-0001");
-        assert_eq!(vm_boot_dir(lab, "vm1"), Some(lab.join("vm1")));
+        assert_eq!(node_dir(lab, "ct1"), Some(lab.join("ct1")));
+        for name in LAB_OWN_DIRS {
+            assert_eq!(node_dir(lab, name), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_vms_boot_folder_is_apart_from_every_lab_and_node_folder() {
         for name in [
+            "vm1",
             LAB_CERTS_DIR,
             ZTP_DIR,
             CLUSTERS_DIR,
             VAULT_DIR,
             KEYCLOAK_DIR,
         ] {
-            assert_eq!(vm_boot_dir(lab, name), None, "{name}");
+            assert_eq!(
+                vm_boot_dir("/labs/lab-0001", name),
+                format!("/labs/lab-0001/vm-boot.d/{name}")
+            );
         }
+        // A node name cannot be the boot folder's own name.
+        assert!(
+            !VM_BOOT_DIR
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        );
     }
 
-    /// A VM's boot folder `vm1` in a temporary lab folder, holding its seed and the ISO made from
+    /// VM `vm1`'s boot folder in a temporary lab folder, holding its seed and the ISO made from
     /// it; and the ISO as a disk to copy to `dst`.
     fn vm_boot_files(dst: &str) -> (tempfile::TempDir, PathBuf, data::CloneDisk) {
         let lab = tempdir().unwrap();
-        let boot_dir = lab.path().join("vm1");
-        fs::create_dir(&boot_dir).unwrap();
+        let boot_dir = PathBuf::from(vm_boot_dir(lab.path().to_str().unwrap(), "vm1"));
+        fs::create_dir_all(&boot_dir).unwrap();
         fs::write(boot_dir.join(CLOUD_INIT_USER_DATA), "#cloud-config\n").unwrap();
         let iso = boot_dir.join(ZTP_ISO);
         fs::write(&iso, vec![0_u8; 2048]).unwrap();

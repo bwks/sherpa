@@ -1,5 +1,6 @@
 pub mod admission;
 pub mod backup;
+pub(crate) mod boot_server;
 pub mod cancel;
 pub mod clean;
 pub(crate) mod container_networks;
