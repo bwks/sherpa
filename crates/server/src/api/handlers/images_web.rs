@@ -227,7 +227,9 @@ fn parse_form_choice<T: DeserializeOwned>(value: &str, field_name: &str) -> Resu
 
 /// The image's new configuration from the form. Its id, model, kind, version, management
 /// interface and boot mode are kept; checkboxes are on when present, and blank optional fields
-/// are unset. The version names the image's files, so a form that sends another is ignored.
+/// are unset. The version names the image's files, so a form that sends another is ignored. The
+/// ZTP password is the form's new one; a blank one keeps the stored password, unless the form
+/// removes it.
 fn updated_image_config(
     config: NodeConfig,
     form: ImageForm,
@@ -262,7 +264,13 @@ fn updated_image_config(
         ztp: ZtpSettings {
             method: form.ztp,
             username: form.ztp_username.filter(|s| !s.trim().is_empty()),
-            password: form.ztp_password.filter(|s| !s.trim().is_empty()),
+            password: if form.ztp_password_remove.is_some() {
+                None
+            } else {
+                form.ztp_password
+                    .filter(|s| !s.trim().is_empty())
+                    .or(config.ztp.password)
+            },
             password_auth: form.ztp_password_auth.is_some(),
         },
         interfaces: InterfaceSettings {
@@ -290,7 +298,9 @@ pub async fn admin_image_detail_handler(
         params.version
     );
 
-    let config = find_image_config(&state, &params).await?;
+    let mut config = find_image_config(&state, &params).await?;
+    // The password is a secret: the page says only whether there is one.
+    let ztp_password_set = config.ztp.password.take().is_some();
 
     let template = crate::templates::AdminImageDetailTemplate {
         username: admin.username.clone(),
@@ -298,6 +308,7 @@ pub async fn admin_image_detail_handler(
         nav: NavPage::AdminImages.into(),
         kind_badge: KindBadge::full(config.kind.clone()),
         config,
+        ztp_password_set,
     };
 
     Ok(template)
@@ -320,8 +331,10 @@ pub async fn admin_image_edit_page_handler(
     Ok(image_edit_template(admin.username, config))
 }
 
-/// The edit page for `config`, with every dropdown's options and the image's own selected.
-fn image_edit_template(username: String, config: NodeConfig) -> AdminImageEditTemplate {
+/// The edit page for `config`, with every dropdown's options and the image's own selected. The
+/// image's ZTP password is left out: the page says only whether there is one.
+fn image_edit_template(username: String, mut config: NodeConfig) -> AdminImageEditTemplate {
+    let ztp_password_set = config.ztp.password.take().is_some();
     AdminImageEditTemplate {
         username,
         is_admin: true,
@@ -337,6 +350,7 @@ fn image_edit_template(username: String, config: NodeConfig) -> AdminImageEditTe
         ztp_choices: ztp_choices(config.model, config.ztp.method),
         interface_type_choices: form_choices::<InterfaceType>(&config.interfaces.kind),
         config,
+        ztp_password_set,
     }
 }
 
@@ -360,7 +374,10 @@ pub struct ImageForm {
     /// The ZTP setting, by the word the image stores.
     pub ztp: Ztp,
     pub ztp_username: Option<String>,
+    /// A new ZTP password. Blank keeps the stored one, which the form never shows.
     pub ztp_password: Option<String>,
+    /// Remove the stored ZTP password (checkbox).
+    pub ztp_password_remove: Option<String>,
     pub ztp_password_auth: Option<String>, // checkbox
     pub data_interface_count: u8,
     pub interface_prefix: String,
@@ -854,6 +871,7 @@ mod tests {
             ztp: config.ztp.method,
             ztp_username: None,
             ztp_password: None,
+            ztp_password_remove: None,
             ztp_password_auth: None,
             data_interface_count: config.interfaces.data_count,
             interface_prefix: config.interfaces.prefix.clone(),
@@ -862,6 +880,66 @@ mod tests {
             first_interface_index: config.interfaces.first_index,
             reserved_interface_count: config.interfaces.reserved_count,
             default: None,
+        }
+    }
+
+    #[test]
+    fn the_image_pages_say_whether_there_is_a_password_and_never_show_it() {
+        let mut config = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        config.ztp.password = Some("Image-Secret-7".to_owned());
+
+        let edit = image_edit_template("admin".to_owned(), config.clone())
+            .render()
+            .unwrap();
+        assert!(
+            !edit.contains("Image-Secret-7"),
+            "the edit page shows the password"
+        );
+        assert!(edit.contains("ZTP Password (set)"), "{edit}");
+        assert!(edit.contains("ztp_password_remove"));
+
+        let ztp_password_set = config.ztp.password.take().is_some();
+        let detail = crate::templates::AdminImageDetailTemplate {
+            username: "admin".to_owned(),
+            is_admin: true,
+            nav: NavPage::AdminImages.into(),
+            kind_badge: KindBadge::full(config.kind.clone()),
+            config: config.clone(),
+            ztp_password_set,
+        }
+        .render()
+        .unwrap();
+        assert!(!detail.contains("Image-Secret-7"));
+        assert!(detail.contains(">Set<"), "{detail}");
+
+        let unset = image_edit_template("admin".to_owned(), config)
+            .render()
+            .unwrap();
+        assert!(unset.contains("ZTP Password (not set)"));
+        assert!(!unset.contains("ztp_password_remove"));
+    }
+
+    #[test]
+    fn a_blank_password_keeps_the_stored_one_and_remove_clears_it() {
+        let mut config = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        config.ztp.password = Some("Stored-Pass1".to_owned());
+        for (sent, remove, expected) in [
+            (None, false, Some("Stored-Pass1")),
+            (Some("  "), false, Some("Stored-Pass1")),
+            (Some("New-Pass2"), false, Some("New-Pass2")),
+            (Some("New-Pass2"), true, None),
+            (None, true, None),
+        ] {
+            let mut form = form_for(&config, &config.version);
+            form.ztp_password = sent.map(str::to_owned);
+            form.ztp_password_remove = remove.then(|| "on".to_owned());
+            let choices = ImageFormChoices::parse(&form).unwrap();
+            let updated = updated_image_config(config.clone(), form, choices);
+            assert_eq!(
+                updated.ztp.password.as_deref(),
+                expected,
+                "{sent:?} {remove}"
+            );
         }
     }
 

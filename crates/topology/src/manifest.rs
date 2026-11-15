@@ -10,7 +10,7 @@ use super::talos_cluster::TalosCluster;
 use shared::data::{NodeModel, ZtpServer};
 use shared::util::{generate_lab_name, load_file as load_file_util};
 
-#[derive(Debug, Deserialize, Serialize, Default)]
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub name: String,
@@ -41,7 +41,7 @@ pub struct Manifest {
 }
 
 /// Optional per-lab tailnet enrollment. Secrets are resolved by the client.
-#[derive(Debug, Deserialize, Serialize, Default)]
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct TailscaleConfig {
     #[serde(default)]

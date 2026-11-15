@@ -54,8 +54,11 @@ impl TestServer {
     /// Start a new test server with `config`, usually [`test_config`] with changes. The
     /// scanner runs only when `config.scanner` is enabled; [`test_config`] disables it.
     pub async fn start_with_config(config: Config) -> Result<Self> {
-        let db = db::open_in_memory().await?;
+        let db = db::open_in_memory()
+            .await?
+            .with_secret_key(db::SecretKey::generate());
         db::apply_schema(&db).await?;
+        db::verify_secret_key(&db).await?;
         db::seed_admin_user(&db, TEST_ADMIN_PASSWORD).await?;
 
         let docker = Docker::connect_with_local_defaults()?;

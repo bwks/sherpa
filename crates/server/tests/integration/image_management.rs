@@ -310,13 +310,19 @@ async fn test_image_show_returns_config() -> Result<()> {
         .await?;
 
     // If image was found, result should have config details
-    // image.show returns ShowImageResponse { image: NodeConfig }
+    // image.show returns ShowImageResponse { image: NodeConfig, ztp_password_set }
     if response.get("result").is_some() {
         let result = response.get("result").unwrap();
         assert!(
             result.get("image").is_some(),
             "image.show result should have 'image' field: {result:?}"
         );
+        // The image's ZTP password is never sent, only whether it has one.
+        assert!(
+            result["image"]["ztp"]["password"].is_null(),
+            "image.show sent the ZTP password: {result:?}"
+        );
+        assert!(result["ztp_password_set"].is_boolean(), "{result:?}");
     }
 
     Ok(())

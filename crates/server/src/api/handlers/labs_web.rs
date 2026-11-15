@@ -246,6 +246,7 @@ pub async fn node_redeploy_handler(
         node_name: node_name.clone(),
         manifest,
         secrets: None,
+        as_written: None,
     };
 
     let progress = ProgressSender::new(tokio::sync::mpsc::unbounded_channel().0);
@@ -517,7 +518,7 @@ pub async fn node_detail_handler(
     };
 
     // Fetch node image config
-    let node_config = match db::find_node_image_by_id(&state.db, db_node.image.clone()).await {
+    let mut node_config = match db::find_node_image_by_id(&state.db, db_node.image.clone()).await {
         Ok(Some(config)) => config,
         Ok(None) => {
             tracing::error!("Node image not found for node '{}'", node_name);
@@ -536,6 +537,8 @@ pub async fn node_detail_handler(
     };
 
     let ztp = effective_ztp(saved_node_ztp(&lab_id, &node_name), &node_config);
+    // The page never shows the image's password.
+    node_config.ztp.password = None;
 
     NodeDetailTemplate {
         username: auth.username,
@@ -948,6 +951,11 @@ pub async fn lab_create_post_handler(
     };
 
     let lab_id = get_id_for_user(&auth.username, &lab_name);
+    // A manifest pasted in the web UI is as the user wrote it: nothing resolves its files or
+    // variables. One that is not a manifest is refused by `up` with the reason.
+    let as_written = serde_json::from_value::<topology::Manifest>(manifest_value.clone())
+        .ok()
+        .and_then(|manifest| serde_json::to_value(manifest.as_written()).ok());
 
     let request = UpRequest {
         lab_id,
@@ -956,6 +964,7 @@ pub async fn lab_create_post_handler(
         node_secrets: BTreeMap::new(),
         client_host: None,
         client_folder: None,
+        as_written,
     };
 
     let job_id = uuid::Uuid::new_v4().to_string();

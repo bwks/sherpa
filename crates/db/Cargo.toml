@@ -5,6 +5,10 @@ edition = "2024"
 
 [dependencies]
 shared = { path = "../shared" }
+topology = { path = "../topology" }
+
+# Sealing secret values
+aes-gcm = { workspace = true }
 
 # Errors
 anyhow = { workspace = true }

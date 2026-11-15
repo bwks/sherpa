@@ -85,7 +85,7 @@ async fn poll_until_ready(redeploy: &Redeploy<'_>, ready_port: u16) -> Result<bo
     let ip = redeploy.ipv4.to_string();
     let start = Instant::now();
 
-    while start.elapsed() < redeploy.ready_timeout {
+    while start.elapsed() < redeploy.ready_timeout() {
         match node_ops::check_vm_ready(&ip, ready_port).await? {
             VmReadiness::Ready { host_key } => {
                 if host_key.is_some() {

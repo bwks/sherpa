@@ -1,6 +1,7 @@
 # Database
 
-Sherpa's records (users, node images, labs, nodes, links, bridges) live in an embedded
+Sherpa's records (users, node images, labs, nodes, links, bridges, and each lab's definition)
+live in an embedded
 [Turso](https://github.com/tursodatabase/turso) database inside `sherpad`: the `turso` crate,
 pinned to an exact pre-1.0 version with default features off, because they install mimalloc as the
 process's global allocator. The file is `SHERPA_DB_FILE_PATH`
@@ -54,6 +55,17 @@ are in [`../investigations/turso-migration.md`](../investigations/turso-migratio
   installer, the update script and `sherpad` at startup. `open` restricts the database file and
   its `-wal` and `-shm` files to `0600`; Turso creates the `-wal` file when it opens the database,
   so the first writes do not leave it readable by others.
+- **What a backup holds.** The copy is the whole database: users (password hashes), node images,
+  labs, nodes, links, bridges, sessions, and every
+  lab's [definition](#lab-definitions). A definition holds the manifest as the user wrote it:
+  paths, settings and literal values, **never the contents of files or scripts, nor the values
+  of `$VAR` environment variables**. Only the values sealed with the
+  [database key](#secret-values) are ciphertext: `lab.ztp_server_password` and
+  `node_image.ztp_password`. The key is not
+  in the database or the backup, so **back up `SHERPA_DB_KEY_PATH`
+  (`/opt/sherpa/.secret/db.key`) alongside every backup, but separately from it**: not in the
+  backup directory, and not in the same copy. A restored database with no key, or another
+  key, does not start (see [Secret values](#secret-values)).
 - **Tests.** `open_in_memory()` gives each test its own database; connections to one in-memory
   database share its data. The db and server integration tests need no database server.
 
@@ -156,8 +168,9 @@ constraints; uniqueness is `UNIQUE` constraints; references are foreign keys:
 - `lab.user` and `node.image` are `ON DELETE RESTRICT`: an owner with labs, or an image in use,
   cannot be deleted.
 - `node.lab`, `link.lab`, `link.node_a`, `link.node_b`, `bridge.lab`, `bridge_member.bridge`,
-  `bridge_member.node` and `session.user` are `ON DELETE CASCADE`. Deleting a lab is one
-  `DELETE`, and deleting a user ends their login sessions.
+  `bridge_member.node`, `session.user` and every `manifest_*` table's `lab` or `node` are
+  `ON DELETE CASCADE`. Deleting a lab is one `DELETE`, which takes its definition with it, and
+  deleting a user ends their login sessions.
 - `session` holds one row per login session (`db::session`). `expires_at` is whole Unix seconds,
   the token's `exp`, so the sweep compares integers. What each row means and what ends it is in
   [`SERVER.md`](SERVER.md#sessions-and-identity).
@@ -203,6 +216,7 @@ table, copy the rows, drop the old one, rename.
 | 17 | `0017_drop_lab_ssh_key.sql`: drops `lab.ssh_key`. Every lab has its own key and the server's shared key is gone (0.6.0). Refused while a lab is still `server`; see [Labs on the server's SSH key](#labs-on-the-servers-ssh-key) |
 | 18 | `0018_reset_unused_image_settings.sql`: container images get the default machine, boot disk and CD-ROM settings (`machine_type` `pc`, `bios` `sea_bios`, `hdd_bus` and `cdrom_bus` `virtio`, no `cdrom`), and unikernel images the default firmware, boot disk and CD-ROM settings, keeping their `machine_type`. Neither kind reads them; the four network OS containers were stored with a q35 machine and SATA buses. See [`NODE_SETTINGS.md`](NODE_SETTINGS.md#settings-a-kind-does-not-use) |
 | 19 | `0019_node_ready_check.sql`: `node.ready_port` (`NULL` or 1 to 65535) and `node.skip_ready_check` (`0` or `1`, default `0`), each node's readiness check, which the scanner, `resume` and `redeploy` read instead of the saved manifest. Existing virtual machines get their model's port (22, or 50000 for `talos_linux`), containers and unikernels none, and no check is skipped: what the scanner did with them before. See [Node readiness checks](#node-readiness-checks) |
+| 20 | `0020_lab_definition.sql`: the [lab definition](#lab-definitions): the manifest's lab-level parameters on `lab` (with `has_definition`, `0` for every lab before), its node-level ones on `node`, the `manifest_*` tables for its lists, and `secret_key_check`. Existing labs get theirs from the startup import. Triggers refuse a `node_image.ztp_password` that is not [sealed](#secret-values); sherpad seals the plain ones at startup |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
@@ -237,6 +251,165 @@ the node starts, both with `db::update_node_ready_check` and the values
 virtual machine's model port, and its `ready_check.skip`. A container or unikernel without a port
 stores `NULL`, and is ready once it runs. `create_node` stores `NULL` and `0`. What reads them is
 in [`STATE_MACHINES.md`](STATE_MACHINES.md#5-node-readiness-and-host-keys).
+
+### Lab definitions
+
+A lab's definition is every parameter of the manifest it was deployed from, **as the user wrote
+it**. The manifest is how the user defines a lab; once it is deployed, the database is the
+server's record of it.
+
+**No file contents and no resolved values are stored.** Before it sends a manifest, the client
+replaces `ztp.config`, a path, with the file's contents, replaces each `KEY=$VAR` environment
+variable with its value, and adds the `*_data` fields: the contents of `text_files`,
+`binary_files`, `systemd_units`, `startup_scripts`, `user_scripts` and
+`ssh.authorized_key_files`. The server builds the node from that resolved manifest, as before,
+and never writes it to the database. What it stores is the manifest as written:
+
+- Files and scripts as references: `ztp.config`'s path, `text_files` (`src`, `dst`, `user`,
+  `group`, `permissions`), `binary_files` (`source`), `systemd_units` (`name`, `source`,
+  `enabled`), `startup_scripts`, `user_scripts` and `ssh.authorized_key_files` (`source`).
+- `environment_variables` as written: `KEY=$VAR` keeps `$VAR`.
+- Literal parameters as they are, with `ztp_server.password` sealed.
+
+The client sends the parts it changes, and the ones it never serializes, as written, beside the
+manifest: `topology::ManifestAsWritten` (`Manifest::as_written`, taken before it resolves
+anything), the optional `as_written` field of `UpRequest` and `RedeployRequest`, holding each
+node's `ztp.config` path, `environment_variables` and `provisioners`, and the lab's
+`provision_concurrency`. `Manifest::definition(as_written)` puts them back and clears every
+`*_data` field; the server's `services::lab_definition::definition` also checks the provisioners.
+Without `as_written` (an older client), `ztp.config`, `environment_variables`, provisioners and
+`provision_concurrency` are not stored at `up`, rather than stored resolved, and a `redeploy`
+keeps the node's stored ones (`lab_definition::stored_as_written`). The web UI's manifest is
+already as written, so it sends its own parts. `store_lab_definition` and
+`store_redeployed_node` refuse a manifest that holds a `*_data` field
+(`Manifest::has_file_contents`).
+
+Storage is normalised: one-to-one parameters are columns of the lab's and nodes' rows, lists are rows of
+child tables, and nothing is a JSON or TOML document. Everything is in `crates/db/src/definition/`
+and the query files in `sql/queries/definition/`.
+
+**Lab-level parameters** are on `lab`. `name` and `description` are the lab's own columns, written
+by `create_lab`; the rest come with migration 20:
+
+| Column | Manifest |
+|---|---|
+| `has_definition` | `1` once a definition is stored. `0` for a lab stored before version 20 whose saved manifest could not be imported |
+| `ready_timeout`, `provision_current_user`, `provision_concurrency` | the same names (`provision_concurrency` 1 to 255) |
+| `tailscale_enabled`, `tailscale_auth_key_env` | `[tailscale]`; `NULL` when the manifest has no table |
+| `ztp_server_enable`, `ztp_server_username`, `ztp_server_password` | `[ztp_server]`; `NULL` when absent. The password is [sealed](#secret-values) |
+
+**Node-level parameters** are on `node`. Where the node already records what it was built with,
+or refers to a record, the manifest's value is a `manifest_` column beside it: `manifest_image`
+(`image`), `manifest_memory`, `manifest_cpu_count`, `manifest_ready_port`,
+`manifest_skip_ready_check`. The rest are named after their manifest path: `version`,
+`cpu_mode`, `cpu_sockets`, `cpu_cores`, `cpu_threads`, `numa_node`, `numa_memory_mode`,
+`boot_disk_size`, `boot_disk_clone_method`, `boot_disk_cache`, `boot_disk_io`,
+`interfaces_data_count`, `interfaces_queues`, `ztp_method`, `ztp_config`, `vm_watchdog`,
+`container_user`, `container_privileged`, `container_shm_size`, `container_platform` and
+`unikernel_cmdline`. `NULL` is "not set", as in the manifest. A node's `model` is its image's.
+Choices are `CHECK`ed against their serde names, and numbers against their type's range, or the
+manifest's where it validates one.
+
+**Lists** are child tables, keyed by their parent and a `position` in manifest order:
+
+| Table | Holds |
+|---|---|
+| `manifest_link` | `links`: `src`, `dst`, `p2p`, and the `impairment` (`impaired` says whether it has the table) |
+| `manifest_bridge`, `manifest_bridge_link` | `bridges` and the ends each names |
+| `manifest_talos_cluster`, `manifest_talos_member` | `talos_clusters` (`cni`, `oidc`, `vault`) and their members, by `role` (`controller`, `worker`) |
+| `manifest_node_cpu` | a node's CPU lists, by `list`: `pinning`, `emulator_pinning`, `io_thread` (`boot_disk.io_thread_cpus`) |
+| `manifest_node_text` | a node's lists of strings, by `list`: `authorized_key`, `authorized_key_file` (paths), `container_command`, `environment_variable` (as written), `startup_script`, `user_script` (paths), `binary_file` (paths) |
+| `manifest_node_volume` | `container.volumes` |
+| `manifest_node_text_file` | `text_files`: `src`, `dst`, `user`, `group`, `permissions` |
+| `manifest_node_systemd_unit` | `systemd_units`: `name`, `source`, `enabled` |
+| `manifest_node_provisioner`, `manifest_node_provisioner_file`, `manifest_node_provisioner_path` | `provisioners`: their `type`, files (an ssh file has a `dst`, a container file a `name`), and an ssh provisioner's `env_files` and `scripts`. Paths and settings only |
+
+Nested tables (`manifest_bridge_link`, `manifest_talos_member`, the provisioner files and paths)
+refer to their parent row with a composite foreign key and cascade with it.
+
+**Writers.**
+
+- `store_lab_definition(db, lab, manifest)` replaces the whole definition in one transaction:
+  the lab's columns, its links, bridges and Talos clusters, and every node's columns and lists.
+  Each manifest node must already have its record. `up` calls it at the end of its
+  DatabaseRecords phase, once the lab and node records exist, and the startup import does too.
+- `store_redeployed_node(db, lab, node, name, manifest)` is `redeploy`'s, before the node
+  starts: the node's columns and lists, and the lab-level settings a redeploy applies,
+  `ready_timeout`, `provision_current_user` and `provision_concurrency`. The lab's links,
+  bridges, Talos clusters, Tailscale and ZTP server settings are what `up` built; a redeploy does
+  not rebuild them, so it does not change them.
+
+**Read-back.** `read_lab_definition(db, lab)` returns the `topology::Manifest` the definition
+records, as written and with no `*_data` field, or `None` when `has_definition` is `0`. The one thing that does not round-trip is an
+empty list or an empty `vm`, `container` or `unikernel` table: none is stored, and it reads back
+as absent, which every reader treats the same. A test builds a manifest that sets every field,
+as written (no `*_data` field), with a destructuring that stops compiling when `Manifest` or
+`Node` gains one, and checks that it reads back equal and that every child table got rows.
+
+Readers do not use it yet: `resume`, the scanner and the web UI still read the saved
+`manifest.toml`, which `up` still writes.
+
+**Existing labs** get their definition from the [startup import](SERVER.md#lab-definition-import).
+
+### Secret values
+
+No secret is stored in the database as plain text: secret values are sealed, so a database file
+or backup that leaves the server without its key holds only ciphertext. The sealed columns are
+`lab.ztp_server_password` and `node_image.ztp_password`. `crates/db/src/secret.rs` has the
+cipher:
+
+- **Cipher.** AES-256-GCM, from `aes-gcm` 0.11 (no `getrandom` feature: `rand` makes the
+  nonces). Sherpa's code adds no `unsafe`.
+- **Format.** A sealed value is one `BLOB`: a format version byte (`1`), a random 12-byte nonce,
+  then the ciphertext and its 16-byte tag. Every value gets its own nonce. The associated data is
+  the value's place, `table.column:row-key`, so a value copied to another row or column does not
+  open.
+- **Key.** 32 random bytes in `SHERPA_DB_KEY_PATH` (`/opt/sherpa/.secret/db.key`), mode `0600`,
+  in the `0700` `sherpa` directory that holds the JWT secret, beside it in `shared::konst`. It is
+  never in `/opt/sherpa/db`, beside the database and its backups, so a copy of that directory
+  does not carry it. The install and update scripts create `/opt/sherpa/.secret` (`0700`,
+  `sherpa`) when it is missing and leave an existing one's mode alone; sherpad creates it the same
+  way if it must. The uninstall script keeps it with `--keep-data` and `--remove-data`, so a kept
+  database can still be opened, and removes it only with `--remove-all`.
+  never in the database. The `Database` handle carries it (`Database::with_secret_key`); writing
+  or reading a sealed value without one fails with "The database key is not loaded".
+- **Key check.** `secret_key_check` holds one row: a known value sealed with the key the
+  database's values are sealed with, written once with the first key. At startup sherpad loads
+  the key and `verify_secret_key` opens the row, or writes it for a database that has none.
+- **Errors.** A key file that is missing while the database has a key check stops startup
+  ("The database key ... is missing ..."): sherpad does not make a new key a sealed value would
+  not open with. A key that does not open the check stops startup ("The database key does not
+  match ..."). A key file of the wrong length stops startup as damaged. A sealed value that does
+  not open, because the key differs or the value was changed, fails its read and names its place.
+  None of these replace the key file.
+- **Text columns.** A column whose type an existing table fixes as `TEXT`, such as
+  `node_image.ztp_password`, stores a `SealedText`: `sealed:` and the sealed value in lower-case
+  hex. Only `seal_text` makes one, and the row values take a `SealedText`, not a string, so no
+  writer can bind plain text. Triggers (`node_image_ztp_password_sealed_on_insert` and
+  `_on_update`) refuse anything else, even from a statement run by hand. A rebuilt table could
+  use a `BLOB` and a `CHECK` instead; `node_image` is not rebuilt because `node.image` refers to
+  it.
+- **Image passwords.** `node_image_from_row` maps the stored text; every `db` function that
+  returns an image opens it with `node_image::password::open_password` first, and every write
+  seals it (`seal_password`), so callers see the plain value and `upsert_node_image`, which may
+  write an existing row back, never seals it twice. A plain value read back is refused ("is not
+  sealed"), never returned.
+- **Converting plain values.** A migration has no key, so releases before version 20 leave image
+  passwords as plain text. `db::seal_plain_image_passwords` seals every one that does not start
+  with `sealed:`, in one transaction with a compare-and-set update; sherpad runs it at startup
+  before the lab definition import and before anything reads an image. A second run finds
+  nothing. Until it runs, the update trigger lets a plain row's other columns change.
+- **Not sent out.** `image.show` (RPC and REST) and the web UI's image and node pages drop the
+  password and say whether there is one (`ShowImageResponse::ztp_password_set`). The image
+  editor's password field starts blank: blank keeps the stored password, a value replaces it, and
+  "Remove the password" clears it.
+- **Another secret field** is a `BLOB` column with a `length() >= 29` check, written with
+  `seal(key, value, place)` and read with `open(key, sealed, place)`, or a `TEXT` column as
+  above, where `place` names the column and row.
+
+There is no key rotation yet, and no recovery from a lost key: sherpad refuses to start on a
+database whose key check it cannot open, so a lost key stops the server until the key file is
+restored.
 
 ### What the user said about a lab
 

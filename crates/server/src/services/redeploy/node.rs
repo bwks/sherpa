@@ -19,6 +19,7 @@ use crate::auth::context::AuthContext;
 use crate::auth::policy::{require_lab_owner, require_lab_starter};
 use crate::daemon::state::AppState;
 use crate::services::guest_account;
+use crate::services::lab_definition;
 use crate::services::lab_lifecycle;
 use crate::services::lab_operations;
 use crate::services::node_lifecycle;
@@ -42,7 +43,7 @@ static REDEPLOY_LOCKS: OnceLock<DashMap<String, Weak<Mutex<()>>>> = OnceLock::ne
 /// lab lock is taken. `request.username` is ignored.
 ///
 /// A node whose rebuild fails after it was torn down is recorded `Failed`.
-#[instrument(skip(ctx, state, progress), fields(username = %ctx.username, lab_id = %request.lab_id, node_name = %request.node_name))]
+#[instrument(skip(ctx, request, state, progress), fields(username = %ctx.username, lab_id = %request.lab_id, node_name = %request.node_name))]
 pub async fn redeploy_node(
     ctx: &AuthContext,
     request: RedeployRequest,
@@ -179,6 +180,30 @@ async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
         ),
     )
     .await?;
+
+    // The node's definition, and the lab settings a redeploy applies, are what it is rebuilt
+    // from now: the manifest as written, or, when the client sent no parts as written, the
+    // manifest with the node's stored ones.
+    let definition = if let Some(definition) = &redeploy.definition.as_written {
+        definition.clone()
+    } else {
+        let stored = lab_definition::stored_as_written(
+            &redeploy.state.db,
+            &redeploy.lab_record_id,
+            &redeploy.node_name,
+        )
+        .await?;
+        lab_definition::definition(&redeploy.definition.manifest, stored.as_ref())?
+    };
+    db::store_redeployed_node(
+        &redeploy.state.db,
+        &redeploy.lab_record_id,
+        &redeploy.node_record_id,
+        &redeploy.node_name,
+        &definition,
+    )
+    .await
+    .context("Failed to store the node's definition")?;
 
     // Reissue the node's certificate from the lab's saved CA, for its current addresses.
     let cert_paths = lab_ca::issue_node_certificate(

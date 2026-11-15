@@ -1,6 +1,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 #![cfg_attr(not(test), forbid(unsafe_code))]
 
+mod as_written;
 mod bridge;
 mod link;
 mod manifest;
@@ -11,9 +12,11 @@ mod talos_cluster;
 pub mod validate;
 
 // re-export
+pub use as_written::{ManifestAsWritten, NodeAsWritten};
 pub use bridge::{Bridge, BridgeDetailed, BridgeExpanded, BridgeLink, BridgeLinkDetailed};
+pub use link::ManifestImpairment;
 pub use link::{Link2, LinkDetailed, LinkExpanded};
-pub use manifest::Manifest;
+pub use manifest::{Manifest, TailscaleConfig};
 pub use node::{
     AuthorizedKeyFile, BinaryFile, BinaryFileData, ExpandedSsh, Node, NodeContainer, NodeExpanded,
     NodeReadyCheck, NodeSsh, NodeUnikernel, NodeVm, NodeZtp, StartupScript, SystemdUnit,

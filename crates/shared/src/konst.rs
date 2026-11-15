@@ -554,6 +554,10 @@ pub const OTEL_METRIC_EXPORT_INTERVAL_SECS: u64 = 60;
 
 // JWT Authentication constants
 pub const JWT_SECRET_PATH: &str = "/opt/sherpa/.secret/jwt.secret";
+/// The key that seals the database's secret values: 32 bytes, mode 0600, beside the JWT secret
+/// in the `sherpa`-only (0700) secrets directory. It is never in the database, its backups or
+/// the database directory, and is backed up separately from them.
+pub const SHERPA_DB_KEY_PATH: &str = "/opt/sherpa/.secret/db.key";
 pub const JWT_TOKEN_EXPIRY_SECONDS: i64 = 604_800; // 7 days
 /// How often sherpad deletes expired login sessions, in seconds. It also sweeps once at startup.
 pub const SESSION_SWEEP_INTERVAL_SECS: u64 = 3600;

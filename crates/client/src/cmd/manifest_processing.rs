@@ -169,7 +169,7 @@ mod tests {
     fn test_process_manifest_nodes_empty_input() {
         let nodes: Vec<topology::Node> = vec![];
         let expanded = process_manifest_nodes(&nodes);
-        assert!(expanded.is_empty());
+        assert_eq!(expanded, [] as [topology::NodeExpanded; 0]);
     }
 
     // ============================================================================

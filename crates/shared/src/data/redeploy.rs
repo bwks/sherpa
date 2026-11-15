@@ -14,6 +14,10 @@ pub struct RedeployRequest {
     /// removes them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secrets: Option<Vec<SecretFile>>,
+    /// The parts of the manifest as the user wrote them, as for `up`. `None` keeps the node's
+    /// stored ones, for redeploys from the web UI and older clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub as_written: Option<serde_json::Value>,
 }
 
 /// Response type for redeploy operation

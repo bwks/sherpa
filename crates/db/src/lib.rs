@@ -7,6 +7,7 @@ pub mod bridge;
 #[path = "../build/placeholders.rs"]
 mod build_placeholders;
 mod connect;
+pub mod definition;
 mod helpers;
 pub mod lab;
 pub mod link;
@@ -15,12 +16,17 @@ pub mod node_image;
 mod persistence;
 mod queries;
 pub mod schema;
+pub mod secret;
 pub mod seed;
 pub mod session;
 mod sql;
 pub mod user;
 
 pub use connect::{Database, open, open_in_memory};
+pub use definition::{
+    list_labs_without_definition, read_lab_definition, store_lab_definition, store_redeployed_node,
+};
+pub use secret::{SecretKey, secret_key_registered, verify_secret_key};
 pub use shared::data::{
     DbBridge, DbLab, DbLink, DbNode, DbSession, DbSessionUser, DbUser, NodeConfig, SessionChannel,
 };
@@ -41,7 +47,7 @@ pub use node_image::{
     DefaultRequest, LastDefaultImage, count_node_images, delete_node_image,
     find_default_node_image, find_node_image_by_id, find_node_image_by_model_kind_version,
     get_node_image_versions, list_node_images, list_node_images_by_ids, list_node_images_by_kind,
-    update_node_image, upsert_node_image,
+    seal_plain_image_passwords, update_node_image, upsert_node_image,
 };
 
 // Node CRUD operations

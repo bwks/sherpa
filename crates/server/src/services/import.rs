@@ -344,7 +344,17 @@ pub async fn show_image(request: ShowImageRequest, state: &AppState) -> Result<S
         )
     })?;
 
-    Ok(ShowImageResponse { image })
+    Ok(show_image_response(image))
+}
+
+/// The response showing `image`. Its ZTP password is a secret: the response says only whether
+/// there is one.
+fn show_image_response(mut image: NodeConfig) -> ShowImageResponse {
+    let ztp_password_set = image.ztp.password.take().is_some();
+    ShowImageResponse {
+        image,
+        ztp_password_set,
+    }
 }
 
 /// Scan for images that are present but not recorded, and record them: disk images in the
@@ -961,6 +971,21 @@ pub async fn download_image(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_shown_image_says_whether_it_has_a_password_and_never_sends_it() {
+        let mut image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        image.ztp.password = Some("Image-Secret-7".to_owned());
+        let response = show_image_response(image);
+        assert!(response.ztp_password_set);
+        assert_eq!(response.image.ztp.password, None);
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(!json.contains("Image-Secret-7"), "{json}");
+
+        let mut image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        image.ztp.password = None;
+        assert!(!show_image_response(image).ztp_password_set);
+    }
     use futures_util::stream;
     use std::io;
 

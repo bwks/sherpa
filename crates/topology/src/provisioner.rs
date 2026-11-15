@@ -1,14 +1,17 @@
 //! Provisioners, run by the `sherpa` CLI for a node.
 //!
-//! Provisioners carry secrets, so `Node::provisioners` is never serialized: the server never
-//! stores them. The ssh type never reaches the server at all. The container type's files are
-//! sent outside the manifest and kept in RAM on the server only.
+//! Provisioners name client files that can hold secrets, so `Node::provisioners` is never
+//! serialized with the manifest. The client sends their definitions, paths and settings only,
+//! beside it in a [`ManifestAsWritten`](crate::ManifestAsWritten), and the server stores those
+//! with the lab. No provisioner's
+//! file contents are stored: the ssh type's files never reach the server, and the container
+//! type's are sent outside the manifest and kept in RAM on the server only.
 use serde_derive::{Deserialize, Serialize};
 
 use shared::konst::{CONTAINER_SECRET_DEFAULT_MODE, PROVISIONER_FILE_DEFAULT_MODE};
 
 /// One provisioner on a node, selected by its `type`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Provisioner {
     /// Copy files and run scripts over SSH, as the node's login user.
@@ -18,7 +21,7 @@ pub enum Provisioner {
 }
 
 /// Secret files for a container, mounted read-only at `/run/secrets/<name>` before it starts.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ContainerProvisioner {
     #[serde(default)]
@@ -26,7 +29,7 @@ pub struct ContainerProvisioner {
 }
 
 /// A client file mounted in a container as a secret.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ContainerSecretFile {
     /// Path on the client: `~` is expanded and relative paths start at the manifest.
@@ -40,7 +43,7 @@ pub struct ContainerSecretFile {
 
 /// Copies files with `scp` and runs scripts over SSH, in this order: `files`, `env_files`,
 /// `scripts`.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SshProvisioner {
     /// Client files copied to the node.
@@ -55,7 +58,7 @@ pub struct SshProvisioner {
 }
 
 /// A client file copied to a node.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ProvisionerFile {
     /// Path on the client: `~` is expanded and relative paths start at the manifest.

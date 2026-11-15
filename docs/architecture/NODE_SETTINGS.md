@@ -197,3 +197,8 @@ The other checks on these settings:
 release before the grouping has a saved manifest in the old shape, which no longer parses:
 `resume` falls back to the default readiness settings, as it does for any unreadable saved
 manifest, and the web node page shows the image's ZTP setting.
+
+The database also records each lab's manifest as its definition (see
+[`DATABASE.md`](DATABASE.md#lab-definitions)): `up` writes it, and labs from before get it from
+their saved manifest at startup. An old-shape saved manifest is not imported, so such a lab has
+no stored definition.

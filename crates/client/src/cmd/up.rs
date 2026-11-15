@@ -68,6 +68,12 @@ pub async fn up(
 
     let tailscale_auth_key = resolve_tailscale_key(&manifest, server_url, config)?;
 
+    // The parts the next step changes, and the provisioners, which are never serialized, as
+    // written: the server stores the manifest as written, never the files' contents or the
+    // variables' values.
+    let as_written = serde_json::to_value(manifest.as_written())
+        .context("Failed to serialize the manifest as written to JSON")?;
+
     // Read ztp.config, text_files and scripts relative to the manifest, and $VAR values.
     resolve_manifest_files(&mut manifest, manifest_path)?;
 
@@ -108,6 +114,7 @@ pub async fn up(
             "node_secrets": node_secrets,
             "client_host": client_host,
             "client_folder": client_folder,
+            "as_written": as_written,
             "token": token,
         }),
     );

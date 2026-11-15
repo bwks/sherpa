@@ -13,7 +13,7 @@ use crate::provisioner::Provisioner;
 /// `vm`, `container` and `unikernel` hold the settings of one kind. Every setting is optional:
 /// one left out keeps the image's value. Unknown keys, such as the flat keys of earlier
 /// manifests, are refused.
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Node {
     pub name: String,
@@ -105,7 +105,7 @@ pub struct NodeReadyCheck {
 }
 
 /// `[nodes.vm]`: settings only a virtual machine takes.
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NodeVm {
     /// A hardware watchdog, and what QEMU does when it expires. Absent, the VM has none.
@@ -113,7 +113,7 @@ pub struct NodeVm {
 }
 
 /// `[nodes.container]`: settings only a container takes.
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NodeContainer {
     pub user: Option<String>,
@@ -126,7 +126,7 @@ pub struct NodeContainer {
 }
 
 /// `[nodes.unikernel]`: settings only a unikernel takes.
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NodeUnikernel {
     /// The kernel command line.
@@ -134,7 +134,7 @@ pub struct NodeUnikernel {
 }
 
 /// A node's `ssh` group once the client has read its key files.
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 pub struct ExpandedSsh {
     pub authorized_keys: Option<Vec<String>>,
     /// The keys the client read from the manifest's `ssh.authorized_key_files`.
@@ -143,7 +143,7 @@ pub struct ExpandedSsh {
 
 /// A manifest node as one node of its lab: its settings grouped as in the manifest, its
 /// addresses, and the contents of the files and scripts the client read.
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 pub struct NodeExpanded {
     pub index: u16,
     pub name: String,
@@ -208,20 +208,20 @@ impl NodeExpanded {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 pub struct StartupScript {
     pub filename: String,
     pub content: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct VolumeMount {
     pub src: String,
     pub dst: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct TextFile {
     pub src: String,
@@ -231,7 +231,7 @@ pub struct TextFile {
     pub permissions: u32,
 }
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 pub struct TextFileData {
     pub content: String,
     pub dst: String,
@@ -240,13 +240,13 @@ pub struct TextFileData {
     pub permissions: u32,
 }
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct BinaryFile {
     pub source: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct SystemdUnit {
     pub name: String,
@@ -261,14 +261,14 @@ pub struct AuthorizedKeyFile {
 }
 
 /// A binary file the client read: its file name and base64 contents.
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 pub struct BinaryFileData {
     pub filename: String,
     pub content: String,
 }
 
 /// A systemd unit the client read: the unit name, its base64 contents and whether to enable it.
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 pub struct SystemdUnitData {
     pub name: String,
     pub content: String,

@@ -17,6 +17,8 @@ use shared::data::{
 };
 use shared::konst::{SHERPA_DB_KEY_CHARSET, SHERPA_DB_KEY_LENGTH};
 
+use crate::secret::SealedText;
+
 pub(crate) const USER_TABLE: &str = "user";
 pub(crate) const LAB_TABLE: &str = "lab";
 pub(crate) const NODE_TABLE: &str = "node";
@@ -104,6 +106,32 @@ impl<'a> Cells<'a> {
             Value::Integer(0) => Ok(false),
             Value::Integer(1) => Ok(true),
             other => bail!("Database field {field} is not a boolean: {other:?}"),
+        }
+    }
+
+    pub(crate) fn optional_boolean(&mut self, field: &str) -> Result<Option<bool>> {
+        match self.next(field)? {
+            Value::Null => Ok(None),
+            Value::Integer(0) => Ok(Some(false)),
+            Value::Integer(1) => Ok(Some(true)),
+            other => bail!("Database field {field} is not a boolean: {other:?}"),
+        }
+    }
+
+    /// A number a manifest gave, stored as a `REAL` exactly as written.
+    pub(crate) fn optional_real(&mut self, field: &str) -> Result<Option<f64>> {
+        match self.next(field)? {
+            Value::Null => Ok(None),
+            Value::Real(value) => Ok(Some(value)),
+            other => bail!("Database field {field} is not a number: {other:?}"),
+        }
+    }
+
+    pub(crate) fn optional_blob(&mut self, field: &str) -> Result<Option<Vec<u8>>> {
+        match self.next(field)? {
+            Value::Null => Ok(None),
+            Value::Blob(bytes) => Ok(Some(bytes)),
+            other => bail!("Database field {field} is not a blob: {other:?}"),
         }
     }
 
@@ -541,8 +569,13 @@ pub(crate) fn node_image_from_row(row: &Row) -> Result<NodeConfig> {
     })
 }
 
-/// A node image's column values in the `node_image` table's column order, under `key`.
-pub(crate) fn node_image_values(image: &NodeConfig, key: &str) -> Result<[Value; 29]> {
+/// A node image's column values in the `node_image` table's column order, under `key`, with its
+/// ZTP password as `password` sealed it: the column takes nothing else.
+pub(crate) fn node_image_values(
+    image: &NodeConfig,
+    key: &str,
+    password: Option<SealedText>,
+) -> Result<[Value; 29]> {
     Ok([
         key.into(),
         enum_text(&image.model, "model")?.into(),
@@ -561,7 +594,7 @@ pub(crate) fn node_image_values(image: &NodeConfig, key: &str) -> Result<[Value;
         image.cdrom.image.as_deref().into(),
         enum_text(&image.cdrom.bus, "cdrom_bus")?.into(),
         image.ztp.username.as_deref().into(),
-        image.ztp.password.as_deref().into(),
+        password.into(),
         image.ztp.password_auth.into(),
         image.interfaces.data_count.into(),
         image.interfaces.prefix.as_str().into(),

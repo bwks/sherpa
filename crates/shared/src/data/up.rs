@@ -25,6 +25,13 @@ pub struct UpRequest {
     /// The folder `sherpa up` runs in, stored with the lab. Sent only by the CLI.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_folder: Option<String>,
+    /// The parts of the manifest the client changes or does not serialize before sending it,
+    /// as the user wrote them (a `topology::ManifestAsWritten`): `ztp.config` paths,
+    /// `environment_variables` with their `$VAR` names, provisioners and
+    /// `provision_concurrency`. Never file contents or variable values. The lab's definition
+    /// stores them; without them (an older client) it stores none of those fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub as_written: Option<serde_json::Value>,
 }
 
 /// Response type for lab startup operation
