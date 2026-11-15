@@ -853,8 +853,9 @@ Next Steps:
        exec sg libvirt -c "newgrp \$(id -gn)"
   2. Initialize the server environment, with the address and ports chosen above:
        sherpad init --server-ipv4 ${SERVER_IP} --ws-port ${WS_PORT} --http-port ${HTTP_PORT}
-     Lab management subnets come from 172.31.0.0/16. If that prefix is in use on this
-     network, add --management-prefix-ipv4 <prefix> (or SHERPA_MANAGEMENT_PREFIX_IPV4).
+     Lab management subnets come from 172.31.0.0/16 and fd00:b00b::/48. If either is in
+     use on this network, add --management-prefix-ipv4 <prefix> or
+     --management-prefix-ipv6 <prefix> (or SHERPA_MANAGEMENT_PREFIX_IPV4 / _IPV6).
   3. Start the service:
        sudo systemctl start sherpad
   4. Note the server certificate's fingerprint. Clients show it on their first connect

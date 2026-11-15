@@ -11,7 +11,7 @@ A validator lives with the crate that owns the rule.
 |---|---|---|
 | `crates/shared/src/validators/` | Rules on plain values: password strength, SSH public key format, guest usernames, Tailscale auth keys, data interface count overrides, the ZTP setting a model takes (`check_ztp`, see [`ZTP.md`](ZTP.md)). | `server`, `client`, `db` |
 | `crates/topology/src/validate/` | Checks on manifest types: node names, files read by the client, duplicate devices and device count, management interface use, duplicate interface links, interface bounds, link and bridge endpoints, Talos clusters, Tailscale manifest settings, a node's `ztp.method`, the settings each node kind takes (`check_node_kind_settings`, see [`NODE_SETTINGS.md`](NODE_SETTINGS.md)), VM tuning (`check_vm_tuning`) and CPU pin overlap. | `client` (`sherpa validate`, `sherpa up`) and `server` (`up`, `redeploy`) |
-| `crates/server/src/validate/` | Server-only rules: environment variable entries, node image updates, node version resolution and image existence, Tailscale gateway settings, that `sherpad init`'s management prefix has room for a lab (`validate_management_prefix`), a node's effective ZTP setting and its `ztp.config` (`validate_node_ztp`), and that pinned host CPUs and NUMA nodes exist (`check_host_resources`). | `server` |
+| `crates/server/src/validate/` | Server-only rules: environment variable entries, node image updates, node version resolution and image existence, Tailscale gateway settings, that `sherpad init`'s management prefixes have room for a lab (`validate_management_prefix_ipv4`, `validate_management_prefix_ipv6`), a node's effective ZTP setting and its `ztp.config` (`validate_node_ztp`), and that pinned host CPUs and NUMA nodes exist (`check_host_resources`). | `server` |
 
 Manifest checks cannot live in `shared`, because they take `topology` types and `topology`
 depends on `shared`.
@@ -32,10 +32,12 @@ modified or bypassed entirely by calling the API.
 the default node image when the manifest omits it. Resolution and validation share the lookup of
 the default image per model, so they stay in one function.
 
-`server::validate::validate_management_prefix` runs the allocator `up` uses,
-`shared::util::allocate_management_subnet`, with no subnet taken, and discards the subnet it
-returns. Writing the allocator's rules (a `/24` or shorter, the `x.x.0.0/24` skipped) a second
-time would let `init` and `up` disagree about which prefixes work.
+`server::validate::validate_management_prefix_ipv4` and `validate_management_prefix_ipv6` run
+the allocators `up` uses, `shared::util::allocate_management_subnet` and
+`allocate_ipv6_management_subnet`, with no subnet taken, and discard the subnet they return.
+Writing the allocators' rules (a `/24` or shorter with the `x.x.0.0/24` skipped, a `/63` or
+shorter with the first `/64` skipped) a second time would let `init` and `up` disagree about
+which prefixes work.
 
 Node readiness (`services::node_ops::check_vm_ready`) is a probe, not a validator, and lives with
 the readiness code.

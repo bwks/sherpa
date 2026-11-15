@@ -40,6 +40,7 @@ async fn main() -> Result<()> {
             ws_port,
             http_port,
             management_prefix_ipv4,
+            management_prefix_ipv6,
         } => {
             sherpad::init::init(
                 force,
@@ -48,6 +49,7 @@ async fn main() -> Result<()> {
                 ws_port,
                 http_port,
                 management_prefix_ipv4,
+                management_prefix_ipv6,
             )
             .await
         }

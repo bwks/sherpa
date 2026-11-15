@@ -1,17 +1,30 @@
 use anyhow::{Context, Result};
-use ipnet::Ipv4Net;
+use ipnet::{Ipv4Net, Ipv6Net};
 use tracing::instrument;
 
-use shared::util::allocate_management_subnet;
+use shared::util::{allocate_ipv6_management_subnet, allocate_management_subnet};
 
-/// Check that a lab can be given a management `/24` from `prefix`, by the same allocation
+/// Check that a lab can be given a management IPv4 `/24` from `prefix`, by the same allocation
 /// rule `up` uses, with no subnet taken yet.
 #[instrument(level = "debug")]
-pub fn validate_management_prefix(prefix: Ipv4Net) -> Result<()> {
+pub fn validate_management_prefix_ipv4(prefix: Ipv4Net) -> Result<()> {
     allocate_management_subnet(&prefix, &[], &[]).with_context(|| {
         format!(
             "Management prefix {prefix} has no /24 a lab can use. It must be a /24 or shorter, \
              and the allocator skips the x.x.0.0/24"
+        )
+    })?;
+    Ok(())
+}
+
+/// Check that a lab can be given a management IPv6 `/64` from `prefix`, by the same allocation
+/// rule `up` uses, with no subnet taken yet.
+#[instrument(level = "debug")]
+pub fn validate_management_prefix_ipv6(prefix: Ipv6Net) -> Result<()> {
+    allocate_ipv6_management_subnet(&prefix, &[], &[]).with_context(|| {
+        format!(
+            "IPv6 management prefix {prefix} has no /64 a lab can use. It must be a /63 or \
+             shorter, since the allocator skips the prefix's first /64"
         )
     })?;
     Ok(())
@@ -22,6 +35,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn accepts_ipv6_prefixes_with_room_for_a_lab() {
+        for prefix in ["fd00:b00b::/48", "fd00:b00a::/48", "fd00:b00a::/63"] {
+            assert!(
+                validate_management_prefix_ipv6(prefix.parse().unwrap()).is_ok(),
+                "{prefix} was refused"
+            );
+        }
+    }
+
+    #[test]
+    fn refuses_ipv6_prefixes_without_room_for_a_lab() {
+        for prefix in ["fd00:b00a::/64", "fd00:b00a::/80", "fd00:b00a::/128"] {
+            assert!(
+                validate_management_prefix_ipv6(prefix.parse().unwrap()).is_err(),
+                "{prefix} was accepted"
+            );
+        }
+    }
+
+    #[test]
     fn accepts_prefixes_with_room_for_a_lab() {
         for prefix in [
             "172.31.0.0/16",
@@ -30,7 +63,7 @@ mod tests {
             "10.0.5.0/24",
         ] {
             assert!(
-                validate_management_prefix(prefix.parse().unwrap()).is_ok(),
+                validate_management_prefix_ipv4(prefix.parse().unwrap()).is_ok(),
                 "{prefix} was refused"
             );
         }
@@ -40,7 +73,7 @@ mod tests {
     fn refuses_prefixes_without_room_for_a_lab() {
         for prefix in ["172.30.0.0/25", "10.0.0.0/24", "10.0.0.0/32"] {
             assert!(
-                validate_management_prefix(prefix.parse().unwrap()).is_err(),
+                validate_management_prefix_ipv4(prefix.parse().unwrap()).is_err(),
                 "{prefix} was accepted"
             );
         }

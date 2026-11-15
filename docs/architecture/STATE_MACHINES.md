@@ -1105,28 +1105,35 @@ stateDiagram-v2
 
 ### 20. `sherpad init`
 
-**Where.** `crates/server/src/init.rs:39-131`.
+**Where.** `crates/server/src/init.rs:39-136`.
 
 **Stages:**
 
-1. the management prefix is checked by `validate_management_prefix`
-   (`crates/server/src/validate/management_prefix.rs`, `:48`), before anything is written;
+1. the management prefixes are checked by `validate_management_prefix_ipv4` and, when one is
+   given, `validate_management_prefix_ipv6` (`crates/server/src/validate/management_prefix.rs`,
+   `:49-52`), before anything is written;
 2. directories;
-3. config, skipped if the file exists and `--force` is not set (`:82`). `server_config`
-   (`:134-149`) is `default_config()` with the flags' listen address, ports and
-   `management_prefix_ipv4`, so an existing config keeps its values;
-4. libvirt network (`:107`) and storage pool (`:115`);
+3. config, skipped if the file exists and `--force` is not set (`:86`). `server_config`
+   (`:139-156`) is `default_config()` with the flags' listen address, ports and management
+   prefixes, so an existing config keeps its values;
+4. libvirt network (`:112`) and storage pool (`:120`);
 5. database;
 6. admin account;
-7. first user, guarded by a lookup (`:187-241`).
+7. first user, guarded by a lookup (`:194-248`).
 
-No step is undone on failure. Re-running is the recovery: the doc comment at `:152-153`
+No step is undone on failure. Re-running is the recovery: the doc comment at `:160-161`
 says it is safe to re-run.
 
-The management prefix check runs the allocator `up` uses, `allocate_management_subnet`, with
-nothing taken: a prefix longer than `/24`, or a `/24` that is the `x.x.0.0/24` the allocator
-skips, has no subnet for a lab and is refused. clap refuses a value that is not an IPv4
-network, since the flag is parsed as `Ipv4Net`, the type of the config field.
+The prefix checks run the allocators `up` uses, `allocate_management_subnet` and
+`allocate_ipv6_management_subnet`, with nothing taken. An IPv4 prefix longer than `/24`, or a
+`/24` that is the `x.x.0.0/24` the allocator skips, is refused, as is an IPv6 prefix longer than
+`/63`, since the allocator skips the prefix's first `/64`. clap refuses a value that is not a
+network of the right family, since the flags are parsed as `Ipv4Net` and `Ipv6Net`, the types of
+the config fields.
+
+`--management-prefix-ipv6` has no default. Left out, `management_prefix_ipv6` is not written, and
+`up` (`crates/server/src/services/up/networks.rs`, `allocate_lab_networks`) falls back to
+`SHERPA_MANAGEMENT_NETWORK_IPV6`, `fd00:b00b::/48`, as it does for any config without the field.
 
 ---
 

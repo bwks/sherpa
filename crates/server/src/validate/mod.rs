@@ -21,7 +21,7 @@ pub use environment::validate_environment_variables;
 pub use host_resources::{check_container_cpus, check_host_resources};
 pub use image_scan::validate_image_scan;
 pub use lab_origin::validate_lab_origin;
-pub use management_prefix::validate_management_prefix;
+pub use management_prefix::{validate_management_prefix_ipv4, validate_management_prefix_ipv6};
 pub use memory::{CommittedMemory, MemoryClaim, check_host_memory_settings, check_memory_fits};
 pub use node_image::{validate_image_version, validate_node_image_update};
 pub use node_secrets::{validate_node_secrets, validate_secret_files};
