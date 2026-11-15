@@ -171,6 +171,12 @@ manifest (an old-shape one), or names nodes the lab has no records for is logged
 and left without a definition; nothing is made up for it. The saved manifest never held
 provisioners or `provision_concurrency`, so an imported lab has none.
 
+Then every lab that has a definition and still a saved manifest has all its nodes marked as
+imported (`db::mark_definition_imported`; see
+[`DATABASE.md`](DATABASE.md#imported-definitions)): the definition may lack their own
+`ztp.config` and variables, so the web UI refuses to redeploy them until `sherpa redeploy`
+clears the mark. A lab whose marking fails is logged and keeps its files, for the next start.
+
 Then every lab with a record has its saved manifests deleted (`delete_saved_manifests`): exactly
 `manifest.toml` and `manifest.json` in `/opt/sherpa/labs/<lab-id>`, nothing else in the folder,
 and no folder without a lab record. A lab whose definition is stored has them deleted with an
@@ -871,6 +877,14 @@ the lab folder, for example:
 
 > Node 'dev01' cannot be redeployed from the web UI: it needs ztp.config, text_files, which the
 > server does not keep. Run `sherpa redeploy -n dev01` from the lab folder
+
+A node whose definition was imported from a saved manifest (`node.definition_imported`; see
+[`DATABASE.md`](DATABASE.md#imported-definitions)) is refused first, whatever it needs, until a
+`sherpa redeploy` of it clears the mark:
+
+> Node 'dev01' was imported from a saved manifest that did not keep its own ZTP config or
+> environment variables, so it cannot be redeployed from the web UI. Run `sherpa redeploy -n
+> dev01` from the lab folder once; the web UI can redeploy it after that
 
 A node that needs none of them is redeployed from the definition narrowed to it: the other
 nodes are left out, so their files do not refuse it, and the redeploy stores only that node's

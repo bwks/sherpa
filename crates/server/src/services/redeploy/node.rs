@@ -183,9 +183,10 @@ async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
 
     // The node's definition, and the lab settings a redeploy applies, are what it is rebuilt
     // from now: the manifest as written, or, when the client sent no parts as written, the
-    // manifest with the node's stored ones.
-    let definition = if let Some(definition) = &redeploy.definition.as_written {
-        definition.clone()
+    // manifest with the node's stored ones. Only the parts as written make a definition
+    // imported from a saved manifest whole, so only they clear the node's import mark.
+    let (definition, mark) = if let Some(definition) = &redeploy.definition.as_written {
+        (definition.clone(), db::ImportMark::Clear)
     } else {
         let stored = lab_definition::stored_as_written(
             &redeploy.state.db,
@@ -193,7 +194,10 @@ async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
             &redeploy.node_name,
         )
         .await?;
-        lab_definition::definition(&redeploy.definition.manifest, stored.as_ref())?
+        (
+            lab_definition::definition(&redeploy.definition.manifest, stored.as_ref())?,
+            db::ImportMark::Keep,
+        )
     };
     db::store_redeployed_node(
         &redeploy.state.db,
@@ -201,6 +205,7 @@ async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
         &redeploy.node_record_id,
         &redeploy.node_name,
         &definition,
+        mark,
     )
     .await
     .context("Failed to store the node's definition")?;

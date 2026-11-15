@@ -217,6 +217,7 @@ table, copy the rows, drop the old one, rename.
 | 18 | `0018_reset_unused_image_settings.sql`: container images get the default machine, boot disk and CD-ROM settings (`machine_type` `pc`, `bios` `sea_bios`, `hdd_bus` and `cdrom_bus` `virtio`, no `cdrom`), and unikernel images the default firmware, boot disk and CD-ROM settings, keeping their `machine_type`. Neither kind reads them; the four network OS containers were stored with a q35 machine and SATA buses. See [`NODE_SETTINGS.md`](NODE_SETTINGS.md#settings-a-kind-does-not-use) |
 | 19 | `0019_node_ready_check.sql`: `node.ready_port` (`NULL` or 1 to 65535) and `node.skip_ready_check` (`0` or `1`, default `0`), each node's readiness check, which the scanner, `resume` and `redeploy` read instead of the saved manifest. Existing virtual machines get their model's port (22, or 50000 for `talos_linux`), containers and unikernels none, and no check is skipped: what the scanner did with them before. See [Node readiness checks](#node-readiness-checks) |
 | 20 | `0020_lab_definition.sql`: the [lab definition](#lab-definitions): the manifest's lab-level parameters on `lab` (with `has_definition`, `0` for every lab before), its node-level ones on `node`, the `manifest_*` tables for its lists, and `secret_key_check`. Existing labs get theirs from the startup import. Triggers refuse a `node_image.ztp_password` that is not [sealed](#secret-values); sherpad seals the plain ones at startup |
+| 21 | `0021_node_definition_imported.sql`: `node.definition_imported` (`0` or `1`, default `0`), set on every node of a lab whose definition came from a saved manifest; the web UI refuses to redeploy a marked node. Existing rows are left `0`: the startup step marks the labs that still have a saved manifest. See [Imported definitions](#imported-definitions) |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
@@ -362,7 +363,28 @@ missing saved manifest, never a made-up definition.
 The ready port is not read from the definition: it is the node's own readiness check
 (`node.ready_port`, `node.skip_ready_check`), what it was built with. A web UI redeploy rebuilds a
 node from its definition alone, so it refuses a node that needs what the definition does not hold
-(see [SERVER.md](SERVER.md#redeploy)).
+(see [SERVER.md](SERVER.md#redeploy)), and a node whose definition was imported.
+
+#### Imported definitions
+
+A definition imported from a saved manifest lacks each node's own `ztp.config` and
+`environment_variables`: the saved copy held them resolved, so the import left them out, and a
+node rebuilt from it would lose them without a word. `node.definition_imported` marks those
+nodes:
+
+- **Set** by the startup step (`lab_definition::import_lab_definitions`) on every node of a lab
+  that has a definition and still has a saved manifest (`manifest.toml` or `manifest.json`),
+  before the file is deleted (`db::mark_definition_imported`). That covers a lab imported in the
+  same start and a lab whose definition a release that still saved the files stored: the
+  database cannot tell an imported definition from one `up` stored then, so both are marked.
+  Marking fails, the file is kept, and the next start marks it again. Migration 21 marks no
+  existing row; the file is what tells.
+- **Never set** for a lab `up` makes: it saves no manifest, so the startup step never finds one.
+- **Cleared** for one node by a redeploy that sends the parts as written, as `sherpa redeploy`
+  does (`store_redeployed_node` with `ImportMark::Clear`, in its transaction). A redeploy without
+  them (the web UI, an older CLI) keeps the stored parts, and the mark (`ImportMark::Keep`).
+- **Read** by `lab_definition::web_redeploy_manifest` (`db::node_definition_imported`): a marked
+  node is refused with a 409, before the check for files and variables.
 
 **Existing labs** get their definition from the [startup import](SERVER.md#lab-definition-import).
 

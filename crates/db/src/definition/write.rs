@@ -27,6 +27,17 @@ fn refuse_file_contents(manifest: &Manifest) -> Result<()> {
     Ok(())
 }
 
+/// What a redeploy does to the node's mark of a definition imported from a saved manifest
+/// (`node.definition_imported`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportMark {
+    /// The redeploy stores the node's parts as written, sent by the CLI: its definition is
+    /// whole again, so the mark is cleared.
+    Clear,
+    /// The redeploy kept the node's stored parts (the web UI, an older CLI): the mark stays.
+    Keep,
+}
+
 /// The place of a lab's sealed `ztp_server.password`, its associated data.
 pub(super) fn ztp_password_context(lab_key: &str) -> String {
     format!("lab.ztp_server_password:{lab_key}")
@@ -128,7 +139,8 @@ pub async fn store_lab_definition(
 /// definition of the lab `lab_id`: the node's parameters, replacing its old ones, and the
 /// lab-level settings the redeploy applies, `ready_timeout`, `provision_current_user` and
 /// `provision_concurrency`. The lab's links, bridges, Talos clusters, Tailscale and ZTP server
-/// settings are what `up` built, and a redeploy does not change them. One transaction.
+/// settings are what `up` built, and a redeploy does not change them. With
+/// [`ImportMark::Clear`] the node's mark of an imported definition is cleared. One transaction.
 ///
 /// # Errors
 ///
@@ -141,6 +153,7 @@ pub async fn store_redeployed_node(
     node_id: &RecordId,
     node_name: &str,
     manifest: &Manifest,
+    mark: ImportMark,
 ) -> Result<()> {
     refuse_file_contents(manifest)?;
     let lab_key = key_of(lab_id, LAB_TABLE)?;
@@ -174,6 +187,13 @@ pub async fn store_redeployed_node(
         bail!("Lab not found: {lab_id}");
     }
     write_node(&tx, &node_key, node).await?;
+    if mark == ImportMark::Clear {
+        execute(
+            &tx,
+            definition::CLEAR_NODE_IMPORTED.bind([node_key.as_str().into()]),
+        )
+        .await?;
+    }
     tx.commit()
         .await
         .context("Failed to commit the node definition")?;

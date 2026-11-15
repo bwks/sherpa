@@ -216,6 +216,7 @@ async fn upgrade_stored_data(db: &db::Database) -> Result<()> {
         tracing::info!(
             imported = imported.imported,
             skipped = imported.skipped,
+            marked = imported.marked,
             deleted = imported.deleted,
             "Imported lab definitions from saved manifests and deleted the files"
         );

@@ -38,6 +38,8 @@ pub struct ImportSummary {
     /// Labs left without a definition: their saved manifest is missing, unreadable or does not
     /// fit their records. Each is logged.
     pub skipped: usize,
+    /// Labs whose nodes were marked as imported from a saved manifest.
+    pub marked: usize,
     /// Saved manifest files deleted.
     pub deleted: usize,
 }
@@ -124,8 +126,9 @@ pub async fn stored_definition(
 /// # Errors
 ///
 /// Fails with a [`ServiceError::Conflict`] when the lab has no stored definition, the node is
-/// not in it, or the node needs what the server does not keep (`check_web_redeployable`); and
-/// when the definition cannot be read.
+/// not in it, the node is marked as imported from a saved manifest (until a `sherpa redeploy`
+/// clears it), or it needs what the server does not keep (`check_web_redeployable`); and when
+/// the definition or the mark cannot be read.
 #[instrument(skip(db, lab_record_id), fields(%node_name), level = "debug")]
 pub async fn web_redeploy_manifest(
     db: &Database,
@@ -148,6 +151,15 @@ pub async fn web_redeploy_manifest(
                 "Node '{node_name}' is not in the lab's stored definition"
             ))
         })?;
+    if db::node_definition_imported(db, lab_record_id, node_name).await? {
+        return Err(ServiceError::Conflict(format!(
+            "Node '{node_name}' was imported from a saved manifest that did not keep its own ZTP \
+             config or environment variables, so it cannot be redeployed from the web UI. Run \
+             `sherpa redeploy -n {node_name}` from the lab folder once; the web UI can redeploy \
+             it after that"
+        ))
+        .into());
+    }
     check_web_redeployable(node).map_err(|error| ServiceError::Conflict(error.to_string()))?;
     definition.nodes.retain(|node| node.name == node_name);
     Ok(definition)
@@ -156,8 +168,12 @@ pub async fn web_redeploy_manifest(
 /// Store a definition for every lab that has none, from the manifest saved in its directory
 /// under `labs`: `manifest.toml`, or a legacy `manifest.json`. A lab whose manifest is
 /// missing, unreadable, or does not fit its records is logged and left without one; nothing is
-/// made up for it. Then delete every lab's saved manifests ([`delete_saved_manifests`]): the
-/// definition is the lab's record of its manifest, and nothing reads the files.
+/// made up for it. Then every lab that still has a saved manifest and a definition has all its
+/// nodes marked as imported (`node.definition_imported`), as the definition may lack their own
+/// `ztp.config` and variables, and the web UI refuses to redeploy a marked node; a lab `up`
+/// made since has no saved manifest, and is not marked. Last, every lab's saved manifests are
+/// deleted ([`delete_saved_manifests`]): the definition is the lab's record of its manifest,
+/// and nothing reads the files. A lab whose marking fails keeps its files until the next start.
 ///
 /// A saved manifest is the one the client resolved, so only what survives as written is stored
 /// (`Manifest::definition` without parts as written): every parameter but `ztp.config`, which
@@ -193,10 +209,47 @@ pub async fn import_lab_definitions(db: &Database, labs: &Path) -> Result<Import
         }
     }
     for lab in db::list_labs(db).await? {
-        let stored = !without_definition.contains(&lab.lab_id);
-        summary.deleted += delete_saved_manifests(&labs.join(&lab.lab_id), &lab.lab_id, stored);
+        let lab_dir = labs.join(&lab.lab_id);
+        if without_definition.contains(&lab.lab_id) {
+            summary.deleted += delete_saved_manifests(&lab_dir, &lab.lab_id, false);
+            continue;
+        }
+        if !has_saved_manifest(&lab_dir) {
+            continue;
+        }
+        // A lab with a saved manifest is from before this release: its definition was
+        // imported, now or by a release that kept the file, and may lack the node's own
+        // `ztp.config` and variables. Its nodes are marked before the file goes, so a failure
+        // leaves the file for the next start to mark again.
+        let marked = match db::get_lab_id(&lab) {
+            Ok(lab_record_id) => db::mark_definition_imported(db, &lab_record_id).await,
+            Err(error) => Err(error),
+        };
+        match marked {
+            Ok(nodes) => {
+                tracing::info!(lab_id = %lab.lab_id, nodes, "Marked the lab's nodes as imported from a saved manifest");
+                summary.marked += 1;
+                summary.deleted += delete_saved_manifests(&lab_dir, &lab.lab_id, true);
+            }
+            Err(error) => {
+                tracing::warn!(
+                    lab_id = %lab.lab_id,
+                    error = format!("{error:#}"),
+                    "Failed to mark the lab's nodes as imported; its saved manifest is kept \
+                     until the next start"
+                );
+            }
+        }
     }
     Ok(summary)
+}
+
+/// Whether `lab_dir` holds a saved manifest: `manifest.toml` or `manifest.json`, of any kind of
+/// file.
+fn has_saved_manifest(lab_dir: &Path) -> bool {
+    [SAVED_MANIFEST_FILE, LEGACY_SAVED_MANIFEST_FILE]
+        .iter()
+        .any(|file| fs::symlink_metadata(lab_dir.join(file)).is_ok())
 }
 
 /// Store what survives as written of the manifest saved in `lab_dir` as `lab`'s definition.
@@ -409,6 +462,7 @@ dst = "dev01::eth2"
             ImportSummary {
                 imported: 1,
                 skipped: 0,
+                marked: 1,
                 deleted: 1,
             }
         );
@@ -464,6 +518,7 @@ dst = "dev01::eth2"
             ImportSummary {
                 imported: 0,
                 skipped: 1,
+                marked: 0,
                 deleted: 0,
             }
         );
@@ -543,6 +598,7 @@ dst = "dev01::eth2"
             ImportSummary {
                 imported: 0,
                 skipped: 0,
+                marked: 1,
                 deleted: 2,
             }
         );
@@ -674,6 +730,109 @@ ztp = { config = "configs/files01.yaml" }
             Some(&ServiceError::Conflict(
                 "Node 'ghost' is not in the lab's stored definition".to_owned()
             ))
+        );
+    }
+
+    /// The refusal of a web UI redeploy of node `name`, marked as imported.
+    fn imported_refusal(name: &str) -> ServiceError {
+        ServiceError::Conflict(format!(
+            "Node '{name}' was imported from a saved manifest that did not keep its own ZTP \
+             config or environment variables, so it cannot be redeployed from the web UI. Run \
+             `sherpa redeploy -n {name}` from the lab folder once; the web UI can redeploy it \
+             after that"
+        ))
+    }
+
+    #[tokio::test]
+    async fn an_imported_lab_is_refused_by_the_web_until_the_cli_redeploys_each_node() {
+        let (db, lab) = lab_with(&[
+            ("plain01", NodeModel::UbuntuLinux),
+            ("plain02", NodeModel::UbuntuLinux),
+        ])
+        .await;
+        let lab_id = lab.id.clone().unwrap();
+        let labs = tempfile::tempdir().unwrap();
+        fs::create_dir(labs.path().join("lab-0001")).unwrap();
+        // A saved manifest of nodes that need nothing the server does not keep, but whose
+        // ztp.config or variables the saved copy may have held resolved.
+        fs::write(
+            labs.path().join("lab-0001/manifest.toml"),
+            "name = \"core\"\nnodes = [\n    { name = \"plain01\", model = \"ubuntu_linux\" },\n    \
+             { name = \"plain02\", model = \"ubuntu_linux\" },\n]\n",
+        )
+        .unwrap();
+        let summary = import_lab_definitions(&db, labs.path()).await.unwrap();
+        assert_eq!(summary.imported, 1);
+        assert_eq!(summary.marked, 1);
+        for name in ["plain01", "plain02"] {
+            let refusal = web_redeploy_manifest(&db, &lab_id, name).await.unwrap_err();
+            assert_eq!(ServiceError::find(&refusal), Some(&imported_refusal(name)));
+        }
+
+        // A CLI redeploy sends the parts as written, and clears the node's mark.
+        let manifest = read_lab_definition(&db, &lab_id).await.unwrap().unwrap();
+        let node_id = db::get_node_by_name_and_lab(&db, "plain01", lab_id.clone())
+            .await
+            .unwrap()
+            .id
+            .unwrap();
+        db::store_redeployed_node(
+            &db,
+            &lab_id,
+            &node_id,
+            "plain01",
+            &manifest,
+            db::ImportMark::Clear,
+        )
+        .await
+        .unwrap();
+        let redeployable = web_redeploy_manifest(&db, &lab_id, "plain01")
+            .await
+            .unwrap();
+        assert_eq!(redeployable.nodes[0].name, "plain01");
+        let refusal = web_redeploy_manifest(&db, &lab_id, "plain02")
+            .await
+            .unwrap_err();
+        assert_eq!(
+            ServiceError::find(&refusal),
+            Some(&imported_refusal("plain02"))
+        );
+
+        // The next start finds no saved manifest, and marks nothing again.
+        let summary = import_lab_definitions(&db, labs.path()).await.unwrap();
+        assert_eq!(summary, ImportSummary::default());
+        web_redeploy_manifest(&db, &lab_id, "plain01")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_stored_definition_beside_a_saved_manifest_is_marked_and_one_without_is_not() {
+        // A definition stored before this release, whose lab still has its saved manifest,
+        // may have come from the import: it is marked. A lab `up` made since has no saved
+        // manifest, and is not.
+        let (db, lab) = lab().await;
+        let lab_id = lab.id.clone().unwrap();
+        store(&db, &lab, &toml::to_string(&expected()).unwrap()).await;
+        let labs = tempfile::tempdir().unwrap();
+        fs::create_dir(labs.path().join("lab-0001")).unwrap();
+
+        let summary = import_lab_definitions(&db, labs.path()).await.unwrap();
+        assert_eq!(summary, ImportSummary::default());
+        assert!(
+            !db::node_definition_imported(&db, &lab_id, "dev01")
+                .await
+                .unwrap()
+        );
+
+        fs::write(labs.path().join("lab-0001/manifest.json"), "{}").unwrap();
+        let summary = import_lab_definitions(&db, labs.path()).await.unwrap();
+        assert_eq!(summary.marked, 1);
+        assert_eq!(summary.deleted, 1);
+        assert!(
+            db::node_definition_imported(&db, &lab_id, "dev01")
+                .await
+                .unwrap()
         );
     }
 

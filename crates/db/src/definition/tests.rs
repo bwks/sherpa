@@ -660,9 +660,16 @@ async fn a_redeploy_replaces_its_node_and_the_lab_settings_only() {
         .unwrap()
         .id
         .unwrap();
-    store_redeployed_node(&db, &lab_id(&lab), &node_id, "dev01", &redeployed)
-        .await
-        .unwrap();
+    store_redeployed_node(
+        &db,
+        &lab_id(&lab),
+        &node_id,
+        "dev01",
+        &redeployed,
+        ImportMark::Keep,
+    )
+    .await
+    .unwrap();
 
     let mut expected = before;
     expected.ready_timeout = Some(60);
@@ -693,9 +700,16 @@ async fn a_manifest_holding_file_contents_is_refused() {
         .id
         .unwrap();
     assert!(
-        store_redeployed_node(&db, &lab_id(&lab), &node_id, "dev01", &resolved)
-            .await
-            .is_err()
+        store_redeployed_node(
+            &db,
+            &lab_id(&lab),
+            &node_id,
+            "dev01",
+            &resolved,
+            ImportMark::Clear,
+        )
+        .await
+        .is_err()
     );
     assert_eq!(read_lab_definition(&db, &lab_id(&lab)).await.unwrap(), None);
 }
@@ -719,4 +733,77 @@ async fn destroying_the_lab_removes_its_whole_definition() {
             .unwrap();
         assert_eq!(rows, 0, "{table} kept rows of the destroyed lab");
     }
+}
+
+#[tokio::test]
+async fn a_stored_definition_marks_no_node_imported() {
+    // What `up` stores: its nodes are not marked.
+    let (db, lab) = lab_with_nodes().await;
+    store_lab_definition(&db, &lab_id(&lab), &full_manifest())
+        .await
+        .unwrap();
+    for name in ["dev01", "web"] {
+        assert!(
+            !node_definition_imported(&db, &lab_id(&lab), name)
+                .await
+                .unwrap(),
+            "{name}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn an_imported_lab_has_every_node_marked_until_a_cli_redeploy_clears_one() {
+    let (db, lab) = lab_with_nodes().await;
+    store_lab_definition(&db, &lab_id(&lab), &full_manifest())
+        .await
+        .unwrap();
+    assert_eq!(
+        mark_definition_imported(&db, &lab_id(&lab)).await.unwrap(),
+        2
+    );
+    let node_id = get_node_by_name_and_lab(&db, "dev01", lab_id(&lab))
+        .await
+        .unwrap()
+        .id
+        .unwrap();
+
+    // A redeploy that kept the stored parts (the web UI, an older CLI) leaves the mark.
+    store_redeployed_node(
+        &db,
+        &lab_id(&lab),
+        &node_id,
+        "dev01",
+        &full_manifest(),
+        ImportMark::Keep,
+    )
+    .await
+    .unwrap();
+    assert!(
+        node_definition_imported(&db, &lab_id(&lab), "dev01")
+            .await
+            .unwrap()
+    );
+
+    // One that sent them clears it, for that node only.
+    store_redeployed_node(
+        &db,
+        &lab_id(&lab),
+        &node_id,
+        "dev01",
+        &full_manifest(),
+        ImportMark::Clear,
+    )
+    .await
+    .unwrap();
+    assert!(
+        !node_definition_imported(&db, &lab_id(&lab), "dev01")
+            .await
+            .unwrap()
+    );
+    assert!(
+        node_definition_imported(&db, &lab_id(&lab), "web")
+            .await
+            .unwrap()
+    );
 }
