@@ -32,6 +32,7 @@ pub mod saved_lab_files;
 pub mod scanner;
 pub(crate) mod ssh_config;
 pub mod talos;
+pub mod unread_lab_files;
 pub mod up;
 pub mod user_delete;
 pub mod user_password;

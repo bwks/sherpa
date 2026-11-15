@@ -3,8 +3,9 @@
 
 use std::collections::HashSet;
 use std::fs;
+use std::io::ErrorKind;
 use std::net::{Ipv4Addr, Ipv6Addr, TcpStream};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,8 +17,11 @@ use tracing::instrument;
 use crate::services::container_networks::is_node_network;
 use crate::services::guest_account::{self, GuestAccount, KeyFormat};
 use crate::services::image_lifecycle::ImageLease;
+use crate::services::keycloak::lab::KEYCLOAK_DIR;
 use crate::services::p2p_links::{KernelHost, LinkHost};
 use crate::services::progress::ProgressSender;
+use crate::services::talos::secrets::CLUSTERS_DIR;
+use crate::services::vault::lab::VAULT_DIR;
 use crate::tls::generator::write_file_with_permissions;
 use crate::tls::lab_ca::NodeCertPaths;
 
@@ -41,15 +45,16 @@ use shared::konst::{
     CONTAINER_NATS_COMMANDS, CONTAINER_NOKIA_SRLINUX_COMMANDS, CONTAINER_NOKIA_SRLINUX_ENV_VARS,
     CONTAINER_NOKIA_SRLINUX_USER, CONTAINER_SURREAL_DB_COMMANDS, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT,
     FRR_ZTP_DAEMONS_MOUNT, FRR_ZTP_STARTUP_MOUNT, JUNIPER_CEVOLVED_CONFIG_DIR, JUNIPER_ZTP_CONFIG,
-    JUNIPER_ZTP_CONFIG_TGZ, KEYCLOAK_HTTPS_PORT, KVM_OUI, MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR,
-    NODE_CERTS_DIR_WINDOWS, NODE_CLOUD_INIT_SUDO_RULE, NODE_CONFIGS_DIR, NODE_DOAS_CONF_FILE,
-    NODE_NIXOS_SHELL, NODE_PASSWD_FILE, NODE_STAGING_DIR, NODE_STARTUP_SCRIPTS_DIR,
-    NODE_USER_ENV_FILE, NODE_USER_SCRIPTS_DIR, NOKIA_SRLINUX_ZTP_VOLUME_MOUNT,
-    PALOALTO_BOOTSTRAP_CONFIG, PALOALTO_BOOTSTRAP_VOLUME_ID, PALOALTO_ZTP_CONFIG,
-    SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
-    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
-    SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD,
-    SHERPA_PASSWORD_HASH, SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
+    JUNIPER_ZTP_CONFIG_TGZ, KEYCLOAK_HTTPS_PORT, KVM_OUI, LAB_CERTS_DIR, MIKROTIK_CHR_ZTP_CONFIG,
+    NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS, NODE_CLOUD_INIT_SUDO_RULE, NODE_CONFIGS_DIR,
+    NODE_DOAS_CONF_FILE, NODE_NIXOS_SHELL, NODE_PASSWD_FILE, NODE_STAGING_DIR,
+    NODE_STARTUP_SCRIPTS_DIR, NODE_USER_ENV_FILE, NODE_USER_SCRIPTS_DIR,
+    NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG, PALOALTO_BOOTSTRAP_VOLUME_ID,
+    PALOALTO_ZTP_CONFIG, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB,
+    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE,
+    SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX,
+    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
+    SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
     SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_READY_HANDSHAKE_TIMEOUT,
     TALOS_API_PORT, TELNET_PORT, TFTP_DIR, VAULT_API_PORT, VAULT_CLUSTER_PORT,
@@ -67,6 +72,16 @@ use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
 /// The folder in a node's lab folder that holds its binary files before they go on its disk.
 const BINARY_FILES_DIR: &str = "binary_files";
+
+/// The folders in a lab folder that hold the lab's own files. A VM named like one of them writes
+/// its boot files there too, so that folder is never removed as the VM's.
+const LAB_OWN_DIRS: [&str; 5] = [
+    LAB_CERTS_DIR,
+    ZTP_DIR,
+    CLUSTERS_DIR,
+    VAULT_DIR,
+    KEYCLOAK_DIR,
+];
 
 // ============================================================================
 // Result structs
@@ -3015,7 +3030,8 @@ fn generate_http_ztp(
             let sonic_ztp_file_map =
                 template::SonicLinuxZtp::file_map(&node.name, &mgmt_net.v4.boot_server);
 
-            let ztp_init = format!("{dir}/{}.conf", node.name);
+            let [ztp_init, ztp_config, ztp_user_script] =
+                http_ztp_files(&node.name).map(|file| format!("{dir}/{file}"));
             let sonic_ztp = template::SonicLinuxZtp {
                 hostname: node.name.clone(),
                 mgmt_ipv4: mgmt_net.v4.clone(),
@@ -3023,7 +3039,6 @@ fn generate_http_ztp(
                 mgmt_ipv6_address: node.ipv6_address,
                 mgmt_ipv6: mgmt_net.v6.clone(),
             };
-            let ztp_config = format!("{dir}/{}_config_db.json", node.name);
             util::create_dir(&dir)?;
             util::create_file(&ztp_init, sonic_ztp_file_map)?;
             util::create_file(&ztp_config, sonic_ztp.config())?;
@@ -3032,10 +3047,6 @@ fn generate_http_ztp(
                 user: sherpa_user.clone(),
                 owner: guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?,
             };
-            let ztp_user_script = format!(
-                "{dir}/{}",
-                template::SonicLinuxZtp::user_script_filename(&node.name)
-            );
             util::create_file(&ztp_user_script, sonic_user_template.render()?)?;
         }
         _ => {
@@ -3043,6 +3054,54 @@ fn generate_http_ztp(
         }
     }
 
+    Ok(())
+}
+
+/// The files a node that boots by HTTP is served from the lab's configs folder: its ZTP file
+/// map, its config database and its account script.
+fn http_ztp_files(node_name: &str) -> [String; 3] {
+    [
+        format!("{node_name}.conf"),
+        format!("{node_name}_config_db.json"),
+        template::SonicLinuxZtp::user_script_filename(node_name),
+    ]
+}
+
+/// Remove the network boot files of node `node_name` in the lab folder `lab_dir` that its ZTP
+/// method `method` does not use: its TFTP config unless it boots by TFTP, and its HTTP files
+/// unless it boots by HTTP. They are left from a method it had before; the boot server would
+/// still serve them. Other nodes' files are not touched.
+///
+/// # Errors
+///
+/// Fails when a file is there but cannot be removed.
+#[instrument(level = "debug")]
+pub(crate) fn remove_stale_network_boot_files(
+    lab_dir: &str,
+    node_name: &str,
+    method: data::Ztp,
+) -> Result<()> {
+    let mut stale = Vec::new();
+    if method != data::Ztp::Tftp {
+        stale.push(format!("{lab_dir}/{ZTP_DIR}/{TFTP_DIR}/{node_name}.conf"));
+    }
+    if method != data::Ztp::Http {
+        stale.extend(
+            http_ztp_files(node_name)
+                .map(|file| format!("{lab_dir}/{ZTP_DIR}/{NODE_CONFIGS_DIR}/{file}")),
+        );
+    }
+    for path in stale {
+        match fs::remove_file(&path) {
+            Ok(()) => {
+                tracing::info!(%path, "Removed a network boot file of the node's old ZTP method");
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| format!("Failed to remove {path}"));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -3420,14 +3479,39 @@ fn cpu_features_for_model(model: data::NodeModel) -> Vec<data::CpuFeature> {
 // Disk Cloning
 // ============================================================================
 
-/// Clone a list of disks in parallel using libvirt.
-#[instrument(skip(qemu_conn, clone_disks, progress, image_leases), fields(%lab_id), level = "debug")]
+/// The folder in the lab folder `lab_dir` that VM `node_name`'s boot files are written to, or
+/// `None` when the VM is named like one of the lab's own folders, which holds more than them.
+pub(crate) fn vm_boot_dir(lab_dir: &Path, node_name: &str) -> Option<PathBuf> {
+    (!LAB_OWN_DIRS.contains(&node_name)).then(|| lab_dir.join(node_name))
+}
+
+/// Remove a VM's boot files, the folder `dir` that `vm_boot_dir` gives. Once its media are in
+/// the storage pool nothing reads them again: QEMU reads the pool's copies. Returns whether
+/// there was a folder to remove.
+///
+/// # Errors
+///
+/// Fails when the folder is there but cannot be removed.
+#[instrument(fields(dir = %dir.display()), level = "debug")]
+pub(crate) fn remove_vm_boot_dir(dir: &Path) -> Result<bool> {
+    match fs::remove_dir_all(dir) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error).with_context(|| format!("Failed to remove {}", dir.display())),
+    }
+}
+
+/// Clone a list of disks in parallel using libvirt. Once every disk is in the storage pool, the
+/// VM boot file folders `boot_dirs` the media were made from are removed. When a disk fails
+/// they are kept, so the failure can be looked at; `destroy` removes them with the lab folder.
+#[instrument(skip(qemu_conn, clone_disks, progress, image_leases, boot_dirs), fields(%lab_id), level = "debug")]
 pub async fn clone_node_disks(
     qemu_conn: Arc<libvirt::QemuConnection>,
     clone_disks: Vec<data::CloneDisk>,
     lab_id: &str,
     progress: &ProgressSender,
     image_leases: Vec<ImageLease>,
+    boot_dirs: &[PathBuf],
 ) -> Result<()> {
     if clone_disks.is_empty() {
         let _ = progress.send_status("No disks to clone".to_string(), StatusKind::Info);
@@ -3467,6 +3551,12 @@ pub async fn clone_node_disks(
     if !failures.is_empty() {
         failures.extend(remove_created_disks(qemu_conn.clone(), created).await?);
         bail!("Disk provisioning failed: {}", failures.join("; "));
+    }
+    for dir in boot_dirs {
+        // The disks are in the pool, so a folder left behind only costs disk space.
+        if let Err(error) = remove_vm_boot_dir(dir) {
+            tracing::warn!(%lab_id, error = format!("{error:#}"), "Failed to remove a VM's boot files");
+        }
     }
 
     let _ = progress.send_status(
@@ -5996,5 +6086,166 @@ mod tests {
         node.container.get_or_insert_default().volumes = Some(manifest_volume());
         let result = lab.container(&mut node, None).unwrap();
         assert_eq!(result.volumes, ["/srv/own.conf:/etc/own.conf"]);
+    }
+
+    /// A lab folder with the network boot files of nodes `sw1` and `sw10`: each one's TFTP
+    /// config and HTTP files.
+    fn network_boot_files() -> tempfile::TempDir {
+        let lab = tempdir().unwrap();
+        let tftp = lab.path().join(ZTP_DIR).join(TFTP_DIR);
+        let configs = lab.path().join(ZTP_DIR).join(NODE_CONFIGS_DIR);
+        fs::create_dir_all(&tftp).unwrap();
+        fs::create_dir_all(&configs).unwrap();
+        for node in ["sw1", "sw10"] {
+            fs::write(tftp.join(format!("{node}.conf")), "tftp").unwrap();
+            for file in http_ztp_files(node) {
+                fs::write(configs.join(file), "http").unwrap();
+            }
+        }
+        lab
+    }
+
+    /// The network boot files left in `lab`, relative to its ZTP folder, sorted.
+    fn network_boot_files_in(lab: &Path) -> Vec<String> {
+        let mut found = Vec::new();
+        for dir in [TFTP_DIR, NODE_CONFIGS_DIR] {
+            for entry in fs::read_dir(lab.join(ZTP_DIR).join(dir)).unwrap() {
+                let name = entry.unwrap().file_name().to_string_lossy().into_owned();
+                found.push(format!("{dir}/{name}"));
+            }
+        }
+        found.sort();
+        found
+    }
+
+    #[test]
+    fn a_ztp_method_change_removes_only_the_old_files_of_that_node() {
+        let lab = network_boot_files();
+        let lab_dir = lab.path().to_str().unwrap();
+
+        // From TFTP, as it boots by CD-ROM now.
+        remove_stale_network_boot_files(lab_dir, "sw1", data::Ztp::Cdrom).unwrap();
+
+        assert_eq!(
+            network_boot_files_in(lab.path()),
+            [
+                "configs/sw10.conf",
+                "configs/sw10_config_db.json",
+                "configs/sw10_ztp_user.sh",
+                "tftp/sw10.conf",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_files_of_the_nodes_ztp_method_are_kept() {
+        let lab = network_boot_files();
+        let lab_dir = lab.path().to_str().unwrap();
+
+        remove_stale_network_boot_files(lab_dir, "sw1", data::Ztp::Tftp).unwrap();
+        remove_stale_network_boot_files(lab_dir, "sw10", data::Ztp::Http).unwrap();
+
+        assert_eq!(
+            network_boot_files_in(lab.path()),
+            [
+                "configs/sw10.conf",
+                "configs/sw10_config_db.json",
+                "configs/sw10_ztp_user.sh",
+                "tftp/sw1.conf",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_node_with_no_network_boot_files_has_none_to_remove() {
+        let lab = tempdir().unwrap();
+
+        remove_stale_network_boot_files(lab.path().to_str().unwrap(), "vm1", data::Ztp::CloudInit)
+            .unwrap();
+    }
+
+    #[test]
+    fn a_vm_named_like_a_lab_folder_has_no_boot_folder_of_its_own() {
+        let lab = Path::new("/labs/lab-0001");
+        assert_eq!(vm_boot_dir(lab, "vm1"), Some(lab.join("vm1")));
+        for name in [
+            LAB_CERTS_DIR,
+            ZTP_DIR,
+            CLUSTERS_DIR,
+            VAULT_DIR,
+            KEYCLOAK_DIR,
+        ] {
+            assert_eq!(vm_boot_dir(lab, name), None, "{name}");
+        }
+    }
+
+    /// A VM's boot folder `vm1` in a temporary lab folder, holding its seed and the ISO made from
+    /// it; and the ISO as a disk to copy to `dst`.
+    fn vm_boot_files(dst: &str) -> (tempfile::TempDir, PathBuf, data::CloneDisk) {
+        let lab = tempdir().unwrap();
+        let boot_dir = lab.path().join("vm1");
+        fs::create_dir(&boot_dir).unwrap();
+        fs::write(boot_dir.join(CLOUD_INIT_USER_DATA), "#cloud-config\n").unwrap();
+        let iso = boot_dir.join(ZTP_ISO);
+        fs::write(&iso, vec![0_u8; 2048]).unwrap();
+        let disk = copied_disk(iso.to_str().unwrap(), dst);
+        (lab, boot_dir, disk)
+    }
+
+    #[tokio::test]
+    #[ignore = "requires libvirt with the sherpa storage pool: copies a volume into it"]
+    async fn a_vms_boot_files_are_removed_once_its_media_are_in_the_pool() {
+        let conn = Arc::new(Qemu::default().connect().unwrap());
+        let dst = format!(
+            "{SHERPA_STORAGE_POOL_PATH}/vm1-boot-test{}.iso",
+            std::process::id()
+        );
+        let (lab, boot_dir, disk) = vm_boot_files(&dst);
+        let (tx, _rx) = mpsc::unbounded_channel();
+
+        let result = clone_node_disks(
+            Arc::clone(&conn),
+            vec![disk],
+            "boot-test",
+            &ProgressSender::new(tx),
+            Vec::new(),
+            std::slice::from_ref(&boot_dir),
+        )
+        .await;
+        let in_pool = Path::new(&dst).exists();
+        remove_created_disks(Arc::clone(&conn), vec![dst.clone()])
+            .await
+            .unwrap();
+
+        result.unwrap();
+        assert!(in_pool, "{dst} was not created");
+        assert!(!boot_dir.exists());
+        assert!(lab.path().exists());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires libvirt: connects to it, though the failed copy never reaches it"]
+    async fn a_vms_boot_files_are_kept_when_its_media_fail_to_upload() {
+        let conn = Arc::new(Qemu::default().connect().unwrap());
+        // The destination exists, so the copy is refused.
+        let taken = tempdir().unwrap();
+        let dst = taken.path().join("vm1.iso");
+        fs::write(&dst, "taken").unwrap();
+        let (_lab, boot_dir, disk) = vm_boot_files(dst.to_str().unwrap());
+        let (tx, _rx) = mpsc::unbounded_channel();
+
+        let result = clone_node_disks(
+            conn,
+            vec![disk],
+            "boot-test",
+            &ProgressSender::new(tx),
+            Vec::new(),
+            std::slice::from_ref(&boot_dir),
+        )
+        .await;
+
+        assert!(result.is_err());
+        assert!(boot_dir.join(CLOUD_INIT_USER_DATA).exists());
+        assert!(boot_dir.join(ZTP_ISO).exists());
     }
 }

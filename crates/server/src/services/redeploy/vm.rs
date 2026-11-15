@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::ops::RangeInclusive;
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use tracing::instrument;
@@ -131,8 +132,9 @@ pub(super) async fn redeploy_vm(
     Ok(link_reports)
 }
 
-/// Generate the VM's configuration again and clone its disks (stage 4). The returned result's
-/// disks to clone are taken: they are cloned.
+/// Generate the VM's configuration again and clone its disks (stage 4): the network boot files
+/// of a ZTP method it no longer has are removed, and its boot files once its disks are cloned.
+/// The returned result's disks to clone are taken: they are cloned.
 async fn configure_vm(
     redeploy: &mut Redeploy<'_>,
     cert_paths: &NodeCertPaths,
@@ -161,12 +163,14 @@ async fn configure_vm(
 
     let lab_id = redeploy.lab_id.as_str();
     let node_name = redeploy.node_name.as_str();
+    node_ops::remove_stale_network_boot_files(&redeploy.lab_dir, node_name, vm_ztp.ztp_record.ztp)?;
     let progress = redeploy.progress;
     let _ = progress.send_status(
         format!("ZTP regenerated for node: {node_name}"),
         StatusKind::Done,
     );
 
+    let boot_dir = node_ops::vm_boot_dir(Path::new(&redeploy.lab_dir), node_name);
     let _ = progress.send_status(
         format!("Cloning disks for node: {node_name}"),
         StatusKind::Progress,
@@ -177,6 +181,7 @@ async fn configure_vm(
         lab_id,
         progress,
         vec![redeploy.image_guard.clone()],
+        boot_dir.as_slice(),
     )
     .await?;
     Ok(vm_ztp)
