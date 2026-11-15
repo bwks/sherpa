@@ -18,7 +18,7 @@ mod veths;
 
 pub(crate) use carrier::follow_carrier;
 pub(crate) use host::{KernelHost, LinkHost};
-pub(crate) use plan::{PlannedNode, load_lab_manifest, recreated_end};
+pub(crate) use plan::{PlannedNode, recreated_end};
 pub(crate) use reattach::{
     LabLinks, LinkWiring, RecreatedEnd, attach_link, reattach_node_links, report_links,
 };

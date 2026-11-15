@@ -13,14 +13,15 @@ use topology::Manifest;
 use tracing::instrument;
 
 use super::admission::{self, Admission};
+use super::lab_definition::stored_definition;
 use super::lab_lifecycle;
 use super::lab_nodes::load_target_nodes;
 use super::lab_operations::{self, LabOperation};
 use super::node_lifecycle::{self, query_runtimes};
 use super::node_ops::{self, VmReadiness};
 use super::p2p_links::{
-    KernelHost, LabLinks, PlannedNode, follow_started_links, load_lab_manifest,
-    reattach_node_links, recreated_end, report_links,
+    KernelHost, LabLinks, PlannedNode, follow_started_links, reattach_node_links, recreated_end,
+    report_links,
 };
 use super::progress::ProgressSender;
 use super::ssh_config;
@@ -83,7 +84,7 @@ struct ReadinessTarget {
 ///
 /// Cold-booted VMs and unikernels, and cold-booted containers with a ready port, are then
 /// polled for readiness like `up` does, on the readiness check stored with each node
-/// (`DbNode::ready_check`), until the lab's saved manifest's `ready_timeout`. A node that does not become
+/// (`DbNode::ready_check`), until the `ready_timeout` of the lab's stored definition. A node that does not become
 /// ready within the timeout is reported in its result message; it is not an error, as with
 /// `up`.
 ///
@@ -166,12 +167,12 @@ pub async fn start_lab_nodes(
         .collect();
     let mut results = immediate_results;
     let cold_booted = record_outcomes(state, &operation, concurrent_results, &mut results).await;
-    let manifest = load_lab_manifest(lab_id);
+    let definition = stored_definition(&state.db, &lab_record_id, lab_id).await;
     let lab = ResumedLab {
         lab_id,
         lab_record_id: &lab_record_id,
         nodes: &target_nodes,
-        manifest: manifest.as_ref(),
+        definition: definition.as_ref(),
         state,
         progress,
         operation: &operation,
@@ -264,16 +265,18 @@ struct ResumedLab<'a> {
     lab_id: &'a str,
     lab_record_id: &'a RecordId,
     nodes: &'a [data::DbNode],
-    /// The manifest `up` saved, if it can be read.
-    manifest: Option<&'a Manifest>,
+    /// The lab's stored definition, if it has one: its `ready_timeout`, and its containers'
+    /// data interface counts.
+    definition: Option<&'a Manifest>,
     state: &'a AppState,
     progress: Option<&'a ProgressSender>,
     operation: &'a LabOperation,
 }
 
 /// Wait for the cold-booted VMs, unikernels and containers with a ready port to become ready,
-/// as `up` does, on each node's stored readiness check and the saved manifest's ready timeout. Each one's result says whether
-/// it became ready, and the host keys it offers are recorded again. Returns the cold-booted nodes that are ready: those that
+/// as `up` does, on each node's stored readiness check and the stored definition's ready
+/// timeout. Each one's result says whether it became ready, and the host keys it offers are
+/// recorded again. Returns the cold-booted nodes that are ready: those that
 /// answered, and those with no check, as a container without a ready port is ready once
 /// running.
 #[instrument(skip_all, fields(lab_id = %lab.lab_id), level = "debug")]
@@ -286,7 +289,7 @@ async fn wait_for_cold_booted(
         lab_id,
         lab_record_id,
         nodes,
-        manifest,
+        definition,
         state,
         progress,
         operation,
@@ -300,7 +303,7 @@ async fn wait_for_cold_booted(
     if targets.is_empty() {
         return Ok(ready_nodes);
     }
-    let timeout = ready_timeout(manifest);
+    let timeout = ready_timeout(definition);
     let ready = wait_for_readiness(lab_id, &targets, timeout, state, progress, operation).await?;
     for result in results.iter_mut() {
         if targets.iter().any(|target| target.name == result.name) {
@@ -315,9 +318,10 @@ async fn wait_for_cold_booted(
     Ok(ready_nodes)
 }
 
-fn ready_timeout(manifest: Option<&Manifest>) -> Duration {
-    let seconds = match manifest {
-        Some(manifest) => manifest.ready_timeout.unwrap_or(READINESS_TIMEOUT),
+/// The lab's `ready_timeout`, from its stored definition; the default without one.
+fn ready_timeout(definition: Option<&Manifest>) -> Duration {
+    let seconds = match definition {
+        Some(definition) => definition.ready_timeout.unwrap_or(READINESS_TIMEOUT),
         None => READINESS_TIMEOUT,
     };
     Duration::from_secs(seconds)
@@ -752,7 +756,7 @@ async fn reattach_cold_booted(
                 kind,
                 image,
             },
-            lab.manifest,
+            lab.definition,
             &lab_links,
             bridges.as_deref(),
         ) else {
@@ -803,7 +807,8 @@ async fn follow_started(lab: &ResumedLab<'_>, started: &HashSet<RecordId>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::{NodeState, ReadyCheck};
+    use crate::services::lab_definition::tests::{lab_with, store};
+    use shared::data::{NodeModel, NodeState, ReadyCheck};
     use shared::konst::{SSH_PORT, TALOS_API_PORT};
 
     #[test]
@@ -921,19 +926,26 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_saved_manifest_gives_only_the_ready_timeout() {
-        let lab: Manifest = toml::from_str(
-            r#"
-name = "lab"
-ready_timeout = 120
-nodes = [{ name = "vm", model = "ubuntu_linux", ready_check = { port = 8443 } }]
-"#,
+    #[tokio::test]
+    async fn the_stored_definition_gives_only_the_ready_timeout() {
+        let (db, lab) = lab_with(&[("vm", NodeModel::UbuntuLinux)]).await;
+        let lab_id = lab.id.clone().unwrap();
+        // No stored definition: the default, as for a lab without a saved manifest.
+        let none = stored_definition(&db, &lab_id, "lab-0001").await;
+        assert_eq!(
+            ready_timeout(none.as_ref()),
+            Duration::from_secs(READINESS_TIMEOUT)
+        );
+        store(
+            &db,
+            &lab,
+            "name = \"core\"\nready_timeout = 120\n\
+             nodes = [{ name = \"vm\", model = \"ubuntu_linux\", ready_check = { port = 8443 } }]\n",
         )
-        .unwrap();
-        assert_eq!(ready_timeout(Some(&lab)), Duration::from_secs(120));
-        assert_eq!(ready_timeout(None), Duration::from_secs(READINESS_TIMEOUT));
-        // The port is the node's stored one, whatever the saved manifest says.
+        .await;
+        let definition = stored_definition(&db, &lab_id, "lab-0001").await;
+        assert_eq!(ready_timeout(definition.as_ref()), Duration::from_secs(120));
+        // The port is the node's stored one, whatever the definition says.
         let nodes = vec![db_node("vm", "10.0.0.11", Some(SSH_PORT), false)];
         let started = vec![("vm".to_string(), NodeKind::VirtualMachine)];
         let targets = readiness_targets("abcd1234", &nodes, &started);

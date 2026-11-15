@@ -492,7 +492,7 @@ impl LabUp<'_> {
             client_folder: self.details.client_folder.clone(),
         };
 
-        write_lab_files(self.build.lab_dir, &lab_info, self.manifest)?;
+        write_lab_files(self.build.lab_dir, &lab_info)?;
         let ssh_key = create_lab_ssh_key(self.build.lab_dir)?;
         let sherpa_user =
             util::sherpa_user(&ssh_key.public).context("Failed to get sherpa user")?;

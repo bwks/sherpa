@@ -36,6 +36,12 @@ through the `Include` in `~/.ssh/sherpa_lab_hosts`, with `ssh -F .sherpa/ssh/con
 the lab folder, for `sherpa ssh` and for the provisioners. The server's own lab folder
 (`/opt/sherpa/labs/<lab-id>`) keeps the `sherpa_*` names.
 
+The server's lab folder holds no copy of the manifest: the lab's manifest is its definition in
+the database (see [`DATABASE.md`](DATABASE.md#lab-definitions)). The `manifest.toml`, or legacy
+`manifest.json`, that older releases saved there is deleted at startup, after the
+[import](SERVER.md#lab-definition-import). Its `lab-info.toml` is still written by `up`. The
+user's `manifest.toml` in their own lab folder is the CLI's, and is never touched.
+
 ## Destroy
 
 After the server destroys the lab, `cmd::destroy::remove_local_lab_state` removes the lab's

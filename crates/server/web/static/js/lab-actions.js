@@ -22,6 +22,16 @@ function anyLinkFailed(results) {
     });
 }
 
+// The message of a failed request's body: an API error's message, or the body as it is.
+function errorMessage(text) {
+    try {
+        var body = JSON.parse(text);
+        return (body.error && body.error.message) || text;
+    } catch (err) {
+        return text;
+    }
+}
+
 // The link notes of every result, each prefixed by its node's name.
 function resultLinkNotes(results) {
     return results.flatMap(function(r) {
@@ -196,7 +206,7 @@ async function nodeRedeploy(labId, nodeName, btn) {
         if (!response.ok) {
             var text = await response.text();
             showNodeNotification(nodeName, "error",
-                text || `Redeploy failed (HTTP ${response.status})`);
+                errorMessage(text) || `Redeploy failed (HTTP ${response.status})`);
             return;
         }
 

@@ -1101,9 +1101,7 @@ mod tests {
         let lab_dir = root.path().join("test1234");
         fs::create_dir(&lab_dir).unwrap();
         let lab_file = lab_dir.join(LAB_FILE_NAME);
-        let manifest_file = lab_dir.join("manifest.toml");
         fs::write(&lab_file, "saved lab info").unwrap();
-        fs::write(&manifest_file, "name='test'\nnodes=[]").unwrap();
         let database_deleted = AtomicBool::new(false);
         let mock = DockerMock::new(json!([]), gateway_failure, volume_failure).await;
         let mut summary = DestroySummary::default();
@@ -1146,10 +1144,6 @@ mod tests {
         assert!(!summary.database_records_deleted);
         assert!(!summary.lab_directory_deleted);
         assert_eq!(fs::read_to_string(&lab_file).unwrap(), "saved lab info");
-        assert_eq!(
-            fs::read_to_string(&manifest_file).unwrap(),
-            "name='test'\nnodes=[]"
-        );
 
         let retry = DockerMock::new(json!([]), false, false).await;
         let mut summary = DestroySummary::default();

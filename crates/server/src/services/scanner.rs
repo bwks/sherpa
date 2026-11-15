@@ -10,12 +10,13 @@ use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
 use crate::daemon::state::AppState;
+use crate::services::lab_definition::stored_definition;
 use crate::services::lab_operations;
 use crate::services::node_lifecycle::{self, Runtimes, query_runtimes};
 use crate::services::node_ops::{self, VmReadiness};
 use crate::services::p2p_links::{
-    KernelHost, LabLinks, LinkHost, PlannedNode, check_lab_links, follow_carrier,
-    load_lab_manifest, recreated_end, repair_node,
+    KernelHost, LabLinks, LinkHost, PlannedNode, check_lab_links, follow_carrier, recreated_end,
+    repair_node,
 };
 use crate::services::ssh_config;
 
@@ -36,7 +37,7 @@ struct ScannedNode<'a> {
 /// state an operation is writing. Nodes being built and failed nodes are never moved by it.
 ///
 /// A node's readiness is decided by the check stored with it (`DbNode::ready_check`), never by
-/// the lab's manifest. A running node with a stored port and a check that is not skipped, that
+/// the lab's definition. A running node with a stored port and a check that is not skipped, that
 /// is not yet known ready, is probed on that port first, and recorded running only once it
 /// answers. So a node whose readiness wait timed out, or that was started outside Sherpa,
 /// becomes `Running` once it answers, and one whose port never opens stays `Starting`. A node
@@ -214,11 +215,13 @@ async fn repair_links(
         .collect();
     if !broken.is_empty() {
         // A container's veths are planned as resume plans them: from its image, the lab's
-        // bridges and the saved manifest's interface count.
+        // bridges and the stored definition's interface count.
         let has_container = broken.iter().any(|node| node.kind == NodeKind::Container);
-        let manifest = has_container
-            .then(|| load_lab_manifest(&lab.lab_id))
-            .flatten();
+        let definition = if has_container {
+            stored_definition(&state.db, lab_record_id, &lab.lab_id).await
+        } else {
+            None
+        };
         let bridges = if has_container {
             db::list_bridges(&state.db, lab_record_id)
                 .await
@@ -245,9 +248,12 @@ async fn repair_links(
                     .iter()
                     .find(|image| image.id.as_ref() == Some(&node.node.image)),
             };
-            let Some(end) =
-                recreated_end(&planned, manifest.as_ref(), &lab_links, bridges.as_deref())
-            else {
+            let Some(end) = recreated_end(
+                &planned,
+                definition.as_ref(),
+                &lab_links,
+                bridges.as_deref(),
+            ) else {
                 continue;
             };
             let outcomes = repair_node(&host, &lab_links, node_id, end).await;

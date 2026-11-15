@@ -16,6 +16,7 @@ use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio_util::sync::CancellationToken;
+use tracing::instrument;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::FormatTime;
 use tracing_subscriber::layer::SubscriberExt;
@@ -194,6 +195,35 @@ fn init_meter_provider(otel_config: &OtelConfig) -> Result<SdkMeterProvider> {
     Ok(provider)
 }
 
+/// Bring data stored before this release up to date, once, before anything reads it: image
+/// passwords stored as plain text are sealed, and labs stored before lab definitions were get
+/// theirs from their saved manifests, which are then deleted.
+#[instrument(skip(db))]
+async fn upgrade_stored_data(db: &db::Database) -> Result<()> {
+    let sealed = db::seal_plain_image_passwords(db)
+        .await
+        .context("Failed to seal image passwords stored as plain text")?;
+    if sealed > 0 {
+        tracing::info!(
+            images = sealed,
+            "Sealed image passwords stored as plain text"
+        );
+    }
+    let imported = lab_definition::import_lab_definitions(db, Path::new(SHERPA_LABS_PATH))
+        .await
+        .context("Failed to import lab definitions")?;
+    if imported != ImportSummary::default() {
+        tracing::info!(
+            imported = imported.imported,
+            skipped = imported.skipped,
+            marked = imported.marked,
+            deleted = imported.deleted,
+            "Imported lab definitions from saved manifests and deleted the files"
+        );
+    }
+    Ok(())
+}
+
 /// Run the sherpad server
 pub async fn run_server(foreground: bool) -> Result<()> {
     // Load configuration before tracing init so OTel can be configured
@@ -253,28 +283,7 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         );
     }
 
-    // Data stored before this release, brought up to date once before anything reads it: image
-    // passwords stored as plain text are sealed, and labs stored before lab definitions were get
-    // theirs from their saved manifests.
-    let sealed = db::seal_plain_image_passwords(&state.db)
-        .await
-        .context("Failed to seal image passwords stored as plain text")?;
-    if sealed > 0 {
-        tracing::info!(
-            images = sealed,
-            "Sealed image passwords stored as plain text"
-        );
-    }
-    let imported = lab_definition::import_lab_definitions(&state.db, Path::new(SHERPA_LABS_PATH))
-        .await
-        .context("Failed to import lab definitions")?;
-    if imported != ImportSummary::default() {
-        tracing::info!(
-            imported = imported.imported,
-            skipped = imported.skipped,
-            "Imported lab definitions from saved manifests"
-        );
-    }
+    upgrade_stored_data(&state.db).await?;
 
     // Set up shutdown cancellation token for background services
     let cancel_token = CancellationToken::new();
