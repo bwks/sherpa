@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.5] - 2026-11-15
+
+### Upgrade notes
+
+- **Three database migrations (22, 23, 24).** Back up with `sherpa server backup` before updating, as usual. Keep backing up `/opt/sherpa/.secret/db.key` separately.
+- **CPU pins live in a new `cpu_pin` table,** and the database itself refuses a vCPU pin another node holds. Existing pins are copied over as they are; when two labs already share a CPU, sherpad warns at every start until one of them gives it back. Pins are held while a lab is stopped.
+- **New error code for held pins.** `up` or `redeploy` asking for host CPUs another node holds is refused with JSON-RPC `-32006`, HTTP `409 CPU_PINS_HELD`, and CLI exit code 75. A redeploy holds the node's old and new pins until it finishes. **The memory refusal code `MEMORY_REFUSED` is renamed `TRY_LATER`;** update any script or client that matches on it.
+- **More lab files leave the server's lab folders.** At startup sherpad copies what it needs into the database and then deletes the server's `lab-info.toml`, `sherpa_ssh_config`, `sherpa_known_hosts` and Talos `clusters/<cluster>/cluster.toml`, and the old `<node>/` VM boot folders. `sherpa download` still gives the same files, built from the database. Talos `secrets.toml`, `talosconfig` and `kubeconfig` stay on disk.
+- **VM boot files are removed once they are copied into the storage pool,** and are kept in `vm-boot.d/<node>/` while a build runs. The empty `dnsmasq.leases` and unused unikernel certificates are no longer written.
+- **A redeploy that changes a node's ZTP method restarts the lab's DHCP/DNS server,** so the new boot options take effect. The lab's DHCP and DNS pause for a few seconds; leases survive. A redeploy that keeps the method restarts nothing.
+- **`sherpad init` takes the management prefixes:** `--management-prefix-ipv4` / `SHERPA_MANAGEMENT_PREFIX_IPV4` and `--management-prefix-ipv6` / `SHERPA_MANAGEMENT_PREFIX_IPV6`. They are checked before anything is written, and apply only when `init` writes a new config (or with `--force`); an existing `sherpa.toml` is kept.
+
+### Bug Fixes
+
+- Drop the moved pin fields from the boot server's test node by @bwks ([c5a2c6a](https://github.com/bwks/sherpa/commit/c5a2c6ab94e97680c0c0d9e81c81b140441fe3f9))
+- Keep the lab's folders on a redeploy, and restart the boot server when boot options change by @bwks ([c8b8ed7](https://github.com/bwks/sherpa/commit/c8b8ed7cf8e7c0da9e19442e1e2a7b1fa644ed11))
+- Hold a redeploying node's old pins, and refuse held pins with their own code by @bwks ([3a4f126](https://github.com/bwks/sherpa/commit/3a4f126196b18e2548e07d65eaeac82ff5becfc4))
+
+### Documentation
+
+- The Talos cluster plan in the database, and the cluster.toml import [skip ci] by @bwks ([42cbe96](https://github.com/bwks/sherpa/commit/42cbe969239fdf3ba3d0d8c9a112674fef940f47))
+- VM boot files in vm-boot.d, guarded node folders, and the boot server on redeploy [skip ci] by @bwks ([f9eb97e](https://github.com/bwks/sherpa/commit/f9eb97e750ebbd3332eb3adc1a40a3ae3b2dee6c))
+- VM boot files, leases and unikernel certificates leave the lab folder [skip ci] by @bwks ([8e9009e](https://github.com/bwks/sherpa/commit/8e9009e6c66b3c9e914dc0925b17efbf37ddd824))
+
+### Features
+
+- Sherpad init takes the IPv6 management prefix by @bwks ([a94494f](https://github.com/bwks/sherpa/commit/a94494f589c513844783821b0177ae58b292e136))
+- Sherpad init takes the management prefix by @bwks ([858ac21](https://github.com/bwks/sherpa/commit/858ac21dfd412b35896aed774e57e7d37a5427a6))
+- Hold CPU pins in a cpu_pin table whose trigger enforces the pin rules by @bwks ([5f7a814](https://github.com/bwks/sherpa/commit/5f7a8140fc93615f3ec0f80229908e120e90446f))
+- Keep the Talos cluster plan in the database by @bwks ([eec8f34](https://github.com/bwks/sherpa/commit/eec8f3444400a9b4f2e8278ec5848d29535b7842))
+- Remove VM boot files after the pool upload, and lab files nothing reads by @bwks ([066cf1b](https://github.com/bwks/sherpa/commit/066cf1bbd703af8c041a4b9cbc48e471bdf61c82))
+- Build lab-info.toml and the SSH files from the database by @bwks ([35f0b94](https://github.com/bwks/sherpa/commit/35f0b947f481db78838873eea4827dd5f7534032))
+
+### Miscellaneous
+
+- Give the dev servers a management prefix outside the host's by @bwks ([5deffc6](https://github.com/bwks/sherpa/commit/5deffc6dad451fca3b0240911d479dcfff234429))
+
 ## [0.6.4] - 2026-11-15
 
 ### Upgrade notes
