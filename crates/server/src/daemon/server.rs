@@ -30,6 +30,7 @@ use crate::daemon::metrics::Metrics;
 use crate::daemon::state::AppState;
 use crate::services::lab_definition::{self, ImportSummary};
 use crate::services::lab_lifecycle::{self, Recovery};
+use crate::services::saved_cluster_plans::{self, SavedClusterPlansSummary};
 use crate::services::saved_lab_files::{self, SavedLabFilesSummary};
 use crate::services::scanner::run_scanner;
 use crate::services::unread_lab_files::{self, UnreadLabFilesSummary};
@@ -201,7 +202,8 @@ fn init_meter_provider(otel_config: &OtelConfig) -> Result<SdkMeterProvider> {
 /// passwords stored as plain text are sealed, labs stored before lab definitions were get
 /// theirs from their saved manifests, which are then deleted, and the SSH accounts in each
 /// lab's `lab-info.toml` are stored with its nodes, and that file, the lab's SSH config and
-/// `known_hosts` deleted. Last, the lab files nothing reads are removed: the dnsmasq leases
+/// `known_hosts` deleted, and each Talos cluster's saved `cluster.toml` is stored with the lab's
+/// definition and deleted. Last, the lab files nothing reads are removed: the dnsmasq leases
 /// file, unikernel certificates and VM boot files.
 #[instrument(skip(db))]
 async fn upgrade_stored_data(db: &db::Database) -> Result<()> {
@@ -235,6 +237,18 @@ async fn upgrade_stored_data(db: &db::Database) -> Result<()> {
             kept = moved.kept,
             deleted = moved.deleted,
             "Stored the labs' SSH accounts from their lab-info.toml and deleted the lab files"
+        );
+    }
+    let plans = saved_cluster_plans::move_saved_cluster_plans(db, Path::new(SHERPA_LABS_PATH))
+        .await
+        .context("Failed to move the labs' saved cluster plans into the database")?;
+    if plans != SavedClusterPlansSummary::default() {
+        tracing::info!(
+            stored = plans.stored,
+            kept = plans.kept,
+            deleted = plans.deleted,
+            "Stored the labs' Talos cluster plans from their cluster.toml files and deleted the \
+             files"
         );
     }
     let unread = unread_lab_files::remove_unread_lab_files(db, Path::new(SHERPA_LABS_PATH))

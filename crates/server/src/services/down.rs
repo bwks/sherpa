@@ -1,5 +1,6 @@
 use bollard::secret::ContainerStateStatusEnum;
 use std::net::Ipv4Addr;
+use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -12,7 +13,7 @@ use shared::data::{
     ClusterRole, LabNodeActionResponse, NodeActionResult, NodeConfig, NodeKind, NodeModel,
     OperationEvent,
 };
-use shared::konst::{VM_SHUTDOWN_POLL, VM_SHUTDOWN_TIMEOUT};
+use shared::konst::{SHERPA_LABS_PATH, VM_SHUTDOWN_POLL, VM_SHUTDOWN_TIMEOUT};
 
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
@@ -124,6 +125,15 @@ pub async fn shutdown_lab_nodes(
         .clone()
         .ok_or_else(|| anyhow!("Lab missing record ID"))?;
 
+    // The lab's Talos clusters, for the nodes that shut down through the Talos API.
+    let clusters = talos::load_clusters(
+        &state.db,
+        Path::new(SHERPA_LABS_PATH),
+        &lab_record_id,
+        lab_id,
+    )
+    .await
+    .map_err(|error| format!("{error:#}"));
     let (target_nodes, node_images) =
         load_target_nodes(&state.db, lab_record_id, lab_id, node_name).await?;
 
@@ -158,7 +168,7 @@ pub async fn shutdown_lab_nodes(
             continue;
         }
 
-        let (method, role) = shutdown_method(lab_id, &node.name, node_image);
+        let (method, role) = shutdown_method(&clusters, &node.name, node_image);
 
         let node_name = node.name.clone();
         let node_id = node.id.clone();
@@ -211,19 +221,20 @@ pub async fn shutdown_lab_nodes(
     Ok(LabNodeActionResponse { results, tailscale })
 }
 
-/// How to stop the node, and its Talos cluster role. A Talos node's cluster is looked up; when
-/// that fails, or a cluster node has no cluster, the node is powered off with the reason.
+/// How to stop the node, and its Talos cluster role. A Talos node's cluster is looked up in
+/// the lab's `clusters`, or why they could not be loaded; when they could not, or a cluster
+/// node has no cluster, the node is powered off with the reason.
 fn shutdown_method(
-    lab_id: &str,
+    clusters: &Result<Vec<talos::LabCluster>, String>,
     node_name: &str,
     node_image: &NodeConfig,
 ) -> (ShutdownMethod, Option<ClusterRole>) {
     let mut membership = None;
     let mut lookup_error = None;
     if node_image.model == NodeModel::TalosLinux {
-        match talos::find_member_cluster(lab_id, node_name) {
-            Ok(found) => membership = found,
-            Err(error) => lookup_error = Some(format!("{error:#}")),
+        match clusters {
+            Ok(clusters) => membership = talos::find_member_cluster(clusters, node_name),
+            Err(error) => lookup_error = Some(error.clone()),
         }
     }
     let role = membership.as_ref().map(|(_, role, _)| *role);
@@ -233,7 +244,7 @@ fn shutdown_method(
             ShutdownMethod::Unavailable(format!("could not load the node's Talos cluster: {error}"))
         }
         (Route::TalosApi, Some((cluster, _, address)), None) => ShutdownMethod::TalosApi {
-            cluster: Box::new(cluster),
+            cluster: Box::new(cluster.clone()),
             address,
         },
         (Route::TalosApi, None, None) => {
@@ -469,7 +480,57 @@ async fn shutdown_container(
 
 #[cfg(test)]
 mod tests {
+    use crate::services::talos::lab::tests::cluster_plans;
+    use crate::services::talos::secrets::generate_cluster_secrets;
+
     use super::*;
+
+    /// The clusters of `cluster_plans`, as `load_clusters` returns them.
+    fn clusters() -> Vec<talos::LabCluster> {
+        cluster_plans()
+            .into_iter()
+            .map(|plan| talos::LabCluster {
+                plan,
+                secrets: generate_cluster_secrets().unwrap(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn talos_nodes_shut_down_through_the_api_of_their_loaded_cluster() {
+        let talos = NodeConfig::get_model(NodeModel::TalosLinux);
+        let clusters = Ok(clusters());
+
+        let (method, role) = shutdown_method(&clusters, "w1", &talos);
+        let ShutdownMethod::TalosApi { cluster, address } = method else {
+            panic!("w1 does not shut down through the Talos API");
+        };
+        assert_eq!(cluster.plan.name, "ha");
+        assert_eq!(address, Ipv4Addr::new(172, 31, 1, 24));
+        assert_eq!(role, Some(ClusterRole::Worker));
+
+        let (method, role) = shutdown_method(&clusters, "cp1", &talos);
+        assert!(matches!(method, ShutdownMethod::TalosApi { .. }));
+        assert_eq!(role, Some(ClusterRole::ControlPlane));
+
+        let (method, role) = shutdown_method(&clusters, "loose", &talos);
+        assert!(matches!(method, ShutdownMethod::PowerOff(TALOS_POWER_OFF)));
+        assert_eq!(role, None);
+    }
+
+    #[test]
+    fn talos_nodes_power_off_when_the_clusters_cannot_be_loaded() {
+        let talos = NodeConfig::get_model(NodeModel::TalosLinux);
+        let ubuntu = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let clusters = Err("secrets are missing".to_owned());
+
+        let (method, _) = shutdown_method(&clusters, "w1", &talos);
+        assert!(
+            matches!(method, ShutdownMethod::Unavailable(reason) if reason.contains("secrets are missing"))
+        );
+        let (method, _) = shutdown_method(&clusters, "vm1", &ubuntu);
+        assert!(matches!(method, ShutdownMethod::Acpi));
+    }
 
     #[test]
     fn only_a_running_container_is_paused() {

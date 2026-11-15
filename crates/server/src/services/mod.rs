@@ -29,6 +29,7 @@ pub(crate) mod p2p_links;
 pub mod progress;
 pub mod redeploy;
 pub mod resume;
+pub mod saved_cluster_plans;
 pub mod saved_lab_files;
 pub mod scanner;
 pub(crate) mod ssh_config;

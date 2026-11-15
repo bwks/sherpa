@@ -11,6 +11,6 @@ pub mod secrets;
 
 pub use lab::{
     LabCluster, bring_up_clusters, ensure_redeployable, find_cluster, find_member_cluster,
-    grant_vault_access, load_cluster, load_clusters, node_machine_config, prepare_clusters,
+    grant_vault_access, load_clusters, node_machine_config, prepare_clusters,
     read_cluster_credentials, readiness_waits_for_kubernetes, request_shutdown,
 };

@@ -9,7 +9,11 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use tracing::instrument;
 
-use shared::data::{ClusterCni, ClusterInfo, ClusterRole, NetworkV4, StatusKind};
+use db::Database;
+use shared::data::{
+    ClusterCni, ClusterInfo, ClusterMember, ClusterPlan, ClusterRole, NetworkV4, RecordId,
+    StatusKind,
+};
 use shared::konst::{KEYCLOAK_REALM, READINESS_SLEEP, SHERPA_LABS_PATH};
 use template::{
     CiliumConfig, ClusterOidcConfig, ClusterVaultConfig, TalosClusterSecrets, TalosNodeConfig,
@@ -18,11 +22,11 @@ use template::{
 use topology::{TalosCluster, find_talos_cluster};
 
 use super::bootstrap::{BootstrapOutcome, bootstrap, shutdown, wait_for_kubernetes};
-use super::plan::{ClusterMember, ClusterPlan, MemberInput, plan_clusters};
+use super::plan::{MemberInput, plan_clusters};
 use super::secrets::{
-    CLUSTERS_DIR, KUBECONFIG_FILE, TALOSCONFIG_FILE, client_credentials, cluster_dir,
-    generate_cluster_secrets, kubernetes_admin_credentials, load_secrets, save_secrets,
-    service_account_public_key, talos_admin_credentials,
+    KUBECONFIG_FILE, TALOSCONFIG_FILE, client_credentials, cluster_dir, generate_cluster_secrets,
+    kubernetes_admin_credentials, load_secrets, save_secrets, service_account_public_key,
+    talos_admin_credentials,
 };
 use crate::services::keycloak::api::keycloak_address;
 use crate::services::lab_operations::LabOperation;
@@ -31,9 +35,6 @@ use crate::services::vault::api::{VaultClient, vault_address};
 use crate::services::vault::{ClusterAccess, cluster_auth_mount, configure_cluster_access};
 use crate::tls::generator::write_file_with_permissions;
 
-/// File holding a cluster's plan (endpoint, shared address and members).
-const PLAN_FILE: &str = "cluster.toml";
-
 /// A cluster prepared for a lab: its plan and secrets.
 #[derive(Clone, Debug)]
 pub struct LabCluster {
@@ -41,43 +42,33 @@ pub struct LabCluster {
     pub secrets: TalosClusterSecrets,
 }
 
-/// Plan the lab's clusters and generate and save their secrets.
+/// Plan the lab's clusters, generate and save their secrets, and store their plans with the
+/// lab `lab_record_id`'s definition, which must already hold the clusters.
 ///
 /// `services` holds the addresses of the Keycloak and Vault nodes clusters use.
-#[instrument(skip(talos_clusters, members, services, management), fields(%lab_id, clusters = talos_clusters.len()))]
-pub fn prepare_clusters(
+#[instrument(skip(db, talos_clusters, members, services, management), fields(%lab_id, clusters = talos_clusters.len()))]
+pub async fn prepare_clusters(
+    db: &Database,
+    lab_record_id: &RecordId,
     lab_id: &str,
     talos_clusters: &[TalosCluster],
-    members: &[MemberInput],
+    members: &[MemberInput<'_>],
     services: &[ClusterMember],
     management: &NetworkV4,
 ) -> Result<Vec<LabCluster>> {
     let plans = plan_clusters(talos_clusters, members, services, management)?;
+    db::store_talos_cluster_plans(db, lab_record_id, &plans)
+        .await
+        .context("Failed to store the cluster plans")?;
     let mut clusters = Vec::with_capacity(plans.len());
     for plan in plans {
         let secrets = generate_cluster_secrets()
             .with_context(|| format!("Failed to generate secrets for cluster '{}'", plan.name))?;
-        let dir = cluster_dir(lab_id, &plan.name);
+        let dir = cluster_dir(Path::new(SHERPA_LABS_PATH), lab_id, &plan.name);
         save_secrets(&dir, &plan.name, &secrets)?;
-        let plan_toml = toml::to_string(&plan).context("Failed to serialize cluster plan")?;
-        write_file_with_permissions(&dir.join(PLAN_FILE), plan_toml.as_bytes(), 0o600)
-            .with_context(|| format!("Failed to save plan for cluster '{}'", plan.name))?;
         clusters.push(LabCluster { plan, secrets });
     }
     Ok(clusters)
-}
-
-/// Load a cluster saved by `prepare_clusters`.
-#[instrument(level = "debug", fields(%lab_id, %cluster_name))]
-pub fn load_cluster(lab_id: &str, cluster_name: &str) -> Result<LabCluster> {
-    let dir = cluster_dir(lab_id, cluster_name);
-    let path = dir.join(PLAN_FILE);
-    let content = fs::read_to_string(&path)
-        .with_context(|| format!("Failed to read the plan of cluster '{cluster_name}'"))?;
-    let plan =
-        toml::from_str(&content).with_context(|| format!("Failed to parse {}", path.display()))?;
-    let secrets = load_secrets(&dir, cluster_name)?;
-    Ok(LabCluster { plan, secrets })
 }
 
 /// Refuse to redeploy a cluster's control plane.
@@ -342,7 +333,7 @@ fn write_credentials(lab_id: &str, cluster: &LabCluster, lab_ca_cert: &str) -> R
         &client_credentials(&secrets.kubernetes_ca_cert, &kube_admin),
         oidc_config(plan, lab_ca_cert).as_ref(),
     )?;
-    let dir = cluster_dir(lab_id, &plan.name);
+    let dir = cluster_dir(Path::new(SHERPA_LABS_PATH), lab_id, &plan.name);
     write_file_with_permissions(&dir.join(TALOSCONFIG_FILE), talosconfig.as_bytes(), 0o600)?;
     write_file_with_permissions(&dir.join(KUBECONFIG_FILE), kubeconfig.as_bytes(), 0o600)?;
     Ok(ClusterInfo {
@@ -355,56 +346,49 @@ fn write_credentials(lab_id: &str, cluster: &LabCluster, lab_ca_cert: &str) -> R
     })
 }
 
-/// Read the credentials of every cluster in a lab, for `sherpa download`.
-#[instrument(level = "debug", fields(%lab_id))]
-pub fn read_cluster_credentials(lab_id: &str) -> Result<Vec<ClusterInfo>> {
-    let mut infos = vec![];
-    for name in saved_cluster_names(lab_id)? {
-        let cluster = load_cluster(lab_id, &name)?;
-        let dir = cluster_dir(lab_id, &name);
+/// Read the credentials of every cluster of the lab `lab_record_id`, for `sherpa download`:
+/// the endpoint and load balancer addresses from its stored plan, and the talosconfig and
+/// kubeconfig from its folder in the lab `lab_id`'s folder under `labs`.
+#[instrument(level = "debug", skip(db), fields(%lab_id))]
+pub async fn read_cluster_credentials(
+    db: &Database,
+    labs: &Path,
+    lab_record_id: &RecordId,
+    lab_id: &str,
+) -> Result<Vec<ClusterInfo>> {
+    let plans = db::list_talos_cluster_plans(db, lab_record_id)
+        .await
+        .context("Failed to read the lab's cluster plans")?;
+    let mut infos = Vec::with_capacity(plans.len());
+    for plan in &plans {
+        let name = &plan.name;
+        let dir = cluster_dir(labs, lab_id, name);
         infos.push(ClusterInfo {
-            endpoint: cluster.plan.endpoint_url(),
-            gateway: cluster
-                .plan
-                .gateway_address()
-                .map(|address| address.to_string()),
-            hubble_ui: cluster
-                .plan
-                .hubble_ui_address()
-                .map(|address| address.to_string()),
+            name: name.clone(),
+            endpoint: plan.endpoint_url(),
+            gateway: plan.gateway_address().map(|address| address.to_string()),
+            hubble_ui: plan.hubble_ui_address().map(|address| address.to_string()),
             talosconfig: fs::read_to_string(dir.join(TALOSCONFIG_FILE))
                 .with_context(|| format!("Failed to read the talosconfig of cluster '{name}'"))?,
             kubeconfig: fs::read_to_string(dir.join(KUBECONFIG_FILE))
                 .with_context(|| format!("Failed to read the kubeconfig of cluster '{name}'"))?,
-            name,
         });
     }
     infos.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(infos)
 }
 
-/// The saved cluster `node_name` belongs to, with its role and management address.
-#[instrument(level = "debug", fields(%lab_id, %node_name))]
-pub fn find_member_cluster(
-    lab_id: &str,
+/// The cluster `node_name` belongs to, with its role and management address.
+pub fn find_member_cluster<'a>(
+    clusters: &'a [LabCluster],
     node_name: &str,
-) -> Result<Option<(LabCluster, ClusterRole, Ipv4Addr)>> {
-    for name in saved_cluster_names(lab_id)? {
-        let cluster = load_cluster(lab_id, &name)?;
-        let Some(role) = cluster.plan.role_of(node_name) else {
-            continue;
-        };
-        let member = cluster
+) -> Option<(&'a LabCluster, ClusterRole, Ipv4Addr)> {
+    clusters.iter().find_map(|cluster| {
+        cluster
             .plan
-            .control_planes
-            .iter()
-            .chain(&cluster.plan.workers)
-            .find(|member| member.name == node_name)
-            .with_context(|| format!("Cluster '{name}' has no address for node '{node_name}'"))?;
-        let ipv4 = member.ipv4;
-        return Ok(Some((cluster, role, ipv4)));
-    }
-    Ok(None)
+            .member(node_name)
+            .map(|(role, member)| (cluster, role, member.ipv4))
+    })
 }
 
 /// Ask a cluster node to shut down gracefully through its Talos API, with the cluster's
@@ -415,12 +399,22 @@ pub async fn request_shutdown(cluster: &LabCluster, node: Ipv4Addr) -> Result<()
     shutdown(node, &cluster.secrets, &admin).await
 }
 
-/// Every cluster saved in a lab's directory.
-#[instrument(level = "debug", fields(%lab_id))]
-pub fn load_clusters(lab_id: &str) -> Result<Vec<LabCluster>> {
-    let mut clusters = vec![];
-    for name in saved_cluster_names(lab_id)? {
-        clusters.push(load_cluster(lab_id, &name)?);
+/// Every cluster of the lab `lab_record_id`: its plan from the database and its secrets from
+/// its folder in the lab `lab_id`'s folder under `labs`.
+#[instrument(level = "debug", skip(db), fields(%lab_id))]
+pub async fn load_clusters(
+    db: &Database,
+    labs: &Path,
+    lab_record_id: &RecordId,
+    lab_id: &str,
+) -> Result<Vec<LabCluster>> {
+    let plans = db::list_talos_cluster_plans(db, lab_record_id)
+        .await
+        .context("Failed to read the lab's cluster plans")?;
+    let mut clusters = Vec::with_capacity(plans.len());
+    for plan in plans {
+        let secrets = load_secrets(&cluster_dir(labs, lab_id, &plan.name), &plan.name)?;
+        clusters.push(LabCluster { plan, secrets });
     }
     Ok(clusters)
 }
@@ -467,38 +461,224 @@ pub async fn grant_vault_access(
     Ok(())
 }
 
-/// Names of the clusters saved in a lab's directory.
-fn saved_cluster_names(lab_id: &str) -> Result<Vec<String>> {
-    let clusters_dir = Path::new(SHERPA_LABS_PATH).join(lab_id).join(CLUSTERS_DIR);
-    let entries = match fs::read_dir(&clusters_dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            tracing::debug!(%lab_id, "Lab has no clusters");
-            return Ok(vec![]);
-        }
-        Err(error) => {
-            return Err(error)
-                .with_context(|| format!("Failed to list {}", clusters_dir.display()));
-        }
-    };
-    let mut names = vec![];
-    for entry in entries {
-        let dir = entry
-            .with_context(|| format!("Failed to list {}", clusters_dir.display()))?
-            .path();
-        match dir.file_name().and_then(|name| name.to_str()) {
-            Some(name) => names.push(name.to_owned()),
-            None => {
-                tracing::warn!(path = %dir.display(), "Skipping cluster directory with a non-UTF-8 name");
-            }
+#[cfg(test)]
+pub(crate) mod tests {
+    use shared::data::{AddressRange, DbLab, NodeModel};
+    use topology::{Manifest, Node};
+
+    use crate::services::lab_definition::tests::lab_with;
+
+    use super::*;
+
+    /// A plan member at `172.31.1.<host>`.
+    fn member(name: &str, host: u8) -> ClusterMember {
+        ClusterMember {
+            name: name.to_owned(),
+            ipv4: Ipv4Addr::new(172, 31, 1, host),
         }
     }
-    Ok(names)
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    /// The plans `up` works out for the lab of `cluster_lab`: an HA Cilium cluster `ha` and a
+    /// single-node Flannel cluster `solo`.
+    pub(crate) fn cluster_plans() -> Vec<ClusterPlan> {
+        vec![
+            ClusterPlan {
+                name: "ha".to_owned(),
+                endpoint: Ipv4Addr::new(172, 31, 1, 11),
+                vip: Some(Ipv4Addr::new(172, 31, 1, 11)),
+                cni: ClusterCni::Cilium,
+                load_balancer_addresses: Some(AddressRange {
+                    first: Ipv4Addr::new(172, 31, 1, 13),
+                    last: Ipv4Addr::new(172, 31, 1, 16),
+                }),
+                control_planes: vec![member("cp1", 21), member("cp2", 22), member("cp3", 23)],
+                workers: vec![member("w1", 24)],
+                oidc: None,
+                vault: None,
+            },
+            ClusterPlan {
+                name: "solo".to_owned(),
+                endpoint: Ipv4Addr::new(172, 31, 1, 25),
+                vip: None,
+                cni: ClusterCni::Flannel,
+                load_balancer_addresses: None,
+                control_planes: vec![member("solo", 25)],
+                workers: vec![],
+                oidc: None,
+                vault: None,
+            },
+        ]
+    }
+
+    /// A keyed database holding the lab `lab-0001` with the Talos nodes of `cluster_plans` at
+    /// their addresses, and a definition with its two clusters. No plan is stored.
+    pub(crate) async fn cluster_lab() -> (Database, DbLab) {
+        let plans = cluster_plans();
+        let members: Vec<&ClusterMember> = plans
+            .iter()
+            .flat_map(|plan| plan.control_planes.iter().chain(&plan.workers))
+            .collect();
+        let nodes: Vec<(&str, NodeModel)> = members
+            .iter()
+            .map(|member| (member.name.as_str(), NodeModel::TalosLinux))
+            .collect();
+        let (db, lab) = lab_with(&nodes).await;
+        for record in db::list_nodes_by_lab(&db, lab.id.clone().unwrap())
+            .await
+            .unwrap()
+        {
+            let member = members
+                .iter()
+                .find(|member| member.name == record.name)
+                .unwrap();
+            db::update_node_mgmt_ipv4(&db, record.id.unwrap(), &member.ipv4.to_string())
+                .await
+                .unwrap();
+        }
+        let manifest = Manifest {
+            name: "core".to_owned(),
+            talos_clusters: Some(
+                plans
+                    .iter()
+                    .map(|plan| TalosCluster {
+                        name: plan.name.clone(),
+                        controllers: plan.control_planes.iter().map(|m| m.name.clone()).collect(),
+                        workers: plan.workers.iter().map(|m| m.name.clone()).collect(),
+                        cni: plan.cni,
+                        oidc: None,
+                        vault: None,
+                    })
+                    .collect(),
+            ),
+            nodes: nodes
+                .iter()
+                .map(|(name, model)| Node {
+                    name: (*name).to_owned(),
+                    model: *model,
+                    ..Node::default()
+                })
+                .collect(),
+            ..Manifest::default()
+        };
+        db::store_lab_definition(&db, lab.id.as_ref().unwrap(), &manifest)
+            .await
+            .unwrap();
+        (db, lab)
+    }
+
+    /// Save secrets and user credentials for each of `plans` in the folder of lab `lab_id`
+    /// under `labs`, as `up` does.
+    pub(crate) fn save_cluster_files(labs: &Path, lab_id: &str, plans: &[ClusterPlan]) {
+        for plan in plans {
+            let dir = cluster_dir(labs, lab_id, &plan.name);
+            fs::create_dir_all(&dir).unwrap();
+            save_secrets(&dir, &plan.name, &generate_cluster_secrets().unwrap()).unwrap();
+            fs::write(
+                dir.join(TALOSCONFIG_FILE),
+                format!("talosconfig of {}", plan.name),
+            )
+            .unwrap();
+            fs::write(
+                dir.join(KUBECONFIG_FILE),
+                format!("kubeconfig of {}", plan.name),
+            )
+            .unwrap();
+        }
+    }
+
+    /// The lab of `cluster_lab` with its plans stored and its cluster files saved under a
+    /// temporary labs folder.
+    async fn stored_cluster_lab() -> (Database, DbLab, tempfile::TempDir) {
+        let (db, lab) = cluster_lab().await;
+        db::store_talos_cluster_plans(&db, lab.id.as_ref().unwrap(), &cluster_plans())
+            .await
+            .unwrap();
+        let labs = tempfile::tempdir().unwrap();
+        save_cluster_files(labs.path(), &lab.lab_id, &cluster_plans());
+        (db, lab, labs)
+    }
+
+    #[tokio::test]
+    async fn clusters_load_from_their_stored_plans_and_saved_secrets() {
+        let (db, lab, labs) = stored_cluster_lab().await;
+
+        let clusters = load_clusters(&db, labs.path(), lab.id.as_ref().unwrap(), &lab.lab_id)
+            .await
+            .unwrap();
+
+        let plans: Vec<ClusterPlan> = clusters.iter().map(|c| c.plan.clone()).collect();
+        assert_eq!(plans, cluster_plans());
+        let solo = find_cluster(&clusters, "solo").unwrap();
+        assert_eq!(
+            solo.secrets,
+            load_secrets(&cluster_dir(labs.path(), &lab.lab_id, "solo"), "solo").unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_lab_without_stored_plans_has_no_clusters() {
+        let (db, lab) = cluster_lab().await;
+        let labs = tempfile::tempdir().unwrap();
+        save_cluster_files(labs.path(), &lab.lab_id, &cluster_plans());
+
+        let clusters = load_clusters(&db, labs.path(), lab.id.as_ref().unwrap(), &lab.lab_id)
+            .await
+            .unwrap();
+
+        assert!(clusters.is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_download_credentials_come_from_the_stored_plans_and_saved_files() {
+        let (db, lab, labs) = stored_cluster_lab().await;
+
+        let infos =
+            read_cluster_credentials(&db, labs.path(), lab.id.as_ref().unwrap(), &lab.lab_id)
+                .await
+                .unwrap();
+
+        assert_eq!(
+            infos,
+            [
+                ClusterInfo {
+                    name: "ha".to_owned(),
+                    endpoint: "https://172.31.1.11:6443".to_owned(),
+                    talosconfig: "talosconfig of ha".to_owned(),
+                    kubeconfig: "kubeconfig of ha".to_owned(),
+                    gateway: Some("172.31.1.13".to_owned()),
+                    hubble_ui: Some("172.31.1.14".to_owned()),
+                },
+                ClusterInfo {
+                    name: "solo".to_owned(),
+                    endpoint: "https://172.31.1.25:6443".to_owned(),
+                    talosconfig: "talosconfig of solo".to_owned(),
+                    kubeconfig: "kubeconfig of solo".to_owned(),
+                    gateway: None,
+                    hubble_ui: None,
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn members_are_found_in_the_loaded_clusters() {
+        let (db, lab, labs) = stored_cluster_lab().await;
+        let clusters = load_clusters(&db, labs.path(), lab.id.as_ref().unwrap(), &lab.lab_id)
+            .await
+            .unwrap();
+
+        let (cluster, role, address) = find_member_cluster(&clusters, "w1").unwrap();
+        assert_eq!(
+            (cluster.plan.name.as_str(), role, address),
+            ("ha", ClusterRole::Worker, Ipv4Addr::new(172, 31, 1, 24))
+        );
+        let (cluster, role, _) = find_member_cluster(&clusters, "solo").unwrap();
+        assert_eq!(
+            (cluster.plan.name.as_str(), role),
+            ("solo", ClusterRole::ControlPlane)
+        );
+        assert!(find_member_cluster(&clusters, "vm1").is_none());
+    }
 
     #[test]
     fn only_cluster_controllers_are_refused_for_redeploy() {

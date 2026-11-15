@@ -175,15 +175,10 @@ pub(super) async fn load_redeploy<'a>(
         lab_ca,
     } = load_lab_files(&state.db, db_lab).await?;
     // A cluster worker rejoins with a config built from the cluster's saved secrets.
-    if let Some((talos_cluster, _)) = talos_membership {
-        target_node.ztp.config = Some(worker_rejoin_config(
-            &lab_id,
-            &target_node,
-            &node_image,
-            &talos_cluster.name,
-            &mgmt_net,
-            &lab_ca,
-        )?);
+    if talos_membership.is_some() {
+        let config =
+            worker_rejoin_config(state, db_lab, &target_node, &node_image, &mgmt_net, &lab_ca);
+        target_node.ztp.config = Some(config.await?);
     }
     let ssh_key = LabSshKeyPaths::in_lab(&lab_dir);
     let sherpa_user = util::sherpa_user(&ssh_key.public).context("Failed to get sherpa user")?;
@@ -381,19 +376,32 @@ async fn load_lab_files(db: &db::Database, db_lab: &DbLab) -> Result<LabFiles> {
     })
 }
 
-/// The machine config a Talos cluster worker rejoins with, built from the cluster's saved
-/// secrets.
-fn worker_rejoin_config(
-    lab_id: &str,
+/// The machine config a Talos cluster worker rejoins with, built from the stored plan and
+/// saved secrets of the cluster it is a member of.
+async fn worker_rejoin_config(
+    state: &AppState,
+    db_lab: &DbLab,
     target_node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
-    cluster_name: &str,
     mgmt_net: &data::SherpaNetwork,
     lab_ca: &LabCa,
 ) -> Result<String> {
     talos::secrets::ensure_supported_version(&target_node.name, &node_image.version)?;
-    let cluster = talos::load_cluster(lab_id, cluster_name)?;
-    talos::node_machine_config(&cluster, &target_node.name, &mgmt_net.v4, &lab_ca.pair.cert)
+    let clusters = talos::load_clusters(
+        &state.db,
+        Path::new(SHERPA_LABS_PATH),
+        &db::get_lab_id(db_lab)?,
+        &db_lab.lab_id,
+    )
+    .await?;
+    let (cluster, _, _) =
+        talos::find_member_cluster(&clusters, &target_node.name).with_context(|| {
+            format!(
+                "Node '{}' is not a member of a stored Talos cluster",
+                target_node.name
+            )
+        })?;
+    talos::node_machine_config(cluster, &target_node.name, &mgmt_net.v4, &lab_ca.pair.cert)
 }
 
 /// The lab owner's account, for a node that takes it. `None` when the owner's username cannot

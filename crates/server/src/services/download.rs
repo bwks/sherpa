@@ -1,4 +1,5 @@
 use std::io::ErrorKind;
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use tracing::instrument;
@@ -50,7 +51,13 @@ pub async fn download_lab_files(
         String::new()
     };
 
-    let clusters = talos::read_cluster_credentials(lab_id)?;
+    let clusters = talos::read_cluster_credentials(
+        &state.db,
+        Path::new(SHERPA_LABS_PATH),
+        &lab_record_id,
+        lab_id,
+    )
+    .await?;
 
     // Labs created before the lab CA have no CA certificate.
     let lab_ca_path = format!("{lab_dir}/{LAB_CERTS_DIR}/{LAB_CA_CERT_FILE}");

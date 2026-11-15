@@ -229,6 +229,8 @@ pub const TALOS_IMAGE_FACTORY_URL: &str = "https://factory.talos.dev";
 /// Image Factory schematic for vanilla Talos Linux (no system extensions). The factory
 /// returns its ID when it is posted to `/schematics`.
 pub const TALOS_VANILLA_SCHEMATIC_YAML: &str = "customization: {}\n";
+/// Kubernetes API port of a Talos cluster.
+pub const KUBERNETES_API_PORT: u16 = 6443;
 /// Host offsets for Talos cluster shared (VIP) addresses, within the lab control-plane block.
 pub const TALOS_VIP_HOST_OFFSETS: RangeInclusive<u32> = 11..=12;
 /// Host offsets Cilium clusters hand out to load balancers, within the lab control-plane block
