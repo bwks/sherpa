@@ -205,7 +205,7 @@ pub(super) async fn load_redeploy<'a>(
     );
 
     let (qemu_conn, admitted) =
-        check_fits_server(state, &lab_id, &target_node, &node_image).await?;
+        check_fits_server(state, ctx, progress, &lab_id, &target_node, &node_image).await?;
 
     Ok(Redeploy {
         state,
@@ -444,10 +444,13 @@ fn node_login(
 
 /// The node's settings by kind, VM tuning, platform, CPU pins and memory must still fit the
 /// server before the node is destroyed. The node being replaced does not count against itself.
-/// Returns the libvirt connection the redeploy uses, and the node's admission.
+/// Returns the libvirt connection the redeploy uses, and the node's admission. A warning for
+/// each overlap the node's stored pins already had goes to the user.
 #[instrument(skip_all, fields(node_name = %target_node.name), level = "debug")]
 async fn check_fits_server(
     state: &AppState,
+    requester: &AuthContext,
+    progress: &ProgressSender,
     lab_id: &str,
     target_node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
@@ -470,11 +473,15 @@ async fn check_fits_server(
         &state.db,
         &qemu_conn,
         &state.docker,
+        requester,
         state.config.host_memory,
         lab_id,
         &[(target_node, node_image)],
     )
     .await?;
+    for warning in admitted.shared_cpus() {
+        let _ = progress.send_status(format!("Warning: {warning}"), StatusKind::Info);
+    }
     Ok((qemu_conn, admitted))
 }
 

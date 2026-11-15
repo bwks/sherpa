@@ -118,6 +118,7 @@ classifies an error by its text. Untyped failures are operational failures.
 | `Conflict` | `ServerError` (-32000) | 409 `CONFLICT` |
 | `Invalid` | `InvalidParams` (-32602) | 400 `BAD_REQUEST` |
 | `InsufficientMemory` | `InsufficientMemory` (-32005) | 507 `INSUFFICIENT_MEMORY` |
+| `CpuPinsHeld` | `CpuPinsHeld` (-32006) | 409 `CPU_PINS_HELD` |
 | none | `ServerError` (-32000), with `context` | 500 `INTERNAL_ERROR` (the REST conversion still guesses 400 and 404 from the text of some untyped errors) |
 
 The RPC mapping is `service_error` in `crates/server/src/api/websocket/rpc/dispatch.rs`; the REST
@@ -138,6 +139,21 @@ server does not have is not this error. The REST status is 507 Insufficient Stor
 status, so clients tell it from a 409 conflict, and a server capacity limit rather than a fault
 in the request. 503 was not used because proxies and monitors read it as the server being down.
 
+`CpuPinsHeld` is the pin refusal: host CPUs the nodes an `up` or `redeploy` would start pin
+are held by another node, stored or being started by another operation (see
+[CPU pins in admission](SERVER.md#cpu-pins-in-admission)). Nothing was started, and the same
+request can succeed once that node is destroyed or redeployed on other CPUs. Its `data` is a
+`shared::error::CpuPinConflict`, which names no lab or node:
+
+```json
+{ "host_cpus": [2, 3], "requested_role": "vcpu", "held_role": "vcpu" }
+```
+
+A role is `vcpu` or `thread` (QEMU emulator and disk I/O threads). The message names the
+holding node and lab only to admins and that lab's owner. Pins that overlap within one
+manifest, or name CPUs the server does not have, are not this error. The REST status is 409
+with its own `code`, so clients tell it from other conflicts.
+
 Streaming REST operations (`POST /api/v1/labs`, redeploy) have sent `200` before they can fail,
 so their SSE `error` event carries the code instead: `{"error": "<message chain>", "code":
 "INSUFFICIENT_MEMORY", "data": {...}}`. Typed refusals add `code` (and `data` where defined);
@@ -148,7 +164,8 @@ untyped failures send only `error` (`stream_error_event` in `api/errors.rs`).
 The client turns an RPC error into an `RpcFailure` (`crates/client/src/ws_client/messages.rs`),
 which keeps its code. `cmd::exit_status` (`crates/client/src/cmd/exit_status.rs`) picks the exit
 status from the error's type: the node shell's code for `sherpa ssh`, 75 (`EX_TEMPFAIL`) for an
-`InsufficientMemory` refusal, and 1 for any other failure.
+`InsufficientMemory` or `CpuPinsHeld` refusal, which a script can retry later alike, and 1 for
+any other failure.
 
 ## TLS
 
