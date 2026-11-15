@@ -42,8 +42,11 @@ pub struct ShowImageRequest {
 /// Response from showing image details
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ShowImageResponse {
-    /// Full image configuration
+    /// The image's configuration. Its `ztp.password` is never sent: it is always `null`.
     pub image: NodeConfig,
+    /// Whether the image has a ZTP password, which `image.ztp.password` does not show.
+    #[serde(default)]
+    pub ztp_password_set: bool,
 }
 
 /// Request type for importing a disk image

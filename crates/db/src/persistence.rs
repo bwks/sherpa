@@ -17,6 +17,8 @@ use shared::data::{
 };
 use shared::konst::{SHERPA_DB_KEY_CHARSET, SHERPA_DB_KEY_LENGTH};
 
+use crate::secret::SealedText;
+
 pub(crate) const USER_TABLE: &str = "user";
 pub(crate) const LAB_TABLE: &str = "lab";
 pub(crate) const NODE_TABLE: &str = "node";
@@ -567,8 +569,13 @@ pub(crate) fn node_image_from_row(row: &Row) -> Result<NodeConfig> {
     })
 }
 
-/// A node image's column values in the `node_image` table's column order, under `key`.
-pub(crate) fn node_image_values(image: &NodeConfig, key: &str) -> Result<[Value; 29]> {
+/// A node image's column values in the `node_image` table's column order, under `key`, with its
+/// ZTP password as `password` sealed it: the column takes nothing else.
+pub(crate) fn node_image_values(
+    image: &NodeConfig,
+    key: &str,
+    password: Option<SealedText>,
+) -> Result<[Value; 29]> {
     Ok([
         key.into(),
         enum_text(&image.model, "model")?.into(),
@@ -587,7 +594,7 @@ pub(crate) fn node_image_values(image: &NodeConfig, key: &str) -> Result<[Value;
         image.cdrom.image.as_deref().into(),
         enum_text(&image.cdrom.bus, "cdrom_bus")?.into(),
         image.ztp.username.as_deref().into(),
-        image.ztp.password.as_deref().into(),
+        password.into(),
         image.ztp.password_auth.into(),
         image.interfaces.data_count.into(),
         image.interfaces.prefix.as_str().into(),

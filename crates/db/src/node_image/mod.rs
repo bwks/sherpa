@@ -1,6 +1,7 @@
 mod create;
 mod default;
 mod delete;
+mod password;
 mod read;
 mod update;
 
@@ -16,6 +17,9 @@ pub use read::{
     find_node_image_by_model_kind_version, get_node_image_versions, list_node_images,
     list_node_images_by_ids, list_node_images_by_kind,
 };
+
+// Sealing passwords stored as plain text
+pub use password::seal_plain_image_passwords;
 
 // Public exports - UPDATE operations
 pub use update::update_node_image;

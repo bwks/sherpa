@@ -6,6 +6,7 @@ use turso::Connection;
 
 use crate::Database;
 use crate::node_image::default::{DefaultRequest, claim_default};
+use crate::node_image::password::{open_password, seal_password};
 use crate::persistence::{
     NODE_IMAGE_TABLE, enum_text, key_of, new_key, node_image_from_row, node_image_values,
 };
@@ -58,7 +59,9 @@ pub async fn upsert_node_image(
     .context(format!(
         "Failed to query existing node_image: model={}, kind={}, version={}",
         config.model, config.kind, config.version
-    ))?;
+    ))?
+    .map(|existing| open_password(db, existing))
+    .transpose()?;
     let is_default =
         claim_default(&tx, config.model, &config.kind, &config.version, request).await?;
 
@@ -71,7 +74,7 @@ pub async fn upsert_node_image(
                 .clone()
                 .context("Existing node_image record is missing its ID")?;
             let key = key_of(&record_id, NODE_IMAGE_TABLE)?;
-            replace_node_image(&tx, &existing, &key)
+            replace_node_image(db, &tx, &existing, &key)
                 .await?
                 .ok_or_else(|| {
                     anyhow!(
@@ -85,7 +88,7 @@ pub async fn upsert_node_image(
         None => {
             config.default = is_default;
             config.id = None;
-            insert_node_image(&tx, &config).await?
+            insert_node_image(db, &tx, &config).await?
         }
     };
 
@@ -95,11 +98,17 @@ pub async fn upsert_node_image(
     Ok(result)
 }
 
-/// Insert `config` as a new record with a generated ID.
-async fn insert_node_image(conn: &Connection, config: &NodeConfig) -> Result<NodeConfig> {
+/// Insert `config` as a new record with a generated ID, its password sealed.
+async fn insert_node_image(
+    db: &Database,
+    conn: &Connection,
+    config: &NodeConfig,
+) -> Result<NodeConfig> {
+    let key = new_key();
+    let password = seal_password(db, config, &key)?;
     let created = query_optional(
         conn,
-        queries::node_image::CREATE.bind(node_image_values(config, &new_key())?),
+        queries::node_image::CREATE.bind(node_image_values(config, &key, password)?),
         node_image_from_row,
     )
     .await
@@ -108,30 +117,36 @@ async fn insert_node_image(conn: &Connection, config: &NodeConfig) -> Result<Nod
         config.model, config.kind, config.version
     ))?;
 
-    created.ok_or_else(|| {
+    let created = created.ok_or_else(|| {
         anyhow!(
             "Database returned no record after creating node_image: model={}, kind={}, version={}",
             config.model,
             config.kind,
             config.version
         )
-    })
+    })?;
+    open_password(db, created)
 }
 
-/// Replace every field of the record `key` with those of `config`. `None` if it does not exist.
+/// Replace every field of the record `key` with those of `config`, its password sealed. `None`
+/// if it does not exist.
 pub(crate) async fn replace_node_image(
+    db: &Database,
     conn: &Connection,
     config: &NodeConfig,
     key: &str,
 ) -> Result<Option<NodeConfig>> {
+    let password = seal_password(db, config, key)?;
     query_optional(
         conn,
-        queries::node_image::UPDATE.bind(node_image_values(config, key)?),
+        queries::node_image::UPDATE.bind(node_image_values(config, key, password)?),
         node_image_from_row,
     )
     .await
     .context(format!(
         "Failed to update node_image: model={}, kind={}, version={}",
         config.model, config.kind, config.version
-    ))
+    ))?
+    .map(|replaced| open_password(db, replaced))
+    .transpose()
 }

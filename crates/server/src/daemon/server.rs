@@ -253,7 +253,18 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         );
     }
 
-    // Labs stored before lab definitions were get theirs once, from their saved manifests.
+    // Data stored before this release, brought up to date once before anything reads it: image
+    // passwords stored as plain text are sealed, and labs stored before lab definitions were get
+    // theirs from their saved manifests.
+    let sealed = db::seal_plain_image_passwords(&state.db)
+        .await
+        .context("Failed to seal image passwords stored as plain text")?;
+    if sealed > 0 {
+        tracing::info!(
+            images = sealed,
+            "Sealed image passwords stored as plain text"
+        );
+    }
     let imported = lab_definition::import_lab_definitions(&state.db, Path::new(SHERPA_LABS_PATH))
         .await
         .context("Failed to import lab definitions")?;

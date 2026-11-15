@@ -48,7 +48,7 @@ pub use node_image::{
     DefaultRequest, LastDefaultImage, count_node_images, delete_node_image,
     find_default_node_image, find_node_image_by_id, find_node_image_by_model_kind_version,
     get_node_image_versions, list_node_images, list_node_images_by_ids, list_node_images_by_kind,
-    update_node_image, upsert_node_image,
+    seal_plain_image_passwords, update_node_image, upsert_node_image,
 };
 
 // Node CRUD operations

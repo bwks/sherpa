@@ -17,7 +17,7 @@ use crate::persistence::{LAB_TABLE, key_of};
 use crate::sql::{Query, query_count};
 use crate::{
     Database, DefaultRequest, LabDetails, LabNetworks, SecretKey, apply_schema, create_lab,
-    create_node, create_user, delete_lab_from, get_node_by_name_and_lab, open_in_memory,
+    create_node, create_user, delete_lab_from, get_node_by_name_and_lab, open, open_in_memory,
     upsert_node_image,
 };
 
@@ -400,7 +400,8 @@ async fn lab_with_nodes() -> (Database, DbLab) {
     (db, lab)
 }
 
-/// The lab `core` with its nodes in `db`.
+/// The lab `core` with its nodes in `db`. Their images have no ZTP password, so a database
+/// without a key can hold them.
 async fn lab_in(db: &Database) -> DbLab {
     let db = db.clone();
     apply_schema(&db).await.unwrap();
@@ -437,7 +438,9 @@ async fn lab_in(db: &Database) -> DbLab {
     .into_iter()
     .enumerate()
     {
-        let image = upsert_node_image(&db, NodeConfig::get_model(model), DefaultRequest::Keep)
+        let mut image = NodeConfig::get_model(model);
+        image.ztp.password = None;
+        let image = upsert_node_image(&db, image, DefaultRequest::Keep)
             .await
             .unwrap();
         create_node(
@@ -648,7 +651,8 @@ async fn the_ztp_server_password_is_stored_sealed() {
 
 #[tokio::test]
 async fn a_password_cannot_be_stored_without_a_key() {
-    let db = open_in_memory().await.unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let db = open(&dir.path().join("sherpa.sqlite")).await.unwrap();
     let lab = lab_in(&db).await;
     let error = store_lab_definition(&db, &lab_id(&lab), &full_manifest())
         .await

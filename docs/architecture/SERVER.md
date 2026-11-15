@@ -118,7 +118,8 @@ flowchart TB
         jwt["load JWT secret, or generate it if missing<br/>(a new one written 0600 in a 0700 directory;<br/>a file of the wrong length stops startup)"] --> database["open the database file"] --> schema["apply DB schema"] --> dbkey["load the database key, or generate it if missing<br/>and the database has no key check<br/>(0600 in the config directory); verify_secret_key"] --> seed["optionally seed admin user"] --> storage["restrict lab and database storage<br/>(daemon::storage::secure_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
     end
     registry --> recover["services::lab_lifecycle::recover:<br/>labs left Creating become Interrupted,<br/>left Destroying become DestroyFailed,<br/>nodes left Building become Failed"]
-    recover --> import["services::lab_definition::import_lab_definitions:<br/>a lab with no stored definition gets one<br/>from its saved manifest"]
+    recover --> sealimages["db::seal_plain_image_passwords:<br/>image passwords stored as plain text are sealed"]
+    sealimages --> import["services::lab_definition::import_lab_definitions:<br/>a lab with no stored definition gets one<br/>from its saved manifest"]
     import --> cancel["create CancellationToken for background services"]
     cancel --> scanner["if scanner enabled:<br/>spawn services::scanner::run_scanner(...)"]
     scanner --> sweeper["spawn auth::session::run_sweeper<br/>(deletes expired sessions at startup, then hourly)"]
@@ -149,6 +150,10 @@ and a key that does not open the check each stop startup with an error naming th
 file is never replaced. The key must be backed up with the database.
 
 #### Lab definition import
+
+First, `db::seal_plain_image_passwords` seals the image passwords releases before schema version
+20 stored as plain text (see [`DATABASE.md`](DATABASE.md#secret-values)); a failure stops
+startup, so the server never serves while one is plain.
 
 Labs stored before schema version 20 have no definition in the database. After `recover`,
 `lab_definition::import_lab_definitions` gives each lab whose `has_definition` is `0` one, from

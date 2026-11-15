@@ -123,8 +123,9 @@ mod tests {
     use super::*;
     use crate::persistence::{key_of, new_key, node_image_values};
     use crate::{
-        DefaultRequest, find_lab, list_labs_without_definition, list_node_images,
-        list_nodes_by_lab, open_in_memory, read_lab_definition, upsert_node_image,
+        DefaultRequest, find_lab, find_node_image_by_id, list_labs_without_definition,
+        list_node_images, list_nodes_by_lab, open_in_memory, read_lab_definition,
+        seal_plain_image_passwords, upsert_node_image,
     };
 
     /// The eleven ZTP methods a release before the one `ztp` column could store.
@@ -150,8 +151,8 @@ mod tests {
     /// Insert `image` into a database at a version before 16, whose `node_image` table has the
     /// `ztp_enable` and `ztp_method` columns, and before version 9 the
     /// `dedicated_management_interface` column too, none of which today's queries write. The
-    /// two ZTP values are stored as given, as an older release stored them. Returns the row's
-    /// key.
+    /// two ZTP values, and the password, are stored as given, as an older release stored them.
+    /// Returns the row's key.
     async fn insert_into_older_schema(
         db: &Database,
         image: &NodeConfig,
@@ -159,7 +160,9 @@ mod tests {
         ztp_method: &str,
     ) -> String {
         let key = new_key();
-        let mut values = Vec::from(node_image_values(image, &key).unwrap());
+        let mut values = Vec::from(node_image_values(image, &key, None).unwrap());
+        // An older release stored the password as plain text, in the 18th column.
+        values[17] = image.ztp.password.as_deref().into();
         // Today's last column is `ztp`, which the older table does not have.
         values.pop();
         values.push(Value::from(ztp_enable));
@@ -904,8 +907,9 @@ mod tests {
     async fn apply_schema_creates_the_protection_triggers() {
         let db = open_in_memory().await.unwrap();
         apply_schema(&db).await.unwrap();
-        // Three admin protection triggers, and the two that keep interfaces used once.
-        assert_eq!(trigger_count(&db, "%").await, 3 + 2);
+        // Three admin protection triggers, the two that keep interfaces used once, and the two
+        // that keep image passwords sealed.
+        assert_eq!(trigger_count(&db, "%").await, 3 + 2 + 2);
     }
 
     #[tokio::test]
@@ -1210,5 +1214,56 @@ mod tests {
         assert_eq!(without[0].lab_id, "lab-0001");
         let nodes = list_nodes_by_lab(&db, lab_id).await.unwrap();
         assert_eq!(nodes[0].memory, Some(2048));
+    }
+
+    #[tokio::test]
+    async fn plain_image_passwords_from_before_sealing_are_sealed_once() {
+        // A database from before passwords were sealed, holding one as plain text.
+        let db = database_at(migrations_before_lab_definitions()).await;
+        let mut image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        image.ztp.password = None;
+        let image = upsert_node_image(&db, image, DefaultRequest::Make)
+            .await
+            .unwrap();
+        let id = image.id.clone().unwrap();
+        let key = key_of(&id, "node_image").unwrap();
+        {
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute(
+                    "UPDATE node_image SET ztp_password = 'Plain-Pass1' WHERE id = ?1",
+                    [key.as_str()],
+                )
+                .await
+                .unwrap();
+        }
+
+        apply_schema(&db).await.unwrap();
+        // Until sherpad seals it, the plain value is refused when read, never returned.
+        let error = list_node_images(&db).await.unwrap_err();
+        assert!(format!("{error:#}").contains("not sealed"), "{error:#}");
+
+        assert_eq!(seal_plain_image_passwords(&db).await.unwrap(), 1);
+        assert_eq!(seal_plain_image_passwords(&db).await.unwrap(), 0);
+        let read = find_node_image_by_id(&db, id).await.unwrap().unwrap();
+        assert_eq!(read.ztp.password.as_deref(), Some("Plain-Pass1"));
+        let conn = db.reader().await.unwrap();
+        let mut rows = conn
+            .query(
+                "SELECT ztp_password FROM node_image WHERE id = ?1",
+                [key.as_str()],
+            )
+            .await
+            .unwrap();
+        let stored = rows
+            .next()
+            .await
+            .unwrap()
+            .unwrap()
+            .get::<String>(0)
+            .unwrap();
+        assert!(stored.starts_with("sealed:"), "{stored}");
+        assert!(!stored.contains("Plain-Pass1"));
     }
 }

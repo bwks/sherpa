@@ -253,3 +253,23 @@ CREATE TABLE secret_key_check (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     sealed BLOB NOT NULL CHECK (length(sealed) >= 29)
 ) STRICT;
+
+-- An image's ZTP password is stored sealed, as `sealed:` and the sealed value in lower-case hex
+-- (see `src/secret.rs`), never as plain text. The column keeps its type, so triggers refuse
+-- any other value: on insert, and on an update that changes it. Passwords stored as plain text
+-- before this version are sealed by sherpad at startup, which needs the key a migration does
+-- not have; until then a row's other columns can still be updated. 65 characters is the
+-- prefix and the hex of the shortest sealed value, 29 bytes.
+CREATE TRIGGER node_image_ztp_password_sealed_on_insert BEFORE INSERT ON node_image
+    WHEN NEW.ztp_password IS NOT NULL
+        AND NOT (NEW.ztp_password GLOB 'sealed:*'
+            AND length(NEW.ztp_password) >= 65
+            AND substr(NEW.ztp_password, 8) NOT GLOB '*[^0-9a-f]*')
+    BEGIN SELECT RAISE(ABORT, 'node_image.ztp_password must be sealed'); END;
+CREATE TRIGGER node_image_ztp_password_sealed_on_update BEFORE UPDATE OF ztp_password ON node_image
+    WHEN NEW.ztp_password IS NOT NULL
+        AND NEW.ztp_password IS NOT OLD.ztp_password
+        AND NOT (NEW.ztp_password GLOB 'sealed:*'
+            AND length(NEW.ztp_password) >= 65
+            AND substr(NEW.ztp_password, 8) NOT GLOB '*[^0-9a-f]*')
+    BEGIN SELECT RAISE(ABORT, 'node_image.ztp_password must be sealed'); END;

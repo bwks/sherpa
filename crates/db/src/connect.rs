@@ -170,14 +170,17 @@ pub async fn open(path: &Path) -> Result<Database> {
     })
 }
 
-/// Open a database that lives only in memory and disappears with the last handle. For tests.
+/// Open a database that lives only in memory and disappears with the last handle, with a new
+/// random key for its secret values, which disappears with it. For tests.
 ///
 /// # Errors
 ///
 /// Fails when Turso cannot open an in-memory database.
 #[instrument(level = "debug")]
 pub async fn open_in_memory() -> Result<Database> {
-    open(Path::new(SHERPA_DB_MEMORY)).await
+    Ok(open(Path::new(SHERPA_DB_MEMORY))
+        .await?
+        .with_secret_key(SecretKey::generate()))
 }
 
 #[cfg(test)]

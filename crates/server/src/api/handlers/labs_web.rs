@@ -518,7 +518,7 @@ pub async fn node_detail_handler(
     };
 
     // Fetch node image config
-    let node_config = match db::find_node_image_by_id(&state.db, db_node.image.clone()).await {
+    let mut node_config = match db::find_node_image_by_id(&state.db, db_node.image.clone()).await {
         Ok(Some(config)) => config,
         Ok(None) => {
             tracing::error!("Node image not found for node '{}'", node_name);
@@ -537,6 +537,8 @@ pub async fn node_detail_handler(
     };
 
     let ztp = effective_ztp(saved_node_ztp(&lab_id, &node_name), &node_config);
+    // The page never shows the image's password.
+    node_config.ztp.password = None;
 
     NodeDetailTemplate {
         username: auth.username,

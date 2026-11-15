@@ -55,12 +55,13 @@ are in [`../investigations/turso-migration.md`](../investigations/turso-migratio
   installer, the update script and `sherpad` at startup. `open` restricts the database file and
   its `-wal` and `-shm` files to `0600`; Turso creates the `-wal` file when it opens the database,
   so the first writes do not leave it readable by others.
-- **What a backup holds.** The copy is the whole database: users (password hashes), node images
-  (with their `ztp_password`, in plain text), labs, nodes, links, bridges, sessions, and every
+- **What a backup holds.** The copy is the whole database: users (password hashes), node images,
+  labs, nodes, links, bridges, sessions, and every
   lab's [definition](#lab-definitions). A definition holds what the client resolved and read:
   `environment_variables` with their `$VAR` values filled in, the contents of `ztp.config`,
   text files, binary files, systemd units and scripts. Only the values sealed with the
-  [database key](#secret-values) are ciphertext: today `lab.ztp_server_password`. The key is not
+  [database key](#secret-values) are ciphertext: `lab.ztp_server_password` and
+  `node_image.ztp_password`. The key is not
   in the database or the backup, so **back up `SHERPA_DB_KEY_PATH`
   (`/opt/sherpa/config/db.key`) with the database**: a restored database with no key, or another
   key, does not start (see [Secret values](#secret-values)).
@@ -214,7 +215,7 @@ table, copy the rows, drop the old one, rename.
 | 17 | `0017_drop_lab_ssh_key.sql`: drops `lab.ssh_key`. Every lab has its own key and the server's shared key is gone (0.6.0). Refused while a lab is still `server`; see [Labs on the server's SSH key](#labs-on-the-servers-ssh-key) |
 | 18 | `0018_reset_unused_image_settings.sql`: container images get the default machine, boot disk and CD-ROM settings (`machine_type` `pc`, `bios` `sea_bios`, `hdd_bus` and `cdrom_bus` `virtio`, no `cdrom`), and unikernel images the default firmware, boot disk and CD-ROM settings, keeping their `machine_type`. Neither kind reads them; the four network OS containers were stored with a q35 machine and SATA buses. See [`NODE_SETTINGS.md`](NODE_SETTINGS.md#settings-a-kind-does-not-use) |
 | 19 | `0019_node_ready_check.sql`: `node.ready_port` (`NULL` or 1 to 65535) and `node.skip_ready_check` (`0` or `1`, default `0`), each node's readiness check, which the scanner, `resume` and `redeploy` read instead of the saved manifest. Existing virtual machines get their model's port (22, or 50000 for `talos_linux`), containers and unikernels none, and no check is skipped: what the scanner did with them before. See [Node readiness checks](#node-readiness-checks) |
-| 20 | `0020_lab_definition.sql`: the [lab definition](#lab-definitions): the manifest's lab-level parameters on `lab` (with `has_definition`, `0` for every lab before), its node-level ones on `node`, the `manifest_*` tables for its lists, and `secret_key_check`. Existing labs get theirs from the startup import |
+| 20 | `0020_lab_definition.sql`: the [lab definition](#lab-definitions): the manifest's lab-level parameters on `lab` (with `has_definition`, `0` for every lab before), its node-level ones on `node`, the `manifest_*` tables for its lists, and `secret_key_check`. Existing labs get theirs from the startup import. Triggers refuse a `node_image.ztp_password` that is not [sealed](#secret-values); sherpad seals the plain ones at startup |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
@@ -326,9 +327,10 @@ Readers do not use it yet: `resume`, the scanner and the web UI still read the s
 
 ### Secret values
 
-Some values are sealed in the database, so a database file or backup that leaves the server
-without its key holds only ciphertext. Today that is `lab.ztp_server_password`; no other column
-is sealed. `crates/db/src/secret.rs` has the cipher:
+No secret is stored in the database as plain text: secret values are sealed, so a database file
+or backup that leaves the server without its key holds only ciphertext. The sealed columns are
+`lab.ztp_server_password` and `node_image.ztp_password`. `crates/db/src/secret.rs` has the
+cipher:
 
 - **Cipher.** AES-256-GCM, from `aes-gcm` 0.11 (no `getrandom` feature: `rand` makes the
   nonces). Sherpa's code adds no `unsafe`.
@@ -348,9 +350,30 @@ is sealed. `crates/db/src/secret.rs` has the cipher:
   match ..."). A key file of the wrong length stops startup as damaged. A sealed value that does
   not open, because the key differs or the value was changed, fails its read and names its place.
   None of these replace the key file.
+- **Text columns.** A column whose type an existing table fixes as `TEXT`, such as
+  `node_image.ztp_password`, stores a `SealedText`: `sealed:` and the sealed value in lower-case
+  hex. Only `seal_text` makes one, and the row values take a `SealedText`, not a string, so no
+  writer can bind plain text. Triggers (`node_image_ztp_password_sealed_on_insert` and
+  `_on_update`) refuse anything else, even from a statement run by hand. A rebuilt table could
+  use a `BLOB` and a `CHECK` instead; `node_image` is not rebuilt because `node.image` refers to
+  it.
+- **Image passwords.** `node_image_from_row` maps the stored text; every `db` function that
+  returns an image opens it with `node_image::password::open_password` first, and every write
+  seals it (`seal_password`), so callers see the plain value and `upsert_node_image`, which may
+  write an existing row back, never seals it twice. A plain value read back is refused ("is not
+  sealed"), never returned.
+- **Converting plain values.** A migration has no key, so releases before version 20 leave image
+  passwords as plain text. `db::seal_plain_image_passwords` seals every one that does not start
+  with `sealed:`, in one transaction with a compare-and-set update; sherpad runs it at startup
+  before the lab definition import and before anything reads an image. A second run finds
+  nothing. Until it runs, the update trigger lets a plain row's other columns change.
+- **Not sent out.** `image.show` (RPC and REST) and the web UI's image and node pages drop the
+  password and say whether there is one (`ShowImageResponse::ztp_password_set`). The image
+  editor's password field starts blank: blank keeps the stored password, a value replaces it, and
+  "Remove the password" clears it.
 - **Another secret field** is a `BLOB` column with a `length() >= 29` check, written with
-  `seal(key, value, place)` and read with `open(key, sealed, place)`, where `place` names the
-  column and row.
+  `seal(key, value, place)` and read with `open(key, sealed, place)`, or a `TEXT` column as
+  above, where `place` names the column and row.
 
 There is no key rotation yet, and no recovery from a lost key: sherpad refuses to start on a
 database whose key check it cannot open, so a lost key stops the server until the key file is

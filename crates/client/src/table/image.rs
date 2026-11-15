@@ -77,7 +77,7 @@ fn skipped_model_cells(model: &SkippedModel) -> [String; 2] {
 /// is named by its key in the image JSON, as `group.field` for the grouped settings. The
 /// machine, firmware and disk settings its kind does not use are left out.
 #[must_use]
-pub fn render_image_detail_table(image: &NodeConfig) -> String {
+pub fn render_image_detail_table(image: &NodeConfig, ztp_password_set: bool) -> String {
     let optional = |value: Option<&str>| value.unwrap_or("none").to_owned();
     let mut rows = vec![
         ["model".to_owned(), image.model.to_string()],
@@ -142,6 +142,10 @@ pub fn render_image_detail_table(image: &NodeConfig) -> String {
         [
             "ztp.username".to_owned(),
             optional(image.ztp.username.as_deref()),
+        ],
+        [
+            "ztp.password".to_owned(),
+            if ztp_password_set { "set" } else { "not set" }.to_owned(),
         ],
         [
             "ztp.password_auth".to_owned(),
@@ -269,7 +273,7 @@ mod tests {
     fn test_render_image_detail_table() {
         let image = NodeConfig::get_model(NodeModel::CiscoCat8000v);
 
-        let table = render_image_detail_table(&image);
+        let table = render_image_detail_table(&image, image.ztp.password.is_some());
 
         // Each row is named by its key in the image JSON, groups included.
         for key in [
@@ -330,7 +334,7 @@ mod tests {
     #[test]
     fn image_detail_table_leaves_out_the_settings_a_container_does_not_use() {
         for model in [NodeModel::NokiaSrlinux, NodeModel::MongoDb] {
-            let table = render_image_detail_table(&NodeConfig::get_model(model));
+            let table = render_image_detail_table(&NodeConfig::get_model(model), false);
             assert!(!table.contains(MACHINE_TYPE_ROW), "{model}\n{table}");
             for row in FIRMWARE_AND_DISK_ROWS {
                 assert!(!table.contains(row), "{model} {row}\n{table}");
@@ -345,7 +349,8 @@ mod tests {
 
     #[test]
     fn image_detail_table_shows_a_unikernel_its_machine_type_only() {
-        let table = render_image_detail_table(&NodeConfig::get_model(NodeModel::NanosUnikernel));
+        let table =
+            render_image_detail_table(&NodeConfig::get_model(NodeModel::NanosUnikernel), false);
         assert!(table.contains(MACHINE_TYPE_ROW), "{table}");
         for row in FIRMWARE_AND_DISK_ROWS {
             assert!(!table.contains(row), "{row}\n{table}");
@@ -356,7 +361,7 @@ mod tests {
     fn test_render_image_detail_table_container_model() {
         let image = NodeConfig::get_model(NodeModel::NokiaSrlinux);
 
-        let table = render_image_detail_table(&image);
+        let table = render_image_detail_table(&image, image.ztp.password.is_some());
 
         // Check container-specific values
         assert!(table.contains("nokia_srlinux"));
@@ -372,7 +377,7 @@ mod tests {
     fn test_render_image_detail_table_optional_fields() {
         let image = NodeConfig::default();
 
-        let table = render_image_detail_table(&image);
+        let table = render_image_detail_table(&image, image.ztp.password.is_some());
 
         // Optional fields should show "none" when not set
         assert!(table.contains("none")); // repo, cdrom, ztp_username are None by default
