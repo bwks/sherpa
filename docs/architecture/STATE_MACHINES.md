@@ -493,9 +493,8 @@ The scanner probes a node when `probe_port` gives a port: the runtime shows it r
 has a stored port, and either its check is not skipped and it is not yet `Running`, or the
 port is SSH and it has no key. A key is read only on SSH, so a node checked on another port
 gets none from the scanner; a skipped node on SSH is still probed for its key, but the probe
-does not decide its state. After recording a key it
-rewrites the lab's SSH files. It does so after it has released its hold on the lab, and takes
-no redeploy lock (M5.2).
+does not decide its state. The key goes on the node's record only: the server keeps no SSH
+files, and builds them from the records when a client asks.
 
 **Not covered here.** `WatchdogAction` (`crates/shared/src/data/watchdog.rs`) configures the
 guest's emulated hardware watchdog in the libvirt XML. It is not a Sherpa state machine.
@@ -532,11 +531,11 @@ The stage is the program counter; the lab phase (machine 2) says who owns the re
 | 1 Setup | `set_up`, ending with `reserve_lab` (`up/networks.rs`) | the lab record, `Creating`, holding its subnets. A lab ID in use fails here with a `Conflict`, first right after the owner is loaded and before libvirt is connected, and again at the reservation for a concurrent `up`: "Lab already exists" (with the phase when it is not `ready`), or "rename the lab" for another owner's lab with the same ID. |
 | 2 Validation | `validate`: `plan_lab`, `ensure_no_earlier_attempt` | image leases in memory. The earlier-attempt check looks at libvirt volumes and domains, and skips labs where every node is a container. |
 | 3 DatabaseRecords | `create_node_records` (`up/records.rs`) | node rows (`Building`), VNC ports, per-node networks |
-| 4 | `set_up_lab_network` | lab dir and files, libvirt NAT network, Docker bridge network, Tailscale gateway |
+| 4 | `set_up_lab_network` | lab dir and SSH key, node SSH accounts, libvirt NAT network, Docker bridge network, Tailscale gateway |
 | 5 to 7 | `link_nodes`, `create_isolated_container_networks`, `create_shared_bridges` | link rows, Docker macvlan networks, host bridges, bridge rows |
 | 8 | `configure_nodes` (`up/ztp.rs`) | ZTP files, lab CA, node certificates, management addresses |
 | 9 | `start_boot_container` | dnsmasq files and container |
-| 10 to 12 | disk clone, `create_vms`/`create_unikernels`, `attach_vm_links`, SSH files | volumes, domains, eBPF redirects, netem |
+| 10 to 12 | disk clone, `create_vms`/`create_unikernels`, `attach_vm_links`, the lab key for the client | volumes, domains, eBPF redirects, netem |
 | 13 | `wait_for_nodes`, `start_lab_services`, then `Built` | containers, veths, node state and host keys, Talos, Vault, Keycloak; the lab `Ready` |
 
 **Transitions out of the sequence.**
@@ -716,7 +715,7 @@ stateDiagram-v2
        (`wait_until_ready`, `ready.rs`);
      - VMs: after the probe on the stored port, or at once when skipped
        (`wait_until_ready`, `ready.rs`).
-4. `ensure_active`, then `refresh_lab_ssh_files` (`node.rs`).
+4. `ensure_active`, then the node's SSH account is recorded (`db::update_node_ssh_username`, `node.rs`).
 
 **Failures.**
 

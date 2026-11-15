@@ -1,5 +1,5 @@
-//! The redeploy operation: load and check, tear the node down, build it again, and save the
-//! lab's SSH files.
+//! The redeploy operation: load and check, tear the node down, build it again, and record the
+//! account the lab's SSH config logs in to it with.
 
 use std::path::Path;
 use std::sync::{Arc, OnceLock, Weak};
@@ -26,14 +26,13 @@ use crate::services::node_lifecycle;
 use crate::services::node_ops;
 use crate::services::node_resources;
 use crate::services::progress::ProgressSender;
-use crate::services::ssh_config;
 use crate::tls::lab_ca::{self, NodeIdentity};
 
 use shared::data;
 use shared::data::{LinkReport, OperationEvent, RedeployRequest, RedeployResponse, StatusKind};
 
-// Redeploy updates shared lab files. Serialize redeploys within each lab so one
-// node's new identity cannot overwrite another node's concurrent update.
+// Redeploy updates the lab's shared definition and folder. Serialize redeploys within each lab
+// so one node's update cannot interleave with another node's concurrent one.
 static REDEPLOY_LOCKS: OnceLock<DashMap<String, Weak<Mutex<()>>>> = OnceLock::new();
 
 /// Redeploy a single node: destroy existing + recreate with fresh ZTP
@@ -99,15 +98,15 @@ pub async fn redeploy_node(
     };
 
     operation.ensure_active()?;
-    ssh_config::refresh_lab_ssh_files(
+    // The lab's SSH config, built from the database when the client downloads it, logs in to
+    // the node with the account it was rebuilt with.
+    db::update_node_ssh_username(
         &state.db,
-        &redeploy.lab_dir,
-        &redeploy.lab_record_id,
-        &redeploy.lab_info,
-        state.config.server_ipv4,
+        redeploy.node_record_id.clone(),
+        redeploy.lab_info.ssh_username(&node_name),
     )
     .await
-    .context("Node redeployed, but failed to save the lab SSH files")?;
+    .context("Node redeployed, but failed to record its SSH account")?;
 
     let total_time = start_time.elapsed().as_secs();
 

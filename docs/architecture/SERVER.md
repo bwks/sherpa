@@ -137,7 +137,7 @@ flowchart TB
     plain6 --> serveplain["serve with graceful shutdown future"]
 ```
 
-In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), imports the definitions of labs that have none and deletes the saved manifests ([below](#lab-definition-import)), both in `upgrade_stored_data`, starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
+In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), imports the definitions of labs that have none and deletes the saved manifests ([below](#lab-definition-import)), then stores the SSH accounts of older labs' `lab-info.toml` and deletes it with their SSH config and `known_hosts` ([below](#lab-file-import)), all in `upgrade_stored_data`, starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
 
 `auth::jwt::load_or_generate_secret` generates the JWT secret only when the file is missing. A file that exists with a length other than 32 bytes stops startup with an error naming the file: replacing it would silently end every session. Deleting the file generates a new secret, which logs every user out.
 
@@ -191,6 +191,30 @@ and then nothing is deleted.
 The import can be removed in a later release, once upgrading from a release before this one
 (which saved the files) is no longer supported: every server that ran this release has no saved
 manifest left to import.
+
+#### Lab file import
+
+Releases before schema version 22 kept three more files in each lab's server folder:
+`lab-info.toml`, `sherpa_ssh_config` and `sherpa_known_hosts`. Everything in them is in the
+database now (see [`DATABASE.md`](DATABASE.md)): the lab record holds the lab's details, and the
+node records the addresses, host keys and, since version 22, the account each node's SSH config
+logs in with (`node.ssh_username`), which only `lab-info.toml` held, as `ssh_usernames`. After the
+definition import, `saved_lab_files::move_saved_lab_files` takes every lab with a record:
+
+1. **Store.** It reads the lab's `lab-info.toml` and writes each `ssh_usernames` entry to its
+   node's record (`db::update_node_ssh_username`), skipping entries the record already has and
+   nodes the lab no longer has.
+2. **Delete.** Then it deletes exactly those three files from `/opt/sherpa/labs/<lab-id>`, and
+   nothing else; a lab with no `lab-info.toml` has its SSH files deleted, as the database holds
+   everything they held.
+3. **Unreadable.** A `lab-info.toml` that cannot be read or parsed is logged at warn. Its files
+   are deleted only when the database already holds an SSH account for one of the lab's nodes
+   (an earlier start or a redeploy stored them); otherwise all three are kept, and the next
+   start tries again. A failure to store is handled the same way.
+
+A file that is not there is skipped, so the step runs on every start and a second start does
+nothing. Folders of labs with no record are left alone. Only a failure to list the labs stops
+startup. It can be removed with the definition import.
 
 Shutdown uses SIGINT/SIGTERM. The handlers are registered once, before the server binds any listener, so a registration failure stops startup with an error instead of leaving a server that cannot shut down gracefully. On shutdown, the server cancels the background-service token. With TLS, it also asks the `axum_server::Handle` to perform graceful shutdown with a short timeout. The OpenTelemetry guard flushes traces/metrics when dropped.
 
@@ -549,7 +573,7 @@ The services are not symmetrical. Some are short CRUD-style orchestrators, and s
 | | `lab_nodes.rs` | the lab's nodes and images that `down` and `resume` act on |
 | Read/model services | `inspect.rs` | read DB + runtime data and build lab inspection output |
 | | `list_labs.rs` | list lab summaries for a user |
-| | `download.rs` | package saved lab files for client download |
+| | `download.rs` | build the lab's files for the client from the database, with its key and credentials |
 | Image/admin services | `import.rs` | image import/list/show/set-default/scan/download support |
 | | `container_pull.rs` | Docker/OCI image pull with progress |
 | | `clean.rs` | admin force-clean path |
@@ -584,7 +608,7 @@ building its domain, and starting it. Arguments that travel together are grouped
 | `context.rs` | `LabBuild` |
 | `plan.rs` | phase 2: validation against the server, and the `LabPlan` |
 | `records.rs` | phase 3: the lab and node records, interfaces, per-node networks |
-| `networks.rs` | subnet reservation, lab files and management networks (4), container data networks (6), shared bridges (7) |
+| `networks.rs` | subnet reservation and management networks (4), container data networks (6), shared bridges (7) |
 | `links.rs` | phase 5, and attaching P2p eBPF redirects |
 | `ztp.rs` | phases 8 and 9: addresses, certificates, node configurations and domains, the boot container |
 | `runtime.rs` | phases 10 and 11: disks, VM and unikernel domains |
@@ -614,7 +638,7 @@ flowchart TB
     end
     createnode --> labfiles
     subgraph phase4["4. LabNetworkSetup"]
-        labfiles["create /opt/sherpa/labs/{lab_id}<br/>write lab info file (no manifest: the definition is stored in phase 3)<br/>lab_ssh_key::create_lab_ssh_key: the lab's SSH key pair, 0600"] --> mgmtnets["libvirt NAT management network<br/>Docker bridge management network"] --> tailscale["tailscale::provision when the lab joins a tailnet"]
+        labfiles["create /opt/sherpa/labs/{lab_id}<br/>store_ssh_usernames: each node's SSH account on its record<br/>(no lab info, SSH config or manifest file: the database holds them)<br/>lab_ssh_key::create_lab_ssh_key: the lab's SSH key pair, 0600"] --> mgmtnets["libvirt NAT management network<br/>Docker bridge management network"] --> tailscale["tailscale::provision when the lab joins a tailnet"]
     end
     tailscale --> links
     subgraph phase5["5. LinkCreation"]
@@ -646,13 +670,13 @@ flowchart TB
     end
     isodown --> ssh
     subgraph phase12["12. SshConfig"]
-        ssh["ssh_config::save_lab_ssh_files<br/>read the lab's SSH private key for the client<br/>build container network attachments"]
+        ssh["ssh_config::render_lab_ssh_files in memory, to tell whether the lab key is used<br/>read the lab's SSH private key for the client<br/>build container network attachments"]
     end
     ssh --> secrets
     subgraph phase13["13. NodeReadiness"]
         secrets["write container secret files to RAM"] --> startctr["start containers (node_ops::start_container_node)<br/>P2p containers: veths created into the container netns,<br/>then attach_ready_p2p_links for links now complete<br/>node_lifecycle::record Launched"]
         startctr --> ready["containers: kept running CONTAINER_SETTLE, then their ready_check.port with check_vm_ready<br/>poll VMs with node_ops::check_vm_ready, record host keys<br/>poll unikernels with check_unikernel_ready<br/>no wait for ready_check.skip nodes or Talos cluster workers"]
-        ready --> refresh["ssh_config::refresh_lab_ssh_files with recorded host keys<br/>bootstrap Kubernetes clusters"]
+        ready --> refresh["ssh_config::lab_ssh_files from the database, with recorded host keys<br/>bootstrap Kubernetes clusters"]
     end
     refresh --> response["Return UpResponse { success, lab_info, summary, errors, total_time_secs }"]
     phase1 -.->|"failure: returned, no cleanup"| failed["error returned"]
@@ -907,7 +931,7 @@ flowchart TB
         resources --> ctr["container.rs: generate_container_ztp<br/>no links: Docker macvlan data networks; P2p: a veth per data interface<br/>start_container_node (Starting), veths into the netns, reattach_p2p_redirects<br/>Vault unsealed, Keycloak realm made again<br/>ready_check.port answers (ready.rs), if set, then Running"]
         resources --> vm["vm.rs: generate_vm_ztp, clone_node_disks<br/>vm_interfaces from the DB links and bridges<br/>build_domain_template, create_vm (Starting), reattach_p2p_redirects<br/>isolated bridge down; wait for the ready port, host key, Running"]
     end
-    ctr --> ssh["ssh_config::refresh_lab_ssh_files"]
+    ctr --> ssh["db::update_node_ssh_username: the account the node was rebuilt with"]
     vm --> ssh
     ssh --> stream["RedeployResponse"]
 ```
@@ -1096,7 +1120,6 @@ flowchart TB
                 hold{"lab_operations::try_observe:<br/>does an operation hold the lab?"}
                 fresh["under the hold: query_runtimes again,<br/>read the nodes again"]
                 observe["node_lifecycle::observe each node:<br/>runtime + probe result, compare-and-set"]
-                refresh["refresh_lab_ssh_files when a key was recorded"]
             end
         end
     end
@@ -1106,9 +1129,9 @@ flowchart TB
     snapshot --> listlabs --> listnodes --> wantsprobe
     wantsprobe -->|yes| probe --> hold
     wantsprobe -->|no| hold
-    hold -->|no| fresh --> observe --> refresh
-    hold -->|yes: skip this cycle| refresh
-    refresh -->|next lab, next cycle| wait
+    hold -->|no| fresh --> observe
+    hold -->|yes: skip this cycle| wait
+    observe -->|next lab, next cycle| wait
     scancycle -.->|"scan failure: log, do not kill server"| wait
 ```
 
@@ -1214,7 +1237,7 @@ flowchart TB
     subgraph created["Phases that create resources: a failure rolls back with clean_lab_resources"]
         direction TB
         db["3. DatabaseRecords<br/>lab, nodes, per-node libvirt networks, the lab's definition"]
-        labnet["4. LabNetworkSetup<br/>lab dir and files, management networks, Tailscale"]
+        labnet["4. LabNetworkSetup<br/>lab dir and SSH key, management networks, Tailscale"]
         links["5. LinkCreation<br/>link records"]
         ctrnets["6. ContainerNetworks"]
         bridges["7. SharedBridges"]
@@ -1299,9 +1322,11 @@ keys were accepted unchecked before. The key is kept on the node's database reco
   client whose recorded key did not match.
 
 `ssh_config::record_node_host_key` writes a key only when it differs, and logs a warning when
-it replaces another. `ssh_config::refresh_lab_ssh_files` then renders the lab's SSH files
-from the database (nodes' addresses, whether their image has SSH, and their keys) and saves
-them with `lab-info.toml`: `sherpa_ssh_config`, in which a node with a recorded key gets
+it replaces another. The server keeps no SSH files: when a client is given them, by `up`'s
+response, `download` or `node.host_keys`, `ssh_config::lab_ssh_files` renders them in memory
+from the database (nodes' addresses, whether their image has SSH, their keys, and the account
+each logs in with, `node.ssh_username`, through `lab_info::load_lab_info`). They are
+`sherpa_ssh_config`, in which a node with a recorded key gets
 `StrictHostKeyChecking yes` and `UserKnownHostsFile sherpa_known_hosts` (others keep `no` and
 `/dev/null`), and `sherpa_known_hosts` (template `ssh/known_hosts.jinja`), one line per key under
 the name OpenSSH looks up: the address on port 22, else `[address]:port`. `up`'s response, the

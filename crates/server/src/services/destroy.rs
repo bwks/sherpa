@@ -873,7 +873,7 @@ mod tests {
 
     use super::*;
     use shared::data::{SecretContent, SecretFile};
-    use shared::konst::LAB_FILE_NAME;
+    use shared::konst::{LAB_CERTS_DIR, SHERPA_SSH_PRIVATE_KEY_FILE};
 
     use crate::services::lab_ssh_key::create_lab_ssh_key;
     use crate::services::node_secrets::write_node_secrets;
@@ -1100,8 +1100,8 @@ mod tests {
         let root = tempdir().unwrap();
         let lab_dir = root.path().join("test1234");
         fs::create_dir(&lab_dir).unwrap();
-        let lab_file = lab_dir.join(LAB_FILE_NAME);
-        fs::write(&lab_file, "saved lab info").unwrap();
+        let lab_file = lab_dir.join(SHERPA_SSH_PRIVATE_KEY_FILE);
+        fs::write(&lab_file, "lab key").unwrap();
         let database_deleted = AtomicBool::new(false);
         let mock = DockerMock::new(json!([]), gateway_failure, volume_failure).await;
         let mut summary = DestroySummary::default();
@@ -1143,7 +1143,7 @@ mod tests {
         assert!(!database_deleted.load(Ordering::SeqCst));
         assert!(!summary.database_records_deleted);
         assert!(!summary.lab_directory_deleted);
-        assert_eq!(fs::read_to_string(&lab_file).unwrap(), "saved lab info");
+        assert_eq!(fs::read_to_string(&lab_file).unwrap(), "lab key");
 
         let retry = DockerMock::new(json!([]), false, false).await;
         let mut summary = DestroySummary::default();
@@ -1198,7 +1198,7 @@ mod tests {
             let root = tempdir().unwrap();
             let lab_dir = root.path().join("lab");
             fs::create_dir(&lab_dir).unwrap();
-            fs::write(lab_dir.join(LAB_FILE_NAME), "saved metadata").unwrap();
+            fs::write(lab_dir.join(SHERPA_SSH_PRIVATE_KEY_FILE), "lab key").unwrap();
             let database_deleted = AtomicBool::new(false);
             let mut summary = DestroySummary::default();
             let mut errors = vec![DestroyError::new(
@@ -1219,7 +1219,7 @@ mod tests {
             )
             .await;
             assert!(!database_deleted.load(Ordering::SeqCst));
-            assert!(lab_dir.join(LAB_FILE_NAME).exists());
+            assert!(lab_dir.join(SHERPA_SSH_PRIVATE_KEY_FILE).exists());
             errors.clear();
             cleanup_lab_metadata(
                 "lab",
@@ -1314,7 +1314,7 @@ mod tests {
         let root = tempdir().unwrap();
         let lab_dir = root.path().join("lab");
         fs::create_dir(&lab_dir).unwrap();
-        fs::write(lab_dir.join(LAB_FILE_NAME), "saved lab info").unwrap();
+        fs::write(lab_dir.join(SHERPA_SSH_PRIVATE_KEY_FILE), "lab key").unwrap();
         let folder_gone_first = AtomicBool::new(false);
         let mut summary = DestroySummary::default();
         let mut errors = Vec::new();
@@ -1338,12 +1338,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_lab_folder_without_lab_info_or_ssh_files_is_removed() {
+        // The server keeps no lab-info.toml, SSH config or known_hosts: the folder holds the
+        // lab's key and certificates only.
+        let root = tempdir().unwrap();
+        let lab_dir = root.path().join("lab");
+        fs::create_dir_all(lab_dir.join(LAB_CERTS_DIR)).unwrap();
+        fs::write(lab_dir.join(SHERPA_SSH_PRIVATE_KEY_FILE), "lab key").unwrap();
+        fs::write(lab_dir.join(LAB_CERTS_DIR).join("ca.crt"), "lab CA").unwrap();
+        let mut summary = DestroySummary::default();
+        let mut errors = Vec::new();
+
+        cleanup_lab_metadata(
+            "lab",
+            lab_dir.to_str().unwrap(),
+            async { Ok(()) },
+            &mut summary,
+            &mut errors,
+            None,
+        )
+        .await;
+
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(!lab_dir.exists());
+        assert!(summary.lab_directory_deleted && summary.database_records_deleted);
+    }
+
+    #[tokio::test]
     async fn a_lab_folder_that_cannot_be_removed_keeps_the_lab_record() {
         // M7.1: the owner can destroy the lab again only while its record exists.
         let root = tempdir().unwrap();
         let lab_dir = root.path().join("lab");
         fs::create_dir(&lab_dir).unwrap();
-        fs::write(lab_dir.join(LAB_FILE_NAME), "saved lab info").unwrap();
+        fs::write(lab_dir.join(SHERPA_SSH_PRIVATE_KEY_FILE), "lab key").unwrap();
         fs::set_permissions(&lab_dir, fs::Permissions::from_mode(0o555)).unwrap();
         if fs::write(lab_dir.join("probe"), "").is_ok() {
             // Running as root: permissions do not stop the removal, so there is nothing to test.

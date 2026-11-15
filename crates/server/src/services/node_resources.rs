@@ -378,6 +378,7 @@ mod tests {
             cpu_pinning: Some(cpus),
             qemu_thread_cpus: None,
             ready_check: ReadyCheck::default(),
+            ssh_username: None,
         };
         (lab_id.map(|lab_id| domain_name(name, lab_id)), node)
     }

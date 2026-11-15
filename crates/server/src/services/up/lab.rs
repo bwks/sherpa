@@ -15,14 +15,14 @@ use super::links::{LinkRecords, P2pAttachment, attach_vm_links, create_links};
 use super::networks::{
     ReservedLab, container_data_attachments, create_isolated_container_networks,
     create_management_networks, create_shared_bridges, lab_id_taken, management_network,
-    reserve_lab, set_isolated_bridges_down, write_lab_files,
+    reserve_lab, set_isolated_bridges_down,
 };
 use super::plan::{LabPlan, plan_lab};
 use super::readiness::{NodesReady, ReadinessInputs, wait_for_nodes};
-use super::records::{NodeRecords, create_node_records};
+use super::records::{NodeRecords, create_node_records, store_ssh_usernames};
 use super::runtime::{create_unikernels, create_vms};
 use super::services::{LabServices, ServiceInputs, start_lab_services};
-use super::ssh::write_ssh_files;
+use super::ssh::lab_private_key;
 use super::ztp::{ConfigInputs, NodeConfigs, configure_nodes, start_boot_container};
 use crate::auth::context::AuthContext;
 use crate::auth::policy::{require_host_access, require_lab_starter};
@@ -447,7 +447,7 @@ impl LabUp<'_> {
         Ok(self.response(&records, &links, network, &built, started))
     }
 
-    /// Write the lab files and create the management network, and join the lab to its tailnet
+    /// Create the lab's folder and management network, record each node's SSH account, and join the lab to its tailnet
     /// when it has one (phase 4).
     async fn set_up_lab_network(&mut self, records: &NodeRecords) -> Result<LabNetwork> {
         self.start_phase(
@@ -492,7 +492,13 @@ impl LabUp<'_> {
             client_folder: self.details.client_folder.clone(),
         };
 
-        write_lab_files(self.build.lab_dir, &lab_info)?;
+        util::create_dir(self.build.lab_dir)?;
+        store_ssh_usernames(
+            self.build.db,
+            &records.lab_node_data,
+            &self.plan.ssh_usernames,
+        )
+        .await?;
         let ssh_key = create_lab_ssh_key(self.build.lab_dir)?;
         let sherpa_user =
             util::sherpa_user(&ssh_key.public).context("Failed to get sherpa user")?;
@@ -696,8 +702,9 @@ impl LabUp<'_> {
         })
     }
 
-    /// Write the SSH config (phase 12), start the containers and wait for every node (phase
-    /// 13), save the SSH files again with the nodes' host keys, and start the lab's services.
+    /// Check whether the SSH config takes the lab key (phase 12), start the containers and
+    /// wait for every node (phase 13), build the SSH files with the nodes' host keys from the
+    /// database, and start the lab's services.
     async fn start_nodes(
         &mut self,
         records: &NodeRecords,
@@ -710,8 +717,9 @@ impl LabUp<'_> {
             data::UpPhase::SshConfig,
             "Generating SSH config".to_string(),
         )?;
-        let ssh_private_key = write_ssh_files(
-            &self.build,
+        let ssh_private_key = lab_private_key(
+            self.build.progress,
+            self.build.config.server_ipv4,
             &built.ztp_records,
             &network.lab_info,
             &network.ssh_key,
@@ -760,10 +768,9 @@ impl LabUp<'_> {
         .await?;
         self.errors.extend(readiness_errors);
 
-        // Save the SSH files again with the host keys recorded as nodes became ready.
-        let ssh_files = ssh_config::refresh_lab_ssh_files(
+        // The SSH files for the response, with the host keys recorded as nodes became ready.
+        let ssh_files = ssh_config::lab_ssh_files(
             self.build.db,
-            self.build.lab_dir,
             &records.lab_record_id,
             &network.lab_info,
             self.build.config.server_ipv4,

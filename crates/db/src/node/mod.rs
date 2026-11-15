@@ -13,5 +13,6 @@ pub use read::{
 };
 pub use update::{
     update_node_host_key, update_node_mgmt_ipv4, update_node_mgmt_ipv6, update_node_mgmt_mac,
-    update_node_ready_check, update_node_resources, update_node_state_from,
+    update_node_ready_check, update_node_resources, update_node_ssh_username,
+    update_node_state_from,
 };

@@ -5,7 +5,7 @@ use shared::data::{
     self, DbLab, Halt, LabNodeActionResponse, NodeActionResult, NodeKind, OperationEvent, RecordId,
     Runtime, StatusKind, TailnetAuthKey, TailnetStatus,
 };
-use shared::konst::{READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_LABS_PATH};
+use shared::konst::{READINESS_SLEEP, READINESS_TIMEOUT};
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 use topology::Manifest;
@@ -287,7 +287,7 @@ async fn wait_for_cold_booted(
 ) -> Result<HashSet<String>> {
     let ResumedLab {
         lab_id,
-        lab_record_id,
+        lab_record_id: _,
         nodes,
         definition,
         state,
@@ -311,7 +311,7 @@ async fn wait_for_cold_booted(
         }
     }
     // A node may make a new host key when it boots, so record the keys again.
-    if let Err(error) = save_host_keys(lab_id, lab_record_id, &ready, nodes, state).await {
+    if let Err(error) = save_host_keys(lab_id, &ready, nodes, state).await {
         tracing::warn!(lab_id = %lab_id, error = ?error, "Failed to save resumed nodes' host keys");
     }
     ready_nodes.extend(ready.into_keys());
@@ -418,39 +418,22 @@ async fn probe(target: &ReadinessTarget, state: &AppState) -> VmReadiness {
     }
 }
 
-/// Record the host keys that resumed nodes offered, and save the lab's SSH files with them.
-/// Nodes ready without an SSH handshake keep their recorded keys.
-#[instrument(skip(lab_record_id, ready, nodes, state), level = "debug")]
+/// Record the host keys that resumed nodes offered. Nodes ready without an SSH handshake keep
+/// their recorded keys.
+#[instrument(skip(ready, nodes, state), level = "debug")]
 async fn save_host_keys(
     lab_id: &str,
-    lab_record_id: &RecordId,
     ready: &HashMap<String, Option<String>>,
     nodes: &[data::DbNode],
     state: &AppState,
 ) -> Result<()> {
-    let mut recorded = false;
     for node in nodes {
         let Some(Some(host_key)) = ready.get(&node.name) else {
             tracing::trace!(node_name = %node.name, "No host key offered");
             continue;
         };
         ssh_config::record_node_host_key(&state.db, node, host_key).await?;
-        recorded = true;
     }
-    if !recorded {
-        tracing::debug!("No host keys to record");
-        return Ok(());
-    }
-    let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
-    let lab_info = ssh_config::load_lab_info(&lab_dir).await?;
-    ssh_config::refresh_lab_ssh_files(
-        &state.db,
-        &lab_dir,
-        lab_record_id,
-        &lab_info,
-        state.config.server_ipv4,
-    )
-    .await?;
     Ok(())
 }
 
@@ -877,6 +860,7 @@ mod tests {
             cpu_pinning: None,
             qemu_thread_cpus: None,
             ready_check: ReadyCheck { port, skip },
+            ssh_username: None,
         }
     }
 

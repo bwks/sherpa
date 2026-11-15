@@ -18,6 +18,7 @@ use crate::services::image_lifecycle::{
     ImageLease, check_container_image, lease_image, validate_disk_method,
 };
 use crate::services::lab_definition;
+use crate::services::lab_info;
 use crate::services::lab_operations::LabOperation;
 use crate::services::lab_ssh_key::LabSshKeyPaths;
 use crate::services::progress::ProgressSender;
@@ -31,7 +32,7 @@ use crate::validate::{
 use libvirt::QemuConnection;
 use shared::data;
 use shared::data::{DbLab, DbNode, RecordId, RedeployRequest, StatusKind};
-use shared::konst::{LAB_CERTS_DIR, LAB_FILE_NAME, READINESS_TIMEOUT, SHERPA_LABS_PATH};
+use shared::konst::{LAB_CERTS_DIR, READINESS_TIMEOUT, SHERPA_LABS_PATH};
 use shared::util;
 use shared::validators::effective_data_interface_count;
 use topology::find_talos_cluster;
@@ -109,7 +110,7 @@ struct LoadedNode {
     image_guard: ImageLease,
 }
 
-/// The lab's saved files: its directory, lab info, management network, DNS and CA.
+/// The lab's directory, details, management network, DNS and CA.
 struct LabFiles {
     lab_dir: String,
     lab_info: data::LabInfo,
@@ -172,7 +173,7 @@ pub(super) async fn load_redeploy<'a>(
         dns,
         certs_dir,
         lab_ca,
-    } = load_lab_files(&lab_id)?;
+    } = load_lab_files(&state.db, db_lab).await?;
     // A cluster worker rejoins with a config built from the cluster's saved secrets.
     if let Some((talos_cluster, _)) = talos_membership {
         target_node.ztp.config = Some(worker_rejoin_config(
@@ -355,13 +356,13 @@ async fn load_node(
     })
 }
 
-/// The lab's saved lab info, its management network and DNS from it, and its CA.
-#[instrument(level = "debug")]
-fn load_lab_files(lab_id: &str) -> Result<LabFiles> {
+/// The lab's details from the database, its management network and DNS from them, and its
+/// CA from the lab's folder.
+#[instrument(skip(db, db_lab), fields(lab_id = %db_lab.lab_id), level = "debug")]
+async fn load_lab_files(db: &db::Database, db_lab: &DbLab) -> Result<LabFiles> {
+    let lab_id = db_lab.lab_id.as_str();
     let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
-    let lab_file = util::load_file(&format!("{lab_dir}/{LAB_FILE_NAME}"))
-        .context("Unable to load lab file")?;
-    let lab_info: data::LabInfo = lab_file.parse().context("Failed to parse lab info file")?;
+    let lab_info = lab_info::load_lab_info(db, db_lab).await?;
     let mgmt_net = lab_management_network(&lab_info);
     let dns = if let Some(ref v6) = mgmt_net.v6 {
         util::default_dns_dual_stack(&lab_info.ipv4_network, &v6.prefix)?
@@ -559,7 +560,9 @@ mod tests {
     use super::*;
     use shared::data::ReadyCheck;
 
-    use shared::data::NodeState;
+    use shared::data::{NodeModel, NodeState};
+
+    use crate::services::lab_definition::tests::lab_with;
 
     fn mgmt_net(with_v6: bool) -> data::SherpaNetwork {
         let prefix = util::get_ipv4_network("172.31.1.0/24").unwrap();
@@ -609,6 +612,7 @@ mod tests {
             cpu_pinning: None,
             qemu_thread_cpus: None,
             ready_check: ReadyCheck::default(),
+            ssh_username: None,
         }
     }
 
@@ -640,5 +644,27 @@ mod tests {
     fn test_invalid_saved_address_is_an_error() {
         let node = db_node(1, Some("not-an-ip"), None);
         assert!(node_management_addresses(&node, &mgmt_net(false)).is_err());
+    }
+
+    #[tokio::test]
+    async fn redeploy_takes_the_lab_and_its_network_from_the_database() {
+        let (db, lab) = lab_with(&[("vm1", NodeModel::AlpineLinux)]).await;
+        let node = &db::list_nodes_by_lab(&db, lab.id.clone().unwrap())
+            .await
+            .unwrap()[0];
+        db::update_node_ssh_username(&db, node.id.clone().unwrap(), Some("alice"))
+            .await
+            .unwrap();
+
+        let lab_info = lab_info::load_lab_info(&db, &lab).await.unwrap();
+
+        // The other nodes' accounts survive a redeploy of one node.
+        assert_eq!(lab_info.ssh_username("vm1"), Some("alice"));
+        let network = lab_management_network(&lab_info);
+        let expected = mgmt_net(false);
+        assert_eq!(network.v4.prefix, expected.v4.prefix);
+        assert_eq!(network.v4.first, expected.v4.first);
+        assert_eq!(network.v4.boot_server, expected.v4.boot_server);
+        assert!(network.v6.is_none());
     }
 }

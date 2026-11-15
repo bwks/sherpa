@@ -1,9 +1,8 @@
 use anyhow::Result;
 use opentelemetry::KeyValue;
 
-use shared::data::{DestroyResponse, DestroySummary, LabInfo};
-use shared::konst::{LAB_FILE_NAME, SHERPA_LABS_PATH};
-use shared::util::load_file;
+use shared::data::{DestroyResponse, DestroySummary};
+use shared::konst::SHERPA_LABS_PATH;
 
 use tracing::instrument;
 
@@ -14,13 +13,15 @@ use crate::services::destroy::tear_down_lab;
 use crate::services::error::ServiceError;
 use crate::services::lab_operations::{self, LabHold, StopReason};
 
+/// The name reported for a lab with no record.
+const UNKNOWN_LAB_NAME: &str = "unknown";
+
 /// Clean all resources for a lab (admin only)
 ///
 /// Unlike `destroy_lab`, this function:
 /// - Does not require the lab to exist in the database: resources and a folder left with no
 ///   record are removed, and that is a success
 /// - Requires admin privileges instead of lab ownership
-/// - Tolerates missing lab info files
 ///
 /// Like it, it continues infrastructure teardown after partial failures, and keeps the lab's
 /// record, `DestroyFailed`, when anything is left behind.
@@ -56,12 +57,8 @@ pub(crate) async fn clean_lab_resources(
     let mut summary = DestroySummary::default();
     let mut errors = Vec::new();
 
-    // Try to load lab name from filesystem, fall back to "unknown"
     let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
-    let lab_name = load_file(&format!("{lab_dir}/{LAB_FILE_NAME}"))
-        .ok()
-        .and_then(|content| content.parse::<LabInfo>().ok().map(|info| info.name))
-        .unwrap_or_else(|| "unknown".to_string());
+    let lab_name = lab_name(&state.db, lab_id).await;
 
     tracing::debug!(
         lab_id = %lab_id,
@@ -100,4 +97,45 @@ pub(crate) async fn clean_lab_resources(
         summary,
         errors,
     })
+}
+
+/// The name of the lab `lab_id` from its record, or `unknown` for a lab with no record, which
+/// clean removes too. A failed lookup is logged and also gives `unknown`.
+#[instrument(skip(db), level = "debug")]
+async fn lab_name(db: &db::Database, lab_id: &str) -> String {
+    match db::find_lab(db, lab_id).await {
+        Ok(Some(lab)) => lab.name,
+        Ok(None) => {
+            tracing::debug!("Lab has no record; cleaning what is left of it");
+            UNKNOWN_LAB_NAME.to_owned()
+        }
+        Err(error) => {
+            tracing::warn!(
+                error = format!("{error:#}"),
+                "Failed to look up the lab's name"
+            );
+            UNKNOWN_LAB_NAME.to_owned()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use shared::data::NodeModel;
+
+    use crate::services::lab_definition::tests::lab_with;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn clean_names_the_lab_from_its_record() {
+        let (db, lab) = lab_with(&[("vm1", NodeModel::AlpineLinux)]).await;
+        assert_eq!(lab_name(&db, &lab.lab_id).await, "core");
+    }
+
+    #[tokio::test]
+    async fn clean_names_a_lab_with_no_record_unknown() {
+        let (db, _) = lab_with(&[]).await;
+        assert_eq!(lab_name(&db, "ffff0000").await, UNKNOWN_LAB_NAME);
+    }
 }

@@ -8,13 +8,12 @@ use shared::data::{
     DbNode, LabInfo, NodeConfig, NodeHostKey, NodeSshUsername, RecordId, Ztp, ZtpRecord,
 };
 use shared::konst::{
-    LAB_FILE_NAME, SHERPA_DOMAIN_NAME, SHERPA_KNOWN_HOSTS_FILE, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_USERNAME, SSH_PORT,
+    SHERPA_DOMAIN_NAME, SHERPA_KNOWN_HOSTS_FILE, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_USERNAME,
+    SSH_PORT,
 };
-use shared::util;
 use template::{KnownHostsEntry, KnownHostsTemplate, SshConfigTemplate, SshHostConfig};
 
-/// A lab's SSH files, as saved in the lab directory and sent to the client.
+/// A lab's SSH files, as sent to the client. They are never saved on the server.
 pub(crate) struct LabSshFiles {
     pub ssh_config: String,
     pub known_hosts: String,
@@ -45,20 +44,13 @@ pub(crate) async fn record_node_host_key(
     Ok(changed)
 }
 
-/// The lab info saved in `lab_dir`.
-pub(crate) async fn load_lab_info(lab_dir: &str) -> Result<LabInfo> {
-    tokio::fs::read_to_string(format!("{lab_dir}/{LAB_FILE_NAME}"))
-        .await
-        .context("Failed to read lab info")?
-        .parse()
-}
-
-/// Save the lab's SSH files from the database: its nodes' addresses, whether their images
-/// have SSH, and the host keys recorded for them, with `lab_info` for the SSH accounts.
-#[instrument(skip(db, lab_info), fields(lab_id = %lab_info.id))]
-pub(crate) async fn refresh_lab_ssh_files(
+/// The lab's SSH config and `known_hosts` file, built from the database: its nodes'
+/// addresses, whether their images have SSH, and the host keys recorded for them, with
+/// `lab_info` for the SSH accounts. Nothing is saved: the client gets them from `up` and
+/// `download`.
+#[instrument(skip(db, lab_info), fields(lab_id = %lab_info.id), level = "debug")]
+pub(crate) async fn lab_ssh_files(
     db: &db::Database,
-    lab_dir: &str,
     lab_record_id: &RecordId,
     lab_info: &LabInfo,
     server_ipv4: Ipv4Addr,
@@ -76,13 +68,7 @@ pub(crate) async fn refresh_lab_ssh_files(
         .await
         .context("Failed to load node images for the SSH configuration")?;
     let records = saved_node_ssh_records(&nodes, &images)?;
-    save_lab_ssh_files(
-        lab_dir,
-        &records,
-        lab_info,
-        &node_host_keys(&nodes),
-        server_ipv4,
-    )
+    render_lab_ssh_files(&records, lab_info, &node_host_keys(&nodes), server_ipv4)
 }
 
 /// SSH records for a lab's saved nodes: every node with a management address, with SSH
@@ -135,11 +121,8 @@ pub(crate) fn node_host_keys(nodes: &[DbNode]) -> Vec<NodeHostKey> {
     host_keys
 }
 
-/// Render the lab's SSH config and `known_hosts` file, and save them with `lab_info` in
-/// `lab_dir`.
-#[instrument(skip(records, lab_info, host_keys), fields(lab_id = %lab_info.id))]
-pub(crate) fn save_lab_ssh_files(
-    lab_dir: &str,
+/// Render the lab's SSH config and `known_hosts` file.
+pub(crate) fn render_lab_ssh_files(
     records: &[ZtpRecord],
     lab_info: &LabInfo,
     host_keys: &[NodeHostKey],
@@ -163,19 +146,6 @@ pub(crate) fn save_lab_ssh_files(
     let known_hosts = build_known_hosts(records, host_keys)
         .render()
         .context("Failed to render the known_hosts file")?;
-    util::create_file(
-        &format!("{lab_dir}/{SHERPA_SSH_CONFIG_FILE}"),
-        ssh_config.clone(),
-    )
-    .context("Failed to save the SSH configuration")?;
-    util::create_file(
-        &format!("{lab_dir}/{SHERPA_KNOWN_HOSTS_FILE}"),
-        known_hosts.clone(),
-    )
-    .context("Failed to save the known_hosts file")?;
-    util::create_file(&format!("{lab_dir}/{LAB_FILE_NAME}"), lab_info.to_string())
-        .context("Failed to save the lab info")?;
-    tracing::info!(host_keys = host_keys.len(), "Saved lab SSH files");
     Ok(LabSshFiles {
         ssh_config,
         known_hosts,
@@ -259,6 +229,9 @@ mod tests {
     use super::*;
     use shared::data::ReadyCheck;
     use shared::data::{NodeModel, NodeState};
+
+    use crate::services::lab_definition::tests::lab_with;
+    use crate::services::lab_info;
 
     fn records() -> Vec<ZtpRecord> {
         ["vm", "router"]
@@ -429,6 +402,7 @@ mod tests {
             cpu_pinning: None,
             qemu_thread_cpus: None,
             ready_check: ReadyCheck::default(),
+            ssh_username: None,
         }
     }
 
@@ -468,43 +442,117 @@ mod tests {
         );
     }
 
-    fn saved(dir: &tempfile::TempDir, name: &str) -> String {
-        std::fs::read_to_string(dir.path().join(name)).unwrap()
+    /// One host of the SSH config as the template writes it, the lab's owner `alice` jumping
+    /// through the server.
+    fn host(aliases: &str, address: &str, user: &str, lab_key: bool, checked: bool) -> String {
+        let mut host = format!(
+            "\nHost {aliases}\n    HostName {address}\n    Port 22\n    User {user}\n    \
+             ProxyJump alice@192.0.2.1"
+        );
+        if lab_key {
+            host.push_str("\n    IdentityFile sherpa_ssh_key\n    IdentitiesOnly yes");
+        }
+        if checked {
+            host.push_str(
+                "\n    StrictHostKeyChecking yes\n    UserKnownHostsFile sherpa_known_hosts",
+            );
+        } else {
+            host.push_str("\n    StrictHostKeyChecking no\n    UserKnownHostsFile /dev/null");
+        }
+        host.push_str(
+            "\n    PubkeyAcceptedAlgorithms +ssh-rsa\n    HostkeyAlgorithms +ssh-rsa\n    \
+             KexAlgorithms +diffie-hellman-group-exchange-sha1,diffie-hellman-group14-sha1",
+        );
+        host
     }
 
-    #[test]
-    fn saved_lab_files_check_recorded_nodes_strictly() {
-        let dir = tempfile::tempdir().unwrap();
-        let lab_dir = dir.path().to_string_lossy().to_string();
-        let lab_info: LabInfo = r#"
-id = "abcd1234"
-name = "lab"
-user = "owner"
-ipv4_network = "192.0.2.0/24"
-ipv4_gateway = "192.0.2.1"
-ipv4_router = "192.0.2.2"
-loopback_network = "127.127.1.0/24"
-"#
-        .parse()
-        .unwrap();
-        let keys = [host_key("vm", "ssh-ed25519 AAAAC3")];
-        let files = save_lab_ssh_files(
-            &lab_dir,
-            &records(),
-            &lab_info,
-            &keys,
-            "192.0.2.1".parse().unwrap(),
-        )
-        .unwrap();
+    #[tokio::test]
+    async fn the_ssh_files_are_built_from_the_database() {
+        let (db, lab) = lab_with(&[
+            ("vm1", NodeModel::AlpineLinux),
+            ("vm2", NodeModel::UbuntuLinux),
+            ("web", NodeModel::GenericContainer),
+            ("talos", NodeModel::TalosLinux),
+        ])
+        .await;
+        let lab_record_id = lab.id.clone().unwrap();
+        let nodes = db::list_nodes_by_lab(&db, lab_record_id.clone())
+            .await
+            .unwrap();
+        for (name, address) in [
+            ("talos", "172.31.1.13"),
+            ("vm1", "172.31.1.10"),
+            ("vm2", "172.31.1.11"),
+            ("web", "172.31.1.12"),
+        ] {
+            let node = nodes.iter().find(|node| node.name == name).unwrap();
+            db::update_node_mgmt_ipv4(&db, node.id.clone().unwrap(), address)
+                .await
+                .unwrap();
+        }
+        let vm1 = nodes.iter().find(|node| node.name == "vm1").unwrap();
+        db::update_node_host_key(&db, vm1.id.clone().unwrap(), Some("ssh-ed25519 AAAAC3vm1"))
+            .await
+            .unwrap();
+        db::update_node_ssh_username(&db, vm1.id.clone().unwrap(), Some("alice"))
+            .await
+            .unwrap();
+        let lab_info = lab_info::load_lab_info(&db, &lab).await.unwrap();
+
+        let files = lab_ssh_files(&db, &lab_record_id, &lab_info, "192.0.2.1".parse().unwrap())
+            .await
+            .unwrap();
+
+        // Nodes in name order; Talos Linux has no SSH, so it is left out.
+        let expected_config = [
+            host(
+                "172.31.1.10 vm1.lab-0001 vm1.lab-0001.sherpa.lab.local",
+                "172.31.1.10",
+                "alice",
+                false,
+                true,
+            ),
+            host(
+                "172.31.1.11 vm2.lab-0001 vm2.lab-0001.sherpa.lab.local",
+                "172.31.1.11",
+                "sherpa",
+                true,
+                false,
+            ),
+            host(
+                "172.31.1.12 web.lab-0001 web.lab-0001.sherpa.lab.local",
+                "172.31.1.12",
+                "sherpa",
+                true,
+                false,
+            ),
+        ]
+        .concat();
+        assert_eq!(files.ssh_config, expected_config);
+        assert_eq!(files.known_hosts, "172.31.1.10 ssh-ed25519 AAAAC3vm1\n");
         assert!(files.uses_lab_key);
-        assert_eq!(files.known_hosts, "192.0.2.10 ssh-ed25519 AAAAC3\n");
-        let (vm, router) = files.ssh_config.split_once("Host 192.0.2.11").unwrap();
-        assert!(vm.contains("StrictHostKeyChecking yes"));
-        assert!(vm.contains("UserKnownHostsFile sherpa_known_hosts"));
-        assert!(router.contains("StrictHostKeyChecking no"));
-        assert_eq!(saved(&dir, SHERPA_SSH_CONFIG_FILE), files.ssh_config);
-        assert_eq!(saved(&dir, SHERPA_KNOWN_HOSTS_FILE), files.known_hosts);
-        let restored: LabInfo = saved(&dir, LAB_FILE_NAME).parse().unwrap();
-        assert_eq!(restored.ssh_usernames, lab_info.ssh_usernames);
+    }
+
+    #[tokio::test]
+    async fn a_lab_whose_nodes_all_log_in_as_their_owner_does_not_use_the_lab_key() {
+        let (db, lab) = lab_with(&[("vm1", NodeModel::AlpineLinux)]).await;
+        let lab_record_id = lab.id.clone().unwrap();
+        let node = &db::list_nodes_by_lab(&db, lab_record_id.clone())
+            .await
+            .unwrap()[0];
+        db::update_node_mgmt_ipv4(&db, node.id.clone().unwrap(), "172.31.1.10")
+            .await
+            .unwrap();
+        db::update_node_ssh_username(&db, node.id.clone().unwrap(), Some("alice"))
+            .await
+            .unwrap();
+        let lab_info = lab_info::load_lab_info(&db, &lab).await.unwrap();
+
+        let files = lab_ssh_files(&db, &lab_record_id, &lab_info, "192.0.2.1".parse().unwrap())
+            .await
+            .unwrap();
+
+        assert!(!files.uses_lab_key);
+        assert_eq!(files.known_hosts, "");
     }
 }
