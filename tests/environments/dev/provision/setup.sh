@@ -15,11 +15,12 @@ SHERPA_BASE="/opt/sherpa"
 ACCOUNT_ENV="${HOME}/.env.d/sherpa-account.env"
 SHERPA_ACCOUNT="dev"
 SERVER_IP=""
-# The host's labs, these servers among them, use the default 172.31.0.0/16. A lab on this server
-# given the same subnet as one of the host's would put the host's address, such as the agent
-# bus, on a bridge here, and the server could no longer reach it.
+# The host's labs, these servers among them, use the defaults 172.31.0.0/16 and fd00:b00b::/48. A
+# lab on this server given the same subnet as one of the host's would put the host's address,
+# such as the agent bus, on a bridge here, and the server could no longer reach it.
+# `init` writes them only with a new config; an existing config keeps its prefixes.
 MANAGEMENT_PREFIX_IPV4="172.30.0.0/16"
-SHERPA_CONFIG="${SHERPA_BASE}/config/sherpa.toml"
+MANAGEMENT_PREFIX_IPV6="fd00:b00a::/48"
 # System libraries and compilers. Developer tools come from mise, set in provision/mise.toml.
 APT_PACKAGES=(
     build-essential pkg-config libvirt-dev clang llvm libelf-dev
@@ -217,14 +218,12 @@ init_sherpa_server() {
         # shellcheck source=/dev/null
         source "${ACCOUNT_ENV}"
         set +a
-        sudo -u sherpa -H \
-            --preserve-env=SHERPA_ADMIN_PASSWORD,SHERPA_USER_NAME,SHERPA_USER_PASSWORD,SHERPA_USER_IS_ADMIN,SHERPA_USER_SSH_KEY \
+        SHERPA_MANAGEMENT_PREFIX_IPV4="${MANAGEMENT_PREFIX_IPV4}" \
+            SHERPA_MANAGEMENT_PREFIX_IPV6="${MANAGEMENT_PREFIX_IPV6}" \
+            sudo -u sherpa -H \
+            --preserve-env=SHERPA_ADMIN_PASSWORD,SHERPA_USER_NAME,SHERPA_USER_PASSWORD,SHERPA_USER_IS_ADMIN,SHERPA_USER_SSH_KEY,SHERPA_MANAGEMENT_PREFIX_IPV4,SHERPA_MANAGEMENT_PREFIX_IPV6 \
             "${SHERPA_BASE}/bin/sherpad" init
     )
-    log "Setting the management prefix to ${MANAGEMENT_PREFIX_IPV4}"
-    sudo grep -q '^management_prefix_ipv4 = ' "${SHERPA_CONFIG}"
-    sudo sed -i "s|^management_prefix_ipv4 = .*|management_prefix_ipv4 = \"${MANAGEMENT_PREFIX_IPV4}\"|" \
-        "${SHERPA_CONFIG}"
     sudo systemctl start sherpad
 }
 

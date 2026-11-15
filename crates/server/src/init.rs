@@ -5,11 +5,12 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use ipnet::{Ipv4Net, Ipv6Net};
 use tracing::instrument;
 
 use db::{Database, apply_schema, create_admin_user, create_user, find_user, list_users, open};
 use libvirt::{BridgeNetwork, Qemu, SherpaStoragePool};
-use shared::data::{NodeConfig, NodeModel};
+use shared::data::{Config, NodeConfig, NodeModel};
 use shared::konst::{
     ADMIN_USERNAME, SHERPA_ADMIN_PASSWORD_ENV, SHERPA_BASE_DIR, SHERPA_BINS_PATH,
     SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME,
@@ -24,12 +25,15 @@ use shared::util::{
 };
 use shared::validators::{validate_ssh_key, validate_username};
 
+use crate::validate::{validate_management_prefix_ipv4, validate_management_prefix_ipv6};
+
 /// Set up a new server: its directories, `sherpa.toml`, libvirt network and storage pool,
 /// database, admin account and first user.
 ///
 /// # Errors
 ///
-/// Fails when a directory or file cannot be written, libvirt cannot create the network or
+/// Fails when a management prefix has no room for a lab, a directory or file cannot be
+/// written, libvirt cannot create the network or
 /// pool, the database cannot be opened or migrated, or the first user's details are invalid or
 /// cannot be read.
 pub async fn init(
@@ -38,8 +42,14 @@ pub async fn init(
     server_ipv6: Option<Ipv6Addr>,
     ws_port: u16,
     http_port: u16,
+    management_prefix_ipv4: Ipv4Net,
+    management_prefix_ipv6: Option<Ipv6Net>,
 ) -> Result<()> {
     term_msg_surround("Sherpa Server Initializing");
+    validate_management_prefix_ipv4(management_prefix_ipv4)?;
+    if let Some(prefix) = management_prefix_ipv6 {
+        validate_management_prefix_ipv6(prefix)?;
+    }
 
     // Create server directories
     term_msg_highlight("Creating Directories");
@@ -77,11 +87,14 @@ pub async fn init(
         println!("Config file already exists: {SHERPA_CONFIG_FILE_PATH}");
     } else {
         term_msg_underline("Writing Server Config");
-        let mut config = default_config();
-        config.server_ipv4 = server_ipv4;
-        config.server_ipv6 = server_ipv6;
-        config.ws_port = ws_port;
-        config.http_port = http_port;
+        let config = server_config(
+            server_ipv4,
+            server_ipv6,
+            ws_port,
+            http_port,
+            management_prefix_ipv4,
+            management_prefix_ipv6,
+        );
         create_config(&config, SHERPA_CONFIG_FILE_PATH)?;
         println!("Config written to: {SHERPA_CONFIG_FILE_PATH}");
     }
@@ -120,6 +133,26 @@ pub async fn init(
 
     term_msg_surround("Sherpa Server Initialized");
     Ok(())
+}
+
+/// The default server config with the settings `init` takes.
+fn server_config(
+    server_ipv4: Ipv4Addr,
+    server_ipv6: Option<Ipv6Addr>,
+    ws_port: u16,
+    http_port: u16,
+    management_prefix_ipv4: Ipv4Net,
+    management_prefix_ipv6: Option<Ipv6Net>,
+) -> Config {
+    Config {
+        server_ipv4,
+        server_ipv6,
+        ws_port,
+        http_port,
+        management_prefix_ipv4,
+        management_prefix_ipv6,
+        ..default_config()
+    }
 }
 
 /// Create the built-in `admin` account unless it already exists.
@@ -298,6 +331,9 @@ fn prompt_password(username: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use shared::konst::SHERPA_MANAGEMENT_NETWORK_IPV4;
+    use shared::util::load_config;
+
     use super::*;
 
     const TEST_SSH_KEY: &str =
@@ -326,6 +362,56 @@ mod tests {
             read_ssh_key(path.to_str().unwrap()).unwrap(),
             vec![TEST_SSH_KEY]
         );
+    }
+
+    #[test]
+    fn test_written_server_config_holds_the_init_settings() {
+        let management_prefix_ipv4: Ipv4Net = "172.30.0.0/16".parse().unwrap();
+        let management_prefix_ipv6: Ipv6Net = "fd00:b00a::/48".parse().unwrap();
+        let config = server_config(
+            Ipv4Addr::new(192, 0, 2, 10),
+            None,
+            4030,
+            4031,
+            management_prefix_ipv4,
+            Some(management_prefix_ipv6),
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sherpa.toml");
+        let path = path.to_str().unwrap();
+        create_config(&config, path).unwrap();
+        let written = load_config(path).unwrap();
+
+        assert_eq!(written.management_prefix_ipv4, management_prefix_ipv4);
+        assert_eq!(written.management_prefix_ipv6, Some(management_prefix_ipv6));
+        assert_eq!(written.server_ipv4, Ipv4Addr::new(192, 0, 2, 10));
+        assert_eq!(written.ws_port, 4030);
+        assert_eq!(written.http_port, 4031);
+    }
+
+    #[test]
+    fn test_written_server_config_without_an_ipv6_prefix_leaves_it_unset() {
+        let config = server_config(
+            Ipv4Addr::UNSPECIFIED,
+            None,
+            3030,
+            3031,
+            SHERPA_MANAGEMENT_NETWORK_IPV4,
+            None,
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sherpa.toml");
+        let path = path.to_str().unwrap();
+        create_config(&config, path).unwrap();
+
+        assert!(
+            !fs::read_to_string(path)
+                .unwrap()
+                .contains("management_prefix_ipv6")
+        );
+        assert_eq!(load_config(path).unwrap().management_prefix_ipv6, None);
     }
 
     #[test]

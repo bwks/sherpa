@@ -29,6 +29,9 @@ nix = { workspace = true, features = ["signal", "process", "user", "fs"] }
 # CLI
 clap = { workspace = true, features = ["env"] }
 
+# IP networks
+ipnet = { workspace = true }
+
 # Serialization/Deserialization
 serde = { workspace = true }
 serde_json = { workspace = true }
