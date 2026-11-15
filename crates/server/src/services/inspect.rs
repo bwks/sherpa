@@ -6,8 +6,9 @@ use shared::data::{
     LinkState, NodeConfig, NodeKind, NodeState, Observation, Probe, RecordId,
 };
 use shared::konst::{LAB_FILE_NAME, SHERPA_LABS_PATH, SHERPA_STORAGE_POOL};
-use shared::util::load_file;
+use shared::util::{get_ipv4_addr, load_file};
 use std::collections::HashMap;
+use std::net::Ipv4Addr;
 use std::str::FromStr;
 use std::time::Instant;
 use tracing::Instrument;
@@ -141,7 +142,7 @@ async fn inspect_lab_inner(
         })
         .collect();
 
-    let devices = devices(state, &db_nodes, &node_images, &volumes, lab_id).await?;
+    let devices = devices(state, &db_nodes, &node_images, &volumes, &lab_info).await?;
     let node_states: Vec<NodeState> = devices.iter().map(|device| device.state).collect();
 
     Ok(InspectResponse {
@@ -158,13 +159,13 @@ async fn inspect_lab_inner(
 
 /// Each node's details, with a container's state as Docker reports it (`reported_state`). When
 /// Docker does not answer, containers are reported as recorded.
-#[instrument(skip_all, fields(%lab_id), level = "debug")]
+#[instrument(skip_all, fields(lab_id = %lab_info.id), level = "debug")]
 async fn devices(
     state: &AppState,
     db_nodes: &[DbNode],
     node_images: &[NodeConfig],
     volumes: &[String],
-    lab_id: &str,
+    lab_info: &LabInfo,
 ) -> Result<Vec<DeviceInfo>> {
     let has_containers = node_images
         .iter()
@@ -185,8 +186,8 @@ async fn devices(
         let node_image = find_node_image(node_images, &node.image)
             .ok_or_else(|| anyhow!("Node image not found for node '{}'", node.name))?;
 
-        let mut device = device_info(node, node_image, volumes, lab_id);
-        device.state = reported_state(node, &node_image.kind, lab_id, containers.as_ref());
+        let mut device = device_info(node, node_image, volumes, lab_info);
+        device.state = reported_state(node, &node_image.kind, &lab_info.id, containers.as_ref());
         if device.state != node.state {
             tracing::debug!(node = %node.name, recorded = %node.state, reported = %device.state, "Reporting the container's state from Docker");
         }
@@ -245,9 +246,15 @@ fn lab_info_from_record(lab: &DbLab, owner: String) -> Result<LabInfo> {
 }
 
 /// A node's details: its state, addresses and resources from the database, and its disks
-/// from the storage pool.
-fn device_info(node: &DbNode, image: &NodeConfig, volumes: &[String], lab_id: &str) -> DeviceInfo {
-    let device_name = format!("{}-{}", node.name, lab_id);
+/// from the storage pool. A VM's or unikernel's serial console is on its index in the lab's
+/// loopback network, where `up` and `redeploy` put its telnet chardev.
+fn device_info(
+    node: &DbNode,
+    image: &NodeConfig,
+    volumes: &[String],
+    lab_info: &LabInfo,
+) -> DeviceInfo {
+    let device_name = format!("{}-{}", node.name, lab_info.id);
     let mut disks = Vec::new();
     for volume in volumes {
         if is_device_volume(volume, &device_name) {
@@ -265,7 +272,19 @@ fn device_info(node: &DbNode, image: &NodeConfig, volumes: &[String], lab_id: &s
         disks,
         cpu_count: node.cpu_count,
         memory: node.memory,
+        console_address: console_address(node, &image.kind, lab_info),
     }
+}
+
+/// The address of `node`'s serial console, or `None` for a container, which has none, or for
+/// an index past the lab's loopback network.
+fn console_address(node: &DbNode, kind: &NodeKind, lab_info: &LabInfo) -> Option<Ipv4Addr> {
+    if *kind == NodeKind::Container {
+        return None;
+    }
+    get_ipv4_addr(&lab_info.loopback_network, u32::from(node.index))
+        .inspect_err(|error| tracing::warn!(node = %node.name, %error, "No console address"))
+        .ok()
 }
 
 /// The state to report for `node` of `kind` in lab `lab_id`. A container's comes from Docker's
@@ -311,6 +330,7 @@ fn link_infos(
             int_b: link.int_b,
             kind: link.kind,
             state: link_states.get(&link.index).cloned(),
+            index: Some(link.index),
         })
         .collect()
 }
@@ -523,6 +543,39 @@ mod tests {
         assert_eq!(links[1].node_a_name, "dev01");
         assert_eq!(links[1].node_b_name, "db01");
         assert_eq!(links[1].int_a, "eth2");
+        assert_eq!(links[0].index, Some(0));
+        assert_eq!(links[1].index, Some(1));
+    }
+
+    fn lab_info() -> LabInfo {
+        "id='a1b2c3d4'\nname='core'\nuser='alice'\nipv4_network='172.31.0.0/24'\nipv4_gateway='172.31.0.1'\nipv4_router='172.31.0.2'\nloopback_network='127.127.3.0/24'"
+            .parse()
+            .unwrap()
+    }
+
+    #[test]
+    fn a_vm_and_a_unikernel_have_their_console_on_their_loopback_address() {
+        for model in [NodeModel::UbuntuLinux, NodeModel::GenericUnikernel] {
+            let image = NodeConfig::get_model(model);
+            let node = DbNode {
+                index: 4,
+                ..db_node("dev01")
+            };
+            let device = device_info(&node, &image, &[], &lab_info());
+            assert_eq!(
+                device.console_address,
+                Some("127.127.3.4".parse().unwrap()),
+                "{model}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_container_has_no_console_address() {
+        let image = NodeConfig::get_model(NodeModel::NokiaSrlinux);
+        assert_eq!(image.kind, NodeKind::Container);
+        let device = device_info(&db_node("srl01"), &image, &[], &lab_info());
+        assert_eq!(device.console_address, None);
     }
 
     #[test]
@@ -532,7 +585,7 @@ mod tests {
             "dev01-a1b2c3d4-hdd.qcow2".to_string(),
             "dev02-a1b2c3d4-hdd.qcow2".to_string(),
         ];
-        let device = device_info(&db_node("dev01"), &image, &volumes, "a1b2c3d4");
+        let device = device_info(&db_node("dev01"), &image, &volumes, &lab_info());
         assert_eq!(device.name, "dev01");
         assert_eq!(device.mgmt_ipv4, "172.31.0.21");
         assert_eq!(device.vnc_port, Some(5903));

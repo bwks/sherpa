@@ -1,3 +1,5 @@
+use std::net::Ipv4Addr;
+
 use super::TailnetStatus;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -47,6 +49,12 @@ pub struct DeviceInfo {
     /// Memory in MB the node was given; `None` as for `cpu_count`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory: Option<u16>,
+    /// Where the node's serial console listens on the server, on the telnet port: its address
+    /// in the lab's loopback network. `None` for a container, which has no serial console, and
+    /// from servers that do not report it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<String>")]
+    pub console_address: Option<Ipv4Addr>,
 }
 
 /// Display-ready information about a point-to-point link between two nodes
@@ -62,6 +70,10 @@ pub struct LinkInfo {
     /// that do not report link states.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<LinkState>,
+    /// The link's number in the lab, as `link impair` names it to the server. `None` from
+    /// servers that do not report it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<u16>,
 }
 
 /// Display-ready information about a shared bridge connecting multiple nodes
@@ -84,6 +96,7 @@ mod tests {
             int_b: "eth1".to_string(),
             kind: BridgeKind::P2p,
             state,
+            index: None,
         }
     }
 
@@ -103,5 +116,49 @@ mod tests {
         let mut old = unchecked;
         let back: LinkInfo = serde_json::from_value(old.take()).unwrap();
         assert_eq!(back.state, None);
+    }
+
+    #[test]
+    fn a_link_carries_its_index_and_none_from_an_older_server() {
+        let mut indexed = link(None);
+        indexed.index = Some(3);
+        let value = serde_json::to_value(&indexed).unwrap();
+        assert_eq!(value["index"], serde_json::json!(3));
+        let back: LinkInfo = serde_json::from_value(value).unwrap();
+        assert_eq!(back.index, Some(3));
+
+        let mut old = serde_json::to_value(link(None)).unwrap();
+        assert!(old.get("index").is_none(), "{old}");
+        let back: LinkInfo = serde_json::from_value(old.take()).unwrap();
+        assert_eq!(back.index, None);
+    }
+
+    fn device(console_address: Option<Ipv4Addr>) -> DeviceInfo {
+        DeviceInfo {
+            name: "vm1".to_string(),
+            model: NodeModel::AlpineLinux,
+            kind: NodeKind::VirtualMachine,
+            state: NodeState::Running,
+            mgmt_ipv4: "172.31.0.11".to_string(),
+            mgmt_ipv6: None,
+            vnc_port: None,
+            disks: Vec::new(),
+            cpu_count: None,
+            memory: None,
+            console_address,
+        }
+    }
+
+    #[test]
+    fn a_device_carries_its_console_address_and_none_from_an_older_server() {
+        let value = serde_json::to_value(device(Some(Ipv4Addr::new(127, 127, 3, 1)))).unwrap();
+        assert_eq!(value["console_address"], serde_json::json!("127.127.3.1"));
+        let back: DeviceInfo = serde_json::from_value(value).unwrap();
+        assert_eq!(back.console_address, Some(Ipv4Addr::new(127, 127, 3, 1)));
+
+        let mut old = serde_json::to_value(device(None)).unwrap();
+        assert!(old.get("console_address").is_none(), "{old}");
+        let back: DeviceInfo = serde_json::from_value(old.take()).unwrap();
+        assert_eq!(back.console_address, None);
     }
 }
