@@ -50,6 +50,14 @@ ssh -F .sherpa/ssh/config win.<lab-id> 'powershell -NoProfile -Command "cd sherp
 
 Only the client is built here: the server, `libvirt` and `network` crates are Linux only.
 
+## Test in a desktop terminal too
+
+A session over SSH is not what a Windows user has: Win32-OpenSSH's `sshd` sets `USER` and
+`LOGNAME`, which Windows Terminal and conhost do not, and its console is a pseudo console. Check
+interactive commands such as `sherpa ssh` and `sherpa console` in a desktop terminal as well,
+for example by signing in on the node's display (`virsh send-key` and `virsh screenshot` on
+the server can drive it).
+
 ## Destroy it
 
 ```bash

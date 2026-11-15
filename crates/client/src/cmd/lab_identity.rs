@@ -135,10 +135,16 @@ mod tests {
     #[test]
     fn files_naming_different_labs_are_refused() {
         let error = agreed_identity(Some(lab("a", "1")), Some(lab("b", "2"))).unwrap_err();
+        // The path is the platform's, `.sherpa\lab-info.toml` on Windows.
+        let path = Path::new(".sherpa").join("lab-info.toml");
         assert_eq!(
             error.to_string(),
-            ".sherpa/lab-info.toml is for lab a-1, but manifest.toml is for lab b-2; destroy lab \
-             a-1 or remove .sherpa/lab-info.toml before using this folder for lab b"
+            format!(
+                "{} is for lab a-1, but manifest.toml is for lab b-2; destroy lab a-1 or \
+                 remove {} before using this folder for lab b",
+                path.display(),
+                path.display()
+            )
         );
     }
 
