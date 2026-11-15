@@ -1,10 +1,7 @@
-//! How a node's link ends are made again, planned from the database and the lab's saved
-//! manifest: what a cold boot by resume and the scanner's repair hand to re-attach.
-
-use std::path::PathBuf;
+//! How a node's link ends are made again, planned from the database and the lab's stored
+//! definition: what a cold boot by resume and the scanner's repair hand to re-attach.
 
 use anyhow::{Result, anyhow};
-use tracing::instrument;
 
 use super::reattach::{LabLinks, RecreatedEnd};
 use super::veths::{
@@ -12,8 +9,6 @@ use super::veths::{
 };
 
 use shared::data::{DbBridge, DbLink, DbNode, NodeConfig, NodeKind, RecordId};
-use shared::konst::SHERPA_LABS_PATH;
-use shared::util::load_saved_manifest;
 use shared::validators::effective_data_interface_count;
 use topology::Manifest;
 
@@ -26,36 +21,16 @@ pub(crate) struct PlannedNode<'a> {
     pub(crate) image: Option<&'a NodeConfig>,
 }
 
-/// Load the manifest saved by `up`. Labs without a readable manifest use the defaults: the
-/// model's interface count, and the default readiness settings.
-#[instrument(level = "debug")]
-pub(crate) fn load_lab_manifest(lab_id: &str) -> Option<Manifest> {
-    let lab_dir = PathBuf::from(format!("{SHERPA_LABS_PATH}/{lab_id}"));
-    let value = match load_saved_manifest(&lab_dir) {
-        Ok(value) => value,
-        Err(error) => {
-            tracing::warn!(lab_id = %lab_id, error = ?error, "No saved manifest; using the defaults");
-            return None;
-        }
-    };
-    match serde_json::from_value(value) {
-        Ok(manifest) => Some(manifest),
-        Err(error) => {
-            tracing::warn!(lab_id = %lab_id, error = ?error, "Saved manifest unreadable; using the defaults");
-            None
-        }
-    }
-}
-
 /// How the node's link ends are made again, or `None` when it has no ends to re-attach.
 ///
 /// libvirt makes a VM's or a unikernel's taps when it boots the domain. A container started
 /// from exited, or restarted, has a new network namespace with none of its veths, so each of
-/// its data interfaces is planned again, as redeploy does, with the saved manifest's interface
-/// count. A container on no link has Docker networks, which Docker connects again.
+/// its data interfaces is planned again, as redeploy does, with the interface count of the lab's
+/// stored definition (`definition`), or the image's without one. A container on no link has
+/// Docker networks, which Docker connects again.
 pub(crate) fn recreated_end(
     node: &PlannedNode<'_>,
-    manifest: Option<&Manifest>,
+    definition: Option<&Manifest>,
     lab_links: &LabLinks,
     bridges: Result<&[DbBridge], &String>,
 ) -> Option<RecreatedEnd> {
@@ -67,7 +42,7 @@ pub(crate) fn recreated_end(
                 return None;
             }
             Some(
-                container_end(node, manifest, &links, bridges)
+                container_end(node, definition, &links, bridges)
                     .unwrap_or_else(|error| RecreatedEnd::Unplanned(format!("{error:#}"))),
             )
         }
@@ -78,7 +53,7 @@ pub(crate) fn recreated_end(
 /// interface count.
 fn container_end(
     node: &PlannedNode<'_>,
-    manifest: Option<&Manifest>,
+    definition: Option<&Manifest>,
     links: &[&DbLink],
     bridges: Result<&[DbBridge], &String>,
 ) -> Result<RecreatedEnd> {
@@ -87,10 +62,10 @@ fn container_end(
         .image
         .ok_or_else(|| anyhow!("Node image of {name} not found"))?;
     let bridges = bridges.map_err(|error| anyhow!("Failed to list the lab's bridges: {error}"))?;
-    let manifest_count = manifest
-        .and_then(|manifest| manifest.nodes.iter().find(|n| n.name == name))
+    let defined_count = definition
+        .and_then(|definition| definition.nodes.iter().find(|n| n.name == name))
         .and_then(|n| n.interfaces.data_count);
-    let count = effective_data_interface_count(name, manifest_count, image)?;
+    let count = effective_data_interface_count(name, defined_count, image)?;
     let veths = container_veths(
         &ContainerNode {
             lab_id: node.lab_id,
@@ -112,15 +87,13 @@ fn container_end(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::lab_definition::stored_definition;
+    use crate::services::lab_definition::tests::{lab_with, store};
     use shared::data::ReadyCheck;
 
     use std::collections::HashMap;
 
     use shared::data::{BridgeKind, LinkImpairment, NodeModel, NodeState};
-
-    fn manifest(text: &str) -> Manifest {
-        toml::from_str(text).unwrap()
-    }
 
     fn db_node(name: &str) -> DbNode {
         DbNode {
@@ -169,7 +142,25 @@ mod tests {
         )
     }
 
-    fn end_of(name: &str, kind: &NodeKind, image: Option<&NodeConfig>) -> Option<RecreatedEnd> {
+    /// The lab's stored definition: `ctr1` with two data interfaces.
+    async fn definition() -> Option<Manifest> {
+        let (db, lab) = lab_with(&[("ctr1", NodeModel::FrrLinux)]).await;
+        store(
+            &db,
+            &lab,
+            "name = \"l\"\n[[nodes]]\nname = \"ctr1\"\nmodel = \"frr_linux\"\n\
+             [nodes.interfaces]\ndata_count = 2\n",
+        )
+        .await;
+        stored_definition(&db, lab.id.as_ref().unwrap(), "lab1").await
+    }
+
+    fn end_of(
+        name: &str,
+        kind: &NodeKind,
+        image: Option<&NodeConfig>,
+        definition: Option<&Manifest>,
+    ) -> Option<RecreatedEnd> {
         let node = db_node(name);
         let node_id = RecordId::new("node", name);
         let bridges: Vec<DbBridge> = vec![];
@@ -181,54 +172,82 @@ mod tests {
                 kind,
                 image,
             },
-            Some(&manifest(
-                "name = \"l\"\n[[nodes]]\nname = \"ctr1\"\nmodel = \"frr_linux\"\n[nodes.interfaces]\ndata_count = 2\n",
-            )),
+            definition,
             &linked_lab(),
             Ok(&bridges),
         )
     }
 
-    #[test]
-    fn a_cold_booted_unikernel_has_its_links_reattached() {
+    #[tokio::test]
+    async fn a_cold_booted_unikernel_has_its_links_reattached() {
+        let definition = definition().await;
         // M8.1: only cold-booted VMs used to be re-attached; a unikernel's new tap was left
         // without a redirect, and its peer's pointed at the old one.
         assert!(matches!(
-            end_of("uk1", &NodeKind::Unikernel, None),
+            end_of("uk1", &NodeKind::Unikernel, None, definition.as_ref()),
             Some(RecreatedEnd::Domain)
         ));
         assert!(matches!(
-            end_of("vm1", &NodeKind::VirtualMachine, None),
+            end_of("vm1", &NodeKind::VirtualMachine, None, definition.as_ref()),
             Some(RecreatedEnd::Domain)
         ));
     }
 
-    #[test]
-    fn a_started_container_has_its_veths_made_again() {
-        // M25.2: a container started from exited has a new network namespace without its
-        // veths; resume used to leave it so.
+    /// The host veths planned for a started `ctr1`.
+    fn ctr1_host_veths(definition: Option<&Manifest>) -> Vec<String> {
         let image = NodeConfig::get_model(NodeModel::FrrLinux);
         let Some(RecreatedEnd::Container { container, veths }) =
-            end_of("ctr1", &NodeKind::Container, Some(&image))
+            end_of("ctr1", &NodeKind::Container, Some(&image), definition)
         else {
             panic!("a started container on a link has its ends made again");
         };
         assert_eq!(container, "ctr1-lab1");
-        let host_veths: Vec<&str> = veths.iter().map(|v| v.host_veth.as_str()).collect();
-        // Its link's end, and its other data interface, disabled, from the manifest's count.
-        assert_eq!(host_veths, vec!["tpb1-lab1", "cd3i2-lab1"]);
+        veths.into_iter().map(|v| v.host_veth).collect()
     }
 
-    #[test]
-    fn a_started_container_on_no_link_keeps_its_docker_networks() {
+    #[tokio::test]
+    async fn a_started_container_has_its_veths_made_again() {
+        // M25.2: a container started from exited has a new network namespace without its
+        // veths; resume used to leave it so.
+        let definition = definition().await;
+        // Its link's end, and its other data interface, disabled, from the stored definition's
+        // count.
+        assert_eq!(
+            ctr1_host_veths(definition.as_ref()),
+            vec!["tpb1-lab1", "cd3i2-lab1"]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_container_of_a_lab_without_a_stored_definition_takes_its_image_count() {
+        let (db, lab) = lab_with(&[("ctr1", NodeModel::FrrLinux)]).await;
+        let definition = stored_definition(&db, lab.id.as_ref().unwrap(), "lab1").await;
+        assert_eq!(definition, None);
         let image = NodeConfig::get_model(NodeModel::FrrLinux);
-        assert!(end_of("ctr9", &NodeKind::Container, Some(&image)).is_none());
+        let veths = ctr1_host_veths(definition.as_ref());
+        assert_eq!(veths.len(), usize::from(image.interfaces.data_count));
+        assert_eq!(veths[0], "tpb1-lab1");
+    }
+
+    #[tokio::test]
+    async fn a_started_container_on_no_link_keeps_its_docker_networks() {
+        let definition = definition().await;
+        let image = NodeConfig::get_model(NodeModel::FrrLinux);
+        assert!(
+            end_of(
+                "ctr9",
+                &NodeKind::Container,
+                Some(&image),
+                definition.as_ref()
+            )
+            .is_none()
+        );
     }
 
     #[test]
     fn a_started_container_that_cannot_be_planned_fails_its_links() {
         assert!(matches!(
-            end_of("ctr1", &NodeKind::Container, None),
+            end_of("ctr1", &NodeKind::Container, None, None),
             Some(RecreatedEnd::Unplanned(_))
         ));
     }

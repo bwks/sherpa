@@ -1743,7 +1743,7 @@ async fn check_redeploy_http(
         "Wrong HTTP authorization for {username}: {}",
         response.status()
     );
-    // An authorized cookie request stops at the absent saved manifest.
+    // An authorized cookie request is refused: the lab has no stored definition.
     let response = http
         .post(format!(
             "http://{}/labs/{lab_id}/nodes/vm/redeploy",
@@ -1758,7 +1758,7 @@ async fn check_redeploy_http(
     ensure!(
         response.status()
             == if owns_lab {
-                StatusCode::INTERNAL_SERVER_ERROR
+                StatusCode::CONFLICT
             } else {
                 StatusCode::FORBIDDEN
             },

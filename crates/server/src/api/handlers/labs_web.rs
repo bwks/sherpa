@@ -1,14 +1,12 @@
 //! The web UI's lab pages, lab and node actions, jobs and lab creation.
 
 use super::labs_api::run_detached;
-use anyhow::Context;
 use axum::extract::{Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::{Html, IntoResponse, Response, sse};
 use axum::{Form, Json};
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
-use std::path::PathBuf;
 use strum::IntoEnumIterator;
 
 use crate::api::sse::{destroy_progress_stream, up_progress_stream};
@@ -18,7 +16,9 @@ use crate::daemon::state::AppState;
 use crate::daemon::state::{Job, JobType};
 use crate::services::error::ServiceError;
 use crate::services::progress::ProgressSender;
-use crate::services::{destroy, down, download, inspect, list_labs, redeploy, resume, up};
+use crate::services::{
+    destroy, down, download, inspect, lab_definition, list_labs, redeploy, resume, up,
+};
 use crate::templates::{
     Badge, BadgeSize, DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template,
     ErrorTemplate, JobPageTemplate, LabActions, LabCreateTemplate, LabDestroyButtonFragment,
@@ -31,10 +31,9 @@ use crate::api::extractors::AuthenticatedUserFromCookie;
 
 use shared::data::{LabNodeActionResponse, LabState, NodeModel, RedeployRequest, UpRequest, Ztp};
 use shared::konst::{
-    LAB_FILE_NAME, SHERPA_KNOWN_HOSTS_FILE, SHERPA_LABS_PATH, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_SSH_PRIVATE_KEY_FILE,
+    LAB_FILE_NAME, SHERPA_KNOWN_HOSTS_FILE, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
 };
-use shared::util::{generate_lab_name, get_id_for_user, load_saved_manifest};
+use shared::util::{generate_lab_name, get_id_for_user};
 use shared::validators::effective_ztp;
 use topology::Manifest;
 
@@ -230,17 +229,22 @@ pub async fn node_redeploy_handler(
     Path((lab_id, node_name)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let auth = auth.into_context();
-    // Checked before loading the saved manifest so a non-owner gets 403, not a load error.
-    require_lab_owner(&auth, &state.db, &lab_id).await?;
+    // Checked before reading the definition so a non-owner gets 403, not a refusal.
+    let db_lab = require_lab_owner(&auth, &state.db, &lab_id).await?;
+    let lab_record_id = db::get_lab_id(&db_lab).map_err(ApiError::from)?;
 
-    // New labs persist TOML; older JSON manifests remain readable.
-    let lab_dir = PathBuf::from(SHERPA_LABS_PATH).join(&lab_id);
-    let manifest = load_saved_manifest(&lab_dir).map_err(|error| {
-        tracing::error!(%error, "Failed to load saved lab manifest");
-        ApiError::internal("Unable to load saved lab manifest")
+    // The node is rebuilt from the lab's stored definition, which holds no file contents or
+    // resolved values: a node that needs any is refused, naming them.
+    let definition = lab_definition::web_redeploy_manifest(&state.db, &lab_record_id, &node_name)
+        .await
+        .map_err(ApiError::from)?;
+    let manifest = serde_json::to_value(&definition).map_err(|error| {
+        tracing::error!(%error, "Failed to serialize the lab's stored definition");
+        ApiError::internal("Unable to read the lab's stored definition")
     })?;
 
-    // The web UI cannot send secret files, so the node keeps its current ones.
+    // The web UI cannot send secret files, so the node keeps its current ones; nor parts as
+    // written, so it keeps its stored ones.
     let request = RedeployRequest {
         lab_id,
         node_name: node_name.clone(),
@@ -502,6 +506,7 @@ pub async fn node_detail_handler(
         }
         .into_response();
     };
+    let definition = lab_definition::stored_definition(&state.db, &lab_record_id, &lab_id).await;
 
     let db_node = match db::get_node_by_name_and_lab(&state.db, &node_name, lab_record_id).await {
         Ok(n) => n,
@@ -536,7 +541,10 @@ pub async fn node_detail_handler(
         }
     };
 
-    let ztp = effective_ztp(saved_node_ztp(&lab_id, &node_name), &node_config);
+    let ztp = effective_ztp(
+        defined_node_ztp(definition.as_ref(), &node_name),
+        &node_config,
+    );
     // The page never shows the image's password.
     node_config.ztp.password = None;
 
@@ -556,29 +564,14 @@ pub async fn node_detail_handler(
     .into_response()
 }
 
-/// The ZTP setting the lab's saved manifest gives the node, if it gives one. A manifest that
-/// cannot be read gives none, so the page shows the image's setting.
-fn saved_node_ztp(lab_id: &str, node_name: &str) -> Option<Ztp> {
-    let lab_dir = PathBuf::from(SHERPA_LABS_PATH).join(lab_id);
-    match load_saved_manifest(&lab_dir).and_then(|manifest| manifest_node_ztp(manifest, node_name))
-    {
-        Ok(ztp) => ztp,
-        Err(error) => {
-            tracing::warn!(%error, %lab_id, "Failed to read the saved manifest for the node's ZTP");
-            None
-        }
-    }
-}
-
-/// The `ztp.method` a manifest sets on its node `node_name`.
-fn manifest_node_ztp(manifest: serde_json::Value, node_name: &str) -> anyhow::Result<Option<Ztp>> {
-    let manifest: Manifest =
-        serde_json::from_value(manifest).context("Failed to deserialize the saved manifest")?;
-    Ok(manifest
+/// The `ztp.method` the lab's stored definition sets on its node `node_name`, if it sets one. A
+/// lab without a stored definition gives none, so the page shows the image's setting.
+fn defined_node_ztp(definition: Option<&Manifest>, node_name: &str) -> Option<Ztp> {
+    definition?
         .nodes
         .iter()
         .find(|node| node.name == node_name)
-        .and_then(|node| node.ztp.method))
+        .and_then(|node| node.ztp.method)
 }
 
 // ============================================================================
@@ -991,6 +984,8 @@ pub async fn lab_create_post_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::lab_definition::stored_definition;
+    use crate::services::lab_definition::tests::{lab_with, store};
 
     #[test]
     fn the_lab_detail_offers_the_download_only_for_a_lab_with_known_nodes() {
@@ -1012,20 +1007,35 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_saved_manifest_gives_a_node_its_ztp_only_when_it_sets_one() {
-        let manifest = json!({
-            "name": "lab",
-            "nodes": [
-                { "name": "frr01", "model": "frr_linux" },
-                { "name": "frr02", "model": "frr_linux", "ztp": { "method": "disabled" } },
-            ],
-        });
-        assert_eq!(manifest_node_ztp(manifest.clone(), "frr01").unwrap(), None);
+    #[tokio::test]
+    async fn the_stored_definition_gives_a_node_its_ztp_only_when_it_sets_one() {
+        let (db, lab) = lab_with(&[
+            ("frr01", NodeModel::FrrLinux),
+            ("frr02", NodeModel::FrrLinux),
+        ])
+        .await;
+        let lab_id = lab.id.clone().unwrap();
+        // A lab without a stored definition gives none, so the page shows the image's.
+        let none = stored_definition(&db, &lab_id, "lab-0001").await;
+        assert_eq!(defined_node_ztp(none.as_ref(), "frr02"), None);
+        store(
+            &db,
+            &lab,
+            r#"
+name = "lab"
+nodes = [
+    { name = "frr01", model = "frr_linux" },
+    { name = "frr02", model = "frr_linux", ztp = { method = "disabled" } },
+]
+"#,
+        )
+        .await;
+        let definition = stored_definition(&db, &lab_id, "lab-0001").await;
+        assert_eq!(defined_node_ztp(definition.as_ref(), "frr01"), None);
         assert_eq!(
-            manifest_node_ztp(manifest.clone(), "frr02").unwrap(),
+            defined_node_ztp(definition.as_ref(), "frr02"),
             Some(Ztp::Disabled)
         );
-        assert_eq!(manifest_node_ztp(manifest, "absent").unwrap(), None);
+        assert_eq!(defined_node_ztp(definition.as_ref(), "absent"), None);
     }
 }
