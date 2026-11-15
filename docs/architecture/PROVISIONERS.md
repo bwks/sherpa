@@ -24,9 +24,8 @@ mode }`, mode default `konst::CONTAINER_SECRET_DEFAULT_MODE`, `444`). All are
 `deny_unknown_fields`.
 
 The field is `#[serde(default, skip_serializing)]`: it is read from the user's `manifest.toml`
-but never serialized, so it is absent from the manifest JSON the client sends and from the
-`manifest.toml` the server saves. Only `sherpa new` writes a manifest, and it writes a new one,
-so nothing is lost by not serializing it.
+but never serialized, so it is absent from the manifest JSON the client sends. Only `sherpa new`
+writes a manifest, and it writes a new one, so nothing is lost by not serializing it.
 
 The CLI sends the definitions beside the manifest instead, so the server can store them with the
 lab's definition (see [`DATABASE.md`](DATABASE.md#lab-definitions)): they are part of the

@@ -429,7 +429,7 @@ creates the node's record, and `redeploy` replaces it from the new manifest node
 node starts, both with `node_ops::stored_ready_check`: the manifest's `ready_check.port`, else
 a virtual machine's model port (`vm_ready_port`: SSH, or the Talos API for Talos Linux); a
 container or unikernel without a port has none. `skip` is the manifest's `ready_check.skip`.
-The scanner, `resume`, `redeploy` and `inspect` read it, not the saved manifest, so every
+The scanner, `resume`, `redeploy` and `inspect` read it, not the lab's definition, so every
 readiness path agrees; `up` waits on the same values, from the manifest it is building.
 `node_ops::probed_ready_port` is the port a check is probed on: none when it is skipped or has
 no port, and the node is ready once it runs. Nodes stored before the columns existed have
@@ -672,7 +672,8 @@ stateDiagram-v2
   check (`readiness_check`): VMs and containers with a stored port, probed on it, and
   unikernels by their domain and their port, if any. Those that become ready, and those with
   no check (no stored port, or a skipped check), are recorded `Running`; the others stay
-  `Starting`. The saved manifest gives only the ready timeout.
+  `Starting`. The lab's stored definition gives only the ready timeout; a lab without one
+  (one whose saved manifest could not be imported) has the default, logged at warn.
 
 ```mermaid
 stateDiagram-v2
@@ -1313,7 +1314,7 @@ of `node`, in index order, each on its own: one link's failure never stops the n
 | Event | Caller | `RecreatedEnd` |
 |---|---|---|
 | VM or unikernel cold boot by resume | `resume::reattach_cold_booted` | `Domain` (libvirt made the taps) |
-| container started from exited by resume | `resume::reattach_cold_booted` | `Container { veths }`: every data interface planned again from the database rows (links, bridges) and the saved manifest's interface count, made in the new namespace first |
+| container started from exited by resume | `resume::reattach_cold_booted` | `Container { veths }`: every data interface planned again from the database rows (links, bridges) and the stored definition's interface count (the image's for a lab without one), made in the new namespace first |
 | VM redeploy | `redeploy/vm.rs` | `Domain` |
 | container redeploy | `redeploy/container.rs` | `Container { veths }` |
 | the container's plan failed | resume, scanner | `Unplanned(reason)`: each link `Failed` |
@@ -1396,8 +1397,9 @@ ends of nodes whose runtime is `Running` and that are not `Building` are checked
 
 A link with no fault is `Failed` if an end could not be read, `PeerDown` naming the first of
 its nodes that is not running (stopped, paused, faulted or absent), and `Attached` otherwise.
-`repair_node` runs `reattach_node_links` for each node with a fault; for a container it makes
-only the veths that do not exist, because making a veth deletes its host end first and would
+`repair_node` runs `reattach_node_links` for each node with a fault; for a container, planned
+as resume plans it with the stored definition's interface count (the image's without one), it
+makes only the veths that do not exist, because making a veth deletes its host end first and would
 take a working interface down. Every repaired link is logged at info, every failure at warn.
 A repair that fails half-way leaves an end without its filter (the attach removes the old
 program before it loads the new one), which the next scan finds again. The scanner never

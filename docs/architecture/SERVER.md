@@ -119,7 +119,7 @@ flowchart TB
     end
     registry --> recover["services::lab_lifecycle::recover:<br/>labs left Creating become Interrupted,<br/>left Destroying become DestroyFailed,<br/>nodes left Building become Failed"]
     recover --> sealimages["db::seal_plain_image_passwords:<br/>image passwords stored as plain text are sealed"]
-    sealimages --> import["services::lab_definition::import_lab_definitions:<br/>a lab with no stored definition gets one<br/>from its saved manifest"]
+    sealimages --> import["services::lab_definition::import_lab_definitions:<br/>a lab with no stored definition gets one<br/>from its saved manifest;<br/>every lab's saved manifest is deleted"]
     import --> cancel["create CancellationToken for background services"]
     cancel --> scanner["if scanner enabled:<br/>spawn services::scanner::run_scanner(...)"]
     scanner --> sweeper["spawn auth::session::run_sweeper<br/>(deletes expired sessions at startup, then hourly)"]
@@ -137,7 +137,7 @@ flowchart TB
     plain6 --> serveplain["serve with graceful shutdown future"]
 ```
 
-In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), imports the definitions of labs that have none ([below](#lab-definition-import)), starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
+In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), imports the definitions of labs that have none and deletes the saved manifests ([below](#lab-definition-import)), both in `upgrade_stored_data`, starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
 
 `auth::jwt::load_or_generate_secret` generates the JWT secret only when the file is missing. A file that exists with a length other than 32 bytes stops startup with an error naming the file: replacing it would silently end every session. Deleting the file generates a new secret, which logs every user out.
 
@@ -159,18 +159,32 @@ startup, so the server never serves while one is plain.
 
 Labs stored before schema version 20 have no definition in the database. After `recover`,
 `lab_definition::import_lab_definitions` gives each lab whose `has_definition` is `0` one, from
-the manifest `up` saved in its directory: `manifest.toml`, else a legacy `manifest.json`
-(`shared::util::load_saved_manifest`). A saved manifest is the one the client resolved, so only what
+the manifest an older release's `up` saved in its directory: `manifest.toml`, else a legacy
+`manifest.json` (`lab_definition::read_saved_manifest`, which parses either straight into a
+`topology::Manifest`). A saved manifest is the one the client resolved, so only what
 survives as written is stored (`Manifest::definition` without parts as written): `ztp.config`
 holds the file's contents and `environment_variables` their resolved values, so neither is
 imported, and each node that had them is logged; file contents (`*_data`) are dropped; the paths
 of files and scripts are kept. It is stored with `db::store_lab_definition`, which seals
 `ztp_server.password`. A lab whose file is missing or unreadable, does not parse as a current
 manifest (an old-shape one), or names nodes the lab has no records for is logged with a warning
-and left without a definition; nothing is made up for it, and the next start tries again. The
-saved manifest never held provisioners or `provision_concurrency`, so an imported lab has none.
-The files are left in place, and every reader still reads them; moving the readers to the
-database comes later. Only a failure to list the labs stops startup.
+and left without a definition; nothing is made up for it. The saved manifest never held
+provisioners or `provision_concurrency`, so an imported lab has none.
+
+Then every lab with a record has its saved manifests deleted (`delete_saved_manifests`): exactly
+`manifest.toml` and `manifest.json` in `/opt/sherpa/labs/<lab-id>`, nothing else in the folder,
+and no folder without a lab record. A lab whose definition is stored has them deleted with an
+info log; one whose import was refused, having logged why, with a warning, unreadable files
+included. A file that is not there is skipped, so the step runs on every start; one that cannot
+be deleted is logged and left. Nothing reads the files any more and `up` no longer writes one,
+so after the first start of this release no lab folder holds one, and a lab that was not
+imported stays without a definition (the readers' defaults; see
+[`DATABASE.md`](DATABASE.md#lab-definitions)). Only a failure to list the labs stops startup,
+and then nothing is deleted.
+
+The import can be removed in a later release, once upgrading from a release before this one
+(which saved the files) is no longer supported: every server that ran this release has no saved
+manifest left to import.
 
 Shutdown uses SIGINT/SIGTERM. The handlers are registered once, before the server binds any listener, so a registration failure stops startup with an error instead of leaving a server that cannot shut down gracefully. On shutdown, the server cancels the background-service token. With TLS, it also asks the `axum_server::Handle` to perform graceful shutdown with a short timeout. The OpenTelemetry guard flushes traces/metrics when dropped.
 
@@ -474,7 +488,7 @@ Request structs (`UpRequest`, `DestroyRequest`, `InspectRequest`, `RedeployReque
 A few transports must answer before the service runs, and call the same policy helper first:
 
 - REST destroy and REST redeploy return SSE streams, so a refusal inside the service would arrive as a 200 with an error event. They call `require_lab_access` or `require_lab_owner` first, so a refused caller gets 403.
-- Web redeploy checks ownership before loading the saved manifest, so a non-owner gets 403 rather than a load error.
+- Web redeploy checks ownership before reading the lab's stored definition, so a non-owner gets 403 rather than a refusal.
 - Web destroy checks access before queuing the job.
 
 The service always checks again, so the rule is still enforced if a transport forgets.
@@ -594,7 +608,7 @@ flowchart TB
     end
     createnode --> labfiles
     subgraph phase4["4. LabNetworkSetup"]
-        labfiles["create /opt/sherpa/labs/{lab_id}<br/>write lab info file<br/>save manifest.toml for redeploy<br/>lab_ssh_key::create_lab_ssh_key: the lab's SSH key pair, 0600"] --> mgmtnets["libvirt NAT management network<br/>Docker bridge management network"] --> tailscale["tailscale::provision when the lab joins a tailnet"]
+        labfiles["create /opt/sherpa/labs/{lab_id}<br/>write lab info file (no manifest: the definition is stored in phase 3)<br/>lab_ssh_key::create_lab_ssh_key: the lab's SSH key pair, 0600"] --> mgmtnets["libvirt NAT management network<br/>Docker bridge management network"] --> tailscale["tailscale::provision when the lab joins a tailnet"]
     end
     tailscale --> links
     subgraph phase5["5. LinkCreation"]
@@ -844,8 +858,25 @@ structs and are parsed afterwards, so a missing or bad value is reported by name
 
 Redeploy is a controlled single-node replacement. It exists because updating node configuration in place is often less reliable than destroying and recreating that node.
 
-The web UI loads the lab's saved manifest; the CLI sends its own. `redeploy_node` (`node.rs`)
-runs the stages; each is in its own file under `services/redeploy/`:
+The CLI sends the manifest it resolved in the lab folder, with every file's contents and every
+`$VAR`'s value, and the parts as written beside it. The web UI has neither: it rebuilds the node
+from the lab's stored definition (`lab_definition::web_redeploy_manifest`), which holds no file
+contents or resolved values. So it refuses, with a `ServiceError::Conflict` (409), a lab with no
+stored definition, and a node whose definition needs any of them
+(`validate::check_web_redeployable`): a `ztp.config`, `text_files`, `binary_files`,
+`systemd_units`, `startup_scripts`, `user_scripts`, `ssh.authorized_key_files`,
+`environment_variables` with a `$VAR` value, and provisioners, which only the CLI runs. The
+error names the node and every missing part, and says to run `sherpa redeploy -n <node>` from
+the lab folder, for example:
+
+> Node 'dev01' cannot be redeployed from the web UI: it needs ztp.config, text_files, which the
+> server does not keep. Run `sherpa redeploy -n dev01` from the lab folder
+
+A node that needs none of them is redeployed from the definition narrowed to it: the other
+nodes are left out, so their files do not refuse it, and the redeploy stores only that node's
+definition and the lab-level settings, as from the CLI. Its secret files and parts as written are
+the ones it has. `redeploy_node` (`node.rs`) runs the stages; each is in its own file under
+`services/redeploy/`:
 
 ```mermaid
 flowchart TB
@@ -942,9 +973,10 @@ and the result says why. A node is marked `Stopped` only once it has stopped. Fo
 written files on every VM without a guest agent, which includes Talos and the Ubuntu images.
 
 Resume then waits for the nodes it cold-booted, as `up` does, on the readiness check stored
-with each node (`DbNode::ready_check`). It loads the lab's saved manifest (`manifest.toml` in
-the lab directory, written by `up`) only for `ready_timeout`; labs without a readable saved
-manifest use the default timeout. VMs are probed on their stored port, unikernels with
+with each node (`DbNode::ready_check`). It reads the lab's stored definition
+(`lab_definition::stored_definition`) only for `ready_timeout`, and for a cold-booted
+container's data interface count; a lab without one uses the default timeout and the image's
+count, logged at warn. VMs are probed on their stored port, unikernels with
 `check_unikernel_ready` and their stored port, if any, and containers with a stored port on
 that port. Other containers, nodes whose check is skipped, and paused nodes are not waited
 for. A node that is not ready within the timeout
@@ -1082,7 +1114,7 @@ cycle: its nodes keep their recorded state. Treating it as empty would mark ever
 `Missing`.
 
 Each node is probed on the readiness check stored with it (`DbNode::ready_check`, see
-[Node readiness](#node-readiness)), never the saved manifest. A running node with a stored
+[Node readiness](#node-readiness)), never the lab's definition. A running node with a stored
 port and a check that is not skipped is probed on that port while it is not yet `Running`, as
 after a readiness wait that timed out or a start outside Sherpa: a virtual machine on its
 model's port or its `ready_check.port`, a container or unikernel on its `ready_check.port`. A
@@ -1304,7 +1336,7 @@ flowchart LR
     lab["Lab {lab_id}"]
     database["Database<br/>user record<br/>lab record<br/>node records<br/>link records<br/>image records"]
     ram["RAM: /run/sherpa/secrets/{lab_id}/{node}<br/>(container secret files)"]
-    fs["Filesystem: /opt/sherpa/labs/{lab_id}<br/>lab info file<br/>saved manifest<br/>generated node configs<br/>ZTP/TFTP assets<br/>cert material where needed<br/>SSH/helper config files"]
+    fs["Filesystem: /opt/sherpa/labs/{lab_id}<br/>lab info file<br/>generated node configs<br/>ZTP/TFTP assets<br/>cert material where needed<br/>SSH/helper config files"]
     libvirt["libvirt/QEMU<br/>VM domains<br/>unikernel domains<br/>NAT/isolated/reserved networks<br/>cloned/resized disks in Sherpa storage pool"]
     docker["Docker<br/>containers<br/>bridge/macvlan networks<br/>pulled/imported container images"]
     host["Linux host networking<br/>bridges<br/>veth pairs<br/>tap devices<br/>impairment/eBPF/netns wiring where applicable"]

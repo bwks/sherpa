@@ -293,7 +293,7 @@ by `create_lab`; the rest come with migration 20:
 
 | Column | Manifest |
 |---|---|
-| `has_definition` | `1` once a definition is stored. `0` for a lab stored before version 20 whose saved manifest could not be imported |
+| `has_definition` | `1` once a definition is stored. `0` for a lab stored before version 20 whose saved manifest could not be imported (the file is deleted all the same) |
 | `ready_timeout`, `provision_current_user`, `provision_concurrency` | the same names (`provision_concurrency` 1 to 255) |
 | `tailscale_enabled`, `tailscale_auth_key_env` | `[tailscale]`; `NULL` when the manifest has no table |
 | `ztp_server_enable`, `ztp_server_username`, `ztp_server_password` | `[ztp_server]`; `NULL` when absent. The password is [sealed](#secret-values) |
@@ -346,8 +346,23 @@ as absent, which every reader treats the same. A test builds a manifest that set
 as written (no `*_data` field), with a destructuring that stops compiling when `Manifest` or
 `Node` gains one, and checks that it reads back equal and that every child table got rows.
 
-Readers do not use it yet: `resume`, the scanner and the web UI still read the saved
-`manifest.toml`, which `up` still writes.
+**Readers.** The server reads a lab's manifest only from its definition; it writes no copy of
+it to the lab's directory. `services::lab_definition::stored_definition` is the read for readers
+that fall back to defaults: for a lab with no definition (`has_definition` `0`), or one that
+cannot be read, it logs a warning and gives `None`, and the reader uses the defaults it used for a
+missing saved manifest, never a made-up definition.
+
+| Reader | Reads | Without a definition |
+|---|---|---|
+| `resume` (`wait_for_cold_booted`) | `ready_timeout` | `konst::READINESS_TIMEOUT` |
+| `resume` (`reattach_cold_booted`) and the scanner's link repair (`scanner::repair_links`), through `p2p_links::recreated_end` | a container's `interfaces.data_count` | the image's data interface count |
+| the web UI's node page (`labs_web::defined_node_ztp`) | the node's `ztp.method` | the image's setting |
+| the web UI's node redeploy (`lab_definition::web_redeploy_manifest`) | the whole definition, narrowed to the node | refused (409) |
+
+The ready port is not read from the definition: it is the node's own readiness check
+(`node.ready_port`, `node.skip_ready_check`), what it was built with. A web UI redeploy rebuilds a
+node from its definition alone, so it refuses a node that needs what the definition does not hold
+(see [SERVER.md](SERVER.md#redeploy)).
 
 **Existing labs** get their definition from the [startup import](SERVER.md#lab-definition-import).
 

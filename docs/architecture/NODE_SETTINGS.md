@@ -172,7 +172,7 @@ It runs in `sherpa validate`, in the server's `up` before images are leased, and
 - `ready_check` is stored on the node's record when `up` creates it and when `redeploy`
   rebuilds it (`node.ready_port` and `node.skip_ready_check`, from
   `node_ops::stored_ready_check`): the port, else a VM's model port, and the skip. `resume`,
-  `redeploy`'s wait, `inspect` and the scanner read that record, not the saved manifest, so a
+  `redeploy`'s wait, `inspect` and the scanner read that record, not the lab's definition, so a
   container whose port does not answer stays `Starting` scan after scan, and a VM with a port
   that is not SSH is probed on it. See
   [`STATE_MACHINES.md`](STATE_MACHINES.md#5-node-readiness-and-host-keys).
@@ -191,14 +191,13 @@ The other checks on these settings:
 - `NodeCpuPins::of(name, &node.cpu, &node.boot_disk)` gives a node's pins: its vCPU pins, and
   its QEMU thread CPUs (`cpu.emulator_pinning` and `boot_disk.io_thread_cpus`).
 
-## Saved manifests
+## Stored definitions
 
-`up` saves the lab's manifest beside the lab (`SHERPA_LAB_MANIFEST_FILE`). A lab created by a
-release before the grouping has a saved manifest in the old shape, which no longer parses:
-`resume` falls back to the default readiness settings, as it does for any unreadable saved
-manifest, and the web node page shows the image's ZTP setting.
-
-The database also records each lab's manifest as its definition (see
-[`DATABASE.md`](DATABASE.md#lab-definitions)): `up` writes it, and labs from before get it from
-their saved manifest at startup. An old-shape saved manifest is not imported, so such a lab has
-no stored definition.
+The database records each lab's manifest as its definition (see
+[`DATABASE.md`](DATABASE.md#lab-definitions)): `up` writes it, and `redeploy` the node it
+rebuilds. The server saves no copy of the manifest beside the lab. Labs from before definitions
+get theirs from the manifest an older release saved, once, at startup, and the file is then
+deleted. A lab created by a release before the grouping has a saved manifest in the old shape,
+which no longer parses, so it is not imported and the lab has no stored definition: `resume`
+falls back to the default readiness timeout and the image's interface counts, and the web node
+page shows the image's ZTP setting.
