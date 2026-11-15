@@ -654,7 +654,7 @@ flowchart TB
         subgraph reserve["reserve_lab_networks (retried while concurrent labs win a subnet)"]
             hostnets["read host interface networks (IPv4 and IPv6)"] --> mgmtsubnets["allocate IPv4/IPv6 management subnets<br/>(not in DB, not overlapping host)"] --> loopsubnets["allocate IPv4/IPv6 loopback subnets (not in DB)"] --> createlab["db::create_lab: unique subnet indexes make the insert the reservation"]
         end
-        createlab --> createnode["for each node:<br/>db::create_node<br/>node_resources::reserve_node_resources (vCPUs, memory, VNC port, pinned CPUs)<br/>create the node's isolated and reserved libvirt networks and bridges"]
+        createlab --> createnode["for each node:<br/>db::create_node<br/>node_resources::reserve_node_resources (vCPUs, memory, VNC port)<br/>create the node's isolated and reserved libvirt networks and bridges"]
     end
     createnode --> labfiles
     subgraph phase4["4. LabNetworkSetup"]
@@ -868,19 +868,22 @@ operation will start, one request at a time, before anything is created:
 - `resume` and node start call `admit_stopped_nodes` (`resume.rs`) for the target VMs,
   unikernels and memory-limited containers that are stopped, before the Tailscale gateway is
   enrolled or any node starts. Paused and running ones already hold their memory, and stopped
-  nodes keep their stored pins.
+  nodes keep their pins in the database, so nothing is claimed.
 
 Requests wait on a Tokio mutex, which grants the lock in arrival order. Under it, the request's
-CPU pins are checked (`node_resources::check_cpu_pins_on_server`) against the stored pinned
-nodes and against the pins in the pending ledger (see [CPU pins in
-admission](#cpu-pins-in-admission)), its containers' CPU quotas against the
+CPU pins are checked (`node_resources::check_cpu_pins_on_server`) against the `cpu_pin` table
+(see [CPU pins in admission](#cpu-pins-in-admission)), its containers' CPU quotas against the
 server's CPUs (`validate::check_container_cpus`; containers take no part in pinning), and its
-memory against the server
-(`validate::check_memory_fits`). Admitted nodes go into the ledger, keyed by domain name
-(`<node>-<lab id>`), so the next request counts them before libvirt shows them running. Dropping
-the `Admission` when the operation ends releases them; by then libvirt counts the ones that
-run. A domain that is running and pending counts once, as pending. The ledger is in memory: a
-restart ends the operations it held.
+memory against the server (`validate::check_memory_fits`). Once all of them pass, the nodes'
+pins are claimed in the table (`db::claim_cpu_pins`, one transaction), whose trigger refuses a
+CPU another node holds; a refusal there is mapped to the same `ServiceError::CpuPinsHeld` and
+claims nothing. The lab's record must exist: `up` reserves it in phase 1. Admitted nodes'
+memory goes into the ledger, keyed by domain name (`<node>-<lab id>`), so the next request
+counts it before libvirt shows them running. Dropping the `Admission` when the operation ends
+releases the memory; by then libvirt counts the ones that run. Pins are not in the ledger: they
+stay claimed in the database until the lab is deleted or a redeploy keeps one set. A domain
+that is running and pending counts once, as pending. The ledger is in memory: a restart ends
+the operations it held, and leaves their pins claimed.
 
 Memory is compared with what is committed, not with free memory. QEMU allocates guest memory
 as the guest touches it, so free memory at start overstates the room a lab has. The server's
@@ -907,45 +910,58 @@ structs and are parsed afterwards, so a missing or bad value is reported by name
 
 ### CPU pins in admission
 
+The database holds every node's pins, in the `cpu_pin` table (see
+[`DATABASE.md`](DATABASE.md#cpu-pins)), and its trigger enforces the pinning rules on every
+insert. Admission checks first, to give a refusal that names the holder, and then claims.
+
 `node_resources::check_cpu_pins_free` decides whether the requested nodes' pins are free. It
-reads every stored pinned node (`db::list_pinned_nodes`), its lab and the lab's owner, and adds
-the ledger's pins. The holders are every stored node and every pending one, except the
-requested node itself: its own stored and pending pins are its own, since it is being replaced.
+reads every node's rows (`db::list_cpu_pins`), its lab and the lab's owner. The holders are
+every node in the table except the requested node itself: its own rows are its own, since it
+is being replaced. A lab still being created (`LabPhase::Creating`) holds its pins from `up`'s
+phase 2, before its node rows exist.
 
-A stored node's pins count even while another operation redeploys it. The redeploy's new pins
-are in the ledger, so until the redeploy ends the node holds both sets. That matters because
-the node's pins change in only one place, `reserve_node_resources` in stage 4, after teardown:
+A node another operation redeploys holds both its old and its new pins until that redeploy
+keeps one set. Admission claims the new pins beside the old ones (`claim_cpu_pins` keeps the
+rows a node holds; the trigger lets a node overlap only itself), and `Admission` returns the
+pins the node held before (`take_pins_before`). The node keeps one set at one of two points:
 
-| The redeploy stops at | Domain | Stored pins | Held by the node while the redeploy runs | Held after |
-| --- | --- | --- | --- | --- |
-| Stage 1, refused | old, running | old | old (stored) | old |
-| `RebuildStarted`, host key, teardown (`destroy_node`) | old, or partly torn down | old | old and new | old |
-| VM networks (`recreate_vm_networks`) | none | old | old and new | old |
-| `reserve_node_resources` | none | old, or new if the write landed | old and new | what is stored |
-| Certificate, domain or container, readiness | new, or none | new | old and new | new |
-| Success | new | new | old and new | new |
+| The redeploy stops at | Domain | The node's rows while it runs | Kept after (`retain_cpu_pins`) |
+| --- | --- | --- | --- |
+| Stage 1, refused | old, running | old | old (nothing was claimed) |
+| `RebuildStarted`, host key, teardown (`destroy_node`) | old, or partly torn down | old and new | old (`keep_old_pins`) |
+| VM networks (`recreate_vm_networks`) | none | old and new | old (`keep_old_pins`) |
+| `reserve_node_resources` | none | old and new | new: `rebuild` keeps them right after it |
+| Certificate, domain or container, readiness | new, or none | new | new |
+| Success | new | new | new |
 
-Each row's "held after" covers the domain that may run: a failure before storing keeps the old
-pins, which the old domain may still use, and a failure after keeps the new ones. No other
-request can take either set while the redeploy runs, so no two nodes end up on one vCPU CPU.
+Each row's "kept after" covers the domain that may run: a failure before the old domain is
+gone keeps the old pins, which it may still use, and from `reserve_node_resources` on the node
+keeps the new ones. No other request can take either set while the redeploy runs, so no two
+nodes end up on one vCPU CPU. A server restart in the middle leaves the node holding both sets,
+a superset, until it is redeployed or destroyed; a failure to give the new pins back is logged
+and leaves the same.
 
 A requested node's overlap with a holder is one of: its vCPU CPU on the holder's vCPUs or
 QEMU threads, or its QEMU thread CPU on the holder's vCPUs; QEMU threads may share. A new
 overlap is refused with `ServiceError::CpuPinsHeld` (see [`API.md`](API.md#typed-refusals)),
 naming the CPUs and roles in its `data`. The message names the holding node and lab
-(`node 'n1' of lab 'name' (lab id)`, with ", which another operation is starting" for a pending
-one) to admins and to the holding lab's owner, and says "a node of another lab" to everyone
-else. Who is asking comes from the request's `AuthContext`.
+(`node 'n1' of lab 'name' (lab id)`, with ", which another operation is starting" for a lab
+being created) to admins and to the holding lab's owner, and says "a node of another lab" to
+everyone else. Who is asking comes from the request's `AuthContext`. Should the trigger refuse
+a claim the check passed, `db::CpuPinTaken` becomes the same refusal
+(`ServiceError::from_cpu_pin_claim`), saying "another node".
 
-An overlap the requested node's stored pins already had with the same holder's stored pins
-was stored before admission enforced the rules. It is carried: the node starts, and the
-overlap is logged (`tracing::warn!`) and sent to the user as a `Warning:` status. `up` and
-`redeploy` get these from the same check; `resume` and node start (`admit_stopped_nodes`)
-compare the stopped nodes' stored pins with every other stored node's and only warn, as a lab
-that exists is never refused for its pins. A new lab has no stored pins, so its `up` never
-warns.
+An overlap the requested node's own rows already had with the same holder's rows was stored
+before the database enforced the rules, and copied as it was by migration 23. It is carried:
+the node starts, and the overlap is logged (`tracing::warn!`) and sent to the user as a
+`Warning:` status. `redeploy` gets these from the same check; `resume` and node start
+(`admit_stopped_nodes`) compare the stopped nodes' rows with every other node's and only warn,
+as a lab that exists is never refused for its pins. A new lab has no rows, so its `up` never
+warns. sherpad also logs each such pair at every start (`node_resources::warn_shared_cpu_pins`).
 
-Destroying a lab deletes its nodes, and their pins with them. A stopped lab keeps its pins.
+Pins are held while a lab is stopped. Destroying a lab deletes its record, and the foreign key
+deletes its rows; a lab left `DestroyFailed` keeps them until a destroy succeeds, as its domains
+may still exist. A refused or failed `up` gives its pins back with its lab record.
 
 ### Redeploy architecture
 
@@ -1497,15 +1513,13 @@ The checks run in three places:
   node, and no node runs QEMU or I/O threads on it. QEMU and I/O threads may share CPUs.
 - **`node_resources::check_cpu_pins_on_server`** (`up` and `redeploy`, under admission, before
   anything is created or destroyed): every CPU and the NUMA node exist on the server, from
-  `libvirt::host_cpus`, and `check_cpu_pins_free` finds the pins free of every other node's,
-  stored or admitted to another operation (see
-  [Admission](#admission-memory-and-cpu-pins)).
+  `libvirt::host_cpus`, and `check_cpu_pins_free` finds the pins free of every other node's
+  in the `cpu_pin` table (see [Admission](#admission-memory-and-cpu-pins)).
 
-`planned_resources` stores the pins on the node (`cpu_pinning`, and `qemu_thread_cpus` for the
-QEMU and I/O threads), so later labs see them. Until they are stored, the admission ledger
-holds them, so two labs started at the same moment cannot both pass the check: admission
-serves one request at a time, and the second sees the first's pins in the ledger. The database
-does not enforce the rules; only admission does.
+Admission then claims the pins in the `cpu_pin` table, so later labs see them. Two labs started
+at the same moment cannot both pass: admission serves one request at a time, and the second
+sees the first's rows. The table's trigger enforces the same rules for any write (see
+[`DATABASE.md`](DATABASE.md#cpu-pins)).
 
 Huge pages come from the host's transparent hugepages, which QEMU requests for guest RAM.
 There is no `memoryBacking` setting. `scripts/sherpa_install.sh` sets THP to `madvise` unless it
