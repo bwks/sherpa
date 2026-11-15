@@ -4,14 +4,14 @@
 use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::ops::RangeInclusive;
-use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use tracing::instrument;
 
 use super::context::Redeploy;
+use super::ready::wait_until_ready;
 use crate::services::node_lifecycle::{self, query_runtimes};
-use crate::services::node_ops::{self, DomainParts, LabZtp, VmReadiness, VmZtpResult};
+use crate::services::node_ops::{self, DomainParts, LabZtp, VmZtpResult};
 use crate::services::node_resources;
 use crate::services::p2p_links::{
     KernelHost, LabLinks, RecreatedEnd, data_interface_indices, follow_started_links,
@@ -21,9 +21,7 @@ use crate::tls::lab_ca::NodeCertPaths;
 
 use shared::data;
 use shared::data::{DbLink, LinkReport, OperationEvent, RecordId, StatusKind};
-use shared::konst::{
-    KVM_OUI, MTU_JUMBO_NET, READINESS_SLEEP, SHERPA_MANAGEMENT_NETWORK_NAME, TFTP_DIR, ZTP_DIR,
-};
+use shared::konst::{KVM_OUI, MTU_JUMBO_NET, SHERPA_MANAGEMENT_NETWORK_NAME, TFTP_DIR, ZTP_DIR};
 use shared::util;
 
 /// Configure the VM again, clone its disks, create its domain on its links, bridges and
@@ -129,7 +127,9 @@ pub(super) async fn redeploy_vm(
         network::set_link_state(&isolated_net.bridge_name, false).await?;
     }
 
-    wait_until_ready(redeploy).await?;
+    let target_node = &redeploy.target_node;
+    let ready_port = node_ops::vm_ready_port(target_node.model, target_node.ready_check.port);
+    wait_until_ready(redeploy, ready_port).await?;
     Ok(link_reports)
 }
 
@@ -246,85 +246,6 @@ fn vm_interfaces(
         });
     }
     Ok(interfaces)
-}
-
-/// Wait for the VM's ready port until the manifest's ready timeout, recording the host key it
-/// offers, and record it running (stage 6). A VM that is not ready in time is left `Starting`,
-/// for the scanner to record running once its probe answers; the redeploy still succeeds.
-#[instrument(skip_all, fields(lab_id = %redeploy.lab_id, node_name = %redeploy.node_name), level = "debug")]
-async fn wait_until_ready(redeploy: &Redeploy<'_>) -> Result<()> {
-    let node_name = redeploy.node_name.as_str();
-    let progress = redeploy.progress;
-    let _ = progress.send_status(
-        format!("Waiting for node {node_name} to become ready"),
-        StatusKind::Waiting,
-    );
-
-    let skip_ready = redeploy.target_node.ready_check.skip.unwrap_or(false);
-    if skip_ready {
-        let _ = progress.send_status(
-            format!("Node {node_name} - Ready check skipped"),
-            StatusKind::Done,
-        );
-    }
-
-    if skip_ready || poll_until_ready(redeploy).await? {
-        node_lifecycle::record(
-            &redeploy.state.db,
-            redeploy.operation,
-            &redeploy.node_record_id,
-            OperationEvent::Ready,
-        )
-        .await?;
-    } else {
-        let _ = progress.send_status(
-            format!("Node {node_name} did not become ready within timeout"),
-            StatusKind::Waiting,
-        );
-    }
-    Ok(())
-}
-
-/// Poll the VM's ready port until it answers or the ready timeout passes. Returns whether it
-/// answered, and records the host key it offers.
-async fn poll_until_ready(redeploy: &Redeploy<'_>) -> Result<bool> {
-    let node_name = redeploy.node_name.as_str();
-    let target_node = &redeploy.target_node;
-    let ready_port = node_ops::vm_ready_port(target_node.model, target_node.ready_check.port);
-    let ready_label = node_ops::ready_port_label(ready_port);
-    let ip = redeploy.ipv4.to_string();
-    let start = Instant::now();
-
-    while start.elapsed() < redeploy.ready_timeout {
-        match node_ops::check_vm_ready(&ip, ready_port).await? {
-            VmReadiness::Ready { host_key } => {
-                if host_key.is_some() {
-                    db::update_node_host_key(
-                        &redeploy.state.db,
-                        redeploy.node_record_id.clone(),
-                        host_key.as_deref(),
-                    )
-                    .await?;
-                }
-                let _ = redeploy.progress.send_status(
-                    format!("Node {node_name} - Ready ({ready_label} reachable)"),
-                    StatusKind::Done,
-                );
-                return Ok(true);
-            }
-            VmReadiness::NotReady => {
-                let _ = redeploy.progress.send_status(
-                    format!("Node {node_name} - Waiting for {ready_label}"),
-                    StatusKind::Waiting,
-                );
-                redeploy
-                    .operation
-                    .sleep(Duration::from_secs(READINESS_SLEEP))
-                    .await?;
-            }
-        }
-    }
-    Ok(false)
 }
 
 #[cfg(test)]

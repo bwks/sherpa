@@ -25,9 +25,9 @@ use shared::konst::{
     SSH_PORT,
 };
 
-/// How long a started container must keep running before it counts as ready. Containers have
-/// no readiness probe, and an image whose entrypoint fails, such as mysql without a root
-/// password, exits a moment after Docker reports it running.
+/// How long a started container must keep running before it counts as ready, or before its
+/// `ready_check.port` is waited for. An image whose entrypoint fails, such as mysql without a
+/// root password, exits a moment after Docker reports it running.
 const CONTAINER_SETTLE: Duration = Duration::from_secs(5);
 /// The shortest wait between two polls, so a container between states is not polled in a loop.
 const MIN_POLL_INTERVAL: Duration = Duration::from_secs(1);
@@ -62,7 +62,8 @@ pub(super) struct NodesReady {
 /// exits a critical one; either way the rest of the lab is kept.
 ///
 /// Every node is `Building` until here. A started container is recorded `Starting`, and
-/// `Running` once it has kept running for `CONTAINER_SETTLE`. A ready node is recorded
+/// `Running` once it has kept running for `CONTAINER_SETTLE` and, with a `ready_check.port`,
+/// that port answers on its management address. A ready node is recorded
 /// `Running`, a node with its check skipped `Running`, a Talos cluster worker or a node not
 /// ready in time `Starting` (the scanner records it running once it answers), and a container
 /// that exits, at start, while it settles or by the end of polling, `Failed`.
@@ -98,6 +99,7 @@ pub(super) async fn wait_for_nodes(
         secret_mounts: write_secret_mounts(build, inputs.node_secrets)?,
         connected: HashSet::new(),
         settling: HashMap::new(),
+        waiting_for_port: HashSet::new(),
         nodes: Vec::new(),
         errors: Vec::new(),
     };
@@ -133,7 +135,10 @@ pub(super) async fn wait_for_nodes(
                 readiness
                     .settling
                     .iter()
-                    .filter(|(name, _)| !readiness.connected.contains(*name))
+                    .filter(|(name, _)| {
+                        !readiness.connected.contains(*name)
+                            && !readiness.waiting_for_port.contains(*name)
+                    })
                     .map(|(_, started)| started.elapsed()),
             );
             operation.sleep(interval).await?;
@@ -198,6 +203,9 @@ struct Readiness<'a, 'b> {
     connected: HashSet<String>,
     /// Containers started and waited for, by node name, with when each was started.
     settling: HashMap<String, Instant>,
+    /// Settled containers waiting for their ready port, polled as VMs are rather than as
+    /// settling containers.
+    waiting_for_port: HashSet<String>,
     nodes: Vec<data::NodeInfo>,
     errors: Vec<data::UpError>,
 }
@@ -300,7 +308,8 @@ impl Readiness<'_, '_> {
     }
 
     /// Start a container, then create its P2p interfaces in its network namespace and attach
-    /// the links that now have both ends. A container counts as ready once it runs.
+    /// the links that now have both ends. It is then waited for in `check_container`, unless
+    /// its check is skipped.
     async fn start_container(&mut self, container: &topology::NodeExpanded) -> Result<()> {
         let lab_id = self.build.lab_id;
         let mgmt_ipv4 = container.ipv4_address.map(|ip| ip.to_string());
@@ -412,13 +421,16 @@ impl Readiness<'_, '_> {
     }
 
     /// Check a container started `started`: ready once it has kept running for
-    /// `CONTAINER_SETTLE`, failed when it stopped running before.
+    /// `CONTAINER_SETTLE` and its ready port, when it has one, answers on its management
+    /// address; failed when it stopped running before. The port is checked as a VM's is.
     async fn check_container(
         &mut self,
         container: &topology::NodeExpanded,
         started: Instant,
     ) -> Result<()> {
         let container_name = format!("{}-{}", container.name, self.build.lab_id);
+        let ready_port = node_ops::container_ready_port(&container.ready_check);
+        let ready_label = ready_port.map(node_ops::ready_port_label);
         let status = match container::container_state(self.build.docker_conn, &container_name).await
         {
             Ok(state) => state.and_then(|state| state.status),
@@ -430,7 +442,12 @@ impl Readiness<'_, '_> {
             }
         };
         let mgmt_ipv4 = container.ipv4_address.map(|ip| ip.to_string());
-        match check_started_container(status, started.elapsed()) {
+        let port_check = match (ready_port, mgmt_ipv4.as_deref()) {
+            (Some(port), Some(ip)) => Some(node_ops::check_vm_ready(ip, port).await?),
+            (Some(_), None) => Some(VmReadiness::NotReady),
+            (None, _) => None,
+        };
+        match check_started_container(status, started.elapsed(), port_check) {
             ContainerCheck::Settling => {
                 tracing::debug!(node_name = %container.name, ?status, "Waiting for the container to settle");
                 let _ = self.build.progress.send_status(
@@ -441,14 +458,34 @@ impl Readiness<'_, '_> {
                     StatusKind::Waiting,
                 );
             }
-            ContainerCheck::Ready => {
-                tracing::info!(node_name = %container.name, "Container ready");
+            ContainerCheck::WaitingForPort => {
+                tracing::debug!(node_name = %container.name, ?ready_port, "Waiting for container readiness port");
                 let _ = self.build.progress.send_status(
-                    format!("Node {} - Ready (container running)", container.name),
+                    format!(
+                        "Node {} - Waiting for {}",
+                        container.name,
+                        ready_label.as_deref().unwrap_or("its ready port")
+                    ),
+                    StatusKind::Waiting,
+                );
+                self.waiting_for_port.insert(container.name.clone());
+            }
+            ContainerCheck::Ready { host_key } => {
+                tracing::info!(node_name = %container.name, ?ready_port, "Container ready");
+                let reason = match &ready_label {
+                    Some(label) => format!("{label} reachable"),
+                    None => "container running".to_string(),
+                };
+                let _ = self.build.progress.send_status(
+                    format!("Node {} - Ready ({reason})", container.name),
                     StatusKind::Done,
                 );
                 let state = self
-                    .record(&container.name, &[OperationEvent::Ready], None)
+                    .record(
+                        &container.name,
+                        &[OperationEvent::Ready],
+                        host_key.as_deref(),
+                    )
                     .await?;
                 self.connected(container, state, mgmt_ipv4, Some(SSH_PORT));
             }
@@ -751,26 +788,35 @@ impl ContainerExit {
     }
 }
 
-/// Whether a container started and waited for is ready, from Docker's status for it and how long
-/// ago it was started.
+/// Whether a container started and waited for is ready, from Docker's status for it, how long
+/// ago it was started and what its ready port answered.
 #[derive(Debug, PartialEq, Eq)]
 enum ContainerCheck {
-    /// It has kept running for `CONTAINER_SETTLE`.
-    Ready,
+    /// It has kept running for `CONTAINER_SETTLE`, and its ready port, if it has one, answers;
+    /// with the host key it offered when that port is SSH.
+    Ready { host_key: Option<String> },
     /// It runs, but not for long enough yet, or it is between states.
     Settling,
+    /// It has kept running, but its ready port does not answer yet.
+    WaitingForPort,
     /// It stopped running, or is gone.
     Exited,
 }
 
 /// Decide whether a started container is ready: running for `CONTAINER_SETTLE`, from Docker's
-/// `status` and the time `running_for` since it was started.
+/// `status` and the time `running_for` since it was started, and then, when it has a ready
+/// port, answering on it, from `port_check`; `None` when it has no ready port.
 fn check_started_container(
     status: Option<ContainerStateStatusEnum>,
     running_for: Duration,
+    port_check: Option<VmReadiness>,
 ) -> ContainerCheck {
     match node_lifecycle::container_runtime(status) {
-        Runtime::Running if running_for >= CONTAINER_SETTLE => ContainerCheck::Ready,
+        Runtime::Running if running_for >= CONTAINER_SETTLE => match port_check {
+            None => ContainerCheck::Ready { host_key: None },
+            Some(VmReadiness::Ready { host_key }) => ContainerCheck::Ready { host_key },
+            Some(VmReadiness::NotReady) => ContainerCheck::WaitingForPort,
+        },
         Runtime::Running | Runtime::Transitional(_) | Runtime::Stopped(Halt::Paused) => {
             ContainerCheck::Settling
         }
@@ -861,19 +907,20 @@ mod tests {
     fn a_running_container_is_ready_once_it_has_run_for_the_settle_time() {
         let running = Some(ContainerStateStatusEnum::RUNNING);
         assert_eq!(
-            check_started_container(running, Duration::ZERO),
+            check_started_container(running, Duration::ZERO, None),
             ContainerCheck::Settling
         );
         assert_eq!(
             check_started_container(
                 running,
-                CONTAINER_SETTLE.saturating_sub(Duration::from_millis(1))
+                CONTAINER_SETTLE.saturating_sub(Duration::from_millis(1)),
+                None
             ),
             ContainerCheck::Settling
         );
         assert_eq!(
-            check_started_container(running, CONTAINER_SETTLE),
-            ContainerCheck::Ready
+            check_started_container(running, CONTAINER_SETTLE, None),
+            ContainerCheck::Ready { host_key: None }
         );
     }
 
@@ -887,12 +934,12 @@ mod tests {
             None,
         ] {
             assert_eq!(
-                check_started_container(status, Duration::ZERO),
+                check_started_container(status, Duration::ZERO, None),
                 ContainerCheck::Exited,
                 "{status:?}"
             );
             assert_eq!(
-                check_started_container(status, CONTAINER_SETTLE * 10),
+                check_started_container(status, CONTAINER_SETTLE * 10, None),
                 ContainerCheck::Exited,
                 "{status:?}"
             );
@@ -908,11 +955,75 @@ mod tests {
             ContainerStateStatusEnum::EMPTY,
         ] {
             assert_eq!(
-                check_started_container(Some(status), CONTAINER_SETTLE * 10),
+                check_started_container(Some(status), CONTAINER_SETTLE * 10, None),
                 ContainerCheck::Settling,
                 "{status:?}"
             );
         }
+    }
+
+    fn ready(host_key: Option<&str>) -> VmReadiness {
+        VmReadiness::Ready {
+            host_key: host_key.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn a_container_with_a_ready_port_still_settles_first() {
+        let running = Some(ContainerStateStatusEnum::RUNNING);
+        assert_eq!(
+            check_started_container(running, Duration::ZERO, Some(ready(None))),
+            ContainerCheck::Settling
+        );
+    }
+
+    #[test]
+    fn a_settled_container_whose_ready_port_does_not_answer_is_waited_for() {
+        let running = Some(ContainerStateStatusEnum::RUNNING);
+        assert_eq!(
+            check_started_container(running, CONTAINER_SETTLE, Some(VmReadiness::NotReady)),
+            ContainerCheck::WaitingForPort
+        );
+    }
+
+    #[test]
+    fn a_settled_container_whose_ready_port_answers_is_ready() {
+        let running = Some(ContainerStateStatusEnum::RUNNING);
+        assert_eq!(
+            check_started_container(running, CONTAINER_SETTLE, Some(ready(None))),
+            ContainerCheck::Ready { host_key: None }
+        );
+        // On the SSH port the key it offered is kept, as for a VM.
+        assert_eq!(
+            check_started_container(
+                running,
+                CONTAINER_SETTLE,
+                Some(ready(Some("ssh-ed25519 AAAA")))
+            ),
+            ContainerCheck::Ready {
+                host_key: Some("ssh-ed25519 AAAA".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn a_container_that_exits_while_its_ready_port_is_waited_for_has_exited() {
+        for status in [Some(ContainerStateStatusEnum::EXITED), None] {
+            assert_eq!(
+                check_started_container(status, CONTAINER_SETTLE * 10, Some(VmReadiness::NotReady)),
+                ContainerCheck::Exited,
+                "{status:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_container_without_a_ready_port_is_ready_once_settled() {
+        let running = Some(ContainerStateStatusEnum::RUNNING);
+        assert_eq!(
+            check_started_container(running, CONTAINER_SETTLE, None),
+            ContainerCheck::Ready { host_key: None }
+        );
     }
 
     #[test]

@@ -61,7 +61,7 @@ use shared::util;
 use shared::validators::{
     effective_data_interface_count, effective_ztp, mode_from_octal_digits, validate_ssh_key,
 };
-use topology::{BinaryFileData, SystemdUnitData};
+use topology::{BinaryFileData, NodeReadyCheck, SystemdUnitData};
 use virt::error::ErrorNumber;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
@@ -3763,6 +3763,17 @@ pub fn vm_ready_port(model: data::NodeModel, ready_port: Option<u16>) -> u16 {
     ready_port.unwrap_or(model.ready_port())
 }
 
+/// Port that shows a container is ready once it has kept running: the manifest's
+/// `ready_check.port`. A container has no model port, so without one it is ready once it keeps
+/// running; a skipped check has none either.
+pub fn container_ready_port(ready_check: &NodeReadyCheck) -> Option<u16> {
+    if ready_check.skip.unwrap_or(false) {
+        None
+    } else {
+        ready_check.port
+    }
+}
+
 /// Human-readable name of a readiness port, for status messages.
 pub fn ready_port_label(port: u16) -> String {
     match port {
@@ -5094,6 +5105,18 @@ mod tests {
             vm_ready_port(data::NodeModel::UbuntuLinux, Some(8443)),
             8443
         );
+    }
+
+    #[test]
+    fn a_container_is_checked_on_its_manifest_port_unless_the_check_is_skipped() {
+        let check = |port, skip| NodeReadyCheck { port, skip };
+        assert_eq!(container_ready_port(&check(Some(80), None)), Some(80));
+        assert_eq!(
+            container_ready_port(&check(Some(80), Some(false))),
+            Some(80)
+        );
+        assert_eq!(container_ready_port(&check(None, None)), None);
+        assert_eq!(container_ready_port(&check(Some(80), Some(true))), None);
     }
 
     #[test]

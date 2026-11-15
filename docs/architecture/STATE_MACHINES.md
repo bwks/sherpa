@@ -117,7 +117,7 @@ M8.2 and M9.1.*
 |---|---|---|---|
 | `RebuildStarted` | redeploy, before teardown | any but `Building` | `Building` |
 | `Launched` | `up` readiness (`up/readiness.rs`), as a container starts or a VM answers, resume after a boot or unpause, redeploy after the VM is created or the container started | any but `Missing` | `Starting` |
-| `Ready` | `up` after a probe, a container that kept running for 5 seconds, or a skipped check, resume after the readiness wait or an unpause, redeploy after the VM probe, or after a container's Vault and Keycloak are restored | `Starting`, `Running` | `Running` |
+| `Ready` | `up` after a probe, a container that kept running for 5 seconds (and answered on its `ready_check.port`, if set), or a skipped check, resume after the readiness wait or an unpause, redeploy after the VM probe, or after a container's Vault and Keycloak are restored (and its `ready_check.port` answered, if set) | `Starting`, `Running` | `Running` |
 | `Stopped` | `down`, once the node has stopped | any but `Building` and `Missing` | `Stopped` |
 | `Failed` | `up` for a container that stopped running at start, before it was ready, or by the end of polling; redeploy's `mark_failed` | any but `Missing` | `Failed` |
 
@@ -427,21 +427,31 @@ error policy:
 |---|---|---|
 | `up` | `up/readiness.rs` | adds a non-critical error |
 | `resume` | `resume.rs` `wait_for_cold_booted` | the node stays `Starting`; the message says so |
-| `redeploy` VM | `redeploy/vm.rs` `poll_until_ready` | the node stays `Starting` |
+| `redeploy` VM, and container with a `ready_check.port` | `redeploy/ready.rs` `poll_until_ready` | the node stays `Starting` |
 | scanner | `scanner.rs` `probe_node` | the node stays `Starting`; probed again next cycle |
 
-**Containers in `up`.** Containers have no readiness probe. `up` records a container
-`Starting` once Docker reports it running after the start, and `Running` once it is still
-running `CONTAINER_SETTLE` (5 seconds) after it was started: an image whose entrypoint fails,
-such as `mysql` without a root password, exits about a second after Docker first reports it
-running. While containers settle, the poll wakes when the next one is due, not after
-`READINESS_SLEEP`. `check_started_container` decides from Docker's status:
+**Containers in `up`.** `up` records a container `Starting` once Docker reports it running
+after the start, and `Running` once it is still running `CONTAINER_SETTLE` (5 seconds) after
+it was started: an image whose entrypoint fails, such as `mysql` without a root password,
+exits about a second after Docker first reports it running. A container with a
+`ready_check.port` (`node_ops::container_ready_port`) must then also answer on that port on
+its management IPv4, probed with `node_ops::check_vm_ready` as a VM's port is; until it does
+it stays `Starting`, with the status line "Node <name> - Waiting for port <port>" (or "SSH"
+on 22, `ready_port_label`). While containers settle, the poll wakes when the next one is due,
+not after `READINESS_SLEEP`; a settled container waiting for its port is polled every
+`READINESS_SLEEP`, as VMs are. `check_started_container` decides from Docker's status and the
+port probe:
 
-| Docker status (`Runtime`) | Running for less than 5 s | 5 s or more |
-|---|---|---|
-| RUNNING (`Running`) | wait | `Ready`: `Running` |
-| PAUSED, RESTARTING, REMOVING, EMPTY | wait | wait |
-| EXITED, CREATED, DEAD, missing | `Failed` | `Failed` |
+| Docker status (`Runtime`) | Running for less than 5 s | 5 s or more, no port | 5 s or more, port answers | 5 s or more, port does not answer |
+|---|---|---|---|---|
+| RUNNING (`Running`) | wait | `Ready`: `Running` | `Ready`: `Running` | wait for the port |
+| PAUSED, RESTARTING, REMOVING, EMPTY | wait | wait | wait | wait |
+| EXITED, CREATED, DEAD, missing | `Failed` | `Failed` | `Failed` | `Failed` |
+
+A container whose port does not answer by the timeout is left `Starting` with the same
+non-critical "did not become ready" error as a VM; the scanner, which does not know the port,
+records it `Running` on its next scan if it runs. On port 22 the host key it offers is
+recorded, as for a VM.
 
 A container not running right after its start is `Failed` at once, with or without
 `ready_check.skip`. With `ready_check.skip`, a container running after its start is `Running`
@@ -460,7 +470,7 @@ soon as the runtime shows it running (other nodes).
 |---|---|---|---|
 | None → Some | `Readiness::record` (up) | `up/readiness.rs` | only when a key was read |
 | None → Some or changed | `record_node_host_key`, from the scanner (`probe_node`), resume and `refresh_node_host_key` (`crates/server/src/services/host_keys.rs:63`) | `crates/server/src/services/ssh_config.rs:28-45` | a changed key is replaced with a warning |
-| None → Some | redeploy VM | `redeploy/vm.rs:249` | only when a key was read |
+| None → Some | redeploy VM, or container with a `ready_check.port` of 22 | `redeploy/ready.rs` `poll_until_ready` | only when a key was read |
 | any → None | `redeploy_node`, after `RebuildStarted` is recorded | `redeploy/node.rs` | the node's state allowed the rebuild |
 
 The scanner probes, and so reads a key, when `wants_probe` is true: a VM with SSH that the
@@ -639,8 +649,9 @@ stateDiagram-v2
 - The links of every `ColdBooted` and `Resumed` node are then decided as a scan would decide
   them, and their carrier set at once (`follow_started`, machine 25): an unpaused node's peers
   get their carrier back without waiting for the scanner.
-- `ColdBooted` nodes are waited on for readiness (`wait_for_cold_booted`). Those that become
-  ready, and those with no check (containers, `ready_check.skip`), are recorded `Running`; the
+- `ColdBooted` nodes are waited on for readiness (`wait_for_cold_booted`): VMs and unikernels,
+  and containers with a `ready_check.port`, probed on it. Those that become ready, and those
+  with no check (containers without a port, `ready_check.skip`), are recorded `Running`; the
   others stay `Starting`.
 
 ```mermaid
@@ -676,9 +687,11 @@ stateDiagram-v2
      one whose peer is down, does not fail the redeploy. Its links are then decided as a scan
      would decide them (`follow_started_links`), so a paused peer's link goes down at once;
    - record `Running`:
-     - containers: after Vault and Keycloak are restored (`ready_after_restore`,
-       `container.rs`);
-     - VMs: after the probe (`wait_until_ready`, `vm.rs`).
+     - containers without a `ready_check.port`: after Vault and Keycloak are restored
+       (`ready_after_restore`, `container.rs`);
+     - containers with one: after they are restored and the port answers
+       (`wait_until_ready`, `ready.rs`);
+     - VMs: after the probe (`wait_until_ready`, `ready.rs`).
 4. `ensure_active`, then `refresh_lab_ssh_files` (`node.rs`).
 
 **Failures.**
@@ -686,8 +699,8 @@ stateDiagram-v2
 - An error from `rebuild` records `Failed` (`mark_failed`, `node.rs`).
 - Errors at stage 2, at `ensure_active`, or in the SSH file refresh return without
   `mark_failed`.
-- A VM that does not become ready in time is left `Starting`, and redeploy succeeds
-  (`vm.rs`). The scanner records it `Running` once its probe answers.
+- A VM, or a container with a `ready_check.port`, that does not become ready in time is left
+  `Starting`, and redeploy succeeds (`ready.rs`). The scanner records it `Running` once its probe answers.
 
 ```mermaid
 stateDiagram-v2

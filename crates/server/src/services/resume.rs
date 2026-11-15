@@ -31,7 +31,8 @@ use crate::daemon::state::AppState;
 /// How a node started by resume shows that it is ready, as `up` checks it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ReadinessCheck {
-    /// A virtual machine accepting TCP connections on this port.
+    /// A virtual machine or container accepting connections on this port, checked as `up`
+    /// checks VMs (`node_ops::check_vm_ready`).
     Port(u16),
     Unikernel {
         ready_port: Option<u16>,
@@ -80,10 +81,11 @@ struct ReadinessTarget {
 /// A cold-booted node is recorded `Starting`, then `Running` once it is ready; a resumed one
 /// `Running`; one already running is left as it is.
 ///
-/// Cold-booted VMs and unikernels are then polled for readiness like `up` does, using the
-/// lab's saved manifest for `ready_timeout`, `ready_check.skip` and `ready_check.port`. A node that
-/// does not become ready within the timeout is reported in its result message; it is not an
-/// error, as with `up`.
+/// Cold-booted VMs and unikernels, and cold-booted containers with a `ready_check.port`, are
+/// then polled for readiness like `up` does, using the lab's saved manifest for
+/// `ready_timeout`, `ready_check.skip` and `ready_check.port`. A node that does not become
+/// ready within the timeout is reported in its result message; it is not an error, as with
+/// `up`.
 ///
 /// A whole-lab resume of a lab with a Tailscale gateway enrolls the gateway again with
 /// `tailscale_auth_key`, as `down` logged it out. The key is used, never stored.
@@ -269,10 +271,11 @@ struct ResumedLab<'a> {
     operation: &'a LabOperation,
 }
 
-/// Wait for the cold-booted VMs and unikernels to become ready, as `up` does, with the saved
-/// manifest's readiness settings. Each one's result says whether it became ready, and the host
-/// keys it offers are recorded again. Returns the cold-booted nodes that are ready: those that
-/// answered, and those with no check, as containers are ready once running.
+/// Wait for the cold-booted VMs, unikernels and containers with a ready port to become ready,
+/// as `up` does, with the saved manifest's readiness settings. Each one's result says whether
+/// it became ready, and the host keys it offers are recorded again. Returns the cold-booted nodes that are ready: those that
+/// answered, and those with no check, as a container without a ready port is ready once
+/// running.
 #[instrument(skip_all, fields(lab_id = %lab.lab_id), level = "debug")]
 async fn wait_for_cold_booted(
     lab: &ResumedLab<'_>,
@@ -321,7 +324,8 @@ fn ready_timeout(manifest: Option<&Manifest>) -> Duration {
 }
 
 /// Decide how a started node proves readiness. Paused nodes resume an already booted
-/// guest, and containers are ready once running, so only cold-booted guests are checked.
+/// guest, so only cold-booted nodes are checked: VMs and unikernels always, containers only
+/// on their `ready_check.port`, as without one they are ready once running.
 fn readiness_check(
     kind: &NodeKind,
     cold_booted: bool,
@@ -344,7 +348,8 @@ fn readiness_check(
             None => SSH_PORT,
         })),
         NodeKind::Unikernel => Some(ReadinessCheck::Unikernel { ready_port }),
-        NodeKind::Container => None,
+        // A container has no model port: one without a manifest port is ready once running.
+        NodeKind::Container => ready_port.map(ReadinessCheck::Port),
     }
 }
 
@@ -898,6 +903,7 @@ mod tests {
             None
         );
         assert_eq!(readiness_check(&NodeKind::Container, true, None), None);
+        assert_eq!(readiness_check(&NodeKind::Container, false, None), None);
         assert_eq!(
             readiness_check(&NodeKind::Unikernel, true, None),
             Some(ReadinessCheck::Unikernel { ready_port: None })
@@ -954,6 +960,38 @@ nodes = [
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn a_cold_booted_container_is_checked_on_its_ready_port() {
+        let lab = manifest(
+            r#"
+name = "lab"
+nodes = [
+  { name = "web", model = "generic_container", ready_check = { port = 80 } },
+  { name = "skip", model = "generic_container", ready_check = { port = 80, skip = true } },
+  { name = "plain", model = "generic_container" },
+]
+"#,
+        );
+        let node = |name: &str| lab.nodes.iter().find(|node| node.name == name);
+        assert_eq!(
+            readiness_check(&NodeKind::Container, true, node("web")),
+            Some(ReadinessCheck::Port(80))
+        );
+        // An unpaused container resumes a process that already answered.
+        assert_eq!(
+            readiness_check(&NodeKind::Container, false, node("web")),
+            None
+        );
+        assert_eq!(
+            readiness_check(&NodeKind::Container, true, node("skip")),
+            None
+        );
+        assert_eq!(
+            readiness_check(&NodeKind::Container, true, node("plain")),
+            None
+        );
     }
 
     #[test]

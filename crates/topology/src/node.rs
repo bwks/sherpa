@@ -97,7 +97,8 @@ pub struct NodeSsh {
 #[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NodeReadyCheck {
-    /// The TCP port that shows a VM or unikernel is ready, overriding the model's.
+    /// The TCP port that shows the node is ready: for a VM or unikernel, in place of the
+    /// model's; for a container, once it has kept running.
     pub port: Option<u16>,
     /// Skip the check: the node counts as ready once started.
     pub skip: Option<bool>,
