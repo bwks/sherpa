@@ -11,8 +11,10 @@ use super::nodes::get_node_image;
 use crate::services::node_ops;
 use crate::services::node_resources;
 
+use db::Database;
+
 use shared::data;
-use shared::data::{LabSubnets, RecordId, StatusKind};
+use shared::data::{LabSubnets, NodeSshUsername, RecordId, StatusKind};
 use shared::konst::SHERPA_MANAGEMENT_NETWORK_NAME;
 use shared::util;
 use shared::validators::effective_data_interface_count;
@@ -27,6 +29,29 @@ pub(super) struct NodeRecords {
     pub(super) vm_nodes: Vec<topology::NodeExpanded>,
     pub(super) lab_node_data: Vec<data::LabNodeData>,
     pub(super) node_setup_data: Vec<data::NodeSetupData>,
+}
+
+/// Record the account each node's SSH config logs in with: the owner's login on the nodes in
+/// `ssh_usernames`, and the shared `sherpa` account on the rest, which a new node has already.
+/// `download` builds the lab's files from it.
+#[instrument(skip_all, level = "debug")]
+pub(super) async fn store_ssh_usernames(
+    db: &Database,
+    lab_node_data: &[data::LabNodeData],
+    ssh_usernames: &[NodeSshUsername],
+) -> Result<()> {
+    for entry in ssh_usernames {
+        let node = lab_node_data
+            .iter()
+            .find(|node| node.name == entry.node_name)
+            .with_context(|| format!("No node record for SSH account of '{}'", entry.node_name))?;
+        db::update_node_ssh_username(db, db::get_node_id(&node.record)?, Some(&entry.username))
+            .await
+            .with_context(|| {
+                format!("Failed to record the SSH account of '{}'", entry.node_name)
+            })?;
+    }
+    Ok(())
 }
 
 /// Record every node of the lab `up` reserved, and its resources, plan each node's interfaces,
@@ -306,4 +331,58 @@ async fn node_setup(
         reserved_network: node_reserved_network,
         interfaces: node_interfaces_detailed,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use shared::data::NodeModel;
+
+    use crate::services::lab_definition::tests::lab_with;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn each_nodes_ssh_account_is_stored_with_its_record() {
+        let (db, lab) = lab_with(&[
+            ("vm1", NodeModel::AlpineLinux),
+            ("web", NodeModel::GenericContainer),
+        ])
+        .await;
+        let lab_node_data: Vec<data::LabNodeData> =
+            db::list_nodes_by_lab(&db, lab.id.clone().unwrap())
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|record| data::LabNodeData {
+                    name: record.name.clone(),
+                    model: NodeModel::AlpineLinux,
+                    kind: data::NodeKind::VirtualMachine,
+                    index: record.index,
+                    record,
+                })
+                .collect();
+        let usernames = [NodeSshUsername {
+            node_name: "vm1".to_owned(),
+            username: "alice".to_owned(),
+        }];
+
+        store_ssh_usernames(&db, &lab_node_data, &usernames)
+            .await
+            .unwrap();
+
+        let stored: Vec<(String, Option<String>)> =
+            db::list_nodes_by_lab(&db, lab.id.clone().unwrap())
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|node| (node.name, node.ssh_username))
+                .collect();
+        assert_eq!(
+            stored,
+            [
+                ("vm1".to_owned(), Some("alice".to_owned())),
+                ("web".to_owned(), None)
+            ]
+        );
+    }
 }

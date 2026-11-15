@@ -3,60 +3,48 @@ use std::io::ErrorKind;
 use anyhow::{Context, Result};
 use tracing::instrument;
 
-use shared::data::{DownloadLabResponse, LabInfo};
-use shared::konst::{
-    LAB_CA_CERT_FILE, LAB_CERTS_DIR, LAB_FILE_NAME, SHERPA_KNOWN_HOSTS_FILE, SHERPA_LABS_PATH,
-    SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
-};
+use shared::data::DownloadLabResponse;
+use shared::konst::{LAB_CA_CERT_FILE, LAB_CERTS_DIR, SHERPA_LABS_PATH};
 
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
 use crate::services::keycloak;
+use crate::services::lab_info;
 use crate::services::lab_ssh_key::{LabSshKeyPaths, read_private_key};
+use crate::services::ssh_config::{self, LabSshFiles};
 use crate::services::talos;
 use crate::services::vault;
 
 /// Download lab files (lab-info, SSH config, `known_hosts`, SSH key) for CLI use.
 ///
-/// The caller must own the lab or be an admin. The lab's SSH private key is included only when
-/// the lab's SSH config uses it.
+/// The lab info, SSH config and `known_hosts` are built from the database; the server keeps
+/// no copy of them. The caller must own the lab or be an admin. The lab's SSH private key is
+/// included only when the lab's SSH config uses it.
 #[instrument(skip(ctx, state), fields(username = %ctx.username, %lab_id))]
 pub async fn download_lab_files(
     ctx: &AuthContext,
     lab_id: &str,
     state: &AppState,
 ) -> Result<DownloadLabResponse> {
-    require_lab_access(ctx, &state.db, lab_id).await?;
+    let db_lab = require_lab_access(ctx, &state.db, lab_id).await?;
+    let lab_record_id = db::get_lab_id(&db_lab).context("Failed to get lab record ID")?;
 
     let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
-    let lab_info: LabInfo = tokio::fs::read_to_string(format!("{lab_dir}/{LAB_FILE_NAME}"))
-        .await
-        .context("Failed to read lab info")?
-        .parse()?;
+    let lab_info = lab_info::load_lab_info(&state.db, &db_lab).await?;
+    let LabSshFiles {
+        ssh_config,
+        known_hosts,
+        uses_lab_key,
+    } = ssh_config::lab_ssh_files(
+        &state.db,
+        &lab_record_id,
+        &lab_info,
+        state.config.server_ipv4,
+    )
+    .await?;
 
-    let ssh_config_path = format!("{lab_dir}/{SHERPA_SSH_CONFIG_FILE}");
-    let ssh_config = tokio::fs::read_to_string(&ssh_config_path)
-        .await
-        .context("SSH config not found. Has the lab been started?")?;
-
-    // Labs created before host keys were recorded have no known_hosts file.
-    let known_hosts_path = format!("{lab_dir}/{SHERPA_KNOWN_HOSTS_FILE}");
-    let known_hosts = match tokio::fs::read_to_string(&known_hosts_path).await {
-        Ok(known_hosts) => known_hosts,
-        Err(error) if error.kind() == ErrorKind::NotFound => {
-            tracing::debug!(path = %known_hosts_path, "Lab has no known_hosts file");
-            String::new()
-        }
-        Err(error) => {
-            return Err(error).context(format!("Failed to read {known_hosts_path}"));
-        }
-    };
-
-    let ssh_private_key = if ssh_config
-        .lines()
-        .any(|line| line.trim() == format!("IdentityFile {SHERPA_SSH_PRIVATE_KEY_FILE}"))
-    {
+    let ssh_private_key = if uses_lab_key {
         read_private_key(&LabSshKeyPaths::in_lab(&lab_dir)).await?
     } else {
         String::new()

@@ -294,6 +294,7 @@ mod tests {
             cpu_pinning: None,
             qemu_thread_cpus: None,
             ready_check: ReadyCheck::default(),
+            ssh_username: None,
         }
     }
 

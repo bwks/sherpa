@@ -108,6 +108,10 @@ pub struct DbNode {
     /// How the node shows it is ready, as `up` or the last redeploy stored it.
     #[serde(default)]
     pub ready_check: ReadyCheck,
+    /// The account the lab's SSH config logs in to the node with: the lab owner's login when
+    /// the node provisions it, else `None`, for the shared `sherpa` account and the lab's key.
+    #[serde(default)]
+    pub ssh_username: Option<String>,
 }
 
 /// A node's readiness check, stored with the node so that the scanner, `resume` and `redeploy`

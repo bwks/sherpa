@@ -348,11 +348,12 @@ pub(crate) fn node_from_row(row: &Row) -> Result<DbNode> {
             port: cells.optional_integer("ready_port")?,
             skip: cells.boolean("skip_ready_check")?,
         },
+        ssh_username: cells.optional_text("ssh_username")?,
     })
 }
 
 /// A node's column values in the `node` table's column order, under `key`.
-pub(crate) fn node_values(node: &DbNode, key: &str) -> Result<[Value; 17]> {
+pub(crate) fn node_values(node: &DbNode, key: &str) -> Result<[Value; 18]> {
     Ok([
         key.into(),
         node.name.as_str().into(),
@@ -379,6 +380,7 @@ pub(crate) fn node_values(node: &DbNode, key: &str) -> Result<[Value; 17]> {
             .into(),
         node.ready_check.port.into(),
         node.ready_check.skip.into(),
+        node.ssh_username.as_deref().into(),
     ])
 }
 

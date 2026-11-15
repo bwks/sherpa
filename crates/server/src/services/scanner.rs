@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use shared::data::{
     DbLab, DbNode, LabPhase, NodeKind, NodeModel, NodeState, Observation, Probe, RecordId, Runtime,
 };
-use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
+use shared::konst::SSH_PORT;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
@@ -110,14 +110,12 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
     let scanned = scanned_nodes(state, lab, &nodes).await?;
 
     let mut probes = HashMap::new();
-    let mut key_recorded = false;
     for node in &scanned {
         let running = snapshot.runtime_of(&node.kind, &node.runtime_name) == Some(Runtime::Running);
         let Some(port) = probe_port(node, running) else {
             continue;
         };
-        let (probe, recorded) = probe_node(state, node.node, port).await;
-        key_recorded |= recorded;
+        let probe = probe_node(state, node.node, port).await;
         probes.insert(node.node.name.clone(), probe);
     }
 
@@ -158,10 +156,6 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
         }
     } else {
         tracing::debug!("An operation holds the lab; leaving it for the next cycle");
-    }
-
-    if key_recorded {
-        refresh_ssh_files(state, lab, lab_record_id).await?;
     }
     Ok(())
 }
@@ -333,21 +327,6 @@ async fn scanned_nodes<'a>(
         .collect())
 }
 
-/// Save the lab's SSH files again, with the host keys just recorded.
-async fn refresh_ssh_files(state: &AppState, lab: &DbLab, lab_record_id: &RecordId) -> Result<()> {
-    let lab_dir = format!("{SHERPA_LABS_PATH}/{}", lab.lab_id);
-    let lab_info = ssh_config::load_lab_info(&lab_dir).await?;
-    ssh_config::refresh_lab_ssh_files(
-        &state.db,
-        &lab_dir,
-        lab_record_id,
-        &lab_info,
-        state.config.server_ipv4,
-    )
-    .await?;
-    Ok(())
-}
-
 /// The port to probe a node on this cycle, if any: a running node's stored port, when its
 /// check is not skipped and it is not yet known ready, or when the port is SSH and it has no host
 /// key recorded.
@@ -371,31 +350,31 @@ fn probe_for(node: &ScannedNode<'_>, probed: Option<Probe>) -> Probe {
 }
 
 /// Probe a running node on `port`, and record the host key it offers, which it does only on
-/// SSH. Returns the probe's result and whether a key was recorded.
+/// SSH. Returns the probe's result.
 #[instrument(skip_all, fields(node = %node.name, port), level = "debug")]
-async fn probe_node(state: &AppState, node: &DbNode, port: u16) -> (Probe, bool) {
+async fn probe_node(state: &AppState, node: &DbNode, port: u16) -> Probe {
     let Some(ip) = &node.mgmt_ipv4 else {
         tracing::debug!("Node has no management address");
-        return (Probe::NotReady, false);
+        return Probe::NotReady;
     };
     match node_ops::check_vm_ready(ip, port).await {
         Ok(VmReadiness::Ready {
             host_key: Some(host_key),
         }) => match ssh_config::record_node_host_key(&state.db, node, &host_key).await {
-            Ok(_) => (Probe::Ready, true),
+            Ok(_) => Probe::Ready,
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to record node host key");
-                (Probe::Ready, false)
+                Probe::Ready
             }
         },
-        Ok(VmReadiness::Ready { host_key: None }) => (Probe::Ready, false),
+        Ok(VmReadiness::Ready { host_key: None }) => Probe::Ready,
         Ok(VmReadiness::NotReady) => {
             tracing::debug!("Ready port not answering yet");
-            (Probe::NotReady, false)
+            Probe::NotReady
         }
         Err(e) => {
             tracing::debug!(error = %e, "Probe failed");
-            (Probe::NotReady, false)
+            Probe::NotReady
         }
     }
 }
@@ -432,6 +411,7 @@ mod tests {
             cpu_pinning: None,
             qemu_thread_cpus: None,
             ready_check: ReadyCheck::default(),
+            ssh_username: None,
         }
     }
 

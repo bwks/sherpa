@@ -56,7 +56,7 @@ pub use node::{
     count_nodes_by_lab, create_node, get_node, get_node_by_name_and_lab, list_node_states_by_user,
     list_nodes_by_lab, list_pinned_nodes, list_vnc_ports, update_node_host_key,
     update_node_mgmt_ipv4, update_node_mgmt_ipv6, update_node_mgmt_mac, update_node_ready_check,
-    update_node_resources, update_node_state_from,
+    update_node_resources, update_node_ssh_username, update_node_state_from,
 };
 
 // Link CRUD operations

@@ -5,17 +5,18 @@ use anyhow::{Context, Result};
 use tracing::instrument;
 
 use shared::data::{NodeHostKeysRequest, NodeHostKeysResponse, NodeKind};
-use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
+use shared::konst::SSH_PORT;
 
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
+use crate::services::lab_info;
 use crate::services::node_ops::{self, VmReadiness};
 use crate::services::ssh_config;
 
 /// Read the node's host key, record it if it changed, and return the lab's `known_hosts`
-/// file. A node whose SSH server does not answer keeps its recorded key.
+/// file, built from the database. A node whose SSH server does not answer keeps its recorded key.
 ///
 /// The caller must own the lab or be an admin.
 #[instrument(skip(ctx, request, state), fields(username = %ctx.username, lab_id = %request.lab_id, node_name = %request.node_name))]
@@ -67,11 +68,9 @@ pub async fn refresh_node_host_key(
         }
     };
 
-    let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
-    let lab_info = ssh_config::load_lab_info(&lab_dir).await?;
-    let files = ssh_config::refresh_lab_ssh_files(
+    let lab_info = lab_info::load_lab_info(&state.db, &db_lab).await?;
+    let files = ssh_config::lab_ssh_files(
         &state.db,
-        &lab_dir,
         &lab_record_id,
         &lab_info,
         state.config.server_ipv4,
