@@ -12,9 +12,12 @@ lifecycle commands, and always destroys the lab. See README.md.
 
 import argparse
 import ipaddress
+import base64
+import copy
 import json
 import os
 from pathlib import Path
+import secrets
 import shlex
 import shutil
 import signal
@@ -62,6 +65,21 @@ READY_TIMEOUT = 600
 VIP_FAILOVER_TIMEOUT = 300
 POLL_INTERVAL = 10
 ECHO_REQUESTS = 60
+# Keycloak login (`oidc` on the cluster): the realm Sherpa makes, its admin group, and the user
+# the test adds outside that group.
+KEYCLOAK_REALM = "sherpa"
+KEYCLOAK_ADMIN = "sherpa"
+CLUSTER_ADMINS_GROUP = "cluster-admins"
+OIDC_CLAIM_PREFIX = "oidc:"
+OUTSIDER = "sherpa-e2e-outsider"
+# Vault secrets (`vault` on the cluster): the operator Sherpa installs, and the secret the test
+# writes under the cluster's path and syncs into the test namespace.
+VSO_NAMESPACE = "vault-secrets-operator-system"
+VSO_INSTALL_JOB = "vault-secrets-operator-install"
+VAULT_SECRET = "vault-demo"
+VAULT_SECRET_KEY = "value"
+VAULT_REFRESH = "10s"
+VAULT_SYNC_TIMEOUT = 300
 
 
 # OpenSSH options for lab nodes: no prompts, and no host key notices mixed into command output.
@@ -192,6 +210,83 @@ def gateway_route():
     }
 
 
+def keycloak_credentials_path(node):
+    return f".sherpa/keycloak/keycloak-{node}.toml"
+
+
+def vault_credentials_path(node):
+    return f".sherpa/vault/vault-{node}.toml"
+
+
+def realm_member(users):
+    """The lab owner from a Keycloak credentials file's users: the one that is not Sherpa's admin."""
+    owners = [user for user in users if user["username"] != KEYCLOAK_ADMIN]
+    require(owners, f"Keycloak credentials list no user besides {KEYCLOAK_ADMIN}")
+    return owners[0]
+
+
+def password_grant_kubeconfig(kubeconfig, cluster, username, password):
+    """A kubeconfig that logs in as one Keycloak user through `kubectl oidc-login`, without a prompt.
+
+    It copies the `oidc@<cluster>` user Sherpa wrote and adds the plugin's password grant (the
+    `kubernetes` client allows direct grants), with a token cache of the user's own.
+    """
+    oidc_user = f"oidc@{cluster}"
+    users = [user for user in kubeconfig["users"] if user["name"] == oidc_user]
+    require(len(users) == 1, f"kubeconfig has no {oidc_user} user")
+    user = copy.deepcopy(users[0])
+    user["name"] = username
+    user["user"]["exec"]["args"] += [
+        "--grant-type=password",
+        f"--username={username}",
+        f"--password={password}",
+        f"--token-cache-dir=~/.kube/cache/oidc-login-{username}",
+    ]
+    user["user"]["exec"]["interactiveMode"] = "Never"
+    return {
+        "apiVersion": "v1",
+        "kind": "Config",
+        "clusters": kubeconfig["clusters"],
+        "users": [user],
+        "contexts": [{"name": username, "context": {"cluster": cluster, "user": username}}],
+        "current-context": username,
+    }
+
+
+def outsider_user(password):
+    """A Keycloak realm user in no group, for the admin API's user create."""
+    return {
+        "username": OUTSIDER,
+        "enabled": True,
+        "email": f"{OUTSIDER}@{KEYCLOAK_REALM}.lab.local",
+        "emailVerified": True,
+        "firstName": OUTSIDER,
+        "lastName": KEYCLOAK_REALM,
+        "credentials": [{"type": "password", "value": password, "temporary": False}],
+    }
+
+
+def vault_static_secret():
+    """A VaultStaticSecret syncing secret/<cluster>/<namespace> into the test namespace."""
+    return {
+        "apiVersion": "secrets.hashicorp.com/v1beta1",
+        "kind": "VaultStaticSecret",
+        "metadata": {"name": VAULT_SECRET, "namespace": NAMESPACE},
+        "spec": {
+            "type": "kv-v2",
+            "mount": "secret",
+            "path": f"{CLUSTER}/{NAMESPACE}",
+            "destination": {"name": VAULT_SECRET, "create": True},
+            "refreshAfter": VAULT_REFRESH,
+        },
+    }
+
+
+def secret_value(secret_json, key):
+    data = secret_json.get("data") or {}
+    return base64.b64decode(data[key]).decode() if key in data else None
+
+
 def owner_only(path):
     return stat.S_IMODE(path.stat().st_mode) == 0o600
 
@@ -250,6 +345,8 @@ class LabRun:
         self.manifest = tomllib.loads((LABS / lab / "manifest.toml").read_text())
         self.controllers, self.workers = cluster_members(self.manifest)
         self.cilium = lab_cluster(self.manifest).get("cni") == "cilium"
+        self.oidc_node = lab_cluster(self.manifest).get("oidc")
+        self.vault_node = lab_cluster(self.manifest).get("vault")
         self.name = f"{self.manifest['name']}-{run_root.name[-6:]}"
         self.directory = run_root / lab
         self.keep_failed = keep_failed
@@ -321,14 +418,22 @@ class LabRun:
             self.ipv4_network = info["ipv4_network"]
         require(outcome.code == 0, f"sherpa up failed (exit {outcome.code}); see {self.log.name}")
         require(self.lab_id is not None, "sherpa up wrote no .sherpa/lab-info.toml")
-        for name in (KUBECONFIG, TALOSCONFIG):
+        for name in self.credential_files():
             path = self.directory / name
             require(path.is_file(), f"sherpa up did not write {name}")
             require(owner_only(path), f"{name} is not readable only by its owner")
         self.wait_for_util()
         self.util("util tooling installed", "cloud-init status --wait && talosctl version --client "
-                  "&& kubectl version --client", timeout=900)
+                  "&& kubectl version --client && kubectl oidc-login --version", timeout=900)
         self.copy_credentials()
+
+    def credential_files(self):
+        files = [KUBECONFIG, TALOSCONFIG]
+        if self.oidc_node:
+            files.append(keycloak_credentials_path(self.oidc_node))
+        if self.vault_node:
+            files.append(vault_credentials_path(self.vault_node))
+        return files
 
     def copy_credentials(self):
         self.command("copy credentials to util", ["scp", *SSH_OPTIONS, KUBECONFIG, TALOSCONFIG,
@@ -348,6 +453,10 @@ class LabRun:
         self.workload()
         if self.cilium:
             self.cilium_cluster()
+        if self.oidc_node:
+            self.oidc_login()
+        if self.vault_node:
+            self.vault_secret_sync()
         if len(self.controllers) == 3:
             self.vip_endpoint()
             self.survives_controller_loss()
@@ -426,6 +535,98 @@ class LabRun:
                            ("hubble ui", f"http://{hubble_ui}/")):
             self.util(label, f"for i in $(seq 30); do curl -fsS -o /dev/null --max-time 5 {url} "
                       f"&& exit 0; sleep {POLL_INTERVAL}; done; exit 1", timeout=600)
+
+    def oidc_login(self):
+        """A realm user in cluster-admins gets the cluster's resources through `kubectl oidc-login`;
+        a user outside the group is authenticated but refused."""
+        credentials = tomllib.loads((self.directory / keycloak_credentials_path(self.oidc_node)).read_text())
+        passwords = {user["username"]: user["password"] for user in credentials["users"]}
+        member = realm_member(credentials["users"])
+        outsider_password = secrets.token_urlsafe(18)
+        self.add_outsider(credentials["address"], passwords[KEYCLOAK_ADMIN], outsider_password)
+        kubeconfig = json.loads((self.directory / KUBECONFIG).read_text())
+        for username, password in ((member["username"], member["password"]), (OUTSIDER, outsider_password)):
+            document = password_grant_kubeconfig(kubeconfig, CLUSTER, username, password)
+            # On stdin, so the password is in no command line or log.
+            self.util(f"kubeconfig for {username}", f"umask 077 && cat > oidc-{username}.kubeconfig",
+                      stdin=json.dumps(document))
+
+        whoami = self.oidc_kubectl(member["username"], ["auth", "whoami", "-o", "json"])
+        status = json.loads(whoami.stdout)["status"]["userInfo"]
+        require(status["username"] == f"{OIDC_CLAIM_PREFIX}{member['username']}",
+                f"Keycloak login is {status['username']}, not {OIDC_CLAIM_PREFIX}{member['username']}")
+        require(f"{OIDC_CLAIM_PREFIX}{CLUSTER_ADMINS_GROUP}" in status.get("groups", []),
+                f"Keycloak login is not in {OIDC_CLAIM_PREFIX}{CLUSTER_ADMINS_GROUP}: {status.get('groups')}")
+        nodes = self.oidc_kubectl(member["username"], ["get", "nodes", "-o", "json"])
+        names = {item["metadata"]["name"] for item in json.loads(nodes.stdout)["items"]}
+        require(names == set(self.controllers + self.workers), f"Keycloak login saw nodes {sorted(names)}")
+        self.oidc_kubectl(member["username"], ["get", "pods", "--all-namespaces"])
+
+        outsider = self.oidc_kubectl(OUTSIDER, ["auth", "whoami", "-o", "json"])
+        outsider_name = json.loads(outsider.stdout)["status"]["userInfo"]["username"]
+        require(outsider_name == f"{OIDC_CLAIM_PREFIX}{OUTSIDER}", f"outsider logged in as {outsider_name}")
+        refused = self.oidc_kubectl(OUTSIDER, ["get", "pods", "--all-namespaces"], check=False)
+        require(refused.code != 0 and "forbidden" in refused.output.lower(),
+                f"a user outside {CLUSTER_ADMINS_GROUP} was not refused (exit {refused.code})")
+
+    def oidc_kubectl(self, username, arguments, check=True):
+        return self.util(f"kubectl as {username}: {' '.join(arguments[:2])}",
+                         shlex.join(["kubectl", "--kubeconfig", f"oidc-{username}.kubeconfig", *arguments]),
+                         check=check)
+
+    def add_outsider(self, keycloak, admin_password, password):
+        """Add a realm user in no group through Keycloak's admin API, from the util node."""
+        # Line one of stdin is the admin password, the rest the user; neither is in the log.
+        script = (
+            "read -r admin && user=$(cat) && "
+            "token=$(curl -fsS {token_url} -d grant_type=password -d client_id=admin-cli "
+            "-d username={admin} --data-urlencode password=\"$admin\" "
+            "| python3 -c 'import json, sys; print(json.load(sys.stdin)[\"access_token\"])') && "
+            "curl -sS -o /dev/null -w '%{{http_code}}' -X POST {users_url} "
+            "-H \"Authorization: Bearer $token\" -H 'Content-Type: application/json' -d \"$user\""
+        ).format(token_url=shlex.quote(f"{keycloak}/realms/master/protocol/openid-connect/token"),
+                 admin=shlex.quote(KEYCLOAK_ADMIN),
+                 users_url=shlex.quote(f"{keycloak}/admin/realms/{KEYCLOAK_REALM}/users"))
+        created = self.util("keycloak: add a user outside cluster-admins", script,
+                            stdin=f"{admin_password}\n{json.dumps(outsider_user(password))}")
+        require(created.stdout.strip() == "201", f"Keycloak user create answered {created.stdout.strip()!r}")
+
+    def vault_secret_sync(self):
+        """A secret written to Vault is synced into a Kubernetes Secret by the Vault Secrets
+        Operator, and follows when the Vault value changes."""
+        credentials = tomllib.loads((self.directory / vault_credentials_path(self.vault_node)).read_text())
+        # The operator is installed by a Job a couple of minutes after the cluster starts.
+        self.kubectl("vault secrets operator installed", ["-n", VSO_NAMESPACE, "wait", "--for=condition=Complete",
+                                                          f"job/{VSO_INSTALL_JOB}", "--timeout=10m"], timeout=660)
+        self.kubectl("vault secrets operator available", ["-n", VSO_NAMESPACE, "wait", "--for=condition=Available",
+                                                          "deployment", "--all", "--timeout=5m"], timeout=360)
+        first, second = secrets.token_hex(8), secrets.token_hex(8)
+        self.write_vault_secret(credentials, first)
+        self.kubectl("apply vault static secret", ["apply", "-f", "-"], stdin=json.dumps(vault_static_secret()))
+        self.wait_for_secret_value(first)
+        self.write_vault_secret(credentials, second)
+        self.wait_for_secret_value(second)
+
+    def write_vault_secret(self, credentials, value):
+        url = f"{credentials['address']}/v1/secret/data/{CLUSTER}/{NAMESPACE}"
+        # Line one of stdin is the root token, the rest the secret; neither is in the log. The
+        # util node trusts the lab CA that Vault's certificate chains to.
+        script = (f"read -r token && curl -fsS -o /dev/null -X POST {shlex.quote(url)} "
+                  "-H \"X-Vault-Token: $token\" -H 'Content-Type: application/json' --data @-")
+        body = json.dumps({"data": {VAULT_SECRET_KEY: value}})
+        self.util("vault: write the test secret", script, stdin=f"{credentials['root_token']}\n{body}")
+
+    def wait_for_secret_value(self, expected, timeout=VAULT_SYNC_TIMEOUT):
+        deadline = time.monotonic() + timeout
+        while True:
+            secret = self.kubectl("synced secret", ["-n", NAMESPACE, "get", "secret", VAULT_SECRET, "-o", "json"],
+                                  check=False)
+            value = secret_value(json.loads(secret.stdout), VAULT_SECRET_KEY) if secret.code == 0 else None
+            if value == expected:
+                return
+            require(time.monotonic() < deadline,
+                    f"Secret {NAMESPACE}/{VAULT_SECRET} did not get the Vault value within {timeout}s")
+            time.sleep(POLL_INTERVAL)
 
     def vip_endpoint(self):
         kubeconfig = json.loads((self.directory / KUBECONFIG).read_text())
@@ -652,6 +853,71 @@ class SelfTest(unittest.TestCase):
     def test_single_runs_flannel_and_ha_runs_cilium(self):
         self.assertNotIn("cni", lab_cluster(self.manifest("single")))
         self.assertEqual(lab_cluster(self.manifest("ha"))["cni"], "cilium")
+
+    def test_ha_logs_in_through_keycloak_and_reads_secrets_from_vault(self):
+        cluster = lab_cluster(self.manifest("ha"))
+        models = {node["name"]: node["model"] for node in self.manifest("ha")["nodes"]}
+        self.assertEqual(models[cluster["oidc"]], "keycloak_server")
+        self.assertEqual(models[cluster["vault"]], "hashicorp_vault")
+        self.assertNotIn("oidc", lab_cluster(self.manifest("single")))
+        self.assertNotIn("vault", lab_cluster(self.manifest("single")))
+
+    def test_credential_files_follow_the_cluster(self):
+        with tempfile.TemporaryDirectory() as temp:
+            ha = LabRun("ha", Path(temp) / "talos-linux-000000abcdef", keep_failed=False)
+            single = LabRun("single", Path(temp) / "talos-linux-000000abcdef", keep_failed=False)
+        self.assertEqual(ha.credential_files(), [KUBECONFIG, TALOSCONFIG, ".sherpa/keycloak/keycloak-kc01.toml",
+                                                 ".sherpa/vault/vault-vault01.toml"])
+        self.assertEqual(single.credential_files(), [KUBECONFIG, TALOSCONFIG])
+
+    def test_realm_member_is_the_lab_owner(self):
+        users = [{"username": "sherpa", "password": "a"}, {"username": "alice", "password": "b"}]
+        self.assertEqual(realm_member(users)["username"], "alice")
+        with self.assertRaises(TestFailure):
+            realm_member(users[:1])
+
+    def test_password_grant_kubeconfig_keeps_sherpas_oidc_settings(self):
+        kubeconfig = {
+            "clusters": [{"name": "k8s", "cluster": {"server": "https://172.31.1.11:6443"}}],
+            "users": [
+                {"name": "admin@k8s", "user": {"client-key-data": "secret"}},
+                {"name": "oidc@k8s", "user": {"exec": {
+                    "apiVersion": "client.authentication.k8s.io/v1", "command": "kubectl",
+                    "args": ["oidc-login", "get-token", "--oidc-issuer-url=https://kc/realms/sherpa",
+                             "--oidc-client-id=kubernetes", "--certificate-authority-data=Q0E="],
+                    "interactiveMode": "IfAvailable"}}},
+            ],
+        }
+        document = password_grant_kubeconfig(kubeconfig, "k8s", "alice", "pw")
+        self.assertEqual([user["name"] for user in document["users"]], ["alice"])
+        exec_config = document["users"][0]["user"]["exec"]
+        self.assertEqual(exec_config["args"][:5], kubeconfig["users"][1]["user"]["exec"]["args"])
+        self.assertIn("--grant-type=password", exec_config["args"])
+        self.assertIn("--username=alice", exec_config["args"])
+        self.assertIn("--password=pw", exec_config["args"])
+        self.assertEqual(exec_config["interactiveMode"], "Never")
+        self.assertEqual(document["contexts"], [{"name": "alice", "context": {"cluster": "k8s", "user": "alice"}}])
+        self.assertEqual(document["current-context"], "alice")
+        # Sherpa's own user is left as it was.
+        self.assertEqual(len(kubeconfig["users"][1]["user"]["exec"]["args"]), 5)
+        with self.assertRaises(TestFailure):
+            password_grant_kubeconfig({"users": []}, "k8s", "alice", "pw")
+
+    def test_outsider_is_in_no_group(self):
+        user = outsider_user("pw")
+        self.assertNotIn("groups", user)
+        self.assertEqual(user["credentials"], [{"type": "password", "value": "pw", "temporary": False}])
+
+    def test_vault_static_secret_reads_the_clusters_path(self):
+        spec = vault_static_secret()["spec"]
+        self.assertEqual((spec["mount"], spec["path"]), ("secret", f"{CLUSTER}/{NAMESPACE}"))
+        self.assertEqual(spec["destination"], {"name": VAULT_SECRET, "create": True})
+
+    def test_secret_value(self):
+        encoded = base64.b64encode(b"s3cret").decode()
+        self.assertEqual(secret_value({"data": {"value": encoded}}, "value"), "s3cret")
+        self.assertIsNone(secret_value({"data": {}}, "value"))
+        self.assertIsNone(secret_value({}, "value"))
 
     def test_manifest_tools_path_resolves_from_the_lab_folder(self):
         for lab in LAB_NAMES:

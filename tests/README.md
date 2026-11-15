@@ -30,7 +30,7 @@ instead of repeating these instructions.
 | Cisco IOL lab test | `uv run tests/labs/cisco-iol/cisco_iol_lab_test.py` | On the Sherpa server: the `cisco_iol` image built with docker-cisco-iol, `alpine:3.22`, Docker access, logged-in CLI | about 3–5 min |
 | P2p links lab test | `uv run tests/labs/p2p-links/p2p_links_lab_test.py` | On the Sherpa server: the node images, `nicolaka/netshoot:v0.14`, Docker access, logged-in CLI | about 15–20 min |
 | Console lab test | `uv run tests/labs/console/console_lab_test.py` | Logged-in CLI; the `alpine_linux` and `generic_container` `alpine` 3.22 images | about 3–5 min |
-| Talos lab test | `uv run tests/labs/talos-linux/talos_lab_test.py` | Sherpa host with the Talos image, logged-in CLI, internet | about 25–35 min |
+| Talos lab test | `uv run tests/labs/talos-linux/talos_lab_test.py` | Sherpa host with the Talos, Ubuntu, Keycloak and Vault images, logged-in CLI, internet | about 25–35 min |
 | Web UI JavaScript | `node tests/web/test_theme.cjs` | Node.js | seconds |
 | Harness self-tests | `uv run tests/harness/<script>.py --self-test` | Python 3.15+ | seconds |
 
@@ -267,7 +267,7 @@ uv run tests/labs/container-ztp/container_ztp_lab_test.py    # ZTP on and off on
 uv run tests/labs/p2p-links/p2p_links_lab_test.py            # P2p link requirements on every pair of node kinds
 uv run tests/labs/cisco-iol/cisco_iol_lab_test.py            # Cisco IOL: config, SSH, links, TCP, write memory
 uv run tests/labs/console/console_lab_test.py               # sherpa console: prompt, escapes, in use, containers
-uv run tests/labs/talos-linux/talos_lab_test.py         # Talos clusters: single and ha labs in parallel
+uv run tests/labs/talos-linux/talos_lab_test.py         # Talos clusters: single and ha labs in parallel; ha with Keycloak login and Vault secrets
 ```
 
 See [labs/README.md](labs/README.md) for the rules and each lab's README for what it checks.
