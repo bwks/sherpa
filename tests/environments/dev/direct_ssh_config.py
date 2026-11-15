@@ -27,12 +27,17 @@ import tomllib
 HERE = Path(__file__).resolve().parent
 # Unix socket paths are limited to about 108 bytes, so the master socket cannot live here.
 SOCKET_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", Path.home() / ".ssh"))
-# Settings copied from Sherpa's resolved config; the rest are set below.
-COPIED = ("hostname", "port", "user", "identityfile", "userknownhostsfile",
+# Settings copied from Sherpa's resolved config; the rest are set below. IdentitiesOnly is copied,
+# not forced: a node that logs in as the lab owner has no IdentityFile in Sherpa's config and
+# uses the owner's SSH agent or default keys. A node that logs in as `sherpa` has the lab key
+# with IdentitiesOnly yes.
+COPIED = ("hostname", "port", "user", "identitiesonly", "userknownhostsfile",
           "stricthostkeychecking", "pubkeyacceptedalgorithms", "hostkeyalgorithms",
           "kexalgorithms")
+# Copied only when Sherpa's config names a key for the node: otherwise `ssh -G` lists ssh's
+# default key paths, and ssh warns about each one that does not exist.
+IDENTITY = "identityfile"
 DIRECT = {
-    "IdentitiesOnly": "yes",
     "ProxyJump": "none",
     "ControlMaster": "auto",
     "ControlPath": str(SOCKET_DIR / "sherpa-ssh-%C"),
@@ -49,10 +54,27 @@ def resolve(sherpa_config, alias):
     return [tuple(line.split(" ", 1)) for line in output.splitlines() if " " in line]
 
 
+def names_identity(sherpa_config, alias):
+    """Whether the Host block for this alias in Sherpa's config sets an IdentityFile."""
+    in_block = False
+    for line in sherpa_config.read_text().splitlines():
+        words = line.split()
+        if not words:
+            continue
+        keyword = words[0].lower()
+        if keyword in ("host", "match"):
+            in_block = keyword == "host" and alias in words[1:]
+        elif in_block and keyword == IDENTITY:
+            return True
+    return False
+
+
 def node_block(sherpa_config, name, lab_id):
-    settings = resolve(sherpa_config, f"{name}.{lab_id}")
+    alias = f"{name}.{lab_id}"
+    settings = resolve(sherpa_config, alias)
+    copied = COPIED + ((IDENTITY,) if names_identity(sherpa_config, alias) else ())
     lines = [f"Host {name}"]
-    lines += [f"    {key} {value}" for key, value in settings if key in COPIED]
+    lines += [f"    {key} {value}" for key, value in settings if key in copied]
     lines += [f"    {key} {value}" for key, value in DIRECT.items()]
     return "\n".join(lines)
 

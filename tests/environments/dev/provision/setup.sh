@@ -1,9 +1,10 @@
 #!/bin/bash
 #
 # Builds the Sherpa dev server: toolchains, the sherpa and sherpa-docs checkouts, and a Sherpa
-# server installed with the checkout's own installer. Runs as the node's login user through the
-# SSH provisioner; safe to run again with `sherpa provision`. Both dev servers, dev and agent-2,
-# run every step.
+# server installed with the checkout's own installer. Runs as the node's login user, the account
+# of the Sherpa user who owns the lab (`provision_current_user = true`), through the SSH
+# provisioner; safe to run again with `sherpa provision`. Both dev servers, dev and agent-2, run
+# every step.
 
 set -euo pipefail
 
@@ -11,6 +12,13 @@ CODE_DIR="${HOME}/code/rust"
 MISE="${HOME}/.local/bin/mise"
 REPOS=(bwks/sherpa bwks/sherpa-docs)
 SHERPA_BASE="/opt/sherpa"
+# The server's service account, made by the installer: a system uid with no login.
+SERVICE_ACCOUNT="sherpa"
+# Groups the login joins, so it runs the libvirt and Docker integration tests and the lab tooling
+# as itself, as the service account does.
+LOGIN_GROUPS=(docker libvirt kvm)
+CLOUD_INIT_SUDOERS="/etc/sudoers.d/90-cloud-init-users"
+CLI_CA_CERT="${HOME}/.sherpa/config/server.crt"
 # Login shells load ~/.env.d/, so `sherpa login` finds the account here too.
 ACCOUNT_ENV="${HOME}/.env.d/sherpa-account.env"
 SHERPA_ACCOUNT="dev"
@@ -171,6 +179,96 @@ configure_claude_attribution() {
     mv "${settings}.tmp" "${settings}"
 }
 
+# Stops before any change when the login is the wrong account. A login `sherpa` means the owner
+# got no account of their own (a reserved name such as `admin`, or a manifest without
+# `provision_current_user`) or the guest was built before the login moved off `sherpa`; it must
+# be rebuilt. A login named like the server's own Sherpa user would lose its authorized_keys to
+# allow_lab_jump.
+check_login() {
+    local login
+    login="$(id -un)"
+    if [ "${login}" = "${SERVICE_ACCOUNT}" ]; then
+        echo "The login is ${SERVICE_ACCOUNT}, which must be the server's no-login service account." >&2
+        echo "Bring the lab up with provision_current_user = true, as a Sherpa user whose name can be a" >&2
+        echo "login on lab nodes; a guest built with the ${SERVICE_ACCOUNT} login must be destroyed and rebuilt." >&2
+        exit 1
+    fi
+    if [ "${login}" = "${SHERPA_ACCOUNT}" ]; then
+        echo "The login is ${SHERPA_ACCOUNT}, the name of the server's own Sherpa user and its jump account." >&2
+        echo "Bring the lab up as a Sherpa user with another name." >&2
+        exit 1
+    fi
+}
+
+# Removes the first-boot `sherpa` account that cloud-init makes on every node (uid 1000, a home,
+# sudo), so the installer creates the real service account. Only before the server is installed:
+# with /opt/sherpa present, or `sherpa` already a system account, it does nothing.
+retire_login_sherpa() {
+    if [ -e "${SHERPA_BASE}" ] || ! id -u "${SERVICE_ACCOUNT}" >/dev/null 2>&1 || \
+        [ "$(id -u "${SERVICE_ACCOUNT}")" -lt 1000 ]; then
+        return 0
+    fi
+    log "Removing the first-boot ${SERVICE_ACCOUNT} account before the install"
+    if sudo test -f "${CLOUD_INIT_SUDOERS}"; then
+        # The file also holds the login's rule: drop only the sherpa lines, and check the result
+        # before it replaces the file.
+        local staged
+        staged="$(sudo mktemp)"
+        { sudo cat "${CLOUD_INIT_SUDOERS}" | \
+            grep -vE "^(${SERVICE_ACCOUNT}[[:space:]]|# User rules for ${SERVICE_ACCOUNT}\$)" || true; } | \
+            sudo tee "${staged}" >/dev/null
+        sudo chmod 440 "${staged}"
+        sudo visudo -cqf "${staged}"
+        sudo mv "${staged}" "${CLOUD_INIT_SUDOERS}"
+    fi
+    sudo userdel --remove "${SERVICE_ACCOUNT}"
+}
+
+# Fails unless `sherpa` is the installer's service account: a system uid, no login shell, no
+# sudo and no SSH key. A check, not a fix: it reports a guest whose account was made another way.
+assert_service_account() {
+    local problems=()
+    if [ "$(id -u "${SERVICE_ACCOUNT}")" -ge 1000 ]; then
+        problems+=("uid $(id -u "${SERVICE_ACCOUNT}") is not a system uid")
+    fi
+    local shell home
+    shell="$(getent passwd "${SERVICE_ACCOUNT}" | cut -d: -f7)"
+    home="$(getent passwd "${SERVICE_ACCOUNT}" | cut -d: -f6)"
+    if [ "${shell}" != "/usr/sbin/nologin" ]; then
+        problems+=("shell is ${shell}")
+    fi
+    if id -nG "${SERVICE_ACCOUNT}" | tr ' ' '\n' | grep -qx sudo; then
+        problems+=("member of sudo")
+    fi
+    if sudo grep -rqsE "^${SERVICE_ACCOUNT}[[:space:]]" /etc/sudoers /etc/sudoers.d; then
+        problems+=("has a sudoers rule")
+    fi
+    if sudo test -e "${home}/.ssh/authorized_keys"; then
+        problems+=("has ${home}/.ssh/authorized_keys")
+    fi
+    if [ "$(stat -c %U "${SHERPA_BASE}")" != "${SERVICE_ACCOUNT}" ]; then
+        problems+=("does not own ${SHERPA_BASE}")
+    fi
+    if [ "${#problems[@]}" -gt 0 ]; then
+        echo "${SERVICE_ACCOUNT} is not the server's service account:" >&2
+        printf '  %s\n' "${problems[@]}" >&2
+        exit 1
+    fi
+}
+
+# The installer adds the login to the `sherpa` group; these are for running the integration tests
+# and the lab tooling without sudo. The groups apply from the login's next session.
+join_login_groups() {
+    local group login
+    login="$(id -un)"
+    for group in "${LOGIN_GROUPS[@]}"; do
+        if ! id -nG "${login}" | tr ' ' '\n' | grep -qx "${group}"; then
+            log "Adding ${login} to ${group}"
+            sudo usermod -aG "${group}" "${login}"
+        fi
+    done
+}
+
 install_sherpa_server() {
     if [ -x "${SHERPA_BASE}/bin/sherpad" ]; then
         log "Sherpa server already installed"
@@ -211,6 +309,12 @@ EOF
 # keeps an existing config, SSH identity and accounts, so it runs every time.
 init_sherpa_server() {
     log "Initializing the Sherpa server"
+    # init runs as the service account, which cannot enter the login's home, so it reads the
+    # public key from a copy outside it.
+    local staged_key
+    staged_key="$(mktemp)"
+    cp "${HOME}/.ssh/id_ed25519.pub" "${staged_key}"
+    chmod 644 "${staged_key}"
     # init opens the database, which a running server holds locked.
     sudo systemctl stop sherpad
     (
@@ -218,12 +322,14 @@ init_sherpa_server() {
         # shellcheck source=/dev/null
         source "${ACCOUNT_ENV}"
         set +a
-        SHERPA_MANAGEMENT_PREFIX_IPV4="${MANAGEMENT_PREFIX_IPV4}" \
+        SHERPA_USER_SSH_KEY="${staged_key}" \
+            SHERPA_MANAGEMENT_PREFIX_IPV4="${MANAGEMENT_PREFIX_IPV4}" \
             SHERPA_MANAGEMENT_PREFIX_IPV6="${MANAGEMENT_PREFIX_IPV6}" \
             sudo -u sherpa -H \
             --preserve-env=SHERPA_ADMIN_PASSWORD,SHERPA_USER_NAME,SHERPA_USER_PASSWORD,SHERPA_USER_IS_ADMIN,SHERPA_USER_SSH_KEY,SHERPA_MANAGEMENT_PREFIX_IPV4,SHERPA_MANAGEMENT_PREFIX_IPV6 \
             "${SHERPA_BASE}/bin/sherpad" init
     )
+    rm -f "${staged_key}"
     sudo systemctl start sherpad
 }
 
@@ -250,7 +356,9 @@ allow_lab_jump() {
     fi
 }
 
-# Points the CLI at this server, trusting its own certificate, and logs in.
+# Points the CLI at this server, trusting its own certificate, and logs in. sherpad writes the
+# certificate to its private .certs when it first starts, so each attempt copies it out once it
+# is there; on every run, so the copy follows the server.
 login_sherpa_client() {
     mkdir -p "${HOME}/.sherpa/config"
     cat > "${HOME}/.sherpa/config/sherpa.toml" << EOF
@@ -260,11 +368,13 @@ server_ipv4 = "${SERVER_IP}"
 timeout_secs = 10
 validate_certs = true
 insecure = false
-ca_cert_path = "${SHERPA_BASE}/.certs/server.crt"
+ca_cert_path = "${CLI_CA_CERT}"
 EOF
     local attempt
     for attempt in $(seq 1 30); do
-        if (
+        if sudo test -f "${SHERPA_BASE}/.certs/server.crt" && \
+            sudo install -m 644 -o "$(id -un)" -g "$(id -gn)" \
+                "${SHERPA_BASE}/.certs/server.crt" "${CLI_CA_CERT}" && (
             set -a
             # shellcheck source=/dev/null
             source "${ACCOUNT_ENV}"
@@ -280,6 +390,7 @@ EOF
 }
 
 main() {
+    check_login
     apt_install
     install_tools
     setup_git
@@ -288,7 +399,10 @@ main() {
     install_claude_plugins
     configure_claude_attribution
     SERVER_IP="$(ip -4 -json route get 1.1.1.1 | jq -r '.[0].prefsrc')"
+    retire_login_sherpa
     install_sherpa_server
+    assert_service_account
+    join_login_groups
     create_account_settings
     init_sherpa_server
     login_sherpa_client

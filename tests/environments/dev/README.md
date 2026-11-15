@@ -28,10 +28,30 @@ updating the link.
 | Setting | Value |
 |---|---|
 | Image | `ubuntu_linux` `24.04-20260926` (see [ubuntu-2404](../ubuntu-2404/README.md)) |
+| Login | the lab owner's account (`provision_current_user = true`), see [Login account](#login-account) |
 | vCPUs | 12, as 1 socket × 6 cores × 2 threads, `host-passthrough` |
 | Memory | 32 GiB, preferred on the VM's NUMA node |
 | Disk | 300 GiB full copy, virtio, `cache = "none"`, `io = "native"` |
 | Network | 4 virtio-net queues |
+
+## Login account
+
+The manifests set `provision_current_user = true`, so the node's login is the account of the
+host Sherpa user who brings the lab up, with that user's SSH key, and not `sherpa`. Its name is
+that Sherpa user's name: nothing in the repository names it. It has passwordless `sudo` and is in
+the `sherpa`, `docker`, `libvirt` and `kvm` groups, so the integration tests and the lab tooling
+run as it. Sherpa's SSH config for the lab, `sherpa ssh`, the SSH provisioner, the agent-bus
+tasks and `seed-images.sh` all follow it.
+
+`sherpa` in the guest is the server's service account, as on any Sherpa install: a system uid,
+shell `nologin`, no home, no `sudo` and no SSH key. It owns `/opt/sherpa` and runs `sherpad`.
+cloud-init still makes a first-boot `sherpa` login on every node (uid 1000, with a home and
+`sudo`); setup deletes it before the install so that the installer creates the real one.
+
+The lab must be brought up by a Sherpa user whose name can be a login on lab nodes. A reserved
+name such as `admin` gets no account and the node falls back to the `sherpa` login, and a user
+named `dev` would clash with the guest's own jump account (see step 14 below). Setup refuses
+both before it changes anything.
 
 ## NUMA layout
 
@@ -50,35 +70,48 @@ change the `cpu`, `numa` and `boot_disk` pinning to match `lscpu -e`.
 
 ## Provisioning
 
-`provision/setup.sh` runs through the SSH provisioner as the node's login user, after the node
-is up. It is safe to run again with `sherpa provision`. It:
+`provision/setup.sh` runs through the SSH provisioner as the node's login, after the node is up.
+It is safe to run again with `sherpa provision`. It:
 
-1. installs system libraries and compilers with apt: `build-essential`, `libvirt-dev`, `clang`,
+1. stops before any change when the login is `sherpa` or `dev` (see
+   [Login account](#login-account));
+2. installs system libraries and compilers with apt: `build-essential`, `libvirt-dev`, `clang`,
    `llvm` and others;
-2. installs [mise](https://mise.jdx.dev) and the tools in `provision/mise.toml`, which the
+3. installs [mise](https://mise.jdx.dev) and the tools in `provision/mise.toml`, which the
    provisioner copies to `~/.config/mise/config.toml`: Rust stable with `rustfmt`, `clippy` and
    `llvm-tools`, nightly with `rust-src`, `bpf-linker` 0.10.2 for the eBPF program (0.12 needs a
    system LLVM that Ubuntu 24.04 does not ship), `gh`, `shellcheck`, `bats`, `uv`, `sccache`,
    Claude Code and the `nats` CLI. mise follows the repository's `rust-toolchain.toml` files, and
    login shells put its tools on the `PATH`;
-3. sets up git to authenticate with `GH_TOKEN` (the read-only token) through `gh`, committing as
+4. sets up git to authenticate with `GH_TOKEN` (the read-only token) through `gh`, committing as
    the token's GitHub account with its no-reply address;
-4. clones `bwks/sherpa` and `bwks/sherpa-docs` into `~/code/rust/`. When they already exist it
+5. clones `bwks/sherpa` and `bwks/sherpa-docs` into `~/code/rust/`. When they already exist it
    only fetches, so work in progress is never touched;
-5. installs `zensical` with uv on a uv-managed Python 3.15 (never the system Python), as a tool
+6. installs `zensical` with uv on a uv-managed Python 3.15 (never the system Python), as a tool
    on the `PATH`, at the version in sherpa-docs' `requirements.txt`, so `zensical build` and
    `zensical serve` work in `~/code/rust/sherpa-docs`;
-6. installs the [beautiful-rust](https://github.com/morganlinton/BeautifulRust) Claude Code
+7. installs the [beautiful-rust](https://github.com/morganlinton/BeautifulRust) Claude Code
    plugin (the `rust-best-practices`, `rust-review` and `rust-port` skills) for the guest
    agents, from a clone pinned to one commit in `~/.local/share/claude-marketplaces/`;
-7. installs a Sherpa server with the checkout's `scripts/sherpa_install.sh`;
-8. initializes the server unattended: it generates the `admin` password, a `dev` user (an
+8. before the server is installed, while `/opt/sherpa` does not exist, deletes cloud-init's
+   first-boot `sherpa` account (uid 1000) with its home and its line in
+   `/etc/sudoers.d/90-cloud-init-users`, checking the changed file with `visudo` before it
+   replaces the old one. It never touches an installed server;
+9. installs a Sherpa server with the checkout's `scripts/sherpa_install.sh`, which creates the
+   `sherpa` service account and adds the login to the `sherpa` group;
+10. on every run, checks that `sherpa` is that service account: a system uid, shell `nologin`,
+   not in `sudo`, no sudoers rule, no `authorized_keys`, and the owner of `/opt/sherpa`. If not,
+   it stops and says what is wrong; it does not fix it;
+11. adds the login to the `docker`, `libvirt` and `kvm` groups, from its next session on;
+12. initializes the server unattended: it generates the `admin` password, a `dev` user (an
    administrator) with its own password, and an SSH key `~/.ssh/id_ed25519` for it, kept in
-   `~/.env.d/sherpa-account.env` (mode `600`). It runs `sherpad init` with them and starts
-   `sherpad`;
-9. points the guest's `sherpa` CLI at its own server, trusting the server's certificate file,
-   and logs in as `dev`;
-10. creates a `dev` OS account with the same SSH key and trusts the guest's own host key. The SSH
+   `~/.env.d/sherpa-account.env` (mode `600`). It runs `sherpad init` as `sherpa` with them,
+   giving it a copy of the public key outside the login's home, which `sherpa` cannot read, and
+   starts `sherpad`;
+13. copies the server's certificate from `/opt/sherpa/.certs` (readable only by `sherpa`) to
+   `~/.sherpa/config/server.crt`, points the guest's `sherpa` CLI at its own server, trusting
+   that copy, and logs in as `dev`;
+14. creates a `dev` OS account with the same SSH key and trusts the guest's own host key. The SSH
    config Sherpa writes for each lab reaches its nodes through the server as the Sherpa user
    (`ProxyJump dev@<server>`), so lab tests and SSH provisioners need both, as on any Sherpa
    server.
@@ -177,6 +210,10 @@ name as its alias, and a shared master connection, so each command after the fir
 milliseconds. The master socket lives in `$XDG_RUNTIME_DIR`. `sherpa destroy` deletes the file
 with `.sherpa/`. Close the master connection with `ssh -F .sherpa/ssh/direct_config -O exit dev`.
 
+The node logs in as you, with your own key: Sherpa's config names no key file for it, and
+neither does the direct config, so `ssh` uses your SSH agent or your default key files, as it
+already does for the ProxyJump hop. `ssh -F` does not read `~/.ssh/config`.
+
 Do not add SSH config to `~/.ssh` or mount the guest on the host; use the generated config.
 
 ## Seeding images
@@ -209,9 +246,9 @@ the guest and imported with `sherpa server image import --model <model> --versio
 
 ## Developing
 
-Everything runs in the guest, as its login user `sherpa`, which has passwordless `sudo`. The
-tools from mise are on the `PATH` of login shells, so run commands through one:
-`ssh -F .sherpa/ssh/direct_config dev 'bash -lc "cargo --version"'`.
+Everything runs in the guest, as its login (see [Login account](#login-account)), which has
+passwordless `sudo`. The tools from mise are on the `PATH` of login shells, so run commands
+through one: `ssh -F .sherpa/ssh/direct_config dev 'bash -lc "cargo --version"'`.
 
 - **Code:** the checkouts are `~/code/rust/sherpa` and `~/code/rust/sherpa-docs`. They are the
   only working copies: commit and push from there. Git authenticates through `gh` with
@@ -306,6 +343,29 @@ directory:
 ssh -F .sherpa/ssh/direct_config -O exit <node>
 sherpa destroy
 ```
+
+## Rebuilding
+
+A guest built before the login moved off `sherpa` cannot be converted: the login is recorded
+for the node only by `sherpa up` and `sherpa redeploy`, which both make a new disk, and setup
+refuses to run there (`sherpa provision` stops at step 1). Rebuild it with `sherpa destroy` and
+`sherpa up`, agent-2 first: the bus listens on dev's lab, so agent-2 can be rebuilt while dev
+keeps working.
+
+Destroying a lab deletes its disk. Copy out first what is worth keeping:
+
+- unpushed commits and uncommitted work in both checkouts: push them, or copy patches out;
+- the guest agent's `~/.claude` (memory and session history). Claude Code names its project
+  folders from the checkout's path, so the memory goes back under
+  `~/.claude/projects/-home-<login>-code-rust-sherpa` in the new guest;
+- `~/.env.d/`: the files setup and the provisioner write there are made again, so only copy
+  anything added by hand. Do not copy `sherpa-account.env` back: setup makes new passwords for
+  the new server;
+- scratch work in the home directory.
+
+Then bring the lab up as in [Bringing a lab up](#bringing-a-lab-up), write the direct config,
+[seed the images](#seeding-images) again and start the guest agent. When dev is rebuilt, the bus
+address moves: run `bus start` and start both agents again (see [Reaching the bus](#reaching-the-bus)).
 
 ## Another dev server
 
