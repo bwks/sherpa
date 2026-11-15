@@ -141,19 +141,6 @@ pub async fn count_nodes_by_lab(db: &Database, lab: RecordId) -> Result<usize> {
     .context("Failed to count nodes for lab")
 }
 
-/// Nodes with host CPUs pinned to their vCPUs or QEMU threads, in every lab.
-///
-/// # Errors
-///
-/// Fails when the database cannot be read.
-#[instrument(skip(db), level = "debug")]
-pub async fn list_pinned_nodes(db: &Database) -> Result<Vec<DbNode>> {
-    let conn = db.reader().await?;
-    query_all(&conn, queries::node::LIST_PINNED.bind([]), node_from_row)
-        .await
-        .context("Failed to list nodes with pinned CPUs")
-}
-
 fn vnc_port_from_row(row: &Row) -> Result<u16> {
     Cells::new(row).integer("vnc_port")
 }

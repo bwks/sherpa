@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use db::UserChanged;
+use db::{CpuPinTaken, UserChanged};
 use shared::error::{CpuPinConflict, MemoryShortfall};
 
 /// A service refused a request for a reason the caller can act on.
@@ -64,12 +64,32 @@ impl ServiceError {
             None => error,
         }
     }
+
+    /// The error of a failed `db::claim_cpu_pins`: a host CPU the database's trigger refused,
+    /// as another node holds it, becomes the same [`ServiceError::CpuPinsHeld`] admission
+    /// refuses with.
+    #[must_use]
+    pub fn from_cpu_pin_claim(error: anyhow::Error) -> anyhow::Error {
+        match error.downcast_ref::<CpuPinTaken>() {
+            Some(taken) => Self::CpuPinsHeld {
+                message: taken.to_string(),
+                conflict: CpuPinConflict {
+                    host_cpus: vec![taken.host_cpu],
+                    requested_role: taken.requested_role,
+                    held_role: taken.held_role,
+                },
+            }
+            .into(),
+            None => error,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use anyhow::anyhow;
+    use shared::error::CpuPinRole;
 
     #[test]
     fn a_stale_user_write_is_a_conflict() {
@@ -84,6 +104,35 @@ mod tests {
             "{error:#}"
         );
         let other = ServiceError::from_user_write(anyhow!("disk full"));
+        assert!(ServiceError::find(&other).is_none());
+    }
+
+    #[test]
+    fn a_cpu_the_database_refused_to_pin_is_the_pin_refusal() {
+        let error = ServiceError::from_cpu_pin_claim(
+            CpuPinTaken {
+                node_name: "n1".to_owned(),
+                host_cpu: 3,
+                requested_role: CpuPinRole::Thread,
+                held_role: CpuPinRole::Vcpu,
+            }
+            .into(),
+        );
+        assert_eq!(
+            ServiceError::find(&error),
+            Some(&ServiceError::CpuPinsHeld {
+                message: "Host CPU 3, which node 'n1' would pin to its QEMU threads, is pinned to \
+                          the vCPUs of another node. Try again once that node is destroyed or \
+                          redeployed without it"
+                    .to_owned(),
+                conflict: CpuPinConflict {
+                    host_cpus: vec![3],
+                    requested_role: CpuPinRole::Thread,
+                    held_role: CpuPinRole::Vcpu,
+                },
+            })
+        );
+        let other = ServiceError::from_cpu_pin_claim(anyhow!("disk full"));
         assert!(ServiceError::find(&other).is_none());
     }
 

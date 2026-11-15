@@ -29,7 +29,9 @@ use crate::services::progress::ProgressSender;
 use crate::tls::lab_ca::{self, NodeIdentity};
 
 use shared::data;
-use shared::data::{LinkReport, OperationEvent, RedeployRequest, RedeployResponse, StatusKind};
+use shared::data::{
+    LinkReport, NodeCpuPins, OperationEvent, RedeployRequest, RedeployResponse, StatusKind,
+};
 
 // Redeploy updates the lab's shared definition and folder. Serialize redeploys within each lab
 // so one node's update cannot interleave with another node's concurrent one.
@@ -75,24 +77,12 @@ pub async fn redeploy_node(
 
     let mut redeploy = load_redeploy(ctx, request, &db_lab, state, &progress, &operation).await?;
 
-    // Every check has passed, so the node is torn down now. Until then a refused redeploy
-    // leaves it, its state and its host key as they were. A node another operation is building
-    // is refused here.
-    node_lifecycle::record(
-        &state.db,
-        &operation,
-        &redeploy.node_record_id,
-        OperationEvent::RebuildStarted,
-    )
-    .await
-    .with_context(|| format!("Cannot redeploy node '{node_name}'"))?;
-    // The rebuilt node gets a new host key, recorded again once it is ready.
-    db::update_node_host_key(&state.db, redeploy.node_record_id.clone(), None).await?;
-    // A link that is not attached is reported with the result; it does not fail the node.
-    let links = match rebuild(&mut redeploy).await {
+    // The node holds its old and its new pins from admission until it keeps the new ones; a
+    // failure before then gives the new ones back.
+    let links = match tear_down_and_rebuild(&mut redeploy).await {
         Ok(links) => links,
         Err(error) => {
-            mark_failed(&redeploy).await;
+            keep_old_pins(&mut redeploy).await;
             return Err(error);
         }
     };
@@ -147,6 +137,49 @@ fn lab_lock(lab_id: &str) -> Arc<Mutex<()>> {
     }
 }
 
+/// Record the node's rebuild, clear its host key, then tear it down and build it again, and
+/// report its links. A node whose rebuild fails is recorded `Failed`.
+async fn tear_down_and_rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
+    // Every check has passed, so the node is torn down now. Until then a refused redeploy
+    // leaves it, its state and its host key as they were. A node another operation is building
+    // is refused here.
+    node_lifecycle::record(
+        &redeploy.state.db,
+        redeploy.operation,
+        &redeploy.node_record_id,
+        OperationEvent::RebuildStarted,
+    )
+    .await
+    .with_context(|| format!("Cannot redeploy node '{}'", redeploy.node_name))?;
+    // The rebuilt node gets a new host key, recorded again once it is ready.
+    db::update_node_host_key(&redeploy.state.db, redeploy.node_record_id.clone(), None).await?;
+    // A link that is not attached is reported with the result; it does not fail the node.
+    match rebuild(redeploy).await {
+        Ok(links) => Ok(links),
+        Err(error) => {
+            mark_failed(redeploy).await;
+            Err(error)
+        }
+    }
+}
+
+/// Give back the new pins a failed redeploy claimed, unless it already kept them: the node
+/// keeps the pins it had before, as its old domain may still run on them.
+async fn keep_old_pins(redeploy: &mut Redeploy<'_>) {
+    for old in redeploy.admission.take_pins_before() {
+        if let Err(error) =
+            db::retain_cpu_pins(&redeploy.state.db, &redeploy.lab_record_id, &old).await
+        {
+            tracing::warn!(
+                lab_id = %redeploy.lab_id,
+                node_name = %redeploy.node_name,
+                error = %error,
+                "Failed to give back the failed redeploy's new CPU pins; the node holds its old and new ones until it is redeployed or destroyed"
+            );
+        }
+    }
+}
+
 /// Tear the node down and build it again (stages 2 to 6), and report its links.
 async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
     destroy_node(redeploy).await?;
@@ -167,6 +200,19 @@ async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
         node_resources::planned_resources(&redeploy.target_node, &redeploy.node_image),
     )
     .await?;
+    // The old domain is gone, so the node keeps only its new pins.
+    db::retain_cpu_pins(
+        &redeploy.state.db,
+        &redeploy.lab_record_id,
+        &NodeCpuPins::of(
+            &redeploy.node_name,
+            &redeploy.target_node.cpu,
+            &redeploy.target_node.boot_disk,
+        ),
+    )
+    .await
+    .context("Failed to give back the node's old CPU pins")?;
+    redeploy.admission.take_pins_before();
     // The new manifest's readiness check is stored before the node starts, so that this
     // redeploy's wait, `resume` and the scanner all read it.
     redeploy.db_node = db::update_node_ready_check(

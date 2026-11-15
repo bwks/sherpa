@@ -159,15 +159,6 @@ impl<'a> Cells<'a> {
             .with_context(|| format!("Failed to decode database field {field}"))
     }
 
-    pub(crate) fn optional_json<T: DeserializeOwned>(&mut self, field: &str) -> Result<Option<T>> {
-        match self.optional_text(field)? {
-            Some(text) => serde_json::from_str(&text)
-                .map(Some)
-                .with_context(|| format!("Failed to decode database field {field}")),
-            None => Ok(None),
-        }
-    }
-
     pub(crate) fn enumeration<T: DeserializeOwned>(&mut self, field: &str) -> Result<T> {
         let text = self.text(field)?;
         decode_enum(text, field)
@@ -360,8 +351,6 @@ pub(crate) fn node_from_row(row: &Row) -> Result<DbNode> {
         memory: cells.optional_integer("memory")?,
         vnc_port: cells.optional_integer("vnc_port")?,
         ssh_host_key: cells.optional_text("ssh_host_key")?,
-        cpu_pinning: cells.optional_json("cpu_pinning")?,
-        qemu_thread_cpus: cells.optional_json("qemu_thread_cpus")?,
         ready_check: ReadyCheck {
             port: cells.optional_integer("ready_port")?,
             skip: cells.boolean("skip_ready_check")?,
@@ -371,7 +360,7 @@ pub(crate) fn node_from_row(row: &Row) -> Result<DbNode> {
 }
 
 /// A node's column values in the `node` table's column order, under `key`.
-pub(crate) fn node_values(node: &DbNode, key: &str) -> Result<[Value; 18]> {
+pub(crate) fn node_values(node: &DbNode, key: &str) -> Result<[Value; 16]> {
     Ok([
         key.into(),
         node.name.as_str().into(),
@@ -386,16 +375,6 @@ pub(crate) fn node_values(node: &DbNode, key: &str) -> Result<[Value; 18]> {
         node.memory.into(),
         node.vnc_port.into(),
         node.ssh_host_key.as_deref().into(),
-        node.cpu_pinning
-            .as_ref()
-            .map(|cpus| json_text(cpus, "cpu_pinning"))
-            .transpose()?
-            .into(),
-        node.qemu_thread_cpus
-            .as_ref()
-            .map(|cpus| json_text(cpus, "qemu_thread_cpus"))
-            .transpose()?
-            .into(),
         node.ready_check.port.into(),
         node.ready_check.skip.into(),
         node.ssh_username.as_deref().into(),

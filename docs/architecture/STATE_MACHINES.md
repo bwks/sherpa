@@ -55,7 +55,7 @@ which to make them explicit, are in
 | 28 | [Node images](#28-node-images) | server, db | `node_image` row, `default` flag, files |
 | 29 | [ZTP setting](#29-ztp-setting) | shared, db, server, template, topology | one `Ztp` enum on the image, with an optional manifest override |
 | 30 | [The `ztp.config` field](#30-the-ztpconfig-field) | topology, client, server | one `Option<String>` with four meanings |
-| 31 | [Node resource reservation](#31-node-resource-reservation) | server, db | `vnc_port`, `cpu_pinning` Options, admission ledger |
+| 31 | [Node resource reservation](#31-node-resource-reservation) | server, db | `vnc_port` Option, `cpu_pin` rows, admission ledger |
 | 32 | [Database schema version](#32-database-schema-version) | db | `PRAGMA user_version` |
 
 Machines 3 and 32 were already explicit and checked; 1, 2, 4, 14 and 25 have been made so since. They
@@ -1682,41 +1682,46 @@ stateDiagram-v2
 
 ### 31. Node resource reservation
 
-**Where.** `reserve_node_resources`
-(`crates/server/src/services/node_resources.rs:182-235`). It reserves `vnc_port`,
-`cpu_count`, `memory`, `cpu_pinning` and `qemu_thread_cpus` on the node row, and
-`update_node_resources` writes all five together. Before that, the node is admitted by
-`services/admission.rs`, which holds its memory and pins in an in-memory ledger.
+**Where.** `reserve_node_resources` (`crates/server/src/services/node_resources.rs`) reserves
+`vnc_port`, `cpu_count` and `memory` on the node row, and `update_node_resources` writes all
+three together. Before that, the node is admitted by `services/admission.rs`, which holds its
+memory in an in-memory ledger and claims its CPU pins in the `cpu_pin` table
+(`crates/db/src/cpu_pin/`).
 
 **Transitions.**
 
-- **Admit.** `admit_lab_nodes` (`admission.rs:93`, for `up` and redeploy) and
-  `admit_stopped_nodes` (`admission.rs:134`, for resume and node start) wait on a fair, FIFO
-  Tokio mutex (`admission.rs:35`). Under it they check the pins
-  (`check_cpu_pins_on_server`, `node_resources.rs:79-123`) against the stored nodes and the
-  ledger, and the memory against the server (`validate::check_memory_fits`, limited by
-  `host_memory.reserve_mib` and `host_memory.overcommit_percent`), then add the nodes
-  to the ledger (`admission.rs:37`). Memory counts against the whole server, and that of a VM
-  held strictly on a NUMA node also against that node. A VM with
-  `numa_memory_mode = "preferred"` counts against the server only, requested or running. A
-  container counts its Docker memory limit, and nothing without one.
+- **Admit.** `admit_lab_nodes` (for `up` and redeploy) and `admit_stopped_nodes` (for resume
+  and node start) wait on a fair, FIFO Tokio mutex. Under it they check the pins
+  (`check_cpu_pins_on_server`) against the `cpu_pin` table, and the memory against the server
+  (`validate::check_memory_fits`, limited by `host_memory.reserve_mib` and
+  `host_memory.overcommit_percent`), then add the nodes' memory to the ledger. Memory counts
+  against the whole server, and that of a VM held strictly on a NUMA node also against that
+  node. A VM with `numa_memory_mode = "preferred"` counts against the server only, requested or
+  running. A container counts its Docker memory limit, and nothing without one.
   Checked: a request that does not fit is refused before anything is created.
+- **Claim pins.** `admit_lab_nodes` then claims the nodes' pins (`db::claim_cpu_pins`, one
+  transaction): none → held. The table's trigger refuses a CPU another node holds against the
+  rules, and then nothing is claimed (none → none), with the same `CpuPinsHeld`.
+  `admit_stopped_nodes` claims nothing: a stopped node holds its pins.
 - **Reserve.** A VM that already has a port keeps it. Otherwise the code picks a free port,
   retrying when the unique index loses a race.
-- **Release from the ledger.** Dropping the `Admission` (`admission.rs:66`) when the operation
-  returns, whether it succeeded or failed. Running domains are then counted from libvirt, and
-  running containers' memory limits from Docker.
-- **Release.** Only by deleting the node row.
+- **Release from the ledger.** Dropping the `Admission` when the operation returns, whether it
+  succeeded or failed. Running domains are then counted from libvirt, and running containers'
+  memory limits from Docker.
+- **Keep one set.** A redeploy claims its new pins beside its old ones (held → held, old and
+  new), then keeps the new ones once the old domain is gone, or its old ones when it fails
+  before then (`db::retain_cpu_pins`).
+- **Release.** Deleting the lab record, or the node row: held → none.
 
-A stopped lab keeps its ports and pins. Before admission, `up` checked pins in its planning
-phase and stored them in phase 3 with no lock between, so two concurrent `up`s could both pass
-(#413); the ledger closes that window for pins and memory. A stored node's pins count even
-while it is pending: a node another operation redeploys holds its stored and its new pins until
-that operation ends, so a redeploy that fails before storing the new pins keeps the old ones
-unshared. The node a redeploy replaces does not count against itself (matched by lab ID and
-node name). A pin overlap is refused with `CpuPinsHeld`; one the node's stored pins already had
-is carried with a warning (see [`SERVER.md`](SERVER.md#cpu-pins-in-admission)). The ledger does
-not survive a restart, which also ends the operations it held entries for.
+A stopped lab keeps its ports and pins. Admission and the claim are one serialised step, so two
+concurrent `up`s cannot both pass, and the trigger enforces the rules for every other write.
+The node a redeploy replaces does not count against itself (matched by lab and node name), and
+holds both sets until the redeploy keeps one, so a redeploy that fails before teardown keeps its
+old pins unshared. A pin overlap is refused with `CpuPinsHeld`; one copied by migration 23 as it
+was stored is carried with a warning (see [`SERVER.md`](SERVER.md#cpu-pins-in-admission)).
+The ledger does not survive a restart, which also ends the operations it held entries for; the
+pins do, and a redeploy interrupted between its claim and keeping one set holds both until the
+node is redeployed or destroyed.
 
 ### 32. Database schema version
 

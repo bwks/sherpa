@@ -30,6 +30,7 @@ use crate::daemon::metrics::Metrics;
 use crate::daemon::state::AppState;
 use crate::services::lab_definition::{self, ImportSummary};
 use crate::services::lab_lifecycle::{self, Recovery};
+use crate::services::node_resources;
 use crate::services::saved_cluster_plans::{self, SavedClusterPlansSummary};
 use crate::services::saved_lab_files::{self, SavedLabFilesSummary};
 use crate::services::scanner::run_scanner;
@@ -325,6 +326,9 @@ pub async fn run_server(foreground: bool) -> Result<()> {
     }
 
     upgrade_stored_data(&state.db).await?;
+    node_resources::warn_shared_cpu_pins(&state.db)
+        .await
+        .context("Failed to check the stored CPU pins")?;
 
     // Set up shutdown cancellation token for background services
     let cancel_token = CancellationToken::new();

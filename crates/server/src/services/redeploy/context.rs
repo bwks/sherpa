@@ -77,8 +77,9 @@ pub(super) struct Redeploy<'a> {
     pub(super) secrets: Option<Vec<data::SecretFile>>,
     /// Keeps the node's image until its disks are cloned.
     pub(super) image_guard: ImageLease,
-    /// Holds the node's memory and CPU pins against other operations until the redeploy ends.
-    pub(super) _admission: Admission,
+    /// Holds the node's memory against other operations until the redeploy ends, and the pins
+    /// the node held before it claimed its new ones beside them.
+    pub(super) admission: Admission,
 }
 
 /// The manifest a node is redeployed from, as the client sent it, and its definition.
@@ -121,7 +122,8 @@ struct LabFiles {
 }
 
 /// Load the node, its image and its lab, and run every check that can refuse the redeploy
-/// (stage 1). Nothing is changed, so a refused redeploy leaves the node as it was.
+/// (stage 1). A refused redeploy changes nothing, and leaves the node as it was; the last
+/// check, admission, claims the node's new pins beside its old ones.
 #[instrument(skip_all, fields(lab_id = %request.lab_id, node_name = %request.node_name), level = "debug")]
 pub(super) async fn load_redeploy<'a>(
     ctx: &AuthContext,
@@ -228,7 +230,7 @@ pub(super) async fn load_redeploy<'a>(
         secrets,
         definition,
         image_guard,
-        _admission: admitted,
+        admission: admitted,
         lab_id,
         node_name,
     })
@@ -453,8 +455,9 @@ fn node_login(
 
 /// The node's settings by kind, VM tuning, platform, CPU pins and memory must still fit the
 /// server before the node is destroyed. The node being replaced does not count against itself.
-/// Returns the libvirt connection the redeploy uses, and the node's admission. A warning for
-/// each overlap the node's stored pins already had goes to the user.
+/// Returns the libvirt connection the redeploy uses, and the node's admission, which claimed
+/// its new pins beside its old ones. A warning for each overlap the node's stored pins already
+/// had goes to the user.
 #[instrument(skip_all, fields(node_name = %target_node.name), level = "debug")]
 async fn check_fits_server(
     state: &AppState,
@@ -624,8 +627,6 @@ mod tests {
             memory: None,
             vnc_port: None,
             ssh_host_key: None,
-            cpu_pinning: None,
-            qemu_thread_cpus: None,
             ready_check: ReadyCheck::default(),
             ssh_username: None,
         }

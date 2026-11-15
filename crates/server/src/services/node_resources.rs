@@ -1,13 +1,17 @@
 //! What each node is given: vCPUs, memory and, for VMs, a VNC console port. They are decided
 //! when the node is created or redeployed and stored on the node, so nothing reads them back
-//! from the hypervisor.
+//! from the hypervisor. The host CPUs a node pins are in the `cpu_pin` table, claimed at
+//! admission; this module checks a request's pins against it.
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, TcpListener};
 
 use anyhow::{Context, Result, bail};
 use tracing::instrument;
 
-use shared::data::{DbNode, NodeConfig, NodeCpuPins, NodeKind, NodeModel, NodeResources, RecordId};
+use shared::data::{
+    DbCpuPins, DbNode, LabPhase, NodeConfig, NodeCpuPins, NodeKind, NodeModel, NodeResources,
+    RecordId,
+};
 use shared::error::{CpuPinConflict, CpuPinRole};
 use shared::konst::{
     CISCO_IOL_CONTAINER_OVERHEAD_MIB, JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB,
@@ -19,15 +23,6 @@ use crate::auth::context::AuthContext;
 use crate::services::error::ServiceError;
 use crate::validate::check_host_resources;
 
-/// Pins another operation was admitted with, for a node that may not be stored yet.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PendingPins {
-    /// The ID of the node's lab.
-    pub lab_id: String,
-    /// The node's pins; `node_name` is the node's name in its lab.
-    pub pins: NodeCpuPins,
-}
-
 /// A lab as a pin refusal names it, and the owner who may see it named.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct PinLab {
@@ -36,13 +31,12 @@ struct PinLab {
     owner: Option<String>,
 }
 
-/// A node holding host CPUs: stored on the server, or admitted to another operation and not
-/// stored yet.
+/// A node holding host CPUs in the `cpu_pin` table.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct PinHolder {
-    /// The node's lab; `None` for a stored node whose lab is not found.
+    /// The node's lab; `None` when its lab is not found.
     lab: Option<PinLab>,
-    /// Whether another operation is starting it, rather than it being stored.
+    /// Whether its lab is still being created by `up`.
     starting: bool,
     pins: NodeCpuPins,
 }
@@ -55,8 +49,7 @@ struct PinOverlap {
     held: CpuPinRole,
 }
 
-/// The vCPUs and memory a node gets, and the host CPUs its `cpu` and `boot_disk` settings pin.
-/// A VM or unikernel gets the manifest's values, else the image's. A container gets the
+/// The vCPUs and memory a node gets. A VM or unikernel gets the manifest's values, else the image's. A container gets the
 /// manifest's as Docker limits, and is not limited in what the manifest leaves out; the image's
 /// values are not limits. `juniper_cevolved` sizes its EVO VM from the manifest or image values,
 /// so its container's memory limit is that and its overhead, with no CPU quota, which would
@@ -64,16 +57,11 @@ struct PinOverlap {
 /// limit is that and the launcher's overhead. The VNC port is reserved separately.
 pub fn planned_resources(node: &topology::NodeExpanded, image: &NodeConfig) -> NodeResources {
     match image.kind {
-        NodeKind::VirtualMachine | NodeKind::Unikernel => {
-            let pins = NodeCpuPins::of(&node.name, &node.cpu, &node.boot_disk);
-            NodeResources {
-                cpu_count: Some(node.cpu.count.unwrap_or(image.cpu.count)),
-                memory: Some(node.memory.unwrap_or(image.memory)),
-                vnc_port: None,
-                cpu_pinning: node.cpu.pinning.clone(),
-                qemu_thread_cpus: Some(pins.qemu_thread_cpus).filter(|cpus| !cpus.is_empty()),
-            }
-        }
+        NodeKind::VirtualMachine | NodeKind::Unikernel => NodeResources {
+            cpu_count: Some(node.cpu.count.unwrap_or(image.cpu.count)),
+            memory: Some(node.memory.unwrap_or(image.memory)),
+            vnc_port: None,
+        },
         NodeKind::Container if image.model == NodeModel::JuniperCevolved => NodeResources {
             // `check_ptx_platform` leaves room for the overhead.
             memory: Some(
@@ -112,8 +100,6 @@ pub fn resources_of(node: &DbNode) -> NodeResources {
         cpu_count: node.cpu_count,
         memory: node.memory,
         vnc_port: node.vnc_port,
-        cpu_pinning: node.cpu_pinning.clone(),
-        qemu_thread_cpus: node.qemu_thread_cpus.clone(),
     }
 }
 
@@ -121,14 +107,13 @@ pub fn resources_of(node: &DbNode) -> NodeResources {
 /// CPUs and NUMA nodes they name must exist, and their pins must be free (see
 /// [`check_cpu_pins_free`]). Returns a warning for each overlap the nodes' stored pins already
 /// had.
-#[instrument(skip(db, qemu_conn, requester, nodes, pending), level = "debug")]
+#[instrument(skip(db, qemu_conn, requester, nodes), level = "debug")]
 pub async fn check_cpu_pins_on_server(
     db: &db::Database,
     qemu_conn: &Connect,
     requester: &AuthContext,
     lab_id: &str,
     nodes: &[&topology::NodeExpanded],
-    pending: &[PendingPins],
 ) -> Result<Vec<String>> {
     let tuned: Vec<(&topology::NodeExpanded, NodeCpuPins)> = nodes
         .iter()
@@ -150,37 +135,43 @@ pub async fn check_cpu_pins_on_server(
         check_host_resources(node, host.cpus, host.numa_nodes)?;
         pins.push(node_pins);
     }
-    check_cpu_pins_free(db, requester, lab_id, &pins, pending).await
+    check_cpu_pins_free(db, requester, lab_id, &pins).await
 }
 
-/// Check that the host CPUs the requested `nodes` of lab `lab_id` pin are free: no other
-/// node, stored on the server in any lab or `pending` in another operation, may pin one of
-/// them to its vCPUs, nor pin one of their vCPU CPUs to its QEMU threads. A requested node's
-/// own stored and pending pins are its own, since it is being replaced. Every other node's
-/// stored pins count, also while another operation redeploys it: its old domain may still run
-/// on them, and keeps them if the redeploy fails.
+/// Check that the host CPUs the requested `nodes` of lab `lab_id` pin are free: no node of
+/// another lab or of another name in the `cpu_pin` table may pin one of them to its vCPUs, nor
+/// pin one of their vCPU CPUs to its QEMU threads. A requested node's own rows are its own,
+/// since it is being replaced. Every other node's rows count, also while another operation
+/// redeploys it: it holds its old and its new pins until that redeploy keeps one set.
 ///
-/// An overlap the requested node's stored pins already had with the same node, against the
+/// An overlap the requested node's own rows already had with the same node, against the
 /// rules, is carried and returned as a warning, so a lab that already shares CPUs still starts.
 /// A new overlap is refused with [`ServiceError::CpuPinsHeld`], naming the holding node and its
-/// lab to admins and to that lab's owner, and "another lab" to everyone else.
-#[instrument(skip(db, requester, nodes, pending), fields(username = %requester.username), level = "debug")]
+/// lab to admins and to that lab's owner, and "another lab" to everyone else. The table's
+/// trigger refuses the same overlaps when the pins are claimed; this check comes first to name
+/// the holder.
+#[instrument(skip(db, requester, nodes), fields(username = %requester.username), level = "debug")]
 pub async fn check_cpu_pins_free(
     db: &db::Database,
     requester: &AuthContext,
     lab_id: &str,
     nodes: &[NodeCpuPins],
-    pending: &[PendingPins],
 ) -> Result<Vec<String>> {
     if nodes.iter().all(NodeCpuPins::is_empty) {
         return Ok(Vec::new());
     }
+    let holders = pin_holders(db).await?;
+    check_pins_against_holders(requester, lab_id, nodes, &holders)
+}
+
+/// Every node in the `cpu_pin` table, with its lab as a refusal names it.
+async fn pin_holders(db: &db::Database) -> Result<Vec<PinHolder>> {
     let users: HashMap<RecordId, String> = db::list_users(db)
         .await?
         .into_iter()
         .filter_map(|user| user.id.map(|id| (id, user.username)))
         .collect();
-    let labs: Vec<(RecordId, PinLab)> = db::list_labs(db)
+    let labs: Vec<(RecordId, LabPhase, PinLab)> = db::list_labs(db)
         .await?
         .into_iter()
         .filter_map(|lab| {
@@ -188,6 +179,7 @@ pub async fn check_cpu_pins_free(
             lab.id.map(|id| {
                 (
                     id,
+                    lab.phase,
                     PinLab {
                         lab_id: lab.lab_id,
                         name: lab.name,
@@ -197,41 +189,48 @@ pub async fn check_cpu_pins_free(
             })
         })
         .collect();
-    let mut holders: Vec<PinHolder> = db::list_pinned_nodes(db)
+    Ok(db::list_cpu_pins(db)
         .await?
         .into_iter()
-        .map(|node| PinHolder {
-            lab: labs
-                .iter()
-                .find(|(id, _)| *id == node.lab)
-                .map(|(_, lab)| lab.clone()),
-            starting: false,
-            pins: NodeCpuPins {
-                node_name: node.name,
-                vcpu_cpus: node.cpu_pinning.unwrap_or_default(),
-                qemu_thread_cpus: node.qemu_thread_cpus.unwrap_or_default(),
-            },
+        .map(|DbCpuPins { lab, pins }| {
+            let found = labs.iter().find(|(id, _, _)| *id == lab);
+            PinHolder {
+                lab: found.map(|(_, _, lab)| lab.clone()),
+                starting: found.is_some_and(|(_, phase, _)| *phase == LabPhase::Creating),
+                pins,
+            }
         })
-        .collect();
-    holders.extend(pending.iter().map(|entry| {
-        PinHolder {
-            lab: Some(
-                labs.iter()
-                    .find(|(_, lab)| lab.lab_id == entry.lab_id)
-                    .map_or_else(
-                        || PinLab {
-                            lab_id: entry.lab_id.clone(),
-                            name: entry.lab_id.clone(),
-                            owner: None,
-                        },
-                        |(_, lab)| lab.clone(),
-                    ),
-            ),
-            starting: true,
-            pins: entry.pins.clone(),
+        .collect())
+}
+
+/// Log a warning for each pair of nodes in the `cpu_pin` table that share a host CPU against
+/// the pinning rules: pins stored before the table enforced them. Both nodes keep running; a
+/// redeploy of one of them on other host CPUs ends the overlap.
+///
+/// # Errors
+///
+/// Fails when the database cannot be read.
+#[instrument(skip(db))]
+pub async fn warn_shared_cpu_pins(db: &db::Database) -> Result<()> {
+    let holders = pin_holders(db).await?;
+    for (index, holder) in holders.iter().enumerate() {
+        for other in &holders[index + 1..] {
+            let overlaps = pin_overlaps(&holder.pins, &other.pins);
+            if overlaps.is_empty() {
+                continue;
+            }
+            let host_cpus: Vec<u16> = overlaps.iter().map(|overlap| overlap.cpu).collect();
+            tracing::warn!(
+                "{} of {} {} also pinned by {}, against the CPU pinning rules; redeploy one of \
+                 the two on other host CPUs to fix it",
+                cpu_list(&host_cpus),
+                holder.name_for_admins(),
+                if host_cpus.len() == 1 { "is" } else { "are" },
+                other.name_for_admins(),
+            );
         }
-    }));
-    check_pins_against_holders(requester, lab_id, nodes, &holders)
+    }
+    Ok(())
 }
 
 /// Check the requested `nodes` of lab `lab_id` against the `holders`; see
@@ -246,7 +245,7 @@ fn check_pins_against_holders(
     for node in nodes.iter().filter(|node| !node.is_empty()) {
         let own_stored = holders
             .iter()
-            .find(|holder| !holder.starting && holder.is(lab_id, &node.node_name));
+            .find(|holder| holder.is(lab_id, &node.node_name));
         for holder in holders
             .iter()
             .filter(|holder| !holder.is(lab_id, &node.node_name))
@@ -255,7 +254,10 @@ fn check_pins_against_holders(
             if overlaps.is_empty() {
                 continue;
             }
-            let carried = carried_overlaps(own_stored, holder, holders);
+            // Overlaps the node's own rows already had with this holder were stored before the
+            // rules were enforced everywhere, and are carried.
+            let carried =
+                own_stored.map_or_else(Vec::new, |own| pin_overlaps(&own.pins, &holder.pins));
             let (old, new): (Vec<PinOverlap>, Vec<PinOverlap>) = overlaps
                 .into_iter()
                 .partition(|overlap| carried.contains(overlap));
@@ -287,9 +289,15 @@ impl PinHolder {
                 .as_ref()
                 .and_then(|lab| lab.owner.as_deref())
                 .is_some_and(|owner| owner == requester.username);
-        if !visible {
-            return "a node of another lab".to_string();
+        if visible {
+            self.name_for_admins()
+        } else {
+            "a node of another lab".to_string()
         }
+    }
+
+    /// The node and its lab, named.
+    fn name_for_admins(&self) -> String {
         let lab = self.lab.as_ref().map_or_else(
             || "a lab that is not found".to_string(),
             |lab| format!("lab '{}' ({})", lab.name, lab.lab_id),
@@ -335,27 +343,6 @@ fn pin_overlaps(requested: &NodeCpuPins, held: &NodeCpuPins) -> Vec<PinOverlap> 
     overlaps.sort_unstable();
     overlaps.dedup();
     overlaps
-}
-
-/// The overlaps the requested node's stored pins, `own_stored`, already had with the stored
-/// pins of the same node as `holder`. They were stored before the rules were enforced
-/// everywhere, and are carried.
-fn carried_overlaps(
-    own_stored: Option<&PinHolder>,
-    holder: &PinHolder,
-    holders: &[PinHolder],
-) -> Vec<PinOverlap> {
-    let Some(own_stored) = own_stored else {
-        return Vec::new();
-    };
-    let Some(holder_lab) = holder.lab.as_ref() else {
-        return pin_overlaps(&own_stored.pins, &holder.pins);
-    };
-    holders
-        .iter()
-        .filter(|other| !other.starting && other.is(&holder_lab.lab_id, &holder.pins.node_name))
-        .flat_map(|other| pin_overlaps(&own_stored.pins, &other.pins))
-        .collect()
 }
 
 /// The refusal for node `node_name`, whose pins overlap `holder`'s on the `overlaps`: the
@@ -502,6 +489,8 @@ fn host_port_free(port: u16) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::slice;
+
     use super::*;
     use shared::data::NodeCpu;
 
@@ -537,22 +526,6 @@ mod tests {
             planned_resources(&node(Some(2), None), &unikernel).cpu_count,
             Some(2)
         );
-    }
-
-    #[test]
-    fn a_tuned_vm_gets_its_pinned_cpus() {
-        let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
-        let mut tuned = node(Some(2), None);
-        tuned.cpu.pinning = Some(vec![9, 25]);
-        tuned.cpu.emulator_pinning = Some(vec![24, 8]);
-        tuned.boot_disk.io_thread_cpus = Some(vec![8]);
-        let resources = planned_resources(&tuned, &image);
-        assert_eq!(resources.cpu_pinning, Some(vec![9, 25]));
-        assert_eq!(resources.qemu_thread_cpus, Some(vec![8, 24]));
-
-        let unpinned = planned_resources(&node(Some(2), None), &image);
-        assert_eq!(unpinned.cpu_pinning, None);
-        assert_eq!(unpinned.qemu_thread_cpus, None);
     }
 
     #[test]
@@ -616,28 +589,12 @@ mod tests {
         }
     }
 
-    fn pending(lab_id: &str, node: NodeCpuPins) -> PendingPins {
-        PendingPins {
-            lab_id: lab_id.to_string(),
-            pins: node,
-        }
-    }
-
-    /// A database with users alice and bob, and labs, each with one node: `lab-a` (`a00000a1`)
-    /// of alice, its node `n1` pinning vCPUs 2 and 3 and thread CPU 8, and `lab-b` (`b00000b1`)
-    /// of bob, its node `n1` pinning nothing.
+    /// A database with users alice and bob, and two built labs: `lab-a` (`a00000a1`) of alice,
+    /// whose node `n1` holds vCPUs 2 and 3 and thread CPU 8, and `lab-b` (`b00000b1`) of bob,
+    /// whose node `n1` holds nothing.
     async fn server() -> db::Database {
         let db = db::open_in_memory().await.unwrap();
         db::apply_schema(&db).await.unwrap();
-        let image = db::upsert_node_image(
-            &db,
-            NodeConfig::get_model(NodeModel::UbuntuLinux),
-            db::DefaultRequest::Keep,
-        )
-        .await
-        .unwrap()
-        .id
-        .unwrap();
         for (index, (username, lab_id, name)) in
             [("alice", "a00000a1", "lab-a"), ("bob", "b00000b1", "lab-b")]
                 .into_iter()
@@ -646,52 +603,61 @@ mod tests {
             let user = db::create_user(&db, username.to_string(), "TestPass123!", false, vec![])
                 .await
                 .unwrap();
-            let networks = db::LabNetworks {
-                loopback_network: format!("127.127.{index}.0/24"),
-                management_network: format!("172.31.{index}.0/24"),
-                gateway_ipv4: format!("172.31.{index}.1"),
-                router_ipv4: format!("172.31.{index}.2"),
-                management_network_v6: None,
-                loopback_network_v6: None,
-                gateway_ipv6: None,
-                router_ipv6: None,
-            };
-            let lab = db::create_lab(
-                &db,
-                name,
-                lab_id,
-                &user,
-                &networks,
-                &db::LabDetails::default(),
-            )
-            .await
-            .unwrap();
-            db::create_node(&db, "n1", 1, image.clone(), lab.id.unwrap())
+            create_lab(&db, &user, lab_id, name, index).await;
+            db::update_lab_phase_from(&db, lab_id, LabPhase::Creating, LabPhase::Ready)
                 .await
+                .unwrap()
                 .unwrap();
         }
-        store_pins(&db, "a00000a1", "n1", &[2, 3], &[8]).await;
+        claim(&db, "a00000a1", pins("n1", &[2, 3], &[8])).await;
         db
     }
 
-    /// Store pins on node `node_name` of lab `lab_id`, as a successful `up` or redeploy does.
-    async fn store_pins(
+    async fn create_lab(
         db: &db::Database,
+        user: &shared::data::DbUser,
         lab_id: &str,
-        node_name: &str,
-        vcpus: &[u16],
-        threads: &[u16],
+        name: &str,
+        index: usize,
     ) {
+        let networks = db::LabNetworks {
+            loopback_network: format!("127.127.{index}.0/24"),
+            management_network: format!("172.31.{index}.0/24"),
+            gateway_ipv4: format!("172.31.{index}.1"),
+            router_ipv4: format!("172.31.{index}.2"),
+            management_network_v6: None,
+            loopback_network_v6: None,
+            gateway_ipv6: None,
+            router_ipv6: None,
+        };
+        db::create_lab(
+            db,
+            name,
+            lab_id,
+            user,
+            &networks,
+            &db::LabDetails::default(),
+        )
+        .await
+        .unwrap();
+    }
+
+    fn lab_record(lab: &shared::data::DbLab) -> RecordId {
+        db::get_lab_id(lab).unwrap()
+    }
+
+    /// Claim `node`'s pins in lab `lab_id`, as admission does.
+    async fn claim(db: &db::Database, lab_id: &str, node: NodeCpuPins) {
         let lab = db::get_lab(db, lab_id).await.unwrap();
-        let node = db::get_node_by_name_and_lab(db, node_name, db::get_lab_id(&lab).unwrap())
+        db::claim_cpu_pins(db, &lab_record(&lab), &[node])
             .await
             .unwrap();
-        let resources = NodeResources {
-            cpu_pinning: Some(vcpus.to_vec()).filter(|cpus| !cpus.is_empty()),
-            qemu_thread_cpus: Some(threads.to_vec()).filter(|cpus| !cpus.is_empty()),
-            ..NodeResources::default()
-        };
-        db::update_node_resources(db, node.id.unwrap(), &resources)
+    }
+
+    /// Keep only `node`'s pins in lab `lab_id`, as a redeploy does when it ends.
+    async fn retain(db: &db::Database, lab_id: &str, node: NodeCpuPins) {
+        let lab = db::get_lab(db, lab_id).await.unwrap();
+        db::retain_cpu_pins(db, &lab_record(&lab), &node)
             .await
             .unwrap();
     }
@@ -708,7 +674,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_stored_nodes_vcpu_cpus_are_refused_to_another_lab() {
+    async fn a_held_nodes_vcpu_cpus_are_refused_to_another_lab() {
         let db = server().await;
         let (message, conflict) = refusal(
             check_cpu_pins_free(
@@ -716,7 +682,6 @@ mod tests {
                 &ctx("bob", false),
                 "b00000b1",
                 &[pins("n1", &[3, 4], &[])],
-                &[],
             )
             .await,
         );
@@ -740,22 +705,20 @@ mod tests {
     async fn vcpus_and_threads_may_not_share_but_threads_may() {
         let db = server().await;
         let bob = ctx("bob", false);
-        let (_, conflict) = refusal(
-            check_cpu_pins_free(&db, &bob, "b00000b1", &[pins("n1", &[8], &[])], &[]).await,
-        );
+        let (_, conflict) =
+            refusal(check_cpu_pins_free(&db, &bob, "b00000b1", &[pins("n1", &[8], &[])]).await);
         assert_eq!(
             (conflict.requested_role, conflict.held_role),
             (CpuPinRole::Vcpu, CpuPinRole::Thread)
         );
-        let (_, conflict) = refusal(
-            check_cpu_pins_free(&db, &bob, "b00000b1", &[pins("n1", &[5], &[2, 3])], &[]).await,
-        );
+        let (_, conflict) =
+            refusal(check_cpu_pins_free(&db, &bob, "b00000b1", &[pins("n1", &[5], &[2, 3])]).await);
         assert_eq!(conflict.host_cpus, vec![2, 3]);
         assert_eq!(
             (conflict.requested_role, conflict.held_role),
             (CpuPinRole::Thread, CpuPinRole::Vcpu)
         );
-        let warnings = check_cpu_pins_free(&db, &bob, "b00000b1", &[pins("n1", &[5], &[8])], &[])
+        let warnings = check_cpu_pins_free(&db, &bob, "b00000b1", &[pins("n1", &[5], &[8])])
             .await
             .unwrap();
         assert_eq!(warnings, Vec::<String>::new());
@@ -766,8 +729,7 @@ mod tests {
         let db = server().await;
         let request = [pins("n2", &[2], &[])];
         let other =
-            refusal(check_cpu_pins_free(&db, &ctx("bob", false), "b00000b1", &request, &[]).await)
-                .0;
+            refusal(check_cpu_pins_free(&db, &ctx("bob", false), "b00000b1", &request).await).0;
         assert!(other.contains("of a node of another lab."), "{other}");
         assert!(
             !other.contains("lab-a") && !other.contains("a00000a1"),
@@ -776,50 +738,42 @@ mod tests {
 
         let holder = "the vCPUs of node 'n1' of lab 'lab-a' (a00000a1).";
         let admin =
-            refusal(check_cpu_pins_free(&db, &ctx("carol", true), "b00000b1", &request, &[]).await)
-                .0;
+            refusal(check_cpu_pins_free(&db, &ctx("carol", true), "b00000b1", &request).await).0;
         assert!(admin.contains(holder), "{admin}");
         // Alice owns the holding lab, and asks for its CPUs for another of her labs.
-        let owner = refusal(
-            check_cpu_pins_free(&db, &ctx("alice", false), "c00000c1", &request, &[]).await,
-        )
-        .0;
+        let owner =
+            refusal(check_cpu_pins_free(&db, &ctx("alice", false), "c00000c1", &request).await).0;
         assert!(owner.contains(holder), "{owner}");
     }
 
     #[tokio::test]
-    async fn a_node_being_started_holds_its_pins_and_is_named_so() {
+    async fn a_node_of_a_lab_being_created_holds_its_pins_and_is_named_so() {
         let db = server().await;
-        let started = [pending("b00000b1", pins("n1", &[6], &[]))];
+        let carol = db::create_user(&db, "carol".to_string(), "TestPass123!", false, vec![])
+            .await
+            .unwrap();
+        create_lab(&db, &carol, "c00000c1", "lab-c", 2).await;
+        claim(&db, "c00000c1", pins("n1", &[6], &[])).await;
         let (message, conflict) = refusal(
-            check_cpu_pins_free(
-                &db,
-                &ctx("carol", true),
-                "c00000c1",
-                &[pins("x", &[6], &[])],
-                &started,
-            )
-            .await,
+            check_cpu_pins_free(&db, &ctx("dave", true), "d00000d1", &[pins("x", &[6], &[])]).await,
         );
         assert_eq!(conflict.host_cpus, vec![6]);
         assert!(
             message.contains(
-                "node 'n1' of lab 'lab-b' (b00000b1), which another operation is starting."
+                "node 'n1' of lab 'lab-c' (c00000c1), which another operation is starting."
             ),
             "{message}"
         );
     }
 
     #[tokio::test]
-    async fn a_requested_node_does_not_overlap_its_own_stored_or_pending_pins() {
+    async fn a_requested_node_does_not_overlap_its_own_pins() {
         let db = server().await;
-        let own = [pending("a00000a1", pins("n1", &[2], &[]))];
         let warnings = check_cpu_pins_free(
             &db,
             &ctx("alice", false),
             "a00000a1",
-            &[pins("n1", &[2, 3], &[8])],
-            &own,
+            &[pins("n1", &[8], &[2, 3])],
         )
         .await
         .unwrap();
@@ -827,32 +781,32 @@ mod tests {
     }
 
     /// The redeploy of lab-a's `n1` from vCPUs 2 and 3 to 4 and 5, step by step: what bob's lab
-    /// may pin at each point, as the stored row and the ledger then are.
+    /// may pin at each point, as the table's rows then are.
     #[tokio::test]
-    async fn a_redeploying_node_holds_its_old_and_new_pins_until_it_ends() {
+    async fn a_redeploying_node_holds_its_old_and_new_pins_until_it_keeps_one_set() {
         let db = server().await;
         let bob = ctx("bob", false);
-        let old = [pins("n1", &[2, 3], &[])];
-        let new = [pins("n1", &[4, 5], &[])];
-        let redeploying = [pending("a00000a1", pins("n1", &[4, 5], &[8]))];
+        let old = pins("n1", &[2, 3], &[8]);
+        let new = pins("n1", &[4, 5], &[8]);
 
-        // Admitted, before and after teardown, before its new pins are stored: both are held.
+        // Admitted: its new pins are claimed beside the old ones, and both are held.
+        claim(&db, "a00000a1", new.clone()).await;
         for wanted in [&old, &new] {
-            refusal(check_cpu_pins_free(&db, &bob, "b00000b1", wanted, &redeploying).await);
+            refusal(check_cpu_pins_free(&db, &bob, "b00000b1", slice::from_ref(wanted)).await);
         }
 
-        // It failed before storing the new pins: the old ones stay held, the new are free.
-        refusal(check_cpu_pins_free(&db, &bob, "b00000b1", &old, &[]).await);
-        check_cpu_pins_free(&db, &bob, "b00000b1", &new, &[])
+        // It failed before its old domain was gone: it keeps the old ones, the new are free.
+        retain(&db, "a00000a1", old.clone()).await;
+        refusal(check_cpu_pins_free(&db, &bob, "b00000b1", slice::from_ref(&old)).await);
+        check_cpu_pins_free(&db, &bob, "b00000b1", slice::from_ref(&new))
             .await
             .unwrap();
 
-        // The new pins were stored, and the redeploy then failed or succeeded: only the new ones
-        // are held.
-        store_pins(&db, "a00000a1", "n1", &[4, 5], &[8]).await;
-        refusal(check_cpu_pins_free(&db, &bob, "b00000b1", &new, &redeploying).await);
-        refusal(check_cpu_pins_free(&db, &bob, "b00000b1", &new, &[]).await);
-        check_cpu_pins_free(&db, &bob, "b00000b1", &old, &[])
+        // Again, and it got past teardown: it keeps the new ones, the old are free.
+        claim(&db, "a00000a1", new.clone()).await;
+        retain(&db, "a00000a1", new.clone()).await;
+        refusal(check_cpu_pins_free(&db, &bob, "b00000b1", &[new]).await);
+        check_cpu_pins_free(&db, &bob, "b00000b1", &[pins("n1", &[2, 3], &[])])
             .await
             .unwrap();
     }
@@ -862,30 +816,43 @@ mod tests {
         let db = server().await;
         let bob = ctx("bob", false);
         let wanted = [pins("n1", &[2, 3], &[])];
-        refusal(check_cpu_pins_free(&db, &bob, "b00000b1", &wanted, &[]).await);
+        refusal(check_cpu_pins_free(&db, &bob, "b00000b1", &wanted).await);
         assert!(
-            db::delete_lab_from(&db, "a00000a1", shared::data::LabPhase::Creating)
+            db::delete_lab_from(&db, "a00000a1", LabPhase::Ready)
                 .await
                 .unwrap()
         );
-        check_cpu_pins_free(&db, &bob, "b00000b1", &wanted, &[])
+        check_cpu_pins_free(&db, &bob, "b00000b1", &wanted)
             .await
             .unwrap();
     }
 
-    #[tokio::test]
-    async fn an_overlap_already_stored_is_a_warning_and_a_new_one_is_refused() {
-        let db = server().await;
-        // Stored before the rules were enforced everywhere: both labs' n1 on host CPU 3.
-        store_pins(&db, "b00000b1", "n1", &[3], &[]).await;
-        let warnings = check_cpu_pins_free(
-            &db,
+    fn holder(lab_id: &str, name: &str, node: NodeCpuPins) -> PinHolder {
+        PinHolder {
+            lab: Some(PinLab {
+                lab_id: lab_id.to_string(),
+                name: name.to_string(),
+                owner: None,
+            }),
+            starting: false,
+            pins: node,
+        }
+    }
+
+    /// Rows that already share a CPU were copied as they were stored before the table existed;
+    /// the trigger refuses any new overlap, so they are built here as holders.
+    #[test]
+    fn an_overlap_already_held_is_a_warning_and_a_new_one_is_refused() {
+        let holders = [
+            holder("a00000a1", "lab-a", pins("n1", &[2, 3], &[8])),
+            holder("b00000b1", "lab-b", pins("n1", &[3], &[])),
+        ];
+        let warnings = check_pins_against_holders(
             &ctx("bob", false),
             "b00000b1",
             &[pins("n1", &[3], &[])],
-            &[],
+            &holders,
         )
-        .await
         .unwrap();
         assert_eq!(
             warnings,
@@ -895,14 +862,12 @@ mod tests {
               CPUs to fix it"
             ]
         );
-        let admin = check_cpu_pins_free(
-            &db,
+        let admin = check_pins_against_holders(
             &ctx("carol", true),
             "a00000a1",
             &[pins("n1", &[2, 3], &[8])],
-            &[],
+            &holders,
         )
-        .await
         .unwrap();
         assert_eq!(admin.len(), 1);
         assert!(
@@ -912,16 +877,12 @@ mod tests {
 
         // A redeploy that keeps the shared CPU but takes one more of the other node's is
         // refused for that one only.
-        let (_, conflict) = refusal(
-            check_cpu_pins_free(
-                &db,
-                &ctx("bob", false),
-                "b00000b1",
-                &[pins("n1", &[2, 3], &[])],
-                &[],
-            )
-            .await,
-        );
+        let (_, conflict) = refusal(check_pins_against_holders(
+            &ctx("bob", false),
+            "b00000b1",
+            &[pins("n1", &[2, 3], &[])],
+            &holders,
+        ));
         assert_eq!(conflict.host_cpus, vec![2]);
     }
 

@@ -4,7 +4,7 @@ use tracing::instrument;
 use turso::Value;
 
 use crate::Database;
-use crate::persistence::{NODE_TABLE, enum_text, json_text, key_of, node_from_row};
+use crate::persistence::{NODE_TABLE, enum_text, key_of, node_from_row};
 use crate::queries;
 use crate::sql::{Bound, query_count, query_optional};
 
@@ -171,7 +171,8 @@ pub async fn update_node_host_key(
     .await
 }
 
-/// Record what a node was given: its vCPUs, memory, VNC port and pinned host CPUs.
+/// Record what a node was given: its vCPUs, memory and VNC port. Its pinned host CPUs are in
+/// the `cpu_pin` table.
 ///
 /// # Errors
 /// - If the node doesn't exist
@@ -191,18 +192,6 @@ pub async fn update_node_resources(
             resources.cpu_count.into(),
             resources.memory.into(),
             resources.vnc_port.into(),
-            resources
-                .cpu_pinning
-                .as_ref()
-                .map(|cpus| json_text(cpus, "cpu_pinning"))
-                .transpose()?
-                .into(),
-            resources
-                .qemu_thread_cpus
-                .as_ref()
-                .map(|cpus| json_text(cpus, "qemu_thread_cpus"))
-                .transpose()?
-                .into(),
         ]),
         "resources",
     )

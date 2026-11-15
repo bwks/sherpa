@@ -4978,7 +4978,6 @@ mod tests {
                 cpu_count: Some(2),
                 memory: Some(4096),
                 vnc_port: Some(5900),
-                ..data::NodeResources::default()
             },
         )
         .unwrap();

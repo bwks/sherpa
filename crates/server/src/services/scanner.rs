@@ -408,8 +408,6 @@ mod tests {
             memory: None,
             vnc_port: None,
             ssh_host_key: has_key.then(|| "ssh-ed25519 AAAA".to_string()),
-            cpu_pinning: None,
-            qemu_thread_cpus: None,
             ready_check: ReadyCheck::default(),
             ssh_username: None,
         }

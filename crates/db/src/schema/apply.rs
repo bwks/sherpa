@@ -113,8 +113,9 @@ fn refuse_newer_version(version: usize) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use shared::data::{
-        BiosTypes, BootDiskSettings, CdromSettings, DiskBuses, LabPhase, MachineSettings,
-        MachineType, NodeConfig, NodeKind, NodeModel, NodeState, ReadyCheck, Ztp,
+        BiosTypes, BootDiskSettings, CdromSettings, DbCpuPins, DiskBuses, LabPhase,
+        MachineSettings, MachineType, NodeConfig, NodeCpuPins, NodeKind, NodeModel, NodeState,
+        ReadyCheck, RecordId, Ztp,
     };
     use shared::konst::{SSH_PORT, TALOS_API_PORT};
     use shared::validators::check_ztp;
@@ -123,9 +124,10 @@ mod tests {
     use super::*;
     use crate::persistence::{key_of, new_key, node_image_values};
     use crate::{
-        DefaultRequest, find_lab, find_node_image_by_id, list_labs_without_definition,
-        list_node_images, list_nodes_by_lab, node_definition_imported, open_in_memory,
-        read_lab_definition, seal_plain_image_passwords, upsert_node_image,
+        DefaultRequest, find_lab, find_node_image_by_id, list_cpu_pins,
+        list_labs_without_definition, list_node_images, list_nodes_by_lab,
+        node_definition_imported, open_in_memory, read_lab_definition, seal_plain_image_passwords,
+        upsert_node_image,
     };
 
     /// The eleven ZTP methods a release before the one `ztp` column could store.
@@ -907,9 +909,10 @@ mod tests {
     async fn apply_schema_creates_the_protection_triggers() {
         let db = open_in_memory().await.unwrap();
         apply_schema(&db).await.unwrap();
-        // Three admin protection triggers, the two that keep interfaces used once, and the two
-        // that keep image passwords sealed.
-        assert_eq!(trigger_count(&db, "%").await, 3 + 2 + 2);
+        // Three admin protection triggers, the two that keep interfaces used once, the two that
+        // keep image passwords sealed, and the three that keep CPU pins to the pinning rules.
+        assert_eq!(trigger_count(&db, "%").await, 3 + 2 + 2 + 3);
+        assert_eq!(trigger_count(&db, "cpu_pin%").await, 3);
     }
 
     #[tokio::test]
@@ -1318,5 +1321,104 @@ mod tests {
             .unwrap();
         assert!(stored.starts_with("sealed:"), "{stored}");
         assert!(!stored.contains("Plain-Pass1"));
+    }
+
+    #[tokio::test]
+    async fn stored_pins_move_to_the_cpu_pin_table_shared_ones_included() {
+        // A database from before the `cpu_pin` table: two labs whose nodes already share host
+        // CPU 2 on their vCPUs, against the rules, and one with QEMU thread CPUs.
+        let before = migrations::ALL
+            .iter()
+            .position(|batch| *batch == migrations::CPU_PIN)
+            .unwrap();
+        let db = database_at(before).await;
+        let image = upsert_node_image(
+            &db,
+            NodeConfig::get_model(NodeModel::UbuntuLinux),
+            DefaultRequest::Make,
+        )
+        .await
+        .unwrap();
+        let image = key_of(&image.id.unwrap(), "node_image").unwrap();
+        {
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute_batch(
+                    "INSERT INTO user (id, username, password_hash, is_admin, ssh_keys,
+                         created_at, updated_at)
+                     VALUES ('u1', 'alice', 'x', 0, '[]', '2026-01-01T00:00:00Z',
+                         '2026-01-01T00:00:00Z');
+                     INSERT INTO lab (id, lab_id, name, user, loopback_network,
+                         management_network, gateway_ipv4, router_ipv4)
+                     VALUES ('l1', 'lab-0001', 'One', 'u1', '127.127.1.0/24', '172.31.1.0/24',
+                         '172.31.1.1', '172.31.1.2'),
+                         ('l2', 'lab-0002', 'Two', 'u1', '127.127.2.0/24', '172.31.2.0/24',
+                         '172.31.2.1', '172.31.2.2');",
+                )
+                .await
+                .unwrap();
+            for (id, index, lab, vcpus, threads) in [
+                ("n1", 1, "l1", Some("[3,2]"), Some("[8,24]")),
+                ("n2", 1, "l2", Some("[2]"), None),
+                ("n3", 2, "l2", None, None),
+            ] {
+                writer
+                    .conn
+                    .execute(
+                        "INSERT INTO node (id, name, \"index\", image, lab, state, cpu_pinning, \
+                         qemu_thread_cpus) VALUES (?1, ?1, ?2, ?3, ?4, 'running', ?5, ?6)",
+                        (id, index, image.as_str(), lab, vcpus, threads),
+                    )
+                    .await
+                    .unwrap();
+            }
+        }
+
+        apply_schema(&db).await.unwrap();
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
+
+        let lab = |key: &str| RecordId::new("lab", key);
+        let pins = |name: &str, vcpus: &[u16], threads: &[u16]| NodeCpuPins {
+            node_name: name.to_string(),
+            vcpu_cpus: vcpus.to_vec(),
+            qemu_thread_cpus: threads.to_vec(),
+        };
+        assert_eq!(
+            list_cpu_pins(&db).await.unwrap(),
+            vec![
+                DbCpuPins {
+                    lab: lab("l1"),
+                    pins: pins("n1", &[2, 3], &[8, 24]),
+                },
+                DbCpuPins {
+                    lab: lab("l2"),
+                    pins: pins("n2", &[2], &[]),
+                },
+            ]
+        );
+        let writer = db.writer().await.unwrap();
+        let columns = query_count(
+            &writer.conn,
+            Query::new(
+                "SELECT count(*) FROM pragma_table_info('node') \
+                 WHERE name IN ('cpu_pinning', 'qemu_thread_cpus')",
+            )
+            .bind([]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(columns, 0);
+        // The copied overlap stays, and a new one is refused.
+        let error = writer
+            .conn
+            .execute(
+                "INSERT INTO cpu_pin (lab, node_name, host_cpu, role) \
+                 VALUES ('l2', 'n3', 3, 'vcpu')",
+                (),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("already pinned"), "{error}");
     }
 }

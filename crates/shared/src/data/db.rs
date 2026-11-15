@@ -1,7 +1,7 @@
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
-use super::{BridgeKind, LabPhase, LinkImpairment, NodeState, RecordId};
+use super::{BridgeKind, LabPhase, LinkImpairment, NodeCpuPins, NodeState, RecordId};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DbUser {
@@ -99,12 +99,6 @@ pub struct DbNode {
     /// public key form (`ssh-ed25519 AAAA...`). `None` for nodes without SSH, or before then.
     #[serde(default)]
     pub ssh_host_key: Option<String>,
-    /// Host CPUs the node's vCPUs are pinned to, in vCPU order. `None` when unpinned.
-    #[serde(default)]
-    pub cpu_pinning: Option<Vec<u16>>,
-    /// Host CPUs the node's QEMU and I/O threads are pinned to. `None` when unpinned.
-    #[serde(default)]
-    pub qemu_thread_cpus: Option<Vec<u16>>,
     /// How the node shows it is ready, as `up` or the last redeploy stored it.
     #[serde(default)]
     pub ready_check: ReadyCheck,
@@ -132,8 +126,14 @@ pub struct NodeResources {
     pub cpu_count: Option<u8>,
     pub memory: Option<u16>,
     pub vnc_port: Option<u16>,
-    pub cpu_pinning: Option<Vec<u16>>,
-    pub qemu_thread_cpus: Option<Vec<u16>>,
+}
+
+/// The host CPUs a node holds, as the `cpu_pin` table stores them: its lab, and its pins under
+/// its name in the lab, each list in ascending order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DbCpuPins {
+    pub lab: RecordId,
+    pub pins: NodeCpuPins,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
