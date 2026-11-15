@@ -32,6 +32,8 @@ SHERPA_BIN_DIR="${SHERPA_BASE_DIR}/bin"
 SHERPA_LABS_DIR="${SHERPA_BASE_DIR}/labs"
 SHERPA_POOL_DIR="${SHERPA_BASE_DIR}/libvirt/images"
 SHERPA_DB_FILE="${SHERPA_BASE_DIR}/db/sherpa.sqlite"
+# sherpad's secrets: the JWT secret and the database key. Only sherpa can enter it.
+SHERPA_SECRET_DIR="${SHERPA_BASE_DIR}/.secret"
 # The SurrealDB container of releases before 0.5.0, and the data it kept on the host.
 LEGACY_DB_CONTAINER="sherpa-db"
 LEGACY_DB_DATA="${SHERPA_BASE_DIR}/db/sherpa.db"
@@ -425,6 +427,15 @@ secure_lab_storage() {
     print_success "Lab storage restricted"
 }
 
+# Create sherpad's secrets directory, 0700 sherpa, when it is missing. An existing one keeps its
+# mode and contents: it holds the JWT secret and the database key.
+ensure_secret_dir() {
+    if [ ! -d "${SHERPA_SECRET_DIR}" ]; then
+        install -d -o sherpa -g sherpa -m 700 "${SHERPA_SECRET_DIR}"
+        print_success "Created ${SHERPA_SECRET_DIR}"
+    fi
+}
+
 # Restrict the database directory to sherpa and its group: the database and its backups hold
 # password hashes. Releases before this left it world-readable. sherpad enforces the same mode.
 secure_database_storage() {
@@ -607,6 +618,7 @@ main() {
         ensure_symlinks
         secure_lab_storage
         secure_database_storage
+        ensure_secret_dir
         print_success "All binaries already at ${SHERPA_VERSION} — nothing to do"
         exit 0
     fi
@@ -617,6 +629,7 @@ main() {
     ensure_symlinks
     secure_lab_storage
     secure_database_storage
+    ensure_secret_dir
     ensure_runtime_directory
     start_sherpad
     remove_server_ssh_key

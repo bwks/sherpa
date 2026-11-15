@@ -115,7 +115,7 @@ flowchart TB
     signals --> envoverrides["apply env overrides<br/>SHERPA_SERVER_IPV4<br/>SHERPA_SERVER_IPV6<br/>SHERPA_SERVER_WS_PORT<br/>SHERPA_SERVER_HTTP_PORT"]
     envoverrides --> jwt
     subgraph appstate["AppState::new(config, metrics)"]
-        jwt["load JWT secret, or generate it if missing<br/>(a new one written 0600 in a 0700 directory;<br/>a file of the wrong length stops startup)"] --> database["open the database file"] --> schema["apply DB schema"] --> dbkey["load the database key, or generate it if missing<br/>and the database has no key check<br/>(0600 in the config directory); verify_secret_key"] --> seed["optionally seed admin user"] --> storage["restrict lab and database storage<br/>(daemon::storage::secure_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
+        jwt["load JWT secret, or generate it if missing<br/>(a new one written 0600 in a 0700 directory;<br/>a file of the wrong length stops startup)"] --> database["open the database file"] --> schema["apply DB schema"] --> dbkey["load the database key, or generate it if missing<br/>and the database has no key check<br/>(0600 in /opt/sherpa/.secret); verify_secret_key"] --> seed["optionally seed admin user"] --> storage["restrict lab and database storage<br/>(daemon::storage::secure_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
     end
     registry --> recover["services::lab_lifecycle::recover:<br/>labs left Creating become Interrupted,<br/>left Destroying become DestroyFailed,<br/>nodes left Building become Failed"]
     recover --> sealimages["db::seal_plain_image_passwords:<br/>image passwords stored as plain text are sealed"]
@@ -142,12 +142,14 @@ In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, loggin
 `auth::jwt::load_or_generate_secret` generates the JWT secret only when the file is missing. A file that exists with a length other than 32 bytes stops startup with an error naming the file: replacing it would silently end every session. Deleting the file generates a new secret, which logs every user out.
 
 `daemon::db_key::load_or_create_db_key` loads the database key from `SHERPA_DB_KEY_PATH`
-(`/opt/sherpa/config/db.key`), the key that seals the database's secret values (see
+(`/opt/sherpa/.secret/db.key`, beside the JWT secret in the `0700` `sherpa` directory), the key
+that seals the database's secret values (see
 [`DATABASE.md`](DATABASE.md#secret-values)). It generates one, 32 random bytes written `0600`,
 only when the file is missing and the database has no key check yet; then `db::verify_secret_key`
 records the check. A missing file for a database that has a check, a file of the wrong length,
 and a key that does not open the check each stop startup with an error naming the problem; the
-file is never replaced. The key must be backed up with the database.
+file is never replaced. The key must be backed up alongside every `server.backup`, but
+separately from it: a backup never contains it.
 
 #### Lab definition import
 

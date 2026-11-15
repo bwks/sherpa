@@ -573,6 +573,13 @@ _require_install() {
     [[ "$output" == "750" ]]
 }
 
+@test "integration: /opt/sherpa/.secret directory is 700, owned by sherpa" {
+    _require_install
+    run bash -c "stat -c '%a %U:%G' /opt/sherpa/.secret"
+    [ "$status" -eq 0 ]
+    [[ "$output" == "700 sherpa:sherpa" ]]
+}
+
 @test "integration: /opt/sherpa owned by sherpa:sherpa" {
     _require_install
     run bash -c "stat -c '%U:%G' /opt/sherpa"

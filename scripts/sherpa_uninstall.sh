@@ -378,6 +378,8 @@ EOF
         cat << EOF
 The database and its backups were preserved:
   Location: ${SHERPA_DB_DIR}
+The database key, needed to open them, was preserved too:
+  Location: ${SHERPA_BASE_DIR}/.secret/db.key
   
 To remove data later, run:
   sudo $0 --remove-data

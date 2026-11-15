@@ -33,6 +33,8 @@ SHERPA_BASE_DIR="/opt/sherpa"
 SHERPA_DB_DIR="${SHERPA_BASE_DIR}/db"
 SHERPA_DB_FILE="${SHERPA_DB_DIR}/sherpa.sqlite"
 SHERPA_CONFIG_DIR="${SHERPA_BASE_DIR}/config"
+# sherpad's secrets: the JWT secret and the database key. Only sherpa can enter it.
+SHERPA_SECRET_DIR="${SHERPA_BASE_DIR}/.secret"
 SHERPA_ENV_DIR="${SHERPA_BASE_DIR}/env"
 SHERPA_LABS_DIR="${SHERPA_BASE_DIR}/labs"
 SHERPA_POOL_DIR="${SHERPA_BASE_DIR}/libvirt/images"
@@ -444,6 +446,14 @@ setup_directories() {
         print_success "Created ${SHERPA_CONFIG_DIR}"
     else
         print_info "Directory ${SHERPA_CONFIG_DIR} already exists"
+    fi
+
+    # Create the secrets directory, 0700 sherpa. An existing one keeps its mode.
+    if [ ! -d "${SHERPA_SECRET_DIR}" ]; then
+        install -d -o sherpa -g sherpa -m 700 "${SHERPA_SECRET_DIR}"
+        print_success "Created ${SHERPA_SECRET_DIR}"
+    else
+        print_info "Directory ${SHERPA_SECRET_DIR} already exists"
     fi
 
     # Create env directory

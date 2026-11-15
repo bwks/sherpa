@@ -63,7 +63,8 @@ are in [`../investigations/turso-migration.md`](../investigations/turso-migratio
   [database key](#secret-values) are ciphertext: `lab.ztp_server_password` and
   `node_image.ztp_password`. The key is not
   in the database or the backup, so **back up `SHERPA_DB_KEY_PATH`
-  (`/opt/sherpa/config/db.key`) with the database**: a restored database with no key, or another
+  (`/opt/sherpa/.secret/db.key`) alongside every backup, but separately from it**: not in the
+  backup directory, and not in the same copy. A restored database with no key, or another
   key, does not start (see [Secret values](#secret-values)).
 - **Tests.** `open_in_memory()` gives each test its own database; connections to one in-memory
   database share its data. The db and server integration tests need no database server.
@@ -338,7 +339,13 @@ cipher:
   then the ciphertext and its 16-byte tag. Every value gets its own nonce. The associated data is
   the value's place, `table.column:row-key`, so a value copied to another row or column does not
   open.
-- **Key.** 32 random bytes in `SHERPA_DB_KEY_PATH` (`/opt/sherpa/config/db.key`), mode `0600`,
+- **Key.** 32 random bytes in `SHERPA_DB_KEY_PATH` (`/opt/sherpa/.secret/db.key`), mode `0600`,
+  in the `0700` `sherpa` directory that holds the JWT secret, beside it in `shared::konst`. It is
+  never in `/opt/sherpa/db`, beside the database and its backups, so a copy of that directory
+  does not carry it. The install and update scripts create `/opt/sherpa/.secret` (`0700`,
+  `sherpa`) when it is missing and leave an existing one's mode alone; sherpad creates it the same
+  way if it must. The uninstall script keeps it with `--keep-data` and `--remove-data`, so a kept
+  database can still be opened, and removes it only with `--remove-all`.
   never in the database. The `Database` handle carries it (`Database::with_secret_key`); writing
   or reading a sealed value without one fails with "The database key is not loaded".
 - **Key check.** `secret_key_check` holds one row: a known value sealed with the key the

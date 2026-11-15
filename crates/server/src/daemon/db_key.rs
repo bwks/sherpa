@@ -1,7 +1,8 @@
 //! The database key: the 32-byte key that seals the database's secret values.
 //!
-//! It is a file beside the server's configuration, mode 0600, made at first start the way the
-//! JWT secret is. It is never in the database, so a database file or backup alone holds only
+//! It is a file beside the JWT secret, mode 0600 in the 0700 secrets directory
+//! (`SHERPA_DB_KEY_PATH`), made at first start the way the JWT secret is. It is never in the
+//! database or the database directory, so a database file or backup alone holds only
 //! ciphertext; restoring a backup needs the key it was made with.
 
 use std::fs;
