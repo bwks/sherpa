@@ -360,8 +360,8 @@ pub(super) fn respond<T: Serialize>(
 /// Build the RPC error for a failed service call.
 ///
 /// Typed service failures keep their own codes, so clients can tell "not allowed", "does not
-/// exist", "bad request" and "no room in the server's memory" from operational failures. Others
-/// carry the error's message chain, never its debug form.
+/// exist", "bad request", "no room in the server's memory" and "CPU pins held" from operational
+/// failures. Others carry the error's message chain, never its debug form.
 pub(super) fn service_error(error: &anyhow::Error, failure: &str) -> RpcError {
     let (code, message, data) = match ServiceError::find(error) {
         Some(access @ ServiceError::Denied(_)) => {
@@ -377,6 +377,11 @@ pub(super) fn service_error(error: &anyhow::Error, failure: &str) -> RpcError {
             RpcErrorCode::InsufficientMemory,
             message.clone(),
             serde_json::to_value(shortfall).ok(),
+        ),
+        Some(ServiceError::CpuPinsHeld { message, conflict }) => (
+            RpcErrorCode::CpuPinsHeld,
+            message.clone(),
+            serde_json::to_value(conflict).ok(),
         ),
         None => {
             tracing::warn!(error = ?error, "RPC call failed");
@@ -400,7 +405,7 @@ pub(super) fn service_error(error: &anyhow::Error, failure: &str) -> RpcError {
 mod tests {
     use super::*;
     use shared::api_spec::{AuthRequirement, build_spec};
-    use shared::error::MemoryShortfall;
+    use shared::error::{CpuPinConflict, CpuPinRole, MemoryShortfall};
     use std::collections::HashSet;
 
     /// Spec operations whose RPC method the server does not answer.
@@ -527,6 +532,32 @@ mod tests {
                 "requested_mib": 16384,
                 "available_mib": 11614,
                 "numa_node": null,
+            }))
+        );
+    }
+
+    #[test]
+    fn a_pin_refusal_has_its_own_code_and_the_conflict_as_data() {
+        let error = anyhow::Error::new(ServiceError::CpuPinsHeld {
+            message: "Host CPU 2 is held".to_owned(),
+            conflict: CpuPinConflict {
+                host_cpus: vec![2, 3],
+                requested_role: CpuPinRole::Vcpu,
+                held_role: CpuPinRole::Vcpu,
+            },
+        })
+        .context("CPU pinning validation failed");
+        let rpc = service_error(&error, "Up operation failed");
+        assert_eq!(rpc.code, RpcErrorCode::CpuPinsHeld);
+        assert_eq!(rpc.code.code(), -32006);
+        assert_eq!(rpc.message, "Host CPU 2 is held");
+        assert!(rpc.context.is_none());
+        assert_eq!(
+            rpc.data,
+            Some(serde_json::json!({
+                "host_cpus": [2, 3],
+                "requested_role": "vcpu",
+                "held_role": "vcpu",
             }))
         );
     }

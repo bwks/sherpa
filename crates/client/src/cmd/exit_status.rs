@@ -9,18 +9,26 @@ use crate::ws_client::messages::RpcFailure;
 
 /// The command failed.
 pub const FAILED: u8 = 1;
-/// The server refused to start VMs or unikernels that do not fit in its memory now. Nothing was
-/// started, and the same command can succeed once other nodes stop: sysexits' `EX_TEMPFAIL`.
-pub const MEMORY_REFUSED: u8 = 75;
+/// The server refused to start nodes for now: they do not fit in its memory, or host CPUs they
+/// pin are held by another node. Nothing was started, and the same command can succeed once
+/// other nodes stop or let the CPUs go: sysexits' `EX_TEMPFAIL`.
+pub const TRY_LATER: u8 = 75;
 
-/// The exit status for `error`: the node shell's for `sherpa ssh`, [`MEMORY_REFUSED`] when the
-/// server refused for memory, otherwise [`FAILED`].
+/// The exit status for `error`: the node shell's for `sherpa ssh`, [`TRY_LATER`] when the server
+/// refused for memory or for CPU pins held, otherwise [`FAILED`].
 pub fn exit_status(error: &Error) -> u8 {
     if let Some(ShellExit(code)) = error.downcast_ref::<ShellExit>() {
         return *code;
     }
     match error.downcast_ref::<RpcFailure>() {
-        Some(failure) if failure.code == RpcErrorCode::InsufficientMemory => MEMORY_REFUSED,
+        Some(failure)
+            if matches!(
+                failure.code,
+                RpcErrorCode::InsufficientMemory | RpcErrorCode::CpuPinsHeld
+            ) =>
+        {
+            TRY_LATER
+        }
         _ => FAILED,
     }
 }
@@ -42,8 +50,20 @@ mod tests {
     #[test]
     fn a_memory_refusal_exits_75_through_added_context() {
         let error = server_error(RpcErrorCode::InsufficientMemory).context("Up failed");
-        assert_eq!(exit_status(&error), MEMORY_REFUSED);
-        assert_eq!(MEMORY_REFUSED, 75);
+        assert_eq!(exit_status(&error), TRY_LATER);
+        assert_eq!(TRY_LATER, 75);
+    }
+
+    #[test]
+    fn a_cpu_pin_refusal_exits_75_through_added_context() {
+        let error = server_error(RpcErrorCode::CpuPinsHeld).context("Up failed");
+        assert_eq!(exit_status(&error), TRY_LATER);
+    }
+
+    #[test]
+    fn cpu_pin_text_alone_does_not_make_a_refusal() {
+        let error = anyhow::anyhow!("CPU pinning validation failed: Host CPU 2 is held");
+        assert_eq!(exit_status(&error), FAILED);
     }
 
     #[test]

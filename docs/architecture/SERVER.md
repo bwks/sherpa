@@ -207,10 +207,11 @@ definition import, `saved_lab_files::move_saved_lab_files` takes every lab with 
 2. **Delete.** Then it deletes exactly those three files from `/opt/sherpa/labs/<lab-id>`, and
    nothing else; a lab with no `lab-info.toml` has its SSH files deleted, as the database holds
    everything they held.
-3. **Unreadable.** A `lab-info.toml` that cannot be read or parsed is logged at warn. Its files
-   are deleted only when the database already holds an SSH account for one of the lab's nodes
-   (an earlier start or a redeploy stored them); otherwise all three are kept, and the next
-   start tries again. A failure to store is handled the same way.
+3. **Unreadable.** A `lab-info.toml` that cannot be read or parsed is logged at warn and the
+   three files are deleted all the same: nothing in a broken file can be stored, and keeping it
+   would warn on every start. Its nodes keep the accounts the database has, the `sherpa`
+   account when it has none. A failure to store keeps all three files, and the next start
+   tries again.
 
 A file that is not there is skipped, so the step runs on every start and a second start does
 nothing. Folders of labs with no record are left alone. Only a failure to list the labs stops
@@ -852,7 +853,8 @@ operation will start, one request at a time, before anything is created:
 
 Requests wait on a Tokio mutex, which grants the lock in arrival order. Under it, the request's
 CPU pins are checked (`node_resources::check_cpu_pins_on_server`) against the stored pinned
-nodes and against the pins in the pending ledger, its containers' CPU quotas against the
+nodes and against the pins in the pending ledger (see [CPU pins in
+admission](#cpu-pins-in-admission)), its containers' CPU quotas against the
 server's CPUs (`validate::check_container_cpus`; containers take no part in pinning), and its
 memory against the server
 (`validate::check_memory_fits`). Admitted nodes go into the ledger, keyed by domain name
@@ -883,6 +885,48 @@ and the two settings. `libvirt::host_memory` and `libvirt::list_domain_memory` r
 deserialiser into private structs that hold only `<host><topology><cells>`: each cell's id,
 `<memory>` and `<pages>` pools, with every other element skipped. The numbers stay text in the
 structs and are parsed afterwards, so a missing or bad value is reported by name. See `docs/investigations/host-memory-oom.md` for why.
+
+### CPU pins in admission
+
+`node_resources::check_cpu_pins_free` decides whether the requested nodes' pins are free. It
+reads every stored pinned node (`db::list_pinned_nodes`), its lab and the lab's owner, and adds
+the ledger's pins. The holders are every stored node and every pending one, except the
+requested node itself: its own stored and pending pins are its own, since it is being replaced.
+
+A stored node's pins count even while another operation redeploys it. The redeploy's new pins
+are in the ledger, so until the redeploy ends the node holds both sets. That matters because
+the node's pins change in only one place, `reserve_node_resources` in stage 4, after teardown:
+
+| The redeploy stops at | Domain | Stored pins | Held by the node while the redeploy runs | Held after |
+| --- | --- | --- | --- | --- |
+| Stage 1, refused | old, running | old | old (stored) | old |
+| `RebuildStarted`, host key, teardown (`destroy_node`) | old, or partly torn down | old | old and new | old |
+| VM networks (`recreate_vm_networks`) | none | old | old and new | old |
+| `reserve_node_resources` | none | old, or new if the write landed | old and new | what is stored |
+| Certificate, domain or container, readiness | new, or none | new | old and new | new |
+| Success | new | new | old and new | new |
+
+Each row's "held after" covers the domain that may run: a failure before storing keeps the old
+pins, which the old domain may still use, and a failure after keeps the new ones. No other
+request can take either set while the redeploy runs, so no two nodes end up on one vCPU CPU.
+
+A requested node's overlap with a holder is one of: its vCPU CPU on the holder's vCPUs or
+QEMU threads, or its QEMU thread CPU on the holder's vCPUs; QEMU threads may share. A new
+overlap is refused with `ServiceError::CpuPinsHeld` (see [`API.md`](API.md#typed-refusals)),
+naming the CPUs and roles in its `data`. The message names the holding node and lab
+(`node 'n1' of lab 'name' (lab id)`, with ", which another operation is starting" for a pending
+one) to admins and to the holding lab's owner, and says "a node of another lab" to everyone
+else. Who is asking comes from the request's `AuthContext`.
+
+An overlap the requested node's stored pins already had with the same holder's stored pins
+was stored before admission enforced the rules. It is carried: the node starts, and the
+overlap is logged (`tracing::warn!`) and sent to the user as a `Warning:` status. `up` and
+`redeploy` get these from the same check; `resume` and node start (`admit_stopped_nodes`)
+compare the stopped nodes' stored pins with every other stored node's and only warn, as a lab
+that exists is never refused for its pins. A new lab has no stored pins, so its `up` never
+warns.
+
+Destroying a lab deletes its nodes, and their pins with them. A stopped lab keeps its pins.
 
 ### Redeploy architecture
 
@@ -1432,14 +1476,17 @@ The checks run in three places:
   needs `numa.node`.
 - **`topology::validate::check_cpu_pin_overlap`**: a host CPU pinned to a vCPU belongs to one
   node, and no node runs QEMU or I/O threads on it. QEMU and I/O threads may share CPUs.
-- **`node_resources::check_cpu_pins_on_server`** (`up` and `redeploy`, before anything is
-  created or destroyed): every CPU and the NUMA node exist on the server, from
-  `libvirt::host_cpus`. The pins also must not overlap those stored on any node of any lab
-  (`db::list_pinned_nodes`). A redeployed node's own stored pins are skipped.
+- **`node_resources::check_cpu_pins_on_server`** (`up` and `redeploy`, under admission, before
+  anything is created or destroyed): every CPU and the NUMA node exist on the server, from
+  `libvirt::host_cpus`, and `check_cpu_pins_free` finds the pins free of every other node's,
+  stored or admitted to another operation (see
+  [Admission](#admission-memory-and-cpu-pins)).
 
 `planned_resources` stores the pins on the node (`cpu_pinning`, and `qemu_thread_cpus` for the
-QEMU and I/O threads), so later labs see them. Two labs started at the same moment could both
-pass the check before either stores its pins; unlike VNC ports, pins have no unique index.
+QEMU and I/O threads), so later labs see them. Until they are stored, the admission ledger
+holds them, so two labs started at the same moment cannot both pass the check: admission
+serves one request at a time, and the second sees the first's pins in the ledger. The database
+does not enforce the rules; only admission does.
 
 Huge pages come from the host's transparent hugepages, which QEMU requests for guest RAM.
 There is no `memoryBacking` setting. `scripts/sherpa_install.sh` sets THP to `madvise` unless it

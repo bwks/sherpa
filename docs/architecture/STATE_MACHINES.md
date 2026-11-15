@@ -1710,10 +1710,13 @@ stateDiagram-v2
 
 A stopped lab keeps its ports and pins. Before admission, `up` checked pins in its planning
 phase and stored them in phase 3 with no lock between, so two concurrent `up`s could both pass
-(#413); the ledger closes that window for pins and memory. A stored node that is also pending
-counts once, with its pending pins, and the node a redeploy replaces does not count against
-itself (matched by domain name, `<node>-<lab id>`). The ledger does not survive a restart,
-which also ends the operations it held entries for.
+(#413); the ledger closes that window for pins and memory. A stored node's pins count even
+while it is pending: a node another operation redeploys holds its stored and its new pins until
+that operation ends, so a redeploy that fails before storing the new pins keeps the old ones
+unshared. The node a redeploy replaces does not count against itself (matched by lab ID and
+node name). A pin overlap is refused with `CpuPinsHeld`; one the node's stored pins already had
+is carried with a warning (see [`SERVER.md`](SERVER.md#cpu-pins-in-admission)). The ledger does
+not survive a restart, which also ends the operations it held entries for.
 
 ### 32. Database schema version
 

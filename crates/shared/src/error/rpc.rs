@@ -53,6 +53,13 @@ pub enum RpcErrorCode {
     /// [`MemoryShortfall`]: super::MemoryShortfall
     InsufficientMemory,
 
+    /// CPU pins held: host CPUs the operation would pin are held by another node (-32006).
+    /// The error's `data` is a [`CpuPinConflict`]. Nothing was started; the same request can
+    /// succeed once the other node is destroyed or redeployed without them.
+    ///
+    /// [`CpuPinConflict`]: super::CpuPinConflict
+    CpuPinsHeld,
+
     /// Unknown error code: Used when deserializing an unrecognized code
     Unknown(i32),
 }
@@ -74,6 +81,7 @@ impl RpcErrorCode {
             Self::AccessDenied => -32003,
             Self::NotFound => -32004,
             Self::InsufficientMemory => -32005,
+            Self::CpuPinsHeld => -32006,
             Self::Unknown(code) => *code,
         }
     }
@@ -105,6 +113,7 @@ impl From<i32> for RpcErrorCode {
             -32003 => Self::AccessDenied,
             -32004 => Self::NotFound,
             -32005 => Self::InsufficientMemory,
+            -32006 => Self::CpuPinsHeld,
             _ => Self::Unknown(code),
         }
     }
@@ -148,6 +157,7 @@ mod tests {
         assert_eq!(RpcErrorCode::AccessDenied.code(), -32003);
         assert_eq!(RpcErrorCode::NotFound.code(), -32004);
         assert_eq!(RpcErrorCode::InsufficientMemory.code(), -32005);
+        assert_eq!(RpcErrorCode::CpuPinsHeld.code(), -32006);
     }
 
     #[test]
@@ -163,6 +173,7 @@ mod tests {
         assert_eq!(RpcErrorCode::from(-32003), RpcErrorCode::AccessDenied);
         assert_eq!(RpcErrorCode::from(-32004), RpcErrorCode::NotFound);
         assert_eq!(RpcErrorCode::from(-32005), RpcErrorCode::InsufficientMemory);
+        assert_eq!(RpcErrorCode::from(-32006), RpcErrorCode::CpuPinsHeld);
     }
 
     #[test]

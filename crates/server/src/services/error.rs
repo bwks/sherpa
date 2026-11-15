@@ -6,7 +6,7 @@
 use std::fmt;
 
 use db::UserChanged;
-use shared::error::MemoryShortfall;
+use shared::error::{CpuPinConflict, MemoryShortfall};
 
 /// A service refused a request for a reason the caller can act on.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,6 +26,12 @@ pub enum ServiceError {
         message: String,
         shortfall: MemoryShortfall,
     },
+    /// Host CPUs the operation would pin are held by another node, stored or being started.
+    /// Nothing was started; the same request can succeed once that node lets them go.
+    CpuPinsHeld {
+        message: String,
+        conflict: CpuPinConflict,
+    },
 }
 
 impl fmt::Display for ServiceError {
@@ -34,7 +40,8 @@ impl fmt::Display for ServiceError {
             Self::NotFound(message)
             | Self::Conflict(message)
             | Self::Invalid(message)
-            | Self::InsufficientMemory { message, .. } => write!(f, "{message}"),
+            | Self::InsufficientMemory { message, .. }
+            | Self::CpuPinsHeld { message, .. } => write!(f, "{message}"),
             Self::Denied(message) => write!(f, "Access denied: {message}"),
         }
     }

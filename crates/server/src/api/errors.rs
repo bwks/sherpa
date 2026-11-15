@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Serialize;
 use serde_json::Value;
-use shared::error::MemoryShortfall;
+use shared::error::{CpuPinConflict, MemoryShortfall};
 
 use crate::services::error::ServiceError;
 
@@ -35,6 +35,14 @@ pub enum ApiError {
         shortfall: MemoryShortfall,
     },
 
+    /// 409 Conflict - Host CPUs the nodes to start would pin are held by another node. A
+    /// conflict with its own `code`, so a client can tell it from other conflicts and retry
+    /// once the CPUs are let go.
+    CpuPinsHeld {
+        message: String,
+        conflict: CpuPinConflict,
+    },
+
     /// 500 Internal Server Error - Server-side errors
     InternalError { message: String },
 }
@@ -51,7 +59,7 @@ struct ErrorDetail {
     #[serde(skip_serializing_if = "Option::is_none")]
     details: Option<String>,
     /// Structured detail for codes that define it: the `MemoryShortfall` of
-    /// `INSUFFICIENT_MEMORY`.
+    /// `INSUFFICIENT_MEMORY` and the `CpuPinConflict` of `CPU_PINS_HELD`.
     #[serde(skip_serializing_if = "Option::is_none")]
     data: Option<Value>,
 }
@@ -120,7 +128,7 @@ impl ApiError {
             ApiError::Forbidden { .. } => StatusCode::FORBIDDEN,
             ApiError::NotFound { .. } => StatusCode::NOT_FOUND,
             ApiError::BadRequest { .. } => StatusCode::BAD_REQUEST,
-            ApiError::Conflict { .. } => StatusCode::CONFLICT,
+            ApiError::Conflict { .. } | ApiError::CpuPinsHeld { .. } => StatusCode::CONFLICT,
             ApiError::InsufficientMemory { .. } => StatusCode::INSUFFICIENT_STORAGE,
             ApiError::InternalError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -135,6 +143,7 @@ impl ApiError {
             ApiError::BadRequest { .. } => "BAD_REQUEST",
             ApiError::Conflict { .. } => "CONFLICT",
             ApiError::InsufficientMemory { .. } => "INSUFFICIENT_MEMORY",
+            ApiError::CpuPinsHeld { .. } => "CPU_PINS_HELD",
             ApiError::InternalError { .. } => "INTERNAL_ERROR",
         }
     }
@@ -157,6 +166,9 @@ impl From<ApiError> for ErrorResponse {
             ApiError::Conflict { message } => (message.clone(), Some(message), None),
             ApiError::InsufficientMemory { message, shortfall } => {
                 (message, None, serde_json::to_value(shortfall).ok())
+            }
+            ApiError::CpuPinsHeld { message, conflict } => {
+                (message, None, serde_json::to_value(conflict).ok())
             }
             // Don't expose internal details to client
             ApiError::InternalError { .. } => {
@@ -189,7 +201,8 @@ pub fn stream_error_event(error: &anyhow::Error) -> Value {
     event
 }
 
-/// Convert a typed service refusal to `ApiError`: 400, 403, 404, 409 or 507.
+/// Convert a typed service refusal to `ApiError`: 400, 403, 404, 409 (a conflict, or CPU pins
+/// held) or 507.
 impl From<&ServiceError> for ApiError {
     fn from(err: &ServiceError) -> Self {
         match err {
@@ -203,6 +216,10 @@ impl From<&ServiceError> for ApiError {
                     shortfall: *shortfall,
                 }
             }
+            ServiceError::CpuPinsHeld { message, conflict } => ApiError::CpuPinsHeld {
+                message: message.clone(),
+                conflict: conflict.clone(),
+            },
         }
     }
 }
@@ -242,7 +259,7 @@ impl From<anyhow::Error> for ApiError {
 mod tests {
     use super::*;
     use axum::response::IntoResponse;
-    use shared::error::MemoryShortfall;
+    use shared::error::{CpuPinConflict, CpuPinRole, MemoryShortfall};
 
     #[test]
     fn test_unauthorized_status_code() {
@@ -413,6 +430,42 @@ mod tests {
             event["error"],
             "Memory admission failed: Not enough memory on the server"
         );
+    }
+
+    fn pin_refusal() -> anyhow::Error {
+        anyhow::Error::new(ServiceError::CpuPinsHeld {
+            message: "Host CPU 2 is held".to_owned(),
+            conflict: CpuPinConflict {
+                host_cpus: vec![2],
+                requested_role: CpuPinRole::Vcpu,
+                held_role: CpuPinRole::Thread,
+            },
+        })
+        .context("CPU pinning validation failed")
+    }
+
+    #[tokio::test]
+    async fn a_pin_refusal_is_409_with_its_code_and_conflict() {
+        let api_err: ApiError = pin_refusal().into();
+        let response = api_err.into_response();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"]["code"], "CPU_PINS_HELD");
+        assert_eq!(json["error"]["message"], "Host CPU 2 is held");
+        assert_eq!(
+            json["error"]["data"],
+            serde_json::json!({ "host_cpus": [2], "requested_role": "vcpu", "held_role": "thread" })
+        );
+    }
+
+    #[test]
+    fn a_streamed_pin_refusal_carries_its_code_and_conflict() {
+        let event = stream_error_event(&pin_refusal());
+        assert_eq!(event["code"], "CPU_PINS_HELD");
+        assert_eq!(event["data"]["host_cpus"], serde_json::json!([2]));
     }
 
     #[test]
