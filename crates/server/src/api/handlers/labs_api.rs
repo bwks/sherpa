@@ -292,8 +292,8 @@ pub async fn redeploy_node_json(
         ),
     };
 
-    let provisioning = payload
-        .get("provisioning")
+    let as_written = payload
+        .get("as_written")
         .filter(|value| !value.is_null())
         .cloned();
 
@@ -302,7 +302,7 @@ pub async fn redeploy_node_json(
         node_name,
         manifest,
         secrets,
-        provisioning,
+        as_written,
     };
 
     let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();

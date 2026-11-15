@@ -1,5 +1,5 @@
-//! Writing a lab's definition: the manifest it was deployed from, in the lab's and nodes' rows
-//! and the `manifest_*` tables.
+//! Writing a lab's definition: the manifest it was deployed from, as the user wrote it, in the
+//! lab's and nodes' rows and the `manifest_*` tables. No file contents are written.
 
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
@@ -15,14 +15,16 @@ use crate::queries::{definition, node as node_queries};
 use crate::secret::seal;
 use crate::sql::{execute, query_all};
 
-/// Whether a write replaces the stored provisioners and `provision_concurrency`, or keeps them.
-/// A request that did not send them, from the web UI or an older client, keeps them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum StoredProvisioning {
-    /// Store the manifest's, which the client sent.
-    Replace,
-    /// Keep the stored ones; the manifest's were not sent.
-    Keep,
+/// Refuse a `manifest` that holds the contents of its files, which a definition never stores.
+/// It must be a manifest as written ([`Manifest::definition`]).
+fn refuse_file_contents(manifest: &Manifest) -> Result<()> {
+    if manifest.has_file_contents() {
+        bail!(
+            "Refusing to store the contents of files as a lab definition: store the manifest as \
+             written"
+        );
+    }
+    Ok(())
 }
 
 /// The place of a lab's sealed `ztp_server.password`, its associated data.
@@ -30,21 +32,23 @@ pub(super) fn ztp_password_context(lab_key: &str) -> String {
     format!("lab.ztp_server_password:{lab_key}")
 }
 
-/// Store `manifest` as the definition of the lab `lab_id`, replacing any it had: the lab-level
-/// parameters, its links, bridges and Talos clusters, and every node's parameters. Each node of
-/// the manifest must have its record in the lab already. One transaction, so a failure leaves
-/// the definition as it was.
+/// Store `manifest`, a manifest as the user wrote it, as the definition of the lab `lab_id`,
+/// replacing any it had: the lab-level parameters, its links, bridges and Talos clusters, and
+/// every node's parameters. Each node of the manifest must have its record in the lab already.
+/// One transaction, so a failure leaves the definition as it was.
 ///
 /// # Errors
 ///
-/// Fails when the lab or one of the manifest's nodes has no record, when the manifest has a
-/// `ztp_server.password` and the database has no key, or when a value does not fit its column.
+/// Fails when the manifest holds file contents (a `*_data` field), when the lab or one of the
+/// manifest's nodes has no record, when the manifest has a `ztp_server.password` and the database
+/// has no key, or when a value does not fit its column.
 #[instrument(skip(db, manifest), fields(%lab_id, lab_name = %manifest.name))]
 pub async fn store_lab_definition(
     db: &Database,
     lab_id: &RecordId,
     manifest: &Manifest,
 ) -> Result<()> {
+    refuse_file_contents(manifest)?;
     let lab_key = key_of(lab_id, LAB_TABLE)?;
     let password = match manifest
         .ztp_server
@@ -112,13 +116,7 @@ pub async fn store_lab_definition(
         else {
             bail!("Node '{}' has no record in lab {lab_id}", node.name);
         };
-        write_node(
-            &tx,
-            &key_of(id, NODE_TABLE)?,
-            node,
-            StoredProvisioning::Replace,
-        )
-        .await?;
+        write_node(&tx, &key_of(id, NODE_TABLE)?, node).await?;
     }
     tx.commit()
         .await
@@ -126,17 +124,16 @@ pub async fn store_lab_definition(
     Ok(())
 }
 
-/// Store what a redeploy of `node_name` from `manifest` changes in the definition of the lab
-/// `lab_id`: the node's parameters, replacing its old ones, and the lab-level settings the
-/// redeploy applies, `ready_timeout`, `provision_current_user` and `provision_concurrency`. The
-/// lab's links, bridges, Talos clusters, Tailscale and ZTP server settings are what `up` built,
-/// and a redeploy does not change them. With [`StoredProvisioning::Keep`] the node's stored
-/// provisioners and the lab's `provision_concurrency` are kept. One transaction.
+/// Store what a redeploy of `node_name` from `manifest`, a manifest as written, changes in the
+/// definition of the lab `lab_id`: the node's parameters, replacing its old ones, and the
+/// lab-level settings the redeploy applies, `ready_timeout`, `provision_current_user` and
+/// `provision_concurrency`. The lab's links, bridges, Talos clusters, Tailscale and ZTP server
+/// settings are what `up` built, and a redeploy does not change them. One transaction.
 ///
 /// # Errors
 ///
-/// Fails when `manifest` has no node `node_name`, when `node_id` is not a node record, or when a
-/// value does not fit its column.
+/// Fails when the manifest holds file contents, when it has no node `node_name`, when `node_id`
+/// is not a node record, or when a value does not fit its column.
 #[instrument(skip(db, manifest), fields(%lab_id, %node_name))]
 pub async fn store_redeployed_node(
     db: &Database,
@@ -144,8 +141,8 @@ pub async fn store_redeployed_node(
     node_id: &RecordId,
     node_name: &str,
     manifest: &Manifest,
-    provisioning: StoredProvisioning,
 ) -> Result<()> {
+    refuse_file_contents(manifest)?;
     let lab_key = key_of(lab_id, LAB_TABLE)?;
     let node_key = key_of(node_id, NODE_TABLE)?;
     let Some(node) = manifest.nodes.iter().find(|node| node.name == node_name) else {
@@ -169,21 +166,14 @@ pub async fn store_redeployed_node(
             lab_key.as_str().into(),
             ready_timeout.into(),
             manifest.provision_current_user.into(),
+            manifest.provision_concurrency.into(),
         ]),
     )
     .await?;
     if changed != 1 {
         bail!("Lab not found: {lab_id}");
     }
-    if provisioning == StoredProvisioning::Replace {
-        execute(
-            &tx,
-            definition::UPDATE_LAB_CONCURRENCY
-                .bind([lab_key.into(), manifest.provision_concurrency.into()]),
-        )
-        .await?;
-    }
-    write_node(&tx, &node_key, node, provisioning).await?;
+    write_node(&tx, &node_key, node).await?;
     tx.commit()
         .await
         .context("Failed to commit the node definition")?;
@@ -384,14 +374,6 @@ fn text_lists(node: &Node) -> Vec<(&'static str, Vec<&str>)> {
                 .collect(),
         ),
         (
-            "authorized_key_file_data",
-            node.ssh_authorized_key_files_data
-                .iter()
-                .flatten()
-                .map(String::as_str)
-                .collect(),
-        ),
-        (
             "container_command",
             node.container
                 .iter()
@@ -434,14 +416,8 @@ fn text_lists(node: &Node) -> Vec<(&'static str, Vec<&str>)> {
     ]
 }
 
-/// Replace the definition of the node `key` with `node`, keeping its provisioners when
-/// `provisioning` says to.
-async fn write_node(
-    conn: &Connection,
-    key: &str,
-    node: &Node,
-    provisioning: StoredProvisioning,
-) -> Result<()> {
+/// Replace the definition of the node `key` with `node`.
+async fn write_node(conn: &Connection, key: &str, node: &Node) -> Result<()> {
     let changed = execute(conn, definition::UPDATE_NODE.bind(node_values(key, node)?))
         .await
         .with_context(|| format!("Failed to store node '{}'", node.name))?;
@@ -453,8 +429,8 @@ async fn write_node(
         definition::DELETE_NODE_TEXTS,
         definition::DELETE_NODE_VOLUMES,
         definition::DELETE_NODE_TEXT_FILES,
-        definition::DELETE_NODE_FILE_DATAS,
         definition::DELETE_NODE_SYSTEMD_UNITS,
+        definition::DELETE_NODE_PROVISIONERS,
     ] {
         execute(conn, delete.bind([key.into()])).await?;
     }
@@ -464,17 +440,6 @@ async fn write_node(
     write_node_files(conn, key, node)
         .await
         .with_context(|| format!("Failed to store the files of node '{}'", node.name))?;
-    write_systemd_units(conn, key, node)
-        .await
-        .with_context(|| format!("Failed to store the systemd units of node '{}'", node.name))?;
-    if provisioning == StoredProvisioning::Keep {
-        return Ok(());
-    }
-    execute(
-        conn,
-        definition::DELETE_NODE_PROVISIONERS.bind([key.into()]),
-    )
-    .await?;
     write_provisioners(conn, key, node)
         .await
         .with_context(|| format!("Failed to store the provisioners of node '{}'", node.name))
@@ -533,18 +498,15 @@ async fn write_node_lists(conn: &Connection, key: &str, node: &Node) -> Result<(
     Ok(())
 }
 
-/// The node's text files, binary files and scripts: as the manifest names them, and as the
-/// client read them.
+/// The node's `text_files` and `systemd_units`: the paths and settings the manifest gives.
 async fn write_node_files(conn: &Connection, key: &str, node: &Node) -> Result<()> {
     for (index, file) in node.text_files.iter().flatten().enumerate() {
         execute(
             conn,
             definition::CREATE_NODE_TEXT_FILE.bind([
                 key.into(),
-                "source".into(),
                 position(index)?,
                 file.src.as_str().into(),
-                Value::Null,
                 file.dst.as_str().into(),
                 file.user.as_str().into(),
                 file.group.as_str().into(),
@@ -553,94 +515,14 @@ async fn write_node_files(conn: &Connection, key: &str, node: &Node) -> Result<(
         )
         .await?;
     }
-    for (index, file) in node.text_files_data.iter().flatten().enumerate() {
-        execute(
-            conn,
-            definition::CREATE_NODE_TEXT_FILE.bind([
-                key.into(),
-                "data".into(),
-                position(index)?,
-                Value::Null,
-                file.content.as_str().into(),
-                file.dst.as_str().into(),
-                file.user.as_str().into(),
-                file.group.as_str().into(),
-                file.permissions.into(),
-            ]),
-        )
-        .await?;
-    }
-    let read_files = [
-        (
-            "binary_file",
-            node.binary_files_data
-                .iter()
-                .flatten()
-                .map(|file| (file.filename.as_str(), file.content.as_str()))
-                .collect::<Vec<_>>(),
-        ),
-        (
-            "startup_script",
-            node.startup_scripts_data
-                .iter()
-                .flatten()
-                .map(|script| (script.filename.as_str(), script.content.as_str()))
-                .collect(),
-        ),
-        (
-            "user_script",
-            node.user_scripts_data
-                .iter()
-                .flatten()
-                .map(|script| (script.filename.as_str(), script.content.as_str()))
-                .collect(),
-        ),
-    ];
-    for (list, files) in read_files {
-        for (index, (filename, content)) in files.into_iter().enumerate() {
-            execute(
-                conn,
-                definition::CREATE_NODE_FILE_DATA.bind([
-                    key.into(),
-                    list.into(),
-                    position(index)?,
-                    filename.into(),
-                    content.into(),
-                ]),
-            )
-            .await?;
-        }
-    }
-    Ok(())
-}
-
-/// The node's systemd units: as the manifest names them, and as the client read them.
-async fn write_systemd_units(conn: &Connection, key: &str, node: &Node) -> Result<()> {
     for (index, unit) in node.systemd_units.iter().flatten().enumerate() {
         execute(
             conn,
             definition::CREATE_NODE_SYSTEMD_UNIT.bind([
                 key.into(),
-                "source".into(),
                 position(index)?,
                 unit.name.as_str().into(),
                 unit.source.as_str().into(),
-                Value::Null,
-                unit.enabled.into(),
-            ]),
-        )
-        .await?;
-    }
-    for (index, unit) in node.systemd_units_data.iter().flatten().enumerate() {
-        execute(
-            conn,
-            definition::CREATE_NODE_SYSTEMD_UNIT.bind([
-                key.into(),
-                "data".into(),
-                position(index)?,
-                unit.name.as_str().into(),
-                Value::Null,
-                unit.content.as_str().into(),
                 unit.enabled.into(),
             ]),
         )

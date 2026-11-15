@@ -1,17 +1,16 @@
 use std::fs;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use serde_derive::{Deserialize, Serialize};
 
 use super::bridge::Bridge;
 use super::link::Link2;
 use super::node::Node;
-use super::provisioner::Provisioning;
 use super::talos_cluster::TalosCluster;
 use shared::data::{NodeModel, ZtpServer};
 use shared::util::{generate_lab_name, load_file as load_file_util};
 
-#[derive(Debug, Deserialize, Serialize, Default, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub name: String,
@@ -88,45 +87,6 @@ impl Manifest {
         })
     }
 
-    /// The manifest's `provision_concurrency` and each node's provisioners, which are never
-    /// serialized with it.
-    #[must_use]
-    pub fn provisioning(&self) -> Provisioning {
-        Provisioning {
-            concurrency: self.provision_concurrency,
-            nodes: self
-                .nodes
-                .iter()
-                .filter_map(|node| {
-                    node.provisioners
-                        .clone()
-                        .map(|provisioners| (node.name.clone(), provisioners))
-                })
-                .collect(),
-        }
-    }
-
-    /// Set `provision_concurrency` and each node's provisioners from `provisioning`, as the
-    /// client sent them beside the manifest. A node `provisioning` leaves out has none.
-    ///
-    /// # Errors
-    ///
-    /// Fails when `provisioning` names a node the manifest does not have.
-    pub fn set_provisioning(&mut self, provisioning: Provisioning) -> Result<()> {
-        let Provisioning {
-            concurrency,
-            mut nodes,
-        } = provisioning;
-        self.provision_concurrency = concurrency;
-        for node in &mut self.nodes {
-            node.provisioners = nodes.remove(&node.name);
-        }
-        if let Some(name) = nodes.keys().next() {
-            bail!("Provisioners are given for node '{name}', which is not in the manifest");
-        }
-        Ok(())
-    }
-
     /// Write the manifest to `file_path` as TOML.
     ///
     /// # Errors
@@ -158,7 +118,6 @@ mod tests {
 
     use super::*;
     use crate::node::NodeExpanded;
-    use crate::provisioner::Provisioning;
     use shared::data::Ztp;
 
     #[test]
@@ -490,45 +449,6 @@ nodes = [
         assert_eq!(clusters[0].workers, vec!["w1"]);
         let restored: Manifest = toml::from_str(&toml::to_string(&manifest).unwrap()).unwrap();
         assert_eq!(restored.talos_clusters, manifest.talos_clusters);
-    }
-
-    #[test]
-    fn provisioning_round_trips_through_its_own_field() {
-        let input = r#"
-name = "lab"
-provision_concurrency = 2
-[[nodes]]
-name = "dev01"
-model = "ubuntu_linux"
-[[nodes.provisioners]]
-type = "ssh"
-scripts = ["./setup.sh"]
-[[nodes]]
-name = "dev02"
-model = "ubuntu_linux"
-"#;
-        let manifest: Manifest = toml::from_str(input).unwrap();
-        let provisioning = manifest.provisioning();
-        assert_eq!(provisioning.concurrency, Some(2));
-        assert_eq!(provisioning.nodes.keys().collect::<Vec<_>>(), ["dev01"]);
-
-        let sent = serde_json::to_value(&provisioning).unwrap();
-        let mut received: Manifest =
-            serde_json::from_value(serde_json::to_value(&manifest).unwrap()).unwrap();
-        assert_ne!(received, manifest);
-        received
-            .set_provisioning(serde_json::from_value(sent).unwrap())
-            .unwrap();
-        assert_eq!(received, manifest);
-    }
-
-    #[test]
-    fn provisioning_for_a_node_not_in_the_manifest_is_refused() {
-        let mut manifest: Manifest = toml::from_str("name='lab'\nnodes=[]").unwrap();
-        let mut provisioning = Provisioning::default();
-        provisioning.nodes.insert("ghost".to_owned(), Vec::new());
-        let error = manifest.set_provisioning(provisioning).unwrap_err();
-        assert!(error.to_string().contains("ghost"), "{error}");
     }
 
     #[test]

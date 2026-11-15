@@ -8,10 +8,10 @@ use turso::{Connection, Row};
 
 use shared::data::{CpuTopology, DbLab, NodeModel, RecordId, ZtpServer};
 use topology::{
-    AuthorizedKeyFile, BinaryFile, BinaryFileData, Bridge, ContainerProvisioner,
-    ContainerSecretFile, Link2, Manifest, ManifestImpairment, Node, NodeContainer, NodeUnikernel,
-    NodeVm, Provisioner, ProvisionerFile, SshProvisioner, StartupScript, SystemdUnit,
-    SystemdUnitData, TailscaleConfig, TalosCluster, TextFile, TextFileData, VolumeMount,
+    AuthorizedKeyFile, BinaryFile, Bridge, ContainerProvisioner, ContainerSecretFile, Link2,
+    Manifest, ManifestImpairment, Node, NodeContainer, NodeUnikernel, NodeVm, Provisioner,
+    ProvisionerFile, SshProvisioner, SystemdUnit, TailscaleConfig, TalosCluster, TextFile,
+    VolumeMount,
 };
 
 use super::write::ztp_password_context;
@@ -59,33 +59,6 @@ struct NodeText {
 struct NodeCpu {
     list: String,
     cpu: u16,
-}
-
-/// A text file as named (`source`) or as read (`data`).
-struct NodeTextFile {
-    list: String,
-    src: Option<String>,
-    content: Option<String>,
-    dst: String,
-    user: String,
-    group: String,
-    permissions: u32,
-}
-
-/// A file the client read: a binary file or a script.
-struct NodeFileData {
-    list: String,
-    filename: String,
-    content: String,
-}
-
-/// A systemd unit as named (`source`) or as read (`data`).
-struct NodeSystemdUnit {
-    list: String,
-    name: String,
-    source: Option<String>,
-    content: Option<String>,
-    enabled: bool,
 }
 
 /// A file of the node's `provisioner`th provisioner.
@@ -305,17 +278,14 @@ fn node_volume_row(row: &Row) -> Result<NodeItem<VolumeMount>> {
     })
 }
 
-fn node_text_file_row(row: &Row) -> Result<NodeItem<NodeTextFile>> {
+fn node_text_file_row(row: &Row) -> Result<NodeItem<TextFile>> {
     let mut cells = Cells::new(row);
     let node = cells.text("node")?;
-    let list = cells.text("list")?;
     let _position: i64 = cells.integer("position")?;
     Ok(NodeItem {
         node,
-        item: NodeTextFile {
-            list,
-            src: cells.optional_text("src")?,
-            content: cells.optional_text("content")?,
+        item: TextFile {
+            src: cells.text("src")?,
             dst: cells.text("dst")?,
             user: cells.text("user")?,
             group: cells.text("group")?,
@@ -324,33 +294,15 @@ fn node_text_file_row(row: &Row) -> Result<NodeItem<NodeTextFile>> {
     })
 }
 
-fn node_file_data_row(row: &Row) -> Result<NodeItem<NodeFileData>> {
+fn node_systemd_unit_row(row: &Row) -> Result<NodeItem<SystemdUnit>> {
     let mut cells = Cells::new(row);
     let node = cells.text("node")?;
-    let list = cells.text("list")?;
     let _position: i64 = cells.integer("position")?;
     Ok(NodeItem {
         node,
-        item: NodeFileData {
-            list,
-            filename: cells.text("filename")?,
-            content: cells.text("content")?,
-        },
-    })
-}
-
-fn node_systemd_unit_row(row: &Row) -> Result<NodeItem<NodeSystemdUnit>> {
-    let mut cells = Cells::new(row);
-    let node = cells.text("node")?;
-    let list = cells.text("list")?;
-    let _position: i64 = cells.integer("position")?;
-    Ok(NodeItem {
-        node,
-        item: NodeSystemdUnit {
-            list,
+        item: SystemdUnit {
             name: cells.text("name")?,
-            source: cells.optional_text("source")?,
-            content: cells.optional_text("content")?,
+            source: cells.text("source")?,
             enabled: cells.boolean("enabled")?,
         },
     })
@@ -433,8 +385,9 @@ impl Nodes {
 /// The lab `lab_id`'s definition as the manifest it was deployed from, or `None` when the lab
 /// has none (a lab stored before definitions were, whose saved manifest could not be imported).
 ///
-/// The manifest is the one stored, field for field, but for one rule: an empty list or an
-/// empty `vm`, `container` or `unikernel` table is not stored, and reads back as absent. A
+/// The manifest is the one stored, as the user wrote it, field for field, but for one rule: an
+/// empty list or an empty `vm`, `container` or `unikernel` table is not stored, and reads back
+/// as absent. It holds no file contents: every `*_data` field is absent. A
 /// `ztp_server.password` is opened with the database's key.
 ///
 /// # Errors
@@ -611,7 +564,6 @@ async fn read_node_lists(conn: &Connection, lab_key: &str, nodes: &mut Nodes) ->
                 &mut node.ssh.authorized_key_files,
                 AuthorizedKeyFile { source: value },
             ),
-            "authorized_key_file_data" => push(&mut node.ssh_authorized_key_files_data, value),
             "container_command" => push(
                 &mut node
                     .container
@@ -645,7 +597,7 @@ async fn read_node_lists(conn: &Connection, lab_key: &str, nodes: &mut Nodes) ->
     Ok(())
 }
 
-/// Read the nodes' text files, binary files, scripts and systemd units.
+/// Read the nodes' `text_files` and `systemd_units`.
 async fn read_node_files(conn: &Connection, lab_key: &str, nodes: &mut Nodes) -> Result<()> {
     for row in query_all(
         conn,
@@ -654,60 +606,7 @@ async fn read_node_files(conn: &Connection, lab_key: &str, nodes: &mut Nodes) ->
     )
     .await?
     {
-        let node = nodes.node(&row.node)?;
-        let file = row.item;
-        match (file.list.as_str(), file.src, file.content) {
-            ("source", Some(src), None) => push(
-                &mut node.text_files,
-                TextFile {
-                    src,
-                    dst: file.dst,
-                    user: file.user,
-                    group: file.group,
-                    permissions: file.permissions,
-                },
-            ),
-            ("data", None, Some(content)) => push(
-                &mut node.text_files_data,
-                TextFileData {
-                    content,
-                    dst: file.dst,
-                    user: file.user,
-                    group: file.group,
-                    permissions: file.permissions,
-                },
-            ),
-            (other, ..) => bail!("Database text file row of list {other} is not one Sherpa wrote"),
-        }
-    }
-    for row in query_all(
-        conn,
-        definition::LIST_NODE_FILE_DATAS.bind([lab_key.into()]),
-        node_file_data_row,
-    )
-    .await?
-    {
-        let node = nodes.node(&row.node)?;
-        let NodeFileData {
-            list,
-            filename,
-            content,
-        } = row.item;
-        match list.as_str() {
-            "binary_file" => push(
-                &mut node.binary_files_data,
-                BinaryFileData { filename, content },
-            ),
-            "startup_script" => push(
-                &mut node.startup_scripts_data,
-                StartupScript { filename, content },
-            ),
-            "user_script" => push(
-                &mut node.user_scripts_data,
-                StartupScript { filename, content },
-            ),
-            other => bail!("Database field list is not a file list: {other}"),
-        }
+        push(&mut nodes.node(&row.node)?.text_files, row.item);
     }
     for row in query_all(
         conn,
@@ -716,29 +615,7 @@ async fn read_node_files(conn: &Connection, lab_key: &str, nodes: &mut Nodes) ->
     )
     .await?
     {
-        let node = nodes.node(&row.node)?;
-        let unit = row.item;
-        match (unit.list.as_str(), unit.source, unit.content) {
-            ("source", Some(source), None) => push(
-                &mut node.systemd_units,
-                SystemdUnit {
-                    name: unit.name,
-                    source,
-                    enabled: unit.enabled,
-                },
-            ),
-            ("data", None, Some(content)) => push(
-                &mut node.systemd_units_data,
-                SystemdUnitData {
-                    name: unit.name,
-                    content,
-                    enabled: unit.enabled,
-                },
-            ),
-            (other, ..) => {
-                bail!("Database systemd unit row of list {other} is not one Sherpa wrote")
-            }
-        }
+        push(&mut nodes.node(&row.node)?.systemd_units, row.item);
     }
     Ok(())
 }

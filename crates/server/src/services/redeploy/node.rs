@@ -19,6 +19,7 @@ use crate::auth::context::AuthContext;
 use crate::auth::policy::{require_lab_owner, require_lab_starter};
 use crate::daemon::state::AppState;
 use crate::services::guest_account;
+use crate::services::lab_definition;
 use crate::services::lab_lifecycle;
 use crate::services::lab_operations;
 use crate::services::node_lifecycle;
@@ -181,14 +182,25 @@ async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
     .await?;
 
     // The node's definition, and the lab settings a redeploy applies, are what it is rebuilt
-    // from now.
+    // from now: the manifest as written, or, when the client sent no parts as written, the
+    // manifest with the node's stored ones.
+    let definition = if let Some(definition) = &redeploy.definition.as_written {
+        definition.clone()
+    } else {
+        let stored = lab_definition::stored_as_written(
+            &redeploy.state.db,
+            &redeploy.lab_record_id,
+            &redeploy.node_name,
+        )
+        .await?;
+        lab_definition::definition(&redeploy.definition.manifest, stored.as_ref())?
+    };
     db::store_redeployed_node(
         &redeploy.state.db,
         &redeploy.lab_record_id,
         &redeploy.node_record_id,
         &redeploy.node_name,
-        &redeploy.definition.manifest,
-        redeploy.definition.provisioning,
+        &definition,
     )
     .await
     .context("Failed to store the node's definition")?;

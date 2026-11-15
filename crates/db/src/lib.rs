@@ -24,8 +24,7 @@ pub mod user;
 
 pub use connect::{Database, open, open_in_memory};
 pub use definition::{
-    StoredProvisioning, list_labs_without_definition, read_lab_definition, store_lab_definition,
-    store_redeployed_node,
+    list_labs_without_definition, read_lab_definition, store_lab_definition, store_redeployed_node,
 };
 pub use secret::{SecretKey, secret_key_registered, verify_secret_key};
 pub use shared::data::{

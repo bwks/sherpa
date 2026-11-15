@@ -1,6 +1,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 #![cfg_attr(not(test), forbid(unsafe_code))]
 
+mod as_written;
 mod bridge;
 mod link;
 mod manifest;
@@ -11,6 +12,7 @@ mod talos_cluster;
 pub mod validate;
 
 // re-export
+pub use as_written::{ManifestAsWritten, NodeAsWritten};
 pub use bridge::{Bridge, BridgeDetailed, BridgeExpanded, BridgeLink, BridgeLinkDetailed};
 pub use link::ManifestImpairment;
 pub use link::{Link2, LinkDetailed, LinkExpanded};
@@ -21,8 +23,7 @@ pub use node::{
     SystemdUnitData, TextFile, TextFileData, VolumeMount,
 };
 pub use provisioner::{
-    ContainerProvisioner, ContainerSecretFile, Provisioner, ProvisionerFile, Provisioning,
-    SshProvisioner,
+    ContainerProvisioner, ContainerSecretFile, Provisioner, ProvisionerFile, SshProvisioner,
 };
 pub use resolve::{process_manifest_bridges, process_manifest_links};
 pub use talos_cluster::{TalosCluster, find_talos_cluster};

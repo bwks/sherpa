@@ -4,11 +4,10 @@ use shared::data::{
     PtxPlatform, RecordId, WatchdogAction, Ztp, ZtpServer,
 };
 use topology::{
-    AuthorizedKeyFile, BinaryFile, BinaryFileData, Bridge, ContainerProvisioner,
-    ContainerSecretFile, Link2, Manifest, ManifestImpairment, Node, NodeContainer, NodeReadyCheck,
-    NodeSsh, NodeUnikernel, NodeVm, NodeZtp, Provisioner, ProvisionerFile, SshProvisioner,
-    StartupScript, SystemdUnit, SystemdUnitData, TailscaleConfig, TalosCluster, TextFile,
-    TextFileData, VolumeMount,
+    AuthorizedKeyFile, BinaryFile, Bridge, ContainerProvisioner, ContainerSecretFile, Link2,
+    Manifest, ManifestImpairment, Node, NodeContainer, NodeReadyCheck, NodeSsh, NodeUnikernel,
+    NodeVm, NodeZtp, Provisioner, ProvisionerFile, SshProvisioner, StartupScript, SystemdUnit,
+    TailscaleConfig, TalosCluster, TextFile, VolumeMount,
 };
 use turso::Value;
 
@@ -24,7 +23,7 @@ use crate::{
 const PASSWORD: &str = "ztp-Secret-42";
 
 /// Every table the definition writes rows to, other than `lab` and `node`.
-const CHILD_TABLES: [&str; 14] = [
+const CHILD_TABLES: [&str; 13] = [
     "manifest_link",
     "manifest_bridge",
     "manifest_bridge_link",
@@ -34,14 +33,14 @@ const CHILD_TABLES: [&str; 14] = [
     "manifest_node_text",
     "manifest_node_volume",
     "manifest_node_text_file",
-    "manifest_node_file_data",
     "manifest_node_systemd_unit",
     "manifest_node_provisioner",
     "manifest_node_provisioner_file",
     "manifest_node_provisioner_path",
 ];
 
-/// A node that sets every field the manifest has.
+/// A node that sets every field the manifest has, as the user writes it: none of the `*_data`
+/// fields, which only the client fills in, from the files.
 fn full_node() -> Node {
     Node {
         name: "dev01".to_owned(),
@@ -77,7 +76,7 @@ fn full_node() -> Node {
         },
         ztp: NodeZtp {
             method: Some(Ztp::CloudInit),
-            config: Some("I2Nsb3VkLWNvbmZpZw==".to_owned()),
+            config: Some("configs/dev01.yaml".to_owned()),
         },
         ssh: NodeSsh {
             authorized_keys: Some(vec![
@@ -113,10 +112,10 @@ fn full_node() -> Node {
     }
 }
 
-/// The files, scripts and provisioners of [`full_node`].
+/// The files, scripts and provisioners of [`full_node`], as the manifest names them.
 fn full_node_files() -> Node {
     Node {
-        environment_variables: Some(vec!["MODE=lab".to_owned(), "TOKEN=resolved".to_owned()]),
+        environment_variables: Some(vec!["MODE=lab".to_owned(), "TOKEN=$LAB_TOKEN".to_owned()]),
         text_files: Some(vec![TextFile {
             src: "files/motd".to_owned(),
             dst: "/etc/motd".to_owned(),
@@ -133,32 +132,7 @@ fn full_node_files() -> Node {
             enabled: true,
         }]),
         startup_scripts: Some(vec!["scripts/start.sh".to_owned()]),
-        startup_scripts_data: Some(vec![StartupScript {
-            filename: "start.sh".to_owned(),
-            content: "#!/bin/sh\necho start\n".to_owned(),
-        }]),
         user_scripts: Some(vec!["scripts/user.sh".to_owned()]),
-        user_scripts_data: Some(vec![StartupScript {
-            filename: "user.sh".to_owned(),
-            content: "#!/bin/sh\necho user\n".to_owned(),
-        }]),
-        text_files_data: Some(vec![TextFileData {
-            content: "Welcome\n".to_owned(),
-            dst: "/etc/motd".to_owned(),
-            user: "root".to_owned(),
-            group: "root".to_owned(),
-            permissions: 644,
-        }]),
-        binary_files_data: Some(vec![BinaryFileData {
-            filename: "tool.bin".to_owned(),
-            content: "AAEC".to_owned(),
-        }]),
-        systemd_units_data: Some(vec![SystemdUnitData {
-            name: "lab.service".to_owned(),
-            content: "W1VuaXRd".to_owned(),
-            enabled: false,
-        }]),
-        ssh_authorized_key_files_data: Some(vec!["ssh-ed25519 AAAA3 carol".to_owned()]),
         provisioners: Some(vec![
             Provisioner::Ssh(SshProvisioner {
                 files: vec![ProvisionerFile {
@@ -376,17 +350,15 @@ fn assert_every_node_field_set(node: &Node) {
         binary_files.as_ref().map(Vec::len),
         systemd_units.as_ref().map(Vec::len),
         startup_scripts.as_ref().map(Vec::len),
-        startup_scripts_data.as_ref().map(Vec::len),
         user_scripts.as_ref().map(Vec::len),
-        user_scripts_data.as_ref().map(Vec::len),
-        text_files_data.as_ref().map(Vec::len),
-        binary_files_data.as_ref().map(Vec::len),
-        systemd_units_data.as_ref().map(Vec::len),
-        ssh_authorized_key_files_data.as_ref().map(Vec::len),
         provisioners.as_ref().map(Vec::len),
     ] {
         assert!(list.is_some_and(|len| len > 0));
     }
+    // The contents the client reads are not part of the manifest as written.
+    assert!(startup_scripts_data.is_none() && user_scripts_data.is_none());
+    assert!(text_files_data.is_none() && binary_files_data.is_none());
+    assert!(systemd_units_data.is_none() && ssh_authorized_key_files_data.is_none());
 }
 
 /// A database with a key, and the lab `core` holding the nodes `dev01` (Ubuntu) and `web` (a
@@ -688,16 +660,9 @@ async fn a_redeploy_replaces_its_node_and_the_lab_settings_only() {
         .unwrap()
         .id
         .unwrap();
-    store_redeployed_node(
-        &db,
-        &lab_id(&lab),
-        &node_id,
-        "dev01",
-        &redeployed,
-        StoredProvisioning::Replace,
-    )
-    .await
-    .unwrap();
+    store_redeployed_node(&db, &lab_id(&lab), &node_id, "dev01", &redeployed)
+        .await
+        .unwrap();
 
     let mut expected = before;
     expected.ready_timeout = Some(60);
@@ -711,41 +676,28 @@ async fn a_redeploy_replaces_its_node_and_the_lab_settings_only() {
 }
 
 #[tokio::test]
-async fn a_redeploy_that_sends_no_provisioning_keeps_the_stored_one() {
+async fn a_manifest_holding_file_contents_is_refused() {
     let (db, lab) = lab_with_nodes().await;
-    let before = full_manifest();
-    store_lab_definition(&db, &lab_id(&lab), &before)
+    let mut resolved = full_manifest();
+    resolved.nodes[0].startup_scripts_data = Some(vec![StartupScript {
+        filename: "start.sh".to_owned(),
+        content: "IyEvYmluL3No".to_owned(),
+    }]);
+    let error = store_lab_definition(&db, &lab_id(&lab), &resolved)
         .await
-        .unwrap();
-
-    // As the web UI sends it: the saved manifest, without provisioners.
-    let mut redeployed = full_manifest();
-    redeployed.provision_concurrency = None;
-    redeployed.nodes[0].provisioners = None;
-    redeployed.nodes[0].memory = Some(8192);
+        .unwrap_err();
+    assert!(error.to_string().contains("contents of files"), "{error}");
     let node_id = get_node_by_name_and_lab(&db, "dev01", lab_id(&lab))
         .await
         .unwrap()
         .id
         .unwrap();
-    store_redeployed_node(
-        &db,
-        &lab_id(&lab),
-        &node_id,
-        "dev01",
-        &redeployed,
-        StoredProvisioning::Keep,
-    )
-    .await
-    .unwrap();
-
-    let stored = read_lab_definition(&db, &lab_id(&lab))
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(stored.provision_concurrency, before.provision_concurrency);
-    assert_eq!(stored.nodes[0].provisioners, before.nodes[0].provisioners);
-    assert_eq!(stored.nodes[0].memory, Some(8192));
+    assert!(
+        store_redeployed_node(&db, &lab_id(&lab), &node_id, "dev01", &resolved)
+            .await
+            .is_err()
+    );
+    assert_eq!(read_lab_definition(&db, &lab_id(&lab)).await.unwrap(), None);
 }
 
 #[tokio::test]

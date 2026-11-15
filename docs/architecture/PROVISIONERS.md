@@ -29,14 +29,13 @@ but never serialized, so it is absent from the manifest JSON the client sends an
 so nothing is lost by not serializing it.
 
 The CLI sends the definitions beside the manifest instead, so the server can store them with the
-lab's definition (see [`DATABASE.md`](DATABASE.md#lab-definitions)): `Manifest::provisioning`
-gives a `topology::Provisioning`, `provision_concurrency` and each node's provisioners by node
-name, which `sherpa up` and `sherpa redeploy` send as the optional `provisioning` field of
-`UpRequest` and `RedeployRequest`. On the server, `services::lab_definition::add_provisioning`
-puts it back into the manifest (`Manifest::set_provisioning`, which refuses a node the manifest
-does not have) and runs `validate_provisioners`. A request without the field, from an older CLI
-or the web UI, stores none at `up` and keeps the stored ones at `redeploy`. An older server
-ignores the field.
+lab's definition (see [`DATABASE.md`](DATABASE.md#lab-definitions)): they are part of the
+`topology::ManifestAsWritten` that `sherpa up` and `sherpa redeploy` send as the optional
+`as_written` field of `UpRequest` and `RedeployRequest`, with `provision_concurrency`. On the
+server, `services::lab_definition::definition` puts them into the manifest it stores and runs
+`validate_provisioners`. The manifest the node is built from has none. A request without the
+field, from an older CLI, stores none at `up` and keeps the stored ones at `redeploy`. An older
+server ignores the field.
 
 ## Validation
 
@@ -50,8 +49,8 @@ ignores the field.
   unique per node; at least one action. `provision_concurrency`, when set, at least 1.
 - `server::validate::reject_provisioners` (`up::up_lab`, `redeploy::redeploy_node`): any node with
   provisioners in the manifest itself is refused. The CLI never puts them there, so they only
-  arrive from the web UI or REST, which cannot run them. The `provisioning` field is checked
-  after this, with `validate_provisioners`.
+  arrive from the web UI or REST, which cannot run them. The `as_written` field's provisioners
+  are checked after this, with `validate_provisioners`.
 - `server::validate::validate_node_secrets` (`up_lab`, `redeploy_node`, before anything is
   created): secret files are only for container nodes in the manifest, with valid, unique names,
   valid modes and base64 content (`validate_secret_files`, also run by every write).
@@ -130,7 +129,7 @@ Remote steps, as the node's login user:
 `wait_for_node`, then the provisioners) and runs them with `buffer_unordered`, up to
 `Manifest::provision_concurrency` at once (`konst::PROVISION_CONCURRENCY`, 8, when unset). The
 field is `#[serde(default, skip_serializing)]` like `provisioners`, and reaches the server only
-in the `provisioning` field, to be stored; the server does not use it. `validate_provisioners`
+in the `as_written` field, to be stored; the server does not use it. `validate_provisioners`
 refuses `0`. All futures run on the caller's task, so
 nothing needs to be `'static` or `Send`.
 

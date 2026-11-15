@@ -1,9 +1,12 @@
-//! The lab's definition in the database: the manifest parts the client sends beside the
-//! manifest, and the one-time import of labs stored before definitions were.
+//! The lab's definition in the database: the manifest as the user wrote it, built from the
+//! manifest the client sent and the parts as written it sends beside it, and the one-time
+//! import of labs stored before definitions were.
 //!
 //! `up` stores a lab's definition with its records, and `redeploy` the node it rebuilds (see
-//! `db::definition`). A lab stored before then has none; at startup sherpad imports it from the
-//! lab's saved manifest, once.
+//! `db::definition`). The definition holds no file contents and no resolved variable values;
+//! those are sent with each `up` or `redeploy` and used to build the node only. A lab stored
+//! before definitions has none; at startup sherpad imports it from the lab's saved manifest,
+//! once.
 
 use std::path::Path;
 
@@ -11,11 +14,11 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use tracing::instrument;
 
-use db::{Database, StoredProvisioning};
-use shared::data::DbLab;
+use db::Database;
+use shared::data::{DbLab, RecordId};
 use shared::util::load_saved_manifest;
 use topology::validate::validate_provisioners;
-use topology::{Manifest, Provisioning};
+use topology::{Manifest, ManifestAsWritten};
 
 /// What the startup import did.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -27,25 +30,50 @@ pub struct ImportSummary {
     pub skipped: usize,
 }
 
-/// Add the provisioning the client sent beside `manifest`, checked as the client checks it.
-/// Returns whether the stored provisioning is replaced: a request without it keeps it.
+/// The parts as written the client sent beside the manifest, if it sent them.
 ///
 /// # Errors
 ///
-/// Fails when `provisioning` is not a provisioning, names a node the manifest does not have, or
-/// fails the provisioner checks.
-pub fn add_provisioning(
-    manifest: &mut Manifest,
-    provisioning: Option<Value>,
-) -> Result<StoredProvisioning> {
-    let Some(provisioning) = provisioning else {
-        return Ok(StoredProvisioning::Keep);
+/// Fails when they are not parts as written.
+pub fn parse_as_written(as_written: Option<Value>) -> Result<Option<ManifestAsWritten>> {
+    as_written
+        .map(serde_json::from_value)
+        .transpose()
+        .context("Failed to deserialize the manifest as written")
+}
+
+/// The definition to store for `manifest`, as the client sent it: the manifest as written, with
+/// `as_written`'s parts and no file contents (`Manifest::definition`), its provisioners checked
+/// as the client checks them.
+///
+/// # Errors
+///
+/// Fails when `as_written` names a node `manifest` does not have, or the provisioners fail
+/// their checks.
+pub fn definition(manifest: &Manifest, as_written: Option<&ManifestAsWritten>) -> Result<Manifest> {
+    let definition = manifest.definition(as_written)?;
+    validate_provisioners(&definition)?;
+    Ok(definition)
+}
+
+/// The parts as written of node `node_name` in the lab `lab_id`'s stored definition, with the
+/// lab's `provision_concurrency`: what a redeploy that did not send them (from the web UI or an
+/// older client) keeps. `None` when the lab has no stored definition.
+///
+/// # Errors
+///
+/// Fails when the stored definition cannot be read.
+pub async fn stored_as_written(
+    db: &Database,
+    lab_id: &RecordId,
+    node_name: &str,
+) -> Result<Option<ManifestAsWritten>> {
+    let Some(stored) = db::read_lab_definition(db, lab_id).await? else {
+        return Ok(None);
     };
-    let provisioning: Provisioning =
-        serde_json::from_value(provisioning).context("Failed to deserialize the provisioning")?;
-    manifest.set_provisioning(provisioning)?;
-    validate_provisioners(manifest)?;
-    Ok(StoredProvisioning::Replace)
+    let mut parts = stored.as_written();
+    parts.nodes.retain(|name, _| name == node_name);
+    Ok(Some(parts))
 }
 
 /// Store a definition for every lab that has none, from the manifest saved in its directory
@@ -53,8 +81,11 @@ pub fn add_provisioning(
 /// missing, unreadable, or does not fit its records is logged and left without one; nothing is
 /// made up for it. The saved files are left in place.
 ///
-/// The saved manifest never held provisioners or `provision_concurrency`, so an imported lab
-/// has none stored.
+/// A saved manifest is the one the client resolved, so only what survives as written is stored
+/// (`Manifest::definition` without parts as written): every parameter but `ztp.config`, which
+/// holds the file's contents, and `environment_variables`, whose `$VAR`s hold their values. The
+/// file contents in it are not stored. It never held provisioners or `provision_concurrency`.
+/// Each dropped field is logged.
 ///
 /// # Errors
 ///
@@ -84,12 +115,30 @@ pub async fn import_lab_definitions(db: &Database, labs: &Path) -> Result<Import
     Ok(summary)
 }
 
-/// Store the manifest saved in `lab_dir` as `lab`'s definition.
+/// Store what survives as written of the manifest saved in `lab_dir` as `lab`'s definition.
 async fn import_lab(db: &Database, lab: &DbLab, lab_dir: &Path) -> Result<()> {
     let saved = load_saved_manifest(lab_dir)?;
     let manifest: Manifest =
         serde_json::from_value(saved).context("The saved manifest is not a valid manifest")?;
-    db::store_lab_definition(db, &db::get_lab_id(lab)?, &manifest)
+    for node in &manifest.nodes {
+        let mut dropped = Vec::new();
+        if node.ztp.config.is_some() {
+            dropped.push("ztp.config");
+        }
+        if node.environment_variables.is_some() {
+            dropped.push("environment_variables");
+        }
+        if !dropped.is_empty() {
+            tracing::warn!(
+                lab_id = %lab.lab_id,
+                node_name = %node.name,
+                fields = %dropped.join(", "),
+                "The saved manifest holds these fields resolved, not as written, so they are \
+                 not imported; a redeploy from the lab's manifest stores them"
+            );
+        }
+    }
+    db::store_lab_definition(db, &db::get_lab_id(lab)?, &manifest.definition(None)?)
         .await
         .context("The saved manifest does not fit the lab's records")
 }
@@ -120,7 +169,27 @@ password = "ztp-Secret-42"
 name = "dev01"
 model = "ubuntu_linux"
 memory = 2048
-environment_variables = ["MODE=lab"]
+environment_variables = ["MODE=lab", "TOKEN=resolved-Secret-5"]
+startup_scripts = ["scripts/start.sh"]
+ztp = { config = "I2Nsb3VkLWNvbmZpZw==" }
+
+[[nodes.text_files]]
+src = "files/motd"
+dst = "/etc/motd"
+user = "root"
+group = "root"
+permissions = 644
+
+[[nodes.text_files_data]]
+content = "V2VsY29tZS1Db250ZW50"
+dst = "/etc/motd"
+user = "root"
+group = "root"
+permissions = 644
+
+[[nodes.startup_scripts_data]]
+filename = "start.sh"
+content = "U2NyaXB0LUNvbnRlbnQ="
 
 [[links]]
 src = "dev01::eth1"
@@ -169,8 +238,21 @@ dst = "dev01::eth2"
         (db, lab)
     }
 
-    fn expected() -> Manifest {
+    /// The saved manifest, as the client resolved it.
+    fn saved() -> Manifest {
         toml::from_str(MANIFEST_TOML).unwrap()
+    }
+
+    /// What the import stores of [`saved`]: its parameters as written, without `ztp.config`
+    /// and `environment_variables`, which it holds resolved, and without file contents.
+    fn expected() -> Manifest {
+        let mut manifest = saved();
+        let node = &mut manifest.nodes[0];
+        node.ztp.config = None;
+        node.environment_variables = None;
+        node.text_files_data = None;
+        node.startup_scripts_data = None;
+        manifest
     }
 
     #[tokio::test]
@@ -192,6 +274,15 @@ dst = "dev01::eth2"
             .await
             .unwrap();
         assert_eq!(stored, Some(expected()));
+        let stored = stored.unwrap();
+        assert_eq!(
+            stored.nodes[0].text_files.as_ref().unwrap()[0].src,
+            "files/motd"
+        );
+        assert_eq!(
+            stored.nodes[0].startup_scripts.as_deref(),
+            Some(&["scripts/start.sh".to_owned()][..])
+        );
         assert!(labs.path().join("lab-0001/manifest.toml").exists());
 
         // A second start finds nothing to import.
@@ -206,7 +297,7 @@ dst = "dev01::eth2"
         fs::create_dir(labs.path().join("lab-0001")).unwrap();
         fs::write(
             labs.path().join("lab-0001/manifest.json"),
-            serde_json::to_string(&expected()).unwrap(),
+            serde_json::to_string(&saved()).unwrap(),
         )
         .unwrap();
 
@@ -284,23 +375,80 @@ dst = "dev01::eth2"
     }
 
     #[test]
-    fn sent_provisioning_is_added_and_checked() {
-        let mut manifest = expected();
-        let kept = add_provisioning(&mut manifest, None).unwrap();
-        assert_eq!(kept, StoredProvisioning::Keep);
-
+    fn the_definition_takes_the_parts_as_written_and_checks_provisioners() {
         let sent = serde_json::json!({
-            "concurrency": 2,
-            "nodes": { "dev01": [{ "type": "ssh", "scripts": ["./setup.sh"] }] },
+            "provision_concurrency": 2,
+            "nodes": { "dev01": {
+                "ztp_config": "configs/dev01.yaml",
+                "environment_variables": ["MODE=lab", "TOKEN=$LAB_TOKEN"],
+                "provisioners": [{ "type": "ssh", "scripts": ["./setup.sh"] }],
+            } },
         });
-        let replaced = add_provisioning(&mut manifest, Some(sent)).unwrap();
-        assert_eq!(replaced, StoredProvisioning::Replace);
-        assert_eq!(manifest.provision_concurrency, Some(2));
-        assert_eq!(manifest.nodes[0].provisioners.as_ref().unwrap().len(), 1);
+        let parts = parse_as_written(Some(sent)).unwrap().unwrap();
+        let stored = definition(&saved(), Some(&parts)).unwrap();
+        let node = &stored.nodes[0];
+        assert_eq!(node.ztp.config.as_deref(), Some("configs/dev01.yaml"));
+        assert_eq!(
+            node.environment_variables.as_deref(),
+            Some(&["MODE=lab".to_owned(), "TOKEN=$LAB_TOKEN".to_owned()][..])
+        );
+        assert_eq!(stored.provision_concurrency, Some(2));
+        assert!(!stored.has_file_contents());
+        let text = serde_json::to_string(&stored).unwrap();
+        for resolved in [
+            "resolved-Secret-5",
+            "I2Nsb3Vk",
+            "V2VsY29tZS1Db250ZW50",
+            "U2NyaXB0",
+        ] {
+            assert!(!text.contains(resolved), "{resolved}: {text}");
+        }
 
-        let zero = serde_json::json!({ "concurrency": 0 });
-        assert!(add_provisioning(&mut expected(), Some(zero)).is_err());
-        let ghost = serde_json::json!({ "nodes": { "ghost": [] } });
-        assert!(add_provisioning(&mut expected(), Some(ghost)).is_err());
+        assert_eq!(parse_as_written(None).unwrap(), None);
+        let without = definition(&saved(), None).unwrap();
+        assert_eq!(without, expected());
+
+        let zero = serde_json::json!({ "provision_concurrency": 0 });
+        let zero = parse_as_written(Some(zero)).unwrap();
+        assert!(definition(&saved(), zero.as_ref()).is_err());
+        let ghost = serde_json::json!({ "nodes": { "ghost": {} } });
+        let ghost = parse_as_written(Some(ghost)).unwrap();
+        assert!(definition(&saved(), ghost.as_ref()).is_err());
+    }
+
+    #[tokio::test]
+    async fn a_redeploy_without_parts_as_written_keeps_the_stored_ones() {
+        let (db, lab) = lab().await;
+        let lab_id = lab.id.clone().unwrap();
+        assert_eq!(
+            stored_as_written(&db, &lab_id, "dev01").await.unwrap(),
+            None
+        );
+        let sent = serde_json::json!({
+            "provision_concurrency": 3,
+            "nodes": { "dev01": { "ztp_config": "configs/dev01.yaml" } },
+        });
+        let parts = parse_as_written(Some(sent)).unwrap();
+        db::store_lab_definition(&db, &lab_id, &definition(&saved(), parts.as_ref()).unwrap())
+            .await
+            .unwrap();
+
+        let kept = stored_as_written(&db, &lab_id, "dev01")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(kept.provision_concurrency, Some(3));
+        assert_eq!(
+            kept.nodes["dev01"].ztp_config.as_deref(),
+            Some("configs/dev01.yaml")
+        );
+        assert!(
+            stored_as_written(&db, &lab_id, "other")
+                .await
+                .unwrap()
+                .unwrap()
+                .nodes
+                .is_empty()
+        );
     }
 }

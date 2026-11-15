@@ -29,7 +29,7 @@ use crate::auth::policy::{require_host_access, require_lab_starter};
 use crate::daemon::state::AppState;
 use crate::services::clean;
 use crate::services::guest_account;
-use crate::services::lab_definition::add_provisioning;
+use crate::services::lab_definition;
 use crate::services::lab_lifecycle;
 use crate::services::lab_operations::{self, LabHold, LabOperation, StopReason};
 use crate::services::lab_ssh_key::{LabSshKeyPaths, create_lab_ssh_key};
@@ -64,6 +64,8 @@ struct LabUp<'a> {
     state: &'a AppState,
     operation: &'a LabOperation,
     manifest: &'a topology::Manifest,
+    /// The manifest as the user wrote it, stored as the lab's definition.
+    definition: &'a topology::Manifest,
     /// What the user said about the lab.
     details: &'a db::LabDetails,
     /// The authenticated caller, who owns the lab.
@@ -127,13 +129,16 @@ pub async fn up_lab(
         node_secrets,
         client_host,
         client_folder,
-        provisioning,
+        as_written,
     } = request;
     require_lab_starter(ctx)?;
-    let manifest = check_up_request(
+    let CheckedManifest {
+        manifest,
+        definition,
+    } = check_up_request(
         ctx,
         manifest,
-        provisioning,
+        as_written,
         &node_secrets,
         client_host.as_deref(),
         client_folder.as_deref(),
@@ -202,6 +207,7 @@ pub async fn up_lab(
         state,
         operation: &operation,
         manifest: &manifest,
+        definition: &definition,
         details: &details,
         username: &ctx.username,
         plan,
@@ -248,31 +254,43 @@ async fn validate(
     planned
 }
 
+/// The manifest `up` builds the lab from, as the client sent it, and the lab's definition.
+struct CheckedManifest {
+    manifest: topology::Manifest,
+    /// The manifest as the user wrote it, from the parts as written the client sent beside it:
+    /// what the database stores, without file contents or resolved values.
+    definition: topology::Manifest,
+}
+
 /// The request's manifest, checked before anything else: host access, the description, the
 /// files the client read, provisioners, container secret files, and where the lab was started
-/// from. The provisioning the client sent beside it is added, for the lab's definition.
+/// from; and the lab's definition, built from it and the parts as written.
 fn check_up_request(
     ctx: &AuthContext,
     manifest: serde_json::Value,
-    provisioning: Option<serde_json::Value>,
+    as_written: Option<serde_json::Value>,
     node_secrets: &BTreeMap<String, Vec<data::SecretFile>>,
     client_host: Option<&str>,
     client_folder: Option<&str>,
-) -> Result<topology::Manifest> {
-    let mut manifest: topology::Manifest =
+) -> Result<CheckedManifest> {
+    let manifest: topology::Manifest =
         serde_json::from_value(manifest).context("Failed to deserialize manifest")?;
     require_host_access(ctx, &manifest.nodes)?;
     check_lab_description(manifest.description.as_deref())
         .context("Manifest validation failed: description")?;
     check_client_read_files(&manifest.nodes).context("Manifest validation failed: files")?;
     reject_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
-    add_provisioning(&mut manifest, provisioning)
-        .context("Manifest validation failed: provisioning")?;
+    let as_written = lab_definition::parse_as_written(as_written)?;
+    let definition = lab_definition::definition(&manifest, as_written.as_ref())
+        .context("Manifest validation failed: the manifest as written")?;
     validate_node_secrets(&manifest, node_secrets)
         .context("Manifest validation failed: container secret files")?;
     validate_lab_origin(client_host, client_folder)
         .context("Request validation failed: lab origin")?;
-    Ok(manifest)
+    Ok(CheckedManifest {
+        manifest,
+        definition,
+    })
 }
 
 /// Setup (phase 1): load the owner, refuse a lab ID already in use, check the owner has an SSH
@@ -400,7 +418,7 @@ impl LabUp<'_> {
         )?;
         let mut records = create_node_records(
             &self.build,
-            self.manifest,
+            self.definition,
             reserved,
             &self.plan.nodes_expanded,
             &self.plan.node_images,

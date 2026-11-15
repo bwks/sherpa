@@ -40,6 +40,9 @@ pub async fn redeploy(
     let mut manifest = topology::Manifest::load_file(manifest_path)?;
     validate_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
     check_text_file_modes(&manifest.nodes).context("Manifest validation failed: text files")?;
+    // As written, before the files and variables are resolved: what the server stores.
+    let as_written = serde_json::to_value(manifest.as_written())
+        .context("Failed to serialize the manifest as written to JSON")?;
     resolve_manifest_files(&mut manifest, manifest_path)?;
 
     // Always sent, so a node whose container provisioner was removed loses its secret files.
@@ -53,9 +56,6 @@ pub async fn redeploy(
 
     let manifest_value =
         serde_json::to_value(&manifest).context("Failed to serialize manifest to JSON")?;
-    // Provisioners go beside the manifest, as for `up`, so the server stores the node's.
-    let provisioning = serde_json::to_value(manifest.provisioning())
-        .context("Failed to serialize the provisioning to JSON")?;
 
     // Limits the connect only: the operation streams its progress for as long as it runs.
     let timeout = Duration::from_secs(config.server_connection.timeout_secs);
@@ -79,7 +79,7 @@ pub async fn redeploy(
             "node_name": node_name,
             "manifest": manifest_value,
             "secrets": secrets,
-            "provisioning": provisioning,
+            "as_written": as_written,
             "token": token,
         }),
     );

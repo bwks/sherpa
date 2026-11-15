@@ -17,7 +17,7 @@ use crate::services::guest_account::{self, GuestAccount};
 use crate::services::image_lifecycle::{
     ImageLease, check_container_image, lease_image, validate_disk_method,
 };
-use crate::services::lab_definition::add_provisioning;
+use crate::services::lab_definition;
 use crate::services::lab_operations::LabOperation;
 use crate::services::lab_ssh_key::LabSshKeyPaths;
 use crate::services::progress::ProgressSender;
@@ -28,7 +28,6 @@ use crate::validate::{
     reject_provisioners, validate_container_repo, validate_node_secrets, validate_node_ztp,
 };
 
-use db::StoredProvisioning;
 use libvirt::QemuConnection;
 use shared::data;
 use shared::data::{DbLab, DbNode, RecordId, RedeployRequest, StatusKind};
@@ -81,11 +80,12 @@ pub(super) struct Redeploy<'a> {
     pub(super) _admission: Admission,
 }
 
-/// The manifest a node is redeployed from, with the provisioning the client sent beside it.
+/// The manifest a node is redeployed from, as the client sent it, and its definition.
 pub(super) struct RedeployDefinition {
     pub(super) manifest: topology::Manifest,
-    /// Whether the client sent the provisioning, which then replaces the stored one.
-    pub(super) provisioning: StoredProvisioning,
+    /// The manifest as the user wrote it, from the parts as written the client sent beside it.
+    /// `None` when it sent none (the web UI, an older client): the node keeps the stored ones.
+    pub(super) as_written: Option<topology::Manifest>,
 }
 
 impl Redeploy<'_> {
@@ -135,14 +135,14 @@ pub(super) async fn load_redeploy<'a>(
         node_name,
         manifest,
         secrets,
-        provisioning,
+        as_written,
     } = request;
     let _ = progress.send_status(
         format!("Loading context for node: {node_name}"),
         StatusKind::Progress,
     );
 
-    let definition = check_manifest(ctx, manifest, provisioning, &node_name, secrets.as_deref())?;
+    let definition = check_manifest(ctx, manifest, as_written, &node_name, secrets.as_deref())?;
     let manifest = &definition.manifest;
     let mut target_node = manifest_node(manifest, &node_name)?;
     let talos_clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
@@ -240,23 +240,29 @@ pub(super) async fn load_redeploy<'a>(
 
 /// The request's manifest, with the checks a redeploy shares with `sherpa up`: host access, the
 /// files the client read, provisioners, and the node's secret files; and that the node, if in a
-/// Talos cluster, can be redeployed. The provisioning the client sent beside it is added.
+/// Talos cluster, can be redeployed. With the parts as written the client sent beside it, the
+/// node's definition is built and its provisioners checked.
 fn check_manifest(
     ctx: &AuthContext,
     manifest: serde_json::Value,
-    provisioning: Option<serde_json::Value>,
+    as_written: Option<serde_json::Value>,
     node_name: &str,
     secrets: Option<&[data::SecretFile]>,
 ) -> Result<RedeployDefinition> {
-    let mut manifest: topology::Manifest =
+    let manifest: topology::Manifest =
         serde_json::from_value(manifest).context("Failed to deserialize manifest")?;
     require_host_access(ctx, &manifest.nodes)?;
     let talos_clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
     talos::ensure_redeployable(node_name, find_talos_cluster(talos_clusters, node_name))?;
     check_client_read_files(&manifest.nodes).context("Manifest validation failed: files")?;
     reject_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
-    let provisioning = add_provisioning(&mut manifest, provisioning)
-        .context("Manifest validation failed: provisioning")?;
+    let as_written = match lab_definition::parse_as_written(as_written)? {
+        Some(parts) => Some(
+            lab_definition::definition(&manifest, Some(&parts))
+                .context("Manifest validation failed: the manifest as written")?,
+        ),
+        None => None,
+    };
     if let Some(files) = secrets
         && !files.is_empty()
     {
@@ -268,7 +274,7 @@ fn check_manifest(
     }
     Ok(RedeployDefinition {
         manifest,
-        provisioning,
+        as_written,
     })
 }
 

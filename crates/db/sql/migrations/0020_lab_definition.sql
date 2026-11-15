@@ -1,8 +1,10 @@
--- The lab's definition: every parameter of the manifest it was deployed from, so the database,
--- not a saved manifest file, is the record of what a lab is. `up` writes it with the lab's
--- records, `redeploy` replaces the node it rebuilds, and sherpad imports it once at startup from
--- the saved manifest of a lab that has none. A value the manifest leaves out is NULL, or no row
--- in a child table; an empty list is stored as no rows.
+-- The lab's definition: every parameter of the manifest it was deployed from, as the user wrote
+-- it, so the database, not a saved manifest file, is the record of what a lab is. Files and
+-- scripts are stored as the paths and settings the manifest gives, never their contents, and
+-- environment variables as written, a `KEY=$VAR` naming its variable, never its value. `up`
+-- writes it with the lab's records, `redeploy` replaces the node it rebuilds, and sherpad
+-- imports it once at startup from the saved manifest of a lab that has none. A value the
+-- manifest leaves out is NULL, or no row in a child table; an empty list is stored as no rows.
 --
 -- Where the node already records what it was built with (`cpu_count`, `memory`, `ready_port`,
 -- `skip_ready_check`) or refers to a record (`image`), the manifest's own value is a
@@ -67,7 +69,7 @@ ALTER TABLE node ADD COLUMN interfaces_queues INTEGER
 ALTER TABLE node ADD COLUMN ztp_method TEXT
     CHECK (ztp_method IS NULL OR ztp_method IN ('disabled', 'cloud-init', 'cdrom', 'disk',
         'http', 'ignition', 'nocloud', 'tftp', 'usb', 'volume'));
--- The node's startup configuration, as the client read it.
+-- The path of the node's startup configuration, as the manifest gives it; never its contents.
 ALTER TABLE node ADD COLUMN ztp_config TEXT;
 ALTER TABLE node ADD COLUMN manifest_ready_port INTEGER
     CHECK (manifest_ready_port IS NULL OR manifest_ready_port BETWEEN 0 AND 65535);
@@ -148,14 +150,14 @@ CREATE TABLE manifest_node_cpu (
 ) STRICT;
 
 -- A node's lists of text values, each named by `list`: `ssh.authorized_keys`, the
--- `ssh.authorized_key_files` sources and the keys the client read from them,
--- `container.commands`, `environment_variables` (as resolved by the client), the
--- `startup_scripts` and `user_scripts` paths, and the `binary_files` sources.
+-- `ssh.authorized_key_files` paths, `container.commands`, `environment_variables` (as written:
+-- `KEY=$VAR` keeps the variable's name), the `startup_scripts` and `user_scripts` paths, and
+-- the `binary_files` paths.
 CREATE TABLE manifest_node_text (
     node TEXT NOT NULL REFERENCES node(id) ON DELETE CASCADE,
     list TEXT NOT NULL CHECK (list IN ('authorized_key', 'authorized_key_file',
-        'authorized_key_file_data', 'container_command', 'environment_variable',
-        'startup_script', 'user_script', 'binary_file')),
+        'container_command', 'environment_variable', 'startup_script', 'user_script',
+        'binary_file')),
     position INTEGER NOT NULL CHECK (position >= 0),
     value TEXT NOT NULL,
     PRIMARY KEY (node, list, position)
@@ -170,46 +172,26 @@ CREATE TABLE manifest_node_volume (
     PRIMARY KEY (node, position)
 ) STRICT;
 
--- `text_files` as the manifest names them (`src` set), and as the client read them
--- (`content` set).
+-- `text_files`: the path on the client, and where and how the node gets the file.
 CREATE TABLE manifest_node_text_file (
     node TEXT NOT NULL REFERENCES node(id) ON DELETE CASCADE,
-    list TEXT NOT NULL CHECK (list IN ('source', 'data')),
     position INTEGER NOT NULL CHECK (position >= 0),
-    src TEXT,
-    content TEXT,
+    src TEXT NOT NULL,
     dst TEXT NOT NULL,
     user TEXT NOT NULL,
     "group" TEXT NOT NULL,
     permissions INTEGER NOT NULL CHECK (permissions BETWEEN 0 AND 4294967295),
-    CHECK ((list = 'source') = (src IS NOT NULL AND content IS NULL)),
-    CHECK ((list = 'data') = (content IS NOT NULL AND src IS NULL)),
-    PRIMARY KEY (node, list, position)
+    PRIMARY KEY (node, position)
 ) STRICT;
 
--- The files the client read for `binary_files` (base64), `startup_scripts` and `user_scripts`.
-CREATE TABLE manifest_node_file_data (
-    node TEXT NOT NULL REFERENCES node(id) ON DELETE CASCADE,
-    list TEXT NOT NULL CHECK (list IN ('binary_file', 'startup_script', 'user_script')),
-    position INTEGER NOT NULL CHECK (position >= 0),
-    filename TEXT NOT NULL,
-    content TEXT NOT NULL,
-    PRIMARY KEY (node, list, position)
-) STRICT;
-
--- `systemd_units` as the manifest names them (`source` set), and as the client read them
--- (`content` set, base64).
+-- `systemd_units`: the unit's name, its path on the client, and whether it is enabled.
 CREATE TABLE manifest_node_systemd_unit (
     node TEXT NOT NULL REFERENCES node(id) ON DELETE CASCADE,
-    list TEXT NOT NULL CHECK (list IN ('source', 'data')),
     position INTEGER NOT NULL CHECK (position >= 0),
     name TEXT NOT NULL,
-    source TEXT,
-    content TEXT,
+    source TEXT NOT NULL,
     enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
-    CHECK ((list = 'source') = (source IS NOT NULL AND content IS NULL)),
-    CHECK ((list = 'data') = (content IS NOT NULL AND source IS NULL)),
-    PRIMARY KEY (node, list, position)
+    PRIMARY KEY (node, position)
 ) STRICT;
 
 -- The node's `provisioners`, run by the CLI, and their files and paths. Only paths and

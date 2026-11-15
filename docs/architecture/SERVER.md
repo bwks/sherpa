@@ -160,7 +160,11 @@ startup, so the server never serves while one is plain.
 Labs stored before schema version 20 have no definition in the database. After `recover`,
 `lab_definition::import_lab_definitions` gives each lab whose `has_definition` is `0` one, from
 the manifest `up` saved in its directory: `manifest.toml`, else a legacy `manifest.json`
-(`shared::util::load_saved_manifest`). It is stored with `db::store_lab_definition`, which seals
+(`shared::util::load_saved_manifest`). A saved manifest is the one the client resolved, so only what
+survives as written is stored (`Manifest::definition` without parts as written): `ztp.config`
+holds the file's contents and `environment_variables` their resolved values, so neither is
+imported, and each node that had them is logged; file contents (`*_data`) are dropped; the paths
+of files and scripts are kept. It is stored with `db::store_lab_definition`, which seals
 `ztp_server.password`. A lab whose file is missing or unreadable, does not parse as a current
 manifest (an old-shape one), or names nodes the lab has no records for is logged with a warning
 and left without a definition; nothing is made up for it, and the next start tries again. The
@@ -871,9 +875,11 @@ overwrites. A VM that is not ready within the ready timeout is left `Starting`, 
 succeeds, and the scanner records it `Running` once it answers on its stored ready port.
 Before the node starts, redeploy stores the new manifest node's readiness check on its record,
 and its own wait reads it from there, as `resume` and the scanner do. It also stores the node's
-definition and the lab-level settings a redeploy applies (`db::store_redeployed_node`; see
-[`DATABASE.md`](DATABASE.md#lab-definitions)), with the provisioning the CLI sends beside the
-manifest; a request without it, from the web UI, keeps the stored provisioners. The node lifecycle is
+definition as written and the lab-level settings a redeploy applies (`db::store_redeployed_node`;
+see [`DATABASE.md`](DATABASE.md#lab-definitions)), from the parts as written the CLI sends
+beside the manifest; a request without them, from the web UI, keeps the node's stored
+`ztp.config`, environment variables and provisioners. No file content or resolved value is
+stored. The node lifecycle is
 in [`STATE_MACHINES.md`](STATE_MACHINES.md#1-node-lifecycle-nodestate).
 
 The important boundary is that redeploy should preserve the lab-level network topology and only replace the selected node's runtime resources and generated files.

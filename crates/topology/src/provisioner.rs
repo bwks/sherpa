@@ -2,27 +2,13 @@
 //!
 //! Provisioners name client files that can hold secrets, so `Node::provisioners` is never
 //! serialized with the manifest. The client sends their definitions, paths and settings only,
-//! beside it as a [`Provisioning`], and the server stores those with the lab. No provisioner's
+//! beside it in a [`ManifestAsWritten`](crate::ManifestAsWritten), and the server stores those
+//! with the lab. No provisioner's
 //! file contents are stored: the ssh type's files never reach the server, and the container
 //! type's are sent outside the manifest and kept in RAM on the server only.
-use std::collections::BTreeMap;
-
 use serde_derive::{Deserialize, Serialize};
 
 use shared::konst::{CONTAINER_SECRET_DEFAULT_MODE, PROVISIONER_FILE_DEFAULT_MODE};
-
-/// The parts of a manifest only the client reads: how many nodes it provisions at once, and each
-/// node's provisioners. Neither is serialized with the manifest, so the client sends them beside
-/// it for the server to store. They hold paths and settings, never the contents of files.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-pub struct Provisioning {
-    /// The manifest's `provision_concurrency`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub concurrency: Option<u8>,
-    /// Each node's provisioners, by node name. A node without any is left out.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub nodes: BTreeMap<String, Vec<Provisioner>>,
-}
 
 /// One provisioner on a node, selected by its `type`.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

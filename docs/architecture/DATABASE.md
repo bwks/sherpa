@@ -57,9 +57,9 @@ are in [`../investigations/turso-migration.md`](../investigations/turso-migratio
   so the first writes do not leave it readable by others.
 - **What a backup holds.** The copy is the whole database: users (password hashes), node images,
   labs, nodes, links, bridges, sessions, and every
-  lab's [definition](#lab-definitions). A definition holds what the client resolved and read:
-  `environment_variables` with their `$VAR` values filled in, the contents of `ztp.config`,
-  text files, binary files, systemd units and scripts. Only the values sealed with the
+  lab's [definition](#lab-definitions). A definition holds the manifest as the user wrote it:
+  paths, settings and literal values, **never the contents of files or scripts, nor the values
+  of `$VAR` environment variables**. Only the values sealed with the
   [database key](#secret-values) are ciphertext: `lab.ztp_server_password` and
   `node_image.ztp_password`. The key is not
   in the database or the backup, so **back up `SHERPA_DB_KEY_PATH`
@@ -254,9 +254,37 @@ in [`STATE_MACHINES.md`](STATE_MACHINES.md#5-node-readiness-and-host-keys).
 
 ### Lab definitions
 
-A lab's definition is every parameter of the manifest it was deployed from. The manifest is how
-the user defines a lab; once it is deployed, the database is the server's record of it. Storage
-is normalised: one-to-one parameters are columns of the lab's and nodes' rows, lists are rows of
+A lab's definition is every parameter of the manifest it was deployed from, **as the user wrote
+it**. The manifest is how the user defines a lab; once it is deployed, the database is the
+server's record of it.
+
+**No file contents and no resolved values are stored.** Before it sends a manifest, the client
+replaces `ztp.config`, a path, with the file's contents, replaces each `KEY=$VAR` environment
+variable with its value, and adds the `*_data` fields: the contents of `text_files`,
+`binary_files`, `systemd_units`, `startup_scripts`, `user_scripts` and
+`ssh.authorized_key_files`. The server builds the node from that resolved manifest, as before,
+and never writes it to the database. What it stores is the manifest as written:
+
+- Files and scripts as references: `ztp.config`'s path, `text_files` (`src`, `dst`, `user`,
+  `group`, `permissions`), `binary_files` (`source`), `systemd_units` (`name`, `source`,
+  `enabled`), `startup_scripts`, `user_scripts` and `ssh.authorized_key_files` (`source`).
+- `environment_variables` as written: `KEY=$VAR` keeps `$VAR`.
+- Literal parameters as they are, with `ztp_server.password` sealed.
+
+The client sends the parts it changes, and the ones it never serializes, as written, beside the
+manifest: `topology::ManifestAsWritten` (`Manifest::as_written`, taken before it resolves
+anything), the optional `as_written` field of `UpRequest` and `RedeployRequest`, holding each
+node's `ztp.config` path, `environment_variables` and `provisioners`, and the lab's
+`provision_concurrency`. `Manifest::definition(as_written)` puts them back and clears every
+`*_data` field; the server's `services::lab_definition::definition` also checks the provisioners.
+Without `as_written` (an older client), `ztp.config`, `environment_variables`, provisioners and
+`provision_concurrency` are not stored at `up`, rather than stored resolved, and a `redeploy`
+keeps the node's stored ones (`lab_definition::stored_as_written`). The web UI's manifest is
+already as written, so it sends its own parts. `store_lab_definition` and
+`store_redeployed_node` refuse a manifest that holds a `*_data` field
+(`Manifest::has_file_contents`).
+
+Storage is normalised: one-to-one parameters are columns of the lab's and nodes' rows, lists are rows of
 child tables, and nothing is a JSON or TOML document. Everything is in `crates/db/src/definition/`
 and the query files in `sql/queries/definition/`.
 
@@ -290,11 +318,10 @@ manifest's where it validates one.
 | `manifest_bridge`, `manifest_bridge_link` | `bridges` and the ends each names |
 | `manifest_talos_cluster`, `manifest_talos_member` | `talos_clusters` (`cni`, `oidc`, `vault`) and their members, by `role` (`controller`, `worker`) |
 | `manifest_node_cpu` | a node's CPU lists, by `list`: `pinning`, `emulator_pinning`, `io_thread` (`boot_disk.io_thread_cpus`) |
-| `manifest_node_text` | a node's lists of strings, by `list`: `authorized_key`, `authorized_key_file` (the sources), `authorized_key_file_data` (the keys the client read), `container_command`, `environment_variable`, `startup_script`, `user_script`, `binary_file` (the sources) |
+| `manifest_node_text` | a node's lists of strings, by `list`: `authorized_key`, `authorized_key_file` (paths), `container_command`, `environment_variable` (as written), `startup_script`, `user_script` (paths), `binary_file` (paths) |
 | `manifest_node_volume` | `container.volumes` |
-| `manifest_node_text_file` | `text_files` (`list = 'source'`, with `src`) and `text_files_data` (`list = 'data'`, with `content`) |
-| `manifest_node_file_data` | what the client read for `binary_files`, `startup_scripts` and `user_scripts` |
-| `manifest_node_systemd_unit` | `systemd_units` (`source`) and `systemd_units_data` (`data`, with `content`) |
+| `manifest_node_text_file` | `text_files`: `src`, `dst`, `user`, `group`, `permissions` |
+| `manifest_node_systemd_unit` | `systemd_units`: `name`, `source`, `enabled` |
 | `manifest_node_provisioner`, `manifest_node_provisioner_file`, `manifest_node_provisioner_path` | `provisioners`: their `type`, files (an ssh file has a `dst`, a container file a `name`), and an ssh provisioner's `env_files` and `scripts`. Paths and settings only |
 
 Nested tables (`manifest_bridge_link`, `manifest_talos_member`, the provisioner files and paths)
@@ -306,20 +333,18 @@ refer to their parent row with a composite foreign key and cascade with it.
   the lab's columns, its links, bridges and Talos clusters, and every node's columns and lists.
   Each manifest node must already have its record. `up` calls it at the end of its
   DatabaseRecords phase, once the lab and node records exist, and the startup import does too.
-- `store_redeployed_node(db, lab, node, name, manifest, provisioning)` is `redeploy`'s, before
-  the node starts: the node's columns and lists, and the lab-level settings a redeploy applies,
+- `store_redeployed_node(db, lab, node, name, manifest)` is `redeploy`'s, before the node
+  starts: the node's columns and lists, and the lab-level settings a redeploy applies,
   `ready_timeout`, `provision_current_user` and `provision_concurrency`. The lab's links,
   bridges, Talos clusters, Tailscale and ZTP server settings are what `up` built; a redeploy does
-  not rebuild them, so it does not change them. With `StoredProvisioning::Keep` (a request with
-  no `provisioning` field: the web UI, an older client) the node's provisioners and the lab's
-  `provision_concurrency` are kept.
+  not rebuild them, so it does not change them.
 
 **Read-back.** `read_lab_definition(db, lab)` returns the `topology::Manifest` the definition
-records, or `None` when `has_definition` is `0`. The one thing that does not round-trip is an
+records, as written and with no `*_data` field, or `None` when `has_definition` is `0`. The one thing that does not round-trip is an
 empty list or an empty `vm`, `container` or `unikernel` table: none is stored, and it reads back
 as absent, which every reader treats the same. A test builds a manifest that sets every field,
-with a destructuring that stops compiling when `Manifest` or `Node` gains one, and checks that it
-reads back equal and that every child table got rows.
+as written (no `*_data` field), with a destructuring that stops compiling when `Manifest` or
+`Node` gains one, and checks that it reads back equal and that every child table got rows.
 
 Readers do not use it yet: `resume`, the scanner and the web UI still read the saved
 `manifest.toml`, which `up` still writes.
