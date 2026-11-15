@@ -23,7 +23,6 @@ use crate::services::ssh_config;
 struct ScannedNode<'a> {
     node: &'a DbNode,
     kind: NodeKind,
-    has_ssh: bool,
     /// The model of its image, or `None` when the image was not found.
     model: Option<NodeModel>,
     runtime_name: String,
@@ -36,10 +35,14 @@ struct ScannedNode<'a> {
 /// no operation holds, and queries the runtimes again under that hold, so it never overwrites a
 /// state an operation is writing. Nodes being built and failed nodes are never moved by it.
 ///
-/// Virtual machines with SSH that run and are not yet known ready, or have no host key
-/// recorded, are probed on SSH first: the probe records the host key they offer, and a node
-/// whose probe answered is recorded running. So a node whose readiness wait timed out, or that
-/// was started outside Sherpa, becomes `Running` once it answers.
+/// A node's readiness is decided by the check stored with it (`DbNode::ready_check`), never by
+/// the lab's manifest. A running node with a stored port and a check that is not skipped, that
+/// is not yet known ready, is probed on that port first, and recorded running only once it
+/// answers. So a node whose readiness wait timed out, or that was started outside Sherpa,
+/// becomes `Running` once it answers, and one whose port never opens stays `Starting`. A node
+/// with no stored port, or a skipped check, is ready once it runs. A running node whose
+/// stored port is SSH and has no host key recorded is probed on SSH for the key it offers,
+/// skipped or not.
 ///
 /// Under the same hold, in a `Ready` lab, transmit checksum offload goes off again on the
 /// management veth of a running container that needs it (`repair_management_checksums`), and
@@ -109,10 +112,10 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
     let mut key_recorded = false;
     for node in &scanned {
         let running = snapshot.runtime_of(&node.kind, &node.runtime_name) == Some(Runtime::Running);
-        if !wants_probe(node, running) {
+        let Some(port) = probe_port(node, running) else {
             continue;
-        }
-        let (probe, recorded) = probe_node(state, node.node).await;
+        };
+        let (probe, recorded) = probe_node(state, node.node, port).await;
         key_recorded |= recorded;
         probes.insert(node.node.name.clone(), probe);
     }
@@ -294,7 +297,7 @@ async fn repair_management_checksums(
     }
 }
 
-/// The lab's nodes, each with its kind and whether its model has SSH.
+/// The lab's nodes, each with its kind and model.
 async fn scanned_nodes<'a>(
     state: &AppState,
     lab: &DbLab,
@@ -317,7 +320,6 @@ async fn scanned_nodes<'a>(
             ScannedNode {
                 node,
                 kind: image.map_or(NodeKind::VirtualMachine, |img| img.kind.clone()),
-                has_ssh: image.is_some_and(|img| img.model.has_ssh()),
                 model: image.map(|img| img.model),
                 runtime_name: format!("{}-{}", node.name, lab.lab_id),
             }
@@ -340,35 +342,37 @@ async fn refresh_ssh_files(state: &AppState, lab: &DbLab, lab_record_id: &Record
     Ok(())
 }
 
-/// Whether to probe a node this cycle: a running virtual machine with SSH that is not yet
-/// known ready, or has no host key recorded.
-fn wants_probe(node: &ScannedNode<'_>, running: bool) -> bool {
-    node.kind == NodeKind::VirtualMachine
-        && node.has_ssh
-        && running
-        && (node.node.state != NodeState::Running || node.node.ssh_host_key.is_none())
+/// The port to probe a node on this cycle, if any: a running node's stored port, when its
+/// check is not skipped and it is not yet known ready, or when the port is SSH and it has no host
+/// key recorded.
+fn probe_port(node: &ScannedNode<'_>, running: bool) -> Option<u16> {
+    let port = node.node.ready_check.port?;
+    let unready = node_ops::probed_ready_port(&node.node.ready_check).is_some()
+        && node.node.state != NodeState::Running;
+    let keyless = port == SSH_PORT && node.node.ssh_host_key.is_none();
+    (running && (unready || keyless)).then_some(port)
 }
 
-/// What the scanner's observation says of a node's readiness: virtual machines with SSH are
-/// ready only when their probe answered this cycle; other nodes have no probe, so running
-/// counts as ready.
+/// What the scanner's observation says of a node's readiness: a node whose stored check is
+/// probed is ready only when its probe answered this cycle; a node with no port, or a skipped
+/// check, has no probe, so running counts as ready.
 fn probe_for(node: &ScannedNode<'_>, probed: Option<Probe>) -> Probe {
-    if node.kind == NodeKind::VirtualMachine && node.has_ssh {
+    if node_ops::probed_ready_port(&node.node.ready_check).is_some() {
         probed.unwrap_or(Probe::NotReady)
     } else {
         Probe::NotProbed
     }
 }
 
-/// Probe a running node on SSH, and record the host key it offers. Returns the probe's result
-/// and whether a key was recorded.
-#[instrument(skip_all, fields(node = %node.name), level = "debug")]
-async fn probe_node(state: &AppState, node: &DbNode) -> (Probe, bool) {
+/// Probe a running node on `port`, and record the host key it offers, which it does only on
+/// SSH. Returns the probe's result and whether a key was recorded.
+#[instrument(skip_all, fields(node = %node.name, port), level = "debug")]
+async fn probe_node(state: &AppState, node: &DbNode, port: u16) -> (Probe, bool) {
     let Some(ip) = &node.mgmt_ipv4 else {
         tracing::debug!("Node has no management address");
         return (Probe::NotReady, false);
     };
-    match node_ops::check_vm_ready(ip, SSH_PORT).await {
+    match node_ops::check_vm_ready(ip, port).await {
         Ok(VmReadiness::Ready {
             host_key: Some(host_key),
         }) => match ssh_config::record_node_host_key(&state.db, node, &host_key).await {
@@ -380,7 +384,7 @@ async fn probe_node(state: &AppState, node: &DbNode) -> (Probe, bool) {
         },
         Ok(VmReadiness::Ready { host_key: None }) => (Probe::Ready, false),
         Ok(VmReadiness::NotReady) => {
-            tracing::debug!("SSH server not answering yet");
+            tracing::debug!("Ready port not answering yet");
             (Probe::NotReady, false)
         }
         Err(e) => {
@@ -394,9 +398,15 @@ async fn probe_node(state: &AppState, node: &DbNode) -> (Probe, bool) {
 mod tests {
     use super::*;
     use bollard::secret::ContainerStateStatusEnum;
-    use shared::data::NodeModel;
+    use shared::data::{NodeModel, ReadyCheck};
 
     use crate::services::p2p_links::fake::FakeHost;
+
+    /// A virtual machine's stored check on SSH, as `up` stores it for most models.
+    const SSH_CHECK: ReadyCheck = ReadyCheck {
+        port: Some(SSH_PORT),
+        skip: false,
+    };
 
     fn db_node(state: NodeState, has_key: bool) -> DbNode {
         DbNode {
@@ -415,14 +425,22 @@ mod tests {
             ssh_host_key: has_key.then(|| "ssh-ed25519 AAAA".to_string()),
             cpu_pinning: None,
             qemu_thread_cpus: None,
+            ready_check: ReadyCheck::default(),
         }
     }
 
-    fn scanned(node: &DbNode, kind: NodeKind, has_ssh: bool) -> ScannedNode<'_> {
+    /// A node in `state` whose stored check is `ready_check`.
+    fn checked(state: NodeState, has_key: bool, ready_check: ReadyCheck) -> DbNode {
+        DbNode {
+            ready_check,
+            ..db_node(state, has_key)
+        }
+    }
+
+    fn scanned(node: &DbNode, kind: NodeKind) -> ScannedNode<'_> {
         ScannedNode {
             node,
             kind,
-            has_ssh,
             model: None,
             runtime_name: "r1-abc12345".to_string(),
         }
@@ -433,10 +451,24 @@ mod tests {
         ScannedNode {
             node,
             kind: NodeKind::Container,
-            has_ssh: true,
             model: Some(model),
             runtime_name: runtime_name.to_string(),
         }
+    }
+
+    /// The state one scan records for a running node, whose port answers when `answers`.
+    fn scan(node: &ScannedNode<'_>, answers: bool) -> NodeState {
+        let probed = probe_port(node, true).map(|_| {
+            if answers {
+                Probe::Ready
+            } else {
+                Probe::NotReady
+            }
+        });
+        node.node.state.on_observation(Observation {
+            runtime: Runtime::Running,
+            probe: probe_for(node, probed),
+        })
     }
 
     #[test]
@@ -444,57 +476,142 @@ mod tests {
         let vm = NodeKind::VirtualMachine;
         // Started outside Sherpa, or not ready when its readiness wait ended.
         for state in [NodeState::Stopped, NodeState::Starting, NodeState::Unknown] {
-            let node = db_node(state, true);
-            assert!(
-                wants_probe(&scanned(&node, vm.clone(), true), true),
+            let node = checked(state, true, SSH_CHECK);
+            assert_eq!(
+                probe_port(&scanned(&node, vm.clone()), true),
+                Some(SSH_PORT),
                 "{state}"
             );
         }
-        let keyless = db_node(NodeState::Running, false);
-        assert!(wants_probe(&scanned(&keyless, vm.clone(), true), true));
-        let known = db_node(NodeState::Running, true);
-        assert!(!wants_probe(&scanned(&known, vm, true), true));
+        let keyless = checked(NodeState::Running, false, SSH_CHECK);
+        assert_eq!(
+            probe_port(&scanned(&keyless, vm.clone()), true),
+            Some(SSH_PORT)
+        );
+        let known = checked(NodeState::Running, true, SSH_CHECK);
+        assert_eq!(probe_port(&scanned(&known, vm), true), None);
     }
 
     #[test]
-    fn stopped_nodes_containers_and_nodes_without_ssh_are_not_probed() {
-        let node = db_node(NodeState::Starting, false);
-        assert!(!wants_probe(
-            &scanned(&node, NodeKind::VirtualMachine, true),
-            false
-        ));
-        assert!(!wants_probe(
-            &scanned(&node, NodeKind::VirtualMachine, false),
-            true
-        ));
-        assert!(!wants_probe(
-            &scanned(&node, NodeKind::Container, true),
-            true
-        ));
-        assert!(!wants_probe(
-            &scanned(&node, NodeKind::Unikernel, true),
-            true
-        ));
+    fn stopped_nodes_and_nodes_without_a_stored_port_are_not_probed() {
+        let node = checked(NodeState::Starting, false, SSH_CHECK);
+        assert_eq!(
+            probe_port(&scanned(&node, NodeKind::VirtualMachine), false),
+            None
+        );
+        let portless = checked(NodeState::Starting, false, ReadyCheck::default());
+        for kind in [
+            NodeKind::VirtualMachine,
+            NodeKind::Container,
+            NodeKind::Unikernel,
+        ] {
+            assert_eq!(probe_port(&scanned(&portless, kind), true), None);
+        }
     }
 
     #[test]
-    fn a_vm_with_ssh_is_ready_only_when_its_probe_answered() {
+    fn a_vm_is_ready_only_when_its_probe_answered() {
         // M1.3: running in libvirt is not ready.
-        let node = db_node(NodeState::Starting, true);
-        let vm = scanned(&node, NodeKind::VirtualMachine, true);
+        let node = checked(NodeState::Starting, true, SSH_CHECK);
+        let vm = scanned(&node, NodeKind::VirtualMachine);
         assert_eq!(probe_for(&vm, None), Probe::NotReady);
         assert_eq!(probe_for(&vm, Some(Probe::NotReady)), Probe::NotReady);
         assert_eq!(probe_for(&vm, Some(Probe::Ready)), Probe::Ready);
-        for (kind, has_ssh) in [
-            (NodeKind::Container, true),
-            (NodeKind::Unikernel, false),
-            (NodeKind::VirtualMachine, false),
-        ] {
-            assert_eq!(
-                probe_for(&scanned(&node, kind, has_ssh), None),
-                Probe::NotProbed
-            );
+    }
+
+    #[test]
+    fn a_vm_with_a_port_that_is_not_ssh_is_probed_on_it() {
+        let check = ReadyCheck {
+            port: Some(8443),
+            skip: false,
+        };
+        let starting = checked(NodeState::Starting, false, check.clone());
+        let vm = scanned(&starting, NodeKind::VirtualMachine);
+        assert_eq!(probe_port(&vm, true), Some(8443));
+        assert_eq!(scan(&vm, false), NodeState::Starting);
+        assert_eq!(scan(&vm, true), NodeState::Running);
+        // It offers no host key on that port, so a running one is not probed for one.
+        let running = checked(NodeState::Running, false, check);
+        assert_eq!(
+            probe_port(&scanned(&running, NodeKind::VirtualMachine), true),
+            None
+        );
+    }
+
+    #[test]
+    fn a_container_whose_port_does_not_answer_stays_starting_across_scans() {
+        let node = checked(
+            NodeState::Starting,
+            false,
+            ReadyCheck {
+                port: Some(80),
+                skip: false,
+            },
+        );
+        let web = scanned(&node, NodeKind::Container);
+        assert_eq!(probe_port(&web, true), Some(80));
+        for _ in 0..3 {
+            assert_eq!(scan(&web, false), NodeState::Starting);
         }
+    }
+
+    #[test]
+    fn a_container_whose_port_answers_is_running() {
+        let node = checked(
+            NodeState::Starting,
+            false,
+            ReadyCheck {
+                port: Some(80),
+                skip: false,
+            },
+        );
+        assert_eq!(
+            scan(&scanned(&node, NodeKind::Container), true),
+            NodeState::Running
+        );
+    }
+
+    #[test]
+    fn a_node_without_a_stored_port_is_ready_once_it_runs() {
+        let node = checked(NodeState::Starting, false, ReadyCheck::default());
+        for kind in [
+            NodeKind::Container,
+            NodeKind::Unikernel,
+            NodeKind::VirtualMachine,
+        ] {
+            let scanned = scanned(&node, kind);
+            assert_eq!(probe_for(&scanned, None), Probe::NotProbed);
+            assert_eq!(scan(&scanned, false), NodeState::Running);
+        }
+    }
+
+    #[test]
+    fn a_skipped_check_is_ready_once_it_runs_and_still_records_an_ssh_host_key() {
+        let skipped = ReadyCheck {
+            port: Some(SSH_PORT),
+            skip: true,
+        };
+        let keyed = checked(NodeState::Starting, true, skipped.clone());
+        let vm = scanned(&keyed, NodeKind::VirtualMachine);
+        assert_eq!(probe_port(&vm, true), None);
+        assert_eq!(scan(&vm, false), NodeState::Running);
+        // Without a host key it is probed on SSH for one, but the probe does not decide.
+        let keyless = checked(NodeState::Starting, false, skipped);
+        let vm = scanned(&keyless, NodeKind::VirtualMachine);
+        assert_eq!(probe_port(&vm, true), Some(SSH_PORT));
+        assert_eq!(probe_for(&vm, Some(Probe::NotReady)), Probe::NotProbed);
+        // A skipped container port is not probed at all.
+        let container = checked(
+            NodeState::Starting,
+            false,
+            ReadyCheck {
+                port: Some(80),
+                skip: true,
+            },
+        );
+        let web = scanned(&container, NodeKind::Container);
+        assert_eq!(probe_port(&web, true), None);
+        assert_eq!(scan(&web, false), NodeState::Running);
     }
 
     #[tokio::test]

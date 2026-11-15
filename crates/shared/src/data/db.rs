@@ -105,6 +105,21 @@ pub struct DbNode {
     /// Host CPUs the node's QEMU and I/O threads are pinned to. `None` when unpinned.
     #[serde(default)]
     pub qemu_thread_cpus: Option<Vec<u16>>,
+    /// How the node shows it is ready, as `up` or the last redeploy stored it.
+    #[serde(default)]
+    pub ready_check: ReadyCheck,
+}
+
+/// A node's readiness check, stored with the node so that the scanner, `resume` and `redeploy`
+/// decide readiness alike without the manifest.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadyCheck {
+    /// The TCP port that shows the node is ready: the manifest's `ready_check.port`, else a
+    /// virtual machine's model port. `None` for a container or unikernel without one, which is
+    /// ready once it runs.
+    pub port: Option<u16>,
+    /// The manifest's `ready_check.skip`: the node is ready once it runs.
+    pub skip: bool,
 }
 
 /// What a node was given when it was created or redeployed.

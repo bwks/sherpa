@@ -22,6 +22,7 @@ use crate::services::guest_account;
 use crate::services::lab_lifecycle;
 use crate::services::lab_operations;
 use crate::services::node_lifecycle;
+use crate::services::node_ops;
 use crate::services::node_resources;
 use crate::services::progress::ProgressSender;
 use crate::services::ssh_config;
@@ -164,6 +165,18 @@ async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
         &redeploy.db_node,
         &redeploy.node_image.kind,
         node_resources::planned_resources(&redeploy.target_node, &redeploy.node_image),
+    )
+    .await?;
+    // The new manifest's readiness check is stored before the node starts, so that this
+    // redeploy's wait, `resume` and the scanner all read it.
+    redeploy.db_node = db::update_node_ready_check(
+        &redeploy.state.db,
+        redeploy.node_record_id.clone(),
+        &node_ops::stored_ready_check(
+            &redeploy.node_image.kind,
+            redeploy.node_image.model,
+            &redeploy.target_node.ready_check,
+        ),
     )
     .await?;
 

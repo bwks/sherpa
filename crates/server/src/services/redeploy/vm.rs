@@ -127,9 +127,7 @@ pub(super) async fn redeploy_vm(
         network::set_link_state(&isolated_net.bridge_name, false).await?;
     }
 
-    let target_node = &redeploy.target_node;
-    let ready_port = node_ops::vm_ready_port(target_node.model, target_node.ready_check.port);
-    wait_until_ready(redeploy, ready_port).await?;
+    wait_until_ready(redeploy).await?;
     Ok(link_reports)
 }
 

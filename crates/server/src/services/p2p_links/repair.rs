@@ -247,6 +247,7 @@ async fn missing_veths(host: &impl LinkHost, veths: Vec<ContainerVeth>) -> Vec<C
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::data::ReadyCheck;
 
     use std::env;
     use std::fs;
@@ -292,6 +293,7 @@ mod tests {
             ssh_host_key: None,
             cpu_pinning: None,
             qemu_thread_cpus: None,
+            ready_check: ReadyCheck::default(),
         }
     }
 

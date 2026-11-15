@@ -88,6 +88,13 @@ pub(super) async fn create_node_records(
             node_resources::planned_resources(node, &node_image),
         )
         .await?;
+        // Record how it shows it is ready, which the scanner, `resume` and `redeploy` read.
+        let lab_node = db::update_node_ready_check(
+            db,
+            db::get_node_id(&lab_node)?,
+            &node_ops::stored_ready_check(&node_image.kind, node_image.model, &node.ready_check),
+        )
+        .await?;
 
         lab_node_data.push(data::LabNodeData {
             name: node.name.clone(),

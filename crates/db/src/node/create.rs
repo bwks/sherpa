@@ -1,7 +1,7 @@
 //! CREATE operations for nodes
 
 use anyhow::{Context, Result, anyhow};
-use shared::data::{DbNode, NodeState, RecordId};
+use shared::data::{DbNode, NodeState, ReadyCheck, RecordId};
 use tracing::instrument;
 
 use crate::Database;
@@ -59,6 +59,7 @@ pub async fn create_node(
         ssh_host_key: None,
         cpu_pinning: None,
         qemu_thread_cpus: None,
+        ready_check: ReadyCheck::default(),
     };
 
     let writer = db.writer().await?;

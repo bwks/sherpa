@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow, bail};
-use shared::data::{DbNode, NodeResources, NodeState, RecordId};
+use shared::data::{DbNode, NodeResources, NodeState, ReadyCheck, RecordId};
 use tracing::instrument;
 use turso::Value;
 
@@ -205,6 +205,30 @@ pub async fn update_node_resources(
                 .into(),
         ]),
         "resources",
+    )
+    .await
+}
+
+/// Record how a node shows it is ready: its ready port and whether its check is skipped.
+///
+/// # Errors
+/// - If the node doesn't exist
+/// - If the database update fails
+#[instrument(skip(db), level = "debug")]
+pub async fn update_node_ready_check(
+    db: &Database,
+    node_id: RecordId,
+    ready_check: &ReadyCheck,
+) -> Result<DbNode> {
+    update_columns(
+        db,
+        &node_id,
+        queries::node::UPDATE_READY_CHECK.bind([
+            key_of(&node_id, NODE_TABLE)?.into(),
+            ready_check.port.into(),
+            ready_check.skip.into(),
+        ]),
+        "ready check",
     )
     .await
 }

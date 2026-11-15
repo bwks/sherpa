@@ -839,7 +839,9 @@ operation is building is refused before teardown. Teardown records it `Building`
 node `Starting`, and a ready one `Running`: a container only once Vault and Keycloak are
 restored. Once the node is torn down, a failure records it `Failed`, which the scanner never
 overwrites. A VM that is not ready within the ready timeout is left `Starting`, the redeploy
-succeeds, and the scanner records it `Running` once it answers on SSH. The node lifecycle is
+succeeds, and the scanner records it `Running` once it answers on its stored ready port.
+Before the node starts, redeploy stores the new manifest node's readiness check on its record,
+and its own wait reads it from there, as `resume` and the scanner do. The node lifecycle is
 in [`STATE_MACHINES.md`](STATE_MACHINES.md#1-node-lifecycle-nodestate).
 
 The important boundary is that redeploy should preserve the lab-level network topology and only replace the selected node's runtime resources and generated files.
@@ -901,12 +903,13 @@ timeouts. Unikernels and Talos nodes outside a Sherpa-built cluster are powered 
 and the result says why. A node is marked `Stopped` only once it has stopped. Forcing guests off without asking lost recently
 written files on every VM without a guest agent, which includes Talos and the Ubuntu images.
 
-Resume then waits for the nodes it cold-booted, as `up` does. It loads the lab's saved
-manifest (`manifest.toml` in the lab directory, written by `up`) for `ready_timeout`,
-`ready_check.skip` and `ready_check.port`; labs without a readable saved manifest use the default
-timeout and SSH checks. VMs are probed on their ready port, unikernels with
-`check_unikernel_ready`, and containers with a `ready_check.port` on that port. Other
-containers and paused nodes are not waited for. A node that is not ready within the timeout
+Resume then waits for the nodes it cold-booted, as `up` does, on the readiness check stored
+with each node (`DbNode::ready_check`). It loads the lab's saved manifest (`manifest.toml` in
+the lab directory, written by `up`) only for `ready_timeout`; labs without a readable saved
+manifest use the default timeout. VMs are probed on their stored port, unikernels with
+`check_unikernel_ready` and their stored port, if any, and containers with a stored port on
+that port. Other containers, nodes whose check is skipped, and paused nodes are not waited
+for. A node that is not ready within the timeout
 is reported in its result message, not as an error, and stays `Starting` until the scanner's
 probe answers. The WebSocket `resume` RPC is streaming
 and sends readiness status messages before its response; the REST and web handlers return
@@ -1031,7 +1034,7 @@ from libvirt or Docker is `Missing`, a crashed domain or dead container `Failed`
 paused or exited one `Stopped`; a running one is `Running` once ready. `Building` and `Failed`
 nodes are left to the operations.
 
-The probes run before the hold, so a slow SSH server does not delay an operation that wants
+The probes run before the hold, so a slow node does not delay an operation that wants
 the lab. The runtimes are queried again under the hold, so what an operation did just before
 it released the lab is what the scanner sees. Each write is a compare-and-set on the state
 the scanner read, so it never overwrites a newer write.
@@ -1040,12 +1043,19 @@ A runtime that cannot be queried in a cycle (libvirtd or Docker restarting) is u
 cycle: its nodes keep their recorded state. Treating it as empty would mark every node
 `Missing`.
 
-A running VM with SSH is probed while it is not yet `Running`, as after a readiness wait that
-timed out or a start outside Sherpa, or while it has no host key. A probe that answers
-records the key it offers and lets the node be recorded `Running`. A `Running` VM with a key
-is not probed again, so the scanner makes no SSH connections to settled nodes; a key that
-changes without a state change, as on a reboot from inside the guest, is read when a client
-finds it does not match. Other nodes have no probe: running counts as ready.
+Each node is probed on the readiness check stored with it (`DbNode::ready_check`, see
+[Node readiness](#node-readiness)), never the saved manifest. A running node with a stored
+port and a check that is not skipped is probed on that port while it is not yet `Running`, as
+after a readiness wait that timed out or a start outside Sherpa: a virtual machine on its
+model's port or its `ready_check.port`, a container or unikernel on its `ready_check.port`. A
+probe that answers lets the node be recorded `Running`; one that does not leaves it
+`Starting`, so a container whose port never opens stays `Starting` scan after scan. A
+running node whose stored port is SSH and has no host key is probed too, skipped or not, and
+the key it offers is recorded; on any other port no key is read. A `Running` node with a key,
+or on a port that is not SSH, is not probed again, so the scanner makes no connections to
+settled nodes; a key that changes without a state change, as on a reboot from inside the
+guest, is read when a client finds it does not match. A node with no stored port, or a
+skipped check, has no probe: running counts as ready.
 
 Still under the hold, in a `Ready` lab, the scanner first turns transmit checksum offload off
 on the management veth of each running IOL container where Docker made it again with offload
@@ -1144,15 +1154,22 @@ what each phase does.
 
 ### Node readiness
 
-`up`, `redeploy` and `resume` poll each VM's readiness port (`node_ops::vm_ready_port`: the
-manifest's `ready_check.port`, else the model's) with `node_ops::check_vm_ready`. Unikernels use
-`check_unikernel_ready`. A container is ready once it keeps running (`CONTAINER_SETTLE` in
-`up`); one with a `ready_check.port` (`node_ops::container_ready_port`, none when the check is
-skipped) must then also answer on it, probed with `check_vm_ready` on its management IPv4 in
-all three. One that does not answer in time stays `Starting` with the non-critical "did not
-become ready" error a VM gets. The scanner does not know the manifest's ports: it probes VMs on
-SSH and records a running container `Running`, so a container left `Starting` is recorded
-`Running` on the next scan whether or not its port answers.
+Each node's readiness check is stored on its record (`node.ready_port` and
+`node.skip_ready_check`, read as `DbNode::ready_check`). `up` writes it when it creates the
+node's record, and `redeploy` replaces it from the new manifest node before the node starts,
+both with `node_ops::stored_ready_check`: the manifest's `ready_check.port`, else a VM's model
+port (`node_ops::vm_ready_port`: SSH, or the Talos API for Talos Linux); a container or
+unikernel without a `ready_check.port` has none. `resume`, `redeploy`'s wait, `inspect` and
+the scanner read the stored check, not the manifest, so every readiness path agrees;
+`node_ops::probed_ready_port` gives the port it is probed on, none when it is skipped.
+
+`up`, `redeploy` and `resume` poll each VM's ready port with `node_ops::check_vm_ready`.
+Unikernels use `check_unikernel_ready`. A container is ready once it keeps running
+(`CONTAINER_SETTLE` in `up`); one with a ready port (`node_ops::container_ready_port` in
+`up`, none when the check is skipped) must then also answer on it, probed with
+`check_vm_ready` on its management IPv4 in all three. One that does not answer in time stays
+`Starting` with the non-critical "did not become ready" error a VM gets, and the scanner
+records it `Running` only once its stored port answers.
 
 A container that is not running right after it starts, or that exits while it settles or waits
 for its port, is reported as a failed node, a critical `NodeReadiness` error, and is not
@@ -1191,9 +1208,9 @@ keys were accepted unchecked before. The key is kept on the node's database reco
 - `redeploy` clears the node's key before teardown and records the new one when it is ready.
 - `resume` records the keys of the nodes it cold-booted, as some network operating systems
   (Cisco IOSv, IOSvL2, IOS-XE) make a new RSA key on every boot.
-- The scanner records the key of a running VM that is not yet known ready, such as one whose
-  readiness wait timed out or that started outside Sherpa, and of a running VM with no key
-  (see the scanner section).
+- The scanner records the key of a running node whose stored ready port is SSH and that is
+  not yet known ready, such as one whose readiness wait timed out or that started outside
+  Sherpa, or has no key (see the scanner section).
 - The `node.host_keys` RPC (`services::host_keys`) reads one node's key on request, for a
   client whose recorded key did not match.
 

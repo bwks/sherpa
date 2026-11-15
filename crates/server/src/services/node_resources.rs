@@ -258,6 +258,7 @@ fn host_port_free(port: u16) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::data::ReadyCheck;
     use shared::data::{NodeCpu, NodeState};
 
     fn node(cpu_count: Option<u8>, memory: Option<u16>) -> topology::NodeExpanded {
@@ -376,6 +377,7 @@ mod tests {
             ssh_host_key: None,
             cpu_pinning: Some(cpus),
             qemu_thread_cpus: None,
+            ready_check: ReadyCheck::default(),
         };
         (lab_id.map(|lab_id| domain_name(name, lab_id)), node)
     }

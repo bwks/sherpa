@@ -140,7 +140,9 @@ map by its first column, its id.
   writes every model's built-in image and checks it reads back as the same JSON.
   Impairment percentages are `f64` in `LinkImpairment`, the width of a `REAL`, so they read back
   exactly as written. `Cells::percent` refuses a value outside 0 to 100, which includes `NaN` and
-  infinity, naming the field: netem would otherwise clamp it silently.
+  infinity, naming the field: netem would otherwise clamp it silently. A node's readiness check
+  (`DbNode::ready_check`, a `ReadyCheck`) is the `node.ready_port` and `node.skip_ready_check`
+  columns, the last two of the table.
 - **Record keys.** A column holds only a record's key; the table is implied by the column, and
   `Cells::record(table, field)` rebuilds the `RecordId`. `key_of` refuses an id from another table.
   New keys are 20 random characters from `SHERPA_DB_KEY_CHARSET`, the length and alphabet of the
@@ -200,6 +202,7 @@ table, copy the rows, drop the old one, rename.
 | 16 | `0016_ztp_setting.sql`: `node_image.ztp`, the image's one ZTP setting (`disabled` or a method), filled from the `ztp_enable` and `ztp_method` columns, which are dropped. See [`ZTP.md`](ZTP.md#storage-and-migration). |
 | 17 | `0017_drop_lab_ssh_key.sql`: drops `lab.ssh_key`. Every lab has its own key and the server's shared key is gone (0.6.0). Refused while a lab is still `server`; see [Labs on the server's SSH key](#labs-on-the-servers-ssh-key) |
 | 18 | `0018_reset_unused_image_settings.sql`: container images get the default machine, boot disk and CD-ROM settings (`machine_type` `pc`, `bios` `sea_bios`, `hdd_bus` and `cdrom_bus` `virtio`, no `cdrom`), and unikernel images the default firmware, boot disk and CD-ROM settings, keeping their `machine_type`. Neither kind reads them; the four network OS containers were stored with a q35 machine and SATA buses. See [`NODE_SETTINGS.md`](NODE_SETTINGS.md#settings-a-kind-does-not-use) |
+| 19 | `0019_node_ready_check.sql`: `node.ready_port` (`NULL` or 1 to 65535) and `node.skip_ready_check` (`0` or `1`, default `0`), each node's readiness check, which the scanner, `resume` and `redeploy` read instead of the saved manifest. Existing virtual machines get their model's port (22, or 50000 for `talos_linux`), containers and unikernels none, and no check is skipped: what the scanner did with them before. See [Node readiness checks](#node-readiness-checks) |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
@@ -224,6 +227,16 @@ version 16 while one exists:
 - The two statements read a column the current schema no longer has, so they are `Query::new`
   constants in `server_key.rs`, not query files the build checks. Once the column is gone there
   is nothing to read, and the check passes.
+
+### Node readiness checks
+
+`node.ready_port` and `node.skip_ready_check` hold how a node shows it is ready. `up` writes them
+after it creates the node's record, and `redeploy` replaces them from the new manifest node before
+the node starts, both with `db::update_node_ready_check` and the values
+`node_ops::stored_ready_check` takes from the manifest node: its `ready_check.port`, else a
+virtual machine's model port, and its `ready_check.skip`. A container or unikernel without a port
+stores `NULL`, and is ready once it runs. `create_node` stores `NULL` and `0`. What reads them is
+in [`STATE_MACHINES.md`](STATE_MACHINES.md#5-node-readiness-and-host-keys).
 
 ### What the user said about a lab
 

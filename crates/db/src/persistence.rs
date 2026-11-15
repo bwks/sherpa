@@ -13,7 +13,7 @@ use turso::{Row, Value};
 use shared::data::{
     BootDiskSettings, BridgeMember, CdromSettings, CpuSettings, DbBridge, DbLab, DbLink, DbNode,
     DbSession, DbSessionUser, DbUser, InterfaceSettings, LinkImpairment, MachineSettings,
-    NodeConfig, RecordId, UnikernelSettings, ZtpSettings,
+    NodeConfig, ReadyCheck, RecordId, UnikernelSettings, ZtpSettings,
 };
 use shared::konst::{SHERPA_DB_KEY_CHARSET, SHERPA_DB_KEY_LENGTH};
 
@@ -316,11 +316,15 @@ pub(crate) fn node_from_row(row: &Row) -> Result<DbNode> {
         ssh_host_key: cells.optional_text("ssh_host_key")?,
         cpu_pinning: cells.optional_json("cpu_pinning")?,
         qemu_thread_cpus: cells.optional_json("qemu_thread_cpus")?,
+        ready_check: ReadyCheck {
+            port: cells.optional_integer("ready_port")?,
+            skip: cells.boolean("skip_ready_check")?,
+        },
     })
 }
 
 /// A node's column values in the `node` table's column order, under `key`.
-pub(crate) fn node_values(node: &DbNode, key: &str) -> Result<[Value; 15]> {
+pub(crate) fn node_values(node: &DbNode, key: &str) -> Result<[Value; 17]> {
     Ok([
         key.into(),
         node.name.as_str().into(),
@@ -345,6 +349,8 @@ pub(crate) fn node_values(node: &DbNode, key: &str) -> Result<[Value; 15]> {
             .map(|cpus| json_text(cpus, "qemu_thread_cpus"))
             .transpose()?
             .into(),
+        node.ready_check.port.into(),
+        node.ready_check.skip.into(),
     ])
 }
 

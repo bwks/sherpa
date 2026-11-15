@@ -114,13 +114,14 @@ fn refuse_newer_version(version: usize) -> Result<()> {
 mod tests {
     use shared::data::{
         BiosTypes, BootDiskSettings, CdromSettings, DiskBuses, LabPhase, MachineSettings,
-        MachineType, NodeConfig, NodeKind, NodeModel, NodeState, Ztp,
+        MachineType, NodeConfig, NodeKind, NodeModel, NodeState, ReadyCheck, Ztp,
     };
+    use shared::konst::{SSH_PORT, TALOS_API_PORT};
     use shared::validators::check_ztp;
     use turso::Value;
 
     use super::*;
-    use crate::persistence::{new_key, node_image_values};
+    use crate::persistence::{key_of, new_key, node_image_values};
     use crate::{
         DefaultRequest, find_lab, list_node_images, list_nodes_by_lab, open_in_memory,
         upsert_node_image,
@@ -1063,5 +1064,91 @@ mod tests {
                 before.version
             );
         }
+    }
+
+    /// The number of migrations before the one that stores each node's ready check.
+    fn migrations_before_ready_checks() -> usize {
+        migrations::ALL
+            .iter()
+            .position(|batch| *batch == migrations::NODE_READY_CHECK)
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn nodes_from_before_ready_checks_get_the_check_the_scanner_ran() {
+        // A database from before the ready check was stored, with a node of each kind: what
+        // the scanner did with each then is what it does now.
+        let db = database_at(migrations_before_ready_checks()).await;
+        let mut images = Vec::new();
+        for model in [
+            NodeModel::UbuntuLinux,
+            NodeModel::TalosLinux,
+            NodeModel::GenericContainer,
+            NodeModel::GenericUnikernel,
+        ] {
+            let image = upsert_node_image(&db, NodeConfig::get_model(model), DefaultRequest::Make)
+                .await
+                .unwrap();
+            images.push((model, key_of(&image.id.unwrap(), "node_image").unwrap()));
+        }
+        {
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute_batch(
+                    "INSERT INTO user (id, username, password_hash, is_admin, ssh_keys,
+                         created_at, updated_at)
+                     VALUES ('u1', 'alice', 'x', 0, '[]', '2026-01-01T00:00:00Z',
+                         '2026-01-01T00:00:00Z');
+                     INSERT INTO lab (id, lab_id, name, user, loopback_network,
+                         management_network, gateway_ipv4, router_ipv4)
+                     VALUES ('l1', 'lab-0001', 'Old', 'u1', '127.127.1.0/24', '172.31.1.0/24',
+                         '172.31.1.1', '172.31.1.2');",
+                )
+                .await
+                .unwrap();
+            for (index, (model, image)) in (0_i64..).zip(&images) {
+                writer
+                    .conn
+                    .execute(
+                        "INSERT INTO node (id, name, \"index\", image, lab, state) \
+                         VALUES (?1, ?1, ?2, ?3, 'l1', 'running')",
+                        (model.to_string(), index, image.as_str()),
+                    )
+                    .await
+                    .unwrap();
+            }
+        }
+
+        apply_schema(&db).await.unwrap();
+
+        let lab = find_lab(&db, "lab-0001").await.unwrap().unwrap();
+        let nodes = list_nodes_by_lab(&db, lab.id.unwrap()).await.unwrap();
+        let check_of = |model: NodeModel| {
+            nodes
+                .iter()
+                .find(|node| node.name == model.to_string())
+                .unwrap()
+                .ready_check
+                .clone()
+        };
+        // Virtual machines keep their model's port; containers and unikernels have none, so
+        // running counts as ready. No check is skipped.
+        assert_eq!(
+            check_of(NodeModel::UbuntuLinux),
+            ReadyCheck {
+                port: Some(SSH_PORT),
+                skip: false
+            }
+        );
+        assert_eq!(
+            check_of(NodeModel::TalosLinux),
+            ReadyCheck {
+                port: Some(TALOS_API_PORT),
+                skip: false
+            }
+        );
+        assert_eq!(check_of(NodeModel::GenericContainer), ReadyCheck::default());
+        assert_eq!(check_of(NodeModel::GenericUnikernel), ReadyCheck::default());
     }
 }
