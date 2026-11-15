@@ -2,6 +2,52 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.4] - 2026-11-15
+
+### Upgrade notes
+
+- **Three database migrations (19, 20, 21).** Back up with `sherpa server backup` before updating, as usual. The database now stores each node's readiness check and every lab's manifest parameters, as the manifest writes them. File contents and resolved `$VAR` values are not stored.
+- **New key file: `/opt/sherpa/.secret/db.key`.** sherpad creates it on first start and uses it to encrypt the ZTP server password and image ZTP passwords in the database. **Back it up separately from every `server.backup`.** A database backup can't be decrypted without it, and sherpad won't start with a missing or wrong key. The update script creates `/opt/sherpa/.secret` (0700) if it's missing.
+- **Image ZTP passwords are encrypted, and never shown again.** Existing ones are encrypted at startup. `image.show`, the CLI and the admin pages say only whether a password is set; the editor takes a new one, or keeps or removes the stored one.
+- **Saved manifests are deleted.** sherpad no longer writes `manifest.toml` in each lab's server folder. Existing copies are imported into the database once at startup, then deleted.
+- **Web UI redeploy is refused for some nodes.** Nodes whose definition needs file contents or `$VAR` values the server doesn't keep (`ztp.config`, files, scripts, systemd units, SSH key files, `$VAR` environment variables, provisioners) can only be redeployed with `sherpa redeploy -n <node>`. Every node of a lab created before this update is refused on the web until it has been redeployed once from the CLI.
+- **Readiness in labs from before this update.** A custom `ready_check.port` or `ready_check.skip` is used by `resume` and the scanner only after the node is redeployed, or the lab is rebuilt. Until then, VMs are checked on their model's port, and containers and unikernels have no port.
+- **New lab IDs use your Sherpa username, not your OS username,** as the web UI already did. Existing labs keep their IDs through `.sherpa/lab-info.toml`.
+- **`sherpa console` needs no system `telnet` any more,** and works from remote and Windows clients and from folders made by `sherpa download`, as do `ssh`, `link impair`, `inspect`, `down`, `resume` and `destroy`. `console` now needs a login.
+- **Containers honour `ready_check.port`.**
+
+### Bug Fixes
+
+- Sherpa console and ssh from Windows terminals, ~. after Alpine prompts by @bwks ([8c824b6](https://github.com/bwks/sherpa/commit/8c824b66f4dc6af7123228ef044ceba06ee36f0b))
+
+### CI
+
+- Build, lint and test the client on macOS (Apple silicon) by @bwks ([5a811a4](https://github.com/bwks/sherpa/commit/5a811a42337105a908954a11463fc78e3cffc06a))
+
+### Documentation
+
+- Lab identity by lab-info.toml, console and link data from inspect [skip ci] by @bwks ([4741bb0](https://github.com/bwks/sherpa/commit/4741bb019ee19156a9cd2da33f278473e01fc258))
+- The server reads lab manifests from the database [skip ci] by @bwks ([c6fef81](https://github.com/bwks/sherpa/commit/c6fef81e5196dc4cf24c525f9acd2dfbc256cd17))
+
+### Features
+
+- Per-lab commands work in a downloaded lab's folder by @bwks ([7698746](https://github.com/bwks/sherpa/commit/7698746c97a4bf5ca33b054500a3aa9829b2aca3))
+- Give each node's console address and each link's index in inspect by @bwks ([4dc7b27](https://github.com/bwks/sherpa/commit/4dc7b27a6935ec014acac0aba347e4eb70c218b7))
+- Refuse web redeploy of nodes imported from a saved manifest by @bwks ([c2e7e90](https://github.com/bwks/sherpa/commit/c2e7e905886985e52b706d25ad2e436c58c6939d))
+- Read the lab's manifest from its stored definition by @bwks ([bf1bbe6](https://github.com/bwks/sherpa/commit/bf1bbe6324e661fc910db7e08d38f57ab785c539))
+- Store the manifest as written, never file contents by @bwks ([92a0dfd](https://github.com/bwks/sherpa/commit/92a0dfd4c32d278aacf846b5b1f1f775fb2f0b4b))
+- Keep the database key in /opt/sherpa/.secret by @bwks ([99f46e5](https://github.com/bwks/sherpa/commit/99f46e5eb0a24afb40e5635cb71cd8d37cd6a9d2))
+- Store node_image.ztp_password sealed, never send it out by @bwks ([75d521e](https://github.com/bwks/sherpa/commit/75d521e310740f138ee1566e35e3905ca22e665e))
+- Store every manifest parameter as the lab's definition by @bwks ([9ba5f1b](https://github.com/bwks/sherpa/commit/9ba5f1b67c234ccad85db99c5a6524ee8c1744eb))
+- Store each node's ready check; the scanner probes it by @bwks ([5ea786f](https://github.com/bwks/sherpa/commit/5ea786fe2ef3b3e3922247dd21c3afe10d0eeae4))
+- Containers honour ready_check.port by @bwks ([53a49ad](https://github.com/bwks/sherpa/commit/53a49ad6ba20f32293390d3b1f93838cbdc635a2))
+- Sherpa console on Jato's telnet client, through the server by @bwks ([b8f8168](https://github.com/bwks/sherpa/commit/b8f8168bda3f0bebe82bab578e0f2d339e8b8bc9))
+
+### Miscellaneous
+
+- Jato v0.5.1 by tag by @bwks ([6ab0750](https://github.com/bwks/sherpa/commit/6ab075053ec3b62e960c55c1dfc76ffb7f8ebd44))
+- Build one crypto provider, drop ring by @bwks ([4b0bec7](https://github.com/bwks/sherpa/commit/4b0bec76a739f99ca49ad0362de8b719b78fe8d7))
+
 ## [0.6.3] - 2026-11-14
 
 ### Upgrade notes
