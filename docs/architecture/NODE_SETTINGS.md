@@ -137,7 +137,7 @@ It runs in `sherpa validate`, in the server's `up` before images are leased, and
 | `interfaces.data_count` | yes | yes | yes |
 | `interfaces.queues` | yes | | |
 | `ztp.*`, `ssh.*` | yes | yes | |
-| `ready_check.port` | yes | | yes |
+| `ready_check.port` | yes | yes | yes |
 | `ready_check.skip` | yes | yes | yes |
 | `environment_variables`, `text_files`, `binary_files`, `systemd_units`, `startup_scripts`, `user_scripts` | yes | yes | |
 | `vm` | yes | | |
@@ -164,8 +164,11 @@ It runs in `sherpa validate`, in the server's `up` before images are leased, and
   `konst::CISCO_IOL_CONTAINER_OVERHEAD_MIB` (128 MiB) for the launcher and the bridge, always,
   so IOL fits inside the limit. `cpu.count` is a CPU quota as for any container; IOL is
   single-threaded, and the image's count is 1.
-- Containers have no port probe; their readiness is that they keep running, so they take
-  `ready_check.skip` but not `ready_check.port`.
+- A container has no model port. Without `ready_check.port` its readiness is that it keeps
+  running for `CONTAINER_SETTLE` (5 seconds); with one, it must also answer on that port on
+  its management IPv4, checked as a VM's port is (`node_ops::check_vm_ready`; an SSH handshake
+  on port 22, a TCP connection on any other). `node_ops::container_ready_port` gives the port,
+  and none when `ready_check.skip` is set: a skipped check wins over a port.
 - `container.platform` is for `juniper_cevolved` only (`check_ptx_platform`).
 
 The other checks on these settings:

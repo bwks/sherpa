@@ -9,6 +9,7 @@ use anyhow::{Context, Result, bail};
 use tracing::instrument;
 
 use super::context::Redeploy;
+use super::ready::wait_until_ready;
 use crate::services::container_networks::{self, ContainerDataInterface};
 use crate::services::keycloak;
 use crate::services::lab_operations::LabOperation;
@@ -40,7 +41,9 @@ struct DataInterfaces {
 }
 
 /// Configure the container again, recreate its data networks or P2p veths, start it, re-attach
-/// its links, and restore what its services keep (stages 4 and 5). Returns its links' states.
+/// its links, and restore what its services keep (stages 4 and 5). With a `ready_check.port`,
+/// it is then recorded running only once that port answers, as a VM is. Returns its links'
+/// states.
 #[instrument(skip_all, fields(lab_id = %redeploy.lab_id, node_name = %redeploy.node_name), level = "debug")]
 pub(super) async fn redeploy_container(
     redeploy: &mut Redeploy<'_>,
@@ -134,13 +137,21 @@ pub(super) async fn redeploy_container(
 
     let link_reports = attach_links(redeploy, &lab_links, container_name, p2p_veths).await;
 
-    ready_after_restore(
-        db,
-        redeploy.operation,
-        &redeploy.node_record_id,
-        restore_node_services(redeploy, initialises_vault),
-    )
-    .await?;
+    match node_ops::container_ready_port(&redeploy.target_node.ready_check) {
+        Some(ready_port) => {
+            restore_node_services(redeploy, initialises_vault).await?;
+            wait_until_ready(redeploy, ready_port).await?;
+        }
+        None => {
+            ready_after_restore(
+                db,
+                redeploy.operation,
+                &redeploy.node_record_id,
+                restore_node_services(redeploy, initialises_vault),
+            )
+            .await?;
+        }
+    }
     Ok(link_reports)
 }
 

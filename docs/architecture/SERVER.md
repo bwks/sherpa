@@ -597,8 +597,8 @@ flowchart TB
     end
     ssh --> secrets
     subgraph phase13["13. NodeReadiness"]
-        secrets["write container secret files to RAM"] --> startctr["start containers (node_ops::start_container_node)<br/>P2p containers: veths created into the container netns,<br/>then attach_ready_p2p_links for links now complete<br/>node_lifecycle::record Launched, Ready"]
-        startctr --> ready["poll VMs with node_ops::check_vm_ready, record host keys<br/>poll unikernels with check_unikernel_ready<br/>no wait for ready_check.skip nodes or Talos cluster workers"]
+        secrets["write container secret files to RAM"] --> startctr["start containers (node_ops::start_container_node)<br/>P2p containers: veths created into the container netns,<br/>then attach_ready_p2p_links for links now complete<br/>node_lifecycle::record Launched"]
+        startctr --> ready["containers: kept running CONTAINER_SETTLE, then their ready_check.port with check_vm_ready<br/>poll VMs with node_ops::check_vm_ready, record host keys<br/>poll unikernels with check_unikernel_ready<br/>no wait for ready_check.skip nodes or Talos cluster workers"]
         ready --> refresh["ssh_config::refresh_lab_ssh_files with recorded host keys<br/>bootstrap Kubernetes clusters"]
     end
     refresh --> response["Return UpResponse { success, lab_info, summary, errors, total_time_secs }"]
@@ -826,7 +826,7 @@ flowchart TB
     subgraph rebuild["rebuild (node.rs): a failure records the node Failed"]
         destroy["2. destroy_node (teardown.rs): the VM or container, the node's ZTP directory"] --> vmnets["3. recreate_vm_networks (teardown.rs): isolated and reserved networks, VMs only"]
         vmnets --> resources["reserve_node_resources (keeps the VNC port)<br/>reissue the node certificate"]
-        resources --> ctr["container.rs: generate_container_ztp<br/>no links: Docker macvlan data networks; P2p: a veth per data interface<br/>start_container_node (Starting), veths into the netns, reattach_p2p_redirects<br/>Vault unsealed, Keycloak realm made again, then Running"]
+        resources --> ctr["container.rs: generate_container_ztp<br/>no links: Docker macvlan data networks; P2p: a veth per data interface<br/>start_container_node (Starting), veths into the netns, reattach_p2p_redirects<br/>Vault unsealed, Keycloak realm made again<br/>ready_check.port answers (ready.rs), if set, then Running"]
         resources --> vm["vm.rs: generate_vm_ztp, clone_node_disks<br/>vm_interfaces from the DB links and bridges<br/>build_domain_template, create_vm (Starting), reattach_p2p_redirects<br/>isolated bridge down; wait for the ready port, host key, Running"]
     end
     ctr --> ssh["ssh_config::refresh_lab_ssh_files"]
@@ -904,8 +904,9 @@ written files on every VM without a guest agent, which includes Talos and the Ub
 Resume then waits for the nodes it cold-booted, as `up` does. It loads the lab's saved
 manifest (`manifest.toml` in the lab directory, written by `up`) for `ready_timeout`,
 `ready_check.skip` and `ready_check.port`; labs without a readable saved manifest use the default
-timeout and SSH checks. VMs are probed on SSH, unikernels with `check_unikernel_ready`.
-Containers and paused nodes are not waited for. A node that is not ready within the timeout
+timeout and SSH checks. VMs are probed on their ready port, unikernels with
+`check_unikernel_ready`, and containers with a `ready_check.port` on that port. Other
+containers and paused nodes are not waited for. A node that is not ready within the timeout
 is reported in its result message, not as an error, and stays `Starting` until the scanner's
 probe answers. The WebSocket `resume` RPC is streaming
 and sends readiness status messages before its response; the REST and web handlers return
@@ -1145,12 +1146,19 @@ what each phase does.
 
 `up`, `redeploy` and `resume` poll each VM's readiness port (`node_ops::vm_ready_port`: the
 manifest's `ready_check.port`, else the model's) with `node_ops::check_vm_ready`. Unikernels use
-`check_unikernel_ready`, and containers are ready once running.
+`check_unikernel_ready`. A container is ready once it keeps running (`CONTAINER_SETTLE` in
+`up`); one with a `ready_check.port` (`node_ops::container_ready_port`, none when the check is
+skipped) must then also answer on it, probed with `check_vm_ready` on its management IPv4 in
+all three. One that does not answer in time stays `Starting` with the non-critical "did not
+become ready" error a VM gets. The scanner does not know the manifest's ports: it probes VMs on
+SSH and records a running container `Running`, so a container left `Starting` is recorded
+`Running` on the next scan whether or not its port answers.
 
-A container that is not running right after it starts is reported as a failed node, a
-non-critical `NodeReadiness` error, and is not started again (that would fail on its name and
-roll back the whole lab). Once readiness ends, `up` checks every started container again, so
-one that exited since is reported too and its node marked `Stopped`. VM and unikernel creation
+A container that is not running right after it starts, or that exits while it settles or waits
+for its port, is reported as a failed node, a critical `NodeReadiness` error, and is not
+started again (that would fail on its name and roll back the whole lab). Once readiness ends,
+`up` checks every started container again, so one that exited since is reported too and its
+node marked `Failed`. VM and unikernel creation
 tasks are all awaited before a failure is reported, so none is still creating a domain while
 the rollback removes the lab.
 

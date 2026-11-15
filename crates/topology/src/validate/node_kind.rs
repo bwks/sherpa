@@ -62,11 +62,7 @@ pub fn check_node_kind_settings(node: &NodeExpanded) -> Result<()> {
             node.ssh.authorized_key_files.is_some(),
             VM_AND_CONTAINER,
         ),
-        (
-            "ready_check.port",
-            node.ready_check.port.is_some(),
-            VM_AND_UNIKERNEL,
-        ),
+        ("ready_check.port", node.ready_check.port.is_some(), ALL),
         ("ready_check.skip", node.ready_check.skip.is_some(), ALL),
         ("vm", node.vm.is_some(), VM),
         ("container", node.container.is_some(), CONTAINER),
@@ -210,10 +206,10 @@ mod tests {
     }
 
     #[test]
-    fn a_ready_port_on_a_container_is_refused() {
+    fn a_ready_port_on_a_container_is_accepted() {
         let mut container = node(NodeModel::GenericContainer);
         container.ready_check.port = Some(80);
-        assert!(error(&container).contains("sets `ready_check.port`"));
+        check_node_kind_settings(&container).unwrap();
     }
 
     #[test]
