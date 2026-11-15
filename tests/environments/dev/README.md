@@ -274,11 +274,13 @@ nothing listens on 4222, so its agent connects to dev's gateway address instead.
 to the host through agent-2's bridge, and because the address belongs to the host they are
 delivered locally, not forwarded between the bridges.
 
-The setup script sets each dev server's `management_prefix_ipv4` to `172.30.0.0/16`, outside the
-host's default `172.31.0.0/16`. A lab inside a dev server with the default could be given the
-same subnet as dev's lab on the host, putting the bus address on a bridge inside that dev server.
-Its agent would then reach its own bridge, get "connection refused" and stop. A dev server set up
-before this change needs the setting in `/opt/sherpa/config/sherpa.toml` and a `sherpad` restart.
+The setup script runs `sherpad init` with `SHERPA_MANAGEMENT_PREFIX_IPV4=172.30.0.0/16`, so each
+dev server's `management_prefix_ipv4` is outside the host's default `172.31.0.0/16`. A lab inside
+a dev server with the default could be given the same subnet as dev's lab on the host, putting the
+bus address on a bridge inside that dev server. Its agent would then reach its own bridge, get
+"connection refused" and stop. `init` writes the prefix only with a new config and keeps an
+existing one, so a dev server whose config was written with the default needs the setting in
+`/opt/sherpa/config/sherpa.toml` and a `sherpad` restart.
 
 **Checked:** from `agent-2` in lab `sherpa-agent-2`, on its own bridge, the bus at dev's gateway
 address on port 4222 answered with NATS's `INFO` line, with no firewall change.

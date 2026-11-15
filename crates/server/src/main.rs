@@ -39,7 +39,18 @@ async fn main() -> Result<()> {
             server_ipv6,
             ws_port,
             http_port,
-        } => sherpad::init::init(force, server_ipv4, server_ipv6, ws_port, http_port).await,
+            management_prefix_ipv4,
+        } => {
+            sherpad::init::init(
+                force,
+                server_ipv4,
+                server_ipv6,
+                ws_port,
+                http_port,
+                management_prefix_ipv4,
+            )
+            .await
+        }
         Commands::CheckDatabase => {
             sherpad::check_database::check_database(Path::new(SHERPA_DB_FILE_PATH)).await
         }

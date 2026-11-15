@@ -1105,19 +1105,28 @@ stateDiagram-v2
 
 ### 20. `sherpad init`
 
-**Where.** `crates/server/src/init.rs:35-123`.
+**Where.** `crates/server/src/init.rs:39-131`.
 
 **Stages:**
 
-1. directories;
-2. config, skipped if the file exists and `--force` is not set (`:76`);
-3. libvirt network (`:99`) and storage pool (`:107`);
-4. database;
-5. admin account;
-6. first user, guarded by a lookup (`:161-215`).
+1. the management prefix is checked by `validate_management_prefix`
+   (`crates/server/src/validate/management_prefix.rs`, `:48`), before anything is written;
+2. directories;
+3. config, skipped if the file exists and `--force` is not set (`:82`). `server_config`
+   (`:134-149`) is `default_config()` with the flags' listen address, ports and
+   `management_prefix_ipv4`, so an existing config keeps its values;
+4. libvirt network (`:107`) and storage pool (`:115`);
+5. database;
+6. admin account;
+7. first user, guarded by a lookup (`:187-241`).
 
-No step is undone on failure. Re-running is the recovery: the doc comment at `:127-128`
+No step is undone on failure. Re-running is the recovery: the doc comment at `:152-153`
 says it is safe to re-run.
+
+The management prefix check runs the allocator `up` uses, `allocate_management_subnet`, with
+nothing taken: a prefix longer than `/24`, or a `/24` that is the `x.x.0.0/24` the allocator
+skips, has no subnet for a lab and is refused. clap refuses a value that is not an IPv4
+network, since the flag is parsed as `Ipv4Net`, the type of the config field.
 
 ---
 
