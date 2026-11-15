@@ -274,8 +274,6 @@ mod tests {
                 memory: None,
                 vnc_port: None,
                 ssh_host_key: None,
-                cpu_pinning: None,
-                qemu_thread_cpus: None,
                 ready_check: data::ReadyCheck::default(),
                 ssh_username: None,
             },
