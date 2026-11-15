@@ -7,11 +7,10 @@ use http_body_util::BodyExt;
 use serde_json::Value;
 use tracing::instrument;
 
-use shared::data::StatusKind;
+use shared::data::{ClusterPlan, StatusKind};
 use shared::konst::{READINESS_SLEEP, TALOS_API_PORT};
 use template::TalosClusterSecrets;
 
-use super::plan::ClusterPlan;
 use crate::services::lab_operations::LabOperation;
 use crate::services::progress::ProgressSender;
 use crate::tls::generator::PemPair;

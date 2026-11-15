@@ -1,23 +1,12 @@
 use std::net::Ipv4Addr;
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
-use shared::data::{ClusterCni, ClusterRole, NetworkV4};
+use shared::data::{AddressRange, ClusterCni, ClusterMember, ClusterPlan, ClusterRole, NetworkV4};
 use shared::konst::{
     TALOS_LOAD_BALANCER_BLOCK_SIZE, TALOS_LOAD_BALANCER_HOST_OFFSETS, TALOS_VIP_HOST_OFFSETS,
 };
 use shared::util::get_ipv4_addr;
 use topology::TalosCluster;
-
-/// Kubernetes API port.
-pub const KUBERNETES_API_PORT: u16 = 6443;
-
-/// A node a cluster is made of or uses, and its management address.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ClusterMember {
-    pub name: String,
-    pub ipv4: Ipv4Addr,
-}
 
 /// A manifest node's cluster membership, before planning.
 #[derive(Clone, Debug)]
@@ -26,85 +15,6 @@ pub struct MemberInput<'a> {
     pub cluster: &'a str,
     pub role: ClusterRole,
     pub ipv4: Ipv4Addr,
-}
-
-/// Management addresses from `first` to `last`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AddressRange {
-    pub first: Ipv4Addr,
-    pub last: Ipv4Addr,
-}
-
-/// Addresses and members of one cluster.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ClusterPlan {
-    pub name: String,
-    /// Address the Kubernetes API is reached on: the shared address with several control
-    /// planes, otherwise the only control plane's address.
-    pub endpoint: Ipv4Addr,
-    /// Shared address the control planes elect an owner for.
-    pub vip: Option<Ipv4Addr>,
-    /// Plans saved before clusters had a CNI choice are Flannel clusters.
-    #[serde(default)]
-    pub cni: ClusterCni,
-    /// Addresses a Cilium cluster hands out to load balancers: its Gateway first, then Hubble
-    /// UI.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub load_balancer_addresses: Option<AddressRange>,
-    /// Control planes in manifest order. The first one is bootstrapped.
-    pub control_planes: Vec<ClusterMember>,
-    pub workers: Vec<ClusterMember>,
-    /// The Keycloak node whose realm users log in to the cluster.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oidc: Option<ClusterMember>,
-    /// The Vault node the cluster's workloads read secrets from.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub vault: Option<ClusterMember>,
-}
-
-impl ClusterPlan {
-    pub fn endpoint_url(&self) -> String {
-        format!("https://{}:{KUBERNETES_API_PORT}", self.endpoint)
-    }
-
-    /// With no workers, workloads must be allowed on the control planes.
-    pub fn schedulable_control_planes(&self) -> bool {
-        self.workers.is_empty()
-    }
-
-    /// The one control plane that receives the bootstrap request.
-    pub fn bootstrap_node(&self) -> Option<&ClusterMember> {
-        self.control_planes.first()
-    }
-
-    pub fn member_count(&self) -> usize {
-        self.control_planes.len() + self.workers.len()
-    }
-
-    /// Address of a Cilium cluster's Gateway: the first load balancer address.
-    pub fn gateway_address(&self) -> Option<Ipv4Addr> {
-        self.load_balancer_addresses.map(|range| range.first)
-    }
-
-    /// Address of a Cilium cluster's Hubble UI: the load balancer address after the Gateway's.
-    pub fn hubble_ui_address(&self) -> Option<Ipv4Addr> {
-        self.gateway_address()
-            .map(|gateway| Ipv4Addr::from(u32::from(gateway) + 1))
-    }
-
-    pub fn role_of(&self, node_name: &str) -> Option<ClusterRole> {
-        if self
-            .control_planes
-            .iter()
-            .any(|member| member.name == node_name)
-        {
-            Some(ClusterRole::ControlPlane)
-        } else if self.workers.iter().any(|member| member.name == node_name) {
-            Some(ClusterRole::Worker)
-        } else {
-            None
-        }
-    }
 }
 
 /// Plan every cluster: assign shared addresses to clusters with several control planes and
@@ -306,24 +216,6 @@ mod tests {
     }
 
     #[test]
-    fn plans_saved_before_cni_choice_are_flannel_clusters() {
-        let saved = r#"
-name = "k8s"
-endpoint = "172.31.1.21"
-workers = []
-
-[[control_planes]]
-name = "cp1"
-ipv4 = "172.31.1.21"
-"#;
-        let plan: ClusterPlan = toml::from_str(saved).unwrap();
-        assert_eq!(plan.cni, ClusterCni::Flannel);
-        assert_eq!(plan.load_balancer_addresses, None);
-        assert_eq!(plan.oidc, None);
-        assert_eq!(plan.vault, None);
-    }
-
-    #[test]
     fn clusters_record_the_keycloak_and_vault_they_use() {
         let members = [
             member("a-cp1", "a", ClusterRole::ControlPlane, 21),
@@ -351,27 +243,11 @@ ipv4 = "172.31.1.21"
         assert_eq!(plans[0].oidc.as_ref(), Some(&services[0]));
         assert_eq!(plans[0].vault.as_ref(), Some(&services[1]));
         assert_eq!(plans[1].oidc, None);
-        let restored: ClusterPlan = toml::from_str(&toml::to_string(&plans[0]).unwrap()).unwrap();
-        assert_eq!(restored, plans[0]);
 
         let unknown = [TalosCluster {
             vault: Some("vault02".to_owned()),
             ..cluster("a", ClusterCni::Flannel)
         }];
         assert!(plan_clusters(&unknown, &members, &services, &management()).is_err());
-    }
-
-    #[test]
-    fn cilium_plans_round_trip_through_toml() {
-        let members = [member("a-cp1", "a", ClusterRole::ControlPlane, 21)];
-        let plans = plan_clusters(
-            &[cluster("a", ClusterCni::Cilium)],
-            &members,
-            &[],
-            &management(),
-        )
-        .unwrap();
-        let restored: ClusterPlan = toml::from_str(&toml::to_string(&plans[0]).unwrap()).unwrap();
-        assert_eq!(restored, plans[0]);
     }
 }

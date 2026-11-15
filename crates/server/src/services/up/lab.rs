@@ -629,6 +629,7 @@ impl LabUp<'_> {
         } = configure_nodes(
             &self.build,
             &ConfigInputs {
+                lab_record_id: &records.lab_record_id,
                 node_images: &self.plan.node_images,
                 node_setup_data: &records.node_setup_data,
                 lab_node_data: &records.lab_node_data,

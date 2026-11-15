@@ -753,8 +753,8 @@ stateDiagram-v2
 
 | Stage | Marker | Where |
 |---|---|---|
-| Secrets | `<lab>/clusters/<name>/secrets.toml` | `talos/lab.rs:58-61` |
-| Plan | `cluster.toml` | `talos/lab.rs:62-64` |
+| Plan | `talos_cluster_plan` rows, stored before the secrets | `talos::prepare_clusters` |
+| Secrets | `<lab>/clusters/<name>/secrets.toml` | `talos::prepare_clusters` |
 | Machine configs | none (memory). Regenerated from plan and secrets on a worker redeploy. | `redeploy/context.rs` |
 | Credentials | `talosconfig`, `kubeconfig` | `talos/lab.rs:321-343` |
 | Bootstrap | none in Sherpa. Talos answers `ALREADY_EXISTS` when bootstrapped. | `talos/bootstrap.rs:131-135` |
@@ -769,9 +769,9 @@ stateDiagram-v2
 
 ```mermaid
 stateDiagram-v2
-    [*] --> SecretsSaved : up phase 8
-    SecretsSaved --> PlanSaved
-    PlanSaved --> ConfigsDelivered : NoCloud media
+    [*] --> PlanStored : up phase 8
+    PlanStored --> SecretsSaved
+    SecretsSaved --> ConfigsDelivered : NoCloud media
     ConfigsDelivered --> CredentialsWritten : up phase 13
     CredentialsWritten --> Bootstrapped : bootstrap ok or ALREADY_EXISTS
     CredentialsWritten --> NotReady : bootstrap timeout (non-critical)

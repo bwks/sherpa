@@ -44,7 +44,10 @@ and its nodes' records when `up`, `download` or `node.host_keys` returns them
 client reads them as before. The `manifest.toml`, or legacy `manifest.json`, that older releases
 saved there is deleted at startup, after the [import](SERVER.md#lab-definition-import), and
 their `lab-info.toml`, `sherpa_ssh_config` and `sherpa_known_hosts` once the SSH accounts in
-`lab-info.toml` are stored (see [Lab file import](SERVER.md#lab-file-import)). What the server's
+`lab-info.toml` are stored (see [Lab file import](SERVER.md#lab-file-import)). Each Talos
+cluster's plan is in the database too, and the `clusters/<cluster>/cluster.toml` older releases
+saved is deleted at startup once stored (see
+[Cluster plan import](SERVER.md#cluster-plan-import)). What the server's
 folder keeps is the lab's SSH key pair, its CA and the container and VM certificates, Talos,
 Vault and Keycloak credentials, and the files read while a node exists: the dnsmasq config
 (`ztp/dnsmasq/dnsmasq.conf`, mounted in the boot container), the TFTP and HTTP files of the nodes

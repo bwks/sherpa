@@ -137,7 +137,7 @@ flowchart TB
     plain6 --> serveplain["serve with graceful shutdown future"]
 ```
 
-In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), imports the definitions of labs that have none and deletes the saved manifests ([below](#lab-definition-import)), then stores the SSH accounts of older labs' `lab-info.toml` and deletes it with their SSH config and `known_hosts` ([below](#lab-file-import)), and removes the lab files nothing reads ([below](#unread-lab-file-clean-up)), all in `upgrade_stored_data`, starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
+In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), imports the definitions of labs that have none and deletes the saved manifests ([below](#lab-definition-import)), then stores the SSH accounts of older labs' `lab-info.toml` and deletes it with their SSH config and `known_hosts` ([below](#lab-file-import)), stores their Talos clusters' saved `cluster.toml` and deletes it ([below](#cluster-plan-import)), and removes the lab files nothing reads ([below](#unread-lab-file-clean-up)), all in `upgrade_stored_data`, starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
 
 `auth::jwt::load_or_generate_secret` generates the JWT secret only when the file is missing. A file that exists with a length other than 32 bytes stops startup with an error naming the file: replacing it would silently end every session. Deleting the file generates a new secret, which logs every user out.
 
@@ -216,6 +216,27 @@ definition import, `saved_lab_files::move_saved_lab_files` takes every lab with 
 A file that is not there is skipped, so the step runs on every start and a second start does
 nothing. Folders of labs with no record are left alone. Only a failure to list the labs stops
 startup. It can be removed with the definition import.
+
+#### Cluster plan import
+
+Releases before schema version 24 saved each Talos cluster's plan in its folder,
+`/opt/sherpa/labs/<lab-id>/clusters/<cluster>/cluster.toml`. The database holds it now (see
+[`DATABASE.md`](DATABASE.md#talos-cluster-plans)). After the lab file import,
+`saved_cluster_plans::move_saved_cluster_plans` takes every lab with a record:
+
+1. **Read.** It reads the `cluster.toml` of each folder under the lab's `clusters/`. A file that
+   cannot be read or parsed, or names a cluster the lab's definition does not have, is logged at
+   warn with the lab and deleted: nothing in it can be stored. Its cluster has no plan then, so
+   `down` powers its nodes off, a worker `redeploy` is refused and `download` leaves it out.
+2. **Store.** The rest are stored in one transaction (`db::store_talos_cluster_plans`): the
+   endpoint, shared address and load balancer range. The members in the file are not: they are
+   the definition's, at their nodes' addresses.
+3. **Delete.** Then it deletes those files, and nothing else: `secrets.toml`, `talosconfig` and
+   `kubeconfig` stay. A failure to store keeps them, and the next start tries again.
+
+Each step is keyed on the file being there, so a second start does nothing, and a start after a
+crash between storing and deleting stores the same values again. Folders of labs with no record
+are left alone. Only a failure to list the labs stops startup.
 
 #### Unread lab file clean-up
 

@@ -19,7 +19,7 @@ use crate::services::talos::LabCluster;
 use crate::tls::lab_ca::{self, LabCa, NodeCertPaths, NodeIdentity};
 
 use shared::data;
-use shared::data::{LabSubnets, RecordId, StatusKind};
+use shared::data::{ClusterMember, LabSubnets, RecordId, StatusKind};
 use shared::konst::{
     CONTAINER_DNSMASQ_CAPABILITIES, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
     DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, KVM_OUI, LAB_CERTS_DIR, MTU_JUMBO_NET, NODE_CONFIGS_DIR,
@@ -30,6 +30,7 @@ use topology::find_talos_cluster;
 
 /// What configuring the nodes needs besides the build.
 pub(super) struct ConfigInputs<'a> {
+    pub(super) lab_record_id: &'a RecordId,
     pub(super) node_images: &'a [data::NodeConfig],
     pub(super) node_setup_data: &'a [data::NodeSetupData],
     pub(super) lab_node_data: &'a [data::LabNodeData],
@@ -111,7 +112,7 @@ pub(super) async fn configure_nodes(
         vm_count = vm_nodes.len(),
         "Generating VM configurations and domains"
     );
-    let lab_clusters = configuring.plan_clusters(vm_nodes)?;
+    let lab_clusters = configuring.plan_clusters(vm_nodes).await?;
     let mut domains = Vec::with_capacity(vm_nodes.len());
     for node in vm_nodes.iter_mut() {
         domains.push(configuring.configure_vm(node, &lab_clusters).await?);
@@ -237,8 +238,9 @@ impl Configuring<'_, '_> {
         Ok(ztp_result.volumes)
     }
 
-    /// Plan the lab's Kubernetes clusters and generate their secrets, before any node config.
-    fn plan_clusters(&self, vm_nodes: &[topology::NodeExpanded]) -> Result<Vec<LabCluster>> {
+    /// Plan the lab's Kubernetes clusters, store their plans and generate their secrets, before
+    /// any node config.
+    async fn plan_clusters(&self, vm_nodes: &[topology::NodeExpanded]) -> Result<Vec<LabCluster>> {
         let talos_clusters = self.inputs.talos_clusters;
         if talos_clusters.is_empty() {
             return Ok(Vec::new());
@@ -261,25 +263,28 @@ impl Configuring<'_, '_> {
             }
         }
         // The Keycloak and Vault nodes clusters use, with their addresses.
-        let mut services: Vec<talos::plan::ClusterMember> = Vec::new();
+        let mut services: Vec<ClusterMember> = Vec::new();
         for cluster in talos_clusters {
             for name in [&cluster.oidc, &cluster.vault].into_iter().flatten() {
                 if services.iter().any(|service| &service.name == name) {
                     continue;
                 }
-                services.push(talos::plan::ClusterMember {
+                services.push(ClusterMember {
                     name: name.clone(),
                     ipv4: self.planned_ipv4(name)?,
                 });
             }
         }
         let clusters = talos::prepare_clusters(
+            self.build.db,
+            self.inputs.lab_record_id,
             self.build.lab_id,
             talos_clusters,
             &members,
             &services,
             &self.inputs.mgmt_net.v4,
-        )?;
+        )
+        .await?;
         let _ = self.build.progress.send_status(
             format!(
                 "Generated secrets for {} Kubernetes clusters",
@@ -798,6 +803,7 @@ mod tests {
         configure_nodes(
             &build,
             &ConfigInputs {
+                lab_record_id: lab.id.as_ref().unwrap(),
                 node_images: &node_images,
                 node_setup_data: &node_setup_data,
                 lab_node_data: &lab_node_data,

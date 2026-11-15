@@ -40,7 +40,7 @@ mod ztp;
 
 pub use auth::{LoginRequest, LoginResponse, LogoutResponse, ValidateRequest, ValidateResponse};
 pub use backup::BackupResponse;
-pub use cluster::{ClusterCni, ClusterRole};
+pub use cluster::{AddressRange, ClusterCni, ClusterMember, ClusterPlan, ClusterRole};
 
 pub use config::{
     ClientConfig, Config, HostMemorySettings, OtelConfig, ScannerConfig, ServerConnection, Sherpa,

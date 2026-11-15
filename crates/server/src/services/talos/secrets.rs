@@ -7,7 +7,7 @@ use rand::RngCore;
 use rcgen::KeyPair;
 use tracing::instrument;
 
-use shared::konst::{SHERPA_LABS_PATH, TALOS_SUPPORTED_MINOR_VERSION};
+use shared::konst::TALOS_SUPPORTED_MINOR_VERSION;
 use shared::util::base64_encode_bytes;
 use template::{TalosClientCredentials, TalosClusterSecrets};
 
@@ -166,12 +166,10 @@ pub fn ensure_supported_version(node_name: &str, version: &str) -> Result<()> {
     Ok(())
 }
 
-/// Directory holding one cluster's secrets and credentials.
-pub fn cluster_dir(lab_id: &str, cluster_name: &str) -> PathBuf {
-    Path::new(SHERPA_LABS_PATH)
-        .join(lab_id)
-        .join(CLUSTERS_DIR)
-        .join(cluster_name)
+/// Directory holding one cluster's secrets and credentials, in the folder of lab `lab_id`
+/// under `labs`.
+pub fn cluster_dir(labs: &Path, lab_id: &str, cluster_name: &str) -> PathBuf {
+    labs.join(lab_id).join(CLUSTERS_DIR).join(cluster_name)
 }
 
 /// Save a cluster's secrets so later operations (redeploy) can build matching configs.

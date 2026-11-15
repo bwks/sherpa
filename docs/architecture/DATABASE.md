@@ -220,6 +220,7 @@ table, copy the rows, drop the old one, rename.
 | 21 | `0021_node_definition_imported.sql`: `node.definition_imported` (`0` or `1`, default `0`), set on every node of a lab whose definition came from a saved manifest; the web UI refuses to redeploy a marked node. Existing rows are left `0`: the startup step marks the labs that still have a saved manifest. See [Imported definitions](#imported-definitions) |
 | 22 | `0022_node_ssh_username.sql`: `node.ssh_username`, the account the lab's SSH config logs in to the node with (`NULL` for the shared `sherpa` account). Existing rows are left `NULL`: sherpad copies the accounts from each lab's `lab-info.toml` at startup. See [Node SSH accounts](#node-ssh-accounts) |
 | 23 | `0023_cpu_pin.sql`: the `cpu_pin` table, one row per host CPU and role a node holds, and its triggers. Every node's `cpu_pinning` and `qemu_thread_cpus` are copied into it, as stored, before the triggers exist, then both columns are dropped. See [CPU pins](#cpu-pins) |
+| 24 | `0024_talos_cluster_plan.sql`: the `talos_cluster_plan` table, what `up` works out for each Talos cluster (endpoint, shared address, load balancer range), keyed on the lab and the cluster's position in `manifest_talos_cluster`. sherpad fills it at startup from the `cluster.toml` files older releases saved. See [Talos cluster plans](#talos-cluster-plans) |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
@@ -326,6 +327,37 @@ the server no longer keeps.
   read the lab info the same way.
 - **Imported** once at startup from labs stored before version 22 (see
   [`SERVER.md`](SERVER.md#lab-file-import)).
+
+### Talos cluster plans
+
+A Talos cluster's plan (`shared::data::ClusterPlan`) is its manifest cluster with the addresses
+`up` chose for it. The manifest's side is in the lab's definition (`manifest_talos_cluster`,
+`manifest_talos_member`), and members' and services' addresses are their nodes' `mgmt_ipv4`, so
+`talos_cluster_plan` holds only the rest, one row per cluster:
+
+| Column | Holds |
+|---|---|
+| `lab`, `cluster` | the key: the lab, and the cluster's `position` in `manifest_talos_cluster` |
+| `endpoint` | the Kubernetes API address: the shared address, or the only control plane's |
+| `vip` | the shared address of a cluster with three control planes, else `NULL` |
+| `load_balancer_first`, `load_balancer_last` | a Cilium cluster's load balancer range, else both `NULL` (a `CHECK` refuses one alone) |
+
+The values are columns of their own table rather than of `manifest_talos_cluster`, which holds
+what the user wrote and is read back as the manifest: the definition is stored before the
+plan exists, so the columns would be nullable there, and every writer of the definition would
+have to carry them. The composite foreign key to `manifest_talos_cluster` cascades, so a row
+goes with its cluster: storing the definition again drops the plans (nothing does that to a lab
+that has them), and destroying the lab removes both.
+
+- **Written** by `db::store_talos_cluster_plans(db, lab, plans)`, in one transaction: each plan
+  replaces its cluster's row, found by name, so storing the same plans again changes nothing. A
+  plan for a cluster the definition does not have fails the call and stores nothing. `up` calls
+  it from `talos::prepare_clusters`; the startup import too.
+- **Read** by `db::list_talos_cluster_plans(db, lab)` (`talos/list_cluster_plans.sql` and
+  `talos/list_cluster_members.sql`), in manifest order. A cluster without a row is left out; a
+  member, Keycloak or Vault node without a `mgmt_ipv4` is an error naming it.
+- **Imported** once at startup from labs stored before version 24 (see
+  [`SERVER.md`](SERVER.md#cluster-plan-import)).
 
 ### Lab definitions
 

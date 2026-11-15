@@ -28,7 +28,9 @@ use crate::tls::lab_ca::NodeCertPaths;
 use container::ContainerSpec;
 use shared::data;
 use shared::data::{LinkReport, OperationEvent, RecordId, StatusKind};
-use shared::konst::{CONTAINER_SECRETS_DIR, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR};
+use shared::konst::{
+    CONTAINER_SECRETS_DIR, SHERPA_LABS_PATH, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR,
+};
 use shared::util;
 
 /// A container's data interfaces, and the lab's links they were planned from.
@@ -337,7 +339,13 @@ async fn restore_node_services(redeploy: &Redeploy<'_>, initialises_vault: bool)
         )
         .await?;
         talos::grant_vault_access(
-            &talos::load_clusters(lab_id)?,
+            &talos::load_clusters(
+                &redeploy.state.db,
+                Path::new(SHERPA_LABS_PATH),
+                &redeploy.lab_record_id,
+                lab_id,
+            )
+            .await?,
             node_name,
             redeploy.ipv4,
             ca_cert,

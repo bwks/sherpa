@@ -21,6 +21,7 @@ pub mod secret;
 pub mod seed;
 pub mod session;
 mod sql;
+pub mod talos;
 pub mod user;
 
 pub use connect::{Database, open, open_in_memory};
@@ -79,3 +80,6 @@ pub use session::{create_session, delete_expired_sessions, delete_session, find_
 
 // Bridge CRUD operations
 pub use bridge::{create_bridge, list_bridges};
+
+// Talos cluster plans
+pub use talos::{list_talos_cluster_plans, store_talos_cluster_plans};

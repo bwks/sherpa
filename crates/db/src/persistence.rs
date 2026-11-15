@@ -3,6 +3,8 @@
 //! The mappers read and write columns in the order of each table's `CREATE TABLE` in `sql/schema/`,
 //! which is the order the statements in `sql/queries/` list them. Record ids are stored as their
 //! key; the table is implied by the column.
+use std::net::Ipv4Addr;
+
 use anyhow::{Context, Result, bail};
 use jiff::Timestamp;
 use rand::Rng;
@@ -58,6 +60,22 @@ impl<'a> Cells<'a> {
             Value::Null => Ok(None),
             Value::Text(text) => Ok(Some(text)),
             other => bail!("Database field {field} is not text: {other:?}"),
+        }
+    }
+
+    pub(crate) fn ipv4(&mut self, field: &str) -> Result<Ipv4Addr> {
+        let text = self.text(field)?;
+        text.parse()
+            .with_context(|| format!("Database field {field} is not an IPv4 address: {text}"))
+    }
+
+    pub(crate) fn optional_ipv4(&mut self, field: &str) -> Result<Option<Ipv4Addr>> {
+        match self.optional_text(field)? {
+            None => Ok(None),
+            Some(text) => text
+                .parse()
+                .map(Some)
+                .with_context(|| format!("Database field {field} is not an IPv4 address: {text}")),
         }
     }
 
