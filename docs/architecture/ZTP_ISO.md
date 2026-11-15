@@ -45,7 +45,7 @@ flowchart LR
     guest["guest reader<br/>cloud-init, cloudbase-init,<br/>IOS-XE, NX-OS, Junos, PAN-OS, ..."]
     gen -->|"write files"| dir
     dir -->|"source"| iso
-    iso -->|"copied as a clone disk"| pool
+    iso -->|"copied as a clone disk,<br/>then NODE/ removed"| pool
     pool --> vm
     vm -->|"mounts by label or device"| guest
 ```
@@ -57,12 +57,16 @@ flowchart LR
 3. The node's disk plan (`node_ops`, the CD-ROM block of the VM build) adds a `CloneDisk` that
    copies `ztp.iso` into the storage pool as `<node>-<lab>.iso`, and a `NodeDisk` that attaches
    it as a raw CD-ROM on the model's CD-ROM bus.
-4. The guest finds the medium: cloud-init's NoCloud source by the `cidata` label, network
+4. Once every disk of the `up` or `redeploy` is in the pool, `node_ops::clone_node_disks`
+   removes the VM's folder in the lab directory (`remove_vm_boot_dir`): the domain names only the
+   pool's copy, so nothing reads the files again. A failed copy keeps the folder, so the failure
+   can be looked at; `destroy` removes it with the lab directory.
+5. The guest finds the medium: cloud-init's NoCloud source by the `cidata` label, network
    operating systems by looking for their config file on the CD-ROM, PAN-OS by the
    `bootstrap` label and its folder layout.
 
-The files in the lab directory and the ISO in the pool are readable by `sherpa`, the `sherpa`
-group and QEMU; see "Lab storage permissions" in [`SERVER.md`](SERVER.md). They are not for
+The files in the lab directory, while they are there, and the ISO in the pool are readable by
+`sherpa`, the `sherpa` group and QEMU; see "Lab storage permissions" in [`SERVER.md`](SERVER.md). They are not for
 secrets.
 
 ## Callers

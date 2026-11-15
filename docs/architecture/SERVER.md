@@ -137,7 +137,7 @@ flowchart TB
     plain6 --> serveplain["serve with graceful shutdown future"]
 ```
 
-In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), imports the definitions of labs that have none and deletes the saved manifests ([below](#lab-definition-import)), then stores the SSH accounts of older labs' `lab-info.toml` and deletes it with their SSH config and `known_hosts` ([below](#lab-file-import)), all in `upgrade_stored_data`, starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
+In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), imports the definitions of labs that have none and deletes the saved manifests ([below](#lab-definition-import)), then stores the SSH accounts of older labs' `lab-info.toml` and deletes it with their SSH config and `known_hosts` ([below](#lab-file-import)), and removes the lab files nothing reads ([below](#unread-lab-file-clean-up)), all in `upgrade_stored_data`, starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
 
 `auth::jwt::load_or_generate_secret` generates the JWT secret only when the file is missing. A file that exists with a length other than 32 bytes stops startup with an error naming the file: replacing it would silently end every session. Deleting the file generates a new secret, which logs every user out.
 
@@ -216,6 +216,24 @@ definition import, `saved_lab_files::move_saved_lab_files` takes every lab with 
 A file that is not there is skipped, so the step runs on every start and a second start does
 nothing. Folders of labs with no record are left alone. Only a failure to list the labs stops
 startup. It can be removed with the definition import.
+
+#### Unread lab file clean-up
+
+Releases before this one left files in each lab's server folder that nothing reads. Last in
+`upgrade_stored_data`, `unread_lab_files::remove_unread_lab_files` removes them from the folder of
+every lab with a record:
+
+- `ztp/dnsmasq/dnsmasq.leases`, written empty and never mounted in the boot container;
+- `certs/<node>.crt` and `certs/<node>.key` of each unikernel node, issued and never delivered;
+- `<node>/` of each VM node, its boot files, read once to copy its media into the storage pool.
+  A VM named like one of the lab's own folders keeps it (`node_ops::vm_boot_dir`).
+
+A node's kind comes from its image record. What dnsmasq, QEMU and Docker read stays: the dnsmasq
+config, the TFTP and HTTP files, the pool volumes, container and VM certificates and container
+mounts. A path that is not there is skipped, so a second start does nothing; one that cannot be
+removed is logged and left, as are the node files of a lab whose nodes cannot be listed.
+Folders of labs with no record are left alone. Only a failure to list the labs stops startup.
+`up` and `redeploy` no longer write these files, so the step can be removed with the imports.
 
 Shutdown uses SIGINT/SIGTERM. The handlers are registered once, before the server binds any listener, so a registration failure stops startup with an error instead of leaving a server that cannot shut down gracefully. On shutdown, the server cancels the background-service token. With TLS, it also asks the `axum_server::Handle` to perform graceful shutdown with a short timeout. The OpenTelemetry guard flushes traces/metrics when dropped.
 

@@ -45,9 +45,26 @@ client reads them as before. The `manifest.toml`, or legacy `manifest.json`, tha
 saved there is deleted at startup, after the [import](SERVER.md#lab-definition-import), and
 their `lab-info.toml`, `sherpa_ssh_config` and `sherpa_known_hosts` once the SSH accounts in
 `lab-info.toml` are stored (see [Lab file import](SERVER.md#lab-file-import)). What the server's
-folder keeps is the lab's SSH key pair, its CA and node certificates, Talos, Vault and Keycloak
-credentials, and the files nodes boot from or mount. The user's `manifest.toml` in their own
-lab folder is the CLI's, and is never touched.
+folder keeps is the lab's SSH key pair, its CA and the container and VM certificates, Talos,
+Vault and Keycloak credentials, and the files read while a node exists: the dnsmasq config
+(`ztp/dnsmasq/dnsmasq.conf`, mounted in the boot container), the TFTP and HTTP files of the nodes
+that boot by them (`ztp/tftp/`, `ztp/configs/`) and each container's config mounts (`<node>/`).
+It does not keep:
+
+- **A VM's boot files** (`<node>/`: its seed, config files, `ztp.iso`, config disks, Ignition
+  file): they are read once, to copy the VM's media into the storage pool, and removed straight
+  after (see [`ZTP_ISO.md`](ZTP_ISO.md#from-config-files-to-the-guest)). A failed copy keeps
+  them until `destroy`. A VM named like one of the lab's own folders (`certs`, `ztp`,
+  `clusters`, `vault`, `keycloak`) keeps its files there, as that folder holds more than them.
+- **A dnsmasq leases file**: dnsmasq keeps its leases inside the boot container.
+- **Unikernel certificates**: none are issued (see [`LAB_CA.md`](LAB_CA.md#node-certificates)).
+- **Another ZTP method's network boot files**: a `redeploy` that moves a VM off TFTP or HTTP
+  removes that node's TFTP config or HTTP files (`node_ops::remove_stale_network_boot_files`),
+  and no other node's.
+
+Older releases left the first three; they are removed at startup (see
+[Unread lab file clean-up](SERVER.md#unread-lab-file-clean-up)). The user's `manifest.toml` in
+their own lab folder is the CLI's, and is never touched.
 
 ## Lab identity
 
