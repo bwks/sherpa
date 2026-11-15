@@ -36,11 +36,18 @@ through the `Include` in `~/.ssh/sherpa_lab_hosts`, with `ssh -F .sherpa/ssh/con
 the lab folder, for `sherpa ssh` and for the provisioners. The server's own lab folder
 (`/opt/sherpa/labs/<lab-id>`) keeps the `sherpa_*` names.
 
-The server's lab folder holds no copy of the manifest: the lab's manifest is its definition in
-the database (see [`DATABASE.md`](DATABASE.md#lab-definitions)). The `manifest.toml`, or legacy
-`manifest.json`, that older releases saved there is deleted at startup, after the
-[import](SERVER.md#lab-definition-import). Its `lab-info.toml` is still written by `up`. The
-user's `manifest.toml` in their own lab folder is the CLI's, and is never touched.
+The server's lab folder holds no copy of the manifest, the lab info or the SSH files: the lab's
+manifest is its definition in the database (see [`DATABASE.md`](DATABASE.md#lab-definitions)),
+and `lab-info.toml`, the SSH config and `known_hosts` the server sends are built from the lab's
+and its nodes' records when `up`, `download` or `node.host_keys` returns them
+(`lab_info::load_lab_info`, `ssh_config::lab_ssh_files`). Their format is unchanged, so every
+client reads them as before. The `manifest.toml`, or legacy `manifest.json`, that older releases
+saved there is deleted at startup, after the [import](SERVER.md#lab-definition-import), and
+their `lab-info.toml`, `sherpa_ssh_config` and `sherpa_known_hosts` once the SSH accounts in
+`lab-info.toml` are stored (see [Lab file import](SERVER.md#lab-file-import)). What the server's
+folder keeps is the lab's SSH key pair, its CA and node certificates, Talos, Vault and Keycloak
+credentials, and the files nodes boot from or mount. The user's `manifest.toml` in their own
+lab folder is the CLI's, and is never touched.
 
 ## Lab identity
 

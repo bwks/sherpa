@@ -60,6 +60,7 @@ pub async fn create_node(
         cpu_pinning: None,
         qemu_thread_cpus: None,
         ready_check: ReadyCheck::default(),
+        ssh_username: None,
     };
 
     let writer = db.writer().await?;

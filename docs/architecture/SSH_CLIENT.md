@@ -52,7 +52,8 @@ server recorded has `StrictHostKeyChecking yes` and the lab's `.sherpa/ssh/known
 When the node's key is unknown or does not match (`HostKeyUnknown` or `HostKeyChanged` for
 the target, not a jump host), `ssh_client::connect` asks the server for the node's current
 key with `HostKeyRefresh` (the `node.host_keys` RPC), which saves the lab's `known_hosts`
-file it returns, and connects once more. A changed key prints a warning; an unknown one a
+file it returns, and connects once more. The server builds that file from the host keys on the
+lab's node records and keeps no copy of it. A changed key prints a warning; an unknown one a
 note. If the key still does not match, the connection fails. Answers to prompts are kept in
 the `PromptCache`, so the second attempt does not ask again. `sherpa ssh` and the
 provisioners both connect this way.

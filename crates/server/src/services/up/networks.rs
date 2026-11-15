@@ -1,5 +1,5 @@
-//! The lab's files, subnets and networks: reserving the management, loopback and IPv6
-//! subnets with the lab record, the lab files and management networks (phase 4), container
+//! The lab's subnets and networks: reserving the management, loopback and IPv6 subnets with
+//! the lab record, the management networks (phase 4), container
 //! data networks (phase 6), shared bridges (phase 7) and container network attachments.
 
 use std::collections::{HashMap, HashSet};
@@ -16,10 +16,10 @@ use crate::services::p2p_links::ContainerVeth;
 use shared::data;
 use shared::data::{LabPhase, LabSubnets, RecordId, StatusKind};
 use shared::konst::{
-    BRIDGE_MEMBER_HOST_VETH_PREFIX, LAB_FILE_NAME, LAB_SUBNET_ALLOCATION_ATTEMPTS,
-    MANAGEMENT_GATEWAY_HOST_OFFSET, SHERPA_LOOPBACK_PREFIX, SHERPA_LOOPBACK_PREFIX_IPV6,
-    SHERPA_MANAGEMENT_IP_INDEX, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
-    SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_MANAGEMENT_NETWORK_NAME,
+    BRIDGE_MEMBER_HOST_VETH_PREFIX, LAB_SUBNET_ALLOCATION_ATTEMPTS, MANAGEMENT_GATEWAY_HOST_OFFSET,
+    SHERPA_LOOPBACK_PREFIX, SHERPA_LOOPBACK_PREFIX_IPV6, SHERPA_MANAGEMENT_IP_INDEX,
+    SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_IPV6,
+    SHERPA_MANAGEMENT_NETWORK_NAME,
 };
 use shared::util;
 
@@ -28,13 +28,6 @@ use shared::util;
 pub(super) struct ReservedLab {
     pub(super) record: data::DbLab,
     pub(super) subnets: LabSubnets,
-}
-
-/// Write the lab info file. The lab's manifest is not saved: its definition is stored in the
-/// database with the lab's records.
-pub(super) fn write_lab_files(lab_dir: &str, lab_info: &data::LabInfo) -> Result<()> {
-    util::create_dir(lab_dir)?;
-    util::create_file(&format!("{lab_dir}/{LAB_FILE_NAME}"), lab_info.to_string())
 }
 
 /// The lab's management network, IPv4 and IPv6, from its reserved subnets.
@@ -593,40 +586,6 @@ pub(super) fn container_data_attachments(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-
-    #[test]
-    fn the_lab_files_are_the_lab_info_and_no_manifest() {
-        let root = tempfile::tempdir().unwrap();
-        let lab_dir = root.path().join("ab12cd34");
-        let lab_info = data::LabInfo {
-            ssh_usernames: vec![],
-            id: "ab12cd34".to_owned(),
-            name: "core".to_owned(),
-            user: "alice".to_owned(),
-            ipv4_network: "172.31.4.0/24".parse().unwrap(),
-            ipv4_gateway: "172.31.4.1".parse().unwrap(),
-            ipv4_router: "172.31.4.2".parse().unwrap(),
-            loopback_network: "127.127.4.0/24".parse().unwrap(),
-            ipv6_network: None,
-            ipv6_gateway: None,
-            ipv6_router: None,
-            description: None,
-            client_host: None,
-            client_folder: None,
-        };
-        write_lab_files(lab_dir.to_str().unwrap(), &lab_info).unwrap();
-        let written: Vec<String> = fs::read_dir(&lab_dir)
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(written, [LAB_FILE_NAME]);
-        let saved: data::LabInfo = fs::read_to_string(lab_dir.join(LAB_FILE_NAME))
-            .unwrap()
-            .parse()
-            .unwrap();
-        assert_eq!(saved.to_string(), lab_info.to_string());
-    }
 
     #[test]
     fn the_management_network_spans_its_subnets() {

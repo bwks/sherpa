@@ -232,3 +232,25 @@ pub async fn update_node_ready_check(
     )
     .await
 }
+
+/// Set the account a node's SSH config logs in with: the lab owner's login, or `None` for the
+/// shared `sherpa` account.
+///
+/// # Errors
+/// - If the node doesn't exist
+/// - If the database update fails
+#[instrument(skip(db), level = "debug")]
+pub async fn update_node_ssh_username(
+    db: &Database,
+    node_id: RecordId,
+    ssh_username: Option<&str>,
+) -> Result<DbNode> {
+    update_columns(
+        db,
+        &node_id,
+        queries::node::UPDATE_SSH_USERNAME
+            .bind([key_of(&node_id, NODE_TABLE)?.into(), ssh_username.into()]),
+        "ssh_username",
+    )
+    .await
+}

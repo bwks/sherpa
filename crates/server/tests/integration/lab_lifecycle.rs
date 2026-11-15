@@ -1288,7 +1288,7 @@ async fn admin_clean_removes_a_lab_folder_with_no_record() -> Result<()> {
     let lab_id = format!("tf{:06}", std::process::id() % 1_000_000);
     let lab_dir = std::path::Path::new(SHERPA_LABS_PATH).join(&lab_id);
     fs::create_dir_all(&lab_dir)?;
-    fs::write(lab_dir.join("lab-info.toml"), "left by a destroy")?;
+    fs::write(lab_dir.join("sherpa_ssh_key"), "left by a destroy")?;
 
     let response = ws
         .rpc_call("clean", json!({ "token": admin_token, "lab_id": lab_id }))

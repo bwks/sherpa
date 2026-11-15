@@ -30,6 +30,7 @@ use crate::daemon::metrics::Metrics;
 use crate::daemon::state::AppState;
 use crate::services::lab_definition::{self, ImportSummary};
 use crate::services::lab_lifecycle::{self, Recovery};
+use crate::services::saved_lab_files::{self, SavedLabFilesSummary};
 use crate::services::scanner::run_scanner;
 use crate::tls::CertificateManager;
 use shared::data::{Config, OtelConfig};
@@ -196,8 +197,10 @@ fn init_meter_provider(otel_config: &OtelConfig) -> Result<SdkMeterProvider> {
 }
 
 /// Bring data stored before this release up to date, once, before anything reads it: image
-/// passwords stored as plain text are sealed, and labs stored before lab definitions were get
-/// theirs from their saved manifests, which are then deleted.
+/// passwords stored as plain text are sealed, labs stored before lab definitions were get
+/// theirs from their saved manifests, which are then deleted, and the SSH accounts in each
+/// lab's `lab-info.toml` are stored with its nodes, and that file, the lab's SSH config and
+/// `known_hosts` deleted.
 #[instrument(skip(db))]
 async fn upgrade_stored_data(db: &db::Database) -> Result<()> {
     let sealed = db::seal_plain_image_passwords(db)
@@ -219,6 +222,17 @@ async fn upgrade_stored_data(db: &db::Database) -> Result<()> {
             marked = imported.marked,
             deleted = imported.deleted,
             "Imported lab definitions from saved manifests and deleted the files"
+        );
+    }
+    let moved = saved_lab_files::move_saved_lab_files(db, Path::new(SHERPA_LABS_PATH))
+        .await
+        .context("Failed to move the labs' saved lab files into the database")?;
+    if moved != SavedLabFilesSummary::default() {
+        tracing::info!(
+            stored = moved.stored,
+            kept = moved.kept,
+            deleted = moved.deleted,
+            "Stored the labs' SSH accounts from their lab-info.toml and deleted the lab files"
         );
     }
     Ok(())

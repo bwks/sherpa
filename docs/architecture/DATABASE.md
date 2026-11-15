@@ -218,6 +218,7 @@ table, copy the rows, drop the old one, rename.
 | 19 | `0019_node_ready_check.sql`: `node.ready_port` (`NULL` or 1 to 65535) and `node.skip_ready_check` (`0` or `1`, default `0`), each node's readiness check, which the scanner, `resume` and `redeploy` read instead of the saved manifest. Existing virtual machines get their model's port (22, or 50000 for `talos_linux`), containers and unikernels none, and no check is skipped: what the scanner did with them before. See [Node readiness checks](#node-readiness-checks) |
 | 20 | `0020_lab_definition.sql`: the [lab definition](#lab-definitions): the manifest's lab-level parameters on `lab` (with `has_definition`, `0` for every lab before), its node-level ones on `node`, the `manifest_*` tables for its lists, and `secret_key_check`. Existing labs get theirs from the startup import. Triggers refuse a `node_image.ztp_password` that is not [sealed](#secret-values); sherpad seals the plain ones at startup |
 | 21 | `0021_node_definition_imported.sql`: `node.definition_imported` (`0` or `1`, default `0`), set on every node of a lab whose definition came from a saved manifest; the web UI refuses to redeploy a marked node. Existing rows are left `0`: the startup step marks the labs that still have a saved manifest. See [Imported definitions](#imported-definitions) |
+| 22 | `0022_node_ssh_username.sql`: `node.ssh_username`, the account the lab's SSH config logs in to the node with (`NULL` for the shared `sherpa` account). Existing rows are left `NULL`: sherpad copies the accounts from each lab's `lab-info.toml` at startup. See [Node SSH accounts](#node-ssh-accounts) |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
@@ -252,6 +253,24 @@ the node starts, both with `db::update_node_ready_check` and the values
 virtual machine's model port, and its `ready_check.skip`. A container or unikernel without a port
 stores `NULL`, and is ready once it runs. `create_node` stores `NULL` and `0`. What reads them is
 in [`STATE_MACHINES.md`](STATE_MACHINES.md#5-node-readiness-and-host-keys).
+
+### Node SSH accounts
+
+`node.ssh_username` is the account the lab's SSH config logs in to the node with: the lab
+owner's login on a node that provisions it (`provision_current_user`), else `NULL`, for the
+shared `sherpa` account and the lab's key. It is the `ssh_usernames` of `lab-info.toml`, which
+the server no longer keeps.
+
+- **Written** by `up`, after it creates the nodes' records (`up::records::store_ssh_usernames`),
+  and by `redeploy`, with the account the node was rebuilt with, once the rebuild succeeds; both
+  with `db::update_node_ssh_username`. `create_node` stores `NULL`.
+- **Read** with every node row (`DbNode::ssh_username`): `lab_info::lab_info_from_records` lists
+  the nodes that have one as the lab info's `ssh_usernames`, and `ssh_config::lab_ssh_files`
+  renders the SSH config and `known_hosts` file from that and the node rows (`mgmt_ipv4`,
+  `ssh_host_key`) for `up`'s response, `download` and `node.host_keys`. `inspect` and `redeploy`
+  read the lab info the same way.
+- **Imported** once at startup from labs stored before version 22 (see
+  [`SERVER.md`](SERVER.md#lab-file-import)).
 
 ### Lab definitions
 
