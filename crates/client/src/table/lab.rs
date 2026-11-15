@@ -301,6 +301,7 @@ mod tests {
             int_b: "eth1".to_string(),
             kind: BridgeKind::P2p,
             state,
+            index: None,
         };
         let table = render_links_table(&[
             link("vm2", Some(LinkState::Attached)),
@@ -517,6 +518,7 @@ mod tests {
             disks: vec!["/var/lib/sherpa/labs/test/router01.qcow2".to_string()],
             cpu_count: None,
             memory: None,
+            console_address: None,
         }];
 
         let table = render_devices_table(&devices, "a1b2c3d4");
@@ -550,6 +552,7 @@ mod tests {
                 ],
                 cpu_count: None,
                 memory: None,
+                console_address: None,
             },
             DeviceInfo {
                 name: "switch01".to_string(),
@@ -562,6 +565,7 @@ mod tests {
                 disks: vec!["/var/lib/sherpa/labs/test/switch01.qcow2".to_string()],
                 cpu_count: None,
                 memory: None,
+                console_address: None,
             },
         ];
 
@@ -593,6 +597,7 @@ mod tests {
                 disks: vec![],
                 cpu_count: Some(16),
                 memory: Some(32768),
+                console_address: None,
             },
             DeviceInfo {
                 name: "db01".to_string(),
@@ -605,6 +610,7 @@ mod tests {
                 disks: vec![],
                 cpu_count: None,
                 memory: None,
+                console_address: None,
             },
         ];
 
@@ -634,6 +640,7 @@ mod tests {
             disks: vec![],
             cpu_count: None,
             memory: None,
+            console_address: None,
         }];
 
         let table = render_devices_table(&devices, "a1b2c3d4");

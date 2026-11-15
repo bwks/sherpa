@@ -782,6 +782,7 @@ mod tests {
             disks: vec![],
             cpu_count: None,
             memory: None,
+            console_address: None,
         }
     }
 

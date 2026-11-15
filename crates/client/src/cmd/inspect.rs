@@ -21,41 +21,9 @@ pub async fn inspect(
 ) -> Result<()> {
     term_msg_surround(&format!("Sherpa Environment - {lab_name}-{lab_id}"));
 
-    let token = load_token()?;
-
-    // Create WebSocket client
-    let timeout = Duration::from_secs(config.server_connection.timeout_secs);
-    let ws_client = WebSocketClient::new(
-        server_url.to_string(),
-        timeout,
-        config.server_connection.clone(),
-    );
-
-    // Connect to server
-    println!("Connecting to server: {}", server_url);
-    let mut rpc_client = ws_client
-        .connect()
-        .await
-        .context("Failed to connect to sherpad server")?;
-
-    // Create RPC request with authentication token
-    let request = RpcRequest::new(
-        "inspect",
-        serde_json::json!({
-            "lab_id": lab_id,
-            "token": token,
-        }),
-    );
-
-    // Send request and wait for response
+    println!("Connecting to server: {server_url}");
     println!("Requesting lab inspection from server...");
-    let response = rpc_client.call(request).await.context("RPC call failed")?;
-
-    // Close connection
-    rpc_client.close().await.ok(); // Ignore close errors
-
-    // Handle response
-    let inspect_data: InspectResponse = response.into_result("Inspection failed")?;
+    let inspect_data = fetch_inspect(lab_id, server_url, config).await?;
 
     // Display results (similar format to original inspect command)
     if let Some(status) = &inspect_data.tailscale {
@@ -99,4 +67,38 @@ pub async fn inspect(
     }
 
     Ok(())
+}
+
+/// The server's view of lab `lab_id`: its details, nodes and links, through the `inspect` RPC.
+///
+/// # Errors
+///
+/// Fails when there is no login token, the server cannot be reached, or it refuses the call.
+#[tracing::instrument(level = "debug", skip_all, fields(%lab_id))]
+pub async fn fetch_inspect(
+    lab_id: &str,
+    server_url: &str,
+    config: &ClientConfig,
+) -> Result<InspectResponse> {
+    let token = load_token()?;
+    let timeout = Duration::from_secs(config.server_connection.timeout_secs);
+    let ws_client = WebSocketClient::new(
+        server_url.to_string(),
+        timeout,
+        config.server_connection.clone(),
+    );
+    let mut rpc_client = ws_client
+        .connect()
+        .await
+        .context("Failed to connect to sherpad server")?;
+    let request = RpcRequest::new(
+        "inspect",
+        serde_json::json!({
+            "lab_id": lab_id,
+            "token": token,
+        }),
+    );
+    let response = rpc_client.call(request).await.context("RPC call failed")?;
+    rpc_client.close().await.ok();
+    response.into_result("Inspection failed")
 }

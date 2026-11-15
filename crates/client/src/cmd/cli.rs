@@ -1,7 +1,5 @@
 use std::io::{self, ErrorKind};
 use std::path::Path;
-use std::str::FromStr;
-use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
@@ -14,7 +12,7 @@ use super::download::download;
 use super::image::{ImageCommands, parse_image_commands};
 use super::init::init;
 use super::inspect::inspect;
-use super::lab_identity::{manifest_lab_identity, resolve_lab_identity};
+use super::lab_identity::{load_source_manifest, manifest_lab_identity, resolve_lab_identity};
 use super::link::{LinkCommands, parse_link_commands};
 use super::login::{login, logout, whoami};
 use super::new::new;
@@ -28,16 +26,10 @@ use super::up::up;
 use super::validate::validate_manifest;
 
 use crate::lab_folder_migration::{MIGRATION_FAILED, migrate_current_lab_folder};
-use crate::token::load_token;
-use crate::ws_client::{RpcRequest, WebSocketClient};
 
-use shared::data::{ClientConfig, InspectResponse, LabInfo, Sherpa};
+use shared::data::{ClientConfig, Sherpa};
 use shared::konst::SHERPA_MANIFEST_FILE;
-use shared::util::{
-    Emoji, LabFolder, build_client_websocket_url, get_cwd, get_server_url, load_client_config,
-    load_file,
-};
-use topology::Manifest;
+use shared::util::{Emoji, build_client_websocket_url, get_server_url, load_client_config};
 
 /// Load the client config from `path`, or the defaults when there is no such file. A file that
 /// cannot be read or parsed is an error, rather than silently replaced by the defaults.
@@ -73,61 +65,6 @@ fn resolve_server_url(cli_url: Option<String>, config: &ClientConfig) -> String 
     cli_url
         .or_else(get_server_url)
         .unwrap_or_else(|| build_client_websocket_url(config))
-}
-
-/// Resolve lab info: try `.sherpa/lab-info.toml` first, fall back to inspect RPC.
-#[tracing::instrument(level = "debug", skip_all, fields(%lab_id))]
-async fn resolve_lab_info(
-    lab_id: &str,
-    server_url: &str,
-    config: &ClientConfig,
-) -> Result<LabInfo> {
-    // Fast path: try local .sherpa/lab-info.toml
-    if let Ok(cwd) = get_cwd() {
-        let lab_info_path = LabFolder::new(Path::new(&cwd)).lab_info();
-        if lab_info_path.exists()
-            && let Ok(content) = load_file(&lab_info_path.to_string_lossy())
-            && let Ok(lab_info) = LabInfo::from_str(&content)
-        {
-            return Ok(lab_info);
-        }
-    }
-
-    // Slow path: fetch from server via inspect RPC
-    let token = load_token().context(
-        ".sherpa/lab-info.toml not found and no auth token available. Run: sherpa login",
-    )?;
-
-    let timeout = Duration::from_secs(config.server_connection.timeout_secs);
-    let ws_client = WebSocketClient::new(
-        server_url.to_string(),
-        timeout,
-        config.server_connection.clone(),
-    );
-
-    let mut rpc_client = ws_client
-        .connect()
-        .await
-        .context(".sherpa/lab-info.toml not found and failed to connect to server")?;
-
-    let request = RpcRequest::new(
-        "inspect",
-        serde_json::json!({
-            "lab_id": lab_id,
-            "token": token,
-        }),
-    );
-
-    let response = rpc_client
-        .call(request)
-        .await
-        .context("RPC inspect call failed")?;
-    rpc_client.close().await.ok();
-
-    let inspect_data: InspectResponse =
-        response.into_result("Failed to fetch lab info from server")?;
-
-    Ok(inspect_data.lab_info)
 }
 
 /// Resolve the Sherpa client base directory (~/.sherpa)
@@ -395,21 +332,21 @@ async fn run_remote(command: &Commands, server_url: &str, config: &ClientConfig)
         Commands::Login => login(server_url, config).await,
         Commands::Whoami => whoami(server_url, config).await,
         Commands::Up => {
-            let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-            let lab = manifest_lab_identity(&manifest)?;
+            let manifest = load_source_manifest(Path::new(SHERPA_MANIFEST_FILE), "up")?;
+            let lab = manifest_lab_identity(Path::new(""), &manifest)?;
             up(&lab.name, &lab.id, SHERPA_MANIFEST_FILE, server_url, config).await
         }
         Commands::Down { node } => {
-            let lab = resolve_lab_identity()?;
+            let lab = resolve_lab_identity(Path::new(""))?;
             down(&lab.name, &lab.id, node.as_deref(), server_url, config).await
         }
         Commands::Resume { node } => {
-            let lab = resolve_lab_identity()?;
+            let lab = resolve_lab_identity(Path::new(""))?;
             resume(&lab.name, &lab.id, node.as_deref(), server_url, config).await
         }
         Commands::Redeploy { node } => {
-            let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-            let lab = manifest_lab_identity(&manifest)?;
+            let manifest = load_source_manifest(Path::new(SHERPA_MANIFEST_FILE), "redeploy")?;
+            let lab = manifest_lab_identity(Path::new(""), &manifest)?;
             redeploy(
                 &lab.name,
                 &lab.id,
@@ -422,22 +359,20 @@ async fn run_remote(command: &Commands, server_url: &str, config: &ClientConfig)
         }
         Commands::Provision { node } => provision(node.as_deref(), server_url, config).await,
         Commands::Destroy { yes } => {
-            let lab = resolve_lab_identity()?;
+            let lab = resolve_lab_identity(Path::new(""))?;
             destroy(&lab.name, &lab.id, server_url, config, *yes).await
         }
         Commands::Inspect => {
-            let lab = resolve_lab_identity()?;
+            let lab = resolve_lab_identity(Path::new(""))?;
             inspect(&lab.name, &lab.id, server_url, config).await
         }
         Commands::Download { lab_id, force } => download(lab_id, *force, server_url, config).await,
         Commands::Console { name } => {
-            let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-            let lab_id = manifest_lab_identity(&manifest)?.id;
-            let lab_info = resolve_lab_info(&lab_id, server_url, config).await?;
-            console(name, &manifest, &lab_info).await
+            let lab = resolve_lab_identity(Path::new(""))?;
+            console(name, &lab.id, server_url, config).await
         }
         Commands::Ssh { name } => {
-            let lab = resolve_lab_identity()?;
+            let lab = resolve_lab_identity(Path::new(""))?;
             ssh(name, &lab.id, server_url, config).await
         }
         Commands::SshConfig { command } => match command {

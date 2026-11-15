@@ -20,23 +20,33 @@ server host. Containers have no such chardev.
 
 `cmd::console::console`:
 
-1. `console_node` finds the node in the manifest. A container (`NodeModel::kind`) is refused
-   here, before anything connects. The console address is the node's place in the manifest
-   in the lab's `loopback_network` from `lab-info.toml` (`boot01` is address 255), on
-   `TELNET_PORT`.
-2. It reads `.sherpa/ssh/config` and takes the first `Host` block's first alias. Every block
+1. `cli::run_remote` takes the lab's ID from the folder (see
+   [`LAB_FOLDER.md`](LAB_FOLDER.md#lab-identity)): from `.sherpa/lab-info.toml` when there is
+   one, so the command works in a folder made by `sherpa download`, with no manifest, and for
+   an OS user whose name is not the lab owner's.
+2. `inspect::fetch_inspect` asks the server for the lab, with the login token, as `sherpa
+   inspect` does. `console_target` finds the node in the answer's `devices`. A container
+   (`DeviceInfo.kind`) is refused here, before anything connects. The console address is
+   `DeviceInfo.console_address`, on `TELNET_PORT`: the server's `inspect` gives a VM's or
+   unikernel's address in the lab's loopback network from the node's recorded index, the
+   address `up` and `redeploy` gave its chardev. `boot01` is not a device; its console is
+   address 255 of the answer's `lab_info.loopback_network`.
+3. A server older than console addresses sends none. `manifest_console_node` then falls back to
+   the node's place in the folder's `manifest.toml`, as clients before this did, and without a
+   manifest says the server is too old.
+4. It reads `.sherpa/ssh/config` and takes the first `Host` block's first alias. Every block
    has the same `ProxyJump`, the server, so `SshConfig::route(alias)` gives the server hop as
    the route's last jump host.
-3. `ssh_client::connect_server` connects to that jump host through any jump hosts before it.
+5. `ssh_client::connect_server` connects to that jump host through any jump hosts before it.
    It shares `attempt` with `ssh_client::connect`, which `sherpa ssh` uses, so the host key
    policy (`StrictHostKeyChecking` `ask` against `~/.ssh/known_hosts`, as in
    [`SSH_CLIENT.md`](SSH_CLIENT.md)), the `TerminalPrompter` in a `PromptCache` for key
    passphrases and passwords, `konst::SSH_PROMPT_AUTH_TIMEOUT`, and keepalives are the same.
    The node's own host key is not involved, so there is no `HostKeyRefresh`.
-4. `Telnet::connect_via` opens a `direct-tcpip` channel from the server to the console, with
+6. `Telnet::connect_via` opens a `direct-tcpip` channel from the server to the console, with
    `konst::CONSOLE_CONNECT_TIMEOUT` (10 s) to open it and `konst::CONSOLE_NEGOTIATION_TIMEOUT`
    (3 s) for QEMU's first negotiation.
-5. `Telnet::interactive` passes the terminal through until the console closes or an escape is
+7. `Telnet::interactive` passes the terminal through until the console closes or an escape is
    typed, then the telnet channel and the SSH session are closed.
 
 There is no direct connection first. A client that is itself a Sherpa server could otherwise
@@ -73,7 +83,13 @@ the cause:
 | anything else, such as `Tunnel` | `Failed to open the console of <node> through the Sherpa server` |
 
 A container gives `<node> is a container, and containers have no serial console. Connect with
-'sherpa ssh <node>' instead.` A node not in the manifest gives `Device not found: <node>`.
+'sherpa ssh <node>' instead.` A node not in the lab gives `Device not found: <node>`. A server
+that gives no console address, with no manifest in the folder, gives `The Sherpa server did not
+give the console address of <node>: it is older than this client. Upgrade the server, or run
+'sherpa console' in the folder the lab was started from, with its manifest.toml.`
+
+The command needs a login as well as SSH to the server, since the address comes from
+`inspect`.
 
 ## Windows
 
@@ -90,8 +106,10 @@ Windows changes in a desktop terminal, not only over SSH.
 
 ## Tests
 
-- Unit tests in `console.rs`: the console address, the container refusal, the server alias,
-  each error message, and the two lines. `ssh_client::connect` has a test for a route with no
+- Unit tests in `console.rs`: the console address from `inspect`'s devices and for `boot01`,
+  the container refusal, a node not in the lab, the fallback to the manifest for a server with
+  no console addresses and its error without one, the server alias, each error message, and
+  the two lines. The server's address by kind is tested in `services/inspect.rs`. `ssh_client::connect` has a test for a route with no
   server hop.
 - The console lab test, `tests/labs/console/`, runs `sherpa console` in a pseudo-terminal
   against an Alpine VM with no `telnet` on PATH. See its README.

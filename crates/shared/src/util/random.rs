@@ -1,8 +1,6 @@
 use anyhow::{Result, anyhow};
 use twox_hash::XxHash32;
 
-use super::user::get_username;
-
 /// Generate a random two-word lab name (e.g. "adorable-badger").
 ///
 /// # Errors
@@ -12,19 +10,7 @@ pub fn generate_lab_name() -> Result<String> {
     petname::petname(2, "-").ok_or_else(|| anyhow!("Failed to generate lab name"))
 }
 
-/// Get the xxHash of a username and lab name.
-/// The hash will be a maximum of 8 chars long.
-///
-/// # Errors
-///
-/// Fails when the current user's name is unknown.
-pub fn get_id(lab_name: &str) -> Result<String> {
-    let username = get_username()?;
-    Ok(get_id_for_user(&username, lab_name))
-}
-
-/// Get the xxHash of an explicit username and lab name.
-/// The hash will be a maximum of 8 chars long.
+/// A lab's ID: the xxHash of its owner's Sherpa username and its name, 8 hex characters.
 #[must_use]
 pub fn get_id_for_user(username: &str, lab_name: &str) -> String {
     let combined = format!("{username}{lab_name}");
@@ -70,31 +56,6 @@ mod tests {
             name.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
             "expected only lowercase ascii and hyphens, got: {name}"
         );
-    }
-
-    // ========================================================================
-    // get_id
-    // ========================================================================
-
-    #[test]
-    fn test_get_id_returns_8_char_hex() {
-        let id = get_id("test-lab").expect("generates id");
-        assert_eq!(id.len(), 8);
-        assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
-    }
-
-    #[test]
-    fn test_get_id_deterministic() {
-        let id1 = get_id("my-lab").expect("generates id");
-        let id2 = get_id("my-lab").expect("generates id");
-        assert_eq!(id1, id2);
-    }
-
-    #[test]
-    fn test_get_id_different_names_different_ids() {
-        let id1 = get_id("lab-alpha").expect("generates id");
-        let id2 = get_id("lab-beta").expect("generates id");
-        assert_ne!(id1, id2);
     }
 
     // ========================================================================

@@ -42,6 +42,40 @@ the database (see [`DATABASE.md`](DATABASE.md#lab-definitions)). The `manifest.t
 [import](SERVER.md#lab-definition-import). Its `lab-info.toml` is still written by `up`. The
 user's `manifest.toml` in their own lab folder is the CLI's, and is never touched.
 
+## Lab identity
+
+`cmd::lab_identity` works out which lab a folder holds, for every per-lab command.
+`.sherpa/lab-info.toml` holds the lab's ID as the server gave it, and is the lab's identity
+whenever it is there and parses (`resolve_lab_identity`). The OS username plays no part, so a
+folder made by `sherpa download`, or a lab started by another OS user, is found by it. When
+`manifest.toml` is there too, its `name` must be the lab's name in `lab-info.toml`, or the
+command is refused with a message to destroy that lab or remove `lab-info.toml` first. Names
+are compared, not IDs, so a lab keeps the ID it was given even when today's rule would give
+another.
+
+A folder with only a manifest names a lab by its name. Its ID is the one `sherpa up` gives a
+new lab: `get_id_for_user` of the Sherpa username in the login token (`token::username_from_token`)
+and the lab's name, the rule the web UI uses for the labs it creates. Two Sherpa users with the
+same OS name therefore get different IDs, and a user's ID is the same from every machine.
+Older clients hashed the OS username (`USER`, or `USERNAME` on Windows) instead; their
+labs keep those IDs through `lab-info.toml`.
+
+| Command | Needs `manifest.toml` | Data from the server |
+|---|---|---|
+| `inspect`, `ssh`, `down`, `resume`, `destroy` | no; `resume` reads it when present for the Tailscale key, `ssh` to check the node name | |
+| `console` | no | the node's kind and `console_address` from `inspect` |
+| `link impair` | no | the link's `index` from `inspect`, matched by either end (`node::interface`) |
+| `up`, `redeploy`, `provision` | yes; `lab_identity::load_source_manifest` says so in a folder without one | |
+
+`sherpa download` writes `lab-info.toml`, the SSH files and the lab's credentials, and no
+manifest: the definition the server holds is not the user's source (it has no file contents
+and no secrets).
+
+A server older than `console_address` and link `index` sends neither. `console` and
+`link impair` then fall back to the folder's manifest, by the node's place and the link's
+place in it, as clients before them did, and without a manifest say the server is too old.
+Older clients ignore the two fields.
+
 ## Destroy
 
 After the server destroys the lab, `cmd::destroy::remove_local_lab_state` removes the lab's

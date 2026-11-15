@@ -8,8 +8,10 @@ are the Jato library (`bwks/jato-lib`) with its `terminal` feature, so the clien
 
 ## Connecting
 
-`cmd::ssh::ssh` first runs the existing checks: the node is in the manifest, the lab files
-exist, the alias is in `.sherpa/ssh/config`, and the lab's key `.sherpa/ssh/key` has safe
+`cmd::ssh::ssh` takes the lab's ID from the folder (see
+[`LAB_FOLDER.md`](LAB_FOLDER.md#lab-identity)), so it works in a folder made by `sherpa
+download`, with no manifest, and for an OS user whose name is not the lab owner's. It first runs
+the existing checks: the node is in the manifest, when the folder has one, the lab files exist, the alias is in `.sherpa/ssh/config`, and the lab's key `.sherpa/ssh/key` has safe
 permissions. Then:
 
 1. `jato::SshConfig::load_file(".sherpa/ssh/config")` reads the lab's configuration, as
