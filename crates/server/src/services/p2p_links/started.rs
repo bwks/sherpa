@@ -76,6 +76,7 @@ pub(crate) async fn follow_started_links(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::data::ReadyCheck;
 
     use super::super::fake::FakeHost;
     use super::super::host::EndDevice;
@@ -108,6 +109,7 @@ mod tests {
             ssh_host_key: None,
             cpu_pinning: None,
             qemu_thread_cpus: None,
+            ready_check: ReadyCheck::default(),
         }
     }
 

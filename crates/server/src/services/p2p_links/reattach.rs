@@ -372,6 +372,7 @@ pub(crate) async fn report_links(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::data::ReadyCheck;
 
     use std::process::Command;
     use std::sync::Arc;
@@ -402,6 +403,7 @@ mod tests {
             ssh_host_key: None,
             cpu_pinning: None,
             qemu_thread_cpus: None,
+            ready_check: ReadyCheck::default(),
         }
     }
 

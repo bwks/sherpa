@@ -5,7 +5,7 @@ use shared::data::{
     self, DbLab, Halt, LabNodeActionResponse, NodeActionResult, NodeKind, OperationEvent, RecordId,
     Runtime, StatusKind, TailnetAuthKey, TailnetStatus,
 };
-use shared::konst::{READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_LABS_PATH, SSH_PORT};
+use shared::konst::{READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_LABS_PATH};
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 use topology::Manifest;
@@ -81,9 +81,9 @@ struct ReadinessTarget {
 /// A cold-booted node is recorded `Starting`, then `Running` once it is ready; a resumed one
 /// `Running`; one already running is left as it is.
 ///
-/// Cold-booted VMs and unikernels, and cold-booted containers with a `ready_check.port`, are
-/// then polled for readiness like `up` does, using the lab's saved manifest for
-/// `ready_timeout`, `ready_check.skip` and `ready_check.port`. A node that does not become
+/// Cold-booted VMs and unikernels, and cold-booted containers with a ready port, are then
+/// polled for readiness like `up` does, on the readiness check stored with each node
+/// (`DbNode::ready_check`), until the lab's saved manifest's `ready_timeout`. A node that does not become
 /// ready within the timeout is reported in its result message; it is not an error, as with
 /// `up`.
 ///
@@ -272,7 +272,7 @@ struct ResumedLab<'a> {
 }
 
 /// Wait for the cold-booted VMs, unikernels and containers with a ready port to become ready,
-/// as `up` does, with the saved manifest's readiness settings. Each one's result says whether
+/// as `up` does, on each node's stored readiness check and the saved manifest's ready timeout. Each one's result says whether
 /// it became ready, and the host keys it offers are recorded again. Returns the cold-booted nodes that are ready: those that
 /// answered, and those with no check, as a container without a ready port is ready once
 /// running.
@@ -291,7 +291,7 @@ async fn wait_for_cold_booted(
         progress,
         operation,
     } = *lab;
-    let targets = readiness_targets(lab_id, nodes, cold_booted, manifest);
+    let targets = readiness_targets(lab_id, nodes, cold_booted);
     let mut ready_nodes: HashSet<String> = cold_booted
         .iter()
         .map(|(name, _)| name.clone())
@@ -323,33 +323,25 @@ fn ready_timeout(manifest: Option<&Manifest>) -> Duration {
     Duration::from_secs(seconds)
 }
 
-/// Decide how a started node proves readiness. Paused nodes resume an already booted
-/// guest, so only cold-booted nodes are checked: VMs and unikernels always, containers only
-/// on their `ready_check.port`, as without one they are ready once running.
+/// Decide how a started node proves readiness, from the check stored with it. Paused nodes
+/// resume an already booted guest, so only cold-booted nodes are checked, unless their check is
+/// skipped: VMs and containers on their stored port, as without one they are ready once
+/// running, and unikernels by their domain, and their stored port when they have one.
 fn readiness_check(
     kind: &NodeKind,
     cold_booted: bool,
-    manifest_node: Option<&topology::Node>,
+    ready_check: &data::ReadyCheck,
 ) -> Option<ReadinessCheck> {
-    let (skip, ready_port) = match manifest_node {
-        Some(node) => (
-            node.ready_check.skip.unwrap_or(false),
-            node.ready_check.port,
-        ),
-        None => (false, None),
-    };
-    if !cold_booted || skip {
+    if !cold_booted || ready_check.skip {
         return None;
     }
     match kind {
-        // Without a saved manifest the model is unknown, so fall back to SSH as before.
-        NodeKind::VirtualMachine => Some(ReadinessCheck::Port(match manifest_node {
-            Some(node) => node_ops::vm_ready_port(node.model, ready_port),
-            None => SSH_PORT,
-        })),
-        NodeKind::Unikernel => Some(ReadinessCheck::Unikernel { ready_port }),
-        // A container has no model port: one without a manifest port is ready once running.
-        NodeKind::Container => ready_port.map(ReadinessCheck::Port),
+        NodeKind::Unikernel => Some(ReadinessCheck::Unikernel {
+            ready_port: ready_check.port,
+        }),
+        NodeKind::VirtualMachine | NodeKind::Container => {
+            ready_check.port.map(ReadinessCheck::Port)
+        }
     }
 }
 
@@ -357,26 +349,21 @@ fn readiness_targets(
     lab_id: &str,
     nodes: &[data::DbNode],
     cold_booted: &[(String, NodeKind)],
-    manifest: Option<&Manifest>,
 ) -> Vec<ReadinessTarget> {
     let mut targets = vec![];
     for (name, kind) in cold_booted {
-        let manifest_node = match manifest {
-            Some(manifest) => manifest.nodes.iter().find(|node| &node.name == name),
-            None => None,
-        };
-        let Some(check) = readiness_check(kind, true, manifest_node) else {
-            tracing::debug!(lab_id = %lab_id, node_name = %name, "No readiness check for node");
+        let Some(node) = nodes.iter().find(|node| &node.name == name) else {
+            tracing::debug!(lab_id = %lab_id, node_name = %name, "No record for cold-booted node");
             continue;
         };
-        let mgmt_ipv4 = match nodes.iter().find(|node| &node.name == name) {
-            Some(node) => node.mgmt_ipv4.clone(),
-            None => None,
+        let Some(check) = readiness_check(kind, true, &node.ready_check) else {
+            tracing::debug!(lab_id = %lab_id, node_name = %name, "No readiness check for node");
+            continue;
         };
         targets.push(ReadinessTarget {
             name: name.clone(),
             device_name: format!("{name}-{lab_id}"),
-            mgmt_ipv4,
+            mgmt_ipv4: node.mgmt_ipv4.clone(),
             check,
         });
     }
@@ -816,7 +803,8 @@ async fn follow_started(lab: &ResumedLab<'_>, started: &HashSet<RecordId>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::NodeState;
+    use shared::data::{NodeState, ReadyCheck};
+    use shared::konst::{SSH_PORT, TALOS_API_PORT};
 
     #[test]
     fn resume_boots_resumes_or_leaves_a_node_by_its_runtime() {
@@ -866,13 +854,7 @@ mod tests {
         assert!(!StartOutcome::Failed("no".to_string()).result("r1").success);
     }
 
-    use shared::konst::TALOS_API_PORT;
-
-    fn manifest(text: &str) -> Manifest {
-        toml::from_str(text).unwrap()
-    }
-
-    fn db_node(name: &str, ip: &str) -> data::DbNode {
+    fn db_node(name: &str, ip: &str, port: Option<u16>, skip: bool) -> data::DbNode {
         data::DbNode {
             id: None,
             name: name.to_string(),
@@ -889,139 +871,128 @@ mod tests {
             ssh_host_key: None,
             cpu_pinning: None,
             qemu_thread_cpus: None,
+            ready_check: ReadyCheck { port, skip },
         }
+    }
+
+    fn stored(port: Option<u16>, skip: bool) -> ReadyCheck {
+        ReadyCheck { port, skip }
     }
 
     #[test]
     fn only_cold_booted_guests_are_checked() {
+        let ssh = stored(Some(SSH_PORT), false);
         assert_eq!(
-            readiness_check(&NodeKind::VirtualMachine, true, None),
+            readiness_check(&NodeKind::VirtualMachine, true, &ssh),
             Some(ReadinessCheck::Port(SSH_PORT))
         );
         assert_eq!(
-            readiness_check(&NodeKind::VirtualMachine, false, None),
+            readiness_check(&NodeKind::VirtualMachine, false, &ssh),
             None
         );
-        assert_eq!(readiness_check(&NodeKind::Container, true, None), None);
-        assert_eq!(readiness_check(&NodeKind::Container, false, None), None);
+        let none = stored(None, false);
+        assert_eq!(readiness_check(&NodeKind::Container, true, &none), None);
+        assert_eq!(readiness_check(&NodeKind::Container, false, &none), None);
         assert_eq!(
-            readiness_check(&NodeKind::Unikernel, true, None),
+            readiness_check(&NodeKind::Unikernel, true, &none),
             Some(ReadinessCheck::Unikernel { ready_port: None })
         );
     }
 
     #[test]
-    fn manifest_readiness_settings_are_honoured() {
-        let lab = manifest(
-            r#"
-name = "lab"
-ready_timeout = 120
-nodes = [
-  { name = "skip", model = "ubuntu_linux", ready_check = { skip = true } },
-  { name = "uk", model = "generic_unikernel", ready_check = { port = 8080 } },
-  { name = "vm", model = "ubuntu_linux" },
-]
-"#,
-        );
-        assert_eq!(ready_timeout(Some(&lab)), Duration::from_secs(120));
-        assert_eq!(ready_timeout(None), Duration::from_secs(READINESS_TIMEOUT));
-        let skip = lab.nodes.iter().find(|node| node.name == "skip");
-        assert_eq!(readiness_check(&NodeKind::VirtualMachine, true, skip), None);
-        let unikernel = lab.nodes.iter().find(|node| node.name == "uk");
+    fn the_stored_readiness_check_is_honoured() {
         assert_eq!(
-            readiness_check(&NodeKind::Unikernel, true, unikernel),
+            readiness_check(
+                &NodeKind::VirtualMachine,
+                true,
+                &stored(Some(SSH_PORT), true)
+            ),
+            None
+        );
+        assert_eq!(
+            readiness_check(&NodeKind::Unikernel, true, &stored(Some(8080), false)),
             Some(ReadinessCheck::Unikernel {
                 ready_port: Some(8080)
             })
         );
+        assert_eq!(
+            readiness_check(&NodeKind::Unikernel, true, &stored(Some(8080), true)),
+            None
+        );
     }
 
     #[test]
-    fn virtual_machines_are_checked_on_their_model_port_or_manifest_port() {
-        let lab = manifest(
+    fn the_saved_manifest_gives_only_the_ready_timeout() {
+        let lab: Manifest = toml::from_str(
             r#"
 name = "lab"
-nodes = [
-  { name = "talos", model = "talos_linux" },
-  { name = "talos-custom", model = "talos_linux", ready_check = { port = 6443 } },
-  { name = "vm", model = "ubuntu_linux" },
-]
+ready_timeout = 120
+nodes = [{ name = "vm", model = "ubuntu_linux", ready_check = { port = 8443 } }]
 "#,
-        );
-        for (name, port) in [
-            ("talos", TALOS_API_PORT),
-            ("talos-custom", 6443),
-            ("vm", SSH_PORT),
-        ] {
-            let node = lab.nodes.iter().find(|node| node.name == name);
+        )
+        .unwrap();
+        assert_eq!(ready_timeout(Some(&lab)), Duration::from_secs(120));
+        assert_eq!(ready_timeout(None), Duration::from_secs(READINESS_TIMEOUT));
+        // The port is the node's stored one, whatever the saved manifest says.
+        let nodes = vec![db_node("vm", "10.0.0.11", Some(SSH_PORT), false)];
+        let started = vec![("vm".to_string(), NodeKind::VirtualMachine)];
+        let targets = readiness_targets("abcd1234", &nodes, &started);
+        assert_eq!(targets[0].check, ReadinessCheck::Port(SSH_PORT));
+    }
+
+    #[test]
+    fn virtual_machines_are_checked_on_their_stored_port() {
+        for port in [TALOS_API_PORT, 6443, SSH_PORT] {
             assert_eq!(
-                readiness_check(&NodeKind::VirtualMachine, true, node),
+                readiness_check(&NodeKind::VirtualMachine, true, &stored(Some(port), false)),
                 Some(ReadinessCheck::Port(port)),
-                "{name}"
+                "{port}"
             );
         }
     }
 
     #[test]
-    fn a_cold_booted_container_is_checked_on_its_ready_port() {
-        let lab = manifest(
-            r#"
-name = "lab"
-nodes = [
-  { name = "web", model = "generic_container", ready_check = { port = 80 } },
-  { name = "skip", model = "generic_container", ready_check = { port = 80, skip = true } },
-  { name = "plain", model = "generic_container" },
-]
-"#,
-        );
-        let node = |name: &str| lab.nodes.iter().find(|node| node.name == name);
+    fn a_cold_booted_container_is_checked_on_its_stored_port() {
+        let web = stored(Some(80), false);
         assert_eq!(
-            readiness_check(&NodeKind::Container, true, node("web")),
+            readiness_check(&NodeKind::Container, true, &web),
             Some(ReadinessCheck::Port(80))
         );
         // An unpaused container resumes a process that already answered.
+        assert_eq!(readiness_check(&NodeKind::Container, false, &web), None);
         assert_eq!(
-            readiness_check(&NodeKind::Container, false, node("web")),
+            readiness_check(&NodeKind::Container, true, &stored(Some(80), true)),
             None
         );
         assert_eq!(
-            readiness_check(&NodeKind::Container, true, node("skip")),
-            None
-        );
-        assert_eq!(
-            readiness_check(&NodeKind::Container, true, node("plain")),
+            readiness_check(&NodeKind::Container, true, &stored(None, false)),
             None
         );
     }
 
     #[test]
     fn targets_cover_cold_booted_nodes_with_their_addresses() {
-        let lab = manifest(
-            r#"
-name = "lab"
-nodes = [
-  { name = "skip", model = "ubuntu_linux", ready_check = { skip = true } },
-  { name = "vm", model = "ubuntu_linux" },
-  { name = "ct", model = "nokia_srlinux" },
-]
-"#,
-        );
         let nodes = vec![
-            db_node("skip", "10.0.0.10"),
-            db_node("vm", "10.0.0.11"),
-            db_node("ct", "10.0.0.12"),
+            db_node("skip", "10.0.0.10", Some(SSH_PORT), true),
+            db_node("vm", "10.0.0.11", Some(8443), false),
+            db_node("ct", "10.0.0.12", None, false),
+            db_node("web", "10.0.0.13", Some(80), false),
         ];
         let started = vec![
             ("skip".to_string(), NodeKind::VirtualMachine),
             ("vm".to_string(), NodeKind::VirtualMachine),
             ("ct".to_string(), NodeKind::Container),
+            ("web".to_string(), NodeKind::Container),
+            ("gone".to_string(), NodeKind::Container),
         ];
-        let targets = readiness_targets("abcd1234", &nodes, &started, Some(&lab));
-        assert_eq!(targets.len(), 1);
+        let targets = readiness_targets("abcd1234", &nodes, &started);
+        assert_eq!(targets.len(), 2);
         assert_eq!(targets[0].name, "vm");
         assert_eq!(targets[0].device_name, "vm-abcd1234");
         assert_eq!(targets[0].mgmt_ipv4.as_deref(), Some("10.0.0.11"));
-        assert_eq!(targets[0].check, ReadinessCheck::Port(SSH_PORT));
+        assert_eq!(targets[0].check, ReadinessCheck::Port(8443));
+        assert_eq!(targets[1].name, "web");
+        assert_eq!(targets[1].check, ReadinessCheck::Port(80));
     }
 
     #[test]

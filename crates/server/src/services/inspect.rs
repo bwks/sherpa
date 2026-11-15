@@ -19,6 +19,7 @@ use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
 use crate::services::node_lifecycle;
+use crate::services::node_ops;
 
 /// Inspect a lab and return its current state
 ///
@@ -270,7 +271,9 @@ fn device_info(node: &DbNode, image: &NodeConfig, volumes: &[String], lab_id: &s
 /// The state to report for `node` of `kind` in lab `lab_id`. A container's comes from Docker's
 /// `containers` listing, moved from the recorded state as the scanner would record it: a running
 /// container that exited is `Stopped`, a gone one `Missing`, and a failed or building node stays
-/// as recorded. Other nodes, and containers when Docker did not answer (`None`), are reported as
+/// as recorded. Inspect does not probe, so a running container whose stored check has a port is
+/// taken as not having answered: one waiting for its port stays `Starting`, as the scanner left
+/// it. Other nodes, and containers when Docker did not answer (`None`), are reported as
 /// recorded.
 fn reported_state(
     node: &DbNode,
@@ -284,7 +287,11 @@ fn reported_state(
     let status = containers.get(&format!("{}-{lab_id}", node.name)).copied();
     node.state.on_observation(Observation {
         runtime: node_lifecycle::container_runtime(status),
-        probe: Probe::NotProbed,
+        probe: if node_ops::probed_ready_port(&node.ready_check).is_some() {
+            Probe::NotReady
+        } else {
+            Probe::NotProbed
+        },
     })
 }
 
@@ -324,6 +331,7 @@ fn node_name_from_id(nodes: &[DbNode], rid: &RecordId) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::data::ReadyCheck;
     use shared::data::{BridgeKind, LabPhase, LinkImpairment, NodeModel};
 
     fn db_node(name: &str) -> DbNode {
@@ -343,6 +351,7 @@ mod tests {
             ssh_host_key: None,
             cpu_pinning: None,
             qemu_thread_cpus: None,
+            ready_check: ReadyCheck::default(),
         }
     }
 
@@ -427,6 +436,31 @@ mod tests {
                 Some(&containers),
             );
             assert_eq!(state, reported, "{recorded} with Docker {status:?}");
+        }
+    }
+
+    #[test]
+    fn a_running_container_whose_stored_port_has_not_answered_is_reported_starting() {
+        // Inspect does not probe: a container waiting for its port stays as the scanner left it.
+        let containers = listing(ContainerStateStatusEnum::RUNNING);
+        let ported = |state| DbNode {
+            ready_check: ReadyCheck {
+                port: Some(80),
+                skip: false,
+            },
+            ..container_in(state)
+        };
+        for (recorded, reported) in [
+            (NodeState::Starting, NodeState::Starting),
+            (NodeState::Running, NodeState::Running),
+        ] {
+            let state = reported_state(
+                &ported(recorded),
+                &NodeKind::Container,
+                "ab12cd34",
+                Some(&containers),
+            );
+            assert_eq!(state, reported, "{recorded}");
         }
     }
 

@@ -3774,6 +3774,34 @@ pub fn container_ready_port(ready_check: &NodeReadyCheck) -> Option<u16> {
     }
 }
 
+/// The readiness check stored with a node, from its manifest `ready_check`: the manifest's
+/// port, else a virtual machine's model port (`vm_ready_port`). A container or unikernel has no
+/// model port, so without a manifest port it has none and is ready once it runs.
+pub fn stored_ready_check(
+    kind: &data::NodeKind,
+    model: data::NodeModel,
+    ready_check: &NodeReadyCheck,
+) -> data::ReadyCheck {
+    let port = match kind {
+        data::NodeKind::VirtualMachine => Some(vm_ready_port(model, ready_check.port)),
+        data::NodeKind::Container | data::NodeKind::Unikernel => ready_check.port,
+    };
+    data::ReadyCheck {
+        port,
+        skip: ready_check.skip.unwrap_or(false),
+    }
+}
+
+/// The port a node's stored readiness check is probed on. `None` when the check is skipped or
+/// has no port: the node is ready once it runs.
+pub fn probed_ready_port(ready_check: &data::ReadyCheck) -> Option<u16> {
+    if ready_check.skip {
+        None
+    } else {
+        ready_check.port
+    }
+}
+
 /// Human-readable name of a readiness port, for status messages.
 pub fn ready_port_label(port: u16) -> String {
     match port {
@@ -5117,6 +5145,46 @@ mod tests {
         );
         assert_eq!(container_ready_port(&check(None, None)), None);
         assert_eq!(container_ready_port(&check(Some(80), Some(true))), None);
+    }
+
+    #[test]
+    fn the_stored_check_has_a_vms_model_port_and_only_the_manifest_port_of_others() {
+        let check = |port, skip| NodeReadyCheck { port, skip };
+        let stored = |port, skip| data::ReadyCheck { port, skip };
+        let ubuntu = data::NodeModel::UbuntuLinux;
+        let vm = data::NodeKind::VirtualMachine;
+        assert_eq!(
+            stored_ready_check(&vm, ubuntu, &check(None, None)),
+            stored(Some(SSH_PORT), false)
+        );
+        assert_eq!(
+            stored_ready_check(&vm, data::NodeModel::TalosLinux, &check(None, None)),
+            stored(Some(TALOS_API_PORT), false)
+        );
+        assert_eq!(
+            stored_ready_check(&vm, ubuntu, &check(Some(8443), Some(true))),
+            stored(Some(8443), true)
+        );
+        for kind in [data::NodeKind::Container, data::NodeKind::Unikernel] {
+            let model = data::NodeModel::GenericContainer;
+            assert_eq!(
+                stored_ready_check(&kind, model, &check(None, None)),
+                stored(None, false)
+            );
+            assert_eq!(
+                stored_ready_check(&kind, model, &check(Some(80), Some(false))),
+                stored(Some(80), false)
+            );
+        }
+    }
+
+    #[test]
+    fn a_stored_check_is_probed_on_its_port_unless_it_is_skipped() {
+        let stored = |port, skip| data::ReadyCheck { port, skip };
+        assert_eq!(probed_ready_port(&stored(Some(8443), false)), Some(8443));
+        assert_eq!(probed_ready_port(&stored(Some(SSH_PORT), true)), None);
+        assert_eq!(probed_ready_port(&stored(None, false)), None);
+        assert_eq!(probed_ready_port(&stored(None, true)), None);
     }
 
     #[test]

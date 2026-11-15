@@ -169,6 +169,13 @@ It runs in `sherpa validate`, in the server's `up` before images are leased, and
   its management IPv4, checked as a VM's port is (`node_ops::check_vm_ready`; an SSH handshake
   on port 22, a TCP connection on any other). `node_ops::container_ready_port` gives the port,
   and none when `ready_check.skip` is set: a skipped check wins over a port.
+- `ready_check` is stored on the node's record when `up` creates it and when `redeploy`
+  rebuilds it (`node.ready_port` and `node.skip_ready_check`, from
+  `node_ops::stored_ready_check`): the port, else a VM's model port, and the skip. `resume`,
+  `redeploy`'s wait, `inspect` and the scanner read that record, not the saved manifest, so a
+  container whose port does not answer stays `Starting` scan after scan, and a VM with a port
+  that is not SSH is probed on it. See
+  [`STATE_MACHINES.md`](STATE_MACHINES.md#5-node-readiness-and-host-keys).
 - `container.platform` is for `juniper_cevolved` only (`check_ptx_platform`).
 
 The other checks on these settings:
