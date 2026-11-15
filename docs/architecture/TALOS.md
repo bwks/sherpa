@@ -88,11 +88,33 @@ A Cilium cluster also gets a block of `TALOS_LOAD_BALANCER_BLOCK_SIZE` (4) load 
 addresses from `TALOS_LOAD_BALANCER_HOST_OFFSETS` (`.13`–`.20`, after the VIPs in the same
 block), in manifest order: `.13`–`.16` for the first, `.17`–`.20` for the second. The first is
 the cluster's Gateway, the second Hubble UI, the rest are left for the user's `LoadBalancer`
-services. Plans saved before the CNI choice deserialize as Flannel clusters with no block.
+services.
 
 The plan also records the cluster's Keycloak and Vault nodes with their addresses
 (`ClusterPlan::oidc`, `ClusterPlan::vault`), which `up` passes to `plan_clusters` as
-`services`. Plans saved before these fields deserialize without them.
+`services`.
+
+**Storage.** `shared::data::ClusterPlan` is the plan. `talos::prepare_clusters` stores it with
+`db::store_talos_cluster_plans`, in one transaction, right after `up` has stored the lab's
+definition and before any secrets are generated. Only what the server worked out goes in a row
+of `talos_cluster_plan` (schema version 24): the endpoint, the shared address and the load
+balancer range. The rest is already in the database: the cluster's name, CNI, `oidc`, `vault`
+and members by role are its definition (`manifest_talos_cluster`, `manifest_talos_member`), and
+the members' and services' addresses are their nodes' `mgmt_ipv4`. `db::list_talos_cluster_plans`
+joins the three back into `ClusterPlan`s in manifest order; it fails, naming the node, when a
+member or service has no address. See [`DATABASE.md`](DATABASE.md#talos-cluster-plans).
+
+Readers take the plans from there with `talos::load_clusters` (each plan with its saved
+secrets) or, for `download`, `talos::read_cluster_credentials` (plans and credential files, no
+secrets). `down` loads the lab's clusters once and looks each Talos node up in them
+(`talos::find_member_cluster`); a worker `redeploy` builds its rejoin config from the cluster it
+is a member of; a Vault `redeploy` grants access to every loaded cluster that uses it.
+
+Releases up to 0.6.4 saved the plan as `cluster.toml` in the cluster's folder. sherpad moves it
+into the database at startup and deletes the file (see
+[`SERVER.md`](SERVER.md#cluster-plan-import)); `ClusterPlan`'s serde form is that file's, kept for
+the import only. Files saved before the CNI choice read as Flannel clusters with no block, and
+files saved before `oidc` and `vault` read without them.
 
 ### Cilium
 
@@ -181,8 +203,9 @@ The talosconfig carries an `O=os:admin` certificate (OS CA); the kubeconfig an
 `O=system:masters` certificate (Kubernetes CA).
 
 Saved per cluster under `/opt/sherpa/labs/<lab>/clusters/<cluster>/`, mode 0600:
-`secrets.toml`, `cluster.toml` (the plan), `talosconfig`, `kubeconfig`. `redeploy` and
-`download` read them; `destroy` removes them with the lab directory.
+`secrets.toml`, `talosconfig`, `kubeconfig`. They are generated secrets, so they stay on disk;
+the plan is in the database (see [Plan](#plan)). `down`, `redeploy` and `download` read them;
+`destroy` removes them with the lab directory, and the plan's rows with the lab's record.
 
 ### Machine configs
 
@@ -229,11 +252,11 @@ still probe workers' API port, which works because the VIP is up in an existing 
 |---|---|
 | `down` | Talos ignores the ACPI power button, so cluster nodes get a graceful `machine.MachineService/Shutdown` over the Talos API (`bootstrap::shutdown`, same HTTP/2 client as the bootstrap, saved admin credentials; Talos cordons, drains and powers off). Workers stop before controllers, because draining needs the Kubernetes API. `down` waits for the VM to stop and forces it off after `VM_SHUTDOWN_TIMEOUT`. Talos nodes outside a Sherpa-built cluster are powered off directly. |
 | `resume` | Unchanged; Talos keeps its state on disk. |
-| `redeploy` worker | Config regenerated from the saved secrets and plan; the node rejoins. |
+| `redeploy` worker | Config regenerated from the saved secrets and the stored plan; the node rejoins. |
 | `redeploy` Vault | A new, empty Vault: initialised and unsealed again, then `grant_vault_access` sets up every saved cluster that uses it. Secrets written to the old Vault are gone. |
 | `redeploy` Keycloak | A new, empty Keycloak: the realm is made again with the saved users and passwords. |
 | `redeploy` controller | Refused (`talos::ensure_redeployable`): its etcd member would have to be removed first. |
-| `download` | Returns each cluster's talosconfig and kubeconfig (`DownloadLabResponse::clusters`). |
+| `download` | Returns each cluster's talosconfig and kubeconfig, with its endpoint and load balancer addresses from the stored plan (`DownloadLabResponse::clusters`). |
 | `destroy` | Stops an `up` still bootstrapping or waiting for the cluster first (`lab_operations`), so credentials are never written after the cluster directory is removed with the lab directory. |
 
 The client writes `.sherpa/k8s/kubeconfig-<cluster>` and `.sherpa/talos/talosconfig-<cluster>`
