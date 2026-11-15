@@ -77,7 +77,10 @@ netem on iface_a's egress controls B->A impairment. netem on iface_b's egress co
 impairment. Each direction is stored on the link record (`impairment_a_to_b`,
 `impairment_b_to_a`, where A is the manifest's `src`) and is set on its own by the impairment
 API (`services::impairment`, `direction` in the request). `up` stores the manifest's
-`[links.impairment]` in both; resume and redeploy sync each direction from the database with
+`[links.impairment]` in both. `sherpa link impair` names the link by its index, which it finds
+by either end in `inspect`'s links (`LinkInfo.index`), so it needs no manifest; against a server
+that does not give indexes it falls back to the link's place in the manifest, the order `up`
+numbers links in. Resume and redeploy sync each direction from the database with
 `network::sync_netem`, which applies a set direction and removes any netem qdisc from a clear
 one. `network::remove_netem` reports `NothingToRemove` only when the interface has no netem
 qdisc of Sherpa's, found by listing its qdiscs; any other failure is an error, so a direction is
