@@ -1109,6 +1109,9 @@ stateDiagram-v2
 
 **Stages:**
 
+0. the account: `init` stops unless the effective uid's account is `sherpa`
+   (`validate_init_account`, `crates/server/src/validate/init_account.rs`), so root and the
+   installing user are refused before anything is written;
 1. the management prefixes are checked by `validate_management_prefix_ipv4` and, when one is
    given, `validate_management_prefix_ipv6` (`crates/server/src/validate/management_prefix.rs`,
    `:49-52`), before anything is written;

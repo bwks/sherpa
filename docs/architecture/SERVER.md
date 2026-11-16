@@ -110,7 +110,9 @@ flowchart TB
     logging -->|foreground| stdoutfmt["compact stdout/stderr formatter"]
     logging -->|daemon| filefmt["compact file formatter"]
     stdoutfmt --> signals
-    filefmt --> signals
+    filefmt --> removed
+    removed["warn when sherpa.toml still has<br/>the removed [ztp_server] table"]
+    removed --> signals
     signals["install SIGINT and SIGTERM handlers<br/>(startup fails if registration fails)"]
     signals --> envoverrides["apply env overrides<br/>SHERPA_SERVER_IPV4<br/>SHERPA_SERVER_IPV6<br/>SHERPA_SERVER_WS_PORT<br/>SHERPA_SERVER_HTTP_PORT"]
     envoverrides --> jwt
@@ -137,7 +139,19 @@ flowchart TB
     plain6 --> serveplain["serve with graceful shutdown future"]
 ```
 
-In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), imports the definitions of labs that have none and deletes the saved manifests ([below](#lab-definition-import)), then stores the SSH accounts of older labs' `lab-info.toml` and deletes it with their SSH config and `known_hosts` ([below](#lab-file-import)), stores their Talos clusters' saved `cluster.toml` and deletes it ([below](#cluster-plan-import)), and removes the lab files nothing reads ([below](#unread-lab-file-clean-up)), all in `upgrade_stored_data`, starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
+In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), warns about removed settings ([below](#removed-settings)), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), imports the definitions of labs that have none and deletes the saved manifests ([below](#lab-definition-import)), then stores the SSH accounts of older labs' `lab-info.toml` and deletes it with their SSH config and `known_hosts` ([below](#lab-file-import)), stores their Talos clusters' saved `cluster.toml` and deletes it ([below](#cluster-plan-import)), and removes the lab files nothing reads ([below](#unread-lab-file-clean-up)), all in `upgrade_stored_data`, starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
+
+#### Removed settings
+
+`shared::data::Config` does not deny unknown fields, so a `sherpa.toml` written by an older
+release loads with settings sherpad no longer has. One of them is the server-wide `[ztp_server]`
+table (`enable`, `username`, `password`), which nothing ever read; releases up to 0.6.5 wrote it
+with the built-in node password. Once logging is set up,
+`daemon::removed_settings::warn_on_removed_settings` reads the file again and logs one warning,
+naming the file, when it has a top-level `[ztp_server]` table: it is ignored and can be deleted.
+Neither sherpad nor the update script edits the file. A failure to read or parse it here is
+logged, not fatal, since the config has already loaded. A lab's own `[ztp_server]` in its
+manifest is a different setting and is unaffected.
 
 `auth::jwt::load_or_generate_secret` generates the JWT secret only when the file is missing. A file that exists with a length other than 32 bytes stops startup with an error naming the file: replacing it would silently end every session. Deleting the file generates a new secret, which logs every user out.
 
@@ -288,8 +302,9 @@ every start and calls `restrict_dir` on:
 
 ### Config, env and log file permissions
 
-`sherpa.toml` and the env files can hold secrets: the `[ztp_server]` password, and anything an
-operator adds to `sherpa.env`, such as `OTEL_EXPORTER_OTLP_HEADERS`. So only `sherpa` may read
+`sherpa.toml` and the env files can hold secrets: the removed `[ztp_server]` password a file
+from an older release may still have, and anything an operator adds to `sherpa.env`, such as
+`OTEL_EXPORTER_OTLP_HEADERS`. So only `sherpa` may read
 them, which a member of the `sherpa` group cannot. `sherpad` reads `sherpa.toml` as `sherpa`;
 systemd reads `sherpa.env` as root (`EnvironmentFile`).
 
@@ -303,7 +318,9 @@ systemd reads `sherpa.env` as root (`EnvironmentFile`).
 | `/opt/sherpa/logs/sherpad.log` and rotated copies | `640` (`SHERPAD_LOG_FILE_MODE`) | `sherpad` on each open, update |
 
 - `sherpad init` runs as `sherpa` (`sudo -u sherpa -H sherpad init`), so the files it writes are
-  `sherpa`'s. It writes `sherpa.toml` through `tls::generator::write_file_with_permissions`: the
+  `sherpa`'s. It refuses any other account, root included, before it writes anything:
+  `validate::validate_init_account` compares the name of the effective uid's account with
+  `konst::SHERPA_USERNAME`. It writes `sherpa.toml` through `tls::generator::write_file_with_permissions`: the
   mode is set on a temporary file, whatever the umask, before it is renamed into place. Releases
   before this wrote it with the caller's umask, often `0664`, owned by whoever ran `init`.
 - The example env file gets `sherpa.env`'s mode because people copy it into place.

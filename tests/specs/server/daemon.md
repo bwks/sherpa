@@ -52,12 +52,15 @@
 - Plain HTTP when no certs (development mode) `[integration]` **P1**
 - Port already in use produces clear error `[integration]` **P0**
 - A missing built-in `admin` account stops startup with a pointer to `sherpad init`, unless `SHERPA_ADMIN_PASSWORD` is set, which creates it `[integration]` **P0** (`startup_requires_the_admin_account`)
+- A `sherpa.toml` with the removed `[ztp_server]` table still loads, and startup logs one warning that it is ignored and can be deleted; a file without it logs nothing `[unit]` **P1** (`a_config_with_the_removed_ztp_server_table_still_loads`, `daemon::removed_settings`)
 
 ---
 
 ## `sherpad init` Accounts
 
 **What to test:**
+- Refuses to run as any account but `sherpa`, root included, before writing anything, and names `sudo -u sherpa -H sherpad init` `[unit]` **P0** (`validate::init_account`)
+- `default_config()` writes no `[ztp_server]` table and no password `[unit]` **P0** (`the_default_config_has_no_ztp_server_table`)
 - Creates `admin` with the password from the `SHERPA_ADMIN_PASSWORD` environment variable or a prompt `[installer]` **P0**
 - Asks for the first user account: username, password, administrator flag, optional SSH key `[installer]` **P0**
 - Re-running keeps existing accounts unchanged and skips the first-user step when a user exists `[installer]` **P0**
