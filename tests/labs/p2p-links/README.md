@@ -45,7 +45,7 @@ Every link is P2p. On each Linux link the src end is `.1` and the dst end `.2`.
   netem. The VM interfaces are found by MAC, from the tap's.
 - The node images above, pulled or imported on the server, and
   `docker pull nicolaka/netshoot:v0.14`. The run fails early if any is missing.
-- The `sherpa` CLI logged in, and `virsh` for the leftover check.
+- The `sherpa` CLI logged in, with a device password set (`sherpa server user device-password`), and `virsh` for the leftover check.
 
 ## Running
 

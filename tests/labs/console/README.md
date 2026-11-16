@@ -16,7 +16,8 @@ The runner writes the manifest for each run itself; there is no manifest file he
 1. `sherpa up`.
 2. `sherpa console ctr01` fails with the message that containers have no serial console.
 3. `sherpa console alp01` prints its connect line; Enter is pressed until `login: ` shows, and
-   typed text is echoed by the guest (the line is cleared, never submitted).
+   typed text is echoed by the guest (the line is cleared, never submitted, so no login name or
+   password is ever sent).
 4. With that console open, a second `sherpa console alp01` fails, saying another client holds
    the console.
 5. `Ctrl+]` ends the first console with exit code 0 and one close line, starting on a new line.
@@ -25,7 +26,8 @@ The runner writes the manifest for each run itself; there is no manifest file he
 
 ## Running it
 
-It runs wherever the CLI is logged in to a server with the `alpine_linux` image and the
+It runs wherever the CLI is logged in, with a device password set
+(`sherpa server user device-password`; the run stops early without one), to a server with the `alpine_linux` image and the
 `generic_container` `alpine` 3.22 image; it needs no Docker access. `sherpa` must not be in the
 same directory as `telnet`.
 

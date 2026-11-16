@@ -3,14 +3,13 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use askama::Template;
 use serde_json::json;
 
-use shared::data::{NetworkV4, NetworkV6, OwnerUser, User};
+use shared::data::{NetworkV4, NetworkV6, OwnerUser};
 use shared::konst::{HTTP_PORT, NODE_CONFIGS_DIR};
 
 #[derive(Template)]
 #[template(path = "sonic/ztp_user.jinja", ext = "txt")]
 pub struct SonicLinuxUserTemplate {
-    pub user: User,
-    pub owner: Option<OwnerUser>,
+    pub owner: OwnerUser,
 }
 
 pub struct SonicLinuxZtp {

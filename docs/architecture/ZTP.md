@@ -150,7 +150,7 @@ error saying the setting was not validated. It is reached only if a write or a p
 
 With ZTP off, a node of the first five has no generated config, no Sherpa config mount and no
 logins (IOL keeps its NVRAM mount):
-the `sherpa` login and the owner's are written into the generated config or script. FRR then runs
+the owner's login is written into the generated config or script. FRR then runs
 its image's own entrypoint and `daemons` file, with no SSH server. A container is ready when it
 is running, so readiness does not depend on the setting.
 
@@ -164,12 +164,12 @@ FRR 10.5.2):
 |---|---|---|---|
 | `nokia_srlinux` | none: SR Linux takes the interface into its own network instance without it | not reachable | `docker exec` |
 | `arista_ceos` | none: EOS takes `eth0` as `Management0` and leaves it unassigned; its own ZTP is off | enabled, not reachable | `docker exec ... Cli` |
-| `juniper_cevolved` | the node's: the image's entrypoint puts it on `re0:mgmt-0` from the image's own `juniper.conf` | answers, refuses `sherpa`: the image's config has only its own `admin` user | `docker exec` (SSH as `admin` was not tried) |
+| `juniper_cevolved` | the node's: the image's entrypoint puts it on `re0:mgmt-0` from the image's own `juniper.conf` | answers, refuses the owner: the image's config has only its own `admin` user | `docker exec` (SSH as `admin` was not tried) |
 | `frr_linux` | the node's: a plain Linux container | none | `docker exec` |
 | `cisco_iol`, `cisco_ioll2` | none: the entrypoint removes Docker's address from `eth0`, and IOL boots to its factory state and runs its own autoinstall | none | `docker attach`, the IOL console |
 
 While SR Linux and cEOS boot, the container still holds the address: SR Linux's SSH server
-answers there for about a minute, refusing `sherpa`, and on cEOS nothing listens yet. The
+answers there for about a minute, refusing the owner, and on cEOS nothing listens yet. The
 containers stay running with no restarts. The lab test asserts each booted state. The node's
 entry in the lab's SSH config is still written.
 
@@ -197,7 +197,7 @@ route; the L2 model makes the port routed (`no switchport`) and turns `ip routin
 launcher copies `/config/ios_config.txt` into `/tmp/run` at every start, but IOL boots from its
 NVRAM once a config has been saved there with `write memory`. `/tmp/run` is `<lab>/<node>/run`,
 so a saved config survives `down` and `resume`; a redeploy makes the node's folder again, which
-clears it. The `sherpa` and owner logins use MD5 `key-hash` RSA keys, as on IOSv.
+clears it. The owner's login uses an MD5 `key-hash` RSA key, as on IOSv.
 
 ## Storage and migration
 

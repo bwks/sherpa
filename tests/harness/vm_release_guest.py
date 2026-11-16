@@ -191,6 +191,8 @@ def validate_upgrade_evidence(evidence, baseline, candidate):
             require(evidence[phase].get(key) == inputs[key], f"Incorrect {phase} {binary} bytes")
 
 
+# What `sherpa up` says when the lab owner has no device password.
+DEVICE_PASSWORD_REFUSAL = "has no device password, and labs need one"
 # The first release whose installer makes the database directory 0750; older ones made it 0775.
 PRIVATE_DATABASE_DIRECTORY_VERSION = (0, 5, 13)
 # The first release whose installer makes the config folder 0750 and the env file 0600; older
@@ -250,7 +252,13 @@ def check_bare_ubuntu(command, vm, initialize_timeout):
         require(fcntl.ioctl(device.fileno(), 0xAE00, 0) == 12, "KVM API unavailable")
         descriptor = fcntl.ioctl(device.fileno(), 0xAE01, 0)
         os.close(descriptor)
-    require(pwd.getpwnam("sherpa").pw_uid >= 1000, "Expected Sherpa's cloud-init login account")
+    # The node's only login is its lab owner's; the installer makes the `sherpa` service account.
+    login = os.environ.get("SUDO_USER", "")
+    require(login and login != "root" and pwd.getpwnam(login).pw_uid >= 1000,
+            "Expected the lab owner's login account")
+    with suppress(KeyError):
+        pwd.getpwnam("sherpa")
+        raise RuntimeError("The node has a sherpa account: Sherpa gives nodes only the lab owner's login")
 
 
 def interrupted(signum, _frame):
@@ -267,7 +275,7 @@ class Guest:
         self.marker = self.workspace / ".owner"
         self.base = Path("/opt/sherpa")
         self.passwords = [self.credentials["admin_password"]]
-        for key in ("build_cache_password", "tailnet_auth_key"):
+        for key in ("device_password", "build_cache_password", "tailnet_auth_key"):
             if key in self.credentials:
                 self.passwords.append(self.credentials[key])
 
@@ -352,7 +360,7 @@ class Guest:
             require("Usage:" in output, "Missing help output")
             code, output = self.command(["bash", str(self.workspace / script), "--bogus"], check=False)
             require(code != 0 and "Unknown option" in output, "Invalid argument accepted")
-        code, output = self.command(["sudo", "-u", "sherpa", *self.installer()],
+        code, output = self.command(["sudo", "-u", self.login_user().pw_name, *self.installer()],
                                     env=self.environment(), check=False)
         require(code != 0 and "must be run as root" in output, "Non-root installer accepted")
         env = self.environment()
@@ -522,6 +530,21 @@ class Guest:
                                     context=context, timeout=self.timeouts["connect"]) as response:
             return json.load(response)
 
+    def write_client_files(self, home, token):
+        """The CLI's token and server settings under `home`; returns the server URL."""
+        client_base = home / ".sherpa"
+        (client_base / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
+        (client_base / "token").write_text(token)
+        (client_base / "token").chmod(0o600)
+        url = f"wss://{self.settings['client_host']}:{self.settings['ws_port']}/ws"
+        (client_base / "config/sherpa.toml").write_text(
+            "[server_connection]\n"
+            f"url = {json.dumps(url)}\n"
+            f"timeout_secs = {self.timeouts['connect']}\n"
+            "validate_certs = true\ninsecure = false\n"
+            f"ca_cert_path = {json.dumps(str(self.base / '.certs/server.crt'))}\n")
+        return url
+
     def authenticate(self):
         deadline = time.monotonic() + self.timeouts["startup"]
         last_error = ""
@@ -540,17 +563,7 @@ class Guest:
                         "Persistent test user missing")
                 require(any(user["username"] == "admin" and user["is_admin"] for user in users),
                         "Built-in admin account missing")
-                client_base = Path.home() / ".sherpa"
-                (client_base / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
-                (client_base / "token").write_text(token)
-                (client_base / "token").chmod(0o600)
-                url = f"wss://{self.settings['client_host']}:{self.settings['ws_port']}/ws"
-                (client_base / "config/sherpa.toml").write_text(
-                    "[server_connection]\n"
-                    f"url = {json.dumps(url)}\n"
-                    f"timeout_secs = {self.timeouts['connect']}\n"
-                    "validate_certs = true\ninsecure = false\n"
-                    f"ca_cert_path = {json.dumps(str(self.base / '.certs/server.crt'))}\n")
+                url = self.write_client_files(Path.home(), token)
                 _, output = self.command([str(self.base / "bin/sherpa"), "whoami", "--server-url", url])
                 require("Authenticated" in output and self.credentials["admin_username"] in output,
                         "CLI did not validate the test admin")
@@ -589,7 +602,11 @@ class Guest:
                            if entry["username"] in (self.credentials["admin_username"], username)),
                           key=lambda entry: entry["username"])
         require(len(selected) == 2, "Persistent test users missing")
-        state["users"] = [json.dumps(entry, sort_keys=True) for entry in selected]
+        # The device password state is new in the candidate, so a baseline record lacks it; the
+        # `device-password` step checks it. Everything else must be unchanged.
+        state["users"] = [json.dumps({key: value for key, value in entry.items()
+                                      if key != "device_password_set"}, sort_keys=True)
+                          for entry in selected]
         return state
 
     def seed_upgrade(self):
@@ -625,6 +642,61 @@ class Guest:
             validate_upgrade_evidence(evidence, self.config["baseline"], self.config["candidate"])
         self.write_resources(self.workspace / "upgrade-state.toml", evidence)
         print(f"PASS {phase}: candidate binaries and unchanged users, settings and identity")
+
+    def device_password_state(self, token, username):
+        users = self.request("/api/v1/admin/users", token=token)["users"]
+        return next((user.get("device_password_set") for user in users if user["username"] == username), None)
+
+    def lab_up_as(self, home, directory):
+        """`sherpa up` for a one-node lab as the user whose CLI is under `home`; returns the exit
+        code and output. It never gets as far as a VM: no node image is imported on the guest."""
+        directory.mkdir(exist_ok=True)
+        (directory / "manifest.toml").write_text(
+            f'name = "{directory.name}"\n\n[[nodes]]\nname = "n1"\nmodel = "ubuntu_linux"\n'
+            f'version = "{self.config["vm"]["version"]}"\n')
+        env = {**os.environ, "HOME": str(home)}
+        return self.command([str(self.base / "bin/sherpa"), "up"], env=env, check=False,
+                            cwd=directory, timeout=self.timeouts["command"])
+
+    def device_password(self):
+        """After the update, the upgraded user's labs are refused until they set a device
+        password, and are not refused for one after. It runs after the other upgrade checks, as
+        it changes the user's record."""
+        username = "persist-" + self.config["identity"]["nonce"][:8]
+        device_password = self.credentials["device_password"]
+        user = self.login(username)
+        token = user["token"]
+        require(self.device_password_state(token, username) is False,
+                "The upgraded user has a device password they never set")
+        # A lab needs the owner's SSH key before it needs the device password.
+        key = self.workspace / "persist-key"
+        self.command(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", username, "-f", str(key)])
+        added = self.request(f"/api/v1/admin/users/{username}/ssh-keys",
+                             {"username": username, "ssh_key": key.with_suffix(".pub").read_text().strip(),
+                              "token": token}, token=token)
+        require(added, "The upgraded user's SSH key was not added")
+        home = self.workspace / "persist-home"
+        home.mkdir(exist_ok=True, mode=0o700)
+        self.write_client_files(home, token)
+        directory = self.workspace / ("persist-lab-" + self.config["identity"]["nonce"][:8])
+        code, output = self.lab_up_as(home, directory)
+        require(code != 0 and DEVICE_PASSWORD_REFUSAL in output,
+                f"Labs were not refused for the missing device password (exit {code})")
+        require(f"'{username}'" in output and "sherpa server user device-password" in output,
+                "The refusal does not name the user or the command that fixes it")
+        response = self.request(f"/api/v1/admin/users/{username}/device-password",
+                                {"username": username, "login_password": self.credentials["admin_password"],
+                                 "device_password": device_password, "token": token}, token=token)
+        require(response["device_password_set"] is True, "The device password was not set")
+        require(self.device_password_state(token, username) is True, "The user record has no device password")
+        code, output = self.lab_up_as(home, directory)
+        require(DEVICE_PASSWORD_REFUSAL not in output,
+                "Labs are still refused for a device password after it was set")
+        if code == 0:
+            # No image should have let a lab start, but never leave one behind.
+            self.command([str(self.base / "bin/sherpa"), "destroy", "--yes"],
+                         env={**os.environ, "HOME": str(home)}, cwd=directory, check=False)
+        print("PASS upgraded user: labs refused without a device password, accepted once set")
 
     def installed_hashes(self):
         return {binary + "_binary_sha256": digest(self.base / "bin" / binary)
@@ -1036,6 +1108,7 @@ class Guest:
                    "seed-upgrade": self.seed_upgrade, "upgrade": self.upgrade,
                    "verify-upgrade": lambda: self.verify_upgrade("after"),
                    "verify-upgrade-reboot": lambda: self.verify_upgrade("reboot"),
+                   "device-password": self.device_password,
                    "new-database": lambda: (self.install(), self.initialize()),
                    "source": self.source, "toolchain": self.toolchain,
                    "test-images": self.test_images, "build-tests": self.build_tests,
@@ -1259,6 +1332,88 @@ class GuestTests(unittest.TestCase):
         self.assertEqual(guest.installer()[1], "/var/tmp/workspace/sherpa_install.sh")
         self.assertEqual(guest.updater(),
                          ["bash", "/var/tmp/workspace/sherpa_update.sh", "--version", "v0.6.0"])
+
+    def device_password_guest(self, directory, up_results):
+        guest = Guest.__new__(Guest)
+        guest.workspace = Path(directory)
+        guest.base = Path("/opt/sherpa")
+        guest.config = {"identity": {"nonce": "abcdef0123456789"}, "vm": {"version": "24.04-20260926"}}
+        guest.credentials = {"admin_password": "login-secret", "device_password": "Dp1!device-secret"}
+        guest.settings = {"client_host": "127.0.0.1", "ws_port": 3030}
+        guest.timeouts = {"connect": 5, "command": 60}
+        guest.passwords = ["login-secret", "Dp1!device-secret"]
+        guest.record = {"device_password_set": False}
+        posts = []
+
+        def request(path, payload=None, token=None):
+            if path == "/api/v1/admin/users":
+                return {"users": [{"username": "persist-abcdef01", **guest.record}]}
+            posts.append((path, payload))
+            if path.endswith("/device-password"):
+                guest.record["device_password_set"] = True
+                return {"username": "persist-abcdef01", "device_password_set": True}
+            return {"keys": ["k"]}
+
+        commands = []
+
+        def command(arguments, **kwargs):
+            commands.append((arguments, kwargs))
+            if arguments[0] == "ssh-keygen":
+                Path(arguments[-1] + ".pub").write_text("ssh-ed25519 AAAA persist\n")
+            if arguments[1:] == ["up"]:
+                return up_results.pop(0)
+            return 0, ""
+
+        guest.request = request
+        guest.command = command
+        guest.login = lambda username: {"username": username, "token": "user-token"}
+        return guest, posts, commands
+
+    def test_upgraded_user_is_refused_until_they_set_a_device_password(self):
+        refusal = "User 'persist-abcdef01' has no device password, and labs need one: set it with " \
+                  "'sherpa server user device-password'"
+        with tempfile.TemporaryDirectory() as directory:
+            guest, posts, commands = self.device_password_guest(
+                directory, [(1, refusal), (1, "Failed to find a node image")])
+            guest.device_password()
+            ups = [item for item in commands if item[0][1:] == ["up"]]
+            self.assertEqual(len(ups), 2)
+            self.assertTrue(all(kwargs["env"]["HOME"] == f"{directory}/persist-home" for _, kwargs in ups))
+            self.assertTrue((Path(directory) / "persist-home/.sherpa/token").is_file())
+            self.assertEqual([path.rsplit("/", 1)[1] for path, _ in posts], ["ssh-keys", "device-password"])
+            self.assertEqual(posts[1][1]["device_password"], "Dp1!device-secret")
+            self.assertEqual(posts[1][1]["login_password"], "login-secret")
+            self.assertNotIn("destroy", [arguments[1] for arguments, _ in commands])
+
+    def test_a_lab_that_starts_after_the_device_password_is_destroyed(self):
+        refusal = "User 'persist-abcdef01' has no device password, and labs need one: " \
+                  "'sherpa server user device-password'"
+        with tempfile.TemporaryDirectory() as directory:
+            guest, _, commands = self.device_password_guest(directory, [(1, refusal), (0, "done")])
+            guest.device_password()
+            self.assertEqual(commands[-1][0][1:], ["destroy", "--yes"])
+
+    def test_the_update_fails_if_labs_are_not_refused_without_a_device_password(self):
+        with tempfile.TemporaryDirectory() as directory:
+            guest, _, _ = self.device_password_guest(directory, [(1, "Failed to find a node image")])
+            with self.assertRaisesRegex(RuntimeError, "not refused"):
+                guest.device_password()
+
+    def test_the_update_fails_if_labs_are_still_refused_after_it_is_set(self):
+        refusal = "User 'persist-abcdef01' has no device password, and labs need one: " \
+                  "'sherpa server user device-password'"
+        with tempfile.TemporaryDirectory() as directory:
+            guest, _, _ = self.device_password_guest(directory, [(1, refusal), (1, refusal)])
+            with self.assertRaisesRegex(RuntimeError, "still refused"):
+                guest.device_password()
+
+    def test_the_device_password_is_redacted_from_guest_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "guest.toml"
+            config.write_text('[guest]\n[timeouts]\n[credentials]\nadmin_password = "a-login-secret"\n'
+                              'device_password = "Dp1!device-secret"\n')
+            guest = Guest(config)
+        self.assertEqual(guest.redact("x Dp1!device-secret y a-login-secret"), "x [REDACTED] y [REDACTED]")
 
     def test_upgrade_runs_the_update_script_and_starts_sherpad(self):
         guest = Guest.__new__(Guest)

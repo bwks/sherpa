@@ -2,7 +2,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use askama::Template;
 
-use shared::data::{NetworkV4, NetworkV6, OwnerUser, User};
+use shared::data::{NetworkV4, NetworkV6, OwnerUser};
 
 #[derive(Template)]
 #[template(path = "frr/frr_config.jinja", ext = "txt")]
@@ -22,6 +22,5 @@ pub struct FrrDaemonsTemplate {}
 #[template(path = "frr/frr_startup.jinja", ext = "txt")]
 pub struct FrrStartupTemplate {
     pub hostname: String,
-    pub user: User,
-    pub owner: Option<OwnerUser>,
+    pub owner: OwnerUser,
 }

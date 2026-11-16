@@ -156,3 +156,29 @@ fn test_ignition_mount_container_disk_unit() {
     assert_eq!(unit.enabled, Some(true));
     assert_eq!(unit.contents.expect("has contents"), EXPECTED_MOUNT_UNIT);
 }
+
+#[test]
+fn test_ignition_password_hash_is_a_hash_that_verifies() {
+    for password in helpers::ALL_CHARACTER_PASSWORDS {
+        let hash = helpers::sha512_hash(password);
+        let user = IgnitionUser {
+            name: "alice".to_string(),
+            password_hash: Some(hash.clone()),
+            home_dir: None,
+            shell: None,
+            ssh_authorized_keys: vec!["ssh-rsa OWNERKEY1".to_string()],
+            groups: vec!["sudo".to_string(), "docker".to_string()],
+        };
+        let config = IgnitionConfig::new(vec![user], vec![], vec![], vec![], vec![], vec![]);
+        let json = config.to_json_pretty().expect("renders json");
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid json");
+        let users = &parsed["passwd"]["users"];
+        assert_eq!(users.as_array().map(Vec::len), Some(1));
+        assert_eq!(users[0]["name"], "alice");
+        let found = users[0]["passwordHash"].as_str().expect("has a hash");
+        assert_eq!(found, hash);
+        helpers::assert_hash_verifies(found, "$6$", password);
+        assert!(!json.contains(password));
+        helpers::assert_no_sherpa_login(&json);
+    }
+}

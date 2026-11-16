@@ -4,10 +4,6 @@ Host {{ host.aliases }}
     Port {{ host.port }}
     User {{ host.username }}
     ProxyJump {{ proxy_jump }}
-    {%- if let Some(identity_file) = host.identity_file %}
-    IdentityFile {{ identity_file }}
-    IdentitiesOnly yes
-    {%- endif %}
     {%- if let Some(known_hosts_file) = host.known_hosts_file %}
     StrictHostKeyChecking yes
     UserKnownHostsFile {{ known_hosts_file }}

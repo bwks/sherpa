@@ -2,7 +2,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use askama::Template;
 
-use shared::data::{NetworkV6, OwnerUser, User};
+use shared::data::{NetworkV6, OwnerUser};
 
 /// Renders the PAN-OS `init-cfg.txt` bootstrap file.
 /// Network and hostname settings only — user configuration
@@ -22,16 +22,14 @@ pub struct PaloAltoPanosZtpTemplate {
 
 /// Renders the PAN-OS `bootstrap.xml` configuration file.
 /// Based on the PA-VM 11.1 running-config structure.
-/// Configures admin and sherpa user accounts with password hash,
-/// enables SSH on the management interface, and disables telnet.
+/// Configures the `admin` account and the lab owner's, both with the owner's device password as
+/// a SHA-256-crypt hash, enables SSH on the management interface, and disables telnet.
 #[derive(Template)]
 #[template(path = "paloalto/paloalto_panos_bootstrap.jinja", escape = "xml")]
 pub struct PaloAltoPanosBootstrapTemplate {
     pub hostname: String,
-    pub user: User,
-    pub owner: Option<OwnerUser>,
-    pub password_hash: String,
-    pub ssh_public_key_b64: String,
+    /// The owner, whose `password` is a `$5$` hash.
+    pub owner: OwnerUser,
     pub mgmt_ipv4_address: Ipv4Addr,
     pub mgmt_ipv6_address: Option<Ipv6Addr>,
     pub mgmt_ipv6: Option<NetworkV6>,

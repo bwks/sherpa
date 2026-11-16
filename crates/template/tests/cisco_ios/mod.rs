@@ -2,13 +2,15 @@ use std::net::Ipv4Addr;
 
 use askama::Template;
 
-use template::CiscoIosvZtpTemplate;
+use template::{CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate};
 
 use crate::helpers;
 
 // ============================================================================
 // Expected configs
 // ============================================================================
+
+const PASSWORD: &str = "Rand0mPass-1";
 
 const EXPECTED_STATIC_IPV4: &str = r#"!
 hostname iosv01
@@ -21,11 +23,12 @@ aaa new-model
 aaa authentication login default local
 aaa authorization exec default local
 !
-username sherpa privilege 15 secret Everest1953!
+username alice privilege 15 secret PASSWORD
 !
 ip ssh pubkey-chain
-  username sherpa
-   key-hash ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ
+  username alice
+   key-hash ssh-rsa OWNERKEY1
+   key-hash ssh-ed25519 OWNERKEY2
 !
 ip scp server enable
 !
@@ -84,11 +87,12 @@ aaa new-model
 aaa authentication login default local
 aaa authorization exec default local
 !
-username sherpa privilege 15 secret Everest1953!
+username alice privilege 15 secret PASSWORD
 !
 ip ssh pubkey-chain
-  username sherpa
-   key-hash ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ
+  username alice
+   key-hash ssh-rsa OWNERKEY1
+   key-hash ssh-ed25519 OWNERKEY2
 !
 ip scp server enable
 !
@@ -150,11 +154,12 @@ aaa new-model
 aaa authentication login default local
 aaa authorization exec default local
 !
-username sherpa privilege 15 secret Everest1953!
+username alice privilege 15 secret PASSWORD
 !
 ip ssh pubkey-chain
-  username sherpa
-   key-hash ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ
+  username alice
+   key-hash ssh-rsa OWNERKEY1
+   key-hash ssh-ed25519 OWNERKEY2
 !
 ip scp server enable
 !
@@ -210,8 +215,7 @@ exit"#;
 fn test_static_ipv4() {
     let t = CiscoIosvZtpTemplate {
         hostname: "iosv01".to_string(),
-        user: helpers::test_user(),
-        owner: None,
+        owner: helpers::test_owner(PASSWORD),
         mgmt_interface: "GigabitEthernet0/0".to_string(),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
@@ -220,15 +224,14 @@ fn test_static_ipv4() {
         mgmt_ipv6: None,
     };
     let output = t.render().expect("template renders");
-    assert_eq!(output, EXPECTED_STATIC_IPV4);
+    assert_eq!(output, EXPECTED_STATIC_IPV4.replace("PASSWORD", PASSWORD));
 }
 
 #[test]
 fn test_dual_stack() {
     let t = CiscoIosvZtpTemplate {
         hostname: "iosv01".to_string(),
-        user: helpers::test_user(),
-        owner: None,
+        owner: helpers::test_owner(PASSWORD),
         mgmt_interface: "GigabitEthernet0/0".to_string(),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
@@ -237,15 +240,14 @@ fn test_dual_stack() {
         mgmt_ipv6: Some(helpers::test_network_v6()),
     };
     let output = t.render().expect("template renders");
-    assert_eq!(output, EXPECTED_DUAL_STACK);
+    assert_eq!(output, EXPECTED_DUAL_STACK.replace("PASSWORD", PASSWORD));
 }
 
 #[test]
 fn test_dhcp_mode() {
     let t = CiscoIosvZtpTemplate {
         hostname: "iosv01".to_string(),
-        user: helpers::test_user(),
-        owner: None,
+        owner: helpers::test_owner(PASSWORD),
         mgmt_interface: "GigabitEthernet0/0".to_string(),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
@@ -254,5 +256,68 @@ fn test_dhcp_mode() {
         mgmt_ipv6: None,
     };
     let output = t.render().expect("template renders");
-    assert_eq!(output, EXPECTED_DHCP);
+    assert_eq!(output, EXPECTED_DHCP.replace("PASSWORD", PASSWORD));
+}
+
+#[test]
+fn only_the_owner_has_an_account() {
+    let t = CiscoIosvZtpTemplate {
+        hostname: "iosv01".to_string(),
+        owner: helpers::test_owner(PASSWORD),
+        mgmt_interface: "GigabitEthernet0/0".to_string(),
+        dns: helpers::test_dns(),
+        mgmt_ipv4: helpers::test_network_v4(),
+        mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+        mgmt_ipv6_address: None,
+        mgmt_ipv6: None,
+    };
+    let output = t.render().expect("template renders");
+    let users: Vec<&str> = output
+        .lines()
+        .filter(|line| line.trim_start().starts_with("username "))
+        .collect();
+    assert_eq!(
+        users,
+        [
+            "username alice privilege 15 secret Rand0mPass-1",
+            "  username alice"
+        ]
+    );
+    helpers::assert_no_sherpa_login(&output);
+}
+
+#[test]
+fn the_password_is_intact_on_iosv_and_iosvl2() {
+    for password in helpers::ALL_CHARACTER_PASSWORDS {
+        let iosv = CiscoIosvZtpTemplate {
+            hostname: "iosv01".to_string(),
+            owner: helpers::test_owner(password),
+            mgmt_interface: "GigabitEthernet0/0".to_string(),
+            dns: helpers::test_dns(),
+            mgmt_ipv4: helpers::test_network_v4(),
+            mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+            mgmt_ipv6_address: None,
+            mgmt_ipv6: None,
+        };
+        let iosvl2 = CiscoIosvl2ZtpTemplate {
+            hostname: "iosvl2".to_string(),
+            owner: helpers::test_owner(password),
+            mgmt_interface: "GigabitEthernet0/0".to_string(),
+            dns: helpers::test_dns(),
+            mgmt_ipv4: helpers::test_network_v4(),
+            mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+            mgmt_ipv6_address: None,
+            mgmt_ipv6: None,
+        };
+        for output in [
+            iosv.render().expect("template renders"),
+            iosvl2.render().expect("template renders"),
+        ] {
+            assert!(output.contains(&format!(
+                "\nusername alice privilege 15 secret {password}\n"
+            )));
+            assert_eq!(output.matches(password).count(), 1);
+            helpers::assert_no_sherpa_login(&output);
+        }
+    }
 }

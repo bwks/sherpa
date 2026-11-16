@@ -8,7 +8,7 @@ Design: `docs/architecture/TALOS.md`.
 - A manifest `boot_disk.size` overrides the 20 GB default `[unit]` **P0**
 - VM readiness uses the manifest `ready_check.port`, else the model port (50000 for Talos, 22 otherwise), in `up`, `resume` and `redeploy` `[unit]` **P0**
 - Nodes without SSH are left out of the lab SSH config `[unit]` **P0**
-- Talos is not a guest-account (`provision_current_user`) target `[unit]` **P1**
+- Talos gets no generated login: the lab owner's account and device password are not applied to it `[unit]` **P1**
 - `image pull` builds the NoCloud URL from the schematic ID returned by the Image Factory, with or without a leading `v` `[unit]`; the live lookup `[integration]` (needs internet) **P1**
 
 ## NoCloud delivery

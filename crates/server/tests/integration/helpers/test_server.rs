@@ -26,6 +26,8 @@ pub const TEST_LAB_ADMIN: &str = "labadmin";
 /// SSH public key registered for test users who start labs.
 pub const TEST_SSH_PUBLIC_KEY: &str =
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh";
+/// Device password of test users who start labs: their login password on lab nodes.
+pub const TEST_DEVICE_PASSWORD: &str = "Granite-Owl42!";
 
 /// A test server that runs an in-process instance of sherpad
 pub struct TestServer {

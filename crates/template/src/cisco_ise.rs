@@ -2,13 +2,14 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use askama::Template;
 
-use shared::data::{Dns, NetworkV4, NetworkV6, User};
+use shared::data::{Dns, NetworkV4, NetworkV6, OwnerUser};
 
 #[derive(Template)]
 #[template(path = "cisco/cisco_ise.jinja", ext = "txt")]
 pub struct CiscoIseZtpTemplate {
     pub hostname: String,
-    pub user: User,
+    /// The single administrator: the lab owner, with the device password and one RSA key.
+    pub owner: OwnerUser,
     pub dns: Dns,
     pub mgmt_ipv4: NetworkV4,
     pub mgmt_ipv4_address: Ipv4Addr,

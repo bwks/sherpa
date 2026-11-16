@@ -58,17 +58,21 @@ ssh-keygen -A
 touch /etc/frr/vtysh.conf
 chown frr:frr /etc/frr/vtysh.conf
 
-# Create sherpa user with SSH access and FRR group membership
-adduser -D -s /bin/sh sherpa
-addgroup sherpa frr
-addgroup sherpa frrvty
-echo 'sherpa:Everest1953!' | chpasswd
-echo 'sherpa ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/sherpa
-mkdir -p /home/sherpa/.ssh
-echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ' > /home/sherpa/.ssh/authorized_keys
-chmod 700 /home/sherpa/.ssh
-chmod 600 /home/sherpa/.ssh/authorized_keys
-chown -R sherpa:sherpa /home/sherpa/.ssh
+# Create the owner's account, with FRR group membership. It logs in by key, or with the owner's
+# device password, set from its SHA-512-crypt hash.
+adduser -D -s /bin/sh alice
+addgroup alice frr
+addgroup alice frrvty
+echo 'alice:HASH' | chpasswd -e
+echo 'alice ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/alice
+mkdir -p /home/alice/.ssh
+cat > /home/alice/.ssh/authorized_keys <<'SHERPA_KEYS'
+ssh-rsa OWNERKEY1
+ssh-ed25519 OWNERKEY2
+SHERPA_KEYS
+chmod 700 /home/alice/.ssh
+chmod 600 /home/alice/.ssh/authorized_keys
+chown -R alice:alice /home/alice/.ssh
 
 # Set container hostname
 hostname frr01
@@ -110,13 +114,39 @@ fn test_frr_daemons() {
     assert_eq!(output, EXPECTED_FRR_DAEMONS);
 }
 
+fn startup(hash: &str) -> FrrStartupTemplate {
+    FrrStartupTemplate {
+        hostname: "frr01".to_string(),
+        owner: helpers::test_owner(hash),
+    }
+}
+
 #[test]
 fn test_frr_startup() {
-    let t = FrrStartupTemplate {
-        hostname: "frr01".to_string(),
-        user: helpers::test_user(),
-        owner: None,
-    };
-    let output = t.render().expect("template renders");
-    assert_eq!(output, EXPECTED_FRR_STARTUP);
+    let hash = helpers::sha512_hash("abcdefghijklm!@_-+.");
+    let output = startup(&hash).render().expect("template renders");
+    assert_eq!(output, EXPECTED_FRR_STARTUP.replace("HASH", &hash));
+}
+
+#[test]
+fn test_frr_startup_has_only_the_owner_account() {
+    let hash = helpers::sha512_hash("abcdefghijklm!@_-+.");
+    let output = startup(&hash).render().expect("template renders");
+    assert_eq!(output.matches("adduser ").count(), 1);
+    assert_eq!(output.matches("chpasswd").count(), 1);
+    assert_eq!(output.matches("/etc/sudoers.d/").count(), 1);
+    helpers::assert_no_sherpa_login(&output);
+}
+
+#[test]
+fn test_frr_startup_password_is_a_hash_that_verifies() {
+    for password in helpers::ALL_CHARACTER_PASSWORDS {
+        let hash = helpers::sha512_hash(password);
+        let output = startup(&hash).render().expect("template renders");
+        let found = helpers::hash_after(&output, "alice:");
+        assert_eq!(found, hash);
+        helpers::assert_hash_verifies(&found, "$6$", password);
+        assert!(output.contains("| chpasswd -e\n"));
+        assert!(!output.contains(password));
+    }
 }

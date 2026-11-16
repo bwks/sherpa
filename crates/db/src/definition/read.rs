@@ -28,7 +28,6 @@ struct LabRow {
     description: Option<String>,
     has_definition: bool,
     ready_timeout: Option<u64>,
-    provision_current_user: bool,
     provision_concurrency: Option<u8>,
     tailscale_enabled: Option<bool>,
     tailscale_auth_key_env: Option<String>,
@@ -98,7 +97,6 @@ fn lab_row(row: &Row) -> Result<LabRow> {
         description: cells.optional_text("description")?,
         has_definition: cells.boolean("has_definition")?,
         ready_timeout: cells.optional_integer("ready_timeout")?,
-        provision_current_user: cells.boolean("provision_current_user")?,
         provision_concurrency: cells.optional_integer("provision_concurrency")?,
         tailscale_enabled: cells.optional_boolean("tailscale_enabled")?,
         tailscale_auth_key_env: cells.optional_text("tailscale_auth_key_env")?,
@@ -457,7 +455,6 @@ pub async fn read_lab_definition(db: &Database, lab_id: &RecordId) -> Result<Opt
     Ok(Some(Manifest {
         name: lab.name,
         description: lab.description,
-        provision_current_user: lab.provision_current_user,
         tailscale: lab.tailscale_enabled.map(|enabled| TailscaleConfig {
             enabled,
             auth_key_env: lab.tailscale_auth_key_env,

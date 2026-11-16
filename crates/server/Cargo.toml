@@ -107,6 +107,7 @@ tracing-opentelemetry = { workspace = true }
 [dev-dependencies]
 x509-parser = { version = "0.18", features = ["verify-aws"] }
 tempfile = { workspace = true }
+sha-crypt = { workspace = true }
 tokio-tungstenite = { workspace = true }
 reqwest = { workspace = true, features = ["cookies", "form", "json"] }
 

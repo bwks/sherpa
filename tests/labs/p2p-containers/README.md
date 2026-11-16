@@ -77,7 +77,7 @@ adds.
   node's network namespace; routers are configured with `docker exec` into their CLI.
 - The node images above, pulled with `sherpa server image pull` (for models without a built-in
   repo, with `--repo`), and `alpine:3.22` in Docker. The run fails early if any is missing.
-- The `sherpa` CLI logged in.
+- The `sherpa` CLI logged in, with a device password set (`sherpa server user device-password`). The run stops early when it is not set.
 
 ## Running
 

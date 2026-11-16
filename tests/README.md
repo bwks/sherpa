@@ -156,7 +156,9 @@ uv run tests/harness/test_env.py run ubuntu-2604      # one release
 ```
 
 It needs an authenticated `sherpa` CLI with at least four hours left on its token
-(`sherpa login`), and a Sherpa server with the environment images. For each release it:
+(`sherpa login`), a device password set for that user (`sherpa server user device-password`;
+`sherpa up` is refused without one, and the run stops early), and a Sherpa server with the
+environment images. For each release it:
 
 1. builds `sherpad` and `sherpa` release archives from a snapshot of the checkout,
    including uncommitted changes,
@@ -261,6 +263,10 @@ Tests the checkout's installer and uninstaller with published release binaries:
 Scenarios (`--scenario`): `lifecycle` (default), `preflight`, `upgrade` and
 `failure-checks`. See the [harness guide](specs/install/vm-release-harness.md) for each
 scenario, local candidate archives and result verification.
+
+The harness creates its lab as the logged-in CLI's user, so that user needs a device password
+(`sherpa server user device-password`) like every lab owner; the runner stops with that message
+when it is not set. The upgrade scenario also checks the refusal and the fix on the guest.
 
 The BATS tests are supplementary:
 

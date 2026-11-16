@@ -15,7 +15,7 @@ The folder name is `konst::LAB_STATE_DIR`; `shared` uses `LabFolder` too, to fin
 | `.sherpa/` and every folder in it | `lab_files::ensure_lab_subdir` | 0700 |
 | `.sherpa/lab-info.toml` | `lab_files::save_lab_files` | default |
 | `.sherpa/ssh/config` | `lab_files::save_lab_files` | default |
-| `.sherpa/ssh/key` | `lab_files::save_lab_files` (only when the SSH config uses the lab's key) | 0600 |
+| `.sherpa/ssh/key` | `lab_files::save_lab_files` (only when the server sends a key; it no longer does, so only an older client's file is there) | 0600 |
 | `.sherpa/ssh/known_hosts` | `lab_files::write_known_hosts`, also on a host key refresh | 0600 |
 | `.sherpa/ca/lab-ca.crt` | `lab_files::write_lab_ca` | default |
 | `.sherpa/vault/vault-<node>.toml` | `vault_credentials` | 0600 |
@@ -28,10 +28,12 @@ the old one; a current-user-only DACL on Windows). Folders are made by
 `private_key::ensure_private_dir`, which refuses a symlink or a file in the folder's place, so
 nothing is ever written through a link. Folder modes are set on Unix only.
 
-The server still sends the files' contents with its own names. Its SSH config names the key and
-known hosts relatively (`IdentityFile sherpa_ssh_key`, `UserKnownHostsFile sherpa_known_hosts`);
-`lab_files::rewrite_ssh_config_for_client` replaces them with the absolute paths of
-`.sherpa/ssh/key` and `.sherpa/ssh/known_hosts`. The config therefore works from anywhere:
+The server still sends the files' contents with its own names. Its SSH config names the known
+hosts relatively (`UserKnownHostsFile sherpa_known_hosts`) and names no identity file, so a node
+logs in with the client's own keys;
+`lab_files::rewrite_ssh_config_for_client` replaces the known hosts path with the absolute path
+of `.sherpa/ssh/known_hosts`. The client still rewrites an `IdentityFile sherpa_ssh_key` line to
+`.sherpa/ssh/key` if a config has one, which the server no longer writes. The config therefore works from anywhere:
 through the `Include` in `~/.ssh/sherpa_lab_hosts`, with `ssh -F .sherpa/ssh/config <node>` from
 the lab folder, for `sherpa ssh` and for the provisioners. The server's own lab folder
 (`/opt/sherpa/labs/<lab-id>`) keeps the `sherpa_*` names.

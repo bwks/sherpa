@@ -45,10 +45,17 @@ STEPS = ("baseline", "preflight", "install", "initialize", "authenticate",
          "new-database", "authenticate", "remove-all", "repeat-uninstall")
 UPGRADE_STEPS = ("baseline", "install-baseline", "initialize", "authenticate",
                  "seed-upgrade", "upgrade", "authenticate", "verify-upgrade",
-                 "reboot", "authenticate", "verify-upgrade-reboot")
+                 "reboot", "authenticate", "verify-upgrade-reboot", "device-password")
 CODE_STEPS = ("baseline", "install", "initialize", "authenticate", "source", "toolchain",
               "test-images", "build-tests", "unit-tests", "integration-tests")
 RERUN_STEPS = ("source", "test-images", "build-tests", "unit-tests", "integration-tests")
+# `sherpa server user info` prints this line once the user has a device password: labs need one.
+DEVICE_PASSWORD_SET = re.compile(r"^\s*Device password:\s*set\s*$", re.MULTILINE)
+DEVICE_PASSWORD_HINT = ("The Sherpa user has no device password, which `sherpa up` needs: "
+                        "run `sherpa server user device-password`")
+# Punctuation a device password takes, and the shortest and longest it may be.
+DEVICE_PASSWORD_PUNCTUATION = "!@_-+."
+DEVICE_PASSWORD_LENGTHS = (12, 20)
 # The oldest release the harness installs, as candidate or as upgrade baseline.
 OLDEST_SUPPORTED_RELEASE = (0, 5, 0)
 # A tailnet auth key in this variable when a code run starts enables the live tailnet test.
@@ -65,6 +72,41 @@ GUEST_UV = "/usr/local/bin/uv"
 GUEST_PYTHON = "3.15"
 # System-wide, so root finds the interpreter whichever user installed it.
 GUEST_PYTHON_DIRECTORY = "/opt/uv/python"
+
+
+def device_password_is_set(info):
+    """Whether `sherpa server user info` output says the user has a device password."""
+    return bool(DEVICE_PASSWORD_SET.search(info))
+
+
+def device_password_problem(password, *names):
+    """Why `password` is not a device password the server takes, or None. `names` are the
+    usernames it must not contain."""
+    low, high = DEVICE_PASSWORD_LENGTHS
+    lowered = password.lower()
+    if not low <= len(password) <= high:
+        return "length"
+    if not password[0].isalnum() or not password.isascii():
+        return "start"
+    if any(character not in DEVICE_PASSWORD_PUNCTUATION and not character.isalnum() for character in password):
+        return "characters"
+    if not (any(c.islower() for c in password) and any(c.isupper() for c in password)
+            and any(c.isdigit() for c in password)
+            and any(c in DEVICE_PASSWORD_PUNCTUATION for c in password)):
+        return "classes"
+    if "cisco" in lowered or any(name and name.lower() in lowered for name in names):
+        return "name"
+    if any(password[index] == password[index + 1] == password[index + 2] for index in range(len(password) - 2)):
+        return "repeat"
+    return None
+
+
+def make_device_password(*names):
+    """A random device password that meets the server's rule, never a fixed one."""
+    while True:
+        candidate = "Dp1!" + secrets.token_hex(5)
+        if device_password_problem(candidate, *names) is None:
+            return candidate
 
 
 class MemoryRefused(RuntimeError):
@@ -432,6 +474,9 @@ class Runner:
         if len(urls) != 1 or "online" not in status:
             raise RuntimeError("Could not resolve an online Sherpa host")
         self.config["host"]["server_url"] = urls[0]
+        _, info = self.sherpa("host-user", ["server", "user", "info"], self.config["timeouts"]["command"])
+        if not device_password_is_set(info):
+            raise RuntimeError(DEVICE_PASSWORD_HINT)
         self.jump_host = self.config["host"]["ssh_destination"] or urlsplit(urls[0]).hostname
         if not self.jump_host:
             raise ValueError("Cannot resolve the Sherpa SSH host")
@@ -667,6 +712,9 @@ class Runner:
                  self.config["timeouts"]["command"])
         admin_password = "Bb2!" + secrets.token_hex(24)
         self.secrets.append(admin_password)
+        admin_username = self.config["guest"]["admin_prefix"] + self.run_id[:8]
+        device_password = make_device_password(admin_username, "persist-" + self.run_id[:8])
+        self.secrets.append(device_password)
         payload = {
             "identity": {"uuid": self.guest_uuid, "hostname": self.node_name, "nonce": self.run_id,
                          "workspace": remote},
@@ -675,8 +723,8 @@ class Runner:
             "vm": dict(self.report["vm"]),
             "timeouts": dict(self.config["timeouts"]),
             "faults": dict(self.config["faults"]),
-            "credentials": {"admin_password": admin_password,
-                            "admin_username": self.config["guest"]["admin_prefix"] + self.run_id[:8]},
+            "credentials": {"admin_password": admin_password, "device_password": device_password,
+                            "admin_username": admin_username},
         }
         if self.report["run"]["scenario"] == "upgrade":
             payload["baseline"] = dict(self.report["baseline"])
@@ -721,7 +769,8 @@ class Runner:
             timeout = self.config["timeouts"]["install"]
         elif name in ("initialize", "baseline"):
             timeout = self.config["timeouts"]["initialize"]
-        elif name in ("authenticate", "seed-upgrade", "verify-upgrade", "verify-upgrade-reboot"):
+        elif name in ("authenticate", "seed-upgrade", "verify-upgrade", "verify-upgrade-reboot",
+                      "device-password"):
             timeout = self.config["timeouts"]["startup"]
         elif name == "toolchain":
             timeout = self.config["timeouts"]["install"]
@@ -1123,7 +1172,7 @@ class HarnessTests(unittest.TestCase):
             self.assertEqual(runner.report["run"]["completed_steps"],
                              ["baseline", "install-baseline", "initialize", "authenticate",
                               "seed-upgrade", "upgrade", "authenticate", "verify-upgrade",
-                              "reboot", "authenticate", "verify-upgrade-reboot"])
+                              "reboot", "authenticate", "verify-upgrade-reboot", "device-password"])
 
     def test_upgrade_failure_keeps_failed_receipt_and_verifies_targeted_cleanup(self):
         config = self.upgrade_config()
@@ -1590,6 +1639,25 @@ install_system_packages
             result = subprocess.run(disk_check([str(missing), str(present)]), capture_output=True, text=True)
             self.assertEqual(result.returncode, 1)
             self.assertEqual(result.stdout, f"Remaining owned disk: {present}\n")
+
+    def test_device_password_state_is_read_from_the_user_info(self):
+        self.assertTrue(device_password_is_set("User Information:\n  Username: a\n  Device password: set\n"))
+        self.assertFalse(device_password_is_set("  Device password: not set\n"))
+        self.assertFalse(device_password_is_set("  Username: set\n"))
+
+    def test_generated_device_passwords_meet_the_rule_and_differ(self):
+        generated = {make_device_password("admin-12345678", "persist-12345678") for _ in range(200)}
+        self.assertGreater(len(generated), 150)
+        for password in generated:
+            self.assertIsNone(device_password_problem(password, "admin-12345678"), password)
+
+    def test_device_password_rule_rejects_what_the_server_refuses(self):
+        for password, problem in (("Ab1!short", "length"), ("!Abcdef1234567", "start"),
+                                  ("Abcdefghij1k", "classes"), ("abcdefgh1!jk", "classes"),
+                                  ("Xcisco1!abcdef", "name"), ("Xalice1!abcdef", "name"),
+                                  ("Abc1!dddefgh", "repeat"), ("Abc1!defgh#jk", "characters")):
+            self.assertEqual(device_password_problem(password, "alice"), problem, password)
+        self.assertIsNone(device_password_problem("Abc1!defghijk", "alice"))
 
     def test_report_is_valid_toml(self):
         data = {"run": {"status": "failed", "detail": "quote\"\nline", "retained": True},

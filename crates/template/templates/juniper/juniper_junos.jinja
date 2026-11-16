@@ -1,28 +1,17 @@
 system {
     login {
-        user {{ user.username }} {
-            class super-user;
-            authentication {
-                {%- if let Some(password) = user.password %}
-                plain-text-password-value "{{ password }}";
-                {%- endif %}
-                {{ user.ssh_public_key.algorithm }} "{{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}"; ## SECRET-DATA
-            }
-        }
-        {%- if let Some(owner) = owner %}
         user {{ owner.username }} {
             class super-user;
             authentication {
+                encrypted-password "{{ owner.password }}"; ## SECRET-DATA
                 {%- for key in owner.ssh_keys %}
                 {{ key.kind }} "{{ key.value }}"; ## SECRET-DATA
                 {%- endfor %}
             }
         }
-        {%- endif %}
     }
     root-authentication {
-        plain-text-password-value "{{ shared::konst::SHERPA_PASSWORD }}";
-        {{ user.ssh_public_key.algorithm }} "{{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}"; ## SECRET-DATA
+        encrypted-password "{{ owner.password }}"; ## SECRET-DATA
     }
     host-name {{ hostname }};
     services {

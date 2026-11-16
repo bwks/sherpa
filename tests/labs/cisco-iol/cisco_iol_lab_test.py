@@ -16,15 +16,18 @@ startup config. Always destroys the lab. Runs on the Sherpa server; see README.m
 import argparse
 import json
 from pathlib import Path
+import re
 import shlex
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 from typing import NamedTuple
 import unittest
+from unittest import mock
 import uuid
 
 
@@ -194,7 +197,8 @@ def replied(output):
 
 
 class LabRun:
-    def __init__(self, run_root, keep_failed):
+    def __init__(self, run_root, keep_failed, owner):
+        self.owner = owner
         self.manifest = tomllib.loads((LAB / "manifest.toml").read_text())
         self.name = f"{self.manifest['name']}-{run_root.name[-6:]}"
         self.directory = run_root / "lab"
@@ -223,7 +227,7 @@ class LabRun:
                 *tty, f"{node}.{self.lab_id}"]
 
     def ios_exec(self, label, router, command, check=False):
-        """Run one IOS exec command over SSH as `sherpa`."""
+        """Run one IOS exec command over SSH as the lab owner."""
         return self.command(label, [*self.ssh_arguments(router), command], check=check)
 
     def ios_interactive(self, label, router, lines):
@@ -311,7 +315,8 @@ class LabRun:
         config = self.ios_exec(f"{router} running config", router, "show running-config").stdout
         require(f"hostname {router}" in config, f"{router} has not its generated hostname")
         require("interface Ethernet0/0" in config, f"{router} has no management interface config")
-        require("username sherpa privilege 15" in config, f"{router} has no sherpa login")
+        require(f"username {self.owner} privilege 15" in config, f"{router} has no login for {self.owner}")
+        require("username sherpa " not in config, f"{router} still has the shared sherpa login")
 
     def configure(self, router):
         outcome = self.ios_interactive(f"configure {router}", router, config_session(router))
@@ -383,6 +388,22 @@ class LabRun:
             require(not leftovers, f"{kind} left after destroy: {leftovers}")
 
 
+DEVICE_PASSWORD_SET = re.compile(r"^\s*Device password:\s*set\s*$", re.MULTILINE)
+INFO_USERNAME = re.compile(r"^\s*Username:\s*(\S+)\s*$", re.MULTILINE)
+
+
+def require_device_password(log, run_root):
+    """Stop unless the lab owner has a device password, which `sherpa up` needs; return the owner."""
+    info = run_logged(log, "sherpa server user info", ["sherpa", "server", "user", "info"], run_root)
+    require(info.code == 0, "could not read the user's details (`sherpa server user info`)")
+    require(DEVICE_PASSWORD_SET.search(info.stdout),
+            "the user has no device password, which `sherpa up` needs: "
+            "run `sherpa server user device-password`")
+    owner = INFO_USERNAME.search(info.stdout)
+    require(owner, "`sherpa server user info` did not name the user")
+    return owner.group(1)
+
+
 def preflight(run_root):
     for tool in ("sherpa", "docker", "ip", "ssh"):
         require(shutil.which(tool), f"{tool} is not on PATH")
@@ -390,6 +411,7 @@ def preflight(run_root):
     with (run_root / "preflight.log").open("w") as log:
         whoami = run_logged(log, "sherpa whoami", ["sherpa", "whoami"], run_root)
         require(whoami.code == 0, "the sherpa CLI is not logged in (run `sherpa login`)")
+        owner = require_device_password(log, run_root)
         docker = run_logged(log, f"{SIDECAR_IMAGE} present", ["docker", "image", "inspect", SIDECAR_IMAGE],
                             run_root)
         require(docker.code == 0, f"Docker has no {SIDECAR_IMAGE} image, or this user cannot use Docker; "
@@ -401,6 +423,7 @@ def preflight(run_root):
                                run_root)
             require(image.code == 0, f"the server has no {model} {version} image; build the IOL "
                     f"images with docker-cisco-iol (see README.md)")
+    return owner
 
 
 def main():
@@ -418,8 +441,8 @@ def main():
     run_root.mkdir(parents=True)
     print(f"Logs: {run_root}", flush=True)
     try:
-        preflight(run_root)
-        LabRun(run_root, args.keep_failed).run()
+        owner = preflight(run_root)
+        LabRun(run_root, args.keep_failed, owner).run()
     except TestFailure as error:
         print(f"FAIL {error}. Logs: {run_root}", file=sys.stderr)
         return 1
@@ -428,6 +451,20 @@ def main():
 
 
 class SelfTest(unittest.TestCase):
+    def test_device_password_check_reads_the_info_output(self):
+        def info(text, code=0):
+            return lambda *args, **kwargs: Outcome(code, text, "")
+
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp)
+            ready = "\nUser Information:\n  Username: alice\n  Device password: set\n"
+            with mock.patch(f"{__name__}.run_logged", info(ready)):
+                self.assertEqual(require_device_password(None, run_root), "alice")
+            for text, code in (("  Username: alice\n  Device password: not set\n", 0), (ready, 1)):
+                with mock.patch(f"{__name__}.run_logged", info(text, code)):
+                    with self.assertRaises(TestFailure):
+                        require_device_password(None, run_root)
+
     def manifest(self):
         return tomllib.loads((LAB / "manifest.toml").read_text())
 

@@ -10,6 +10,8 @@ use crate::helpers;
 // Expected configs
 // ============================================================================
 
+const PASSWORD: &str = "Rand0mPass-1";
+
 const EXPECTED_ROUTER: &str = r"!
 hostname r1
 ip domain name lab.sherpa.local
@@ -19,11 +21,12 @@ aaa new-model
 aaa authentication login default local
 aaa authorization exec default local
 !
-username sherpa privilege 15 secret Everest1953!
+username alice privilege 15 secret PASSWORD
 !
 ip ssh pubkey-chain
-  username sherpa
-   key-hash ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ
+  username alice
+   key-hash ssh-rsa OWNERKEY1
+   key-hash ssh-ed25519 OWNERKEY2
 !
 crypto key generate rsa modulus 2048
 ip ssh version 2
@@ -49,11 +52,10 @@ end";
 // Tests
 // ============================================================================
 
-fn router() -> CiscoIolZtpTemplate {
+fn router(password: &str) -> CiscoIolZtpTemplate {
     CiscoIolZtpTemplate {
         hostname: "r1".to_string(),
-        user: helpers::test_user(),
-        owner: None,
+        owner: helpers::test_owner(password),
         mgmt_interface: "Ethernet0/0".to_string(),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
@@ -66,8 +68,8 @@ fn router() -> CiscoIolZtpTemplate {
 
 #[test]
 fn a_router_gets_its_accounts_ssh_and_a_static_management_address() {
-    let output = router().render().expect("template renders");
-    assert_eq!(output, EXPECTED_ROUTER);
+    let output = router(PASSWORD).render().expect("template renders");
+    assert_eq!(output, EXPECTED_ROUTER.replace("PASSWORD", PASSWORD));
 }
 
 #[test]
@@ -75,7 +77,7 @@ fn a_switch_makes_its_management_port_routed() {
     let output = CiscoIolZtpTemplate {
         hostname: "sw1".to_string(),
         switch: true,
-        ..router()
+        ..router(PASSWORD)
     }
     .render()
     .expect("template renders");
@@ -93,29 +95,37 @@ fn a_switch_makes_its_management_port_routed() {
 
 #[test]
 fn a_router_has_no_switchport_line() {
-    let output = router().render().expect("template renders");
+    let output = router(PASSWORD).render().expect("template renders");
     assert!(!output.contains("switchport"));
     assert!(!output.contains("ip routing"));
 }
 
 #[test]
-fn the_owner_gets_a_secret_and_key_hashes() {
-    let output = CiscoIolZtpTemplate {
-        owner: Some(helpers::test_owner()),
-        ..router()
+fn only_the_owner_has_an_account() {
+    let output = router(PASSWORD).render().expect("template renders");
+    let users: Vec<&str> = output
+        .lines()
+        .filter(|line| line.trim_start().starts_with("username "))
+        .collect();
+    assert_eq!(
+        users,
+        [
+            "username alice privilege 15 secret Rand0mPass-1",
+            "  username alice"
+        ]
+    );
+    helpers::assert_no_sherpa_login(&output);
+}
+
+#[test]
+fn the_password_is_intact() {
+    for password in helpers::ALL_CHARACTER_PASSWORDS {
+        let output = router(password).render().expect("template renders");
+        assert!(output.contains(&format!(
+            "\nusername alice privilege 15 secret {password}\n"
+        )));
+        assert_eq!(output.matches(password).count(), 1);
     }
-    .render()
-    .expect("template renders");
-    assert!(output.contains(
-        "username sherpa privilege 15 secret Everest1953!\n\
-         username alice privilege 15 secret Rand0mSecret\n!\n\
-         ip ssh pubkey-chain\n  \
-         username sherpa\n   \
-         key-hash ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ\n  \
-         username alice\n   \
-         key-hash ssh-rsa OWNERKEY1\n   \
-         key-hash ssh-ed25519 OWNERKEY2\n!\n"
-    ));
 }
 
 #[test]
@@ -123,7 +133,7 @@ fn dual_stack_adds_an_ipv6_management_address_and_route() {
     let output = CiscoIolZtpTemplate {
         mgmt_ipv6_address: Some("fd00::10".parse().expect("valid")),
         mgmt_ipv6: Some(helpers::test_network_v6()),
-        ..router()
+        ..router(PASSWORD)
     }
     .render()
     .expect("template renders");
@@ -133,6 +143,6 @@ fn dual_stack_adds_an_ipv6_management_address_and_route() {
 
 #[test]
 fn the_config_is_never_dhcp() {
-    let output = router().render().expect("template renders");
+    let output = router(PASSWORD).render().expect("template renders");
     assert!(!output.contains("dhcp"));
 }

@@ -27,7 +27,8 @@ import uuid
 
 import build_cache
 from host_memory import MEMORY_REFUSED_EXIT
-from vm_release_test import encode_toml, guest_python, guest_uv_setup, sha256
+from vm_release_test import (DEVICE_PASSWORD_HINT, device_password_is_set, encode_toml, guest_python,
+                             guest_uv_setup, sha256)
 
 
 HARNESS = Path(__file__).resolve().parent
@@ -136,6 +137,14 @@ def require_cli_login(path=CLI_TOKEN, now=None):
     remaining = token_seconds_remaining(path.read_text(), now if now is not None else int(time.time()))
     require(remaining >= MINIMUM_TOKEN_LIFETIME,
             f"The Sherpa CLI token expires in {max(remaining, 0) // 60} minutes; run sherpa login first")
+
+
+def require_device_password(show=None):
+    """`sherpa up` is refused for a user with no device password; stop before any lab is made."""
+    info = (show or (lambda: subprocess.run(["sherpa", "server", "user", "info"], capture_output=True,
+                                            text=True, stdin=subprocess.DEVNULL)))()
+    require(info.returncode == 0, "Could not read the Sherpa user's details: run sherpa server user info")
+    require(device_password_is_set(info.stdout), DEVICE_PASSWORD_HINT)
 
 
 def snapshot_files(root):
@@ -300,6 +309,7 @@ def run_environments(environments):
         require((environment_directory(environment) / "release-test.toml").is_file(),
                 f"{environment} has no release-test.toml")
     require_cli_login()
+    require_device_password()
     directory = RUNS / uuid.uuid4().hex
     directory.mkdir(parents=True, mode=0o700)
     print(f"[run] {directory}", flush=True)
@@ -315,6 +325,7 @@ def run_environments(environments):
 def rerun(result_directory):
     """Retest a retained failed run with the current checkout. Passing destroys its VM."""
     require_cli_login()
+    require_device_password()
     with tempfile.TemporaryDirectory(dir=RUNS.parent) as temporary:
         directory = Path(temporary)
         source, commit, dirty = prepare_source(directory)
@@ -415,6 +426,16 @@ class HostTests(unittest.TestCase):
                 require_cli_login(path, now=1_000_000)
             with self.assertRaisesRegex(RuntimeError, "Not logged in"):
                 require_cli_login(Path(directory) / "missing")
+
+    def test_a_device_password_must_be_set_before_labs_start(self):
+        def shown(output, code=0):
+            return lambda: subprocess.CompletedProcess([], code, output, "")
+
+        require_device_password(shown("  Username: a\n  Device password: set\n"))
+        with self.assertRaisesRegex(RuntimeError, "device-password"):
+            require_device_password(shown("  Username: a\n  Device password: not set\n"))
+        with self.assertRaisesRegex(RuntimeError, "Could not read"):
+            require_device_password(shown("", 1))
 
     def test_runner_command_selects_code_scenario_and_candidate_inputs(self):
         command = runner_command("ubuntu-2604", {"version": "v0.3.88"}, Path("/run/artifacts"),

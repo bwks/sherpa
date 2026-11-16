@@ -13,6 +13,7 @@ container, a P2p container and the VM. Always destroys the lab. See README.md.
 import argparse
 import json
 from pathlib import Path
+import re
 import shlex
 import shutil
 import signal
@@ -309,6 +310,22 @@ class LabRun:
             require(not leftovers, f"{kind} left after destroy: {leftovers}")
 
 
+DEVICE_PASSWORD_SET = re.compile(r"^\s*Device password:\s*set\s*$", re.MULTILINE)
+INFO_USERNAME = re.compile(r"^\s*Username:\s*(\S+)\s*$", re.MULTILINE)
+
+
+def require_device_password(log, run_root):
+    """Stop unless the lab owner has a device password, which `sherpa up` needs; return the owner."""
+    info = run_logged(log, "sherpa server user info", ["sherpa", "server", "user", "info"], run_root)
+    require(info.code == 0, "could not read the user's details (`sherpa server user info`)")
+    require(DEVICE_PASSWORD_SET.search(info.stdout),
+            "the user has no device password, which `sherpa up` needs: "
+            "run `sherpa server user device-password`")
+    owner = INFO_USERNAME.search(info.stdout)
+    require(owner, "`sherpa server user info` did not name the user")
+    return owner.group(1)
+
+
 def preflight(run_root):
     for tool in ("sherpa", "ssh"):
         require(shutil.which(tool), f"{tool} is not on PATH")
@@ -316,6 +333,7 @@ def preflight(run_root):
     with (run_root / "preflight.log").open("w") as log:
         whoami = run_logged(log, "sherpa whoami", ["sherpa", "whoami"], run_root)
         require(whoami.code == 0, "the sherpa CLI is not logged in (run `sherpa login`)")
+        require_device_password(log, run_root)
         images = sorted({(node["model"], node["version"]) for node in manifest["nodes"]})
         for model, version in images:
             image = run_logged(log, f"{model} {version} image present",
@@ -348,6 +366,20 @@ def main():
 
 
 class SelfTest(unittest.TestCase):
+    def test_device_password_check_reads_the_info_output(self):
+        def info(text, code=0):
+            return lambda *args, **kwargs: Outcome(code, text, "")
+
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp)
+            ready = "\nUser Information:\n  Username: alice\n  Device password: set\n"
+            with mock.patch(f"{__name__}.run_logged", info(ready)):
+                self.assertEqual(require_device_password(None, run_root), "alice")
+            for text, code in (("  Username: alice\n  Device password: not set\n", 0), (ready, 1)):
+                with mock.patch(f"{__name__}.run_logged", info(text, code)):
+                    with self.assertRaises(TestFailure):
+                        require_device_password(None, run_root)
+
     def manifest(self):
         return tomllib.loads((LAB / "manifest.toml").read_text())
 

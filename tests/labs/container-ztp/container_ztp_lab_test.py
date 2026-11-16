@@ -7,16 +7,17 @@
 
 Brings up each container model whose config Sherpa mounts (cEOS, SR Linux, cJunosEvolved, FRR)
 twice, with its image's ZTP setting and with `ztp.method = "disabled"`, plus an application container.
-Checks a node with ZTP on has Sherpa's config mounts and takes an SSH login as `sherpa`, and a
-node with ZTP off is running with no such mount and no `sherpa` login, for the reason its model
-has (SR Linux: no management address; FRR: no SSH server): after `sherpa up`, and after
-redeploying one node of each setting. Checks `sherpa validate` refuses a method a model
+Checks a node with ZTP on has Sherpa's config mounts, takes the lab owner's SSH login by key and
+refuses the old `sherpa` login, and a node with ZTP off is running with no such mount and no
+owner login, for the reason its model has (SR Linux: no management address; FRR: no SSH server):
+after `sherpa up`, and after redeploying one node of each setting. Checks `sherpa validate` refuses a method a model
 does not take. Always destroys the lab. Runs on the Sherpa server; see README.md.
 """
 
 import argparse
 import json
 from pathlib import Path
+import re
 import shlex
 import shutil
 import signal
@@ -44,7 +45,7 @@ ZTP_MOUNTS = {
     "juniper_cevolved": ("/home/evo/configdisk",),
     "frr_linux": ("/etc/frr/daemons", "/etc/frr/frr.conf", "/tmp/sherpa-init.sh"),
 }
-# A command that succeeds over SSH once the `sherpa` login works, by model.
+# A command that succeeds over SSH once the lab owner's login works, by model.
 LOGIN_COMMANDS = {
     "arista_ceos": "show version",
     "nokia_srlinux": "show version",
@@ -53,7 +54,8 @@ LOGIN_COMMANDS = {
 }
 SSH_OPTIONS = ("-F", ".sherpa/ssh/config", "-o", "BatchMode=yes", "-o", "LogLevel=ERROR",
                "-o", "ConnectTimeout=10")
-SHERPA_USER = "sherpa"
+# The shared account earlier releases gave every node. It is no longer made.
+OLD_SHARED_USER = "sherpa"
 # Why an SSH login to a node with ZTP off fails, read from ssh's own message.
 NO_ADDRESS = "no management address"
 NO_SSH_SERVER = "no SSH server"
@@ -210,7 +212,8 @@ def refused_manifest(nodes, name):
 
 
 class LabRun:
-    def __init__(self, run_root, keep_failed, models):
+    def __init__(self, run_root, keep_failed, models, owner):
+        self.owner = owner
         manifest = tomllib.loads((LAB / "manifest.toml").read_text())
         self.nodes = select_nodes(manifest, models)
         self.name = f"{manifest['name']}-{run_root.name[-6:]}"
@@ -240,11 +243,13 @@ class LabRun:
                                ["docker", "inspect", "--format", template, self.container(node)])
         return outcome.stdout.strip()
 
-    def ssh(self, node):
-        """Log in to the node as the lab's SSH config does, and run its model's command."""
+    def ssh(self, node, user=None):
+        """Log in to the node as the lab's SSH config does (the lab owner), or as `user`, and run
+        its model's command."""
         command = LOGIN_COMMANDS.get(node["model"], "true")
-        return self.command(f"ssh {node['name']}",
-                            ["ssh", *SSH_OPTIONS, f"{node['name']}.{self.lab_id}", command],
+        login = ["-l", user] if user else []
+        return self.command(f"ssh {user or self.owner}@{node['name']}",
+                            ["ssh", *SSH_OPTIONS, *login, f"{node['name']}.{self.lab_id}", command],
                             check=False)
 
     # -- lab ---------------------------------------------------------------------------------
@@ -301,7 +306,8 @@ class LabRun:
         require(outcome.code == 0, f"sherpa up failed (exit {outcome.code}); see {self.log.name}")
         require(self.lab_id is not None, "sherpa up wrote no .sherpa/lab-info.toml")
         config = (self.directory / ".sherpa" / "ssh" / "config").read_text()
-        require(f"User {SHERPA_USER}" in config, f"the lab's SSH config does not log in as {SHERPA_USER}")
+        require(f"User {self.owner}" in config, f"the lab's SSH config does not log in as {self.owner}")
+        require("IdentityFile" not in config, "the lab's SSH config names an identity file")
 
     def checks(self, stage):
         for node in self.nodes:
@@ -310,9 +316,10 @@ class LabRun:
             if node["model"] not in ZTP_MOUNTS:
                 self.check_running(node, stage)
             elif ztp_is_off(node):
-                self.check_no_sherpa_login(node, stage)
+                self.check_no_owner_login(node, stage)
             else:
                 self.wait_for_login(node, stage)
+                self.check_old_shared_login_refused(node, stage)
         # A node with ZTP off must still be up once the others have booted.
         time.sleep(SETTLE_SECONDS)
         for node in self.nodes:
@@ -328,12 +335,20 @@ class LabRun:
         require(not problems, f"{stage}, {node['name']} {'; '.join(problems)}")
 
     def wait_for_login(self, node, stage, timeout=READY_TIMEOUT):
-        """The node takes an SSH login as `sherpa`, retrying while its NOS is still booting."""
+        """The node takes the lab owner's SSH login by key, retrying while its NOS is still booting."""
         deadline = time.monotonic() + timeout
         while self.ssh(node).code != 0:
             require(time.monotonic() < deadline,
-                    f"{stage}, no SSH login as {SHERPA_USER} on {node['name']} within {timeout}s")
+                    f"{stage}, no SSH login as {self.owner} on {node['name']} within {timeout}s")
             time.sleep(POLL_INTERVAL)
+
+    def check_old_shared_login_refused(self, node, stage):
+        """The shared `sherpa` account is not on the node: its login is refused."""
+        outcome = self.ssh(node, OLD_SHARED_USER)
+        require(outcome.code != 0, f"{stage}, {node['name']} took an SSH login as {OLD_SHARED_USER}")
+        require(ssh_refusal(outcome.output) == LOGIN_REFUSED,
+                f"{stage}, the login as {OLD_SHARED_USER} to {node['name']} was not refused: "
+                f"{outcome.output.strip()}")
 
     def address(self, node):
         """The management address the lab's SSH config reaches the node at."""
@@ -347,18 +362,18 @@ class LabRun:
         return outcome.code == 0
 
     def refused_login(self, node, stage):
-        """Why the node refuses an SSH login as `sherpa`. Taking the login is a failure."""
+        """Why the node refuses an SSH login as the lab owner. Taking the login is a failure."""
         name = node["name"]
         self.check_running(node, stage)
         outcome = self.ssh(node)
-        require(outcome.code != 0, f"{stage}, {name} has ZTP off but took an SSH login as {SHERPA_USER}")
+        require(outcome.code != 0, f"{stage}, {name} has ZTP off but took an SSH login as {self.owner}")
         refusal = ssh_refusal(outcome.output)
         require(refusal is not None,
                 f"{stage}, the SSH login to {name} failed for an unknown reason: {outcome.output.strip()}")
         return refusal
 
-    def check_no_sherpa_login(self, node, stage, timeout=READY_TIMEOUT):
-        """The node is running and has no `sherpa` login, for the reason its model has with ZTP
+    def check_no_owner_login(self, node, stage, timeout=READY_TIMEOUT):
+        """The node is running and has no login for the lab owner, for the reason its model has with ZTP
         off once it has booted. While it boots, the reason may be another; a login never works."""
         name = node["name"]
         expected = ZTP_OFF_REFUSAL[node["model"]]
@@ -405,6 +420,22 @@ class LabRun:
             require(not leftovers, f"{kind} left after destroy: {leftovers}")
 
 
+DEVICE_PASSWORD_SET = re.compile(r"^\s*Device password:\s*set\s*$", re.MULTILINE)
+INFO_USERNAME = re.compile(r"^\s*Username:\s*(\S+)\s*$", re.MULTILINE)
+
+
+def require_device_password(log, run_root):
+    """Stop unless the lab owner has a device password, which `sherpa up` needs; return the owner."""
+    info = run_logged(log, "sherpa server user info", ["sherpa", "server", "user", "info"], run_root)
+    require(info.code == 0, "could not read the user's details (`sherpa server user info`)")
+    require(DEVICE_PASSWORD_SET.search(info.stdout),
+            "the user has no device password, which `sherpa up` needs: "
+            "run `sherpa server user device-password`")
+    owner = INFO_USERNAME.search(info.stdout)
+    require(owner, "`sherpa server user info` did not name the user")
+    return owner.group(1)
+
+
 def preflight(run_root, models):
     for tool in ("sherpa", "docker", "ssh", "ip", "ping"):
         require(shutil.which(tool), f"{tool} is not on PATH")
@@ -412,12 +443,14 @@ def preflight(run_root, models):
     with (run_root / "preflight.log").open("w") as log:
         whoami = run_logged(log, "sherpa whoami", ["sherpa", "whoami"], run_root)
         require(whoami.code == 0, "the sherpa CLI is not logged in (run `sherpa login`)")
+        owner = require_device_password(log, run_root)
         docker = run_logged(log, "docker usable", ["docker", "ps", "--quiet"], run_root)
         require(docker.code == 0, "this user cannot use Docker; this test runs on the Sherpa server")
         for model, version in sorted({(node["model"], node["version"]) for node in nodes}):
             image = run_logged(log, f"{model} {version} image present",
                                ["sherpa", "image", "show", model, "--version", version], run_root)
             require(image.code == 0, f"the server has no {model} {version} image")
+    return owner
 
 
 def main():
@@ -439,8 +472,8 @@ def main():
     run_root.mkdir(parents=True)
     print(f"Logs: {run_root}", flush=True)
     try:
-        preflight(run_root, models)
-        LabRun(run_root, args.keep_failed, models).run()
+        owner = preflight(run_root, models)
+        LabRun(run_root, args.keep_failed, models, owner).run()
     except TestFailure as error:
         print(f"FAIL {error}. Logs: {run_root}", file=sys.stderr)
         return 1
@@ -449,6 +482,20 @@ def main():
 
 
 class SelfTest(unittest.TestCase):
+    def test_device_password_check_reads_the_info_output(self):
+        def info(text, code=0):
+            return lambda *args, **kwargs: Outcome(code, text, "")
+
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp)
+            ready = "\nUser Information:\n  Username: alice\n  Device password: set\n"
+            with mock.patch(f"{__name__}.run_logged", info(ready)):
+                self.assertEqual(require_device_password(None, run_root), "alice")
+            for text, code in (("  Username: alice\n  Device password: not set\n", 0), (ready, 1)):
+                with mock.patch(f"{__name__}.run_logged", info(text, code)):
+                    with self.assertRaises(TestFailure):
+                        require_device_password(None, run_root)
+
     def manifest(self):
         return tomllib.loads((LAB / "manifest.toml").read_text())
 
@@ -456,7 +503,7 @@ class SelfTest(unittest.TestCase):
         # `sherpa up` exits 1 on a partly created lab after writing lab-info.toml; the run must
         # still know the lab's ID, so destroy checks for leftovers instead of crashing.
         with tempfile.TemporaryDirectory() as temp:
-            run = LabRun(Path(temp) / "container-ztp-000000abcdef", keep_failed=False, models=[])
+            run = LabRun(Path(temp) / "container-ztp-000000abcdef", keep_failed=False, models=[], owner="alice")
             (run.directory / ".sherpa").mkdir(parents=True)
             (run.directory / ".sherpa" / "lab-info.toml").write_text(
                 f'id = "4ed6360e"\nname = "{run.name}"\n')
@@ -534,7 +581,7 @@ class SelfTest(unittest.TestCase):
                          NO_ADDRESS)
         self.assertEqual(ssh_refusal("channel 0: open failed: connect failed: Connection refused\n"),
                          NO_SSH_SERVER)
-        self.assertEqual(ssh_refusal("sherpa@192.0.2.1: Permission denied (publickey).\n"), LOGIN_REFUSED)
+        self.assertEqual(ssh_refusal("alice@192.0.2.1: Permission denied (publickey).\n"), LOGIN_REFUSED)
         self.assertIsNone(ssh_refusal("kex_exchange_identification: read: Connection reset\n"))
 
     def test_every_mounted_config_model_has_its_ztp_off_refusal_and_known_reasons(self):

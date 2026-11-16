@@ -124,9 +124,9 @@ mod tests {
     use super::*;
     use crate::persistence::{key_of, new_key, node_image_values};
     use crate::{
-        DefaultRequest, device_password_set, find_lab, find_node_image_by_id, get_user,
-        list_cpu_pins, list_node_images, list_nodes_by_lab, open_in_memory, read_lab_definition,
-        update_node_image, upsert_node_image,
+        DefaultRequest, count_nodes_by_ssh_username, device_password_set, find_lab,
+        find_node_image_by_id, get_user, list_cpu_pins, list_node_images, list_nodes_by_lab,
+        open_in_memory, read_lab_definition, update_node_image, upsert_node_image,
     };
 
     /// The eleven ZTP methods a release before the one `ztp` column could store.
@@ -1543,7 +1543,7 @@ mod tests {
 
         apply_schema(&db).await.unwrap();
 
-        assert_eq!(version(&db).await, 27);
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
         assert_eq!(trigger_count(&db, "user_device_password_sealed_%").await, 2);
         let id = RecordId::new("user", "u1");
         assert!(!device_password_set(&db, &id).await.unwrap());
@@ -1564,5 +1564,130 @@ mod tests {
                 .contains("user.device_password must be sealed"),
             "{error}"
         );
+    }
+
+    /// The position of `migration` in `migrations::ALL`: the number of migrations before it.
+    fn migrations_before(migration: &str) -> usize {
+        migrations::ALL
+            .iter()
+            .position(|batch| *batch == migration)
+            .unwrap()
+    }
+
+    /// A database at `migrations` migrations with a user, a lab and, for each of `logins`, a
+    /// node `n<index>` recording that SSH login. The image is stored with today's queries, so
+    /// `migrations` is after the image ZTP login columns were dropped.
+    async fn database_with_nodes(migrations: usize, logins: &[Option<&str>]) -> Database {
+        let db = database_at(migrations).await;
+        let image = upsert_node_image(
+            &db,
+            NodeConfig::get_model(NodeModel::UbuntuLinux),
+            DefaultRequest::Keep,
+        )
+        .await
+        .unwrap();
+        let image_key = key_of(&image.id.unwrap(), "node_image").unwrap();
+        let writer = db.writer().await.unwrap();
+        writer
+            .conn
+            .execute_batch(
+                "INSERT INTO user (id, username, password_hash, is_admin, ssh_keys, created_at,
+                     updated_at)
+                 VALUES ('u1', 'alice', 'x', 0, '[]', '2026-01-01T00:00:00Z',
+                     '2026-01-01T00:00:00Z');
+                 INSERT INTO lab (id, lab_id, name, user, loopback_network, management_network,
+                     gateway_ipv4, router_ipv4)
+                 VALUES ('l1', 'lab-0001', 'Old', 'u1', '127.127.1.0/24', '172.31.1.0/24',
+                     '172.31.1.1', '172.31.1.2');",
+            )
+            .await
+            .unwrap();
+        for (index, login) in (0_i64..).zip(logins) {
+            writer
+                .conn
+                .execute(
+                    "INSERT INTO node (id, name, \"index\", image, lab, state, ssh_username) \
+                     VALUES (?1, ?1, ?2, ?3, 'l1', 'running', ?4)",
+                    (format!("n{index}"), index, image_key.as_str(), *login),
+                )
+                .await
+                .unwrap();
+        }
+        drop(writer);
+        db
+    }
+
+    #[tokio::test]
+    async fn the_provision_current_user_column_is_dropped_and_labs_kept() {
+        // A version 27 database, from before the setting was removed, with a lab that set it.
+        let before = migrations_before(migrations::DROP_PROVISION_CURRENT_USER);
+        assert_eq!(before + 1, 27);
+        let db = database_with_nodes(before, &[Some("alice")]).await;
+        {
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute(
+                    "UPDATE lab SET has_definition = 1, provision_current_user = 1 \
+                     WHERE id = 'l1'",
+                    (),
+                )
+                .await
+                .unwrap();
+        }
+
+        apply_schema(&db).await.unwrap();
+
+        assert!(version(&db).await >= 28);
+        let conn = db.reader().await.unwrap();
+        let columns = query_count(
+            &conn,
+            Query::new(
+                "SELECT count(*) FROM pragma_table_info('lab') \
+                 WHERE name = 'provision_current_user'",
+            )
+            .bind([]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(columns, 0);
+        let lab = find_lab(&db, "lab-0001").await.unwrap().unwrap();
+        let lab_id = lab.id.unwrap();
+        let definition = read_lab_definition(&db, &lab_id).await.unwrap().unwrap();
+        assert_eq!(definition.name, "Old");
+        assert_eq!(list_nodes_by_lab(&db, lab_id).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn nodes_from_before_owner_logins_record_sherpa_and_others_keep_theirs() {
+        // A version 28 database: a node with no login recorded, as `up` left nodes that kept
+        // only the shared `sherpa` account, and one with the owner's login.
+        let before = migrations_before(migrations::LEGACY_NODE_SSH_USERNAME);
+        assert_eq!(before + 1, 28);
+        let db = database_with_nodes(before, &[None, Some("alice")]).await;
+        assert_eq!(version(&db).await, 28);
+
+        apply_schema(&db).await.unwrap();
+
+        assert_eq!(version(&db).await, 29);
+        let lab = find_lab(&db, "lab-0001").await.unwrap().unwrap();
+        let mut logins: Vec<(String, Option<String>)> = list_nodes_by_lab(&db, lab.id.unwrap())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|node| (node.name, node.ssh_username))
+            .collect();
+        logins.sort();
+        assert_eq!(
+            logins,
+            [
+                ("n0".to_owned(), Some("sherpa".to_owned())),
+                ("n1".to_owned(), Some("alice".to_owned())),
+            ]
+        );
+        assert_eq!(count_nodes_by_ssh_username(&db, "sherpa").await.unwrap(), 1);
+        // Applying again changes nothing.
+        apply_schema(&db).await.unwrap();
+        assert_eq!(count_nodes_by_ssh_username(&db, "sherpa").await.unwrap(), 1);
     }
 }

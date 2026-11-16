@@ -1,7 +1,7 @@
 # Accounts
 
 Sherpa server accounts authenticate users to the API, CLI and web UI. A server username is also
-the guest login name of the owner's personal account on lab nodes, so server usernames follow
+the guest login name of the owner's account on lab nodes, so server usernames follow
 the guest login name rules.
 
 ## Usernames
@@ -46,7 +46,7 @@ The schema does not hold the reserved list: bootstrap creates the reserved `admi
 ## Built-in `admin` account
 
 `admin` is the server's own account, for administration and recovery. Lab work is done from
-personal accounts, which may also be administrators.
+the users' own accounts, which may also be administrators.
 
 ### Creation
 
@@ -87,17 +87,18 @@ destroy and clean. For the same reason it has no [device password](#device-passw
 
 ## SSH keys
 
-Every lab needs its owner's SSH public key, so the owner's personal account on lab nodes can be
+Every lab needs its owner's SSH public key, so the owner's account on lab nodes can be
 provisioned. `services::guest_account::require_ssh_key` refuses `up` and `redeploy` for a user
 without a key, with an error that links to the user documentation
 (`konst::SSH_KEYS_DOCS_URL`).
 
-`guest_account::from_user` returns no account, rather than an error, when the owner's username
-cannot be a guest login (a legacy name, or one reserved on guests); `up` and `redeploy` report
-that the nodes use the `sherpa` account instead. Missing or malformed keys stay an error.
+`guest_account::from_user` refuses an owner whose username cannot be a guest login (a legacy
+name, or one reserved on guests) with `User '<name>' cannot start labs`. Before 0.7.0 `up` and
+`redeploy` fell back to the shared `sherpa` account; there is none now. Missing or malformed keys
+are an error too, as is a missing [device password](#device-password).
 
-How the personal account, or `sherpa` when there is none, is created on each OS, and how manifest
-user data reaches it, is in [`GUEST_PROVISIONING.md`](GUEST_PROVISIONING.md).
+How the owner's account is created on each OS, and how manifest user data reaches it, is in
+[`GUEST_PROVISIONING.md`](GUEST_PROVISIONING.md).
 
 ### Managing keys
 
@@ -118,8 +119,9 @@ own index-based handlers.
 
 ## Device password
 
-A user's device password is their login password on lab nodes (#649); from 0.7.0, `up` and
-`redeploy` will require it (#649's next change). It is one per user, sealed in
+A user's device password is their login password on lab nodes (#649). From 0.7.0, `up` and
+`redeploy` require it and refuse, before anything is created, when it is not set (see
+[`GUEST_PROVISIONING.md`](GUEST_PROVISIONING.md#device-password)). It is one per user, sealed in
 `user.device_password` (see [`DATABASE.md`](DATABASE.md#device-passwords)), never returned by
 any API, and replaced rather than recovered when forgotten.
 

@@ -541,8 +541,11 @@ Profile page's form (`POST /profile/device-password`) all call:
 
 `sherpa server user device-password` prompts for the login password and the new device password
 twice; none is ever a flag. `user.info`, `user.list`, the CLI and the Profile page show only
-`device_password_set`. Labs do not use the device password yet: requiring it for `up` and
-`redeploy` and rendering it into node configurations is #649's next change.
+`device_password_set`. `up` and `redeploy` require it and
+write it into the node configurations as the password of the owner's login
+(`guest_account::require_device_password`, see
+[`GUEST_PROVISIONING.md`](GUEST_PROVISIONING.md#device-password)); `resume`, `down`, `destroy` and
+`inspect` do not. The refusal names `sherpa server user device-password` and the Profile page.
 
 ### When a transport checks first
 
@@ -1011,7 +1014,7 @@ flowchart TB
     request["redeploy_node (node.rs)"] --> owner["require_lab_owner in the service<br/>(owner only, admins included), owner has an SSH key<br/>lab_operations::begin, require_lab_owner again<br/>the lab's redeploy lock"]
     owner --> load
     subgraph stage1["1. load_redeploy (context.rs): nothing is changed"]
-        load["manifest checks: host access, client files, provisioners, secrets<br/>node and image from the DB; same model; unikernels refused<br/>resolve and check the container image<br/>lease the image, check the disk method<br/>lab info, management network, DNS, lab CA, Talos worker config<br/>the sherpa account with the lab's SSH key (lab.ssh_key)<br/>saved management addresses, owner account and node login<br/>node settings by kind, VM tuning, platform<br/>admission: CPU pins and memory"]
+        load["manifest checks: host access, client files, provisioners, secrets<br/>node and image from the DB; same model; unikernels refused<br/>resolve and check the container image<br/>lease the image, check the disk method<br/>lab info, management network, DNS, lab CA, Talos worker config<br/>the lab's SSH key pair (still made; no node account uses it)<br/>saved management addresses, owner account (SSH key, device password) and node login<br/>node settings by kind, VM tuning, platform<br/>admission: CPU pins and memory"]
     end
     load --> starting["clear the host key, node Starting"]
     starting --> destroy
@@ -1422,33 +1425,30 @@ each logs in with, `node.ssh_username`, through `lab_info::load_lab_info`). They
 the name OpenSSH looks up: the address on port 22, else `[address]:port`. `up`'s response, the
 download service and `node.host_keys` carry the known_hosts file, and the client saves it as
 `.sherpa/ssh/known_hosts` and rewrites the relative `UserKnownHostsFile` path to that absolute
-one, as it does for `IdentityFile` (`client::lab_files`, see [`LAB_FOLDER.md`](LAB_FOLDER.md)). When a node's key is unknown or changed, the client fetches the lab's
+one (`client::lab_files`, see [`LAB_FOLDER.md`](LAB_FOLDER.md)). Each node's `User` is its recorded login, else the lab owner's name, and the config names no `IdentityFile`: the client's own keys and agent are used. When a node's key is unknown or changed, the client fetches the lab's
 keys with `node.host_keys`, warns about a changed key, and connects again (`SSH_CLIENT.md`).
 
 ### Lab SSH keys
 
-Nodes that cannot take their owner's keys (no personal account, or a model that has none) are
-reached as `sherpa` with a key pair, the `IdentityFile sherpa_ssh_key` hosts of
-`sherpa_ssh_config`. Each lab has its own pair, so one lab's key opens no other lab's nodes.
+Each lab still has its own key pair, made by `up`, but no node's SSH config uses it and no
+`sherpa` account is built from it any more: every node logs in as the owner (see
+[`GUEST_PROVISIONING.md`](GUEST_PROVISIONING.md#guest-login)). Its removal is a later change. The
+pair is still made and its public half is still written to the MikroTik config disk.
 `services::lab_ssh_key` holds the rules:
 
 - **In the lab folder.** `LabSshKeyPaths::in_lab(lab_dir)` is `{lab_dir}/sherpa_ssh_key` and
   `.pub`. Nothing records which key a lab uses: there is no other.
 - **`up`** makes the pair in phase 4 (`create_lab_ssh_key`), once the lab folder exists, and
-  builds the `sherpa` account (`util::sherpa_user`) from its public key for every node's
-  configuration. It is RSA, as some network operating systems take no other kind, and the
+  keeps it for the MikroTik config disk. It is RSA, as some network operating systems take no other kind, and the
   private key is `0600` (`konst::LAB_SSH_PRIVATE_KEY_MODE`). A failed `up` rolls the folder back
   with the key.
-- **Node configuration** takes the key only from the `sherpa_user` it is given: the template
-  crate's `CloudInitUser::sherpa` and `CloudbaseInitUser::sherpa` take the public key, and the
-  MikroTik config disk gets `sherpa_ssh_key.pub` written from it.
-- **`redeploy`** builds the account from the lab's key, as `up` did. `resume` changes no node
+- **Node configuration** uses the public key only for the MikroTik config disk, which gets
+  `sherpa_ssh_key.pub` written from it.
+- **`redeploy`** reads the lab's public key for that disk, as `up` did. `resume` changes no node
   configuration.
-- **`up`'s response and `download`** return the private key only when the SSH config uses it
-  (`LabSshFiles::uses_lab_key`), and only to the owner or an admin (`require_lab_access`). A
-  missing key file is an error (`read_private_key`).
-  The response and file names are unchanged: the client saves the key as `.sherpa/ssh/key`
-  (see [`LAB_FOLDER.md`](LAB_FOLDER.md)).
+- **`up`'s response and `download`** return an empty `ssh_private_key`, so the client no longer
+  writes `.sherpa/ssh/key` (see [`LAB_FOLDER.md`](LAB_FOLDER.md)). A lab from before 0.7.0 keeps
+  the key file it already has.
 - **`destroy` and `clean`** delete the key with the lab folder (`cleanup_lab_metadata`).
 - **No server key.** Releases before 0.6.0 had a shared key pair in `/opt/sherpa/ssh/`, made by
   `sherpad init`, which labs created before lab keys kept (`lab.ssh_key = 'server'`). 0.6.0

@@ -37,7 +37,8 @@ pub(super) struct LabPlan {
     pub(super) selected_images: Vec<data::NodeConfig>,
     pub(super) image_guards: Vec<ImageLease>,
     pub(super) container_image_guards: Vec<ImageLease>,
-    pub(super) personal_account: Option<GuestAccount>,
+    /// The lab owner's login on the nodes, with their device password.
+    pub(super) owner_account: GuestAccount,
     pub(super) ssh_usernames: Vec<NodeSshUsername>,
     pub(super) links_detailed: Vec<topology::LinkDetailed>,
     pub(super) bridges_detailed: Vec<topology::BridgeDetailed>,
@@ -59,7 +60,7 @@ pub(super) async fn plan_lab(
     build: &LabBuild<'_>,
     requester: &AuthContext,
     manifest: &topology::Manifest,
-    db_user: &data::DbUser,
+    owner_account: GuestAccount,
     node_images: Vec<data::NodeConfig>,
 ) -> Result<LabPlan> {
     let LabBuild {
@@ -117,8 +118,7 @@ pub(super) async fn plan_lab(
         }
     }
 
-    let (personal_account, ssh_usernames) =
-        owner_accounts(manifest, &nodes_expanded, &node_images, db_user, progress)?;
+    let ssh_usernames = node_logins(&owner_account, &nodes_expanded, &node_images, progress)?;
 
     let (links_detailed, bridges_detailed) = process_links(manifest, &nodes_expanded, lab_id)?;
 
@@ -144,7 +144,7 @@ pub(super) async fn plan_lab(
         selected_images,
         image_guards,
         container_image_guards,
-        personal_account,
+        owner_account,
         ssh_usernames,
         links_detailed,
         bridges_detailed,
@@ -257,71 +257,55 @@ async fn lease_images(
     })
 }
 
-/// The owner's account for the nodes that take it, and each such node's login. Every node must
-/// take one of the owner's keys before anything is created.
-fn owner_accounts(
-    manifest: &topology::Manifest,
+/// The login of each node that records one: the owner's name on every node with a generated
+/// login, and `admin` on Cisco `FTDv`. Every node must take the owner's name and one of their
+/// keys before anything is created.
+fn node_logins(
+    account: &GuestAccount,
     nodes_expanded: &[topology::NodeExpanded],
     node_images: &[data::NodeConfig],
-    db_user: &data::DbUser,
     progress: &ProgressSender,
-) -> Result<(Option<GuestAccount>, Vec<NodeSshUsername>)> {
-    let mut personal_nodes = Vec::new();
-    if manifest.provision_current_user {
-        for node in nodes_expanded {
-            let image = get_node_image(node.model, node.version.as_deref(), node_images)?;
-            if guest_account::provisions_owner(node, &image) {
-                personal_nodes.push((node.name.clone(), image));
-            } else if guest_account::supports_guest_account(
-                image.model,
-                effective_ztp(node.ztp.method, &image),
-            ) {
-                let _ = progress.send_status(
-                    format!(
-                        "Node '{}' has a custom ZTP config, so it gets no account for '{}'",
-                        node.name, db_user.username
-                    ),
-                    StatusKind::Info,
-                );
-            }
-        }
-    }
-    let personal_account = if personal_nodes.is_empty() {
-        None
-    } else {
-        let account = guest_account::from_user(db_user)?;
-        if account.is_none() {
-            let _ = progress.send_status(
-                format!(
-                    "Username '{}' cannot be a login on lab nodes; nodes use the sherpa account",
-                    db_user.username
-                ),
-                StatusKind::Info,
-            );
-        }
-        account
-    };
+) -> Result<Vec<NodeSshUsername>> {
     let mut ssh_usernames = Vec::new();
-    if let Some(account) = &personal_account {
-        for (name, image) in &personal_nodes {
-            let node_account = guest_account::node_account(account, name, image)?;
+    for node in nodes_expanded {
+        let image = get_node_image(node.model, node.version.as_deref(), node_images)?;
+        let username = if guest_account::provisions_owner(node, &image) {
+            let node_account = guest_account::node_account(account, &node.name, &image)?;
             if !node_account.skipped_keys.is_empty() {
                 let _ = progress.send_status(
                     format!(
-                        "Node '{name}' does not take these SSH keys of '{}': {}",
+                        "Node '{}' does not take these SSH keys of '{}': {}",
+                        node.name,
                         account.username,
                         node_account.skipped_keys.join(", ")
                     ),
                     StatusKind::Info,
                 );
             }
-            ssh_usernames.push(NodeSshUsername {
-                node_name: name.clone(),
-                username: node_account.account.username,
-            });
-        }
+            node_account.account.username
+        } else if let Some(login) = guest_account::fixed_login(image.model) {
+            login.to_owned()
+        } else {
+            if guest_account::supports_guest_account(
+                image.model,
+                effective_ztp(node.ztp.method, &image),
+            ) {
+                let _ = progress.send_status(
+                    format!(
+                        "Node '{}' has a custom ZTP config, so it gets no account for '{}'",
+                        node.name, account.username
+                    ),
+                    StatusKind::Info,
+                );
+            }
+            continue;
+        };
+        ssh_usernames.push(NodeSshUsername {
+            node_name: node.name.clone(),
+            username,
+        });
     }
-    Ok((personal_account, ssh_usernames))
+    Ok(ssh_usernames)
 }
 
 /// Each node's interface bounds, VM tuning and platform, against its image.
@@ -398,4 +382,85 @@ fn process_links(
         "Processed manifest structures"
     );
     Ok((links_detailed, bridges_detailed))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::services::guest_account::tests::test_account;
+    use shared::data::NodeModel;
+    use tokio::sync::mpsc;
+
+    const OWNER_KEY: &str =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh";
+
+    /// `up`'s node logins for `nodes` owned by `username`, each of its model's default image.
+    fn logins(username: &str, nodes: &[topology::NodeExpanded]) -> Result<Vec<NodeSshUsername>> {
+        let images: Vec<data::NodeConfig> = nodes
+            .iter()
+            .map(|node| data::NodeConfig {
+                default: true,
+                ..data::NodeConfig::get_model(node.model)
+            })
+            .collect();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        node_logins(
+            &test_account(username, &[OWNER_KEY]),
+            nodes,
+            &images,
+            &ProgressSender::new(tx),
+        )
+    }
+
+    fn node(name: &str, model: NodeModel) -> topology::NodeExpanded {
+        topology::NodeExpanded {
+            name: name.to_owned(),
+            model,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn every_node_with_a_generated_login_records_the_owner_and_ftdv_admin() {
+        let mut custom = node("eos2", NodeModel::AristaVeos);
+        custom.ztp.config = Some("hostname eos2\n".to_owned());
+        let nodes = [
+            node("vm1", NodeModel::UbuntuLinux),
+            node("eos1", NodeModel::AristaVeos),
+            node("fw1", NodeModel::CiscoFtdv),
+            node("web", NodeModel::GenericContainer),
+            custom,
+        ];
+
+        let logins = logins("alice", &nodes).unwrap();
+
+        let logins: Vec<(&str, &str)> = logins
+            .iter()
+            .map(|entry| (entry.node_name.as_str(), entry.username.as_str()))
+            .collect();
+        assert_eq!(
+            logins,
+            [("vm1", "alice"), ("eos1", "alice"), ("fw1", "admin")]
+        );
+    }
+
+    #[test]
+    fn up_is_refused_for_a_name_a_node_model_cannot_take() {
+        let error = logins(
+            "a-very-long-owner-name",
+            &[
+                node("vm1", NodeModel::UbuntuLinux),
+                node("win1", NodeModel::WindowsServer),
+            ],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains(
+                "Node 'win1' (windows_server) takes login names of at most 20 characters; \
+                 'a-very-long-owner-name' has 22"
+            ),
+            "{error}"
+        );
+    }
 }

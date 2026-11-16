@@ -277,3 +277,34 @@ fn test_yaml_boolean_words_stay_strings() {
     assert_eq!(parsed["users"][0]["name"], "off");
     assert_eq!(parsed["users"][0]["plain_text_passwd"], "yes");
 }
+
+#[test]
+fn test_cloud_init_hashed_password_is_a_hash_that_verifies() {
+    for password in helpers::ALL_CHARACTER_PASSWORDS {
+        let hash = helpers::sha512_hash(password);
+        let config = CloudInitConfig {
+            users: vec![CloudInitUser {
+                name: "alice".to_string(),
+                plain_text_passwd: None,
+                hashed_passwd: Some(hash.clone()),
+                homedir: None,
+                lock_passwd: false,
+                ssh_authorized_keys: vec!["ssh-rsa OWNERKEY1".to_string()],
+                sudo: Some("ALL=(ALL) NOPASSWD:ALL".to_string()),
+                groups: vec![],
+                shell: "/bin/bash".to_string(),
+            }],
+            ..Default::default()
+        };
+        let output = config.render().expect("renders user-data");
+        let parsed = parse_cloud_config(&output);
+        assert_eq!(parsed["users"][0]["hashed_passwd"], hash);
+        assert_eq!(parsed["users"][0].get("plain_text_passwd"), None);
+        let found = parsed["users"][0]["hashed_passwd"]
+            .as_str()
+            .expect("string");
+        helpers::assert_hash_verifies(found, "$6$", password);
+        assert!(!output.contains(password));
+        helpers::assert_no_sherpa_login(&output);
+    }
+}

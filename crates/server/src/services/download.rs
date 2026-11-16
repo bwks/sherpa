@@ -13,16 +13,15 @@ use crate::daemon::state::AppState;
 use crate::konst::{LAB_CA_CERT_FILE, LAB_CERTS_DIR};
 use crate::services::keycloak;
 use crate::services::lab_info;
-use crate::services::lab_ssh_key::{LabSshKeyPaths, read_private_key};
 use crate::services::ssh_config::{self, LabSshFiles};
 use crate::services::talos;
 use crate::services::vault;
 
-/// Download lab files (lab-info, SSH config, `known_hosts`, SSH key) for CLI use.
+/// Download lab files (lab-info, SSH config, `known_hosts`) for CLI use.
 ///
 /// The lab info, SSH config and `known_hosts` are built from the database; the server keeps
-/// no copy of them. The caller must own the lab or be an admin. The lab's SSH private key is
-/// included only when the lab's SSH config uses it.
+/// no copy of them. The caller must own the lab or be an admin. No node logs in with the lab's
+/// SSH key any more, so its private key is not sent: `ssh_private_key` is empty.
 #[instrument(skip(ctx, state), fields(username = %ctx.username, %lab_id))]
 pub async fn download_lab_files(
     ctx: &AuthContext,
@@ -37,7 +36,6 @@ pub async fn download_lab_files(
     let LabSshFiles {
         ssh_config,
         known_hosts,
-        uses_lab_key,
     } = ssh_config::lab_ssh_files(
         &state.db,
         &lab_record_id,
@@ -45,12 +43,6 @@ pub async fn download_lab_files(
         state.config.server_ipv4,
     )
     .await?;
-
-    let ssh_private_key = if uses_lab_key {
-        read_private_key(&LabSshKeyPaths::in_lab(&lab_dir)).await?
-    } else {
-        String::new()
-    };
 
     let clusters = talos::read_cluster_credentials(
         &state.db,
@@ -79,7 +71,7 @@ pub async fn download_lab_files(
         lab_info,
         ssh_config,
         known_hosts,
-        ssh_private_key,
+        ssh_private_key: String::new(),
         clusters,
         lab_ca,
         vaults,

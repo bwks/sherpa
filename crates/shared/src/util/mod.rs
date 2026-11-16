@@ -70,4 +70,4 @@ pub use ssh::{
 #[cfg(feature = "table")]
 pub use table::{TableLayout, render_table};
 pub use text::split_node_int;
-pub use user::{normalize_username, sherpa_user};
+pub use user::normalize_username;

@@ -10,6 +10,8 @@ use crate::helpers;
 // Expected configs
 // ============================================================================
 
+const PASSWORD: &str = "Rand0mPass-1";
+
 const EXPECTED_STATIC_IPV4: &str = "\
 !
 hostname csr01
@@ -22,11 +24,12 @@ aaa new-model
 aaa authentication login default local
 aaa authorization exec default local
 !
-username sherpa privilege 15 secret Everest1953!
+username alice privilege 15 secret PASSWORD
 !
 ip ssh pubkey-chain
-  username sherpa
-   key-hash ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ
+  username alice
+   key-hash ssh-rsa OWNERKEY1
+   key-hash ssh-ed25519 OWNERKEY2
 !
 ip scp server enable
 !
@@ -78,11 +81,12 @@ aaa new-model
 aaa authentication login default local
 aaa authorization exec default local
 !
-username sherpa privilege 15 secret Everest1953!
+username alice privilege 15 secret PASSWORD
 !
 ip ssh pubkey-chain
-  username sherpa
-   key-hash ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ
+  username alice
+   key-hash ssh-rsa OWNERKEY1
+   key-hash ssh-ed25519 OWNERKEY2
 !
 ip scp server enable
 !
@@ -130,8 +134,7 @@ exit";
 fn test_static_ipv4() {
     let t = CiscoIosXeZtpTemplate {
         hostname: "csr01".to_string(),
-        user: helpers::test_user(),
-        owner: None,
+        owner: helpers::test_owner(PASSWORD),
         mgmt_interface: "GigabitEthernet1".to_string(),
         dns: helpers::test_dns(),
         license_boot_command: None,
@@ -141,15 +144,14 @@ fn test_static_ipv4() {
         mgmt_ipv6: None,
     };
     let output = t.render().expect("template renders");
-    assert_eq!(output, EXPECTED_STATIC_IPV4);
+    assert_eq!(output, EXPECTED_STATIC_IPV4.replace("PASSWORD", PASSWORD));
 }
 
 #[test]
 fn test_with_license_command() {
     let t = CiscoIosXeZtpTemplate {
         hostname: "csr01".to_string(),
-        user: helpers::test_user(),
-        owner: None,
+        owner: helpers::test_owner(PASSWORD),
         mgmt_interface: "GigabitEthernet1".to_string(),
         dns: helpers::test_dns(),
         license_boot_command: Some("license boot level network-advantage".to_string()),
@@ -159,5 +161,36 @@ fn test_with_license_command() {
         mgmt_ipv6: None,
     };
     let output = t.render().expect("template renders");
-    assert_eq!(output, EXPECTED_WITH_LICENSE);
+    assert_eq!(output, EXPECTED_WITH_LICENSE.replace("PASSWORD", PASSWORD));
+}
+
+#[test]
+fn only_the_owner_has_an_account_and_the_password_is_intact() {
+    for password in helpers::ALL_CHARACTER_PASSWORDS {
+        let t = CiscoIosXeZtpTemplate {
+            hostname: "csr01".to_string(),
+            owner: helpers::test_owner(password),
+            mgmt_interface: "GigabitEthernet1".to_string(),
+            dns: helpers::test_dns(),
+            license_boot_command: None,
+            mgmt_ipv4: helpers::test_network_v4(),
+            mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+            mgmt_ipv6_address: None,
+            mgmt_ipv6: None,
+        };
+        let output = t.render().expect("template renders");
+        let users: Vec<&str> = output
+            .lines()
+            .filter(|line| line.trim_start().starts_with("username "))
+            .collect();
+        assert_eq!(
+            users,
+            [
+                format!("username alice privilege 15 secret {password}"),
+                "  username alice".to_string()
+            ]
+        );
+        assert_eq!(output.matches(password).count(), 1);
+        helpers::assert_no_sherpa_login(&output);
+    }
 }

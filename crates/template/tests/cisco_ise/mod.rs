@@ -38,10 +38,10 @@ openapi=true
 pxgrid=true
 
 # Admin credentials
-username=sherpa
-password=Everest1953!
+username=alice
+password=PASSWORD
 # Optional SSH public key (ISE 3.2+)
-public_key=ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ
+public_key=ssh-rsa OWNERKEY1
 
 # Skipping specific checks
 SkipIcmpChecks=true
@@ -52,17 +52,42 @@ SkipNtpChecks=true";
 // Tests
 // ============================================================================
 
-#[test]
-fn test_static_ipv4() {
-    let t = CiscoIseZtpTemplate {
+fn ise(password: &str) -> CiscoIseZtpTemplate {
+    CiscoIseZtpTemplate {
         hostname: "ise01".to_string(),
-        user: helpers::test_user(),
+        owner: helpers::test_owner(password),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
         mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
-    };
-    let output = t.render().expect("template renders");
-    assert_eq!(output, EXPECTED_STATIC_IPV4);
+    }
+}
+
+#[test]
+fn test_static_ipv4() {
+    let output = ise("Rand0mPass-1").render().expect("template renders");
+    assert_eq!(
+        output,
+        EXPECTED_STATIC_IPV4.replace("PASSWORD", "Rand0mPass-1")
+    );
+}
+
+#[test]
+fn test_one_administrator_with_the_first_key_only() {
+    let output = ise("Rand0mPass-1").render().expect("template renders");
+    assert_eq!(output.matches("username=").count(), 1);
+    assert!(output.contains("username=alice\n"));
+    assert_eq!(output.matches("public_key=").count(), 1);
+    assert!(!output.contains("OWNERKEY2"));
+    helpers::assert_no_sherpa_login(&output);
+}
+
+#[test]
+fn test_password_is_intact() {
+    for password in helpers::ALL_CHARACTER_PASSWORDS {
+        let output = ise(password).render().expect("template renders");
+        assert!(output.contains(&format!("\npassword={password}\n")));
+        assert_eq!(output.matches(password).count(), 1);
+    }
 }

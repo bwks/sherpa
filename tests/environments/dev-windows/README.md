@@ -12,13 +12,17 @@ compile. It is disposable: bring it up when Windows code changes and destroy it 
 | vCPUs | 8 |
 | Memory | 16 GiB |
 
-`provision_current_user` gives the node your account with your SSH keys.
+The node's login is your own account, as the lab owner, with your SSH keys and your device
+password.
 
 ## Bring it up
 
-From this folder, on a Sherpa server that has the image:
+From this folder, on a Sherpa server that has the image. Set your device password first, once:
+`sherpa up` is refused without one. It asks for your Sherpa login password, then the device
+password twice.
 
 ```bash
+sherpa server user device-password
 sherpa up
 ```
 

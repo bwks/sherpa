@@ -14,6 +14,7 @@ names, password login allowed by the image, and a P2p link. Always destroys the 
 import argparse
 import json
 from pathlib import Path
+import re
 import shlex
 import shutil
 import signal
@@ -172,9 +173,20 @@ def text_file_targets(manifest):
             for node in manifest["nodes"] for item in node.get("text_files", [])]
 
 
+def with_owner(manifest, owner):
+    """The manifest with `{owner}` in its text file paths and owners replaced by the lab owner's
+    name: the owner's account is the only login on the node, so the file belongs to it."""
+    nodes = [{**node, "text_files": [{key: value.replace("{owner}", owner) if isinstance(value, str)
+                                      else value for key, value in item.items()}
+                                     for item in node["text_files"]]} if "text_files" in node else node
+             for node in manifest["nodes"]]
+    return {**manifest, "nodes": nodes}
+
+
 class LabRun:
-    def __init__(self, run_root, keep_failed):
-        self.manifest = tomllib.loads((LAB / "manifest.toml").read_text())
+    def __init__(self, run_root, keep_failed, owner):
+        self.owner = owner
+        self.manifest = with_owner(tomllib.loads((LAB / "manifest.toml").read_text()), owner)
         self.name = f"{self.manifest['name']}-{run_root.name[-6:]}"
         self.directory = run_root / "lab"
         self.keep_failed = keep_failed
@@ -371,6 +383,22 @@ class LabRun:
             require(not leftovers, f"{kind} left after destroy: {leftovers}")
 
 
+DEVICE_PASSWORD_SET = re.compile(r"^\s*Device password:\s*set\s*$", re.MULTILINE)
+INFO_USERNAME = re.compile(r"^\s*Username:\s*(\S+)\s*$", re.MULTILINE)
+
+
+def require_device_password(log, run_root):
+    """Stop unless the lab owner has a device password, which `sherpa up` needs; return the owner."""
+    info = run_logged(log, "sherpa server user info", ["sherpa", "server", "user", "info"], run_root)
+    require(info.code == 0, "could not read the user's details (`sherpa server user info`)")
+    require(DEVICE_PASSWORD_SET.search(info.stdout),
+            "the user has no device password, which `sherpa up` needs: "
+            "run `sherpa server user device-password`")
+    owner = INFO_USERNAME.search(info.stdout)
+    require(owner, "`sherpa server user info` did not name the user")
+    return owner.group(1)
+
+
 def preflight(run_root):
     for tool in ("sherpa", "ssh"):
         require(shutil.which(tool), f"{tool} is not on PATH")
@@ -378,12 +406,14 @@ def preflight(run_root):
     with (run_root / "preflight.log").open("w") as log:
         whoami = run_logged(log, "sherpa whoami", ["sherpa", "whoami"], run_root)
         require(whoami.code == 0, "the sherpa CLI is not logged in (run `sherpa login`)")
+        owner = require_device_password(log, run_root)
         images = sorted({(node["model"], node["version"]) for node in manifest["nodes"]})
         for model, version in images:
             image = run_logged(log, f"{model} {version} image present",
                                ["sherpa", "image", "show", model, "--version", version], run_root)
             require(image.code == 0, f"the server has no {model} {version} image "
                     "(build it from bwks/nixos-image and import it)")
+    return owner
 
 
 def main():
@@ -401,8 +431,8 @@ def main():
     run_root.mkdir(parents=True)
     print(f"Logs: {run_root}", flush=True)
     try:
-        preflight(run_root)
-        LabRun(run_root, args.keep_failed).run()
+        owner = preflight(run_root)
+        LabRun(run_root, args.keep_failed, owner).run()
     except TestFailure as error:
         print(f"FAIL {error}. Logs: {run_root}", file=sys.stderr)
         return 1
@@ -411,6 +441,20 @@ def main():
 
 
 class SelfTest(unittest.TestCase):
+    def test_device_password_check_reads_the_info_output(self):
+        def info(text, code=0):
+            return lambda *args, **kwargs: Outcome(code, text, "")
+
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp)
+            ready = "\nUser Information:\n  Username: alice\n  Device password: set\n"
+            with mock.patch(f"{__name__}.run_logged", info(ready)):
+                self.assertEqual(require_device_password(None, run_root), "alice")
+            for text, code in (("  Username: alice\n  Device password: not set\n", 0), (ready, 1)):
+                with mock.patch(f"{__name__}.run_logged", info(text, code)):
+                    with self.assertRaises(TestFailure):
+                        require_device_password(None, run_root)
+
     def manifest(self):
         return tomllib.loads((LAB / "manifest.toml").read_text())
 
@@ -418,7 +462,7 @@ class SelfTest(unittest.TestCase):
         # `sherpa up` exits 1 on a partly created lab after writing lab-info.toml; the run must
         # still know the lab's ID, so destroy checks for leftovers instead of crashing.
         with tempfile.TemporaryDirectory() as temp:
-            run = LabRun(Path(temp) / "nixos-linux-000000abcdef", keep_failed=False)
+            run = LabRun(Path(temp) / "nixos-linux-000000abcdef", keep_failed=False, owner="alice")
             (run.directory / ".sherpa").mkdir(parents=True)
             (run.directory / ".sherpa" / "lab-info.toml").write_text(
                 f'id = "4ed6360e"\nname = "{run.name}"\n')
@@ -443,7 +487,7 @@ class SelfTest(unittest.TestCase):
         manifest = self.manifest()
         rendered = tomllib.loads(render_manifest(manifest, "renamed"))
         self.assertEqual(rendered["name"], "renamed")
-        self.assertTrue(rendered["provision_current_user"])
+        self.assertFalse([key for key in rendered if key.startswith("provision")])
         for section in ("nodes", "links"):
             self.assertEqual(rendered[section], manifest[section])
 
@@ -462,7 +506,12 @@ class SelfTest(unittest.TestCase):
 
     def test_text_file_is_owned_by_its_user_and_group(self):
         self.assertEqual(text_file_targets(self.manifest()),
-                         [("nix01", "/home/sherpa/hello.txt", "sherpa:sherpa 600")])
+                         [("nix01", "/home/{owner}/hello.txt", "{owner}:{owner} 600")])
+
+    def test_text_file_belongs_to_the_lab_owner(self):
+        manifest = with_owner(self.manifest(), "alice")
+        self.assertEqual(text_file_targets(manifest),
+                         [("nix01", "/home/alice/hello.txt", "alice:alice 600")])
 
     def test_provisioner_script_matches_the_manifest(self):
         self.assertEqual(provisioned_nodes(self.manifest()), ["nix01"])

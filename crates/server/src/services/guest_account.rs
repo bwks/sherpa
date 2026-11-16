@@ -1,50 +1,46 @@
-//! Resolve the lab owner's guest identity before provisioning changes resources.
+//! Resolve the lab owner's login on lab nodes before provisioning changes resources.
+//!
+//! Every node with a generated login gets one account, the owner's: their name, the keys the
+//! model takes, and their device password, as plain text or a salted crypt hash, whichever the
+//! device takes. Cisco `FTDv` has only `admin`, which takes the device password.
 use std::collections::HashSet;
 
 use anyhow::{Context, Result, bail, ensure};
-use rand::Rng;
-use rand::distributions::{Alphanumeric, DistString};
-use rand::seq::SliceRandom;
 use ssh_key::{Algorithm, PublicKey};
 use tracing::instrument;
 
-use shared::data::{DbUser, NodeConfig, NodeModel, OwnerSshKey, OwnerUser, RecordId, Ztp};
+use db::DevicePassword;
+use shared::data::{DbUser, NodeConfig, NodeModel, OwnerSshKey, OwnerUser, Ztp};
 use shared::konst::{
-    NODE_CLOUD_INIT_SUDO_RULE, RESERVED_USERNAMES, SHERPA_USERNAME, SSH_KEYS_DOCS_URL,
+    DEVICE_PASSWORD_DOCS_URL, NODE_CLOUD_INIT_SUDO_RULE, RESERVED_USERNAMES, SSH_KEYS_DOCS_URL,
 };
 use shared::util::{
     base64_encode, base64_encode_bytes, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash,
 };
 use shared::validators::{effective_ztp, validate_guest_username, validate_ssh_key};
 use template::{
-    CloudInitUser, CloudInitWriteFile, CloudbaseInitUser, FileMode, IgnitionFile,
-    IgnitionFileContents, IgnitionUser,
+    CloudInitUser, CloudInitWriteFile, CloudbaseInitUser, CryptHash, FileMode, IgnitionFile,
+    IgnitionFileContents, IgnitionUser, crypt_hash,
 };
 
 use crate::konst::NODE_NIXOS_SHELL;
+use crate::validate::validate_login_name;
 
 /// Drop-in directory for per-user doas rules (Alpine).
 const NODE_DOAS_CONF_DIR: &str = "/etc/doas.d";
-/// Shadow password value that matches no password but, unlike `!`, does not lock the
-/// account, so sshd builds without PAM still accept key logins.
-const NODE_NO_PASSWORD_HASH: &str = "*";
-
-/// Length of the random password given to owner accounts on devices that need one.
-/// cloudbase-init takes at most 20 characters, and Cisco IOS 25.
-const OWNER_SECRET_LENGTH: usize = 20;
-/// The characters of a crypt(3) hash.
-const CRYPT_ALPHABET: &[u8] = b"./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-const SHA256_CRYPT_SALT_LENGTH: usize = 16;
-const SHA256_CRYPT_HASH_LENGTH: usize = 43;
+/// The only login on Cisco `FTDv`, which takes the device password.
+const FTDV_LOGIN: &str = "admin";
 const ANY_DEVICE_KEY: &[KeyType] = &[KeyType::Ed25519, KeyType::Ecdsa, KeyType::Rsa];
 const RSA_KEY: &[KeyType] = &[KeyType::Rsa];
 const ECDSA_OR_RSA_KEY: &[KeyType] = &[KeyType::Ecdsa, KeyType::Rsa];
 const ED25519_OR_RSA_KEY: &[KeyType] = &[KeyType::Ed25519, KeyType::Rsa];
 
+/// The lab owner's login on lab nodes. Its `Debug` shows nothing of the device password.
 #[derive(Debug, Clone)]
 pub(crate) struct GuestAccount {
     pub username: String,
     pub ssh_keys: Vec<String>,
+    pub device_password: DevicePassword,
 }
 
 /// The owner's account as one node takes it.
@@ -96,6 +92,16 @@ pub(crate) enum KeyFormat {
     PanosBase64,
 }
 
+/// How a device's config writes the device password.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PasswordForm {
+    /// The password itself, where the device takes nothing else or a hashed form is not
+    /// verified on it.
+    Plain,
+    /// A salted crypt hash of the password.
+    Hashed(CryptHash),
+}
+
 /// Whether a node's ZTP adds the owner's account. Every method does, on every model that takes
 /// it (`NodeModel::ztp_methods`), except Cisco `FTDv` and Talos, whose configs have no way to
 /// add an account at boot. With ZTP off, nothing is generated to add it to.
@@ -116,11 +122,13 @@ pub(crate) fn supports_guest_account(model: NodeModel, ztp: Ztp) -> bool {
 }
 
 /// Whether the node gets the owner's account: its ZTP setting adds one and the node has no custom
-/// ZTP config, which replaces the generated config the account is written into.
+/// ZTP config, which replaces the generated config the account is written into. FRR is the
+/// exception: its custom config is `frr.conf`, and the account is in its startup script, which
+/// is always generated.
 #[instrument(level = "debug", skip(node, image))]
 pub(crate) fn provisions_owner(node: &topology::NodeExpanded, image: &NodeConfig) -> bool {
     supports_guest_account(image.model, effective_ztp(node.ztp.method, image))
-        && node.ztp.config.is_none()
+        && (node.ztp.config.is_none() || image.model == NodeModel::FrrLinux)
 }
 
 /// The owner keys a model takes, from each vendor's documentation of user public keys.
@@ -187,11 +195,12 @@ fn key_type_name(key_type: KeyType) -> &'static str {
 }
 
 /// The owner's account as `image`'s model takes it: the login, and only the keys the model
-/// accepts, up to the number it takes. Cisco ISE has a single administrator, `sherpa`, which
-/// takes the owner's first RSA key.
+/// accepts, up to the number it takes. On Cisco ISE it is the single administrator, with the
+/// owner's first RSA key.
 ///
 /// # Errors
 ///
+/// - If the model cannot take the owner's name as a login (`validate_login_name`)
 /// - If none of the owner's keys is a type the model accepts. The error names the accepted
 ///   types and the command that makes one.
 /// - If a registered key cannot be parsed
@@ -202,6 +211,7 @@ pub(crate) fn node_account(
     node_name: &str,
     image: &NodeConfig,
 ) -> Result<NodeAccount> {
+    validate_login_name(image.model, node_name, &account.username)?;
     let KeyRules { accepted, max_keys } = key_rules(image.model);
     let mut ssh_keys = Vec::new();
     let mut skipped_keys = Vec::new();
@@ -239,20 +249,17 @@ pub(crate) fn node_account(
         );
     }
 
-    let username = if image.model == NodeModel::CiscoIse {
-        SHERPA_USERNAME.to_owned()
-    } else {
-        account.username.clone()
-    };
-
     Ok(NodeAccount {
-        account: GuestAccount { username, ssh_keys },
+        account: GuestAccount {
+            username: account.username.clone(),
+            ssh_keys,
+            device_password: account.device_password.clone(),
+        },
         skipped_keys,
     })
 }
 
-/// The owner's login on `node`, or `None` when the lab has no owner account or the node gets
-/// none (see [`provisions_owner`]).
+/// The owner's login on `node`, or `None` when the node gets none (see [`provisions_owner`]).
 ///
 /// # Errors
 ///
@@ -260,33 +267,54 @@ pub(crate) fn node_account(
 ///
 #[instrument(level = "debug", skip(account, node, image), fields(node_name = %node.name))]
 pub(crate) fn node_owner(
-    account: Option<&GuestAccount>,
+    account: &GuestAccount,
     node: &topology::NodeExpanded,
     image: &NodeConfig,
 ) -> Result<Option<GuestAccount>> {
-    match account {
-        Some(account) if provisions_owner(node, image) => {
-            Ok(Some(node_account(account, &node.name, image)?.account))
-        }
-        _ => Ok(None),
+    if provisions_owner(node, image) {
+        Ok(Some(node_account(account, &node.name, image)?.account))
+    } else {
+        Ok(None)
+    }
+}
+
+/// The login a `model` node's SSH config names when it is not the owner's name: `admin` on
+/// Cisco `FTDv`, its only account, whatever its config. Every other node logs in as the owner.
+pub(crate) fn fixed_login(model: NodeModel) -> Option<&'static str> {
+    (model == NodeModel::CiscoFtdv).then_some(FTDV_LOGIN)
+}
+
+/// The device password as a device's config writes it, in `form`.
+///
+/// # Errors
+///
+/// - If the hash cannot be computed
+///
+#[instrument(level = "debug", skip(password))]
+pub(crate) fn device_password(password: &DevicePassword, form: PasswordForm) -> Result<String> {
+    match form {
+        PasswordForm::Plain => Ok(password.expose().to_owned()),
+        PasswordForm::Hashed(algorithm) => crypt_hash(password.expose(), algorithm),
     }
 }
 
 /// The owner's account for a network device's config template, with each key written as
-/// `format` and a random password nobody is told, or `None` when the node has no owner account.
+/// `format` and the device password as `password`. A node whose config is generated always has
+/// an owner account.
 ///
 /// # Errors
 ///
-/// - If a key cannot be parsed or encoded
+/// - If the node has no owner account
+/// - If a key cannot be parsed or encoded, or the password hashed
 ///
 #[instrument(level = "debug", skip(account))]
 pub(crate) fn owner_user(
     account: Option<&GuestAccount>,
     format: KeyFormat,
-) -> Result<Option<OwnerUser>> {
-    let Some(account) = account else {
-        return Ok(None);
-    };
+    password: PasswordForm,
+) -> Result<OwnerUser> {
+    let account = account
+        .context("The node's generated config needs the lab owner's account, and has none")?;
     let mut ssh_keys = Vec::new();
     for key in &account.ssh_keys {
         let parsed = PublicKey::from_openssh(key)
@@ -322,32 +350,11 @@ pub(crate) fn owner_user(
         };
         ssh_keys.push(owner_key);
     }
-    Ok(Some(OwnerUser {
+    Ok(OwnerUser {
         username: account.username.clone(),
-        secret: random_secret(),
+        password: device_password(&account.device_password, password)?,
         ssh_keys,
-    }))
-}
-
-/// A well-formed SHA-256 crypt hash of random characters, for devices that store a password hash,
-/// such as PAN-OS. No known password matches it, so it works like a random password nobody is
-/// told.
-pub(crate) fn unusable_sha256_crypt_hash() -> String {
-    let salt = random_crypt_chars(SHA256_CRYPT_SALT_LENGTH);
-    let hash = random_crypt_chars(SHA256_CRYPT_HASH_LENGTH);
-    format!("$5${salt}${hash}")
-}
-
-/// `length` random characters of the crypt(3) alphabet.
-fn random_crypt_chars(length: usize) -> String {
-    let mut rng = rand::thread_rng();
-    let mut chars = String::with_capacity(length);
-    for _ in 0..length {
-        chars.push(char::from(
-            CRYPT_ALPHABET[rng.gen_range(0..CRYPT_ALPHABET.len())],
-        ));
-    }
-    chars
+    })
 }
 
 /// The Junos statement for a key of `algorithm`.
@@ -358,21 +365,6 @@ fn junos_key_kind(algorithm: &Algorithm) -> Result<&'static str> {
         Some(KeyType::Rsa) => Ok("ssh-rsa"),
         None => bail!("Junos does not take {algorithm} SSH keys"),
     }
-}
-
-/// A random password with lowercase and uppercase letters and digits, which devices with
-/// password strength rules require.
-pub(crate) fn random_secret() -> String {
-    let mut rng = rand::thread_rng();
-    let mut chars: Vec<char> = Alphanumeric
-        .sample_string(&mut rng, OWNER_SECRET_LENGTH - 3)
-        .chars()
-        .collect();
-    chars.push(rng.gen_range('a'..='z'));
-    chars.push(rng.gen_range('A'..='Z'));
-    chars.push(rng.gen_range('0'..='9'));
-    chars.shuffle(&mut rng);
-    chars.into_iter().collect()
 }
 
 /// Require the lab owner to have at least one registered SSH public key.
@@ -389,34 +381,51 @@ pub(crate) fn require_ssh_key(user: &DbUser) -> Result<()> {
     Ok(())
 }
 
-/// Startup uses the authenticated creator; redeploy supplies the DB lab owner ID.
-#[instrument(level = "debug", skip(db))]
-pub(crate) async fn resolve_owner(
+/// Require the lab owner to have set a device password, and open it. `up` and `redeploy` call it
+/// before anything is created; the password is the owner's login password on the lab's nodes.
+///
+/// # Errors
+///
+/// - If the user has not set a device password. The error says how to set one.
+/// - If the user has no id, or the password cannot be read or opened
+///
+#[instrument(level = "debug", skip(db, user), fields(username = %user.username))]
+pub(crate) async fn require_device_password(
     db: &db::Database,
-    owner_id: RecordId,
-) -> Result<Option<GuestAccount>> {
-    let owner = db::find_user_by_id(db, owner_id)
+    user: &DbUser,
+) -> Result<DevicePassword> {
+    let id = user.id.as_ref().context("User record has no id")?;
+    db::open_device_password(db, id)
         .await
-        .context("Failed to look up the lab owner")?
-        .context("Lab owner account no longer exists")?;
-    from_user(&owner)
+        .context("Failed to read the device password")?
+        .with_context(|| {
+            format!(
+                "User '{}' has no device password, and labs need one: it is the password of your \
+                 login on lab nodes. Set it with 'sherpa server user device-password' or on the \
+                 web UI Profile page. See {DEVICE_PASSWORD_DOCS_URL}",
+                user.username
+            )
+        })
 }
 
-/// The owner's guest account, or `None` when their username cannot be a login on lab nodes,
-/// in which case the nodes keep only the `sherpa` account.
+/// The owner's account on lab nodes: their name, their registered keys, deduplicated and
+/// without comments, and `device_password`.
 ///
-/// Usernames created since server usernames follow the guest rules always qualify; older names
-/// may not. Missing or invalid keys are an error.
-#[instrument(level = "debug", skip(user), fields(username = %user.username))]
-pub(crate) fn from_user(user: &DbUser) -> Result<Option<GuestAccount>> {
-    if let Err(error) = validate_guest_username(&user.username, RESERVED_USERNAMES) {
-        tracing::warn!(
-            username = %user.username,
-            %error,
-            "Lab owner's username cannot be a guest login; nodes keep the sherpa account"
-        );
-        return Ok(None);
-    }
+/// # Errors
+///
+/// - If the username cannot be a login on lab nodes, such as an account created before
+///   reserved names were refused. The error names the reason.
+/// - If the user has no SSH key, or a registered key is invalid
+///
+#[instrument(level = "debug", skip(user, device_password), fields(username = %user.username))]
+pub(crate) fn from_user(user: &DbUser, device_password: DevicePassword) -> Result<GuestAccount> {
+    validate_guest_username(&user.username, RESERVED_USERNAMES).with_context(|| {
+        format!(
+            "User '{}' cannot start labs: the name cannot be a login on lab nodes. Start the lab \
+             from another account",
+            user.username
+        )
+    })?;
     require_ssh_key(user)?;
     let mut seen = HashSet::new();
     let mut ssh_keys = Vec::new();
@@ -436,78 +445,112 @@ pub(crate) fn from_user(user: &DbUser) -> Result<Option<GuestAccount>> {
             );
         }
     }
-    Ok(Some(GuestAccount {
+    Ok(GuestAccount {
         username: user.username.clone(),
         ssh_keys,
-    }))
+        device_password,
+    })
 }
 
+/// The owner's account on a cloud-init guest: their keys, passwordless `sudo`, and the device
+/// password as a SHA-512-crypt hash.
+///
+/// # Errors
+///
+/// - If the password cannot be hashed
+///
 #[instrument(level = "debug", skip(account))]
-pub(crate) fn cloud_init_user(account: &GuestAccount) -> CloudInitUser {
-    CloudInitUser {
+pub(crate) fn cloud_init_user(account: &GuestAccount) -> Result<CloudInitUser> {
+    Ok(CloudInitUser {
         name: account.username.clone(),
         plain_text_passwd: None,
-        hashed_passwd: None,
-        lock_passwd: true,
+        hashed_passwd: Some(device_password(
+            &account.device_password,
+            PasswordForm::Hashed(CryptHash::Sha512),
+        )?),
+        lock_passwd: false,
         homedir: Some(format!("/home/{}", account.username)),
         ssh_authorized_keys: account.ssh_keys.clone(),
         sudo: Some(NODE_CLOUD_INIT_SUDO_RULE.to_owned()),
         groups: vec![],
         shell: "/bin/bash".to_owned(),
-    }
+    })
 }
 
-/// The personal account on Alpine, which keeps its native tools: `ash` as the shell and
-/// `doas`, through [`doas_file`], for admin rights. Nothing is installed at boot. Its password
-/// is unusable rather than locked, because Alpine's sshd has no PAM and refuses locked accounts,
-/// even for key logins.
+/// The owner's account on Alpine, which keeps its native tools: `ash` as the shell and
+/// `doas`, through [`doas_file`], for admin rights. Nothing is installed at boot.
+///
+/// # Errors
+///
+/// - As [`cloud_init_user`]
+///
 #[instrument(level = "debug", skip(account))]
-pub(crate) fn alpine_cloud_init_user(account: &GuestAccount) -> CloudInitUser {
-    CloudInitUser {
-        hashed_passwd: Some(NODE_NO_PASSWORD_HASH.to_owned()),
-        lock_passwd: false,
+pub(crate) fn alpine_cloud_init_user(account: &GuestAccount) -> Result<CloudInitUser> {
+    Ok(CloudInitUser {
         groups: vec!["wheel".to_owned()],
         shell: "/bin/sh".to_owned(),
-        ..cloud_init_user(account)
-    }
+        ..cloud_init_user(account)?
+    })
 }
 
-/// The personal account on NixOS: `wheel` for admin rights, since NixOS's generated sudoers does
+/// The owner's account on NixOS: `wheel` for admin rights, since NixOS's generated sudoers does
 /// not read cloud-init's sudo rules, and NixOS's bash, since it has no `/bin/bash`.
+///
+/// # Errors
+///
+/// - As [`cloud_init_user`]
+///
 #[instrument(level = "debug", skip(account))]
-pub(crate) fn nixos_cloud_init_user(account: &GuestAccount) -> CloudInitUser {
-    CloudInitUser {
+pub(crate) fn nixos_cloud_init_user(account: &GuestAccount) -> Result<CloudInitUser> {
+    Ok(CloudInitUser {
         sudo: None,
         groups: vec!["wheel".to_owned()],
         shell: NODE_NIXOS_SHELL.to_owned(),
-        ..cloud_init_user(account)
-    }
+        ..cloud_init_user(account)?
+    })
 }
 
-/// The personal account on FreeBSD and OpenBSD, which keeps their native tools: `sh` as the
+/// The owner's account on FreeBSD and OpenBSD, which keeps their native tools: `sh` as the
 /// shell and `wheel`, with `doas` on OpenBSD. The OS picks the home, which is under `/usr/home`
-/// on FreeBSD. Its password is unusable rather than locked, because OpenSSH refuses locked
-/// accounts on FreeBSD, even for key logins.
+/// on FreeBSD. OpenBSD's crypt(3) takes only bcrypt hashes, so there cloud-init gets the device
+/// password itself and hashes it on the node; FreeBSD takes the SHA-512-crypt hash.
+///
+/// # Errors
+///
+/// - As [`cloud_init_user`]
+///
 #[instrument(level = "debug", skip(account))]
-pub(crate) fn bsd_cloud_init_user(account: &GuestAccount) -> CloudInitUser {
-    CloudInitUser {
+pub(crate) fn bsd_cloud_init_user(
+    account: &GuestAccount,
+    model: NodeModel,
+) -> Result<CloudInitUser> {
+    let user = CloudInitUser {
         homedir: None,
-        hashed_passwd: Some(NODE_NO_PASSWORD_HASH.to_owned()),
-        lock_passwd: false,
         groups: vec!["wheel".to_owned()],
         shell: "/bin/sh".to_owned(),
-        ..cloud_init_user(account)
+        ..cloud_init_user(account)?
+    };
+    if model == NodeModel::OpenBsd {
+        return Ok(CloudInitUser {
+            plain_text_passwd: Some(device_password(
+                &account.device_password,
+                PasswordForm::Plain,
+            )?),
+            hashed_passwd: None,
+            ..user
+        });
     }
+    Ok(user)
 }
 
-/// The personal account on Windows: a local administrator. cloudbase-init needs a password, so it
-/// gets a random one nobody is told. Its keys go in its own file, which the node's `sshd_config`
-/// reads.
+/// The owner's account on Windows: a local administrator with the device password, which
+/// cloudbase-init takes as plain text. Its keys go in its own file, which the node's
+/// `sshd_config` reads.
 #[instrument(level = "debug", skip(account))]
 pub(crate) fn cloudbase_user(account: &GuestAccount) -> CloudbaseInitUser {
     CloudbaseInitUser {
         name: account.username.clone(),
-        passwd: random_secret(),
+        passwd: account.device_password.expose().to_owned(),
         groups: vec!["Administrators".to_owned()],
         ssh_authorized_keys: account.ssh_keys.clone(),
     }
@@ -525,24 +568,26 @@ pub(crate) fn doas_file(account: &GuestAccount) -> CloudInitWriteFile {
     }
 }
 
-/// The login that owns guest-side work: the personal account when provisioned, otherwise `sherpa`.
-pub(crate) fn guest_username(account: Option<&GuestAccount>) -> &str {
-    match account {
-        Some(account) => &account.username,
-        None => SHERPA_USERNAME,
-    }
-}
-
+/// The owner's account on Flatcar: `wheel` and `docker`, as the `sherpa` account had, and the
+/// device password as a SHA-512-crypt hash. Passwordless `sudo` is its [`sudoers_file`].
+///
+/// # Errors
+///
+/// - If the password cannot be hashed
+///
 #[instrument(level = "debug", skip(account))]
-pub(crate) fn ignition_user(account: &GuestAccount) -> IgnitionUser {
-    IgnitionUser {
+pub(crate) fn ignition_user(account: &GuestAccount) -> Result<IgnitionUser> {
+    Ok(IgnitionUser {
         name: account.username.clone(),
-        password_hash: None,
+        password_hash: Some(device_password(
+            &account.device_password,
+            PasswordForm::Hashed(CryptHash::Sha512),
+        )?),
         home_dir: Some(format!("/home/{}", account.username)),
         shell: Some("/bin/bash".to_owned()),
         ssh_authorized_keys: account.ssh_keys.clone(),
-        groups: vec![],
-    }
+        groups: vec!["wheel".to_owned(), "docker".to_owned()],
+    })
 }
 
 #[instrument(level = "debug", skip(account))]
@@ -560,14 +605,71 @@ pub(crate) fn sudoers_file(account: &GuestAccount) -> IgnitionFile {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    use crate::konst::SHERPA_PASSWORD_HASH;
+    use std::sync::OnceLock;
+    use std::thread;
+
+    use db::SecretKey;
     use jiff::Timestamp;
-    use shared::data::NodeKind;
+    use sha_crypt::{PasswordVerifier, ShaCrypt};
+    use shared::data::{NodeKind, RecordId};
     use shared::konst::{ADMIN_USERNAME, SHERPA_PASSWORD, SHERPA_USERNAME};
     use shared::util::base64_decode;
     use template::{CloudInitConfig, IgnitionConfig};
+    use tokio::runtime::Builder;
+
+    /// The device password of every test account.
+    const DEVICE_PASSWORD: &str = "Granite-Owl42!";
+
+    /// `password` sealed into a keyed in-memory database for a new user and opened again: the
+    /// one way to make a `DevicePassword`.
+    async fn open_test_password(password: &str) -> DevicePassword {
+        let db = db::open_in_memory()
+            .await
+            .unwrap()
+            .with_secret_key(SecretKey::generate());
+        db::apply_schema(&db).await.unwrap();
+        let user = db::create_user(&db, "alice".to_owned(), "TestPass123!", false, vec![])
+            .await
+            .unwrap();
+        let id = user.id.unwrap();
+        db::set_device_password(&db, &id, password).await.unwrap();
+        db::open_device_password(&db, &id).await.unwrap().unwrap()
+    }
+
+    /// `DEVICE_PASSWORD`, opened once on its own thread, so sync and async tests can share it.
+    pub(crate) fn device_password() -> DevicePassword {
+        static OPENED: OnceLock<DevicePassword> = OnceLock::new();
+        OPENED
+            .get_or_init(|| {
+                thread::spawn(|| {
+                    Builder::new_current_thread()
+                        .build()
+                        .unwrap()
+                        .block_on(open_test_password(DEVICE_PASSWORD))
+                })
+                .join()
+                .unwrap()
+            })
+            .clone()
+    }
+
+    /// The account of the owner `username`, with `keys` and `DEVICE_PASSWORD`.
+    pub(crate) fn test_account(username: &str, keys: &[&str]) -> GuestAccount {
+        GuestAccount {
+            username: username.to_owned(),
+            ssh_keys: keys.iter().map(ToString::to_string).collect(),
+            device_password: device_password(),
+        }
+    }
+
+    /// Whether `hash` is a crypt hash of `DEVICE_PASSWORD`.
+    fn verifies(hash: &str) -> bool {
+        ShaCrypt::default()
+            .verify_password(DEVICE_PASSWORD.as_bytes(), hash)
+            .is_ok()
+    }
 
     const KEY: &str =
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh";
@@ -575,18 +677,19 @@ mod tests {
     const ECDSA_KEY: &str = "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBCbcNUEIVbyPNTPN2PLLO755EJzMwBaEYmLA3MUuKO5RJ9jQ5ruNCGmQJu2hA+cuUZ1/nrzF17LzOCPZLVpW4B4=";
 
     fn account(keys: &[&str]) -> GuestAccount {
-        let mut ssh_keys = Vec::new();
-        for key in keys {
-            ssh_keys.push(key.to_string());
-        }
-        GuestAccount {
-            username: "alice".to_owned(),
-            ssh_keys,
-        }
+        test_account("alice", keys)
     }
 
     fn first_key(account: &GuestAccount, format: KeyFormat) -> OwnerSshKey {
-        owner_user(Some(account), format).unwrap().unwrap().ssh_keys[0].clone()
+        owner_user(Some(account), format, PasswordForm::Plain)
+            .unwrap()
+            .ssh_keys[0]
+            .clone()
+    }
+
+    /// `user`'s account, with `DEVICE_PASSWORD`.
+    fn account_of(user: &DbUser) -> Result<GuestAccount> {
+        from_user(user, device_password())
     }
 
     fn owner(username: &str, keys: Vec<String>) -> DbUser {
@@ -607,9 +710,10 @@ mod tests {
             "alice",
             vec![format!("{KEY} laptop"), format!("  {KEY} desktop  ")],
         );
-        let account = from_user(&user).unwrap().unwrap();
+        let account = account_of(&user).unwrap();
         assert_eq!(account.username, "alice");
         assert_eq!(account.ssh_keys, vec![KEY]);
+        assert_eq!(account.device_password.expose(), DEVICE_PASSWORD);
     }
 
     #[test]
@@ -621,12 +725,13 @@ mod tests {
             vec!["ssh-ed25519 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_owned()],
             vec![KEY.to_owned(), "broken".to_owned()],
         ] {
-            assert!(from_user(&owner("alice", keys)).is_err());
+            assert!(account_of(&owner("alice", keys)).is_err());
         }
     }
 
     #[test]
-    fn owners_whose_name_cannot_be_a_guest_login_get_no_account() {
+    fn owners_whose_name_cannot_be_a_login_are_refused_with_the_reason() {
+        // Legacy accounts created before the reserved names were refused, and older names.
         for name in [
             "root",
             SHERPA_USERNAME,
@@ -634,25 +739,26 @@ mod tests {
             "Alice",
             "alice@example.com",
         ] {
-            assert!(
-                from_user(&owner(name, vec![KEY.to_owned()]))
-                    .unwrap()
-                    .is_none()
+            let error = format!(
+                "{:#}",
+                account_of(&owner(name, vec![KEY.to_owned()])).unwrap_err()
             );
+            assert!(
+                error.contains(&format!("User '{name}' cannot start labs")),
+                "{error}"
+            );
+            assert!(error.contains("cannot be a login on lab nodes"), "{error}");
         }
     }
 
     #[test]
     fn nixos_account_uses_wheel_and_the_system_bash() {
-        let account = GuestAccount {
-            username: "alice".to_owned(),
-            ssh_keys: vec![KEY.to_owned()],
-        };
-        let user = nixos_cloud_init_user(&account);
+        let user = nixos_cloud_init_user(&account(&[KEY])).unwrap();
         assert_eq!(user.groups, vec!["wheel".to_owned()]);
         assert_eq!(user.shell, NODE_NIXOS_SHELL);
         assert_eq!(user.homedir.as_deref(), Some("/home/alice"));
-        assert!(user.lock_passwd);
+        assert!(!user.lock_passwd);
+        assert!(verifies(user.hashed_passwd.as_deref().unwrap()));
         assert_eq!(user.ssh_authorized_keys, vec![KEY.to_owned()]);
     }
 
@@ -664,6 +770,68 @@ mod tests {
         assert!(error.contains("no SSH public key"), "{error}");
         assert!(error.contains(SSH_KEYS_DOCS_URL), "{error}");
         assert!(require_ssh_key(&owner("alice", vec![KEY.to_owned()])).is_ok());
+    }
+
+    #[tokio::test]
+    async fn starting_labs_requires_a_device_password() {
+        let db = db::open_in_memory()
+            .await
+            .unwrap()
+            .with_secret_key(SecretKey::generate());
+        db::apply_schema(&db).await.unwrap();
+        let user = db::create_user(&db, "alice".to_owned(), "TestPass123!", false, vec![])
+            .await
+            .unwrap();
+
+        let error = require_device_password(&db, &user)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.starts_with(
+                "User 'alice' has no device password, and labs need one: it is the password of \
+                 your login on lab nodes. Set it with 'sherpa server user device-password' or on \
+                 the web UI Profile page."
+            ),
+            "{error}"
+        );
+        assert!(error.contains(DEVICE_PASSWORD_DOCS_URL), "{error}");
+
+        db::set_device_password(&db, user.id.as_ref().unwrap(), DEVICE_PASSWORD)
+            .await
+            .unwrap();
+        let opened = require_device_password(&db, &user).await.unwrap();
+        assert_eq!(opened.expose(), DEVICE_PASSWORD);
+    }
+
+    #[test]
+    fn an_account_never_shows_its_device_password() {
+        let shown = format!("{:?}", account(&[KEY]));
+        assert!(!shown.contains(DEVICE_PASSWORD), "{shown}");
+        assert!(shown.contains("REDACTED"), "{shown}");
+    }
+
+    #[test]
+    fn a_model_that_cannot_take_the_owners_name_is_refused() {
+        let long = test_account(&"a".repeat(21), &[KEY]);
+        let image = NodeConfig::get_model(NodeModel::WindowsServer);
+        let error = node_account(&long, "win1", &image).unwrap_err().to_string();
+        assert!(
+            error.contains("Node 'win1' (windows_server) takes login names of at most 20"),
+            "{error}"
+        );
+        let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        assert!(node_account(&long, "vm1", &image).is_ok());
+    }
+
+    #[test]
+    fn ftdv_logs_in_as_admin_and_every_other_model_as_the_owner() {
+        assert_eq!(fixed_login(NodeModel::CiscoFtdv), Some("admin"));
+        for model in NodeModel::to_vec() {
+            if model != NodeModel::CiscoFtdv {
+                assert_eq!(fixed_login(model), None, "{model}");
+            }
+        }
     }
 
     #[test]
@@ -832,6 +1000,19 @@ mod tests {
     }
 
     #[test]
+    fn frr_keeps_the_owner_account_with_a_custom_frr_conf() {
+        // FRR's custom config is `frr.conf`; the account is in its generated startup script.
+        let image = NodeConfig::get_model(NodeModel::FrrLinux);
+        let mut node = topology::NodeExpanded {
+            name: "frr01".to_owned(),
+            model: NodeModel::FrrLinux,
+            ..Default::default()
+        };
+        node.ztp.config = Some("router bgp 65000\n".to_owned());
+        assert!(provisions_owner(&node, &image));
+    }
+
+    #[test]
     fn nodes_with_custom_ztp_get_no_owner_account() {
         let node = topology::Node {
             name: "r1".to_owned(),
@@ -906,10 +1087,10 @@ mod tests {
     }
 
     #[test]
-    fn ise_admin_is_sherpa_with_the_owners_first_rsa_key() {
+    fn ise_admin_is_the_owner_with_their_first_rsa_key() {
         let image = NodeConfig::get_model(NodeModel::CiscoIse);
         let node_account = node_account(&account(&[KEY, RSA_KEY]), "ise1", &image).unwrap();
-        assert_eq!(node_account.account.username, SHERPA_USERNAME);
+        assert_eq!(node_account.account.username, "alice");
         assert_eq!(node_account.account.ssh_keys, vec![RSA_KEY]);
     }
 
@@ -941,71 +1122,43 @@ mod tests {
         );
         let ecdsa = first_key(&self::account(&[ECDSA_KEY]), KeyFormat::Junos);
         assert_eq!(ecdsa.kind, "ssh-ecdsa");
-        assert!(owner_user(None, KeyFormat::OpenSsh).unwrap().is_none());
+        assert!(owner_user(None, KeyFormat::OpenSsh, PasswordForm::Plain).is_err());
     }
 
     #[test]
-    fn owner_secrets_are_random_and_mix_letters_and_digits() {
-        let first = owner_user(Some(&account(&[KEY])), KeyFormat::OpenSsh)
+    fn the_owners_password_is_plain_or_a_hash_that_verifies() {
+        let account = account(&[KEY]);
+        let plain = owner_user(Some(&account), KeyFormat::OpenSsh, PasswordForm::Plain).unwrap();
+        assert_eq!(plain.password, DEVICE_PASSWORD);
+        for (algorithm, prefix) in [(CryptHash::Sha512, "$6$"), (CryptHash::Sha256, "$5$")] {
+            let hashed = owner_user(
+                Some(&account),
+                KeyFormat::OpenSsh,
+                PasswordForm::Hashed(algorithm),
+            )
             .unwrap()
-            .unwrap()
-            .secret;
-        let second = random_secret();
-        assert_ne!(first, second);
-        for secret in [first, second] {
-            assert_eq!(secret.len(), OWNER_SECRET_LENGTH);
-            assert!(secret.chars().any(|c| c.is_ascii_lowercase()), "{secret}");
-            assert!(secret.chars().any(|c| c.is_ascii_uppercase()), "{secret}");
-            assert!(secret.chars().any(|c| c.is_ascii_digit()), "{secret}");
-            assert!(
-                secret.chars().all(|c| c.is_ascii_alphanumeric()),
-                "{secret}"
-            );
+            .password;
+            assert!(hashed.starts_with(prefix), "{hashed}");
+            assert!(!hashed.contains(DEVICE_PASSWORD));
+            assert!(verifies(&hashed), "{hashed}");
         }
     }
 
     #[test]
-    fn unusable_hash_is_a_well_formed_sha256_crypt_hash() {
-        let hash = unusable_sha256_crypt_hash();
-        let parts: Vec<&str> = hash.split('$').collect();
-        assert_eq!(parts.len(), 4, "{hash}");
-        assert_eq!(parts[1], "5");
-        assert_eq!(parts[2].len(), SHA256_CRYPT_SALT_LENGTH);
-        assert_eq!(parts[3].len(), SHA256_CRYPT_HASH_LENGTH);
-        assert!(
-            hash[3..]
-                .bytes()
-                .all(|b| b == b'$' || CRYPT_ALPHABET.contains(&b))
-        );
-        assert_ne!(hash, unusable_sha256_crypt_hash());
-    }
-
-    #[test]
-    fn windows_owner_is_an_administrator_with_a_random_password() {
+    fn windows_owner_is_an_administrator_with_the_device_password() {
         let user = cloudbase_user(&account(&[KEY]));
         assert_eq!(user.name, "alice");
         assert_eq!(user.groups, vec!["Administrators"]);
         assert_eq!(user.ssh_authorized_keys, vec![KEY]);
-        assert_eq!(user.passwd.len(), OWNER_SECRET_LENGTH);
+        assert_eq!(user.passwd, DEVICE_PASSWORD);
         assert_ne!(user.passwd, SHERPA_PASSWORD);
     }
 
     #[test]
-    fn guest_username_is_the_personal_account_when_provisioned() {
-        let account = from_user(&owner("alice", vec![KEY.to_owned()]))
-            .unwrap()
-            .unwrap();
-        assert_eq!(guest_username(Some(&account)), "alice");
-        assert_eq!(guest_username(None), SHERPA_USERNAME);
-    }
-
-    #[test]
     fn personal_cloud_init_user_has_keys_home_shell_and_sudo_without_password() {
-        let account = from_user(&owner("alice", vec![KEY.to_owned()]))
-            .unwrap()
-            .unwrap();
+        let account = account_of(&owner("alice", vec![KEY.to_owned()])).unwrap();
         let config = CloudInitConfig {
-            users: vec![cloud_init_user(&account)],
+            users: vec![cloud_init_user(&account).unwrap()],
             ..Default::default()
         }
         .render()
@@ -1020,34 +1173,32 @@ mod tests {
         assert_eq!(user["shell"], "/bin/bash");
         assert_eq!(user["ssh_authorized_keys"][0], KEY);
         assert!(user["sudo"].as_str().unwrap().contains("NOPASSWD:ALL"));
-        assert_eq!(user["lock_passwd"], true);
+        assert_eq!(user["lock_passwd"], false);
+        assert!(verifies(user["hashed_passwd"].as_str().unwrap()));
         assert!(!config.contains("plain_text_passwd"));
+        assert!(!config.contains(DEVICE_PASSWORD));
         assert!(!config.contains("server-login-hash"));
-        assert!(!config.contains(SHERPA_PASSWORD_HASH));
+        assert!(!config.contains(SHERPA_PASSWORD));
     }
 
     #[test]
     fn personal_alpine_user_uses_ash_and_wheel() {
-        let account = from_user(&owner("alice", vec![KEY.to_owned()]))
-            .unwrap()
-            .unwrap();
-        let user = alpine_cloud_init_user(&account);
+        let account = account_of(&owner("alice", vec![KEY.to_owned()])).unwrap();
+        let user = alpine_cloud_init_user(&account).unwrap();
         assert_eq!(user.name, "alice");
         assert_eq!(user.shell, "/bin/sh");
         assert_eq!(user.groups, vec!["wheel"]);
         assert_eq!(user.ssh_authorized_keys, vec![KEY]);
         // Alpine's sshd has no PAM and refuses locked (`!`) accounts, even for key logins.
         assert!(!user.lock_passwd);
-        assert_eq!(user.hashed_passwd.as_deref(), Some("*"));
+        assert!(verifies(user.hashed_passwd.as_deref().unwrap()));
         assert_eq!(user.plain_text_passwd, None);
     }
 
     #[test]
     fn personal_bsd_user_uses_sh_wheel_and_the_os_home() {
-        let account = from_user(&owner("alice", vec![KEY.to_owned()]))
-            .unwrap()
-            .unwrap();
-        let user = bsd_cloud_init_user(&account);
+        let account = account_of(&owner("alice", vec![KEY.to_owned()])).unwrap();
+        let user = bsd_cloud_init_user(&account, NodeModel::FreeBsd).unwrap();
         assert_eq!(user.name, "alice");
         assert_eq!(user.shell, "/bin/sh");
         assert_eq!(user.groups, vec!["wheel"]);
@@ -1056,15 +1207,21 @@ mod tests {
         assert_eq!(user.homedir, None);
         // OpenSSH refuses locked accounts on FreeBSD, even for key logins.
         assert!(!user.lock_passwd);
-        assert_eq!(user.hashed_passwd.as_deref(), Some("*"));
+        assert!(verifies(user.hashed_passwd.as_deref().unwrap()));
         assert_eq!(user.plain_text_passwd, None);
     }
 
     #[test]
+    fn openbsd_gets_the_device_password_to_hash_with_its_own_crypt() {
+        let user = bsd_cloud_init_user(&account(&[KEY]), NodeModel::OpenBsd).unwrap();
+        assert_eq!(user.plain_text_passwd.as_deref(), Some(DEVICE_PASSWORD));
+        assert_eq!(user.hashed_passwd, None);
+        assert!(!user.lock_passwd);
+    }
+
+    #[test]
     fn personal_alpine_user_gets_a_dedicated_doas_rule() {
-        let account = from_user(&owner("alice", vec![KEY.to_owned()]))
-            .unwrap()
-            .unwrap();
+        let account = account_of(&owner("alice", vec![KEY.to_owned()])).unwrap();
         let file = doas_file(&account);
         assert_eq!(file.path, "/etc/doas.d/alice.conf");
         assert_eq!(file.content, "permit nopass alice\n");
@@ -1074,11 +1231,9 @@ mod tests {
 
     #[test]
     fn personal_ignition_user_has_native_fields_and_dedicated_sudoers() {
-        let account = from_user(&owner("alice", vec![KEY.to_owned()]))
-            .unwrap()
-            .unwrap();
+        let account = account_of(&owner("alice", vec![KEY.to_owned()])).unwrap();
         let config = IgnitionConfig::new(
-            vec![ignition_user(&account)],
+            vec![ignition_user(&account).unwrap()],
             vec![sudoers_file(&account)],
             vec![],
             vec![],
@@ -1093,7 +1248,9 @@ mod tests {
         assert_eq!(user["homeDir"], "/home/alice");
         assert_eq!(user["shell"], "/bin/bash");
         assert_eq!(user["sshAuthorizedKeys"], serde_json::json!([KEY]));
-        assert!(user.get("passwordHash").is_none());
+        assert_eq!(user["groups"], serde_json::json!(["wheel", "docker"]));
+        assert!(verifies(user["passwordHash"].as_str().unwrap()));
+        assert!(!config.contains(DEVICE_PASSWORD));
         assert!(!config.contains("server-login-hash"));
         let file = &json["storage"]["files"][0];
         assert_eq!(file["path"], "/etc/sudoers.d/alice");

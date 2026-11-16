@@ -10,7 +10,6 @@ mod readiness;
 mod records;
 mod runtime;
 mod services;
-mod ssh;
 mod ztp;
 
 pub use lab::up_lab;

@@ -20,7 +20,7 @@ order: a bridge member left out would rename every interface after it.
 
 - A Sherpa server with the `alpine_linux` 3.23.0 and `frr_linux` 10.5.2 images. The run fails
   early if either is missing.
-- The `sherpa` CLI logged in, plus `ssh`.
+- The `sherpa` CLI logged in, with a device password set (`sherpa server user device-password`), plus `ssh`.
 
 ## Running
 
