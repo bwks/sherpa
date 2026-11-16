@@ -41,13 +41,10 @@ manifest is its definition in the database (see [`DATABASE.md`](DATABASE.md#lab-
 and `lab-info.toml`, the SSH config and `known_hosts` the server sends are built from the lab's
 and its nodes' records when `up`, `download` or `node.host_keys` returns them
 (`lab_info::load_lab_info`, `ssh_config::lab_ssh_files`). Their format is unchanged, so every
-client reads them as before. The `manifest.toml`, or legacy `manifest.json`, that older releases
-saved there is deleted at startup, after the [import](SERVER.md#lab-definition-import), and
-their `lab-info.toml`, `sherpa_ssh_config` and `sherpa_known_hosts` once the SSH accounts in
-`lab-info.toml` are stored (see [Lab file import](SERVER.md#lab-file-import)). Each Talos
-cluster's plan is in the database too, and the `clusters/<cluster>/cluster.toml` older releases
-saved is deleted at startup once stored (see
-[Cluster plan import](SERVER.md#cluster-plan-import)). What the server's
+client reads them as before. Each Talos cluster's plan is in the database too. The
+`manifest.toml`, `lab-info.toml`, SSH files and `clusters/<cluster>/cluster.toml` older releases
+saved there were imported and deleted at startup by 0.6.4 and 0.6.5; 0.7.0 ignores any left
+behind (see [`SERVER.md`](SERVER.md#files-older-releases-left-in-lab-folders)). What the server's
 folder keeps is the lab's SSH key pair, its CA and the container and VM certificates, Talos,
 Vault and Keycloak credentials, and the files read while a node exists: the dnsmasq config
 (`ztp/dnsmasq/dnsmasq.conf`, mounted in the boot container), the TFTP and HTTP files of the nodes
@@ -68,14 +65,13 @@ It does not keep:
   [`ZTP.md`](ZTP.md#redeploy-and-the-boot-server).
 
 A node's own folder, `<node>/`, still holds a container's config mounts, and held a VM's boot
-files in releases before this one. It is removed by name (the redeploy teardown, the startup
-clean-up) only through `node_ops::node_dir`, which gives none for a node named like one of the
+files in releases before 0.6.5. It is removed by name (the redeploy teardown) only through `node_ops::node_dir`, which gives none for a node named like one of the
 lab's own folders (`certs`, `ztp`, `clusters`, `vault`, `keycloak`): that folder holds the lab
 CA, the boot server's files or credentials, so it is kept, with a warning. A container named
 like one writes its config files into it, as before.
 
-Older releases left the first three; they are removed at startup (see
-[Unread lab file clean-up](SERVER.md#unread-lab-file-clean-up)). The user's `manifest.toml` in
+Older releases left the first three; 0.6.5 removed them at startup, and 0.7.0 ignores any left
+behind (see [`SERVER.md`](SERVER.md#files-older-releases-left-in-lab-folders)). The user's `manifest.toml` in
 their own lab folder is the CLI's, and is never touched.
 
 ### Node config modes

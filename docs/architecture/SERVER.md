@@ -130,8 +130,7 @@ flowchart TB
     end
     registry --> recover["services::lab_lifecycle::recover:<br/>labs left Creating become Interrupted,<br/>left Destroying become DestroyFailed,<br/>nodes left Building become Failed"]
     recover --> sealimages["db::seal_plain_image_passwords:<br/>image passwords stored as plain text are sealed"]
-    sealimages --> import["services::lab_definition::import_lab_definitions:<br/>a lab with no stored definition gets one<br/>from its saved manifest;<br/>every lab's saved manifest is deleted"]
-    import --> cancel["create CancellationToken for background services"]
+    sealimages --> cancel["create CancellationToken for background services"]
     cancel --> scanner["if scanner enabled:<br/>spawn services::scanner::run_scanner(...)"]
     scanner --> sweeper["spawn auth::session::run_sweeper<br/>(deletes expired sessions at startup, then hourly)"]
     sweeper --> router
@@ -148,7 +147,7 @@ flowchart TB
     plain6 --> serveplain["serve with graceful shutdown future"]
 ```
 
-In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), warns about removed settings ([below](#removed-settings)), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), imports the definitions of labs that have none and deletes the saved manifests ([below](#lab-definition-import)), then stores the SSH accounts of older labs' `lab-info.toml` and deletes it with their SSH config and `known_hosts` ([below](#lab-file-import)), stores their Talos clusters' saved `cluster.toml` and deletes it ([below](#cluster-plan-import)), and removes the lab files nothing reads ([below](#unread-lab-file-clean-up)), all in `upgrade_stored_data`, starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
+In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), warns about removed settings ([below](#removed-settings)), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), seals image passwords stored as plain text (`upgrade_stored_data`, [below](#stored-data-upgrade)), starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
 
 #### Removed settings
 
@@ -174,111 +173,31 @@ and a key that does not open the check each stop startup with an error naming th
 file is never replaced. The key must be backed up alongside every `server.backup`, but
 separately from it: a backup never contains it.
 
-#### Lab definition import
+#### Stored data upgrade
 
-First, `db::seal_plain_image_passwords` seals the image passwords releases before schema version
-20 stored as plain text (see [`DATABASE.md`](DATABASE.md#secret-values)); a failure stops
-startup, so the server never serves while one is plain.
+`upgrade_stored_data` runs once per start, after `recover`. `db::seal_plain_image_passwords`
+seals the image passwords releases before schema version 20 stored as plain text (see
+[`DATABASE.md`](DATABASE.md#secret-values)); a failure stops startup, so the server never serves
+while one is plain. A second start finds none and does nothing.
 
-Labs stored before schema version 20 have no definition in the database. After `recover`,
-`lab_definition::import_lab_definitions` gives each lab whose `has_definition` is `0` one, from
-the manifest an older release's `up` saved in its directory: `manifest.toml`, else a legacy
-`manifest.json` (`lab_definition::read_saved_manifest`, which parses either straight into a
-`topology::Manifest`). A saved manifest is the one the client resolved, so only what
-survives as written is stored (`Manifest::definition` without parts as written): `ztp.config`
-holds the file's contents and `environment_variables` their resolved values, so neither is
-imported, and each node that had them is logged; file contents (`*_data`) are dropped; the paths
-of files and scripts are kept. It is stored with `db::store_lab_definition`, which seals
-`ztp_server.password`. A lab whose file is missing or unreadable, does not parse as a current
-manifest (an old-shape one), or names nodes the lab has no records for is logged with a warning
-and left without a definition; nothing is made up for it. The saved manifest never held
-provisioners or `provision_concurrency`, so an imported lab has none.
+#### Files older releases left in lab folders
 
-Then every lab that has a definition and still a saved manifest has all its nodes marked as
-imported (`db::mark_definition_imported`; see
-[`DATABASE.md`](DATABASE.md#imported-definitions)): the definition may lack their own
-`ztp.config` and variables, so the web UI refuses to redeploy them until `sherpa redeploy`
-clears the mark. A lab whose marking fails is logged and keeps its files, for the next start.
+Releases 0.6.4 and 0.6.5 converted, at every start, what older releases kept in each lab's
+server folder, `/opt/sherpa/labs/<lab-id>`. Between them they imported the saved `manifest.toml` (or legacy
+`manifest.json`) as the lab's definition and marked its nodes, copied the SSH accounts of
+`lab-info.toml` into the node records, stored each Talos cluster's `clusters/<cluster>/cluster.toml`
+as its plan, and deleted those files with `sherpa_ssh_config`, `sherpa_known_hosts`, the empty
+`ztp/dnsmasq/dnsmasq.leases`, unikernel certificates and each VM's old boot folder, `<node>/`.
+0.7.0 removed those steps, so a server upgrades through 0.6.5, and starts it once, before
+0.7.0.
 
-Then every lab with a record has its saved manifests deleted (`delete_saved_manifests`): exactly
-`manifest.toml` and `manifest.json` in `/opt/sherpa/labs/<lab-id>`, nothing else in the folder,
-and no folder without a lab record. A lab whose definition is stored has them deleted with an
-info log; one whose import was refused, having logged why, with a warning, unreadable files
-included. A file that is not there is skipped, so the step runs on every start; one that cannot
-be deleted is logged and left. Nothing reads the files any more and `up` no longer writes one,
-so after the first start of this release no lab folder holds one, and a lab that was not
-imported stays without a definition (the readers' defaults; see
-[`DATABASE.md`](DATABASE.md#lab-definitions)). Only a failure to list the labs stops startup,
-and then nothing is deleted.
-
-The import can be removed in a later release, once upgrading from a release before this one
-(which saved the files) is no longer supported: every server that ran this release has no saved
-manifest left to import.
-
-#### Lab file import
-
-Releases before schema version 22 kept three more files in each lab's server folder:
-`lab-info.toml`, `sherpa_ssh_config` and `sherpa_known_hosts`. Everything in them is in the
-database now (see [`DATABASE.md`](DATABASE.md)): the lab record holds the lab's details, and the
-node records the addresses, host keys and, since version 22, the account each node's SSH config
-logs in with (`node.ssh_username`), which only `lab-info.toml` held, as `ssh_usernames`. After the
-definition import, `saved_lab_files::move_saved_lab_files` takes every lab with a record:
-
-1. **Store.** It reads the lab's `lab-info.toml` and writes each `ssh_usernames` entry to its
-   node's record (`db::update_node_ssh_username`), skipping entries the record already has and
-   nodes the lab no longer has.
-2. **Delete.** Then it deletes exactly those three files from `/opt/sherpa/labs/<lab-id>`, and
-   nothing else; a lab with no `lab-info.toml` has its SSH files deleted, as the database holds
-   everything they held.
-3. **Unreadable.** A `lab-info.toml` that cannot be read or parsed is logged at warn and the
-   three files are deleted all the same: nothing in a broken file can be stored, and keeping it
-   would warn on every start. Its nodes keep the accounts the database has, the `sherpa`
-   account when it has none. A failure to store keeps all three files, and the next start
-   tries again.
-
-A file that is not there is skipped, so the step runs on every start and a second start does
-nothing. Folders of labs with no record are left alone. Only a failure to list the labs stops
-startup. It can be removed with the definition import.
-
-#### Cluster plan import
-
-Releases before schema version 24 saved each Talos cluster's plan in its folder,
-`/opt/sherpa/labs/<lab-id>/clusters/<cluster>/cluster.toml`. The database holds it now (see
-[`DATABASE.md`](DATABASE.md#talos-cluster-plans)). After the lab file import,
-`saved_cluster_plans::move_saved_cluster_plans` takes every lab with a record:
-
-1. **Read.** It reads the `cluster.toml` of each folder under the lab's `clusters/`. A file that
-   cannot be read or parsed, or names a cluster the lab's definition does not have, is logged at
-   warn with the lab and deleted: nothing in it can be stored. Its cluster has no plan then, so
-   `down` powers its nodes off, a worker `redeploy` is refused and `download` leaves it out.
-2. **Store.** The rest are stored in one transaction (`db::store_talos_cluster_plans`): the
-   endpoint, shared address and load balancer range. The members in the file are not: they are
-   the definition's, at their nodes' addresses.
-3. **Delete.** Then it deletes those files, and nothing else: `secrets.toml`, `talosconfig` and
-   `kubeconfig` stay. A failure to store keeps them, and the next start tries again.
-
-Each step is keyed on the file being there, so a second start does nothing, and a start after a
-crash between storing and deleting stores the same values again. Folders of labs with no record
-are left alone. Only a failure to list the labs stops startup.
-
-#### Unread lab file clean-up
-
-Releases before this one left files in each lab's server folder that nothing reads. Last in
-`upgrade_stored_data`, `unread_lab_files::remove_unread_lab_files` removes them from the folder of
-every lab with a record:
-
-- `ztp/dnsmasq/dnsmasq.leases`, written empty and never mounted in the boot container;
-- `certs/<node>.crt` and `certs/<node>.key` of each unikernel node, issued and never delivered;
-- `<node>/` of each VM node, its boot files, read once to copy its media into the storage pool.
-  Releases now write them to `vm-boot.d/<node>/` and remove them after the copy. A VM named like
-  one of the lab's own folders keeps that folder (`node_ops::node_dir`).
-
-A node's kind comes from its image record. What dnsmasq, QEMU and Docker read stays: the dnsmasq
-config, the TFTP and HTTP files, the pool volumes, container and VM certificates and container
-mounts. A path that is not there is skipped, so a second start does nothing; one that cannot be
-removed is logged and left, as are the node files of a lab whose nodes cannot be listed.
-Folders of labs with no record are left alone. Only a failure to list the labs stops startup.
-`up` and `redeploy` no longer write these files, so the step can be removed with the imports.
+Nothing in sherpad lists a lab folder or reads those file names, so one left behind, by a server
+that skipped 0.6.5 or copied in by hand, is ignored: sherpad starts and serves as usual, and the
+file stays until `destroy` removes the lab's folder. A lab that skipped the import has no
+definition: the readers use their defaults (see [`DATABASE.md`](DATABASE.md#lab-definitions)),
+and the web UI refuses to redeploy its nodes until `sherpa redeploy` stores one. A Talos cluster
+that skipped it has no plan, so `down` powers its nodes off, a worker `redeploy` is refused and
+`download` leaves it out. An old VM boot folder is removed when the node is redeployed.
 
 Shutdown uses SIGINT/SIGTERM. The handlers are registered once, before the server binds any listener, so a registration failure stops startup with an error instead of leaving a server that cannot shut down gracefully. On shutdown, the server cancels the background-service token. With TLS, it also asks the `axum_server::Handle` to perform graceful shutdown with a short timeout. The OpenTelemetry guard flushes traces/metrics when dropped.
 
@@ -1057,13 +976,12 @@ the lab folder, for example:
 > Node 'dev01' cannot be redeployed from the web UI: it needs ztp.config, text_files, which the
 > server does not keep. Run `sherpa redeploy -n dev01` from the lab folder
 
-A node whose definition was imported from a saved manifest (`node.definition_imported`; see
-[`DATABASE.md`](DATABASE.md#imported-definitions)) is refused first, whatever it needs, until a
-`sherpa redeploy` of it clears the mark:
-
-> Node 'dev01' was imported from a saved manifest that did not keep its own ZTP config or
-> environment variables, so it cannot be redeployed from the web UI. Run `sherpa redeploy -n
-> dev01` from the lab folder once; the web UI can redeploy it after that
+A node whose definition 0.6.4 or 0.6.5 imported from a saved manifest, and that has not been
+redeployed from the CLI since, has no `ztp.config`, environment variables or provisioners in it
+(see [`DATABASE.md`](DATABASE.md#imported-definitions)). Those releases marked such nodes and
+refused them here; 0.7.0 dropped the mark, so nothing tells them apart and the web UI rebuilds
+one without those parts. The 0.7.0 upgrade notes say to redeploy them from the CLI, or destroy
+their lab, before upgrading.
 
 A node that needs none of them is redeployed from the definition narrowed to it: the other
 nodes are left out, so their files do not refuse it, and the redeploy stores only that node's

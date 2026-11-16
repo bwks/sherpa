@@ -920,7 +920,7 @@ mod tests {
     async fn the_stored_definition_gives_only_the_ready_timeout() {
         let (db, lab) = lab_with(&[("vm", NodeModel::UbuntuLinux)]).await;
         let lab_id = lab.id.clone().unwrap();
-        // No stored definition: the default, as for a lab without a saved manifest.
+        // No stored definition: the default.
         let none = stored_definition(&db, &lab_id, "lab-0001").await;
         assert_eq!(
             ready_timeout(none.as_ref()),

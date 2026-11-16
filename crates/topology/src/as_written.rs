@@ -67,8 +67,8 @@ impl Manifest {
     /// The manifest to store as the lab's definition: this one, which the client may have
     /// resolved, with the parts in `as_written` as the user wrote them, and with none of the
     /// file contents the client read (every `*_data` field). Without `as_written` (an older
-    /// client, or a saved manifest that was resolved), `ztp.config`, `environment_variables`,
-    /// `provisioners` and `provision_concurrency` are left out rather than stored resolved.
+    /// client), `ztp.config`, `environment_variables`, `provisioners` and
+    /// `provision_concurrency` are left out rather than stored resolved.
     ///
     /// # Errors
     ///

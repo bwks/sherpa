@@ -1,48 +1,22 @@
 //! The lab's definition in the database: the manifest as the user wrote it, built from the
-//! manifest the client sent and the parts as written it sends beside it; what the server reads
-//! of it; and the one-time import of labs stored before definitions were.
+//! manifest the client sent and the parts as written it sends beside it; and what the server
+//! reads of it.
 //!
 //! `up` stores a lab's definition with its records, and `redeploy` the node it rebuilds (see
 //! `db::definition`). The definition holds no file contents and no resolved variable values;
-//! those are sent with each `up` or `redeploy` and used to build the node only. A lab stored
-//! before definitions has none; at startup sherpad imports it from the manifest an older
-//! release saved in the lab's directory, once, and deletes the saved manifest.
-
-use std::collections::HashSet;
-use std::fs;
-use std::io::ErrorKind;
-use std::path::Path;
+//! those are sent with each `up` or `redeploy` and used to build the node only.
 
 use anyhow::{Context, Result};
 use serde_json::Value;
 use tracing::instrument;
 
 use db::Database;
-use shared::data::{DbLab, RecordId};
+use shared::data::RecordId;
 use topology::validate::validate_provisioners;
 use topology::{Manifest, ManifestAsWritten};
 
 use crate::services::error::ServiceError;
 use crate::validate::check_web_redeployable;
-
-/// The manifest an older release saved in each lab's directory.
-const SAVED_MANIFEST_FILE: &str = "manifest.toml";
-/// The manifest releases before the TOML one saved, as JSON.
-const LEGACY_SAVED_MANIFEST_FILE: &str = "manifest.json";
-
-/// What the startup import did.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct ImportSummary {
-    /// Labs whose definition was imported from their saved manifest.
-    pub imported: usize,
-    /// Labs left without a definition: their saved manifest is missing, unreadable or does not
-    /// fit their records. Each is logged.
-    pub skipped: usize,
-    /// Labs whose nodes were marked as imported from a saved manifest.
-    pub marked: usize,
-    /// Saved manifest files deleted.
-    pub deleted: usize,
-}
 
 /// The parts as written the client sent beside the manifest, if it sent them.
 ///
@@ -93,8 +67,8 @@ pub async fn stored_as_written(
 /// The stored definition of the lab `lab_id` (record `lab_record_id`), for the readers that
 /// fall back to defaults without one: resume's `ready_timeout`, and a container's data
 /// interface count when its link ends are made again. `None`, logged at warn, when the lab has
-/// no stored definition (one whose saved manifest could not be imported) or it cannot be read;
-/// the readers then use the defaults, as they did for a missing saved manifest.
+/// no stored definition (one stored by a release before 0.6.4 whose import failed) or it cannot
+/// be read; the readers then use the defaults.
 #[instrument(skip(db, lab_record_id), fields(%lab_id), level = "debug")]
 pub async fn stored_definition(
     db: &Database,
@@ -126,9 +100,8 @@ pub async fn stored_definition(
 /// # Errors
 ///
 /// Fails with a [`ServiceError::Conflict`] when the lab has no stored definition, the node is
-/// not in it, the node is marked as imported from a saved manifest (until a `sherpa redeploy`
-/// clears it), or it needs what the server does not keep (`check_web_redeployable`); and when
-/// the definition or the mark cannot be read.
+/// not in it, or it needs what the server does not keep (`check_web_redeployable`); and when
+/// the definition cannot be read.
 #[instrument(skip(db, lab_record_id), fields(%node_name), level = "debug")]
 pub async fn web_redeploy_manifest(
     db: &Database,
@@ -151,188 +124,18 @@ pub async fn web_redeploy_manifest(
                 "Node '{node_name}' is not in the lab's stored definition"
             ))
         })?;
-    if db::node_definition_imported(db, lab_record_id, node_name).await? {
-        return Err(ServiceError::Conflict(format!(
-            "Node '{node_name}' was imported from a saved manifest that did not keep its own ZTP \
-             config or environment variables, so it cannot be redeployed from the web UI. Run \
-             `sherpa redeploy -n {node_name}` from the lab folder once; the web UI can redeploy \
-             it after that"
-        ))
-        .into());
-    }
     check_web_redeployable(node).map_err(|error| ServiceError::Conflict(error.to_string()))?;
     definition.nodes.retain(|node| node.name == node_name);
     Ok(definition)
 }
 
-/// Store a definition for every lab that has none, from the manifest saved in its directory
-/// under `labs`: `manifest.toml`, or a legacy `manifest.json`. A lab whose manifest is
-/// missing, unreadable, or does not fit its records is logged and left without one; nothing is
-/// made up for it. Then every lab that still has a saved manifest and a definition has all its
-/// nodes marked as imported (`node.definition_imported`), as the definition may lack their own
-/// `ztp.config` and variables, and the web UI refuses to redeploy a marked node; a lab `up`
-/// made since has no saved manifest, and is not marked. Last, every lab's saved manifests are
-/// deleted ([`delete_saved_manifests`]): the definition is the lab's record of its manifest,
-/// and nothing reads the files. A lab whose marking fails keeps its files until the next start.
-///
-/// A saved manifest is the one the client resolved, so only what survives as written is stored
-/// (`Manifest::definition` without parts as written): every parameter but `ztp.config`, which
-/// holds the file's contents, and `environment_variables`, whose `$VAR`s hold their values. The
-/// file contents in it are not stored. It never held provisioners or `provision_concurrency`.
-/// Each dropped field is logged.
-///
-/// # Errors
-///
-/// Fails when the labs cannot be listed; nothing is deleted then.
-#[instrument(skip(db), fields(labs = %labs.display()))]
-pub async fn import_lab_definitions(db: &Database, labs: &Path) -> Result<ImportSummary> {
-    let mut summary = ImportSummary::default();
-    let mut without_definition = HashSet::new();
-    for lab in db::list_labs_without_definition(db).await? {
-        let lab_dir = labs.join(&lab.lab_id);
-        match import_lab(db, &lab, &lab_dir).await {
-            Ok(()) => {
-                tracing::info!(lab_id = %lab.lab_id, "Imported the lab's definition from its saved manifest");
-                summary.imported += 1;
-            }
-            Err(error) => {
-                tracing::warn!(
-                    lab_id = %lab.lab_id,
-                    lab_dir = %lab_dir.display(),
-                    error = format!("{error:#}"),
-                    "Lab has no stored definition and its saved manifest cannot be imported; it \
-                     is left without one"
-                );
-                summary.skipped += 1;
-                without_definition.insert(lab.lab_id);
-            }
-        }
-    }
-    for lab in db::list_labs(db).await? {
-        let lab_dir = labs.join(&lab.lab_id);
-        if without_definition.contains(&lab.lab_id) {
-            summary.deleted += delete_saved_manifests(&lab_dir, &lab.lab_id, false);
-            continue;
-        }
-        if !has_saved_manifest(&lab_dir) {
-            continue;
-        }
-        // A lab with a saved manifest is from before this release: its definition was
-        // imported, now or by a release that kept the file, and may lack the node's own
-        // `ztp.config` and variables. Its nodes are marked before the file goes, so a failure
-        // leaves the file for the next start to mark again.
-        let marked = match db::get_lab_id(&lab) {
-            Ok(lab_record_id) => db::mark_definition_imported(db, &lab_record_id).await,
-            Err(error) => Err(error),
-        };
-        match marked {
-            Ok(nodes) => {
-                tracing::info!(lab_id = %lab.lab_id, nodes, "Marked the lab's nodes as imported from a saved manifest");
-                summary.marked += 1;
-                summary.deleted += delete_saved_manifests(&lab_dir, &lab.lab_id, true);
-            }
-            Err(error) => {
-                tracing::warn!(
-                    lab_id = %lab.lab_id,
-                    error = format!("{error:#}"),
-                    "Failed to mark the lab's nodes as imported; its saved manifest is kept \
-                     until the next start"
-                );
-            }
-        }
-    }
-    Ok(summary)
-}
-
-/// Whether `lab_dir` holds a saved manifest: `manifest.toml` or `manifest.json`, of any kind of
-/// file.
-fn has_saved_manifest(lab_dir: &Path) -> bool {
-    [SAVED_MANIFEST_FILE, LEGACY_SAVED_MANIFEST_FILE]
-        .iter()
-        .any(|file| fs::symlink_metadata(lab_dir.join(file)).is_ok())
-}
-
-/// Store what survives as written of the manifest saved in `lab_dir` as `lab`'s definition.
-async fn import_lab(db: &Database, lab: &DbLab, lab_dir: &Path) -> Result<()> {
-    let manifest = read_saved_manifest(lab_dir)?;
-    for node in &manifest.nodes {
-        let mut dropped = Vec::new();
-        if node.ztp.config.is_some() {
-            dropped.push("ztp.config");
-        }
-        if node.environment_variables.is_some() {
-            dropped.push("environment_variables");
-        }
-        if !dropped.is_empty() {
-            tracing::warn!(
-                lab_id = %lab.lab_id,
-                node_name = %node.name,
-                fields = %dropped.join(", "),
-                "The saved manifest holds these fields resolved, not as written, so they are \
-                 not imported; a redeploy from the lab's manifest stores them"
-            );
-        }
-    }
-    db::store_lab_definition(db, &db::get_lab_id(lab)?, &manifest.definition(None)?)
-        .await
-        .context("The saved manifest does not fit the lab's records")
-}
-
-/// The manifest saved in `lab_dir`: `manifest.toml`, or a legacy `manifest.json` when there is
-/// none.
-fn read_saved_manifest(lab_dir: &Path) -> Result<Manifest> {
-    match fs::read_to_string(lab_dir.join(SAVED_MANIFEST_FILE)) {
-        Ok(contents) => {
-            toml::from_str(&contents).context("The saved manifest is not a valid manifest")
-        }
-        Err(error) if error.kind() == ErrorKind::NotFound => {
-            let contents = fs::read_to_string(lab_dir.join(LEGACY_SAVED_MANIFEST_FILE))
-                .context("Unable to read the saved manifest")?;
-            serde_json::from_str(&contents)
-                .context("The saved legacy manifest is not a valid manifest")
-        }
-        Err(error) => Err(error).context("Unable to read the saved manifest"),
-    }
-}
-
-/// Delete the saved manifests in `lab_dir`, the directory of lab `lab_id`: `manifest.toml` and
-/// a legacy `manifest.json`, and nothing else. `stored` says whether the lab has a stored
-/// definition; a file deleted from a lab without one, its import having logged why, is logged at
-/// warn. A file that is not there is skipped, so this can run on every start; one that cannot
-/// be deleted is logged and left. Returns how many files were deleted.
-#[instrument(skip(lab_dir), fields(lab_dir = %lab_dir.display()), level = "debug")]
-fn delete_saved_manifests(lab_dir: &Path, lab_id: &str, stored: bool) -> usize {
-    let mut deleted = 0;
-    for file in [SAVED_MANIFEST_FILE, LEGACY_SAVED_MANIFEST_FILE] {
-        let path = lab_dir.join(file);
-        match fs::remove_file(&path) {
-            Ok(()) if stored => {
-                tracing::info!(%lab_id, path = %path.display(), "Deleted the saved manifest; the lab's definition is stored");
-                deleted += 1;
-            }
-            Ok(()) => {
-                tracing::warn!(%lab_id, path = %path.display(), "Deleted the saved manifest of a lab that has no stored definition");
-                deleted += 1;
-            }
-            Err(error) if error.kind() == ErrorKind::NotFound => {}
-            Err(error) => {
-                tracing::warn!(%lab_id, path = %path.display(), %error, "Failed to delete the saved manifest");
-            }
-        }
-    }
-    deleted
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::fs;
-    use std::os::unix::fs::PermissionsExt;
-
     use db::{
         DefaultRequest, LabDetails, LabNetworks, SecretKey, apply_schema, create_lab, create_node,
-        create_user, open_in_memory, read_lab_definition, upsert_node_image,
+        create_user, open_in_memory, upsert_node_image,
     };
-    use shared::data::{NodeConfig, NodeModel};
+    use shared::data::{DbLab, NodeConfig, NodeModel};
 
     use crate::services::error::ServiceError;
 
@@ -432,15 +235,16 @@ dst = "dev01::eth2"
             .unwrap();
     }
 
-    /// The saved manifest, as the client resolved it.
-    fn saved() -> Manifest {
+    /// A manifest as the client resolved and sent it.
+    fn resolved() -> Manifest {
         toml::from_str(MANIFEST_TOML).unwrap()
     }
 
-    /// What the import stores of [`saved`]: its parameters as written, without `ztp.config`
-    /// and `environment_variables`, which it holds resolved, and without file contents.
-    fn expected() -> Manifest {
-        let mut manifest = saved();
+    /// The definition of [`resolved`] sent without parts as written: its parameters as written,
+    /// without `ztp.config` and `environment_variables`, which it holds resolved, and without
+    /// file contents.
+    fn without_parts() -> Manifest {
+        let mut manifest = resolved();
         let node = &mut manifest.nodes[0];
         node.ztp.config = None;
         node.environment_variables = None;
@@ -450,214 +254,14 @@ dst = "dev01::eth2"
     }
 
     #[tokio::test]
-    async fn a_saved_toml_manifest_is_imported_once() {
-        let (db, lab) = lab().await;
-        let labs = tempfile::tempdir().unwrap();
-        fs::create_dir(labs.path().join("lab-0001")).unwrap();
-        fs::write(labs.path().join("lab-0001/manifest.toml"), MANIFEST_TOML).unwrap();
-
-        let summary = import_lab_definitions(&db, labs.path()).await.unwrap();
-        assert_eq!(
-            summary,
-            ImportSummary {
-                imported: 1,
-                skipped: 0,
-                marked: 1,
-                deleted: 1,
-            }
-        );
-        let stored = read_lab_definition(&db, lab.id.as_ref().unwrap())
-            .await
-            .unwrap();
-        assert_eq!(stored, Some(expected()));
-        let stored = stored.unwrap();
-        assert_eq!(
-            stored.nodes[0].text_files.as_ref().unwrap()[0].src,
-            "files/motd"
-        );
-        assert_eq!(
-            stored.nodes[0].startup_scripts.as_deref(),
-            Some(&["scripts/start.sh".to_owned()][..])
-        );
-        assert!(!labs.path().join("lab-0001/manifest.toml").exists());
-
-        // A second start finds nothing to import, and nothing to delete.
-        let summary = import_lab_definitions(&db, labs.path()).await.unwrap();
-        assert_eq!(summary, ImportSummary::default());
-    }
-
-    #[tokio::test]
-    async fn a_legacy_json_manifest_is_imported() {
-        let (db, lab) = lab().await;
-        let labs = tempfile::tempdir().unwrap();
-        fs::create_dir(labs.path().join("lab-0001")).unwrap();
-        fs::write(
-            labs.path().join("lab-0001/manifest.json"),
-            serde_json::to_string(&saved()).unwrap(),
-        )
-        .unwrap();
-
-        let summary = import_lab_definitions(&db, labs.path()).await.unwrap();
-        assert_eq!(summary.imported, 1);
-        assert_eq!(summary.deleted, 1);
-        assert!(!labs.path().join("lab-0001/manifest.json").exists());
-        let stored = read_lab_definition(&db, lab.id.as_ref().unwrap())
-            .await
-            .unwrap();
-        assert_eq!(stored, Some(expected()));
-    }
-
-    #[tokio::test]
-    async fn a_missing_manifest_leaves_the_lab_without_a_definition() {
-        let (db, lab) = lab().await;
-        let labs = tempfile::tempdir().unwrap();
-
-        let summary = import_lab_definitions(&db, labs.path()).await.unwrap();
-        assert_eq!(
-            summary,
-            ImportSummary {
-                imported: 0,
-                skipped: 1,
-                marked: 0,
-                deleted: 0,
-            }
-        );
-        let stored = read_lab_definition(&db, lab.id.as_ref().unwrap())
-            .await
-            .unwrap();
-        assert_eq!(stored, None);
-    }
-
-    #[tokio::test]
-    async fn an_unreadable_or_old_shape_manifest_leaves_the_lab_without_a_definition() {
-        let (db, lab) = lab().await;
-        let labs = tempfile::tempdir().unwrap();
-        let lab_dir = labs.path().join("lab-0001");
-        fs::create_dir(&lab_dir).unwrap();
-        let manifest = lab_dir.join("manifest.toml");
-        for contents in [
-            "name = 'core'\nnodes = [\n",
-            "name = 'core'\nnodes = [{ name = 'dev01', model = 'ubuntu_linux', cpu_count = 2 }]\n",
-        ] {
-            fs::write(&manifest, contents).unwrap();
-            let summary = import_lab_definitions(&db, labs.path()).await.unwrap();
-            assert_eq!(summary.skipped, 1, "{contents}");
-            // Unreadable, it is deleted all the same, with a warning.
-            assert_eq!(summary.deleted, 1, "{contents}");
-            assert!(!manifest.exists(), "{contents}");
-        }
-        // A file the server cannot open.
-        fs::write(&manifest, MANIFEST_TOML).unwrap();
-        fs::set_permissions(&manifest, fs::Permissions::from_mode(0o000)).unwrap();
-        if fs::read(&manifest).is_err() {
-            let summary = import_lab_definitions(&db, labs.path()).await.unwrap();
-            assert_eq!(summary.skipped, 1);
-            assert_eq!(summary.deleted, 1);
-            assert!(!manifest.exists());
-        }
-        let stored = read_lab_definition(&db, lab.id.as_ref().unwrap())
-            .await
-            .unwrap();
-        assert_eq!(stored, None);
-    }
-
-    #[tokio::test]
-    async fn a_manifest_that_does_not_fit_the_records_is_not_imported() {
-        let (db, lab) = lab().await;
-        let labs = tempfile::tempdir().unwrap();
-        fs::create_dir(labs.path().join("lab-0001")).unwrap();
-        fs::write(
-            labs.path().join("lab-0001/manifest.toml"),
-            MANIFEST_TOML.replace("dev01", "other"),
-        )
-        .unwrap();
-        let summary = import_lab_definitions(&db, labs.path()).await.unwrap();
-        assert_eq!(summary.skipped, 1);
-        // The import logged why it stored none, so the file is deleted.
-        assert_eq!(summary.deleted, 1);
-        assert!(!labs.path().join("lab-0001/manifest.toml").exists());
-        let stored = read_lab_definition(&db, lab.id.as_ref().unwrap())
-            .await
-            .unwrap();
-        assert_eq!(stored, None);
-    }
-
-    #[tokio::test]
-    async fn a_lab_with_a_stored_definition_has_its_saved_manifests_deleted() {
-        let (db, lab) = lab().await;
-        store(&db, &lab, &toml::to_string(&expected()).unwrap()).await;
-        let labs = tempfile::tempdir().unwrap();
-        let lab_dir = labs.path().join("lab-0001");
-        fs::create_dir(&lab_dir).unwrap();
-        fs::write(lab_dir.join("manifest.toml"), MANIFEST_TOML).unwrap();
-        fs::write(lab_dir.join("manifest.json"), "{ not json").unwrap();
-
-        let summary = import_lab_definitions(&db, labs.path()).await.unwrap();
-        assert_eq!(
-            summary,
-            ImportSummary {
-                imported: 0,
-                skipped: 0,
-                marked: 1,
-                deleted: 2,
-            }
-        );
-        assert!(!lab_dir.join("manifest.toml").exists());
-        assert!(!lab_dir.join("manifest.json").exists());
-        let stored = read_lab_definition(&db, lab.id.as_ref().unwrap())
-            .await
-            .unwrap();
-        assert_eq!(stored, Some(expected()));
-
-        // Idempotent: the next start finds nothing to delete, and does not fail.
-        let summary = import_lab_definitions(&db, labs.path()).await.unwrap();
-        assert_eq!(summary, ImportSummary::default());
-    }
-
-    #[tokio::test]
-    async fn only_the_saved_manifests_are_deleted() {
-        let (db, _lab) = lab().await;
-        let labs = tempfile::tempdir().unwrap();
-        let lab_dir = labs.path().join("lab-0001");
-        let kept = [
-            "lab-info.toml",
-            "manifest.toml.bak",
-            "Manifest.toml",
-            "notes.txt",
-            "configs/manifest.toml",
-            "manifest.toml.d/manifest.toml",
-        ];
-        for file in kept {
-            let path = lab_dir.join(file);
-            fs::create_dir_all(path.parent().unwrap()).unwrap();
-            fs::write(&path, file).unwrap();
-        }
-        fs::write(lab_dir.join("manifest.toml"), MANIFEST_TOML).unwrap();
-        // A directory with no lab record is not a lab's, and is left alone.
-        let other = labs.path().join("lab-9999");
-        fs::create_dir(&other).unwrap();
-        fs::write(other.join("manifest.toml"), MANIFEST_TOML).unwrap();
-        fs::write(other.join("manifest.json"), "{}").unwrap();
-
-        let summary = import_lab_definitions(&db, labs.path()).await.unwrap();
-        assert_eq!(summary.deleted, 1);
-        assert!(!lab_dir.join("manifest.toml").exists());
-        for file in kept {
-            assert_eq!(fs::read_to_string(lab_dir.join(file)).unwrap(), file);
-        }
-        assert!(other.join("manifest.toml").exists());
-        assert!(other.join("manifest.json").exists());
-    }
-
-    #[tokio::test]
     async fn the_readers_get_the_stored_definition_or_none() {
         let (db, lab) = lab().await;
         let lab_id = lab.id.clone().unwrap();
         assert_eq!(stored_definition(&db, &lab_id, "lab-0001").await, None);
-        store(&db, &lab, &toml::to_string(&expected()).unwrap()).await;
+        store(&db, &lab, &toml::to_string(&without_parts()).unwrap()).await;
         assert_eq!(
             stored_definition(&db, &lab_id, "lab-0001").await,
-            Some(expected())
+            Some(without_parts())
         );
     }
 
@@ -733,109 +337,6 @@ ztp = { config = "configs/files01.yaml" }
         );
     }
 
-    /// The refusal of a web UI redeploy of node `name`, marked as imported.
-    fn imported_refusal(name: &str) -> ServiceError {
-        ServiceError::Conflict(format!(
-            "Node '{name}' was imported from a saved manifest that did not keep its own ZTP \
-             config or environment variables, so it cannot be redeployed from the web UI. Run \
-             `sherpa redeploy -n {name}` from the lab folder once; the web UI can redeploy it \
-             after that"
-        ))
-    }
-
-    #[tokio::test]
-    async fn an_imported_lab_is_refused_by_the_web_until_the_cli_redeploys_each_node() {
-        let (db, lab) = lab_with(&[
-            ("plain01", NodeModel::UbuntuLinux),
-            ("plain02", NodeModel::UbuntuLinux),
-        ])
-        .await;
-        let lab_id = lab.id.clone().unwrap();
-        let labs = tempfile::tempdir().unwrap();
-        fs::create_dir(labs.path().join("lab-0001")).unwrap();
-        // A saved manifest of nodes that need nothing the server does not keep, but whose
-        // ztp.config or variables the saved copy may have held resolved.
-        fs::write(
-            labs.path().join("lab-0001/manifest.toml"),
-            "name = \"core\"\nnodes = [\n    { name = \"plain01\", model = \"ubuntu_linux\" },\n    \
-             { name = \"plain02\", model = \"ubuntu_linux\" },\n]\n",
-        )
-        .unwrap();
-        let summary = import_lab_definitions(&db, labs.path()).await.unwrap();
-        assert_eq!(summary.imported, 1);
-        assert_eq!(summary.marked, 1);
-        for name in ["plain01", "plain02"] {
-            let refusal = web_redeploy_manifest(&db, &lab_id, name).await.unwrap_err();
-            assert_eq!(ServiceError::find(&refusal), Some(&imported_refusal(name)));
-        }
-
-        // A CLI redeploy sends the parts as written, and clears the node's mark.
-        let manifest = read_lab_definition(&db, &lab_id).await.unwrap().unwrap();
-        let node_id = db::get_node_by_name_and_lab(&db, "plain01", lab_id.clone())
-            .await
-            .unwrap()
-            .id
-            .unwrap();
-        db::store_redeployed_node(
-            &db,
-            &lab_id,
-            &node_id,
-            "plain01",
-            &manifest,
-            db::ImportMark::Clear,
-        )
-        .await
-        .unwrap();
-        let redeployable = web_redeploy_manifest(&db, &lab_id, "plain01")
-            .await
-            .unwrap();
-        assert_eq!(redeployable.nodes[0].name, "plain01");
-        let refusal = web_redeploy_manifest(&db, &lab_id, "plain02")
-            .await
-            .unwrap_err();
-        assert_eq!(
-            ServiceError::find(&refusal),
-            Some(&imported_refusal("plain02"))
-        );
-
-        // The next start finds no saved manifest, and marks nothing again.
-        let summary = import_lab_definitions(&db, labs.path()).await.unwrap();
-        assert_eq!(summary, ImportSummary::default());
-        web_redeploy_manifest(&db, &lab_id, "plain01")
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn a_stored_definition_beside_a_saved_manifest_is_marked_and_one_without_is_not() {
-        // A definition stored before this release, whose lab still has its saved manifest,
-        // may have come from the import: it is marked. A lab `up` made since has no saved
-        // manifest, and is not.
-        let (db, lab) = lab().await;
-        let lab_id = lab.id.clone().unwrap();
-        store(&db, &lab, &toml::to_string(&expected()).unwrap()).await;
-        let labs = tempfile::tempdir().unwrap();
-        fs::create_dir(labs.path().join("lab-0001")).unwrap();
-
-        let summary = import_lab_definitions(&db, labs.path()).await.unwrap();
-        assert_eq!(summary, ImportSummary::default());
-        assert!(
-            !db::node_definition_imported(&db, &lab_id, "dev01")
-                .await
-                .unwrap()
-        );
-
-        fs::write(labs.path().join("lab-0001/manifest.json"), "{}").unwrap();
-        let summary = import_lab_definitions(&db, labs.path()).await.unwrap();
-        assert_eq!(summary.marked, 1);
-        assert_eq!(summary.deleted, 1);
-        assert!(
-            db::node_definition_imported(&db, &lab_id, "dev01")
-                .await
-                .unwrap()
-        );
-    }
-
     #[test]
     fn the_definition_takes_the_parts_as_written_and_checks_provisioners() {
         let sent = serde_json::json!({
@@ -847,7 +348,7 @@ ztp = { config = "configs/files01.yaml" }
             } },
         });
         let parts = parse_as_written(Some(sent)).unwrap().unwrap();
-        let stored = definition(&saved(), Some(&parts)).unwrap();
+        let stored = definition(&resolved(), Some(&parts)).unwrap();
         let node = &stored.nodes[0];
         assert_eq!(node.ztp.config.as_deref(), Some("configs/dev01.yaml"));
         assert_eq!(
@@ -867,15 +368,15 @@ ztp = { config = "configs/files01.yaml" }
         }
 
         assert_eq!(parse_as_written(None).unwrap(), None);
-        let without = definition(&saved(), None).unwrap();
-        assert_eq!(without, expected());
+        let without = definition(&resolved(), None).unwrap();
+        assert_eq!(without, without_parts());
 
         let zero = serde_json::json!({ "provision_concurrency": 0 });
         let zero = parse_as_written(Some(zero)).unwrap();
-        assert!(definition(&saved(), zero.as_ref()).is_err());
+        assert!(definition(&resolved(), zero.as_ref()).is_err());
         let ghost = serde_json::json!({ "nodes": { "ghost": {} } });
         let ghost = parse_as_written(Some(ghost)).unwrap();
-        assert!(definition(&saved(), ghost.as_ref()).is_err());
+        assert!(definition(&resolved(), ghost.as_ref()).is_err());
     }
 
     #[tokio::test]
@@ -891,9 +392,13 @@ ztp = { config = "configs/files01.yaml" }
             "nodes": { "dev01": { "ztp_config": "configs/dev01.yaml" } },
         });
         let parts = parse_as_written(Some(sent)).unwrap();
-        db::store_lab_definition(&db, &lab_id, &definition(&saved(), parts.as_ref()).unwrap())
-            .await
-            .unwrap();
+        db::store_lab_definition(
+            &db,
+            &lab_id,
+            &definition(&resolved(), parts.as_ref()).unwrap(),
+        )
+        .await
+        .unwrap();
 
         let kept = stored_as_written(&db, &lab_id, "dev01")
             .await

@@ -672,7 +672,7 @@ stateDiagram-v2
   unikernels by their domain and their port, if any. Those that become ready, and those with
   no check (no stored port, or a skipped check), are recorded `Running`; the others stay
   `Starting`. The lab's stored definition gives only the ready timeout; a lab without one
-  (one whose saved manifest could not be imported) has the default, logged at warn.
+  (one stored before definitions that was never imported) has the default, logged at warn.
 
 ```mermaid
 stateDiagram-v2

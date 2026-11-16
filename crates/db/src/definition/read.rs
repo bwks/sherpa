@@ -6,7 +6,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use tracing::instrument;
 use turso::{Connection, Row};
 
-use shared::data::{CpuTopology, DbLab, NodeModel, RecordId, ZtpServer};
+use shared::data::{CpuTopology, NodeModel, RecordId, ZtpServer};
 use topology::{
     AuthorizedKeyFile, BinaryFile, Bridge, ContainerProvisioner, ContainerSecretFile, Link2,
     Manifest, ManifestImpairment, Node, NodeContainer, NodeUnikernel, NodeVm, Provisioner,
@@ -16,7 +16,7 @@ use topology::{
 
 use super::write::ztp_password_context;
 use crate::Database;
-use crate::persistence::{Cells, LAB_TABLE, key_of, lab_from_row};
+use crate::persistence::{Cells, LAB_TABLE, key_of};
 use crate::queries::definition;
 use crate::secret::open;
 use crate::sql::{query_all, query_optional};
@@ -383,7 +383,7 @@ impl Nodes {
 }
 
 /// The lab `lab_id`'s definition as the manifest it was deployed from, or `None` when the lab
-/// has none (a lab stored before definitions were, whose saved manifest could not be imported).
+/// has none (a lab stored by a release before 0.6.4 that was never imported).
 ///
 /// The manifest is the one stored, as the user wrote it, field for field, but for one rule: an
 /// empty list or an empty `vm`, `container` or `unikernel` table is not stored, and reads back
@@ -683,17 +683,4 @@ fn provisioner_at(node: &mut Node, position: usize) -> Result<&mut Provisioner> 
         .as_mut()
         .and_then(|provisioners| provisioners.get_mut(position))
         .ok_or_else(|| anyhow!("A provisioner row refers to provisioner {position}, not stored"))
-}
-
-/// Every lab that has no stored definition, for the startup import.
-///
-/// # Errors
-///
-/// Fails when the database cannot be read.
-#[instrument(skip(db), level = "debug")]
-pub async fn list_labs_without_definition(db: &Database) -> Result<Vec<DbLab>> {
-    let conn = db.reader().await?;
-    query_all(&conn, definition::LIST_LABS_WITHOUT.bind([]), lab_from_row)
-        .await
-        .context("Failed to list labs without a definition")
 }

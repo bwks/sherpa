@@ -26,10 +26,7 @@ pub mod user;
 
 pub use connect::{Database, open, open_in_memory};
 pub use cpu_pin::{CpuPinTaken, claim_cpu_pins, list_cpu_pins, retain_cpu_pins};
-pub use definition::{
-    ImportMark, list_labs_without_definition, mark_definition_imported, node_definition_imported,
-    read_lab_definition, store_lab_definition, store_redeployed_node,
-};
+pub use definition::{read_lab_definition, store_lab_definition, store_redeployed_node};
 pub use secret::{SecretKey, secret_key_registered, verify_secret_key};
 pub use shared::data::{
     DbBridge, DbCpuPins, DbLab, DbLink, DbNode, DbSession, DbSessionUser, DbUser, NodeConfig,
