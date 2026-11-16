@@ -42,7 +42,8 @@ are in [`../investigations/turso-migration.md`](../investigations/turso-migratio
   `created_at`. It is also compare-and-set: it writes only if the row's `updated_at` is still the
   one in the `DbUser` it was given, and otherwise fails with `UserChanged`, so an edit made from a
   stale read cannot undo a concurrent one. `change_user_password` writes only the hash and
-  `updated_at`, and ends the user's other sessions in the same transaction. A link is created with its impairments in one statement (`create_link` takes a
+  `updated_at`, and ends the user's other sessions in the same transaction.
+  `set_device_password` writes only the sealed device password and `updated_at`. A link is created with its impairments in one statement (`create_link` takes a
   `DbLink`).
 - **Exclusive file.** While `sherpad` has the file open, no other process can open it, including
   the `sqlite3` command; Turso's multi-process mode is experimental. Inspection therefore runs
@@ -60,7 +61,8 @@ are in [`../investigations/turso-migration.md`](../investigations/turso-migratio
   lab's [definition](#lab-definitions). A definition holds the manifest as the user wrote it:
   paths, settings and literal values, **never the contents of files or scripts, nor the values
   of `$VAR` environment variables**. Only the values sealed with the
-  [database key](#secret-values) are ciphertext: `lab.ztp_server_password`. The key is not
+  [database key](#secret-values) are ciphertext: `lab.ztp_server_password` and
+  `user.device_password`. The key is not
   in the database or the backup, so **back up `SHERPA_DB_KEY_PATH`
   (`/opt/sherpa/.secret/db.key`) alongside every backup, but separately from it**: not in the
   backup directory, and not in the same copy. A restored database with no key, or another
@@ -222,6 +224,7 @@ table, copy the rows, drop the old one, rename.
 | 24 | `0024_talos_cluster_plan.sql`: the `talos_cluster_plan` table, what `up` works out for each Talos cluster (endpoint, shared address, load balancer range), keyed on the lab and the cluster's position in `manifest_talos_cluster`. sherpad 0.6.5 filled it at startup from the `cluster.toml` files older releases saved. See [Talos cluster plans](#talos-cluster-plans) |
 | 25 | `0025_drop_node_definition_imported.sql`: drops `node.definition_imported`. Nothing sets it since the startup import was removed (0.7.0), and the web UI no longer refuses a marked node. See [Imported definitions](#imported-definitions) |
 | 26 | `0026_drop_image_ztp_login.sql`: drops `node_image.ztp_username`, `ztp_password` and `ztp_password_auth`, and the two triggers that refused a `ztp_password` not sealed. Sherpa's generated configurations never read them. Stored values, sealed passwords included, are dropped; the images and their `ztp` setting are kept. See [Secret values](#secret-values) |
+| 27 | `0027_user_device_password.sql`: `user.device_password`, the user's [device password](#device-passwords) as sealed text, `NULL` (none) for every user; and two triggers that refuse a value that is not sealed text, on insert and on update |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
@@ -493,8 +496,8 @@ definition (`has_definition` `0`); see
 ### Secret values
 
 No secret is stored in the database as plain text: secret values are sealed, so a database file
-or backup that leaves the server without its key holds only ciphertext. The sealed column is
-`lab.ztp_server_password`. `crates/db/src/secret.rs` has the cipher:
+or backup that leaves the server without its key holds only ciphertext. The sealed columns are
+`lab.ztp_server_password` and `user.device_password`. `crates/db/src/secret.rs` has the cipher:
 
 - **Cipher.** AES-256-GCM, from `aes-gcm` 0.11 (no `getrandom` feature: `rand` makes the
   nonces). Sherpa's code adds no `unsafe`.
@@ -520,11 +523,14 @@ or backup that leaves the server without its key holds only ciphertext. The seal
   match ..."). A key file of the wrong length stops startup as damaged. A sealed value that does
   not open, because the key differs or the value was changed, fails its read and names its place.
   None of these replace the key file.
-- **Image passwords, removed.** Up to version 25, `node_image.ztp_password` was sealed text
-  (`sealed:` and the sealed value in lower-case hex, made only by `seal_text`, with triggers
-  that refused anything else), and sherpad sealed values older releases stored as plain text at
-  startup (`seal_plain_image_passwords`). Version 26 drops the column, its triggers and that
-  pass, and `seal_text` and `open_text` went with them, as nothing else used them.
+- **Sealed text.** A `TEXT` column holds a `SealedText`: `sealed:` and the sealed value in
+  lower-case hex. Only `seal_text` makes one, so a writer that binds one cannot store plain text,
+  and `open_text` refuses a value without the prefix. The column's insert and update triggers
+  refuse any other value with `<table>.<column> must be sealed`: it must start `sealed:`, have
+  at least 65 characters (the prefix and the hex of the shortest sealed value, 29 bytes) and
+  only lower-case hex after the prefix. `user.device_password` is the one such column. Up to
+  version 25 `node_image.ztp_password` was one too; version 26 dropped it with its triggers and
+  sherpad's startup pass that sealed plain values older releases stored.
 - **Another secret field** is a `BLOB` column with a `length() >= 29` check, written with
   `seal(key, value, place)` and read with `open(key, sealed, place)`, where `place` names the
   column and row.
@@ -532,6 +538,25 @@ or backup that leaves the server without its key holds only ciphertext. The seal
 There is no key rotation yet, and no recovery from a lost key: sherpad refuses to start on a
 database whose key check it cannot open, so a lost key stops the server until the key file is
 restored.
+
+### Device passwords
+
+`user.device_password` is the user's device password, their login password on lab nodes: sealed
+text bound to the user's row (`user.device_password:<user key>`), or `NULL` when they have set
+none. It is not part of `DbUser`, and no user query but the three below reads it, so listing or
+editing users never touches it. `crates/db/src/user/device_password.rs` has:
+
+- `set_device_password(db, id, password)`: seals the password for the row and writes it with
+  `updated_at`. The caller checks who may set it and the password rule
+  (`server::services::user_device_password`, see [`SERVER.md`](SERVER.md#device-passwords)).
+- `device_password_set(db, id)`: whether one is set, without opening it. `user.info`,
+  `user.list` and the Profile page show this.
+- `open_device_password(db, id)`: the password opened, as a `DevicePassword`, whose `Debug`
+  prints `DevicePassword([REDACTED])` and which has no `Serialize`, so no response can carry it.
+  It is for the places that build a node's configuration (`up` and `redeploy`, from #649's next
+  change); a value that does not open, for another row or under another key, is an error.
+
+There is no clear: a user replaces a forgotten device password with a new one.
 
 ### What the user said about a lab
 

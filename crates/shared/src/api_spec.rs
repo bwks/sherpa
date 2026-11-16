@@ -12,9 +12,10 @@ use crate::data::{
     ImportResponse, InspectRequest, InspectResponse, LabNodeActionResponse, ListImagesRequest,
     ListImagesResponse, ListUsersRequest, ListUsersResponse, LoginRequest, LoginResponse,
     LogoutResponse, RedeployRequest, RedeployResponse, RemoveSshKeyRequest, ScanImagesRequest,
-    ScanImagesResponse, SetDefaultImageRequest, SetDefaultImageResponse, ShowImageRequest,
-    ShowImageResponse, UpRequest, UpResponse, UpdateImpairmentRequest, UpdateImpairmentResponse,
-    UserSshKeysResponse, ValidateRequest, ValidateResponse,
+    ScanImagesResponse, SetDefaultImageRequest, SetDefaultImageResponse, SetDevicePasswordRequest,
+    SetDevicePasswordResponse, ShowImageRequest, ShowImageResponse, UpRequest, UpResponse,
+    UpdateImpairmentRequest, UpdateImpairmentResponse, UserSshKeysResponse, ValidateRequest,
+    ValidateResponse,
 };
 
 /// Top-level unified API specification
@@ -500,6 +501,20 @@ const OPERATIONS: &[Operation] = &[
         cli_command: "sherpa server user passwd",
     },
     Operation {
+        name: "user.device_password.set",
+        description: "Set your own device password, your login password on lab nodes. Self only, admins included; needs your Sherpa login password",
+        category: Category::Admin,
+        auth: AuthRequirement::Authenticated,
+        request_schema: Some("SetDevicePasswordRequest"),
+        response_schema: Some("SetDevicePasswordResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/admin/users/{username}/device-password",
+        stream_type: None,
+        rpc_method: "user.device_password.set",
+        rpc_streaming: false,
+        cli_command: "sherpa server user device-password",
+    },
+    Operation {
         name: "user.info",
         description: "Get detailed information about a user",
         category: Category::Admin,
@@ -658,6 +673,8 @@ fn build_schemas() -> BTreeMap<String, serde_json::Value> {
     add_schema::<DeleteUserResponse>(&mut schemas);
     add_schema::<ChangePasswordRequest>(&mut schemas);
     add_schema::<ChangePasswordResponse>(&mut schemas);
+    add_schema::<SetDevicePasswordRequest>(&mut schemas);
+    add_schema::<SetDevicePasswordResponse>(&mut schemas);
     add_schema::<GetUserInfoRequest>(&mut schemas);
     add_schema::<GetUserInfoResponse>(&mut schemas);
     add_schema::<AddSshKeyRequest>(&mut schemas);
@@ -850,7 +867,7 @@ mod tests {
     #[test]
     fn test_build_spec_has_28_operations() {
         let spec = build_spec();
-        assert_eq!(spec.operations.len(), 28);
+        assert_eq!(spec.operations.len(), 29);
     }
 
     #[test]
@@ -924,6 +941,7 @@ mod tests {
             "user.list",
             "user.delete",
             "user.passwd",
+            "user.device_password.set",
             "user.info",
             "user.ssh_key.add",
             "user.ssh_key.remove",

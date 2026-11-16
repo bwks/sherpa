@@ -11,7 +11,7 @@ use super::dispatch::{parse, respond};
 use crate::api::websocket::messages::RpcError;
 use crate::auth::context::AuthContext;
 use crate::daemon::state::AppState;
-use crate::services::{user_delete, user_password, user_ssh_keys};
+use crate::services::{user_delete, user_device_password, user_password, user_ssh_keys};
 
 const RPC_MSG_ACCESS_DENIED_OWN_INFO: &str =
     "Access denied: you can only view your own information";
@@ -19,12 +19,15 @@ const RPC_MSG_USER_CREATE_FAILED: &str = "Failed to create user";
 const RPC_MSG_USER_LIST_FAILED: &str = "Failed to list users";
 const RPC_MSG_USER_DELETE_FAILED: &str = "Failed to delete user";
 const RPC_MSG_USER_PASSWORD_UPDATE_FAILED: &str = "Failed to update password";
+const RPC_MSG_DEVICE_PASSWORD_SET_FAILED: &str = "Failed to set the device password";
 const RPC_MSG_SSH_KEY_ADD_FAILED: &str = "Failed to add SSH key";
 const RPC_MSG_SSH_KEY_REMOVE_FAILED: &str = "Failed to remove SSH key";
 const RPC_MSG_INVALID_PARAMS_CREATE_USER: &str = "Invalid params: expected CreateUserRequest";
 const RPC_MSG_INVALID_PARAMS_DELETE_USER: &str = "Invalid params: expected DeleteUserRequest";
 const RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD: &str =
     "Invalid params: expected ChangePasswordRequest";
+const RPC_MSG_INVALID_PARAMS_SET_DEVICE_PASSWORD: &str =
+    "Invalid params: expected SetDevicePasswordRequest";
 const RPC_MSG_INVALID_PARAMS_GET_USER_INFO: &str = "Invalid params: expected GetUserInfoRequest";
 const RPC_MSG_INVALID_PARAMS_ADD_SSH_KEY: &str = "Invalid params: expected AddSshKeyRequest";
 const RPC_MSG_INVALID_PARAMS_REMOVE_SSH_KEY: &str = "Invalid params: expected RemoveSshKeyRequest";
@@ -64,12 +67,12 @@ pub(super) async fn create(
 
 /// Admin only; the dispatcher checks.
 pub(super) async fn list(ctx: &AuthContext, state: &AppState) -> Result<Value, RpcError> {
-    let users = db::list_users(&state.db).await.map(|users| {
-        tracing::debug!(admin = %ctx.username, count = users.len(), "Listed users");
-        data::ListUsersResponse {
-            users: users.into_iter().map(user_info).collect(),
-        }
-    });
+    let users = user_device_password::list_user_info(&state.db)
+        .await
+        .map(|users| {
+            tracing::debug!(admin = %ctx.username, count = users.len(), "Listed users");
+            data::ListUsersResponse { users }
+        });
     respond(users, RPC_MSG_USER_LIST_FAILED)
 }
 
@@ -105,6 +108,27 @@ pub(super) async fn change_password(
     )
 }
 
+/// Self only, admins included; the service checks.
+pub(super) async fn set_device_password(
+    ctx: &AuthContext,
+    params: Value,
+    state: &AppState,
+) -> Result<Value, RpcError> {
+    let request: data::SetDevicePasswordRequest =
+        parse(params, RPC_MSG_INVALID_PARAMS_SET_DEVICE_PASSWORD)?;
+    respond(
+        user_device_password::set_device_password(
+            ctx,
+            &request.username,
+            &request.login_password,
+            &request.device_password,
+            &state.db,
+        )
+        .await,
+        RPC_MSG_DEVICE_PASSWORD_SET_FAILED,
+    )
+}
+
 /// Users see their own account; admins see anyone's.
 pub(super) async fn info(
     ctx: &AuthContext,
@@ -130,9 +154,9 @@ pub(super) async fn info(
         .context("Failed to look up user");
     match user {
         Ok(Some(user)) => respond(
-            Ok(data::GetUserInfoResponse {
-                user: user_info(user),
-            }),
+            user_device_password::user_info(user, &state.db)
+                .await
+                .map(|user| data::GetUserInfoResponse { user }),
             RPC_MSG_USER_INFO_FAILED,
         ),
         Ok(None) => Err(RpcError {
@@ -167,15 +191,4 @@ pub(super) async fn remove_ssh_key(
         user_ssh_keys::remove_ssh_key(ctx, &request.username, &request.ssh_key, state).await,
         RPC_MSG_SSH_KEY_REMOVE_FAILED,
     )
-}
-
-/// The account details a user may see; no password hash.
-fn user_info(user: data::DbUser) -> data::UserInfo {
-    data::UserInfo {
-        username: user.username,
-        is_admin: user.is_admin,
-        ssh_keys: user.ssh_keys,
-        created_at: user.created_at.as_second(),
-        updated_at: user.updated_at.as_second(),
-    }
 }

@@ -25,9 +25,9 @@ use super::handlers::{
     login, login_form_handler, login_page_handler, logout_handler, logout_json,
     node_detail_handler, node_redeploy_handler, node_start_handler, node_stop_handler,
     openapi_handler, profile_handler, pull_image_json, redeploy_node_json, remove_ssh_key_json,
-    resume_lab_json, scan_images_json, set_default_image_json, show_image_json,
-    signup_form_handler, signup_page_handler, update_impairment_json, update_password_handler,
-    upload_image_multipart, validate_token_json,
+    resume_lab_json, scan_images_json, set_default_image_json, set_device_password_json,
+    show_image_json, signup_form_handler, signup_page_handler, update_device_password_handler,
+    update_impairment_json, update_password_handler, upload_image_multipart, validate_token_json,
 };
 
 #[derive(Embed)]
@@ -134,6 +134,10 @@ fn user_page_routes() -> Router<AppState> {
         )
         .route("/profile", get(profile_handler))
         .route("/profile/password", post(update_password_handler))
+        .route(
+            "/profile/device-password",
+            post(update_device_password_handler),
+        )
         .route("/profile/ssh-keys", post(add_ssh_key_handler))
         .route("/profile/ssh-keys/{index}", delete(delete_ssh_key_handler))
 }
@@ -252,6 +256,10 @@ fn api_routes() -> Router<AppState> {
         .route(
             "/api/v1/admin/users/{username}/password",
             post(change_password_json),
+        )
+        .route(
+            "/api/v1/admin/users/{username}/device-password",
+            post(set_device_password_json),
         )
         .route(
             "/api/v1/admin/users/{username}/ssh-keys",

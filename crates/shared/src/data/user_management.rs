@@ -2,6 +2,8 @@
 //!
 //! These types define the JSON-RPC request/response formats for user management operations.
 
+use std::fmt;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -59,6 +61,8 @@ pub struct UserInfo {
     pub created_at: i64,
     /// When the user was last updated (Unix timestamp)
     pub updated_at: i64,
+    /// Whether the user has set a device password. The password itself is never returned.
+    pub device_password_set: bool,
 }
 
 /// Request to delete a user (admin only)
@@ -101,6 +105,40 @@ pub struct ChangePasswordResponse {
     pub username: String,
     /// Whether the change was successful
     pub success: bool,
+}
+
+/// Request to set your own device password, your login password on lab nodes. Only the
+/// account's own user may set it, admins included, and it needs their Sherpa login password.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetDevicePasswordRequest {
+    /// Your own username
+    pub username: String,
+    /// Your Sherpa login password
+    pub login_password: String,
+    /// The new device password; it must differ from the login password
+    pub device_password: String,
+    /// Caller's authentication token
+    pub token: String,
+}
+
+impl fmt::Debug for SetDevicePasswordRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SetDevicePasswordRequest")
+            .field("username", &self.username)
+            .field("login_password", &"[REDACTED]")
+            .field("device_password", &"[REDACTED]")
+            .finish_non_exhaustive()
+    }
+}
+
+/// Response after setting a device password
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SetDevicePasswordResponse {
+    /// User whose device password was set
+    pub username: String,
+    /// Whether the user has a device password now
+    pub device_password_set: bool,
 }
 
 /// Request to get detailed user info
@@ -148,4 +186,24 @@ pub struct UserSshKeysResponse {
     pub username: String,
     /// The user's SSH public keys
     pub ssh_keys: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_device_password_request_prints_no_password() {
+        let request = SetDevicePasswordRequest {
+            username: "alice".to_owned(),
+            login_password: "Login-Pass-123!".to_owned(),
+            device_password: "Granite-Owl42".to_owned(),
+            token: "token-value".to_owned(),
+        };
+        let printed = format!("{request:?}");
+        assert!(printed.contains("alice"), "{printed}");
+        for secret in ["Login-Pass-123!", "Granite-Owl42", "token-value"] {
+            assert!(!printed.contains(secret), "{printed}");
+        }
+    }
 }

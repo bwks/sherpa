@@ -6,7 +6,10 @@
 //! Every value gets a fresh random nonce. The value's place, its table, column and row key, is
 //! the associated data, so a sealed value copied to another row or column does not open.
 //!
-//! A `BLOB` column that holds a secret stores `seal`'s output, and its reader calls `open`. The
+//! A `BLOB` column that holds a secret stores `seal`'s output, and its reader calls `open`. A
+//! `TEXT` column, such as `user.device_password`, stores a [`SealedText`]: `sealed:` and the
+//! sealed bytes in lower-case hex. `SealedText` is made only by [`seal_text`], so a writer that
+//! binds one cannot store plain text, and the table's triggers refuse any other value. The
 //! `secret_key_check` row proves which key the database's values are sealed with: sherpad
 //! checks the key against it at startup ([`verify_secret_key`]).
 
@@ -35,6 +38,20 @@ const CHECK_ROW: i64 = 1;
 const CHECK_PLAINTEXT: &[u8] = b"sherpa database key";
 /// Where the check value is, its associated data.
 const CHECK_CONTEXT: &str = "secret_key_check.sealed:1";
+
+/// The prefix of a [`SealedText`].
+pub(crate) const SEALED_TEXT_PREFIX: &str = "sealed:";
+
+/// A secret sealed for a `TEXT` column: [`SEALED_TEXT_PREFIX`], then the sealed value in
+/// lower-case hex. Only [`seal_text`] makes one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SealedText(String);
+
+impl From<SealedText> for Value {
+    fn from(sealed: SealedText) -> Self {
+        Value::Text(sealed.0)
+    }
+}
 
 /// The key that seals the database's secret values: 32 random bytes. It is never stored in the
 /// database, and its `Debug` shows no bytes.
@@ -141,6 +158,53 @@ pub(crate) fn open(key: &SecretKey, sealed: &[u8], context: &str) -> Result<Vec<
                  been changed"
             )
         })
+}
+
+/// Seal `plaintext` for the `TEXT` column place named by `context`, under `key`.
+pub(crate) fn seal_text(key: &SecretKey, plaintext: &str, context: &str) -> Result<SealedText> {
+    let sealed = seal(key, plaintext.as_bytes(), context)?;
+    let mut text = String::with_capacity(SEALED_TEXT_PREFIX.len() + sealed.len() * 2);
+    text.push_str(SEALED_TEXT_PREFIX);
+    for byte in sealed {
+        text.push(char::from(HEX_DIGITS[usize::from(byte >> 4)]));
+        text.push(char::from(HEX_DIGITS[usize::from(byte & 0x0f)]));
+    }
+    Ok(SealedText(text))
+}
+
+/// Open `stored`, a [`SealedText`] read from the `TEXT` column place named by `context`.
+///
+/// # Errors
+///
+/// Fails when `stored` is not a sealed text, as plain text is not, and as `open` does.
+pub(crate) fn open_text(key: &SecretKey, stored: &str, context: &str) -> Result<String> {
+    let Some(hex) = stored.strip_prefix(SEALED_TEXT_PREFIX) else {
+        bail!("{context} is not sealed");
+    };
+    if hex.len() % 2 != 0 {
+        bail!("{context} is not a sealed value: its hex has an odd length");
+    }
+    let mut sealed = Vec::with_capacity(hex.len() / 2);
+    for pair in hex.as_bytes().chunks(2) {
+        let [high, low] = pair else {
+            bail!("{context} is not a sealed value");
+        };
+        sealed.push((hex_value(*high, context)? << 4) | hex_value(*low, context)?);
+    }
+    String::from_utf8(open(key, &sealed, context)?)
+        .with_context(|| format!("{context} is not text"))
+}
+
+/// The lower-case hex digits.
+const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
+
+/// The value of the lower-case hex digit `digit`.
+fn hex_value(digit: u8, context: &str) -> Result<u8> {
+    match digit {
+        b'0'..=b'9' => Ok(digit - b'0'),
+        b'a'..=b'f' => Ok(digit - b'a' + 10),
+        _ => bail!("{context} is not a sealed value: it is not lower-case hex"),
+    }
 }
 
 fn sealed_from_row(row: &Row) -> Result<Vec<u8>> {
@@ -277,6 +341,28 @@ mod tests {
             "nonces repeat"
         );
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn sealed_text_is_prefixed_hex_and_opens_only_sealed() {
+        let key = SecretKey::generate();
+        let sealed = seal_text(&key, "cisco", "user.device_password:abc").unwrap();
+        let Value::Text(text) = Value::from(sealed) else {
+            panic!("sealed text is not text");
+        };
+        let hex = text.strip_prefix(SEALED_TEXT_PREFIX).unwrap();
+        assert!(hex.bytes().all(|byte| HEX_DIGITS.contains(&byte)), "{text}");
+        assert!(!text.contains("cisco"));
+        assert_eq!(
+            open_text(&key, &text, "user.device_password:abc").unwrap(),
+            "cisco"
+        );
+        for stored in ["cisco", "sealed:zz", "sealed:abc", "sealed:00"] {
+            assert!(open_text(&key, stored, "place").is_err(), "{stored}");
+        }
+        let error = open_text(&key, "cisco", "place").unwrap_err();
+        assert!(error.to_string().contains("not sealed"), "{error}");
+        assert!(open_text(&key, &text, "user.device_password:other").is_err());
     }
 
     #[test]

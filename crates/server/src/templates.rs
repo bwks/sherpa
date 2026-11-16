@@ -267,6 +267,24 @@ pub struct ProfileTemplate {
     pub nav: Nav,
     /// Rendered in place, and on its own for HTMX swaps.
     pub ssh_keys_list: SshKeysListTemplate,
+    /// Whether the user has a device password, rendered in place.
+    pub device_password_status: DevicePasswordStatusTemplate,
+}
+
+/// Whether the user has a device password: `set` or `not set`. Rendered in the profile page, and
+/// out of band after the password is set, so the page shows the new state.
+#[derive(Template, WebTemplate)]
+#[template(path = "user/partials/device-password-status.html.jinja")]
+pub struct DevicePasswordStatusTemplate {
+    pub set: bool,
+    pub oob: bool,
+}
+
+/// The device password was set: a message, and the status swapped in out of band.
+#[derive(Template, WebTemplate)]
+#[template(path = "user/partials/device-password-success.html.jinja")]
+pub struct DevicePasswordSuccessTemplate {
+    pub status: DevicePasswordStatusTemplate,
 }
 
 /// SSH keys list partial template
@@ -731,11 +749,32 @@ mod tests {
             ssh_keys_list: SshKeysListTemplate {
                 ssh_keys: vec!["ssh-ed25519 AAAAkey testuser".to_string()],
             },
+            device_password_status: DevicePasswordStatusTemplate {
+                set: false,
+                oob: false,
+            },
         }
         .render()
         .expect("template should render");
         assert!(html.contains(r#"<div id="ssh-keys-list">"#));
         assert!(html.contains("ssh-ed25519 AAAAkey testuser"));
+        assert!(html.contains(r#"hx-post="/profile/device-password""#));
+        assert!(html.contains(">not set</span>"));
+    }
+
+    #[test]
+    fn a_set_device_password_shows_set_and_swaps_the_status_out_of_band() {
+        let html = DevicePasswordSuccessTemplate {
+            status: DevicePasswordStatusTemplate {
+                set: true,
+                oob: true,
+            },
+        }
+        .render()
+        .expect("template should render");
+        assert!(html.contains("Device password set"));
+        assert!(html.contains(r#"<span id="device-password-status" hx-swap-oob="true""#));
+        assert!(html.contains(">set</span>"));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! The signed-in user's profile: password and SSH keys.
+//! The signed-in user's profile: password, device password and SSH keys.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -7,10 +7,10 @@ use serde::Deserialize;
 
 use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
-use crate::services::user_password;
+use crate::services::{user_device_password, user_password};
 use crate::templates::{
-    NavPage, PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate, SshKeyErrorTemplate,
-    SshKeysListTemplate,
+    DevicePasswordStatusTemplate, DevicePasswordSuccessTemplate, NavPage, PasswordErrorTemplate,
+    PasswordSuccessTemplate, ProfileTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
 };
 
 use crate::api::extractors::AuthenticatedUserFromCookie;
@@ -26,6 +26,19 @@ pub struct UpdatePasswordForm {
     new: String,
     #[serde(rename = "confirm_new_password")]
     confirm_new: String,
+}
+
+/// Form data for setting the device password. It names no user: it is always the caller's own,
+/// and a form that tries to name one is refused.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateDevicePasswordForm {
+    #[serde(rename = "login_password")]
+    login: String,
+    #[serde(rename = "device_password")]
+    device: String,
+    #[serde(rename = "confirm_device_password")]
+    confirm_device: String,
 }
 
 /// Form data for adding SSH key
@@ -44,8 +57,12 @@ pub async fn profile_handler(
     State(state): State<AppState>,
     auth: AuthenticatedUserFromCookie,
 ) -> impl IntoResponse {
-    // Fetch user from database to get current SSH keys
-    let user = match db::get_user(&state.db, &auth.username).await {
+    // Fetch user from database to get current SSH keys and the device password state
+    let loaded = match db::get_user(&state.db, &auth.username).await {
+        Ok(user) => user_device_password::user_info(user, &state.db).await,
+        Err(e) => Err(e),
+    };
+    let user = match loaded {
         Ok(user) => user,
         Err(e) => {
             tracing::error!(
@@ -63,6 +80,10 @@ pub async fn profile_handler(
         nav: NavPage::Other.into(),
         ssh_keys_list: SshKeysListTemplate {
             ssh_keys: user.ssh_keys,
+        },
+        device_password_status: DevicePasswordStatusTemplate {
+            set: user.device_password_set,
+            oob: false,
         },
     }
     .into_response()
@@ -111,6 +132,54 @@ pub async fn update_password_handler(
     PasswordSuccessTemplate {
         message: "Password updated successfully. Your other sessions have been logged out."
             .to_string(),
+    }
+    .into_response()
+}
+
+/// Set the signed-in user's own device password
+///
+/// POST `/profile/device-password`
+///
+/// Checks the login password, the device password rule and that the two differ, then stores it.
+/// Returns an HTML fragment for HTMX swap: a message, and on success the new status out of band.
+pub async fn update_device_password_handler(
+    State(state): State<AppState>,
+    auth: AuthenticatedUserFromCookie,
+    axum::Form(form): axum::Form<UpdateDevicePasswordForm>,
+) -> impl IntoResponse {
+    if form.device != form.confirm_device {
+        return PasswordErrorTemplate {
+            message: "Device passwords do not match".to_string(),
+        }
+        .into_response();
+    }
+
+    let ctx = auth.into_context();
+    if let Err(error) = user_device_password::set_device_password(
+        &ctx,
+        &ctx.username,
+        &form.login,
+        &form.device,
+        &state.db,
+    )
+    .await
+    {
+        let message = if let Some(refusal @ (ServiceError::Denied(_) | ServiceError::Invalid(_))) =
+            ServiceError::find(&error)
+        {
+            refusal.to_string()
+        } else {
+            tracing::error!(username = %ctx.username, "Failed to set the device password: {error:?}");
+            "Failed to set the device password".to_owned()
+        };
+        return PasswordErrorTemplate { message }.into_response();
+    }
+
+    DevicePasswordSuccessTemplate {
+        status: DevicePasswordStatusTemplate {
+            set: true,
+            oob: true,
+        },
     }
     .into_response()
 }

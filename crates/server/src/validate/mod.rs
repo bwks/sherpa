@@ -3,6 +3,7 @@
 //! Validators shared with other crates live in `shared::validators`, and manifest checks
 //! shared with the client live in `topology::validate`.
 
+mod device_password;
 mod environment;
 mod host_resources;
 mod image_scan;
@@ -18,6 +19,7 @@ mod version;
 mod web_redeploy;
 mod ztp;
 
+pub use device_password::validate_device_password;
 pub use environment::validate_environment_variables;
 pub use host_resources::{check_container_cpus, check_host_resources};
 pub use image_scan::validate_image_scan;

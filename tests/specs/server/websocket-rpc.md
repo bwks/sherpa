@@ -76,6 +76,7 @@
 - `user.list` returns all users `[integration]` **P0**
 - `user.delete` removes user `[integration]` **P0**
 - `user.passwd` changes user password `[integration]` **P1**
+- `user.device_password.set` sets the caller's own device password only, needs the login password, refuses one equal to it; `user.info` and `user.list` show `device_password_set` `[integration]` **P0**
 - `user.info` returns user details `[integration]` **P1**
 - All user methods reject non-admin callers `[integration]` **P0**
 
