@@ -1,7 +1,9 @@
 //! Writing the Generation sections of pull requests: which are due, and writing them with `gh`.
 //!
 //! A sync renders, under the record's lock, the section of each pull request it looks at from
-//! the record's rows merged into the section it last wrote, and compares the two: unchanged
+//! the record's rows for that pull request (`placement` decides which pull request counts each
+//! task and each response of the host) merged into the section it last wrote, and compares the
+//! two: unchanged
 //! text makes no `gh` call at all. It then lets the record go before any network call, reads
 //! each due body and state with `gh pr view`, rewrites the section (`section::update_body`)
 //! and sets the body with `gh pr edit --body-file -`, then takes the record again to keep the
@@ -10,7 +12,9 @@
 //! - A change in the host's rows alone is written at most once every `DEBOUNCE` per pull
 //!   request; a change in a task's row (a new outcome) is written at once, and so is every
 //!   change when the sync is forced (`generation sync`, the `SessionEnd` hook).
-//! - A pull request seen merged or closed gets that one last write, and is frozen from then on.
+//! - A pull request seen merged or closed gets that one last write, and is frozen from then on;
+//!   `generation sync --pr N --frozen` rewrites one frozen section under the current rules,
+//!   keeping the time of its final write.
 //! - A pull request never written is looked at only when its item was active since the first
 //!   sync, so the first sync does not rewrite the bodies of long-merged pull requests;
 //!   `generation sync --all` and `--pr` look at it anyway.
@@ -32,7 +36,9 @@ use crate::files::millis;
 use crate::generation::section::{Rows, hand_written, read, section_of, update_body};
 use crate::gh::{GH, GH_TOKEN_VARIABLE, gh_command, run, stderr};
 use crate::record::{Paths, Record};
-use crate::store::generation::{LastWrite, PullRequest, pull_requests, rows, save, since, written};
+use crate::store::generation::{
+    LastWrite, PullRequest, placements, pull_requests, rows, save, since, written,
+};
 
 /// The variable naming the `gh` to run instead of the one on `PATH`.
 pub const GH_VARIABLE: &str = "AGENT_BUS_GH";
@@ -65,6 +71,12 @@ pub struct Request {
     pub scope: Scope,
     /// Write at once, without the debounce of the host's rows.
     pub force: bool,
+    /// Rewrite the section of a merged or closed pull request (`--pr N --frozen`), which is
+    /// otherwise left as its final write made it.
+    pub frozen: bool,
+    /// The host's repository (`AGENT_BUS_REPO`): its pull request counts a task that named one
+    /// in it and one in another repository.
+    pub home_repo: Option<String>,
 }
 
 /// What happened to one pull request's section.
@@ -105,6 +117,8 @@ struct Due {
     /// When the first sync ran, for an automatic sync: a pull request never written that was
     /// merged or closed before it is frozen as it is. `None` for `--pr` and `--all`.
     since_ms: Option<u64>,
+    /// Whether a frozen section is rewritten (`--frozen`).
+    frozen: bool,
 }
 
 /// What a pull request needs, from what was last written and the record's rows.
@@ -172,6 +186,7 @@ pub async fn sync(
     let conn = record.conn();
     let since_ms = since(conn, now_ms).await?;
     let mut prior = written(conn).await?;
+    let placements = placements(conn, request.home_repo.as_deref()).await?;
     let looked_at: Vec<PullRequest> = pull_requests(conn)
         .await?
         .into_iter()
@@ -195,7 +210,7 @@ pub async fn sync(
             ..LastWrite::default()
         });
         last.work = pull_request.work;
-        let ours = rows(conn, pull_request.work).await?;
+        let ours = rows(conn, &pull_request, &placements).await?;
         let outcome = match decide(&last, &ours, request, now_ms) {
             Ok(Decision::Write) if github.token.is_none() => Outcome::Pending,
             Ok(Decision::Write) => {
@@ -203,6 +218,7 @@ pub async fn sync(
                     prior: last,
                     rows: ours,
                     since_ms: (request.scope == Scope::Due).then_some(since_ms),
+                    frozen: request.frozen,
                 });
                 continue;
             }
@@ -325,7 +341,7 @@ fn within_debounce(at: Option<u64>, now_ms: u64) -> bool {
 }
 
 /// Whether a pull request in `state` is frozen: merged or closed.
-fn is_frozen(state: Option<&str>) -> bool {
+pub fn is_frozen(state: Option<&str>) -> bool {
     state.is_some_and(|state| FROZEN.contains(&state))
 }
 
@@ -334,14 +350,17 @@ fn is_frozen(state: Option<&str>) -> bool {
 /// the body has a Generation section written by hand outside the markers, and what happened.
 ///
 /// A pull request that was frozen and is still merged or closed is left alone (`--pr` looked
-/// at it again). One never written, merged or closed before the first sync, is frozen as it is
-/// by an automatic sync.
+/// at it again), unless `--frozen` asked for it to be rewritten: then the time of its final
+/// write is kept, so the host's work after it still goes on to the item's next pull request.
+/// One never written, merged or closed before the first sync, is frozen as it is by an
+/// automatic sync.
 #[instrument(level = "debug", skip_all, fields(repo = %due.prior.repo, number = due.prior.number))]
 async fn write(github: &Github, due: Due, now_ms: u64) -> (LastWrite, bool, Outcome) {
     let Due {
         prior,
         rows,
         since_ms,
+        frozen,
     } = due;
     let mut kept = prior.clone();
     kept.attempted_at_ms = Some(now_ms);
@@ -359,8 +378,8 @@ async fn write(github: &Github, due: Due, now_ms: u64) -> (LastWrite, bool, Outc
         .and_then(|at| u64::try_from(at.as_millisecond()).ok())
         .zip(since_ms)
         .is_some_and(|(closed_ms, since_ms)| closed_ms < since_ms);
-    let left_as_it_is =
-        is_frozen(prior.state.as_deref()) || (prior.section.is_none() && closed_before);
+    let was_frozen = is_frozen(prior.state.as_deref());
+    let left_as_it_is = (was_frozen && !frozen) || (prior.section.is_none() && closed_before);
     if is_frozen(Some(&view.state)) && left_as_it_is {
         kept.state = Some(view.state);
         kept.last_error = None;
@@ -375,7 +394,10 @@ async fn write(github: &Github, due: Due, now_ms: u64) -> (LastWrite, bool, Outc
     let outcome = match written.and_then(|body| written_section(&body)) {
         Ok(section) => {
             kept.section = Some(section);
-            kept.written_at_ms = Some(now_ms);
+            // A frozen section rewritten keeps the time of its final write.
+            if !(was_frozen && is_frozen(Some(&view.state)) && kept.written_at_ms.is_some()) {
+                kept.written_at_ms = Some(now_ms);
+            }
             kept.state = Some(view.state.clone());
             kept.last_error = None;
             Outcome::Written { state: view.state }
@@ -453,7 +475,7 @@ mod tests {
     };
     use crate::price::Tokens;
     use crate::record::{Busy, LOCK_WAIT};
-    use crate::store::host::{add_focus, attribute, keep_prompt, keep_response};
+    use crate::store::host::{Focus, add_focus, attribute, keep_prompt, keep_response};
     use crate::store::{Recorded, Ref, record, ref_item};
 
     const REPO: &str = "o/r";
@@ -596,9 +618,19 @@ esac
                 .await
                 .unwrap()
                 .unwrap();
-            add_focus(conn, NOW - 60 * MINUTE, None, Some(item), "use", None)
-                .await
-                .unwrap();
+            add_focus(
+                conn,
+                &Focus {
+                    from_ms: NOW - 60 * MINUTE,
+                    session: None,
+                    work: Some(item),
+                    source: "use".to_owned(),
+                    task: None,
+                    pull_request: None,
+                },
+            )
+            .await
+            .unwrap();
             keep_prompt(
                 conn,
                 &format!("p-{id}"),
@@ -657,7 +689,12 @@ esac
         }
 
         async fn sync(&self, scope: Scope, force: bool, now_ms: u64) -> Synced {
-            let request = Request { scope, force };
+            let request = Request {
+                scope,
+                force,
+                frozen: false,
+                home_repo: Some(REPO.to_owned()),
+            };
             sync(&self.paths, &request, &self.github, LOCK_WAIT, now_ms)
                 .await
                 .unwrap()
@@ -941,6 +978,8 @@ esac
                 number: 8,
             },
             force: true,
+            frozen: false,
+            home_repo: None,
         };
         let error = sync(&bench.paths, &request, &bench.github, LOCK_WAIT, later)
             .await
@@ -962,6 +1001,8 @@ esac
         let request = Request {
             scope: Scope::Due,
             force: false,
+            frozen: false,
+            home_repo: None,
         };
         let error = sync(
             &bench.paths,
@@ -981,8 +1022,10 @@ esac
     #[tokio::test]
     async fn a_pull_request_merged_before_the_first_sync_is_frozen_without_a_write() {
         let mut bench = Bench::new("merged-before").await;
-        // The item's branch also had pull request 8, merged a day before the first sync.
-        bench.outcome("t1", 1, 0.5, NOW, &[7, 8]).await;
+        // The item's branch also had pull request 8, of an earlier task, merged a day before
+        // the first sync.
+        bench.outcome("t0", 1, 0.5, NOW, &[8]).await;
+        bench.outcome("t1", 1, 0.5, NOW, &[7]).await;
         let merged = json!({
             "body": "Old body",
             "state": "MERGED",
@@ -1156,6 +1199,247 @@ esac
         let calls = bench.calls();
         assert_eq!(calls.len(), 1, "{calls:?}");
         assert!(calls[0].starts_with("pr view 7"), "{calls:?}");
+    }
+
+    const DOCS: &str = "o/r-docs";
+
+    /// Each task of a section with its brought-forward mark and cost, and each pointer with the
+    /// pull request it names.
+    type EditedRows = (Vec<(String, bool, f64)>, Vec<(String, u64)>);
+    /// A task of the worked example: its ID, cost, branch and pull requests.
+    type Example<'a> = (&'a str, f64, Option<&'a str>, &'a [(&'a str, u64)]);
+
+    /// A task of the host tagged with issue 648.
+    fn tagged(id: &str) -> Message {
+        Message {
+            work: Some(Work {
+                refs: vec![WorkRef {
+                    repo: REPO.to_owned(),
+                    kind: RefKind::Issue,
+                    number: 648,
+                }],
+                session: None,
+            }),
+            ..task(id)
+        }
+    }
+
+    /// The outcome of `id`, costing `cost_usd`, ended on `branch` (`None`: the default) with the
+    /// open pull requests `pull_requests`.
+    fn done(
+        id: &str,
+        cost_usd: f64,
+        branch: Option<&str>,
+        pull_requests: &[(&str, u64)],
+    ) -> Message {
+        Message {
+            task: id.to_owned(),
+            from: "dev01".to_owned(),
+            to: "host".to_owned(),
+            kind: Kind::Completed,
+            text: "done".to_owned(),
+            usage: Some(Usage {
+                cost_usd,
+                work_ms: Some(MINUTE),
+                testing_ms: Some(0),
+                ..Usage::default()
+            }),
+            task_usage: Some(TaskUsage {
+                runs: 1,
+                cost_usd,
+                ..TaskUsage::default()
+            }),
+            github: true,
+            model: Some(MODEL.to_owned()),
+            work: None,
+            ended: Some(Ended {
+                repo: REPO.to_owned(),
+                branch: branch.map(str::to_owned),
+                pull_requests: pull_requests
+                    .iter()
+                    .map(|(repo, number)| PullRequestRef {
+                        repo: (*repo).to_owned(),
+                        number: *number,
+                        url: format!("https://github.com/{repo}/pull/{number}"),
+                    })
+                    .collect(),
+            }),
+        }
+    }
+
+    /// The cost of each task in the data of the section last given to `gh pr edit <number>`,
+    /// with its brought-forward mark, and the pointers.
+    fn edited_rows(bench: &Bench, number: u64) -> EditedRows {
+        let body = fs::read_to_string(bench.dir.join(format!("body-{number}.md"))).unwrap();
+        let rows = read(section_of(&body).unwrap().unwrap()).unwrap();
+        (
+            rows.tasks
+                .into_iter()
+                .map(|row| (row.task, row.brought_forward, row.usage.cost_usd))
+                .collect(),
+            rows.counted
+                .into_iter()
+                .map(|pointer| (pointer.task, pointer.number))
+                .collect(),
+        )
+    }
+
+    #[tokio::test]
+    async fn each_pull_request_of_an_item_counts_its_own_tasks_and_the_sections_add_up() {
+        // #648 from the host's record: two design tasks that ended on main, then PR 0 (#665),
+        // PR 1 (#666 and docs #142) and PR 2 (#667 and docs #143), with their real costs.
+        let mut bench = Bench::new("per-pr").await;
+        let tasks: [Example<'_>; 5] = [
+            ("ddf64ef9", 2.752_657_6, None, &[]),
+            ("296e6cf5", 2.839_870_2, None, &[]),
+            (
+                "e5d5a5bb",
+                2.095_247_2,
+                Some("chore/648-dev-login"),
+                &[(REPO, 665)],
+            ),
+            (
+                "1d6ad1ad",
+                5.267_347_6,
+                Some("fix/648-file-modes"),
+                &[(REPO, 666), (DOCS, 142)],
+            ),
+            (
+                "c9bf620b",
+                3.220_726,
+                Some("fix/648-remove-ztp-server"),
+                &[(REPO, 667), (DOCS, 143)],
+            ),
+        ];
+        for (index, (id, cost, branch, pull_requests)) in (0_u64..).zip(tasks) {
+            let at_ms = NOW + index * 10 * MINUTE;
+            bench.message(&tagged(id), at_ms).await;
+            bench
+                .message(&done(id, cost, branch, pull_requests), at_ms + 5 * MINUTE)
+                .await;
+        }
+        for number in [665, 666, 667, 142, 143] {
+            bench.view(number, "Body", "OPEN");
+        }
+        bench.sync(Scope::All, true, NOW + 60 * MINUTE).await;
+        let design = |id: &str, cost| (id.to_owned(), true, cost);
+        let own = |id: &str, cost| (id.to_owned(), false, cost);
+        assert_eq!(
+            edited_rows(&bench, 665),
+            (
+                vec![
+                    own("e5d5a5bb", 2.095_247_2),
+                    design("ddf64ef9", 2.752_657_6),
+                    design("296e6cf5", 2.839_870_2),
+                ],
+                vec![]
+            )
+        );
+        assert_eq!(
+            edited_rows(&bench, 666),
+            (vec![own("1d6ad1ad", 5.267_347_6)], vec![])
+        );
+        assert_eq!(
+            edited_rows(&bench, 667),
+            (vec![own("c9bf620b", 3.220_726)], vec![])
+        );
+        // The docs pull requests point to their sherpa pull request, in one line.
+        assert_eq!(
+            edited_rows(&bench, 142),
+            (vec![], vec![("1d6ad1ad".to_owned(), 666)])
+        );
+        let docs = fs::read_to_string(bench.dir.join("body-143.md")).unwrap();
+        assert!(docs.contains("Counted in o/r#667."), "{docs}");
+        // Summing the sections is the item's cost, each task once.
+        let total: f64 = [665, 666, 667, 142, 143]
+            .into_iter()
+            .flat_map(|number| edited_rows(&bench, number).0)
+            .map(|(_, _, cost)| cost)
+            .sum();
+        assert!((total - 16.175_848_6).abs() < 1e-9, "{total}");
+    }
+
+    #[tokio::test]
+    async fn host_work_goes_to_the_pull_request_of_the_last_task_event_before_it() {
+        let mut bench = Bench::new("host-split").await;
+        // t1 (#7) reported at NOW; t2 of the same branch, on #9, at NOW + 10 minutes.
+        bench.message(&task("t2"), NOW + 9 * MINUTE).await;
+        bench.outcome("t2", 1, 0.25, NOW + 10 * MINUTE, &[9]).await;
+        bench.view(9, "Body", "OPEN");
+        // One response after t1's result, one after t2's.
+        bench.host("m1", NOW + 5 * MINUTE, "standard").await;
+        bench.host("m2", NOW + 20 * MINUTE, "standard").await;
+        bench.sync(Scope::All, true, NOW + 30 * MINUTE).await;
+        let host_cost = |number: u64| {
+            let body = fs::read_to_string(bench.dir.join(format!("body-{number}.md"))).unwrap();
+            read(section_of(&body).unwrap().unwrap())
+                .unwrap()
+                .host
+                .iter()
+                .map(|row| row.usage.output)
+                .sum::<u64>()
+        };
+        assert_eq!((host_cost(7), host_cost(9)), (50, 50));
+        assert_eq!(edited_rows(&bench, 7).0.len(), 1);
+        assert_eq!(edited_rows(&bench, 9).0.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_frozen_section_is_rewritten_by_pr_with_frozen_only_keeping_its_final_write() {
+        let mut bench = Bench::new("frozen").await;
+        bench.view(7, "Body", "MERGED");
+        bench.sync(Scope::Due, false, NOW).await;
+        bench.calls();
+        let final_ms = bench.stored().await.unwrap().written_at_ms;
+        assert_eq!(final_ms, Some(NOW));
+        bench.outcome("t1", 2, 1.0, NOW + MINUTE, &[7]).await;
+        let one = Scope::One {
+            repo: REPO.to_owned(),
+            number: 7,
+        };
+        let request = |frozen| Request {
+            scope: one.clone(),
+            force: true,
+            frozen,
+            home_repo: Some(REPO.to_owned()),
+        };
+        // `--pr` alone looks and leaves it.
+        let synced = sync(
+            &bench.paths,
+            &request(false),
+            &bench.github,
+            LOCK_WAIT,
+            NOW + MINUTE,
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome_of(&synced), &Outcome::Frozen);
+        assert_eq!(bench.calls().len(), 1);
+        // `--pr --frozen` rewrites it under the current rules and keeps its final write's time.
+        let synced = sync(
+            &bench.paths,
+            &request(true),
+            &bench.github,
+            LOCK_WAIT,
+            NOW + 2 * MINUTE,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            outcome_of(&synced),
+            &Outcome::Written {
+                state: "MERGED".to_owned()
+            }
+        );
+        assert_eq!(bench.calls(), written_once());
+        assert!(
+            bench
+                .edited()
+                .contains("| t1 | dev01 | claude-opus-5-5 | 2 | $1.0000 |")
+        );
+        let stored = bench.stored().await.unwrap();
+        assert_eq!(stored.written_at_ms, final_ms);
+        assert_eq!(stored.state.as_deref(), Some("MERGED"));
     }
 
     #[tokio::test]

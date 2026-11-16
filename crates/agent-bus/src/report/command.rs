@@ -4,6 +4,7 @@
 //! `work` and `host import` write to it) and closes it. Then it syncs the Generation sections
 //! that are due (`report::generation`).
 
+use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::time::Duration;
 
@@ -13,6 +14,7 @@ use jiff::Timestamp;
 
 use crate::bus::{self, Bus};
 use crate::files::{millis, now_ms, standard_state_dir};
+use crate::generation::placement::{Placements, PullRequestId};
 use crate::generation::sync::{Request, Scope};
 use crate::host::import::Options;
 use crate::keys::seed_from_environment;
@@ -23,12 +25,14 @@ use crate::report::generation::{GenerationAction, sync_after_command, sync_now};
 use crate::report::grouped::{self, By};
 use crate::report::host::{self, HostAction};
 use crate::report::{history, usage, work};
+use crate::store::generation::placements;
 use crate::store::host::{
-    Reassign, add_focus, attribute, current_focus, focus, host_rows, host_times, reassign,
-    task_waits,
+    Focus, HostRow, Reassign, add_focus, attribute, charged_pull_request, current_focus, focus,
+    host_rows, host_times, reassign, task_waits,
 };
 use crate::store::items::{self, Item};
 use crate::store::{Ref, backfill, item_for, link, read, ref_item};
+use crate::timing::Times;
 use crate::{REPO_ENV, SESSION_ENV, find_server, repo_or_environment};
 
 /// How `work reassign` names the host's usage that no item has.
@@ -363,19 +367,21 @@ async fn execute(command: Command) -> Result<()> {
                     server,
                     pr,
                     all,
+                    frozen,
                     repo,
                 },
-        } => run_generation_sync(server, pr, all, repo).await,
+        } => run_generation_sync(server, pr, all, frozen, repo).await,
     }
 }
 
 /// Catch the record up and import the host's transcripts, then write the Generation sections
-/// at once: of pull request `pr` of `repo`, of every work item's pull requests with `all`, else
-/// those that are due.
+/// at once: of pull request `pr` of `repo` (even when it is merged or closed with `frozen`), of
+/// every work item's pull requests with `all`, else those that are due.
 async fn run_generation_sync(
     server: Option<String>,
     pr: Option<u64>,
     all: bool,
+    frozen: bool,
     repo: Option<String>,
 ) -> Result<()> {
     let repo = repo_or_environment(repo);
@@ -391,7 +397,12 @@ async fn run_generation_sync(
         (None, false) => Scope::Due,
     };
     drop(open_record(server, repo.as_deref(), LOCK_WAIT).await?);
-    let request = Request { scope, force: true };
+    let request = Request {
+        scope,
+        force: true,
+        frozen,
+        home_repo: repo_or_environment(None),
+    };
     let paths = Paths::in_dir(&standard_state_dir()?);
     sync_now(&paths, &request, LOCK_WAIT, true).await
 }
@@ -527,7 +538,7 @@ async fn print_usage(
         row.time.waiting = Some(waits.get(&row.task).copied().unwrap_or_default());
     }
     // The host's own usage, unless only another agent's is asked for.
-    let host_usage = if filter
+    let mut host_usage = if filter
         .agent
         .as_deref()
         .is_none_or(|agent| agent == usage::HOST)
@@ -536,6 +547,14 @@ async fn print_usage(
     } else {
         Vec::new()
     };
+    let home_repo = repo_or_environment(None);
+    let placements = placements(record.conn(), home_repo.as_deref()).await?;
+    // `--pr N`: what that pull request's section counts, not its whole item.
+    let pull_request = target.as_ref().and_then(Ref::pull_request);
+    if let Some(wanted) = &pull_request {
+        let focus = focus(record.conn()).await?;
+        keep_counted_on(wanted, &placements, &focus, &mut rows, &mut host_usage);
+    }
     let runs = match by {
         Some(By::Model) => items::run_parts(record.conn()).await?,
         _ => Vec::new(),
@@ -547,9 +566,15 @@ async fn print_usage(
         .as_deref()
         .is_none_or(|agent| agent == usage::HOST)
     {
-        let mut times = host_times(record.conn(), since).await?;
-        if let Some(id) = item_id {
-            times.retain(|item, _| *item == Some(id));
+        let mut times: HashMap<Option<i64>, Times> = HashMap::new();
+        for ((item, charged), part) in host_times(record.conn(), since, &placements).await? {
+            let wanted_item = item_id.is_none_or(|id| item == Some(id));
+            let wanted_pull_request = pull_request
+                .as_ref()
+                .is_none_or(|wanted| charged.as_ref() == Some(wanted));
+            if wanted_item && wanted_pull_request {
+                *times.entry(item).or_default() += part;
+            }
         }
         rows.extend(usage::host_rows(&host_usage, &times));
     }
@@ -583,6 +608,34 @@ async fn print_usage(
         None => println!("{}", usage::table(&rows)),
     }
     Ok(())
+}
+
+/// Keep of `rows` and `host_usage` what `wanted` counts under `placements`, with the host's
+/// `focus` rows: what its Generation section shows.
+fn keep_counted_on(
+    wanted: &PullRequestId,
+    placements: &Placements,
+    focus: &[Focus],
+    rows: &mut Vec<usage::Row>,
+    host_usage: &mut Vec<HostRow>,
+) {
+    rows.retain(|row| {
+        placements
+            .task(&row.task)
+            .is_some_and(|(_, placement)| placement.pull_request.as_ref() == Some(wanted))
+    });
+    host_usage.retain(|row| {
+        charged_pull_request(
+            placements,
+            focus,
+            row.work,
+            &row.session,
+            row.charged_ms,
+            row.pinned.as_ref(),
+        )
+        .as_ref()
+            == Some(wanted)
+    });
 }
 
 /// Print the open tasks, as a table or as JSON: those of agents no longer enrolled only with
@@ -645,20 +698,52 @@ async fn print_work(
     let target = item.reference(repo.as_deref())?;
     let record = open_record(server, repo.as_deref(), LOCK_WAIT).await?;
     if let Some(target) = target {
-        let found = find_item(&record, &target, repo.as_deref()).await?;
-        let responses = host_rows(record.conn(), None, Some(found.id)).await?;
-        let mut times = host_times(record.conn(), None).await?;
-        times.retain(|item, _| *item == Some(found.id));
+        let home_repo = repo_or_environment(None);
+        let mut found = find_item(&record, &target, repo.as_deref()).await?;
+        let placements = placements(record.conn(), home_repo.as_deref()).await?;
+        for task in &mut found.tasks {
+            task.placement = placements
+                .task(&task.task)
+                .map(|(_, placement)| placement.clone());
+        }
+        let focus = focus(record.conn()).await?;
+        // The host's usage and time in the item, by the pull request that counts it.
+        let mut by_pull_request: BTreeMap<Option<PullRequestId>, (Vec<HostRow>, Times)> =
+            BTreeMap::new();
+        for response in host_rows(record.conn(), None, Some(found.id)).await? {
+            let charged = charged_pull_request(
+                &placements,
+                &focus,
+                response.work,
+                &response.session,
+                response.charged_ms,
+                response.pinned.as_ref(),
+            );
+            by_pull_request.entry(charged).or_default().0.push(response);
+        }
+        for ((item, charged), part) in host_times(record.conn(), None, &placements).await? {
+            if item == Some(found.id) {
+                by_pull_request.entry(charged).or_default().1 += part;
+            }
+        }
         drop(record);
         if json {
             println!("{}", serde_json::to_string_pretty(&found)?);
         } else {
-            println!("{}", work::item(&found));
-            let mut host = usage::host_rows(&responses, &times);
-            if !host.is_empty() {
-                for row in &mut host {
-                    row.item = Some(found.name.clone());
+            println!("{}", work::item(&found, home_repo.as_deref()));
+            let mut host = Vec::new();
+            for (charged, (responses, times)) in &by_pull_request {
+                let times = HashMap::from([(Some(found.id), *times)]);
+                for mut row in usage::host_rows(responses, &times) {
+                    row.item = Some(format!(
+                        "{}: {}",
+                        found.name,
+                        work::pull_request_label(charged.as_ref(), home_repo.as_deref())
+                    ));
+                    host.push(row);
                 }
+            }
+            if !host.is_empty() {
                 println!("{}", usage::table(&host));
             }
         }
@@ -811,7 +896,20 @@ async fn set_focus(
         None => None,
     };
     let source = if item.is_some() { "use" } else { "clear" };
-    add_focus(record.conn(), now, session.as_deref(), item, source, None).await?;
+    // `work use --pr N` names the pull request that counts the host's work from now on.
+    let pull_request = target.and_then(Ref::pull_request);
+    add_focus(
+        record.conn(),
+        &Focus {
+            from_ms: now,
+            session: session.clone(),
+            work: item,
+            source: source.to_owned(),
+            task: None,
+            pull_request,
+        },
+    )
+    .await?;
     attribute(record.conn()).await?;
     let name = match item {
         Some(id) => Some(items::item(record.conn(), id, home_repo).await?.name),
@@ -843,16 +941,21 @@ async fn run_reassign(
         ItemSpec::Id(id) => Some(*id),
         ItemSpec::Named(named) => Some(find_item(&record, named, home_repo).await?.id),
     };
-    let to = match to {
+    let (to, to_pull_request) = match to {
         ItemSpec::Unattributed => bail!("Usage moves to an item, not to {UNATTRIBUTED}"),
-        ItemSpec::Id(id) => *id,
-        ItemSpec::Named(named) => item_for(record.conn(), named, now_ms()).await?,
+        ItemSpec::Id(id) => (*id, None),
+        // `--to pr:N` pins to the pull request too, not only to its item.
+        ItemSpec::Named(named) => (
+            item_for(record.conn(), named, now_ms()).await?,
+            named.pull_request(),
+        ),
     };
     let moved = reassign(
         record.conn(),
         &Reassign {
             from,
             to,
+            to_pull_request,
             since_ms: window.since_ms,
             until_ms: window.until_ms,
             session: window.session,

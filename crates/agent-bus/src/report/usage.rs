@@ -453,6 +453,9 @@ mod tests {
                 cache_write_1h: 10,
             },
             cost_usd,
+            session: "s1".to_owned(),
+            charged_ms: 1_000,
+            pinned: None,
         };
         let responses = [
             response(Some(1), "claude-opus-5-5", Some(0.5)),

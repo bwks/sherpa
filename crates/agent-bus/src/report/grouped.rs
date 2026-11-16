@@ -334,6 +334,9 @@ mod tests {
                 ..Tokens::default()
             },
             cost_usd,
+            session: "s1".to_owned(),
+            charged_ms: at_ms,
+            pinned: None,
         };
         // Monday 2026-11-09 and Monday 2026-11-16, UTC.
         let monday = 1_794_182_400_000;

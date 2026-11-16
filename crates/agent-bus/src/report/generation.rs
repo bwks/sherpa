@@ -10,6 +10,7 @@ use tracing::instrument;
 use crate::files::{now_ms, standard_state_dir};
 use crate::generation::sync::{Github, Outcome, Request, Scope, Synced, sync};
 use crate::record::{Busy, HOOK_LOCK_WAIT, Paths};
+use crate::repo_or_environment;
 
 /// What `generation` does.
 #[derive(Subcommand)]
@@ -31,6 +32,11 @@ pub enum GenerationAction {
         /// active since the first sync
         #[arg(long)]
         all: bool,
+        /// With --pr: rewrite its section even when it is merged or closed, under the current
+        /// rules, keeping the time of its final write. Frozen sections are otherwise left as
+        /// they are
+        #[arg(long, requires = "pr")]
+        frozen: bool,
         /// The repository of --pr, `owner/name`. Without it: `AGENT_BUS_REPO`
         #[arg(long)]
         repo: Option<String>,
@@ -83,6 +89,8 @@ pub async fn sync_after_command() {
     let request = Request {
         scope: Scope::Due,
         force: false,
+        frozen: false,
+        home_repo: repo_or_environment(None),
     };
     match standard_state_dir() {
         // Not verbose: failures are warnings, so there is no error to report.
