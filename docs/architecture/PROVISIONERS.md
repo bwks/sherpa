@@ -160,7 +160,7 @@ saved:
 
 `server::services::node_secrets`:
 
-- `write_node_secrets` writes `konst::SHERPA_SECRETS_DIR/<lab>/<node>/` (see `SERVER.md`), checks
+- `write_node_secrets` writes `server::konst::SHERPA_SECRETS_DIR/<lab>/<node>/` (see `SERVER.md`), checks
   every file before writing, writes each one under a temporary name, `0600`, then sets its mode
   and renames it, so the container never sees a partial file, and removes files no longer sent.
 - `up_lab` writes every node's files once, before the readiness loop, and adds

@@ -508,7 +508,7 @@ cipher:
   the value's place, `table.column:row-key`, so a value copied to another row or column does not
   open.
 - **Key.** 32 random bytes in `SHERPA_DB_KEY_PATH` (`/opt/sherpa/.secret/db.key`), mode `0600`,
-  in the `0700` `sherpa` directory that holds the JWT secret, beside it in `shared::konst`. It is
+  in the `0700` `sherpa` directory that holds the JWT secret, beside it in `server`. It is
   never in `/opt/sherpa/db`, beside the database and its backups, so a copy of that directory
   does not carry it. The install and update scripts create `/opt/sherpa/.secret` (`0700`,
   `sherpa`) when it is missing and leave an existing one's mode alone; sherpad creates it the same

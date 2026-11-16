@@ -55,6 +55,12 @@ flowchart TB
 
 The important boundary is between handlers and services. Handlers know about transports and authentication. Services know about orchestration. Infrastructure crates know how to talk to their backend, but should not know about HTTP, cookies, WebSocket message IDs, or HTMX fragments.
 
+Constants only the server uses are not in `shared::konst`. One used by a single module is
+private in that module; one used by several is `pub(crate)` in `crates/server/src/konst.rs`.
+An edit to them rebuilds `sherpad` alone, not every crate that depends on `shared` (#663).
+`shared::konst` keeps what other crates, `shared` itself, the `sherpad` binary or the
+integration tests name.
+
 ## Server startup architecture
 
 The binary entry point is `crates/server/src/main.rs`. Its job is intentionally small: initialize rustls, detect the internal background-child mode, parse the `sherpad` CLI, and dispatch to daemon management.
@@ -325,7 +331,7 @@ keep their secrets; a reboot clears it. The install script writes these settings
 and the update script and `dev/rebuild` add them to older units as the drop-in
 `sherpad.service.d/runtime-directory.conf`.
 
-`services::node_secrets` writes `konst::SHERPA_SECRETS_DIR/<lab>/<node>/`: the lab directory is
+`services::node_secrets` writes `server::konst::SHERPA_SECRETS_DIR/<lab>/<node>/`: the lab directory is
 `0700`, and the node directory, the bind mount's root, is `0755`. Nothing under `/run/sherpa` is
 readable by other server users or the `sherpa` group.
 
@@ -1530,7 +1536,7 @@ hypervisor, by `services::node_resources`:
   (`redeploy/container.rs`) create the container with the stored values, so Docker and the
   database agree; resume starts the existing container, which keeps its limits.
 - `reserve_node_resources` (`up`, right after each node record is created, and `redeploy`): a
-  VM also gets a VNC port, the lowest in `konst::VNC_PORT_FIRST..=VNC_PORT_LAST` that no node
+  VM also gets a VNC port, the lowest in `node_resources::VNC_PORT_FIRST..=VNC_PORT_LAST` that no node
   holds and nothing on the server listens on. `unique_node_vnc_port` settles a race with a
   concurrent lab, which is retried, as lab subnets are. A redeployed VM keeps its port.
 - `node_ops::build_domain_template` takes the stored values, so the domain and the database

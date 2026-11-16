@@ -161,7 +161,7 @@ It runs in `sherpa validate`, in the server's `up` before images are leased, and
   keeps the memory low enough for the overhead to fit the node's memory field (a `u16`).
 - `cisco_iol` and `cisco_ioll2` give IOL the node's `memory`, else the image's (768 MiB), as
   its `-m`, the size of the whole IOL process. The container's memory limit is that plus
-  `konst::CISCO_IOL_CONTAINER_OVERHEAD_MIB` (128 MiB) for the launcher and the bridge, always,
+  `node_resources::CISCO_IOL_CONTAINER_OVERHEAD_MIB` (128 MiB) for the launcher and the bridge, always,
   so IOL fits inside the limit. `cpu.count` is a CPU quota as for any container; IOL is
   single-threaded, and the image's count is 1.
 - A container has no model port. Without `ready_check.port` its readiness is that it keeps
