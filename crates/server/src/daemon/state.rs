@@ -194,8 +194,8 @@ pub async fn ensure_admin_account(db: &db::Database, admin_password: Option<&str
                 "The built-in admin account does not exist"
             );
             bail!(
-                "The built-in '{ADMIN_USERNAME}' account does not exist. Run 'sherpad init', \
-                 or set {SHERPA_ADMIN_PASSWORD_ENV} to create it on startup"
+                "The built-in '{ADMIN_USERNAME}' account does not exist. Run 'sudo -u sherpa -H \
+                 sherpad init', or set {SHERPA_ADMIN_PASSWORD_ENV} to create it on startup"
             );
         }
         tracing::debug!("Admin account exists");

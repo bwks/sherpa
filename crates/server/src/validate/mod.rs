@@ -6,6 +6,7 @@
 mod environment;
 mod host_resources;
 mod image_scan;
+mod init_account;
 mod lab_origin;
 mod management_prefix;
 mod memory;
@@ -20,6 +21,7 @@ mod ztp;
 pub use environment::validate_environment_variables;
 pub use host_resources::{check_container_cpus, check_host_resources};
 pub use image_scan::validate_image_scan;
+pub use init_account::validate_init_account;
 pub use lab_origin::validate_lab_origin;
 pub use management_prefix::{validate_management_prefix_ipv4, validate_management_prefix_ipv6};
 pub use memory::{CommittedMemory, MemoryClaim, check_host_memory_settings, check_memory_fits};

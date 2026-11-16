@@ -11,7 +11,7 @@ use super::provider::VmProviders;
 use crate::konst::{
     HOST_MEMORY_DEFAULT_OVERCOMMIT_PERCENT, HOST_MEMORY_DEFAULT_RESERVE_MIB, OTEL_DEFAULT_ENDPOINT,
     OTEL_DEFAULT_SAMPLE_RATIO, OTEL_DEFAULT_SERVICE_NAME, SHERPA_MANAGEMENT_NETWORK_IPV4,
-    SHERPA_PASSWORD, SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_WS_PORT, SHERPA_USERNAME,
+    SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_WS_PORT,
 };
 use crate::util::path_to_string;
 
@@ -21,15 +21,6 @@ pub struct ZtpServer {
     pub enable: bool,
     pub username: Option<String>,
     pub password: Option<String>,
-}
-impl Default for ZtpServer {
-    fn default() -> Self {
-        Self {
-            enable: true,
-            username: Some(SHERPA_USERNAME.to_owned()),
-            password: Some(SHERPA_PASSWORD.to_owned()),
-        }
-    }
 }
 
 /// Server connection configuration for WebSocket RPC. A field left out of the config file
@@ -258,8 +249,6 @@ pub struct Config {
     #[serde(default)]
     pub allow_signup: bool,
     #[serde(default)]
-    pub ztp_server: ZtpServer,
-    #[serde(default)]
     pub container_images: Vec<ContainerImage>,
     #[serde(default)]
     pub server_connection: ServerConnection,
@@ -389,14 +378,6 @@ mod tests {
         assert!(toml::from_str::<HostMemorySettings>("overcommit_percent = 1.5").is_err());
         assert!(toml::from_str::<HostMemorySettings>("overcommit_percent = -1").is_err());
         assert!(toml::from_str::<HostMemorySettings>("overcommit_ratio = 1.5").is_err());
-    }
-
-    #[test]
-    fn test_ztp_server_default() {
-        let ztp = ZtpServer::default();
-        assert!(ztp.enable);
-        assert_eq!(ztp.username, Some(SHERPA_USERNAME.to_owned()));
-        assert_eq!(ztp.password, Some(SHERPA_PASSWORD.to_owned()));
     }
 
     #[test]
