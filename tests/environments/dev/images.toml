@@ -10,12 +10,24 @@
 # unless the guest's copy has the same SHA-256.
 
 [[images]]
+model = "alma_linux"
+version = "10-20241125"
+
+[[images]]
 model = "alpine_linux"
 version = "3.23.0"
 
 [[images]]
 model = "arista_veos"
 version = "4.35.3F"
+
+[[images]]
+model = "aruba_aoscx"
+version = "10.16"
+
+[[images]]
+model = "centos_linux"
+version = "10-20261021.0"
 
 [[images]]
 model = "cisco_asav"
@@ -50,8 +62,20 @@ model = "cisco_iosxrv9000"
 version = "25.1.1"
 
 [[images]]
+model = "cisco_ise"
+version = "3.5.0"
+
+[[images]]
 model = "cisco_nexus9300v"
 version = "10.5.3.F"
+
+[[images]]
+model = "cumulus_linux"
+version = "5.9.1"
+
+[[images]]
+model = "devbox_linux"
+version = "ubuntu-26.04.05"
 
 [[images]]
 model = "devbox_windows"
@@ -62,8 +86,24 @@ model = "fedora_linux"
 version = "43-1.6"
 
 [[images]]
+model = "flatcar_linux"
+version = "20251215"
+
+[[images]]
 model = "free_bsd"
 version = "14.2"
+
+[[images]]
+model = "infrahub_server"
+version = "1.10.6"
+
+[[images]]
+model = "jenkins_server"
+version = "2.541.3"
+
+[[images]]
+model = "juniper_vevolved"
+version = "25.2R1.8"
 
 [[images]]
 model = "juniper_vrouter"
@@ -78,12 +118,56 @@ model = "juniper_vswitch"
 version = "25.2R1.9"
 
 [[images]]
+model = "kali_linux"
+version = "2026.1"
+
+[[images]]
+model = "mikrotik_chr"
+version = "7.20.8"
+
+[[images]]
+model = "nautobot_server"
+version = "3.0.9"
+
+[[images]]
+model = "netbox_server"
+version = "4.5.5"
+
+[[images]]
+model = "omarchy_linux"
+version = "4.5.0"
+
+[[images]]
 model = "open_bsd"
 version = "7.8"
 
 [[images]]
+model = "opensuse_linux"
+version = "15.6"
+
+[[images]]
 model = "paloalto_panos"
 version = "11.1.6-h7"
+
+[[images]]
+model = "redhat_linux"
+version = "10.2"
+
+[[images]]
+model = "rocky_linux"
+version = "10-20260212"
+
+[[images]]
+model = "signoz_server"
+version = "0.1.0"
+
+[[images]]
+model = "sonic_linux"
+version = "20251215"
+
+[[images]]
+model = "suse_linux"
+version = "15.SP7"
 
 [[images]]
 model = "talos_linux"
@@ -96,6 +180,10 @@ version = "24.04"
 [[images]]
 model = "ubuntu_linux"
 version = "26.04"
+
+[[images]]
+model = "virt_server"
+version = "24.04.01"
 
 [[images]]
 model = "windows_server"

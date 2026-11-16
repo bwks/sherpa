@@ -236,6 +236,12 @@ that fails to import is reported, the rest go on, and the script exits with stat
 guest's CLI is already logged in, so no password is needed. The first version imported for a
 model becomes its default, so `images.toml` lists the default first.
 
+`images.toml` names one version of every VM model the host has, about 117 GiB in all, of which
+`cisco_ise` is 23 GiB. With the toolchains and checkouts that fills about half of a guest's
+300 GiB disk. An import briefly needs the image twice, the staged copy and the imported one.
+Unikernel images (`nanos_unikernel`, `unikraft_unikernel`) are not seeded: their folders hold
+`disk.qcow2` or `kernel.elf`, not a `virtioa.qcow2`.
+
 Some images need a file that an import does not bring: vEOS boots from the Aboot ISO,
 `/opt/sherpa/images/arista_veos/aboot_iso/aboot.iso`, and without it `sherpa up` fails for an
 `arista_veos` node. `images.toml` lists such files under `[[extra_files]]`, each a `path` under
