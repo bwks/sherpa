@@ -476,7 +476,7 @@ mod tests {
     use crate::price::Tokens;
     use crate::record::{Busy, LOCK_WAIT};
     use crate::store::host::{Focus, add_focus, attribute, keep_prompt, keep_response};
-    use crate::store::{Recorded, Ref, record, ref_item};
+    use crate::store::{Recorded, Ref, link, record, ref_item};
 
     const REPO: &str = "o/r";
     const NOW: u64 = 1_800_000_000_000;
@@ -698,6 +698,15 @@ esac
             sync(&self.paths, &request, &self.github, LOCK_WAIT, now_ms)
                 .await
                 .unwrap()
+        }
+
+        /// `agent-bus link <task> --pr <number> --repo <repo>`: the pull request names the
+        /// task's item, and no task names it.
+        async fn link(&self, task: &str, repo: &str, number: u64) {
+            let mut opened = Record::open_recorded(&self.paths, LOCK_WAIT).await.unwrap();
+            let target = Ref::new(repo, RefKind::PullRequest, number.to_string());
+            link(opened.conn_mut(), task, &target, NOW).await.unwrap();
+            self.view(number, "Body", "OPEN");
         }
 
         async fn stored(&self) -> Option<LastWrite> {
@@ -1348,8 +1357,15 @@ esac
             edited_rows(&bench, 142),
             (vec![], vec![("1d6ad1ad".to_owned(), 666)])
         );
-        let docs = fs::read_to_string(bench.dir.join("body-143.md")).unwrap();
-        assert!(docs.contains("Counted in o/r#667."), "{docs}");
+        for (number, home) in [(142, 666), (143, 667)] {
+            let docs = fs::read_to_string(bench.dir.join(format!("body-{number}.md"))).unwrap();
+            let section = section_of(&docs).unwrap().unwrap();
+            assert!(
+                section.contains(&format!("## Generation\n\nCounted in o/r#{home}.\n\n")),
+                "{docs}"
+            );
+            assert!(!section.contains("**Total**"), "{docs}");
+        }
         // Summing the sections is the item's cost, each task once.
         let total: f64 = [665, 666, 667, 142, 143]
             .into_iter()
@@ -1477,5 +1493,57 @@ esac
             .await
             .unwrap();
         assert_eq!(bench.stored().await.unwrap(), newer);
+    }
+
+    const LAB: &str = "o/k8s-lab";
+
+    #[tokio::test]
+    async fn a_pull_request_linked_by_hand_names_the_pull_requests_that_count_its_item() {
+        // t1 counted on #7 and t2 of the same branch on #9; a docs and a third repository's
+        // pull request added to the item by `link`, which no task reported.
+        let mut bench = Bench::new("linked").await;
+        bench.message(&task("t2"), NOW + 9 * MINUTE).await;
+        bench.outcome("t2", 1, 0.25, NOW + 10 * MINUTE, &[9]).await;
+        bench.view(9, "Body", "OPEN");
+        bench.host("m1", NOW + 5 * MINUTE, "standard").await;
+        bench.link("t1", DOCS, 141).await;
+        bench.link("t1", LAB, 1).await;
+        bench.sync(Scope::All, true, NOW + 30 * MINUTE).await;
+        for number in [141, 1] {
+            let body = fs::read_to_string(bench.dir.join(format!("body-{number}.md"))).unwrap();
+            let section = section_of(&body).unwrap().unwrap();
+            assert!(
+                section.contains("## Generation\n\nCounted in o/r#7, o/r#9.\n\n"),
+                "{body}"
+            );
+            assert!(!section.contains("**Total**"), "{body}");
+            assert_eq!(edited_rows(&bench, number), (vec![], vec![]));
+        }
+        // The pull requests that count the work are unchanged.
+        assert_eq!(edited_rows(&bench, 7).0.len(), 1);
+        assert_eq!(edited_rows(&bench, 9).0.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_item_with_only_pull_requests_linked_by_hand_says_none_counts_its_work_yet() {
+        // A task of issue 648 that ended on the default branch, with no pull request to count
+        // it on, and a pull request added to its item by `link`.
+        let mut bench = Bench::new("linked-only").await;
+        bench.message(&tagged("d1"), NOW).await;
+        bench
+            .message(&done("d1", 1.5, None, &[]), NOW + 5 * MINUTE)
+            .await;
+        bench.link("d1", LAB, 2).await;
+        bench.sync(Scope::All, true, NOW + 30 * MINUTE).await;
+        let body = fs::read_to_string(bench.dir.join("body-2.md")).unwrap();
+        let section = section_of(&body).unwrap().unwrap();
+        assert!(
+            section.contains(
+                "## Generation\n\nNo work of this item is counted in a pull request yet.\n\n"
+            ),
+            "{body}"
+        );
+        assert!(!section.contains("**Total**"), "{body}");
+        assert_eq!(edited_rows(&bench, 2), (vec![], vec![]));
     }
 }

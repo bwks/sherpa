@@ -1585,7 +1585,14 @@ of this pull request counted on another (task, agent, `in owner/name#N` in the c
 other cell empty, not in the total, and a line under the table saying so), then a bold total of
 the rows counted here. A section with no rows counted here but pointers (a docs pull request
 whose task is counted on its sherpa pull request) is the heading and one line, `Counted in
-bwks/sherpa#666.`, not a table of zeros. Before format 3, every pull request of an item showed
+bwks/sherpa#666.`, not a table of zeros. A pull request with no rows and no pointers, such as one
+added to the item by `link <task> --pr N --repo R` that no task reported (#57's
+`sherpa-docs#141` and `sherpa-k8s-lab#1`), gets the same line naming the item's pull requests
+that count its tasks or the host's work (`Counted in bwks/sherpa#664.`, several comma-separated);
+when none of them counts any work yet (only hand-linked pull requests, or tasks with no pull
+request to be brought forward to), the line is `No work of this item is counted in a pull
+request yet.`, written rather than nothing so a stale table is replaced. These item pointers are
+worked out again on every write and are not in the data comment. Before format 3, every pull request of an item showed
 the whole item, so summing an item's sections counted its tasks once per pull request (#648's
 five sections summed to $90.48 for $21.78 of work). Every row has
 the work, testing and waiting-on-the-user time of [Time](#time): a task's work and testing from
