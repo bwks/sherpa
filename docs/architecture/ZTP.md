@@ -3,7 +3,8 @@
 How a node gets its first configuration: the one setting that decides it, which methods each
 model takes, where that is checked, who reads it, and what a container gets with ZTP off. How
 the config reaches a VM guest is in [`GUEST_PROVISIONING.md`](GUEST_PROVISIONING.md); the media
-it is written to is in [`ZTP_ISO.md`](ZTP_ISO.md).
+it is written to is in [`ZTP_ISO.md`](ZTP_ISO.md). The modes of the rendered config files, and which process reads each,
+are in [`LAB_FOLDER.md`](LAB_FOLDER.md#node-config-modes).
 
 ## The setting
 

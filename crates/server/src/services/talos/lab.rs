@@ -15,6 +15,7 @@ use shared::data::{
     StatusKind,
 };
 use shared::konst::SHERPA_LABS_PATH;
+use shared::util::write_file_with_permissions;
 use template::{
     CiliumConfig, ClusterOidcConfig, ClusterVaultConfig, TalosClusterSecrets, TalosNodeConfig,
     kubeconfig, talos_machine_config, talosconfig,
@@ -34,7 +35,6 @@ use crate::services::lab_operations::LabOperation;
 use crate::services::progress::ProgressSender;
 use crate::services::vault::api::{VaultClient, vault_address};
 use crate::services::vault::{ClusterAccess, cluster_auth_mount, configure_cluster_access};
-use crate::tls::generator::write_file_with_permissions;
 
 /// A cluster prepared for a lab: its plan and secrets.
 #[derive(Clone, Debug)]

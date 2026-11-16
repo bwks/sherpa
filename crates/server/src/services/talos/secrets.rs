@@ -7,12 +7,12 @@ use rand::RngCore;
 use rcgen::KeyPair;
 use tracing::instrument;
 
-use shared::util::base64_encode_bytes;
+use shared::util::{base64_encode_bytes, write_file_with_permissions};
 use template::{TalosClientCredentials, TalosClusterSecrets};
 
 use crate::tls::generator::{
     CaSpec, ClientSubject, KeyAlgorithm, PemPair, generate_ca, generate_key_pair,
-    issue_client_certificate, write_file_with_permissions,
+    issue_client_certificate,
 };
 
 /// Talos Linux minor version Sherpa generates cluster machine configs for.

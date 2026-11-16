@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::ops::RangeInclusive;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::slice;
 
 use anyhow::{Context, Result};
@@ -12,7 +12,7 @@ use tracing::instrument;
 
 use super::context::Redeploy;
 use super::ready::wait_until_ready;
-use crate::konst::SHERPA_MANAGEMENT_NETWORK_NAME;
+use crate::konst::{NODE_CONFIG_DIR_MODE, SHERPA_MANAGEMENT_NETWORK_NAME, TFTP_DIR_MODE};
 use crate::services::boot_server;
 use crate::services::node_lifecycle::{self, query_runtimes};
 use crate::services::node_ops::{self, DomainParts, LabZtp, VmZtpResult};
@@ -144,8 +144,8 @@ async fn configure_vm(
     cert_paths: &NodeCertPaths,
 ) -> Result<VmZtpResult> {
     let ztp_dir = format!("{}/{ZTP_DIR}", redeploy.lab_dir);
-    util::create_dir(&ztp_dir)?;
-    util::create_dir(&format!("{ztp_dir}/{TFTP_DIR}"))?;
+    util::create_dir_with_permissions(Path::new(&ztp_dir), NODE_CONFIG_DIR_MODE)?;
+    util::create_dir_with_permissions(Path::new(&format!("{ztp_dir}/{TFTP_DIR}")), TFTP_DIR_MODE)?;
 
     let mut vm_ztp = node_ops::generate_vm_ztp(
         &mut redeploy.target_node,

@@ -11,9 +11,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use db::SecretKey;
+use shared::util::write_file_with_permissions;
 use tracing::instrument;
-
-use crate::tls::generator::write_file_with_permissions;
 
 /// The database key's file mode.
 const KEY_FILE_MODE: u32 = 0o600;

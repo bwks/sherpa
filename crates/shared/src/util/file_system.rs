@@ -1,8 +1,12 @@
 use std::env;
 use std::fs::{self, File};
+#[cfg(unix)]
+use std::fs::{DirBuilder, OpenOptions};
+#[cfg(unix)]
+use std::io::ErrorKind;
 use std::io::{self, BufReader, BufWriter, Write};
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 #[cfg(unix)]
 use std::process::Command;
@@ -10,6 +14,8 @@ use std::process::Command;
 #[cfg(unix)]
 use anyhow::bail;
 use anyhow::{Context, Result};
+#[cfg(unix)]
+use tracing::instrument;
 
 use crate::data::{NodeKind, UnikernelBootMode, UnikernelSettings};
 use crate::konst::{UNIKERNEL_DISK_FILENAME, UNIKERNEL_KERNEL_FILENAME, VM_DISK_FILENAME};
@@ -64,6 +70,77 @@ pub fn create_file(file_path: &str, contents: String) -> Result<()> {
     fs::write(file_path, contents).with_context(|| format!("Error creating file: {file_path}"))?;
     tracing::debug!(path = %file_path, size = size, "File created");
     Ok(())
+}
+
+/// Write `content` to `path` with permission bits `mode`, replacing any file there.
+///
+/// The file never exists with wider permissions: it is written to a temporary file created
+/// with `mode` in the same folder, then renamed over `path`. Missing parent folders are created
+/// private (0700); existing folders keep their permissions.
+///
+/// # Errors
+///
+/// Fails when a parent folder cannot be created, or the file cannot be written or renamed.
+#[cfg(unix)]
+#[instrument(level = "debug", skip_all, fields(path = %path.display(), mode = format!("{mode:o}")))]
+pub fn write_file_with_permissions(path: &Path, content: &[u8], mode: u32) -> Result<()> {
+    let parent = path
+        .parent()
+        .with_context(|| format!("No parent directory for: {}", path.display()))?;
+    DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(parent)
+        .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+
+    let file_name = path
+        .file_name()
+        .with_context(|| format!("No file name in: {}", path.display()))?;
+    let temp_path = parent.join(format!(".{}.tmp", file_name.to_string_lossy()));
+    // A leftover from an interrupted write would make `create_new` fail.
+    match fs::remove_file(&temp_path) {
+        Ok(()) => tracing::debug!(path = %temp_path.display(), "Removed a stale temporary file"),
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            tracing::trace!(path = %temp_path.display(), "No stale temporary file");
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("Failed to remove {}", temp_path.display()));
+        }
+    }
+
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(mode)
+        .open(&temp_path)
+        .with_context(|| format!("Failed to create file: {}", temp_path.display()))?;
+    // The umask may have narrowed `mode`; set it exactly.
+    file.set_permissions(fs::Permissions::from_mode(mode))
+        .with_context(|| format!("Failed to set permissions on {}", temp_path.display()))?;
+    file.write_all(content)
+        .and_then(|()| file.sync_all())
+        .with_context(|| format!("Failed to write to file: {}", temp_path.display()))?;
+    fs::rename(&temp_path, path)
+        .with_context(|| format!("Failed to replace file: {}", path.display()))
+}
+
+/// Create the folder `path` with permission bits `mode`, whatever the umask. Missing folders
+/// above it are created private (0700); an existing `path` is set to `mode`, and its contents
+/// are left alone.
+///
+/// # Errors
+///
+/// Fails when a folder cannot be created or its mode cannot be set.
+#[cfg(unix)]
+#[instrument(level = "debug", fields(path = %path.display(), mode = format!("{mode:o}")))]
+pub fn create_dir_with_permissions(path: &Path, mode: u32) -> Result<()> {
+    DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(path)
+        .with_context(|| format!("Failed to create directory: {}", path.display()))?;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        .with_context(|| format!("Failed to set permissions on {}", path.display()))
 }
 
 /// Check for file existence
@@ -273,6 +350,83 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    #[cfg(unix)]
+    fn mode_of(path: &Path) -> u32 {
+        fs::metadata(path).expect("metadata").permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn writing_a_file_leaves_its_folder_alone() {
+        let dir = TempDir::new().expect("tempdir");
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).expect("chmod");
+
+        write_file_with_permissions(&dir.path().join("key.pem"), b"secret", 0o600).expect("write");
+
+        assert_eq!(mode_of(dir.path()), 0o755);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_rewritten_file_gets_the_new_mode_and_contents() {
+        let dir = TempDir::new().expect("tempdir");
+        let path = dir.path().join("key.pem");
+        fs::write(&path, b"old").expect("seed");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("chmod");
+
+        write_file_with_permissions(&path, b"secret", 0o600).expect("write");
+
+        assert_eq!(mode_of(&path), 0o600);
+        assert_eq!(fs::read(&path).expect("read"), b"secret");
+        let leftovers = fs::read_dir(dir.path()).expect("read dir").count();
+        assert_eq!(leftovers, 1, "a temporary file was left behind");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn missing_folders_are_created_private() {
+        let dir = TempDir::new().expect("tempdir");
+        let path = dir.path().join("a/b/cert.pem");
+
+        write_file_with_permissions(&path, b"cert", 0o644).expect("write");
+
+        assert_eq!(mode_of(&path), 0o644);
+        assert_eq!(mode_of(&dir.path().join("a")), 0o700);
+        assert_eq!(mode_of(&dir.path().join("a/b")), 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_new_folder_gets_the_mode_and_missing_folders_above_it_are_private() {
+        let dir = TempDir::new().expect("tempdir");
+        let path = dir.path().join("a/b/tftp");
+
+        create_dir_with_permissions(&path, 0o705).expect("create");
+
+        assert_eq!(mode_of(&path), 0o705);
+        assert_eq!(mode_of(&dir.path().join("a")), 0o700);
+        assert_eq!(mode_of(&dir.path().join("a/b")), 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_existing_folder_is_set_to_the_mode_and_keeps_its_contents() {
+        let dir = TempDir::new().expect("tempdir");
+        let path = dir.path().join("node");
+        fs::create_dir(&path).expect("mkdir");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o2755)).expect("chmod");
+        fs::write(path.join("config"), b"config").expect("seed");
+
+        create_dir_with_permissions(&path, 0o700).expect("create");
+
+        let mode = fs::metadata(&path).expect("metadata").permissions().mode() & 0o7777;
+        assert_eq!(
+            mode, 0o700,
+            "the setgid bit an inherited folder had is cleared too"
+        );
+        assert_eq!(fs::read(path.join("config")).expect("read"), b"config");
+    }
 
     #[test]
     fn test_path_to_string() {

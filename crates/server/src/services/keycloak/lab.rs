@@ -19,12 +19,12 @@ use shared::konst::{
     KEYCLOAK_CLUSTER_ADMINS_GROUP, KEYCLOAK_CLUSTER_VIEWERS_GROUP, KEYCLOAK_KUBERNETES_CLIENT_ID,
     SHERPA_LABS_PATH, SHERPA_PASSWORD, SHERPA_USERNAME,
 };
+use shared::util::write_file_with_permissions;
 
 use super::api::KeycloakClient;
 use crate::konst::{KEYCLOAK_REALM, READINESS_SLEEP};
 use crate::services::guest_account::random_secret;
 use crate::services::progress::ProgressSender;
-use crate::tls::generator::write_file_with_permissions;
 
 /// Directory in the lab directory holding each Keycloak node's realm users.
 pub(crate) const KEYCLOAK_DIR: &str = "keycloak";

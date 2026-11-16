@@ -11,7 +11,8 @@ use tracing::instrument;
 use super::context::LabBuild;
 use super::nodes::get_node_image;
 use crate::konst::{
-    DNSMASQ_CONFIG_FILE, LAB_CERTS_DIR, SHERPA_MANAGEMENT_NETWORK_NAME, TAP_PREFIX,
+    DNSMASQ_CONFIG_FILE, LAB_CERTS_DIR, NODE_CONFIG_DIR_MODE, SHERPA_MANAGEMENT_NETWORK_NAME,
+    TAP_PREFIX, TFTP_DIR_MODE,
 };
 use crate::services::boot_server;
 use crate::services::guest_account::GuestAccount;
@@ -86,8 +87,8 @@ pub(super) async fn configure_nodes(
     let lab_id = build.lab_id;
     let ztp_dir = format!("{}/{ZTP_DIR}", build.lab_dir);
     let tftp_dir = format!("{ztp_dir}/{TFTP_DIR}");
-    util::create_dir(&ztp_dir)?;
-    util::create_dir(&tftp_dir)?;
+    util::create_dir_with_permissions(Path::new(&ztp_dir), NODE_CONFIG_DIR_MODE)?;
+    util::create_dir_with_permissions(Path::new(&tftp_dir), TFTP_DIR_MODE)?;
     let certs_dir = format!("{}/{LAB_CERTS_DIR}", build.lab_dir);
     util::create_dir(&certs_dir)?;
     let lab_ca = lab_ca::create_lab_ca(Path::new(&certs_dir), lab_id)
@@ -549,7 +550,7 @@ pub(super) async fn start_boot_container(
     // `ztp_dir` and `tftp_dir` were made in phase 8.
     let ztp_configs_dir = format!("{ztp_dir}/{NODE_CONFIGS_DIR}");
     let dnsmasq_dir = format!("{ztp_dir}/{DNSMASQ_DIR}");
-    util::create_dir(&ztp_configs_dir)?;
+    util::create_dir_with_permissions(Path::new(&ztp_configs_dir), NODE_CONFIG_DIR_MODE)?;
     util::create_dir(&dnsmasq_dir)?;
 
     tracing::debug!(

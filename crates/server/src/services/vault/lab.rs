@@ -13,11 +13,11 @@ use tracing::instrument;
 
 use shared::data::{NodeModel, StatusKind, VaultInfo};
 use shared::konst::SHERPA_LABS_PATH;
+use shared::util::write_file_with_permissions;
 
 use super::api::{SealStatus, VaultClient};
 use crate::konst::READINESS_SLEEP;
 use crate::services::progress::ProgressSender;
-use crate::tls::generator::write_file_with_permissions;
 
 /// Directory in the lab directory holding each Vault node's credentials.
 pub(crate) const VAULT_DIR: &str = "vault";
