@@ -13,6 +13,9 @@ aes-gcm = { workspace = true }
 # Errors
 anyhow = { workspace = true }
 
+# Sealed text columns hold the sealed bytes in hex
+hex = { workspace = true }
+
 # Networking
 ipnet = { workspace = true }
 jiff = { workspace = true }

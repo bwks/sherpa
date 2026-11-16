@@ -163,12 +163,7 @@ pub(crate) fn open(key: &SecretKey, sealed: &[u8], context: &str) -> Result<Vec<
 /// Seal `plaintext` for the `TEXT` column place named by `context`, under `key`.
 pub(crate) fn seal_text(key: &SecretKey, plaintext: &str, context: &str) -> Result<SealedText> {
     let sealed = seal(key, plaintext.as_bytes(), context)?;
-    let mut text = String::with_capacity(SEALED_TEXT_PREFIX.len() + sealed.len() * 2);
-    text.push_str(SEALED_TEXT_PREFIX);
-    for byte in sealed {
-        text.push(char::from(HEX_DIGITS[usize::from(byte >> 4)]));
-        text.push(char::from(HEX_DIGITS[usize::from(byte & 0x0f)]));
-    }
+    let text = format!("{SEALED_TEXT_PREFIX}{}", hex::encode(sealed));
     Ok(SealedText(text))
 }
 
@@ -181,30 +176,9 @@ pub(crate) fn open_text(key: &SecretKey, stored: &str, context: &str) -> Result<
     let Some(hex) = stored.strip_prefix(SEALED_TEXT_PREFIX) else {
         bail!("{context} is not sealed");
     };
-    if hex.len() % 2 != 0 {
-        bail!("{context} is not a sealed value: its hex has an odd length");
-    }
-    let mut sealed = Vec::with_capacity(hex.len() / 2);
-    for pair in hex.as_bytes().chunks(2) {
-        let [high, low] = pair else {
-            bail!("{context} is not a sealed value");
-        };
-        sealed.push((hex_value(*high, context)? << 4) | hex_value(*low, context)?);
-    }
+    let sealed = hex::decode(hex).with_context(|| format!("{context} is not a sealed value"))?;
     String::from_utf8(open(key, &sealed, context)?)
         .with_context(|| format!("{context} is not text"))
-}
-
-/// The lower-case hex digits.
-const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
-
-/// The value of the lower-case hex digit `digit`.
-fn hex_value(digit: u8, context: &str) -> Result<u8> {
-    match digit {
-        b'0'..=b'9' => Ok(digit - b'0'),
-        b'a'..=b'f' => Ok(digit - b'a' + 10),
-        _ => bail!("{context} is not a sealed value: it is not lower-case hex"),
-    }
 }
 
 fn sealed_from_row(row: &Row) -> Result<Vec<u8>> {
@@ -351,7 +325,8 @@ mod tests {
             panic!("sealed text is not text");
         };
         let hex = text.strip_prefix(SEALED_TEXT_PREFIX).unwrap();
-        assert!(hex.bytes().all(|byte| HEX_DIGITS.contains(&byte)), "{text}");
+        assert!(hex::decode(hex).is_ok(), "{text}");
+        assert_eq!(hex, hex.to_lowercase(), "{text}");
         assert!(!text.contains("cisco"));
         assert_eq!(
             open_text(&key, &text, "user.device_password:abc").unwrap(),
