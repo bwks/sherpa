@@ -17,9 +17,13 @@ use crate::daemon::db_key::load_or_create_db_key;
 use crate::daemon::link_states::LinkStates;
 use crate::daemon::metrics::Metrics;
 use crate::daemon::storage::secure_storage;
-use crate::konst::{SHERPA_ADMIN_PASSWORD_ENV, SHERPA_DB_KEY_PATH};
+use crate::konst::SHERPA_ADMIN_PASSWORD_ENV;
 use crate::validate::{check_host_memory_settings, validate_tailscale_gateway_settings};
 
+/// The key that seals the database's secret values: 32 bytes, mode 0600, beside the JWT secret
+/// in the `sherpa`-only (0700) secrets directory. It is never in the database, its backups or
+/// the database directory, and is backed up separately from them.
+const SHERPA_DB_KEY_PATH: &str = "/opt/sherpa/.secret/db.key";
 const JWT_SECRET_PATH: &str = "/opt/sherpa/.secret/jwt.secret";
 
 /// The type of operation a job represents.

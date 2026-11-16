@@ -26,10 +26,10 @@ use crate::api::handlers::get_certificate_handler;
 use crate::api::websocket;
 use crate::auth::session;
 use crate::daemon::metrics::Metrics;
-use crate::daemon::pidfile::open_log_file;
+use crate::daemon::pidfile::{SHERPAD_LOG_FILE_PATH, open_log_file};
 use crate::daemon::removed_settings::warn_on_removed_settings;
 use crate::daemon::state::AppState;
-use crate::konst::{SESSION_SWEEP_INTERVAL_SECS, SHERPA_CONFIG_FILE_PATH, SHERPAD_LOG_FILE_PATH};
+use crate::konst::SHERPA_CONFIG_FILE_PATH;
 use crate::services::lab_definition::{self, ImportSummary};
 use crate::services::lab_lifecycle::{self, Recovery};
 use crate::services::node_resources;
@@ -46,6 +46,8 @@ use shared::util::{
 };
 
 const OTEL_METRIC_EXPORT_INTERVAL_SECS: u64 = 60;
+/// How often sherpad deletes expired login sessions, in seconds. It also sweeps once at startup.
+const SESSION_SWEEP_INTERVAL_SECS: u64 = 3600;
 
 /// Custom time formatter that outputs UTC time with millisecond precision
 /// Format: 2026-02-17T00:59:15.920Z
