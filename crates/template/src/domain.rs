@@ -27,6 +27,10 @@ pub struct DomainTemplate {
     pub loopback_ipv4: String,
     pub telnet_port: u16,
     pub qemu_commands: Vec<QemuCommand>,
+    /// Flatcar's Ignition config in the storage pool, given to the guest as the firmware config
+    /// entry `opt/org.flatcar-linux/config`. libvirt hands the file to QEMU like a disk: it
+    /// labels it and adds it to the VM's security profile.
+    pub ignition_config: Option<String>,
     pub lab_id: String,
     pub management_network: String,
     pub isolated_network: String,

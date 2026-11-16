@@ -110,6 +110,12 @@
       <entry name='serial'>ds=nocloud</entry>
     </system>
   </sysinfo>
+  {% if let Some(path) = ignition_config %}
+
+  <sysinfo type='fwcfg'>
+    <entry name='opt/org.flatcar-linux/config' file='{{ path }}'/>
+  </sysinfo>
+  {% endif %}
 
   <pm>
     <suspend-to-mem enabled='no'/>

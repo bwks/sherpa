@@ -24,7 +24,7 @@ pub struct NodeDisk {
 }
 
 /// A QEMU command-line argument.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QemuCommand {
     pub param: String,
     pub value: String,
@@ -68,13 +68,6 @@ impl QemuCommand {
         },
         ]
     }
-    #[must_use]
-    pub fn ignition_config(path: &str) -> Vec<Self> {
-        vec![Self {
-            param: "-fw_cfg".to_owned(),
-            value: format!("name=opt/org.flatcar-linux/config,file={path}"),
-        }]
-    }
 }
 
 #[cfg(test)]
@@ -114,17 +107,5 @@ mod tests {
         assert!(cmds[0].value.contains("vendor=Bochs"));
         // Third entry contains the chassis serial
         assert!(cmds[2].value.contains("chassis_no=0"));
-    }
-
-    #[test]
-    fn test_ignition_config_path_embedded() {
-        let path = "/var/lib/ignition.json";
-        let cmds = QemuCommand::ignition_config(path);
-        assert_eq!(cmds.len(), 1);
-        assert_eq!(cmds[0].param, "-fw_cfg");
-        assert_eq!(
-            cmds[0].value,
-            format!("name=opt/org.flatcar-linux/config,file={path}")
-        );
     }
 }

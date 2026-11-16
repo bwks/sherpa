@@ -12,7 +12,7 @@ machine config; see [`TALOS.md`](TALOS.md).
 | Method | Models | Delivered as |
 |---|---|---|
 | cloud-init | Linux cloud images, NixOS, server appliances, Alpine, FreeBSD, OpenBSD | NoCloud ISO with `user-data`, `meta-data` and `network-config`, written to the node's lab directory |
-| Ignition | Flatcar | Ignition JSON copied to the storage pool |
+| Ignition | Flatcar | Ignition JSON copied to the storage pool, named in the domain's `<sysinfo type='fwcfg'>` entry `opt/org.flatcar-linux/config` |
 | cloudbase-init | Windows | NoCloud ISO with cloudbase-init `user-data` |
 
 The generated files stay in the lab directory on the server; `user-data`, which can hold the node's key and, for Talos, its machine secrets, is written 0600. The ISO is built from them by

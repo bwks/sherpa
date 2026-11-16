@@ -85,7 +85,7 @@ pub(super) async fn redeploy_vm(
             isolated_network: isolated_net.network_name,
             reserved_network,
         },
-        vm_ztp.qemu_commands,
+        vm_ztp.firmware,
         &node_resources::resources_of(&redeploy.db_node),
     )?;
 

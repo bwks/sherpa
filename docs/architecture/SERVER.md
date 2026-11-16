@@ -214,9 +214,10 @@ every start and calls `restrict_dir` on:
   non-root user, so a restrictive umask would break ZTP.
 - New pool volumes are created `0600` (`konst::STORAGE_VOLUME_MODE`, in
   `crates/libvirt/templates/copy.xml` and `overlay.xml`); libvirt hands them to the QEMU user
-  while a VM runs. Flatcar's `.ign` file is `0644` (`STORAGE_VOLUME_QEMU_ARG_MODE`), because QEMU
-  opens it from a raw `-fw_cfg` argument that libvirt does not relabel
-  (`libvirt::vm::volume_format_and_mode`).
+  while a VM runs (`libvirt::vm::copy_volume_xml`). Flatcar's `.ign` file is no exception: the
+  domain names it in a `<sysinfo type='fwcfg'>` entry, `opt/org.flatcar-linux/config`, so libvirt
+  hands it over, labels it and adds it to the VM's AppArmor profile like a disk. A raw `-fw_cfg`
+  QEMU argument gets none of that, and AppArmor denies QEMU the file.
 - A failure is logged, not fatal. `sherpad init` does not create these directories, and only the
   install and update scripts, as root, set their owner and modes besides `sherpad`.
 
