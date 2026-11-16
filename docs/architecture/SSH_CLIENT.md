@@ -11,8 +11,8 @@ are the Jato library (`bwks/jato-lib`) with its `terminal` feature, so the clien
 `cmd::ssh::ssh` takes the lab's ID from the folder (see
 [`LAB_FOLDER.md`](LAB_FOLDER.md#lab-identity)), so it works in a folder made by `sherpa
 download`, with no manifest, and for an OS user whose name is not the lab owner's. It first runs
-the existing checks: the node is in the manifest, when the folder has one, the lab files exist, the alias is in `.sherpa/ssh/config`, and the lab's key `.sherpa/ssh/key` has safe
-permissions. Then:
+the existing checks: the node is in the manifest, when the folder has one, the lab files exist, the alias is in `.sherpa/ssh/config`, and, for a node with no recorded login, that the old lab
+key `.sherpa/ssh/key` has safe permissions. Then:
 
 1. `jato::SshConfig::load_file(".sherpa/ssh/config")` reads the lab's configuration, as
    `ssh -F` does, and `route(alias)` resolves the node and its `ProxyJump` to the Sherpa

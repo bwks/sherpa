@@ -29,14 +29,23 @@ set in its image, `configuration.nix` in [bwks/nixos-image](https://github.com/b
 
 ## Guest login
 
-The login that owns guest-side work (`user_scripts`, the environment file) is the owner's personal
-account when one is provisioned, otherwise `sherpa` (`guest_account::guest_username`).
-`guest_account::supports_guest_account` lists the models that get a personal account: the Linux
-cloud-init models, `generic_vm`, Alpine, Flatcar, FreeBSD, OpenBSD, Windows, and the network
-devices in [Network devices](#network-devices). Cisco FTDv, Talos, application containers and
-unikernels have no way to add an account at boot and use `sherpa` or their own default login only.
-A node with a custom ZTP config gets no personal account (`guest_account::provisions_owner`),
-because the generated config it would be written into is replaced.
+A node with a generated login has one: the lab owner's, named after their Sherpa username, with
+their registered SSH keys the model accepts and their [device password](SERVER.md#device-passwords). There
+is no shared `sherpa` account and no published password on the nodes Sherpa builds.
+`guest_account::from_user` makes the owner's `GuestAccount` from the user record and the opened
+device password. It refuses an owner whose name cannot be a login (a legacy account named `root`,
+`sherpa` or `admin`, say) with `User '<name>' cannot start labs`; before 0.7.0 such an owner fell
+back to `sherpa`.
+
+The login that owns guest-side work (`user_scripts`, the environment file) is that account.
+`guest_account::supports_guest_account` lists the models that get it: the Linux cloud-init models,
+`generic_vm`, Alpine, Flatcar, FreeBSD, OpenBSD, Windows, and the network devices in
+[Network devices](#network-devices). Talos, application containers and unikernels have no way to
+add an account at boot and have no generated login. Cisco FTDv takes no account either, but its
+day-0 config sets the password of its own `admin` (`guest_account::fixed_login`), so `admin` is
+its login and no key is installed. A node with a custom ZTP config, or ZTP off, gets no account
+(`guest_account::provisions_owner`), because the generated config it would be written into is
+replaced or not made.
 
 `generic_vm` is treated as a Linux cloud-init guest, like the main cloud-init branch.
 
@@ -46,30 +55,78 @@ Each account keeps its OS's native tools:
 |---|---|---|---|
 | Linux (cloud-init) | `/bin/bash` | cloud-init `sudo` rule, passwordless | `guest_account::cloud_init_user` |
 | Alpine | `ash` (`/bin/sh`), `wheel` group | dedicated `guest_account::NODE_DOAS_CONF_DIR/<user>.conf`, `permit nopass` | `guest_account::alpine_cloud_init_user`, `doas_file` |
-| Flatcar | `/bin/bash` | dedicated `/etc/sudoers.d/<user>` | `guest_account::ignition_user`, `sudoers_file` |
-| NixOS | `server::konst::NODE_NIXOS_SHELL` (`/run/current-system/sw/bin/bash`), `wheel` group | `wheel`, passwordless in the image. No `sudo` rule (`node_ops::cloud_init_sudo_rule`) | `guest_account::nixos_cloud_init_user`; `sherpa`: `cloud_init_user_settings` |
-| FreeBSD | `/bin/sh`, `wheel` group | cloud-init `sudo` rule, passwordless (neither `sudo` nor `doas` is in base; the image ships `sudo`) | `guest_account::bsd_cloud_init_user`; `sherpa`: `cloud_init_user_settings` |
+| Flatcar | `/bin/bash`, `wheel` and `docker` groups | dedicated `/etc/sudoers.d/<user>`, passwordless | `guest_account::ignition_user`, `sudoers_file` |
+| NixOS | `server::konst::NODE_NIXOS_SHELL` (`/run/current-system/sw/bin/bash`), `wheel` group | `wheel`, passwordless in the image. No `sudo` rule (`node_ops::cloud_init_sudo_rule`) | `guest_account::nixos_cloud_init_user` |
+| FreeBSD | `/bin/sh`, `wheel` group | cloud-init `sudo` rule, passwordless (neither `sudo` nor `doas` is in base; the image ships `sudo`) | `guest_account::bsd_cloud_init_user` |
 | OpenBSD | `/bin/sh`, `wheel` group | `doas`, in base: `node_ops::NODE_DOAS_CONF_FILE` with the stock `/etc/examples/doas.conf` rule plus `nopass`, `permit nopass keepenv :wheel`. No `sudo` rule (`node_ops::cloud_init_sudo_rule`) | `guest_account::bsd_cloud_init_user`, `node_ops::cloud_init_doas_file` |
 
 `CloudInitUser.groups` is written as a comma-separated string: cloud-init's BSD `add_user`
 passes only string values to `pw`/`useradd`, so a list left BSD logins out of `wheel`.
 
-Nothing is installed at first boot, so accounts work without internet access. No password is
-copied into the guest. Personal accounts are locked (`lock_passwd: true`), except on Alpine and
-the BSDs: Alpine's sshd is built without PAM and refuses accounts whose shadow password starts
-with `!`, and OpenSSH on FreeBSD refuses `*LOCKED*` accounts, both even for key logins. Those
-accounts get `*` (`guest_account::NODE_NO_PASSWORD_HASH`, with `lock_passwd: false`), which matches no
-password but is not a lock. BSD accounts also leave the home to the OS, which is under
+Nothing is installed at first boot, so accounts work without internet access. Accounts are not
+locked (`lock_passwd: false`): the device password is their password, so the console and
+password SSH logins work as well as keys. The owner keeps passwordless admin rights, so the
+password is for logging in, not for `sudo`. BSD accounts leave the home to the OS, which is under
 `/usr/home` on FreeBSD.
 
 `CloudInitUser` omits an empty `groups` list, because cloud-init's schema rejects it.
+
+## Device password
+
+The password of the owner's login is the owner's device password, opened from the database. `up`
+(`set_up`, `services/up/lab.rs`) and `redeploy` (`redeploy/node.rs`) check the owner in this
+order, before they create or tear down anything: an SSH key (`guest_account::require_ssh_key`),
+then a device password (`guest_account::require_device_password`, which calls
+`db::open_device_password` and fails with the message that says how to set one), then
+`guest_account::from_user`. `resume`, `down`, `destroy` and `inspect` build no configuration and
+do not need it. A new device password applies to nodes created or redeployed afterwards.
+
+`guest_account::device_password` writes it in the form a device takes (`PasswordForm`):
+
+- `Plain`: the password itself. For devices that take nothing else, or whose hashed form is not
+  verified on them, and for configs that are not served over TFTP or HTTP: Cisco IOS family,
+  IOS XR, NX-OS, ASAv, ISE, FTDv, SR Linux (hashes it on commit), MikroTik, Cumulus,
+  AOS-CX, Windows (cloudbase-init needs it) and OpenBSD.
+- `Hashed`: a salted SHA-crypt hash from `template::crypt_hash` (`crates/template/src/crypt.rs`,
+  the `sha-crypt` crate). `$6$` (SHA-512) for cloud-init `hashed_passwd` on Linux, NixOS, Alpine
+  and FreeBSD, Flatcar's Ignition `passwordHash`, Arista EOS `secret sha512`, Junos
+  `encrypted-password`, and FRR and SONiC through `chpasswd -e`. `$5$` (SHA-256) for PAN-OS
+  `phash`. The salt is 16 random characters and 5000 rounds, and the hash has no `rounds=` field,
+  which not every device reads. Each render has its own salt.
+
+OpenBSD's crypt(3) takes only bcrypt, so cloud-init gets the plain password there
+(`plain_text_passwd`) and hashes it on the node.
+
+Configs served over TFTP or HTTP (vEOS, Junos, SONiC) carry only a hash, since anything on the
+management network can fetch them. Aruba AOS-CX is the one TFTP model that still carries plain
+text, until #676 chooses its method. Fixed vendor accounts take the device password too:
+`admin` on NX-OS, IOS XR, AOS-CX, PAN-OS, SR Linux (`admin-user`) and RouterOS, `root` on Junos
+(`root-authentication`), and the ASA `enable password`.
+
+## Login names
+
+A model may not take every Sherpa username. `server::validate::validate_login_name`
+(`validate/login_name.rs`) holds each model's limit, from the vendor's documentation:
+
+| Models | Limit |
+|---|---|
+| Windows Server, `devbox_windows` | at most 20 characters |
+| Cisco NX-OS (`cisco_nexus9300v`) | at most 28 characters, starting with a letter or digit |
+| Arista vEOS and cEOS | starting with a letter or digit |
+| PAN-OS, OpenBSD | at most 31 characters |
+| every other model | any Sherpa username |
+
+A name a model cannot take is refused, never shortened or changed, since a changed name would
+make the SSH config and what the person types disagree. `guest_account::node_account` applies it
+with the key rules, so it runs where they do: `up` planning (`up/plan.rs`, `node_logins`) and
+`redeploy` (`redeploy/context.rs`, `node_login`), before anything is created or torn down.
 
 ## Owner keys per model
 
 Many devices take only some key types, or a limited number of keys per user.
 `guest_account::key_rules` holds both for each model, from the vendors' documentation;
-`guest_account::node_account` applies them when `sherpa up` and `sherpa redeploy` check the lab,
-before anything is created:
+`guest_account::node_account` applies them, with the login name rule, when `sherpa up` and
+`sherpa redeploy` check the lab, before anything is created:
 
 - Keys of a type the model does not take, and keys past its limit, are left out, and the CLI is
   told which (`Node '<node>' does not take these SSH keys of '<owner>'`).
@@ -92,44 +149,45 @@ before anything is created:
 
 ## Network devices
 
-The owner's account is rendered by each device's ZTP template next to `sherpa`, from
-`shared::data::OwnerUser`. `guest_account::owner_user` writes each key the way the device's
-config takes it (`guest_account::KeyFormat`): the key type and base64 data, a Cisco MD5 or
-SHA-256 hash, a Junos statement with the whole key line, or the PAN-OS base64 of the key line.
+The owner's account is rendered by each device's ZTP template, from `shared::data::OwnerUser`:
+the name, the device password in the form above, and the keys. `guest_account::owner_user` writes
+each key the way the device's config takes it (`guest_account::KeyFormat`): the key type and
+base64 data, a Cisco MD5 or SHA-256 hash, a Junos statement with the whole key line, or the
+PAN-OS base64 of the key line.
 
-Accounts have full administrator rights and log in by key. Devices that need a password, or that
-would accept an empty one, get a random 20-character password nobody is told
-(`OwnerUser.secret`; cloudbase-init takes at most 20 characters, and Cisco IOS 25). It is in
-the rendered config in
-the lab directory, which only `sherpa` and its group can read. Never use a `nopassword` form:
-on IOS and ASA it accepts any password.
+Accounts have full administrator rights and log in by key or by the device password. Never use a
+`nopassword` form: on IOS and ASA it accepts any password.
 
 | Model | Account | Admin rights | Password |
 |---|---|---|---|
-| IOSv, IOSvL2, IOS XE | `username` and `ip ssh pubkey-chain` `key-hash` | privilege 15 | random `secret` |
-| IOS XR | `username`, `ssh server username` `keystring` | `root-lr`, `netadmin` | random `secret 0` |
-| ASAv | `username` and `attributes` with `hashed` keys | privilege 15, `service-type admin` | none (key-only is supported) |
-| NX-OS | `username`, `sshkey` | `network-admin` | random |
-| Arista EOS | `username`, `ssh-key`, `ssh-key secondary` | privilege 15 | random `secret` |
-| Aruba AOS-CX | `user`, `authorized-key` | `administrators` | random (AOS-CX needs one before a key) |
-| Junos | `system login user` | `super-user` | none |
-| Cumulus | NVUE `system aaa user`, one named `authorized-key` per key | `system-admin` | random |
-| SR Linux | AAA `user` with an `ssh-key` list | `srl-admin` (superuser) | random |
-| PAN-OS | bootstrap `mgt-config` user with a `public-key` | superuser | a random, well-formed SHA-256 crypt hash (`guest_account::unusable_sha256_crypt_hash`), which no known password matches |
-| MikroTik | `/user add`, `/user ssh-keys import` of one file per key on the config disk (`sata1`, `konst::MIKROTIK_CONFIG_DISK`) | `full` | random; RouterOS's default empty password must never be left |
-| SONiC | `useradd`, `authorized_keys`, `/etc/sudoers.d` | `sudo`, `admin`, `docker` groups, passwordless sudo | none, locked |
-| FRR | `adduser`, `authorized_keys`, `/etc/sudoers.d` | `frr`, `frrvty` groups, passwordless sudo | `*`, which Alpine's sshd without PAM accepts for key logins where it refuses a locked account |
+| IOSv, IOSvL2, IOS XE | `username` and `ip ssh pubkey-chain` `key-hash` | privilege 15 | `secret`, plain |
+| IOS XR | `username`, `ssh server username` `keystring`; `admin` | `root-lr`, `netadmin` | `secret 0`, plain |
+| ASAv | `username` and `attributes` with `hashed` keys; `enable password` | privilege 15, `service-type admin` | `password`, plain |
+| NX-OS | `username`, `sshkey`; `admin` | `network-admin` | `password 0`, plain |
+| Arista EOS | `username`, `ssh-key`, `ssh-key secondary` | privilege 15 | `secret sha512`, `$6$` |
+| Aruba AOS-CX | `user`, `authorized-key`; `admin` | `administrators` | `password plaintext` (hashing pending #676) |
+| Junos | `system login user`; `root-authentication` | `super-user` | `$6$` `encrypted-password` |
+| Cumulus | NVUE `system aaa user`, one named `authorized-key` per key | `system-admin` | plain |
+| SR Linux | AAA `user` with an `ssh-key` list; `admin-user` | `srl-admin` (superuser) | plain; SR Linux hashes it on commit |
+| PAN-OS | bootstrap `mgt-config` user with a `public-key`; `admin` | superuser | `phash`, `$5$` |
+| MikroTik | `/user add`, `/user ssh-keys import` of one file per key on the config disk (`sata1`, `konst::MIKROTIK_CONFIG_DISK`); `/user set 0` for `admin` | `full` | plain |
+| SONiC | `useradd`, `authorized_keys`, `/etc/sudoers.d` | `sudo`, `admin`, `docker` groups, passwordless sudo | `$6$` through `chpasswd -e` |
+| FRR | `adduser`, `authorized_keys`, `/etc/sudoers.d` | `frr`, `frrvty` groups, passwordless sudo | `$6$` through `chpasswd -e` |
 
-The `sherpa` key on MikroTik is imported by the image itself: a scheduler imports
-`sata1/sherpa_ssh_key.pub` for `sherpa`. The file is the lab's public key (see
-[`SERVER.md`](SERVER.md#lab-ssh-keys)), written into the node's folder and copied to the disk.
+The lab key is still created in the lab folder, and its public half is still written to the
+MikroTik config disk as `sherpa_ssh_key.pub`, which the image's scheduler imports. The SSH
+config no longer names it, and Sherpa builds no `sherpa` account for it to log in to.
 
 ### Cisco ISE
 
-ISE's ZTP config has a single administrator, `sherpa`, and one `public_key`. With a personal
-account it takes the owner's first RSA key instead of the lab's `sherpa` key, so the owner
-logs in as `sherpa` with their own key, and the `ssh_usernames` entry for the node is `sherpa`.
-Sherpa's own key no longer works on that node.
+ISE's ZTP config has a single administrator and one `public_key`. It is the owner: their name,
+the device password and their first RSA key. The `ssh_usernames` entry for the node is the owner's
+name.
+
+### Cisco FTDv
+
+FTDv takes no account at boot. Its day-0 JSON (`AdminPassword`) sets the password of its `admin`,
+to the device password. `admin` is the node's recorded login, and no SSH key is installed.
 
 ## Environment variables
 
@@ -185,6 +243,10 @@ shebang runs with `/bin/sh`. Paths are shell-quoted. Flatcar does not run manife
 
 ## Flatcar (Ignition)
 
+The owner's Ignition user has their keys and the manifest's `ssh.authorized_keys` and
+`authorized_key_files`, `wheel` and `docker`, and a `passwordHash` of the device password
+(`guest_account::ignition_user`).
+
 `generate_ignition_ztp` writes text files as Ignition files with their own owner and mode, and adds
 user-owned Ignition directories for each missing parent under the owner's `/home/<user>`
 (`build_ignition_home_directories`); Ignition would otherwise create them as root, leaving the user
@@ -203,12 +265,12 @@ refuses bad text file modes in the client and in `up` before they get that far.
 OpenSSH on Windows reads one shared `administrators_authorized_keys` file for every member of
 Administrators, so any administrator key logs in as any administrator. Sherpa writes its own
 `sshd_config` (`template::WindowsSshdConfigTemplate`, `node_ops::WINDOWS_SSHD_CONFIG`) with
-`AuthorizedKeysFile __PROGRAMDATA__/ssh/authorized_keys/%u`: each account, `sherpa` and the
-owner, has its own keys file under `node_ops::WINDOWS_AUTHORIZED_KEYS_DIR`, named after it and
+`AuthorizedKeysFile __PROGRAMDATA__/ssh/authorized_keys/%u`: each account has its own
+keys file under `node_ops::WINDOWS_AUTHORIZED_KEYS_DIR`, named after it and
 private to Administrators and SYSTEM (mode `0600`, below). The file is outside the user's
 profile, which Windows only creates at first logon. The owner is a local administrator
-(`guest_account::cloudbase_user`); cloudbase-init needs a password, so it gets a random one
-nobody is told.
+(`guest_account::cloudbase_user`); cloudbase-init needs a password, so it gets the device
+password as plain text.
 
 cloudbase-init's `write_files` ignores `permissions`: a file inherits its folder's ACL, and
 under `C:\` that lets `BUILTIN\Users` read it. `build_windows_private_file_acls` turns each

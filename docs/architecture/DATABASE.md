@@ -225,6 +225,8 @@ table, copy the rows, drop the old one, rename.
 | 25 | `0025_drop_node_definition_imported.sql`: drops `node.definition_imported`. Nothing sets it since the startup import was removed (0.7.0), and the web UI no longer refuses a marked node. See [Imported definitions](#imported-definitions) |
 | 26 | `0026_drop_image_ztp_login.sql`: drops `node_image.ztp_username`, `ztp_password` and `ztp_password_auth`, and the two triggers that refused a `ztp_password` not sealed. Sherpa's generated configurations never read them. Stored values, sealed passwords included, are dropped; the images and their `ztp` setting are kept. See [Secret values](#secret-values) |
 | 27 | `0027_user_device_password.sql`: `user.device_password`, the user's [device password](#device-passwords) as sealed text, `NULL` (none) for every user; and two triggers that refuse a value that is not sealed text, on insert and on update |
+| 28 | `0028_drop_provision_current_user.sql`: drops `lab.provision_current_user`. The owner's login is the only one on lab nodes, so there is nothing to choose. Stored lab definitions lose the value |
+| 29 | `0029_legacy_node_ssh_username.sql`: `UPDATE node SET ssh_username = 'sherpa' WHERE ssh_username IS NULL`. A node built before 0.7.0 has the shared `sherpa` account and no recorded login; this records it, so its SSH config stays `User sherpa`. See [Node SSH accounts](#node-ssh-accounts) |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
@@ -317,9 +319,11 @@ overlap.
 ### Node SSH accounts
 
 `node.ssh_username` is the account the lab's SSH config logs in to the node with: the lab
-owner's login on a node that provisions it (`provision_current_user`), else `NULL`, for the
-shared `sherpa` account and the lab's key. It is the `ssh_usernames` of `lab-info.toml`, which
-the server no longer keeps; 0.6.5 copied it from older labs' files at startup.
+owner's login (their Sherpa username) on every node with a generated login, `admin` on Cisco
+FTDv, and `sherpa` on a node built before 0.7.0 (migration 29). It is `NULL` for a node with no
+generated login: a custom `ztp.config`, ZTP off, an application container; the SSH config then
+names the lab owner. It is the `ssh_usernames` of `lab-info.toml`, which the server no longer
+keeps; 0.6.5 copied it from older labs' files at startup.
 
 - **Written** by `up`, after it creates the nodes' records (`up::records::store_ssh_usernames`),
   and by `redeploy`, with the account the node was rebuilt with, once the rebuild succeeds; both
@@ -331,7 +335,10 @@ the server no longer keeps; 0.6.5 copied it from older labs' files at startup.
   read the lab info the same way.
 - **Imported** at startup by 0.6.5 from labs stored before version 22. 0.7.0 does not; such a
   lab's nodes use the `sherpa` account (see
-  [`SERVER.md`](SERVER.md#files-older-releases-left-in-lab-folders)).
+  [`SERVER.md`](SERVER.md#files-older-releases-left-in-lab-folders)), which migration 29 records.
+- **Counted** at startup by `db::count_nodes_by_ssh_username`: sherpad logs one warning while
+  any node still has `sherpa` as its login (`daemon::state::warn_on_sherpa_logins`), because those
+  nodes keep the published `sherpa` password until they are redeployed or recreated.
 
 ### Talos cluster plans
 
@@ -407,7 +414,7 @@ by `create_lab`; the rest come with migration 20:
 | Column | Manifest |
 |---|---|
 | `has_definition` | `1` once a definition is stored. `0` for a lab stored before version 20 whose saved manifest was not imported |
-| `ready_timeout`, `provision_current_user`, `provision_concurrency` | the same names (`provision_concurrency` 1 to 255) |
+| `ready_timeout`, `provision_concurrency` | the same names (`provision_concurrency` 1 to 255) |
 | `tailscale_enabled`, `tailscale_auth_key_env` | `[tailscale]`; `NULL` when the manifest has no table |
 | `ztp_server_enable`, `ztp_server_username`, `ztp_server_password` | `[ztp_server]`; `NULL` when absent. The password is [sealed](#secret-values) |
 
@@ -448,7 +455,7 @@ refer to their parent row with a composite foreign key and cascade with it.
   DatabaseRecords phase, once the lab and node records exist.
 - `store_redeployed_node(db, lab, node, name, manifest)` is `redeploy`'s, before the node
   starts: the node's columns and lists, and the lab-level settings a redeploy applies,
-  `ready_timeout`, `provision_current_user` and `provision_concurrency`. The lab's links,
+  `ready_timeout` and `provision_concurrency`. The lab's links,
   bridges, Talos clusters, Tailscale and ZTP server settings are what `up` built; a redeploy does
   not rebuild them, so it does not change them.
 
@@ -553,8 +560,8 @@ editing users never touches it. `crates/db/src/user/device_password.rs` has:
   `user.list` and the Profile page show this.
 - `open_device_password(db, id)`: the password opened, as a `DevicePassword`, whose `Debug`
   prints `DevicePassword([REDACTED])` and which has no `Serialize`, so no response can carry it.
-  It is for the places that build a node's configuration (`up` and `redeploy`, from #649's next
-  change); a value that does not open, for another row or under another key, is an error.
+  `up` and `redeploy` call it through `guest_account::require_device_password` before they create
+  or tear down anything, and refuse the operation when none is set. A value that does not open, for another row or under another key, is an error.
 
 There is no clear: a user replaces a forgotten device password with a new one.
 
