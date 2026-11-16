@@ -19,7 +19,7 @@ be stored.
 | `Cdrom` | `cdrom` | config file on a CD-ROM ISO |
 | `Disk` | `disk` | config file on a second disk |
 | `Http` | `http` | config served by the lab's boot server, named in DHCP options 67 and 239 |
-| `Ignition` | `ignition` | Ignition config passed to QEMU |
+| `Ignition` | `ignition` | Ignition config as a libvirt firmware config entry (`<sysinfo type='fwcfg'>`) |
 | `NoCloud` | `nocloud` | `cidata` CD-ROM carrying the node's own `user-data` |
 | `Tftp` | `tftp` | config served over TFTP, named in DHCP option 67 |
 | `Usb` | `usb` | config file on a USB disk |
