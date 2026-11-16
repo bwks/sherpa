@@ -236,6 +236,15 @@ that fails to import is reported, the rest go on, and the script exits with stat
 guest's CLI is already logged in, so no password is needed. The first version imported for a
 model becomes its default, so `images.toml` lists the default first.
 
+Some images need a file that an import does not bring: vEOS boots from the Aboot ISO,
+`/opt/sherpa/images/arista_veos/aboot_iso/aboot.iso`, and without it `sherpa up` fails for an
+`arista_veos` node. `images.toml` lists such files under `[[extra_files]]`, each a `path` under
+`/opt/sherpa/images`. After the images, the script compares each file's SHA-256 on the host and
+in the guest and skips it when they match. Otherwise it copies the file through the same staging
+folder, checks the copy's SHA-256, and installs it at the same path in the guest, owned by the
+guest's `sherpa` account and mode `644`, creating its folders as `sherpa`. Files are reported and
+counted like the images: missing on the host, a failed copy or a checksum mismatch is a failure.
+
 Container images are not seeded: the host's `/opt/sherpa/images` holds no container image to
 copy, and `sherpa server image import` takes a container image only as a `docker save` archive.
 Pull the ones a test needs in the guest, for example
