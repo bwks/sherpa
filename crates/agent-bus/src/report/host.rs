@@ -232,6 +232,8 @@ pub async fn hook(
     let sync = SyncRequest {
         scope: Scope::Due,
         force: true,
+        frozen: false,
+        home_repo: home_repo.map(str::to_owned),
     };
     let _ = sync_now(paths, &sync, HOOK_LOCK_WAIT, false).await;
     Exit::Done

@@ -13,6 +13,8 @@ use crate::timing::{Tick, classify};
 const QUESTION_PREFIX: &str = "QUESTION:";
 /// The longest progress message, in characters.
 const PROGRESS_CHARS: usize = 300;
+/// The fields of a tool call's input that name a file or a directory.
+const PATH_FIELDS: [&str; 3] = ["file_path", "path", "notebook_path"];
 
 /// What a line of Claude Code's `stream-json` output means for the host.
 #[derive(Debug, PartialEq)]
@@ -25,6 +27,9 @@ pub(super) enum Update {
     Tool(String),
     /// Something that tells where the run's time goes, stamped by the guest when it reads it.
     Clock(Tick),
+    /// A place a tool call named, absolute or from `~`: a file it read or wrote, or a directory
+    /// a command changed to. The checkouts holding them are where the run worked.
+    WorkedIn(String),
     /// A run's `result` event. Its `usage.duration_api_ms` is still the session's total so far:
     /// the guest takes the previous run's off (`api_time_of_run`).
     Finished {
@@ -180,6 +185,7 @@ pub(super) fn interpret(line: &str) -> Vec<Update> {
                         id: id.to_owned(),
                         class: classify(name, &block["input"]),
                     }));
+                    updates.extend(places(&block["input"]).into_iter().map(Update::WorkedIn));
                 }
             }
             updates
@@ -269,6 +275,30 @@ fn progress(block: &Value) -> Option<Update> {
     }
 }
 
+/// The places a tool call's `input` names, absolute or from `~`: its `file_path`, `path` or
+/// `notebook_path`, and in a `command` each directory after `cd` or `git -C`.
+fn places(input: &Value) -> Vec<String> {
+    let mut found: Vec<String> = PATH_FIELDS
+        .iter()
+        .filter_map(|field| input[field].as_str())
+        .map(str::to_owned)
+        .collect();
+    if let Some(command) = input["command"].as_str() {
+        let mut words = command
+            .split(|character: char| character.is_whitespace() || ";&|()".contains(character))
+            .filter(|word| !word.is_empty());
+        while let Some(word) = words.next() {
+            if (word == "cd" || word == "-C")
+                && let Some(target) = words.next()
+            {
+                found.push(target.trim_matches(['\'', '"']).to_owned());
+            }
+        }
+    }
+    found.retain(|place| place.starts_with('/') || place.starts_with("~/"));
+    found
+}
+
 fn shorten(text: &str) -> String {
     if text.chars().count() <= PROGRESS_CHARS {
         return text.to_owned();
@@ -310,6 +340,7 @@ mod tests {
                     id: "t2".to_owned(),
                     class: Class::Work,
                 }),
+                Update::WorkedIn("/src/lib.rs".to_owned()),
             ]
         );
         assert_eq!(

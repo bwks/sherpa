@@ -1,6 +1,6 @@
 //! What the Generation sync reads and keeps in the record: the pull requests that name an item,
-//! the rows of an item's section, and how each pull request's last write went
-//! (`generation_pr`).
+//! which pull request counts each task and response (`placements`), the rows of a pull
+//! request's section, and how each pull request's last write went (`generation_pr`).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -8,15 +8,17 @@ use anyhow::{Context, Result};
 use tracing::instrument;
 use turso::{Connection, Value};
 
-use crate::generation::section::{HostRow, Row, Rows};
+use crate::generation::placement::{ItemPlan, Named, Placements, PullRequestId, place};
+use crate::generation::section::{Counted, HostRow, Row, Rows};
+use crate::generation::sync::is_frozen;
 use crate::message::TaskUsage;
 use crate::report::usage::{HOST, Time, add_host};
 use crate::store::cells::{Cells, integer, optional_integer, optional_text};
-use crate::store::host::{host_model_times, host_rows, task_waits};
+use crate::store::host::{charged_pull_request, focus, host_model_times, host_rows, task_waits};
 use crate::store::read;
 use crate::store::sql::{
-    GENERATION_PRS, HOST_META, ITEM_TASK_IDS, PULL_REQUEST_REFS, SET_HOST_META, TASK_MODELS,
-    UPSERT_GENERATION_PR,
+    GENERATION_PRS, HOST_META, ITEM_TASK_IDS, PULL_REQUEST_REFS, SET_HOST_META, TASK_EVENTS,
+    TASK_MODELS, TASK_PULL_REQUESTS, UPSERT_GENERATION_PR,
 };
 
 /// The import fact holding when the first sync ran.
@@ -30,6 +32,16 @@ pub struct PullRequest {
     pub work: i64,
     /// The latest message of the item's tasks or response of the host charged to it.
     pub active_ms: Option<u64>,
+}
+
+impl PullRequest {
+    /// Its repository and number.
+    pub fn id(&self) -> PullRequestId {
+        PullRequestId {
+            repo: self.repo.clone(),
+            number: self.number,
+        }
+    }
 }
 
 /// How the last write of one pull request's section went: its `generation_pr` row.
@@ -174,19 +186,45 @@ pub async fn since(conn: &Connection, now_ms: u64) -> Result<u64> {
     Cells::new(&row).count("value")
 }
 
-/// The rows of `item`'s section, from the record: each task the host sent that has usage, in
-/// the order they were first recorded, the host's usage and time on each model with how many
-/// of its responses have no price, and every task the record has in an item.
+/// The rows of `pull_request`'s section, from the record, with `placements` saying which pull
+/// request counts what: each task the host sent that has usage and is counted here (its own,
+/// then those brought forward, each in the order they were first recorded), the host's usage
+/// and time counted here on each model with how many of its responses have no price, a pointer
+/// for each task of this pull request counted on another, and every task the record has in an
+/// item.
 ///
 /// # Errors
 ///
 /// Fails when a query fails or a row is not one.
-#[instrument(level = "debug", skip(conn))]
-pub async fn rows(conn: &Connection, item: i64) -> Result<Rows> {
+#[instrument(level = "debug", skip(conn, placements), fields(repo = %pull_request.repo, number = pull_request.number))]
+pub async fn rows(
+    conn: &Connection,
+    pull_request: &PullRequest,
+    placements: &Placements,
+) -> Result<Rows> {
+    let item = pull_request.work;
+    let here = pull_request.id();
     let waits = task_waits(conn).await?;
     let models = task_models(conn, item).await?;
     let mut tasks = Vec::new();
+    let mut counted = Vec::new();
     for row in read::usage(conn, HOST, None, None, false, Some(item)).await? {
+        let Some((_, placement)) = placements.task(&row.task) else {
+            continue;
+        };
+        if placement.pull_request.as_ref() != Some(&here) {
+            if let Some(home) = &placement.pull_request
+                && placement.elsewhere.contains(&here)
+            {
+                counted.push(Counted {
+                    task: row.task,
+                    agent: row.agent,
+                    repo: home.repo.clone(),
+                    number: home.number,
+                });
+            }
+            continue;
+        }
         let used = match models.get(&row.task) {
             Some(used) => used.clone(),
             None => row.model.iter().cloned().collect(),
@@ -201,17 +239,32 @@ pub async fn rows(conn: &Connection, item: i64) -> Result<Rows> {
             },
             task: row.task,
             agent: row.agent,
+            brought_forward: placement.brought_forward,
         });
     }
+    // Its own tasks first, then those brought forward to it.
+    tasks.sort_by_key(|row| row.brought_forward);
+    let focus = focus(conn).await?;
     let mut by_model: BTreeMap<String, (TaskUsage, u64)> = BTreeMap::new();
     for response in host_rows(conn, None, Some(item)).await? {
+        let charged = charged_pull_request(
+            placements,
+            &focus,
+            response.work,
+            &response.session,
+            response.charged_ms,
+            response.pinned.as_ref(),
+        );
+        if charged.as_ref() != Some(&here) {
+            continue;
+        }
         let (usage, unpriced) = by_model.entry(response.model.clone()).or_default();
         add_host(usage, &response);
         if response.cost_usd.is_none() {
             *unpriced += 1;
         }
     }
-    let times = host_model_times(conn, item).await?;
+    let times = host_model_times(conn, placements, &here).await?;
     let host = by_model
         .into_iter()
         .map(|(model, (usage, unpriced))| HostRow {
@@ -224,25 +277,128 @@ pub async fn rows(conn: &Connection, item: i64) -> Result<Rows> {
     Ok(Rows {
         tasks,
         host,
-        known: known_tasks(conn).await?,
+        counted,
+        known: placements
+            .items
+            .values()
+            .flat_map(|plan| plan.tasks.iter().cloned())
+            .collect::<BTreeSet<String>>(),
     })
 }
 
-/// Every task the record has in a work item.
-async fn known_tasks(conn: &Connection) -> Result<BTreeSet<String>> {
+/// Which pull request counts each task of every item and each response of the host, from the
+/// record, with `home_repo` the host's repository (`generation::placement`): the tasks of each
+/// item in the order they were first recorded, the pull requests each named in its own item,
+/// their events, and when each merged or closed pull request had its final write.
+///
+/// # Errors
+///
+/// Fails when a query fails or a row is not one.
+#[instrument(level = "debug", skip(conn))]
+pub async fn placements(conn: &Connection, home_repo: Option<&str>) -> Result<Placements> {
+    let mut items: HashMap<i64, ItemPlan> = HashMap::new();
+    let mut index: HashMap<String, (i64, usize)> = HashMap::new();
     let mut rows = conn
         .query(ITEM_TASK_IDS, ())
         .await
         .context("Unable to read the tasks of the items")?;
-    let mut found = BTreeSet::new();
     while let Some(row) = rows
         .next()
         .await
         .context("Unable to read the tasks of the items")?
     {
-        found.insert(Cells::new(&row).text("task")?);
+        let mut cells = Cells::new(&row);
+        let item = cells.id("work")?;
+        let task = cells.text("task")?;
+        let plan = items.entry(item).or_default();
+        index.insert(task.clone(), (item, plan.tasks.len()));
+        plan.tasks.push(task);
+    }
+    drop(rows);
+    let mut rows = conn
+        .query(TASK_EVENTS, ())
+        .await
+        .context("Unable to read the events of the tasks")?;
+    while let Some(row) = rows
+        .next()
+        .await
+        .context("Unable to read the events of the tasks")?
+    {
+        let mut cells = Cells::new(&row);
+        let task = cells.text("task")?;
+        let at_ms = cells.count("at_ms")?;
+        if let Some((item, at)) = index.get(&task)
+            && let Some(plan) = items.get_mut(item)
+        {
+            plan.events.push((at_ms, *at));
+        }
+    }
+    drop(rows);
+    let mut named = task_pull_requests(conn).await?;
+    for plan in items.values_mut() {
+        plan.events.sort_by_key(|(at_ms, _)| *at_ms);
+        let of_tasks: Vec<Vec<Named>> = plan
+            .tasks
+            .iter()
+            .map(|task| named.remove(task).unwrap_or_default())
+            .collect();
+        plan.placements = place(&of_tasks, home_repo);
+    }
+    Ok(Placements {
+        items,
+        frozen: final_writes(conn).await?,
+    })
+}
+
+/// The pull requests each task named in its own item, by task.
+async fn task_pull_requests(conn: &Connection) -> Result<HashMap<String, Vec<Named>>> {
+    let mut rows = conn
+        .query(TASK_PULL_REQUESTS, ())
+        .await
+        .context("Unable to read the pull requests of the tasks")?;
+    let mut found: HashMap<String, Vec<Named>> = HashMap::new();
+    while let Some(row) = rows
+        .next()
+        .await
+        .context("Unable to read the pull requests of the tasks")?
+    {
+        let mut cells = Cells::new(&row);
+        let task = cells.text("task")?;
+        let repo = cells.text("repo")?;
+        let reference = cells.text("ref")?;
+        let source = cells.text("source")?;
+        let seq = cells.count("seq")?;
+        // A ref of kind pull_request is always a number; another is not one to count in.
+        let Ok(number) = reference.parse() else {
+            continue;
+        };
+        found.entry(task).or_default().push(Named {
+            pull_request: PullRequestId { repo, number },
+            source,
+            seq,
+        });
     }
     Ok(found)
+}
+
+/// When each merged or closed pull request had its final write.
+async fn final_writes(conn: &Connection) -> Result<HashMap<PullRequestId, u64>> {
+    Ok(written(conn)
+        .await?
+        .into_values()
+        .filter(|last| is_frozen(last.state.as_deref()))
+        .filter_map(|last| {
+            last.written_at_ms.map(|final_ms| {
+                (
+                    PullRequestId {
+                        repo: last.repo,
+                        number: last.number,
+                    },
+                    final_ms,
+                )
+            })
+        })
+        .collect())
 }
 
 /// Every model each task of `item` used in its runs, sorted.

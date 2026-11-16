@@ -7,8 +7,8 @@ use tracing::instrument;
 use turso::{Connection, Value};
 
 use crate::store::cells::{Cells, boolean, integer, optional_integer, optional_text};
-use crate::store::facts::{Source, facts};
-use crate::store::host::add_focus;
+use crate::store::facts::{Ref, Source, facts};
+use crate::store::host::{Focus, add_focus};
 use crate::store::sql::{FIND_TASK, INSERT_MESSAGE, INSERT_RUN, INSERT_RUN_MODEL, UPSERT_TASK};
 use crate::store::task::{self, Recorded, Task, TaskState};
 use crate::store::work::apply;
@@ -58,13 +58,18 @@ pub async fn record(
                 .work
                 .as_ref()
                 .and_then(|work| work.session.as_deref());
+            // A pull request in the tags counts the host's work from now on.
+            let pull_request = facts.refs.iter().find_map(Ref::pull_request);
             add_focus(
                 &tx,
-                recorded.at_ms,
-                session,
-                Some(applied.item),
-                FOCUS_SEND,
-                Some(&message.task),
+                &Focus {
+                    from_ms: recorded.at_ms,
+                    session: session.map(str::to_owned),
+                    work: Some(applied.item),
+                    source: FOCUS_SEND.to_owned(),
+                    task: Some(message.task.clone()),
+                    pull_request,
+                },
             )
             .await?;
         }

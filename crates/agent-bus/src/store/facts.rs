@@ -10,6 +10,7 @@
 
 use serde::Serialize;
 
+use crate::generation::placement::PullRequestId;
 use crate::message::{Kind, Message, RefKind, check_repo};
 
 /// The start of the Generation line of an outcome whose pull requests were looked at.
@@ -65,6 +66,17 @@ impl Source {
 }
 
 impl Ref {
+    /// The pull request this names; `None` for an issue or a branch.
+    pub fn pull_request(&self) -> Option<PullRequestId> {
+        if self.kind != RefKind::PullRequest {
+            return None;
+        }
+        self.name.parse().ok().map(|number| PullRequestId {
+            repo: self.repo.clone(),
+            number,
+        })
+    }
+
     pub fn new(repo: &str, kind: RefKind, name: impl Into<String>) -> Self {
         Self {
             repo: repo.to_owned(),

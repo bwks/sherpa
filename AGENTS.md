@@ -55,8 +55,11 @@ database is Turso, embedded in sherpad as a single file (see `docs/architecture/
   list-price cost, not what was charged. The host's agent-bus keeps the section, not the model:
   after each agent-bus command on the host (and `agent-bus generation sync`) it rewrites
   everything between `<!-- agent-bus:generation -->` and `<!-- /agent-bus:generation -->` in the
-  pull requests of the work item, counting every task of the item, from implementation to review
-  fixes, and the host's usage charged to it. Agents do not write the section themselves (see "Pull
+  pull requests of the work item. Each pull request's section counts the work behind that pull
+  request only: the tasks whose pull request it is, from implementation to review fixes, the
+  item's earlier tasks with no pull request of their own (design, marked), and the host's usage
+  it counts; a docs pull request whose work is counted on its sherpa pull request says so in one
+  line. Summing an item's sections gives the item's cost. Agents do not write the section themselves (see "Pull
   request Generation section" in `docs/architecture/AGENT_BUS.md`). Only work done outside both
   the agent bus and the host's Claude Code sessions is listed by hand, outside the markers, as
   not measured; host work is measured now, so a hand-written "host: not measured" row is out of
