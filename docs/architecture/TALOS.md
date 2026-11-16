@@ -110,11 +110,9 @@ secrets). `down` loads the lab's clusters once and looks each Talos node up in t
 (`talos::find_member_cluster`); a worker `redeploy` builds its rejoin config from the cluster it
 is a member of; a Vault `redeploy` grants access to every loaded cluster that uses it.
 
-Releases up to 0.6.4 saved the plan as `cluster.toml` in the cluster's folder. sherpad moves it
-into the database at startup and deletes the file (see
-[`SERVER.md`](SERVER.md#cluster-plan-import)); `ClusterPlan`'s serde form is that file's, kept for
-the import only. Files saved before the CNI choice read as Flannel clusters with no block, and
-files saved before `oidc` and `vault` read without them.
+Releases up to 0.6.4 saved the plan as `cluster.toml` in the cluster's folder; 0.6.5 moved it
+into the database at startup and deleted the file. 0.7.0 does not read it, and `ClusterPlan` has
+no serde form (see [`SERVER.md`](SERVER.md#files-older-releases-left-in-lab-folders)).
 
 ### Cilium
 

@@ -196,8 +196,8 @@ The other checks on these settings:
 The database records each lab's manifest as its definition (see
 [`DATABASE.md`](DATABASE.md#lab-definitions)): `up` writes it, and `redeploy` the node it
 rebuilds. The server saves no copy of the manifest beside the lab. Labs from before definitions
-get theirs from the manifest an older release saved, once, at startup, and the file is then
-deleted. A lab created by a release before the grouping has a saved manifest in the old shape,
-which no longer parses, so it is not imported and the lab has no stored definition: `resume`
+got theirs at startup in 0.6.4 and 0.6.5, from the manifest an older release saved; 0.7.0 no
+longer imports. A lab created by a release before the grouping had a saved manifest in the old
+shape, which did not parse, so it was not imported and the lab has no stored definition: `resume`
 falls back to the default readiness timeout and the image's interface counts, and the web node
 page shows the image's ZTP setting.

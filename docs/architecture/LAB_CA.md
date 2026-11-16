@@ -40,8 +40,8 @@ the node a new certificate for its current addresses before it rebuilds the node
 redeployed node keeps one.
 
 Unikernel nodes get none: no unikernel model has a boot config or a mount to carry one, so
-`configure_unikernel` does not issue it. Releases before this one issued them anyway; the
-startup clean-up removes those files (see [Unread lab file clean-up](SERVER.md#unread-lab-file-clean-up)).
+`configure_unikernel` does not issue it. Releases before 0.6.5 issued them anyway; 0.6.5
+removed those files at startup (see [`SERVER.md`](SERVER.md#files-older-releases-left-in-lab-folders)).
 
 ## Delivery
 

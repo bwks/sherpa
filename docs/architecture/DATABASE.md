@@ -216,11 +216,12 @@ table, copy the rows, drop the old one, rename.
 | 17 | `0017_drop_lab_ssh_key.sql`: drops `lab.ssh_key`. Every lab has its own key and the server's shared key is gone (0.6.0). Refused while a lab is still `server`; see [Labs on the server's SSH key](#labs-on-the-servers-ssh-key) |
 | 18 | `0018_reset_unused_image_settings.sql`: container images get the default machine, boot disk and CD-ROM settings (`machine_type` `pc`, `bios` `sea_bios`, `hdd_bus` and `cdrom_bus` `virtio`, no `cdrom`), and unikernel images the default firmware, boot disk and CD-ROM settings, keeping their `machine_type`. Neither kind reads them; the four network OS containers were stored with a q35 machine and SATA buses. See [`NODE_SETTINGS.md`](NODE_SETTINGS.md#settings-a-kind-does-not-use) |
 | 19 | `0019_node_ready_check.sql`: `node.ready_port` (`NULL` or 1 to 65535) and `node.skip_ready_check` (`0` or `1`, default `0`), each node's readiness check, which the scanner, `resume` and `redeploy` read instead of the saved manifest. Existing virtual machines get their model's port (22, or 50000 for `talos_linux`), containers and unikernels none, and no check is skipped: what the scanner did with them before. See [Node readiness checks](#node-readiness-checks) |
-| 20 | `0020_lab_definition.sql`: the [lab definition](#lab-definitions): the manifest's lab-level parameters on `lab` (with `has_definition`, `0` for every lab before), its node-level ones on `node`, the `manifest_*` tables for its lists, and `secret_key_check`. Existing labs get theirs from the startup import. Triggers refuse a `node_image.ztp_password` that is not [sealed](#secret-values); sherpad seals the plain ones at startup |
-| 21 | `0021_node_definition_imported.sql`: `node.definition_imported` (`0` or `1`, default `0`), set on every node of a lab whose definition came from a saved manifest; the web UI refuses to redeploy a marked node. Existing rows are left `0`: the startup step marks the labs that still have a saved manifest. See [Imported definitions](#imported-definitions) |
-| 22 | `0022_node_ssh_username.sql`: `node.ssh_username`, the account the lab's SSH config logs in to the node with (`NULL` for the shared `sherpa` account). Existing rows are left `NULL`: sherpad copies the accounts from each lab's `lab-info.toml` at startup. See [Node SSH accounts](#node-ssh-accounts) |
+| 20 | `0020_lab_definition.sql`: the [lab definition](#lab-definitions): the manifest's lab-level parameters on `lab` (with `has_definition`, `0` for every lab before), its node-level ones on `node`, the `manifest_*` tables for its lists, and `secret_key_check`. Existing labs got theirs from the startup import of 0.6.4 and 0.6.5. Triggers refuse a `node_image.ztp_password` that is not [sealed](#secret-values); sherpad seals the plain ones at startup |
+| 21 | `0021_node_definition_imported.sql`: `node.definition_imported` (`0` or `1`, default `0`), set by the startup import of 0.6.4 and 0.6.5 on every node of a lab whose definition came from a saved manifest; the web UI refused to redeploy a marked node. Dropped by version 25. See [Imported definitions](#imported-definitions) |
+| 22 | `0022_node_ssh_username.sql`: `node.ssh_username`, the account the lab's SSH config logs in to the node with (`NULL` for the shared `sherpa` account). Existing rows are left `NULL`: sherpad 0.6.5 copied the accounts from each lab's `lab-info.toml` at startup. See [Node SSH accounts](#node-ssh-accounts) |
 | 23 | `0023_cpu_pin.sql`: the `cpu_pin` table, one row per host CPU and role a node holds, and its triggers. Every node's `cpu_pinning` and `qemu_thread_cpus` are copied into it, as stored, before the triggers exist, then both columns are dropped. See [CPU pins](#cpu-pins) |
-| 24 | `0024_talos_cluster_plan.sql`: the `talos_cluster_plan` table, what `up` works out for each Talos cluster (endpoint, shared address, load balancer range), keyed on the lab and the cluster's position in `manifest_talos_cluster`. sherpad fills it at startup from the `cluster.toml` files older releases saved. See [Talos cluster plans](#talos-cluster-plans) |
+| 24 | `0024_talos_cluster_plan.sql`: the `talos_cluster_plan` table, what `up` works out for each Talos cluster (endpoint, shared address, load balancer range), keyed on the lab and the cluster's position in `manifest_talos_cluster`. sherpad 0.6.5 filled it at startup from the `cluster.toml` files older releases saved. See [Talos cluster plans](#talos-cluster-plans) |
+| 25 | `0025_drop_node_definition_imported.sql`: drops `node.definition_imported`. Nothing sets it since the startup import was removed (0.7.0), and the web UI no longer refuses a marked node. See [Imported definitions](#imported-definitions) |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
@@ -315,7 +316,7 @@ overlap.
 `node.ssh_username` is the account the lab's SSH config logs in to the node with: the lab
 owner's login on a node that provisions it (`provision_current_user`), else `NULL`, for the
 shared `sherpa` account and the lab's key. It is the `ssh_usernames` of `lab-info.toml`, which
-the server no longer keeps.
+the server no longer keeps; 0.6.5 copied it from older labs' files at startup.
 
 - **Written** by `up`, after it creates the nodes' records (`up::records::store_ssh_usernames`),
   and by `redeploy`, with the account the node was rebuilt with, once the rebuild succeeds; both
@@ -325,8 +326,9 @@ the server no longer keeps.
   renders the SSH config and `known_hosts` file from that and the node rows (`mgmt_ipv4`,
   `ssh_host_key`) for `up`'s response, `download` and `node.host_keys`. `inspect` and `redeploy`
   read the lab info the same way.
-- **Imported** once at startup from labs stored before version 22 (see
-  [`SERVER.md`](SERVER.md#lab-file-import)).
+- **Imported** at startup by 0.6.5 from labs stored before version 22. 0.7.0 does not; such a
+  lab's nodes use the `sherpa` account (see
+  [`SERVER.md`](SERVER.md#files-older-releases-left-in-lab-folders)).
 
 ### Talos cluster plans
 
@@ -352,12 +354,13 @@ that has them), and destroying the lab removes both.
 - **Written** by `db::store_talos_cluster_plans(db, lab, plans)`, in one transaction: each plan
   replaces its cluster's row, found by name, so storing the same plans again changes nothing. A
   plan for a cluster the definition does not have fails the call and stores nothing. `up` calls
-  it from `talos::prepare_clusters`; the startup import too.
+  it from `talos::prepare_clusters`.
 - **Read** by `db::list_talos_cluster_plans(db, lab)` (`talos/list_cluster_plans.sql` and
   `talos/list_cluster_members.sql`), in manifest order. A cluster without a row is left out; a
   member, Keycloak or Vault node without a `mgmt_ipv4` is an error naming it.
-- **Imported** once at startup from labs stored before version 24 (see
-  [`SERVER.md`](SERVER.md#cluster-plan-import)).
+- **Imported** at startup by 0.6.5 from labs stored before version 24. 0.7.0 does not; a
+  cluster with no row is handled as above (see
+  [`SERVER.md`](SERVER.md#files-older-releases-left-in-lab-folders)).
 
 ### Lab definitions
 
@@ -400,7 +403,7 @@ by `create_lab`; the rest come with migration 20:
 
 | Column | Manifest |
 |---|---|
-| `has_definition` | `1` once a definition is stored. `0` for a lab stored before version 20 whose saved manifest could not be imported (the file is deleted all the same) |
+| `has_definition` | `1` once a definition is stored. `0` for a lab stored before version 20 whose saved manifest was not imported |
 | `ready_timeout`, `provision_current_user`, `provision_concurrency` | the same names (`provision_concurrency` 1 to 255) |
 | `tailscale_enabled`, `tailscale_auth_key_env` | `[tailscale]`; `NULL` when the manifest has no table |
 | `ztp_server_enable`, `ztp_server_username`, `ztp_server_password` | `[ztp_server]`; `NULL` when absent. The password is [sealed](#secret-values) |
@@ -439,7 +442,7 @@ refer to their parent row with a composite foreign key and cascade with it.
 - `store_lab_definition(db, lab, manifest)` replaces the whole definition in one transaction:
   the lab's columns, its links, bridges and Talos clusters, and every node's columns and lists.
   Each manifest node must already have its record. `up` calls it at the end of its
-  DatabaseRecords phase, once the lab and node records exist, and the startup import does too.
+  DatabaseRecords phase, once the lab and node records exist.
 - `store_redeployed_node(db, lab, node, name, manifest)` is `redeploy`'s, before the node
   starts: the node's columns and lists, and the lab-level settings a redeploy applies,
   `ready_timeout`, `provision_current_user` and `provision_concurrency`. The lab's links,
@@ -456,8 +459,8 @@ as written (no `*_data` field), with a destructuring that stops compiling when `
 **Readers.** The server reads a lab's manifest only from its definition; it writes no copy of
 it to the lab's directory. `services::lab_definition::stored_definition` is the read for readers
 that fall back to defaults: for a lab with no definition (`has_definition` `0`), or one that
-cannot be read, it logs a warning and gives `None`, and the reader uses the defaults it used for a
-missing saved manifest, never a made-up definition.
+cannot be read, it logs a warning and gives `None`, and the reader uses its defaults, never a
+made-up definition.
 
 | Reader | Reads | Without a definition |
 |---|---|---|
@@ -469,30 +472,23 @@ missing saved manifest, never a made-up definition.
 The ready port is not read from the definition: it is the node's own readiness check
 (`node.ready_port`, `node.skip_ready_check`), what it was built with. A web UI redeploy rebuilds a
 node from its definition alone, so it refuses a node that needs what the definition does not hold
-(see [SERVER.md](SERVER.md#redeploy)), and a node whose definition was imported.
+(see [SERVER.md](SERVER.md#redeploy)).
 
 #### Imported definitions
 
-A definition imported from a saved manifest lacks each node's own `ztp.config` and
-`environment_variables`: the saved copy held them resolved, so the import left them out, and a
-node rebuilt from it would lose them without a word. `node.definition_imported` marks those
-nodes:
+0.6.4 and 0.6.5 imported the definition of each lab stored before version 20 at startup, from
+the manifest older releases saved in its folder. The saved copy held each node's `ztp.config`
+and `environment_variables` resolved and never held its `provisioners`, so the import left them
+out. Those releases marked every node of such a lab (`node.definition_imported`, version 21) and
+refused a web UI redeploy of a marked node until `sherpa redeploy` stored its parts as written
+and cleared the mark.
 
-- **Set** by the startup step (`lab_definition::import_lab_definitions`) on every node of a lab
-  that has a definition and still has a saved manifest (`manifest.toml` or `manifest.json`),
-  before the file is deleted (`db::mark_definition_imported`). That covers a lab imported in the
-  same start and a lab whose definition a release that still saved the files stored: the
-  database cannot tell an imported definition from one `up` stored then, so both are marked.
-  Marking fails, the file is kept, and the next start marks it again. Migration 21 marks no
-  existing row; the file is what tells.
-- **Never set** for a lab `up` makes: it saves no manifest, so the startup step never finds one.
-- **Cleared** for one node by a redeploy that sends the parts as written, as `sherpa redeploy`
-  does (`store_redeployed_node` with `ImportMark::Clear`, in its transaction). A redeploy without
-  them (the web UI, an older CLI) keeps the stored parts, and the mark (`ImportMark::Keep`).
-- **Read** by `lab_definition::web_redeploy_manifest` (`db::node_definition_imported`): a marked
-  node is refused with a 409, before the check for files and variables.
-
-**Existing labs** get their definition from the [startup import](SERVER.md#lab-definition-import).
+0.7.0 removed the import and dropped the mark (version 25). A node imported then and not
+redeployed from the CLI since cannot be told apart: the web UI rebuilds it from its definition,
+without those parts. The 0.7.0 upgrade notes say to redeploy such nodes from the CLI, or destroy
+their lab, before upgrading. A lab stored before version 20 that was never imported has no
+definition (`has_definition` `0`); see
+[`SERVER.md`](SERVER.md#files-older-releases-left-in-lab-folders).
 
 ### Secret values
 

@@ -36,14 +36,14 @@ impl ClusterCni {
 }
 
 /// A node a cluster is made of or uses, and its management address.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClusterMember {
     pub name: String,
     pub ipv4: Ipv4Addr,
 }
 
 /// Management addresses from `first` to `last`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AddressRange {
     pub first: Ipv4Addr,
     pub last: Ipv4Addr,
@@ -51,10 +51,7 @@ pub struct AddressRange {
 
 /// Addresses and members of one Talos cluster: the manifest's cluster, with the addresses the
 /// server chose for it at `up`.
-///
-/// The serde form is the `cluster.toml` releases up to 0.6.4 saved in the cluster's folder,
-/// read only by the startup import that moves it into the database.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClusterPlan {
     pub name: String,
     /// Address the Kubernetes API is reached on: the shared address with several control
@@ -62,21 +59,17 @@ pub struct ClusterPlan {
     pub endpoint: Ipv4Addr,
     /// Shared address the control planes elect an owner for.
     pub vip: Option<Ipv4Addr>,
-    /// Plans saved before clusters had a CNI choice are Flannel clusters.
-    #[serde(default)]
+    /// The cluster's CNI.
     pub cni: ClusterCni,
     /// Addresses a Cilium cluster hands out to load balancers: its Gateway first, then Hubble
     /// UI.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load_balancer_addresses: Option<AddressRange>,
     /// Control planes in manifest order. The first one is bootstrapped.
     pub control_planes: Vec<ClusterMember>,
     pub workers: Vec<ClusterMember>,
     /// The Keycloak node whose realm users log in to the cluster.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oidc: Option<ClusterMember>,
     /// The Vault node the cluster's workloads read secrets from.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vault: Option<ClusterMember>,
 }
 

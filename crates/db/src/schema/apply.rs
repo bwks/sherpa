@@ -124,9 +124,8 @@ mod tests {
     use super::*;
     use crate::persistence::{key_of, new_key, node_image_values};
     use crate::{
-        DefaultRequest, find_lab, find_node_image_by_id, list_cpu_pins,
-        list_labs_without_definition, list_node_images, list_nodes_by_lab,
-        node_definition_imported, open_in_memory, read_lab_definition, seal_plain_image_passwords,
+        DefaultRequest, find_lab, find_node_image_by_id, list_cpu_pins, list_node_images,
+        list_nodes_by_lab, open_in_memory, read_lab_definition, seal_plain_image_passwords,
         upsert_node_image,
     };
 
@@ -1212,19 +1211,17 @@ mod tests {
         assert_eq!(lab.description.as_deref(), Some("Kept"));
         let lab_id = lab.id.clone().unwrap();
         assert_eq!(read_lab_definition(&db, &lab_id).await.unwrap(), None);
-        let without = list_labs_without_definition(&db).await.unwrap();
-        assert_eq!(without.len(), 1);
-        assert_eq!(without[0].lab_id, "lab-0001");
         let nodes = list_nodes_by_lab(&db, lab_id).await.unwrap();
         assert_eq!(nodes[0].memory, Some(2048));
     }
 
     #[tokio::test]
-    async fn nodes_from_before_the_import_mark_are_not_marked() {
-        // A database at version 21, with a lab whose definition is stored and a node.
+    async fn the_import_mark_is_dropped_and_marked_nodes_are_kept() {
+        // A database before the mark was dropped, with a lab whose definition is stored and a
+        // node the startup import of 0.6.4 or 0.6.5 marked.
         let before = migrations::ALL
             .iter()
-            .position(|batch| *batch == migrations::NODE_DEFINITION_IMPORTED)
+            .position(|batch| *batch == migrations::DROP_NODE_DEFINITION_IMPORTED)
             .unwrap();
         let db = database_at(before).await;
         let image = upsert_node_image(
@@ -1254,8 +1251,9 @@ mod tests {
             writer
                 .conn
                 .execute(
-                    "INSERT INTO node (id, name, \"index\", image, lab, state) \
-                     VALUES ('n1', 'dev01', 1, ?1, 'l1', 'running')",
+                    "INSERT INTO node (id, name, \"index\", image, lab, state, \
+                         definition_imported) \
+                     VALUES ('n1', 'dev01', 1, ?1, 'l1', 'running', 1)",
                     [image.as_str()],
                 )
                 .await
@@ -1265,11 +1263,23 @@ mod tests {
         apply_schema(&db).await.unwrap();
         assert_eq!(version(&db).await, SCHEMA_VERSION);
         let lab = find_lab(&db, "lab-0001").await.unwrap().unwrap();
-        assert!(
-            !node_definition_imported(&db, lab.id.as_ref().unwrap(), "dev01")
-                .await
-                .unwrap()
-        );
+        let nodes = list_nodes_by_lab(&db, lab.id.clone().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].name, "dev01");
+        let writer = db.writer().await.unwrap();
+        let columns = query_count(
+            &writer.conn,
+            Query::new(
+                "SELECT count(*) FROM pragma_table_info('node') \
+                 WHERE name = 'definition_imported'",
+            )
+            .bind([]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(columns, 0);
     }
 
     #[tokio::test]
