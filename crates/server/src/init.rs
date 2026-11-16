@@ -6,6 +6,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use ipnet::{Ipv4Net, Ipv6Net};
+use nix::unistd::{User, geteuid};
 use tracing::instrument;
 
 use db::{Database, apply_schema, create_admin_user, create_user, find_user, list_users, open};
@@ -26,13 +27,16 @@ use shared::util::{
 use shared::validators::{validate_ssh_key, validate_username};
 
 use crate::tls::generator::write_file_with_permissions;
-use crate::validate::{validate_management_prefix_ipv4, validate_management_prefix_ipv6};
+use crate::validate::{
+    validate_init_account, validate_management_prefix_ipv4, validate_management_prefix_ipv6,
+};
 
 /// Set up a new server: its directories, `sherpa.toml`, libvirt network and storage pool,
-/// database, admin account and first user.
+/// database, admin account and first user. It runs as the `sherpa` service account only.
 ///
 /// # Errors
 ///
+/// Fails, before anything is written, when it does not run as the `sherpa` service account.
 /// Fails when a management prefix has no room for a lab, a directory or file cannot be
 /// written, libvirt cannot create the network or
 /// pool, the database cannot be opened or migrated, or the first user's details are invalid or
@@ -46,6 +50,12 @@ pub async fn init(
     management_prefix_ipv4: Ipv4Net,
     management_prefix_ipv6: Option<Ipv6Net>,
 ) -> Result<()> {
+    let uid = geteuid();
+    let account = User::from_uid(uid)
+        .with_context(|| format!("Failed to look up the account of uid {uid}"))?
+        .with_context(|| format!("uid {uid} has no account"))?;
+    validate_init_account(&account.name)?;
+
     term_msg_surround("Sherpa Server Initializing");
     validate_management_prefix_ipv4(management_prefix_ipv4)?;
     if let Some(prefix) = management_prefix_ipv6 {

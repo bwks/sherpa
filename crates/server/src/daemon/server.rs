@@ -27,6 +27,7 @@ use crate::api::websocket;
 use crate::auth::session;
 use crate::daemon::metrics::Metrics;
 use crate::daemon::pidfile::open_log_file;
+use crate::daemon::removed_settings::warn_on_removed_settings;
 use crate::daemon::state::AppState;
 use crate::services::lab_definition::{self, ImportSummary};
 use crate::services::lab_lifecycle::{self, Recovery};
@@ -276,6 +277,12 @@ pub async fn run_server(foreground: bool) -> Result<()> {
     let (_otel_guard, metrics) = init_telemetry(&config, foreground)?;
 
     tracing::info!("Starting sherpad server");
+    if let Err(error) = warn_on_removed_settings(Path::new(SHERPA_CONFIG_FILE_PATH)) {
+        tracing::warn!(
+            error = %format!("{error:#}"),
+            "Cannot check the server config for removed settings"
+        );
+    }
 
     let shutdown_signals =
         ShutdownSignals::install().context("Failed to install shutdown signal handlers")?;

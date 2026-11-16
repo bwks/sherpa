@@ -5,7 +5,7 @@ use dashmap::DashMap;
 use libvirt::Qemu;
 use shared::data::{
     Config, HostMemorySettings, OtelConfig, ScannerConfig, ServerConnection,
-    TailscaleGatewaySettings, TlsConfig, VmProviders, ZtpServer,
+    TailscaleGatewaySettings, TlsConfig, VmProviders,
 };
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -122,7 +122,6 @@ pub fn test_config() -> Result<Config> {
         containers_dir: "/opt/sherpa/containers".to_string(),
         bins_dir: "/opt/sherpa/bins".to_string(),
         allow_signup: false,
-        ztp_server: ZtpServer::default(),
         container_images: vec![],
         server_connection: ServerConnection::default(),
         tls: TlsConfig::default(),
