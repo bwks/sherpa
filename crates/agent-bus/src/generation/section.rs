@@ -9,8 +9,10 @@
 //! replaces the rows of tasks it knows, whose figures are cumulative, drops the rows of tasks it
 //! puts on another pull request or in another item, and replaces the host's rows and the
 //! pointers to other pull requests. The table is never parsed, and nothing outside the markers
-//! is touched. A section with nothing counted in it but pointers is one line naming where its
-//! tasks are counted, not a table of zeros.
+//! is touched. A section with nothing counted in it is one line, never a table of zeros: it
+//! names where its tasks are counted, or, for a pull request no task named (one added to the
+//! item by `link`), the item's pull requests that count its work, or says that none counts any
+//! yet.
 //!
 //! Guests wrote format 1, with no version and no host rows, and read it with
 //! `deny_unknown_fields`: a guest still running an older agent-bus refuses a host-written
@@ -22,6 +24,7 @@ use std::ops::{Not, Range};
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
+use crate::generation::placement::PullRequestId;
 use crate::message::{TaskUsage, cache_hit_permille, check_agent_name, check_repo};
 use crate::report::usage::{HOST, Time};
 use crate::timing::duration;
@@ -52,6 +55,9 @@ waiting on the user.";
 const TABLE_HEAD: &str = "| Task | Agent | Models | Runs | Cost (USD) | Cache hit | Input | \
 Output | Cache read | Cache write | Work | Testing | Waiting on user |\n\
 |---|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|";
+/// The line of a section with nothing counted in it, when no pull request of its item counts
+/// any work either.
+const NOTHING_YET: &str = "No work of this item is counted in a pull request yet.";
 /// What a time cell shows when the time is not known.
 const UNKNOWN: &str = "n/a";
 /// After a total that leaves out what is not known: unpriced responses, or rows without time.
@@ -115,6 +121,10 @@ pub struct Rows {
     pub host: Vec<HostRow>,
     /// Tasks of this pull request counted on another.
     pub counted: Vec<Counted>,
+    /// When this pull request counts nothing and no task of it is counted on another: the
+    /// pull requests of its item that count work. Not written in the data: worked out again on
+    /// every write.
+    pub homes: Vec<PullRequestId>,
     /// Every task the record has in a work item, this one's or another's: a row of one of them
     /// that this pull request no longer counts is dropped, not carried. Not written in the data.
     pub known: BTreeSet<String>,
@@ -204,6 +214,7 @@ pub fn read(section: &str) -> Result<Rows> {
         tasks: data.task,
         host: data.host,
         counted: data.counted,
+        homes: Vec::new(),
         known: BTreeSet::new(),
     };
     check_rows(&rows)?;
@@ -348,6 +359,7 @@ fn merge(theirs: Rows, ours: &Rows) -> Rows {
         tasks,
         host: ours.host.clone(),
         counted,
+        homes: ours.homes.clone(),
         known: BTreeSet::new(),
     }
 }
@@ -364,24 +376,8 @@ fn render(rows: &Rows) -> Result<String> {
     })
     .context("Unable to write the Generation data")?;
     let data = format!("{DATA_START}\n{data}{COMMENT_END}");
-    if rows.tasks.is_empty() && rows.host.is_empty() && !rows.counted.is_empty() {
-        let mut homes: Vec<String> = rows
-            .counted
-            .iter()
-            .map(|pointer| format!("{}#{}", pointer.repo, pointer.number))
-            .collect();
-        homes.sort();
-        homes.dedup();
-        return Ok([
-            START.to_owned(),
-            HEADING.to_owned(),
-            String::new(),
-            format!("Counted in {}.", homes.join(", ")),
-            String::new(),
-            data,
-            END.to_owned(),
-        ]
-        .join("\n"));
+    if rows.tasks.is_empty() && rows.host.is_empty() {
+        return Ok(one_line(rows, data));
     }
     let mut total = TaskUsage::default();
     let mut times: Vec<Time> = Vec::new();
@@ -453,6 +449,38 @@ fn render(rows: &Rows) -> Result<String> {
     lines.push(data);
     lines.push(END.to_owned());
     Ok(lines.join("\n"))
+}
+
+/// The section of a pull request that counts nothing itself: one line naming where its tasks and
+/// its item's work are counted, or saying that no pull request counts any yet, then `data`.
+fn one_line(rows: &Rows, data: String) -> String {
+    let mut homes: Vec<String> = rows
+        .counted
+        .iter()
+        .map(|pointer| format!("{}#{}", pointer.repo, pointer.number))
+        .chain(
+            rows.homes
+                .iter()
+                .map(|home| format!("{}#{}", home.repo, home.number)),
+        )
+        .collect();
+    homes.sort();
+    homes.dedup();
+    let line = if homes.is_empty() {
+        NOTHING_YET.to_owned()
+    } else {
+        format!("Counted in {}.", homes.join(", "))
+    };
+    [
+        START.to_owned(),
+        HEADING.to_owned(),
+        String::new(),
+        line,
+        String::new(),
+        data,
+        END.to_owned(),
+    ]
+    .join("\n")
 }
 
 /// The lines under the table, each followed by a blank line: which rows were brought forward,
@@ -604,6 +632,9 @@ fn check_rows(rows: &Rows) -> Result<()> {
         );
         check_agent_name(&pointer.agent)?;
         check_repo(&pointer.repo)?;
+    }
+    for home in &rows.homes {
+        check_repo(&home.repo)?;
     }
     Ok(())
 }
@@ -1064,6 +1095,7 @@ mod tests {
             tasks: vec![first()],
             host: vec![host("claude-opus-5-5", 1.0, time(MINUTE, 0, 0))],
             counted: vec![pointer("7b20d4aa", "dev02", "bwks/sherpa", 666)],
+            homes: Vec::new(),
             known: [first().task, second().task].into_iter().collect(),
         };
         let upgraded = update_body(&body, &ours).unwrap();

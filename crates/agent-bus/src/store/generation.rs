@@ -208,10 +208,13 @@ pub async fn rows(
     let models = task_models(conn, item).await?;
     let mut tasks = Vec::new();
     let mut counted = Vec::new();
+    // The pull requests of the item that count work: a task's or a response of the host's.
+    let mut counting: BTreeSet<PullRequestId> = BTreeSet::new();
     for row in read::usage(conn, HOST, None, None, false, Some(item)).await? {
         let Some((_, placement)) = placements.task(&row.task) else {
             continue;
         };
+        counting.extend(placement.pull_request.iter().cloned());
         if placement.pull_request.as_ref() != Some(&here) {
             if let Some(home) = &placement.pull_request
                 && placement.elsewhere.contains(&here)
@@ -255,6 +258,7 @@ pub async fn rows(
             response.charged_ms,
             response.pinned.as_ref(),
         );
+        counting.extend(charged.iter().cloned());
         if charged.as_ref() != Some(&here) {
             continue;
         }
@@ -273,11 +277,18 @@ pub async fn rows(
             usage,
             unpriced: (unpriced > 0).then_some(unpriced),
         })
-        .collect();
+        .collect::<Vec<HostRow>>();
+    // A pull request no task named (added by `link`) points to those that count the item's work.
+    let homes = if tasks.is_empty() && host.is_empty() && counted.is_empty() {
+        counting.into_iter().collect()
+    } else {
+        Vec::new()
+    };
     Ok(Rows {
         tasks,
         host,
         counted,
+        homes,
         known: placements
             .items
             .values()
