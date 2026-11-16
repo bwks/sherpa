@@ -8,11 +8,11 @@ use std::thread;
 use std::time::Duration;
 
 use super::pidfile::{
-    ensure_log_dir, ensure_run_dir, is_process_running, open_log_file, read_pid, remove_pid,
-    send_signal, verify_not_running, write_pid,
+    SHERPAD_LOG_FILE_PATH, SHERPAD_PID_FILE_PATH, ensure_log_dir, ensure_run_dir,
+    is_process_running, open_log_file, read_pid, remove_pid, send_signal, verify_not_running,
+    write_pid,
 };
 use super::server::run_server;
-use crate::konst::{SHERPAD_LOG_FILE_PATH, SHERPAD_PID_FILE_PATH};
 
 /// Start the sherpad daemon
 ///

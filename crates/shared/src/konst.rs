@@ -31,16 +31,12 @@ pub const STORAGE_VOLUME_QEMU_ARG_MODE: &str = "0644";
 /// Default management network. Built with `new_assert`, so an invalid prefix fails the build.
 pub const SHERPA_MANAGEMENT_NETWORK_IPV4: Ipv4Net =
     Ipv4Net::new_assert(Ipv4Addr::new(172, 31, 0, 0), 16);
-/// Lab management `/24` host offsets reserved for Sherpa infrastructure.
-pub const MANAGEMENT_INFRA_HOST_OFFSETS: RangeInclusive<u32> = 1..=10;
 /// Lab management gateway (libvirt NAT network) host offset.
 pub const MANAGEMENT_GATEWAY_HOST_OFFSET: u32 = 1;
 /// Lab router (dnsmasq, boot server) host offset.
 pub const SHERPA_MANAGEMENT_IP_INDEX: u32 = 2;
 /// Lab Tailscale gateway container host offset.
 pub const TAILSCALE_GATEWAY_HOST_OFFSET: u32 = 3;
-/// Lab management host offsets reserved for lab control-plane addresses.
-pub const MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS: RangeInclusive<u32> = 11..=20;
 /// Lab management host offsets for nodes and the DHCP range. Node `n` (1-based index) gets
 /// the offset `start + n - 1`.
 pub const MANAGEMENT_NODE_HOST_OFFSETS: RangeInclusive<u32> = 21..=254;
@@ -316,6 +312,11 @@ pub const HOST_MEMORY_DEFAULT_OVERCOMMIT_PERCENT: u32 = 100;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Lab management `/24` host offsets reserved for Sherpa infrastructure.
+    const MANAGEMENT_INFRA_HOST_OFFSETS: RangeInclusive<u32> = 1..=10;
+    /// Lab management host offsets reserved for lab control-plane addresses.
+    const MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS: RangeInclusive<u32> = 11..=20;
 
     #[test]
     fn test_management_network_ipv4_is_172_31_0_0_16() {

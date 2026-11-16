@@ -21,7 +21,7 @@
 
 ---
 
-## `remove_lab_ssh_include`
+## `remove_lab_ssh_include_at`
 
 **What to test:**
 - Removes the correct Include line from `sherpa_lab_hosts` `[unit]` **P0**

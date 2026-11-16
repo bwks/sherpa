@@ -697,17 +697,6 @@ pub fn add_lab_ssh_include(lab_ssh_config_path: &str) -> Result<()> {
     add_lab_ssh_include_at(&ssh_dir, lab_ssh_config_path)
 }
 
-/// Remove an Include line for a lab's `.sherpa/ssh/config` from `~/.ssh/sherpa_lab_hosts`.
-///
-/// # Errors
-///
-/// Fails when the SSH config files cannot be locked, read or replaced.
-#[instrument(fields(%lab_ssh_config_path))]
-pub fn remove_lab_ssh_include(lab_ssh_config_path: &str) -> Result<()> {
-    let ssh_dir = get_user_ssh_dir()?;
-    remove_lab_ssh_include_at(&ssh_dir, lab_ssh_config_path)
-}
-
 /// Inspect `~/.ssh/sherpa_lab_hosts` for stale or broken Sherpa lab Include entries.
 ///
 /// # Errors

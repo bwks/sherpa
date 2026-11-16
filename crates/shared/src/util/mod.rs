@@ -34,7 +34,6 @@ pub use file_system::{
 #[cfg(unix)]
 pub use file_system::{
     copy_to_dos_image, copy_to_ext4_image, create_config_archive, fix_permissions_recursive,
-    set_file_permissions,
 };
 pub use host::{get_fqdn, get_hostname};
 #[cfg(feature = "netinfo")]
@@ -64,8 +63,8 @@ pub use ssh::{
     SshConfigCleanReport, SshConfigEntryStatus, SshConfigInspectionEntry,
     SshConfigInspectionReport, add_lab_ssh_include, clean_stale_lab_ssh_includes,
     generate_ssh_keypair, get_ssh_public_key, get_user_ssh_dir, inspect_lab_ssh_includes,
-    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, remove_lab_ssh_include,
-    remove_lab_ssh_include_at, replace_lab_ssh_include, ssh_key_fingerprint,
+    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, remove_lab_ssh_include_at,
+    replace_lab_ssh_include, ssh_key_fingerprint,
 };
 #[cfg(feature = "table")]
 pub use table::{TableLayout, render_table};

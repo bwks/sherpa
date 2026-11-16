@@ -6,8 +6,8 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use tracing::instrument;
 
-use crate::konst::SHERPAD_PID_FILE_PATH;
-
+pub(super) const SHERPAD_PID_FILE_PATH: &str = "/opt/sherpa/run/sherpad.pid";
+pub(super) const SHERPAD_LOG_FILE_PATH: &str = "/opt/sherpa/logs/sherpad.log";
 const SHERPA_RUN_PATH: &str = "/opt/sherpa/run";
 const SHERPA_LOG_PATH: &str = "/opt/sherpa/logs";
 /// The log directory: `sherpa` and its group only.

@@ -56,7 +56,10 @@ flowchart TB
 The important boundary is between handlers and services. Handlers know about transports and authentication. Services know about orchestration. Infrastructure crates know how to talk to their backend, but should not know about HTTP, cookies, WebSocket message IDs, or HTMX fragments.
 
 Constants only the server uses are not in `shared::konst`. One used by a single module is
-private in that module; one used by several is `pub(crate)` in `crates/server/src/konst.rs`.
+private in that module. One used by a single service and its submodules, or by one module tree
+such as `daemon`, lives in that service or tree: sherpad's pid and log file paths are
+`pub(super)` in `daemon::pidfile`. One used by several services or trees is `pub(crate)` in
+`crates/server/src/konst.rs`.
 An edit to them rebuilds `sherpad` alone, not every crate that depends on `shared` (#663).
 `shared::konst` keeps what other crates, `shared` itself, the `sherpad` binary or the
 integration tests name.
@@ -1658,7 +1661,10 @@ containers.
 ### Lab management addressing
 
 Each lab gets a management `/24` (IPv4) and `/64` (IPv6). Host offsets are split into fixed
-blocks, defined in `crates/shared/src/konst.rs` and applied to both address families:
+blocks, defined in `crates/shared/src/konst.rs` and applied to both address families. Nothing
+in production reads the two reserved blocks as ranges, so `MANAGEMENT_INFRA_HOST_OFFSETS` and
+`MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS` live in that file's test module, whose tests check that
+the blocks are disjoint and hold the offsets placed in them:
 
 | Offsets | Block | Users |
 |---|---|---|

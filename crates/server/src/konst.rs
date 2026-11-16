@@ -1,10 +1,9 @@
-//! Constants used by more than one module of the server. A constant used by one module is
-//! private in that module.
+//! Constants used by more than one service or module tree of the server. A constant used by one
+//! module is private in that module; one used by a service and its submodules, or by one module
+//! tree such as `daemon`, lives in that service or tree.
 
 pub(crate) const SHERPA_BLANK_DISK_DIR: &str = "blank_disk";
 pub(crate) const SHERPA_CONFIG_FILE_PATH: &str = "/opt/sherpa/config/sherpa.toml";
-pub(crate) const SHERPAD_PID_FILE_PATH: &str = "/opt/sherpa/run/sherpad.pid";
-pub(crate) const SHERPAD_LOG_FILE_PATH: &str = "/opt/sherpa/logs/sherpad.log";
 pub(crate) const SHERPA_SERVER_CERT_PATH: &str = "/opt/sherpa/.certs/server.crt";
 pub(crate) const SHERPA_MANAGEMENT_NETWORK_NAME: &str = "sherpa-management";
 pub(crate) const SHERPA_ADMIN_PASSWORD_ENV: &str = "SHERPA_ADMIN_PASSWORD";
@@ -41,10 +40,4 @@ pub(crate) const KEYCLOAK_HTTPS_PORT: u16 = 8443;
 pub(crate) const KEYCLOAK_REALM: &str = "sherpa";
 /// Vault API (HTTPS) and cluster ports.
 pub(crate) const VAULT_API_PORT: u16 = 8200;
-/// The key that seals the database's secret values: 32 bytes, mode 0600, beside the JWT secret
-/// in the `sherpa`-only (0700) secrets directory. It is never in the database, its backups or
-/// the database directory, and is backed up separately from them.
-pub(crate) const SHERPA_DB_KEY_PATH: &str = "/opt/sherpa/.secret/db.key";
 pub(crate) const JWT_TOKEN_EXPIRY_SECONDS: i64 = 604_800; // 7 days
-/// How often sherpad deletes expired login sessions, in seconds. It also sweeps once at startup.
-pub(crate) const SESSION_SWEEP_INTERVAL_SECS: u64 = 3600;
