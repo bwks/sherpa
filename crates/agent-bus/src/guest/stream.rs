@@ -212,25 +212,28 @@ pub(super) fn interpret(line: &str) -> Vec<Update> {
                     .into_iter()
                     .map(|(model, usage)| ModelUsage { model, ..usage })
                     .collect();
-                vec![Update::Finished {
-                    session: result.session_id,
-                    text: result.result,
-                    failed: result.is_error.unwrap_or(true),
-                    usage: Usage {
-                        input: result.usage.input,
-                        output: result.usage.output,
-                        cache_creation: result.usage.cache_creation,
-                        cache_read: result.usage.cache_read,
-                        num_turns: result.num_turns,
-                        duration_ms: result.duration_ms,
-                        duration_api_ms: result.duration_api_ms,
-                        cost_usd: models.iter().map(|model| model.cost_usd).sum(),
-                        session_cost_usd: result.total_cost_usd,
-                        models,
-                        work_ms: None,
-                        testing_ms: None,
+                vec![
+                    Update::Clock(Tick::Finished),
+                    Update::Finished {
+                        session: result.session_id,
+                        text: result.result,
+                        failed: result.is_error.unwrap_or(true),
+                        usage: Usage {
+                            input: result.usage.input,
+                            output: result.usage.output,
+                            cache_creation: result.usage.cache_creation,
+                            cache_read: result.usage.cache_read,
+                            num_turns: result.num_turns,
+                            duration_ms: result.duration_ms,
+                            duration_api_ms: result.duration_api_ms,
+                            cost_usd: models.iter().map(|model| model.cost_usd).sum(),
+                            session_cost_usd: result.total_cost_usd,
+                            models,
+                            work_ms: None,
+                            testing_ms: None,
+                        },
                     },
-                }]
+                ]
             }
             Err(error) => {
                 eprintln!("Could not parse Claude Code result event: {error}");
@@ -332,12 +335,15 @@ mod tests {
             interpret(
                 r#"{"type":"result","is_error":false,"result":"All passed","session_id":"s1"}"#
             ),
-            [Update::Finished {
-                session: "s1".to_owned(),
-                text: "All passed".to_owned(),
-                failed: false,
-                usage: Usage::default(),
-            }]
+            [
+                Update::Clock(Tick::Finished),
+                Update::Finished {
+                    session: "s1".to_owned(),
+                    text: "All passed".to_owned(),
+                    failed: false,
+                    usage: Usage::default(),
+                }
+            ]
         );
     }
 
@@ -352,7 +358,11 @@ mod tests {
 
     fn finished(line: &str) -> Usage {
         let updates = interpret(line);
-        let [Update::Finished { usage, .. }] = &updates[..] else {
+        let [
+            Update::Clock(Tick::Finished),
+            Update::Finished { usage, .. },
+        ] = &updates[..]
+        else {
             panic!("not a finished run");
         };
         usage.clone()
@@ -442,7 +452,11 @@ mod tests {
     fn a_result_without_usage_still_finishes_the_task() {
         let updates =
             interpret(r#"{"type":"result","is_error":false,"result":"ok","session_id":"s"}"#);
-        let [Update::Finished { usage, failed, .. }] = &updates[..] else {
+        let [
+            Update::Clock(Tick::Finished),
+            Update::Finished { usage, failed, .. },
+        ] = &updates[..]
+        else {
             panic!("not a finished run");
         };
         assert!(!failed);

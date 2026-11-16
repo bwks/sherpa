@@ -1401,12 +1401,14 @@ Time is recorded in three buckets, for each agent task and for the host (`src/ti
 |---|---|
 | Work | the model writing, and tool calls that are not testing |
 | Testing | tool calls that build or test |
-| Waiting on user | a question until its answer; for the host, the host's last output until the user's next prompt (`origin.kind` `human`), at most 30 minutes of each gap |
+| Waiting on user | a question until its answer; for the host, the host's last output until the user's next prompt (`origin.kind` `human`), less the time any task the host sent was open, at most 30 minutes of what is left in each gap |
 
 Not recorded at all: time a task waits in the queue (the clock starts when its run does);
 Monitor, background-task waits, `sleep` and CI watches; the gap before a prompt that is not the
 user's (a task notification or a compaction summary: the host was waiting on background work or
-on agents, whose own time covers it); and anything past 30 minutes in one wait on the user.
+on agents, whose own time covers it); for the host, any part of a gap while a task it sent was
+open (the agent's own time covers it); and anything past 30 minutes of idle time in one wait on
+the user.
 
 **Classification** (`timing::classify`), against two fixed lists in that one file, with tests:
 
@@ -1427,16 +1429,40 @@ start turns; a turn ends at its last response or tool result before the next pro
 turn, each stretch is testing when a testing call covers it, not counted when an excluded call
 does, and work otherwise, so parallel calls count once. Between turns, the stretch from the
 last turn's end (the host's last output, after any turn a notification started) to a user's
-prompt is waiting on the user, capped at 30 minutes (`timing::MAX_WAITING_ON_USER_MS`): an
-overnight gap counts as 30 minutes, the rest is dropped.
+prompt is waiting on the user, less every moment a task the host sent was open
+(`Timeline::open`), capped at 30 minutes (`timing::MAX_WAITING_ON_USER_MS`): the gap is cut at
+each task opening or closing inside it, and the idle pieces are kept in order until they add up
+to 30 minutes, so counted = min(30 min, gap − time a task was open). An overnight gap with no
+task open counts as 30 minutes, the rest is dropped.
+
+**Open tasks** (`timing::open_stretches`, filled by `store::host::charged_segments` from the
+messages of every task whose requester is `host`, whichever host session sent it). They come
+from the messages, not from the `task` row's state, with the bus's `at_ms`:
+
+| A task the host sent | Open? |
+|---|---|
+| from its `task` message (or its first message, when the `task` is older than the record) | yes |
+| running, or waiting on a `question` | yes: the question's wait is already the task's own waiting on the user, so counting it on the host too would count the user's minutes twice |
+| from its next `completed`, `failed` or `canceled` | no |
+| from an `answer` after that, which runs it again | yes, until its next outcome |
+| still open at its last message (a lost guest, a task left unanswered) | until 30 minutes after that message, then no (`timing::OPEN_AFTER_LAST_MESSAGE_MS`), so one lost guest cannot stop the host's waiting for ever |
+
+Nothing is stored: the stretches are worked out when a report prints, so a late outcome re-cuts
+the gaps around it. A long silent tool call can be taken for idle after 30 minutes; the cap per
+gap bounds that error.
 
 **Agents.** The guest stamps each line of Claude Code's `stream-json` with the time it reads it
 (the stream carries no times): an `assistant` event is a response and starts its `tool_use`
 calls by ID, a `user` event's `tool_result` blocks end them, and a `user` event with text is a
-prompt Claude Code made (`guest::stream::interpret`, `timing::RunClock`). The run's clock starts
-when Claude Code is started for it. When the `result` event comes, the run's work and testing
-are worked out and sent as `work_ms` and `testing_ms` on the outcome's `usage`, optional fields
-an older host ignores; the host keeps them on the `run` row. Priming runs are not timed. An
+prompt Claude Code made (`guest::stream::interpret`, `timing::RunClock`). A `result` event ends
+the turn (`Tick::Finished`): `claude -p` reports a result when the model stops to wait on a
+background task, and the task notification that starts the next turn is not in `stream-json`,
+so the next event after a result starts a new turn, and the time between is not counted. Before
+this, one process with several results counted its idle time between them as work (#668's task
+`f4a8861a` reported 52m 03s of work for 21m 56s of turns). The run's clock starts when Claude
+Code is started for it and covers every result of the process. At each `result` event the run's
+work and testing so far are worked out; the last are sent as `work_ms` and `testing_ms` on the
+outcome's `usage`, optional fields an older host ignores; the host keeps them on the `run` row. Priming runs are not timed. An
 agent's waiting on the user is each `question` to the next `answer` of its task, from the
 messages' `at_ms` on the host, which the bus stamps (`timing::waiting_on_answers`).
 

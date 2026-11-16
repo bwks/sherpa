@@ -14,18 +14,20 @@ use tracing::instrument;
 use turso::{Connection, Value};
 
 use crate::host::transcript::Response;
+use crate::message::Kind;
 use crate::price::{self, Tokens};
+use crate::report::usage::HOST;
 use crate::store::cells::{Cells, boolean, integer, optional_integer, optional_text};
 use crate::store::sql::{
     ATTRIBUTE_HOST_USAGE, END_HOST_SPAN, FIND_HOST_USAGE, FIND_TRANSCRIPT, HOST_FOCUS, HOST_META,
-    HOST_RESPONSES, HOST_SPANS, HOST_TOTALS, HOST_TRANSCRIPTS, HOST_USAGE_ROWS, INSERT_HOST_FOCUS,
-    INSERT_HOST_SPAN, PRICE_HOST_USAGE, REASSIGN_HOST_USAGE, RESCAN_TRANSCRIPTS, SET_HOST_META,
-    SUBAGENT_STARTS, TASK_WAITS, UNPINNED_HOST_USAGE, UNPRICED_HOST_USAGE, UPSERT_HOST_USAGE,
-    UPSERT_TRANSCRIPT,
+    HOST_RESPONSES, HOST_SPANS, HOST_TASK_MESSAGES, HOST_TOTALS, HOST_TRANSCRIPTS, HOST_USAGE_ROWS,
+    INSERT_HOST_FOCUS, INSERT_HOST_SPAN, PRICE_HOST_USAGE, REASSIGN_HOST_USAGE, RESCAN_TRANSCRIPTS,
+    SET_HOST_META, SUBAGENT_STARTS, TASK_WAITS, UNPINNED_HOST_USAGE, UNPRICED_HOST_USAGE,
+    UPSERT_HOST_USAGE, UPSERT_TRANSCRIPT,
 };
 use crate::timing::{
-    Call, Class, Prompt, Response as TimedResponse, Segment, Timeline, Times, segments,
-    waiting_on_answers,
+    Call, Class, Open, Prompt, Response as TimedResponse, Segment, Timeline, Times, open_stretches,
+    segments, waiting_on_answers,
 };
 
 /// The import fact holding the time of the first import.
@@ -783,8 +785,10 @@ async fn charged_segments(conn: &Connection) -> Result<Vec<(Segment, (Option<i64
             });
     }
     drop(rows);
+    let open = host_tasks_open(conn).await?;
     let mut found = Vec::new();
-    for timeline in timelines.values() {
+    for timeline in timelines.values_mut() {
+        timeline.open.clone_from(&open);
         for segment in segments(timeline) {
             let charge = segment
                 .item
@@ -796,6 +800,31 @@ async fn charged_segments(conn: &Connection) -> Result<Vec<(Segment, (Option<i64
         }
     }
     Ok(found)
+}
+
+/// When the tasks the host sent were open (`timing::open_stretches`), whichever of its
+/// sessions sent them: the host is waiting on agents then, not on the user.
+async fn host_tasks_open(conn: &Connection) -> Result<Vec<Open>> {
+    let mut rows = conn
+        .query(HOST_TASK_MESSAGES, [HOST])
+        .await
+        .context("Unable to read the messages of the host's tasks")?;
+    let mut by_task: BTreeMap<String, Vec<(Kind, u64)>> = BTreeMap::new();
+    while let Some(row) = rows
+        .next()
+        .await
+        .context("Unable to read the messages of the host's tasks")?
+    {
+        let mut cells = Cells::new(&row);
+        let task = cells.text("task")?;
+        let kind = Kind::parse(&cells.text("kind")?)?;
+        let at_ms = cells.count("at_ms")?;
+        by_task.entry(task).or_default().push((kind, at_ms));
+    }
+    Ok(by_task
+        .values()
+        .flat_map(|messages| open_stretches(messages))
+        .collect())
 }
 
 /// How long each task waited on the user: each question to its answer, summed.
@@ -892,7 +921,10 @@ pub async fn totals(conn: &Connection) -> Result<Totals> {
 mod tests {
     use super::*;
 
+    use crate::message::Message;
     use crate::store::database::Store;
+    use crate::store::task::Recorded;
+    use crate::store::write::record;
 
     fn focus_row(from_ms: u64, session: Option<&str>, work: Option<i64>) -> Focus {
         Focus {
@@ -1177,6 +1209,101 @@ mod tests {
                 ("m2".to_owned(), Some(second))
             ]
         );
+    }
+
+    /// Record a message of `task`, from `from` to `to`, at sequence `seq` and time `at_ms`.
+    async fn message(
+        conn: &mut Connection,
+        seq: u64,
+        at_ms: u64,
+        (task, from, to): (&str, &str, &str),
+        kind: Kind,
+    ) {
+        let message = Message {
+            task: task.to_owned(),
+            from: from.to_owned(),
+            to: to.to_owned(),
+            kind,
+            text: String::new(),
+            usage: None,
+            task_usage: None,
+            github: false,
+            model: None,
+            work: None,
+            ended: None,
+        };
+        record(
+            conn,
+            &Recorded {
+                seq,
+                at_ms,
+                message: &message,
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_host_waits_on_the_user_only_while_none_of_its_tasks_is_open() {
+        let minute = 60_000;
+        let (_store, mut conn) = conn().await;
+        // The host's turn ends at one minute; the user's next prompt comes at sixty.
+        keep_prompt(&conn, "p1", "s1", None, 0, true).await.unwrap();
+        keep_response(&conn, &response("m1", "s1", minute, 5))
+            .await
+            .unwrap();
+        keep_prompt(&conn, "p2", "s1", None, 60 * minute, true)
+            .await
+            .unwrap();
+        keep_response(&conn, &response("m2", "s1", 60 * minute, 5))
+            .await
+            .unwrap();
+        let waiting = async |conn: &Connection| {
+            host_times(conn, None)
+                .await
+                .unwrap()
+                .values()
+                .map(|times| times.waiting)
+                .sum::<u64>()
+        };
+        // No task: thirty minutes of the 59.
+        assert_eq!(waiting(&conn).await, 30 * minute);
+        // A task another agent sent, open all along, changes nothing.
+        message(&mut conn, 1, 0, ("x", "dev", "dev2"), Kind::Task).await;
+        assert_eq!(waiting(&conn).await, 30 * minute);
+        // The host's task, sent at ten minutes and completed at forty: idle 1-10 and 40-60.
+        message(&mut conn, 2, 10 * minute, ("a", "host", "dev"), Kind::Task).await;
+        message(
+            &mut conn,
+            3,
+            12 * minute,
+            ("a", "dev", "host"),
+            Kind::Progress,
+        )
+        .await;
+        message(
+            &mut conn,
+            4,
+            40 * minute,
+            ("a", "dev", "host"),
+            Kind::Completed,
+        )
+        .await;
+        assert_eq!(waiting(&conn).await, (9 + 20) * minute);
+        // Another of its tasks asks a question at 41 minutes and is never answered: open to
+        // 71, so only 1-10 and 40-41 are left.
+        message(&mut conn, 5, 41 * minute, ("b", "host", "dev"), Kind::Task).await;
+        message(
+            &mut conn,
+            6,
+            41 * minute,
+            ("b", "dev", "host"),
+            Kind::Question,
+        )
+        .await;
+        assert_eq!(waiting(&conn).await, (9 + 1) * minute);
     }
 
     #[tokio::test]

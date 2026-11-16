@@ -9,9 +9,10 @@
 //!   tool call that builds or tests is `Testing`, time covered by an excluded wait (a monitor,
 //!   a background wait, `sleep`, a CI watch) is not counted, and the rest is `Work`;
 //! - between turns, the time from a turn's end (the host's last output) to the user's next
-//!   prompt is `WaitingOnUser`, at most `MAX_WAITING_ON_USER_MS` of each gap; before a prompt
-//!   that is not the user's (a task notification, a compaction summary), it is not counted:
-//!   that is waiting on background work.
+//!   prompt is `WaitingOnUser`, less any time a task the host sent was open (`Timeline::open`)
+//!   and at most `MAX_WAITING_ON_USER_MS` of what is left in each gap; before a prompt that is
+//!   not the user's (a task notification, a compaction summary), it is not counted: that is
+//!   waiting on background work.
 //!
 //! A tool call is classified by `classify`, against `TESTING` and `EXCLUDED`, the two fixed
 //! lists below and nowhere else. Anything on neither is work.
@@ -20,6 +21,9 @@ use std::{iter, mem};
 
 use serde::Serialize;
 use serde_json::Value;
+
+#[cfg(feature = "record")]
+use crate::message::Kind;
 
 /// Bash commands that build or test, as the words a command starts with. A command matches
 /// when any of its parts does: parts are split at `;`, `&`, `|`, parentheses and line ends
@@ -57,10 +61,15 @@ const BASH_TOOL: &str = "Bash";
 /// Characters that end one part of a shell command, outside quotes.
 const PART_ENDS: &[char] = &[';', '&', '|', '(', ')', '\n', '`'];
 /// The most of one gap between the host's last output and the user's next prompt counted as
-/// waiting on the user: 30 minutes. The rest (a night, a weekend) is dropped.
+/// waiting on the user, once the time a task was open is taken out: 30 minutes. The rest (a
+/// night, a weekend) is dropped.
 const MAX_WAITING_ON_USER_MS: u64 = 30 * 60 * 1000;
 /// How deep commands within commands (`ssh host 'sh -c ...'`) are looked into.
 const MAX_NESTING: usize = 3;
+/// How long a task that has not closed stays open after its last message: 30 minutes. A task
+/// of a guest that was lost would otherwise stop the host's waiting clock for ever.
+#[cfg(feature = "record")]
+const OPEN_AFTER_LAST_MESSAGE_MS: u64 = 30 * 60 * 1000;
 
 /// What a tool call is, for time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,12 +113,22 @@ pub struct Call {
     pub class: Class,
 }
 
+/// A stretch of time when a task the host sent was open: sent, running or waiting on an
+/// answer. The host is waiting on the agent then, not on the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Open {
+    pub start_ms: u64,
+    pub end_ms: u64,
+}
+
 /// A stretch of one session or run, in any order.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Timeline {
     pub prompts: Vec<Prompt>,
     pub responses: Vec<Response>,
     pub calls: Vec<Call>,
+    /// When tasks the host sent were open, possibly overlapping. Empty on a guest.
+    pub open: Vec<Open>,
 }
 
 /// A stretch of time in one bucket, charged to one item.
@@ -140,6 +159,10 @@ pub enum Tick {
     Returned { id: String },
     /// Claude Code gave the model a prompt of its own, such as a task notification.
     Prompted,
+    /// A `result` event: the turn is over. Claude Code does not echo the prompt of the next
+    /// turn (a task notification) in `stream-json`, so the next response or tool event starts
+    /// it, and the time in between is not counted.
+    Finished,
 }
 
 /// One run's timeline, as the guest reads Claude Code's stream: each event stamped when it was
@@ -149,6 +172,8 @@ pub struct RunClock {
     timeline: Timeline,
     /// The ID of each call in `timeline.calls`, in the same order.
     ids: Vec<String>,
+    /// Whether a `result` ended the last turn and nothing has happened since.
+    finished: bool,
 }
 
 /// A turn of a timeline: from its prompt to its last activity.
@@ -185,12 +210,20 @@ impl RunClock {
                 ..Timeline::default()
             },
             ids: Vec::new(),
+            finished: false,
         }
     }
 
-    /// Note `tick`, read at `at_ms`.
+    /// Note `tick`, read at `at_ms`. After a `Finished`, the next tick of any kind starts a new
+    /// turn, as a prompt Claude Code made would.
     pub fn observe(&mut self, tick: Tick, at_ms: u64) {
         let timeline = &mut self.timeline;
+        if mem::take(&mut self.finished) && !matches!(tick, Tick::Prompted | Tick::Finished) {
+            timeline.prompts.push(Prompt {
+                at_ms,
+                from_user: false,
+            });
+        }
         match tick {
             Tick::Responded => timeline.responses.push(Response {
                 first_ms: at_ms,
@@ -216,6 +249,7 @@ impl RunClock {
                 at_ms,
                 from_user: false,
             }),
+            Tick::Finished => self.finished = true,
         }
     }
 
@@ -399,19 +433,20 @@ fn starts_with(words: &[String], pattern: &[&str]) -> bool {
 pub fn segments(timeline: &Timeline) -> Vec<Segment> {
     let mut responses = timeline.responses.clone();
     responses.sort_by_key(|response| response.first_ms);
+    let mut open = timeline.open.clone();
+    open.sort_by_key(|stretch| stretch.start_ms);
     let turns = turns(timeline);
     let mut found = Vec::new();
     for (index, turn) in turns.iter().enumerate() {
         if index > 0 && turn.from_user {
             let previous = turns[index - 1].end_ms;
-            if turn.start_ms > previous {
+            let item = item_at(&responses, previous, previous);
+            for (start_ms, end_ms) in idle(previous, turn.start_ms, &open) {
                 found.push(Segment {
-                    start_ms: previous,
-                    end_ms: turn
-                        .start_ms
-                        .min(previous.saturating_add(MAX_WAITING_ON_USER_MS)),
+                    start_ms,
+                    end_ms,
                     bucket: Bucket::WaitingOnUser,
-                    item: item_at(&responses, previous, previous),
+                    item,
                 });
             }
         }
@@ -462,6 +497,29 @@ pub fn segments(timeline: &Timeline) -> Vec<Segment> {
         }
     }
     found
+}
+
+/// The pieces of the gap from `start_ms` to `end_ms` when no stretch of `open` (sorted by
+/// start) covers it, oldest first, kept until they add up to `MAX_WAITING_ON_USER_MS`: the cap
+/// is on the idle part of the gap.
+fn idle(start_ms: u64, end_ms: u64, open: &[Open]) -> Vec<(u64, u64)> {
+    let mut pieces = Vec::new();
+    let mut left = MAX_WAITING_ON_USER_MS;
+    let mut from = start_ms;
+    let mut covers = open
+        .iter()
+        .filter(|stretch| stretch.end_ms > start_ms && stretch.start_ms < end_ms);
+    while from < end_ms && left > 0 {
+        let next = covers.find(|stretch| stretch.end_ms > from);
+        let until = next.map_or(end_ms, |stretch| stretch.start_ms.clamp(from, end_ms));
+        if until > from {
+            let to = until.min(from.saturating_add(left));
+            pieces.push((from, to));
+            left -= to - from;
+        }
+        from = next.map_or(end_ms, |stretch| stretch.end_ms);
+    }
+    pieces
 }
 
 /// Add `segment` to `found`, joined to the last one when it carries on from it.
@@ -565,6 +623,41 @@ pub fn waiting_on_answers(messages: &[(bool, u64)]) -> u64 {
         }
     }
     waiting
+}
+
+/// When one task the host sent was open, from its messages' kinds and times, oldest first. It
+/// opens at its `task`, or at an `answer` after it closed (which runs it again), and closes at
+/// its next `completed`, `failed` or `canceled`; a `question` keeps it open, since the task's
+/// own row counts that wait. A task whose `task` message is older than the record opens at its
+/// first message. A task still open at its last message is open until
+/// `OPEN_AFTER_LAST_MESSAGE_MS` after it.
+#[cfg(feature = "record")]
+pub fn open_stretches(messages: &[(Kind, u64)]) -> Vec<Open> {
+    let mut found = Vec::new();
+    let mut since = None;
+    for (kind, at_ms) in messages {
+        match kind {
+            Kind::Task | Kind::Answer | Kind::Progress | Kind::Question => {
+                since.get_or_insert(*at_ms);
+            }
+            Kind::Completed | Kind::Failed | Kind::Canceled => {
+                if let Some(start_ms) = since.take() {
+                    found.push(Open {
+                        start_ms,
+                        end_ms: *at_ms,
+                    });
+                }
+            }
+            Kind::Cancel => {}
+        }
+    }
+    if let (Some(start_ms), Some((_, last_ms))) = (since, messages.last()) {
+        found.push(Open {
+            start_ms,
+            end_ms: last_ms.saturating_add(OPEN_AFTER_LAST_MESSAGE_MS),
+        });
+    }
+    found
 }
 
 #[cfg(test)]
@@ -687,6 +780,7 @@ mod tests {
                 call(80, 140, Class::Excluded),
                 call(145, 200, Class::Excluded),
             ],
+            ..Timeline::default()
         };
         let times = total(&segments(&timeline));
         assert_eq!(
@@ -710,6 +804,7 @@ mod tests {
                 call(20, 90, Class::Testing),
                 call(30, 100, Class::Excluded),
             ],
+            ..Timeline::default()
         };
         // 0-20 work, 20-90 testing, 90-100 excluded, 100-110 work.
         assert_eq!(
@@ -739,6 +834,7 @@ mod tests {
                 response(5_000, 5_050),
             ],
             calls: vec![],
+            ..Timeline::default()
         };
         assert_eq!(
             total(&segments(&timeline)),
@@ -761,6 +857,7 @@ mod tests {
                 end_ms: None,
                 class: Class::Testing,
             }],
+            ..Timeline::default()
         };
         // 100-120 work, 120-200 testing (to the turn's end).
         assert_eq!(
@@ -795,6 +892,7 @@ mod tests {
                 },
             ],
             calls: vec![call(20, 50, Class::Testing)],
+            ..Timeline::default()
         };
         let found = segments(&timeline);
         let by_item = |item: Option<i64>| {
@@ -886,6 +984,118 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_runs_clock_stops_at_each_result_until_the_next_turn() {
+        // Claude Code reports a result at 60,000 and waits on a background task; the
+        // notification's turn is not echoed in the stream, so its first response, at 360,000,
+        // starts it. A second result at 400,000 ends the run.
+        let mut clock = RunClock::start(0);
+        clock.observe(Tick::Responded, 1_000);
+        clock.observe(Tick::Responded, 60_000);
+        clock.observe(Tick::Finished, 60_000);
+        clock.observe(Tick::Responded, 360_000);
+        clock.observe(
+            Tick::Called {
+                id: "t1".to_owned(),
+                class: Class::Testing,
+            },
+            360_000,
+        );
+        clock.observe(
+            Tick::Returned {
+                id: "t1".to_owned(),
+            },
+            390_000,
+        );
+        clock.observe(Tick::Responded, 400_000);
+        clock.observe(Tick::Finished, 400_000);
+        assert_eq!(
+            clock.times(400_000),
+            Times {
+                // 0-60,000 and 390,000-400,000; the five minutes between the turns are out.
+                work: 60_000 + 10_000,
+                testing: 30_000,
+                waiting: 0,
+            }
+        );
+        // A prompt Claude Code does echo starts the turn itself, once.
+        let mut clock = RunClock::start(0);
+        clock.observe(Tick::Responded, 10_000);
+        clock.observe(Tick::Finished, 10_000);
+        clock.observe(Tick::Prompted, 100_000);
+        clock.observe(Tick::Responded, 105_000);
+        assert_eq!(clock.times(110_000).work, 10_000 + 10_000);
+    }
+
+    /// The idle pieces counted as waiting in a gap from 0 to `end_ms` with `open` stretches.
+    fn waiting_with(end_ms: u64, open: &[(u64, u64)]) -> Vec<(u64, u64)> {
+        let timeline = Timeline {
+            prompts: vec![user(0), user(end_ms)],
+            responses: vec![response(0, 0), response(end_ms, end_ms)],
+            open: open
+                .iter()
+                .map(|(start_ms, end_ms)| Open {
+                    start_ms: *start_ms,
+                    end_ms: *end_ms,
+                })
+                .collect(),
+            ..Timeline::default()
+        };
+        segments(&timeline)
+            .iter()
+            .filter(|segment| segment.bucket == Bucket::WaitingOnUser)
+            .map(|segment| (segment.start_ms, segment.end_ms))
+            .collect()
+    }
+
+    #[test]
+    fn a_gap_while_a_task_is_open_is_not_waiting_on_the_user() {
+        let minute = 60_000;
+        // Wholly under an open task: nothing.
+        assert_eq!(waiting_with(20 * minute, &[(0, 20 * minute)]), []);
+        assert_eq!(waiting_with(20 * minute, &[(0, 40 * minute)]), []);
+        // A task opened before the gap and closing inside it, then idle.
+        assert_eq!(
+            waiting_with(20 * minute, &[(0, 5 * minute)]),
+            [(5 * minute, 20 * minute)]
+        );
+        // A task starting inside the gap and still open at its end.
+        assert_eq!(
+            waiting_with(20 * minute, &[(15 * minute, 60 * minute)]),
+            [(0, 15 * minute)]
+        );
+        // Overlapping and nested tasks cut once.
+        assert_eq!(
+            waiting_with(
+                20 * minute,
+                &[
+                    (2 * minute, 8 * minute),
+                    (3 * minute, 4 * minute),
+                    (6 * minute, 10 * minute)
+                ]
+            ),
+            [(0, 2 * minute), (10 * minute, 20 * minute)]
+        );
+        // A task wholly outside the gap changes nothing.
+        assert_eq!(
+            waiting_with(20 * minute, &[(30 * minute, 40 * minute)]),
+            [(0, 20 * minute)]
+        );
+    }
+
+    #[test]
+    fn idle_pieces_of_one_gap_share_one_thirty_minute_cap() {
+        let minute = 60_000;
+        // Ten idle minutes, a task open for two hours, then idle to the user's prompt the next
+        // morning: ten minutes and the first twenty after the task closed.
+        assert_eq!(
+            waiting_with(16 * 60 * minute, &[(10 * minute, 130 * minute)]),
+            [(0, 10 * minute), (130 * minute, 150 * minute)]
+        );
+        // A night with no task open is still thirty minutes.
+        assert_eq!(waiting_with(16 * 60 * minute, &[]), [(0, 30 * minute)]);
+    }
+
     /// The waiting on the user of a turn ending at 1,000 and the user's next prompt `gap_ms`
     /// later.
     fn waiting_after(gap_ms: u64) -> u64 {
@@ -893,6 +1103,7 @@ mod tests {
             prompts: vec![user(0), user(1_000 + gap_ms)],
             responses: vec![response(0, 1_000), response(1_000 + gap_ms, 1_000 + gap_ms)],
             calls: vec![],
+            ..Timeline::default()
         };
         total(&segments(&timeline)).waiting
     }
@@ -929,6 +1140,7 @@ mod tests {
                 response(5_000, 5_000),
             ],
             calls: vec![],
+            ..Timeline::default()
         };
         assert_eq!(total(&segments(&timeline)).waiting, 3_800);
         // Only prompts not from the user: no waiting at all.
@@ -942,8 +1154,54 @@ mod tests {
             ],
             responses: vec![response(0, 100), response(10_000, 10_100)],
             calls: vec![],
+            ..Timeline::default()
         };
         assert_eq!(total(&segments(&timeline)).waiting, 0);
+    }
+
+    #[cfg(feature = "record")]
+    #[test]
+    fn a_task_is_open_from_its_task_to_its_outcome_and_again_after_an_answer() {
+        let minute = 60_000;
+        let open = |start_ms, end_ms| Open { start_ms, end_ms };
+        assert_eq!(open_stretches(&[]), []);
+        // Sent, progress, a question (still open), answered, completed.
+        assert_eq!(
+            open_stretches(&[
+                (Kind::Task, 0),
+                (Kind::Progress, 10),
+                (Kind::Question, 20),
+                (Kind::Answer, 90),
+                (Kind::Completed, 100)
+            ]),
+            [open(0, 100)]
+        );
+        // Completed, then an answer runs it again until it fails.
+        assert_eq!(
+            open_stretches(&[
+                (Kind::Task, 0),
+                (Kind::Completed, 100),
+                (Kind::Answer, 500),
+                (Kind::Failed, 700)
+            ]),
+            [open(0, 100), open(500, 700)]
+        );
+        // Canceled.
+        assert_eq!(
+            open_stretches(&[(Kind::Task, 0), (Kind::Cancel, 50), (Kind::Canceled, 60)]),
+            [open(0, 60)]
+        );
+        // Never closed: open until thirty minutes after its last message.
+        assert_eq!(OPEN_AFTER_LAST_MESSAGE_MS, 30 * minute);
+        assert_eq!(
+            open_stretches(&[(Kind::Task, 0), (Kind::Progress, 5 * minute)]),
+            [open(0, 35 * minute)]
+        );
+        // First seen through its progress: open from there.
+        assert_eq!(
+            open_stretches(&[(Kind::Progress, 40), (Kind::Completed, 90)]),
+            [open(40, 90)]
+        );
     }
 
     #[cfg(feature = "record")]
