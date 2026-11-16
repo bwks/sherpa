@@ -1,5 +1,8 @@
 name = "sherpa-dev"
 ready_timeout = 600
+# The node's login is the account of the Sherpa user who brings the lab up, with their SSH key,
+# not `sherpa`: setup makes `sherpa` the server's no-login service account. See README.md.
+provision_current_user = true
 
 # One of two identical dev servers; tests/environments/agent is the other. They differ only in
 # the lab and node names, the NUMA node and the CPU pins. See README.md.

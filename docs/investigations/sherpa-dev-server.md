@@ -150,3 +150,6 @@ Node 0 stays for users' labs. Whether node 1 is also isolated from them is a dec
   `GH_TOKEN`, passed in by the CLI from a provisioner env file, until the agent has its own keys.
 - **Toolchains:** rustup (stable, and nightly for the eBPF program), not mise, since the
   repository pins its toolchains with `rust-toolchain.toml`.
+- **Login account:** later changed (#648). The guests log in as the account of the Sherpa user
+  who owns the lab, not `sherpa`, and `sherpa` is the installer's no-login service account. See
+  "Login account" in [the dev servers README](../../tests/environments/dev/README.md#login-account).
