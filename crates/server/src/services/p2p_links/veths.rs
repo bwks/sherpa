@@ -7,8 +7,9 @@ use std::ops::RangeInclusive;
 use anyhow::{Result, anyhow};
 
 use shared::data::{self, DbBridge, DbLink, RecordId};
-use shared::konst::{BRIDGE_MEMBER_HOST_VETH_PREFIX, CONTAINER_HOST_VETH_PREFIX};
 use shared::util;
+
+use crate::konst::{BRIDGE_MEMBER_HOST_VETH_PREFIX, CONTAINER_HOST_VETH_PREFIX};
 
 /// A data interface of a container on a P2p link: a veth made into the container's network
 /// namespace once it has started, with its host end named `host_veth`.

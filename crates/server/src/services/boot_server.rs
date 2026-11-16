@@ -18,11 +18,12 @@ use tracing::instrument;
 use db::Database;
 use shared::data::{self, DbNode, NodeConfig, NodeKind, RecordId, Ztp, ZtpRecord};
 use shared::konst::{
-    CONTAINER_DNSMASQ_NAME, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, MANAGEMENT_NODE_HOST_OFFSETS,
-    SSH_PORT, ZTP_DIR,
+    CONTAINER_DNSMASQ_NAME, DNSMASQ_DIR, MANAGEMENT_NODE_HOST_OFFSETS, SSH_PORT, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::effective_ztp;
+
+use crate::konst::DNSMASQ_CONFIG_FILE;
 
 /// A node of a lab as its boot server sees it: its record, its image, and the ZTP method its
 /// definition sets, if any.

@@ -7,11 +7,11 @@ use anyhow::Result;
 use tracing::instrument;
 
 use super::context::Redeploy;
+use crate::konst::READINESS_SLEEP;
 use crate::services::node_lifecycle;
 use crate::services::node_ops::{self, VmReadiness};
 
 use shared::data::{OperationEvent, ReadyCheck, StatusKind};
-use shared::konst::READINESS_SLEEP;
 
 /// What a redeployed node waits on before it is recorded running.
 #[derive(Debug, PartialEq, Eq)]

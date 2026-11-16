@@ -13,7 +13,7 @@ use shared::data::{
     ScannedImage, SetDefaultImageRequest, SetDefaultImageResponse, ShowImageRequest,
     ShowImageResponse, SkippedModel, StatusKind,
 };
-use shared::konst::{SHERPA_IMAGES_PATH, TALOS_IMAGE_FACTORY_URL, TALOS_VANILLA_SCHEMATIC_YAML};
+use shared::konst::SHERPA_IMAGES_PATH;
 use shared::util::{file_exists, image_filename};
 
 use tracing::instrument;
@@ -24,6 +24,12 @@ use crate::services::image_lifecycle::lock_image;
 use crate::services::image_store::{ExistingDisk, ImagePaths, PlacedDisk, StagedDisk};
 use crate::services::progress::ProgressSender;
 use crate::validate::{validate_image_scan, validate_image_version};
+
+/// Talos Image Factory base URL for downloading Talos Linux images.
+const TALOS_IMAGE_FACTORY_URL: &str = "https://factory.talos.dev";
+/// Image Factory schematic for vanilla Talos Linux (no system extensions). The factory
+/// returns its ID when it is posted to `/schematics`.
+const TALOS_VANILLA_SCHEMATIC_YAML: &str = "customization: {}\n";
 
 /// Bytes between progress reports while downloading an image.
 const DOWNLOAD_REPORT_INTERVAL: u64 = 5 * 1024 * 1024;

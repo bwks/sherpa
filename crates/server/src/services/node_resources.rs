@@ -13,15 +13,21 @@ use shared::data::{
     RecordId,
 };
 use shared::error::{CpuPinConflict, CpuPinRole};
-use shared::konst::{
-    CISCO_IOL_CONTAINER_OVERHEAD_MIB, JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB,
-    VNC_PORT_ALLOCATION_ATTEMPTS, VNC_PORT_FIRST, VNC_PORT_LAST,
-};
+use shared::konst::JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB;
 use virt::connect::Connect;
 
 use crate::auth::context::AuthContext;
 use crate::services::error::ServiceError;
 use crate::validate::check_host_resources;
+
+/// Server ports reserved for VM VNC consoles, one per VM for its life.
+const VNC_PORT_FIRST: u16 = 5900;
+const VNC_PORT_LAST: u16 = 6999;
+/// Attempts to reserve a VNC port when concurrent labs take the same one.
+const VNC_PORT_ALLOCATION_ATTEMPTS: u32 = 10;
+/// The memory, in MiB, an IOL container needs beyond IOL's own (its `-m`) for the launcher and
+/// the bridge: its Docker memory limit is IOL's memory plus this.
+const CISCO_IOL_CONTAINER_OVERHEAD_MIB: u16 = 128;
 
 /// A lab as a pin refusal names it, and the owner who may see it named.
 #[derive(Clone, Debug, PartialEq, Eq)]

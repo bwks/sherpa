@@ -8,9 +8,10 @@ use serde_json::Value;
 use tracing::instrument;
 
 use shared::data::{ClusterPlan, StatusKind};
-use shared::konst::{READINESS_SLEEP, TALOS_API_PORT};
+use shared::konst::TALOS_API_PORT;
 use template::TalosClusterSecrets;
 
+use crate::konst::READINESS_SLEEP;
 use crate::services::lab_operations::LabOperation;
 use crate::services::progress::ProgressSender;
 use crate::tls::generator::PemPair;

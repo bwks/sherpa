@@ -20,9 +20,11 @@ use crate::api::errors::ApiError;
 use crate::api::extractors::AdminUser;
 
 use shared::data::ScanImagesRequest;
-use shared::konst::ADMIN_USER_DELETE_ERROR_TARGET;
 use shared::util::normalize_username;
 use shared::validators::validate_ssh_key;
+
+/// Element on the admin users page that shows a refused user delete (`hx-retarget` value).
+const ADMIN_USER_DELETE_ERROR_TARGET: &str = "#user-delete-error";
 
 /// Helper struct for displaying user information in admin users page
 #[derive(Debug, Clone)]

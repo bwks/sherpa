@@ -2,12 +2,13 @@
 use anyhow::{Context, Result, ensure};
 use container::tailscale::{self, GatewayConfig};
 use shared::data::{DbLab, LabInfo, TailnetAuthKey, TailnetStatus};
-use shared::konst::{SHERPA_MANAGEMENT_NETWORK_NAME, TAILSCALE_GATEWAY_HOST_OFFSET};
+use shared::konst::TAILSCALE_GATEWAY_HOST_OFFSET;
 use shared::util::{get_ipv4_addr, get_ipv6_addr};
 use topology::Manifest;
 use tracing::instrument;
 
 use crate::daemon::state::AppState;
+use crate::konst::SHERPA_MANAGEMENT_NETWORK_NAME;
 use shared::validators::validate_tailscale_key;
 use topology::validate::validate_tailscale;
 

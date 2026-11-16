@@ -6,11 +6,11 @@ use anyhow::{Context, Result, anyhow};
 use tracing::instrument;
 
 use super::context::LabBuild;
+use crate::konst::{CONTAINER_HOST_VETH_PREFIX, TAP_PREFIX};
 use crate::services::p2p_links::{ContainerVeth, KernelHost, LinkHost, LinkWiring, attach_link};
 
 use shared::data;
 use shared::data::{LinkImpairment, RecordId, StatusKind};
-use shared::konst::{CONTAINER_HOST_VETH_PREFIX, TAP_PREFIX};
 
 /// A data interface of the P2p container `node_name`, made once the container has started.
 pub(super) struct P2pContainerVeth {

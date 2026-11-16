@@ -10,8 +10,7 @@ use tracing::instrument;
 
 use shared::data::{DbUser, NodeConfig, NodeModel, OwnerSshKey, OwnerUser, RecordId, Ztp};
 use shared::konst::{
-    NODE_CLOUD_INIT_SUDO_RULE, NODE_DOAS_CONF_DIR, NODE_NIXOS_SHELL, NODE_NO_PASSWORD_HASH,
-    RESERVED_USERNAMES, SHERPA_USERNAME, SSH_KEYS_DOCS_URL,
+    NODE_CLOUD_INIT_SUDO_RULE, RESERVED_USERNAMES, SHERPA_USERNAME, SSH_KEYS_DOCS_URL,
 };
 use shared::util::{
     base64_encode, base64_encode_bytes, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash,
@@ -21,6 +20,14 @@ use template::{
     CloudInitUser, CloudInitWriteFile, CloudbaseInitUser, FileMode, IgnitionFile,
     IgnitionFileContents, IgnitionUser,
 };
+
+use crate::konst::NODE_NIXOS_SHELL;
+
+/// Drop-in directory for per-user doas rules (Alpine).
+const NODE_DOAS_CONF_DIR: &str = "/etc/doas.d";
+/// Shadow password value that matches no password but, unlike `!`, does not lock the
+/// account, so sshd builds without PAM still accept key logins.
+const NODE_NO_PASSWORD_HASH: &str = "*";
 
 /// Length of the random password given to owner accounts on devices that need one.
 /// cloudbase-init takes at most 20 characters, and Cisco IOS 25.
@@ -555,9 +562,10 @@ pub(crate) fn sudoers_file(account: &GuestAccount) -> IgnitionFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::konst::SHERPA_PASSWORD_HASH;
     use jiff::Timestamp;
     use shared::data::NodeKind;
-    use shared::konst::{ADMIN_USERNAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH, SHERPA_USERNAME};
+    use shared::konst::{ADMIN_USERNAME, SHERPA_PASSWORD, SHERPA_USERNAME};
     use shared::util::base64_decode;
     use template::{CloudInitConfig, IgnitionConfig};
 

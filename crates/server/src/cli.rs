@@ -4,9 +4,10 @@ use clap::{Parser, Subcommand};
 use ipnet::{Ipv4Net, Ipv6Net};
 
 use shared::konst::{
-    SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_SERVER_HTTP_PORT,
-    SHERPA_SERVER_IPV4, SHERPA_SERVER_WS_PORT,
+    SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_WS_PORT,
 };
+
+use crate::konst::{SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_SERVER_IPV4};
 
 #[derive(Parser)]
 #[command(name = "sherpad")]

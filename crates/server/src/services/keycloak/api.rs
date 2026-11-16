@@ -10,7 +10,7 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 use serde_json::Value;
 
-use shared::konst::KEYCLOAK_HTTPS_PORT;
+use crate::konst::KEYCLOAK_HTTPS_PORT;
 
 /// Timeout of one API request.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);

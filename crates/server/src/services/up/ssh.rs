@@ -43,8 +43,9 @@ mod tests {
 
     use tokio::sync::mpsc;
 
+    use crate::konst::SHERPA_SSH_PUBLIC_KEY_FILE;
     use shared::data::{NodeSshUsername, Ztp};
-    use shared::konst::{SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE};
+    use shared::konst::SHERPA_SSH_PRIVATE_KEY_FILE;
 
     use super::*;
 

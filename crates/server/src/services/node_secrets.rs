@@ -14,13 +14,14 @@ use tracing::instrument;
 
 use container::get_container_mount_source;
 use shared::data::{NodeKind, NodeSecretsRequest, NodeSecretsResponse, SecretFile};
-use shared::konst::{CONTAINER_SECRETS_DIR, SHERPA_SECRETS_DIR};
+use shared::konst::CONTAINER_SECRETS_DIR;
 use shared::validators::mode_from_octal_digits;
 
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_owner;
 use crate::daemon::state::AppState;
 use crate::daemon::storage::restrict_dir;
+use crate::konst::SHERPA_SECRETS_DIR;
 use crate::services::error::ServiceError;
 use crate::validate::validate_secret_files;
 

@@ -9,19 +9,23 @@ use tracing::instrument;
 
 use super::context::LabBuild;
 use super::links::P2pContainerVeth;
+use crate::konst::{
+    BRIDGE_MEMBER_HOST_VETH_PREFIX, SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_MANAGEMENT_NETWORK_NAME,
+};
 use crate::services::container_networks;
 use crate::services::error::ServiceError;
 use crate::services::p2p_links::ContainerVeth;
 
 use shared::data;
 use shared::data::{LabPhase, LabSubnets, RecordId, StatusKind};
-use shared::konst::{
-    BRIDGE_MEMBER_HOST_VETH_PREFIX, LAB_SUBNET_ALLOCATION_ATTEMPTS, MANAGEMENT_GATEWAY_HOST_OFFSET,
-    SHERPA_LOOPBACK_PREFIX, SHERPA_LOOPBACK_PREFIX_IPV6, SHERPA_MANAGEMENT_IP_INDEX,
-    SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_IPV6,
-    SHERPA_MANAGEMENT_NETWORK_NAME,
-};
+use shared::konst::{MANAGEMENT_GATEWAY_HOST_OFFSET, SHERPA_MANAGEMENT_IP_INDEX};
 use shared::util;
+
+const SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX: &str = "brm";
+const SHERPA_LOOPBACK_PREFIX: &str = "127.127.0.0/16";
+const SHERPA_LOOPBACK_PREFIX_IPV6: &str = "fd00:1001::/48";
+/// Attempts to reserve lab subnets when concurrent labs take the chosen ones first.
+const LAB_SUBNET_ALLOCATION_ATTEMPTS: u32 = 8;
 
 /// A lab `up` has reserved: its record, `Creating`, and the subnets it holds. Only the `up` that
 /// reserved the lab has one, so only it builds the lab, releases it, or rolls it back.

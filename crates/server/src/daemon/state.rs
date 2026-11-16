@@ -3,10 +3,7 @@ use bollard::Docker;
 use dashmap::DashMap;
 use libvirt::Qemu;
 use shared::data::{Config, UpRequest};
-use shared::konst::{
-    ADMIN_USERNAME, JWT_SECRET_PATH, SHERPA_ADMIN_PASSWORD_ENV, SHERPA_DB_FILE_PATH,
-    SHERPA_DB_KEY_PATH,
-};
+use shared::konst::{ADMIN_USERNAME, SHERPA_DB_FILE_PATH};
 use std::env;
 use std::path::Path;
 use std::sync::Arc;
@@ -20,7 +17,10 @@ use crate::daemon::db_key::load_or_create_db_key;
 use crate::daemon::link_states::LinkStates;
 use crate::daemon::metrics::Metrics;
 use crate::daemon::storage::secure_storage;
+use crate::konst::{SHERPA_ADMIN_PASSWORD_ENV, SHERPA_DB_KEY_PATH};
 use crate::validate::{check_host_memory_settings, validate_tailscale_gateway_settings};
+
+const JWT_SECRET_PATH: &str = "/opt/sherpa/.secret/jwt.secret";
 
 /// The type of operation a job represents.
 pub enum JobType {

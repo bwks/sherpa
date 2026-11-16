@@ -11,14 +11,15 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use tracing::instrument;
 
-use shared::konst::{
-    LAB_CA_CERT_FILE, LAB_CA_KEY_FILE, LAB_CERT_VALIDITY_DAYS, SHERPA_DOMAIN_NAME,
-};
+use shared::konst::SHERPA_DOMAIN_NAME;
 
 use super::generator::{
     CaSpec, KeyAlgorithm, PemPair, ServerSubject, generate_ca, issue_server_certificate,
     write_file_with_permissions,
 };
+use crate::konst::{LAB_CA_CERT_FILE, LAB_CA_KEY_FILE};
+
+const LAB_CERT_VALIDITY_DAYS: u32 = 365;
 
 /// Organization of the lab CA and of the certificates it issues.
 const LAB_CA_ORGANIZATION: &str = "Sherpa";

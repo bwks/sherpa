@@ -4,21 +4,29 @@
 use serde_json::Value;
 
 use shared::data;
-use shared::konst::{
-    RPC_MSG_CONTAINER_PULL_FAILED, RPC_MSG_IMAGE_DELETE_FAILED, RPC_MSG_IMAGE_DOWNLOAD_FAILED,
-    RPC_MSG_IMAGE_IMPORT_FAILED, RPC_MSG_IMAGE_LIST_FAILED, RPC_MSG_IMAGE_SCAN_FAILED,
-    RPC_MSG_IMAGE_SET_DEFAULT_FAILED, RPC_MSG_IMAGE_SHOW_FAILED,
-    RPC_MSG_INVALID_PARAMS_CONTAINER_PULL, RPC_MSG_INVALID_PARAMS_IMAGE_DELETE,
-    RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD, RPC_MSG_INVALID_PARAMS_IMAGE_LIST,
-    RPC_MSG_INVALID_PARAMS_IMAGE_SET_DEFAULT, RPC_MSG_INVALID_PARAMS_IMAGE_SHOW,
-    RPC_MSG_INVALID_PARAMS_IMPORT,
-};
 
 use super::dispatch::{parse, respond};
 use crate::api::websocket::messages::RpcError;
 use crate::daemon::state::AppState;
 use crate::services::progress::ProgressSender;
 use crate::services::{container_pull, delete, import};
+
+const RPC_MSG_IMAGE_IMPORT_FAILED: &str = "Image import operation failed";
+const RPC_MSG_IMAGE_LIST_FAILED: &str = "Image list operation failed";
+const RPC_MSG_IMAGE_SHOW_FAILED: &str = "Image show operation failed";
+const RPC_MSG_INVALID_PARAMS_IMAGE_SHOW: &str = "Invalid params: expected ShowImageRequest";
+const RPC_MSG_IMAGE_SCAN_FAILED: &str = "Image scan operation failed";
+const RPC_MSG_IMAGE_DELETE_FAILED: &str = "Image delete operation failed";
+const RPC_MSG_INVALID_PARAMS_IMAGE_DELETE: &str = "Invalid params: expected DeleteImageRequest";
+const RPC_MSG_IMAGE_SET_DEFAULT_FAILED: &str = "Image set-default operation failed";
+const RPC_MSG_INVALID_PARAMS_IMAGE_SET_DEFAULT: &str =
+    "Invalid params: expected SetDefaultImageRequest";
+const RPC_MSG_CONTAINER_PULL_FAILED: &str = "Container image pull operation failed";
+const RPC_MSG_INVALID_PARAMS_CONTAINER_PULL: &str = "Invalid params: expected ContainerPullRequest";
+const RPC_MSG_IMAGE_DOWNLOAD_FAILED: &str = "Image download operation failed";
+const RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD: &str = "Invalid params: expected DownloadImageRequest";
+const RPC_MSG_INVALID_PARAMS_IMPORT: &str = "Invalid params: expected ImportRequest";
+const RPC_MSG_INVALID_PARAMS_IMAGE_LIST: &str = "Invalid params: expected ListImagesRequest";
 
 const RPC_MSG_INVALID_PARAMS_IMAGE_SCAN: &str = "Invalid params: expected ScanImagesRequest";
 

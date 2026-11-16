@@ -14,7 +14,7 @@ use shared::data::{
     ClusterCni, ClusterInfo, ClusterMember, ClusterPlan, ClusterRole, NetworkV4, RecordId,
     StatusKind,
 };
-use shared::konst::{KEYCLOAK_REALM, READINESS_SLEEP, SHERPA_LABS_PATH};
+use shared::konst::SHERPA_LABS_PATH;
 use template::{
     CiliumConfig, ClusterOidcConfig, ClusterVaultConfig, TalosClusterSecrets, TalosNodeConfig,
     kubeconfig, talos_machine_config, talosconfig,
@@ -28,6 +28,7 @@ use super::secrets::{
     kubernetes_admin_credentials, load_secrets, save_secrets, service_account_public_key,
     talos_admin_credentials,
 };
+use crate::konst::{KEYCLOAK_REALM, READINESS_SLEEP};
 use crate::services::keycloak::api::keycloak_address;
 use crate::services::lab_operations::LabOperation;
 use crate::services::progress::ProgressSender;

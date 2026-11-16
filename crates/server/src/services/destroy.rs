@@ -15,10 +15,7 @@ use network::{delete_interface, list_interface_names};
 use shared::data::{
     DestroyError, DestroyResponse, DestroySummary, LabEvent, StatusKind, TailscaleGatewaySettings,
 };
-use shared::konst::{
-    BRIDGE_MEMBER_HOST_VETH_PREFIX, BRIDGE_PREFIX, CONTAINER_HOST_VETH_PREFIX, SHERPA_LABS_PATH,
-    SHERPA_SECRETS_DIR, SHERPA_STORAGE_POOL, TAP_PREFIX,
-};
+use shared::konst::{BRIDGE_PREFIX, SHERPA_LABS_PATH, SHERPA_STORAGE_POOL};
 use shared::util::dir_exists;
 use shared::util::is_lab_resource;
 
@@ -27,6 +24,9 @@ use tracing::instrument;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
+use crate::konst::{
+    BRIDGE_MEMBER_HOST_VETH_PREFIX, CONTAINER_HOST_VETH_PREFIX, SHERPA_SECRETS_DIR, TAP_PREFIX,
+};
 use crate::services::lab_lifecycle;
 use crate::services::lab_operations::{self, LabHold, StopReason};
 use crate::services::node_secrets::remove_lab_secrets;
@@ -872,8 +872,9 @@ mod tests {
     use tokio::task::JoinHandle;
 
     use super::*;
+    use crate::konst::LAB_CERTS_DIR;
     use shared::data::{SecretContent, SecretFile};
-    use shared::konst::{LAB_CERTS_DIR, SHERPA_SSH_PRIVATE_KEY_FILE};
+    use shared::konst::SHERPA_SSH_PRIVATE_KEY_FILE;
 
     use crate::services::lab_ssh_key::create_lab_ssh_key;
     use crate::services::node_secrets::write_node_secrets;

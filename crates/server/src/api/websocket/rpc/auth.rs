@@ -4,17 +4,21 @@ use serde_json::Value;
 
 use shared::data;
 use shared::error::RpcErrorCode;
-use shared::konst::{
-    JWT_TOKEN_EXPIRY_SECONDS, RPC_MSG_AUTH_ERROR, RPC_MSG_AUTH_INVALID,
-    RPC_MSG_INVALID_PARAMS_LOGIN, RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LOGOUT_FAILED,
-    RPC_MSG_TOKEN_CREATE_FAILED,
-};
 
 use super::dispatch::{parse, respond};
 use crate::api::websocket::messages::RpcError;
 use crate::auth::context::AuthContext;
 use crate::auth::{login, session};
 use crate::daemon::state::AppState;
+use crate::konst::JWT_TOKEN_EXPIRY_SECONDS;
+
+const RPC_MSG_AUTH_INVALID: &str = "Invalid username or password";
+const RPC_MSG_AUTH_ERROR: &str = "Authentication error";
+const RPC_MSG_TOKEN_CREATE_FAILED: &str = "Failed to create authentication token";
+const RPC_MSG_LOGOUT_FAILED: &str = "Failed to end the session";
+const RPC_MSG_INVALID_PARAMS_LOGIN: &str =
+    "Invalid params: expected {username: string, password: string}";
+const RPC_MSG_INVALID_PARAMS_TOKEN: &str = "Invalid params: expected {token: string}";
 
 pub(super) async fn login(params: Value, state: &AppState) -> Result<Value, RpcError> {
     let request: data::LoginRequest = parse(params, RPC_MSG_INVALID_PARAMS_LOGIN)?;

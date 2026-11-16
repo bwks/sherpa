@@ -12,12 +12,9 @@ use db::{Database, apply_schema, create_admin_user, create_user, find_user, list
 use libvirt::{BridgeNetwork, Qemu, SherpaStoragePool};
 use shared::data::{Config, NodeConfig, NodeModel};
 use shared::konst::{
-    ADMIN_USERNAME, SHERPA_ADMIN_PASSWORD_ENV, SHERPA_BASE_DIR, SHERPA_BINS_PATH,
-    SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME,
-    SHERPA_CONFIG_FILE_MODE, SHERPA_CONFIG_FILE_PATH, SHERPA_CONFIG_PATH, SHERPA_CONTAINERS_PATH,
-    SHERPA_DB_BACKUP_PATH, SHERPA_DB_FILE_PATH, SHERPA_DB_PATH, SHERPA_IMAGES_PATH,
-    SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, SHERPA_USER_IS_ADMIN_ENV, SHERPA_USER_NAME_ENV,
-    SHERPA_USER_PASSWORD_ENV, SHERPA_USER_SSH_KEY_ENV,
+    ADMIN_USERNAME, SHERPA_BINS_PATH, SHERPA_CONTAINERS_PATH, SHERPA_DB_FILE_PATH,
+    SHERPA_IMAGES_PATH, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, SHERPA_USER_NAME_ENV,
+    SHERPA_USER_PASSWORD_ENV,
 };
 use shared::util::{
     create_dir, default_config, file_exists, normalize_username, term_msg_highlight,
@@ -25,8 +22,21 @@ use shared::util::{
 };
 use shared::validators::{validate_ssh_key, validate_username};
 
+use crate::konst::{
+    SHERPA_ADMIN_PASSWORD_ENV, SHERPA_BLANK_DISK_DIR, SHERPA_CONFIG_FILE_PATH,
+    SHERPA_DB_BACKUP_PATH, SHERPA_DB_PATH,
+};
 use crate::tls::generator::write_file_with_permissions;
 use crate::validate::{validate_management_prefix_ipv4, validate_management_prefix_ipv6};
+
+const SHERPA_BASE_DIR: &str = "/opt/sherpa";
+const SHERPA_CONFIG_PATH: &str = "/opt/sherpa/config";
+/// `sherpa.toml` can hold secrets: only `sherpa` may read it, whatever the umask of `init`.
+const SHERPA_CONFIG_FILE_MODE: u32 = 0o600;
+const SHERPA_BRIDGE_NETWORK_NAME: &str = "sherpa-bridge";
+const SHERPA_BRIDGE_NETWORK_BRIDGE: &str = "br-sherpa0";
+const SHERPA_USER_IS_ADMIN_ENV: &str = "SHERPA_USER_IS_ADMIN";
+const SHERPA_USER_SSH_KEY_ENV: &str = "SHERPA_USER_SSH_KEY";
 
 /// Set up a new server: its directories, `sherpa.toml`, libvirt network and storage pool,
 /// database, admin account and first user.

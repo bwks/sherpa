@@ -7,7 +7,6 @@ use rand::RngCore;
 use rcgen::KeyPair;
 use tracing::instrument;
 
-use shared::konst::TALOS_SUPPORTED_MINOR_VERSION;
 use shared::util::base64_encode_bytes;
 use template::{TalosClientCredentials, TalosClusterSecrets};
 
@@ -15,6 +14,9 @@ use crate::tls::generator::{
     CaSpec, ClientSubject, KeyAlgorithm, PemPair, generate_ca, generate_key_pair,
     issue_client_certificate, write_file_with_permissions,
 };
+
+/// Talos Linux minor version Sherpa generates cluster machine configs for.
+const TALOS_SUPPORTED_MINOR_VERSION: &str = "1.14";
 
 /// Validity of cluster CAs: long enough to outlive any lab.
 const CA_VALIDITY_DAYS: u32 = 3650;

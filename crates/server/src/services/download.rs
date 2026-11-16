@@ -5,11 +5,12 @@ use anyhow::{Context, Result};
 use tracing::instrument;
 
 use shared::data::DownloadLabResponse;
-use shared::konst::{LAB_CA_CERT_FILE, LAB_CERTS_DIR, SHERPA_LABS_PATH};
+use shared::konst::SHERPA_LABS_PATH;
 
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
+use crate::konst::{LAB_CA_CERT_FILE, LAB_CERTS_DIR};
 use crate::services::keycloak;
 use crate::services::lab_info;
 use crate::services::lab_ssh_key::{LabSshKeyPaths, read_private_key};

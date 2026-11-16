@@ -12,6 +12,7 @@ use tracing::instrument;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_host_access;
 use crate::daemon::state::AppState;
+use crate::konst::LAB_CERTS_DIR;
 use crate::services::admission::{self, Admission};
 use crate::services::guest_account::{self, GuestAccount};
 use crate::services::image_lifecycle::{
@@ -32,7 +33,7 @@ use crate::validate::{
 use libvirt::QemuConnection;
 use shared::data;
 use shared::data::{DbLab, DbNode, RecordId, RedeployRequest, StatusKind};
-use shared::konst::{LAB_CERTS_DIR, READINESS_TIMEOUT, SHERPA_LABS_PATH};
+use shared::konst::{READINESS_TIMEOUT, SHERPA_LABS_PATH};
 use shared::util;
 use shared::validators::effective_data_interface_count;
 use topology::find_talos_cluster;

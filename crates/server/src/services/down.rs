@@ -13,7 +13,7 @@ use shared::data::{
     ClusterRole, LabNodeActionResponse, NodeActionResult, NodeConfig, NodeKind, NodeModel,
     OperationEvent,
 };
-use shared::konst::{SHERPA_LABS_PATH, VM_SHUTDOWN_POLL, VM_SHUTDOWN_TIMEOUT};
+use shared::konst::SHERPA_LABS_PATH;
 
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
@@ -23,6 +23,11 @@ use crate::services::lab_nodes::load_target_nodes;
 use crate::services::lab_operations;
 use crate::services::node_lifecycle;
 use crate::services::talos;
+
+/// Seconds `down` waits for a VM to shut down cleanly before powering it off.
+const VM_SHUTDOWN_TIMEOUT: u64 = 60;
+/// Seconds between VM power state checks while waiting for a clean shutdown.
+const VM_SHUTDOWN_POLL: u64 = 1;
 
 /// Why unikernels are powered off without a shutdown request.
 const UNIKERNEL_POWER_OFF: &str = "unikernels have no OS to shut down";
