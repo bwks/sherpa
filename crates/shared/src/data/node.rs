@@ -898,19 +898,14 @@ impl NodeState {
     }
 }
 
-/// Zero touch provisioning for a node image: off or the method Sherpa provisions its nodes by,
-/// and with which credentials.
+/// Zero touch provisioning for a node image: off or the method Sherpa provisions its nodes by.
+/// It denies unknown fields, so a `ztp` group that still carries `username`, `password` or
+/// `password_auth`, removed in 0.7.0, is refused with serde's error naming the field.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ZtpSettings {
     /// `disabled`, or how the image's nodes are provisioned at boot.
     pub method: Ztp,
-    /// The account the provisioning sets up, when the image has a fixed one.
-    pub username: Option<String>,
-    /// That account's password.
-    pub password: Option<String>,
-    /// Whether the account can log in with its password, as well as with keys.
-    pub password_auth: bool,
 }
 
 /// A node image's virtual CPUs.
@@ -1192,10 +1187,7 @@ impl NodeConfig {
                 image: Some("aboot.iso".to_owned()),
                 bus: DiskBuses::Ide,
             },
-            ztp: ZtpSettings {
-                method: Ztp::Tftp,
-                ..base.ztp
-            },
+            ztp: ZtpSettings { method: Ztp::Tftp },
             ..base
         }
     }
@@ -1249,11 +1241,7 @@ impl NodeConfig {
                 kind: MachineType::Q35,
                 ..base.machine
             },
-            ztp: ZtpSettings {
-                method: Ztp::Tftp,
-                password_auth: true,
-                ..base.ztp
-            },
+            ztp: ZtpSettings { method: Ztp::Tftp },
             ..base
         }
     }
@@ -1304,10 +1292,6 @@ impl NodeConfig {
             machine: MachineSettings {
                 kind: MachineType::Q35,
                 ..base.machine
-            },
-            ztp: ZtpSettings {
-                password_auth: true,
-                ..base.ztp
             },
             ..base
         }
@@ -1454,10 +1438,7 @@ impl NodeConfig {
                 bus: DiskBuses::Virtio,
                 ..base.cdrom
             },
-            ztp: ZtpSettings {
-                method: Ztp::Disk,
-                ..base.ztp
-            },
+            ztp: ZtpSettings { method: Ztp::Disk },
             ..base
         }
     }
@@ -1483,10 +1464,7 @@ impl NodeConfig {
                 bus: DiskBuses::Virtio,
                 ..base.cdrom
             },
-            ztp: ZtpSettings {
-                method: Ztp::Disk,
-                ..base.ztp
-            },
+            ztp: ZtpSettings { method: Ztp::Disk },
             ..base
         }
     }
@@ -1538,10 +1516,7 @@ impl NodeConfig {
                 count: 4,
                 ..base.cpu
             },
-            ztp: ZtpSettings {
-                method: Ztp::Disk,
-                ..base.ztp
-            },
+            ztp: ZtpSettings { method: Ztp::Disk },
             ..base
         }
     }
@@ -1648,10 +1623,7 @@ impl NodeConfig {
                 bios: BiosTypes::Uefi,
                 ..base.machine
             },
-            ztp: ZtpSettings {
-                method: Ztp::Tftp,
-                ..base.ztp
-            },
+            ztp: ZtpSettings { method: Ztp::Tftp },
             ..base
         }
     }
@@ -1751,10 +1723,7 @@ impl NodeConfig {
             boot_disk: BootDiskSettings {
                 bus: DiskBuses::Sata,
             },
-            ztp: ZtpSettings {
-                method: Ztp::Usb,
-                ..base.ztp
-            },
+            ztp: ZtpSettings { method: Ztp::Usb },
             ..base
         }
     }
@@ -1882,7 +1851,6 @@ impl NodeConfig {
             },
             ztp: ZtpSettings {
                 method: Ztp::NoCloud,
-                ..base.ztp
             },
             ..base
         }
@@ -1954,11 +1922,7 @@ impl NodeConfig {
                 bus: DiskBuses::Virtio,
                 ..base.cdrom
             },
-            ztp: ZtpSettings {
-                method: Ztp::Http,
-                password_auth: true,
-                ..base.ztp
-            },
+            ztp: ZtpSettings { method: Ztp::Http },
             ..base
         }
     }
@@ -1969,7 +1933,6 @@ impl NodeConfig {
             memory: 2048,
             ztp: ZtpSettings {
                 method: Ztp::Ignition,
-                ..base.ztp
             },
             ..base
         }
@@ -2031,10 +1994,6 @@ impl NodeConfig {
                 count: 2,
                 ..base.cpu
             },
-            ztp: ZtpSettings {
-                password_auth: true,
-                ..base.ztp
-            },
             ..base
         }
     }
@@ -2046,10 +2005,6 @@ impl NodeConfig {
             cpu: CpuSettings {
                 count: 2,
                 ..base.cpu
-            },
-            ztp: ZtpSettings {
-                password_auth: true,
-                ..base.ztp
             },
             ..base
         }
@@ -2063,10 +2018,6 @@ impl NodeConfig {
                 count: 2,
                 ..base.cpu
             },
-            ztp: ZtpSettings {
-                password_auth: true,
-                ..base.ztp
-            },
             ..base
         }
     }
@@ -2078,10 +2029,6 @@ impl NodeConfig {
             cpu: CpuSettings {
                 count: 2,
                 ..base.cpu
-            },
-            ztp: ZtpSettings {
-                password_auth: true,
-                ..base.ztp
             },
             ..base
         }
@@ -2095,10 +2042,6 @@ impl NodeConfig {
                 count: 6,
                 ..base.cpu
             },
-            ztp: ZtpSettings {
-                password_auth: true,
-                ..base.ztp
-            },
             ..base
         }
     }
@@ -2110,10 +2053,6 @@ impl NodeConfig {
             cpu: CpuSettings {
                 count: 4,
                 ..base.cpu
-            },
-            ztp: ZtpSettings {
-                password_auth: true,
-                ..base.ztp
             },
             ..base
         }
@@ -2235,10 +2174,7 @@ impl NodeConfig {
                 bus: DiskBuses::Ide,
                 ..base.cdrom
             },
-            ztp: ZtpSettings {
-                method: Ztp::Disk,
-                ..base.ztp
-            },
+            ztp: ZtpSettings { method: Ztp::Disk },
             ..base
         }
     }
@@ -2666,7 +2602,6 @@ mod tests {
         assert!(config.cdrom.image.is_none());
         assert_eq!(config.cpu.count, 2);
         assert_eq!(config.memory, 4096);
-        assert!(!config.ztp.password_auth);
         assert_eq!(model.default_boot_disk_size(), Some(20));
         assert!(!model.has_ssh());
         assert_eq!(model.ready_port(), TALOS_API_PORT);
@@ -2853,10 +2788,7 @@ mod tests {
                     "reserved_count",
                 ],
             ),
-            (
-                "ztp",
-                vec!["method", "password", "password_auth", "username"],
-            ),
+            ("ztp", vec!["method"]),
         ];
         let mut top = vec![
             "id",
@@ -2896,6 +2828,25 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("unknown field `cpu_count`"), "{error}");
+    }
+
+    #[test]
+    fn test_node_config_json_refuses_the_removed_ztp_login_fields() {
+        for (field, value) in [
+            ("username", serde_json::json!("admin")),
+            ("password", serde_json::json!("Secret-Pass1")),
+            ("password_auth", serde_json::json!(true)),
+        ] {
+            let mut json = serde_json::to_value(NodeConfig::ubuntu_linux()).unwrap();
+            json["ztp"][field] = value;
+            let error = serde_json::from_value::<NodeConfig>(json)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains(&format!("unknown field `{field}`")),
+                "{field}: {error}"
+            );
+        }
     }
 
     #[test]

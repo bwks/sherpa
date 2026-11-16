@@ -3,7 +3,6 @@ use shared::data::{NodeConfig, RecordId};
 use tracing::instrument;
 
 use crate::Database;
-use crate::node_image::password::open_password;
 use crate::persistence::{NODE_IMAGE_TABLE, enum_text, key_of, node_image_from_row};
 use crate::queries;
 use crate::sql::{query_count, query_optional};
@@ -77,7 +76,5 @@ pub async fn delete_node_image(db: &Database, id: RecordId) -> Result<Option<Nod
     tx.commit()
         .await
         .context("Failed to commit the node_image delete transaction")?;
-    promoted
-        .map(|promoted| open_password(db, promoted))
-        .transpose()
+    Ok(promoted)
 }

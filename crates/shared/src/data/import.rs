@@ -42,15 +42,15 @@ pub struct ShowImageRequest {
 /// Response from showing image details
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ShowImageResponse {
-    /// The image's configuration. Its `ztp.password` is never sent: it is always `null`.
+    /// The image's configuration.
     pub image: NodeConfig,
-    /// Whether the image has a ZTP password, which `image.ztp.password` does not show.
-    #[serde(default)]
-    pub ztp_password_set: bool,
 }
 
-/// Request type for importing a disk image
+/// Request type for importing a disk image. It denies unknown fields, so an import that sends
+/// image settings, such as the ZTP username, password and password auth removed in 0.7.0, is
+/// refused with serde's error naming the field instead of importing without them.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ImportRequest {
     /// The node model to import the image for
     pub model: NodeModel,
@@ -228,4 +228,34 @@ pub struct DownloadImageRequest {
     /// Whether to set this image as the default version
     #[serde(default)]
     pub default: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_import_that_sends_a_removed_ztp_login_field_is_refused_naming_it() {
+        for field in ["ztp_username", "ztp_password", "ztp_password_auth", "ztp"] {
+            let mut json = serde_json::json!({
+                "model": "ubuntu_linux",
+                "version": "24.04",
+                "src": "/tmp/ubuntu.qcow2",
+            });
+            json[field] = serde_json::json!("admin");
+            let error = serde_json::from_value::<ImportRequest>(json)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains(&format!("unknown field `{field}`")),
+                "{field}: {error}"
+            );
+        }
+        let plain = serde_json::json!({
+            "model": "ubuntu_linux",
+            "version": "24.04",
+            "src": "/tmp/ubuntu.qcow2",
+        });
+        assert!(serde_json::from_value::<ImportRequest>(plain).is_ok());
+    }
 }

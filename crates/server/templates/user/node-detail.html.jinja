@@ -173,14 +173,6 @@
             <span class="block text-sm font-medium text-muted mb-1">ZTP</span>
             <span class="block text-base text-heading font-mono">{{ ztp }}</span>
         </div>
-        <div class="flex flex-col gap-1">
-            <span class="block text-sm font-medium text-muted mb-1">Username</span>
-            <span class="block text-base text-heading font-mono">{% if let Some(user) = node_config.ztp.username %}{{ user }}{% else %}-{% endif %}</span>
-        </div>
-        <div class="flex flex-col gap-1">
-            <span class="block text-sm font-medium text-muted mb-1">Password Auth</span>
-            <span class="block text-base text-heading font-mono">{% if node_config.ztp.password_auth %}Enabled{% else %}Disabled{% endif %}</span>
-        </div>
     </div>
 </div>
 

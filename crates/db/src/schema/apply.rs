@@ -125,7 +125,7 @@ mod tests {
     use crate::persistence::{key_of, new_key, node_image_values};
     use crate::{
         DefaultRequest, find_lab, find_node_image_by_id, list_cpu_pins, list_node_images,
-        list_nodes_by_lab, open_in_memory, read_lab_definition, seal_plain_image_passwords,
+        list_nodes_by_lab, open_in_memory, read_lab_definition, update_node_image,
         upsert_node_image,
     };
 
@@ -149,11 +149,18 @@ mod tests {
         query_count(&conn, USER_VERSION.bind([])).await.unwrap()
     }
 
+    /// Today's `node_image` columns, in order, but the last, `ztp`.
+    const IMAGE_COLUMNS_BEFORE_ZTP: &str = "id, model, version, repo, os_variant, kind, bios, \
+         cpu_count, cpu_architecture, cpu_model, machine_type, vmx_enabled, memory, hdd_bus, \
+         cdrom, cdrom_bus, data_interface_count, interface_prefix, interface_type, interface_mtu, \
+         first_interface_index, management_interface, reserved_interface_count, \"default\", \
+         boot_mode";
+
     /// Insert `image` into a database at a version before 16, whose `node_image` table has the
     /// `ztp_enable` and `ztp_method` columns, and before version 9 the
     /// `dedicated_management_interface` column too, none of which today's queries write. The
-    /// two ZTP values, and the password, are stored as given, as an older release stored them.
-    /// Returns the row's key.
+    /// two ZTP values are stored as given, as an older release stored them, and the ZTP login
+    /// columns unset. Returns the row's key.
     async fn insert_into_older_schema(
         db: &Database,
         image: &NodeConfig,
@@ -161,20 +168,17 @@ mod tests {
         ztp_method: &str,
     ) -> String {
         let key = new_key();
-        let mut values = Vec::from(node_image_values(image, &key, None).unwrap());
-        // An older release stored the password as plain text, in the 18th column.
-        values[17] = image.ztp.password.as_deref().into();
+        let mut values = Vec::from(node_image_values(image, &key).unwrap());
         // Today's last column is `ztp`, which the older table does not have.
         values.pop();
+        // The ZTP login columns, which today's table does not have, unset.
+        values.extend([Value::Null, Value::Null, Value::from(false)]);
         values.push(Value::from(ztp_enable));
         values.push(Value::from(ztp_method));
-        let mut columns = "id, model, version, repo, os_variant, kind, bios, cpu_count, \
-             cpu_architecture, cpu_model, machine_type, vmx_enabled, memory, hdd_bus, cdrom, \
-             cdrom_bus, ztp_username, ztp_password, ztp_password_auth, data_interface_count, \
-             interface_prefix, interface_type, interface_mtu, first_interface_index, \
-             management_interface, reserved_interface_count, \"default\", boot_mode, ztp_enable, \
-             ztp_method"
-            .to_owned();
+        let mut columns = format!(
+            "{IMAGE_COLUMNS_BEFORE_ZTP}, ztp_username, ztp_password, ztp_password_auth, \
+             ztp_enable, ztp_method"
+        );
         let writer = db.writer().await.unwrap();
         let dedicated = query_count(
             &writer.conn,
@@ -203,6 +207,59 @@ mod tests {
             .await
             .unwrap();
         key
+    }
+
+    /// Insert `image` into a database from before migration 26, whose `node_image` table still
+    /// has the ZTP login columns `ztp_username`, `ztp_password` and `ztp_password_auth`, which
+    /// today's queries do not write. They are stored as `login` gives them: the username, the
+    /// stored password text and the password-auth flag. `image.default` is stored as it is.
+    /// Returns the image as read back, with its id.
+    async fn insert_with_ztp_login(
+        db: &Database,
+        image: &NodeConfig,
+        login: (Option<&str>, Option<&str>, bool),
+    ) -> NodeConfig {
+        let key = new_key();
+        let mut values = Vec::from(node_image_values(image, &key).unwrap());
+        let (username, password, password_auth) = login;
+        values.extend([
+            Value::from(username),
+            Value::from(password),
+            Value::from(password_auth),
+        ]);
+        let placeholders = (1..=values.len())
+            .map(|index| format!("?{index}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        {
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute(
+                    &format!(
+                        "INSERT INTO node_image ({IMAGE_COLUMNS_BEFORE_ZTP}, ztp, ztp_username, \
+                         ztp_password, ztp_password_auth) VALUES ({placeholders})"
+                    ),
+                    values,
+                )
+                .await
+                .unwrap();
+        }
+        find_node_image_by_id(db, RecordId::new("node_image", key))
+            .await
+            .unwrap()
+            .unwrap()
+    }
+
+    /// The shipped image of `model`, as its default, stored with no ZTP login in a database from
+    /// before migration 26. Returns the image's key.
+    async fn insert_default_before_the_login_drop(db: &Database, model: NodeModel) -> String {
+        let image = NodeConfig {
+            default: true,
+            ..NodeConfig::get_model(model)
+        };
+        let stored = insert_with_ztp_login(db, &image, (None, None, false)).await;
+        key_of(&stored.id.unwrap(), "node_image").unwrap()
     }
 
     /// A database with the tables and the first `migrations` migrations applied.
@@ -908,9 +965,9 @@ mod tests {
     async fn apply_schema_creates_the_protection_triggers() {
         let db = open_in_memory().await.unwrap();
         apply_schema(&db).await.unwrap();
-        // Three admin protection triggers, the two that keep interfaces used once, the two that
-        // keep image passwords sealed, and the three that keep CPU pins to the pinning rules.
-        assert_eq!(trigger_count(&db, "%").await, 3 + 2 + 2 + 3);
+        // Three admin protection triggers, the two that keep interfaces used once, and the three
+        // that keep CPU pins to the pinning rules.
+        assert_eq!(trigger_count(&db, "%").await, 3 + 2 + 3);
         assert_eq!(trigger_count(&db, "cpu_pin%").await, 3);
     }
 
@@ -1036,11 +1093,9 @@ mod tests {
                 },
                 ..shipped.clone()
             };
-            for (image, request) in [
-                (shipped, DefaultRequest::Make),
-                (edited, DefaultRequest::Keep),
-            ] {
-                stored.push(upsert_node_image(&db, image, request).await.unwrap());
+            for (image, default) in [(shipped, true), (edited, false)] {
+                let image = NodeConfig { default, ..image };
+                stored.push(insert_with_ztp_login(&db, &image, (None, None, false)).await);
             }
         }
 
@@ -1092,10 +1147,10 @@ mod tests {
             NodeModel::GenericContainer,
             NodeModel::GenericUnikernel,
         ] {
-            let image = upsert_node_image(&db, NodeConfig::get_model(model), DefaultRequest::Make)
-                .await
-                .unwrap();
-            images.push((model, key_of(&image.id.unwrap(), "node_image").unwrap()));
+            images.push((
+                model,
+                insert_default_before_the_login_drop(&db, model).await,
+            ));
         }
         {
             let writer = db.writer().await.unwrap();
@@ -1169,14 +1224,7 @@ mod tests {
     async fn labs_from_before_definitions_have_none_and_keep_their_records() {
         // A database from before lab definitions were stored, with a lab and a node.
         let db = database_at(migrations_before_lab_definitions()).await;
-        let image = upsert_node_image(
-            &db,
-            NodeConfig::get_model(NodeModel::UbuntuLinux),
-            DefaultRequest::Make,
-        )
-        .await
-        .unwrap();
-        let image = key_of(&image.id.unwrap(), "node_image").unwrap();
+        let image = insert_default_before_the_login_drop(&db, NodeModel::UbuntuLinux).await;
         {
             let writer = db.writer().await.unwrap();
             writer
@@ -1224,14 +1272,7 @@ mod tests {
             .position(|batch| *batch == migrations::DROP_NODE_DEFINITION_IMPORTED)
             .unwrap();
         let db = database_at(before).await;
-        let image = upsert_node_image(
-            &db,
-            NodeConfig::get_model(NodeModel::UbuntuLinux),
-            DefaultRequest::Make,
-        )
-        .await
-        .unwrap();
-        let image = key_of(&image.id.unwrap(), "node_image").unwrap();
+        let image = insert_default_before_the_login_drop(&db, NodeModel::UbuntuLinux).await;
         {
             let writer = db.writer().await.unwrap();
             writer
@@ -1282,55 +1323,106 @@ mod tests {
         assert_eq!(columns, 0);
     }
 
-    #[tokio::test]
-    async fn plain_image_passwords_from_before_sealing_are_sealed_once() {
-        // A database from before passwords were sealed, holding one as plain text.
-        let db = database_at(migrations_before_lab_definitions()).await;
-        let mut image = NodeConfig::get_model(NodeModel::UbuntuLinux);
-        image.ztp.password = None;
-        let image = upsert_node_image(&db, image, DefaultRequest::Make)
-            .await
-            .unwrap();
-        let id = image.id.clone().unwrap();
-        let key = key_of(&id, "node_image").unwrap();
-        {
-            let writer = db.writer().await.unwrap();
-            writer
-                .conn
-                .execute(
-                    "UPDATE node_image SET ztp_password = 'Plain-Pass1' WHERE id = ?1",
-                    [key.as_str()],
-                )
-                .await
-                .unwrap();
-        }
-
-        apply_schema(&db).await.unwrap();
-        // Until sherpad seals it, the plain value is refused when read, never returned.
-        let error = list_node_images(&db).await.unwrap_err();
-        assert!(format!("{error:#}").contains("not sealed"), "{error:#}");
-
-        assert_eq!(seal_plain_image_passwords(&db).await.unwrap(), 1);
-        assert_eq!(seal_plain_image_passwords(&db).await.unwrap(), 0);
-        let read = find_node_image_by_id(&db, id).await.unwrap().unwrap();
-        assert_eq!(read.ztp.password.as_deref(), Some("Plain-Pass1"));
+    /// The names of the `node_image` columns `names` that the table has.
+    async fn image_columns(db: &Database, names: &[&str]) -> Vec<String> {
         let conn = db.reader().await.unwrap();
         let mut rows = conn
             .query(
-                "SELECT ztp_password FROM node_image WHERE id = ?1",
-                [key.as_str()],
+                "SELECT name FROM pragma_table_info('node_image') ORDER BY cid",
+                (),
             )
             .await
             .unwrap();
-        let stored = rows
-            .next()
+        let mut found = Vec::new();
+        while let Some(row) = rows.next().await.unwrap() {
+            let name = row.get::<String>(0).unwrap();
+            if names.contains(&name.as_str()) {
+                found.push(name);
+            }
+        }
+        found
+    }
+
+    #[tokio::test]
+    async fn the_image_ztp_login_columns_and_their_triggers_are_dropped_and_images_kept() {
+        // A version 25 database, with an image that has a ZTP username, a sealed password and
+        // password auth on, and one with none of them.
+        let before = migrations::ALL
+            .iter()
+            .position(|batch| *batch == migrations::DROP_IMAGE_ZTP_LOGIN)
+            .unwrap();
+        assert_eq!(before + 1, 25);
+        let db = database_at(before).await;
+        let sealed = format!("sealed:{}", "a1".repeat(40));
+        let with_login = NodeConfig {
+            default: true,
+            ..NodeConfig::get_model(NodeModel::CiscoCat8000v)
+        };
+        let with_login =
+            insert_with_ztp_login(&db, &with_login, (Some("admin"), Some(&sealed), true)).await;
+        let without = insert_default_before_the_login_drop(&db, NodeModel::UbuntuLinux).await;
+        let login_columns = ["ztp_username", "ztp_password", "ztp_password_auth"];
+        assert_eq!(image_columns(&db, &login_columns).await, login_columns);
+        assert_eq!(
+            trigger_count(&db, "node_image_ztp_password_sealed_%").await,
+            2
+        );
+        // The stored password is the sealed one the triggers allow.
+        {
+            let conn = db.reader().await.unwrap();
+            let stored = query_count(
+                &conn,
+                Query::new(
+                    "SELECT count(*) FROM node_image WHERE ztp_username = 'admin' \
+                     AND ztp_password = ?1 AND ztp_password_auth = 1",
+                )
+                .bind([sealed.as_str().into()]),
+            )
+            .await
+            .unwrap();
+            assert_eq!(stored, 1);
+        }
+
+        apply_schema(&db).await.unwrap();
+
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
+        assert_eq!(
+            image_columns(&db, &login_columns).await,
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            image_columns(&db, &["ztp"]).await,
+            ["ztp"],
+            "the ZTP setting stays"
+        );
+        assert_eq!(
+            trigger_count(&db, "node_image_ztp_password_sealed_%").await,
+            0
+        );
+        let images = list_node_images(&db).await.unwrap();
+        assert_eq!(images.len(), 2);
+        let kept = find_node_image_by_id(&db, with_login.id.clone().unwrap())
             .await
             .unwrap()
-            .unwrap()
-            .get::<String>(0)
             .unwrap();
-        assert!(stored.starts_with("sealed:"), "{stored}");
-        assert!(!stored.contains("Plain-Pass1"));
+        assert_eq!(
+            serde_json::to_value(&kept).unwrap(),
+            serde_json::to_value(&with_login).unwrap()
+        );
+        assert_eq!(kept.ztp.method, Ztp::Cdrom);
+        assert!(kept.default);
+        assert!(
+            images
+                .iter()
+                .any(|image| image.id == Some(RecordId::new("node_image", without.clone())))
+        );
+        // The image can still be edited and stored as today's queries write it.
+        let mut edited = kept;
+        edited.memory = 8192;
+        let updated = update_node_image(&db, edited, DefaultRequest::Keep)
+            .await
+            .unwrap();
+        assert_eq!(updated.memory, 8192);
     }
 
     #[tokio::test]
@@ -1342,14 +1434,7 @@ mod tests {
             .position(|batch| *batch == migrations::CPU_PIN)
             .unwrap();
         let db = database_at(before).await;
-        let image = upsert_node_image(
-            &db,
-            NodeConfig::get_model(NodeModel::UbuntuLinux),
-            DefaultRequest::Make,
-        )
-        .await
-        .unwrap();
-        let image = key_of(&image.id.unwrap(), "node_image").unwrap();
+        let image = insert_default_before_the_login_drop(&db, NodeModel::UbuntuLinux).await;
         {
             let writer = db.writer().await.unwrap();
             writer

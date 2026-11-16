@@ -36,7 +36,6 @@
 
 ## ZTP
 
-- [ ] **Unused ZTP credentials** — `ztp_username`, `ztp_password` and `ztp_password_auth` on a node image are editable and displayed but nothing provisions with them. Use them or remove the three columns and form fields.
 - [ ] **`ztp.config` holding a path** — A manifest that reaches the server without the client reading `ztp.config` (for example pasted into the web create form) still holds a path, which the server tries to decode as base64. The field needs to carry which of the two it holds.
 - [ ] **Manifest volumes on `gitlab_ce` and `surreal_db`** — Both drop the manifest's `container.volumes` although Sherpa mounts nothing on them, unlike `mongo_db`, `nats_bus` and `forgejo_forge`. See `docs/architecture/ZTP.md`.
 

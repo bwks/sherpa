@@ -29,9 +29,10 @@ The word is the same everywhere: the serde name, `Display` (derived with `strum`
 serde by `crates/shared/tests/enum_strings.rs`), the `node_image.ztp` column, the API field
 `ztp.method`, the manifest node key `ztp.method`, the web form's option value and the CLI table.
 
-`ZtpSettings`, the image's `ztp` group, holds it as `method`, beside `username`, `password` and
-`password_auth`, which are only displayed. In the `node_image` table the setting is the `ztp`
-column and the credentials keep their `ztp_` column names.
+`ZtpSettings`, the image's `ztp` group, holds it as `method`, its only field. In the
+`node_image` table the setting is the `ztp` column. The image's ZTP username, password and
+password auth, which nothing provisioned with, were removed in 0.7.0 (schema version 26; see
+[`NODE_SETTINGS.md`](NODE_SETTINGS.md)).
 
 ## Methods per model
 

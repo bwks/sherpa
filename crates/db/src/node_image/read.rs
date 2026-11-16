@@ -3,7 +3,6 @@ use shared::data::{NodeConfig, NodeKind, NodeModel, RecordId};
 use tracing::instrument;
 
 use crate::Database;
-use crate::node_image::password::{open_password, open_passwords};
 use crate::persistence::{NODE_IMAGE_TABLE, enum_text, key_of, node_image_from_row};
 use crate::queries;
 use crate::sql::{query_all, query_count, query_optional};
@@ -16,14 +15,13 @@ use crate::sql::{query_all, query_count, query_optional};
 #[instrument(skip(db), level = "debug")]
 pub async fn list_node_images(db: &Database) -> Result<Vec<NodeConfig>> {
     let conn = db.reader().await?;
-    let images = query_all(
+    query_all(
         &conn,
         queries::node_image::LIST.bind([]),
         node_image_from_row,
     )
     .await
-    .context("Failed to query all node_images from database")?;
-    open_passwords(db, images)
+    .context("Failed to query all node_images from database")
 }
 
 /// Get `node_image` by model, kind, and version
@@ -51,9 +49,7 @@ pub async fn find_node_image_by_model_kind_version(
     .await
     .context(format!(
         "Failed to query node_image from database: model={model}, kind={kind}, version={version}"
-    ))?
-    .map(|image| open_password(db, image))
-    .transpose()
+    ))
 }
 
 /// Get the default `node_image` for a specific model and kind
@@ -79,9 +75,7 @@ pub async fn find_default_node_image(
     .await
     .context(format!(
         "Failed to query default node_image from database: model={model}, kind={kind}"
-    ))?
-    .map(|image| open_password(db, image))
-    .transpose()
+    ))
 }
 
 /// List all `node_image` records filtered by kind
@@ -92,7 +86,7 @@ pub async fn find_default_node_image(
 #[instrument(skip(db), level = "debug")]
 pub async fn list_node_images_by_kind(db: &Database, kind: &NodeKind) -> Result<Vec<NodeConfig>> {
     let conn = db.reader().await?;
-    let images = query_all(
+    query_all(
         &conn,
         queries::node_image::LIST_BY_KIND.bind([enum_text(kind, "kind")?.into()]),
         node_image_from_row,
@@ -100,8 +94,7 @@ pub async fn list_node_images_by_kind(db: &Database, kind: &NodeKind) -> Result<
     .await
     .context(format!(
         "Failed to query node_images by kind from database: kind={kind}"
-    ))?;
-    open_passwords(db, images)
+    ))
 }
 
 /// Get all versions of a `node_image` for a specific model and kind
@@ -116,7 +109,7 @@ pub async fn get_node_image_versions(
     kind: &NodeKind,
 ) -> Result<Vec<NodeConfig>> {
     let conn = db.reader().await?;
-    let images = query_all(
+    query_all(
         &conn,
         queries::node_image::LIST_BY_MODEL_AND_KIND.bind([
             enum_text(model, "model")?.into(),
@@ -127,8 +120,7 @@ pub async fn get_node_image_versions(
     .await
     .context(format!(
         "Failed to query node_image versions from database: model={model}, kind={kind}"
-    ))?;
-    open_passwords(db, images)
+    ))
 }
 
 /// Get multiple `node_images` by a list of `RecordIds` in a single query
@@ -165,7 +157,7 @@ pub async fn list_node_images_by_ids(db: &Database, ids: Vec<RecordId>) -> Resul
             ordered.push(config.clone());
         }
     }
-    open_passwords(db, ordered)
+    Ok(ordered)
 }
 
 /// Get `node_image` by `RecordId`
@@ -182,9 +174,7 @@ pub async fn find_node_image_by_id(db: &Database, id: RecordId) -> Result<Option
         node_image_from_row,
     )
     .await
-    .context(format!("Failed to query node_image by id: {id:?}"))?
-    .map(|image| open_password(db, image))
-    .transpose()
+    .context(format!("Failed to query node_image by id: {id:?}"))
 }
 
 /// Count total number of `node_image` records in the database

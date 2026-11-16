@@ -15,7 +15,6 @@ use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio_util::sync::CancellationToken;
-use tracing::instrument;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::FormatTime;
 use tracing_subscriber::layer::SubscriberExt;
@@ -197,22 +196,6 @@ fn init_meter_provider(otel_config: &OtelConfig) -> Result<SdkMeterProvider> {
     Ok(provider)
 }
 
-/// Bring data stored before this release up to date, once, before anything reads it: image
-/// passwords stored as plain text are sealed.
-#[instrument(skip(db))]
-async fn upgrade_stored_data(db: &db::Database) -> Result<()> {
-    let sealed = db::seal_plain_image_passwords(db)
-        .await
-        .context("Failed to seal image passwords stored as plain text")?;
-    if sealed > 0 {
-        tracing::info!(
-            images = sealed,
-            "Sealed image passwords stored as plain text"
-        );
-    }
-    Ok(())
-}
-
 /// Run the sherpad server
 pub async fn run_server(foreground: bool) -> Result<()> {
     // Load configuration before tracing init so OTel can be configured
@@ -278,7 +261,6 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         );
     }
 
-    upgrade_stored_data(&state.db).await?;
     node_resources::warn_shared_cpu_pins(&state.db)
         .await
         .context("Failed to check the stored CPU pins")?;
