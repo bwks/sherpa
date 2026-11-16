@@ -22,7 +22,6 @@ pub fn warn_on_removed_settings(path: &Path) -> Result<()> {
         .with_context(|| format!("Unable to read server config: {}", path.display()))?;
     if has_ztp_server_table(&contents)? {
         tracing::warn!(
-            path = %path.display(),
             table = ZTP_SERVER_TABLE,
             "The server config has a [{ZTP_SERVER_TABLE}] table, which sherpad no longer reads. \
              It is ignored and can be deleted from {}",
