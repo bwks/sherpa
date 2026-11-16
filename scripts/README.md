@@ -103,9 +103,6 @@ Creates blank disk images for various network operating systems.
 ### `create_iosv_disk.sh`
 Creates blank disk images specifically for Cisco IOSv devices.
 
-### `fix-permissions.sh`
-Fixes file permissions for Sherpa directories and files.
-
 ---
 
 ## Development

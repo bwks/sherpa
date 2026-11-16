@@ -193,6 +193,9 @@ def validate_upgrade_evidence(evidence, baseline, candidate):
 
 # The first release whose installer makes the database directory 0750; older ones made it 0775.
 PRIVATE_DATABASE_DIRECTORY_VERSION = (0, 5, 13)
+# The first release whose installer makes the config folder 0750 and the env file 0600; older
+# ones made them 0775 and 0640.
+PRIVATE_CONFIG_VERSION = (0, 6, 6)
 
 
 def release_numbers(version):
@@ -203,6 +206,13 @@ def release_numbers(version):
 def database_directory_mode(version):
     """The mode a Sherpa release's installer gives /opt/sherpa/db."""
     return 0o750 if release_numbers(version) >= PRIVATE_DATABASE_DIRECTORY_VERSION else 0o775
+
+
+def config_modes(version):
+    """The modes a Sherpa release's installer gives /opt/sherpa/config and env/sherpa.env."""
+    if release_numbers(version) >= PRIVATE_CONFIG_VERSION:
+        return 0o750, 0o600
+    return 0o775, 0o640
 
 
 def tailnet_test_environment(credentials, network):
@@ -378,13 +388,16 @@ class Guest:
             _, output = self.command([str(path), "--version"])
             validate_binary_version(binary, self.config[selection]["version"], output)
         database_mode = database_directory_mode(self.config[selection]["version"])
-        for directory, permissions in (("", 0o775), ("db", database_mode), ("config", 0o775), ("env", 0o750)):
+        config_mode, env_file_mode = config_modes(self.config[selection]["version"])
+        for directory, permissions in (("", 0o775), ("db", database_mode), ("config", config_mode),
+                                       ("env", 0o750)):
             path = self.base / directory
             require(path.is_dir() and path.stat().st_mode & 0o777 == permissions,
                     f"Invalid permissions for {path}")
             require(path.stat().st_uid == pwd.getpwnam("sherpa").pw_uid, f"Invalid owner: {path}")
         env_file = self.base / "env/sherpa.env"
-        require(env_file.stat().st_mode & 0o777 == 0o640, "Environment permissions are not 640")
+        require(env_file.stat().st_mode & 0o777 == env_file_mode,
+                f"Environment permissions are not {env_file_mode:o}")
         require(env_file.stat().st_uid == pwd.getpwnam("sherpa").pw_uid, "Invalid environment owner")
         env_values = dict(line.split("=", 1) for line in env_file.read_text().splitlines()
                           if line and not line.startswith("#") and "=" in line)
@@ -1379,6 +1392,12 @@ class GuestTests(unittest.TestCase):
             self.assertEqual(database_directory_mode(version), 0o750, version)
         for version in ("v0.5.12", "0.5.0", "v0.5.1"):
             self.assertEqual(database_directory_mode(version), 0o775, version)
+
+    def test_releases_from_0_6_6_keep_the_config_private(self):
+        for version in ("v0.6.6", "0.6.7", "v0.7.0", "v1.0.0"):
+            self.assertEqual(config_modes(version), (0o750, 0o600), version)
+        for version in ("v0.6.5", "0.5.13", "v0.5.0"):
+            self.assertEqual(config_modes(version), (0o775, 0o640), version)
 
     def test_install_never_inherits_database_settings(self):
         guest = Guest.__new__(Guest)

@@ -1,10 +1,15 @@
 use anyhow::{Context, Result, bail};
 use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
-use std::fs;
+use std::fs::{self, DirBuilder, File, OpenOptions, Permissions};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
+use tracing::instrument;
 
-use shared::konst::{SHERPA_LOG_PATH, SHERPA_RUN_PATH, SHERPAD_PID_FILE_PATH};
+use shared::konst::{
+    SHERPA_LOG_DIR_MODE, SHERPA_LOG_PATH, SHERPA_RUN_PATH, SHERPAD_LOG_FILE_MODE,
+    SHERPAD_PID_FILE_PATH,
+};
 
 /// The smallest PID a pidfile may hold. `kill` reads 0 as our own process group and negative
 /// values as other groups, and 1 is init.
@@ -19,13 +24,33 @@ pub fn ensure_run_dir() -> Result<()> {
     Ok(())
 }
 
-/// Ensure the log directory exists
+/// Ensure the log directory exists, created `sherpa` and its group only. An existing one keeps
+/// its mode; the install and update scripts set it.
 pub fn ensure_log_dir() -> Result<()> {
     if !Path::new(SHERPA_LOG_PATH).exists() {
-        fs::create_dir_all(SHERPA_LOG_PATH)
+        DirBuilder::new()
+            .recursive(true)
+            .mode(SHERPA_LOG_DIR_MODE)
+            .create(SHERPA_LOG_PATH)
             .context(format!("Failed to create log directory: {SHERPA_LOG_PATH}"))?;
     }
     Ok(())
+}
+
+/// Open sherpad's log file at `path` for appending, creating it if needed. The file is given
+/// `SHERPAD_LOG_FILE_MODE` whatever the umask, and a file left wider by an older release is
+/// narrowed to it.
+#[instrument(level = "debug", fields(path = %path.display()))]
+pub fn open_log_file(path: &Path) -> Result<File> {
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(SHERPAD_LOG_FILE_MODE)
+        .open(path)
+        .with_context(|| format!("Failed to open log file: {}", path.display()))?;
+    file.set_permissions(Permissions::from_mode(SHERPAD_LOG_FILE_MODE))
+        .with_context(|| format!("Failed to set permissions on {}", path.display()))?;
+    Ok(file)
 }
 
 /// Write the current process PID to a file
@@ -143,6 +168,27 @@ mod tests {
 
         // Removing again should not error
         remove_pid(pid_path).unwrap();
+    }
+
+    #[test]
+    fn the_log_file_is_created_and_narrowed_to_its_mode() {
+        let temp_dir = TempDir::new().unwrap();
+        let new_log = temp_dir.path().join("new.log");
+        open_log_file(&new_log).unwrap();
+        assert_eq!(
+            fs::metadata(&new_log).unwrap().permissions().mode() & 0o777,
+            SHERPAD_LOG_FILE_MODE
+        );
+
+        let old_log = temp_dir.path().join("old.log");
+        fs::write(&old_log, "kept\n").unwrap();
+        fs::set_permissions(&old_log, Permissions::from_mode(0o644)).unwrap();
+        open_log_file(&old_log).unwrap();
+        assert_eq!(
+            fs::metadata(&old_log).unwrap().permissions().mode() & 0o777,
+            SHERPAD_LOG_FILE_MODE
+        );
+        assert_eq!(fs::read_to_string(&old_log).unwrap(), "kept\n");
     }
 
     #[test]

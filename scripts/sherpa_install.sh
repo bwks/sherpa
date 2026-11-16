@@ -36,6 +36,7 @@ SHERPA_CONFIG_DIR="${SHERPA_BASE_DIR}/config"
 # sherpad's secrets: the JWT secret and the database key. Only sherpa can enter it.
 SHERPA_SECRET_DIR="${SHERPA_BASE_DIR}/.secret"
 SHERPA_ENV_DIR="${SHERPA_BASE_DIR}/env"
+SHERPA_LOG_DIR="${SHERPA_BASE_DIR}/logs"
 SHERPA_LABS_DIR="${SHERPA_BASE_DIR}/labs"
 SHERPA_POOL_DIR="${SHERPA_BASE_DIR}/libvirt/images"
 THP_ENABLED_FILE="/sys/kernel/mm/transparent_hugepage/enabled"
@@ -464,13 +465,31 @@ setup_directories() {
         print_info "Directory ${SHERPA_ENV_DIR} already exists"
     fi
 
+    # Create log directory, for sherpad's log file when it does not run under systemd
+    if [ ! -d "${SHERPA_LOG_DIR}" ]; then
+        mkdir -p "${SHERPA_LOG_DIR}"
+        print_success "Created ${SHERPA_LOG_DIR}"
+    else
+        print_info "Directory ${SHERPA_LOG_DIR} already exists"
+    fi
+
     # Set ownership and permissions
     chown -R sherpa:sherpa "${SHERPA_BASE_DIR}"
     chmod 775 "${SHERPA_BASE_DIR}"
     # The database and its backups hold password hashes; sherpad keeps the same mode.
     chmod 750 "${SHERPA_DB_DIR}"
-    chmod 775 "${SHERPA_CONFIG_DIR}"
+    # sherpa.toml and the env files can hold secrets: their folders are sherpa and its group
+    # only, and the files sherpa only. 'sherpad init' writes sherpa.toml 0600 itself.
+    chmod 750 "${SHERPA_CONFIG_DIR}"
     chmod 750 "${SHERPA_ENV_DIR}"
+    if [ -f "${SHERPA_CONFIG_DIR}/sherpa.toml" ]; then
+        chmod 600 "${SHERPA_CONFIG_DIR}/sherpa.toml"
+    fi
+    # sherpad's log is not meant to hold secrets, but is no one else's business.
+    chmod 750 "${SHERPA_LOG_DIR}"
+    if [ -f "${SHERPA_LOG_DIR}/sherpad.log" ]; then
+        chmod 640 "${SHERPA_LOG_DIR}/sherpad.log"
+    fi
 
     # Lab data (node configs, user data, ZTP media, VM disks) is readable only by sherpa, its
     # group and QEMU, which runs in the kvm group. sherpad enforces the same modes at startup.
@@ -765,7 +784,8 @@ RUST_LOG=info
 # Custom configuration (add as needed)
 # SHERPA_CUSTOM_VAR=value
 ENVEXAMPLE
-    chmod 640 "${SHERPA_ENV_DIR}/sherpa.env.example"
+    # People copy the example into place, so it gets the env file's mode.
+    chmod 600 "${SHERPA_ENV_DIR}/sherpa.env.example"
     chown sherpa:sherpa "${SHERPA_ENV_DIR}/sherpa.env.example"
 
     # Create actual environment file
@@ -790,7 +810,8 @@ LIBVIRT_DEFAULT_URI=qemu:///system
 # RUST_LOG=info
 EOF
 
-    chmod 640 "${SHERPA_ENV_DIR}/sherpa.env"
+    # systemd reads it as root; an operator may add secrets, such as OTEL_EXPORTER_OTLP_HEADERS.
+    chmod 600 "${SHERPA_ENV_DIR}/sherpa.env"
     chown sherpa:sherpa "${SHERPA_ENV_DIR}/sherpa.env"
     print_success "Environment file created at ${SHERPA_ENV_DIR}/sherpa.env"
 
@@ -851,8 +872,10 @@ Useful Commands:
 Next Steps:
   1. Load the new groups:
        exec sg libvirt -c "newgrp \$(id -gn)"
-  2. Initialize the server environment, with the address and ports chosen above:
-       sherpad init --server-ipv4 ${SERVER_IP} --ws-port ${WS_PORT} --http-port ${HTTP_PORT}
+  2. Initialize the server environment as sherpa, with the address and ports chosen above:
+       sudo -u sherpa -H sherpad init --server-ipv4 ${SERVER_IP} --ws-port ${WS_PORT} --http-port ${HTTP_PORT}
+     It writes ${SHERPA_CONFIG_DIR}/sherpa.toml readable by sherpa only. sherpa cannot read
+     your home folder, so paste the SSH public key itself when asked for it.
      Lab management subnets come from 172.31.0.0/16 and fd00:b00b::/48. If either is in
      use on this network, add --management-prefix-ipv4 <prefix> or
      --management-prefix-ipv6 <prefix> (or SHERPA_MANAGEMENT_PREFIX_IPV4 / _IPV6).

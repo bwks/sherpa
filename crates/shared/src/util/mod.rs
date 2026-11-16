@@ -20,8 +20,8 @@ mod text;
 mod user;
 
 pub use config::{
-    build_client_websocket_url, create_client_config, create_config, default_config,
-    load_client_config, load_config,
+    build_client_websocket_url, create_client_config, default_config, load_client_config,
+    load_config,
 };
 pub use dns::{default_dns, default_dns_dual_stack};
 pub use emoji::{Emoji, emoji_success, emoji_warning};

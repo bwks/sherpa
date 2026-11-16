@@ -7,7 +7,6 @@ use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::trace::SdkTracerProvider;
-use std::fs::OpenOptions;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::Path;
 use std::sync::Arc;
@@ -27,6 +26,7 @@ use crate::api::handlers::get_certificate_handler;
 use crate::api::websocket;
 use crate::auth::session;
 use crate::daemon::metrics::Metrics;
+use crate::daemon::pidfile::open_log_file;
 use crate::daemon::state::AppState;
 use crate::services::lab_definition::{self, ImportSummary};
 use crate::services::lab_lifecycle::{self, Recovery};
@@ -433,10 +433,7 @@ fn init_telemetry(config: &Config, foreground: bool) -> Result<(Option<OtelGuard
             .with(fmt_layer)
             .init();
     } else {
-        let log_file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(SHERPAD_LOG_FILE_PATH)?;
+        let log_file = open_log_file(Path::new(SHERPAD_LOG_FILE_PATH))?;
 
         let log_file = Arc::new(log_file);
 
