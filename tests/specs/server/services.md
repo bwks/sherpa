@@ -168,6 +168,8 @@
   - A setting the validator excludes (`volume` on a VM, another method on a container) is an error, not a skipped step `[unit]` **P0**
   - `validate_node_ztp()` refuses a method the model does not take, an unused `ztp.config`, and a Talos cluster member with ZTP off `[unit]` **P0**
   - `up` and redeploy refuse those before creating or tearing down anything `[integration]` **P0**
+- `up` and redeploy are refused, before anything is created, for an owner with no device password, with a message naming the user and `sherpa server user device-password`; `resume`, `down`, `destroy` and `inspect` do not need one `[integration]` **P0**
+- A node's login is the lab owner's name with their keys and device password; a manifest that still sets the old per-lab switch for the owner's account is refused at parse with `unknown field` `[unit]` **P0**
 - `build_domain_template()` produces valid libvirt XML structure `[unit]` **P0**
 - `clone_node_disks()` clones all disks for a node `[integration]` **P0**
 - `start_container_node()` creates container with correct networks/volumes `[integration]` **P0**

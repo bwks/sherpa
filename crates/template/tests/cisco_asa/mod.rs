@@ -26,9 +26,8 @@ interface Management0/0
 hostname asa01
 !
 username enable_1 privilege 15
-enable password Everest1953!
-username sherpa privilege 15 
-username sherpa password Everest1953!
+enable password PASSWORD
+username alice password PASSWORD privilege 15
 !
 aaa authentication ssh console LOCAL
 aaa authentication http console LOCAL
@@ -42,8 +41,9 @@ http 0.0.0.0 0.0.0.0 management
 domain-name lab.sherpa.local
 route management 0.0.0.0 0.0.0.0 172.20.0.1
 !
-username sherpa attributes
-  ssh authentication publickey AAAAB3NzaC1yc2EAAAADAQABAAABAQ hashed
+username alice attributes
+  ssh authentication publickey OWNERKEY1 hashed
+  ssh authentication publickey OWNERKEY2 hashed
   service-type admin
 !
 names
@@ -55,18 +55,54 @@ dns name-server 172.20.0.1
 // Tests
 // ============================================================================
 
-#[test]
-fn test_static_ipv4() {
-    let t = CiscoAsavZtpTemplate {
+fn asa(password: &str) -> CiscoAsavZtpTemplate {
+    CiscoAsavZtpTemplate {
         hostname: "asa01".to_string(),
-        user: helpers::test_user(),
-        owner: None,
+        owner: helpers::test_owner(password),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
         mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
-    };
-    let output = t.render().expect("template renders");
-    assert_eq!(output, EXPECTED_STATIC_IPV4);
+    }
+}
+
+#[test]
+fn test_static_ipv4() {
+    let output = asa("Rand0mPass-1").render().expect("template renders");
+    assert_eq!(
+        output,
+        EXPECTED_STATIC_IPV4.replace("PASSWORD", "Rand0mPass-1")
+    );
+}
+
+#[test]
+fn test_only_the_owner_and_the_fixed_accounts_exist() {
+    let output = asa("Rand0mPass-1").render().expect("template renders");
+    let accounts: Vec<&str> = output
+        .lines()
+        .filter(|line| line.starts_with("username ") || line.starts_with("enable "))
+        .collect();
+    assert_eq!(
+        accounts,
+        [
+            "username enable_1 privilege 15",
+            "enable password Rand0mPass-1",
+            "username alice password Rand0mPass-1 privilege 15",
+            "username alice attributes",
+        ]
+    );
+    helpers::assert_no_sherpa_login(&output);
+}
+
+#[test]
+fn test_password_is_intact_for_enable_and_owner() {
+    for password in helpers::ALL_CHARACTER_PASSWORDS {
+        let output = asa(password).render().expect("template renders");
+        assert!(output.contains(&format!("\nenable password {password}\n")));
+        assert!(output.contains(&format!(
+            "\nusername alice password {password} privilege 15\n"
+        )));
+        assert_eq!(output.matches(password).count(), 2);
+    }
 }

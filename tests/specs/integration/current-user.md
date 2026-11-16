@@ -1,4 +1,4 @@
-# Personal Linux VM account acceptance
+# Lab owner VM account acceptance
 
 The ignored `current_user_vm_login_sudo_resume_and_owner_redeploy` test in
 `crates/server/tests/integration/lab_lifecycle.rs` requires a disposable Sherpa host
@@ -24,8 +24,8 @@ cargo test -p sherpad --test integration lab_lifecycle::current_user_vm_login_su
 The checks cover:
 
 - Authenticated lab ownership despite a spoofed client `username`.
-- Guest account creation, home directory, Bash, public-key login and passwordless sudo.
-- Rejection of missing-key startup before a lab record is created, and missing-key redeploy while the original VM remains accessible.
+- Guest account creation for the lab owner (the node's only login), home directory, Bash, public-key login and passwordless sudo. The test owner sets a device password first: `up` is refused without one.
+- Rejection of startup without a device password or without a key before a lab record is created, and missing-key redeploy while the original VM remains accessible.
 - Resume retaining old keys after a profile change.
 - Owner redeploy using the owner's newly registered keys and rejecting removed keys.
 - Admin download returning refreshed personal SSH metadata without restricting local identities.

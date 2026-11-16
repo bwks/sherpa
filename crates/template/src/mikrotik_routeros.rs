@@ -2,15 +2,14 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use askama::Template;
 
-use shared::data::{Dns, NetworkV4, NetworkV6, OwnerUser, User};
+use shared::data::{Dns, NetworkV4, NetworkV6, OwnerUser};
 use shared::konst::MIKROTIK_CONFIG_DISK;
 
 #[derive(Template)]
 #[template(path = "mikrotik/mikrotik_routeros.jinja", ext = "txt")]
 pub struct MikrotikRouterosZtpTemplate {
     pub hostname: String,
-    pub user: User,
-    pub owner: Option<OwnerUser>,
+    pub owner: OwnerUser,
     /// The owner's public key files on the config disk, as `RouterOS` paths, one key per file.
     pub owner_key_files: Vec<String>,
     pub mgmt_interface: String,

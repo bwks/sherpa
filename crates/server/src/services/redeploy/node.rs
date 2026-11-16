@@ -60,6 +60,8 @@ pub async fn redeploy_node(
         .await
         .context("Failed to look up the lab owner")?;
     guest_account::require_ssh_key(&owner)?;
+    let device_password = guest_account::require_device_password(&state.db, &owner).await?;
+    let owner_account = guest_account::from_user(&owner, device_password)?;
     // Destroying the lab stops this operation; see `lab_operations`.
     let operation = lab_operations::begin(&lab_id).await;
     // Check again under the lease: a destroy that finished while this waited has removed the lab,
@@ -75,7 +77,16 @@ pub async fn redeploy_node(
         "Starting node redeploy"
     );
 
-    let mut redeploy = load_redeploy(ctx, request, &db_lab, state, &progress, &operation).await?;
+    let mut redeploy = load_redeploy(
+        ctx,
+        request,
+        &db_lab,
+        owner_account,
+        state,
+        &progress,
+        &operation,
+    )
+    .await?;
 
     // The node holds its old and its new pins from admission until it keeps the new ones; a
     // failure before then gives the new ones back.

@@ -42,8 +42,8 @@ pub(super) struct ConfigInputs<'a> {
     pub(super) mgmt_net: &'a data::SherpaNetwork,
     pub(super) dns: &'a data::Dns,
     pub(super) subnets: &'a LabSubnets,
-    pub(super) sherpa_user: &'a data::User,
-    pub(super) personal_account: Option<&'a GuestAccount>,
+    pub(super) lab_public_key: &'a data::SshPublicKey,
+    pub(super) owner_account: &'a GuestAccount,
     pub(super) talos_clusters: &'a [topology::TalosCluster],
 }
 
@@ -154,11 +154,11 @@ impl Configuring<'_, '_> {
             lab_id: self.build.lab_id,
             lab_dir: self.build.lab_dir,
             images_dir: &self.build.config.images_dir,
-            sherpa_user: self.inputs.sherpa_user,
+            lab_public_key: self.inputs.lab_public_key,
             dns: self.inputs.dns,
             mgmt_net: self.inputs.mgmt_net,
             progress: self.build.progress,
-            owner_account: self.inputs.personal_account,
+            owner_account: self.inputs.owner_account,
         }
     }
 
@@ -657,6 +657,7 @@ mod tests {
 
     use super::super::networks::management_network;
     use super::*;
+    use crate::services::guest_account::tests::test_account;
     use crate::services::lab_definition::tests::lab_with;
     use crate::services::progress::ProgressSender;
 
@@ -717,16 +718,11 @@ mod tests {
         .unwrap()
     }
 
-    fn sherpa_user() -> data::User {
-        data::User {
-            username: "sherpa".to_owned(),
-            password: None,
-            ssh_public_key: data::SshPublicKey {
-                algorithm: data::SshKeyAlgorithms::SshEd25519,
-                key: "lab-key-fixture".to_owned(),
-                comment: None,
-            },
-            sudo: true,
+    fn lab_key() -> data::SshPublicKey {
+        data::SshPublicKey {
+            algorithm: data::SshKeyAlgorithms::SshEd25519,
+            key: "lab-key-fixture".to_owned(),
+            comment: None,
         }
     }
 
@@ -815,8 +811,8 @@ mod tests {
                 mgmt_net: &mgmt_net,
                 dns: &util::default_dns(&mgmt_net.v4.prefix).unwrap(),
                 subnets: &subnets(),
-                sherpa_user: &sherpa_user(),
-                personal_account: None,
+                lab_public_key: &lab_key(),
+                owner_account: &test_account("alice", &[]),
                 talos_clusters: &[],
             },
             &mut nodes_of(&NodeKind::Container),

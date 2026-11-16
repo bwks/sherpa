@@ -29,12 +29,14 @@ openapi=true
 pxgrid=true
 
 # Admin credentials
-username={{ user.username }}
-{%- if let Some(password) = user.password %}
-password={{ password }}
-{%- endif %}
+username={{ owner.username }}
+password={{ owner.password }}
+{%- for key in owner.ssh_keys %}
+{%- if loop.first %}
 # Optional SSH public key (ISE 3.2+)
-public_key={{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
+public_key={{ key.kind }} {{ key.value }}
+{%- endif %}
+{%- endfor %}
 
 # Skipping specific checks
 SkipIcmpChecks=true

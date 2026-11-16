@@ -7,7 +7,6 @@ pub(crate) const SHERPA_CONFIG_FILE_PATH: &str = "/opt/sherpa/config/sherpa.toml
 pub(crate) const SHERPA_SERVER_CERT_PATH: &str = "/opt/sherpa/.certs/server.crt";
 pub(crate) const SHERPA_MANAGEMENT_NETWORK_NAME: &str = "sherpa-management";
 pub(crate) const SHERPA_ADMIN_PASSWORD_ENV: &str = "SHERPA_ADMIN_PASSWORD";
-pub(crate) const SHERPA_PASSWORD_HASH: &str = "$6$rounds=4096$amTfvavVzUSS6wQS$4jB1NvmLzRytnUjaVaMkw/JjD99eHj9OL2tLcnccQhV7Rw1rVQp8tZQMu4mi6y8NlwsRSSeEPZq44hVPu4tE7/";
 /// The public half of `SHERPA_SSH_PRIVATE_KEY_FILE`, in a lab folder.
 pub(crate) const SHERPA_SSH_PUBLIC_KEY_FILE: &str = "sherpa_ssh_key.pub";
 pub(crate) const TAP_PREFIX: &str = "tp";

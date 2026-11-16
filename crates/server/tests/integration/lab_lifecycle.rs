@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::helpers::test_server::{
-    TEST_ADMIN_PASSWORD, TEST_SSH_PUBLIC_KEY, TestServer, test_config,
+    TEST_ADMIN_PASSWORD, TEST_DEVICE_PASSWORD, TEST_SSH_PUBLIC_KEY, TestServer, test_config,
 };
 use crate::helpers::ws_client::TestWsClient;
 
@@ -1596,7 +1596,8 @@ async fn current_user_vm_login_sudo_resume_and_owner_redeploy() -> Result<()> {
         db::get_lab(&server.db, &lab_id).await.is_err(),
         "Acceptance lab ID is already in use"
     );
-    let manifest = json!({ "name": lab_id, "provision_current_user": true, "nodes": [{ "name": "vm", "model": model }] });
+    let manifest = json!({ "name": lab_id, "nodes": [{ "name": "vm", "model": model }] });
+    db::set_device_password(&server.db, &db::get_user_id(&owner)?, TEST_DEVICE_PASSWORD).await?;
     let timeout = Duration::from_mins(15);
 
     // Return failures as errors so cleanup still runs when any check fails.
@@ -1662,14 +1663,16 @@ async fn current_user_vm_login_sudo_resume_and_owner_redeploy() -> Result<()> {
 
 /// A user with the test SSH key, which redeploy requires of the lab owner.
 async fn create_keyed_user(server: &TestServer, name: &str, is_admin: bool) -> Result<DbUser> {
-    db::create_user(
+    let user = db::create_user(
         &server.db,
         name.to_owned(),
         TEST_ADMIN_PASSWORD,
         is_admin,
         vec![TEST_SSH_PUBLIC_KEY.to_owned()],
     )
-    .await
+    .await?;
+    db::set_device_password(&server.db, &db::get_user_id(&user)?, TEST_DEVICE_PASSWORD).await?;
+    Ok(user)
 }
 
 /// RPC redeploy as `username`: the owner reaches the node lookup, anyone else is refused

@@ -19,24 +19,13 @@ nv set service dns default search {{ dns.domain }}
 {% for server in dns.name_servers %}
 nv set service dns default server {{ server.ipv4_address }}
 {% endfor %}
-nv set system aaa user {{ user.username }}
-{%- if let Some(password) = user.password %}
-nv set system aaa user {{ user.username }} password '{{ password }}'
-{%- endif %}
-nv set system aaa user {{ user.username }} ssh authorized-key {{ user.username }}-ssh-key key {{ user.ssh_public_key.key }}
-nv set system aaa user {{ user.username }} ssh authorized-key {{ user.username }}-ssh-key type {{ user.ssh_public_key.algorithm }}
-{%- if user.sudo %}
-nv set system aaa user {{ user.username }} role system-admin
-{%- endif %}
-{%- if let Some(owner) = owner %}
 nv set system aaa user {{ owner.username }}
-nv set system aaa user {{ owner.username }} password '{{ owner.secret }}'
+nv set system aaa user {{ owner.username }} password '{{ owner.password }}'
 {%- for key in owner.ssh_keys %}
 nv set system aaa user {{ owner.username }} ssh authorized-key {{ owner.username }}-ssh-key-{{ loop.index }} key {{ key.value }}
 nv set system aaa user {{ owner.username }} ssh authorized-key {{ owner.username }}-ssh-key-{{ loop.index }} type {{ key.kind }}
 {%- endfor %}
 nv set system aaa user {{ owner.username }} role system-admin
-{%- endif %}
 {%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
 nv unset interface eth0 ip address dhcp
 nv set interface eth0 ip address {{ mgmt_ipv4_address }}/{{ mgmt_ipv4.prefix_length }}

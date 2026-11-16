@@ -44,6 +44,9 @@ pub const SHERPA_USERNAME: &str = "sherpa";
 pub const ADMIN_USERNAME: &str = "admin";
 /// User documentation on generating and registering SSH keys, linked from errors.
 pub const SSH_KEYS_DOCS_URL: &str = "https://docs.sherpalabs.net/architecture/ssh-keys/";
+/// The documentation of the device password, the password of a user's login on lab nodes.
+pub const DEVICE_PASSWORD_DOCS_URL: &str =
+    "https://docs.sherpalabs.net/architecture/device-password/";
 /// Where the Tailscale gateway docs are, for route approval and recovery.
 pub const TAILNET_DOCS_URL: &str = "https://docs.sherpalabs.net/architecture/networking/tailscale/";
 /// The first user account for unattended `sherpad init`, and the account `sherpa login` uses.

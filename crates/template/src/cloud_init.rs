@@ -5,10 +5,8 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use serde::Serializer;
 use serde_derive::{Deserialize, Serialize};
 
-use shared::data::{NetworkV4, NetworkV6, SshPublicKey};
-use shared::konst::{
-    NODE_CLOUD_INIT_SUDO_RULE, SHERPA_DOMAIN_NAME, SHERPA_PASSWORD, SHERPA_USERNAME,
-};
+use shared::data::{NetworkV4, NetworkV6};
+use shared::konst::SHERPA_DOMAIN_NAME;
 
 use crate::guest_yaml::{to_cloud_config, to_guest_yaml};
 
@@ -214,48 +212,9 @@ pub struct CloudInitUser {
     pub groups: Vec<String>,
     pub shell: String,
 }
-impl CloudInitUser {
-    /// Sherpa's own account, logging in with `ssh_key`, the lab's key.
-    #[must_use]
-    pub fn sherpa(ssh_key: &SshPublicKey) -> Self {
-        Self {
-            name: SHERPA_USERNAME.to_owned(),
-            plain_text_passwd: Some(SHERPA_PASSWORD.to_owned()),
-            hashed_passwd: None,
-            homedir: None,
-            lock_passwd: false,
-            ssh_authorized_keys: vec![format!("{} {}", ssh_key.algorithm, ssh_key.key)],
-            sudo: Some(NODE_CLOUD_INIT_SUDO_RULE.to_owned()),
-            groups: vec!["sudo".to_owned()],
-            shell: "/bin/bash".to_owned(),
-        }
-    }
-}
-
 fn serialize_comma_separated<S>(values: &[String], serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
     serializer.serialize_str(&values.join(","))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use shared::data::SshKeyAlgorithms;
-
-    #[test]
-    fn the_sherpa_account_takes_the_key_it_is_given() {
-        let key = SshPublicKey {
-            algorithm: SshKeyAlgorithms::SshRsa,
-            key: "AAAAB3NzaC1yc2EAAAADAQABAAABAQDJ".to_owned(),
-            comment: None,
-        };
-        let user = CloudInitUser::sherpa(&key);
-        assert_eq!(user.name, SHERPA_USERNAME);
-        assert_eq!(
-            user.ssh_authorized_keys,
-            ["ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDJ"]
-        );
-    }
 }

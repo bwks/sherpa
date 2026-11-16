@@ -16,11 +16,11 @@ use tracing::instrument;
 
 use crate::konst::{
     KEYCLOAK_HTTPS_PORT, LAB_CERTS_DIR, NODE_CONFIG_DIR_MODE, NODE_CONFIG_FILE_MODE,
-    NODE_NIXOS_SHELL, SHERPA_BLANK_DISK_DIR, SHERPA_PASSWORD_HASH, SHERPA_SSH_PUBLIC_KEY_FILE,
-    TFTP_CONFIG_FILE_MODE, VAULT_API_PORT, ZTP_ISO,
+    SHERPA_BLANK_DISK_DIR, SHERPA_SSH_PUBLIC_KEY_FILE, TFTP_CONFIG_FILE_MODE, VAULT_API_PORT,
+    ZTP_ISO,
 };
 use crate::services::container_networks::is_node_network;
-use crate::services::guest_account::{self, GuestAccount, KeyFormat};
+use crate::services::guest_account::{self, GuestAccount, KeyFormat, PasswordForm};
 use crate::services::image_lifecycle::ImageLease;
 use crate::services::keycloak::lab::KEYCLOAK_DIR;
 use crate::services::p2p_links::{KernelHost, LinkHost};
@@ -30,6 +30,7 @@ use crate::services::vault::lab::VAULT_DIR;
 use crate::tls::lab_ca::NodeCertPaths;
 
 use container::ContainerSpec;
+use db::DevicePassword;
 use iso::create_iso;
 use libvirt::Qemu;
 use network::NetnsVethState;
@@ -44,6 +45,7 @@ use shared::util;
 use shared::validators::{
     effective_data_interface_count, effective_ztp, mode_from_octal_digits, validate_ssh_key,
 };
+use template::CryptHash;
 use topology::{BinaryFileData, NodeReadyCheck, SystemdUnitData};
 use virt::error::ErrorNumber;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
@@ -57,7 +59,6 @@ const SHERPA_ISOLATED_NETWORK_NAME: &str = "sherpa-isolated";
 const SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX: &str = "bri";
 const SHERPA_RESERVED_NETWORK_NAME: &str = "sherpa-reserved";
 const SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX: &str = "brr";
-const SHERPA_PASSWORD_HASH_SHA256: &str = "$5$mhhcowfq$qKK.CiKWZxuOfadgSyOawx6srN3knX4jRgfa8hZxcB0";
 const CLOUD_INIT_USER_DATA: &str = "user-data";
 const CLOUD_INIT_META_DATA: &str = "meta-data";
 const CLOUD_INIT_NETWORK_CONFIG: &str = "network-config";
@@ -204,12 +205,14 @@ pub(crate) struct LabZtp<'a> {
     pub(crate) lab_id: &'a str,
     pub(crate) lab_dir: &'a str,
     pub(crate) images_dir: &'a str,
-    pub(crate) sherpa_user: &'a data::User,
+    /// The public half of the lab's SSH key, which `MikroTik`'s config disk still carries.
+    pub(crate) lab_public_key: &'a data::SshPublicKey,
     pub(crate) dns: &'a data::Dns,
     pub(crate) mgmt_net: &'a data::SherpaNetwork,
     pub(crate) progress: &'a ProgressSender,
-    /// The lab owner's account; each node gets its own form of it, if it takes one.
-    pub(crate) owner_account: Option<&'a GuestAccount>,
+    /// The lab owner's account; each node gets its own form of it, if it takes one, and the
+    /// fixed accounts of a node take its device password.
+    pub(crate) owner_account: &'a GuestAccount,
 }
 
 /// One VM's part of generating its configuration: the lab's, plus the node's addresses,
@@ -221,7 +224,9 @@ struct NodeZtp<'a> {
     boot_dir: &'a str,
     tftp_dir: &'a str,
     images_dir: &'a str,
-    sherpa_user: &'a data::User,
+    lab_public_key: &'a data::SshPublicKey,
+    /// The lab owner's device password, for nodes whose only account is a fixed one.
+    device_password: &'a DevicePassword,
     dns: &'a data::Dns,
     mgmt_net: &'a data::SherpaNetwork,
     progress: &'a ProgressSender,
@@ -238,7 +243,6 @@ struct NodeZtp<'a> {
 struct ContainerZtp<'a> {
     dir: &'a str,
     custom_ztp: Option<&'a str>,
-    sherpa_user: &'a data::User,
     guest_account: Option<&'a GuestAccount>,
     dns: &'a data::Dns,
     mgmt_net: &'a data::SherpaNetwork,
@@ -536,20 +540,18 @@ pub(crate) fn generate_container_ztp(
 ) -> Result<ContainerZtpResult> {
     let LabZtp {
         lab_dir,
-        sherpa_user,
         dns,
         mgmt_net,
         progress,
-        owner_account: guest_account,
+        owner_account,
         ..
     } = *lab;
-    let node_account = guest_account::node_owner(guest_account, node, node_image)?;
+    let node_account = guest_account::node_owner(owner_account, node, node_image)?;
     let dir = format!("{}/{}", lab_dir, node.name);
     let custom_ztp = take_custom_ztp_config(node, progress);
     let ztp = ContainerZtp {
         dir: &dir,
         custom_ztp: custom_ztp.as_deref(),
-        sherpa_user,
         guest_account: node_account.as_ref(),
         dns,
         mgmt_net,
@@ -752,7 +754,6 @@ fn arista_ceos_volume_ztp(
     let ContainerZtp {
         dir,
         custom_ztp,
-        sherpa_user,
         guest_account,
         dns,
         mgmt_net,
@@ -764,8 +765,11 @@ fn arista_ceos_volume_ztp(
     } else {
         template::AristaCeosZtpTemplate {
             hostname: node.name.clone(),
-            user: sherpa_user.clone(),
-            owner: guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?,
+            owner: guest_account::owner_user(
+                guest_account,
+                KeyFormat::OpenSsh,
+                PasswordForm::Hashed(CryptHash::Sha512),
+            )?,
             dns: dns.clone(),
             mgmt_ipv4_address: Some(node_ipv4_address),
             mgmt_ipv4: mgmt_net.v4.clone(),
@@ -826,7 +830,6 @@ fn srlinux_volume_ztp(
     let ContainerZtp {
         dir,
         custom_ztp,
-        sherpa_user,
         guest_account,
         dns,
         mgmt_net,
@@ -837,8 +840,7 @@ fn srlinux_volume_ztp(
         Some(config) => config.to_owned(),
         None => template::build_srlinux_config(
             &node.name,
-            sherpa_user,
-            guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?.as_ref(),
+            &guest_account::owner_user(guest_account, KeyFormat::OpenSsh, PasswordForm::Plain)?,
             dns,
             &mgmt_net.v4,
             Some(node_ipv4_address),
@@ -899,7 +901,6 @@ fn cevolved_volume_ztp(
     let ContainerZtp {
         dir,
         custom_ztp,
-        sherpa_user,
         guest_account,
         mgmt_net,
         node_ipv4_address,
@@ -910,8 +911,11 @@ fn cevolved_volume_ztp(
     } else {
         template::JunipervJunosZtpTemplate {
             hostname: node.name.clone(),
-            user: sherpa_user.clone(),
-            owner: guest_account::owner_user(guest_account, KeyFormat::Junos)?,
+            owner: guest_account::owner_user(
+                guest_account,
+                KeyFormat::Junos,
+                PasswordForm::Hashed(CryptHash::Sha512),
+            )?,
             mgmt_interface: node_image.interfaces.management.to_string(),
             mgmt_ipv4_address: Some(node_ipv4_address),
             mgmt_ipv4: mgmt_net.v4.clone(),
@@ -991,7 +995,6 @@ fn iol_volume_ztp(
     let ContainerZtp {
         dir,
         custom_ztp,
-        sherpa_user,
         guest_account,
         dns,
         mgmt_net,
@@ -1001,12 +1004,13 @@ fn iol_volume_ztp(
     let rendered_template = if let Some(config) = custom_ztp {
         config.to_owned()
     } else {
-        let mut user = sherpa_user.clone();
-        user.ssh_public_key.key = util::pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
         template::CiscoIolZtpTemplate {
             hostname: node.name.clone(),
-            user,
-            owner: guest_account::owner_user(guest_account, KeyFormat::CiscoMd5)?,
+            owner: guest_account::owner_user(
+                guest_account,
+                KeyFormat::CiscoMd5,
+                PasswordForm::Plain,
+            )?,
             mgmt_interface: node_image.interfaces.management.to_string(),
             dns: dns.clone(),
             mgmt_ipv4: mgmt_net.v4.clone(),
@@ -1063,7 +1067,6 @@ fn frr_volume_ztp(
     let ContainerZtp {
         dir,
         custom_ztp,
-        sherpa_user,
         guest_account,
         mgmt_net,
         node_ipv4_address,
@@ -1088,8 +1091,11 @@ fn frr_volume_ztp(
 
     let rendered_startup = template::FrrStartupTemplate {
         hostname: node.name.clone(),
-        user: sherpa_user.clone(),
-        owner: guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?,
+        owner: guest_account::owner_user(
+            guest_account,
+            KeyFormat::OpenSsh,
+            PasswordForm::Hashed(CryptHash::Sha512),
+        )?,
     }
     .render()?;
     let startup_file = format!("{dir}/sherpa-init.sh");
@@ -1304,14 +1310,14 @@ pub(crate) fn generate_vm_ztp(
         lab_id,
         lab_dir,
         images_dir,
-        sherpa_user,
+        lab_public_key,
         dns,
         mgmt_net,
         progress,
-        owner_account: guest_account,
+        owner_account,
     } = *lab;
     let tftp_dir = format!("{lab_dir}/{ZTP_DIR}/{TFTP_DIR}");
-    let node_account = guest_account::node_owner(guest_account, node, node_image)?;
+    let node_account = guest_account::node_owner(owner_account, node, node_image)?;
     let guest_account = node_account.as_ref();
     let node_name_with_lab = format!("{}-{}", node.name, lab_id);
 
@@ -1327,7 +1333,8 @@ pub(crate) fn generate_vm_ztp(
         boot_dir: &boot_dir,
         tftp_dir: &tftp_dir,
         images_dir,
-        sherpa_user,
+        lab_public_key,
+        device_password: &owner_account.device_password,
         dns,
         mgmt_net,
         progress,
@@ -2080,8 +2087,8 @@ fn cloud_init_manage_etc_hosts(model: data::NodeModel) -> bool {
 }
 
 /// The doas rule giving `wheel` admin rights on OpenBSD, where doas is the native tool: the
-/// stock `/etc/examples/doas.conf` rule, without a password, since the logins have none. The
-/// image has no `/etc/doas.conf`.
+/// stock `/etc/examples/doas.conf` rule, without a password, as the owner keeps passwordless
+/// admin rights on every node. The image has no `/etc/doas.conf`.
 fn cloud_init_doas_file(model: data::NodeModel) -> Option<template::CloudInitWriteFile> {
     if model != data::NodeModel::OpenBsd {
         return None;
@@ -2111,19 +2118,6 @@ fn cloud_init_ssh_pwauth(model: data::NodeModel) -> Option<bool> {
     match model {
         data::NodeModel::NixosLinux => None,
         _ => Some(true),
-    }
-}
-
-#[instrument(level = "debug")]
-fn cloud_init_user_settings(
-    model: data::NodeModel,
-    os_variant: &data::OsVariant,
-) -> (&'static str, &'static str) {
-    match (model, os_variant) {
-        (data::NodeModel::OmarchyLinux, _) => ("wheel", "/bin/bash"),
-        (data::NodeModel::NixosLinux, _) => ("wheel", NODE_NIXOS_SHELL),
-        (_, data::OsVariant::Bsd) => ("wheel", "/bin/sh"),
-        _ => ("sudo", "/bin/bash"),
     }
 }
 
@@ -2180,16 +2174,15 @@ fn generate_cloud_init_ztp(
 fn cloud_init_files(
     node: &topology::NodeExpanded,
     cert_paths: Option<&NodeCertPaths>,
-    guest_account: Option<&GuestAccount>,
+    guest_username: &str,
 ) -> Result<(Vec<template::CloudInitWriteFile>, Vec<String>)> {
     let mut write_files = match cert_paths {
         Some(certs) => build_cloud_init_cert_files(certs, NODE_CERTS_DIR)?,
         None => vec![],
     };
 
-    // Stage text_files and the guest login's environment file, and move them into
-    // place first in runcmd, once their owners exist.
-    let guest_username = guest_account::guest_username(guest_account);
+    // Stage text_files and the owner's environment file, and move them into place first in
+    // runcmd, once their owners exist.
     let mut staged_files = build_cloud_init_text_files(node.text_files.as_deref());
     let env_vars = match node.environment_variables.as_deref() {
         Some(env_vars) if !env_vars.is_empty() => Some(env_vars),
@@ -2245,8 +2238,8 @@ fn write_cloud_init_seed(
     Ok(())
 }
 
-/// Cloud-init for the Linux and BSD VMs: the sherpa login and the owner's, with their admin
-/// rights, and the node's files and scripts.
+/// Cloud-init for the Linux and BSD VMs: the owner's login, with its admin rights, and the
+/// node's files and scripts.
 fn linux_cloud_init(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
@@ -2254,7 +2247,6 @@ fn linux_cloud_init(
     dir: &str,
 ) -> Result<()> {
     let NodeZtp {
-        sherpa_user,
         mgmt_net,
         node_ipv4_address,
         mac_address,
@@ -2262,27 +2254,24 @@ fn linux_cloud_init(
         guest_account,
         ..
     } = *ztp;
-    let mut cloud_init_user = template::CloudInitUser::sherpa(&sherpa_user.ssh_public_key);
-    let (admin_group, shell) = cloud_init_user_settings(node.model, &node_image.os_variant);
-    cloud_init_user.groups = vec![admin_group.to_owned()];
-    shell.clone_into(&mut cloud_init_user.shell);
-    cloud_init_user.sudo = cloud_init_sudo_rule(node.model);
-
-    let (mut write_files, runcmd) = cloud_init_files(node, cert_paths, guest_account)?;
+    let account = guest_account.with_context(|| {
+        format!(
+            "Node '{}' has no owner account for its cloud-init",
+            node.name
+        )
+    })?;
+    let (mut write_files, runcmd) = cloud_init_files(node, cert_paths, &account.username)?;
     if let Some(doas_file) = cloud_init_doas_file(node.model) {
         write_files.push(doas_file);
     }
 
-    let mut users = vec![cloud_init_user];
-    if let Some(account) = guest_account {
-        let mut user = match (node.model, &node_image.os_variant) {
-            (data::NodeModel::NixosLinux, _) => guest_account::nixos_cloud_init_user(account),
-            (_, data::OsVariant::Bsd) => guest_account::bsd_cloud_init_user(account),
-            _ => guest_account::cloud_init_user(account),
-        };
-        user.sudo = cloud_init_sudo_rule(node.model);
-        users.push(user);
-    }
+    let mut user = match (node.model, &node_image.os_variant) {
+        (data::NodeModel::NixosLinux, _) => guest_account::nixos_cloud_init_user(account)?,
+        (_, data::OsVariant::Bsd) => guest_account::bsd_cloud_init_user(account, node.model)?,
+        _ => guest_account::cloud_init_user(account)?,
+    };
+    user.sudo = cloud_init_sudo_rule(node.model);
+    let users = vec![user];
 
     let cloud_init_config = template::CloudInitConfig {
         ca_certs: cloud_init_ca_certs(cert_paths)?,
@@ -2345,15 +2334,14 @@ fn windows_startup_scripts(
     Ok((write_files, runcmd))
 }
 
-/// Cloudbase-init for the Windows VMs: the sherpa login and the owner's, each with its own SSH
-/// keys file, and the node's files, startup scripts and machine environment.
+/// Cloudbase-init for the Windows VMs: the owner's login, a local administrator with its own
+/// SSH keys file, and the node's files, startup scripts and machine environment.
 fn windows_cloudbase_init(
     node: &topology::NodeExpanded,
     ztp: &NodeZtp<'_>,
     dir: &str,
 ) -> Result<()> {
     let NodeZtp {
-        sherpa_user,
         mgmt_net,
         node_ipv4_address,
         mac_address,
@@ -2361,11 +2349,15 @@ fn windows_cloudbase_init(
         guest_account,
         ..
     } = *ztp;
-    let ssh_key = &sherpa_user.ssh_public_key;
-    let mut users = vec![template::CloudbaseInitUser::sherpa(ssh_key)];
-    let ssh_key_str = format!("{} {}", ssh_key.algorithm, ssh_key.key);
+    let account = guest_account.with_context(|| {
+        format!(
+            "Node '{}' has no owner account for its cloudbase-init",
+            node.name
+        )
+    })?;
+    let users = vec![guest_account::cloudbase_user(account)];
 
-    // Every account reads its own keys file, private to Administrators and SYSTEM.
+    // The account reads its own keys file, private to Administrators and SYSTEM.
     let sshd_config = template::WindowsSshdConfigTemplate {
         authorized_keys_dir: WINDOWS_SSHD_AUTHORIZED_KEYS_DIR.to_owned(),
     };
@@ -2376,19 +2368,11 @@ fn windows_cloudbase_init(
             permissions: "0644".to_string(),
         },
         template::CloudbaseWriteFile {
-            path: format!(r"{WINDOWS_AUTHORIZED_KEYS_DIR}\{SHERPA_USERNAME}"),
-            content: format!("{ssh_key_str}\n"),
-            permissions: "0600".to_string(),
-        },
-    ];
-    if let Some(account) = guest_account {
-        users.push(guest_account::cloudbase_user(account));
-        write_files.push(template::CloudbaseWriteFile {
             path: format!(r"{WINDOWS_AUTHORIZED_KEYS_DIR}\{}", account.username),
             content: format!("{}\n", account.ssh_keys.join("\n")),
             permissions: "0600".to_string(),
-        });
-    }
+        },
+    ];
     if let Some(certs) = cert_paths {
         write_files.extend(build_cloudbase_cert_files(certs, NODE_CERTS_DIR_WINDOWS)?);
     }
@@ -2417,7 +2401,7 @@ fn windows_cloudbase_init(
     let meta_data = template::MetaDataConfig {
         instance_id: format!("iid-{}", node.name),
         local_hostname: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
-        public_keys: vec![ssh_key_str],
+        ..Default::default()
     };
     let network_config = template::CloudbaseInitNetwork::ztp_interface(
         node_ipv4_address,
@@ -2437,7 +2421,6 @@ fn windows_cloudbase_init(
 /// Cloud-init for Alpine: `wheel` with doas, and the lab DNS written to `resolv.conf`.
 fn alpine_cloud_init(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>, dir: &str) -> Result<()> {
     let NodeZtp {
-        sherpa_user,
         mgmt_net,
         node_ipv4_address,
         mac_address,
@@ -2445,16 +2428,15 @@ fn alpine_cloud_init(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>, dir: &str
         guest_account,
         ..
     } = *ztp;
-    let mut cloud_init_user = template::CloudInitUser::sherpa(&sherpa_user.ssh_public_key);
-    cloud_init_user.shell = "/bin/sh".to_string();
-    cloud_init_user.groups = vec!["wheel".to_string()];
-
-    let (mut write_files, runcmd) = cloud_init_files(node, cert_paths, guest_account)?;
-    let mut users = vec![cloud_init_user];
-    if let Some(account) = guest_account {
-        write_files.push(guest_account::doas_file(account));
-        users.push(guest_account::alpine_cloud_init_user(account));
-    }
+    let account = guest_account.with_context(|| {
+        format!(
+            "Node '{}' has no owner account for its cloud-init",
+            node.name
+        )
+    })?;
+    let (mut write_files, runcmd) = cloud_init_files(node, cert_paths, &account.username)?;
+    write_files.push(guest_account::doas_file(account));
+    let users = vec![guest_account::alpine_cloud_init_user(account)?];
 
     let cloud_init_config = template::CloudInitConfig {
         ca_certs: cloud_init_ca_certs(cert_paths)?,
@@ -2501,7 +2483,6 @@ fn generate_tftp_ztp(
 ) -> Result<()> {
     let NodeZtp {
         tftp_dir,
-        sherpa_user,
         dns,
         mgmt_net,
         node_ipv4_address,
@@ -2526,8 +2507,11 @@ fn generate_tftp_ztp(
             data::NodeModel::AristaVeos => {
                 let arista_template = template::AristaVeosZtpTemplate {
                     hostname: node.name.clone(),
-                    user: sherpa_user.clone(),
-                    owner: guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?,
+                    owner: guest_account::owner_user(
+                        guest_account,
+                        KeyFormat::OpenSsh,
+                        PasswordForm::Hashed(CryptHash::Sha512),
+                    )?,
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
@@ -2545,8 +2529,11 @@ fn generate_tftp_ztp(
             data::NodeModel::ArubaAoscx => {
                 let aruba_template = template::ArubaAoscxTemplate {
                     hostname: node.name.clone(),
-                    user: sherpa_user.clone(),
-                    owner: guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?,
+                    owner: guest_account::owner_user(
+                        guest_account,
+                        KeyFormat::OpenSsh,
+                        PasswordForm::Plain,
+                    )?,
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
@@ -2564,8 +2551,11 @@ fn generate_tftp_ztp(
             data::NodeModel::JuniperVevolved | data::NodeModel::JuniperVsrxv3 => {
                 let juniper_template = template::JunipervJunosZtpTemplate {
                     hostname: node.name.clone(),
-                    user: sherpa_user.clone(),
-                    owner: guest_account::owner_user(guest_account, KeyFormat::Junos)?,
+                    owner: guest_account::owner_user(
+                        guest_account,
+                        KeyFormat::Junos,
+                        PasswordForm::Hashed(CryptHash::Sha512),
+                    )?,
                     mgmt_interface: node_image.interfaces.management.to_string(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
@@ -2628,7 +2618,6 @@ fn cdrom_config(
     ztp: &NodeZtp<'_>,
 ) -> Result<String> {
     let NodeZtp {
-        sherpa_user,
         dns,
         mgmt_net,
         node_ipv4_address,
@@ -2642,8 +2631,11 @@ fn cdrom_config(
         data::NodeModel::CiscoAsav => asav_config(node, ztp),
         data::NodeModel::CiscoNexus9300v => Ok(template::CiscoNxosZtpTemplate {
             hostname: node.name.clone(),
-            user: sherpa_user.clone(),
-            owner: guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?,
+            owner: guest_account::owner_user(
+                guest_account,
+                KeyFormat::OpenSsh,
+                PasswordForm::Plain,
+            )?,
             dns: dns.clone(),
             mgmt_ipv4_address: Some(node_ipv4_address),
             mgmt_ipv4: mgmt_net.v4.clone(),
@@ -2653,8 +2645,11 @@ fn cdrom_config(
         .render()?),
         data::NodeModel::CiscoIosxrv9000 => Ok(template::CiscoIosxrZtpTemplate {
             hostname: node.name.clone(),
-            user: sherpa_user.clone(),
-            owner: guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?,
+            owner: guest_account::owner_user(
+                guest_account,
+                KeyFormat::OpenSsh,
+                PasswordForm::Plain,
+            )?,
             dns: dns.clone(),
             mgmt_ipv4_address: Some(node_ipv4_address),
             mgmt_ipv4: mgmt_net.v4.clone(),
@@ -2667,8 +2662,11 @@ fn cdrom_config(
         | data::NodeModel::JuniperVrouter
         | data::NodeModel::JuniperVswitch => Ok(template::JunipervJunosZtpTemplate {
             hostname: node.name.clone(),
-            user: sherpa_user.clone(),
-            owner: guest_account::owner_user(guest_account, KeyFormat::Junos)?,
+            owner: guest_account::owner_user(
+                guest_account,
+                KeyFormat::Junos,
+                PasswordForm::Hashed(CryptHash::Sha512),
+            )?,
             mgmt_interface: node_image.interfaces.management.to_string(),
             mgmt_ipv4_address: Some(node_ipv4_address),
             mgmt_ipv4: mgmt_net.v4.clone(),
@@ -2682,14 +2680,13 @@ fn cdrom_config(
     }
 }
 
-/// IOS-XE: the sherpa key as its MD5 hash, and the Cat8000v and Cat9000v boot licences.
+/// IOS-XE: the owner's keys as their MD5 hashes, and the Cat8000v and Cat9000v boot licences.
 fn iosxe_config(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
     ztp: &NodeZtp<'_>,
 ) -> Result<String> {
     let NodeZtp {
-        sherpa_user,
         dns,
         mgmt_net,
         node_ipv4_address,
@@ -2705,12 +2702,9 @@ fn iosxe_config(
         }
         _ => None,
     };
-    let mut user = sherpa_user.clone();
-    user.ssh_public_key.key = util::pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
     Ok(template::CiscoIosXeZtpTemplate {
         hostname: node.name.clone(),
-        user,
-        owner: guest_account::owner_user(guest_account, KeyFormat::CiscoMd5)?,
+        owner: guest_account::owner_user(guest_account, KeyFormat::CiscoMd5, PasswordForm::Plain)?,
         mgmt_interface: node_image.interfaces.management.to_string(),
         dns: dns.clone(),
         license_boot_command,
@@ -2722,22 +2716,23 @@ fn iosxe_config(
     .render()?)
 }
 
-/// `ASAv`: the sherpa key as its SHA-256 hash.
+/// `ASAv`: the owner's key as its SHA-256 hash, and the device password as the owner's and the
+/// enable password.
 fn asav_config(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>) -> Result<String> {
     let NodeZtp {
-        sherpa_user,
         dns,
         mgmt_net,
         node_ipv4_address,
         guest_account,
         ..
     } = *ztp;
-    let mut user = sherpa_user.clone();
-    user.ssh_public_key.key = util::pub_ssh_key_to_sha256_hash(&user.ssh_public_key.key)?;
     Ok(template::CiscoAsavZtpTemplate {
         hostname: node.name.clone(),
-        user,
-        owner: guest_account::owner_user(guest_account, KeyFormat::CiscoSha256)?,
+        owner: guest_account::owner_user(
+            guest_account,
+            KeyFormat::CiscoSha256,
+            PasswordForm::Plain,
+        )?,
         dns: dns.clone(),
         mgmt_ipv4_address: Some(node_ipv4_address),
         mgmt_ipv4: mgmt_net.v4.clone(),
@@ -2747,17 +2742,19 @@ fn asav_config(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>) -> Result<Strin
     .render()?)
 }
 
-/// `FTDv`: its day-0 JSON, managed locally with the sherpa password.
+/// `FTDv`: its day-0 JSON, managed locally. Its only account, `admin`, takes the lab owner's
+/// device password.
 fn ftdv_config(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>) -> Result<String> {
     let NodeZtp {
         mgmt_net,
         node_ipv4_address,
+        device_password,
         ..
     } = *ztp;
     Ok(serde_json::to_string(&template::CiscoFtdvZtpTemplate {
         eula: "accept".to_string(),
         hostname: node.name.clone(),
-        admin_password: SHERPA_PASSWORD.to_string(),
+        admin_password: guest_account::device_password(device_password, PasswordForm::Plain)?,
         dns1: Some(mgmt_net.v4.boot_server),
         ipv4_mode: Some(template::CiscoFxosIpMode::Manual),
         ipv4_addr: Some(node_ipv4_address),
@@ -2776,13 +2773,11 @@ fn write_panos_bootstrap(
     dir: &str,
 ) -> Result<()> {
     let NodeZtp {
-        sherpa_user,
         mgmt_net,
         node_ipv4_address,
         guest_account,
         ..
     } = *ztp;
-    let user = sherpa_user.clone();
     // PA-VM requires config/, content/, license/, software/ directories
     let config_subdir = format!("{dir}/config");
     util::create_dir_with_permissions(Path::new(&config_subdir), NODE_CONFIG_DIR_MODE)?;
@@ -2807,24 +2802,15 @@ fn write_panos_bootstrap(
         NODE_CONFIG_FILE_MODE,
     )?;
 
-    // bootstrap.xml — full running config with admin + sherpa users
-    // PAN-OS expects the full SSH public key line base64-encoded
-    let ssh_full_key = format!(
-        "{} {}",
-        user.ssh_public_key.algorithm, user.ssh_public_key.key
-    );
-    let ssh_public_key_b64 = util::base64_encode(&ssh_full_key);
-    // PAN-OS stores a password hash, so the owner gets one no password matches.
-    let mut owner = guest_account::owner_user(guest_account, KeyFormat::PanosBase64)?;
-    if let Some(owner) = owner.as_mut() {
-        owner.secret = guest_account::unusable_sha256_crypt_hash();
-    }
+    // bootstrap.xml — the running config, with `admin` and the owner. PAN-OS stores a
+    // SHA-256-crypt hash of the password, and the whole SSH key line base64-encoded.
     let bootstrap = template::PaloAltoPanosBootstrapTemplate {
         hostname: node.name.clone(),
-        user,
-        owner,
-        password_hash: SHERPA_PASSWORD_HASH_SHA256.to_string(),
-        ssh_public_key_b64,
+        owner: guest_account::owner_user(
+            guest_account,
+            KeyFormat::PanosBase64,
+            PasswordForm::Hashed(CryptHash::Sha256),
+        )?,
         mgmt_ipv4_address: node_ipv4_address,
         mgmt_ipv6_address: node.ipv6_address,
         mgmt_ipv6: mgmt_net.v6.clone(),
@@ -2898,28 +2884,24 @@ fn generate_disk_ztp(
     }
 }
 
-/// `IOSv` and `IOSvL2`: the sherpa key as its MD5 hash.
+/// `IOSv` and `IOSvL2`: the owner's keys as their MD5 hashes.
 fn iosv_config(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
     ztp: &NodeZtp<'_>,
 ) -> Result<String> {
     let NodeZtp {
-        sherpa_user,
         dns,
         mgmt_net,
         node_ipv4_address,
         guest_account,
         ..
     } = *ztp;
-    let mut user = sherpa_user.clone();
-    user.ssh_public_key.key = util::pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
-    let owner = guest_account::owner_user(guest_account, KeyFormat::CiscoMd5)?;
+    let owner = guest_account::owner_user(guest_account, KeyFormat::CiscoMd5, PasswordForm::Plain)?;
     let mgmt_interface = node_image.interfaces.management.to_string();
     let rendered = if node.model == data::NodeModel::CiscoIosvl2 {
         template::CiscoIosvl2ZtpTemplate {
             hostname: node.name.clone(),
-            user,
             owner,
             mgmt_interface,
             dns: dns.clone(),
@@ -2932,7 +2914,6 @@ fn iosv_config(
     } else {
         template::CiscoIosvZtpTemplate {
             hostname: node.name.clone(),
-            user,
             owner,
             mgmt_interface,
             dns: dns.clone(),
@@ -2946,8 +2927,8 @@ fn iosv_config(
     Ok(rendered)
 }
 
-/// ISE: its config on an ext4 disk. ISE has a single administrator, which takes the owner's key
-/// when there is one.
+/// ISE: its config on an ext4 disk. ISE has a single administrator, the owner, with the device
+/// password and their first RSA key.
 fn ise_config_disk(
     node: &topology::NodeExpanded,
     ztp: &NodeZtp<'_>,
@@ -2956,7 +2937,6 @@ fn ise_config_disk(
 ) -> Result<(String, String)> {
     let NodeZtp {
         images_dir,
-        sherpa_user,
         dns,
         mgmt_net,
         node_ipv4_address,
@@ -2967,19 +2947,13 @@ fn ise_config_disk(
     let rendered_template = if let Some(config) = custom_ztp {
         config.to_owned()
     } else {
-        let mut user = sherpa_user.clone();
-        if let Some(owner) = guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?
-            && let Some(key) = owner.ssh_keys.first()
-        {
-            user.ssh_public_key = data::SshPublicKey {
-                algorithm: key.kind.parse()?,
-                key: key.value.clone(),
-                comment: None,
-            };
-        }
         template::CiscoIseZtpTemplate {
             hostname: node.name.clone(),
-            user,
+            owner: guest_account::owner_user(
+                guest_account,
+                KeyFormat::OpenSsh,
+                PasswordForm::Plain,
+            )?,
             dns: dns.clone(),
             mgmt_ipv4_address: node_ipv4_address,
             mgmt_ipv4: mgmt_net.v4.clone(),
@@ -3007,7 +2981,8 @@ fn ise_config_disk(
 }
 
 /// `RouterOS`: its config and the SSH keys on a FAT32 disk. `RouterOS` imports one key per file,
-/// so each owner key gets its own file on the disk.
+/// so each owner key gets its own file on the disk. The lab key's public half is on it too, as
+/// before; it goes with the lab key.
 fn mikrotik_config_disk(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
@@ -3017,7 +2992,7 @@ fn mikrotik_config_disk(
 ) -> Result<(String, String)> {
     let NodeZtp {
         images_dir,
-        sherpa_user,
+        lab_public_key,
         dns,
         mgmt_net,
         node_ipv4_address,
@@ -3025,10 +3000,13 @@ fn mikrotik_config_disk(
         guest_account,
         ..
     } = *ztp;
-    let owner = guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?;
     let mut owner_key_files = Vec::new();
-    let mut owner_key_paths = Vec::new();
-    if let Some(owner) = &owner {
+    let rendered_template = if let Some(config) = custom_ztp {
+        config.to_owned()
+    } else {
+        let owner =
+            guest_account::owner_user(guest_account, KeyFormat::OpenSsh, PasswordForm::Plain)?;
+        let mut owner_key_paths = Vec::new();
         for (index, key) in owner.ssh_keys.iter().enumerate() {
             let filename = template::MikrotikRouterosZtpTemplate::owner_key_filename(
                 &owner.username,
@@ -3043,13 +3021,8 @@ fn mikrotik_config_disk(
                 index + 1,
             ));
         }
-    }
-    let rendered_template = if let Some(config) = custom_ztp {
-        config.to_owned()
-    } else {
         template::MikrotikRouterosZtpTemplate {
             hostname: node.name.clone(),
-            user: sherpa_user.clone(),
             owner,
             owner_key_files: owner_key_paths,
             mgmt_interface: node_image.interfaces.management.to_string(),
@@ -3077,11 +3050,7 @@ fn mikrotik_config_disk(
     let sherpa_key_file = format!("{dir}/{SHERPA_SSH_PUBLIC_KEY_FILE}");
     util::write_file_with_permissions(
         Path::new(&sherpa_key_file),
-        format!(
-            "{} {}\n",
-            sherpa_user.ssh_public_key.algorithm, sherpa_user.ssh_public_key.key
-        )
-        .as_bytes(),
+        format!("{} {}\n", lab_public_key.algorithm, lab_public_key.key).as_bytes(),
         NODE_CONFIG_FILE_MODE,
     )?;
     util::copy_to_dos_image(&sherpa_key_file, &dst_disk, "/")?;
@@ -3107,7 +3076,6 @@ fn generate_usb_ztp(
 ) -> Result<(String, String)> {
     let NodeZtp {
         images_dir,
-        sherpa_user,
         dns,
         mgmt_net,
         node_ipv4_address,
@@ -3122,7 +3090,6 @@ fn generate_usb_ztp(
     );
 
     let dir = ztp.boot_dir.to_owned();
-    let user = sherpa_user.clone();
 
     match node_image.model {
         data::NodeModel::CumulusLinux => {
@@ -3131,8 +3098,11 @@ fn generate_usb_ztp(
             } else {
                 let t = template::CumulusLinuxZtpTemplate {
                     hostname: node.name.clone(),
-                    user,
-                    owner: guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?,
+                    owner: guest_account::owner_user(
+                        guest_account,
+                        KeyFormat::OpenSsh,
+                        PasswordForm::Plain,
+                    )?,
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
@@ -3164,8 +3134,11 @@ fn generate_usb_ztp(
             } else {
                 let t = template::JunipervJunosZtpTemplate {
                     hostname: node.name.clone(),
-                    user,
-                    owner: guest_account::owner_user(guest_account, KeyFormat::Junos)?,
+                    owner: guest_account::owner_user(
+                        guest_account,
+                        KeyFormat::Junos,
+                        PasswordForm::Hashed(CryptHash::Sha512),
+                    )?,
                     mgmt_interface: node_image.interfaces.management.to_string(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
@@ -3209,7 +3182,6 @@ fn generate_http_ztp(
 ) -> Result<()> {
     let NodeZtp {
         lab_dir,
-        sherpa_user,
         mgmt_net,
         node_ipv4_address,
         progress,
@@ -3250,8 +3222,11 @@ fn generate_http_ztp(
             )?;
 
             let sonic_user_template = template::SonicLinuxUserTemplate {
-                user: sherpa_user.clone(),
-                owner: guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?,
+                owner: guest_account::owner_user(
+                    guest_account,
+                    KeyFormat::OpenSsh,
+                    PasswordForm::Hashed(CryptHash::Sha512),
+                )?,
             };
             util::write_file_with_permissions(
                 Path::new(&ztp_user_script),
@@ -3363,8 +3338,15 @@ fn generate_ignition_ztp(
         StatusKind::Progress,
     );
 
-    let ignition_user = ignition_sherpa_user(node, ztp.sherpa_user)?;
+    let account = ztp.guest_account.with_context(|| {
+        format!(
+            "Node '{}' has no owner account for its Ignition config",
+            node.name
+        )
+    })?;
+    let ignition_user = ignition_owner_user(node, account)?;
     let mut files = ignition_base_files(&node.name);
+    files.push(guest_account::sudoers_file(account));
     files.extend(ignition_text_files(node)?);
     let manifest_systemd_units = ignition_units(node.systemd_units.as_deref().unwrap_or_default())?;
 
@@ -3378,48 +3360,27 @@ fn generate_ignition_ztp(
     }
 }
 
-/// The sherpa login in Ignition, with the sherpa key and the manifest's keys. The client read
-/// the key files; the server checks the keys but opens no files.
-fn ignition_sherpa_user(
+/// The owner's login in Ignition, with their keys and the manifest's. The client read the key
+/// files; the server checks the keys but opens no files.
+fn ignition_owner_user(
     node: &topology::NodeExpanded,
-    user: &data::User,
+    account: &GuestAccount,
 ) -> Result<template::IgnitionUser> {
-    let mut authorized_keys = vec![format!(
-        "{} {} {}",
-        user.ssh_public_key.algorithm,
-        user.ssh_public_key.key,
-        user.ssh_public_key.comment.clone().unwrap_or_default()
-    )];
+    let mut user = guest_account::ignition_user(account)?;
     let manifest_authorized_key_files = node.ssh.authorized_key_files.clone().unwrap_or_default();
     for key in &manifest_authorized_key_files {
         validate_ssh_key(key)
             .with_context(|| format!("Node '{}' ssh.authorized_key_files", node.name))?;
     }
-    authorized_keys.extend(node.ssh.authorized_keys.clone().unwrap_or_default());
-    authorized_keys.extend(manifest_authorized_key_files);
-
-    Ok(template::IgnitionUser {
-        name: user.username.clone(),
-        password_hash: Some(SHERPA_PASSWORD_HASH.to_owned()),
-        home_dir: None,
-        shell: None,
-        ssh_authorized_keys: authorized_keys,
-        groups: vec!["wheel".to_owned(), "docker".to_owned()],
-    })
+    user.ssh_authorized_keys
+        .extend(node.ssh.authorized_keys.clone().unwrap_or_default());
+    user.ssh_authorized_keys
+        .extend(manifest_authorized_key_files);
+    Ok(user)
 }
 
-/// The files every Ignition node gets: the sherpa sudo rule, its hostname, and updates off.
+/// The files every Ignition node gets: its hostname, and updates off.
 fn ignition_base_files(node_name: &str) -> Vec<template::IgnitionFile> {
-    let sudo_config_base64 =
-        util::base64_encode(&format!("{SHERPA_USERNAME} ALL=(ALL) NOPASSWD: ALL"));
-    let sudo_config_file = template::IgnitionFile {
-        path: format!("/etc/sudoers.d/{SHERPA_USERNAME}"),
-        mode: template::FileMode::new(0o440),
-        contents: Some(template::IgnitionFileContents::new(&format!(
-            "data:;base64,{sudo_config_base64}"
-        ))),
-        ..Default::default()
-    };
     let hostname_file = template::IgnitionFile {
         path: "/etc/hostname".to_owned(),
         mode: template::FileMode::new(0o644),
@@ -3428,11 +3389,7 @@ fn ignition_base_files(node_name: &str) -> Vec<template::IgnitionFile> {
         ))),
         ..Default::default()
     };
-    vec![
-        sudo_config_file,
-        hostname_file,
-        template::IgnitionFile::disable_updates(),
-    ]
+    vec![hostname_file, template::IgnitionFile::disable_updates()]
 }
 
 /// The manifest's text files as Ignition files, with their modes and owners.
@@ -3479,7 +3436,6 @@ fn flatcar_ignition(
         node_ipv4_address,
         node_name_with_lab,
         cert_paths,
-        guest_account,
         ..
     } = *ztp;
     let dir = ztp.boot_dir.to_owned();
@@ -3498,23 +3454,15 @@ fn flatcar_ignition(
         files.extend(build_ignition_cert_files(certs, NODE_CERTS_DIR)?);
     }
 
-    // Inject environment_variables into the guest login's environment
+    // Inject environment_variables into the owner's environment
     if let Some(ref env_vars) = node.environment_variables
         && !env_vars.is_empty()
     {
-        files.extend(build_ignition_user_env(
-            env_vars,
-            guest_account::guest_username(guest_account),
-        ));
+        files.extend(build_ignition_user_env(env_vars, &ignition_user.name));
     }
 
-    let mut users = vec![ignition_user];
-    if let Some(account) = guest_account {
-        users.push(guest_account::ignition_user(account));
-        files.push(guest_account::sudoers_file(account));
-    }
     let mut ignition_config = template::IgnitionConfig::new(
-        users,
+        vec![ignition_user],
         files,
         vec![],
         units,
@@ -4462,7 +4410,9 @@ pub async fn destroy_container_node(
 mod tests {
     use super::*;
     use crate::konst::TFTP_DIR_MODE;
+    use crate::services::guest_account::tests::test_account;
     use nix::sys::stat::{Mode, umask};
+    use sha_crypt::{PasswordVerifier, ShaCrypt};
     use std::env;
     use std::os::unix::fs::PermissionsExt;
     use std::process::Command;
@@ -5129,27 +5079,7 @@ mod tests {
         assert!(!result.contains("ipv6"));
     }
     #[test]
-    fn test_omarchy_cloud_init_user_settings() {
-        assert_eq!(
-            cloud_init_user_settings(data::NodeModel::OmarchyLinux, &data::OsVariant::Linux),
-            ("wheel", "/bin/bash")
-        );
-        assert_eq!(
-            cloud_init_user_settings(data::NodeModel::UbuntuLinux, &data::OsVariant::Linux),
-            ("sudo", "/bin/bash")
-        );
-        assert_eq!(
-            cloud_init_user_settings(data::NodeModel::FreeBsd, &data::OsVariant::Bsd),
-            ("wheel", "/bin/sh")
-        );
-    }
-
-    #[test]
-    fn test_nixos_cloud_init_uses_wheel_and_the_system_bash() {
-        assert_eq!(
-            cloud_init_user_settings(data::NodeModel::NixosLinux, &data::OsVariant::Linux),
-            ("wheel", NODE_NIXOS_SHELL)
-        );
+    fn test_nixos_cloud_init_gets_no_sudo_rule() {
         // NixOS generates /etc/sudoers without /etc/sudoers.d, so wheel grants sudo instead.
         assert!(cloud_init_sudo_rule(data::NodeModel::NixosLinux).is_none());
         assert!(cloud_init_sudo_rule(data::NodeModel::UbuntuLinux).is_some());
@@ -5204,18 +5134,30 @@ mod tests {
         assert!(config.cdrom.image.is_none());
     }
 
-    /// The sherpa login every Ignition test uses, with a fixture key.
-    fn ignition_test_user() -> data::User {
-        data::User {
-            username: SHERPA_USERNAME.to_owned(),
-            password: None,
-            ssh_public_key: data::SshPublicKey {
-                algorithm: data::SshKeyAlgorithms::SshEd25519,
-                key: "legacy-key-fixture".to_owned(),
-                comment: None,
-            },
-            sudo: true,
+    /// The public half of a lab key, which only `MikroTik`'s config disk carries.
+    fn lab_test_key() -> data::SshPublicKey {
+        data::SshPublicKey {
+            algorithm: data::SshKeyAlgorithms::SshRsa,
+            key: "lab-key-fixture".to_owned(),
+            comment: None,
         }
+    }
+
+    /// The owner's Ed25519 key in every generator test.
+    const OWNER_KEY: &str =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh";
+
+    /// Whether `hash` is a crypt hash of the test owner's device password.
+    fn verifies_device_password(hash: &str) -> bool {
+        ShaCrypt::default()
+            .verify_password(
+                test_account("alice", &[])
+                    .device_password
+                    .expose()
+                    .as_bytes(),
+                hash,
+            )
+            .is_ok()
     }
 
     /// The rule in an Ignition sudoers file's base64 data URL.
@@ -5231,7 +5173,7 @@ mod tests {
     }
 
     #[test]
-    fn flatcar_sudoers_matches_existing_ignition_provisioning() {
+    fn flatcar_has_one_login_the_owner_with_sudo_docker_and_the_manifest_keys() {
         let dir = tempdir().unwrap();
         let root = dir.path().to_str().unwrap();
         let blank_dir = dir.path().join(SHERPA_BLANK_DISK_DIR);
@@ -5242,80 +5184,15 @@ mod tests {
             b"disk-fixture",
         )
         .unwrap();
-        let node = topology::NodeExpanded {
+        let mut node = topology::NodeExpanded {
             name: "vm".to_owned(),
             model: data::NodeModel::FlatcarLinux,
             ..Default::default()
         };
+        node.ssh.authorized_keys = Some(vec!["ssh-ed25519 manifest-key-fixture".to_owned()]);
         let image = data::NodeConfig::get_model(data::NodeModel::FlatcarLinux);
-        let user = ignition_test_user();
-        let account = GuestAccount {
-            username: "alice".to_owned(),
-            ssh_keys: vec!["ssh-ed25519 personal-key-fixture".to_owned()],
-        };
-        let network = nocloud_test_network();
-        let (tx, _rx) = mpsc::unbounded_channel();
-        let progress = ProgressSender::new(tx);
-        let dns = util::default_dns(&network.v4.prefix).unwrap();
-        for personal in [None, Some(&account)] {
-            let ztp = NodeZtp {
-                lab_dir: root,
-                boot_dir: root,
-                tftp_dir: root,
-                images_dir: root,
-                sherpa_user: &user,
-                dns: &dns,
-                mgmt_net: &network,
-                progress: &progress,
-                node_ipv4_address: "192.0.2.10".parse().unwrap(),
-                mac_address: "52:54:00:00:00:01",
-                node_name_with_lab: "vm-test",
-                cert_paths: None,
-                guest_account: personal,
-            };
-            let (config_path, _, _, _) = generate_ignition_ztp(&node, &image, &ztp).unwrap();
-            let json: serde_json::Value =
-                serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
-            let files = json["storage"]["files"].as_array().unwrap();
-            let legacy = files
-                .iter()
-                .find(|file| file["path"] == format!("/etc/sudoers.d/{SHERPA_USERNAME}"))
-                .unwrap();
-            assert_eq!(legacy["mode"], 0o440);
-            assert_eq!(
-                ignition_file_text(legacy),
-                format!("{SHERPA_USERNAME} ALL=(ALL) NOPASSWD: ALL")
-            );
-            assert_eq!(
-                json["passwd"]["users"][0]["groups"],
-                serde_json::json!(["wheel", "docker"])
-            );
-            let personal_file = files
-                .iter()
-                .find(|file| file["path"] == "/etc/sudoers.d/alice");
-            if personal.is_some() {
-                let personal_file = personal_file.unwrap();
-                assert_eq!(personal_file["mode"], legacy["mode"]);
-                assert_eq!(personal_file.get("user"), legacy.get("user"));
-                assert_eq!(personal_file.get("group"), legacy.get("group"));
-                assert_eq!(
-                    ignition_file_text(personal_file),
-                    "alice ALL=(ALL) NOPASSWD: ALL\n"
-                );
-                assert_eq!(json["passwd"]["users"][1]["name"], "alice");
-                assert!(json["passwd"]["users"][1].get("passwordHash").is_none());
-            } else {
-                assert!(personal_file.is_none());
-                assert_eq!(json["passwd"]["users"].as_array().unwrap().len(), 1);
-            }
-        }
-    }
-
-    #[test]
-    fn cloud_init_gives_the_sherpa_account_the_labs_key() {
-        let dir = tempdir().unwrap();
-        let root = dir.path().to_str().unwrap();
-        let user = ignition_test_user();
+        let account = test_account("alice", &[OWNER_KEY]);
+        let lab_key = lab_test_key();
         let network = nocloud_test_network();
         let (tx, _rx) = mpsc::unbounded_channel();
         let progress = ProgressSender::new(tx);
@@ -5325,7 +5202,8 @@ mod tests {
             boot_dir: root,
             tftp_dir: root,
             images_dir: root,
-            sherpa_user: &user,
+            lab_public_key: &lab_key,
+            device_password: &account.device_password,
             dns: &dns,
             mgmt_net: &network,
             progress: &progress,
@@ -5333,11 +5211,80 @@ mod tests {
             mac_address: "52:54:00:00:00:01",
             node_name_with_lab: "vm-test",
             cert_paths: None,
-            guest_account: None,
+            guest_account: Some(&account),
+        };
+        let (config_path, _, _, _) = generate_ignition_ztp(&node, &image, &ztp).unwrap();
+        let config = fs::read_to_string(config_path).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&config).unwrap();
+
+        let users = json["passwd"]["users"].as_array().unwrap();
+        assert_eq!(users.len(), 1, "{config}");
+        let owner = &users[0];
+        assert_eq!(owner["name"], "alice");
+        assert_eq!(owner["groups"], serde_json::json!(["wheel", "docker"]));
+        assert_eq!(
+            owner["sshAuthorizedKeys"],
+            serde_json::json!([OWNER_KEY, "ssh-ed25519 manifest-key-fixture"])
+        );
+        assert!(verifies_device_password(
+            owner["passwordHash"].as_str().unwrap()
+        ));
+        let files = json["storage"]["files"].as_array().unwrap();
+        let sudoers: Vec<&serde_json::Value> = files
+            .iter()
+            .filter(|file| {
+                file["path"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("/etc/sudoers.d/")
+            })
+            .collect();
+        assert_eq!(sudoers.len(), 1, "{config}");
+        assert_eq!(sudoers[0]["path"], "/etc/sudoers.d/alice");
+        assert_eq!(sudoers[0]["mode"], 0o440);
+        assert_eq!(
+            ignition_file_text(sudoers[0]),
+            "alice ALL=(ALL) NOPASSWD: ALL\n"
+        );
+        assert!(!config.contains("sherpa ALL"), "{config}");
+        assert!(!config.contains("lab-key-fixture"), "{config}");
+        assert!(
+            !config.contains(test_account("alice", &[]).device_password.expose()),
+            "{config}"
+        );
+    }
+
+    #[test]
+    fn cloud_init_has_one_login_the_owner_with_the_device_password() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().to_str().unwrap();
+        let account = test_account("alice", &[OWNER_KEY]);
+        let password = account.device_password.expose().to_owned();
+        let lab_key = lab_test_key();
+        let network = nocloud_test_network();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let progress = ProgressSender::new(tx);
+        let dns = util::default_dns(&network.v4.prefix).unwrap();
+        let ztp = NodeZtp {
+            lab_dir: root,
+            boot_dir: root,
+            tftp_dir: root,
+            images_dir: root,
+            lab_public_key: &lab_key,
+            device_password: &account.device_password,
+            dns: &dns,
+            mgmt_net: &network,
+            progress: &progress,
+            node_ipv4_address: "192.0.2.10".parse().unwrap(),
+            mac_address: "52:54:00:00:00:01",
+            node_name_with_lab: "vm-test",
+            cert_paths: None,
+            guest_account: Some(&account),
         };
         for model in [
             data::NodeModel::UbuntuLinux,
             data::NodeModel::AlpineLinux,
+            data::NodeModel::FreeBsd,
             data::NodeModel::WindowsServer,
         ] {
             let node = topology::NodeExpanded {
@@ -5356,10 +5303,30 @@ mod tests {
             }
             let user_data =
                 fs::read_to_string(format!("{node_dir}/{CLOUD_INIT_USER_DATA}")).unwrap();
+            let parsed: serde_json::Value =
+                serde_json::from_str(user_data.strip_prefix("#cloud-config\n").unwrap()).unwrap();
+            let users = parsed["users"].as_array().unwrap();
+            assert_eq!(users.len(), 1, "{model}: {user_data}");
+            assert_eq!(users[0]["name"], "alice", "{model}");
+            assert!(user_data.contains(OWNER_KEY), "{model}: {user_data}");
             assert!(
-                user_data.contains("ssh-ed25519 legacy-key-fixture"),
+                !user_data.contains("lab-key-fixture"),
                 "{model}: {user_data}"
             );
+            assert!(!user_data.contains(SHERPA_PASSWORD), "{model}: {user_data}");
+            assert!(!user_data.contains("name: sherpa"), "{model}: {user_data}");
+            if model == data::NodeModel::WindowsServer {
+                // cloudbase-init takes the password itself.
+                assert_eq!(users[0]["passwd"], password.as_str(), "{model}");
+                assert!(user_data.contains(r"authorized_keys\\alice"), "{model}");
+                assert!(!user_data.contains(r"authorized_keys\\sherpa"), "{model}");
+            } else {
+                assert!(!user_data.contains(&password), "{model}: {user_data}");
+                assert!(
+                    verifies_device_password(users[0]["hashed_passwd"].as_str().unwrap()),
+                    "{model}"
+                );
+            }
         }
     }
 
@@ -5587,7 +5554,8 @@ mod tests {
     /// A lab folder and the accounts and network its nodes are configured with.
     struct ZtpLab {
         dir: tempfile::TempDir,
-        user: data::User,
+        lab_key: data::SshPublicKey,
+        account: GuestAccount,
         network: data::SherpaNetwork,
         dns: data::Dns,
         progress: ProgressSender,
@@ -5600,7 +5568,11 @@ mod tests {
             let (tx, messages) = mpsc::unbounded_channel();
             Self {
                 dir: tempdir().unwrap(),
-                user: ignition_test_user(),
+                lab_key: lab_test_key(),
+                account: test_account(
+                    "alice",
+                    &[OWNER_KEY, &format!("ssh-rsa {IOL_TEST_RSA_KEY}")],
+                ),
                 dns: util::default_dns(&network.v4.prefix).unwrap(),
                 network,
                 progress: ProgressSender::new(tx),
@@ -5617,11 +5589,11 @@ mod tests {
                 lab_id: "a1b2c3d4",
                 lab_dir: self.root(),
                 images_dir: "/images",
-                sherpa_user: &self.user,
+                lab_public_key: &self.lab_key,
                 dns: &self.dns,
                 mgmt_net: &self.network,
                 progress: &self.progress,
-                owner_account: None,
+                owner_account: &self.account,
             }
         }
 
@@ -5783,11 +5755,9 @@ mod tests {
             [format!("{config}:{ARISTA_CEOS_ZTP_VOLUME_MOUNT}:ro")]
         );
         assert_eq!(result.commands, ceos_startup_commands());
-        assert!(
-            fs::read_to_string(config)
-                .unwrap()
-                .contains(SHERPA_USERNAME)
-        );
+        let config = fs::read_to_string(config).unwrap();
+        assert!(config.contains("username alice privilege 15 secret sha512 $6$"));
+        assert!(!config.contains("username sherpa"));
     }
 
     #[test]
@@ -5907,17 +5877,6 @@ mod tests {
     /// An RSA public key, which IOS takes as an MD5 `key-hash`.
     const IOL_TEST_RSA_KEY: &str = "AAAAB3NzaC1yc2EAAAADAQABAAAAgQDGEYEVRGlFrL++QeLlNvvFXeyzaAz9rlYEQIgvCRNqCDvYz/6dHMa8PSnaDTq45TBaIpFvaq7VExU80ny8zLzg94fVrTS3PvJkYvc8cMo5Dr7jX3x6OUGbCSDLKjFklhN4CUGFxB7oSB/5u2XdLViODw3XE2mjg0IcrkFGyFWlWw==";
 
-    /// A lab whose Sherpa user has an RSA key, as IOS needs.
-    fn iol_lab() -> ZtpLab {
-        let mut lab = ZtpLab::new();
-        lab.user.ssh_public_key = data::SshPublicKey {
-            algorithm: data::SshKeyAlgorithms::SshRsa,
-            key: IOL_TEST_RSA_KEY.to_owned(),
-            comment: None,
-        };
-        lab
-    }
-
     /// An IOL node, the `index`th node of its lab.
     fn iol_node(name: &str, model: data::NodeModel, index: u16) -> topology::NodeExpanded {
         topology::NodeExpanded {
@@ -5929,7 +5888,7 @@ mod tests {
     #[test]
     fn iol_with_volume_ztp_mounts_its_config_directory_and_its_nvram() {
         for model in IOL_MODELS {
-            let lab = iol_lab();
+            let lab = ZtpLab::new();
             let mut node = iol_node("r1", model, 3);
 
             let result = lab.container(&mut node, None).unwrap();
@@ -5969,7 +5928,7 @@ mod tests {
     #[test]
     fn iol_runs_unprivileged_with_net_admin_and_its_launcher_settings() {
         for model in IOL_MODELS {
-            let lab = iol_lab();
+            let lab = ZtpLab::new();
             let mut node = iol_node("r1", model, 3);
 
             let result = lab.container(&mut node, None).unwrap();
@@ -5988,7 +5947,7 @@ mod tests {
 
     #[test]
     fn iol_takes_the_manifest_memory_and_data_interface_count() {
-        let lab = iol_lab();
+        let lab = ZtpLab::new();
         let mut node = iol_node("r1", data::NodeModel::CiscoIol, 1);
         node.memory = Some(1024);
         node.interfaces.data_count = Some(5);
@@ -6003,7 +5962,7 @@ mod tests {
 
     #[test]
     fn iol_with_ztp_off_boots_without_a_config_but_keeps_its_nvram_and_the_manifest_mounts() {
-        let lab = iol_lab();
+        let lab = ZtpLab::new();
         let mut node = iol_node("r1", data::NodeModel::CiscoIol, 2);
         node.container.get_or_insert_default().volumes = Some(manifest_volume());
 
@@ -6026,7 +5985,7 @@ mod tests {
 
     #[test]
     fn iol_with_a_custom_config_writes_it_as_the_startup_config() {
-        let lab = iol_lab();
+        let lab = ZtpLab::new();
         let mut node = iol_node("r1", data::NodeModel::CiscoIol, 1);
         node.ztp.config = Some("hostname custom\nend\n".to_owned());
 
@@ -6063,7 +6022,7 @@ mod tests {
 
     #[test]
     fn an_iol_node_past_the_999th_is_refused() {
-        let lab = iol_lab();
+        let lab = ZtpLab::new();
         let mut node = iol_node("r1000", data::NodeModel::CiscoIol, 1000);
         let error = lab.container(&mut node, None).err().unwrap().to_string();
         assert!(error.contains("r1000"), "{error}");
@@ -6168,7 +6127,7 @@ mod tests {
         for model in models {
             // IOL's logins take an RSA key, and its application ID is the node's place in the
             // lab, from 1.
-            let lab = iol_lab();
+            let lab = ZtpLab::new();
             let mut node = iol_node("node1", model, 1);
             node.image = Some("registry.example:5000/mirror/image".to_owned());
 
@@ -6505,9 +6464,6 @@ mod tests {
         "services::node_ops::tests::network_boot_files_are_private_under_the_umask_in_env",
         "services::node_ops::tests::container_configs_are_private_under_the_umask_in_env",
     ];
-    /// A real key: Cisco's configs carry its MD5 hash.
-    const CISCO_TEST_KEY: &str =
-        "AAAAC3NzaC1lZDI1NTE5AAAAIE6/8GjrZ1QD9nWLGeWkclvKEWliuCe2qDrak7cEmjIG";
     /// Media built from the configs in a VM's boot folder, not rendered: the folder keeps
     /// them private until they are uploaded to the storage pool.
     const BOOT_MEDIA: [&str; 3] = [ZTP_ISO, "-cfg.img", CONTAINER_DISK_NAME];
@@ -6587,8 +6543,7 @@ mod tests {
         if !umask_from_env() {
             return;
         }
-        let mut lab = ZtpLab::new();
-        lab.user.ssh_public_key.key = CISCO_TEST_KEY.to_owned();
+        let lab = ZtpLab::new();
         let images = tempdir().unwrap();
         let blank_disks = images.path().join(SHERPA_BLANK_DISK_DIR);
         fs::create_dir(&blank_disks).unwrap();
@@ -6678,8 +6633,7 @@ mod tests {
         if !umask_from_env() {
             return;
         }
-        let mut lab = ZtpLab::new();
-        lab.user.ssh_public_key.key = CISCO_TEST_KEY.to_owned();
+        let lab = ZtpLab::new();
         let mut nodes = vec![
             named_node("ceos01", data::NodeModel::AristaCeos),
             named_node("srl01", data::NodeModel::NokiaSrlinux),

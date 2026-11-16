@@ -8,14 +8,15 @@ Tests `nixos_linux` nodes end to end through the `sherpa` CLI. The image is buil
 | `nix01` | `nixos_linux` 26.05 VM, with a text file and an SSH provisioner | eth1 link to nix02 |
 | `nix02` | `nixos_linux` 26.05 VM | eth1 link to nix01 |
 
-`provision_current_user` is on, so the checks run as the lab owner.
+The nodes' only login is the lab owner's own account, so the checks run as the lab owner.
 
 ## Requirements
 
 - A Sherpa server with the `nixos_linux` 26.05 image, built from [bwks/nixos-image](https://github.com/bwks/nixos-image) and imported
   with `sherpa server image import --model nixos_linux --version 26.05`. The run fails early if
   it is missing.
-- The `sherpa` CLI logged in, with an SSH key registered, plus `ssh`.
+- The `sherpa` CLI logged in, with an SSH key registered and a device password set
+  (`sherpa server user device-password`), plus `ssh`. The run stops early when the password is not set.
 
 ## Running
 
@@ -42,7 +43,8 @@ On each node:
 
 Then:
 
-- the text file is owned by `sherpa:sherpa` with mode 600, which needs the per-user groups the
+- the text file is owned by the lab owner and the owner's own group (`<owner>:<owner>`) with mode 600; the runner
+  fills the manifest's `{owner}` with the owner's name, which needs the per-user groups the
   image turns on;
 - `sherpa up` ran the SSH provisioner's script as the lab owner. The provisioner first waits on
   `cloud-init status --wait`, which needs the `cloud-init` command the image installs;

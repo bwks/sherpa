@@ -4,7 +4,7 @@ use anyhow::Result;
 use serde::Serialize;
 use serde_json::Value;
 
-use shared::data::{Dns, NetworkV4, NetworkV6, OwnerUser, User};
+use shared::data::{Dns, NetworkV4, NetworkV6, OwnerUser};
 
 /// Factory ACL config extracted from a clean SR Linux v25.10.2 container.
 /// Includes CPM ACL filters (IPv4 + IPv6), policers, and control-plane-traffic
@@ -120,8 +120,6 @@ struct Authentication {
 #[derive(Serialize)]
 struct AdminUser {
     password: String,
-    #[serde(rename = "ssh-key", skip_serializing_if = "Vec::is_empty")]
-    ssh_key: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -245,27 +243,21 @@ struct NiLinux {
 // ============================================================================
 
 /// The SR Linux startup configuration, as JSON: the accounts, DNS, the management interface
-/// and network instance, and the factory ACLs.
+/// and network instance, and the factory ACLs. The built-in `admin` takes the owner's device
+/// password, and the owner is the one other account.
 ///
 /// # Errors
 ///
 /// Fails when the configuration or the factory ACLs cannot be serialized or parsed.
 pub fn build_srlinux_config(
     hostname: &str,
-    user: &User,
-    owner: Option<&OwnerUser>,
+    owner: &OwnerUser,
     dns: &Dns,
     mgmt_ipv4: &NetworkV4,
     mgmt_ipv4_address: Option<Ipv4Addr>,
     mgmt_ipv6: Option<(Ipv6Addr, &NetworkV6)>,
 ) -> Result<String> {
-    let password = user.password.clone().unwrap_or_default();
-
-    let ssh_key = format!(
-        "{} {}",
-        user.ssh_public_key.algorithm, user.ssh_public_key.key
-    );
-    let users = aaa_users(user, owner, &password, &ssh_key);
+    let users = vec![owner_aaa_user(owner)];
     let dns_servers = dns_servers(dns);
 
     let config = SrlinuxConfig {
@@ -282,8 +274,7 @@ pub fn build_srlinux_config(
                 authentication: Authentication {
                     method: vec!["local".to_string()],
                     admin_user: AdminUser {
-                        password,
-                        ssh_key: vec![ssh_key],
+                        password: owner.password.clone(),
                     },
                     user: users,
                 },
@@ -342,32 +333,18 @@ pub fn build_srlinux_config(
     Ok(json)
 }
 
-/// The accounts: Sherpa's own, and the lab owner's when there is one.
-fn aaa_users(
-    user: &User,
-    owner: Option<&OwnerUser>,
-    password: &str,
-    ssh_key: &str,
-) -> Vec<AaaUser> {
-    let mut users = vec![AaaUser {
-        username: user.username.clone(),
-        password: password.to_string(),
-        ssh_key: vec![ssh_key.to_string()],
-        role: vec!["srl-admin".to_string()],
-    }];
-    if let Some(owner) = owner {
-        let mut owner_keys = Vec::new();
-        for key in &owner.ssh_keys {
-            owner_keys.push(format!("{} {}", key.kind, key.value));
-        }
-        users.push(AaaUser {
-            username: owner.username.clone(),
-            password: owner.secret.clone(),
-            ssh_key: owner_keys,
-            role: vec!["srl-admin".to_string()],
-        });
+/// The lab owner's account, an `srl-admin` with every key.
+fn owner_aaa_user(owner: &OwnerUser) -> AaaUser {
+    let mut ssh_key = Vec::new();
+    for key in &owner.ssh_keys {
+        ssh_key.push(format!("{} {}", key.kind, key.value));
     }
-    users
+    AaaUser {
+        username: owner.username.clone(),
+        password: owner.password.clone(),
+        ssh_key,
+        role: vec!["srl-admin".to_string()],
+    }
 }
 
 /// The name servers' IPv4 addresses, then their IPv6 addresses.

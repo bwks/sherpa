@@ -1,22 +1,11 @@
-use serde_derive::{Deserialize, Serialize};
-
-use super::ssh::SshPublicKey;
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct User {
-    pub username: String,
-    pub password: Option<String>,
-    pub ssh_public_key: SshPublicKey,
-    pub sudo: bool,
-}
-
-/// The lab owner's login on a network device, rendered next to the `sherpa` user. It has
-/// administrator rights and logs in by key.
+/// The lab owner's login on a network device: an administrator who logs in by key, or with
+/// their device password.
 #[derive(Clone, Debug)]
 pub struct OwnerUser {
     pub username: String,
-    /// A random password nobody is told, for devices that need one.
-    pub secret: String,
+    /// The owner's device password, in the form the device takes it: the password itself, or a
+    /// salted crypt hash of it. A device's fixed accounts, such as `admin` or `root`, take it too.
+    pub password: String,
     pub ssh_keys: Vec<OwnerSshKey>,
 }
 

@@ -11,25 +11,12 @@ ssh-keygen -A
 touch /etc/frr/vtysh.conf
 chown frr:frr /etc/frr/vtysh.conf
 
-# Create sherpa user with SSH access and FRR group membership
-adduser -D -s /bin/sh {{ user.username }}
-addgroup {{ user.username }} frr
-addgroup {{ user.username }} frrvty
-echo '{{ user.username }}:{% if let Some(password) = user.password %}{{ password }}{% endif %}' | chpasswd
-echo '{{ user.username }} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/{{ user.username }}
-mkdir -p /home/{{ user.username }}/.ssh
-echo '{{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}' > /home/{{ user.username }}/.ssh/authorized_keys
-chmod 700 /home/{{ user.username }}/.ssh
-chmod 600 /home/{{ user.username }}/.ssh/authorized_keys
-chown -R {{ user.username }}:{{ user.username }} /home/{{ user.username }}/.ssh
-{%- if let Some(owner) = owner %}
-
-# Create the owner's account. It logs in by key only: '*' matches no password, and unlike a locked
-# account, sshd without PAM accepts it.
+# Create the owner's account, with FRR group membership. It logs in by key, or with the owner's
+# device password, set from its SHA-512-crypt hash.
 adduser -D -s /bin/sh {{ owner.username }}
 addgroup {{ owner.username }} frr
 addgroup {{ owner.username }} frrvty
-echo '{{ owner.username }}:*' | chpasswd -e
+echo '{{ owner.username }}:{{ owner.password }}' | chpasswd -e
 echo '{{ owner.username }} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/{{ owner.username }}
 mkdir -p /home/{{ owner.username }}/.ssh
 cat > /home/{{ owner.username }}/.ssh/authorized_keys <<'SHERPA_KEYS'
@@ -40,7 +27,6 @@ SHERPA_KEYS
 chmod 700 /home/{{ owner.username }}/.ssh
 chmod 600 /home/{{ owner.username }}/.ssh/authorized_keys
 chown -R {{ owner.username }}:{{ owner.username }} /home/{{ owner.username }}/.ssh
-{%- endif %}
 
 # Set container hostname
 hostname {{ hostname }}

@@ -113,9 +113,21 @@ then creates an additional non-admin user through its authenticated API. It upgr
 the same installation without reinitializing the database. It checks candidate
 binary versions/hashes, API/CLI authentication, both persisted users' credentials
 and privileges, complete user records, configuration, environment, SSH identity
-and TLS certificate fingerprints. It repeats those checks after a real reboot.
+and TLS certificate fingerprints. The device password state in user records is left out of
+the comparison, as a baseline release has none. It repeats those checks after a real reboot.
 Environment fingerprints cover every assignment while excluding generated
 comments and blank lines, so the installer's timestamp comment can change.
+A final `device-password` step checks the device password of the upgraded user, who never set
+one. The user gets an SSH key, because a lab needs one first, and `sherpa up` as that user is
+refused with the device password message before anything is created. The harness then sets a
+device password, a random one it generates for each run that meets the server's rule, through
+the REST API with the user's login password, and `sherpa up` is no longer refused for it. (The
+guest has no node image, so `up` fails later, on the image, and the harness destroys the lab if
+it ever succeeds.) The device password is redacted from logs like the other secrets. The host
+runner also stops before creating its lab when the CLI's user has no device password
+(`sherpa server user info`), as that user's device password is the lab nodes' login password.
+The guest's bare-node check expects the lab owner's login and no `sherpa` account.
+
 Before creating the workspace, upgrade runs wait for authenticated SSH within
 the configured startup timeout. Guest identity checks still run before changes.
 

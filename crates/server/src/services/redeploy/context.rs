@@ -57,7 +57,8 @@ pub(super) struct Redeploy<'a> {
     pub(super) dns: data::Dns,
     pub(super) certs_dir: String,
     pub(super) lab_ca: LabCa,
-    pub(super) sherpa_user: data::User,
+    /// The lab key's public half, which `MikroTik`'s config disk still carries.
+    pub(super) lab_public_key: data::SshPublicKey,
     pub(super) qemu_conn: Arc<QemuConnection>,
     /// The node's record; its resources are reserved again when it is rebuilt.
     pub(super) db_node: DbNode,
@@ -71,8 +72,8 @@ pub(super) struct Redeploy<'a> {
     pub(super) data_interface_count: u8,
     pub(super) ipv4: Ipv4Addr,
     pub(super) ipv6: Option<Ipv6Addr>,
-    /// The lab owner's account, when the node takes it.
-    pub(super) owner_account: Option<GuestAccount>,
+    /// The lab owner's account, with their device password.
+    pub(super) owner_account: GuestAccount,
     pub(super) owner_username: String,
     /// Secret files for a container node; `None` keeps its current ones.
     pub(super) secrets: Option<Vec<data::SecretFile>>,
@@ -130,6 +131,7 @@ pub(super) async fn load_redeploy<'a>(
     ctx: &AuthContext,
     request: RedeployRequest,
     db_lab: &DbLab,
+    owner_account: GuestAccount,
     state: &'a AppState,
     progress: &'a ProgressSender,
     operation: &'a LabOperation,
@@ -184,19 +186,13 @@ pub(super) async fn load_redeploy<'a>(
         target_node.ztp.config = Some(config.await?);
     }
     let ssh_key = LabSshKeyPaths::in_lab(&lab_dir);
-    let sherpa_user = util::sherpa_user(&ssh_key.public).context("Failed to get sherpa user")?;
+    let lab_public_key = util::get_ssh_public_key(&ssh_key.public)
+        .context("Failed to read the lab's SSH public key")?;
     let (ipv4, ipv6) = node_management_addresses(&db_node, &mgmt_net)?;
     target_node.ipv6_address = ipv6;
 
-    let owner_account = if manifest.provision_current_user
-        && guest_account::provisions_owner(&target_node, &node_image)
-    {
-        owner_account(&state.db, db_lab, &ctx.username, &node_name, progress).await?
-    } else {
-        None
-    };
     // Calculate the next SSH config before teardown, preserving every other node's identity.
-    let node_login = node_login(owner_account.as_ref(), &node_name, &node_image, progress)?;
+    let node_login = node_login(&owner_account, &target_node, &node_image, progress)?;
     lab_info.set_ssh_username(&node_name, node_login.as_deref());
     let _ = progress.send_status(
         format!("Context loaded for node: {node_name}"),
@@ -217,7 +213,7 @@ pub(super) async fn load_redeploy<'a>(
         dns,
         certs_dir,
         lab_ca,
-        sherpa_user,
+        lab_public_key,
         qemu_conn,
         db_node,
         node_record_id,
@@ -407,45 +403,25 @@ async fn worker_rejoin_config(
     talos::node_machine_config(cluster, &target_node.name, &mgmt_net.v4, &lab_ca.pair.cert)
 }
 
-/// The lab owner's account, for a node that takes it. `None` when the owner's username cannot
-/// be a login on lab nodes; the node then uses the sherpa account.
-#[instrument(skip_all, fields(%node_name), level = "debug")]
-async fn owner_account(
-    db: &db::Database,
-    db_lab: &DbLab,
-    username: &str,
-    node_name: &str,
-    progress: &ProgressSender,
-) -> Result<Option<GuestAccount>> {
-    let account = guest_account::resolve_owner(db, db_lab.user.clone()).await?;
-    if account.is_none() {
-        let _ = progress.send_status(
-            format!(
-                "Username '{username}' cannot be a login on lab nodes; '{node_name}' uses the sherpa account"
-            ),
-            StatusKind::Info,
-        );
-    }
-    Ok(account)
-}
-
-/// The node's login for the owner's account. The node must take one of the owner's keys before
-/// teardown; keys it does not take are reported.
+/// The node's login: the owner's name when the node gets their account, which must take the
+/// name and one of their keys before teardown, with keys it does not take reported; `admin` on
+/// Cisco `FTDv`; else `None`, and the SSH config names the owner.
 fn node_login(
-    owner_account: Option<&GuestAccount>,
-    node_name: &str,
+    owner_account: &GuestAccount,
+    node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
     progress: &ProgressSender,
 ) -> Result<Option<String>> {
-    let Some(account) = owner_account else {
-        return Ok(None);
-    };
-    let node_account = guest_account::node_account(account, node_name, node_image)?;
+    if !guest_account::provisions_owner(node, node_image) {
+        return Ok(guest_account::fixed_login(node_image.model).map(str::to_owned));
+    }
+    let node_account = guest_account::node_account(owner_account, &node.name, node_image)?;
     if !node_account.skipped_keys.is_empty() {
         let _ = progress.send_status(
             format!(
-                "Node '{node_name}' does not take these SSH keys of '{}': {}",
-                account.username,
+                "Node '{}' does not take these SSH keys of '{}': {}",
+                node.name,
+                owner_account.username,
                 node_account.skipped_keys.join(", ")
             ),
             StatusKind::Info,
@@ -581,7 +557,59 @@ mod tests {
 
     use shared::data::{NodeModel, NodeState};
 
+    use crate::services::guest_account::tests::test_account;
     use crate::services::lab_definition::tests::lab_with;
+    use tokio::sync::mpsc;
+
+    const OWNER_KEY: &str =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh";
+
+    /// The login a redeploy records for a `model` node named `name`, owned by `owner`.
+    fn login_after_redeploy(owner: &str, model: NodeModel, custom: bool) -> Result<Option<String>> {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let mut node = topology::NodeExpanded {
+            name: "n1".to_owned(),
+            model,
+            ..Default::default()
+        };
+        if custom {
+            node.ztp.config = Some("hostname n1\n".to_owned());
+        }
+        node_login(
+            &test_account(owner, &[OWNER_KEY]),
+            &node,
+            &data::NodeConfig::get_model(model),
+            &ProgressSender::new(tx),
+        )
+    }
+
+    #[test]
+    fn a_redeployed_node_records_the_owner_or_ftdvs_admin() {
+        assert_eq!(
+            login_after_redeploy("alice", NodeModel::UbuntuLinux, false).unwrap(),
+            Some("alice".to_owned())
+        );
+        assert_eq!(
+            login_after_redeploy("alice", NodeModel::CiscoFtdv, false).unwrap(),
+            Some("admin".to_owned())
+        );
+        // A custom config writes no account; the SSH config names the owner.
+        assert_eq!(
+            login_after_redeploy("alice", NodeModel::AristaVeos, true).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn a_redeploy_is_refused_before_teardown_for_a_name_the_model_cannot_take() {
+        let error = login_after_redeploy(&"w".repeat(21), NodeModel::WindowsServer, false)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("Node 'n1' (windows_server) takes login names of at most 20"),
+            "{error}"
+        );
+    }
 
     fn mgmt_net(with_v6: bool) -> data::SherpaNetwork {
         let prefix = util::get_ipv4_network("172.31.1.0/24").unwrap();

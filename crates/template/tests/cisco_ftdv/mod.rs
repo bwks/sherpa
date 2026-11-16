@@ -2,6 +2,8 @@ use std::net::Ipv4Addr;
 
 use template::{CiscoFtdvZtpTemplate, CiscoFxosIpMode, YesNo};
 
+use crate::helpers;
+
 // ============================================================================
 // Expected configs
 // ============================================================================
@@ -64,4 +66,20 @@ fn test_manage_locally_false() {
     };
     let json = serde_json::to_string_pretty(&t).expect("serializes");
     assert_eq!(json, EXPECTED_MANAGE_LOCALLY_NO);
+}
+
+#[test]
+fn test_admin_password_is_intact() {
+    for password in helpers::ALL_CHARACTER_PASSWORDS {
+        let t = CiscoFtdvZtpTemplate {
+            hostname: "ftdv01".to_string(),
+            admin_password: (*password).to_string(),
+            ..Default::default()
+        };
+        let json = serde_json::to_string_pretty(&t).expect("serializes");
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid json");
+        assert_eq!(parsed["AdminPassword"], *password);
+        assert!(json.contains(&format!("\"AdminPassword\": \"{password}\"")));
+        helpers::assert_no_sherpa_login(&json);
+    }
 }

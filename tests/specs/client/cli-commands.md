@@ -187,7 +187,7 @@ in `tests/labs/console/`.
 - Downloaded SSH private key uses a protected current-user-only DACL on Windows `[unit]` **P0**
 - Permission hardening failure removes the downloaded private key and returns an error `[unit]` **P0**
 - Every file is saved under `.sherpa/` (0700 folders, secrets 0600); nothing is left loose in the lab folder `[unit]` **P0**
-- The saved `.sherpa/ssh/config` resolves `IdentityFile` and `UserKnownHostsFile` to `.sherpa/ssh/` `[unit]` **P0**
+- The saved `.sherpa/ssh/config` names the node's recorded login (else the lab owner) as `User`, has no `IdentityFile` or `IdentitiesOnly` line, and resolves `UserKnownHostsFile` to `.sherpa/ssh/` `[unit]` **P0**
 - A symlinked `.sherpa` is refused `[unit]` **P0**
 
 ---

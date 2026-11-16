@@ -18,9 +18,9 @@ flowchart LR
 
 ## What it checks
 
-1. `sherpa up`, then, for each router: SSH as `sherpa` answers on the management address, and
-   the running config has the generated hostname, the `sherpa` login and the management
-   interface. The link addresses are then configured over SSH.
+1. `sherpa up`, then, for each router: SSH as the lab owner answers on the management address, and
+   the running config has the generated hostname, the owner's `username <owner> privilege 15`
+   login (and no `sherpa` login) and the management interface. The link addresses are then configured over SSH.
 2. Pings: each router to its peer and to the host, and the host to both routers, across a link
    and routed through r1.
 3. TCP: the host reads both routers' SSH banners across the links. This fails if transmit
@@ -33,7 +33,8 @@ flowchart LR
 
 ## Running it
 
-It runs on the Sherpa server, with the CLI logged in: the Alpine host is not privileged, so the
+It runs on the Sherpa server, with the CLI logged in and a device password set
+(`sherpa server user device-password`; the run stops early without one): the Alpine host is not privileged, so the
 runner addresses and tests its interface from a throwaway `alpine:3.22` container in its network
 namespace, through Docker. The IOL image is built from your own CML image, so the test needs it first:
 

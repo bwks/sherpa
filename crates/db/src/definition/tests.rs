@@ -161,7 +161,6 @@ fn full_manifest() -> Manifest {
     Manifest {
         name: "core".to_owned(),
         description: Some("Every field".to_owned()),
-        provision_current_user: true,
         tailscale: Some(TailscaleConfig {
             enabled: true,
             auth_key_env: Some("SHERPA_TAILSCALE_KEY".to_owned()),
@@ -241,7 +240,6 @@ fn assert_every_field_set(manifest: &Manifest) {
     let Manifest {
         name,
         description,
-        provision_current_user,
         tailscale,
         ready_timeout,
         provision_concurrency,
@@ -251,7 +249,7 @@ fn assert_every_field_set(manifest: &Manifest) {
         bridges,
         ztp_server,
     } = manifest;
-    assert!(!name.is_empty() && description.is_some() && *provision_current_user);
+    assert!(!name.is_empty() && description.is_some());
     assert!(tailscale.as_ref().is_some_and(|t| t.auth_key_env.is_some()));
     assert!(ready_timeout.is_some() && provision_concurrency.is_some());
     assert!(talos_clusters.is_some() && links.is_some() && bridges.is_some());
@@ -645,7 +643,6 @@ async fn a_redeploy_replaces_its_node_and_the_lab_settings_only() {
 
     let mut redeployed = full_manifest();
     redeployed.ready_timeout = Some(60);
-    redeployed.provision_current_user = false;
     redeployed.provision_concurrency = None;
     redeployed.links = None;
     redeployed.tailscale = None;
@@ -664,7 +661,6 @@ async fn a_redeploy_replaces_its_node_and_the_lab_settings_only() {
 
     let mut expected = before;
     expected.ready_timeout = Some(60);
-    expected.provision_current_user = false;
     expected.provision_concurrency = None;
     expected.nodes[0] = redeployed.nodes[0].clone();
     assert_eq!(

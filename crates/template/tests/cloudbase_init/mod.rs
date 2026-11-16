@@ -1,7 +1,7 @@
 use std::net::Ipv4Addr;
 
 use serde_json::{Value, json};
-use template::{CloudbaseInitConfig, CloudbaseInitNetwork};
+use template::{CloudbaseInitConfig, CloudbaseInitNetwork, CloudbaseInitUser};
 
 use crate::helpers;
 
@@ -101,4 +101,31 @@ fn test_all_digit_mac_address_is_a_quoted_string() {
         output.contains(r#""mac_address": "52:54:00:21:47:08""#),
         "MAC address must be a quoted string: {output}"
     );
+}
+
+#[test]
+fn test_cloudbase_password_is_intact() {
+    for password in helpers::ALL_CHARACTER_PASSWORDS {
+        let config = CloudbaseInitConfig {
+            set_hostname: "win01".to_string(),
+            users: vec![CloudbaseInitUser {
+                name: "alice".to_string(),
+                passwd: (*password).to_string(),
+                groups: vec!["Administrators".to_string()],
+                ssh_authorized_keys: vec!["ssh-rsa OWNERKEY1".to_string()],
+            }],
+            write_files: vec![],
+            runcmd: vec![],
+        };
+        let output = config.render().expect("renders user-data");
+        let body = output
+            .strip_prefix("#cloud-config\n")
+            .expect("user-data starts with the #cloud-config line");
+        let parsed = parse_json(body);
+        assert_eq!(parsed["users"].as_array().map(Vec::len), Some(1));
+        assert_eq!(parsed["users"][0]["name"], "alice");
+        assert_eq!(parsed["users"][0]["passwd"], *password);
+        assert_eq!(output.matches(password).count(), 1);
+        helpers::assert_no_sherpa_login(&output);
+    }
 }

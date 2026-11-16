@@ -8,8 +8,8 @@ mod update;
 
 pub use create::create_node;
 pub use read::{
-    count_nodes_by_lab, get_node, get_node_by_name_and_lab, list_node_states_by_user,
-    list_nodes_by_lab, list_vnc_ports,
+    count_nodes_by_lab, count_nodes_by_ssh_username, get_node, get_node_by_name_and_lab,
+    list_node_states_by_user, list_nodes_by_lab, list_vnc_ports,
 };
 pub use update::{
     update_node_host_key, update_node_mgmt_ipv4, update_node_mgmt_ipv6, update_node_mgmt_mac,

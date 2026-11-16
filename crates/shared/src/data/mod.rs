@@ -107,7 +107,7 @@ pub use up::{
     ClusterInfo, KeycloakInfo, KeycloakUser, NodeInfo, StatusKind, StatusMessage, UpError, UpPhase,
     UpRequest, UpResponse, UpSummary, VaultInfo,
 };
-pub use user::{OwnerSshKey, OwnerUser, User};
+pub use user::{OwnerSshKey, OwnerUser};
 pub use user_management::{
     AddSshKeyRequest, ChangePasswordRequest, ChangePasswordResponse, CreateUserRequest,
     CreateUserResponse, DeleteUserRequest, DeleteUserResponse, GetUserInfoRequest,

@@ -12,6 +12,7 @@ mod cisco_ise;
 mod cisco_nxos;
 mod cloud_init;
 mod cloudbase_init;
+mod crypt;
 mod cumulus_linux;
 mod dnsmasq;
 mod domain;
@@ -44,6 +45,7 @@ pub use cloudbase_init::{
     CloudbaseInitConfig, CloudbaseInitNetwork, CloudbaseInitUser, CloudbaseWriteFile,
     WindowsSshdConfigTemplate,
 };
+pub use crypt::{CryptHash, crypt_hash};
 pub use cumulus_linux::CumulusLinuxZtpTemplate;
 pub use dnsmasq::DnsmasqTemplate;
 pub use domain::{BootServer, DomainTemplate, DomainTuning, UnikernelDomainTemplate};

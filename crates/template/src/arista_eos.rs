@@ -1,14 +1,13 @@
 use askama::Template;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-use shared::data::{Dns, NetworkV4, NetworkV6, OwnerUser, User};
+use shared::data::{Dns, NetworkV4, NetworkV6, OwnerUser};
 
 #[derive(Template)]
 #[template(path = "arista/arista_veos.jinja", ext = "txt")]
 pub struct AristaVeosZtpTemplate {
     pub hostname: String,
-    pub user: User,
-    pub owner: Option<OwnerUser>,
+    pub owner: OwnerUser,
     pub dns: Dns,
     pub mgmt_ipv4: NetworkV4,
     pub mgmt_ipv4_address: Option<Ipv4Addr>,
@@ -20,8 +19,7 @@ pub struct AristaVeosZtpTemplate {
 #[template(path = "arista/arista_ceos.jinja", ext = "txt")]
 pub struct AristaCeosZtpTemplate {
     pub hostname: String,
-    pub user: User,
-    pub owner: Option<OwnerUser>,
+    pub owner: OwnerUser,
     pub dns: Dns,
     pub mgmt_ipv4: NetworkV4,
     pub mgmt_ipv4_address: Option<Ipv4Addr>,

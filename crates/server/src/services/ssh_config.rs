@@ -7,18 +7,13 @@ use tracing::instrument;
 use shared::data::{
     DbNode, LabInfo, NodeConfig, NodeHostKey, NodeSshUsername, RecordId, Ztp, ZtpRecord,
 };
-use shared::konst::{
-    SHERPA_DOMAIN_NAME, SHERPA_KNOWN_HOSTS_FILE, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_USERNAME,
-    SSH_PORT,
-};
+use shared::konst::{SHERPA_DOMAIN_NAME, SHERPA_KNOWN_HOSTS_FILE, SSH_PORT};
 use template::{KnownHostsEntry, KnownHostsTemplate, SshConfigTemplate, SshHostConfig};
 
 /// A lab's SSH files, as sent to the client. They are never saved on the server.
 pub(crate) struct LabSshFiles {
     pub ssh_config: String,
     pub known_hosts: String,
-    /// Whether any node logs in with the shared lab key rather than a personal account.
-    pub uses_lab_key: bool,
 }
 
 /// Record the host key `node` offered. Returns whether it replaced a different key, which
@@ -136,10 +131,6 @@ pub(crate) fn render_lab_ssh_files(
         &lab_info.user,
         server_ipv4,
     );
-    let uses_lab_key = template
-        .hosts
-        .iter()
-        .any(|host| host.identity_file.is_some());
     let ssh_config = template
         .render()
         .context("Failed to render the SSH configuration")?;
@@ -149,29 +140,30 @@ pub(crate) fn render_lab_ssh_files(
     Ok(LabSshFiles {
         ssh_config,
         known_hosts,
-        uses_lab_key,
     })
 }
 
-/// Resolve SSH identities and aliases before passing data to the renderer. Nodes with a
-/// recorded host key are checked strictly against the lab's `known_hosts` file.
+/// Resolve each node's login and aliases before passing data to the renderer. A node logs in
+/// with its recorded login, else as the lab's owner, `owner`, who also jumps through the
+/// server. No node names an identity file: each logs in with the owner's own keys. Nodes with
+/// a recorded host key are checked strictly against the lab's `known_hosts` file.
 #[instrument(level = "debug", skip(records, ssh_usernames, host_keys))]
 pub(crate) fn build_ssh_config(
     records: &[ZtpRecord],
     ssh_usernames: &[NodeSshUsername],
     host_keys: &[NodeHostKey],
     lab_id: &str,
-    proxy_user: &str,
+    owner: &str,
     server_ipv4: Ipv4Addr,
 ) -> SshConfigTemplate {
     let hosts = records
         .iter()
         .filter_map(|record| {
             let port = record.ssh_port?;
-            let personal_username = ssh_usernames
+            let login = ssh_usernames
                 .iter()
                 .find(|entry| entry.node_name == record.node_name)
-                .map(|entry| entry.username.as_str());
+                .map_or(owner, |entry| entry.username.as_str());
             Some(SshHostConfig {
                 aliases: format!(
                     "{} {}.{lab_id} {}.{lab_id}.{SHERPA_DOMAIN_NAME}",
@@ -179,10 +171,7 @@ pub(crate) fn build_ssh_config(
                 ),
                 hostname: record.ipv4_address,
                 port,
-                username: personal_username.unwrap_or(SHERPA_USERNAME).to_owned(),
-                identity_file: personal_username
-                    .is_none()
-                    .then(|| SHERPA_SSH_PRIVATE_KEY_FILE.to_owned()),
+                username: login.to_owned(),
                 known_hosts_file: host_keys
                     .iter()
                     .any(|entry| entry.node_name == record.node_name)
@@ -192,7 +181,7 @@ pub(crate) fn build_ssh_config(
         .collect();
     SshConfigTemplate {
         hosts,
-        proxy_jump: format!("{proxy_user}@{server_ipv4}"),
+        proxy_jump: format!("{owner}@{server_ipv4}"),
     }
 }
 
@@ -250,67 +239,54 @@ mod tests {
     }
 
     #[test]
-    fn mixed_lab_selects_personal_identity_and_preserves_legacy_options() {
+    fn each_node_logs_in_with_its_recorded_login_else_as_the_owner() {
         let usernames = [NodeSshUsername {
-            node_name: "vm".to_owned(),
-            username: "alice".to_owned(),
+            node_name: "router".to_owned(),
+            username: "admin".to_owned(),
         }];
         let config = build_ssh_config(
             &records(),
             &usernames,
             &[],
             "abcd1234",
-            "owner",
+            "alice",
             "192.0.2.1".parse().unwrap(),
         );
         assert_eq!(config.hosts[0].username, "alice");
-        assert!(config.hosts[0].identity_file.is_none());
-        assert_eq!(config.hosts[1].username, SHERPA_USERNAME);
+        assert_eq!(config.hosts[1].username, "admin");
         assert_eq!(
-            config.hosts[1].identity_file.as_deref(),
-            Some(SHERPA_SSH_PRIVATE_KEY_FILE)
+            config.hosts[0].aliases,
+            "192.0.2.10 vm.abcd1234 vm.abcd1234.sherpa.lab.local"
         );
+        assert_eq!(config.proxy_jump, "alice@192.0.2.1");
         let output = config.render().unwrap();
-        let (personal, legacy) = output.split_once("Host 192.0.2.11").unwrap();
-        assert!(personal.contains("User alice"));
-        assert!(personal.contains("vm.abcd1234.sherpa.lab.local"));
-        assert!(personal.contains("ProxyJump owner@192.0.2.1"));
-        assert!(!personal.contains("IdentityFile"));
-        assert!(!personal.contains("IdentitiesOnly"));
-        assert!(legacy.contains("User sherpa"));
-        assert!(legacy.contains("Port 830"));
-        assert!(legacy.contains("IdentityFile sherpa_ssh_key"));
-        assert!(legacy.contains("IdentitiesOnly yes"));
+        let (vm, router) = output.split_once("Host 192.0.2.11").unwrap();
+        assert!(vm.contains("User alice"));
+        assert!(vm.contains("ProxyJump alice@192.0.2.1"));
+        assert!(router.contains("User admin"));
+        assert!(router.contains("Port 830"));
+        assert!(!output.contains("IdentityFile"));
+        assert!(!output.contains("IdentitiesOnly"));
     }
 
     #[test]
-    fn unrelated_metadata_does_not_change_legacy_nodes() {
+    fn a_node_from_before_owner_logins_keeps_the_sherpa_login_it_records() {
+        // Migration 29 records `sherpa` for nodes built before 0.7.0.
         let usernames = [NodeSshUsername {
-            node_name: "other-vm".to_owned(),
-            username: "alice".to_owned(),
+            node_name: "vm".to_owned(),
+            username: "sherpa".to_owned(),
         }];
-        for usernames in [&[][..], &usernames[..]] {
-            let config = build_ssh_config(
-                &records(),
-                usernames,
-                &[],
-                "abcd1234",
-                "owner",
-                "192.0.2.1".parse().unwrap(),
-            );
-            assert!(
-                config
-                    .hosts
-                    .iter()
-                    .all(|host| host.username == SHERPA_USERNAME
-                        && host.identity_file.as_deref() == Some(SHERPA_SSH_PRIVATE_KEY_FILE))
-            );
-            assert_eq!(
-                config.hosts[0].aliases,
-                "192.0.2.10 vm.abcd1234 vm.abcd1234.sherpa.lab.local"
-            );
-            assert_eq!(config.proxy_jump, "owner@192.0.2.1");
-        }
+        let config = build_ssh_config(
+            &records(),
+            &usernames,
+            &[],
+            "abcd1234",
+            "alice",
+            "192.0.2.1".parse().unwrap(),
+        );
+        assert_eq!(config.hosts[0].username, "sherpa");
+        assert_eq!(config.hosts[1].username, "alice");
+        assert!(!config.render().unwrap().contains("IdentityFile"));
     }
 
     #[test]
@@ -442,14 +418,11 @@ mod tests {
 
     /// One host of the SSH config as the template writes it, the lab's owner `alice` jumping
     /// through the server.
-    fn host(aliases: &str, address: &str, user: &str, lab_key: bool, checked: bool) -> String {
+    fn host(aliases: &str, address: &str, user: &str, checked: bool) -> String {
         let mut host = format!(
             "\nHost {aliases}\n    HostName {address}\n    Port 22\n    User {user}\n    \
              ProxyJump alice@192.0.2.1"
         );
-        if lab_key {
-            host.push_str("\n    IdentityFile sherpa_ssh_key\n    IdentitiesOnly yes");
-        }
         if checked {
             host.push_str(
                 "\n    StrictHostKeyChecking yes\n    UserKnownHostsFile sherpa_known_hosts",
@@ -495,62 +468,41 @@ mod tests {
         db::update_node_ssh_username(&db, vm1.id.clone().unwrap(), Some("alice"))
             .await
             .unwrap();
+        // A node from before 0.7.0, which migration 29 recorded as `sherpa`.
+        let vm2 = nodes.iter().find(|node| node.name == "vm2").unwrap();
+        db::update_node_ssh_username(&db, vm2.id.clone().unwrap(), Some("sherpa"))
+            .await
+            .unwrap();
         let lab_info = lab_info::load_lab_info(&db, &lab).await.unwrap();
 
         let files = lab_ssh_files(&db, &lab_record_id, &lab_info, "192.0.2.1".parse().unwrap())
             .await
             .unwrap();
 
-        // Nodes in name order; Talos Linux has no SSH, so it is left out.
+        // Nodes in name order; Talos Linux has no SSH, so it is left out. `web` has no recorded
+        // login, so it logs in as the owner. No node names an identity file.
         let expected_config = [
             host(
                 "172.31.1.10 vm1.lab-0001 vm1.lab-0001.sherpa.lab.local",
                 "172.31.1.10",
                 "alice",
-                false,
                 true,
             ),
             host(
                 "172.31.1.11 vm2.lab-0001 vm2.lab-0001.sherpa.lab.local",
                 "172.31.1.11",
                 "sherpa",
-                true,
                 false,
             ),
             host(
                 "172.31.1.12 web.lab-0001 web.lab-0001.sherpa.lab.local",
                 "172.31.1.12",
-                "sherpa",
-                true,
+                "alice",
                 false,
             ),
         ]
         .concat();
         assert_eq!(files.ssh_config, expected_config);
         assert_eq!(files.known_hosts, "172.31.1.10 ssh-ed25519 AAAAC3vm1\n");
-        assert!(files.uses_lab_key);
-    }
-
-    #[tokio::test]
-    async fn a_lab_whose_nodes_all_log_in_as_their_owner_does_not_use_the_lab_key() {
-        let (db, lab) = lab_with(&[("vm1", NodeModel::AlpineLinux)]).await;
-        let lab_record_id = lab.id.clone().unwrap();
-        let node = &db::list_nodes_by_lab(&db, lab_record_id.clone())
-            .await
-            .unwrap()[0];
-        db::update_node_mgmt_ipv4(&db, node.id.clone().unwrap(), "172.31.1.10")
-            .await
-            .unwrap();
-        db::update_node_ssh_username(&db, node.id.clone().unwrap(), Some("alice"))
-            .await
-            .unwrap();
-        let lab_info = lab_info::load_lab_info(&db, &lab).await.unwrap();
-
-        let files = lab_ssh_files(&db, &lab_record_id, &lab_info, "192.0.2.1".parse().unwrap())
-            .await
-            .unwrap();
-
-        assert!(!files.uses_lab_key);
-        assert_eq!(files.known_hosts, "");
     }
 }

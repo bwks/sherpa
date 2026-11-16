@@ -1,8 +1,7 @@
 name = "sherpa-dev-windows"
 # Windows answers SSH after about 3.5 minutes, then cloudbase-init reboots it once.
 ready_timeout = 900
-# Your own account on the node, with your SSH keys, so `ssh` needs no password.
-provision_current_user = true
+# The node's login is your own account, with your SSH keys and your device password.
 
 [[nodes]]
 name = "win"

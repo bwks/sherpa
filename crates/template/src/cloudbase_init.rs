@@ -4,8 +4,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use askama::Template;
 use serde_derive::Serialize;
 
-use shared::data::{NetworkV4, NetworkV6, SshPublicKey};
-use shared::konst::{SHERPA_PASSWORD, SHERPA_USERNAME};
+use shared::data::{NetworkV4, NetworkV6};
 
 use crate::guest_yaml::{to_cloud_config, to_guest_yaml};
 
@@ -15,19 +14,6 @@ pub struct CloudbaseInitUser {
     pub passwd: String,
     pub groups: Vec<String>,
     pub ssh_authorized_keys: Vec<String>,
-}
-
-impl CloudbaseInitUser {
-    /// Sherpa's own account, logging in with `ssh_key`, the lab's key.
-    #[must_use]
-    pub fn sherpa(ssh_key: &SshPublicKey) -> Self {
-        Self {
-            name: SHERPA_USERNAME.to_owned(),
-            passwd: SHERPA_PASSWORD.to_owned(),
-            groups: vec!["Administrators".to_string()],
-            ssh_authorized_keys: vec![format!("{} {}", ssh_key.algorithm, ssh_key.key)],
-        }
-    }
 }
 
 /// The Windows OpenSSH server config: every account's keys in its own file under
@@ -136,26 +122,5 @@ impl CloudbaseInitNetwork {
                 subnets,
             }],
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use shared::data::SshKeyAlgorithms;
-
-    #[test]
-    fn the_sherpa_account_takes_the_key_it_is_given() {
-        let key = SshPublicKey {
-            algorithm: SshKeyAlgorithms::SshRsa,
-            key: "AAAAB3NzaC1yc2EAAAADAQABAAABAQDJ".to_owned(),
-            comment: None,
-        };
-        let user = CloudbaseInitUser::sherpa(&key);
-        assert_eq!(user.name, SHERPA_USERNAME);
-        assert_eq!(
-            user.ssh_authorized_keys,
-            ["ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDJ"]
-        );
     }
 }

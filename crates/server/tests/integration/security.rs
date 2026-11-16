@@ -11,7 +11,7 @@ use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 use std::time::Duration;
 
 use crate::helpers::test_server::{
-    TEST_ADMIN_PASSWORD, TEST_SSH_PUBLIC_KEY, TestServer, test_config,
+    TEST_ADMIN_PASSWORD, TEST_DEVICE_PASSWORD, TEST_SSH_PUBLIC_KEY, TestServer, test_config,
 };
 use crate::helpers::ws_client::TestWsClient;
 
@@ -108,7 +108,7 @@ async fn user_token(
     username: &str,
     is_admin: bool,
 ) -> Result<String> {
-    db::create_user(
+    let user = db::create_user(
         &server.db,
         username.to_owned(),
         TEST_ADMIN_PASSWORD,
@@ -116,6 +116,7 @@ async fn user_token(
         vec![TEST_SSH_PUBLIC_KEY.to_owned()],
     )
     .await?;
+    db::set_device_password(&server.db, &db::get_user_id(&user)?, TEST_DEVICE_PASSWORD).await?;
     ws.login(username, TEST_ADMIN_PASSWORD).await
 }
 

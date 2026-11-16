@@ -1,4 +1,5 @@
-//! Each device template with the lab owner's account added next to `sherpa`.
+//! Each device template with the lab owner as the one login: the owner's keys in each device's
+//! own format, and no other account but the device's fixed vendor ones.
 use std::net::Ipv4Addr;
 
 use askama::Template;
@@ -13,16 +14,18 @@ use template::{
 
 use crate::helpers;
 
+const PASSWORD: &str = "Rand0mPass-1";
+
 fn mgmt_address() -> Ipv4Addr {
     Ipv4Addr::new(172, 20, 0, 10)
 }
 
 #[test]
 fn arista_owner_has_a_key_and_a_secondary_key() {
+    let hash = helpers::sha512_hash(PASSWORD);
     let output = AristaVeosZtpTemplate {
         hostname: "veos01".to_string(),
-        user: helpers::test_user(),
-        owner: Some(helpers::test_owner()),
+        owner: helpers::test_owner(&hash),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
         mgmt_ipv4_address: Some(mgmt_address()),
@@ -31,20 +34,20 @@ fn arista_owner_has_a_key_and_a_secondary_key() {
     }
     .render()
     .unwrap();
-    assert!(output.contains(
-        "username sherpa ssh-key ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ\n\
-         username alice privilege 15 secret Rand0mSecret\n\
+    assert!(output.contains(&format!(
+        "aaa authorization exec default local\n!\n\
+         username alice privilege 15 secret sha512 {hash}\n\
          username alice ssh-key ssh-rsa OWNERKEY1\n\
          username alice ssh-key secondary ssh-ed25519 OWNERKEY2\n!\n"
-    ));
+    )));
+    helpers::assert_no_sherpa_login(&output);
 }
 
 #[test]
 fn aruba_owner_is_an_administrator_with_every_key() {
     let output = ArubaAoscxTemplate {
         hostname: "aoscx01".to_string(),
-        user: helpers::test_user(),
-        owner: Some(helpers::test_owner()),
+        owner: helpers::test_owner(PASSWORD),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
         mgmt_ipv4_address: Some(mgmt_address()),
@@ -53,19 +56,20 @@ fn aruba_owner_is_an_administrator_with_every_key() {
     }
     .render()
     .unwrap();
-    assert!(output.contains(
-        "user alice group administrators password plaintext Rand0mSecret\n\
+    assert!(output.contains(&format!(
+        "user admin group administrators password plaintext {PASSWORD}\n\
+         user alice group administrators password plaintext {PASSWORD}\n\
          user alice authorized-key ssh-rsa OWNERKEY1\n\
          user alice authorized-key ssh-ed25519 OWNERKEY2\n!\n"
-    ));
+    )));
+    helpers::assert_no_sherpa_login(&output);
 }
 
 #[test]
-fn asa_owner_has_no_password_and_hashed_keys() {
+fn asa_owner_has_a_password_and_hashed_keys() {
     let output = CiscoAsavZtpTemplate {
         hostname: "asa01".to_string(),
-        user: helpers::test_user(),
-        owner: Some(helpers::test_owner()),
+        owner: helpers::test_owner(PASSWORD),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
         mgmt_ipv4_address: Some(mgmt_address()),
@@ -74,24 +78,25 @@ fn asa_owner_has_no_password_and_hashed_keys() {
     }
     .render()
     .unwrap();
-    assert!(
-        output.contains("username sherpa password Everest1953!\nusername alice privilege 15\n")
-    );
-    assert!(!output.contains("username alice password"));
+    assert!(output.contains(&format!(
+        "username enable_1 privilege 15\n\
+         enable password {PASSWORD}\n\
+         username alice password {PASSWORD} privilege 15\n"
+    )));
     assert!(output.contains(
         "username alice attributes\n  \
          ssh authentication publickey OWNERKEY1 hashed\n  \
          ssh authentication publickey OWNERKEY2 hashed\n  \
          service-type admin\n!\n"
     ));
+    helpers::assert_no_sherpa_login(&output);
 }
 
 #[test]
-fn ios_owner_has_a_random_secret_and_key_hashes() {
+fn ios_owner_has_a_secret_and_key_hashes() {
     let output = CiscoIosvZtpTemplate {
         hostname: "iosv01".to_string(),
-        user: helpers::test_user(),
-        owner: Some(helpers::test_owner()),
+        owner: helpers::test_owner(PASSWORD),
         mgmt_interface: "GigabitEthernet0/0".to_string(),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
@@ -101,24 +106,21 @@ fn ios_owner_has_a_random_secret_and_key_hashes() {
     }
     .render()
     .unwrap();
-    assert!(output.contains(
-        "username sherpa privilege 15 secret Everest1953!\n\
-         username alice privilege 15 secret Rand0mSecret\n!\n\
+    assert!(output.contains(&format!(
+        "username alice privilege 15 secret {PASSWORD}\n!\n\
          ip ssh pubkey-chain\n  \
-         username sherpa\n   \
-         key-hash ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ\n  \
          username alice\n   \
          key-hash ssh-rsa OWNERKEY1\n   \
          key-hash ssh-ed25519 OWNERKEY2\n!\n"
-    ));
+    )));
+    helpers::assert_no_sherpa_login(&output);
 }
 
 #[test]
-fn iosxe_owner_has_a_random_secret_and_key_hashes() {
+fn iosxe_owner_has_a_secret_and_key_hashes() {
     let output = CiscoIosXeZtpTemplate {
         hostname: "csr01".to_string(),
-        user: helpers::test_user(),
-        owner: Some(helpers::test_owner()),
+        owner: helpers::test_owner(PASSWORD),
         mgmt_interface: "GigabitEthernet1".to_string(),
         dns: helpers::test_dns(),
         license_boot_command: None,
@@ -129,18 +131,18 @@ fn iosxe_owner_has_a_random_secret_and_key_hashes() {
     }
     .render()
     .unwrap();
-    assert!(output.contains("username alice privilege 15 secret Rand0mSecret\n"));
+    assert!(output.contains(&format!("username alice privilege 15 secret {PASSWORD}\n")));
     assert!(output.contains(
         "  username alice\n   key-hash ssh-rsa OWNERKEY1\n   key-hash ssh-ed25519 OWNERKEY2\n!\n"
     ));
+    helpers::assert_no_sherpa_login(&output);
 }
 
 #[test]
 fn iosxr_owner_keys_are_numbered() {
     let output = CiscoIosxrZtpTemplate {
         hostname: "xr01".to_string(),
-        user: helpers::test_user(),
-        owner: Some(helpers::test_owner()),
+        owner: helpers::test_owner(PASSWORD),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
         mgmt_ipv4_address: Some(mgmt_address()),
@@ -149,24 +151,22 @@ fn iosxr_owner_keys_are_numbered() {
     }
     .render()
     .unwrap();
-    assert!(
-        output.contains(
-            "username alice\n group root-lr\n group netadmin\n secret 0 Rand0mSecret\n!\n"
-        )
-    );
+    assert!(output.contains(&format!(
+        "username alice\n group root-lr\n group netadmin\n secret 0 {PASSWORD}\n!\n"
+    )));
     assert!(output.contains(
         "ssh server username alice\n \
          keystring ssh-rsa OWNERKEY1\n \
          keystring ssh-ed25519 second OWNERKEY2\n!\n"
     ));
+    helpers::assert_no_sherpa_login(&output);
 }
 
 #[test]
-fn nxos_owner_is_a_network_admin() {
+fn nxos_owner_is_a_network_admin_with_every_key() {
     let output = CiscoNxosZtpTemplate {
         hostname: "nxos01".to_string(),
-        user: helpers::test_user(),
-        owner: Some(helpers::test_owner()),
+        owner: helpers::test_owner(PASSWORD),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
         mgmt_ipv4_address: Some(mgmt_address()),
@@ -175,18 +175,19 @@ fn nxos_owner_is_a_network_admin() {
     }
     .render()
     .unwrap();
-    assert!(output.contains(
-        "username alice password 0 Rand0mSecret role network-admin\n\
-         username alice sshkey ssh-rsa OWNERKEY1\n"
-    ));
+    assert!(output.contains(&format!(
+        "username alice password 0 {PASSWORD} role network-admin\n\
+         username alice sshkey ssh-rsa OWNERKEY1\n\
+         username alice sshkey ssh-ed25519 OWNERKEY2\n"
+    )));
+    helpers::assert_no_sherpa_login(&output);
 }
 
 #[test]
 fn cumulus_owner_has_a_named_key_each_and_the_admin_role() {
     let output = CumulusLinuxZtpTemplate {
         hostname: "cumulus01".to_string(),
-        user: helpers::test_user(),
-        owner: Some(helpers::test_owner()),
+        owner: helpers::test_owner(PASSWORD),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
         mgmt_ipv4_address: Some(mgmt_address()),
@@ -195,44 +196,46 @@ fn cumulus_owner_has_a_named_key_each_and_the_admin_role() {
     }
     .render()
     .unwrap();
-    assert!(output.contains(
+    assert!(output.contains(&format!(
         "nv set system aaa user alice\n\
-         nv set system aaa user alice password 'Rand0mSecret'\n\
+         nv set system aaa user alice password '{PASSWORD}'\n\
          nv set system aaa user alice ssh authorized-key alice-ssh-key-1 key OWNERKEY1\n\
          nv set system aaa user alice ssh authorized-key alice-ssh-key-1 type ssh-rsa\n\
          nv set system aaa user alice ssh authorized-key alice-ssh-key-2 key OWNERKEY2\n\
          nv set system aaa user alice ssh authorized-key alice-ssh-key-2 type ssh-ed25519\n\
          nv set system aaa user alice role system-admin\n"
-    ));
+    )));
+    helpers::assert_no_sherpa_login(&output);
 }
 
 #[test]
-fn frr_owner_logs_in_by_key_only() {
+fn frr_owner_has_its_hash_every_key_and_sudo() {
+    let hash = helpers::sha512_hash(PASSWORD);
     let output = FrrStartupTemplate {
         hostname: "frr01".to_string(),
-        user: helpers::test_user(),
-        owner: Some(helpers::test_owner()),
+        owner: helpers::test_owner(&hash),
     }
     .render()
     .unwrap();
     assert!(output.contains("adduser -D -s /bin/sh alice\n"));
-    assert!(output.contains("echo 'alice:*' | chpasswd -e\n"));
+    assert!(output.contains(&format!("echo 'alice:{hash}' | chpasswd -e\n")));
     assert!(output.contains("echo 'alice ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/alice\n"));
     assert!(output.contains(
         "cat > /home/alice/.ssh/authorized_keys <<'SHERPA_KEYS'\n\
          ssh-rsa OWNERKEY1\nssh-ed25519 OWNERKEY2\nSHERPA_KEYS\n"
     ));
-    assert!(!output.contains("Rand0mSecret"));
+    assert!(!output.contains(PASSWORD));
+    helpers::assert_no_sherpa_login(&output);
 }
 
 #[test]
 fn junos_owner_is_a_super_user_with_every_key() {
-    let mut owner = helpers::test_owner();
+    let hash = helpers::sha512_hash(PASSWORD);
+    let mut owner = helpers::test_owner(&hash);
     owner.ssh_keys[0].value = "ssh-rsa OWNERKEY1".to_string();
     let output = JunipervJunosZtpTemplate {
         hostname: "vsrx01".to_string(),
-        user: helpers::test_user(),
-        owner: Some(owner),
+        owner,
         mgmt_interface: "fxp0".to_string(),
         mgmt_ipv4: helpers::test_network_v4(),
         mgmt_ipv4_address: Some(mgmt_address()),
@@ -241,25 +244,26 @@ fn junos_owner_is_a_super_user_with_every_key() {
     }
     .render()
     .unwrap();
-    assert!(output.contains(
-        r#"        user alice {
+    assert!(output.contains(&format!(
+        r#"        user alice {{
             class super-user;
-            authentication {
+            authentication {{
+                encrypted-password "{hash}"; ## SECRET-DATA
                 ssh-rsa "ssh-rsa OWNERKEY1"; ## SECRET-DATA
                 ssh-ed25519 "OWNERKEY2"; ## SECRET-DATA
-            }
-        }
+            }}
+        }}
 "#
-    ));
-    assert!(!output.contains("Rand0mSecret"));
+    )));
+    assert!(!output.contains(PASSWORD));
+    helpers::assert_no_sherpa_login(&output);
 }
 
 #[test]
 fn mikrotik_owner_imports_each_key_file() {
     let output = MikrotikRouterosZtpTemplate {
         hostname: "mikrotik01".to_string(),
-        user: helpers::test_user(),
-        owner: Some(helpers::test_owner()),
+        owner: helpers::test_owner(PASSWORD),
         owner_key_files: vec![
             MikrotikRouterosZtpTemplate::owner_key_path("alice", 1),
             MikrotikRouterosZtpTemplate::owner_key_path("alice", 2),
@@ -273,37 +277,39 @@ fn mikrotik_owner_imports_each_key_file() {
     }
     .render()
     .unwrap();
-    assert!(output.contains(
-        ":do { /user add name=alice password=Rand0mSecret group=full } on-error={}\n\
+    assert!(output.contains(&format!(
+        ":do {{ /user add name=alice password={PASSWORD} group=full }} on-error={{}}\n\
          /user ssh-keys import public-key-file=sata1/alice-1.pub user=alice\n\
          /user ssh-keys import public-key-file=sata1/alice-2.pub user=alice\n"
-    ));
+    )));
+    helpers::assert_no_sherpa_login(&output);
 }
 
 #[test]
-fn sonic_owner_has_a_locked_password_and_sudo_without_one() {
+fn sonic_owner_has_its_hash_every_key_and_sudo() {
+    let hash = helpers::sha512_hash(PASSWORD);
     let output = SonicLinuxUserTemplate {
-        user: helpers::test_user(),
-        owner: Some(helpers::test_owner()),
+        owner: helpers::test_owner(&hash),
     }
     .render()
     .unwrap();
     assert!(output.contains("/usr/sbin/useradd -m -s /bin/bash -G sudo,admin,docker alice\n"));
+    assert!(output.contains(&format!(
+        "/usr/bin/echo 'alice:{hash}' | /usr/sbin/chpasswd -e\n"
+    )));
     assert!(
         output.contains("<<'SHERPA_KEYS'\nssh-rsa OWNERKEY1\nssh-ed25519 OWNERKEY2\nSHERPA_KEYS\n")
     );
     assert!(output.contains("'alice ALL=(ALL) NOPASSWD: ALL' >/etc/sudoers.d/alice\n"));
-    // No password: the account stays locked.
-    assert!(!output.contains(r#""alice:"#));
+    assert!(!output.contains(PASSWORD));
+    helpers::assert_no_sherpa_login(&output);
 }
 
 #[test]
 fn srlinux_owner_is_an_admin_user_with_every_key() {
-    let owner = helpers::test_owner();
     let json = build_srlinux_config(
         "srl01",
-        &helpers::test_user(),
-        Some(&owner),
+        &helpers::test_owner(PASSWORD),
         &helpers::test_dns(),
         &helpers::test_network_v4(),
         Some(mgmt_address()),
@@ -312,27 +318,25 @@ fn srlinux_owner_is_an_admin_user_with_every_key() {
     .unwrap();
     let config: serde_json::Value = serde_json::from_str(&json).unwrap();
     let users = &config["srl_nokia-system:system"]["srl_nokia-aaa:aaa"]["authentication"]["user"];
-    assert_eq!(users[0]["username"], "sherpa");
-    assert_eq!(users[1]["username"], "alice");
-    assert_eq!(users[1]["password"], "Rand0mSecret");
+    assert_eq!(users.as_array().map(Vec::len), Some(1));
+    assert_eq!(users[0]["username"], "alice");
+    assert_eq!(users[0]["password"], PASSWORD);
     assert_eq!(
-        users[1]["ssh-key"],
+        users[0]["ssh-key"],
         serde_json::json!(["ssh-rsa OWNERKEY1", "ssh-ed25519 OWNERKEY2"])
     );
-    assert_eq!(users[1]["role"], serde_json::json!(["srl-admin"]));
+    assert_eq!(users[0]["role"], serde_json::json!(["srl-admin"]));
+    helpers::assert_no_sherpa_login(&json);
 }
 
 #[test]
 fn panos_bootstrap_escapes_xml() {
-    let mut owner = helpers::test_owner();
+    let mut owner = helpers::test_owner("$5$salt$hash");
     owner.ssh_keys.truncate(1);
     owner.ssh_keys[0].value = "KEY&<1".to_string();
     let output = PaloAltoPanosBootstrapTemplate {
         hostname: "pan01".to_string(),
-        user: helpers::test_user(),
-        owner: Some(owner),
-        password_hash: "$5$sherpa$hash".to_string(),
-        ssh_public_key_b64: "SHERPAKEY".to_string(),
+        owner,
         mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
@@ -346,20 +350,16 @@ fn panos_bootstrap_escapes_xml() {
         output.contains("<public-key>KEY&#38;&#60;1</public-key>"),
         "{output}"
     );
-    assert!(output.contains("<phash>$5$sherpa$hash</phash>"), "{output}");
 }
 
 #[test]
 fn panos_owner_is_a_superuser_with_its_own_hash_and_key() {
-    let mut owner = helpers::test_owner();
-    owner.secret = "$5$owner$hash".to_string();
+    let hash = helpers::sha256_hash(PASSWORD);
+    let mut owner = helpers::test_owner(&hash);
     owner.ssh_keys.truncate(1);
     let output = PaloAltoPanosBootstrapTemplate {
         hostname: "pan01".to_string(),
-        user: helpers::test_user(),
-        owner: Some(owner),
-        password_hash: "$5$sherpa$hash".to_string(),
-        ssh_public_key_b64: "SHERPAKEY".to_string(),
+        owner,
         mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
@@ -369,9 +369,9 @@ fn panos_owner_is_a_superuser_with_its_own_hash_and_key() {
     }
     .render()
     .unwrap();
-    assert!(output.contains(
+    assert!(output.contains(&format!(
         r#"      <entry name="alice">
-        <phash>$5$owner$hash</phash>
+        <phash>{hash}</phash>
         <permissions>
           <role-based>
             <superuser>yes</superuser>
@@ -380,7 +380,8 @@ fn panos_owner_is_a_superuser_with_its_own_hash_and_key() {
         <public-key>OWNERKEY1</public-key>
       </entry>
     </users>"#
-    ));
+    )));
+    helpers::assert_no_sherpa_login(&output);
 }
 
 #[test]

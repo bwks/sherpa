@@ -18,7 +18,7 @@ and tokens go to it on stdin, so they are in no command line or log.
 - A Sherpa server with the `talos_linux` `1.14.4`, `ubuntu_linux` `26.04`, `keycloak_server`
   `26.4` and `hashicorp_vault` `1.21` images, KVM, and internet access from labs (tool
   downloads, Kubernetes and workload images). The run fails early if the Talos image is missing.
-- The `sherpa` CLI logged in, plus `ssh` and `scp`.
+- The `sherpa` CLI logged in, with a device password set (`sherpa server user device-password`), plus `ssh` and `scp`.
 - About 40 GB of RAM: both labs run at the same time, each with four 4 GB Talos nodes and the
   util node, and `ha` also with Keycloak and Vault, about 3 GB more. On a smaller server run
   the labs one at a time.

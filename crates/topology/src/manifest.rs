@@ -17,9 +17,6 @@ pub struct Manifest {
     /// Optional blurb describing the lab's purpose.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// Provision the authenticated lab owner's Linux account on supported VMs.
-    #[serde(default)]
-    pub provision_current_user: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tailscale: Option<TailscaleConfig>,
     #[serde(default)]
@@ -196,22 +193,21 @@ Unicode: café"#,
     }
 
     #[test]
-    fn current_user_flag_round_trip() {
-        let manifest: Manifest =
-            toml::from_str("name='test'\nnodes=[]\nprovision_current_user=true").unwrap();
-        let saved = toml::to_string(&manifest).unwrap();
-        assert_eq!(
-            toml::from_str::<toml::Value>(&saved).unwrap()["provision_current_user"].as_bool(),
-            Some(true)
-        );
-    }
-
-    #[test]
-    fn current_user_flag_defaults_false_and_rejects_overrides() {
-        let manifest: Manifest = toml::from_str("name='test'\nnodes=[]").unwrap();
-        assert!(!manifest.provision_current_user);
+    fn a_manifest_that_sets_provision_current_user_is_refused_naming_it() {
+        // Every node gets the owner's login now, so the setting is gone, `true` or `false`.
         for input in [
-            "name='test'\nnodes=[]\nprovision_current_user='true'",
+            "name='test'\nnodes=[]\nprovision_current_user=true",
+            "name='test'\nnodes=[]\nprovision_current_user=false",
+        ] {
+            let error = toml::from_str::<Manifest>(input).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("unknown field `provision_current_user`"),
+                "{error}"
+            );
+        }
+        for input in [
             "name='test'\nnodes=[]\nprovision_username='alice'",
             "name='test'\nnodes=[{name='vm',model='ubuntu_linux',provision_current_user=true}]",
         ] {

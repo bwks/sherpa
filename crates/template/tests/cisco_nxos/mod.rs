@@ -19,10 +19,10 @@ feature lldp
 !
 hostname nxos01
 !
-username admin password 0 Everest1953! role network-admin
-username sherpa password 0 Everest1953!
-username sherpa role network-admin
-username sherpa sshkey ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ
+username admin password 0 PASSWORD role network-admin
+username alice password 0 PASSWORD role network-admin
+username alice sshkey ssh-rsa OWNERKEY1
+username alice sshkey ssh-ed25519 OWNERKEY2
 !
 ip domain-name lab.sherpa.local
 ip name-server 172.20.0.1
@@ -44,18 +44,56 @@ line vty
 // Tests
 // ============================================================================
 
-#[test]
-fn test_static_ipv4() {
-    let t = CiscoNxosZtpTemplate {
+fn nxos(password: &str) -> CiscoNxosZtpTemplate {
+    CiscoNxosZtpTemplate {
         hostname: "nxos01".to_string(),
-        user: helpers::test_user(),
-        owner: None,
+        owner: helpers::test_owner(password),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
         mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
-    };
-    let output = t.render().expect("template renders");
-    assert_eq!(output, EXPECTED_STATIC_IPV4);
+    }
+}
+
+#[test]
+fn test_static_ipv4() {
+    let output = nxos("Rand0mPass-1").render().expect("template renders");
+    assert_eq!(
+        output,
+        EXPECTED_STATIC_IPV4.replace("PASSWORD", "Rand0mPass-1")
+    );
+}
+
+#[test]
+fn test_only_admin_and_the_owner_have_accounts() {
+    let output = nxos("Rand0mPass-1").render().expect("template renders");
+    let users: Vec<&str> = output
+        .lines()
+        .filter(|line| line.starts_with("username "))
+        .collect();
+    assert_eq!(
+        users,
+        [
+            "username admin password 0 Rand0mPass-1 role network-admin",
+            "username alice password 0 Rand0mPass-1 role network-admin",
+            "username alice sshkey ssh-rsa OWNERKEY1",
+            "username alice sshkey ssh-ed25519 OWNERKEY2",
+        ]
+    );
+    helpers::assert_no_sherpa_login(&output);
+}
+
+#[test]
+fn test_password_is_intact_for_admin_and_owner() {
+    for password in helpers::ALL_CHARACTER_PASSWORDS {
+        let output = nxos(password).render().expect("template renders");
+        assert!(output.contains(&format!(
+            "\nusername admin password 0 {password} role network-admin\n"
+        )));
+        assert!(output.contains(&format!(
+            "\nusername alice password 0 {password} role network-admin\n"
+        )));
+        assert_eq!(output.matches(password).count(), 2);
+    }
 }

@@ -3,7 +3,7 @@ use bollard::Docker;
 use dashmap::DashMap;
 use libvirt::Qemu;
 use shared::data::{Config, UpRequest};
-use shared::konst::{ADMIN_USERNAME, SHERPA_DB_FILE_PATH};
+use shared::konst::{ADMIN_USERNAME, SHERPA_DB_FILE_PATH, SHERPA_USERNAME};
 use std::env;
 use std::path::Path;
 use std::sync::Arc;
@@ -137,6 +137,7 @@ impl AppState {
 
         let admin_password = env::var(SHERPA_ADMIN_PASSWORD_ENV).ok();
         ensure_admin_account(&db, admin_password.as_deref()).await?;
+        warn_on_sherpa_logins(&db).await?;
 
         secure_storage();
 
@@ -205,6 +206,27 @@ pub async fn ensure_admin_account(db: &db::Database, admin_password: Option<&str
         tracing::debug!("Admin account exists");
     }
     Ok(())
+}
+
+/// Warn, once at startup, when nodes built before 0.7.0 still log in as `sherpa`: they have the
+/// published password and their lab's key until they are redeployed. Returns how many there are.
+///
+/// # Errors
+///
+/// Fails when the database cannot be read.
+#[instrument(skip(db))]
+pub async fn warn_on_sherpa_logins(db: &db::Database) -> Result<usize> {
+    let count = db::count_nodes_by_ssh_username(db, SHERPA_USERNAME)
+        .await
+        .context("Failed to count nodes that log in as sherpa")?;
+    if count > 0 {
+        tracing::warn!(
+            count,
+            "{count} lab nodes built before 0.7.0 still log in as '{SHERPA_USERNAME}' with its \
+             published password. Redeploy or recreate them to give them their owner's login"
+        );
+    }
+    Ok(count)
 }
 
 #[cfg(test)]
@@ -301,5 +323,12 @@ mod tests {
                 panic!("expected an active requester, got {other:?}")
             }
         }
+    }
+
+    #[tokio::test]
+    async fn a_database_without_sherpa_logins_has_nothing_to_warn_about() {
+        let db = db::open_in_memory().await.expect("open database");
+        db::apply_schema(&db).await.expect("apply schema");
+        assert_eq!(warn_on_sherpa_logins(&db).await.expect("count"), 0);
     }
 }

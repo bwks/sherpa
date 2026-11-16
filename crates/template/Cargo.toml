@@ -13,6 +13,10 @@ serde = { workspace = true }
 serde_derive = { workspace = true }
 serde_json = { workspace = true }
 
+# Password hashes
+rand = { workspace = true }
+sha-crypt = { workspace = true }
+
 # IP Addressing
 ipnet = { workspace = true }
 

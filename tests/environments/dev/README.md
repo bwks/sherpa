@@ -28,7 +28,7 @@ updating the link.
 | Setting | Value |
 |---|---|
 | Image | `ubuntu_linux` `24.04-20260926` (see [ubuntu-2404](../ubuntu-2404/README.md)) |
-| Login | the lab owner's account (`provision_current_user = true`), see [Login account](#login-account) |
+| Login | the lab owner's own account, with their device password, see [Login account](#login-account) |
 | vCPUs | 12, as 1 socket × 6 cores × 2 threads, `host-passthrough` |
 | Memory | 32 GiB, preferred on the VM's NUMA node |
 | Disk | 300 GiB full copy, virtio, `cache = "none"`, `io = "native"` |
@@ -36,8 +36,8 @@ updating the link.
 
 ## Login account
 
-The manifests set `provision_current_user = true`, so the node's login is the account of the
-host Sherpa user who brings the lab up, with that user's SSH key, and not `sherpa`. Its name is
+The node's login is the account of the host Sherpa user who brings the lab up (the lab owner),
+with that user's SSH keys and device password, and not `sherpa`. Its name is
 that Sherpa user's name: nothing in the repository names it. It has passwordless `sudo` and is in
 the `sherpa`, `docker`, `libvirt` and `kvm` groups, so the integration tests and the lab tooling
 run as it. Sherpa's SSH config for the lab, `sherpa ssh`, the SSH provisioner, the agent-bus
@@ -45,13 +45,14 @@ tasks and `seed-images.sh` all follow it.
 
 `sherpa` in the guest is the server's service account, as on any Sherpa install: a system uid,
 shell `nologin`, no home, no `sudo` and no SSH key. It owns `/opt/sherpa` and runs `sherpad`.
-cloud-init still makes a first-boot `sherpa` login on every node (uid 1000, with a home and
-`sudo`); setup deletes it before the install so that the installer creates the real one.
+Sherpa makes no `sherpa` login on a node, so the installer creates the real one. A guest built by
+an older Sherpa has a first-boot `sherpa` login (uid 1000, with a home and `sudo`); setup deletes
+it before the install.
 
 The lab must be brought up by a Sherpa user whose name can be a login on lab nodes. A reserved
-name such as `admin` gets no account and the node falls back to the `sherpa` login, and a user
-named `dev` would clash with the guest's own jump account (see step 14 below). Setup refuses
-both before it changes anything.
+name such as `admin` cannot start labs, and a user named `dev` would clash with the guest's own
+jump account (see step 14 below). Setup refuses a login named `dev` or `sherpa` before it changes
+anything.
 
 ## NUMA layout
 
@@ -93,9 +94,9 @@ It is safe to run again with `sherpa provision`. It:
 7. installs the [beautiful-rust](https://github.com/morganlinton/BeautifulRust) Claude Code
    plugin (the `rust-best-practices`, `rust-review` and `rust-port` skills) for the guest
    agents, from a clone pinned to one commit in `~/.local/share/claude-marketplaces/`;
-8. before the server is installed, while `/opt/sherpa` does not exist, deletes cloud-init's
-   first-boot `sherpa` account (uid 1000) with its home and its line in
-   `/etc/sudoers.d/90-cloud-init-users`, checking the changed file with `visudo` before it
+8. before the server is installed, while `/opt/sherpa` does not exist, deletes the first-boot
+   `sherpa` account (uid 1000) that a guest built by an older Sherpa has, with its home and its
+   line in `/etc/sudoers.d/90-cloud-init-users`, checking the changed file with `visudo` before it
    replaces the old one. It never touches an installed server;
 9. installs a Sherpa server with the checkout's `scripts/sherpa_install.sh`, which creates the
    `sherpa` service account and adds the login to the `sherpa` group;
@@ -171,11 +172,14 @@ mkdir -p ~/labs/sherpa-dev
 cd ~/labs/sherpa-dev
 ln -s <repo>/tests/environments/dev/manifest.toml manifest.toml
 ln -s <repo>/tests/environments/dev/provision provision
+sherpa server user device-password
 sherpa up
 ```
 
-For agent-2, the same in `~/labs/sherpa-agent-2` with `tests/environments/agent`. Run `sherpa up`
-with the variables from [Secrets](#secrets) in its environment. A manifest cannot point at
+`sherpa up` is refused until the lab owner has set a device password, the password of their login
+on the node. `sherpa server user device-password` asks for the Sherpa login password, then the
+device password twice; set it once, not for each lab. For agent-2, the same in
+`~/labs/sherpa-agent-2` with `tests/environments/agent`. Run `sherpa up` with the variables from [Secrets](#secrets) in its environment. A manifest cannot point at
 another directory's provisioning and still be brought up elsewhere: the CLI resolves relative
 paths from the directory `sherpa up` runs in, so the links are what every layout shares.
 

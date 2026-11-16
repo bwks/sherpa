@@ -23,17 +23,16 @@ use super::readiness::{NodesReady, ReadinessInputs, wait_for_nodes};
 use super::records::{NodeRecords, create_node_records, store_ssh_usernames};
 use super::runtime::{create_unikernels, create_vms};
 use super::services::{LabServices, ServiceInputs, start_lab_services};
-use super::ssh::lab_private_key;
 use super::ztp::{ConfigInputs, NodeConfigs, configure_nodes, start_boot_container};
 use crate::auth::context::AuthContext;
 use crate::auth::policy::{require_host_access, require_lab_starter};
 use crate::daemon::state::AppState;
 use crate::services::clean;
-use crate::services::guest_account;
+use crate::services::guest_account::{self, GuestAccount};
 use crate::services::lab_definition;
 use crate::services::lab_lifecycle;
 use crate::services::lab_operations::{self, LabHold, LabOperation, StopReason};
-use crate::services::lab_ssh_key::{LabSshKeyPaths, create_lab_ssh_key};
+use crate::services::lab_ssh_key::create_lab_ssh_key;
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
 use crate::services::ssh_config::{self, LabSshFiles};
@@ -53,7 +52,8 @@ use topology::validate::{check_client_read_files, check_lab_description};
 /// every node image, and the lab's reservation.
 struct Setup {
     qemu_conn: Arc<QemuConnection>,
-    db_user: data::DbUser,
+    /// The owner's login on the lab's nodes, with their device password.
+    owner_account: GuestAccount,
     node_images: Vec<data::NodeConfig>,
     reserved: ReservedLab,
 }
@@ -81,12 +81,11 @@ struct LabUp<'a> {
     errors: Vec<data::UpError>,
 }
 
-/// The lab's management network and what was made on it, and the lab's SSH key with the
-/// sherpa account that logs in with it (phase 4).
+/// The lab's management network and what was made on it, and the lab's SSH key (phase 4).
 struct LabNetwork {
     lab_info: data::LabInfo,
-    ssh_key: LabSshKeyPaths,
-    sherpa_user: data::User,
+    /// The lab key's public half, which `MikroTik`'s config disk still carries.
+    lab_public_key: data::SshPublicKey,
     mgmt_net: data::SherpaNetwork,
     dns: data::Dns,
     tailnet_status: Option<TailnetStatus>,
@@ -105,7 +104,6 @@ struct BuiltNodes {
 struct StartedNodes {
     nodes: Vec<data::NodeInfo>,
     ssh_files: LabSshFiles,
-    ssh_private_key: String,
     clusters: Vec<data::ClusterInfo>,
     keycloaks: Vec<data::KeycloakInfo>,
     vaults: Vec<data::VaultInfo>,
@@ -168,7 +166,7 @@ pub async fn up_lab(
     let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
     let Setup {
         qemu_conn,
-        db_user,
+        owner_account: owner,
         node_images,
         reserved,
     } = set_up(
@@ -199,7 +197,7 @@ pub async fn up_lab(
         config: &state.config,
         progress: &progress,
     };
-    let mut plan = validate(&build, ctx, &operation, &manifest, &db_user, node_images).await?;
+    let mut plan = validate(&build, ctx, &operation, &manifest, owner, node_images).await?;
     // Held until `up` returns: the containers start during readiness polling.
     let _container_image_guards = mem::take(&mut plan.container_image_guards);
 
@@ -239,10 +237,10 @@ async fn validate(
     requester: &AuthContext,
     operation: &LabOperation,
     manifest: &topology::Manifest,
-    db_user: &data::DbUser,
+    owner_account: GuestAccount,
     node_images: Vec<data::NodeConfig>,
 ) -> Result<LabPlan> {
-    let planned = plan_lab(build, requester, manifest, db_user, node_images)
+    let planned = plan_lab(build, requester, manifest, owner_account, node_images)
         .await
         .and_then(|plan| {
             ensure_no_earlier_attempt(build.qemu_conn, build.lab_id, &plan.selected_images)?;
@@ -295,8 +293,9 @@ fn check_up_request(
     })
 }
 
-/// Setup (phase 1): load the owner, refuse a lab ID already in use, check the owner has an SSH
-/// key, connect to libvirt, load every node image, then reserve the lab.
+/// Setup (phase 1): load the owner, refuse a lab ID already in use, resolve the owner's login on
+/// lab nodes, which needs an SSH key, a device password and a name nodes can take, connect to
+/// libvirt, load every node image, then reserve the lab.
 ///
 /// The lab ID is checked before libvirt or the host is touched, so a second `up` of a lab fails
 /// fast with the same answer on any host. The reservation checks it again: two `up`s of one lab
@@ -330,6 +329,8 @@ async fn set_up(
         ));
     }
     guest_account::require_ssh_key(&db_user)?;
+    let device_password = guest_account::require_device_password(&state.db, &db_user).await?;
+    let owner_account = guest_account::from_user(&db_user, device_password)?;
 
     let qemu_conn = Arc::new(
         state
@@ -362,7 +363,7 @@ async fn set_up(
 
     Ok(Setup {
         qemu_conn,
-        db_user,
+        owner_account,
         node_images,
         reserved,
     })
@@ -502,8 +503,8 @@ impl LabUp<'_> {
         )
         .await?;
         let ssh_key = create_lab_ssh_key(self.build.lab_dir)?;
-        let sherpa_user =
-            util::sherpa_user(&ssh_key.public).context("Failed to get sherpa user")?;
+        let lab_public_key = util::get_ssh_public_key(&ssh_key.public)
+            .context("Failed to read the lab's SSH public key")?;
         let _ = self
             .build
             .progress
@@ -541,8 +542,7 @@ impl LabUp<'_> {
         self.phase_done("LabNetworkSetup");
         Ok(LabNetwork {
             lab_info,
-            ssh_key,
-            sherpa_user,
+            lab_public_key,
             mgmt_net,
             dns,
             tailnet_status,
@@ -636,8 +636,8 @@ impl LabUp<'_> {
                 mgmt_net: &network.mgmt_net,
                 dns: &network.dns,
                 subnets: &records.subnets,
-                sherpa_user: &network.sherpa_user,
-                personal_account: self.plan.personal_account.as_ref(),
+                lab_public_key: &network.lab_public_key,
+                owner_account: &self.plan.owner_account,
                 talos_clusters: self.manifest.talos_clusters.as_deref().unwrap_or_default(),
             },
             &mut records.container_nodes,
@@ -711,9 +711,9 @@ impl LabUp<'_> {
         })
     }
 
-    /// Check whether the SSH config takes the lab key (phase 12), start the containers and
-    /// wait for every node (phase 13), build the SSH files with the nodes' host keys from the
-    /// database, and start the lab's services.
+    /// Prepare the containers' data networks (phase 12), start the containers and wait for
+    /// every node (phase 13), build the SSH files with the nodes' host keys from the database,
+    /// and start the lab's services.
     async fn start_nodes(
         &mut self,
         records: &NodeRecords,
@@ -725,13 +725,6 @@ impl LabUp<'_> {
         self.start_phase(
             data::UpPhase::SshConfig,
             "Generating SSH config".to_string(),
-        )?;
-        let ssh_private_key = lab_private_key(
-            self.build.progress,
-            self.build.config.server_ipv4,
-            &built.ztp_records,
-            &network.lab_info,
-            &network.ssh_key,
         )?;
         let container_link_networks = container_data_attachments(
             self.build.lab_id,
@@ -810,7 +803,6 @@ impl LabUp<'_> {
         Ok(StartedNodes {
             nodes,
             ssh_files,
-            ssh_private_key,
             clusters,
             keycloaks,
             vaults,
@@ -868,7 +860,8 @@ impl LabUp<'_> {
             errors: self.errors.clone(),
             ssh_config: started.ssh_files.ssh_config,
             known_hosts: started.ssh_files.known_hosts,
-            ssh_private_key: started.ssh_private_key,
+            // No node logs in with the lab's key any more, so it is not sent.
+            ssh_private_key: String::new(),
             clusters: started.clusters,
             lab_ca: built.lab_ca.pair.cert.clone(),
             vaults: started.vaults,

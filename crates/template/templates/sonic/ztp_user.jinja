@@ -1,19 +1,8 @@
 #!/bin/bash
 
-/usr/sbin/useradd {{ user.username }}
-{% if let Some(password) = user.password %}/usr/bin/echo "{{ user.username }}:{{ password }}" | chpasswd{% endif %}
-/usr/bin/mkdir -p /home/{{ user.username }}/.ssh
-/usr/bin/echo '{{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}' >/home/{{ user.username }}/.ssh/authorized_keys
-/usr/bin/chmod 700 /home/{{ user.username }}/.ssh
-/usr/bin/chmod 600 /home/{{ user.username }}/.ssh/authorized_keys
-/usr/bin/chown -R {{ user.username }}:{{ user.username }} /home/{{ user.username }}
-/usr/sbin/usermod -s /bin/bash {{ user.username }}
-{% if user.sudo %}
-/usr/sbin/usermod -aG sudo,admin,docker {{ user.username }}
-{% endif %}
-{%- if let Some(owner) = owner %}
-# The owner logs in by key only: useradd leaves the password locked.
+# The owner logs in by key, or with their device password, set from its SHA-512-crypt hash.
 /usr/sbin/useradd -m -s /bin/bash -G sudo,admin,docker {{ owner.username }}
+/usr/bin/echo '{{ owner.username }}:{{ owner.password }}' | /usr/sbin/chpasswd -e
 /usr/bin/mkdir -p /home/{{ owner.username }}/.ssh
 /usr/bin/cat >/home/{{ owner.username }}/.ssh/authorized_keys <<'SHERPA_KEYS'
 {%- for key in owner.ssh_keys %}
@@ -25,6 +14,5 @@ SHERPA_KEYS
 /usr/bin/chown -R {{ owner.username }}:{{ owner.username }} /home/{{ owner.username }}
 /usr/bin/echo '{{ owner.username }} ALL=(ALL) NOPASSWD: ALL' >/etc/sudoers.d/{{ owner.username }}
 /usr/bin/chmod 440 /etc/sudoers.d/{{ owner.username }}
-{% endif %}
 
 exit 0

@@ -81,7 +81,6 @@ pub async fn store_lab_definition(
         definition::UPDATE_LAB.bind([
             lab_key.as_str().into(),
             ready_timeout.into(),
-            manifest.provision_current_user.into(),
             manifest.provision_concurrency.into(),
             tailscale.map(|tailscale| tailscale.enabled).into(),
             tailscale
@@ -126,8 +125,7 @@ pub async fn store_lab_definition(
 
 /// Store what a redeploy of `node_name` from `manifest`, a manifest as written, changes in the
 /// definition of the lab `lab_id`: the node's parameters, replacing its old ones, and the
-/// lab-level settings the redeploy applies, `ready_timeout`, `provision_current_user` and
-/// `provision_concurrency`. The lab's links, bridges, Talos clusters, Tailscale and ZTP server
+/// lab-level settings the redeploy applies, `ready_timeout` and `provision_concurrency`. The lab's links, bridges, Talos clusters, Tailscale and ZTP server
 /// settings are what `up` built, and a redeploy does not change them. One transaction.
 ///
 /// # Errors
@@ -165,7 +163,6 @@ pub async fn store_redeployed_node(
         definition::UPDATE_LAB_SETTINGS.bind([
             lab_key.as_str().into(),
             ready_timeout.into(),
-            manifest.provision_current_user.into(),
             manifest.provision_concurrency.into(),
         ]),
     )

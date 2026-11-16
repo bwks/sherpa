@@ -2,7 +2,7 @@
 #
 # Builds the Sherpa dev server: toolchains, the sherpa and sherpa-docs checkouts, and a Sherpa
 # server installed with the checkout's own installer. Runs as the node's login user, the account
-# of the Sherpa user who owns the lab (`provision_current_user = true`), through the SSH
+# of the Sherpa user who owns the lab, through the SSH
 # provisioner; safe to run again with `sherpa provision`. Both dev servers, dev and agent-2, run
 # every step.
 
@@ -180,17 +180,16 @@ configure_claude_attribution() {
 }
 
 # Stops before any change when the login is the wrong account. A login `sherpa` means the owner
-# got no account of their own (a reserved name such as `admin`, or a manifest without
-# `provision_current_user`) or the guest was built before the login moved off `sherpa`; it must
-# be rebuilt. A login named like the server's own Sherpa user would lose its authorized_keys to
+# got no account of their own, or the guest was built before the login moved off `sherpa`; it
+# must be rebuilt. A login named like the server's own Sherpa user would lose its authorized_keys to
 # allow_lab_jump.
 check_login() {
     local login
     login="$(id -un)"
     if [ "${login}" = "${SERVICE_ACCOUNT}" ]; then
         echo "The login is ${SERVICE_ACCOUNT}, which must be the server's no-login service account." >&2
-        echo "Bring the lab up with provision_current_user = true, as a Sherpa user whose name can be a" >&2
-        echo "login on lab nodes; a guest built with the ${SERVICE_ACCOUNT} login must be destroyed and rebuilt." >&2
+        echo "Bring the lab up as a Sherpa user whose name can be a login on lab nodes, with a device" >&2
+        echo "password set; a guest built with the ${SERVICE_ACCOUNT} login must be destroyed and rebuilt." >&2
         exit 1
     fi
     if [ "${login}" = "${SHERPA_ACCOUNT}" ]; then
@@ -200,8 +199,8 @@ check_login() {
     fi
 }
 
-# Removes the first-boot `sherpa` account that cloud-init makes on every node (uid 1000, a home,
-# sudo), so the installer creates the real service account. Only before the server is installed:
+# Removes the first-boot `sherpa` account that a node built by an older Sherpa has (uid 1000, a
+# home, sudo), so the installer creates the real service account. Only before the server is installed:
 # with /opt/sherpa present, or `sherpa` already a system account, it does nothing.
 retire_login_sherpa() {
     if [ -e "${SHERPA_BASE}" ] || ! id -u "${SERVICE_ACCOUNT}" >/dev/null 2>&1 || \

@@ -3,7 +3,7 @@ use reqwest::{Client, Response, StatusCode, header};
 use serde_json::{Value, json};
 use shared::data::{DbUser, LabPhase};
 use shared::error::RpcErrorCode;
-use shared::konst::SSH_KEYS_DOCS_URL;
+use shared::konst::{DEVICE_PASSWORD_DOCS_URL, SSH_KEYS_DOCS_URL};
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 use std::time::Duration;
 
@@ -600,6 +600,94 @@ async fn starting_a_lab_requires_a_registered_ssh_key() -> Result<()> {
     ensure!(
         db::find_lab(&server.db, &lab_id).await?.is_none(),
         "a refused up created a lab record"
+    );
+    Ok(())
+}
+
+/// An Ed25519 public key, for owners who must have one to start labs.
+const OWNER_KEY: &str =
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh";
+
+/// The user `username` with `OWNER_KEY` and no device password, logged in. Returns the user and
+/// their token.
+async fn keyed_owner_without_device_password(
+    server: &TestServer,
+    ws: &mut TestWsClient,
+    username: &str,
+) -> Result<(DbUser, String)> {
+    let user = db::create_user(
+        &server.db,
+        username.to_owned(),
+        TEST_ADMIN_PASSWORD,
+        false,
+        vec![OWNER_KEY.to_owned()],
+    )
+    .await?;
+    let token = ws.login(username, TEST_ADMIN_PASSWORD).await?;
+    Ok((user, token))
+}
+
+/// Whether `response` refused the request for want of a device password, saying how to set one.
+fn refused_for_the_device_password(response: &Value, username: &str) -> bool {
+    let context = response["error"]["context"].as_str().unwrap_or_default();
+    context.contains(&format!(
+        "User '{username}' has no device password, and labs need one"
+    )) && context.contains("sherpa server user device-password")
+        && context.contains(DEVICE_PASSWORD_DOCS_URL)
+}
+
+#[tokio::test]
+#[ignore = "requires libvirt"]
+async fn starting_a_lab_requires_a_device_password() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let (_, token) = keyed_owner_without_device_password(&server, &mut ws, "erin").await?;
+    let lab_id = format!("{:08x}", rand::random::<u32>());
+    let manifest = json!({ "name": "no-device-password-lab", "nodes": [] });
+
+    let (statuses, response) = ws
+        .rpc_call_streaming(
+            "up",
+            json!({ "token": token, "lab_id": lab_id, "manifest": manifest }),
+            RPC_TIMEOUT,
+        )
+        .await?;
+    ensure!(
+        refused_for_the_device_password(&response, "erin"),
+        "up without a device password was not refused with guidance: {response} {statuses:?}"
+    );
+    ensure!(
+        db::find_lab(&server.db, &lab_id).await?.is_none(),
+        "a refused up created a lab record"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn redeploying_a_node_requires_a_device_password() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let (owner, token) = keyed_owner_without_device_password(&server, &mut ws, "erin").await?;
+    let lab_id = seed_lab(&server, &owner, 9).await?;
+    let manifest =
+        json!({ "name": "auth-matrix", "nodes": [{ "name": "vm", "model": "ubuntu_linux" }] });
+
+    let (statuses, response) = ws
+        .rpc_call_streaming(
+            "redeploy",
+            json!({ "token": token, "lab_id": lab_id, "node_name": "vm", "manifest": manifest }),
+            RPC_TIMEOUT,
+        )
+        .await?;
+    let refused = refused_for_the_device_password(&response, "erin");
+    remove_lab(&server, &lab_id).await?;
+    ensure!(
+        refused,
+        "redeploy without a device password was not refused with guidance: {response}"
+    );
+    ensure!(
+        statuses.is_empty(),
+        "a redeploy refused for its device password streamed progress: {statuses:?}"
     );
     Ok(())
 }

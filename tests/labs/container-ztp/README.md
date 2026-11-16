@@ -16,14 +16,15 @@ The lab has no links.
 
 ## Requirements
 
-- Run on the Sherpa server, as a user who can use Docker. A node with ZTP off has no `sherpa`
-  login, and FRR with ZTP off has no SSH server, so the runner reads each node's container state
+- Run on the Sherpa server, as a user who can use Docker. A node with ZTP off has no login
+  for the lab owner, and FRR with ZTP off has no SSH server, so the runner reads each node's container state
   and mounts with `docker inspect`.
 - The node images above, pulled or imported with `sherpa server image pull` or
   `sherpa server image import`. The run fails early if one is missing. `arista_ceos` and
   `juniper_cevolved` are not in a public registry; on a server without them, run the other
   models with `--models`.
-- The `sherpa` CLI logged in, `ssh` and `ping`.
+- The `sherpa` CLI logged in, with a device password set (`sherpa server user device-password`)
+  and an SSH key registered, `ssh` and `ping`. The run stops early when the password is not set.
 - Internet access from the lab: the FRR node with ZTP on installs its SSH server at boot.
 
 ## Running
@@ -42,16 +43,16 @@ Each run logs every command and its output under
 
 - `sherpa validate` refuses `ztp.method = "cdrom"` on a container, naming the node and the settings its
   model takes, and accepts the lab's manifest;
-- a node with ZTP on has every config mount of its model and takes an SSH login as `sherpa`
-  through the lab's SSH config;
-- a node with ZTP off is running, has none of those mounts, and does not take an SSH login as
-  `sherpa`, for the reason its model has once it has booted. The run waits for the booted state
+- a node with ZTP on has every config mount of its model and takes the lab owner's SSH login
+  by key through the lab's SSH config, and refuses a login as `sherpa`;
+- a node with ZTP off is running, has none of those mounts, and does not take the lab owner's
+  SSH login, for the reason its model has once it has booted. The run waits for the booted state
   and fails if a login ever succeeds:
   - `srl02` and `ceos02` have no management address: SR Linux and cEOS as shipped never configure
     the address their container was given, so the SSH connection finds no route and the address
     does not answer a ping. While they boot the container still holds the address, and SR Linux's
     SSH server refuses the login there for about a minute; on cEOS nothing listens yet;
-  - `ptx02` answers a ping and its SSH server refuses `sherpa`: the cJunosEvolved entrypoint
+  - `ptx02` answers a ping and its SSH server refuses the owner: the cJunosEvolved entrypoint
     configures the address from the image's own config, which has an SSH server and only the
     image's `admin` user;
   - `frr02` answers a ping on its address and refuses the SSH connection, because nothing

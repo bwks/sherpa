@@ -10,21 +10,23 @@ use crate::helpers;
 // Expected configs
 // ============================================================================
 
-const EXPECTED_SONIC_USER: &str = r#"#!/bin/bash
+const EXPECTED_SONIC_USER: &str = r"#!/bin/bash
 
-/usr/sbin/useradd sherpa
-/usr/bin/echo "sherpa:Everest1953!" | chpasswd
-/usr/bin/mkdir -p /home/sherpa/.ssh
-/usr/bin/echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ' >/home/sherpa/.ssh/authorized_keys
-/usr/bin/chmod 700 /home/sherpa/.ssh
-/usr/bin/chmod 600 /home/sherpa/.ssh/authorized_keys
-/usr/bin/chown -R sherpa:sherpa /home/sherpa
-/usr/sbin/usermod -s /bin/bash sherpa
+# The owner logs in by key, or with their device password, set from its SHA-512-crypt hash.
+/usr/sbin/useradd -m -s /bin/bash -G sudo,admin,docker alice
+/usr/bin/echo 'alice:HASH' | /usr/sbin/chpasswd -e
+/usr/bin/mkdir -p /home/alice/.ssh
+/usr/bin/cat >/home/alice/.ssh/authorized_keys <<'SHERPA_KEYS'
+ssh-rsa OWNERKEY1
+ssh-ed25519 OWNERKEY2
+SHERPA_KEYS
+/usr/bin/chmod 700 /home/alice/.ssh
+/usr/bin/chmod 600 /home/alice/.ssh/authorized_keys
+/usr/bin/chown -R alice:alice /home/alice
+/usr/bin/echo 'alice ALL=(ALL) NOPASSWD: ALL' >/etc/sudoers.d/alice
+/usr/bin/chmod 440 /etc/sudoers.d/alice
 
-/usr/sbin/usermod -aG sudo,admin,docker sherpa
-
-
-exit 0"#;
+exit 0";
 
 // file_map() uses json!().to_string() which produces compact JSON.
 // HTTP_PORT=8080, NODE_CONFIGS_DIR="configs"
@@ -41,14 +43,40 @@ const EXPECTED_CONFIG_DHCP: &str = r#"{"AAA":{"authentication":{"login":"local"}
 // Tests
 // ============================================================================
 
+fn user_script(hash: &str) -> SonicLinuxUserTemplate {
+    SonicLinuxUserTemplate {
+        owner: helpers::test_owner(hash),
+    }
+}
+
 #[test]
 fn test_sonic_user_template() {
-    let t = SonicLinuxUserTemplate {
-        user: helpers::test_user(),
-        owner: None,
-    };
-    let output = t.render().expect("template renders");
-    assert_eq!(output, EXPECTED_SONIC_USER);
+    let hash = helpers::sha512_hash("abcdefghijklm!@_-+.");
+    let output = user_script(&hash).render().expect("template renders");
+    assert_eq!(output, EXPECTED_SONIC_USER.replace("HASH", &hash));
+}
+
+#[test]
+fn test_sonic_user_template_has_only_the_owner_account() {
+    let hash = helpers::sha512_hash("abcdefghijklm!@_-+.");
+    let output = user_script(&hash).render().expect("template renders");
+    assert_eq!(output.matches("useradd").count(), 1);
+    assert_eq!(output.matches("chpasswd").count(), 1);
+    assert_eq!(output.matches("/etc/sudoers.d/").count(), 2);
+    helpers::assert_no_sherpa_login(&output);
+}
+
+#[test]
+fn test_sonic_user_password_is_a_hash_that_verifies() {
+    for password in helpers::ALL_CHARACTER_PASSWORDS {
+        let hash = helpers::sha512_hash(password);
+        let output = user_script(&hash).render().expect("template renders");
+        let found = helpers::hash_after(&output, "alice:");
+        assert_eq!(found, hash);
+        helpers::assert_hash_verifies(&found, "$6$", password);
+        assert!(output.contains("| /usr/sbin/chpasswd -e\n"));
+        assert!(!output.contains(password));
+    }
 }
 
 #[test]

@@ -81,5 +81,5 @@
 **What to test:**
 - YAML #cloud-config output for Windows `[unit]` **P0**
 - Network config with static/DHCPv4 and optional DHCPv6 `[unit]` **P0**
-- Sherpa user created with SSH keys and groups `[unit]` **P0**
+- The lab owner's login created with their SSH keys, the Administrators group and their device password; no `sherpa` account and no published password `[unit]` **P0**
 - Write-files section rendered correctly `[unit]` **P1**

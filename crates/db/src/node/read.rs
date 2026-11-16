@@ -141,6 +141,22 @@ pub async fn count_nodes_by_lab(db: &Database, lab: RecordId) -> Result<usize> {
     .context("Failed to count nodes for lab")
 }
 
+/// The number of nodes, in every lab, whose recorded SSH login is `username`.
+///
+/// # Errors
+///
+/// Fails when the database cannot be read.
+#[instrument(skip(db), level = "debug")]
+pub async fn count_nodes_by_ssh_username(db: &Database, username: &str) -> Result<usize> {
+    let conn = db.reader().await?;
+    query_count(
+        &conn,
+        queries::node::COUNT_BY_SSH_USERNAME.bind([username.into()]),
+    )
+    .await
+    .context("Failed to count nodes by SSH login")
+}
+
 fn vnc_port_from_row(row: &Row) -> Result<u16> {
     Cells::new(row).integer("vnc_port")
 }

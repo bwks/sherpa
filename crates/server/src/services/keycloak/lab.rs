@@ -10,6 +10,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use rand::Rng;
+use rand::distributions::{Alphanumeric, DistString};
+use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tracing::instrument;
@@ -23,13 +26,14 @@ use shared::util::write_file_with_permissions;
 
 use super::api::KeycloakClient;
 use crate::konst::{KEYCLOAK_REALM, READINESS_SLEEP};
-use crate::services::guest_account::random_secret;
 use crate::services::progress::ProgressSender;
 
 /// Directory in the lab directory holding each Keycloak node's realm users.
 pub(crate) const KEYCLOAK_DIR: &str = "keycloak";
 /// Redirect addresses of the `kubectl oidc-login` plugin's browser login.
 const KUBELOGIN_REDIRECT_URIS: [&str; 2] = ["http://localhost:8000", "http://localhost:18000"];
+/// Length of the random password of the lab owner's Keycloak user.
+const OWNER_PASSWORD_LENGTH: usize = 20;
 
 /// A Keycloak node's realm users, saved as `<lab>/keycloak/<node>.toml`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,7 +92,7 @@ fn realm_credentials(
     if owner != SHERPA_USERNAME {
         users.push(KeycloakUser {
             username: owner.to_owned(),
-            password: random_secret(),
+            password: random_password(),
         });
     }
     let credentials = RealmCredentials {
@@ -253,6 +257,21 @@ pub fn read_keycloak_credentials(dir: &Path) -> Result<Vec<KeycloakInfo>> {
     }
     keycloaks.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(keycloaks)
+}
+
+/// A random password with lowercase and uppercase letters and digits, for the lab owner's
+/// Keycloak user.
+fn random_password() -> String {
+    let mut rng = rand::thread_rng();
+    let mut chars: Vec<char> = Alphanumeric
+        .sample_string(&mut rng, OWNER_PASSWORD_LENGTH - 3)
+        .chars()
+        .collect();
+    chars.push(rng.gen_range('a'..='z'));
+    chars.push(rng.gen_range('A'..='Z'));
+    chars.push(rng.gen_range('0'..='9'));
+    chars.shuffle(&mut rng);
+    chars.into_iter().collect()
 }
 
 #[cfg(test)]

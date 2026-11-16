@@ -64,8 +64,8 @@
 
 ---
 
-## Client-side absolute IdentityFile path
+## Client-side absolute known-hosts path
 
 **What to test:**
-- Client rewrites relative `IdentityFile sherpa_ssh_key` and `UserKnownHostsFile sherpa_known_hosts` to the absolute `.sherpa/ssh/key` and `.sherpa/ssh/known_hosts` before writing `.sherpa/ssh/config` `[unit]` **P0**
-- Server-side SSH config retains relative IdentityFile (not modified) `[unit]` **P1**
+- Client rewrites relative `UserKnownHostsFile sherpa_known_hosts` to the absolute `.sherpa/ssh/known_hosts` before writing `.sherpa/ssh/config`; the config has no `IdentityFile` or `IdentitiesOnly` line `[unit]` **P0**
+- `User` is the node's recorded login, else the lab owner's name; nodes built before 0.7.0 record `sherpa` `[unit]` **P0**

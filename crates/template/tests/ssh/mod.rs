@@ -12,10 +12,8 @@ const EXPECTED_SSH_CONFIG: &str = "
 Host 172.20.0.10 router1.abcd1234 router1.abcd1234.sherpa.lab.local
     HostName 172.20.0.10
     Port 22
-    User sherpa
-    ProxyJump sherpa@10.0.0.1
-    IdentityFile sherpa_ssh_key
-    IdentitiesOnly yes
+    User alice
+    ProxyJump alice@10.0.0.1
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
     PubkeyAcceptedAlgorithms +ssh-rsa
@@ -26,10 +24,8 @@ const EXPECTED_SSH_CONFIG_MULTI: &str = "
 Host 172.20.0.10 router1.abcd1234 router1.abcd1234.sherpa.lab.local
     HostName 172.20.0.10
     Port 22
-    User sherpa
-    ProxyJump sherpa@10.0.0.1
-    IdentityFile sherpa_ssh_key
-    IdentitiesOnly yes
+    User alice
+    ProxyJump alice@10.0.0.1
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
     PubkeyAcceptedAlgorithms +ssh-rsa
@@ -38,10 +34,8 @@ Host 172.20.0.10 router1.abcd1234 router1.abcd1234.sherpa.lab.local
 Host 172.20.0.11 switch1.abcd1234 switch1.abcd1234.sherpa.lab.local
     HostName 172.20.0.11
     Port 830
-    User sherpa
-    ProxyJump sherpa@10.0.0.1
-    IdentityFile sherpa_ssh_key
-    IdentitiesOnly yes
+    User alice
+    ProxyJump alice@10.0.0.1
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
     PubkeyAcceptedAlgorithms +ssh-rsa
@@ -57,13 +51,12 @@ fn test_ssh_config() {
     let t = SshConfigTemplate {
         hosts: vec![SshHostConfig {
             aliases: "172.20.0.10 router1.abcd1234 router1.abcd1234.sherpa.lab.local".to_string(),
-            username: "sherpa".to_owned(),
-            identity_file: Some("sherpa_ssh_key".to_owned()),
+            username: "alice".to_owned(),
             known_hosts_file: None,
             hostname: Ipv4Addr::new(172, 20, 0, 10),
             port: 22,
         }],
-        proxy_jump: "sherpa@10.0.0.1".to_string(),
+        proxy_jump: "alice@10.0.0.1".to_string(),
     };
     let output = t.render().expect("template renders");
     assert_eq!(output, EXPECTED_SSH_CONFIG);
@@ -76,8 +69,7 @@ fn test_ssh_config_multiple_hosts() {
             SshHostConfig {
                 aliases: "172.20.0.10 router1.abcd1234 router1.abcd1234.sherpa.lab.local"
                     .to_string(),
-                username: "sherpa".to_owned(),
-                identity_file: Some("sherpa_ssh_key".to_owned()),
+                username: "alice".to_owned(),
                 known_hosts_file: None,
                 hostname: Ipv4Addr::new(172, 20, 0, 10),
                 port: 22,
@@ -85,14 +77,13 @@ fn test_ssh_config_multiple_hosts() {
             SshHostConfig {
                 aliases: "172.20.0.11 switch1.abcd1234 switch1.abcd1234.sherpa.lab.local"
                     .to_string(),
-                username: "sherpa".to_owned(),
-                identity_file: Some("sherpa_ssh_key".to_owned()),
+                username: "alice".to_owned(),
                 known_hosts_file: None,
                 hostname: Ipv4Addr::new(172, 20, 0, 11),
                 port: 830,
             },
         ],
-        proxy_jump: "sherpa@10.0.0.1".to_string(),
+        proxy_jump: "alice@10.0.0.1".to_string(),
     };
     let output = t.render().expect("template renders");
     assert_eq!(output, EXPECTED_SSH_CONFIG_MULTI);
@@ -103,13 +94,12 @@ fn a_host_with_a_known_hosts_file_is_checked_strictly() {
     let t = SshConfigTemplate {
         hosts: vec![SshHostConfig {
             aliases: "172.20.0.10 router1.abcd1234 router1.abcd1234.sherpa.lab.local".to_string(),
-            username: "sherpa".to_owned(),
-            identity_file: Some("sherpa_ssh_key".to_owned()),
+            username: "alice".to_owned(),
             known_hosts_file: Some("sherpa_known_hosts".to_owned()),
             hostname: Ipv4Addr::new(172, 20, 0, 10),
             port: 22,
         }],
-        proxy_jump: "sherpa@10.0.0.1".to_string(),
+        proxy_jump: "alice@10.0.0.1".to_string(),
     };
     let output = t.render().expect("template renders");
     let expected = EXPECTED_SSH_CONFIG

@@ -6,7 +6,9 @@ use tokio::time::timeout;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
-use super::test_server::{TEST_ADMIN_PASSWORD, TEST_LAB_ADMIN, TEST_SSH_PUBLIC_KEY, TestServer};
+use super::test_server::{
+    TEST_ADMIN_PASSWORD, TEST_DEVICE_PASSWORD, TEST_LAB_ADMIN, TEST_SSH_PUBLIC_KEY, TestServer,
+};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -142,12 +144,13 @@ impl TestWsClient {
         self.login("admin", TEST_ADMIN_PASSWORD).await
     }
 
-    /// Create the personal admin account `labadmin`, with an SSH key, and log in as it.
+    /// Create the personal admin account `labadmin`, with an SSH key and a device password, and
+    /// log in as it.
     ///
     /// Tests that start labs use it: the built-in `admin` cannot start lab work.
     pub async fn login_lab_admin(&mut self, server: &TestServer) -> Result<String> {
         if db::find_user(&server.db, TEST_LAB_ADMIN).await?.is_none() {
-            db::create_user(
+            let user = db::create_user(
                 &server.db,
                 TEST_LAB_ADMIN.to_owned(),
                 TEST_ADMIN_PASSWORD,
@@ -155,6 +158,8 @@ impl TestWsClient {
                 vec![TEST_SSH_PUBLIC_KEY.to_owned()],
             )
             .await?;
+            db::set_device_password(&server.db, &db::get_user_id(&user)?, TEST_DEVICE_PASSWORD)
+                .await?;
         }
         self.login(TEST_LAB_ADMIN, TEST_ADMIN_PASSWORD).await
     }
