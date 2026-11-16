@@ -20,6 +20,25 @@ impl Kind {
         }
     }
 
+    /// The kind the record stores as `text`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `text` names no kind.
+    pub fn parse(text: &str) -> Result<Self> {
+        Ok(match text {
+            "task" => Self::Task,
+            "answer" => Self::Answer,
+            "progress" => Self::Progress,
+            "question" => Self::Question,
+            "completed" => Self::Completed,
+            "failed" => Self::Failed,
+            "cancel" => Self::Cancel,
+            "canceled" => Self::Canceled,
+            other => bail!("'{other}' is not a kind of message"),
+        })
+    }
+
     /// Whether the kind is one the agent working on a task sends: its progress, a question or
     /// an outcome. The others (a task, an answer, a cancel) go to that agent.
     pub fn sent_by_worker(self) -> bool {
@@ -71,10 +90,12 @@ mod tests {
     ];
 
     #[test]
-    fn a_kind_s_text_is_its_wire_name() {
+    fn a_kind_s_text_is_its_wire_name_and_reads_back() {
         for kind in ALL_KINDS {
             assert_eq!(serde_json::to_value(kind).unwrap(), kind.as_str());
+            assert_eq!(Kind::parse(kind.as_str()).unwrap(), kind);
         }
+        assert!(Kind::parse("note").is_err());
     }
 
     #[test]

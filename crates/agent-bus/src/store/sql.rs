@@ -58,6 +58,7 @@ pub const HOST_USAGE_ROWS: &str = include_str!("../../sql/queries/host_usage_row
 pub const HOST_SPANS: &str = include_str!("../../sql/queries/host_spans.sql");
 pub const HOST_RESPONSES: &str = include_str!("../../sql/queries/host_responses.sql");
 pub const TASK_WAITS: &str = include_str!("../../sql/queries/task_waits.sql");
+pub const HOST_TASK_MESSAGES: &str = include_str!("../../sql/queries/host_task_messages.sql");
 pub const HOST_TRANSCRIPTS: &str = include_str!("../../sql/queries/host_transcripts.sql");
 pub const HOST_TOTALS: &str = include_str!("../../sql/queries/host_totals.sql");
 pub const GENERATION_PRS: &str = include_str!("../../sql/queries/generation_prs.sql");
@@ -117,6 +118,7 @@ pub const QUERIES: &[(&str, &str)] = &[
     ("host_spans.sql", HOST_SPANS),
     ("host_responses.sql", HOST_RESPONSES),
     ("task_waits.sql", TASK_WAITS),
+    ("host_task_messages.sql", HOST_TASK_MESSAGES),
     ("host_transcripts.sql", HOST_TRANSCRIPTS),
     ("host_totals.sql", HOST_TOTALS),
     ("generation_prs.sql", GENERATION_PRS),
