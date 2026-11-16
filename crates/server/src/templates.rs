@@ -415,10 +415,7 @@ pub struct AdminImageDetailTemplate {
     pub is_admin: bool,
     pub nav: Nav,
     pub kind_badge: KindBadge,
-    /// The image, without its ZTP password: the page never shows it.
     pub config: NodeConfig,
-    /// Whether the image has a ZTP password.
-    pub ztp_password_set: bool,
 }
 
 /// One option of a form's list, built by the handler: the value posted, the text shown, and
@@ -437,10 +434,7 @@ pub struct AdminImageEditTemplate {
     pub username: String,
     pub is_admin: bool,
     pub nav: Nav,
-    /// The image, without its ZTP password: the form never sends it back.
     pub config: NodeConfig,
-    /// Whether the image has a ZTP password, which a blank password field keeps.
-    pub ztp_password_set: bool,
     pub kind_label: &'static str,
     pub os_variant_choices: Vec<FormChoice>,
     pub bios_choices: Vec<FormChoice>,
@@ -1369,7 +1363,6 @@ mod tests {
             is_admin: true,
             nav: NavPage::AdminImages.into(),
             kind_badge: KindBadge::full(config.kind.clone()),
-            ztp_password_set: config.ztp.password.is_some(),
             config,
         }
         .render()
@@ -1444,7 +1437,6 @@ mod tests {
                 nav: NavPage::AdminImages.into(),
                 kind_badge: KindBadge::full(kind.clone()),
                 config: config.clone(),
-                ztp_password_set: false,
             }
             .render()
             .expect("template should render");

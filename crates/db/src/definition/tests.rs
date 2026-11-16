@@ -410,9 +410,7 @@ async fn lab_in(db: &Database) -> DbLab {
     .into_iter()
     .enumerate()
     {
-        let mut image = NodeConfig::get_model(model);
-        image.ztp.password = None;
-        let image = upsert_node_image(&db, image, DefaultRequest::Keep)
+        let image = upsert_node_image(&db, NodeConfig::get_model(model), DefaultRequest::Keep)
             .await
             .unwrap();
         create_node(

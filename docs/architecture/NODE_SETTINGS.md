@@ -18,12 +18,17 @@ Every field is required, because an image says how its nodes are built.
 | `boot_disk` | `BootDiskSettings` | `bus` |
 | `cdrom` | `CdromSettings` | `image`, `bus` |
 | `interfaces` | `InterfaceSettings` | `data_count`, `kind`, `mtu`, `prefix`, `first_index`, `management`, `reserved_count` |
-| `ztp` | `ZtpSettings` | `method` (the `Ztp` enum; `disabled` is off), `username`, `password`, `password_auth` |
+| `ztp` | `ZtpSettings` | `method` (the `Ztp` enum; `disabled` is off) |
 | `unikernel` | `Option<UnikernelSettings>` | `boot_mode`; `None` for every other kind |
 
-`NodeConfig` and every group carry `#[serde(deny_unknown_fields)]`, so JSON with the flat names
-of releases before the grouping (`cpu_count`, `hdd_bus`, `ztp_username`) is refused, not read
-as defaults. There is no `#[serde(flatten)]` and no rename. The groups' doc comments are the
+`NodeConfig` and every group carry `#[serde(deny_unknown_fields)]` (in
+`crates/shared/src/data/node.rs`), so JSON with the flat names of releases before the grouping
+(`cpu_count`, `hdd_bus`, `ztp_username`) is refused, not read as defaults, and so is a `ztp`
+group that still carries `username`, `password` or `password_auth`, which 0.7.0 removed
+(schema version 26). serde's error names the field. No API takes a `NodeConfig` from a client:
+the web image editor posts an `ImageForm` and `image.import` an `ImportRequest`, and both deny
+unknown fields too, so a form or an import that sends a removed field is refused naming it, not
+saved without it. The editor shows the refusal as its notification. There is no `#[serde(flatten)]` and no rename. The groups' doc comments are the
 schema's descriptions.
 
 ### Base shapes

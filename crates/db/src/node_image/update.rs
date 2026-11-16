@@ -61,7 +61,7 @@ pub async fn update_node_image(
         ..config
     };
 
-    let updated = replace_node_image(db, &tx, &config, &key)
+    let updated = replace_node_image(&tx, &config, &key)
         .await?
         .ok_or_else(|| anyhow!("Node image not found for update: {id:?}"))?;
 

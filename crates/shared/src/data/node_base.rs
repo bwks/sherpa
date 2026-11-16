@@ -56,9 +56,6 @@ pub(super) fn cloud_init_vm(model: NodeModel) -> NodeConfig {
         },
         ztp: ZtpSettings {
             method: Ztp::CloudInit,
-            username: None,
-            password: None,
-            password_auth: false,
         },
         unikernel: None,
     }
@@ -101,12 +98,7 @@ pub(super) fn network_os_vm(
             bus: DiskBuses::Sata,
         },
         interfaces,
-        ztp: ZtpSettings {
-            method: Ztp::Cdrom,
-            username: None,
-            password: None,
-            password_auth: false,
-        },
+        ztp: ZtpSettings { method: Ztp::Cdrom },
         unikernel: None,
     }
 }
@@ -143,9 +135,6 @@ pub(super) fn app_container(model: NodeModel) -> NodeConfig {
         },
         ztp: ZtpSettings {
             method: Ztp::Disabled,
-            username: None,
-            password: None,
-            password_auth: false,
         },
         unikernel: None,
     }
@@ -180,9 +169,6 @@ pub(super) fn network_os_container(
         interfaces,
         ztp: ZtpSettings {
             method: Ztp::Volume,
-            username: None,
-            password: None,
-            password_auth: false,
         },
         unikernel: None,
     }
@@ -220,9 +206,6 @@ pub(super) fn unikernel(model: NodeModel) -> NodeConfig {
         },
         ztp: ZtpSettings {
             method: Ztp::Disabled,
-            username: None,
-            password: None,
-            password_auth: false,
         },
         unikernel: Some(UnikernelSettings {
             boot_mode: UnikernelBootMode::DirectKernel,

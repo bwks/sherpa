@@ -19,8 +19,6 @@ use shared::data::{
 };
 use shared::konst::{SHERPA_DB_KEY_CHARSET, SHERPA_DB_KEY_LENGTH};
 
-use crate::secret::SealedText;
-
 pub(crate) const USER_TABLE: &str = "user";
 pub(crate) const LAB_TABLE: &str = "lab";
 pub(crate) const NODE_TABLE: &str = "node";
@@ -518,9 +516,6 @@ pub(crate) fn node_image_from_row(row: &Row) -> Result<NodeConfig> {
     let hdd_bus = cells.enumeration("hdd_bus")?;
     let cdrom = cells.optional_text("cdrom")?;
     let cdrom_bus = cells.enumeration("cdrom_bus")?;
-    let ztp_username = cells.optional_text("ztp_username")?;
-    let ztp_password = cells.optional_text("ztp_password")?;
-    let ztp_password_auth = cells.boolean("ztp_password_auth")?;
     let interfaces = InterfaceSettings {
         data_count: cells.integer("data_interface_count")?,
         prefix: cells.text("interface_prefix")?,
@@ -558,23 +553,13 @@ pub(crate) fn node_image_from_row(row: &Row) -> Result<NodeConfig> {
             bus: cdrom_bus,
         },
         interfaces,
-        ztp: ZtpSettings {
-            method: ztp_method,
-            username: ztp_username,
-            password: ztp_password,
-            password_auth: ztp_password_auth,
-        },
+        ztp: ZtpSettings { method: ztp_method },
         unikernel: boot_mode.map(|boot_mode| UnikernelSettings { boot_mode }),
     })
 }
 
-/// A node image's column values in the `node_image` table's column order, under `key`, with its
-/// ZTP password as `password` sealed it: the column takes nothing else.
-pub(crate) fn node_image_values(
-    image: &NodeConfig,
-    key: &str,
-    password: Option<SealedText>,
-) -> Result<[Value; 29]> {
+/// A node image's column values in the `node_image` table's column order, under `key`.
+pub(crate) fn node_image_values(image: &NodeConfig, key: &str) -> Result<[Value; 26]> {
     Ok([
         key.into(),
         enum_text(&image.model, "model")?.into(),
@@ -592,9 +577,6 @@ pub(crate) fn node_image_values(
         enum_text(&image.boot_disk.bus, "hdd_bus")?.into(),
         image.cdrom.image.as_deref().into(),
         enum_text(&image.cdrom.bus, "cdrom_bus")?.into(),
-        image.ztp.username.as_deref().into(),
-        password.into(),
-        image.ztp.password_auth.into(),
         image.interfaces.data_count.into(),
         image.interfaces.prefix.as_str().into(),
         enum_text(&image.interfaces.kind, "interface_type")?.into(),

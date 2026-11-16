@@ -309,10 +309,7 @@ pub async fn show_image(
             println!("{}", serde_json::to_string_pretty(&response)?);
         }
         OutputFormat::Text => {
-            println!(
-                "\n{}",
-                render_image_detail_table(&response.image, response.ztp_password_set)
-            );
+            println!("\n{}", render_image_detail_table(&response.image));
         }
     }
 

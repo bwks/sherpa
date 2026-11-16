@@ -198,35 +198,6 @@
                         {% endfor %}
                     </select>
                 </div>
-
-                <!-- ZTP Password Auth -->
-                <div class="flex items-center">
-                    <input type="checkbox" id="ztp_password_auth" name="ztp_password_auth" {% if config.ztp.password_auth %}checked{% endif %} class="h-4 w-4 text-accent focus:ring-accent border-border-strong rounded">
-                    <label for="ztp_password_auth" class="ml-2 block text-sm font-medium text-body">Password Authentication</label>
-                </div>
-
-                <!-- ZTP Username -->
-                <div>
-                    <label for="ztp_username" class="block text-sm font-medium text-body mb-2">ZTP Username</label>
-                    {% match config.ztp.username %}
-                    {% when Some with (username_value) %}
-                    <input type="text" id="ztp_username" name="ztp_username" value="{{ username_value }}" class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
-                    {% when None %}
-                    <input type="text" id="ztp_username" name="ztp_username" value="" class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
-                    {% endmatch %}
-                </div>
-
-                <!-- ZTP Password -->
-                <div>
-                    <label for="ztp_password" class="block text-sm font-medium text-body mb-2">ZTP Password ({% if ztp_password_set %}set{% else %}not set{% endif %})</label>
-                    <input type="password" id="ztp_password" name="ztp_password" value="" autocomplete="new-password" placeholder="{% if ztp_password_set %}Leave blank to keep the current password{% else %}No password{% endif %}" class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
-                    {% if ztp_password_set %}
-                    <div class="flex items-center mt-2">
-                        <input type="checkbox" id="ztp_password_remove" name="ztp_password_remove" class="h-4 w-4 text-accent focus:ring-accent border-border-strong rounded">
-                        <label for="ztp_password_remove" class="ml-2 block text-sm text-body">Remove the password</label>
-                    </div>
-                    {% endif %}
-                </div>
             </div>
         </div>
 

@@ -129,8 +129,7 @@ flowchart TB
         jwt["load JWT secret, or generate it if missing<br/>(a new one written 0600 in a 0700 directory;<br/>a file of the wrong length stops startup)"] --> database["open the database file"] --> schema["apply DB schema"] --> dbkey["load the database key, or generate it if missing<br/>and the database has no key check<br/>(0600 in /opt/sherpa/.secret); verify_secret_key"] --> seed["optionally seed admin user"] --> storage["restrict lab and database storage<br/>(daemon::storage::secure_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
     end
     registry --> recover["services::lab_lifecycle::recover:<br/>labs left Creating become Interrupted,<br/>left Destroying become DestroyFailed,<br/>nodes left Building become Failed"]
-    recover --> sealimages["db::seal_plain_image_passwords:<br/>image passwords stored as plain text are sealed"]
-    sealimages --> cancel["create CancellationToken for background services"]
+    recover --> cancel["create CancellationToken for background services"]
     cancel --> scanner["if scanner enabled:<br/>spawn services::scanner::run_scanner(...)"]
     scanner --> sweeper["spawn auth::session::run_sweeper<br/>(deletes expired sessions at startup, then hourly)"]
     sweeper --> router
@@ -147,7 +146,7 @@ flowchart TB
     plain6 --> serveplain["serve with graceful shutdown future"]
 ```
 
-In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), warns about removed settings ([below](#removed-settings)), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), seals image passwords stored as plain text (`upgrade_stored_data`, [below](#stored-data-upgrade)), starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
+In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), warns about removed settings ([below](#removed-settings)), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
 
 #### Removed settings
 
@@ -172,13 +171,6 @@ records the check. A missing file for a database that has a check, a file of the
 and a key that does not open the check each stop startup with an error naming the problem; the
 file is never replaced. The key must be backed up alongside every `server.backup`, but
 separately from it: a backup never contains it.
-
-#### Stored data upgrade
-
-`upgrade_stored_data` runs once per start, after `recover`. `db::seal_plain_image_passwords`
-seals the image passwords releases before schema version 20 stored as plain text (see
-[`DATABASE.md`](DATABASE.md#secret-values)); a failure stops startup, so the server never serves
-while one is plain. A second start finds none and does nothing.
 
 #### Files older releases left in lab folders
 

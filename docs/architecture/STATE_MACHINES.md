@@ -1652,9 +1652,6 @@ image's), and each is one `match` with `Disabled` as a case.
 | Owner account | `guest_account::supports_guest_account` |
 | Plan-time checks | `server::validate::validate_node_ztp`, from `plan_lab` and redeploy's `load_node` |
 
-The `username`, `password` and `password_auth` fields are read only for display
-(`crates/shared/src/util/table.rs`).
-
 ```mermaid
 stateDiagram-v2
     [*] --> ModelDefault : get_model(model)
