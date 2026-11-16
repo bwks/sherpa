@@ -10,9 +10,9 @@ use std::path::PathBuf;
 use crate::daemon::state::AppState;
 
 use crate::api::errors::ApiError;
+use crate::konst::SHERPA_SERVER_CERT_PATH;
 
 use shared::api_spec;
-use shared::konst::SHERPA_SERVER_CERT_PATH;
 
 /// Health check endpoint
 ///

@@ -4,15 +4,6 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use shared::data::{self, TailnetAuthKey};
-use shared::konst::{
-    RPC_MSG_IMPAIRMENT_UPDATE_FAILED, RPC_MSG_INVALID_PARAMS_IMPAIRMENT,
-    RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_MANIFEST,
-    RPC_MSG_INVALID_PARAMS_NODE_HOST_KEYS, RPC_MSG_INVALID_PARAMS_NODE_SECRETS,
-    RPC_MSG_INVALID_PARAMS_REDEPLOY, RPC_MSG_INVALID_TAILSCALE_KEY, RPC_MSG_LAB_CANCEL_FAILED,
-    RPC_MSG_LAB_CLEAN_FAILED, RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED,
-    RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED,
-    RPC_MSG_NODE_HOST_KEYS_FAILED, RPC_MSG_NODE_SECRETS_FAILED, RPC_MSG_REDEPLOY_FAILED,
-};
 
 use super::dispatch::{parse, parse_quietly, respond};
 use crate::api::websocket::messages::RpcError;
@@ -23,6 +14,29 @@ use crate::services::{
     cancel, clean, destroy, down, download, host_keys, impairment, inspect, list_labs,
     node_secrets, redeploy, resume, up,
 };
+
+const RPC_MSG_LAB_INSPECT_FAILED: &str = "Inspect operation failed";
+const RPC_MSG_LAB_DESTROY_FAILED: &str = "Destroy operation failed";
+const RPC_MSG_LAB_CLEAN_FAILED: &str = "Clean operation failed";
+const RPC_MSG_LAB_UP_FAILED: &str = "Up operation failed";
+const RPC_MSG_LAB_DOWN_FAILED: &str = "Down operation failed";
+const RPC_MSG_LAB_CANCEL_FAILED: &str = "Stopping the lab's operations failed";
+const RPC_MSG_LAB_RESUME_FAILED: &str = "Resume operation failed";
+const RPC_MSG_NODE_SECRETS_FAILED: &str = "Writing the node's secret files failed";
+const RPC_MSG_NODE_HOST_KEYS_FAILED: &str = "Reading the node's SSH host key failed";
+const RPC_MSG_IMPAIRMENT_UPDATE_FAILED: &str = "Link impairment update failed";
+const RPC_MSG_INVALID_PARAMS_IMPAIRMENT: &str =
+    "Invalid params: expected lab_id, link_index, and token";
+const RPC_MSG_REDEPLOY_FAILED: &str = "Redeploy operation failed";
+const RPC_MSG_INVALID_PARAMS_REDEPLOY: &str =
+    "Invalid params: expected lab_id, node_name, manifest, and token";
+const RPC_MSG_INVALID_PARAMS_LAB_ID: &str = "Invalid params: 'lab_id' (string) is required";
+const RPC_MSG_INVALID_PARAMS_NODE_SECRETS: &str =
+    "Invalid params: expected lab_id, node_name, files, and token";
+const RPC_MSG_INVALID_PARAMS_NODE_HOST_KEYS: &str =
+    "Invalid params: expected lab_id, node_name, and token";
+const RPC_MSG_INVALID_PARAMS_MANIFEST: &str = "Invalid params: 'manifest' (object) is required";
+const RPC_MSG_INVALID_TAILSCALE_KEY: &str = "Invalid Tailscale credential field";
 
 const RPC_MSG_DOWNLOAD_FAILED: &str = "Failed to download lab files";
 const RPC_MSG_LABS_LIST_FAILED: &str = "Failed to list labs";

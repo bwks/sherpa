@@ -9,7 +9,7 @@ The writer is the `iso` crate, `crates/iso`: `create_iso` in `src/writer.rs` and
 with the Rock Ridge (RRIP 1.09, over SUSP) and Joliet extensions, in plain Rust with no ISO crate
 and no external command. It replaced a call to `genisoimage` and writes the same structure, so
 the server needs no ISO tooling. Its constants are private to `writer.rs`. The two volume labels
-callers pass in are in `crates/shared/src/konst.rs`.
+callers pass in are private to `server::services::node_ops`.
 
 The crate depends on nothing in Sherpa: only `jiff`, `thiserror` and `tracing`. `server` is its
 only dependent, so the `sherpa` CLI, which never builds an ISO, does not compile it.
@@ -560,7 +560,7 @@ OS that takes a config ISO, is recorded on issue #2.
 ## Changing the writer
 
 - **New caller:** depend on the `iso` crate, write the files into a directory and call
-  `create_iso` with a label. Add a label constant to `konst.rs` if it is new.
+  `create_iso` with a label. Add a label constant beside the caller if it is new.
 - **New refusal:** add an `IsoError` variant with the fields its message needs, and a test that
   matches it.
 - **New name rule:** change `identifier`; update the table in

@@ -5,14 +5,16 @@ use jiff::Timestamp;
 use tracing::instrument;
 
 use shared::data::BackupResponse;
-use shared::konst::{
-    SHERPA_DB_BACKUP_DIR_MODE, SHERPA_DB_BACKUP_EXTENSION, SHERPA_DB_BACKUP_PATH,
-    SHERPA_DB_BACKUP_PREFIX, SHERPA_DB_BACKUP_TIME_FORMAT,
-};
 
 use crate::auth::context::AuthContext;
 use crate::daemon::state::AppState;
 use crate::daemon::storage::restrict_dir;
+use crate::konst::{SHERPA_DB_BACKUP_DIR_MODE, SHERPA_DB_BACKUP_PATH};
+
+/// Backup files are named `<prefix><UTC time><extension>`.
+const SHERPA_DB_BACKUP_PREFIX: &str = "sherpa-";
+const SHERPA_DB_BACKUP_TIME_FORMAT: &str = "%Y%m%dT%H%M%SZ";
+const SHERPA_DB_BACKUP_EXTENSION: &str = ".sqlite";
 
 /// Copy the database to a new file in the server's backup directory while it stays in use.
 ///

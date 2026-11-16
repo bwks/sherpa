@@ -12,8 +12,10 @@ use super::veths::ContainerVeth;
 use crate::services::node_ops;
 
 use shared::data::LinkImpairment;
-use shared::konst::CONTAINER_MGMT_INTERFACE;
 use shared::util;
+
+/// A container's management interface, the one Docker attaches to the management network.
+const CONTAINER_MGMT_INTERFACE: &str = "eth0";
 
 /// One end of a link, as its carrier is read and set.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -175,8 +175,9 @@ fn delete_saved_lab_files(lab_dir: &Path, lab_id: &str) -> usize {
 mod tests {
     use std::path::PathBuf;
 
+    use crate::konst::LAB_CERTS_DIR;
     use shared::data::NodeModel;
-    use shared::konst::{LAB_CERTS_DIR, SHERPA_SSH_PRIVATE_KEY_FILE};
+    use shared::konst::SHERPA_SSH_PRIVATE_KEY_FILE;
 
     use crate::services::lab_definition::tests::lab_with;
 

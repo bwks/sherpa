@@ -6,10 +6,14 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use tracing::instrument;
 
-use shared::konst::{
-    SHERPA_LOG_DIR_MODE, SHERPA_LOG_PATH, SHERPA_RUN_PATH, SHERPAD_LOG_FILE_MODE,
-    SHERPAD_PID_FILE_PATH,
-};
+use crate::konst::SHERPAD_PID_FILE_PATH;
+
+const SHERPA_RUN_PATH: &str = "/opt/sherpa/run";
+const SHERPA_LOG_PATH: &str = "/opt/sherpa/logs";
+/// The log directory: `sherpa` and its group only.
+const SHERPA_LOG_DIR_MODE: u32 = 0o750;
+/// sherpad's log file, when it logs to a file: `sherpa` writes it, its group may read it.
+const SHERPAD_LOG_FILE_MODE: u32 = 0o640;
 
 /// The smallest PID a pidfile may hold. `kill` reads 0 as our own process group and negative
 /// values as other groups, and 1 is init.

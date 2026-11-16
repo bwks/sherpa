@@ -10,13 +10,6 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use shared::error::RpcErrorCode;
-use shared::konst::{
-    RPC_MSG_ADMIN_ONLY_BACKUP, RPC_MSG_ADMIN_ONLY_CLEAN, RPC_MSG_ADMIN_ONLY_CONTAINER_PULL,
-    RPC_MSG_ADMIN_ONLY_IMAGE_DELETE, RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD,
-    RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT, RPC_MSG_ADMIN_ONLY_IMAGE_SCAN,
-    RPC_MSG_ADMIN_ONLY_IMAGE_SET_DEFAULT, RPC_MSG_AUTH_REQUIRED, RPC_MSG_SERIALIZE_FAILED,
-    RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE, RPC_MSG_USER_ADMIN_ONLY_LIST,
-};
 
 use super::{auth, images, labs, server, users};
 use crate::api::websocket::connection::Connection;
@@ -26,6 +19,27 @@ use crate::auth::middleware;
 use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
 use crate::services::progress::ProgressSender;
+
+const RPC_MSG_AUTH_REQUIRED: &str = "Authentication required";
+const RPC_MSG_USER_ADMIN_ONLY_CREATE: &str = "Access denied: only administrators can create users";
+const RPC_MSG_USER_ADMIN_ONLY_LIST: &str = "Access denied: only administrators can list users";
+const RPC_MSG_USER_ADMIN_ONLY_DELETE: &str = "Access denied: only administrators can delete users";
+const RPC_MSG_ADMIN_ONLY_CLEAN: &str =
+    "Access denied: only administrators can run clean operations";
+const RPC_MSG_ADMIN_ONLY_BACKUP: &str =
+    "Access denied: only administrators can back up the database";
+const RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT: &str =
+    "Access denied: only administrators can import images";
+const RPC_MSG_ADMIN_ONLY_IMAGE_SCAN: &str = "Access denied: only administrators can scan images";
+const RPC_MSG_ADMIN_ONLY_IMAGE_DELETE: &str =
+    "Access denied: only administrators can delete images";
+const RPC_MSG_ADMIN_ONLY_IMAGE_SET_DEFAULT: &str =
+    "Access denied: only administrators can set the default image";
+const RPC_MSG_SERIALIZE_FAILED: &str = "Failed to serialize response";
+const RPC_MSG_ADMIN_ONLY_CONTAINER_PULL: &str =
+    "Access denied: only administrators can pull container images";
+const RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD: &str =
+    "Access denied: only administrators can download images";
 
 /// Every RPC method the server answers, who may call it, and whether it streams progress
 /// messages before its response.

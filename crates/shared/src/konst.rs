@@ -3,7 +3,6 @@ use std::ops::RangeInclusive;
 
 use ipnet::Ipv4Net;
 
-pub const SHERPA_BASE_DIR: &str = "/opt/sherpa";
 pub const SHERPA_CONFIG_FILE: &str = "sherpa.toml";
 pub const SHERPA_MANIFEST_FILE: &str = "manifest.toml";
 pub const SHERPA_CONFIG_DIR: &str = "config";
@@ -11,55 +10,24 @@ pub const SHERPA_SSH_DIR: &str = "ssh";
 pub const SHERPA_IMAGES_DIR: &str = "images";
 pub const SHERPA_CONTAINERS_DIR: &str = "containers";
 pub const SHERPA_BINS_DIR: &str = "bins";
-pub const SHERPA_BLANK_DISK_DIR: &str = "blank_disk";
-pub const SHERPA_BLANK_DISK_FAT32: &str = "fat32.img";
-pub const SHERPA_BLANK_DISK_IOSV: &str = "iosv.img";
-pub const SHERPA_BLANK_DISK_ISE: &str = "ise.img";
-pub const SHERPA_BLANK_DISK_JUNOS: &str = "junos.img";
-pub const SHERPA_BLANK_DISK_EXT4_500MB: &str = "ext4-500mb.img";
 pub const VM_DISK_FILENAME: &str = "virtioa.qcow2";
 pub const UNIKERNEL_KERNEL_FILENAME: &str = "kernel.elf";
 pub const UNIKERNEL_DISK_FILENAME: &str = "disk.qcow2";
 // ============================================================================
 // Full directory paths
 // ============================================================================
-pub const SHERPA_CONFIG_PATH: &str = "/opt/sherpa/config";
 pub const SHERPA_IMAGES_PATH: &str = "/opt/sherpa/images";
 pub const SHERPA_CONTAINERS_PATH: &str = "/opt/sherpa/containers";
 pub const SHERPA_BINS_PATH: &str = "/opt/sherpa/bins";
 pub const SHERPA_LABS_PATH: &str = "/opt/sherpa/labs";
-/// Lab directories hold node configs and user data: the `sherpa` user and group only.
-pub const SHERPA_LABS_DIR_MODE: u32 = 0o2750;
-pub const SHERPA_RUN_PATH: &str = "/opt/sherpa/run";
-pub const SHERPA_LOG_PATH: &str = "/opt/sherpa/logs";
-/// The log directory: `sherpa` and its group only.
-pub const SHERPA_LOG_DIR_MODE: u32 = 0o750;
-// ============================================================================
-// Full file paths
-// ============================================================================
-pub const SHERPA_CONFIG_FILE_PATH: &str = "/opt/sherpa/config/sherpa.toml";
-/// `sherpa.toml` can hold secrets: only `sherpa` may read it, whatever the umask of `init`.
-pub const SHERPA_CONFIG_FILE_MODE: u32 = 0o600;
-pub const SHERPAD_PID_FILE_PATH: &str = "/opt/sherpa/run/sherpad.pid";
-pub const SHERPAD_LOG_FILE_PATH: &str = "/opt/sherpa/logs/sherpad.log";
-/// sherpad's log file, when it logs to a file: `sherpa` writes it, its group may read it.
-pub const SHERPAD_LOG_FILE_MODE: u32 = 0o640;
-pub const SHERPA_SERVER_CERT_PATH: &str = "/opt/sherpa/.certs/server.crt";
-pub const SHERPA_SERVER_KEY_PATH: &str = "/opt/sherpa/.certs/server.key";
 
 pub const SHERPA_STORAGE_POOL: &str = "sherpa-pool";
 pub const SHERPA_STORAGE_POOL_PATH: &str = "/opt/sherpa/libvirt/images";
-/// The storage pool holds VM disks and ZTP media: `sherpa` and the QEMU group only.
-pub const SHERPA_STORAGE_POOL_DIR_MODE: u32 = 0o2750;
-/// Group the libvirt QEMU process runs in, which must reach the storage pool.
-pub const SHERPA_STORAGE_POOL_GROUP: &str = "kvm";
 /// Mode of storage pool volumes. libvirt hands them to the QEMU user while a VM runs.
 pub const STORAGE_VOLUME_MODE: &str = "0600";
 /// Mode of volumes QEMU opens itself from a raw argument (Flatcar's Ignition `-fw_cfg`),
 /// which libvirt does not hand over. The storage pool directory keeps them private.
 pub const STORAGE_VOLUME_QEMU_ARG_MODE: &str = "0644";
-pub const SHERPA_MANAGEMENT_NETWORK_NAME: &str = "sherpa-management";
-pub const SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX: &str = "brm";
 /// Default management network. Built with `new_assert`, so an invalid prefix fails the build.
 pub const SHERPA_MANAGEMENT_NETWORK_IPV4: Ipv4Net =
     Ipv4Net::new_assert(Ipv4Addr::new(172, 31, 0, 0), 16);
@@ -76,26 +44,15 @@ pub const MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS: RangeInclusive<u32> = 11..=20;
 /// Lab management host offsets for nodes and the DHCP range. Node `n` (1-based index) gets
 /// the offset `start + n - 1`.
 pub const MANAGEMENT_NODE_HOST_OFFSETS: RangeInclusive<u32> = 21..=254;
-pub const SHERPA_ISOLATED_NETWORK_NAME: &str = "sherpa-isolated";
-pub const SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX: &str = "bri";
-pub const SHERPA_RESERVED_NETWORK_NAME: &str = "sherpa-reserved";
-pub const SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX: &str = "brr";
-pub const SHERPA_BRIDGE_NETWORK_NAME: &str = "sherpa-bridge";
-pub const SHERPA_BRIDGE_NETWORK_BRIDGE: &str = "br-sherpa0";
 pub const SHERPA_USERNAME: &str = "sherpa";
 pub const ADMIN_USERNAME: &str = "admin";
 /// User documentation on generating and registering SSH keys, linked from errors.
 pub const SSH_KEYS_DOCS_URL: &str = "https://docs.sherpalabs.net/architecture/ssh-keys/";
 /// Where the Tailscale gateway docs are, for route approval and recovery.
 pub const TAILNET_DOCS_URL: &str = "https://docs.sherpalabs.net/architecture/networking/tailscale/";
-pub const SHERPA_ADMIN_PASSWORD_ENV: &str = "SHERPA_ADMIN_PASSWORD";
 /// The first user account for unattended `sherpad init`, and the account `sherpa login` uses.
 pub const SHERPA_USER_NAME_ENV: &str = "SHERPA_USER_NAME";
 pub const SHERPA_USER_PASSWORD_ENV: &str = "SHERPA_USER_PASSWORD";
-pub const SHERPA_USER_IS_ADMIN_ENV: &str = "SHERPA_USER_IS_ADMIN";
-pub const SHERPA_USER_SSH_KEY_ENV: &str = "SHERPA_USER_SSH_KEY";
-pub const ADMIN_LAB_START_MESSAGE: &str =
-    "the built-in admin account cannot start, resume or redeploy labs; use a personal account";
 pub const ADMIN_PROTECTED_MESSAGE: &str =
     "The built-in admin account cannot be deleted, renamed or lose administrator rights";
 pub const USERNAME_MIN_LENGTH: usize = 3;
@@ -160,12 +117,7 @@ pub const RESERVED_USERNAMES: &[&str] = &[
 /// Prefixes of reserved system account names.
 pub const RESERVED_USERNAME_PREFIXES: &[&str] = &["systemd-"];
 pub const SHERPA_PASSWORD: &str = "Everest1953!";
-pub const SHERPA_PASSWORD_HASH: &str = "$6$rounds=4096$amTfvavVzUSS6wQS$4jB1NvmLzRytnUjaVaMkw/JjD99eHj9OL2tLcnccQhV7Rw1rVQp8tZQMu4mi6y8NlwsRSSeEPZq44hVPu4tE7/";
-pub const SHERPA_PASSWORD_HASH_SHA256: &str =
-    "$5$mhhcowfq$qKK.CiKWZxuOfadgSyOawx6srN3knX4jRgfa8hZxcB0";
 pub const SHERPA_SSH_PRIVATE_KEY_FILE: &str = "sherpa_ssh_key";
-/// The public half of `SHERPA_SSH_PRIVATE_KEY_FILE`, in a lab folder.
-pub const SHERPA_SSH_PUBLIC_KEY_FILE: &str = "sherpa_ssh_key.pub";
 /// Mode of a lab's private key: only sherpad reads it.
 pub const LAB_SSH_PRIVATE_KEY_MODE: u32 = 0o600;
 pub const SHERPA_SSH_CONFIG_FILE: &str = "sherpa_ssh_config";
@@ -180,27 +132,9 @@ pub const LAB_FILE_NAME: &str = "lab-info.toml";
 /// see `util::LabFolder`.
 pub const LAB_STATE_DIR: &str = ".sherpa";
 pub const BRIDGE_PREFIX: &str = "br";
-pub const TAP_PREFIX: &str = "tp";
-/// Host side of a P2p container's private bridge member veth; it joins the bridge.
-pub const BRIDGE_MEMBER_HOST_VETH_PREFIX: &str = "cb";
-/// Prefix of the host end of a veth created into a P2p container's network namespace.
-pub const CONTAINER_HOST_VETH_PREFIX: &str = "cd";
 
-/// Directory of Sherpa's embedded database and its backups.
-pub const SHERPA_DB_PATH: &str = "/opt/sherpa/db";
 /// Sherpa's embedded database file.
 pub const SHERPA_DB_FILE_PATH: &str = "/opt/sherpa/db/sherpa.sqlite";
-/// Where database backups taken by the server are written.
-pub const SHERPA_DB_BACKUP_PATH: &str = "/opt/sherpa/db/backups";
-/// The database directory: `sherpa` and its group only, so no other server user can open the
-/// database or its backups, whatever their file modes.
-pub const SHERPA_DB_DIR_MODE: u32 = 0o750;
-/// The backup directory: `sherpa` only. A backup is written before its file is restricted.
-pub const SHERPA_DB_BACKUP_DIR_MODE: u32 = 0o700;
-/// Backup files are named `<prefix><UTC time><extension>`.
-pub const SHERPA_DB_BACKUP_PREFIX: &str = "sherpa-";
-pub const SHERPA_DB_BACKUP_TIME_FORMAT: &str = "%Y%m%dT%H%M%SZ";
-pub const SHERPA_DB_BACKUP_EXTENSION: &str = ".sqlite";
 /// Opens a database that lives only in memory, for tests.
 pub const SHERPA_DB_MEMORY: &str = ":memory:";
 /// The database and its backups hold password hashes: only sherpad's user may read them.
@@ -214,27 +148,14 @@ pub const SHERPA_DB_KEY_LENGTH: usize = 20;
 pub const SHERPA_DB_KEY_CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
 pub const SHERPA_SERVER_WS_PORT: u16 = 3030;
 pub const SHERPA_SERVER_HTTP_PORT: u16 = 3031;
-pub const SHERPA_SERVER_IPV4: &str = "0.0.0.0";
-
-pub const SHERPA_LOOPBACK_PREFIX: &str = "127.127.0.0/16";
-
-pub const SHERPA_MANAGEMENT_NETWORK_IPV6: &str = "fd00:b00b::/48";
-pub const SHERPA_LOOPBACK_PREFIX_IPV6: &str = "fd00:1001::/48";
 
 pub const QEMU_BIN: &str = "/usr/bin/qemu-system-x86_64";
 pub const QEMU_URI: &str = "qemu:///system";
 pub const SSH_PORT: u16 = 22;
 /// Talos Linux API (apid) port, used for readiness and bootstrap.
 pub const TALOS_API_PORT: u16 = 50000;
-/// Talos Linux minor version Sherpa generates cluster machine configs for.
-pub const TALOS_SUPPORTED_MINOR_VERSION: &str = "1.14";
 /// Kubernetes version of the generated Talos cluster configs (Talos 1.14 default).
 pub const TALOS_KUBERNETES_VERSION: &str = "1.37.1";
-/// Talos Image Factory base URL for downloading Talos Linux images.
-pub const TALOS_IMAGE_FACTORY_URL: &str = "https://factory.talos.dev";
-/// Image Factory schematic for vanilla Talos Linux (no system extensions). The factory
-/// returns its ID when it is posted to `/schematics`.
-pub const TALOS_VANILLA_SCHEMATIC_YAML: &str = "customization: {}\n";
 /// Kubernetes API port of a Talos cluster.
 pub const KUBERNETES_API_PORT: u16 = 6443;
 /// Host offsets for Talos cluster shared (VIP) addresses, within the lab control-plane block.
@@ -255,18 +176,10 @@ pub const CONSOLE_CONNECT_TIMEOUT: u64 = 10;
 /// Seconds a node's console may stay silent once connected before `sherpa console` reports it
 /// in use. QEMU negotiates at once with the client it serves and says nothing to a second one.
 pub const CONSOLE_NEGOTIATION_TIMEOUT: u64 = 3;
-/// Server ports reserved for VM VNC consoles, one per VM for its life.
-pub const VNC_PORT_FIRST: u16 = 5900;
-pub const VNC_PORT_LAST: u16 = 6999;
-/// Attempts to reserve a VNC port when concurrent labs take the same one.
-pub const VNC_PORT_ALLOCATION_ATTEMPTS: u32 = 10;
 pub const HTTP_PORT: u16 = 8080;
 pub const KVM_OUI: &str = "52:54:00";
 pub const BOOT_SERVER_NAME: &str = "boot01";
 
-pub const CLOUD_INIT_USER_DATA: &str = "user-data";
-pub const CLOUD_INIT_META_DATA: &str = "meta-data";
-pub const CLOUD_INIT_NETWORK_CONFIG: &str = "network-config";
 pub const MTU_STD: u16 = 1500;
 pub const MTU_JUMBO_INT: u16 = 9216;
 pub const MTU_JUMBO_NET: u16 = 9600;
@@ -286,68 +199,16 @@ pub const TCA_NETEM_REORDER: u16 = 3;
 pub const TCA_NETEM_CORRUPT: u16 = 4;
 
 pub const ZTP_DIR: &str = "ztp";
-pub const ZTP_ISO: &str = "ztp.iso";
-/// Volume label of the ZTP ISO. cloud-init's `NoCloud` source finds its seed by this label.
-pub const ZTP_ISO_VOLUME_ID: &str = "cidata";
-/// Volume label PAN-OS looks for on its bootstrap ISO.
-pub const PALOALTO_BOOTSTRAP_VOLUME_ID: &str = "bootstrap";
-pub const ZTP_JSON: &str = "ztp.json";
 pub const TFTP_DIR: &str = "tftp";
 pub const NODE_CONFIGS_DIR: &str = "configs";
 pub const DNSMASQ_DIR: &str = "dnsmasq";
-pub const DNSMASQ_CONFIG_FILE: &str = "dnsmasq.conf";
 pub const DNSMASQ_LEASES_FILE: &str = "dnsmasq.leases";
-pub const CISCO_IOSXE_ZTP_CONFIG: &str = "iosxe_config.txt";
-pub const CISCO_IOSV_ZTP_CONFIG: &str = "ios_config.txt";
-pub const CISCO_ASAV_ZTP_CONFIG: &str = "day0-config";
-pub const CISCO_NXOS_ZTP_CONFIG: &str = "nxos_config.txt";
-pub const CISCO_IOSXR_ZTP_CONFIG: &str = "iosxr_config.txt";
-pub const CISCO_ISE_ZTP_CONFIG: &str = "ise-ztp.conf";
-pub const CISCO_FTDV_ZTP_CONFIG: &str = "day0-config";
-pub const CUMULUS_ZTP: &str = "cumulus-ztp";
-pub const ARISTA_ABOOT_DIR: &str = "aboot_iso";
-/// Where a cEOS node's ZTP config is mounted, read-only. EOS saves by replacing
-/// `ARISTA_CEOS_STARTUP_CONFIG`, which a bind-mounted file cannot be, so the config is copied
-/// there when the container starts.
-pub const ARISTA_CEOS_ZTP_VOLUME_MOUNT: &str = "/mnt/sherpa-ztp/startup-config";
-pub const ARISTA_CEOS_STARTUP_CONFIG: &str = "/mnt/flash/startup-config";
-pub const NOKIA_SRLINUX_ZTP_VOLUME_MOUNT: &str = "/etc/opt/srlinux/config.json";
-pub const JUNIPER_ZTP_CONFIG: &str = "juniper.conf";
-pub const JUNIPER_ZTP_CONFIG_TGZ: &str = "vmm-config.tgz";
-pub const MIKROTIK_CHR_ZTP_CONFIG: &str = "config.rsc";
 /// The config disk as `RouterOS` names it; the image imports `config.rsc` and the `sherpa` key
 /// from it.
 pub const MIKROTIK_CONFIG_DISK: &str = "sata1";
-pub const PALOALTO_ZTP_CONFIG: &str = "init-cfg.txt";
-pub const PALOALTO_BOOTSTRAP_CONFIG: &str = "bootstrap.xml";
 
-pub const LAB_CERTS_DIR: &str = "certs";
-pub const LAB_CA_CERT_FILE: &str = "ca.crt";
-pub const LAB_CA_KEY_FILE: &str = "ca.key";
-pub const NODE_CERTS_DIR: &str = "/etc/sherpa/certs";
-pub const NODE_CERTS_DIR_WINDOWS: &str = r"C:\sherpa\certs";
-/// The built-in Administrators group, as `icacls` takes a SID.
-pub const WINDOWS_ADMINISTRATORS_SID: &str = "*S-1-5-32-544";
-/// The `LocalSystem` account, as `icacls` takes a SID.
-pub const WINDOWS_SYSTEM_SID: &str = "*S-1-5-18";
-pub const WINDOWS_SSHD_CONFIG: &str = r"C:\ProgramData\ssh\sshd_config";
-/// Each account's SSH public keys, in a file named after the account.
-pub const WINDOWS_AUTHORIZED_KEYS_DIR: &str = r"C:\ProgramData\ssh\authorized_keys";
-/// [`WINDOWS_AUTHORIZED_KEYS_DIR`] as `sshd_config` names it.
-pub const WINDOWS_SSHD_AUTHORIZED_KEYS_DIR: &str = "__PROGRAMDATA__/ssh/authorized_keys";
-pub const NODE_USER_SCRIPTS_DIR: &str = "/opt/sherpa/user_scripts";
-pub const NODE_STARTUP_SCRIPTS_DIR: &str = "/opt/sherpa/startup_scripts";
-/// Drop-in directory for per-user doas rules (Alpine).
-pub const NODE_DOAS_CONF_DIR: &str = "/etc/doas.d";
-/// doas configuration file (OpenBSD, whose doas has no drop-in directory).
-pub const NODE_DOAS_CONF_FILE: &str = "/etc/doas.conf";
 /// cloud-init `sudo` rule for admin logins: every command as any user, without a password.
 pub const NODE_CLOUD_INIT_SUDO_RULE: &str = "ALL=(ALL) NOPASSWD:ALL";
-/// Login shell on NixOS, which has no `/bin/bash`.
-pub const NODE_NIXOS_SHELL: &str = "/run/current-system/sw/bin/bash";
-/// Shadow password value that matches no password but, unlike `!`, does not lock the
-/// account, so sshd builds without PAM still accept key logins.
-pub const NODE_NO_PASSWORD_HASH: &str = "*";
 /// Per-user file in the guest login's home holding manifest environment variables.
 pub const NODE_USER_ENV_FILE: &str = ".sherpa_env";
 /// Directory in the guest login's home for env files copied by provisioners; login shells
@@ -374,28 +235,11 @@ pub const CONTAINER_SECRET_DEFAULT_MODE: u32 = 444;
 pub const DOCKER_ENDPOINT_IFNAME_OPT: &str = "com.docker.network.endpoint.ifname";
 /// Directory in a container where its secret files are mounted, read-only.
 pub const CONTAINER_SECRETS_DIR: &str = "/run/secrets";
-/// RAM-backed server directory holding container secret files, under the daemon's
-/// systemd `RuntimeDirectory` (`/run/sherpa`, mode 0700).
-pub const SHERPA_SECRETS_DIR: &str = "/run/sherpa/secrets";
-/// Root-only directory where cloud-init stages files until their owners exist.
-pub const NODE_STAGING_DIR: &str = "/opt/sherpa/staging";
-/// Guest account database, read at boot to find a user's home directory.
-pub const NODE_PASSWD_FILE: &str = "/etc/passwd";
-pub const LAB_CERT_VALIDITY_DAYS: u32 = 365;
 
 pub const READINESS_TIMEOUT: u64 = 600;
-/// Seconds a readiness check waits for a node's SSH server to finish the SSH handshake.
-pub const SSH_READY_HANDSHAKE_TIMEOUT: u64 = 5;
-/// Seconds `down` waits for a VM to shut down cleanly before powering it off.
-pub const VM_SHUTDOWN_TIMEOUT: u64 = 60;
-/// Seconds between VM power state checks while waiting for a clean shutdown.
-pub const VM_SHUTDOWN_POLL: u64 = 1;
 /// Storage pool refreshes retried while concurrent jobs hold the pool (30s in total).
 pub const STORAGE_POOL_REFRESH_ATTEMPTS: u32 = 60;
 pub const STORAGE_POOL_REFRESH_RETRY_MS: u64 = 500;
-/// Attempts to reserve lab subnets when concurrent labs take the chosen ones first.
-pub const LAB_SUBNET_ALLOCATION_ATTEMPTS: u32 = 8;
-pub const READINESS_SLEEP: u64 = 10;
 pub const IGNITION_VERSION: &str = "3.3.0";
 
 pub const CONTAINER_DISK_NAME: &str = "disk.img";
@@ -418,126 +262,43 @@ pub const CONTAINER_DNSMASQ_NAME: &str = "sherpa-router";
 
 pub const CONTAINER_DNSMASQ_REPO: &str = "ghcr.io/bwks/sherpa-router";
 pub const CONTAINER_DNSMASQ_VERSION: &str = "latest";
-pub const CONTAINER_DNSMASQ_CAPABILITIES: &[&str] = &["NET_ADMIN"];
 
 pub const CONTAINER_NOKIA_SRLINUX_REPO: &str = "ghcr.io/nokia/srlinux";
-pub const CONTAINER_NOKIA_SRLINUX_ENV_VARS: &[&str] = &["SRLINUX=1"];
-pub const CONTAINER_NOKIA_SRLINUX_USER: &str = "0:0";
-pub const CONTAINER_NOKIA_SRLINUX_COMMANDS: &[&str] = &["bash", "/opt/srlinux/bin/sr_linux"];
 
 pub const CONTAINER_ARISTA_CEOS_REPO: &str = "localrepo/arista_ceos";
 
-/// A container's management interface, the one Docker attaches to the management network.
-pub const CONTAINER_MGMT_INTERFACE: &str = "eth0";
-
 pub const CONTAINER_CISCO_IOL_REPO: &str = "localrepo/cisco_iol";
 pub const CONTAINER_CISCO_IOLL2_REPO: &str = "localrepo/cisco_ioll2";
-/// Docker's default capabilities run the IOL launcher; the entrypoint also removes Docker's
-/// address from `eth0`, which IOL owns.
-pub const CONTAINER_CISCO_IOL_CAPABILITIES: &[&str] = &["NET_ADMIN"];
-/// The directory the IOL launcher reads the startup config from.
-pub const CISCO_IOL_CONFIG_DIR: &str = "/config";
-/// The startup config's name in `CISCO_IOL_CONFIG_DIR`.
-pub const CISCO_IOL_STARTUP_CONFIG: &str = "ios_config.txt";
-/// IOL's NVRAM directory, kept in the node's lab folder so a saved config survives a cold boot.
-pub const CISCO_IOL_RUN_DIR: &str = "/tmp/run";
-/// The memory, in MiB, an IOL container needs beyond IOL's own (its `-m`) for the launcher and
-/// the bridge: its Docker memory limit is IOL's memory plus this.
-pub const CISCO_IOL_CONTAINER_OVERHEAD_MIB: u16 = 128;
-/// The highest IOL application ID Sherpa gives a node. IOL derives its MAC addresses from the
-/// ID, and the launcher takes 1000 for itself.
-pub const CISCO_IOL_MAX_APP_ID: u16 = 999;
 
 pub const CONTAINER_JUNIPER_CEVOLVED_REPO: &str = "localrepo/juniper_cevolved";
-/// The directory the cJunosEvolved entrypoint reads a startup `juniper.conf` from.
-pub const JUNIPER_CEVOLVED_CONFIG_DIR: &str = "/home/evo/configdisk";
 /// The memory, in MiB, a cJunosEvolved container needs beyond its EVO VM's: its Docker memory
 /// limit is the EVO VM's memory plus this.
 pub const JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB: u16 = 2048;
-pub const CONTAINER_ARISTA_CEOS_ENV_VARS: &[&str] = &[
-    "INTFTYPE=eth",
-    "ETBA=1",
-    "SKIP_ZEROTOUCH_BARRIER_IN_SYSDBINIT=1",
-    "CEOS=1",
-    "EOS_PLATFORM=ceoslab",
-    "MAPETH0:1",
-    "MGMT_INTF:eth0",
-];
-pub const CONTAINER_ARISTA_CEOS_COMMANDS: &[&str] = &[
-    "/sbin/init",
-    "systemd.setenv=INTFTYPE=eth",
-    "systemd.setenv=ETBA=1",
-    "systemd.setenv=SKIP_ZEROTOUCH_BARRIER_IN_SYSDBINIT=1",
-    "systemd.setenv=CEOS=1",
-    "systemd.setenv=EOS_PLATFORM=ceoslab",
-    "systemd.setenv=container=docker",
-    "systemd.setenv=MAPETH0=1",
-    "systemd.setenv=MGMT_INTF=eth0",
-];
 
 pub const CONTAINER_FRR_REPO: &str = "quay.io/frrouting/frr";
-pub const CONTAINER_FRR_ENV_VARS: &[&str] = &[];
-pub const FRR_ZTP_DAEMONS_MOUNT: &str = "/etc/frr/daemons";
-pub const FRR_ZTP_CONFIG_MOUNT: &str = "/etc/frr/frr.conf";
-pub const FRR_ZTP_STARTUP_MOUNT: &str = "/tmp/sherpa-init.sh";
 
 pub const CONTAINER_GITLAB_CE_REPO: &str = "gitlab/gitlab-ce";
-pub const CONTAINER_GITLAB_CE_COMMANDS: &[&str] = &[];
-pub const CONTAINER_GITLAB_CE_SHM_SIZE: i64 = 256;
 
 pub const CONTAINER_SURREAL_DB_REPO: &str = "surrealdb/surrealdb";
-pub const CONTAINER_SURREAL_DB_COMMANDS: &[&str] = &[
-    "start",
-    "--log",
-    "trace",
-    "--user",
-    SHERPA_USERNAME,
-    "--pass",
-    SHERPA_PASSWORD,
-    "memory",
-];
 
 pub const CONTAINER_MONGO_DB_REPO: &str = "mongo";
-pub const CONTAINER_MONGO_DB_COMMANDS: &[&str] = &[];
 
 pub const CONTAINER_NATS_REPO: &str = "nats";
-pub const CONTAINER_NATS_COMMANDS: &[&str] = &[];
 
 pub const CONTAINER_FORGEJO_REPO: &str = "codeberg.org/forgejo/forgejo";
-pub const CONTAINER_FORGEJO_COMMANDS: &[&str] = &[];
 
 pub const CONTAINER_HASHICORP_VAULT_REPO: &str = "hashicorp/vault";
-/// Environment of a Vault node running a config the user supplied.
-pub const CONTAINER_HASHICORP_VAULT_ENV_VARS: &[&str] = &["VAULT_ADDR=http://127.0.0.1:8200"];
 pub const CONTAINER_KEYCLOAK_REPO: &str = "quay.io/keycloak/keycloak";
-/// Keycloak starts in production mode; the image's entrypoint is `kc.sh`.
-pub const CONTAINER_KEYCLOAK_COMMANDS: &[&str] = &["start"];
-/// Keycloak runs as root, so it can read the lab certificate key mounted from the server.
-pub const CONTAINER_KEYCLOAK_USER: &str = "0:0";
-/// Keycloak HTTPS port.
-pub const KEYCLOAK_HTTPS_PORT: u16 = 8443;
-/// Realm Sherpa makes on Keycloak nodes; Kubernetes clusters accept its users.
-pub const KEYCLOAK_REALM: &str = "sherpa";
 /// Keycloak client Kubernetes clusters accept tokens for: their audience.
 pub const KEYCLOAK_KUBERNETES_CLIENT_ID: &str = "kubernetes";
 /// Keycloak group bound to the `cluster-admin` role in clusters.
 pub const KEYCLOAK_CLUSTER_ADMINS_GROUP: &str = "cluster-admins";
 /// Keycloak group bound to the `view` role in clusters.
 pub const KEYCLOAK_CLUSTER_VIEWERS_GROUP: &str = "cluster-viewers";
-/// Vault API (HTTPS) and cluster ports.
-pub const VAULT_API_PORT: u16 = 8200;
-pub const VAULT_CLUSTER_PORT: u16 = 8201;
 /// Audience of the service account tokens a cluster's workloads log in to Vault with.
 pub const VAULT_KUBERNETES_AUDIENCE: &str = "vault";
 /// Vault role a cluster's workloads log in with.
 pub const VAULT_KUBERNETES_ROLE: &str = "workload";
-pub const CONTAINER_HASHICORP_VAULT_COMMANDS: &[&str] = &[
-    "sh",
-    "-c",
-    "mkdir -p /vault/data && exec vault server -config=/vault/config/config.hcl",
-];
-pub const CONTAINER_HASHICORP_VAULT_CAPABILITIES: &[&str] = &["IPC_LOCK"];
-pub const VAULT_ZTP_CONFIG_MOUNT: &str = "/vault/config/config.hcl";
 
 // OpenTelemetry defaults
 pub const OTEL_DEFAULT_ENDPOINT: &str = "http://localhost:4317";
@@ -551,145 +312,6 @@ pub const HOST_MEMORY_DEFAULT_RESERVE_MIB: u32 = 4096;
 /// The percentage of the server's memory guests may be given in total. 100 never gives out more
 /// memory than the server has.
 pub const HOST_MEMORY_DEFAULT_OVERCOMMIT_PERCENT: u32 = 100;
-
-// OpenTelemetry metric names
-pub const OTEL_METRIC_WS_CONNECTIONS: &str = "sherpad.ws.connections";
-pub const OTEL_METRIC_RPC_DURATION: &str = "sherpad.rpc.duration";
-pub const OTEL_METRIC_OPERATION_DURATION: &str = "sherpad.operation.duration";
-pub const OTEL_METRIC_ERROR_COUNT: &str = "sherpad.errors";
-pub const OTEL_METRIC_EXPORT_INTERVAL_SECS: u64 = 60;
-
-// JWT Authentication constants
-pub const JWT_SECRET_PATH: &str = "/opt/sherpa/.secret/jwt.secret";
-/// The key that seals the database's secret values: 32 bytes, mode 0600, beside the JWT secret
-/// in the `sherpa`-only (0700) secrets directory. It is never in the database, its backups or
-/// the database directory, and is backed up separately from them.
-pub const SHERPA_DB_KEY_PATH: &str = "/opt/sherpa/.secret/db.key";
-pub const JWT_TOKEN_EXPIRY_SECONDS: i64 = 604_800; // 7 days
-/// How often sherpad deletes expired login sessions, in seconds. It also sweeps once at startup.
-pub const SESSION_SWEEP_INTERVAL_SECS: u64 = 3600;
-
-// ============================================================================
-// JSON-RPC Error Messages
-// ============================================================================
-
-// Authentication and authorization messages
-pub const RPC_MSG_AUTH_REQUIRED: &str = "Authentication required";
-pub const RPC_MSG_AUTH_INVALID: &str = "Invalid username or password";
-pub const RPC_MSG_AUTH_ERROR: &str = "Authentication error";
-pub const RPC_MSG_TOKEN_CREATE_FAILED: &str = "Failed to create authentication token";
-pub const RPC_MSG_LOGOUT_FAILED: &str = "Failed to end the session";
-
-// Web UI
-/// Element on the admin users page that shows a refused user delete (`hx-retarget` value).
-pub const ADMIN_USER_DELETE_ERROR_TARGET: &str = "#user-delete-error";
-
-// Authorization messages
-pub const RPC_MSG_ACCESS_DENIED_OWN_INFO: &str =
-    "Access denied: you can only view your own information";
-
-// User management - admin-only operations
-pub const RPC_MSG_USER_ADMIN_ONLY_CREATE: &str =
-    "Access denied: only administrators can create users";
-pub const RPC_MSG_USER_ADMIN_ONLY_LIST: &str = "Access denied: only administrators can list users";
-pub const RPC_MSG_USER_ADMIN_ONLY_DELETE: &str =
-    "Access denied: only administrators can delete users";
-
-// User management - operation failures
-pub const RPC_MSG_USER_CREATE_FAILED: &str = "Failed to create user";
-pub const RPC_MSG_USER_LIST_FAILED: &str = "Failed to list users";
-pub const RPC_MSG_USER_DELETE_FAILED: &str = "Failed to delete user";
-pub const RPC_MSG_USER_PASSWORD_UPDATE_FAILED: &str = "Failed to update password";
-pub const RPC_MSG_SSH_KEY_ADD_FAILED: &str = "Failed to add SSH key";
-pub const RPC_MSG_SSH_KEY_REMOVE_FAILED: &str = "Failed to remove SSH key";
-
-// Lab operations
-pub const RPC_MSG_LAB_INSPECT_FAILED: &str = "Inspect operation failed";
-pub const RPC_MSG_LAB_DESTROY_FAILED: &str = "Destroy operation failed";
-pub const RPC_MSG_LAB_CLEAN_FAILED: &str = "Clean operation failed";
-pub const RPC_MSG_LAB_UP_FAILED: &str = "Up operation failed";
-pub const RPC_MSG_LAB_DOWN_FAILED: &str = "Down operation failed";
-pub const RPC_MSG_LAB_CANCEL_FAILED: &str = "Stopping the lab's operations failed";
-pub const RPC_MSG_LAB_RESUME_FAILED: &str = "Resume operation failed";
-pub const RPC_MSG_NODE_SECRETS_FAILED: &str = "Writing the node's secret files failed";
-pub const RPC_MSG_NODE_HOST_KEYS_FAILED: &str = "Reading the node's SSH host key failed";
-
-// Admin-only operations
-pub const RPC_MSG_ADMIN_ONLY_CLEAN: &str =
-    "Access denied: only administrators can run clean operations";
-pub const RPC_MSG_ADMIN_ONLY_BACKUP: &str =
-    "Access denied: only administrators can back up the database";
-pub const RPC_MSG_BACKUP_FAILED: &str = "Database backup failed";
-
-// Image operations
-pub const RPC_MSG_IMAGE_IMPORT_FAILED: &str = "Image import operation failed";
-pub const RPC_MSG_IMAGE_LIST_FAILED: &str = "Image list operation failed";
-pub const RPC_MSG_IMAGE_SHOW_FAILED: &str = "Image show operation failed";
-pub const RPC_MSG_INVALID_PARAMS_IMAGE_SHOW: &str = "Invalid params: expected ShowImageRequest";
-pub const RPC_MSG_IMAGE_SCAN_FAILED: &str = "Image scan operation failed";
-pub const RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT: &str =
-    "Access denied: only administrators can import images";
-pub const RPC_MSG_ADMIN_ONLY_IMAGE_SCAN: &str =
-    "Access denied: only administrators can scan images";
-pub const RPC_MSG_IMAGE_DELETE_FAILED: &str = "Image delete operation failed";
-pub const RPC_MSG_ADMIN_ONLY_IMAGE_DELETE: &str =
-    "Access denied: only administrators can delete images";
-pub const RPC_MSG_INVALID_PARAMS_IMAGE_DELETE: &str = "Invalid params: expected DeleteImageRequest";
-pub const RPC_MSG_IMAGE_SET_DEFAULT_FAILED: &str = "Image set-default operation failed";
-pub const RPC_MSG_ADMIN_ONLY_IMAGE_SET_DEFAULT: &str =
-    "Access denied: only administrators can set the default image";
-pub const RPC_MSG_INVALID_PARAMS_IMAGE_SET_DEFAULT: &str =
-    "Invalid params: expected SetDefaultImageRequest";
-
-// Serialization errors
-pub const RPC_MSG_SERIALIZE_FAILED: &str = "Failed to serialize response";
-
-// Container pull operations
-pub const RPC_MSG_CONTAINER_PULL_FAILED: &str = "Container image pull operation failed";
-pub const RPC_MSG_ADMIN_ONLY_CONTAINER_PULL: &str =
-    "Access denied: only administrators can pull container images";
-pub const RPC_MSG_INVALID_PARAMS_CONTAINER_PULL: &str =
-    "Invalid params: expected ContainerPullRequest";
-
-// VM image download operations
-pub const RPC_MSG_IMAGE_DOWNLOAD_FAILED: &str = "Image download operation failed";
-pub const RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD: &str =
-    "Access denied: only administrators can download images";
-pub const RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD: &str =
-    "Invalid params: expected DownloadImageRequest";
-
-// Impairment operations
-pub const RPC_MSG_IMPAIRMENT_UPDATE_FAILED: &str = "Link impairment update failed";
-pub const RPC_MSG_INVALID_PARAMS_IMPAIRMENT: &str =
-    "Invalid params: expected lab_id, link_index, and token";
-
-// Redeploy operations
-pub const RPC_MSG_REDEPLOY_FAILED: &str = "Redeploy operation failed";
-pub const RPC_MSG_INVALID_PARAMS_REDEPLOY: &str =
-    "Invalid params: expected lab_id, node_name, manifest, and token";
-
-// Invalid params messages
-pub const RPC_MSG_INVALID_PARAMS_LAB_ID: &str = "Invalid params: 'lab_id' (string) is required";
-pub const RPC_MSG_INVALID_PARAMS_NODE_SECRETS: &str =
-    "Invalid params: expected lab_id, node_name, files, and token";
-pub const RPC_MSG_INVALID_PARAMS_NODE_HOST_KEYS: &str =
-    "Invalid params: expected lab_id, node_name, and token";
-pub const RPC_MSG_INVALID_PARAMS_MANIFEST: &str = "Invalid params: 'manifest' (object) is required";
-pub const RPC_MSG_INVALID_PARAMS_LOGIN: &str =
-    "Invalid params: expected {username: string, password: string}";
-pub const RPC_MSG_INVALID_PARAMS_TOKEN: &str = "Invalid params: expected {token: string}";
-pub const RPC_MSG_INVALID_TAILSCALE_KEY: &str = "Invalid Tailscale credential field";
-pub const RPC_MSG_INVALID_PARAMS_CREATE_USER: &str = "Invalid params: expected CreateUserRequest";
-pub const RPC_MSG_INVALID_PARAMS_DELETE_USER: &str = "Invalid params: expected DeleteUserRequest";
-pub const RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD: &str =
-    "Invalid params: expected ChangePasswordRequest";
-pub const RPC_MSG_INVALID_PARAMS_GET_USER_INFO: &str =
-    "Invalid params: expected GetUserInfoRequest";
-pub const RPC_MSG_INVALID_PARAMS_ADD_SSH_KEY: &str = "Invalid params: expected AddSshKeyRequest";
-pub const RPC_MSG_INVALID_PARAMS_REMOVE_SSH_KEY: &str =
-    "Invalid params: expected RemoveSshKeyRequest";
-pub const RPC_MSG_INVALID_PARAMS_IMPORT: &str = "Invalid params: expected ImportRequest";
-pub const RPC_MSG_INVALID_PARAMS_IMAGE_LIST: &str = "Invalid params: expected ListImagesRequest";
 
 #[cfg(test)]
 mod tests {

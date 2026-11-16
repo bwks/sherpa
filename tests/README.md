@@ -54,9 +54,26 @@ installs a pinned uv release on each test VM, checked against its published sha2
 `/opt/uv/python`. The VM's system Python is never used, and the run fails if uv or Python 3.15
 cannot be installed.
 
-## Before any tests
+## While iterating
 
-Formatting and linting must pass first; CI fails on either:
+Check and test only the crate you change, with a test-name filter where it helps, and run the
+workspace commands below once before a commit. Times after a one-line edit in `shared`, on a
+12-core guest (medians, sccache off):
+
+| Command | Time |
+|---|---|
+| `cargo test -p shared --lib --no-run` | 8 s |
+| `cargo check -p sherpad` | 20 s |
+| `cargo check --workspace --all-targets` | 28 s |
+| `cargo clippy --workspace --all-targets -- -D warnings` | 42 s |
+| `cargo build --workspace --all-targets` | 50 s |
+
+The first `-p` build of a crate resolves features for that crate alone and builds its own copy
+of some dependencies: 160–270 s, once.
+
+## Before a commit
+
+Formatting and linting must pass first, then the [unit tests](#unit-tests); CI fails on either:
 
 ```sh
 cargo fmt

@@ -18,11 +18,11 @@ use crate::api::extractors::{
     AuthenticatedUser, CookieSessionError, trace_rejected_session, trace_validated_session,
     validate_cookie_session,
 };
+use crate::konst::JWT_TOKEN_EXPIRY_SECONDS;
 
 use shared::data::{
     LoginRequest, LoginResponse, LogoutResponse, SessionChannel, ValidateRequest, ValidateResponse,
 };
-use shared::konst::JWT_TOKEN_EXPIRY_SECONDS;
 
 /// Validate a JWT token, as the `auth.validate` RPC method does. An invalid token, or one whose
 /// session has ended, is answered `valid: false`, not an error.

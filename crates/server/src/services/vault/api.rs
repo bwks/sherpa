@@ -10,7 +10,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use shared::konst::VAULT_API_PORT;
+use crate::konst::VAULT_API_PORT;
 
 /// Timeout of one API request, other than init.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);

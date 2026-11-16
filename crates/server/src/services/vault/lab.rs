@@ -12,9 +12,10 @@ use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
 use shared::data::{NodeModel, StatusKind, VaultInfo};
-use shared::konst::{READINESS_SLEEP, SHERPA_LABS_PATH};
+use shared::konst::SHERPA_LABS_PATH;
 
 use super::api::{SealStatus, VaultClient};
+use crate::konst::READINESS_SLEEP;
 use crate::services::progress::ProgressSender;
 use crate::tls::generator::write_file_with_permissions;
 

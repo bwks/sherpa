@@ -8,6 +8,7 @@ use super::context::LabBuild;
 use super::links::{find_bridge_interface, find_interface_link};
 use super::networks::ReservedLab;
 use super::nodes::get_node_image;
+use crate::konst::SHERPA_MANAGEMENT_NETWORK_NAME;
 use crate::services::node_ops;
 use crate::services::node_resources;
 
@@ -15,7 +16,6 @@ use db::Database;
 
 use shared::data;
 use shared::data::{LabSubnets, NodeSshUsername, RecordId, StatusKind};
-use shared::konst::SHERPA_MANAGEMENT_NETWORK_NAME;
 use shared::util;
 use shared::validators::effective_data_interface_count;
 

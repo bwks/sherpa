@@ -1,12 +1,14 @@
 use anyhow::{Context, Result};
 use axum_server::tls_rustls::RustlsConfig;
 use shared::data::TlsConfig;
-use shared::konst::{SHERPA_SERVER_CERT_PATH, SHERPA_SERVER_KEY_PATH};
 use shared::tls::compute_fingerprint;
 use std::path::PathBuf;
 
 use super::generator::generate_self_signed_certificate;
 use super::loader::{build_rustls_config, load_certificates};
+use crate::konst::SHERPA_SERVER_CERT_PATH;
+
+const SHERPA_SERVER_KEY_PATH: &str = "/opt/sherpa/.certs/server.key";
 
 /// Manages TLS certificates for the Sherpa server
 pub struct CertificateManager {

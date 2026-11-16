@@ -10,6 +10,7 @@ use tracing::instrument;
 
 use super::context::Redeploy;
 use super::ready::{ReadyWait, ready_wait, wait_until_ready};
+use crate::konst::{SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR};
 use crate::services::container_networks::{self, ContainerDataInterface};
 use crate::services::keycloak;
 use crate::services::lab_operations::LabOperation;
@@ -28,9 +29,7 @@ use crate::tls::lab_ca::NodeCertPaths;
 use container::ContainerSpec;
 use shared::data;
 use shared::data::{LinkReport, OperationEvent, RecordId, StatusKind};
-use shared::konst::{
-    CONTAINER_SECRETS_DIR, SHERPA_LABS_PATH, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR,
-};
+use shared::konst::{CONTAINER_SECRETS_DIR, SHERPA_LABS_PATH};
 use shared::util;
 
 /// A container's data interfaces, and the lab's links they were planned from.

@@ -1,8 +1,9 @@
 use opentelemetry::metrics::{Counter, Histogram, Meter, UpDownCounter};
-use shared::konst::{
-    OTEL_METRIC_ERROR_COUNT, OTEL_METRIC_OPERATION_DURATION, OTEL_METRIC_RPC_DURATION,
-    OTEL_METRIC_WS_CONNECTIONS,
-};
+
+const OTEL_METRIC_WS_CONNECTIONS: &str = "sherpad.ws.connections";
+const OTEL_METRIC_RPC_DURATION: &str = "sherpad.rpc.duration";
+const OTEL_METRIC_OPERATION_DURATION: &str = "sherpad.operation.duration";
+const OTEL_METRIC_ERROR_COUNT: &str = "sherpad.errors";
 
 /// Holds all OpenTelemetry metric instruments.
 ///

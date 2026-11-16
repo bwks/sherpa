@@ -5,14 +5,6 @@ use serde_json::Value;
 
 use shared::data;
 use shared::error::RpcErrorCode;
-use shared::konst::{
-    RPC_MSG_ACCESS_DENIED_OWN_INFO, RPC_MSG_INVALID_PARAMS_ADD_SSH_KEY,
-    RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD, RPC_MSG_INVALID_PARAMS_CREATE_USER,
-    RPC_MSG_INVALID_PARAMS_DELETE_USER, RPC_MSG_INVALID_PARAMS_GET_USER_INFO,
-    RPC_MSG_INVALID_PARAMS_REMOVE_SSH_KEY, RPC_MSG_SSH_KEY_ADD_FAILED,
-    RPC_MSG_SSH_KEY_REMOVE_FAILED, RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
-    RPC_MSG_USER_LIST_FAILED, RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
-};
 use shared::util::normalize_username;
 
 use super::dispatch::{parse, respond};
@@ -20,6 +12,22 @@ use crate::api::websocket::messages::RpcError;
 use crate::auth::context::AuthContext;
 use crate::daemon::state::AppState;
 use crate::services::{user_delete, user_password, user_ssh_keys};
+
+const RPC_MSG_ACCESS_DENIED_OWN_INFO: &str =
+    "Access denied: you can only view your own information";
+const RPC_MSG_USER_CREATE_FAILED: &str = "Failed to create user";
+const RPC_MSG_USER_LIST_FAILED: &str = "Failed to list users";
+const RPC_MSG_USER_DELETE_FAILED: &str = "Failed to delete user";
+const RPC_MSG_USER_PASSWORD_UPDATE_FAILED: &str = "Failed to update password";
+const RPC_MSG_SSH_KEY_ADD_FAILED: &str = "Failed to add SSH key";
+const RPC_MSG_SSH_KEY_REMOVE_FAILED: &str = "Failed to remove SSH key";
+const RPC_MSG_INVALID_PARAMS_CREATE_USER: &str = "Invalid params: expected CreateUserRequest";
+const RPC_MSG_INVALID_PARAMS_DELETE_USER: &str = "Invalid params: expected DeleteUserRequest";
+const RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD: &str =
+    "Invalid params: expected ChangePasswordRequest";
+const RPC_MSG_INVALID_PARAMS_GET_USER_INFO: &str = "Invalid params: expected GetUserInfoRequest";
+const RPC_MSG_INVALID_PARAMS_ADD_SSH_KEY: &str = "Invalid params: expected AddSshKeyRequest";
+const RPC_MSG_INVALID_PARAMS_REMOVE_SSH_KEY: &str = "Invalid params: expected RemoveSshKeyRequest";
 
 const RPC_MSG_USER_INFO_FAILED: &str = "Failed to get user info";
 

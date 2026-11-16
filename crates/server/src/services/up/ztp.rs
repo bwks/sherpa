@@ -10,6 +10,9 @@ use tracing::instrument;
 
 use super::context::LabBuild;
 use super::nodes::get_node_image;
+use crate::konst::{
+    DNSMASQ_CONFIG_FILE, LAB_CERTS_DIR, SHERPA_MANAGEMENT_NETWORK_NAME, TAP_PREFIX,
+};
 use crate::services::boot_server;
 use crate::services::guest_account::GuestAccount;
 use crate::services::node_ops::{self, DomainParts, LabZtp};
@@ -21,12 +24,13 @@ use crate::tls::lab_ca::{self, LabCa, NodeCertPaths, NodeIdentity};
 use shared::data;
 use shared::data::{ClusterMember, LabSubnets, RecordId, StatusKind};
 use shared::konst::{
-    CONTAINER_DNSMASQ_CAPABILITIES, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
-    DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, KVM_OUI, LAB_CERTS_DIR, MTU_JUMBO_NET, NODE_CONFIGS_DIR,
-    SHERPA_MANAGEMENT_NETWORK_NAME, SSH_PORT, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
+    CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, DNSMASQ_DIR, KVM_OUI, MTU_JUMBO_NET,
+    NODE_CONFIGS_DIR, SSH_PORT, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use topology::find_talos_cluster;
+
+const CONTAINER_DNSMASQ_CAPABILITIES: &[&str] = &["NET_ADMIN"];
 
 /// What configuring the nodes needs besides the build.
 pub(super) struct ConfigInputs<'a> {
@@ -647,8 +651,8 @@ mod tests {
     use libvirt::Qemu;
     use tokio::sync::mpsc;
 
+    use crate::konst::{LAB_CA_CERT_FILE, LAB_CA_KEY_FILE, ZTP_ISO};
     use shared::data::{NodeKind, NodeModel};
-    use shared::konst::{LAB_CA_CERT_FILE, LAB_CA_KEY_FILE, ZTP_ISO};
 
     use super::super::networks::management_network;
     use super::*;

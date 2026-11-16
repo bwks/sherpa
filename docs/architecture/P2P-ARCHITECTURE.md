@@ -242,7 +242,7 @@ Host-side veths are cleaned up during lab destroy by matching the `tpa*`, `tpb*`
 
 - Host-side veths (linked): `tpa{link_index}-{lab_id}` / `tpb{link_index}-{lab_id}` (same as VM taps)
 - Host-side veths (disabled): `cd{node_index}i{interface_index}-{lab_id}`
-- Host-side veths (bridge member): `cb{node_index}i{interface_index}-{lab_id}` (`konst::BRIDGE_MEMBER_HOST_VETH_PREFIX`)
+- Host-side veths (bridge member): `cb{node_index}i{interface_index}-{lab_id}` (`server::konst::BRIDGE_MEMBER_HOST_VETH_PREFIX`)
 - Container ends are created with their interface name in the container (`eth1`, `e1-1`, ...)
 
 Note: Disabled and bridge member veth names include the node index to avoid collisions when multiple containers share the same disabled interface index. The compact format stays within Linux's 15-character interface name limit.

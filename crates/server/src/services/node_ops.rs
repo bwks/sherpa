@@ -14,6 +14,10 @@ use askama::Template;
 use jato::{Auth, ConnectOptions, Hop, HostKeyPolicy, Node, Session};
 use tracing::instrument;
 
+use crate::konst::{
+    KEYCLOAK_HTTPS_PORT, LAB_CERTS_DIR, NODE_NIXOS_SHELL, SHERPA_BLANK_DISK_DIR,
+    SHERPA_PASSWORD_HASH, SHERPA_SSH_PUBLIC_KEY_FILE, VAULT_API_PORT, ZTP_ISO,
+};
 use crate::services::container_networks::is_node_network;
 use crate::services::guest_account::{self, GuestAccount, KeyFormat};
 use crate::services::image_lifecycle::ImageLease;
@@ -32,35 +36,9 @@ use network::NetnsVethState;
 use shared::data;
 use shared::data::StatusKind;
 use shared::konst::{
-    ARISTA_ABOOT_DIR, ARISTA_CEOS_STARTUP_CONFIG, ARISTA_CEOS_ZTP_VOLUME_MOUNT,
-    CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG, CISCO_IOL_CONFIG_DIR, CISCO_IOL_MAX_APP_ID,
-    CISCO_IOL_RUN_DIR, CISCO_IOL_STARTUP_CONFIG, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG,
-    CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG, CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA,
-    CLOUD_INIT_NETWORK_CONFIG, CLOUD_INIT_USER_DATA, CONTAINER_ARISTA_CEOS_COMMANDS,
-    CONTAINER_ARISTA_CEOS_ENV_VARS, CONTAINER_CISCO_IOL_CAPABILITIES, CONTAINER_DISK_NAME,
-    CONTAINER_FORGEJO_COMMANDS, CONTAINER_FRR_ENV_VARS, CONTAINER_GITLAB_CE_COMMANDS,
-    CONTAINER_GITLAB_CE_SHM_SIZE, CONTAINER_HASHICORP_VAULT_CAPABILITIES,
-    CONTAINER_HASHICORP_VAULT_COMMANDS, CONTAINER_HASHICORP_VAULT_ENV_VARS,
-    CONTAINER_KEYCLOAK_COMMANDS, CONTAINER_KEYCLOAK_USER, CONTAINER_MONGO_DB_COMMANDS,
-    CONTAINER_NATS_COMMANDS, CONTAINER_NOKIA_SRLINUX_COMMANDS, CONTAINER_NOKIA_SRLINUX_ENV_VARS,
-    CONTAINER_NOKIA_SRLINUX_USER, CONTAINER_SURREAL_DB_COMMANDS, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT,
-    FRR_ZTP_DAEMONS_MOUNT, FRR_ZTP_STARTUP_MOUNT, JUNIPER_CEVOLVED_CONFIG_DIR, JUNIPER_ZTP_CONFIG,
-    JUNIPER_ZTP_CONFIG_TGZ, KEYCLOAK_HTTPS_PORT, KVM_OUI, LAB_CERTS_DIR, MIKROTIK_CHR_ZTP_CONFIG,
-    NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS, NODE_CLOUD_INIT_SUDO_RULE, NODE_CONFIGS_DIR,
-    NODE_DOAS_CONF_FILE, NODE_NIXOS_SHELL, NODE_PASSWD_FILE, NODE_STAGING_DIR,
-    NODE_STARTUP_SCRIPTS_DIR, NODE_USER_ENV_FILE, NODE_USER_SCRIPTS_DIR,
-    NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG, PALOALTO_BOOTSTRAP_VOLUME_ID,
-    PALOALTO_ZTP_CONFIG, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB,
-    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE,
-    SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX,
-    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
-    SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
-    SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
-    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_READY_HANDSHAKE_TIMEOUT,
-    TALOS_API_PORT, TELNET_PORT, TFTP_DIR, VAULT_API_PORT, VAULT_CLUSTER_PORT,
-    VAULT_ZTP_CONFIG_MOUNT, WINDOWS_ADMINISTRATORS_SID, WINDOWS_AUTHORIZED_KEYS_DIR,
-    WINDOWS_SSHD_AUTHORIZED_KEYS_DIR, WINDOWS_SSHD_CONFIG, WINDOWS_SYSTEM_SID, ZTP_DIR, ZTP_ISO,
-    ZTP_ISO_VOLUME_ID, ZTP_JSON,
+    CONTAINER_DISK_NAME, KVM_OUI, NODE_CLOUD_INIT_SUDO_RULE, NODE_CONFIGS_DIR, NODE_USER_ENV_FILE,
+    SHERPA_DOMAIN_NAME, SHERPA_PASSWORD, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
+    SHERPA_USERNAME, SSH_PORT, TALOS_API_PORT, TELNET_PORT, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::{
@@ -69,6 +47,136 @@ use shared::validators::{
 use topology::{BinaryFileData, NodeReadyCheck, SystemdUnitData};
 use virt::error::ErrorNumber;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
+
+const SHERPA_BLANK_DISK_FAT32: &str = "fat32.img";
+const SHERPA_BLANK_DISK_IOSV: &str = "iosv.img";
+const SHERPA_BLANK_DISK_ISE: &str = "ise.img";
+const SHERPA_BLANK_DISK_JUNOS: &str = "junos.img";
+const SHERPA_BLANK_DISK_EXT4_500MB: &str = "ext4-500mb.img";
+const SHERPA_ISOLATED_NETWORK_NAME: &str = "sherpa-isolated";
+const SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX: &str = "bri";
+const SHERPA_RESERVED_NETWORK_NAME: &str = "sherpa-reserved";
+const SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX: &str = "brr";
+const SHERPA_PASSWORD_HASH_SHA256: &str = "$5$mhhcowfq$qKK.CiKWZxuOfadgSyOawx6srN3knX4jRgfa8hZxcB0";
+const CLOUD_INIT_USER_DATA: &str = "user-data";
+const CLOUD_INIT_META_DATA: &str = "meta-data";
+const CLOUD_INIT_NETWORK_CONFIG: &str = "network-config";
+/// Volume label of the ZTP ISO. cloud-init's `NoCloud` source finds its seed by this label.
+const ZTP_ISO_VOLUME_ID: &str = "cidata";
+/// Volume label PAN-OS looks for on its bootstrap ISO.
+const PALOALTO_BOOTSTRAP_VOLUME_ID: &str = "bootstrap";
+const ZTP_JSON: &str = "ztp.json";
+const CISCO_IOSXE_ZTP_CONFIG: &str = "iosxe_config.txt";
+const CISCO_IOSV_ZTP_CONFIG: &str = "ios_config.txt";
+const CISCO_ASAV_ZTP_CONFIG: &str = "day0-config";
+const CISCO_NXOS_ZTP_CONFIG: &str = "nxos_config.txt";
+const CISCO_IOSXR_ZTP_CONFIG: &str = "iosxr_config.txt";
+const CISCO_ISE_ZTP_CONFIG: &str = "ise-ztp.conf";
+const CISCO_FTDV_ZTP_CONFIG: &str = "day0-config";
+const CUMULUS_ZTP: &str = "cumulus-ztp";
+const ARISTA_ABOOT_DIR: &str = "aboot_iso";
+/// Where a cEOS node's ZTP config is mounted, read-only. EOS saves by replacing
+/// `ARISTA_CEOS_STARTUP_CONFIG`, which a bind-mounted file cannot be, so the config is copied
+/// there when the container starts.
+const ARISTA_CEOS_ZTP_VOLUME_MOUNT: &str = "/mnt/sherpa-ztp/startup-config";
+const ARISTA_CEOS_STARTUP_CONFIG: &str = "/mnt/flash/startup-config";
+const NOKIA_SRLINUX_ZTP_VOLUME_MOUNT: &str = "/etc/opt/srlinux/config.json";
+const JUNIPER_ZTP_CONFIG: &str = "juniper.conf";
+const JUNIPER_ZTP_CONFIG_TGZ: &str = "vmm-config.tgz";
+const MIKROTIK_CHR_ZTP_CONFIG: &str = "config.rsc";
+const PALOALTO_ZTP_CONFIG: &str = "init-cfg.txt";
+const PALOALTO_BOOTSTRAP_CONFIG: &str = "bootstrap.xml";
+const NODE_CERTS_DIR: &str = "/etc/sherpa/certs";
+const NODE_CERTS_DIR_WINDOWS: &str = r"C:\sherpa\certs";
+/// The built-in Administrators group, as `icacls` takes a SID.
+const WINDOWS_ADMINISTRATORS_SID: &str = "*S-1-5-32-544";
+/// The `LocalSystem` account, as `icacls` takes a SID.
+const WINDOWS_SYSTEM_SID: &str = "*S-1-5-18";
+const WINDOWS_SSHD_CONFIG: &str = r"C:\ProgramData\ssh\sshd_config";
+/// Each account's SSH public keys, in a file named after the account.
+const WINDOWS_AUTHORIZED_KEYS_DIR: &str = r"C:\ProgramData\ssh\authorized_keys";
+/// [`WINDOWS_AUTHORIZED_KEYS_DIR`] as `sshd_config` names it.
+const WINDOWS_SSHD_AUTHORIZED_KEYS_DIR: &str = "__PROGRAMDATA__/ssh/authorized_keys";
+const NODE_USER_SCRIPTS_DIR: &str = "/opt/sherpa/user_scripts";
+const NODE_STARTUP_SCRIPTS_DIR: &str = "/opt/sherpa/startup_scripts";
+/// doas configuration file (OpenBSD, whose doas has no drop-in directory).
+const NODE_DOAS_CONF_FILE: &str = "/etc/doas.conf";
+/// Root-only directory where cloud-init stages files until their owners exist.
+const NODE_STAGING_DIR: &str = "/opt/sherpa/staging";
+/// Guest account database, read at boot to find a user's home directory.
+const NODE_PASSWD_FILE: &str = "/etc/passwd";
+/// Seconds a readiness check waits for a node's SSH server to finish the SSH handshake.
+const SSH_READY_HANDSHAKE_TIMEOUT: u64 = 5;
+const CONTAINER_NOKIA_SRLINUX_ENV_VARS: &[&str] = &["SRLINUX=1"];
+const CONTAINER_NOKIA_SRLINUX_USER: &str = "0:0";
+const CONTAINER_NOKIA_SRLINUX_COMMANDS: &[&str] = &["bash", "/opt/srlinux/bin/sr_linux"];
+/// Docker's default capabilities run the IOL launcher; the entrypoint also removes Docker's
+/// address from `eth0`, which IOL owns.
+const CONTAINER_CISCO_IOL_CAPABILITIES: &[&str] = &["NET_ADMIN"];
+/// The directory the IOL launcher reads the startup config from.
+const CISCO_IOL_CONFIG_DIR: &str = "/config";
+/// The startup config's name in `CISCO_IOL_CONFIG_DIR`.
+const CISCO_IOL_STARTUP_CONFIG: &str = "ios_config.txt";
+/// IOL's NVRAM directory, kept in the node's lab folder so a saved config survives a cold boot.
+const CISCO_IOL_RUN_DIR: &str = "/tmp/run";
+/// The highest IOL application ID Sherpa gives a node. IOL derives its MAC addresses from the
+/// ID, and the launcher takes 1000 for itself.
+const CISCO_IOL_MAX_APP_ID: u16 = 999;
+/// The directory the cJunosEvolved entrypoint reads a startup `juniper.conf` from.
+const JUNIPER_CEVOLVED_CONFIG_DIR: &str = "/home/evo/configdisk";
+const CONTAINER_ARISTA_CEOS_ENV_VARS: &[&str] = &[
+    "INTFTYPE=eth",
+    "ETBA=1",
+    "SKIP_ZEROTOUCH_BARRIER_IN_SYSDBINIT=1",
+    "CEOS=1",
+    "EOS_PLATFORM=ceoslab",
+    "MAPETH0:1",
+    "MGMT_INTF:eth0",
+];
+const CONTAINER_ARISTA_CEOS_COMMANDS: &[&str] = &[
+    "/sbin/init",
+    "systemd.setenv=INTFTYPE=eth",
+    "systemd.setenv=ETBA=1",
+    "systemd.setenv=SKIP_ZEROTOUCH_BARRIER_IN_SYSDBINIT=1",
+    "systemd.setenv=CEOS=1",
+    "systemd.setenv=EOS_PLATFORM=ceoslab",
+    "systemd.setenv=container=docker",
+    "systemd.setenv=MAPETH0=1",
+    "systemd.setenv=MGMT_INTF=eth0",
+];
+const CONTAINER_FRR_ENV_VARS: &[&str] = &[];
+const FRR_ZTP_DAEMONS_MOUNT: &str = "/etc/frr/daemons";
+const FRR_ZTP_CONFIG_MOUNT: &str = "/etc/frr/frr.conf";
+const FRR_ZTP_STARTUP_MOUNT: &str = "/tmp/sherpa-init.sh";
+const CONTAINER_GITLAB_CE_COMMANDS: &[&str] = &[];
+const CONTAINER_GITLAB_CE_SHM_SIZE: i64 = 256;
+const CONTAINER_SURREAL_DB_COMMANDS: &[&str] = &[
+    "start",
+    "--log",
+    "trace",
+    "--user",
+    SHERPA_USERNAME,
+    "--pass",
+    SHERPA_PASSWORD,
+    "memory",
+];
+const CONTAINER_MONGO_DB_COMMANDS: &[&str] = &[];
+const CONTAINER_NATS_COMMANDS: &[&str] = &[];
+const CONTAINER_FORGEJO_COMMANDS: &[&str] = &[];
+/// Environment of a Vault node running a config the user supplied.
+const CONTAINER_HASHICORP_VAULT_ENV_VARS: &[&str] = &["VAULT_ADDR=http://127.0.0.1:8200"];
+/// Keycloak starts in production mode; the image's entrypoint is `kc.sh`.
+const CONTAINER_KEYCLOAK_COMMANDS: &[&str] = &["start"];
+/// Keycloak runs as root, so it can read the lab certificate key mounted from the server.
+const CONTAINER_KEYCLOAK_USER: &str = "0:0";
+const VAULT_CLUSTER_PORT: u16 = 8201;
+const CONTAINER_HASHICORP_VAULT_COMMANDS: &[&str] = &[
+    "sh",
+    "-c",
+    "mkdir -p /vault/data && exec vault server -config=/vault/config/config.hcl",
+];
+const CONTAINER_HASHICORP_VAULT_CAPABILITIES: &[&str] = &["IPC_LOCK"];
+const VAULT_ZTP_CONFIG_MOUNT: &str = "/vault/config/config.hcl";
 
 /// The folder in a node's lab folder that holds its binary files before they go on its disk.
 const BINARY_FILES_DIR: &str = "binary_files";

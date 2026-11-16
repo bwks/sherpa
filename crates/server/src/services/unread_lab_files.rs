@@ -16,11 +16,12 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use tracing::instrument;
 
+use crate::konst::LAB_CERTS_DIR;
 use crate::services::node_ops;
 
 use db::Database;
 use shared::data::{DbLab, NodeKind};
-use shared::konst::{DNSMASQ_DIR, DNSMASQ_LEASES_FILE, LAB_CERTS_DIR, ZTP_DIR};
+use shared::konst::{DNSMASQ_DIR, DNSMASQ_LEASES_FILE, ZTP_DIR};
 
 /// What the startup removal did.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -137,8 +138,9 @@ fn was_removed(lab_id: &str, path: &Path, result: io::Result<()>) -> bool {
 mod tests {
     use std::path::PathBuf;
 
+    use crate::konst::{DNSMASQ_CONFIG_FILE, LAB_CA_CERT_FILE, LAB_CA_KEY_FILE};
     use shared::data::NodeModel;
-    use shared::konst::{DNSMASQ_CONFIG_FILE, LAB_CA_CERT_FILE, LAB_CA_KEY_FILE, TFTP_DIR};
+    use shared::konst::TFTP_DIR;
 
     use crate::services::lab_definition::tests::lab_with;
 

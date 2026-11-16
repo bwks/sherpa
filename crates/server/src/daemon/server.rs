@@ -29,6 +29,7 @@ use crate::daemon::metrics::Metrics;
 use crate::daemon::pidfile::open_log_file;
 use crate::daemon::removed_settings::warn_on_removed_settings;
 use crate::daemon::state::AppState;
+use crate::konst::{SESSION_SWEEP_INTERVAL_SECS, SHERPA_CONFIG_FILE_PATH, SHERPAD_LOG_FILE_PATH};
 use crate::services::lab_definition::{self, ImportSummary};
 use crate::services::lab_lifecycle::{self, Recovery};
 use crate::services::node_resources;
@@ -38,14 +39,13 @@ use crate::services::scanner::run_scanner;
 use crate::services::unread_lab_files::{self, UnreadLabFilesSummary};
 use crate::tls::CertificateManager;
 use shared::data::{Config, OtelConfig};
-use shared::konst::{
-    OTEL_METRIC_EXPORT_INTERVAL_SECS, SESSION_SWEEP_INTERVAL_SECS, SHERPA_CONFIG_FILE_PATH,
-    SHERPA_LABS_PATH, SHERPAD_LOG_FILE_PATH,
-};
+use shared::konst::SHERPA_LABS_PATH;
 use shared::util::{
     get_fqdn, get_hostname, get_non_loopback_ipv4_addresses, get_non_loopback_ipv6_addresses,
     load_config,
 };
+
+const OTEL_METRIC_EXPORT_INTERVAL_SECS: u64 = 60;
 
 /// Custom time formatter that outputs UTC time with millisecond precision
 /// Format: 2026-02-17T00:59:15.920Z

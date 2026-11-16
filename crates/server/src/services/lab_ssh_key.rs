@@ -8,10 +8,10 @@ use anyhow::{Context, Result};
 use ssh_key::Algorithm;
 use tracing::instrument;
 
-use shared::konst::{
-    LAB_SSH_PRIVATE_KEY_MODE, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE,
-};
+use shared::konst::{LAB_SSH_PRIVATE_KEY_MODE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util;
+
+use crate::konst::SHERPA_SSH_PUBLIC_KEY_FILE;
 
 /// Where a lab's key pair is on the server.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -12,12 +12,15 @@
 use anyhow::{Context, Result, anyhow};
 use db::Database;
 use shared::data::DbLab;
-use shared::konst::{ADMIN_LAB_START_MESSAGE, ADMIN_USERNAME};
+use shared::konst::ADMIN_USERNAME;
 use topology::Node;
 use tracing::instrument;
 
 use crate::auth::context::AuthContext;
 use crate::services::error::ServiceError;
+
+const ADMIN_LAB_START_MESSAGE: &str =
+    "the built-in admin account cannot start, resume or redeploy labs; use a personal account";
 
 /// Which callers may act on a lab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -120,8 +120,9 @@ pub(super) fn recreate_vm_networks(redeploy: &Redeploy<'_>) -> Result<()> {
 mod tests {
     use super::*;
 
+    use crate::konst::{LAB_CA_KEY_FILE, LAB_CERTS_DIR};
     use shared::data::NodeKind;
-    use shared::konst::{LAB_CA_KEY_FILE, LAB_CERTS_DIR, ZTP_DIR};
+    use shared::konst::ZTP_DIR;
 
     use crate::services::keycloak::lab::KEYCLOAK_DIR;
     use crate::services::talos::secrets::CLUSTERS_DIR;

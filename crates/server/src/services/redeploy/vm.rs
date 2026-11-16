@@ -12,6 +12,7 @@ use tracing::instrument;
 
 use super::context::Redeploy;
 use super::ready::wait_until_ready;
+use crate::konst::SHERPA_MANAGEMENT_NETWORK_NAME;
 use crate::services::boot_server;
 use crate::services::node_lifecycle::{self, query_runtimes};
 use crate::services::node_ops::{self, DomainParts, LabZtp, VmZtpResult};
@@ -24,7 +25,7 @@ use crate::tls::lab_ca::NodeCertPaths;
 
 use shared::data;
 use shared::data::{DbLink, LinkReport, OperationEvent, RecordId, StatusKind};
-use shared::konst::{KVM_OUI, MTU_JUMBO_NET, SHERPA_MANAGEMENT_NETWORK_NAME, TFTP_DIR, ZTP_DIR};
+use shared::konst::{KVM_OUI, MTU_JUMBO_NET, TFTP_DIR, ZTP_DIR};
 use shared::util;
 
 /// Configure the VM again, clone its disks, create its domain on its links, bridges and

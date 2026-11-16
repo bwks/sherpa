@@ -7,11 +7,19 @@ use anyhow::{Context, Result};
 use nix::unistd::{Group, chown};
 use tracing::instrument;
 
-use shared::konst::{
-    SHERPA_DB_BACKUP_DIR_MODE, SHERPA_DB_BACKUP_PATH, SHERPA_DB_DIR_MODE, SHERPA_DB_PATH,
-    SHERPA_LABS_DIR_MODE, SHERPA_LABS_PATH, SHERPA_STORAGE_POOL_DIR_MODE,
-    SHERPA_STORAGE_POOL_GROUP, SHERPA_STORAGE_POOL_PATH,
-};
+use shared::konst::{SHERPA_LABS_PATH, SHERPA_STORAGE_POOL_PATH};
+
+use crate::konst::{SHERPA_DB_BACKUP_DIR_MODE, SHERPA_DB_BACKUP_PATH, SHERPA_DB_PATH};
+
+/// Lab directories hold node configs and user data: the `sherpa` user and group only.
+const SHERPA_LABS_DIR_MODE: u32 = 0o2750;
+/// The storage pool holds VM disks and ZTP media: `sherpa` and the QEMU group only.
+const SHERPA_STORAGE_POOL_DIR_MODE: u32 = 0o2750;
+/// Group the libvirt QEMU process runs in, which must reach the storage pool.
+const SHERPA_STORAGE_POOL_GROUP: &str = "kvm";
+/// The database directory: `sherpa` and its group only, so no other server user can open the
+/// database or its backups, whatever their file modes.
+const SHERPA_DB_DIR_MODE: u32 = 0o750;
 
 /// Restrict the directories that hold lab data and the database, so other server users cannot
 /// read node configs, user data, ZTP media, VM disks, password hashes or database backups: lab

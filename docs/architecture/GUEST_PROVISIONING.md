@@ -45,11 +45,11 @@ Each account keeps its OS's native tools:
 | OS | Shell | Admin rights | Where |
 |---|---|---|---|
 | Linux (cloud-init) | `/bin/bash` | cloud-init `sudo` rule, passwordless | `guest_account::cloud_init_user` |
-| Alpine | `ash` (`/bin/sh`), `wheel` group | dedicated `konst::NODE_DOAS_CONF_DIR/<user>.conf`, `permit nopass` | `guest_account::alpine_cloud_init_user`, `doas_file` |
+| Alpine | `ash` (`/bin/sh`), `wheel` group | dedicated `guest_account::NODE_DOAS_CONF_DIR/<user>.conf`, `permit nopass` | `guest_account::alpine_cloud_init_user`, `doas_file` |
 | Flatcar | `/bin/bash` | dedicated `/etc/sudoers.d/<user>` | `guest_account::ignition_user`, `sudoers_file` |
-| NixOS | `konst::NODE_NIXOS_SHELL` (`/run/current-system/sw/bin/bash`), `wheel` group | `wheel`, passwordless in the image. No `sudo` rule (`node_ops::cloud_init_sudo_rule`) | `guest_account::nixos_cloud_init_user`; `sherpa`: `cloud_init_user_settings` |
+| NixOS | `server::konst::NODE_NIXOS_SHELL` (`/run/current-system/sw/bin/bash`), `wheel` group | `wheel`, passwordless in the image. No `sudo` rule (`node_ops::cloud_init_sudo_rule`) | `guest_account::nixos_cloud_init_user`; `sherpa`: `cloud_init_user_settings` |
 | FreeBSD | `/bin/sh`, `wheel` group | cloud-init `sudo` rule, passwordless (neither `sudo` nor `doas` is in base; the image ships `sudo`) | `guest_account::bsd_cloud_init_user`; `sherpa`: `cloud_init_user_settings` |
-| OpenBSD | `/bin/sh`, `wheel` group | `doas`, in base: `konst::NODE_DOAS_CONF_FILE` with the stock `/etc/examples/doas.conf` rule plus `nopass`, `permit nopass keepenv :wheel`. No `sudo` rule (`node_ops::cloud_init_sudo_rule`) | `guest_account::bsd_cloud_init_user`, `node_ops::cloud_init_doas_file` |
+| OpenBSD | `/bin/sh`, `wheel` group | `doas`, in base: `node_ops::NODE_DOAS_CONF_FILE` with the stock `/etc/examples/doas.conf` rule plus `nopass`, `permit nopass keepenv :wheel`. No `sudo` rule (`node_ops::cloud_init_sudo_rule`) | `guest_account::bsd_cloud_init_user`, `node_ops::cloud_init_doas_file` |
 
 `CloudInitUser.groups` is written as a comma-separated string: cloud-init's BSD `add_user`
 passes only string values to `pw`/`useradd`, so a list left BSD logins out of `wheel`.
@@ -58,7 +58,7 @@ Nothing is installed at first boot, so accounts work without internet access. No
 copied into the guest. Personal accounts are locked (`lock_passwd: true`), except on Alpine and
 the BSDs: Alpine's sshd is built without PAM and refuses accounts whose shadow password starts
 with `!`, and OpenSSH on FreeBSD refuses `*LOCKED*` accounts, both even for key logins. Those
-accounts get `*` (`konst::NODE_NO_PASSWORD_HASH`, with `lock_passwd: false`), which matches no
+accounts get `*` (`guest_account::NODE_NO_PASSWORD_HASH`, with `lock_passwd: false`), which matches no
 password but is not a lock. BSD accounts also leave the home to the OS, which is under
 `/usr/home` on FreeBSD.
 
@@ -151,10 +151,10 @@ about to create. `write_files` `defer` is not usable either: some images' packag
 (openSUSE 15.6) never run `write_files_deferred`.
 
 Instead, manifest `text_files` and the environment file are staged (`stage_cloud_init_files`).
-`write_files` writes each as a root-only file under `konst::NODE_STAGING_DIR`, and one `runcmd`
+`write_files` writes each as a root-only file under `node_ops::NODE_STAGING_DIR`, and one `runcmd`
 line per file, run once the users exist:
 
-1. looks up the user's home in `/etc/passwd` (`konst::NODE_PASSWD_FILE`, `passwd_home_lookup`),
+1. looks up the user's home in `/etc/passwd` (`node_ops::NODE_PASSWD_FILE`, `passwd_home_lookup`),
    because FreeBSD homes are under `/usr/home`; a destination starting with `~/` is resolved
    against it, and a user missing from `passwd` skips the file;
 2. creates missing parent directories, giving them to the user only when they are inside the
@@ -176,8 +176,8 @@ group. A `root:root` owner there fails the whole `write_files` module.
 
 ## Scripts (cloud-init)
 
-`build_cloud_init_scripts` writes `startup_scripts` to `konst::NODE_STARTUP_SCRIPTS_DIR` and
-`user_scripts` to `konst::NODE_USER_SCRIPTS_DIR`, mode 0755. Startup scripts run as root; user
+`build_cloud_init_scripts` writes `startup_scripts` to `node_ops::NODE_STARTUP_SCRIPTS_DIR` and
+`user_scripts` to `node_ops::NODE_USER_SCRIPTS_DIR`, mode 0755. Startup scripts run as root; user
 scripts are chowned to the guest login and its primary group, and run as it with `su -`, so they
 get a login shell and the environment variables. Scripts are run directly, not through `bash`, so
 each script's shebang picks its interpreter: Alpine and the BSDs ship no `bash`. A script without a
@@ -202,9 +202,9 @@ refuses bad text file modes in the client and in `up` before they get that far.
 
 OpenSSH on Windows reads one shared `administrators_authorized_keys` file for every member of
 Administrators, so any administrator key logs in as any administrator. Sherpa writes its own
-`sshd_config` (`template::WindowsSshdConfigTemplate`, `konst::WINDOWS_SSHD_CONFIG`) with
+`sshd_config` (`template::WindowsSshdConfigTemplate`, `node_ops::WINDOWS_SSHD_CONFIG`) with
 `AuthorizedKeysFile __PROGRAMDATA__/ssh/authorized_keys/%u`: each account, `sherpa` and the
-owner, has its own keys file under `konst::WINDOWS_AUTHORIZED_KEYS_DIR`, named after it and
+owner, has its own keys file under `node_ops::WINDOWS_AUTHORIZED_KEYS_DIR`, named after it and
 private to Administrators and SYSTEM (mode `0600`, below). The file is outside the user's
 profile, which Windows only creates at first logon. The owner is a local administrator
 (`guest_account::cloudbase_user`); cloudbase-init needs a password, so it gets a random one
@@ -214,7 +214,7 @@ cloudbase-init's `write_files` ignores `permissions`: a file inherits its folder
 under `C:\` that lets `BUILTIN\Users` read it. `build_windows_private_file_acls` turns each
 written file whose mode gives others no access (the node key at `0600`, a `text_files` entry at
 `600` or `640`) into an `icacls` command in `runcmd` that removes inherited access and grants only
-Administrators and SYSTEM. They are named by SID (`konst::WINDOWS_ADMINISTRATORS_SID`,
+Administrators and SYSTEM. They are named by SID (`node_ops::WINDOWS_ADMINISTRATORS_SID`,
 `WINDOWS_SYSTEM_SID`), so the command does not depend on the Windows display language, and no
 other account is granted: an unknown name would make `icacls` fail and leave the file open.
 cloudbase-init runs `write_files` before `runcmd`, and these commands come before the startup
@@ -230,7 +230,7 @@ than quoted. `administrators_authorized_keys` gets its own `icacls` command, whi
 | Alpine | The ENI renderer leaves `dns-nameservers` to a `resolvconf` tool the image lacks, so `/etc/resolv.conf` is never written | `manage_resolv_conf` with `CloudInitResolvConf::lab_dns`, which runs in the init stage |
 | FreeBSD, OpenBSD | No `root` group | Root-owned files omit `owner` |
 | FreeBSD | Homes are under `/usr/home` | Homes are looked up in `/etc/passwd` at boot |
-| NixOS | No `/bin/bash`, so sshd refuses accounts given it | `konst::NODE_NIXOS_SHELL` for every account |
+| NixOS | No `/bin/bash`, so sshd refuses accounts given it | `server::konst::NODE_NIXOS_SHELL` for every account |
 | NixOS | The generated `/etc/sudoers` does not read `/etc/sudoers.d`, so cloud-init `sudo` rules are ignored | Accounts join `wheel`, which the image gives passwordless sudo; no `sudo` rule |
 | NixOS | `sshd_config` is generated and read-only, so cloud-init's set-passwords module fails on `ssh_pwauth` and reports an error | `ssh_pwauth` omitted (`cloud_init_ssh_pwauth`); the image allows password logins itself |
 | SUSE, openSUSE | No per-user group; openSUSE 15.6 never runs deferred `write_files` | Primary group by default; staging instead of `defer` |

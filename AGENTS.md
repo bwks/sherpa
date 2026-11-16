@@ -11,9 +11,13 @@ database is Turso, embedded in sherpad as a single file (see `docs/architecture/
 ## Agent Hints
 - In planning mode, don't generate implementation code. Stick to high level implementation plan only.
   Code samples don't add value and will likely change during implementation. Do not show code in the terminal.
-- Always run `cargo fmt` and `cargo clippy --workspace --all-targets -- -D warnings` before running tests.
-  Formatting and linting must pass first. CI will fail if formatting is wrong, so catch it locally
-  before committing.
+- While iterating, check and test only the crate you change: `cargo check -p <crate>`,
+  `cargo test -p <crate> [filter]`. After an edit in `shared`, `cargo test -p shared --lib` builds
+  in about 8 s and `cargo check -p sherpad` in about 20 s, against about 50 s for a workspace build.
+  See "While iterating" in `tests/README.md`.
+- Once before each commit, run `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings`
+  and `cargo test --workspace`, in that order. Formatting and linting must pass first; CI fails on
+  either.
 - Development, builds, installs and tests can run in the dev server, a Sherpa lab with root and
   the toolchains. How to bring it up, connect to it and work in it is in
   `tests/environments/dev/README.md`. Follow it; do not hard-code its address or add host-side

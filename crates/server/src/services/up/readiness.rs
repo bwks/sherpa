@@ -10,6 +10,7 @@ use tracing::instrument;
 
 use super::context::LabBuild;
 use super::links::{P2pAttachment, P2pContainerVeth, attach_ready_p2p_links};
+use crate::konst::{READINESS_SLEEP, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR};
 use crate::services::lab_operations::LabOperation;
 use crate::services::node_lifecycle;
 use crate::services::node_ops::{self, VmReadiness};
@@ -20,10 +21,7 @@ use crate::services::talos;
 use container::ContainerSpec;
 use shared::data;
 use shared::data::{Halt, NodeState, OperationEvent, Runtime, StatusKind};
-use shared::konst::{
-    CONTAINER_SECRETS_DIR, READINESS_SLEEP, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR,
-    SSH_PORT,
-};
+use shared::konst::{CONTAINER_SECRETS_DIR, SSH_PORT};
 
 /// How long a started container must keep running before it counts as ready, or before its
 /// `ready_check.port` is waited for. An image whose entrypoint fails, such as mysql without a

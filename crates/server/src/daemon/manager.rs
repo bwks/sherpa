@@ -12,7 +12,7 @@ use super::pidfile::{
     send_signal, verify_not_running, write_pid,
 };
 use super::server::run_server;
-use shared::konst::{SHERPAD_LOG_FILE_PATH, SHERPAD_PID_FILE_PATH};
+use crate::konst::{SHERPAD_LOG_FILE_PATH, SHERPAD_PID_FILE_PATH};
 
 /// Start the sherpad daemon
 ///

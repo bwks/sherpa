@@ -17,10 +17,11 @@ use tracing::instrument;
 use shared::data::{KeycloakInfo, KeycloakUser, StatusKind};
 use shared::konst::{
     KEYCLOAK_CLUSTER_ADMINS_GROUP, KEYCLOAK_CLUSTER_VIEWERS_GROUP, KEYCLOAK_KUBERNETES_CLIENT_ID,
-    KEYCLOAK_REALM, READINESS_SLEEP, SHERPA_LABS_PATH, SHERPA_PASSWORD, SHERPA_USERNAME,
+    SHERPA_LABS_PATH, SHERPA_PASSWORD, SHERPA_USERNAME,
 };
 
 use super::api::KeycloakClient;
+use crate::konst::{KEYCLOAK_REALM, READINESS_SLEEP};
 use crate::services::guest_account::random_secret;
 use crate::services::progress::ProgressSender;
 use crate::tls::generator::write_file_with_permissions;

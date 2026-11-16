@@ -185,7 +185,7 @@ starts IOL, and a bridge relays each container interface `eth<N>` to IOL port `N
 environment variables and the entrypoint writes it.
 
 - `IOL_ID` is IOL's application ID, the node's index in the lab (`node_ops::iol_app_id`), 1 to
-  `konst::CISCO_IOL_MAX_APP_ID` (999; the launcher takes 1000). IOL derives its MAC addresses
+  `node_ops::CISCO_IOL_MAX_APP_ID` (999; the launcher takes 1000). IOL derives its MAC addresses
   from it, so two IOL nodes of one lab never share one.
 - `IOL_MEMORY_MB` is the node's `memory`, else the image's: IOL's `-m`, the whole IOL process.
 - `IOL_ETH_PORTS` is the data interface count plus management.

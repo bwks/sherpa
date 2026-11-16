@@ -5,7 +5,7 @@ use shared::data::{
     self, DbLab, Halt, LabNodeActionResponse, NodeActionResult, NodeKind, OperationEvent, RecordId,
     Runtime, StatusKind, TailnetAuthKey, TailnetStatus,
 };
-use shared::konst::{READINESS_SLEEP, READINESS_TIMEOUT};
+use shared::konst::READINESS_TIMEOUT;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 use topology::Manifest;
@@ -28,6 +28,7 @@ use super::ssh_config;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::{require_lab_access, require_lab_starter};
 use crate::daemon::state::AppState;
+use crate::konst::READINESS_SLEEP;
 
 /// How a node started by resume shows that it is ready, as `up` checks it.
 #[derive(Debug, Clone, PartialEq, Eq)]
