@@ -7,11 +7,10 @@ use anyhow::{Context, Result, bail};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use rand::RngCore;
 use shared::auth::jwt::Claims;
+use shared::util::write_file_with_permissions;
 use std::fs;
 use std::path::Path;
 use tracing::{debug, info};
-
-use crate::tls::generator::write_file_with_permissions;
 
 /// The length of the JWT secret, in bytes.
 const SECRET_LENGTH: usize = 32;

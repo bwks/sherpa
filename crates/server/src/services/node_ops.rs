@@ -15,8 +15,9 @@ use jato::{Auth, ConnectOptions, Hop, HostKeyPolicy, Node, Session};
 use tracing::instrument;
 
 use crate::konst::{
-    KEYCLOAK_HTTPS_PORT, LAB_CERTS_DIR, NODE_NIXOS_SHELL, SHERPA_BLANK_DISK_DIR,
-    SHERPA_PASSWORD_HASH, SHERPA_SSH_PUBLIC_KEY_FILE, VAULT_API_PORT, ZTP_ISO,
+    KEYCLOAK_HTTPS_PORT, LAB_CERTS_DIR, NODE_CONFIG_DIR_MODE, NODE_CONFIG_FILE_MODE,
+    NODE_NIXOS_SHELL, SHERPA_BLANK_DISK_DIR, SHERPA_PASSWORD_HASH, SHERPA_SSH_PUBLIC_KEY_FILE,
+    TFTP_CONFIG_FILE_MODE, VAULT_API_PORT, ZTP_ISO,
 };
 use crate::services::container_networks::is_node_network;
 use crate::services::guest_account::{self, GuestAccount, KeyFormat};
@@ -26,7 +27,6 @@ use crate::services::p2p_links::{KernelHost, LinkHost};
 use crate::services::progress::ProgressSender;
 use crate::services::talos::secrets::CLUSTERS_DIR;
 use crate::services::vault::lab::VAULT_DIR;
-use crate::tls::generator::write_file_with_permissions;
 use crate::tls::lab_ca::NodeCertPaths;
 
 use container::ContainerSpec;
@@ -371,16 +371,17 @@ pub(crate) fn write_nocloud_files(
     node_ipv6_address: Option<Ipv6Addr>,
     user_data: Option<&str>,
 ) -> Result<()> {
-    util::create_dir(dir)?;
+    util::create_dir_with_permissions(Path::new(dir), NODE_CONFIG_DIR_MODE)?;
 
     let meta_data = template::MetaDataConfig {
         instance_id: format!("iid-{hostname}"),
         local_hostname: hostname.to_owned(),
         ..Default::default()
     };
-    util::create_file(
-        &format!("{dir}/{CLOUD_INIT_META_DATA}"),
-        meta_data.render()?,
+    util::write_file_with_permissions(
+        Path::new(&format!("{dir}/{CLOUD_INIT_META_DATA}")),
+        meta_data.render()?.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
     )?;
 
     let network_config = template::CloudInitNetwork::ztp_interface(
@@ -390,15 +391,20 @@ pub(crate) fn write_nocloud_files(
         node_ipv6_address,
         mgmt_net.v6.as_ref(),
     );
-    util::create_file(
-        &format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}"),
-        network_config.render()?,
+    util::write_file_with_permissions(
+        Path::new(&format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}")),
+        network_config.render()?.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
     )?;
 
     let user_data_path = format!("{dir}/{CLOUD_INIT_USER_DATA}");
     match user_data {
         Some(content) => {
-            write_file_with_permissions(Path::new(&user_data_path), content.as_bytes(), 0o600)?;
+            util::write_file_with_permissions(
+                Path::new(&user_data_path),
+                content.as_bytes(),
+                NODE_CONFIG_FILE_MODE,
+            )?;
         }
         None => match fs::remove_file(&user_data_path) {
             Ok(()) => tracing::debug!(path = %user_data_path, "Removed stale user-data"),
@@ -773,8 +779,12 @@ fn arista_ceos_volume_ztp(
         src: ztp_config.clone(),
         dst: ARISTA_CEOS_ZTP_VOLUME_MOUNT.to_string(),
     };
-    util::create_dir(dir)?;
-    util::create_file(&ztp_config, rendered_template)?;
+    util::create_dir_with_permissions(Path::new(dir), NODE_CONFIG_DIR_MODE)?;
+    util::write_file_with_permissions(
+        Path::new(&ztp_config),
+        rendered_template.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
+    )?;
 
     setup.volumes = vec![format!("{}:{}:ro", ztp_volume.src, ztp_volume.dst)];
     setup.commands = ceos_startup_commands();
@@ -840,8 +850,12 @@ fn srlinux_volume_ztp(
         src: ztp_config.clone(),
         dst: NOKIA_SRLINUX_ZTP_VOLUME_MOUNT.to_string(),
     };
-    util::create_dir(dir)?;
-    util::create_file(&ztp_config, srlinux_config)?;
+    util::create_dir_with_permissions(Path::new(dir), NODE_CONFIG_DIR_MODE)?;
+    util::write_file_with_permissions(
+        Path::new(&ztp_config),
+        srlinux_config.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
+    )?;
 
     setup.volumes = vec![format!("{}:{}", ztp_volume.src, ztp_volume.dst)];
     node.container.get_or_insert_default().volumes = Some(vec![ztp_volume]);
@@ -913,10 +927,11 @@ fn cevolved_volume_ztp(
         src: config_dir.clone(),
         dst: JUNIPER_CEVOLVED_CONFIG_DIR.to_string(),
     };
-    util::create_dir(&config_dir)?;
-    util::create_file(
-        &format!("{config_dir}/{JUNIPER_ZTP_CONFIG}"),
-        rendered_template,
+    util::create_dir_with_permissions(Path::new(&config_dir), NODE_CONFIG_DIR_MODE)?;
+    util::write_file_with_permissions(
+        Path::new(&format!("{config_dir}/{JUNIPER_ZTP_CONFIG}")),
+        rendered_template.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
     )?;
 
     setup.volumes = vec![format!("{}:{}:ro", config_volume.src, config_volume.dst)];
@@ -944,7 +959,7 @@ fn iol_start(
     setup.capabilities = model_capabilities(node.model);
 
     let run_dir = format!("{}/run", ztp.dir);
-    util::create_dir(&run_dir)?;
+    util::create_dir_with_permissions(Path::new(&run_dir), NODE_CONFIG_DIR_MODE)?;
     setup.volumes.push(format!("{run_dir}:{CISCO_IOL_RUN_DIR}"));
 
     node.environment_variables = Some(setup.env_vars.clone());
@@ -1007,10 +1022,11 @@ fn iol_volume_ztp(
         src: config_dir.clone(),
         dst: CISCO_IOL_CONFIG_DIR.to_string(),
     };
-    util::create_dir(&config_dir)?;
-    util::create_file(
-        &format!("{config_dir}/{CISCO_IOL_STARTUP_CONFIG}"),
-        rendered_template,
+    util::create_dir_with_permissions(Path::new(&config_dir), NODE_CONFIG_DIR_MODE)?;
+    util::write_file_with_permissions(
+        Path::new(&format!("{config_dir}/{CISCO_IOL_STARTUP_CONFIG}")),
+        rendered_template.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
     )?;
 
     setup
@@ -1078,10 +1094,22 @@ fn frr_volume_ztp(
     .render()?;
     let startup_file = format!("{dir}/sherpa-init.sh");
 
-    util::create_dir(dir)?;
-    util::create_file(&daemons_file, rendered_daemons)?;
-    util::create_file(&config_file, rendered_config)?;
-    util::create_file(&startup_file, rendered_startup)?;
+    util::create_dir_with_permissions(Path::new(dir), NODE_CONFIG_DIR_MODE)?;
+    util::write_file_with_permissions(
+        Path::new(&daemons_file),
+        rendered_daemons.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
+    )?;
+    util::write_file_with_permissions(
+        Path::new(&config_file),
+        rendered_config.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
+    )?;
+    util::write_file_with_permissions(
+        Path::new(&startup_file),
+        rendered_startup.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
+    )?;
 
     let daemons_volume = topology::VolumeMount {
         src: daemons_file,
@@ -1149,8 +1177,12 @@ fn vault_container(
         src: config_file.clone(),
         dst: VAULT_ZTP_CONFIG_MOUNT.to_string(),
     };
-    util::create_dir(dir)?;
-    util::create_file(&config_file, rendered_config)?;
+    util::create_dir_with_permissions(Path::new(dir), NODE_CONFIG_DIR_MODE)?;
+    util::write_file_with_permissions(
+        Path::new(&config_file),
+        rendered_config.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
+    )?;
 
     setup.env_vars = if custom_ztp.is_some() {
         CONTAINER_HASHICORP_VAULT_ENV_VARS
@@ -2190,19 +2222,24 @@ fn cloud_init_files(
 fn write_cloud_init_seed(
     dir: &str,
     user_data: &str,
-    meta_data: String,
-    network_config: String,
+    meta_data: &str,
+    network_config: &str,
 ) -> Result<()> {
-    util::create_dir(dir)?;
-    write_file_with_permissions(
+    util::create_dir_with_permissions(Path::new(dir), NODE_CONFIG_DIR_MODE)?;
+    util::write_file_with_permissions(
         Path::new(&format!("{dir}/{CLOUD_INIT_USER_DATA}")),
         user_data.as_bytes(),
-        0o600,
+        NODE_CONFIG_FILE_MODE,
     )?;
-    util::create_file(&format!("{dir}/{CLOUD_INIT_META_DATA}"), meta_data)?;
-    util::create_file(
-        &format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}"),
-        network_config,
+    util::write_file_with_permissions(
+        Path::new(&format!("{dir}/{CLOUD_INIT_META_DATA}")),
+        meta_data.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
+    )?;
+    util::write_file_with_permissions(
+        Path::new(&format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}")),
+        network_config.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
     )?;
     create_iso(dir, format!("{dir}/{ZTP_ISO}"), ZTP_ISO_VOLUME_ID)?;
     Ok(())
@@ -2273,8 +2310,8 @@ fn linux_cloud_init(
     write_cloud_init_seed(
         dir,
         &cloud_init_config.render()?,
-        meta_data.render()?,
-        network_config.render()?,
+        &meta_data.render()?,
+        &network_config.render()?,
     )
 }
 
@@ -2392,8 +2429,8 @@ fn windows_cloudbase_init(
     write_cloud_init_seed(
         dir,
         &cloudbase_config.render()?,
-        meta_data.render()?,
-        network_config.render()?,
+        &meta_data.render()?,
+        &network_config.render()?,
     )
 }
 
@@ -2450,8 +2487,8 @@ fn alpine_cloud_init(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>, dir: &str
     write_cloud_init_seed(
         dir,
         &cloud_init_config.render()?,
-        meta_data.render()?,
-        network_config.render()?,
+        &meta_data.render()?,
+        &network_config.render()?,
     )
 }
 
@@ -2479,7 +2516,11 @@ fn generate_tftp_ztp(
 
     if let Some(custom_config) = custom_ztp {
         let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
-        util::create_file(&ztp_config, custom_config.to_owned())?;
+        util::write_file_with_permissions(
+            Path::new(&ztp_config),
+            custom_config.as_bytes(),
+            TFTP_CONFIG_FILE_MODE,
+        )?;
     } else {
         match node.model {
             data::NodeModel::AristaVeos => {
@@ -2495,7 +2536,11 @@ fn generate_tftp_ztp(
                 };
                 let rendered_template = arista_template.render()?;
                 let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
-                util::create_file(&ztp_config, rendered_template)?;
+                util::write_file_with_permissions(
+                    Path::new(&ztp_config),
+                    rendered_template.as_bytes(),
+                    TFTP_CONFIG_FILE_MODE,
+                )?;
             }
             data::NodeModel::ArubaAoscx => {
                 let aruba_template = template::ArubaAoscxTemplate {
@@ -2510,7 +2555,11 @@ fn generate_tftp_ztp(
                 };
                 let rendered_template = aruba_template.render()?;
                 let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
-                util::create_file(&ztp_config, rendered_template)?;
+                util::write_file_with_permissions(
+                    Path::new(&ztp_config),
+                    rendered_template.as_bytes(),
+                    TFTP_CONFIG_FILE_MODE,
+                )?;
             }
             data::NodeModel::JuniperVevolved | data::NodeModel::JuniperVsrxv3 => {
                 let juniper_template = template::JunipervJunosZtpTemplate {
@@ -2525,7 +2574,11 @@ fn generate_tftp_ztp(
                 };
                 let juniper_rendered_template = juniper_template.render()?;
                 let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
-                util::create_file(&ztp_config, juniper_rendered_template)?;
+                util::write_file_with_permissions(
+                    Path::new(&ztp_config),
+                    juniper_rendered_template.as_bytes(),
+                    TFTP_CONFIG_FILE_MODE,
+                )?;
             }
             _ => {
                 bail!("TFTP ZTP method not supported for {}", node_image.model);
@@ -2558,8 +2611,12 @@ fn generate_cdrom_ztp(
         None => cdrom_config(node, node_image, ztp)?,
     };
     let ztp_config = format!("{dir}/{}", ztp_config_filename(node.model)?);
-    util::create_dir(&dir)?;
-    util::create_file(&ztp_config, config)?;
+    util::create_dir_with_permissions(Path::new(&dir), NODE_CONFIG_DIR_MODE)?;
+    util::write_file_with_permissions(
+        Path::new(&ztp_config),
+        config.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
+    )?;
     create_iso(&dir, format!("{dir}/{ZTP_ISO}"), ZTP_ISO_VOLUME_ID)?;
     Ok(())
 }
@@ -2728,10 +2785,10 @@ fn write_panos_bootstrap(
     let user = sherpa_user.clone();
     // PA-VM requires config/, content/, license/, software/ directories
     let config_subdir = format!("{dir}/config");
-    util::create_dir(&config_subdir)?;
-    util::create_dir(&format!("{dir}/content"))?;
-    util::create_dir(&format!("{dir}/license"))?;
-    util::create_dir(&format!("{dir}/software"))?;
+    util::create_dir_with_permissions(Path::new(&config_subdir), NODE_CONFIG_DIR_MODE)?;
+    util::create_dir_with_permissions(Path::new(&format!("{dir}/content")), NODE_CONFIG_DIR_MODE)?;
+    util::create_dir_with_permissions(Path::new(&format!("{dir}/license")), NODE_CONFIG_DIR_MODE)?;
+    util::create_dir_with_permissions(Path::new(&format!("{dir}/software")), NODE_CONFIG_DIR_MODE)?;
 
     // init-cfg.txt — network and hostname settings
     let init_cfg = template::PaloAltoPanosZtpTemplate {
@@ -2744,9 +2801,10 @@ fn write_panos_bootstrap(
         dns_primary: mgmt_net.v4.boot_server,
         dns_secondary: mgmt_net.v4.boot_server,
     };
-    util::create_file(
-        &format!("{config_subdir}/{PALOALTO_ZTP_CONFIG}"),
-        init_cfg.render()?,
+    util::write_file_with_permissions(
+        Path::new(&format!("{config_subdir}/{PALOALTO_ZTP_CONFIG}")),
+        init_cfg.render()?.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
     )?;
 
     // bootstrap.xml — full running config with admin + sherpa users
@@ -2774,9 +2832,10 @@ fn write_panos_bootstrap(
         mgmt_gateway: mgmt_net.v4.first,
         dns_primary: mgmt_net.v4.boot_server,
     };
-    util::create_file(
-        &format!("{config_subdir}/{PALOALTO_BOOTSTRAP_CONFIG}"),
-        bootstrap.render()?,
+    util::write_file_with_permissions(
+        Path::new(&format!("{config_subdir}/{PALOALTO_BOOTSTRAP_CONFIG}")),
+        bootstrap.render()?.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
     )?;
 
     create_iso(
@@ -2813,8 +2872,12 @@ fn generate_disk_ztp(
                 None => iosv_config(node, node_image, ztp)?,
             };
             let ztp_config = format!("{dir}/{CISCO_IOSV_ZTP_CONFIG}");
-            util::create_dir(&dir)?;
-            util::create_file(&ztp_config, rendered_template)?;
+            util::create_dir_with_permissions(Path::new(&dir), NODE_CONFIG_DIR_MODE)?;
+            util::write_file_with_permissions(
+                Path::new(&ztp_config),
+                rendered_template.as_bytes(),
+                NODE_CONFIG_FILE_MODE,
+            )?;
 
             let src_disk = format!("{images_dir}/{SHERPA_BLANK_DISK_DIR}/{SHERPA_BLANK_DISK_IOSV}");
             let dst_disk = format!("{dir}/{}-cfg.img", node.name);
@@ -2926,8 +2989,12 @@ fn ise_config_disk(
         .render()?
     };
     let ztp_config = format!("{dir}/{CISCO_ISE_ZTP_CONFIG}");
-    util::create_dir(dir)?;
-    util::create_file(&ztp_config, rendered_template)?;
+    util::create_dir_with_permissions(Path::new(dir), NODE_CONFIG_DIR_MODE)?;
+    util::write_file_with_permissions(
+        Path::new(&ztp_config),
+        rendered_template.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
+    )?;
 
     let src_disk = format!("{images_dir}/{SHERPA_BLANK_DISK_DIR}/{SHERPA_BLANK_DISK_ISE}");
     let dst_disk = format!("{dir}/{node_name_with_lab}-cfg.img");
@@ -2995,8 +3062,12 @@ fn mikrotik_config_disk(
         .render()?
     };
     let ztp_config = format!("{dir}/{MIKROTIK_CHR_ZTP_CONFIG}");
-    util::create_dir(dir)?;
-    util::create_file(&ztp_config, rendered_template)?;
+    util::create_dir_with_permissions(Path::new(dir), NODE_CONFIG_DIR_MODE)?;
+    util::write_file_with_permissions(
+        Path::new(&ztp_config),
+        rendered_template.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
+    )?;
 
     let src_disk = format!("{images_dir}/{SHERPA_BLANK_DISK_DIR}/{SHERPA_BLANK_DISK_FAT32}");
     let dst_disk = format!("{dir}/{}-cfg.img", node.name);
@@ -3004,16 +3075,22 @@ fn mikrotik_config_disk(
     util::copy_file(&src_disk, &dst_disk)?;
     util::copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
     let sherpa_key_file = format!("{dir}/{SHERPA_SSH_PUBLIC_KEY_FILE}");
-    util::create_file(
-        &sherpa_key_file,
+    util::write_file_with_permissions(
+        Path::new(&sherpa_key_file),
         format!(
             "{} {}\n",
             sherpa_user.ssh_public_key.algorithm, sherpa_user.ssh_public_key.key
-        ),
+        )
+        .as_bytes(),
+        NODE_CONFIG_FILE_MODE,
     )?;
     util::copy_to_dos_image(&sherpa_key_file, &dst_disk, "/")?;
     for (path, content) in owner_key_files {
-        util::create_file(&path, content)?;
+        util::write_file_with_permissions(
+            Path::new(&path),
+            content.as_bytes(),
+            NODE_CONFIG_FILE_MODE,
+        )?;
         util::copy_to_dos_image(&path, &dst_disk, "/")?;
     }
 
@@ -3065,8 +3142,12 @@ fn generate_usb_ztp(
                 t.render()?
             };
             let ztp_config = format!("{dir}/{CUMULUS_ZTP}");
-            util::create_dir(&dir)?;
-            util::create_file(&ztp_config, rendered_template)?;
+            util::create_dir_with_permissions(Path::new(&dir), NODE_CONFIG_DIR_MODE)?;
+            util::write_file_with_permissions(
+                Path::new(&ztp_config),
+                rendered_template.as_bytes(),
+                NODE_CONFIG_FILE_MODE,
+            )?;
 
             let src_usb = format!("{images_dir}/{SHERPA_BLANK_DISK_DIR}/{SHERPA_BLANK_DISK_FAT32}");
             let dst_usb = format!("{dir}/cfg.img");
@@ -3096,8 +3177,12 @@ fn generate_usb_ztp(
             let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
             let ztp_config_tgz = format!("{dir}/{JUNIPER_ZTP_CONFIG_TGZ}");
 
-            util::create_dir(&dir)?;
-            util::create_file(&ztp_config, rendered_template)?;
+            util::create_dir_with_permissions(Path::new(&dir), NODE_CONFIG_DIR_MODE)?;
+            util::write_file_with_permissions(
+                Path::new(&ztp_config),
+                rendered_template.as_bytes(),
+                NODE_CONFIG_FILE_MODE,
+            )?;
 
             let src_usb = format!("{images_dir}/{SHERPA_BLANK_DISK_DIR}/{SHERPA_BLANK_DISK_JUNOS}");
             let dst_usb = format!("{dir}/cfg.img");
@@ -3152,15 +3237,27 @@ fn generate_http_ztp(
                 mgmt_ipv6_address: node.ipv6_address,
                 mgmt_ipv6: mgmt_net.v6.clone(),
             };
-            util::create_dir(&dir)?;
-            util::create_file(&ztp_init, sonic_ztp_file_map)?;
-            util::create_file(&ztp_config, sonic_ztp.config())?;
+            util::create_dir_with_permissions(Path::new(&dir), NODE_CONFIG_DIR_MODE)?;
+            util::write_file_with_permissions(
+                Path::new(&ztp_init),
+                sonic_ztp_file_map.as_bytes(),
+                NODE_CONFIG_FILE_MODE,
+            )?;
+            util::write_file_with_permissions(
+                Path::new(&ztp_config),
+                sonic_ztp.config().as_bytes(),
+                NODE_CONFIG_FILE_MODE,
+            )?;
 
             let sonic_user_template = template::SonicLinuxUserTemplate {
                 user: sherpa_user.clone(),
                 owner: guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?,
             };
-            util::create_file(&ztp_user_script, sonic_user_template.render()?)?;
+            util::write_file_with_permissions(
+                Path::new(&ztp_user_script),
+                sonic_user_template.render()?.as_bytes(),
+                NODE_CONFIG_FILE_MODE,
+            )?;
         }
         _ => {
             bail!("HTTP ZTP method not supported for {}", node_image.model);
@@ -3242,7 +3339,7 @@ fn write_binary_files(dir: &str, files: &[BinaryFileData]) -> Result<Vec<String>
         return Ok(Vec::new());
     }
     let binary_dir = format!("{dir}/{BINARY_FILES_DIR}");
-    util::create_dir(&binary_dir)?;
+    util::create_dir_with_permissions(Path::new(&binary_dir), NODE_CONFIG_DIR_MODE)?;
     files
         .iter()
         .map(|file| {
@@ -3432,8 +3529,12 @@ fn flatcar_ignition(
     let src_ztp_file = format!("{dir}/{ZTP_JSON}");
     let dst_ztp_file = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.ign");
 
-    util::create_dir(&dir)?;
-    util::create_file(&src_ztp_file, flatcar_config)?;
+    util::create_dir_with_permissions(Path::new(&dir), NODE_CONFIG_DIR_MODE)?;
+    util::write_file_with_permissions(
+        Path::new(&src_ztp_file),
+        flatcar_config.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
+    )?;
 
     // Copy blank disk for container data
     let src_data_disk =
@@ -4360,7 +4461,11 @@ pub async fn destroy_container_node(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::konst::TFTP_DIR_MODE;
+    use nix::sys::stat::{Mode, umask};
+    use std::env;
     use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
     use tempfile::tempdir;
     use tokio::io::AsyncWriteExt;
     use tokio::sync::mpsc;
@@ -6390,5 +6495,213 @@ mod tests {
         assert!(result.is_err());
         assert!(boot_dir.join(CLOUD_INIT_USER_DATA).exists());
         assert!(boot_dir.join(ZTP_ISO).exists());
+    }
+
+    /// The umask the `*_under_the_umask_in_env` tests run under, in octal.
+    const UMASK_ENV: &str = "SHERPA_TEST_NODE_CONFIG_UMASK";
+    /// Each family of rendered node configs, tested in a process of its own.
+    const NODE_CONFIG_UMASK_TESTS: [&str; 3] = [
+        "services::node_ops::tests::vm_boot_files_are_private_under_the_umask_in_env",
+        "services::node_ops::tests::network_boot_files_are_private_under_the_umask_in_env",
+        "services::node_ops::tests::container_configs_are_private_under_the_umask_in_env",
+    ];
+    /// A real key: Cisco's configs carry its MD5 hash.
+    const CISCO_TEST_KEY: &str =
+        "AAAAC3NzaC1lZDI1NTE5AAAAIE6/8GjrZ1QD9nWLGeWkclvKEWliuCe2qDrak7cEmjIG";
+    /// Media built from the configs in a VM's boot folder, not rendered: the folder keeps
+    /// them private until they are uploaded to the storage pool.
+    const BOOT_MEDIA: [&str; 3] = [ZTP_ISO, "-cfg.img", CONTAINER_DISK_NAME];
+
+    /// Set the umask `UMASK_ENV` names. False when it names none: the test was not started by
+    /// `rendered_node_configs_are_private_whatever_the_umask`.
+    fn umask_from_env() -> bool {
+        let Ok(mask) = env::var(UMASK_ENV) else {
+            return false;
+        };
+        umask(Mode::from_bits_truncate(
+            u32::from_str_radix(&mask, 8).unwrap(),
+        ));
+        true
+    }
+
+    /// Every folder and file under `root`, with its mode, by its path relative to `root`, and
+    /// whether it is a folder.
+    fn modes_under(root: &Path) -> Vec<(String, bool, u32)> {
+        let mut found = Vec::new();
+        let mut pending = vec![root.to_path_buf()];
+        while let Some(dir) = pending.pop() {
+            for entry in fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                let metadata = fs::metadata(&path).unwrap();
+                let relative = path.strip_prefix(root).unwrap().display().to_string();
+                found.push((
+                    relative,
+                    metadata.is_dir(),
+                    metadata.permissions().mode() & 0o7777,
+                ));
+                if metadata.is_dir() {
+                    pending.push(path);
+                }
+            }
+        }
+        found.sort();
+        found
+    }
+
+    /// Assert that every folder under `root` and `root` itself has `dir_mode`, and every file
+    /// that is not boot media has `file_mode`.
+    fn assert_modes(root: &Path, dir_mode: u32, file_mode: u32) {
+        let root_mode = fs::metadata(root).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(root_mode, dir_mode, "{}", root.display());
+        for (path, is_dir, mode) in modes_under(root) {
+            if is_dir {
+                assert_eq!(mode, dir_mode, "folder {path}: {mode:o}");
+            } else if !BOOT_MEDIA.iter().any(|media| path.ends_with(media)) {
+                assert_eq!(mode, file_mode, "file {path}: {mode:o}");
+            }
+        }
+    }
+
+    /// The umask is per process, so each family runs in a test process of its own under a
+    /// umask that takes nothing away: the modes must come from Sherpa, not from the umask.
+    #[test]
+    fn rendered_node_configs_are_private_whatever_the_umask() {
+        for test in NODE_CONFIG_UMASK_TESTS {
+            let output = Command::new(env::current_exe().unwrap())
+                .args(["--exact", test, "--ignored", "--test-threads=1"])
+                .env(UMASK_ENV, "0000")
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                output.status.success() && stdout.contains("1 passed"),
+                "{test}: {stdout}{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "run in a process of its own by rendered_node_configs_are_private_whatever_the_umask"]
+    fn vm_boot_files_are_private_under_the_umask_in_env() {
+        if !umask_from_env() {
+            return;
+        }
+        let mut lab = ZtpLab::new();
+        lab.user.ssh_public_key.key = CISCO_TEST_KEY.to_owned();
+        let images = tempdir().unwrap();
+        let blank_disks = images.path().join(SHERPA_BLANK_DISK_DIR);
+        fs::create_dir(&blank_disks).unwrap();
+        fs::write(blank_disks.join(SHERPA_BLANK_DISK_EXT4_500MB), b"disk").unwrap();
+        let lab_ztp = LabZtp {
+            images_dir: images.path().to_str().unwrap(),
+            ..lab.lab()
+        };
+        // cloud-init, CD-ROM, the PAN-OS bootstrap, NoCloud and Ignition.
+        let nodes = [
+            ("ubuntu01", data::NodeModel::UbuntuLinux),
+            ("cat01", data::NodeModel::CiscoCat8000v),
+            ("panos01", data::NodeModel::PaloaltoPanos),
+            ("talos01", data::NodeModel::TalosLinux),
+            ("flatcar01", data::NodeModel::FlatcarLinux),
+        ];
+        for (name, model) in nodes {
+            let mut node = named_node(name, model);
+            generate_vm_ztp(
+                &mut node,
+                &data::NodeConfig::get_model(model),
+                &lab_ztp,
+                "192.0.2.10".parse().unwrap(),
+                None,
+                None,
+            )
+            .unwrap();
+        }
+
+        let boot_dir = lab.dir.path().join(VM_BOOT_DIR);
+        assert_modes(&boot_dir, NODE_CONFIG_DIR_MODE, NODE_CONFIG_FILE_MODE);
+        let written = modes_under(&boot_dir);
+        for (name, _) in nodes {
+            assert!(
+                written
+                    .iter()
+                    .any(|(path, is_dir, _)| !is_dir && path.starts_with(&format!("{name}/"))),
+                "no config for {name}: {written:?}"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "run in a process of its own by rendered_node_configs_are_private_whatever_the_umask"]
+    fn network_boot_files_are_private_under_the_umask_in_env() {
+        if !umask_from_env() {
+            return;
+        }
+        let lab = ZtpLab::new();
+        let ztp_dir = lab.dir.path().join(ZTP_DIR);
+        // `up` and `redeploy` make the TFTP folder before any node's config.
+        util::create_dir_with_permissions(&ztp_dir.join(TFTP_DIR), TFTP_DIR_MODE).unwrap();
+        for (name, model) in [
+            ("veos01", data::NodeModel::AristaVeos),
+            ("sonic01", data::NodeModel::SonicLinux),
+        ] {
+            let mut node = named_node(name, model);
+            generate_vm_ztp(
+                &mut node,
+                &data::NodeConfig::get_model(model),
+                &lab.lab(),
+                "192.0.2.10".parse().unwrap(),
+                None,
+                None,
+            )
+            .unwrap();
+        }
+
+        let tftp = modes_under(&ztp_dir.join(TFTP_DIR));
+        assert_eq!(
+            tftp,
+            [("veos01.conf".to_owned(), false, TFTP_CONFIG_FILE_MODE)]
+        );
+        let configs_dir = ztp_dir.join(NODE_CONFIGS_DIR);
+        assert_modes(&configs_dir, NODE_CONFIG_DIR_MODE, NODE_CONFIG_FILE_MODE);
+        assert_eq!(
+            modes_under(&configs_dir).len(),
+            http_ztp_files("sonic01").len()
+        );
+        let ztp_dir_mode = fs::metadata(&ztp_dir).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(ztp_dir_mode, NODE_CONFIG_DIR_MODE);
+    }
+
+    #[test]
+    #[ignore = "run in a process of its own by rendered_node_configs_are_private_whatever_the_umask"]
+    fn container_configs_are_private_under_the_umask_in_env() {
+        if !umask_from_env() {
+            return;
+        }
+        let mut lab = ZtpLab::new();
+        lab.user.ssh_public_key.key = CISCO_TEST_KEY.to_owned();
+        let mut nodes = vec![
+            named_node("ceos01", data::NodeModel::AristaCeos),
+            named_node("srl01", data::NodeModel::NokiaSrlinux),
+            named_node("cevo01", data::NodeModel::JuniperCevolved),
+            named_node("frr01", data::NodeModel::FrrLinux),
+            iol_node("iol01", data::NodeModel::CiscoIol, 1),
+        ];
+        let mut vault = named_node("vault01", data::NodeModel::HashicorpVault);
+        vault.ztp.config = Some("ui = true".to_owned());
+        nodes.push(vault);
+        for node in &mut nodes {
+            lab.container(node, None).unwrap();
+        }
+
+        for node in &nodes {
+            let dir = lab.dir.path().join(&node.name);
+            assert_modes(&dir, NODE_CONFIG_DIR_MODE, NODE_CONFIG_FILE_MODE);
+            assert!(
+                modes_under(&dir).iter().any(|(_, is_dir, _)| !is_dir),
+                "no config for {}",
+                node.name
+            );
+        }
     }
 }

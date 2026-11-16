@@ -78,6 +78,50 @@ Older releases left the first three; they are removed at startup (see
 [Unread lab file clean-up](SERVER.md#unread-lab-file-clean-up)). The user's `manifest.toml` in
 their own lab folder is the CLI's, and is never touched.
 
+### Node config modes
+
+Every config Sherpa renders for a node, and the folder it is in, gets its mode explicitly,
+whatever `sherpad`'s umask: files through `shared::util::write_file_with_permissions`, folders
+through `shared::util::create_dir_with_permissions`. The modes are constants in `server::konst`.
+
+| Files | Folder | File mode | Folder mode | Read by |
+|---|---|---|---|---|
+| A VM's boot files: cloud-init, cloudbase-init and NoCloud seeds, CD-ROM, disk, USB and Ignition sources, the PAN-OS bootstrap | `vm-boot.d/<node>/` and its subfolders | `0600` | `0700` | `sherpad`, building and uploading the media |
+| SONiC's HTTP files | `ztp/configs/` | `0600` | `0700` | the boot container's HTTP server, as root |
+| TFTP configs (vEOS, AOS-CX, vEvolved; vSRX only when a manifest sets `tftp`, as it defaults to CD-ROM) | `ztp/tftp/` | `0604` | `0705` | dnsmasq in the boot container, as root |
+| Container config mounts (cEOS, SR Linux, cJunosEvolved, IOL, FRR, Vault) | `<node>/` and its subfolders | `0600` | `0700` | the container's own processes, as root |
+
+`ztp/` itself is `0700`. A container reads its mounts through Docker, which resolves the bind
+mount's source as root, so the folders above a mount do not need to let the container in; only
+the mounted file or folder's own mode matters to the process in the container.
+
+- **TFTP is the one exception.** dnsmasq serves only files others can read: as root, as it
+  runs in the boot container, it serves world-readable files only, and started otherwise it
+  drops to the container's `dnsmasq` user, which owns nothing on the host and refuses a TFTP root
+  it cannot list. The configs are readable by others, and the folder readable and searchable by
+  them, so TFTP works whichever user dnsmasq runs as; the group, which on the host is the people
+  in `sherpa`, gets nothing. On the host, others cannot reach the lab folder (`labs/` is
+  `2750`).
+- **The HTTP server serves all of `ztp/`'s mounts**, so a TFTP config can be fetched over HTTP
+  too. Any node on the lab's management network can fetch any node's TFTP or HTTP config, without
+  credentials: the modes protect the files on the host, not on that network.
+- **Media are not rendered**: the `ztp.iso`, config disk and data disk copies in a VM's boot folder
+  get the umask's mode, inside the `0700` folder, until they are in the storage pool and the
+  folder is removed. An ISO's Rock Ridge modes are fixed (`ZTP_ISO.md`), whatever the source
+  files'.
+- Each container model's reader runs as root: cEOS (`/sbin/init`), SR Linux (`0:0`), FRR (the
+  startup script, `frrinit.sh` and `vtysh -b`; the daemons run as `frr` but do not read
+  `frr.conf`), Vault (Sherpa's command runs `vault` without the image's switch to the `vault`
+  user), and IOL and cJunosEvolved, whose launchers need `NET_ADMIN` and a privileged container,
+  which only root has.
+- **SR Linux takes its config over.** Its startup, as root, gives `config.json` to its
+  `srlinux` user (uid 1002 in the image) and opens it to everyone (`0777` and an ACL), for the
+  processes that then run as that user. The mount reaches the host file, so on the host it is
+  owned by uid 1002 and world-writable; the `0700` node folder is what keeps it private there.
+  `sherpa` can still remove it, as it owns the folder.
+- The dnsmasq config, `ztp/dnsmasq/dnsmasq.conf`, is not a node config and keeps the umask's
+  mode; dnsmasq reads it as root before it drops root.
+
 ## Lab identity
 
 `cmd::lab_identity` works out which lab a folder holds, for every per-lab command.

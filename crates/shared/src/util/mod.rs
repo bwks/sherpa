@@ -33,7 +33,8 @@ pub use file_system::{
 };
 #[cfg(unix)]
 pub use file_system::{
-    copy_to_dos_image, copy_to_ext4_image, create_config_archive, fix_permissions_recursive,
+    copy_to_dos_image, copy_to_ext4_image, create_config_archive, create_dir_with_permissions,
+    fix_permissions_recursive, write_file_with_permissions,
 };
 pub use host::{get_fqdn, get_hostname};
 #[cfg(feature = "netinfo")]

@@ -12,10 +12,10 @@ use anyhow::{Context, Result};
 use tracing::instrument;
 
 use shared::konst::SHERPA_DOMAIN_NAME;
+use shared::util::write_file_with_permissions;
 
 use super::generator::{
     CaSpec, KeyAlgorithm, PemPair, ServerSubject, generate_ca, issue_server_certificate,
-    write_file_with_permissions,
 };
 use crate::konst::{LAB_CA_CERT_FILE, LAB_CA_KEY_FILE};
 

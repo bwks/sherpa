@@ -25,6 +25,23 @@ pub(crate) const SHERPA_SERVER_IPV4: &str = "0.0.0.0";
 pub(crate) const SHERPA_MANAGEMENT_NETWORK_IPV6: &str = "fd00:b00b::/48";
 pub(crate) const ZTP_ISO: &str = "ztp.iso";
 pub(crate) const DNSMASQ_CONFIG_FILE: &str = "dnsmasq.conf";
+/// The mode of a config Sherpa renders for a node: only `sherpa` reads it. The processes that
+/// read it as well run as root: Docker for a bind mount and the container's own init, sherpad
+/// when it uploads the boot media, and the boot container's HTTP server.
+pub(crate) const NODE_CONFIG_FILE_MODE: u32 = 0o600;
+/// The mode of a folder holding node configs: a VM's boot folder, a container's node folder,
+/// the lab's `ztp` folder and its HTTP configs folder.
+pub(crate) const NODE_CONFIG_DIR_MODE: u32 = 0o700;
+/// The mode of a node's TFTP config. dnsmasq serves only files others can read: as root, as it
+/// runs in the boot container, it serves world-readable files only, and as its own `dnsmasq`
+/// user, which it drops to when started otherwise, it owns nothing on the host. The group, which
+/// on the host is the people in `sherpa`, gets nothing, and on the host others cannot reach the
+/// lab's folder.
+pub(crate) const TFTP_CONFIG_FILE_MODE: u32 = 0o604;
+/// The mode of the lab's TFTP folder. Root could read a `0700` folder, but dnsmasq as its own
+/// user refuses a TFTP root it cannot list, so others get read and search: on the host they
+/// cannot reach the lab's folder, and the folder keeps working whichever user dnsmasq runs as.
+pub(crate) const TFTP_DIR_MODE: u32 = 0o705;
 pub(crate) const LAB_CERTS_DIR: &str = "certs";
 pub(crate) const LAB_CA_CERT_FILE: &str = "ca.crt";
 pub(crate) const LAB_CA_KEY_FILE: &str = "ca.key";

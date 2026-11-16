@@ -19,7 +19,7 @@ use shared::konst::{
 };
 use shared::util::{
     create_dir, default_config, file_exists, normalize_username, term_msg_highlight,
-    term_msg_surround, term_msg_underline,
+    term_msg_surround, term_msg_underline, write_file_with_permissions,
 };
 use shared::validators::{validate_ssh_key, validate_username};
 
@@ -27,7 +27,6 @@ use crate::konst::{
     SHERPA_ADMIN_PASSWORD_ENV, SHERPA_BLANK_DISK_DIR, SHERPA_CONFIG_FILE_PATH,
     SHERPA_DB_BACKUP_PATH, SHERPA_DB_PATH,
 };
-use crate::tls::generator::write_file_with_permissions;
 use crate::validate::{
     validate_init_account, validate_management_prefix_ipv4, validate_management_prefix_ipv6,
 };

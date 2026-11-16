@@ -329,8 +329,9 @@ systemd reads `sherpa.env` as root (`EnvironmentFile`).
 - `sherpad init` runs as `sherpa` (`sudo -u sherpa -H sherpad init`), so the files it writes are
   `sherpa`'s. It refuses any other account, root included, before it writes anything:
   `validate::validate_init_account` compares the name of the effective uid's account with
-  `konst::SHERPA_USERNAME`. It writes `sherpa.toml` through `tls::generator::write_file_with_permissions`: the
-  mode is set on a temporary file, whatever the umask, before it is renamed into place. Releases
+  `konst::SHERPA_USERNAME`. It writes `sherpa.toml` through
+  `shared::util::write_file_with_permissions`: the mode is set on a temporary file, whatever the
+  umask, before it is renamed into place. Releases
   before this wrote it with the caller's umask, often `0664`, owned by whoever ran `init`.
 - The example env file gets `sherpa.env`'s mode because people copy it into place.
 - The log is not meant to hold secrets. `daemon::pidfile::open_log_file` creates it `0640` and
