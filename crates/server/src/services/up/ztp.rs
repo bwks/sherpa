@@ -382,7 +382,7 @@ impl Configuring<'_, '_> {
                     .as_ref()
                     .map_or_default(|net| net.network_name.clone()),
             },
-            ztp_result.qemu_commands,
+            ztp_result.firmware,
             &node_resources::resources_of(record),
         )
     }

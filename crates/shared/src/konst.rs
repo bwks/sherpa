@@ -25,9 +25,6 @@ pub const SHERPA_STORAGE_POOL: &str = "sherpa-pool";
 pub const SHERPA_STORAGE_POOL_PATH: &str = "/opt/sherpa/libvirt/images";
 /// Mode of storage pool volumes. libvirt hands them to the QEMU user while a VM runs.
 pub const STORAGE_VOLUME_MODE: &str = "0600";
-/// Mode of volumes QEMU opens itself from a raw argument (Flatcar's Ignition `-fw_cfg`),
-/// which libvirt does not hand over. The storage pool directory keeps them private.
-pub const STORAGE_VOLUME_QEMU_ARG_MODE: &str = "0644";
 /// Default management network. Built with `new_assert`, so an invalid prefix fails the build.
 pub const SHERPA_MANAGEMENT_NETWORK_IPV4: Ipv4Net =
     Ipv4Net::new_assert(Ipv4Addr::new(172, 31, 0, 0), 16);

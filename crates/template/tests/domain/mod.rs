@@ -3,7 +3,7 @@ use askama::Template;
 use shared::data::{
     BiosTypes, ConnectionTypes, CpuArchitecture, CpuModels, CpuTopology, DiskBuses, DiskCache,
     DiskDevices, DiskDrivers, DiskFormats, DiskIo, DiskTargets, Interface, InterfaceType,
-    MachineType, NodeDisk, NumaMemoryMode, WatchdogAction,
+    MachineType, NodeDisk, NumaMemoryMode, QemuCommand, WatchdogAction,
 };
 use template::{DomainTemplate, DomainTuning};
 
@@ -43,6 +43,7 @@ fn base_domain_template() -> DomainTemplate {
         loopback_ipv4: "127.0.0.10".to_string(),
         telnet_port: 5000,
         qemu_commands: vec![],
+        ignition_config: None,
         lab_id: "a10736e8".to_string(),
         management_network: "sherpa-management-a10736e8".to_string(),
         isolated_network: String::new(),
@@ -107,6 +108,50 @@ fn test_domain_has_a_virtio_scsi_controller_only_for_scsi_disks() {
         ),
         "{xml}"
     );
+}
+
+#[test]
+fn test_domain_passes_the_ignition_config_as_a_libvirt_firmware_config_entry() {
+    let mut template = base_domain_template();
+    template.ignition_config =
+        Some("/opt/sherpa/libvirt/images/flatcar01-a10736e8-cfg.ign".to_string());
+    let xml = template.render().unwrap();
+    // libvirt labels the file and adds it to the VM's AppArmor profile, which it does not do
+    // for a raw `-fw_cfg` QEMU argument.
+    assert!(
+        xml.contains(
+            "<sysinfo type='fwcfg'>\n    <entry name='opt/org.flatcar-linux/config' \
+             file='/opt/sherpa/libvirt/images/flatcar01-a10736e8-cfg.ign'/>\n  </sysinfo>"
+        ),
+        "{xml}"
+    );
+    assert!(!xml.contains("-fw_cfg"), "{xml}");
+    assert!(!xml.contains("<ns0:commandline>"), "{xml}");
+    // The SMBIOS serial NoCloud reads stays.
+    assert!(xml.contains("<sysinfo type='smbios'>"), "{xml}");
+}
+
+#[test]
+fn test_domain_without_an_ignition_config_has_no_firmware_config_entry() {
+    let xml = base_domain_template().render().unwrap();
+    assert!(!xml.contains("fwcfg"), "{xml}");
+    assert!(!xml.contains("org.flatcar-linux"), "{xml}");
+    assert!(xml.contains("<sysinfo type='smbios'>"), "{xml}");
+}
+
+#[test]
+fn test_domain_keeps_the_qemu_arguments_of_other_models() {
+    let mut template = base_domain_template();
+    template.qemu_commands = QemuCommand::juniper_vrouter();
+    let xml = template.render().unwrap();
+    assert!(
+        xml.contains(
+            "<ns0:commandline>\n    <ns0:arg value='-smbios'/>\n    \
+             <ns0:arg value='type=1,product=VM-VMX,family=lab'/>\n  </ns0:commandline>"
+        ),
+        "{xml}"
+    );
+    assert!(!xml.contains("fwcfg"), "{xml}");
 }
 
 #[test]

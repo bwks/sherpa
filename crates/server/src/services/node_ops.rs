@@ -287,7 +287,16 @@ pub struct VmZtpResult {
     pub clone_disks: Vec<data::CloneDisk>,
     pub disks: Vec<data::NodeDisk>,
     pub mac_address: String,
+    pub firmware: VmFirmware,
+}
+
+/// What a VM's model gives its guest through the firmware, beyond its disks.
+#[derive(Debug, Default)]
+pub struct VmFirmware {
+    /// Extra QEMU arguments, the SMBIOS settings of Juniper models.
     pub qemu_commands: Vec<data::QemuCommand>,
+    /// Flatcar's Ignition config in the storage pool, the domain's firmware config entry.
+    pub ignition_config: Option<String>,
 }
 
 /// What a virtual machine's readiness check found.
@@ -1354,10 +1363,10 @@ pub(crate) fn generate_vm_ztp(
         ..media
     };
     let (clone_disks, disks) = vm_disks(node, node_image, images_dir, &node_name_with_lab, &media)?;
-    let qemu_commands = vm_qemu_commands(
-        node_image.model,
-        media.ignition.as_ref().map(|(_, dst)| dst.as_str()),
-    );
+    let firmware = VmFirmware {
+        qemu_commands: vm_qemu_commands(node_image.model),
+        ignition_config: media.ignition.map(|(_, dst)| dst),
+    };
 
     let ztp_record = data::ZtpRecord {
         node_name: node.name.clone(),
@@ -1374,7 +1383,7 @@ pub(crate) fn generate_vm_ztp(
         clone_disks,
         disks,
         mac_address,
-        qemu_commands,
+        firmware,
     })
 }
 
@@ -1532,23 +1541,20 @@ fn vm_disks(
         });
     }
 
-    // The Ignition config is read by QEMU, not attached as a disk.
+    // The Ignition config is a firmware config entry of the domain, not a disk.
     if let Some((src, dst)) = &media.ignition {
         clone_disks.push(copied_disk(src, dst));
     }
     Ok((clone_disks, disks))
 }
 
-/// The extra QEMU arguments of a VM model; Flatcar's point it at its Ignition config.
-fn vm_qemu_commands(model: data::NodeModel, ignition_dst: Option<&str>) -> Vec<data::QemuCommand> {
+/// The extra QEMU arguments of a VM model.
+fn vm_qemu_commands(model: data::NodeModel) -> Vec<data::QemuCommand> {
     match model {
         data::NodeModel::JuniperVrouter => data::QemuCommand::juniper_vrouter(),
         data::NodeModel::JuniperVswitch => data::QemuCommand::juniper_vswitch(),
         data::NodeModel::JuniperVsrxv3 => data::QemuCommand::juniper_vsrxv3(),
         data::NodeModel::JuniperVevolved => data::QemuCommand::juniper_vevolved(),
-        data::NodeModel::FlatcarLinux => {
-            ignition_dst.map_or_else(Vec::new, data::QemuCommand::ignition_config)
-        }
         _ => vec![],
     }
 }
@@ -3562,7 +3568,7 @@ fn flatcar_ignition(
 /// Build a `DomainTemplate` from node data, image config, disks, interfaces, and networks.
 #[instrument(
     level = "debug",
-    skip(node, node_image, parts, qemu_commands),
+    skip(node, node_image, parts, firmware),
     fields(node_name = %node.name)
 )]
 pub fn build_domain_template(
@@ -3571,7 +3577,7 @@ pub fn build_domain_template(
     lab_id: &str,
     qemu_bin: &str,
     parts: DomainParts,
-    qemu_commands: Vec<data::QemuCommand>,
+    firmware: VmFirmware,
     resources: &data::NodeResources,
 ) -> Result<template::DomainTemplate> {
     let node_name_with_lab = format!("{}-{}", node.name, lab_id);
@@ -3623,7 +3629,8 @@ pub fn build_domain_template(
         ),
         loopback_ipv4: parts.loopback_ipv4,
         telnet_port: TELNET_PORT,
-        qemu_commands,
+        qemu_commands: firmware.qemu_commands,
+        ignition_config: firmware.ignition_config,
         lab_id: lab_id.to_string(),
         management_network: parts.management_network,
         isolated_network: parts.isolated_network,
@@ -5186,7 +5193,7 @@ mod tests {
                 isolated_network: String::new(),
                 reserved_network: String::new(),
             },
-            vec![],
+            VmFirmware::default(),
             &data::NodeResources {
                 cpu_count: Some(2),
                 memory: Some(4096),
@@ -5700,7 +5707,8 @@ mod tests {
         // The boot disk alone: no CD-ROM, config disk or USB disk.
         assert_eq!(result.clone_disks.len(), 1);
         assert_eq!(result.disks.len(), 1);
-        assert!(result.qemu_commands.is_empty());
+        assert_eq!(result.firmware.qemu_commands, Vec::new());
+        assert!(result.firmware.ignition_config.is_none());
         assert!(lab.files().is_empty(), "{:?}", lab.files());
         let mut messages = Vec::new();
         while let Ok(message) = lab.messages.try_recv() {
@@ -5714,6 +5722,104 @@ mod tests {
             1,
             "{messages:?}"
         );
+    }
+
+    #[test]
+    fn flatcar_gets_its_ignition_config_as_a_firmware_config_entry_not_a_qemu_argument() {
+        let lab = ZtpLab::new();
+        let images = tempdir().unwrap();
+        let blank_disks = images.path().join(SHERPA_BLANK_DISK_DIR);
+        fs::create_dir(&blank_disks).unwrap();
+        fs::write(blank_disks.join(SHERPA_BLANK_DISK_EXT4_500MB), b"disk").unwrap();
+        let lab_ztp = LabZtp {
+            images_dir: images.path().to_str().unwrap(),
+            ..lab.lab()
+        };
+        let mut node = named_node("flatcar01", data::NodeModel::FlatcarLinux);
+        let image = data::NodeConfig::get_model(data::NodeModel::FlatcarLinux);
+
+        let result = generate_vm_ztp(
+            &mut node,
+            &image,
+            &lab_ztp,
+            "192.0.2.10".parse().unwrap(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let pool_config = format!("{SHERPA_STORAGE_POOL_PATH}/flatcar01-a1b2c3d4-cfg.ign");
+        assert_eq!(result.ztp_record.ztp, data::Ztp::Ignition);
+        assert_eq!(
+            result.firmware.ignition_config.as_deref(),
+            Some(&*pool_config)
+        );
+        assert_eq!(result.firmware.qemu_commands, Vec::new());
+        // The config is copied into the pool, but is not one of the domain's disks.
+        assert!(
+            result
+                .clone_disks
+                .iter()
+                .any(|disk| disk.dst == pool_config)
+        );
+        assert!(result.disks.iter().all(|disk| disk.src_file != pool_config));
+
+        let domain = build_domain_template(
+            &node,
+            &image,
+            "a1b2c3d4",
+            "/usr/bin/qemu-system-x86_64",
+            DomainParts {
+                disks: result.disks,
+                interfaces: vec![],
+                loopback_ipv4: "127.0.0.1".to_owned(),
+                management_network: "mgmt".to_owned(),
+                isolated_network: String::new(),
+                reserved_network: String::new(),
+            },
+            result.firmware,
+            &data::NodeResources {
+                cpu_count: Some(2),
+                memory: Some(2048),
+                vnc_port: Some(5900),
+            },
+        )
+        .unwrap();
+        let xml = domain.render().unwrap();
+        assert!(
+            xml.contains(&format!(
+                "<entry name='opt/org.flatcar-linux/config' file='{pool_config}'/>"
+            )),
+            "{xml}"
+        );
+        assert!(!xml.contains("-fw_cfg"), "{xml}");
+        assert!(!xml.contains("commandline"), "{xml}");
+    }
+
+    #[test]
+    fn only_juniper_models_get_extra_qemu_arguments() {
+        for (model, commands) in [
+            (
+                data::NodeModel::JuniperVrouter,
+                data::QemuCommand::juniper_vrouter(),
+            ),
+            (
+                data::NodeModel::JuniperVswitch,
+                data::QemuCommand::juniper_vswitch(),
+            ),
+            (
+                data::NodeModel::JuniperVsrxv3,
+                data::QemuCommand::juniper_vsrxv3(),
+            ),
+            (
+                data::NodeModel::JuniperVevolved,
+                data::QemuCommand::juniper_vevolved(),
+            ),
+        ] {
+            assert_eq!(vm_qemu_commands(model), commands, "{model}");
+        }
+        assert_eq!(vm_qemu_commands(data::NodeModel::FlatcarLinux), Vec::new());
+        assert_eq!(vm_qemu_commands(data::NodeModel::UbuntuLinux), Vec::new());
     }
 
     #[test]
