@@ -129,10 +129,12 @@
 ## Directory Setup (`setup_directories`)
 
 **What to test:**
-- Creates /opt/sherpa/{db,config,env} `[integration]` **P0**
+- Creates /opt/sherpa/{db,config,env,logs} `[integration]` **P0**
 - Idempotent — doesn't fail if dirs already exist `[integration]` **P0**
 - Sets correct ownership (sherpa:sherpa) `[integration]` **P0**
-- Sets correct permissions: 775 for base/db/config, 750 for env `[integration]` **P0**
+- Sets correct permissions: 775 for base, 750 for db, config, env and logs `[integration]` **P0**
+- A `sherpa.toml` from `sherpad init` is 600, sherpa:sherpa; `sherpad.log`, when present, 640 `[integration]` **P0**
+- `sherpa.toml`, `sherpa.env` and `sherpa.env.example` are readable by `sherpa`, and not by `nobody` or the installing user in the `sherpa` group `[integration]` **P0**
 
 ---
 
@@ -149,7 +151,7 @@
 **What to test:**
 - No database container is created and `sherpa.env` holds no `SHERPA_DB_PASSWORD` or `SHERPA_DB_PORT` `[integration]` **P0**
 - `/opt/sherpa/db` exists, owned by sherpa; `sherpad init` creates `sherpa.sqlite` in it `[integration]` **P0**
-- The success message shows `sherpad init` with the chosen `--server-ipv4`, `--ws-port` and `--http-port` `[unit]` **P1**
+- The success message shows `sudo -u sherpa -H sherpad init` with the chosen `--server-ipv4`, `--ws-port` and `--http-port` `[unit]` **P1**
 
 ---
 
@@ -166,6 +168,18 @@
 - Stops existing sherpad process/service before overwriting `[integration]` **P1**
 - Force-kills sherpad if graceful stop fails `[integration]` **P2**
 - Temp directory cleaned up on return `[unit]` **P2**
+
+## Update: config, env and log files (`sherpa_update.sh` `secure_config_files`)
+
+**What to test:**
+- `config`, `env` and `logs` become 750, `sherpa.toml`, `sherpa.env` and `sherpa.env.example` 600, `sherpad.log` and its rotated copies 640, all `chown sherpa:sherpa` `[unit]` **P0**
+- Contents are unchanged `[unit]` **P0**
+- A missing file or folder is not an error `[unit]` **P1**
+- A symlink and its target are left alone `[unit]` **P0**
+- Runs on an update with nothing to install, too `[unit]` **P1**
+- On a real install, a `0664` `sherpa.toml` owned by another account and a `0640` `sherpa.env` become `0600 sherpa:sherpa` with the same digest, and `sherpad` starts `[manual]` **P0**
+
+---
 
 ## Uninstallation
 
@@ -236,8 +250,8 @@ libvirt, their images and resources, and users/groups are retained in all modes.
 - Unit file references correct binary path (/opt/sherpa/bin/sherpad) `[integration]` **P0**
 - Unit file requires docker.service and libvirtd.service `[integration]` **P1**
 - Creates env file with correct password, IP, ports `[integration]` **P0**
-- Env file has restricted permissions (640, sherpa:sherpa) `[integration]` **P0**
-- Creates env example file `[integration]` **P2**
+- Env file has restricted permissions (600, sherpa:sherpa) `[integration]` **P0**
+- Creates env example file, 600, sherpa:sherpa `[integration]` **P2**
 - Installs logrotate config for /opt/sherpa/logs/sherpad.log `[integration]` **P1**
 - Runs daemon-reload after writing unit file `[integration]` **P1**
 - Enables service (but does not start it) `[integration]` **P0**

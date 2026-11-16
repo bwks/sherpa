@@ -1115,7 +1115,9 @@ stateDiagram-v2
 2. directories;
 3. config, skipped if the file exists and `--force` is not set (`:86`). `server_config`
    (`:139-156`) is `default_config()` with the flags' listen address, ports and management
-   prefixes, so an existing config keeps its values;
+   prefixes, so an existing config keeps its values. `write_server_config` writes it `0600`
+   whatever the umask (see "Config, env and log file permissions" in `SERVER.md`); `init` runs
+   as `sherpa`, so the file is `sherpa`'s;
 4. libvirt network (`:112`) and storage pool (`:120`);
 5. database;
 6. admin account;

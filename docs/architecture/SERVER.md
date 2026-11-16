@@ -283,10 +283,38 @@ every start and calls `restrict_dir` on:
   while a VM runs. Flatcar's `.ign` file is `0644` (`STORAGE_VOLUME_QEMU_ARG_MODE`), because QEMU
   opens it from a raw `-fw_cfg` argument that libvirt does not relabel
   (`libvirt::vm::volume_format_and_mode`).
-- A failure is logged, not fatal. `sherpad init` runs as the installing administrator, so it
-  does not create these directories: one it created would not be owned by `sherpa`. The install
-  and update scripts set the same owner and modes as root, and `scripts/fix-permissions.sh` keeps
-  them.
+- A failure is logged, not fatal. `sherpad init` does not create these directories, and only the
+  install and update scripts, as root, set their owner and modes besides `sherpad`.
+
+### Config, env and log file permissions
+
+`sherpa.toml` and the env files can hold secrets: the `[ztp_server]` password, and anything an
+operator adds to `sherpa.env`, such as `OTEL_EXPORTER_OTLP_HEADERS`. So only `sherpa` may read
+them, which a member of the `sherpa` group cannot. `sherpad` reads `sherpa.toml` as `sherpa`;
+systemd reads `sherpa.env` as root (`EnvironmentFile`).
+
+| Path | Mode, all `sherpa:sherpa` | Set by |
+|---|---|---|
+| `/opt/sherpa/config` | `750` | install, update |
+| `/opt/sherpa/config/sherpa.toml` | `600` (`SHERPA_CONFIG_FILE_MODE`) | `sherpad init`, install re-run, update |
+| `/opt/sherpa/env` | `750` | install, update |
+| `/opt/sherpa/env/sherpa.env`, `sherpa.env.example` | `600` | install, update |
+| `/opt/sherpa/logs` | `750` (`SHERPA_LOG_DIR_MODE`) | install, update, `sherpad` when it creates it |
+| `/opt/sherpa/logs/sherpad.log` and rotated copies | `640` (`SHERPAD_LOG_FILE_MODE`) | `sherpad` on each open, update |
+
+- `sherpad init` runs as `sherpa` (`sudo -u sherpa -H sherpad init`), so the files it writes are
+  `sherpa`'s. It writes `sherpa.toml` through `tls::generator::write_file_with_permissions`: the
+  mode is set on a temporary file, whatever the umask, before it is renamed into place. Releases
+  before this wrote it with the caller's umask, often `0664`, owned by whoever ran `init`.
+- The example env file gets `sherpa.env`'s mode because people copy it into place.
+- The log is not meant to hold secrets. `daemon::pidfile::open_log_file` creates it `0640` and
+  narrows a wider file on every open; under systemd `sherpad` logs to the journal and writes no
+  file.
+- `sherpa_update.sh`'s `secure_config_files` runs on every update, including one with nothing to
+  install. It changes owner and mode only, never contents, and skips a path that is a symlink, so
+  root never follows one planted in a folder `sherpa` can write. A missing path is skipped.
+- The `sherpa` group can read the log and enter `config` and `env`, but not read the two files.
+  Admins edit them with `sudo -u sherpa` or `sudoedit`.
 
 ### Container secret files
 

@@ -32,12 +32,18 @@ pub const SHERPA_LABS_PATH: &str = "/opt/sherpa/labs";
 pub const SHERPA_LABS_DIR_MODE: u32 = 0o2750;
 pub const SHERPA_RUN_PATH: &str = "/opt/sherpa/run";
 pub const SHERPA_LOG_PATH: &str = "/opt/sherpa/logs";
+/// The log directory: `sherpa` and its group only.
+pub const SHERPA_LOG_DIR_MODE: u32 = 0o750;
 // ============================================================================
 // Full file paths
 // ============================================================================
 pub const SHERPA_CONFIG_FILE_PATH: &str = "/opt/sherpa/config/sherpa.toml";
+/// `sherpa.toml` can hold secrets: only `sherpa` may read it, whatever the umask of `init`.
+pub const SHERPA_CONFIG_FILE_MODE: u32 = 0o600;
 pub const SHERPAD_PID_FILE_PATH: &str = "/opt/sherpa/run/sherpad.pid";
 pub const SHERPAD_LOG_FILE_PATH: &str = "/opt/sherpa/logs/sherpad.log";
+/// sherpad's log file, when it logs to a file: `sherpa` writes it, its group may read it.
+pub const SHERPAD_LOG_FILE_MODE: u32 = 0o640;
 pub const SHERPA_SERVER_CERT_PATH: &str = "/opt/sherpa/.certs/server.crt";
 pub const SHERPA_SERVER_KEY_PATH: &str = "/opt/sherpa/.certs/server.key";
 

@@ -16,18 +16,6 @@ use crate::konst::{
     SHERPA_SERVER_WS_PORT, SHERPA_USERNAME,
 };
 
-/// Write the server config to `path` as TOML.
-///
-/// # Errors
-///
-/// Fails when the config cannot be serialized or written.
-#[instrument(skip(config), level = "debug")]
-pub fn create_config(config: &Config, path: &str) -> Result<()> {
-    let toml_string =
-        toml::to_string_pretty(config).context("Unable to serialize server config")?;
-    create_file(path, toml_string)?;
-    Ok(())
-}
 /// Load the server config from `file_path`.
 ///
 /// # Errors
@@ -164,10 +152,8 @@ mod tests {
 
     #[test]
     fn tailscale_config_generation_writes_defaults_to_server_file() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("sherpa.toml");
-        create_config(&default_config(), path.to_str().unwrap()).unwrap();
-        let actual: toml::Value = toml::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        let written = toml::to_string_pretty(&default_config()).unwrap();
+        let actual: toml::Value = toml::from_str(&written).unwrap();
         assert_eq!(actual.get("tailscale"), Some(&tailscale_defaults()));
     }
 

@@ -644,19 +644,62 @@ _require_install() {
     [[ "$output" == "enabled" ]]
 }
 
-@test "integration: sherpa.env file exists with restricted permissions (640)" {
+@test "integration: config, env and logs folders are 750, owned by sherpa" {
     _require_install
-    [ -f /opt/sherpa/env/sherpa.env ]
-    run bash -c "stat -c '%a' /opt/sherpa/env/sherpa.env"
-    [ "$status" -eq 0 ]
-    [[ "$output" == "640" ]]
+    for dir in config env logs; do
+        run stat -c '%a %U:%G' "/opt/sherpa/${dir}"
+        [ "$status" -eq 0 ]
+        [[ "$output" == "750 sherpa:sherpa" ]]
+    done
 }
 
-@test "integration: sherpa.env file owned by sherpa:sherpa" {
+@test "integration: sherpa.env and sherpa.env.example are 600, owned by sherpa" {
     _require_install
-    run bash -c "stat -c '%U:%G' /opt/sherpa/env/sherpa.env"
+    for file in sherpa.env sherpa.env.example; do
+        run stat -c '%a %U:%G' "/opt/sherpa/env/${file}"
+        [ "$status" -eq 0 ]
+        [[ "$output" == "600 sherpa:sherpa" ]]
+    done
+}
+
+@test "integration: sherpa.toml is 600, owned by sherpa" {
+    _require_install
+    if [ ! -f /opt/sherpa/config/sherpa.toml ]; then
+        skip "sherpad init has not run"
+    fi
+    run stat -c '%a %U:%G' /opt/sherpa/config/sherpa.toml
     [ "$status" -eq 0 ]
-    [[ "$output" == "sherpa:sherpa" ]]
+    [[ "$output" == "600 sherpa:sherpa" ]]
+}
+
+@test "integration: sherpad.log is 640, owned by sherpa" {
+    _require_install
+    if [ ! -f /opt/sherpa/logs/sherpad.log ]; then
+        skip "sherpad has not logged to a file"
+    fi
+    run stat -c '%a %U:%G' /opt/sherpa/logs/sherpad.log
+    [ "$status" -eq 0 ]
+    [[ "$output" == "640 sherpa:sherpa" ]]
+}
+
+@test "integration: files that can hold secrets are readable by sherpa only" {
+    _require_install
+    if [ "$(id -u)" -ne 0 ]; then
+        skip "needs root to read as other accounts"
+    fi
+    local file
+    for file in /opt/sherpa/config/sherpa.toml /opt/sherpa/env/sherpa.env \
+        /opt/sherpa/env/sherpa.env.example; do
+        [ -f "${file}" ] || continue
+        runuser -u sherpa -- test -r "${file}"
+        run runuser -u nobody -- test -r "${file}"
+        [ "$status" -ne 0 ]
+        # The installing user is in the sherpa group, which must not be enough.
+        if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
+            run runuser -u "${SUDO_USER}" -- test -r "${file}"
+            [ "$status" -ne 0 ]
+        fi
+    done
 }
 
 @test "integration: sherpa.env holds no database password or port" {
@@ -708,5 +751,5 @@ _require_install() {
         print_success_message
     "
     [ "$status" -eq 0 ]
-    [[ "$output" == *"sherpad init --server-ipv4 192.0.2.10 --ws-port 4030 --http-port 4031"* ]]
+    [[ "$output" == *"sudo -u sherpa -H sherpad init --server-ipv4 192.0.2.10 --ws-port 4030 --http-port 4031"* ]]
 }

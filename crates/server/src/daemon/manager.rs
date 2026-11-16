@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail};
 use nix::sys::signal::Signal;
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -8,8 +8,8 @@ use std::thread;
 use std::time::Duration;
 
 use super::pidfile::{
-    ensure_log_dir, ensure_run_dir, is_process_running, read_pid, remove_pid, send_signal,
-    verify_not_running, write_pid,
+    ensure_log_dir, ensure_run_dir, is_process_running, open_log_file, read_pid, remove_pid,
+    send_signal, verify_not_running, write_pid,
 };
 use super::server::run_server;
 use shared::konst::{SHERPAD_LOG_FILE_PATH, SHERPAD_PID_FILE_PATH};
@@ -51,11 +51,7 @@ pub async fn start_daemon(foreground: bool) -> Result<()> {
         // The child process will write its own PID
         // The child's stderr goes to the daemon log, so a failure before its logging starts,
         // such as a broken sherpa.toml, is still recorded.
-        let stderr = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(SHERPAD_LOG_FILE_PATH)
-            .with_context(|| format!("Failed to open log file: {SHERPAD_LOG_FILE_PATH}"))?;
+        let stderr = open_log_file(Path::new(SHERPAD_LOG_FILE_PATH))?;
         let mut child = Command::new(exe)
             .arg("--background-child")
             .stdin(Stdio::null())

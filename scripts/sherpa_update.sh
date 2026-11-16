@@ -34,6 +34,10 @@ SHERPA_POOL_DIR="${SHERPA_BASE_DIR}/libvirt/images"
 SHERPA_DB_FILE="${SHERPA_BASE_DIR}/db/sherpa.sqlite"
 # sherpad's secrets: the JWT secret and the database key. Only sherpa can enter it.
 SHERPA_SECRET_DIR="${SHERPA_BASE_DIR}/.secret"
+# The server config and the env files, which can hold secrets, and sherpad's log.
+SHERPA_CONFIG_DIR="${SHERPA_BASE_DIR}/config"
+SHERPA_ENV_DIR="${SHERPA_BASE_DIR}/env"
+SHERPA_LOG_DIR="${SHERPA_BASE_DIR}/logs"
 # The SurrealDB container of releases before 0.5.0, and the data it kept on the host.
 LEGACY_DB_CONTAINER="sherpa-db"
 LEGACY_DB_DATA="${SHERPA_BASE_DIR}/db/sherpa.db"
@@ -445,6 +449,42 @@ secure_database_storage() {
     fi
 }
 
+# Give a file or folder sherpa's ownership and the given mode, when it is there. Only its
+# metadata changes, never its contents. A symlink is left alone: following it as root would hand
+# its target to sherpa.
+secure_path() {
+    local path="$1"
+    local mode="$2"
+    if [ -L "${path}" ]; then
+        print_warning "${path} is a symlink; its owner and mode are left alone"
+        return 0
+    fi
+    if [ -e "${path}" ]; then
+        chown sherpa:sherpa "${path}"
+        chmod "${mode}" "${path}"
+    fi
+}
+
+# Restrict the server config, the env files and sherpad's log. sherpa.toml and the env files can
+# hold secrets, so only sherpa may read them; releases before this left sherpa.toml at the umask
+# of whoever ran 'sherpad init', often 0664, and the env files 0640.
+secure_config_files() {
+    local log
+    secure_path "${SHERPA_CONFIG_DIR}" 750
+    secure_path "${SHERPA_CONFIG_DIR}/sherpa.toml" 600
+    secure_path "${SHERPA_ENV_DIR}" 750
+    secure_path "${SHERPA_ENV_DIR}/sherpa.env" 600
+    secure_path "${SHERPA_ENV_DIR}/sherpa.env.example" 600
+    secure_path "${SHERPA_LOG_DIR}" 750
+    # The log and the copies logrotate made of it, which kept its old mode.
+    for log in "${SHERPA_LOG_DIR}"/sherpad.log*; do
+        # An unmatched pattern stays as it is, naming no file.
+        [ -e "${log}" ] || [ -L "${log}" ] || continue
+        secure_path "${log}" 640
+    done
+    print_success "Server config, env files and logs restricted"
+}
+
 # Units installed before container secrets lack /run/sherpa, so add it with a drop-in.
 ensure_runtime_directory() {
     local unit="/etc/systemd/system/sherpad.service"
@@ -618,6 +658,7 @@ main() {
         ensure_symlinks
         secure_lab_storage
         secure_database_storage
+        secure_config_files
         ensure_secret_dir
         print_success "All binaries already at ${SHERPA_VERSION} — nothing to do"
         exit 0
@@ -629,6 +670,7 @@ main() {
     ensure_symlinks
     secure_lab_storage
     secure_database_storage
+    secure_config_files
     ensure_secret_dir
     ensure_runtime_directory
     start_sherpad

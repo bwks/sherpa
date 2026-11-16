@@ -14,17 +14,18 @@ use shared::data::{Config, NodeConfig, NodeModel};
 use shared::konst::{
     ADMIN_USERNAME, SHERPA_ADMIN_PASSWORD_ENV, SHERPA_BASE_DIR, SHERPA_BINS_PATH,
     SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME,
-    SHERPA_CONFIG_FILE_PATH, SHERPA_CONFIG_PATH, SHERPA_CONTAINERS_PATH, SHERPA_DB_BACKUP_PATH,
-    SHERPA_DB_FILE_PATH, SHERPA_DB_PATH, SHERPA_IMAGES_PATH, SHERPA_STORAGE_POOL,
-    SHERPA_STORAGE_POOL_PATH, SHERPA_USER_IS_ADMIN_ENV, SHERPA_USER_NAME_ENV,
+    SHERPA_CONFIG_FILE_MODE, SHERPA_CONFIG_FILE_PATH, SHERPA_CONFIG_PATH, SHERPA_CONTAINERS_PATH,
+    SHERPA_DB_BACKUP_PATH, SHERPA_DB_FILE_PATH, SHERPA_DB_PATH, SHERPA_IMAGES_PATH,
+    SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, SHERPA_USER_IS_ADMIN_ENV, SHERPA_USER_NAME_ENV,
     SHERPA_USER_PASSWORD_ENV, SHERPA_USER_SSH_KEY_ENV,
 };
 use shared::util::{
-    create_config, create_dir, default_config, file_exists, normalize_username, term_msg_highlight,
+    create_dir, default_config, file_exists, normalize_username, term_msg_highlight,
     term_msg_surround, term_msg_underline,
 };
 use shared::validators::{validate_ssh_key, validate_username};
 
+use crate::tls::generator::write_file_with_permissions;
 use crate::validate::{validate_management_prefix_ipv4, validate_management_prefix_ipv6};
 
 /// Set up a new server: its directories, `sherpa.toml`, libvirt network and storage pool,
@@ -95,7 +96,7 @@ pub async fn init(
             management_prefix_ipv4,
             management_prefix_ipv6,
         );
-        create_config(&config, SHERPA_CONFIG_FILE_PATH)?;
+        write_server_config(&config, Path::new(SHERPA_CONFIG_FILE_PATH))?;
         println!("Config written to: {SHERPA_CONFIG_FILE_PATH}");
     }
 
@@ -153,6 +154,16 @@ fn server_config(
         management_prefix_ipv6,
         ..default_config()
     }
+}
+
+/// Write the server config to `path` as TOML, at `SHERPA_CONFIG_FILE_MODE` whatever the umask.
+/// It replaces any file there, and a file left wider by an older release gets the mode too.
+#[instrument(skip(config), fields(path = %path.display()))]
+fn write_server_config(config: &Config, path: &Path) -> Result<()> {
+    let toml_string =
+        toml::to_string_pretty(config).context("Unable to serialize server config")?;
+    write_file_with_permissions(path, toml_string.as_bytes(), SHERPA_CONFIG_FILE_MODE)
+        .context("Failed to write the server config")
 }
 
 /// Create the built-in `admin` account unless it already exists.
@@ -331,6 +342,10 @@ fn prompt_password(username: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
+
+    use nix::sys::stat::{Mode, umask};
     use shared::konst::SHERPA_MANAGEMENT_NETWORK_IPV4;
     use shared::util::load_config;
 
@@ -338,6 +353,57 @@ mod tests {
 
     const TEST_SSH_KEY: &str =
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE6/8GjrZ1QD9nWLGeWkclvKEWliuCe2qDrak7cEmjIG dev";
+    /// The umask `server_config_is_written_private_under_the_umask_in_env` runs under, in octal.
+    const UMASK_ENV: &str = "SHERPA_TEST_INIT_UMASK";
+    const UMASK_TEST: &str = "init::tests::server_config_is_written_private_under_the_umask_in_env";
+
+    fn mode_of(path: &Path) -> u32 {
+        fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    /// The umask is per process, so each one is set in a test process of its own: changing it
+    /// here would change the modes of files other tests create meanwhile.
+    #[test]
+    fn test_server_config_is_written_private_whatever_the_umask() {
+        for mask in ["0000", "0002", "0022", "0077"] {
+            let output = Command::new(env::current_exe().unwrap())
+                .args(["--exact", UMASK_TEST, "--ignored", "--test-threads=1"])
+                .env(UMASK_ENV, mask)
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                output.status.success() && stdout.contains("1 passed"),
+                "umask {mask}: {stdout}{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "run in a process of its own by test_server_config_is_written_private_whatever_the_umask"]
+    fn server_config_is_written_private_under_the_umask_in_env() {
+        let Ok(mask) = env::var(UMASK_ENV) else {
+            return;
+        };
+        umask(Mode::from_bits_truncate(
+            u32::from_str_radix(&mask, 8).unwrap(),
+        ));
+        let config = default_config();
+        let dir = tempfile::tempdir().unwrap();
+
+        let new_file = dir.path().join("sherpa.toml");
+        write_server_config(&config, &new_file).unwrap();
+        assert_eq!(mode_of(&new_file), SHERPA_CONFIG_FILE_MODE, "new file");
+
+        // `init --force` over a file an older release left at the umask's mode.
+        let old_file = dir.path().join("old.toml");
+        fs::write(&old_file, "old").unwrap();
+        fs::set_permissions(&old_file, fs::Permissions::from_mode(0o664)).unwrap();
+        write_server_config(&config, &old_file).unwrap();
+        assert_eq!(mode_of(&old_file), SHERPA_CONFIG_FILE_MODE, "replaced file");
+        assert_ne!(fs::read_to_string(&old_file).unwrap(), "old");
+    }
 
     #[test]
     fn test_parse_yes_no_reads_answers_and_default() {
@@ -379,9 +445,8 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sherpa.toml");
-        let path = path.to_str().unwrap();
-        create_config(&config, path).unwrap();
-        let written = load_config(path).unwrap();
+        write_server_config(&config, &path).unwrap();
+        let written = load_config(path.to_str().unwrap()).unwrap();
 
         assert_eq!(written.management_prefix_ipv4, management_prefix_ipv4);
         assert_eq!(written.management_prefix_ipv6, Some(management_prefix_ipv6));
@@ -403,15 +468,19 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sherpa.toml");
-        let path = path.to_str().unwrap();
-        create_config(&config, path).unwrap();
+        write_server_config(&config, &path).unwrap();
 
         assert!(
-            !fs::read_to_string(path)
+            !fs::read_to_string(&path)
                 .unwrap()
                 .contains("management_prefix_ipv6")
         );
-        assert_eq!(load_config(path).unwrap().management_prefix_ipv6, None);
+        assert_eq!(
+            load_config(path.to_str().unwrap())
+                .unwrap()
+                .management_prefix_ipv6,
+            None
+        );
     }
 
     #[test]

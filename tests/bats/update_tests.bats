@@ -258,3 +258,94 @@ EOF
     [ ! -e "${WORK_DIR}/ssh/sherpa_ssh_key.pub" ]
     [ -e "${WORK_DIR}/ssh/other" ]
 }
+
+# ============================================================
+# Config, env and log files: owner and mode
+# ============================================================
+
+# A chown stub that records its arguments, so the owner can be checked without root.
+_stub_chown() {
+    printf '#!/bin/bash\necho "$@" >> "%s/chown.args"\nexit 0\n' "${WORK_DIR}" > "${MOCK_BIN}/chown"
+    chmod +x "${MOCK_BIN}/chown"
+}
+
+# An install made by an older release: sherpa.toml at the umask of 'sherpad init', the env files
+# 0640, the log and its rotated copy world-readable, the folders 0775 and 0755.
+_old_install_layout() {
+    mkdir -p "${WORK_DIR}/config" "${WORK_DIR}/env" "${WORK_DIR}/logs"
+    printf 'server_ipv4 = "0.0.0.0"\n[ztp_server]\npassword = "kept"\n' > "${WORK_DIR}/config/sherpa.toml"
+    printf 'SHERPA_SERVER_IPV4=0.0.0.0\nOTEL_EXPORTER_OTLP_HEADERS=authorization=kept\n' > "${WORK_DIR}/env/sherpa.env"
+    printf '# example\n' > "${WORK_DIR}/env/sherpa.env.example"
+    printf 'log line\n' > "${WORK_DIR}/logs/sherpad.log"
+    printf 'old log line\n' > "${WORK_DIR}/logs/sherpad.log.1"
+    chmod 775 "${WORK_DIR}/config"
+    chmod 664 "${WORK_DIR}/config/sherpa.toml"
+    chmod 750 "${WORK_DIR}/env"
+    chmod 640 "${WORK_DIR}/env/sherpa.env" "${WORK_DIR}/env/sherpa.env.example"
+    chmod 755 "${WORK_DIR}/logs"
+    chmod 644 "${WORK_DIR}/logs/sherpad.log" "${WORK_DIR}/logs/sherpad.log.1"
+}
+
+_run_secure_config_files() {
+    _run_function "SHERPA_CONFIG_DIR='${WORK_DIR}/config'; SHERPA_ENV_DIR='${WORK_DIR}/env'; SHERPA_LOG_DIR='${WORK_DIR}/logs'; secure_config_files"
+}
+
+@test "secure_config_files: gives each file and folder sherpa's ownership and its mode" {
+    _stub_chown
+    _old_install_layout
+    _run_secure_config_files
+    [ "$status" -eq 0 ]
+    [ "$(stat -c '%a' "${WORK_DIR}/config")" = "750" ]
+    [ "$(stat -c '%a' "${WORK_DIR}/config/sherpa.toml")" = "600" ]
+    [ "$(stat -c '%a' "${WORK_DIR}/env")" = "750" ]
+    [ "$(stat -c '%a' "${WORK_DIR}/env/sherpa.env")" = "600" ]
+    [ "$(stat -c '%a' "${WORK_DIR}/env/sherpa.env.example")" = "600" ]
+    [ "$(stat -c '%a' "${WORK_DIR}/logs")" = "750" ]
+    [ "$(stat -c '%a' "${WORK_DIR}/logs/sherpad.log")" = "640" ]
+    [ "$(stat -c '%a' "${WORK_DIR}/logs/sherpad.log.1")" = "640" ]
+    for path in config config/sherpa.toml env env/sherpa.env env/sherpa.env.example \
+        logs logs/sherpad.log logs/sherpad.log.1; do
+        grep -qx "sherpa:sherpa ${WORK_DIR}/${path}" "${WORK_DIR}/chown.args"
+    done
+}
+
+@test "secure_config_files: leaves the contents unchanged" {
+    _stub_chown
+    _old_install_layout
+    local before after
+    before="$(cd "${WORK_DIR}" && sha256sum config/sherpa.toml env/sherpa.env env/sherpa.env.example logs/sherpad.log*)"
+    _run_secure_config_files
+    [ "$status" -eq 0 ]
+    after="$(cd "${WORK_DIR}" && sha256sum config/sherpa.toml env/sherpa.env env/sherpa.env.example logs/sherpad.log*)"
+    [ "${before}" = "${after}" ]
+}
+
+@test "secure_config_files: a missing file or folder is not an error" {
+    _stub_chown
+    mkdir -p "${WORK_DIR}/config"
+    _run_secure_config_files
+    [ "$status" -eq 0 ]
+    [ "$(stat -c '%a' "${WORK_DIR}/config")" = "750" ]
+    [ ! -e "${WORK_DIR}/env" ]
+    [ ! -e "${WORK_DIR}/logs" ]
+    [ "$(cat "${WORK_DIR}/chown.args")" = "sherpa:sherpa ${WORK_DIR}/config" ]
+}
+
+@test "secure_config_files: leaves a symlink and its target alone" {
+    _stub_chown
+    mkdir -p "${WORK_DIR}/config"
+    touch "${WORK_DIR}/target"
+    chmod 644 "${WORK_DIR}/target"
+    ln -s "${WORK_DIR}/target" "${WORK_DIR}/config/sherpa.toml"
+    _run_secure_config_files
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"is a symlink"* ]]
+    [ "$(stat -c '%a' "${WORK_DIR}/target")" = "644" ]
+    run grep -q "sherpa.toml" "${WORK_DIR}/chown.args"
+    [ "$status" -ne 0 ]
+}
+
+@test "update: restricts the config and env files when there is nothing to update, too" {
+    grep -A6 '"\$needs_update" = false' "${SCRIPT}" | grep -qx '        secure_config_files'
+    grep -B2 -A2 '^    secure_database_storage$' "${SCRIPT}" | grep -qx '    secure_config_files'
+}
