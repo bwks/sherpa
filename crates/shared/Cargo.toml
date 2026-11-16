@@ -51,7 +51,7 @@ rustls-pemfile = { workspace = true }
 
 # Certificate parsing
 x509-parser = "0.18"
-hex = "0.4"
+hex = { workspace = true }
 url = { workspace = true }
 
 # Table formatting

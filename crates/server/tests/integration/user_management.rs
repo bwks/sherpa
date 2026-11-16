@@ -1126,3 +1126,429 @@ async fn users_manage_their_own_ssh_keys_on_rpc_and_rest() -> Result<()> {
     );
     Ok(())
 }
+
+// ── Device password ──
+
+/// A device password that meets the rule.
+const DEVICE_PASSWORD: &str = "Granite-Owl42";
+/// A login password that also meets the device password rule, to try as both.
+const RULE_LOGIN_PASSWORD: &str = "Basalt-Heron7";
+
+/// Whether `username` has a device password, as stored.
+async fn device_password_is_set(server: &TestServer, username: &str) -> Result<bool> {
+    let user = db::get_user(&server.db, username).await?;
+    db::device_password_set(&server.db, &db::get_user_id(&user)?).await
+}
+
+#[tokio::test]
+async fn the_device_password_set_over_rpc_is_self_only_and_needs_the_login_password() -> Result<()>
+{
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    db::create_user(
+        &server.db,
+        "alice".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        false,
+        vec![],
+    )
+    .await?;
+    db::create_user(
+        &server.db,
+        "bob".to_owned(),
+        RULE_LOGIN_PASSWORD,
+        false,
+        vec![],
+    )
+    .await?;
+    db::create_user(
+        &server.db,
+        "dana".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        true,
+        vec![],
+    )
+    .await?;
+    let alice = ws.login("alice", TEST_ADMIN_PASSWORD).await?;
+    let bob = ws.login("bob", RULE_LOGIN_PASSWORD).await?;
+    let dana = ws.login("dana", TEST_ADMIN_PASSWORD).await?;
+
+    // An admin, with their own login password or the user's, cannot set another user's.
+    for login_password in [TEST_ADMIN_PASSWORD, "Wrong-Pass-789!"] {
+        let response = ws
+            .rpc_call(
+                "user.device_password.set",
+                json!({ "token": dana, "username": "alice", "login_password": login_password,
+                        "device_password": DEVICE_PASSWORD }),
+            )
+            .await?;
+        ensure!(
+            response["error"]["code"] == json!(RpcErrorCode::AccessDenied),
+            "an admin set alice's device password: {response}"
+        );
+    }
+
+    // A wrong login password, and a device password equal to the login password, are refused.
+    let response = ws
+        .rpc_call(
+            "user.device_password.set",
+            json!({ "token": alice, "username": "alice", "login_password": "Wrong-Pass-789!",
+                    "device_password": DEVICE_PASSWORD }),
+        )
+        .await?;
+    ensure!(
+        response["error"]["code"] == json!(RpcErrorCode::AccessDenied),
+        "a wrong login password was accepted: {response}"
+    );
+    let response = ws
+        .rpc_call(
+            "user.device_password.set",
+            json!({ "token": bob, "username": "bob", "login_password": RULE_LOGIN_PASSWORD,
+                    "device_password": RULE_LOGIN_PASSWORD }),
+        )
+        .await?;
+    ensure!(
+        response["error"]["code"] == json!(RpcErrorCode::InvalidParams)
+            && response.to_string().contains("must differ"),
+        "the login password was accepted as the device password: {response}"
+    );
+    ensure!(
+        !device_password_is_set(&server, "alice").await?
+            && !device_password_is_set(&server, "bob").await?,
+        "a refused device password was stored"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_device_password_set_over_rpc_shows_in_user_info_and_user_list() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    db::create_user(
+        &server.db,
+        "alice".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        false,
+        vec![],
+    )
+    .await?;
+    db::create_user(
+        &server.db,
+        "bob".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        false,
+        vec![],
+    )
+    .await?;
+    db::create_user(
+        &server.db,
+        "dana".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        true,
+        vec![],
+    )
+    .await?;
+    let alice = ws.login("alice", TEST_ADMIN_PASSWORD).await?;
+    let dana = ws.login("dana", TEST_ADMIN_PASSWORD).await?;
+
+    let response = ws
+        .rpc_call(
+            "user.device_password.set",
+            json!({ "token": alice, "username": "alice", "login_password": TEST_ADMIN_PASSWORD,
+                    "device_password": DEVICE_PASSWORD }),
+        )
+        .await?;
+    ensure!(
+        response["result"]["device_password_set"] == json!(true),
+        "alice could not set her device password: {response}"
+    );
+
+    // user.info and user.list say whether it is set, and never return it.
+    let response = ws
+        .rpc_call("user.info", json!({ "token": alice, "username": "alice" }))
+        .await?;
+    ensure!(
+        response["result"]["user"]["device_password_set"] == json!(true),
+        "user.info: {response}"
+    );
+    let response = ws.rpc_call("user.list", json!({ "token": dana })).await?;
+    let set: Vec<(String, bool)> = response["result"]["users"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|user| {
+            (
+                user["username"].as_str().unwrap_or_default().to_owned(),
+                user["device_password_set"].as_bool().unwrap_or_default(),
+            )
+        })
+        .collect();
+    ensure!(
+        set.contains(&("alice".to_owned(), true)) && set.contains(&("bob".to_owned(), false)),
+        "user.list: {response}"
+    );
+    ensure!(
+        !response.to_string().contains(DEVICE_PASSWORD),
+        "user.list returned the password"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_device_password_is_self_only_and_needs_the_login_password_over_rest() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    db::create_user(
+        &server.db,
+        "alice".to_owned(),
+        RULE_LOGIN_PASSWORD,
+        false,
+        vec![],
+    )
+    .await?;
+    db::create_user(
+        &server.db,
+        "dana".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        true,
+        vec![],
+    )
+    .await?;
+    let alice = ws.login("alice", RULE_LOGIN_PASSWORD).await?;
+    let dana = ws.login("dana", TEST_ADMIN_PASSWORD).await?;
+    let url = format!(
+        "http://{}/api/v1/admin/users/alice/device-password",
+        server.addr
+    );
+
+    for (token, login_password, device_password, status) in [
+        // An admin cannot set another user's.
+        (
+            &dana,
+            TEST_ADMIN_PASSWORD,
+            DEVICE_PASSWORD,
+            StatusCode::FORBIDDEN,
+        ),
+        // A wrong login password.
+        (
+            &alice,
+            "Wrong-Pass-789!",
+            DEVICE_PASSWORD,
+            StatusCode::FORBIDDEN,
+        ),
+        // The login password as the device password.
+        (
+            &alice,
+            RULE_LOGIN_PASSWORD,
+            RULE_LOGIN_PASSWORD,
+            StatusCode::BAD_REQUEST,
+        ),
+        // A device password breaking the rule.
+        (
+            &alice,
+            RULE_LOGIN_PASSWORD,
+            "short",
+            StatusCode::BAD_REQUEST,
+        ),
+    ] {
+        let response = Client::new()
+            .post(&url)
+            .bearer_auth(token)
+            .json(
+                &json!({ "username": "alice", "login_password": login_password,
+                           "device_password": device_password, "token": token }),
+            )
+            .send()
+            .await?;
+        ensure!(
+            response.status() == status,
+            "expected {status}, got {}: {}",
+            response.status(),
+            response.text().await?
+        );
+    }
+    ensure!(
+        !device_password_is_set(&server, "alice").await?,
+        "a refused device password was stored"
+    );
+
+    let response = Client::new()
+        .post(&url)
+        .bearer_auth(&alice)
+        .json(
+            &json!({ "username": "alice", "login_password": RULE_LOGIN_PASSWORD,
+                       "device_password": DEVICE_PASSWORD, "token": alice }),
+        )
+        .send()
+        .await?;
+    ensure!(
+        response.status() == StatusCode::OK,
+        "REST set returned {}",
+        response.status()
+    );
+    let response = Client::new()
+        .get(format!("http://{}/api/v1/admin/users/alice", server.addr))
+        .bearer_auth(&alice)
+        .send()
+        .await?;
+    let body: serde_json::Value = response.json().await?;
+    ensure!(
+        body["user"]["device_password_set"] == json!(true),
+        "REST user info: {body}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_profile_device_password_form_is_self_only_and_needs_the_login_password() -> Result<()>
+{
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    db::create_user(
+        &server.db,
+        "alice".to_owned(),
+        RULE_LOGIN_PASSWORD,
+        false,
+        vec![],
+    )
+    .await?;
+    db::create_user(
+        &server.db,
+        "dana".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        true,
+        vec![],
+    )
+    .await?;
+    let alice = ws.login("alice", RULE_LOGIN_PASSWORD).await?;
+    let dana = ws.login("dana", TEST_ADMIN_PASSWORD).await?;
+
+    let body = web_request(&server, &alice, Method::GET, "/profile", &[])
+        .await?
+        .text()
+        .await?;
+    ensure!(
+        body.contains(r#"hx-post="/profile/device-password""#) && body.contains(">not set</span>"),
+        "the profile page has no device password form or state: {body}"
+    );
+
+    // The form names no user: an admin naming another user is refused, not applied.
+    let response = web_request(
+        &server,
+        &dana,
+        Method::POST,
+        "/profile/device-password",
+        &[
+            ("username", "alice"),
+            ("login_password", TEST_ADMIN_PASSWORD),
+            ("device_password", DEVICE_PASSWORD),
+            ("confirm_device_password", DEVICE_PASSWORD),
+        ],
+    )
+    .await?;
+    ensure!(
+        response.status().is_client_error(),
+        "a form naming another user was accepted: {}",
+        response.status()
+    );
+
+    for (login_password, device_password, confirm, refusal) in [
+        (
+            "Wrong-Pass-789!",
+            DEVICE_PASSWORD,
+            DEVICE_PASSWORD,
+            "the login password is incorrect",
+        ),
+        (
+            RULE_LOGIN_PASSWORD,
+            RULE_LOGIN_PASSWORD,
+            RULE_LOGIN_PASSWORD,
+            "must differ from your Sherpa login password",
+        ),
+        (
+            RULE_LOGIN_PASSWORD,
+            DEVICE_PASSWORD,
+            "Granite-Owl43",
+            "Device passwords do not match",
+        ),
+        (
+            RULE_LOGIN_PASSWORD,
+            "granite-owl42",
+            "granite-owl42",
+            "at least one uppercase letter",
+        ),
+    ] {
+        let body = web_request(
+            &server,
+            &alice,
+            Method::POST,
+            "/profile/device-password",
+            &[
+                ("login_password", login_password),
+                ("device_password", device_password),
+                ("confirm_device_password", confirm),
+            ],
+        )
+        .await?
+        .text()
+        .await?;
+        ensure!(
+            body.contains(refusal),
+            "the device password was not refused with {refusal:?}: {body}"
+        );
+    }
+    ensure!(
+        !device_password_is_set(&server, "alice").await?
+            && !device_password_is_set(&server, "dana").await?,
+        "a refused device password was stored"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_profile_device_password_form_sets_it_and_shows_it_as_set() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    db::create_user(
+        &server.db,
+        "alice".to_owned(),
+        RULE_LOGIN_PASSWORD,
+        false,
+        vec![],
+    )
+    .await?;
+    let alice = ws.login("alice", RULE_LOGIN_PASSWORD).await?;
+
+    let body = web_request(
+        &server,
+        &alice,
+        Method::POST,
+        "/profile/device-password",
+        &[
+            ("login_password", RULE_LOGIN_PASSWORD),
+            ("device_password", DEVICE_PASSWORD),
+            ("confirm_device_password", DEVICE_PASSWORD),
+        ],
+    )
+    .await?
+    .text()
+    .await?;
+    ensure!(
+        body.contains("Device password set") && body.contains(">set</span>"),
+        "the device password was not set: {body}"
+    );
+    ensure!(
+        device_password_is_set(&server, "alice").await?,
+        "the device password was not stored"
+    );
+    let body = web_request(&server, &alice, Method::GET, "/profile", &[])
+        .await?
+        .text()
+        .await?;
+    ensure!(
+        body.contains(">set</span>") && !body.contains(DEVICE_PASSWORD),
+        "the profile page does not show the device password as set: {body}"
+    );
+    Ok(())
+}

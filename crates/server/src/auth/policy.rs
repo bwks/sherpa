@@ -83,6 +83,23 @@ pub fn require_lab_starter(ctx: &AuthContext) -> Result<(), ServiceError> {
     Err(ServiceError::Denied(ADMIN_LAB_START_MESSAGE.to_owned()))
 }
 
+/// Require that the caller is `username`, admins included: for what only the account's own
+/// person may do, such as setting their device password.
+pub fn require_self(ctx: &AuthContext, username: &str) -> Result<(), ServiceError> {
+    if ctx.username == username {
+        return Ok(());
+    }
+    tracing::warn!(
+        event = "auth.access_denied",
+        username = %ctx.username,
+        target_user = %username,
+        "User attempted a self-only action on another user's account"
+    );
+    Err(ServiceError::Denied(format!(
+        "only user '{username}' can do this for their own account"
+    )))
+}
+
 /// Require that the caller is `username`, or an admin.
 pub fn require_self_or_admin(ctx: &AuthContext, username: &str) -> Result<(), ServiceError> {
     if ctx.can_access(username) {
@@ -301,5 +318,17 @@ mod tests {
             require_self_or_admin(&ctx("bob", false), "alice"),
             Err(ServiceError::Denied(_))
         ));
+    }
+
+    #[test]
+    fn require_self_allows_only_the_account_itself_even_for_admins() {
+        assert!(require_self(&ctx("alice", false), "alice").is_ok());
+        assert!(require_self(&ctx("dana", true), "dana").is_ok());
+        for caller in [ctx("dana", true), ctx("bob", false)] {
+            assert!(matches!(
+                require_self(&caller, "alice"),
+                Err(ServiceError::Denied(_))
+            ));
+        }
     }
 }

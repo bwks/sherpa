@@ -5,7 +5,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 
 use crate::daemon::state::AppState;
-use crate::services::{user_delete, user_password, user_ssh_keys};
+use crate::services::{user_delete, user_device_password, user_password, user_ssh_keys};
 
 use crate::api::errors::ApiError;
 use crate::api::extractors::AuthenticatedUser;
@@ -13,7 +13,7 @@ use crate::api::extractors::AuthenticatedUser;
 use shared::data::{
     AddSshKeyRequest, ChangePasswordRequest, ChangePasswordResponse, CreateUserRequest,
     CreateUserResponse, DeleteUserResponse, GetUserInfoResponse, ListUsersResponse,
-    RemoveSshKeyRequest, UserInfo, UserSshKeysResponse,
+    RemoveSshKeyRequest, SetDevicePasswordRequest, SetDevicePasswordResponse, UserSshKeysResponse,
 };
 use shared::util::normalize_username;
 use shared::validators::validate_username;
@@ -57,20 +57,11 @@ pub async fn list_users_json(
 ) -> Result<Json<ListUsersResponse>, ApiError> {
     require_admin_auth(&auth)?;
 
-    let users = db::list_users(&state.db).await.map_err(ApiError::from)?;
+    let users = user_device_password::list_user_info(&state.db)
+        .await
+        .map_err(ApiError::from)?;
 
-    let user_list: Vec<UserInfo> = users
-        .into_iter()
-        .map(|u| UserInfo {
-            username: u.username,
-            is_admin: u.is_admin,
-            ssh_keys: u.ssh_keys,
-            created_at: u.created_at.as_second(),
-            updated_at: u.updated_at.as_second(),
-        })
-        .collect();
-
-    Ok(Json(ListUsersResponse { users: user_list }))
+    Ok(Json(ListUsersResponse { users }))
 }
 
 /// Delete a user (admin only)
@@ -105,6 +96,27 @@ pub async fn change_password_json(
         &username,
         payload.current_password.as_deref(),
         &payload.new_password,
+        &state.db,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    Ok(Json(response))
+}
+
+/// Set your own device password; self only, admins included
+///
+/// POST `/api/v1/admin/users/{username}/device-password`
+pub async fn set_device_password_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    Json(payload): Json<SetDevicePasswordRequest>,
+) -> Result<Json<SetDevicePasswordResponse>, ApiError> {
+    let response = user_device_password::set_device_password(
+        &auth.into_context(),
+        &username,
+        &payload.login_password,
+        &payload.device_password,
         &state.db,
     )
     .await
@@ -161,13 +173,8 @@ pub async fn get_user_info_json(
         .await
         .map_err(ApiError::from)?;
 
-    Ok(Json(GetUserInfoResponse {
-        user: UserInfo {
-            username: user.username,
-            is_admin: user.is_admin,
-            ssh_keys: user.ssh_keys,
-            created_at: user.created_at.as_second(),
-            updated_at: user.updated_at.as_second(),
-        },
-    }))
+    let user = user_device_password::user_info(user, &state.db)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(GetUserInfoResponse { user }))
 }

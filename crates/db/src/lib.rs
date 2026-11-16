@@ -68,8 +68,9 @@ pub use seed::admin_user::seed_admin_user;
 
 // User CRUD operations
 pub use user::{
-    UserChanged, change_user_password, create_admin_user, create_user, delete_user, find_user,
-    find_user_by_id, get_user, list_users, update_user,
+    DevicePassword, UserChanged, change_user_password, create_admin_user, create_user, delete_user,
+    device_password_set, find_user, find_user_by_id, get_user, list_users, open_device_password,
+    set_device_password, update_user,
 };
 
 // Session operations

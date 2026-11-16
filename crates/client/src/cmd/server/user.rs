@@ -1,4 +1,5 @@
 use std::fs;
+use std::io;
 use std::path::Path;
 
 use anyhow::{Context, Result, ensure};
@@ -48,6 +49,10 @@ pub enum UserCommands {
         /// Username (defaults to current user)
         username: Option<String>,
     },
+
+    /// Set your own device password, your login password on lab nodes. Prompts for your Sherpa
+    /// login password, then the new device password twice
+    DevicePassword,
 
     /// Show user information
     Info {
@@ -133,6 +138,9 @@ pub async fn user_commands(
                 output_format,
             )
             .await
+        }
+        UserCommands::DevicePassword => {
+            set_device_password(server_url, server_connection, output_format).await
         }
         UserCommands::Info { username } => {
             get_user_info(
@@ -347,6 +355,10 @@ async fn list_users(
                             || "Unknown".to_string(),
                             |ts| ts.strftime("%Y-%m-%d %H:%M:%S UTC").to_string(),
                         );
+                    println!(
+                        "    Device password: {}",
+                        device_password_state(user.device_password_set)
+                    );
                     println!("    Created: {created}");
                     println!();
                 }
@@ -454,6 +466,65 @@ async fn change_password(
     Ok(())
 }
 
+async fn set_device_password(
+    server_url: &str,
+    server_connection: &ServerConnection,
+    output_format: &OutputFormat,
+) -> Result<()> {
+    // Only your own: the server refuses any other account, admins included.
+    let username = username_from_token(&load_token()?)?;
+    let request = device_password_request(username, rpassword::prompt_password)?;
+
+    let response: data::SetDevicePasswordResponse = rpc_call(
+        "user.device_password.set",
+        request,
+        server_url,
+        server_connection,
+    )
+    .await
+    .context("Failed to set the device password")?;
+
+    match output_format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        OutputFormat::Text => {
+            println!(
+                "{}",
+                emoji_success(&format!(
+                    "Device password set for user '{}'. It applies to nodes you create or \
+                     redeploy from now on",
+                    response.username
+                ))
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// The request that sets `username`'s device password, its passwords read with `prompt`: the
+/// Sherpa login password, then the new device password and again to confirm it. They are
+/// always typed, never flags or `SHERPA_USER_PASSWORD`, as for `passwd`.
+fn device_password_request(
+    username: String,
+    mut prompt: impl FnMut(String) -> io::Result<String>,
+) -> Result<data::SetDevicePasswordRequest> {
+    let login_password = prompt(format!("Sherpa login password for {username}: "))
+        .context("Failed to read password")?;
+    let device_password =
+        prompt("New device password: ".to_owned()).context("Failed to read password")?;
+    let confirm =
+        prompt("Confirm device password: ".to_owned()).context("Failed to read password")?;
+    let device_password = confirmed_password(device_password, &confirm)?;
+    Ok(data::SetDevicePasswordRequest {
+        username,
+        login_password,
+        device_password,
+        token: String::new(),
+    })
+}
+
 async fn get_user_info(
     username: Option<&str>,
     server_url: &str,
@@ -512,6 +583,10 @@ async fn get_user_info(
                     || "Unknown".to_string(),
                     |ts| ts.strftime("%Y-%m-%d %H:%M:%S UTC").to_string(),
                 );
+            println!(
+                "  Device password: {}",
+                device_password_state(user.device_password_set)
+            );
             println!("  Created: {created}");
             println!("  Updated: {updated}");
             println!();
@@ -519,6 +594,11 @@ async fn get_user_info(
     }
 
     Ok(())
+}
+
+/// Whether a device password is set, as the CLI prints it.
+fn device_password_state(set: bool) -> &'static str {
+    if set { "set" } else { "not set" }
 }
 
 /// Ask for a new password with `prompt`, then again to confirm it. It is always typed, never
@@ -557,6 +637,93 @@ mod tests {
     fn an_empty_new_password_is_refused() {
         let error = confirmed_password(String::new(), "").unwrap_err();
         assert_eq!(error.to_string(), "The password cannot be empty");
+    }
+
+    /// A prompt that answers each question with the next of `answers`, recording the questions.
+    fn scripted<'a>(
+        answers: &'a [&'a str],
+        asked: &'a mut Vec<String>,
+    ) -> impl FnMut(String) -> io::Result<String> + 'a {
+        let mut answers = answers.iter();
+        move |question| {
+            asked.push(question);
+            answers
+                .next()
+                .map(|answer| (*answer).to_owned())
+                .ok_or_else(|| io::Error::other("no more answers"))
+        }
+    }
+
+    #[test]
+    fn device_password_asks_for_the_login_password_then_the_new_one_twice() {
+        let mut asked = Vec::new();
+        let request = device_password_request(
+            "alice".to_owned(),
+            scripted(
+                &["Login-Pass-1!", "Granite-Owl42", "Granite-Owl42"],
+                &mut asked,
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            asked,
+            [
+                "Sherpa login password for alice: ",
+                "New device password: ",
+                "Confirm device password: ",
+            ]
+        );
+        assert_eq!(request.username, "alice");
+        assert_eq!(request.login_password, "Login-Pass-1!");
+        assert_eq!(request.device_password, "Granite-Owl42");
+    }
+
+    #[test]
+    fn device_password_must_be_typed_the_same_twice_and_not_be_empty() {
+        let mut asked = Vec::new();
+        let error = device_password_request(
+            "alice".to_owned(),
+            scripted(
+                &["Login-Pass-1!", "Granite-Owl42", "Granite-Owl43"],
+                &mut asked,
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(error.to_string(), "Passwords do not match");
+        let mut asked = Vec::new();
+        let error = device_password_request(
+            "alice".to_owned(),
+            scripted(&["Login-Pass-1!", "", ""], &mut asked),
+        )
+        .unwrap_err();
+        assert_eq!(error.to_string(), "The password cannot be empty");
+    }
+
+    #[test]
+    fn device_password_stops_when_input_cannot_be_read() {
+        let mut asked = Vec::new();
+        let error =
+            device_password_request("alice".to_owned(), scripted(&["Login-Pass-1!"], &mut asked))
+                .unwrap_err();
+        assert_eq!(error.to_string(), "Failed to read password");
+        assert_eq!(asked.len(), 2, "it asked on after a failed read: {asked:?}");
+    }
+
+    #[test]
+    fn device_password_takes_no_username_or_password_flags() {
+        let cli = TestCli::try_parse_from(["user", "device-password"]).unwrap();
+        assert!(matches!(cli.command, UserCommands::DevicePassword));
+        for extra in [["alice"], ["--password"], ["--device-password"]] {
+            let mut args = vec!["user", "device-password"];
+            args.extend(extra);
+            assert!(TestCli::try_parse_from(args).is_err(), "{extra:?}");
+        }
+    }
+
+    #[test]
+    fn device_password_state_is_set_or_not_set() {
+        assert_eq!(device_password_state(true), "set");
+        assert_eq!(device_password_state(false), "not set");
     }
 
     const KEY: &str =

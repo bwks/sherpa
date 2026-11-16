@@ -58,8 +58,8 @@ personal accounts, which may also be administrators.
   re-run.
 - `sherpa login` (`crates/client/src/cmd/login.rs`) takes `SHERPA_USER_NAME` and
   `SHERPA_USER_PASSWORD` from the environment when set, otherwise it prompts.
-  `sherpa server user create` and `passwd` always prompt for the new password twice and never
-  read `SHERPA_USER_PASSWORD`, which holds the caller's own password.
+  `sherpa server user create`, `passwd` and `device-password` always prompt for the new
+  password twice and never read `SHERPA_USER_PASSWORD`, which holds the caller's own password.
 - At startup, `daemon::state::ensure_admin_account` seeds `admin` when `SHERPA_ADMIN_PASSWORD`
   is set and the account is missing, and otherwise refuses to start without it.
 - `db::create_admin_user` is the only way to create `admin`; `db::create_user` rejects it as a
@@ -83,7 +83,7 @@ do not help: they only apply to record-level users, and the server connects as a
 services call it (`up::up_lab`, `resume::start_lab_nodes`, `redeploy::redeploy_node`), and the
 REST create handler and web UI create form check it first so a refusal is a `403` or a form
 error rather than a failed job. `admin` keeps every other lab operation, such as inspect, down,
-destroy and clean.
+destroy and clean. For the same reason it has no [device password](#device-password).
 
 ## SSH keys
 
@@ -116,3 +116,32 @@ registered twice, whatever the comment; removal matches the key data or its `SHA
 fingerprint (`shared::util::ssh_key_fingerprint`). The web UI profile and admin pages keep their
 own index-based handlers.
 
+## Device password
+
+A user's device password is their login password on lab nodes (#649); from 0.7.0, `up` and
+`redeploy` will require it (#649's next change). It is one per user, sealed in
+`user.device_password` (see [`DATABASE.md`](DATABASE.md#device-passwords)), never returned by
+any API, and replaced rather than recovered when forgotten.
+
+| Transport | Set | Shown |
+|---|---|---|
+| REST | `POST /api/v1/admin/users/{username}/device-password` | `device_password_set` in `GET /api/v1/admin/users[/{username}]` |
+| WebSocket RPC | `user.device_password.set` | `device_password_set` in `user.info` and `user.list` |
+| CLI | `sherpa server user device-password` | `Device password: set` / `not set` in `user info` and `user list` |
+| Web | the Profile page's Device Password form | `set` / `not set` on the Profile page |
+
+All of them call `services::user_device_password::set_device_password`: self only, admins
+included (`auth::policy::require_self`), not for the built-in `admin`, with the caller's Sherpa
+login password, and the password must meet `server::validate::validate_device_password` and
+differ from the login password. The rule, one for every node model:
+
+- 12 to 20 characters;
+- letters, digits and `! @ _ - + .` only, starting with a letter or a digit;
+- at least one lowercase letter, one uppercase letter, one digit and one of `! @ _ - + .`;
+- not containing the username or `cisco`, in any case;
+- no character three times in a row.
+
+Each part has its own message. The rule is what the strictest models accept (Windows'
+cloudbase-init takes at most 20 characters; Firepower Threat Defense, PAN-OS, ISE, Windows and
+NX-OS check strength; Firepower Threat Defense refuses a character three times in a row; Cisco
+devices refuse `cisco`), so a password that passes works on every model.

@@ -56,6 +56,66 @@
         </form>
     </div>
 
+    <!-- Device Password Section -->
+    <div class="bg-card rounded-lg p-8 mb-8 shadow-sm">
+        <h2 class="text-2xl font-semibold text-heading mb-2">Device Password</h2>
+        <p class="text-sm text-body mb-2">
+            Device password: {{ device_password_status | safe }}
+        </p>
+        <p class="text-sm text-muted mb-6">
+            Your login password on lab nodes. From Sherpa 0.7.0, labs only start once it is set.
+            Only you can set it, and it must differ from your Sherpa login password.
+        </p>
+        <form hx-post="/profile/device-password" hx-target="#device-password-result" hx-swap="innerHTML">
+            <div id="device-password-result"></div>
+
+            <div class="mb-5">
+                <label for="device_login_password" class="block text-sm font-medium text-body mb-2">Sherpa Login Password</label>
+                <input
+                    type="password"
+                    id="device_login_password"
+                    name="login_password"
+                    required
+                    autocomplete="current-password"
+                    class="w-full px-3.5 py-2.5 border border-border-strong bg-card text-heading rounded-md text-sm transition-colors focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/10"
+                >
+            </div>
+
+            <div class="mb-5">
+                <label for="device_password" class="block text-sm font-medium text-body mb-2">New Device Password</label>
+                <input
+                    type="password"
+                    id="device_password"
+                    name="device_password"
+                    required
+                    minlength="12"
+                    maxlength="20"
+                    autocomplete="new-password"
+                    class="w-full px-3.5 py-2.5 border border-border-strong bg-card text-heading rounded-md text-sm transition-colors focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/10"
+                >
+                <small class="block text-xs text-muted mt-1.5">
+                    12 to 20 characters: letters, digits and ! @ _ - + . only, starting with a letter or digit.
+                    At least one lowercase letter, one uppercase letter, one digit and one of ! @ _ - + .
+                    Not your username or "cisco", and no character three times in a row.
+                </small>
+            </div>
+
+            <div class="mb-5">
+                <label for="confirm_device_password" class="block text-sm font-medium text-body mb-2">Confirm Device Password</label>
+                <input
+                    type="password"
+                    id="confirm_device_password"
+                    name="confirm_device_password"
+                    required
+                    autocomplete="new-password"
+                    class="w-full px-3.5 py-2.5 border border-border-strong bg-card text-heading rounded-md text-sm transition-colors focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/10"
+                >
+            </div>
+
+            <button type="submit" class="btn-primary">Set Device Password</button>
+        </form>
+    </div>
+
     <!-- SSH Keys Section -->
     <div class="bg-card rounded-lg p-8 mb-8 shadow-sm">
         <h2 class="text-2xl font-semibold text-heading mb-6">SSH Keys</h2>

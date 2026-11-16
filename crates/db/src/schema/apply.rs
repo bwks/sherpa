@@ -124,9 +124,9 @@ mod tests {
     use super::*;
     use crate::persistence::{key_of, new_key, node_image_values};
     use crate::{
-        DefaultRequest, find_lab, find_node_image_by_id, list_cpu_pins, list_node_images,
-        list_nodes_by_lab, open_in_memory, read_lab_definition, update_node_image,
-        upsert_node_image,
+        DefaultRequest, device_password_set, find_lab, find_node_image_by_id, get_user,
+        list_cpu_pins, list_node_images, list_nodes_by_lab, open_in_memory, read_lab_definition,
+        update_node_image, upsert_node_image,
     };
 
     /// The eleven ZTP methods a release before the one `ztp` column could store.
@@ -965,9 +965,9 @@ mod tests {
     async fn apply_schema_creates_the_protection_triggers() {
         let db = open_in_memory().await.unwrap();
         apply_schema(&db).await.unwrap();
-        // Three admin protection triggers, the two that keep interfaces used once, and the three
-        // that keep CPU pins to the pinning rules.
-        assert_eq!(trigger_count(&db, "%").await, 3 + 2 + 3);
+        // Three admin protection triggers, the two that keep interfaces used once, the three
+        // that keep CPU pins to the pinning rules, and the two that keep device passwords sealed.
+        assert_eq!(trigger_count(&db, "%").await, 3 + 2 + 3 + 2);
         assert_eq!(trigger_count(&db, "cpu_pin%").await, 3);
     }
 
@@ -1515,5 +1515,54 @@ mod tests {
             .await
             .unwrap_err();
         assert!(error.to_string().contains("already pinned"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn users_gain_an_unset_device_password_that_must_be_sealed() {
+        // A version 26 database with a user, from before device passwords.
+        let before = migrations::ALL
+            .iter()
+            .position(|batch| *batch == migrations::USER_DEVICE_PASSWORD)
+            .unwrap();
+        assert_eq!(before + 1, 26);
+        let db = database_at(before).await;
+        assert_eq!(version(&db).await, 26);
+        {
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute(
+                    "INSERT INTO user (id, username, password_hash, is_admin, ssh_keys, \
+                     created_at, updated_at) VALUES ('u1', 'alice', 'x', 0, '[]', \
+                     '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                    (),
+                )
+                .await
+                .unwrap();
+        }
+
+        apply_schema(&db).await.unwrap();
+
+        assert_eq!(version(&db).await, 27);
+        assert_eq!(trigger_count(&db, "user_device_password_sealed_%").await, 2);
+        let id = RecordId::new("user", "u1");
+        assert!(!device_password_set(&db, &id).await.unwrap());
+        let user = get_user(&db, "alice").await.unwrap();
+        assert_eq!(user.ssh_keys, Vec::<String>::new());
+        let writer = db.writer().await.unwrap();
+        let error = writer
+            .conn
+            .execute(
+                "UPDATE user SET device_password = 'Granite-Owl42' WHERE id = 'u1'",
+                (),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("user.device_password must be sealed"),
+            "{error}"
+        );
     }
 }

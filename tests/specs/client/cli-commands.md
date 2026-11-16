@@ -226,6 +226,7 @@ in `tests/labs/console/`.
 - `server clean` sends admin cleanup request `[integration]` **P1**
 - `server user` subcommands (create, list, delete) `[integration]` **P1**
 - `server user create` rejects an invalid username before prompting for a password `[unit]` **P1**
+- `server user device-password` takes no arguments or flags and prompts for the login password, then the device password twice, which must match `[unit]` **P1**
 - `server user ssh-key list|add|remove` parse, default to the logged-in user, accept `--user`, and read a key from a `.pub` file path `[unit]` **P1**
 - `server image` subcommands (show, import, scan, delete) `[integration]` **P1**
 - Admin-only commands fail for non-admin users `[integration]` **P0**

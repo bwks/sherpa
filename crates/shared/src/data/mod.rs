@@ -111,8 +111,8 @@ pub use user::{OwnerSshKey, OwnerUser, User};
 pub use user_management::{
     AddSshKeyRequest, ChangePasswordRequest, ChangePasswordResponse, CreateUserRequest,
     CreateUserResponse, DeleteUserRequest, DeleteUserResponse, GetUserInfoRequest,
-    GetUserInfoResponse, ListUsersRequest, ListUsersResponse, RemoveSshKeyRequest, UserInfo,
-    UserSshKeysResponse,
+    GetUserInfoResponse, ListUsersRequest, ListUsersResponse, RemoveSshKeyRequest,
+    SetDevicePasswordRequest, SetDevicePasswordResponse, UserInfo, UserSshKeysResponse,
 };
 pub use vm_action::{CancelLabResponse, LabNodeActionResponse, NodeActionResult};
 pub use watchdog::WatchdogAction;

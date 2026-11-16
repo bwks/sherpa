@@ -520,6 +520,30 @@ Refusals are returned as a typed `services::error::ServiceError` inside `anyhow:
 
 Request structs (`UpRequest`, `DestroyRequest`, `InspectRequest`, `RedeployRequest`, `UpdateImpairmentRequest`) do not carry a username. Identity only ever comes from the `AuthContext`. Older clients that still send `username` keep working, because unknown fields are ignored.
 
+### Device passwords
+
+A user's device password is their login password on lab nodes (#649). It is stored sealed (see
+[`DATABASE.md`](DATABASE.md#device-passwords)) and set through
+`services::user_device_password::set_device_password`, which the RPC method
+`user.device_password.set`, `POST /api/v1/admin/users/{username}/device-password` and the
+Profile page's form (`POST /profile/device-password`) all call:
+
+- **Self only.** `auth::policy::require_self`: only the account's own user sets it, admins
+  included, because whoever sets it knows it. There is no read and no clear. The web form names
+  no user and refuses a form that does (`deny_unknown_fields`).
+- **Not the built-in `admin`.** `require_lab_starter`: that account cannot start labs, so it has
+  no node login.
+- **Login password.** The request carries the caller's Sherpa login password, checked against
+  the stored hash, so a stolen session cannot set one (`Denied`).
+- **Rule.** `validate::validate_device_password`: one rule for every node model, with a message
+  for each part (`Invalid`). It must also differ from the login password, checked with the
+  stored hash (`Invalid`).
+
+`sherpa server user device-password` prompts for the login password and the new device password
+twice; none is ever a flag. `user.info`, `user.list`, the CLI and the Profile page show only
+`device_password_set`. Labs do not use the device password yet: requiring it for `up` and
+`redeploy` and rendering it into node configurations is #649's next change.
+
 ### When a transport checks first
 
 A few transports must answer before the service runs, and call the same policy helper first:
@@ -540,8 +564,9 @@ Web UI create and destroy run as jobs: the POST queues a `Job` in `AppState::pen
 - REST API access uses bearer-or-cookie extractors.
 - WebSocket RPC access requires `params.token`.
 - Password changes go through `services::user_password::change_password` on every transport (web profile, web admin reset, REST, RPC). Users change only their own password and admins may reset anyone's. Changing your own password, as an admin too, needs the current password, so a stolen token cannot lock the owner out; `sherpa server user passwd` prompts for it. An admin resetting another user's password does not. A change ends the user's other sessions (see [Sessions and identity](#sessions-and-identity)).
+- Device passwords go through `services::user_device_password::set_device_password` on every transport; see [Device passwords](#device-passwords).
 - Edits of a user row are compare-and-set: `db::update_user` writes only if the row's `updated_at` is still the one it read, and otherwise fails with `db::UserChanged`. `ServiceError::from_user_write` turns that into a `Conflict` ("reload and try again"), so of two concurrent SSH-key edits the second is refused instead of overwriting the first. A password change writes only the hash (`db::change_user_password`), so it cannot undo a concurrent key edit.
-- User info operations allow admins to target anyone and regular users to target themselves. These checks are still in the transports, not in services.
+- User info operations allow admins to target anyone and regular users to target themselves. These checks are still in the transports, not in services. Every transport builds the `UserInfo` it returns with `services::user_device_password::user_info`, which adds `device_password_set`.
 - Logins on every route go through `auth::login::check_credentials`. An unknown username is checked against a dummy hash, so it takes as long as a wrong password and response times do not show which usernames exist.
 - `auth::policy::require_host_access` refuses `up` and `redeploy` manifests from non-admins whose nodes are `container.privileged` or bind-mount host paths (`container.volumes`). Either is root on the host.
 - The server never opens a path a manifest names. The CLI reads `text_files`, `binary_files`, `systemd_units`, `ssh.authorized_key_files` and the scripts on the client and sends their contents in the matching `*_data` fields; `topology::validate::check_client_read_files` refuses a manifest that lists files without them, and binary file and unit names that are not plain file names.
@@ -1258,10 +1283,10 @@ checked until a resume or redeploy re-attaches them, which sets their carrier to
 | Group | Routes |
 |---|---|
 | Public browser routes | `GET/POST /login`, `GET/POST /signup` (404 unless `allow_signup`), `POST /logout` |
-| Protected browser routes | `GET /`; `GET /labs`, `/labs/grid`, `/labs/create`; `GET /jobs/{job_id}`, `/jobs/{job_id}/stream`; `GET /labs/{lab_id}`; `GET /labs/{lab_id}/nodes[/node]`; `POST` lab/node start/stop/redeploy/destroy actions; `GET/POST` profile and SSH-key routes |
+| Protected browser routes | `GET /`; `GET /labs`, `/labs/grid`, `/labs/create`; `GET /jobs/{job_id}`, `/jobs/{job_id}/stream`; `GET /labs/{lab_id}`; `GET /labs/{lab_id}/nodes[/node]`; `POST` lab/node start/stop/redeploy/destroy actions; `GET/POST` profile, device-password and SSH-key routes |
 | Admin browser routes | `/admin/users...`, `/admin/labs`, `/admin/tools...`, `/admin/images...` |
 | Public API routes | `GET /health`, `GET /cert`, `GET /api/v1/spec`, `GET /api/v1/openapi.json`, `GET /api/docs`, `POST /api/v1/auth/login` |
-| REST API routes | labs: list/create/inspect/delete/down/resume/redeploy; links: impairment update; images: list/show/import/upload/delete/default/pull/download; admin tools: clean/scan; users: create/list/info/delete/password |
+| REST API routes | labs: list/create/inspect/delete/down/resume/redeploy; links: impairment update; images: list/show/import/upload/delete/default/pull/download; admin tools: clean/scan; users: create/list/info/delete/password/device-password |
 | Layers | `TraceLayer::new_for_http()` |
 | Catch-all | static asset route `/{*path}` |
 
