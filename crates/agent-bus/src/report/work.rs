@@ -6,13 +6,18 @@ use std::fmt::Write as _;
 
 use shared::util::{TableLayout, render_table};
 
+use crate::generation::placement::{Placement, PullRequestId};
 use crate::report::history::{prompt_start, utc_minute};
 use crate::store::host::Focus;
 use crate::store::items::{Item, ItemSummary, OpenTask};
 use crate::store::{Backfilled, Linked, Ref};
 
 /// The cost column of the tasks table is right-aligned.
-const TASK_NUMBER_COLUMNS: [usize; 1] = [5];
+const TASK_NUMBER_COLUMNS: [usize; 1] = [6];
+/// The pull request cell of work counted in none.
+const NOT_IN_A_PULL_REQUEST: &str = "not in a pull request";
+/// The mark of a task brought forward to a later task's pull request.
+const FORWARD_MARK: &str = "†";
 /// The tasks, cost and age columns of the item list are right-aligned.
 const ITEM_NUMBER_COLUMNS: [usize; 2] = [3, 4];
 /// The age column of `open` is right-aligned.
@@ -20,12 +25,12 @@ const OPEN_NUMBER_COLUMNS: [usize; 1] = [4];
 /// How much of a question `open` shows in its table; `--json` has all of it.
 const QUESTION_CHARS: usize = 80;
 
-/// One item: its refs, its tasks with their total cost, its conflicts and what was merged into
-/// it.
-pub fn item(item: &Item) -> String {
+/// One item: its refs, its tasks with their total cost and the pull request counting each, its
+/// conflicts and what was merged into it, with `home_repo` the host's repository.
+pub fn item(item: &Item, home_repo: Option<&str>) -> String {
     let mut text = format!("Item {}: {}\n", item.id, item.name);
     let _ = writeln!(text, "{}", refs_table(item));
-    let _ = writeln!(text, "{}", tasks_table(item));
+    let _ = writeln!(text, "{}", tasks_table(item, home_repo));
     if let Some(conflicts) = conflicts_table(item) {
         let _ = writeln!(text, "{conflicts}");
     }
@@ -62,21 +67,51 @@ fn refs_table(item: &Item) -> String {
     )
 }
 
-/// The tasks of `item` with a total row, or a sentence when it has none.
-fn tasks_table(item: &Item) -> String {
+/// A pull request as `work show` names it: `#N` in `home_repo`, else `owner/name#N`, and what
+/// counts work in none.
+pub fn pull_request_label(pull_request: Option<&PullRequestId>, home_repo: Option<&str>) -> String {
+    match pull_request {
+        Some(pull_request) if Some(pull_request.repo.as_str()) == home_repo => {
+            format!("#{}", pull_request.number)
+        }
+        Some(pull_request) => format!("{}#{}", pull_request.repo, pull_request.number),
+        None => NOT_IN_A_PULL_REQUEST.to_owned(),
+    }
+}
+
+/// The tasks of `item` with a total row, or a sentence when it has none; each with the pull
+/// request that counts it (marked when brought forward), with `home_repo` the host's
+/// repository.
+fn tasks_table(item: &Item, home_repo: Option<&str>) -> String {
     if item.tasks.is_empty() {
         return "No tasks".to_owned();
     }
     let none = || "-".to_owned();
     let mut cost = 0.0;
-    let mut tasks: Vec<[String; 7]> = item
+    let mut tasks: Vec<[String; 8]> = item
         .tasks
         .iter()
         .map(|task| {
             cost += task.cost_usd.unwrap_or_default();
+            let counted = match &task.placement {
+                Some(Placement {
+                    pull_request: Some(pull_request),
+                    brought_forward,
+                    ..
+                }) => {
+                    let label = pull_request_label(Some(pull_request), home_repo);
+                    if *brought_forward {
+                        format!("{label} {FORWARD_MARK}")
+                    } else {
+                        label
+                    }
+                }
+                _ => none(),
+            };
             [
                 task.task.clone(),
                 task.agent.clone(),
+                counted,
                 task.state.as_str().to_owned(),
                 task.model.clone().unwrap_or_else(|| "default".to_owned()),
                 utc_minute(task.last_at_ms),
@@ -92,6 +127,7 @@ fn tasks_table(item: &Item) -> String {
         String::new(),
         String::new(),
         String::new(),
+        String::new(),
         format!("${cost:.4}"),
         String::new(),
     ]);
@@ -99,6 +135,7 @@ fn tasks_table(item: &Item) -> String {
         [
             "Task",
             "Agent",
+            "Pull request",
             "State",
             "Model",
             "Last active (UTC)",
@@ -334,6 +371,7 @@ mod tests {
 
     use crate::message::{Ended, Kind, Message, PullRequestRef, RefKind, TaskUsage, Work, WorkRef};
     use crate::report::usage;
+    use crate::store::generation::placements;
     use crate::store::{Recorded, Ref, Store, TaskState, items, read, record, ref_item};
 
     /// 2026-11-14 12:00 UTC.
@@ -445,9 +483,15 @@ mod tests {
         let (_store, conn) = recorded().await;
         let issue = Ref::new("bwks/sherpa", RefKind::Issue, "580");
         let id = ref_item(&conn, &issue).await.unwrap().unwrap();
-        let found = items::item(&conn, id, None).await.unwrap();
+        let mut found = items::item(&conn, id, None).await.unwrap();
+        let placements = placements(&conn, Some("bwks/sherpa")).await.unwrap();
+        for task in &mut found.tasks {
+            task.placement = placements
+                .task(&task.task)
+                .map(|(_, placement)| placement.clone());
+        }
 
-        let shown = item(&found);
+        let shown = item(&found, Some("bwks/sherpa"));
         println!("$ agent-bus work show --issue 580\n{shown}\n");
         for expected in [
             "Item 1: #580",
@@ -457,6 +501,8 @@ mod tests {
             "e5f6a7b8",
             "c9d0e1f2",
             "$4.6378",
+            "Pull request",
+            "#630",
         ] {
             assert!(shown.contains(expected), "{expected} missing from\n{shown}");
         }

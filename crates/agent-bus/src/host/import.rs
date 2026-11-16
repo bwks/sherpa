@@ -307,6 +307,7 @@ mod tests {
     use jiff::Timestamp;
     use serde_json::{Value, json};
 
+    use crate::generation::placement::Placements;
     use crate::store::Store;
     use crate::store::host::{HostRow, host_rows, host_times};
     use crate::timing::Times;
@@ -456,9 +457,11 @@ mod tests {
         // One opus response of 10 input, 40 output, 1,000 cache read and 100 one-hour writes.
         assert_eq!(found[0].cost_usd, Some(0.001_84));
         // The turn: 1.2 s of work, the 60 s test, then 0.8 s of work.
-        let times = host_times(&conn, None).await.unwrap();
+        let times = host_times(&conn, None, &Placements::default())
+            .await
+            .unwrap();
         assert_eq!(
-            times.get(&None).copied().unwrap_or_default(),
+            times.get(&(None, None)).copied().unwrap_or_default(),
             Times {
                 work: 1_200 + 800,
                 testing: 60_000,

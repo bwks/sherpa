@@ -2,10 +2,10 @@
 //! time through Claude Code, and send back the replies.
 
 use std::borrow::Cow;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::env;
 use std::io::{Stderr, stderr};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 use std::time::Duration;
 
@@ -44,6 +44,8 @@ const NO_WRITE_TOKEN: &str = "This guest agent has no GitHub write token, so it 
 
 /// How long finding where a run ended may take, all its `git` and `gh` commands together.
 const ENDED_TIMEOUT: Duration = Duration::from_secs(30);
+/// The most places of one run kept for finding the checkouts it worked in.
+const MAX_WORKED_IN: usize = 256;
 
 /// Where replies about one task go, and the model it runs on, when known.
 struct Reply<'a> {
@@ -104,6 +106,9 @@ struct RunState {
     progressed: bool,
     /// Where the run's time went, from the stream events stamped as they were read.
     clock: RunClock,
+    /// The places its tool calls named, `~` expanded, at most `MAX_WORKED_IN`: the checkouts
+    /// holding them are looked at for pull requests when it ends.
+    worked_in: BTreeSet<PathBuf>,
 }
 
 /// Where and how Claude Code runs.
@@ -633,7 +638,7 @@ impl<'a> Engine<'a> {
                 Ok(Finish::Done | Finish::Canceled | Finish::Postponed) => self.save(),
                 Err(error) => {
                     self.save();
-                    let ended = self.ended(&message.task).await;
+                    let ended = self.ended(&message.task, &BTreeSet::new()).await;
                     self.reply(&message.task, None).send(
                         Kind::Failed,
                         format!("{error:#}"),
@@ -729,7 +734,10 @@ impl<'a> Engine<'a> {
         reply: &Reply<'_>,
         run: &mut RunState,
     ) -> Result<()> {
-        if !matches!(update, Update::Finished { .. } | Update::Clock(_)) {
+        if !matches!(
+            update,
+            Update::Finished { .. } | Update::Clock(_) | Update::WorkedIn(_)
+        ) {
             run.progressed = true;
         }
         match update {
@@ -747,6 +755,15 @@ impl<'a> Engine<'a> {
                 }
             }
             Update::Clock(tick) => run.clock.observe(tick, now_ms()),
+            Update::WorkedIn(place) => {
+                let path = match (place.strip_prefix("~/"), env::var_os("HOME")) {
+                    (Some(rest), Some(home)) => Path::new(&home).join(rest),
+                    _ => PathBuf::from(place),
+                };
+                if run.worked_in.len() < MAX_WORKED_IN {
+                    run.worked_in.insert(path);
+                }
+            }
             Update::Tool(running) => {
                 if let Some(earlier) = run.text.take() {
                     reply.send(Kind::Progress, earlier, None, None)?;
@@ -1046,7 +1063,7 @@ impl<'a> Engine<'a> {
                             ),
                             run.finished
                                 .map(|finished| (finished.usage, finished.task_usage)),
-                            self.ended(&message.task).await,
+                            self.ended(&message.task, &run.worked_in).await,
                         )?;
                         return Ok(Attempt::Done(Finish::Canceled));
                     }
@@ -1059,7 +1076,7 @@ impl<'a> Engine<'a> {
                         "The guest agent stopped: the task was interrupted".to_owned(),
                         run.finished
                             .map(|finished| (finished.usage, finished.task_usage)),
-                        self.ended(&message.task).await,
+                        self.ended(&message.task, &run.worked_in).await,
                     )?;
                     return Ok(Attempt::Done(Finish::Stopped));
                 }
@@ -1077,15 +1094,16 @@ impl<'a> Engine<'a> {
         let finished = run
             .finished
             .with_context(|| format!("Claude Code exited ({status}) without a result"))?;
-        let ended = self.ended(&message.task).await;
+        let ended = self.ended(&message.task, &run.worked_in).await;
         report(&reply, model, finished, ended)?;
         Ok(Attempt::Done(Finish::Done))
     }
 
-    /// Where the run of `task` ended, for its outcome, found within `ENDED_TIMEOUT`; `None`, said
-    /// on stderr, when it cannot be found.
-    async fn ended(&self, task: &str) -> Option<Ended> {
-        let error = match timeout(ENDED_TIMEOUT, ended(self.gh, self.workdir)).await {
+    /// Where the run of `task` ended, for its outcome, with `worked_in` the places its tool
+    /// calls named, found within `ENDED_TIMEOUT`; `None`, said on stderr, when it cannot be
+    /// found.
+    async fn ended(&self, task: &str, worked_in: &BTreeSet<PathBuf>) -> Option<Ended> {
+        let error = match timeout(ENDED_TIMEOUT, ended(self.gh, self.workdir, worked_in)).await {
             Ok(Ok(found)) => return Some(found),
             Ok(Err(error)) => format!("{error:#}"),
             Err(_) => format!("it took longer than {}s", ENDED_TIMEOUT.as_secs()),

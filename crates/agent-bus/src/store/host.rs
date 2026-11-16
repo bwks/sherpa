@@ -13,6 +13,7 @@ use serde::Serialize;
 use tracing::instrument;
 use turso::{Connection, Value};
 
+use crate::generation::placement::{Placements, PullRequestId};
 use crate::host::transcript::Response;
 use crate::message::Kind;
 use crate::price::{self, Tokens};
@@ -64,7 +65,13 @@ pub struct Focus {
     pub session: Option<String>,
     /// The item; `None` is none.
     pub work: Option<i64>,
+    /// `use`, `clear` or `send`.
     pub source: String,
+    /// The task a `send` tagged.
+    pub task: Option<String>,
+    /// The pull request it named (`work use --pr`, `send --pr`), which then counts the host's
+    /// work; `None` when it named an issue or a branch.
+    pub pull_request: Option<PullRequestId>,
 }
 
 /// Which responses `work reassign` moves.
@@ -73,6 +80,8 @@ pub struct Reassign {
     /// The item they are charged to; `None` is unattributed.
     pub from: Option<i64>,
     pub to: i64,
+    /// The pull request of `to` they are pinned to (`--to pr:N`); `None` leaves it to the rules.
+    pub to_pull_request: Option<PullRequestId>,
     pub since_ms: Option<u64>,
     pub until_ms: Option<u64>,
     pub session: Option<String>,
@@ -87,6 +96,23 @@ pub struct HostRow {
     pub tokens: Tokens,
     /// `None` when it is not priced.
     pub cost_usd: Option<f64>,
+    pub session: String,
+    /// When it counts from: a subagent's start, else `at_ms`.
+    pub charged_ms: u64,
+    /// The pull request `work reassign --to pr:N` pinned it to.
+    pub pinned: Option<PullRequestId>,
+}
+
+/// The host's time by item (`None`: unattributed) and pull request (`None`: none).
+pub type TimesByCharge = HashMap<(Option<i64>, Option<PullRequestId>), Times>;
+
+/// What a stretch of the host's time is charged to: the item, the pull request that counts it
+/// (`None`: none) and the model of the response before it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Charge {
+    item: Option<i64>,
+    pull_request: Option<PullRequestId>,
+    model: String,
 }
 
 /// A transcript read, for `host status`.
@@ -471,29 +497,25 @@ pub async fn reprice(conn: &Connection) -> Result<u64> {
     Ok(count)
 }
 
-/// Make `work` (`None`: none) the host's active item from `from_ms` on, for `session` (`None`:
-/// every session), because of `source` (`use`, `clear` or `send`, with the `task` it tagged).
+/// Record `focus`: its item (`None`: none) is the host's active item from its time on, for its
+/// session (`None`: every session).
 ///
 /// # Errors
 ///
 /// Fails when the statement fails.
 #[instrument(level = "debug", skip(conn))]
-pub async fn add_focus(
-    conn: &Connection,
-    from_ms: u64,
-    session: Option<&str>,
-    work: Option<i64>,
-    source: &str,
-    task: Option<&str>,
-) -> Result<()> {
+pub async fn add_focus(conn: &Connection, focus: &Focus) -> Result<()> {
+    let (pr_repo, pr_number) = pull_request_values(focus.pull_request.as_ref());
     conn.execute(
         INSERT_HOST_FOCUS,
         vec![
-            integer(from_ms),
-            optional_text(session),
-            work.map_or(Value::Null, Value::Integer),
-            Value::Text(source.to_owned()),
-            optional_text(task),
+            integer(focus.from_ms),
+            optional_text(focus.session.as_deref()),
+            focus.work.map_or(Value::Null, Value::Integer),
+            Value::Text(focus.source.clone()),
+            optional_text(focus.task.as_deref()),
+            pr_repo,
+            pr_number,
         ],
     )
     .await
@@ -523,26 +545,46 @@ pub async fn focus(conn: &Connection) -> Result<Vec<Focus>> {
             session: cells.optional_text("session")?,
             work: cells.optional_id("work")?,
             source: cells.text("source")?,
+            task: cells.optional_text("task")?,
+            pull_request: pull_request(&mut cells)?,
         });
     }
     Ok(found)
 }
 
-/// The item active at `at_ms` in `session`: that of the newest focus row at or before it, for
-/// the session or for every session. `focus` is oldest first. `None` before any, or after a
-/// clear.
+/// The focus row in force at `at_ms` in `session`: the newest at or before it, for the session
+/// or for every session. `focus` is oldest first. `None` before any.
+pub fn in_force<'a>(focus: &'a [Focus], session: &str, at_ms: u64) -> Option<&'a Focus> {
+    focus.iter().rev().find(|row| {
+        row.from_ms <= at_ms
+            && row
+                .session
+                .as_deref()
+                .is_none_or(|scoped| scoped == session)
+    })
+}
+
+/// The item active at `at_ms` in `session`: that of the focus row in force. `None` before any,
+/// or after a clear.
 pub fn active(focus: &[Focus], session: &str, at_ms: u64) -> Option<i64> {
-    focus
-        .iter()
-        .rev()
-        .find(|row| {
-            row.from_ms <= at_ms
-                && row
-                    .session
-                    .as_deref()
-                    .is_none_or(|scoped| scoped == session)
-        })
-        .and_then(|row| row.work)
+    in_force(focus, session, at_ms).and_then(|row| row.work)
+}
+
+/// The pull request of a row's `pr_repo` and `pr_number`; `None` when they are NULL.
+fn pull_request(cells: &mut Cells<'_>) -> Result<Option<PullRequestId>> {
+    let repo = cells.optional_text("pr_repo")?;
+    let number = cells.optional_count("pr_number")?;
+    Ok(repo
+        .zip(number)
+        .map(|(repo, number)| PullRequestId { repo, number }))
+}
+
+/// The `pr_repo` and `pr_number` values of `pull_request`, NULL for none.
+fn pull_request_values(pull_request: Option<&PullRequestId>) -> (Value, Value) {
+    (
+        optional_text(pull_request.map(|pull_request| pull_request.repo.as_str())),
+        optional_integer(pull_request.map(|pull_request| pull_request.number)),
+    )
 }
 
 /// The latest focus row of each session that has one, and of every session (`None`), for `work
@@ -619,6 +661,7 @@ pub async fn attribute(conn: &Connection) -> Result<u64> {
 /// Fails when the statement fails.
 #[instrument(level = "debug", skip(conn))]
 pub async fn reassign(conn: &Connection, reassign: &Reassign) -> Result<u64> {
+    let (pr_repo, pr_number) = pull_request_values(reassign.to_pull_request.as_ref());
     conn.execute(
         REASSIGN_HOST_USAGE,
         vec![
@@ -628,6 +671,8 @@ pub async fn reassign(conn: &Connection, reassign: &Reassign) -> Result<u64> {
             optional_integer(reassign.since_ms),
             optional_integer(reassign.until_ms),
             optional_text(reassign.session.as_deref()),
+            pr_repo,
+            pr_number,
         ],
     )
     .await
@@ -668,55 +713,91 @@ pub async fn host_rows(
             at_ms: cells.count("at_ms")?,
             tokens: tokens(&mut cells)?,
             cost_usd: cells.optional_real("cost_usd")?,
+            session: cells.text("session")?,
+            charged_ms: cells.count("charged_ms")?,
+            pinned: pull_request(&mut cells)?,
         });
     }
     Ok(found)
 }
 
-/// The host's time by item (`None`: unattributed), from its main conversations: each session's
-/// prompts, tool calls and responses cut into buckets (`timing::segments`), the segments
-/// starting at or after `since_ms` when given.
+/// The pull request that counts a response of the host charged to `item` in `session` at
+/// `at_ms`, with `placements` and the host's `focus` rows: the one it is `pinned` to, else the
+/// one the focus in force named (for the same item), else the rules of `Placements::host`.
+/// `None` for an unattributed response or one in no pull request.
+pub fn charged_pull_request(
+    placements: &Placements,
+    focus: &[Focus],
+    item: Option<i64>,
+    session: &str,
+    at_ms: u64,
+    pinned: Option<&PullRequestId>,
+) -> Option<PullRequestId> {
+    let item = item?;
+    let named = in_force(focus, session, at_ms)
+        .filter(|focus| focus.work == Some(item))
+        .and_then(|focus| focus.pull_request.as_ref());
+    placements.host(item, pinned.or(named), at_ms)
+}
+
+/// The host's time by item (`None`: unattributed) and by the pull request that counts it under
+/// `placements` (`None`: none), from its main conversations: each session's prompts, tool calls
+/// and responses cut into buckets (`timing::segments`), the segments starting at or after
+/// `since_ms` when given.
 ///
 /// # Errors
 ///
 /// Fails when a query fails or a row is not one.
-#[instrument(level = "debug", skip(conn))]
+#[instrument(level = "debug", skip(conn, placements))]
 pub async fn host_times(
     conn: &Connection,
     since_ms: Option<u64>,
-) -> Result<HashMap<Option<i64>, Times>> {
-    let mut times: HashMap<Option<i64>, Times> = HashMap::new();
-    for (segment, (item, _)) in charged_segments(conn).await? {
+    placements: &Placements,
+) -> Result<TimesByCharge> {
+    let mut times = TimesByCharge::new();
+    for (segment, charge) in charged_segments(conn, placements).await? {
         if since_ms.is_some_and(|since| segment.start_ms < since) {
             continue;
         }
-        times.entry(item).or_default().add(&segment);
+        times
+            .entry((charge.item, charge.pull_request))
+            .or_default()
+            .add(&segment);
     }
     Ok(times)
 }
 
-/// The host's time in `item`, by the model of its main conversation at the time.
+/// The host's time that `pull_request` counts under `placements`, by the model of its main
+/// conversation at the time.
 ///
 /// # Errors
 ///
 /// Fails when a query fails or a row is not one.
-#[instrument(level = "debug", skip(conn))]
-pub async fn host_model_times(conn: &Connection, item: i64) -> Result<BTreeMap<String, Times>> {
+#[instrument(level = "debug", skip(conn, placements))]
+pub async fn host_model_times(
+    conn: &Connection,
+    placements: &Placements,
+    pull_request: &PullRequestId,
+) -> Result<BTreeMap<String, Times>> {
     let mut times: BTreeMap<String, Times> = BTreeMap::new();
-    for (segment, (charged, model)) in charged_segments(conn).await? {
-        if charged == Some(item) {
-            times.entry(model).or_default().add(&segment);
+    for (segment, charge) in charged_segments(conn, placements).await? {
+        if charge.pull_request.as_ref() == Some(pull_request) {
+            times.entry(charge.model).or_default().add(&segment);
         }
     }
     Ok(times)
 }
 
-/// Every segment of the host's main conversations, oldest first in each session, with the item
-/// and the model of the response it is charged to.
+/// Every segment of the host's main conversations, oldest first in each session, with the item,
+/// pull request (under `placements`) and model of the response it is charged to.
 ///
 /// `timing::segments` charges a segment to the `item` of a response. Here each response's
-/// `item` holds an index into the list of (item, model) pairs instead, so one cut gives both.
-async fn charged_segments(conn: &Connection) -> Result<Vec<(Segment, (Option<i64>, String))>> {
+/// `item` holds an index into the list of charges instead, so one cut gives all three.
+async fn charged_segments(
+    conn: &Connection,
+    placements: &Placements,
+) -> Result<Vec<(Segment, Charge)>> {
+    let focus = focus(conn).await?;
     let mut timelines: BTreeMap<String, Timeline> = BTreeMap::new();
     let mut rows = conn
         .query(HOST_SPANS, ())
@@ -752,7 +833,7 @@ async fn charged_segments(conn: &Connection) -> Result<Vec<(Segment, (Option<i64
         });
     }
     drop(rows);
-    let mut charges: Vec<(Option<i64>, String)> = Vec::new();
+    let mut charges: Vec<Charge> = Vec::new();
     let mut rows = conn
         .query(HOST_RESPONSES, ())
         .await
@@ -766,7 +847,21 @@ async fn charged_segments(conn: &Connection) -> Result<Vec<(Segment, (Option<i64
         let session = cells.text("session")?;
         let first_ms = cells.count("at_ms")?;
         let last_ms = cells.count("last_at_ms")?;
-        let charge = (cells.optional_id("work")?, cells.text("model")?);
+        let item = cells.optional_id("work")?;
+        let model = cells.text("model")?;
+        let pinned = pull_request(&mut cells)?;
+        let charge = Charge {
+            item,
+            pull_request: charged_pull_request(
+                placements,
+                &focus,
+                item,
+                &session,
+                first_ms,
+                pinned.as_ref(),
+            ),
+            model,
+        };
         let index = if let Some(index) = charges.iter().position(|known| *known == charge) {
             index
         } else {
@@ -932,6 +1027,8 @@ mod tests {
             session: session.map(str::to_owned),
             work,
             source: "use".to_owned(),
+            task: None,
+            pull_request: None,
         }
     }
 
@@ -1121,7 +1218,7 @@ mod tests {
                 .await
                 .unwrap();
         }
-        add_focus(&conn, 50, None, Some(first), "use", None)
+        add_focus(&conn, &focus_row(50, None, Some(first)))
             .await
             .unwrap();
         assert_eq!(attribute(&conn).await.unwrap(), 3);
@@ -1130,6 +1227,7 @@ mod tests {
             &Reassign {
                 from: Some(first),
                 to: second,
+                to_pull_request: None,
                 since_ms: Some(300),
                 until_ms: None,
                 session: None,
@@ -1140,9 +1238,15 @@ mod tests {
         assert_eq!(moved, 1);
         // A focus recorded late (the `send` was caught up after the import) moves m2 and m3,
         // but m3 is pinned.
-        add_focus(&conn, 150, Some("s1"), None, "clear", None)
-            .await
-            .unwrap();
+        add_focus(
+            &conn,
+            &Focus {
+                source: "clear".to_owned(),
+                ..focus_row(150, Some("s1"), None)
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(attribute(&conn).await.unwrap(), 1);
         assert_eq!(
             works(&conn).await,
@@ -1158,6 +1262,7 @@ mod tests {
             &Reassign {
                 from: None,
                 to: first,
+                to_pull_request: None,
                 since_ms: None,
                 until_ms: None,
                 session: Some("s1".to_owned()),
@@ -1195,12 +1300,19 @@ mod tests {
         keep_response(&conn, &response("m2", "s1", 500, 5))
             .await
             .unwrap();
-        add_focus(&conn, 50, None, Some(first), "use", None)
+        add_focus(&conn, &focus_row(50, None, Some(first)))
             .await
             .unwrap();
-        add_focus(&conn, 200, None, Some(second), "send", Some("t1"))
-            .await
-            .unwrap();
+        add_focus(
+            &conn,
+            &Focus {
+                source: "send".to_owned(),
+                task: Some("t1".to_owned()),
+                ..focus_row(200, None, Some(second))
+            },
+        )
+        .await
+        .unwrap();
         attribute(&conn).await.unwrap();
         assert_eq!(
             works(&conn).await,
@@ -1261,7 +1373,7 @@ mod tests {
             .await
             .unwrap();
         let waiting = async |conn: &Connection| {
-            host_times(conn, None)
+            host_times(conn, None, &Placements::default())
                 .await
                 .unwrap()
                 .values()

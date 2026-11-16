@@ -8,6 +8,7 @@ use serde::Serialize;
 use tracing::instrument;
 use turso::{Connection, Value};
 
+use crate::generation::placement::Placement;
 use crate::store::cells::Cells;
 use crate::store::facts::{Ref, display_name};
 use crate::store::sql::{
@@ -54,6 +55,9 @@ pub struct ItemTask {
     pub cost_usd: Option<f64>,
     /// How it was put in the item.
     pub source: String,
+    /// The pull request that counts it; filled in by `work show`, which knows the rules.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub placement: Option<Placement>,
 }
 
 /// A ref a task named that names another item than the task's.
@@ -366,6 +370,7 @@ async fn item_tasks(conn: &Connection, item: Option<i64>) -> Result<Vec<(i64, It
                 runs,
                 cost_usd,
                 source,
+                placement: None,
             },
         ));
     }

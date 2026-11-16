@@ -1,24 +1,28 @@
 //! The `## Generation` section of a pull request body: what the agent tasks and the host spent
-//! on the work item behind the pull request, kept by the host between two markers. Pure text and
-//! data; `sync` supplies the rows and reads and writes the bodies.
+//! on the work behind that pull request, kept by the host between two markers. Pure text and
+//! data; `sync` supplies the rows (`placement` decides which pull request counts what) and reads
+//! and writes the bodies.
 //!
 //! The section carries its rows twice: as a markdown table for people, and as TOML in an HTML
 //! comment, which is what is read back. The data has a format version. Rewriting the section
 //! keeps the rows of tasks the record does not know (written before the record, by guests),
 //! replaces the rows of tasks it knows, whose figures are cumulative, drops the rows of tasks it
-//! has in another item, and replaces the host's rows. The table is never parsed, and nothing outside the markers is touched.
+//! puts on another pull request or in another item, and replaces the host's rows and the
+//! pointers to other pull requests. The table is never parsed, and nothing outside the markers
+//! is touched. A section with nothing counted in it but pointers is one line naming where its
+//! tasks are counted, not a table of zeros.
 //!
 //! Guests wrote format 1, with no version and no host rows, and read it with
 //! `deny_unknown_fields`: a guest still running an older agent-bus refuses a host-written
 //! section, so it cannot undo one.
 
 use std::collections::BTreeSet;
-use std::ops::Range;
+use std::ops::{Not, Range};
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
-use crate::message::{TaskUsage, cache_hit_permille, check_agent_name};
+use crate::message::{TaskUsage, cache_hit_permille, check_agent_name, check_repo};
 use crate::report::usage::{HOST, Time};
 use crate::timing::duration;
 
@@ -27,8 +31,10 @@ pub const START: &str = "<!-- agent-bus:generation -->";
 /// The line that closes the section.
 pub const END: &str = "<!-- /agent-bus:generation -->";
 /// The format of the data this agent-bus writes: 2 added the version, the host's rows and the
-/// time of each row.
-const FORMAT: u32 = 2;
+/// time of each row; 3 the mark of a task brought forward and the pointers (`counted`).
+const FORMAT: u32 = 3;
+/// The mark after the ID of a task brought forward.
+const FORWARD_MARK: &str = "†";
 /// Opens the HTML comment holding the rows as TOML.
 const DATA_START: &str = "<!-- agent-bus:generation-data";
 /// Closes an HTML comment.
@@ -73,6 +79,20 @@ pub struct Row {
     /// Its work, testing and waiting on the user; unknown in rows written before format 2.
     #[serde(default, skip_serializing_if = "Time::is_unknown")]
     pub time: Time,
+    /// Whether it named no pull request of its own and is counted here, the next one of its
+    /// item; `false` in rows written before format 3.
+    #[serde(default, skip_serializing_if = "Not::not")]
+    pub brought_forward: bool,
+}
+
+/// A task of this pull request counted on another one: shown as a pointer, not in the total.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Counted {
+    pub task: String,
+    pub agent: String,
+    /// The pull request that counts it.
+    pub repo: String,
+    pub number: u64,
 }
 
 /// The host's own usage on one model, its subagents' included.
@@ -88,13 +108,15 @@ pub struct HostRow {
     pub unpriced: Option<u64>,
 }
 
-/// Every row of a section: the agent tasks, then the host's.
+/// Every row of a section: the agent tasks, then the host's, and the pointers.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Rows {
     pub tasks: Vec<Row>,
     pub host: Vec<HostRow>,
+    /// Tasks of this pull request counted on another.
+    pub counted: Vec<Counted>,
     /// Every task the record has in a work item, this one's or another's: a row of one of them
-    /// that this item no longer has is dropped, not carried. Not written in the data.
+    /// that this pull request no longer counts is dropped, not carried. Not written in the data.
     pub known: BTreeSet<String>,
 }
 
@@ -109,6 +131,9 @@ struct Data {
     task: Vec<Row>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     host: Vec<HostRow>,
+    /// Absent before format 3.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    counted: Vec<Counted>,
 }
 
 /// The format of data with no version: what guests wrote.
@@ -135,7 +160,7 @@ pub fn update_body(body: &str, ours: &Rows) -> Result<String> {
         };
     };
     let theirs = read(&body[range.clone()])?;
-    let section = render(&merge(theirs.tasks, ours))?;
+    let section = render(&merge(theirs, ours))?;
     Ok(format!(
         "{}{section}{}",
         &body[..range.start],
@@ -178,6 +203,7 @@ pub fn read(section: &str) -> Result<Rows> {
     let rows = Rows {
         tasks: data.task,
         host: data.host,
+        counted: data.counted,
         known: BTreeSet::new(),
     };
     check_rows(&rows)?;
@@ -286,12 +312,20 @@ fn fence_run(line: &str) -> Option<(char, usize, &str)> {
     (len >= 3).then(|| (mark, len, &text[len..]))
 }
 
-/// `theirs` in their order, each replaced by the row of `ours` for the same task, then the rest
-/// of `ours`' tasks in their order, and `ours`' host rows. A row of `theirs` that `ours` does
-/// not have is kept only when the record does not know its task (`ours.known`): a task the
-/// record has in another item has left this one.
-fn merge(theirs: Vec<Row>, ours: &Rows) -> Rows {
+/// `theirs`' tasks in their order, each replaced by the row of `ours` for the same task, then
+/// the rest of `ours`' tasks in their order, `ours`' host rows, and `ours`' pointers after
+/// `theirs`'. A row or pointer of `theirs` that `ours` does not have is kept only when the
+/// record does not know its task (`ours.known`): a task the record has on another pull request
+/// or in another item has left this one.
+fn merge(theirs: Rows, ours: &Rows) -> Rows {
+    let mut counted: Vec<Counted> = theirs
+        .counted
+        .into_iter()
+        .filter(|pointer| !ours.known.contains(&pointer.task))
+        .collect();
+    counted.extend(ours.counted.iter().cloned());
     let mut tasks: Vec<Row> = theirs
+        .tasks
         .into_iter()
         .filter(|row| {
             !ours.known.contains(&row.task) || ours.tasks.iter().any(|our| our.task == row.task)
@@ -309,15 +343,46 @@ fn merge(theirs: Vec<Row>, ours: &Rows) -> Rows {
             tasks.push(row.clone());
         }
     }
+    counted.retain(|pointer| !tasks.iter().any(|row| row.task == pointer.task));
     Rows {
         tasks,
         host: ours.host.clone(),
+        counted,
         known: BTreeSet::new(),
     }
 }
 
 /// The section, from its start marker to its end marker.
 fn render(rows: &Rows) -> Result<String> {
+    // Every string in the rows is checked to hold no `-->` (`check_rows`), so the data cannot
+    // close the comment early.
+    let data = toml::to_string(&Data {
+        version: FORMAT,
+        task: rows.tasks.clone(),
+        host: rows.host.clone(),
+        counted: rows.counted.clone(),
+    })
+    .context("Unable to write the Generation data")?;
+    let data = format!("{DATA_START}\n{data}{COMMENT_END}");
+    if rows.tasks.is_empty() && rows.host.is_empty() && !rows.counted.is_empty() {
+        let mut homes: Vec<String> = rows
+            .counted
+            .iter()
+            .map(|pointer| format!("{}#{}", pointer.repo, pointer.number))
+            .collect();
+        homes.sort();
+        homes.dedup();
+        return Ok([
+            START.to_owned(),
+            HEADING.to_owned(),
+            String::new(),
+            format!("Counted in {}.", homes.join(", ")),
+            String::new(),
+            data,
+            END.to_owned(),
+        ]
+        .join("\n"));
+    }
     let mut total = TaskUsage::default();
     let mut times: Vec<Time> = Vec::new();
     let mut lines = vec![
@@ -332,8 +397,13 @@ fn render(rows: &Rows) -> Result<String> {
         add(&mut total, &row.usage);
         total.runs = total.runs.saturating_add(row.usage.runs);
         times.push(row.time);
+        let mark = if row.brought_forward {
+            FORWARD_MARK
+        } else {
+            ""
+        };
         lines.push(format!(
-            "| {} | {} | {} | {} | {} | {} |",
+            "| {}{mark} | {} | {} | {} | {} | {} |",
             row.task,
             row.agent,
             row.models.join(", "),
@@ -366,6 +436,12 @@ fn render(rows: &Rows) -> Result<String> {
             cell.push_str(INCOMPLETE);
         }
     }
+    for pointer in &rows.counted {
+        lines.push(format!(
+            "| {} | {} | | | in {}#{} | | | | | | | | |",
+            pointer.task, pointer.agent, pointer.repo, pointer.number
+        ));
+    }
     lines.push(format!(
         "| **Total** | | | **{}** | {} | {} |",
         grouped(total.runs),
@@ -373,17 +449,39 @@ fn render(rows: &Rows) -> Result<String> {
         bold(time_cells).join(" | ")
     ));
     lines.push(String::new());
-    // Every string in the rows is checked to hold no `-->` (`check_rows`), so the data cannot
-    // close the comment early.
-    let data = toml::to_string(&Data {
-        version: FORMAT,
-        task: rows.tasks.clone(),
-        host: rows.host.clone(),
-    })
-    .context("Unable to write the Generation data")?;
-    lines.push(format!("{DATA_START}\n{data}{COMMENT_END}"));
+    lines.extend(notes(rows));
+    lines.push(data);
     lines.push(END.to_owned());
     Ok(lines.join("\n"))
+}
+
+/// The lines under the table, each followed by a blank line: which rows were brought forward,
+/// and that pointers are not in the total.
+fn notes(rows: &Rows) -> Vec<String> {
+    let mut lines = Vec::new();
+    let forward: Vec<String> = rows
+        .tasks
+        .iter()
+        .filter(|row| row.brought_forward)
+        .map(|row| format!("`{}`", row.task))
+        .collect();
+    if !forward.is_empty() {
+        lines.push(format!(
+            "{FORWARD_MARK} {}: named no pull request (earlier work of the same item), so \
+             counted here, the item's next pull request.",
+            forward.join(", ")
+        ));
+        lines.push(String::new());
+    }
+    if !rows.counted.is_empty() {
+        lines.push(
+            "Rows with only a pull request in the cost column are counted in that pull request, \
+             not in this total."
+                .to_owned(),
+        );
+        lines.push(String::new());
+    }
+    lines
 }
 
 /// `cells`, each in bold.
@@ -498,6 +596,15 @@ fn check_rows(rows: &Rows) -> Result<()> {
     for row in &rows.host {
         check_model(&row.model)?;
     }
+    for pointer in &rows.counted {
+        ensure!(
+            is_id(&pointer.task, &[]),
+            "The task ID '{}' cannot go in a Generation section",
+            pointer.task.escape_debug()
+        );
+        check_agent_name(&pointer.agent)?;
+        check_repo(&pointer.repo)?;
+    }
     Ok(())
 }
 
@@ -526,6 +633,7 @@ mod tests {
             models: models.iter().map(|model| (*model).to_owned()).collect(),
             usage,
             time: Time::default(),
+            brought_forward: false,
         }
     }
 
@@ -692,7 +800,7 @@ mod tests {
         let range = section_range(&body).unwrap().unwrap();
         assert_eq!(read(&body[range]).unwrap(), rows);
         assert!(
-            body.contains(&format!("{DATA_START}\nversion = 2\n")),
+            body.contains(&format!("{DATA_START}\nversion = 3\n")),
             "{body}"
         );
     }
@@ -819,7 +927,7 @@ mod tests {
             }
         );
         assert!(
-            upgraded[range].contains(&format!("{DATA_START}\nversion = 2\n")),
+            upgraded[range].contains(&format!("{DATA_START}\nversion = 3\n")),
             "{upgraded}"
         );
         assert!(upgraded.starts_with("Body\n\n"), "{upgraded}");
@@ -869,11 +977,142 @@ mod tests {
         assert_eq!(read(&body[range]).unwrap().tasks, [first()]);
     }
 
+    fn pointer(task: &str, agent: &str, repo: &str, number: u64) -> Counted {
+        Counted {
+            task: task.to_owned(),
+            agent: agent.to_owned(),
+            repo: repo.to_owned(),
+            number,
+        }
+    }
+
+    #[test]
+    fn brought_forward_rows_are_marked_and_pointers_are_left_out_of_the_total() {
+        let mut design = second();
+        design.brought_forward = true;
+        let rows = Rows {
+            tasks: vec![first(), design],
+            counted: vec![pointer("c0ffee00", "dev01", "bwks/sherpa", 666)],
+            ..Rows::default()
+        };
+        let body = update_body("", &rows).unwrap();
+        assert_eq!(
+            table(&body)[2..],
+            [
+                "| 3f9a1c2e | dev01 | claude-haiku-5-5, claude-opus-5-5 | 3 | $4.1873 | 94.2% | 1,204 | 48,310 | 6,120,455 | 371,902 | n/a | n/a | n/a |",
+                "| 7b20d4aa† | dev02 | claude-sonnet-5-5 | 1 | $0.6120 | 91.7% | 88 | 9,412 | 1,402,330 | 126,004 | n/a | n/a | n/a |",
+                "| c0ffee00 | dev01 | | | in bwks/sherpa#666 | | | | | | | | |",
+                "| **Total** | | | **4** | **$4.7993** | **93.7%** | **1,292** | **57,722** | **7,522,785** | **497,906** | **n/a** | **n/a** | **n/a** |",
+            ]
+        );
+        assert!(
+            body.contains("† `7b20d4aa`: named no pull request"),
+            "{body}"
+        );
+        assert!(body.contains("not in this total"), "{body}");
+        // The marks and pointers read back.
+        let range = section_range(&body).unwrap().unwrap();
+        assert_eq!(read(&body[range]).unwrap(), rows);
+    }
+
+    #[test]
+    fn a_section_with_only_pointers_is_one_line_naming_where_its_tasks_are_counted() {
+        let rows = Rows {
+            counted: vec![pointer("1d6ad1ad", "dev01", "bwks/sherpa", 666)],
+            ..Rows::default()
+        };
+        let body = update_body("Docs for #648.\n", &rows).unwrap();
+        assert!(
+            body.contains(&format!(
+                "{START}\n## Generation\n\nCounted in bwks/sherpa#666.\n\n{DATA_START}"
+            )),
+            "{body}"
+        );
+        assert!(table(&body).is_empty(), "{body}");
+        let range = section_range(&body).unwrap().unwrap();
+        assert_eq!(read(&body[range]).unwrap(), rows);
+        // Two homes, each named once.
+        let rows = Rows {
+            counted: vec![
+                pointer("c9bf620b", "dev01", "bwks/sherpa", 667),
+                pointer("1d6ad1ad", "dev01", "bwks/sherpa", 666),
+                pointer("e5d5a5bb", "dev01", "bwks/sherpa", 666),
+            ],
+            ..Rows::default()
+        };
+        let body = update_body("", &rows).unwrap();
+        assert!(
+            body.contains("Counted in bwks/sherpa#666, bwks/sherpa#667."),
+            "{body}"
+        );
+    }
+
+    #[test]
+    fn a_format_2_section_with_every_task_of_the_item_keeps_only_this_pull_requests() {
+        // What the host wrote before sections were by pull request: every task of the item.
+        let old = Rows {
+            tasks: vec![first(), second()],
+            host: vec![host("claude-opus-5-5", 5.0, time(MINUTE, 0, 0))],
+            ..Rows::default()
+        };
+        let mut body = update_body("", &old).unwrap();
+        body = body.replace("version = 3", "version = 2");
+        let range = section_range(&body).unwrap().unwrap();
+        assert_eq!(read(&body[range]).unwrap(), old);
+        // The record counts the first task here and the second on #666.
+        let ours = Rows {
+            tasks: vec![first()],
+            host: vec![host("claude-opus-5-5", 1.0, time(MINUTE, 0, 0))],
+            counted: vec![pointer("7b20d4aa", "dev02", "bwks/sherpa", 666)],
+            known: [first().task, second().task].into_iter().collect(),
+        };
+        let upgraded = update_body(&body, &ours).unwrap();
+        let range = section_range(&upgraded).unwrap().unwrap();
+        assert_eq!(
+            read(&upgraded[range.clone()]).unwrap(),
+            Rows {
+                known: BTreeSet::new(),
+                ..ours
+            }
+        );
+        assert!(upgraded[range].contains("version = 3"), "{upgraded}");
+    }
+
+    #[test]
+    fn a_pointer_of_a_task_the_record_does_not_know_is_kept_and_one_it_counts_here_is_dropped() {
+        let theirs = update_body(
+            "",
+            &Rows {
+                tasks: vec![first()],
+                counted: vec![
+                    pointer("0ld0ld00", "dev01", "bwks/sherpa", 600),
+                    pointer("7b20d4aa", "dev02", "bwks/sherpa", 666),
+                ],
+                ..Rows::default()
+            },
+        )
+        .unwrap();
+        // The record now counts 7b20d4aa here, and knows nothing of 0ld0ld00.
+        let ours = Rows {
+            tasks: vec![second()],
+            known: [first().task, second().task].into_iter().collect(),
+            ..Rows::default()
+        };
+        let body = update_body(&theirs, &ours).unwrap();
+        let range = section_range(&body).unwrap().unwrap();
+        let read_back = read(&body[range]).unwrap();
+        assert_eq!(read_back.tasks, [second()]);
+        assert_eq!(
+            read_back.counted,
+            [pointer("0ld0ld00", "dev01", "bwks/sherpa", 600)]
+        );
+    }
+
     #[test]
     fn data_of_a_newer_format_is_refused() {
-        let body = format!("{START}\n{DATA_START}\nversion = 3\n-->\n{END}");
+        let body = format!("{START}\n{DATA_START}\nversion = 4\n-->\n{END}");
         let error = format!("{:#}", update_body(&body, &tasks(&[first()])).unwrap_err());
-        assert!(error.contains("format 3"), "{error}");
+        assert!(error.contains("format 4"), "{error}");
     }
 
     /// The data comment as a guest of format 1 read it: no version, no host rows, unknown

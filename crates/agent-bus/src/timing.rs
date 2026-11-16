@@ -17,6 +17,7 @@
 //! A tool call is classified by `classify`, against `TESTING` and `EXCLUDED`, the two fixed
 //! lists below and nowhere else. Anything on neither is work.
 
+use std::ops::AddAssign;
 use std::{iter, mem};
 
 use serde::Serialize;
@@ -182,6 +183,14 @@ struct Turn {
     start_ms: u64,
     end_ms: u64,
     from_user: bool,
+}
+
+impl AddAssign for Times {
+    fn add_assign(&mut self, other: Self) {
+        self.work = self.work.saturating_add(other.work);
+        self.testing = self.testing.saturating_add(other.testing);
+        self.waiting = self.waiting.saturating_add(other.waiting);
+    }
 }
 
 impl Times {

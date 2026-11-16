@@ -1146,8 +1146,8 @@ without default features, and `cargo test -p agent-bus --no-default-features` ru
 but the record's.
 
 **Schema.** The SQL is under `crates/agent-bus/sql/`: `migrations/0001_record.sql`,
-`migrations/0002_work.sql`, `migrations/0003_host.sql`, `migrations/0004_generation.sql` and
-one file per statement in `queries/`, included in the binary (`src/store/sql.rs`). The record's
+`migrations/0002_work.sql`, `migrations/0003_host.sql`, `migrations/0004_generation.sql`,
+`migrations/0005_pull_request.sql` and one file per statement in `queries/`, included in the binary (`src/store/sql.rs`). The record's
 `PRAGMA user_version` is the number of migrations applied; opening it applies the rest in one
 transaction, and a record newer than the binary is refused. A unit test
 (`store::database::tests`) applies every migration to an in-memory database, prepares every
@@ -1198,7 +1198,7 @@ so cost can be read per item, not only per task.
 | Source | From | Refs |
 |---|---|---|
 | `brief` | a `task`'s `work`, from `send --issue N --pr N [--repo R]` (both repeatable; the repository from `--repo`, else `AGENT_BUS_REPO`; never hard-coded) | the issues and pull requests |
-| `guest` | an outcome's `ended` | its branch, when not the default one, and each open pull request of the branch, in either checkout |
+| `guest` | an outcome's `ended` | its branch, when not the default one, and each open pull request of the branch; then each open pull request of the branch each other checkout has checked out (`../sherpa-docs`, and every checkout the run worked in) |
 | `parsed` | an outcome without `ended` (an older guest, or a message recorded before `ended`): the Generation line at the top of its text | see below |
 | `manual` | `link` | the ref given |
 
@@ -1225,8 +1225,21 @@ so cost can be read per item, not only per task.
 **How the guest finds `ended`** (`guest::pull_request::ended`, after every run; all its `git`
 and `gh` commands together get 30 s): `git symbolic-ref --quiet --short HEAD` for the branch,
 `gh repo view` for the repository and its default branch, then for a branch that is not the
-default, `gh pr list --state open --head=<branch>` in the checkout and in `../sherpa-docs` (with
-`gh repo view` there for its repository), leaving out pull requests from forks. `gh` runs with
+default, `gh pr list --state open --head=<branch>` in the checkout. Then the other checkouts
+(`guest::pull_request::checkouts`): `../sherpa-docs` when it is a git checkout, and the checkout
+(`git rev-parse --show-toplevel`) holding each place the run's tool calls named, at most 8. A
+place is a tool call's `file_path`, `path` or `notebook_path`, or the directory after `cd` or
+`git -C` in a command, absolute or from `~` (`guest::stream::interpret` sends them as
+`Update::WorkedIn`); the run's own checkout and places in no checkout are left out. Each other
+checkout reports the open pull requests of **its own** current branch, unless that is its
+repository's default or HEAD is detached (`gh repo view` and `gh pr list` there). So a docs pull
+request on a branch named differently from the sherpa one, and a pull request in a third
+repository the run cloned and worked in (#57: `sherpa-docs#141` on `docs/57-k8s-example-repo`,
+`sherpa-k8s-lab#1` on `feat/k8s-lab`), are reported, and a run that ended on `main` in sherpa
+still reports the others. Pull requests from forks are left out. A docs checkout left on the
+branch of an open pull request by an earlier task reports that pull request too: of the same
+item it is a pointer on that pull request (see below), of another item a conflict, which counts
+nowhere. `gh` runs with
 the agent's own `GH_TOKEN`, the read-only token, so every task reports, `--github` or not; the
 write token is never used for it. When the checkout is not a git checkout or its repository
 cannot be read, the outcome has no `ended` and the guest log says why; a docs checkout that
@@ -1254,13 +1267,14 @@ with neither, the branch is left out. Nor does it say which branch is the defaul
 |---|---|
 | `send --issue N --pr N [--repo R]` | tags the task; `--answer` refuses the tags |
 | `link <task> --issue N \| --pr N \| --branch B [--repo R]` | puts the task in the ref's item. The ref names no item: it names the task's item, or a new one when the task has none. The task has no item: it joins the ref's. Both have different items: the task's item is merged into the ref's (`merged_into` set, its refs and tasks moved), and the line says what moved |
-| `work show [--issue \| --pr \| --branch] [--repo R] [--json]` | one item: its refs with their source, its tasks with a total cost, its conflicts, the items merged into it, and the host's usage and time in it. Without a ref: every item, with its refs, task count, cost and last activity, then the host's active item in each session |
+| `work show [--issue \| --pr \| --branch] [--repo R] [--json]` | one item: its refs with their source, its tasks with a total cost and the pull request that counts each (`#665`, `#665 †` when brought forward, `-` for none; `placement` in `--json`), its conflicts, the items merged into it, and the host's usage and time in it by pull request, with a `not in a pull request` row. Without a ref: every item, with its refs, task count, cost and last activity, then the host's active item in each session |
 | `work backfill [--repo R]` | parses the Generation line of every recorded outcome without `ended`, as catching up does for new ones; idempotent (every insert is `ON CONFLICT DO NOTHING`, and a task already in an item keeps it) |
-| `usage --issue \| --pr \| --branch [--repo R]` | `usage`, limited to the item's tasks and the host's usage in it, headed by the item and its refs |
+| `usage --issue \| --branch [--repo R]` | `usage`, limited to the item's tasks and the host's usage in it, headed by the item and its refs: the item's whole cost |
+| `usage --pr N [--repo R]` | what that pull request's Generation section counts: the tasks whose home it is or that were brought forward to it, and the host's usage and time it counts (see [Which pull request counts what](#which-pull-request-counts-what)), headed by its item |
 | `usage --by agent \| model \| week` | the tasks of `usage` and the host's responses added up by group, with a total row; the host is agent `host`, its responses go to their model and to the week they were made in. By agent and by week (the ISO week, in UTC, the task was sent in), a task counts whole in one group. By model, each run's `run_model` figures go to their model (a run without models to the run's model), and what the task's totals hold beyond its runs (its priming runs) goes to the task's own model |
 | `open [--json] [--all]` | the tasks still `sent`, `running` or waiting on a `question`, oldest first: agent, state, item, age (since sent), and the question's last line (all of it in `--json`). Tasks of an agent no longer enrolled (not in the agents file or the registry, as `agents` lists them) never finish, so they are hidden, with a line counting them; `--all` shows them. When the enrolled agents cannot be read (no `bus.toml`, no seed), every task is shown and a line says why |
 | `work use --issue N \| --pr N \| --branch B [--repo R]`, `work clear` | sets or clears the host's active item; see [Attribution](#attribution) |
-| `work reassign --from <item \| unattributed> --to <item> [--since T] [--until T] [--session S]` | moves the host's usage and pins it; items are `issue:N`, `pr:N`, `branch:NAME` or `item:ID`, times RFC 3339 |
+| `work reassign --from <item \| unattributed> --to <item> [--since T] [--until T] [--session S]` | moves the host's usage and pins it; items are `issue:N`, `pr:N`, `branch:NAME` or `item:ID`, times RFC 3339. `--to pr:N` pins to that pull request too, not only to its item |
 
 Example, from `report::work::tests` (`cargo test -p agent-bus report::work -- --nocapture`):
 
@@ -1279,6 +1293,59 @@ A wrong `link` is not undone by the record: merges keep `merged_into`, and `work
 merged items, so what moved can be traced. A merge moves the host's usage and focus rows of the
 merged item too. A work item's pull requests get their Generation section from the host (see
 [Pull request Generation section](#pull-request-generation-section)).
+
+### Which pull request counts what
+
+Each task, and each response of the host, is counted on one pull request of its item, so the
+sections of an item's pull requests add up to the item's cost, each task once
+(`generation::placement`, pure; `store::generation::placements` reads the facts). Nothing is
+stored: it is worked out when a report prints or a sync renders, from `task_ref`, the messages,
+`host_focus`, `host_usage` and `generation_pr`, so a late fact re-cuts it.
+
+**A task's pull requests** are its `task_ref` rows of kind `pull_request` that name its own item;
+one that names another item is a conflict and is not used.
+
+| Case | Rule |
+|---|---|
+| One pull request | it is the task's **home**: its full cost is counted there |
+| A sherpa pull request and its docs one | home is the one in the host's repository (`AGENT_BUS_REPO`); the other shows a pointer row. A task whose pull requests are all in another repository has its home there |
+| Two in the same repository | by source, `manual` over `guest` over `parsed` over `brief`, then the one named last (highest `seq`), then the lowest; the other shows a pointer. `link` names one `manual` |
+| A review task that ended on `main` | only its `send --pr N` tag names it (`brief`): that is its home |
+| None (a design task, an investigation) | **brought forward** to the home of the item's next task, in the record's order, that has one, and marked there. Until there is one it is in no section, and `work show` shows `-` |
+
+Bring-forward is forward only and decided once: splitting design over an item's pull requests
+would change a merged pull request's figures when a later one appears, and the last pull request
+is not knowable in time. So #648's two design tasks are on #665, its first pull request, marked.
+Without `AGENT_BUS_REPO`, the lowest repository and number break the tie between a sherpa and a
+docs pull request named by one message.
+
+**The host's work** (`Placements::host`, `store::host::charged_pull_request`), for a response
+charged to an item (see [Attribution](#attribution)), at its time (a subagent's start for a
+subagent's):
+
+1. Pinned to a pull request (`work reassign --to pr:N`): that one.
+2. The focus in force names a pull request of the same item (`work use --pr N`, `send --pr N`):
+   that one.
+3. Else where the item's task with the latest event at or before it is counted: its `task`,
+   `answer`, `question` or outcome message (not `progress`), by the bus's `at_ms`. That is the
+   last task the host sent, answered or got a result from (reads are not recorded; the host is
+   woken by the arrival).
+4. Before the item's first task (the host writing the brief): where the first task is counted.
+5. Later than the final write of a merged or closed pull request (its `generation_pr` row's
+   `written_at_ms`): on to the item's next pull request, in the order of their first task, as a
+   task without one would be; after the last, in none.
+6. In none: it stays on the item, in no section, shown by `work show` as `not in a pull request`
+   and in `usage --issue`. Work for several items (releases, guest rebuilds) is not apportioned:
+   `work clear` leaves it unattributed.
+
+Host time follows the same path: a stretch is charged to the response before it
+([Time](#time)). Rule 3 is a guess at what the host was looking at; with two tasks of one item
+running at once it can be wrong by a few responses, and `work use --pr N` overrides it.
+
+**Migration `0005`** adds, with `ALTER TABLE … ADD COLUMN`, `pr_repo` and `pr_number` to
+`host_focus` (the pull request a `work use --pr` or `send --pr` named; NULL for an issue or a
+branch, and on rows recorded before, which fall to rule 3) and to `host_usage` (set only by
+`work reassign --to pr:N`). Nothing else is stored, so there is nothing to backfill.
 
 ## Host usage and time
 
@@ -1387,6 +1454,10 @@ Explicit only: nothing reads the conversation.
   cleared one, leaves it unattributed. A turn that spans a change is split by response time.
 - **Subagents** are charged whole to the item active when they started (their transcript's
   first line), so one started for #580 stays on #580 after the host moves on.
+- **The pull request.** Within its item, a response goes to one pull request (see [Which pull
+  request counts what](#which-pull-request-counts-what)). A focus naming a pull request (`work use
+  --pr N`, `send --pr N`, the first pull request of its tags) keeps it in `host_focus.pr_repo` and
+  `pr_number`, and that pull request counts the host's work while the focus is in force.
 - **Late facts.** Attribution is worked out again over every unpinned response after each
   import and each `work use` or `clear` (`store::host::attribute`), so a focus row recorded late
   (a `send` caught up after the import) moves the responses in its interval.
@@ -1505,9 +1576,18 @@ from its record (`src/generation/`, `store::generation`); neither the models nor
 write it. Guests only report where each run ended (`ended`, see [Work items](#work-items)).
 
 **Which section a pull request gets.** A pull request belongs to the work item it names (a
-`pull_request` ref). Its section has one row per agent task of the item that the host sent and
-that has usage, in the order the record first saw them, and one row per model for the host's own
-usage charged to the item (agent `host`, subagents folded in), then a bold total. Every row has
+`pull_request` ref), and its section shows the work behind that pull request only, as [Which
+pull request counts what](#which-pull-request-counts-what) places it: one row per agent task the
+host sent that has usage and whose home is this pull request, then the tasks brought forward to
+it (their ID marked `†`, and a line under the table naming them), one row per model for the
+host's usage this pull request counts (agent `host`, subagents folded in), a pointer row per task
+of this pull request counted on another (task, agent, `in owner/name#N` in the cost column, every
+other cell empty, not in the total, and a line under the table saying so), then a bold total of
+the rows counted here. A section with no rows counted here but pointers (a docs pull request
+whose task is counted on its sherpa pull request) is the heading and one line, `Counted in
+bwks/sherpa#666.`, not a table of zeros. Before format 3, every pull request of an item showed
+the whole item, so summing an item's sections counted its tasks once per pull request (#648's
+five sections summed to $90.48 for $21.78 of work). Every row has
 the work, testing and waiting-on-the-user time of [Time](#time): a task's work and testing from
 its runs, its waiting from its questions; the host's from its main conversations, charged to the
 model of the response being written at the time. Times print as `1h 07m`, `12m 30s` or `45s`,
@@ -1528,6 +1608,7 @@ record up and imported the host's transcripts, and `generation sync` does it by 
 | `generation sync` | the pull requests due | written at once |
 | `generation sync --all` | every pull request of every item | written at once |
 | `generation sync --pr N [--repo R]` | that one, frozen or not; an error when no item has it | written at once |
+| `generation sync --pr N --frozen [--repo R]` | that one, rewritten even when merged or closed, under the current rules | written at once |
 
 A pull request is due when it was written before, or its item had a message or a host response
 since the first sync (the import fact `generation_since_ms`, set by the first sync). That check
@@ -1540,7 +1621,8 @@ bodies of its pull requests merged long ago; `--all` and `--pr` still write them
 
 1. Under the record's lock (`Record::open_recorded`, no second catch-up): for each pull request
    looked at, render the section from the record's rows merged into the section last written
-   (`generation_pr.section`) and compare. Frozen (merged or closed at its last write): nothing,
+   (`generation_pr.section`) and compare. The rows are that pull request's (`store::generation::rows`,
+   with the placements read once per sync). Frozen (merged or closed at its last write): nothing,
    unless `--pr` names it. The last attempt failed less than 10 minutes ago and the sync is not
    forced: nothing yet. Equal text: nothing, and no `gh` call at all. Only the host's rows
    differ, and the last write is less than 10 minutes ago, and the sync is not forced: nothing
@@ -1568,9 +1650,13 @@ notices, on stderr; `generation sync` prints every pull request it looked at on 
 
 **Merged and closed pull requests.** A pull request whose `gh pr view` state is `MERGED` or
 `CLOSED` gets that write, its last, and is frozen from then on: no automatic sync looks at its
-body again. Later cost stays in the record, under the item. `generation sync --pr N` views a
-frozen one again: still merged or closed, it is left alone; reopened (`OPEN`), it is written and
-unfrozen.
+body again. The host's work after that final write goes on to the item's next pull request (rule
+5 above); a task's cost stays where it is counted. `generation sync --pr N` views a frozen one
+again: still merged or closed, it is left alone; reopened (`OPEN`), it is written and unfrozen.
+`generation sync --pr N --frozen` rewrites a frozen section under the current rules, still
+merged or closed, and keeps its `written_at_ms`, the time of its final write, so rule 5 does not
+move. There is no `--all --frozen`: rewriting every merged pull request's body should not be one
+command.
 
 **Debounce.** It is kept in `generation_pr`: `written_at_ms` is when the section was last
 written, and a change is "the host's rows alone" when the task rows of the new section's data
@@ -1585,7 +1671,7 @@ at once.
 | `work` | its item when last looked at |
 | `state` | `OPEN`, `MERGED` or `CLOSED` at the last write; `MERGED` and `CLOSED` freeze it |
 | `section` | the text last written, from the start marker to the end marker; NULL until a write succeeds |
-| `written_at_ms` | when; the debounce counts from it |
+| `written_at_ms` | when; the debounce counts from it. For a frozen one, its final write: the host's work after it goes to the item's next pull request, and `--frozen` keeps it |
 | `last_error` | why the last attempt failed; NULL after a success |
 | `attempted_at_ms` | when the last attempt was; a failure waits 10 minutes from it |
 
@@ -1604,24 +1690,31 @@ order or more than once are an error, reported, and the body is left alone. The 
   see [Usage and cost](#usage-and-cost)), input, output, cache read and cache write tokens, work,
   testing and waiting on user, one row per task, one per host model (runs left empty), and a bold
   total row;
+- the lines under the table: the tasks brought forward, and that pointer rows are not in the
+  total, each only when there are any;
 - the same rows as TOML in an HTML comment, `<!-- agent-bus:generation-data ... -->`:
-  `version = 2`, `[[task]]` with `task`, `agent`, `models`, `[task.usage]` (the `TaskUsage`
-  fields) and `[task.time]` (`work`, `testing`, `waiting`, milliseconds, each only when known),
-  and `[[host]]` with `model`, `[host.usage]` and `[host.time]`.
+  `version = 3`, `[[task]]` with `task`, `agent`, `models`, `brought_forward = true` when it is,
+  `[task.usage]` (the `TaskUsage` fields) and `[task.time]` (`work`, `testing`, `waiting`,
+  milliseconds, each only when known), `[[host]]` with `model`, `[host.usage]` and
+  `[host.time]`, and `[[counted]]` with `task`, `agent`, `repo` and `number`, the pull request
+  that counts it.
 
 The data comment is what is read back, with serde, never the table. Rewriting a section keeps
 the rows of tasks the record does not know (written by guests before the record existed), in
-their order, replaces the rows of the item's tasks with the record's figures, adds its new ones
-after, and replaces the host's rows whole. A row of a task the record has in another item is
-dropped: an older guest counted tasks by branch, the record by item, so such a row belongs to
-the other item's pull requests. `[[host]]` rows carry `unpriced`, the count of responses
+their order, replaces the rows of the tasks it counts here with the record's figures, adds its
+new ones after, and replaces the host's rows and the pointers whole (keeping pointers of tasks it
+does not know). A row of a task the record knows but does not count here is dropped: it is
+counted on another pull request of the item, or in another item (an older guest counted tasks by
+branch, the record by item). So a format 2 section, which listed every task of the item, keeps
+only this pull request's on its next write. `[[host]]` rows carry `unpriced`, the count of responses
 without a price, when there are any. Every task ID, agent name and
 model, the record's or read back, must be short and of letters, digits and `-._` (models also
 `:/@[]`), so nothing can break the table or close the comment early; a row that is not is an
 error.
 
-**Format versions.** Guests wrote format 1: no `version`, no host rows, no time. The host reads
-it as it is (its rows show `n/a` for time) and writes format 2. Data of a newer format than this
+**Format versions.** Guests wrote format 1: no `version`, no host rows, no time. Format 2 added
+the version, the host's rows and time; format 3 the `brought_forward` mark and `[[counted]]`. The
+host reads 1 and 2 as they are (format 1 rows show `n/a` for time) and writes format 3. Data of a newer format than this
 agent-bus writes is refused. Guests read the comment with `deny_unknown_fields`, so a guest still
 running an older agent-bus refuses a host-written section (`unknown field version`), reports it
 not updated, and leaves the body alone: it cannot undo the host's section
