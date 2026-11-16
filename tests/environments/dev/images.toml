@@ -4,6 +4,10 @@
 # The first version imported for a model becomes its default, so list the default first.
 # Container images are not here: the host keeps them in Docker, not in /opt/sherpa/images
 # (see README.md).
+#
+# Each [[extra_files]] entry is a file the images need that `sherpa server image import` does
+# not bring, as a path under /opt/sherpa/images. It is copied to the same path in the guest
+# unless the guest's copy has the same SHA-256.
 
 [[images]]
 model = "alpine_linux"
@@ -96,3 +100,7 @@ version = "26.04"
 [[images]]
 model = "windows_server"
 version = "2022-20261026"
+
+# vEOS boots from the Aboot ISO; without it `sherpa up` fails for an arista_veos node.
+[[extra_files]]
+path = "arista_veos/aboot_iso/aboot.iso"

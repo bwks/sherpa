@@ -11,14 +11,20 @@
 # staged copy. An interrupted copy resumes on the next run. The guest's CLI is already logged in
 # by provisioning, so no password or token is needed or passed.
 #
+# Then, for each of images.toml's extra files, a path under /opt/sherpa/images such as the vEOS
+# Aboot ISO, it compares the host's and the guest's SHA-256 and skips the file if they match.
+# Otherwise it copies the file through the same staging directory, checks its SHA-256 there, and
+# installs it at the same path in the guest, owned by the guest's `sherpa` account.
+#
 # Everything goes over the lab's own .sherpa/ssh/config, alias `<node>` or `<node>.<lab id>`,
-# through one shared SSH connection. An image that is missing on the host or fails to import is
-# reported and the rest go on; the exit status is 1 if any failed.
+# through one shared SSH connection. An image or file that is missing on the host or fails to
+# import or copy is reported and the rest go on; the exit status is 1 if any failed.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGES_FILE="${SCRIPT_DIR}/images.toml"
 HOST_IMAGES="/opt/sherpa/images"
+GUEST_IMAGES="/opt/sherpa/images"
 DISK_FILE="virtioa.qcow2"
 GUEST_SHERPA="/opt/sherpa/bin/sherpa"
 # Readable by the Sherpa server whichever user it runs as; it copies the disk from here.
@@ -49,37 +55,61 @@ toml_string() {
     sed -n "s/^$1[[:space:]]*=[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$2" | head -n 1
 }
 
-# images.toml as `<model> <version>` lines. Only the layout images.toml uses is accepted:
-# comments, blank lines, `[[images]]` and `model`/`version` strings; anything else is an error.
-read_images() {
+# images.toml as `image <model> <version>` and `file <path>` lines. Only the layout images.toml
+# uses is accepted: comments, blank lines, `[[images]]` with `model`/`version` strings and
+# `[[extra_files]]` with a `path` string; anything else is an error.
+read_entries() {
     awk '
         function flush() {
-            if (started) {
+            if (section == "images") {
                 if (model == "" || version == "") {
                     printf "images.toml line %d: an [[images]] entry needs model and version\n", start > "/dev/stderr"
                     bad = 1
                 } else {
-                    print model, version
+                    print "image", model, version
+                }
+            } else if (section == "extra_files") {
+                if (path == "") {
+                    printf "images.toml line %d: an [[extra_files]] entry needs path\n", start > "/dev/stderr"
+                    bad = 1
+                } else {
+                    print "file", path
                 }
             }
         }
+        function value() { split($0, part, "\""); return part[2] }
         /^[[:space:]]*(#.*)?$/ { next }
-        /^\[\[images\]\][[:space:]]*$/ { flush(); started = 1; start = NR; model = ""; version = ""; next }
-        started && /^model[[:space:]]*=[[:space:]]*"[^"]*"[[:space:]]*$/ { split($0, part, "\""); model = part[2]; next }
-        started && /^version[[:space:]]*=[[:space:]]*"[^"]*"[[:space:]]*$/ { split($0, part, "\""); version = part[2]; next }
+        /^\[\[images\]\][[:space:]]*$/ { flush(); section = "images"; start = NR; model = ""; version = ""; next }
+        /^\[\[extra_files\]\][[:space:]]*$/ { flush(); section = "extra_files"; start = NR; path = ""; next }
+        section == "images" && /^model[[:space:]]*=[[:space:]]*"[^"]*"[[:space:]]*$/ { model = value(); next }
+        section == "images" && /^version[[:space:]]*=[[:space:]]*"[^"]*"[[:space:]]*$/ { version = value(); next }
+        section == "extra_files" && /^path[[:space:]]*=[[:space:]]*"[^"]*"[[:space:]]*$/ { path = value(); next }
         { printf "images.toml line %d: not understood: %s\n", NR, $0 > "/dev/stderr"; bad = 1 }
         END { flush(); exit bad }
     ' "${IMAGES_FILE}"
 }
 
-IMAGES="$(read_images)"
-# Model and version go into commands run in the guest: hold them to the server's rules.
-while read -r model version; do
-    if ! [[ "${model}" =~ ^[a-z0-9_]+$ ]] || ! [[ "${version}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$ ]]; then
-        echo "images.toml: '${model}' '${version}' is not a valid model and version" >&2
-        exit 1
-    fi
-done <<< "${IMAGES}"
+ENTRIES="$(read_entries)"
+# Models, versions and paths go into commands run in the guest: hold models and versions to the
+# server's rules, and paths to plain relative names under the images folder, with no `.` or `..`.
+while read -r kind first second; do
+    case "${kind}" in
+        image)
+            if ! [[ "${first}" =~ ^[a-z0-9_]+$ ]] || ! [[ "${second}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$ ]]; then
+                echo "images.toml: '${first}' '${second}' is not a valid model and version" >&2
+                exit 1
+            fi
+            ;;
+        file)
+            if [ -n "${second}" ] || ! [[ "${first}" =~ ^[A-Za-z0-9._+-]+(/[A-Za-z0-9._+-]+)*$ ]] || [[ "/${first}/" =~ /\.\.?/ ]]; then
+                echo "images.toml: '${first}${second:+ ${second}}' is not a relative path under ${HOST_IMAGES}" >&2
+                exit 1
+            fi
+            ;;
+    esac
+done <<< "${ENTRIES}"
+IMAGES="$(awk '$1 == "image" { print $2, $3 }' <<< "${ENTRIES}")"
+EXTRA_FILES="$(awk '$1 == "file" { print $2 }' <<< "${ENTRIES}")"
 
 LAB_ID="$(toml_string id "${LAB_INFO}")"
 ALIAS=""
@@ -118,9 +148,11 @@ fi
 guest "install -d -m 755 ${GUEST_STAGING}"
 
 imported=0
+copied=0
 skipped=0
 failed=()
 while read -r model version; do
+    [ -n "${model}" ] || continue
     name="${model} ${version}"
     if guest "${GUEST_SHERPA} server image show ${model} --version ${version}" > /dev/null 2>&1; then
         echo "==> ${name}: already imported, skipping"
@@ -150,7 +182,51 @@ while read -r model version; do
     imported=$((imported + 1))
 done <<< "${IMAGES}"
 
-echo "Imported ${imported}, skipped ${skipped}, failed ${#failed[@]}"
+# The SHA-256 of a file in the guest, or nothing if it is not there. The images folder belongs to
+# the guest's `sherpa` account, so the guest's login reads and writes in it with sudo.
+guest_sha256() {
+    guest "sudo sh -c 'test -f $1 && sha256sum $1'" | cut -d ' ' -f 1
+}
+
+while read -r path; do
+    [ -n "${path}" ] || continue
+    src="${HOST_IMAGES}/${path}"
+    dest="${GUEST_IMAGES}/${path}"
+    if [ ! -r "${src}" ]; then
+        echo "==> ${path}: ${src} not found or not readable on the host" >&2
+        failed+=("${path}")
+        continue
+    fi
+    sum="$(sha256sum "${src}" | cut -d ' ' -f 1)"
+    if [ "$(guest_sha256 "${dest}")" = "${sum}" ]; then
+        echo "==> ${path}: already there with the same checksum, skipping"
+        skipped=$((skipped + 1))
+        continue
+    fi
+    staged="${GUEST_STAGING}/$(basename "${path}")"
+    echo "==> ${path}: copying $(du -h "${src}" | cut -f1)"
+    if ! rsync --partial --chmod=F644 -e "${SSH[*]}" "${src}" "${ALIAS}:${staged}"; then
+        echo "==> ${path}: copy failed; the next run resumes it" >&2
+        failed+=("${path}")
+        continue
+    fi
+    if [ "$(guest_sha256 "${staged}")" != "${sum}" ]; then
+        echo "==> ${path}: the copy's checksum does not match the host's; deleted, the next run copies it again" >&2
+        guest "rm -f ${staged}"
+        failed+=("${path}")
+        continue
+    fi
+    echo "==> ${path}: installing at ${dest}"
+    if ! guest "sudo -u sherpa mkdir -p $(dirname "${dest}") && sudo install -o sherpa -g sherpa -m 644 ${staged} ${dest}"; then
+        echo "==> ${path}: install failed; the staged copy is kept at ${staged}" >&2
+        failed+=("${path}")
+        continue
+    fi
+    guest "rm -f ${staged}"
+    copied=$((copied + 1))
+done <<< "${EXTRA_FILES}"
+
+echo "Imported ${imported}, copied ${copied}, skipped ${skipped}, failed ${#failed[@]}"
 if [ "${#failed[@]}" -gt 0 ]; then
     printf '  failed: %s\n' "${failed[@]}" >&2
     exit 1
