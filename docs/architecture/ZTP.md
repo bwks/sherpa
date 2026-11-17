@@ -106,6 +106,24 @@ Each reader is one `match` on `Ztp` with `Disabled` as a case in it.
 
 The dnsmasq template only loops over the option lines `boot_options` returns.
 
+### IOS XE day-0 config and PnP
+
+The CSR1000v, Cat8000v and Cat9000v read `iosxe_config.txt` from the CD-ROM with CVAC, which
+applies it line by line and then saves it to NVRAM. Until the save, the node has no startup
+config, so PnP discovery is running. If the management interface comes up in that window (after
+the config's `no shutdown`, before the save, about ten seconds), PnP's Auto Installer takes the
+interface for DHCP and gets a lease. When the save lands, discovery stops because a startup config
+is present, releases the lease, and leaves the interface with `no ip address`: the running config
+has lost the static address, the startup config still has it, and the node never becomes ready.
+Whether it happens depends on boot timing; seen on a CSR1000v 17.3 (#649).
+
+The template's first command is therefore `do pnpa service discovery stop`, which ends discovery
+before anything else is applied. IOS XE has no configuration-mode command for this, hence `do`.
+On CSR1000v 17.3, CVAC then reads one line of binary bytes after the final `exit` and logs a
+rejected command (`%CVAC-3-CONFIG_ERROR: 1 error(s)`); everything before it is applied and saved.
+Cat8000v 17.16 does not. The template test in `crates/template/tests/cisco_iosxe` holds the stop
+to the first command.
+
 ## The boot server
 
 Each lab has one boot container, `sherpa-router-<lab-id>` (`ghcr.io/bwks/sherpa-router`), on

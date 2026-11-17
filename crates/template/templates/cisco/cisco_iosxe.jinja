@@ -1,4 +1,9 @@
+{#- PnP discovery stops first. Until CVAC saves this config to NVRAM the node has no startup
+    config, so when the management interface comes up the Auto Installer can take it for DHCP.
+    Discovery then stops because a startup config is present, releases the lease and leaves the
+    interface with no address. -#}
 !
+do pnpa service discovery stop
 hostname {{ hostname }}
 ip domain name {{ dns.domain }}
 {%- for server in dns.name_servers %}
