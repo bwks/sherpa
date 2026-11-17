@@ -40,7 +40,8 @@ pub struct DeviceInfo {
     pub state: NodeState,
     pub mgmt_ipv4: String,
     pub mgmt_ipv6: Option<String>,
-    /// The VM's VNC console port on the server.
+    /// The VM's VNC console port on the server. `None` for a node without one, and for anyone
+    /// but the lab's owner.
     pub vnc_port: Option<u16>,
     pub disks: Vec<String>,
     /// vCPUs the node was given: a container's CPU quota. `None` for a container without one.
@@ -50,8 +51,8 @@ pub struct DeviceInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory: Option<u16>,
     /// Where the node's serial console listens on the server, on the telnet port: its address
-    /// in the lab's loopback network. `None` for a container, which has no serial console, and
-    /// from servers that do not report it.
+    /// in the lab's loopback network. `None` for a container, which has no serial console, for
+    /// anyone but the lab's owner, and from servers that do not report it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<String>")]
     pub console_address: Option<Ipv4Addr>,

@@ -233,7 +233,7 @@ const OPERATIONS: &[Operation] = &[
     },
     Operation {
         name: "lab.inspect",
-        description: "Get detailed information about a lab",
+        description: "Get detailed information about a lab. Serial console addresses and VNC ports are shown to the owner only",
         category: Category::Lab,
         auth: AuthRequirement::Authenticated,
         request_schema: Some("InspectRequest"),
@@ -446,7 +446,7 @@ const OPERATIONS: &[Operation] = &[
     // User operations
     Operation {
         name: "user.create",
-        description: "Create a new user account",
+        description: "Create a new user account, without SSH keys: the user adds their own",
         category: Category::Admin,
         auth: AuthRequirement::Admin,
         request_schema: Some("CreateUserRequest"),
@@ -530,7 +530,7 @@ const OPERATIONS: &[Operation] = &[
     },
     Operation {
         name: "user.ssh_key.add",
-        description: "Add an SSH public key to a user: your own, or any user's for an admin",
+        description: "Add an SSH public key to your own account. Self only, admins included",
         category: Category::Admin,
         auth: AuthRequirement::Authenticated,
         request_schema: Some("AddSshKeyRequest"),

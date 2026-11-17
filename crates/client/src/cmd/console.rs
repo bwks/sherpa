@@ -23,12 +23,14 @@ use shared::util::{LabFolder, get_ip, term_msg_surround};
 use topology::Manifest;
 
 use super::inspect::fetch_inspect;
+use super::lab_identity::require_lab_owner;
 use super::ssh::read_lab_connection_file;
 use crate::ssh_client;
 
 /// Open the serial console of the node `name` in this process's terminal, through the Sherpa
 /// server, until the console closes or an escape (`Ctrl+]`, or `~.` at the start of a line) is
-/// typed. Containers have no serial console and are refused before anything connects.
+/// typed. Only the lab's owner may connect, and containers have no serial console: both are
+/// refused before anything connects.
 #[tracing::instrument(skip_all, fields(%name, %lab_id))]
 pub async fn console(
     name: &str,
@@ -36,6 +38,7 @@ pub async fn console(
     server_url: &str,
     config: &ClientConfig,
 ) -> Result<()> {
+    require_lab_owner(Path::new(""))?;
     let inspect = fetch_inspect(lab_id, server_url, config).await?;
     let lab_info = &inspect.lab_info;
     let node = match console_target(name, &inspect.devices, lab_info)? {

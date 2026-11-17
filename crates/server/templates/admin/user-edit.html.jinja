@@ -69,24 +69,11 @@
     <div class="bg-card rounded-lg p-8 mb-8 shadow-sm">
         <h2 class="text-2xl font-semibold text-heading mb-6">Manage SSH Keys</h2>
 
-        <!-- Add SSH Key Form -->
-        <form hx-post="/admin/users/{{ target_user.username }}/ssh-keys" hx-target="#admin-ssh-keys-list" hx-swap="outerHTML">
-            <div class="mb-5">
-                <label for="ssh_key" class="block text-sm font-medium text-body mb-2">Add SSH Public Key</label>
-                <textarea
-                    id="ssh_key"
-                    name="ssh_key"
-                    rows="3"
-                    placeholder="ssh-ed25519 AAAAC3Nza... user@host"
-                    required
-                    class="w-full px-3.5 py-2.5 border border-border-strong bg-card text-heading rounded-md text-sm transition-colors focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/10"
-                ></textarea>
-                <small class="block text-xs text-muted mt-1.5">
-                    Paste your SSH public key (ssh-rsa, ssh-ed25519, ecdsa-sha2-*)
-                </small>
-            </div>
-            <button type="submit" class="btn-primary">Add Key</button>
-        </form>
+        <p class="text-sm text-muted mb-5">
+            Only {{ target_user.username }} can add keys to this account, on their Profile page or
+            with <code class="font-mono">sherpa server user ssh-key add</code>: a key on an account is
+            installed on its lab nodes. You can remove keys here.
+        </p>
 
         <!-- SSH Keys List (loaded via partial) -->
         {{ ssh_keys_list | safe }}

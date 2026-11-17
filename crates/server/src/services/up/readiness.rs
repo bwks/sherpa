@@ -441,7 +441,7 @@ impl Readiness<'_, '_> {
         };
         let mgmt_ipv4 = container.ipv4_address.map(|ip| ip.to_string());
         let port_check = match (ready_port, mgmt_ipv4.as_deref()) {
-            (Some(port), Some(ip)) => Some(node_ops::check_vm_ready(ip, port).await?),
+            (Some(port), Some(ip)) => Some(node_ops::check_vm_ready(ip, port, None).await?),
             (Some(_), None) => Some(VmReadiness::NotReady),
             (None, _) => None,
         };
@@ -585,7 +585,8 @@ impl Readiness<'_, '_> {
         Ok(())
     }
 
-    /// Check a VM's readiness port; once it answers, record the SSH host key it offered.
+    /// Check a VM's readiness port; once it answers, and a Windows node's SSH server runs with
+    /// Sherpa's config, record the SSH host key it offered.
     async fn check_vm(&mut self, vm: &topology::NodeExpanded) -> Result<()> {
         let Some(record) = self
             .inputs
@@ -602,7 +603,12 @@ impl Readiness<'_, '_> {
             .or(vm.model_kind.ready_port())
             .with_context(|| format!("VM '{}' has no readiness port", vm.name))?;
         let ready_label = node_ops::ready_port_label(ready_port);
-        match node_ops::check_vm_ready(&record.ipv4_address.to_string(), ready_port).await? {
+        // A Windows node's SSH server answers before its owner can log in; it is ready once it
+        // runs with the config Sherpa gave it.
+        let sshd_marker = vm.model_kind.sshd_ready_marker(record.ztp);
+        match node_ops::check_vm_ready(&record.ipv4_address.to_string(), ready_port, sshd_marker)
+            .await?
+        {
             VmReadiness::Ready { host_key } => {
                 tracing::info!(node_name = %vm.name, ipv4 = %record.ipv4_address, ready_port, "VM ready");
                 let _ = self.build.progress.send_status(

@@ -36,7 +36,7 @@ pub async fn create_user_json(
         username,
         &request.password,
         request.is_admin,
-        request.ssh_keys,
+        vec![],
     )
     .await
     .map_err(ApiError::from)?;

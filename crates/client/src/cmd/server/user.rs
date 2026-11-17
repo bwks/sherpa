@@ -17,7 +17,7 @@ use crate::token::{load_token, username_from_token};
 
 #[derive(Debug, Subcommand)]
 pub enum UserCommands {
-    /// Create a new user (admin only)
+    /// Create a new user (admin only). The user adds their own SSH keys
     Create {
         /// Username for the new user
         username: String,
@@ -25,10 +25,6 @@ pub enum UserCommands {
         /// Make the user an administrator
         #[arg(long)]
         admin: bool,
-
-        /// SSH public keys (can be specified multiple times)
-        #[arg(long = "ssh-key")]
-        ssh_keys: Vec<String>,
     },
 
     /// List all users (admin only)
@@ -76,14 +72,11 @@ pub enum SshKeyCommands {
         user: Option<String>,
     },
 
-    /// Add an SSH public key
+    /// Add an SSH public key to your own account. Nobody, admins included, can add a key to
+    /// another account
     Add {
         /// The public key, or the path to a public key file such as ~/.`ssh/id_ed25519.pub`
         key: String,
-
-        /// User to add the key to (defaults to current user; admins may name any user)
-        #[arg(long)]
-        user: Option<String>,
     },
 
     /// Remove an SSH public key
@@ -104,15 +97,10 @@ pub async fn user_commands(
     output_format: &OutputFormat,
 ) -> Result<()> {
     match command {
-        UserCommands::Create {
-            username,
-            admin,
-            ssh_keys,
-        } => {
+        UserCommands::Create { username, admin } => {
             create_user(
                 username,
                 *admin,
-                ssh_keys.clone(),
                 server_url,
                 server_connection,
                 output_format,
@@ -180,9 +168,9 @@ async fn ssh_key_commands(
                 output_format,
             )
         }
-        SshKeyCommands::Add { key, user } => {
+        SshKeyCommands::Add { key } => {
             let request = data::AddSshKeyRequest {
-                username: target_user(user.as_deref())?,
+                username: username_from_token(&load_token()?)?,
                 ssh_key: read_key_argument(key)?,
                 token: String::new(),
             };
@@ -277,7 +265,6 @@ fn print_ssh_keys(
 async fn create_user(
     username: &str,
     is_admin: bool,
-    ssh_keys: Vec<String>,
     server_url: &str,
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
@@ -292,7 +279,6 @@ async fn create_user(
         username,
         password,
         is_admin,
-        ssh_keys,
         token: String::new(),
     };
 
@@ -754,13 +740,39 @@ mod tests {
 
     #[test]
     fn ssh_key_subcommands_parse() {
-        let cli = TestCli::try_parse_from(["user", "ssh-key", "add", "key.pub", "--user", "alice"])
-            .unwrap();
+        let cli = TestCli::try_parse_from(["user", "ssh-key", "add", "key.pub"]).unwrap();
         assert!(matches!(
             cli.command,
             UserCommands::SshKey {
-                command: SshKeyCommands::Add { ref key, user: Some(ref user) }
+                command: SshKeyCommands::Add { ref key }
+            } if key == "key.pub"
+        ));
+        let cli =
+            TestCli::try_parse_from(["user", "ssh-key", "remove", "key.pub", "--user", "alice"])
+                .unwrap();
+        assert!(matches!(
+            cli.command,
+            UserCommands::SshKey {
+                command: SshKeyCommands::Remove { ref key, user: Some(ref user) }
             } if key == "key.pub" && user == "alice"
         ));
+    }
+
+    #[test]
+    fn a_key_is_added_only_to_your_own_account() {
+        assert!(
+            TestCli::try_parse_from(["user", "ssh-key", "add", "key.pub", "--user", "alice"])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_new_user_is_created_without_keys() {
+        let cli = TestCli::try_parse_from(["user", "create", "alice", "--admin"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            UserCommands::Create { ref username, admin: true } if username == "alice"
+        ));
+        assert!(TestCli::try_parse_from(["user", "create", "alice", "--ssh-key", KEY]).is_err());
     }
 }

@@ -34,7 +34,8 @@ use shared::data::{
 /// Requires valid JWT token in `Authorization: Bearer <token>` header.
 ///
 /// # Authorization
-/// Users can only inspect their own labs. Admins can inspect any lab.
+/// Users can only inspect their own labs. Admins can inspect any lab, but only the owner is
+/// shown the nodes' serial console addresses and VNC ports.
 ///
 /// # Path Parameters
 /// - `id` - The lab ID to inspect

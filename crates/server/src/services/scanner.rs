@@ -361,7 +361,7 @@ async fn probe_node(state: &AppState, node: &DbNode, port: u16) -> Probe {
         tracing::debug!("Node has no management address");
         return Probe::NotReady;
     };
-    match node_ops::check_vm_ready(ip, port).await {
+    match node_ops::check_vm_ready(ip, port, None).await {
         Ok(VmReadiness::Ready {
             host_key: Some(host_key),
         }) => match ssh_config::record_node_host_key(&state.db, node, &host_key).await {

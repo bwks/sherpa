@@ -37,6 +37,11 @@ pub(super) async fn redeploy_vm(
     cert_paths: &NodeCertPaths,
 ) -> Result<Vec<LinkReport>> {
     let vm_ztp = configure_vm(redeploy, cert_paths).await?;
+    // A Windows node is ready once its SSH server runs with the config just generated.
+    let sshd_marker = redeploy
+        .target_node
+        .model_kind
+        .sshd_ready_marker(vm_ztp.ztp_record.ztp);
     let lab_id = redeploy.lab_id.as_str();
     let node_name = redeploy.node_name.as_str();
     let progress = redeploy.progress;
@@ -131,7 +136,7 @@ pub(super) async fn redeploy_vm(
         network::set_link_state(&isolated_net.bridge_name, false).await?;
     }
 
-    wait_until_ready(redeploy).await?;
+    wait_until_ready(redeploy, sshd_marker).await?;
     Ok(link_reports)
 }
 

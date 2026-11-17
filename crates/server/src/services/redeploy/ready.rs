@@ -37,9 +37,13 @@ pub(super) fn ready_wait(ready_check: &ReadyCheck) -> ReadyWait {
 /// key it offers, and record it running: a VM's stage 6, and a container's with a ready port
 /// once its services are restored. A node that is not ready in time is left `Starting`, for the
 /// scanner to record running once its port answers; the redeploy still succeeds. A skipped
-/// check, or a node with no stored port, records it running at once.
+/// check, or a node with no stored port, records it running at once. With an `sshd_marker`
+/// (`ModelKind::sshd_ready_marker`), the SSH server must show it as well, as `up` checks.
 #[instrument(skip_all, fields(lab_id = %redeploy.lab_id, node_name = %redeploy.node_name), level = "debug")]
-pub(super) async fn wait_until_ready(redeploy: &Redeploy<'_>) -> Result<()> {
+pub(super) async fn wait_until_ready(
+    redeploy: &Redeploy<'_>,
+    sshd_marker: Option<&str>,
+) -> Result<()> {
     let node_name = redeploy.node_name.as_str();
     let progress = redeploy.progress;
     let _ = progress.send_status(
@@ -48,7 +52,7 @@ pub(super) async fn wait_until_ready(redeploy: &Redeploy<'_>) -> Result<()> {
     );
 
     let ready = match ready_wait(&redeploy.db_node.ready_check) {
-        ReadyWait::Port(ready_port) => poll_until_ready(redeploy, ready_port).await?,
+        ReadyWait::Port(ready_port) => poll_until_ready(redeploy, ready_port, sshd_marker).await?,
         ReadyWait::Skipped => {
             let _ = progress.send_status(
                 format!("Node {node_name} - Ready check skipped"),
@@ -77,16 +81,20 @@ pub(super) async fn wait_until_ready(redeploy: &Redeploy<'_>) -> Result<()> {
 }
 
 /// Poll the node's `ready_port` on its management address, as `up` checks a VM's, until it
-/// answers or the ready timeout passes. Returns whether it answered, and records the host key
-/// it offers.
-async fn poll_until_ready(redeploy: &Redeploy<'_>, ready_port: u16) -> Result<bool> {
+/// answers, showing `sshd_marker` when there is one, or the ready timeout passes. Returns
+/// whether it answered, and records the host key it offers.
+async fn poll_until_ready(
+    redeploy: &Redeploy<'_>,
+    ready_port: u16,
+    sshd_marker: Option<&str>,
+) -> Result<bool> {
     let node_name = redeploy.node_name.as_str();
     let ready_label = node_ops::ready_port_label(ready_port);
     let ip = redeploy.ipv4.to_string();
     let start = Instant::now();
 
     while start.elapsed() < redeploy.ready_timeout() {
-        match node_ops::check_vm_ready(&ip, ready_port).await? {
+        match node_ops::check_vm_ready(&ip, ready_port, sshd_marker).await? {
             VmReadiness::Ready { host_key } => {
                 if host_key.is_some() {
                     db::update_node_host_key(

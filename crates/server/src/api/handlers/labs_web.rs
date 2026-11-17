@@ -10,7 +10,9 @@ use std::collections::{BTreeMap, HashMap};
 use strum::IntoEnumIterator;
 
 use crate::api::sse::{destroy_progress_stream, up_progress_stream};
-use crate::auth::policy::{require_lab_access, require_lab_owner, require_lab_starter};
+use crate::auth::policy::{
+    LabRule, check_lab_rule, require_lab_access, require_lab_owner, require_lab_starter,
+};
 use crate::auth::session::SessionLookup;
 use crate::daemon::state::AppState;
 use crate::daemon::state::{Job, JobType};
@@ -301,8 +303,11 @@ pub async fn lab_detail_handler(
     );
 
     // Call inspect service
-    match inspect::inspect_lab(&auth.context(), &lab_id, &state).await {
+    let ctx = auth.context();
+    match inspect::inspect_lab(&ctx, &lab_id, &state).await {
         Ok(response) => {
+            let owns_lab =
+                check_lab_rule(&ctx, LabRule::OwnerOnly, &lab_id, &response.lab_info.user).is_ok();
             tracing::info!(
                 "Successfully loaded lab '{}' details for user '{}'",
                 lab_id,
@@ -324,7 +329,7 @@ pub async fn lab_detail_handler(
                     BadgeSize::Large,
                 ),
                 actions: LabActions::for_lab(response.lab_phase, response.lab_state),
-                offers_download: lab_offers_download(response.lab_state),
+                offers_download: lab_offers_download(owns_lab, response.lab_state),
                 nodes: response.devices.into_iter().map(NodeRow::from).collect(),
                 device_count,
                 inactive_devices: response.inactive_devices,
@@ -348,8 +353,12 @@ pub async fn lab_detail_handler(
 
 /// Whether the lab detail page offers the lab files for download.
 ///
-/// A lab with no nodes, or one whose state cannot be determined, has nothing to download.
-pub(crate) fn lab_offers_download(lab_state: LabState) -> bool {
+/// The files are the owner's alone, so anyone else, an admin viewing the lab, is not offered
+/// them. A lab with no nodes, or one whose state cannot be determined, has nothing to download.
+pub(crate) fn lab_offers_download(owns_lab: bool, lab_state: LabState) -> bool {
+    if !owns_lab {
+        return false;
+    }
     match lab_state {
         LabState::Running
         | LabState::Stopped
@@ -606,7 +615,8 @@ pub async fn lab_nodes_handler(
 ///
 /// Returns a zip containing lab-info.toml and `sherpa_ssh_config`, built from the database, plus
 /// `sherpa_known_hosts` when node host keys were recorded. These files allow CLI tools (sherpa
-/// ssh, sherpa console) to work with the lab. Uses the same download service as the RPC API.
+/// ssh, sherpa console) to work with the lab. Uses the same download service as the RPC API, and
+/// so only the lab's owner may download it, admins included.
 #[tracing::instrument(skip(state), fields(%lab_id))]
 pub async fn lab_download_handler(
     Path(lab_id): Path<String>,
@@ -614,7 +624,7 @@ pub async fn lab_download_handler(
     State(state): State<AppState>,
 ) -> Result<Response, ApiError> {
     let auth = auth.into_context();
-    let db_lab = require_lab_access(&auth, &state.db, &lab_id).await?;
+    let db_lab = require_lab_owner(&auth, &state.db, &lab_id).await?;
     let files = download::download_lab_files(&auth, &lab_id, &state)
         .await
         .map_err(ApiError::from)?;
@@ -984,7 +994,7 @@ mod tests {
     use crate::services::lab_definition::tests::{lab_with, store};
 
     #[test]
-    fn the_lab_detail_offers_the_download_only_for_a_lab_with_known_nodes() {
+    fn the_lab_detail_offers_the_download_only_to_the_owner_of_a_lab_with_known_nodes() {
         for (state, expected) in [
             (LabState::Running, true),
             (LabState::Stopped, true),
@@ -994,7 +1004,8 @@ mod tests {
             (LabState::Empty, false),
             (LabState::Unknown, false),
         ] {
-            assert_eq!(lab_offers_download(state), expected, "{state:?}");
+            assert_eq!(lab_offers_download(true, state), expected, "{state:?}");
+            assert!(!lab_offers_download(false, state), "{state:?}");
         }
         assert_eq!(
             LabState::iter().count(),

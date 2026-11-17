@@ -17,12 +17,15 @@ pub struct CloudbaseInitUser {
 }
 
 /// The Windows OpenSSH server config: every account's keys in its own file under
-/// `authorized_keys_dir`, named after the account.
+/// `authorized_keys_dir`, named after the account, and `ready_marker` added to the server's
+/// identification line, so readiness can tell the server runs with this config.
 #[derive(Template)]
 #[template(path = "windows/sshd_config.jinja", ext = "txt")]
 pub struct WindowsSshdConfigTemplate {
     /// The directory as sshd names it, such as `__PROGRAMDATA__/ssh/authorized_keys`.
     pub authorized_keys_dir: String,
+    /// The server's `VersionAddendum`: one word of printable ASCII.
+    pub ready_marker: String,
 }
 
 /// The `PowerShell` script that leaves the lab owner as a Windows node's only enabled login: it

@@ -111,20 +111,50 @@ fn lab_info_file(dir: &Path) -> PathBuf {
 
 /// The lab `.sherpa/lab-info.toml` in `dir` names, if there is one that parses.
 fn lab_info_identity(dir: &Path) -> Option<LabIdentity> {
+    folder_lab_info(dir).map(|lab_info| LabIdentity {
+        name: lab_info.name,
+        id: lab_info.id,
+    })
+}
+
+/// `.sherpa/lab-info.toml` in `dir`, if there is one that parses.
+fn folder_lab_info(dir: &Path) -> Option<LabInfo> {
     let path = lab_info_file(dir);
     if !path.exists() {
         return None;
     }
     match load_file(&path.to_string_lossy()).and_then(|content| content.parse::<LabInfo>()) {
-        Ok(lab_info) => Some(LabIdentity {
-            name: lab_info.name,
-            id: lab_info.id,
-        }),
+        Ok(lab_info) => Some(lab_info),
         Err(error) => {
             tracing::debug!(error = %format!("{error:#}"), "Ignoring lab-info.toml");
             None
         }
     }
+}
+
+/// Stop unless the user logged in owns the lab of the folder `dir`: only a lab's owner can
+/// connect to its nodes, admins included, so `sherpa ssh`, `sherpa console` and provisioners
+/// call this before they try anything. A folder with no `lab-info.toml` is for the logged-in
+/// user's own lab of its manifest's name.
+///
+/// # Errors
+///
+/// Fails when `lab-info.toml` names another owner, or there is no login to compare it with.
+pub fn require_lab_owner(dir: &Path) -> Result<()> {
+    let Some(lab_info) = folder_lab_info(dir) else {
+        return Ok(());
+    };
+    check_lab_owner(&lab_info, &username_from_token(&load_token()?)?)
+}
+
+/// Whether `username` owns the lab of `lab_info`, and may connect to its nodes.
+fn check_lab_owner(lab_info: &LabInfo, username: &str) -> Result<()> {
+    ensure!(
+        lab_info.user == username,
+        "Only the owner of lab '{}' can connect to its nodes",
+        lab_info.id
+    );
+    Ok(())
 }
 
 /// The lab of the folder `dir`, named by its `lab_info` and by the name in its manifest,
@@ -318,5 +348,27 @@ mod tests {
                 )
             );
         }
+    }
+
+    #[test]
+    fn only_the_owner_of_a_folder_lab_may_connect_to_its_nodes() {
+        let dir = downloaded_folder("core", "0a1b2c3d");
+        let lab_info = folder_lab_info(dir.path()).unwrap();
+        assert!(check_lab_owner(&lab_info, "dev").is_ok());
+        for other in ["admin", "dana"] {
+            assert_eq!(
+                check_lab_owner(&lab_info, other).unwrap_err().to_string(),
+                "Only the owner of lab '0a1b2c3d' can connect to its nodes"
+            );
+        }
+    }
+
+    #[test]
+    fn a_folder_with_only_a_manifest_is_the_login_s_own_lab() {
+        // No lab-info.toml: the lab's ID comes from the login, so it is the user's own lab and
+        // no token is read.
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(SHERPA_MANIFEST_FILE), "name = 'core'\n").unwrap();
+        assert!(require_lab_owner(dir.path()).is_ok());
     }
 }

@@ -141,7 +141,7 @@ pub(super) async fn redeploy_container(
     match ready_wait(&redeploy.db_node.ready_check) {
         ReadyWait::Port(_) => {
             restore_node_services(redeploy, initialises_vault).await?;
-            wait_until_ready(redeploy).await?;
+            wait_until_ready(redeploy, None).await?;
         }
         ReadyWait::Skipped | ReadyWait::Running => {
             ready_after_restore(

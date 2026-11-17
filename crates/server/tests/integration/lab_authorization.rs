@@ -242,7 +242,7 @@ async fn check_lab_rpcs(ws: &mut TestWsClient, check: &LabCheck<'_>) -> Result<(
         who,
     } = *check;
     // Read-only and node power operations.
-    for method in ["inspect", "download", "down", "resume"] {
+    for method in ["inspect", "down", "resume"] {
         let params = json!({ "token": token, "lab_id": lab_id });
         check_rpc(ws, method, params, allowed, &format!("RPC {method}, {who}")).await?;
     }
@@ -304,7 +304,6 @@ async fn check_lab_web(http: &Client, base: &str, check: &LabCheck<'_>) -> Resul
         format!("/labs/{lab_id}/nodes"),
         format!("/labs/{lab_id}/nodes/vm"),
         format!("/labs/{lab_id}/destroy/confirm"),
-        format!("/labs/{lab_id}/download"),
     ] {
         let response = http
             .get(format!("{base}{path}"))
@@ -329,6 +328,98 @@ async fn check_lab_web(http: &Client, base: &str, check: &LabCheck<'_>) -> Resul
         check_http(&response, allowed, &format!("web POST {path}, {who}"))?;
     }
     Ok(())
+}
+
+/// Assert `response` is an RPC refusal naming the lab's owner-only rule.
+fn ensure_owner_only_refusal(response: &Value, lab_id: &str, label: &str) -> Result<()> {
+    let message = format!("Only the owner of lab '{lab_id}' can perform this operation");
+    ensure!(
+        response["error"]["code"] == json!(RpcErrorCode::AccessDenied)
+            && response["error"]["message"]
+                .as_str()
+                .is_some_and(|text| text.contains(&message)),
+        "{label}: expected the owner-only refusal, got {response}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn lab_files_and_host_keys_are_for_the_lab_owner_only() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let (callers, owners) = login_callers(&server, &mut ws).await?;
+    let lab_id = seed_lab(&server, owner(&owners, "alice")?, 1).await?;
+    let http = http_client()?;
+    let base = format!("http://{}", server.addr);
+
+    for caller in ["dana", "bob"] {
+        let token = token_of(&callers, caller)?;
+        let who = format!("{caller} on alice's lab");
+        let response = ws
+            .rpc_call("download", json!({ "token": token, "lab_id": lab_id }))
+            .await?;
+        if caller == "dana" {
+            ensure_owner_only_refusal(&response, &lab_id, &format!("RPC download, {who}"))?;
+        } else {
+            ensure!(
+                response["error"]["code"] == json!(RpcErrorCode::AccessDenied),
+                "RPC download, {who}: {response}"
+            );
+        }
+        let response = ws
+            .rpc_call(
+                "node.host_keys",
+                json!({ "token": token, "lab_id": lab_id, "node_name": "box1" }),
+            )
+            .await?;
+        if caller == "dana" {
+            ensure_owner_only_refusal(&response, &lab_id, &format!("RPC node.host_keys, {who}"))?;
+        } else {
+            ensure!(
+                response["error"]["code"] == json!(RpcErrorCode::AccessDenied),
+                "RPC node.host_keys, {who}: {response}"
+            );
+        }
+        let response = http
+            .get(format!("{base}/labs/{lab_id}/download"))
+            .header(header::COOKIE, cookie(&token))
+            .send()
+            .await?;
+        check_http(&response, false, &format!("web download, {who}"))?;
+    }
+
+    // The owner gets the files on every transport.
+    let alice = token_of(&callers, "alice")?;
+    let response = ws
+        .rpc_call("download", json!({ "token": alice, "lab_id": lab_id }))
+        .await?;
+    ensure!(
+        response["result"]["lab_info"]["id"] == json!(lab_id),
+        "RPC download by the owner: {response}"
+    );
+    let response = http
+        .get(format!("{base}/labs/{lab_id}/download"))
+        .header(header::COOKIE, cookie(&alice))
+        .send()
+        .await?;
+    ensure!(
+        response.status() == StatusCode::OK,
+        "web download by the owner returned {}",
+        response.status()
+    );
+    // The owner passes the rule; the seeded lab has no node to read a key from.
+    let response = ws
+        .rpc_call(
+            "node.host_keys",
+            json!({ "token": alice, "lab_id": lab_id, "node_name": "ghost" }),
+        )
+        .await?;
+    ensure!(
+        response["error"]["code"] == json!(RpcErrorCode::NotFound),
+        "RPC node.host_keys by the owner: {response}"
+    );
+
+    remove_lab(&server, &lab_id).await
 }
 
 #[tokio::test]

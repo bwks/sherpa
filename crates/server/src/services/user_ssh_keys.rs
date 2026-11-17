@@ -1,7 +1,9 @@
 //! Add and remove a user's SSH public keys.
 //!
-//! Every transport calls these, so the same rules apply everywhere: users manage their own
-//! keys, and admins may manage anyone's. Labs only start for users with a registered key.
+//! Every transport calls these, so the same rules apply everywhere: users add keys to their
+//! own account only, admins included, since a key on an account is installed on its labs'
+//! nodes; users remove their own keys, and admins may remove anyone's. Labs only start for users
+//! with a registered key.
 
 use anyhow::{Context, Result};
 use db::Database;
@@ -12,11 +14,12 @@ use shared::util::{normalize_username, ssh_key_fingerprint};
 use shared::validators::validate_ssh_key;
 
 use crate::auth::context::AuthContext;
-use crate::auth::policy::require_self_or_admin;
+use crate::auth::policy::{require_self, require_self_or_admin};
 use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
 
-/// Register an SSH public key for `username`.
+/// Register an SSH public key for `username`, who must be the caller: an admin may not add a
+/// key to another account.
 #[instrument(skip(ctx, ssh_key, state), fields(caller = %ctx.username, %username))]
 pub async fn add_ssh_key(
     ctx: &AuthContext,
@@ -25,7 +28,7 @@ pub async fn add_ssh_key(
     state: &AppState,
 ) -> Result<UserSshKeysResponse> {
     let username = normalize_username(username);
-    require_self_or_admin(ctx, &username)?;
+    require_self(ctx, &username)?;
 
     let ssh_key = ssh_key.trim();
     validate_ssh_key(ssh_key).context("Invalid SSH public key")?;

@@ -1650,8 +1650,10 @@ async fn current_user_vm_login_sudo_resume_and_owner_redeploy() -> Result<()> {
         ensure!(redeployed.get("error").is_none(), "Owner redeploy failed: {redeployed}");
         ensure!(wait_for_login(&destination, &rotated_key, timeout).await?, "Redeploy did not provision owner's current keys");
         ensure!(!ssh_login(&destination, &private_key).await?, "Redeploy retained removed owner key");
-        let downloaded = ws.rpc_call("download", json!({ "token": admin_token, "lab_id": lab_id })).await?;
-        ensure!(downloaded.get("error").is_none(), "Admin configuration refresh failed: {downloaded}");
+        let refused = ws.rpc_call("download", json!({ "token": admin_token, "lab_id": lab_id })).await?;
+        ensure!(refused["error"]["code"] == json!(RpcErrorCode::AccessDenied), "An admin downloaded another user's lab files: {refused}");
+        let downloaded = ws.rpc_call("download", json!({ "token": owner_token, "lab_id": lab_id })).await?;
+        ensure!(downloaded.get("error").is_none(), "Owner configuration refresh failed: {downloaded}");
         ensure!(downloaded["result"]["lab_info"]["ssh_usernames"][0] == json!({"node_name": "vm", "username": username}), "Refreshed configuration selected administrator");
         let config = downloaded["result"]["ssh_config"].as_str().context("SSH config missing")?;
         ensure!(config.contains(&format!("User {username}")) && !config.contains("IdentityFile") && !config.contains("IdentitiesOnly"), "Personal SSH config restricts local keys");

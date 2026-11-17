@@ -404,7 +404,7 @@ fn report(progress: Option<&ProgressSender>, message: String, kind: StatusKind) 
 /// Probe one node once. Probe errors count as not ready yet.
 async fn probe(target: &ReadinessTarget, state: &AppState) -> VmReadiness {
     let outcome = match (&target.check, target.mgmt_ipv4.as_deref()) {
-        (ReadinessCheck::Port(port), Some(ip)) => node_ops::check_vm_ready(ip, *port).await,
+        (ReadinessCheck::Port(port), Some(ip)) => node_ops::check_vm_ready(ip, *port, None).await,
         (ReadinessCheck::Port(_), None) => Ok(VmReadiness::NotReady),
         (ReadinessCheck::Unikernel { ready_port }, ip) => match state.qemu.connect() {
             Ok(conn) => {

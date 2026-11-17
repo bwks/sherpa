@@ -3,8 +3,8 @@
 
 use std::collections::HashSet;
 use std::fs;
-use std::io::ErrorKind;
-use std::net::{Ipv4Addr, Ipv6Addr, TcpStream};
+use std::io::{self, ErrorKind};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,6 +12,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow, bail};
 use askama::Template;
 use jato::{Auth, ConnectOptions, Hop, HostKeyPolicy, Node, Session};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tracing::instrument;
 
 use crate::konst::{
@@ -37,8 +38,9 @@ use shared::data;
 use shared::data::StatusKind;
 use shared::konst::{
     CONTAINER_DISK_NAME, KVM_OUI, NODE_CLOUD_INIT_SUDO_RULE, NODE_CONFIGS_DIR, NODE_USER_ENV_FILE,
-    SHERPA_DOMAIN_NAME, SHERPA_PASSWORD, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
-    SHERPA_USERNAME, SSH_PORT, TALOS_API_PORT, TELNET_PORT, TFTP_DIR, ZTP_DIR,
+    SHERPA_DOMAIN_NAME, SHERPA_PASSWORD, SHERPA_SSHD_READY_MARKER, SHERPA_STORAGE_POOL,
+    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TALOS_API_PORT, TELNET_PORT, TFTP_DIR,
+    ZTP_DIR,
 };
 use shared::util;
 use shared::validators::{
@@ -109,6 +111,9 @@ const NODE_STAGING_DIR: &str = "/opt/sherpa/staging";
 const NODE_PASSWD_FILE: &str = "/etc/passwd";
 /// Seconds a readiness check waits for a node's SSH server to finish the SSH handshake.
 const SSH_READY_HANDSHAKE_TIMEOUT: u64 = 5;
+/// The most an SSH server may send before its identification line: RFC 4253 lets it send
+/// other lines first, and the identification line is at most 255 bytes.
+const SSH_IDENTIFICATION_MAX_BYTES: u64 = 8192;
 const CONTAINER_NOKIA_SRLINUX_ENV_VARS: &[&str] = &["SRLINUX=1"];
 const CONTAINER_NOKIA_SRLINUX_USER: &str = "0:0";
 const CONTAINER_NOKIA_SRLINUX_COMMANDS: &[&str] = &["bash", "/opt/srlinux/bin/sr_linux"];
@@ -2372,6 +2377,7 @@ fn windows_cloudbase_init(
     // The account reads its own keys file, private to Administrators and SYSTEM.
     let sshd_config = template::WindowsSshdConfigTemplate {
         authorized_keys_dir: WINDOWS_SSHD_AUTHORIZED_KEYS_DIR.to_owned(),
+        ready_marker: SHERPA_SSHD_READY_MARKER.to_owned(),
     };
     let owner_only_login = template::WindowsOwnerOnlyLoginTemplate {
         owner: account.username.clone(),
@@ -3986,21 +3992,82 @@ pub fn check_node_port_ready(ip: &str, port: u16) -> Result<bool> {
 }
 
 /// Check if a virtual machine is ready on its readiness port. On the SSH port an SSH server
-/// must answer (`check_node_ssh_ready`), and its host key is returned; any other port, such
-/// as the Talos API, needs a TCP connection.
-pub async fn check_vm_ready(ip: &str, port: u16) -> Result<VmReadiness> {
-    if port == SSH_PORT {
-        match check_node_ssh_ready(ip, port).await? {
-            Some(host_key) => Ok(VmReadiness::Ready {
-                host_key: Some(host_key),
-            }),
-            None => Ok(VmReadiness::NotReady),
-        }
-    } else if check_node_port_ready(ip, port)? {
-        Ok(VmReadiness::Ready { host_key: None })
-    } else {
-        Ok(VmReadiness::NotReady)
+/// must answer (`check_node_ssh_ready`), and its host key is returned; with an `sshd_marker`
+/// (`ModelKind::sshd_ready_marker`), its identification line must show the marker too, which
+/// it does only once it runs with the config Sherpa gave it. Any other port, such as the Talos
+/// API, needs a TCP connection.
+pub async fn check_vm_ready(ip: &str, port: u16, sshd_marker: Option<&str>) -> Result<VmReadiness> {
+    if port != SSH_PORT {
+        return Ok(if check_node_port_ready(ip, port)? {
+            VmReadiness::Ready { host_key: None }
+        } else {
+            VmReadiness::NotReady
+        });
     }
+    let Some(host_key) = check_node_ssh_ready(ip, port).await? else {
+        return Ok(VmReadiness::NotReady);
+    };
+    if let Some(marker) = sshd_marker {
+        let identification = ssh_identification(ip, port).await?;
+        if !identification
+            .as_deref()
+            .is_some_and(|line| identification_shows(line, marker))
+        {
+            tracing::debug!(
+                ?identification,
+                marker,
+                "SSH server answers, but not yet with the config Sherpa gave it"
+            );
+            return Ok(VmReadiness::NotReady);
+        }
+    }
+    Ok(VmReadiness::Ready {
+        host_key: Some(host_key),
+    })
+}
+
+/// The identification line the SSH server at `ip`:`port` sends as soon as it accepts a
+/// connection, such as `SSH-2.0-OpenSSH_for_Windows_9.5 sherpa-ready`, before any key
+/// exchange. `None` when it sends none within the handshake timeout. Nothing is sent to it.
+#[instrument(level = "debug")]
+pub async fn ssh_identification(ip: &str, port: u16) -> Result<Option<String>> {
+    let address: SocketAddr = format!("{ip}:{port}").parse()?;
+    match tokio::time::timeout(
+        Duration::from_secs(SSH_READY_HANDSHAKE_TIMEOUT),
+        read_ssh_identification(address),
+    )
+    .await
+    {
+        Ok(Ok(line)) => Ok(line),
+        Ok(Err(error)) => {
+            tracing::debug!(%error, "No SSH identification line");
+            Ok(None)
+        }
+        Err(_) => {
+            tracing::debug!("No SSH identification line in time");
+            Ok(None)
+        }
+    }
+}
+
+/// Read lines from the SSH server at `address` until its identification line, the first that
+/// starts with `SSH-`.
+async fn read_ssh_identification(address: SocketAddr) -> io::Result<Option<String>> {
+    let stream = tokio::net::TcpStream::connect(address).await?;
+    let mut lines = BufReader::new(stream.take(SSH_IDENTIFICATION_MAX_BYTES)).lines();
+    while let Some(line) = lines.next_line().await? {
+        if line.starts_with("SSH-") {
+            return Ok(Some(line));
+        }
+    }
+    Ok(None)
+}
+
+/// Whether the SSH identification `line` shows `marker` among its comments, the words after
+/// its protocol and software version, where OpenSSH puts its `VersionAddendum`.
+fn identification_shows(line: &str, marker: &str) -> bool {
+    line.split_once(' ')
+        .is_some_and(|(_, comments)| comments.split_whitespace().any(|word| word == marker))
 }
 
 /// Check if an SSH server answers on a node: the port must accept a TCP connection and then
@@ -5608,10 +5675,71 @@ mod tests {
     async fn test_check_vm_ready_uses_tcp_for_other_ports() {
         let (port, task) = listener_replying(b"not ssh\r\n").await;
         assert_eq!(
-            check_vm_ready("127.0.0.1", port).await.unwrap(),
+            check_vm_ready("127.0.0.1", port, None).await.unwrap(),
             VmReadiness::Ready { host_key: None }
         );
         task.abort();
+    }
+
+    #[tokio::test]
+    async fn the_ssh_identification_line_is_read_past_lines_before_it() {
+        let (port, task) =
+            listener_replying(b"Welcome\r\nSSH-2.0-OpenSSH_for_Windows_9.5 sherpa-ready\r\n").await;
+        assert_eq!(
+            ssh_identification("127.0.0.1", port)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("SSH-2.0-OpenSSH_for_Windows_9.5 sherpa-ready")
+        );
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn a_server_that_sends_no_identification_line_has_none() {
+        let (port, task) = listener_replying(b"HTTP/1.0 400 Bad Request\r\n\r\n").await;
+        assert_eq!(ssh_identification("127.0.0.1", port).await.unwrap(), None);
+        task.abort();
+        assert_eq!(ssh_identification("127.0.0.1", 1).await.unwrap(), None);
+    }
+
+    #[test]
+    fn the_ready_marker_counts_only_among_the_identification_comments() {
+        let marker = SHERPA_SSHD_READY_MARKER;
+        assert!(identification_shows(
+            "SSH-2.0-OpenSSH_for_Windows_9.5 sherpa-ready",
+            marker
+        ));
+        assert!(identification_shows(
+            "SSH-2.0-OpenSSH_9.6 Ubuntu-3 sherpa-ready",
+            marker
+        ));
+        // The image's own server, before cloudbase-init has given it Sherpa's config.
+        assert!(!identification_shows(
+            "SSH-2.0-OpenSSH_for_Windows_9.5",
+            marker
+        ));
+        assert!(!identification_shows("SSH-2.0-sherpa-ready", marker));
+        assert!(!identification_shows(
+            "SSH-2.0-OpenSSH_9.6 not-sherpa-ready",
+            marker
+        ));
+    }
+
+    #[test]
+    fn a_windows_node_s_sshd_config_shows_the_ready_marker() {
+        let config = template::WindowsSshdConfigTemplate {
+            authorized_keys_dir: WINDOWS_SSHD_AUTHORIZED_KEYS_DIR.to_owned(),
+            ready_marker: SHERPA_SSHD_READY_MARKER.to_owned(),
+        }
+        .render()
+        .unwrap();
+        let model_kind = data::ModelKind::default_for(data::NodeModel::WindowsServer);
+        let marker = model_kind.sshd_ready_marker(data::Ztp::CloudInit).unwrap();
+        assert!(
+            config.contains(&format!("\nVersionAddendum {marker}")),
+            "{config}"
+        );
     }
 
     #[test]

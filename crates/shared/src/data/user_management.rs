@@ -7,8 +7,13 @@ use std::fmt;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-/// Request to create a new user (admin only)
+/// Request to create a new user (admin only).
+///
+/// It takes no SSH keys: a key on an account is installed on its labs' nodes, so only the user
+/// adds their own. Unknown fields are refused, so a request that still sends `ssh_keys` fails
+/// instead of creating the user without them.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateUserRequest {
     /// Username for the new user
     pub username: String,
@@ -16,9 +21,6 @@ pub struct CreateUserRequest {
     pub password: String,
     /// Whether the user should have admin privileges
     pub is_admin: bool,
-    /// SSH public keys; none when left out
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub ssh_keys: Vec<String>,
     /// Caller's authentication token
     pub token: String,
 }

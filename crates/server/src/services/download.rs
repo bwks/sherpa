@@ -8,7 +8,7 @@ use shared::data::DownloadLabResponse;
 use shared::konst::SHERPA_LABS_PATH;
 
 use crate::auth::context::AuthContext;
-use crate::auth::policy::require_lab_access;
+use crate::auth::policy::require_lab_owner;
 use crate::daemon::state::AppState;
 use crate::konst::{LAB_CA_CERT_FILE, LAB_CERTS_DIR};
 use crate::services::keycloak;
@@ -20,14 +20,16 @@ use crate::services::vault;
 /// Download lab files (lab-info, SSH config, `known_hosts`) for CLI use.
 ///
 /// The lab info, SSH config and `known_hosts` are built from the database; the server keeps
-/// no copy of them. The caller must own the lab or be an admin.
+/// no copy of them. Only the lab's owner may download them, admins included: the files are for
+/// connecting to the lab's nodes, and the cluster, Vault and Keycloak credentials and the lab CA
+/// are the owner's.
 #[instrument(skip(ctx, state), fields(username = %ctx.username, %lab_id))]
 pub async fn download_lab_files(
     ctx: &AuthContext,
     lab_id: &str,
     state: &AppState,
 ) -> Result<DownloadLabResponse> {
-    let db_lab = require_lab_access(ctx, &state.db, lab_id).await?;
+    let db_lab = require_lab_owner(ctx, &state.db, lab_id).await?;
     let lab_record_id = db::get_lab_id(&db_lab).context("Failed to get lab record ID")?;
 
     let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
