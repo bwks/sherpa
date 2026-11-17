@@ -106,6 +106,33 @@ Each reader is one `match` on `Ztp` with `Disabled` as a case in it.
 
 The dnsmasq template only loops over the option lines `boot_options` returns.
 
+## The boot server
+
+Each lab has one boot container, `sherpa-router-<lab-id>` (`ghcr.io/bwks/sherpa-router`), on
+the lab's management network at its boot server address. It is the lab's NAT router, and runs
+dnsmasq for DHCP, DNS and TFTP, and `webdir`, an HTTP server on port 8080. The image starts
+`webdir` on `/opt/ztp` and serves every file and folder under it, listings included; neither is
+set by Sherpa. So `boot_server::boot_container_spec` mounts under `/opt/ztp` only what the
+`http` method needs:
+
+| Lab folder (host) | In the container | Served by |
+|---|---|---|
+| `ztp/configs/` | `/opt/ztp` (`konst::BOOT_SERVER_HTTP_ROOT`), the HTTP root | HTTP, `http://<boot server>:8080/<file>` |
+| `ztp/tftp/` | `/srv/tftp` (`konst::BOOT_SERVER_TFTP_ROOT`), dnsmasq's `tftp-root` | TFTP only |
+| `ztp/dnsmasq/dnsmasq.conf` | `/etc/dnsmasq.conf` | nothing |
+| none: the leases | `/var/lib/misc/dnsmasq.leases` (`konst::BOOT_SERVER_LEASES_FILE`), inside the container | nothing |
+
+`ztp/configs/` holds only the files of the nodes that boot by HTTP, which today is `sonic_linux`
+alone: its ZTP file map `<node>.conf`, named in DHCP options 67 and 239, and the two files the
+map fetches, `<node>_config_db.json` and `<node>_ztp_user.sh`, the owner's account script. The
+TFTP configs (vEOS, AOS-CX, vEvolved, vSRX when set to `tftp`), the dnsmasq config and the leases
+are not under the HTTP root, so a node on the management network can fetch them only as TFTP
+allows: by name, the TFTP configs only. Up to 0.6.5 the whole `/opt/ztp` was the lab's ZTP
+folder, so HTTP also listed and served `tftp/` and `dnsmasq/dnsmasq.leases`.
+
+The modes each process needs are in [`LAB_FOLDER.md`](LAB_FOLDER.md#node-config-modes):
+`webdir` and dnsmasq run as root in the container; dnsmasq serves only files others can read.
+
 ## Redeploy and the boot server
 
 dnsmasq reads `dnsmasq.conf` only when it starts (`SIGHUP` rereads its host files, not the
@@ -119,12 +146,16 @@ node's ZTP is generated and before its domain is created:
 2. It renders the config (`render_dnsmasq_config`, the template `up` uses) and compares it with
    `ztp/dnsmasq/dnsmasq.conf`. Addresses and MACs are kept across a redeploy, so it differs only
    when the node's boot options changed: a move onto TFTP or HTTP adds its options 67 (and 239),
-   a move off removes them.
-3. When it differs, it writes the file and restarts the lab's dnsmasq container through Bollard
-   (`container::restart_container`). The leases are inside the container, so they stay; DHCP
-   and DNS for the lab pause for the restart. When it is the same, nothing is restarted.
+   a move off removes them. In a lab made before 0.7.0 it differs on the first VM redeploy
+   too, since the TFTP root and the lease file moved.
+3. When it differs, it writes the file, removes the lab's boot container and creates it again
+   from `boot_container_spec` (`boot_server::run_boot_container`, which `up` uses too), so a
+   lab made before 0.7.0 gets the mounts above along with the config that expects them. The
+   leases were inside the old container and start again empty; every node's address is reserved
+   by its MAC (`dhcp-host`), so none changes. DHCP, DNS, TFTP, HTTP and the lab's NAT pause
+   while it is recreated. When it is the same, nothing is touched.
 
-A failed restart fails the redeploy before the domain is created. The node's old TFTP or HTTP
+A failed recreate fails the redeploy before the domain is created. The node's old TFTP or HTTP
 files are removed in the same stage (see [`LAB_FOLDER.md`](LAB_FOLDER.md#layout)).
 
 A `match` must cover every variant, so the two generators each keep one arm for the values the

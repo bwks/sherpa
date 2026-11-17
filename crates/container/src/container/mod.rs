@@ -17,5 +17,5 @@ pub use inspect::{
 pub use list::list_containers;
 pub use logs::container_log_tail;
 pub use memory::{ContainerMemory, list_container_memory};
-pub use start::{restart_container, start_container, unpause_container};
+pub use start::{start_container, unpause_container};
 pub use stop::{pause_container, stop_container};

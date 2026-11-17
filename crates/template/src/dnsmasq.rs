@@ -2,7 +2,7 @@ use askama::Template;
 
 use shared::data::{Ztp, ZtpRecord};
 use shared::konst::{
-    DNSMASQ_DIR, DNSMASQ_LEASES_FILE, NODE_CONFIGS_DIR, SHERPA_DOMAIN_NAME, TFTP_DIR, ZTP_DIR,
+    BOOT_SERVER_LEASES_FILE, BOOT_SERVER_TFTP_ROOT, HTTP_PORT, SHERPA_DOMAIN_NAME,
 };
 
 #[derive(Template)]
@@ -30,7 +30,7 @@ impl DnsmasqTemplate {
             Ztp::Tftp => vec![format!("{tag},67,{}", record.config_file)],
             Ztp::Http => {
                 let url = format!(
-                    r#""http://{}:8080/{NODE_CONFIGS_DIR}/{}""#,
+                    r#""http://{}:{HTTP_PORT}/{}""#,
                     self.tftp_server_ipv4, record.config_file
                 );
                 vec![format!("{tag},67,{url}"), format!("{tag},239,{url}")]

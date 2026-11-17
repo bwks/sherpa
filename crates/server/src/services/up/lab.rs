@@ -608,7 +608,6 @@ impl LabUp<'_> {
         let NodeConfigs {
             lab_ca,
             ztp_dir,
-            tftp_dir,
             ztp_records,
             container_volumes,
             clone_disks,
@@ -639,14 +638,7 @@ impl LabUp<'_> {
             data::UpPhase::BootContainers,
             "Creating boot containers and ZTP files".to_string(),
         )?;
-        start_boot_container(
-            &self.build,
-            &ztp_dir,
-            &tftp_dir,
-            &network.mgmt_net,
-            &ztp_records,
-        )
-        .await?;
+        start_boot_container(&self.build, &ztp_dir, &network.mgmt_net, &ztp_records).await?;
         self.phase_done("Sherpa Router");
 
         self.start_phase(data::UpPhase::DiskCloning, "Cloning disks".to_string())?;

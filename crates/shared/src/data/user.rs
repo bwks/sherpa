@@ -5,6 +5,7 @@ pub struct OwnerUser {
     pub username: String,
     /// The owner's device password, in the form the device takes it: the password itself, or a
     /// salted crypt hash of it. A device's fixed accounts, such as `admin` or `root`, take it too.
+    /// Aruba AOS-CX takes neither: its template has the owner's keys only.
     pub password: String,
     pub ssh_keys: Vec<OwnerSshKey>,
 }

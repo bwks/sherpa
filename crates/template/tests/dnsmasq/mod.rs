@@ -22,7 +22,7 @@ server=172.20.0.1
 domain=sherpa.lab.local
 
 # DHCP
-dhcp-leasefile=/opt/ztp/dnsmasq/dnsmasq.leases
+dhcp-leasefile=/var/lib/misc/dnsmasq.leases
 
 # DHCP range for the subnet
 dhcp-range=172.20.0.100,172.20.0.200,2m
@@ -40,7 +40,7 @@ dhcp-ignore-clid
 
 # Enable TFTP
 enable-tftp
-tftp-root=/opt/ztp/tftp
+tftp-root=/srv/tftp
 
 
 # sw01
@@ -97,8 +97,8 @@ fn test_dnsmasq_http_ztp_sends_the_config_url_in_options_67_and_239() {
     assert_eq!(
         boot_options(&output),
         [
-            r#"dhcp-option=tag:sw01-tag,67,"http://172.20.0.1:8080/configs/sw01.cfg""#,
-            r#"dhcp-option=tag:sw01-tag,239,"http://172.20.0.1:8080/configs/sw01.cfg""#,
+            r#"dhcp-option=tag:sw01-tag,67,"http://172.20.0.1:8080/sw01.cfg""#,
+            r#"dhcp-option=tag:sw01-tag,239,"http://172.20.0.1:8080/sw01.cfg""#,
         ]
     );
     assert_eq!(

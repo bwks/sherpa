@@ -10,19 +10,23 @@ use crate::helpers;
 // Expected configs
 // ============================================================================
 
+/// The ciphertext of a random password nobody keeps, which locks `admin` and the owner.
+const LOCKED: &str = "AQBapWi7gAb+1N611aRfybWmroBDwZuBCFmatCf0xTBVaKfvYgAAAG28Q0mssiKLsEYc6oFjpoOK7se339jlbWQZ6TgkNwA+Fds+jXCbsS/YVarj2xHh4ddtZwgVPlwNJnOn0qS3wdj67Tiu4rBBELar7IBH8ADbnYa4fUYPGL79+0g2OlJGNQ5p";
+
 const EXPECTED_STATIC_IPV4: &str = "\
 !
 hostname aoscx01
 domain-name lab.sherpa.local
 ip dns server-address 172.20.0.1
-user admin group administrators password plaintext PASSWORD
-user alice group administrators password plaintext PASSWORD
+user admin group administrators password ciphertext LOCKED
+user alice group administrators password ciphertext LOCKED
 user alice authorized-key ssh-rsa OWNERKEY1
 user alice authorized-key ssh-ed25519 OWNERKEY2
 !
 ntp server pool.ntp.org minpoll 4 maxpoll 4 iburst
 ntp enable
 !
+no ssh password-authentication
 ssh server vrf mgmt
 ssh sftp-server
 vlan 1
@@ -41,10 +45,12 @@ lldp enable
 // Tests
 // ============================================================================
 
-fn aoscx(password: &str) -> ArubaAoscxTemplate {
+fn aoscx() -> ArubaAoscxTemplate {
+    let owner = helpers::test_owner("Rand0mPass-1");
     ArubaAoscxTemplate {
         hostname: "aoscx01".to_string(),
-        owner: helpers::test_owner(password),
+        username: owner.username,
+        ssh_keys: owner.ssh_keys,
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
         mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
@@ -55,16 +61,13 @@ fn aoscx(password: &str) -> ArubaAoscxTemplate {
 
 #[test]
 fn test_static_ipv4() {
-    let output = aoscx("Rand0mPass-1").render().expect("template renders");
-    assert_eq!(
-        output,
-        EXPECTED_STATIC_IPV4.replace("PASSWORD", "Rand0mPass-1")
-    );
+    let output = aoscx().render().expect("template renders");
+    assert_eq!(output, EXPECTED_STATIC_IPV4.replace("LOCKED", LOCKED));
 }
 
 #[test]
-fn test_only_the_owner_and_admin_have_accounts() {
-    let output = aoscx("Rand0mPass-1").render().expect("template renders");
+fn test_only_the_owner_and_admin_have_accounts_and_both_are_locked() {
+    let output = aoscx().render().expect("template renders");
     let users: Vec<&str> = output
         .lines()
         .filter(|line| line.starts_with("user "))
@@ -72,8 +75,8 @@ fn test_only_the_owner_and_admin_have_accounts() {
     assert_eq!(
         users,
         [
-            "user admin group administrators password plaintext Rand0mPass-1",
-            "user alice group administrators password plaintext Rand0mPass-1",
+            format!("user admin group administrators password ciphertext {LOCKED}").as_str(),
+            format!("user alice group administrators password ciphertext {LOCKED}").as_str(),
             "user alice authorized-key ssh-rsa OWNERKEY1",
             "user alice authorized-key ssh-ed25519 OWNERKEY2",
         ]
@@ -82,15 +85,14 @@ fn test_only_the_owner_and_admin_have_accounts() {
 }
 
 #[test]
-fn test_password_is_intact_for_admin_and_owner() {
-    for password in helpers::ALL_CHARACTER_PASSWORDS {
-        let output = aoscx(password).render().expect("template renders");
-        assert!(output.contains(&format!(
-            "user admin group administrators password plaintext {password}\n"
-        )));
-        assert!(output.contains(&format!(
-            "user alice group administrators password plaintext {password}\n"
-        )));
-        assert_eq!(output.matches(password).count(), 2);
-    }
+fn test_no_password_in_plain_text() {
+    let output = aoscx().render().expect("template renders");
+    assert!(!output.contains("plaintext"));
+    assert!(!output.contains("Rand0mPass-1"));
+}
+
+#[test]
+fn test_ssh_password_login_is_off() {
+    let output = aoscx().render().expect("template renders");
+    assert!(output.contains("\nno ssh password-authentication\nssh server vrf mgmt\n"));
 }

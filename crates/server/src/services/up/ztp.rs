@@ -11,8 +11,7 @@ use tracing::instrument;
 use super::context::LabBuild;
 use super::nodes::get_node_image;
 use crate::konst::{
-    DNSMASQ_CONFIG_FILE, LAB_CERTS_DIR, NODE_CONFIG_DIR_MODE, SHERPA_MANAGEMENT_NETWORK_NAME,
-    TAP_PREFIX, TFTP_DIR_MODE,
+    DNSMASQ_CONFIG_FILE, LAB_CERTS_DIR, NODE_CONFIG_DIR_MODE, TAP_PREFIX, TFTP_DIR_MODE,
 };
 use crate::services::boot_server;
 use crate::services::guest_account::GuestAccount;
@@ -25,13 +24,10 @@ use crate::tls::lab_ca::{self, LabCa, NodeCertPaths, NodeIdentity};
 use shared::data;
 use shared::data::{ClusterMember, LabSubnets, RecordId, StatusKind};
 use shared::konst::{
-    CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, DNSMASQ_DIR, KVM_OUI, MTU_JUMBO_NET,
-    NODE_CONFIGS_DIR, SSH_PORT, TFTP_DIR, ZTP_DIR,
+    DNSMASQ_DIR, KVM_OUI, MTU_JUMBO_NET, NODE_CONFIGS_DIR, SSH_PORT, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use topology::find_talos_cluster;
-
-const CONTAINER_DNSMASQ_CAPABILITIES: &[&str] = &["NET_ADMIN"];
 
 /// What configuring the nodes needs besides the build.
 pub(super) struct ConfigInputs<'a> {
@@ -50,7 +46,6 @@ pub(super) struct ConfigInputs<'a> {
 pub(super) struct NodeConfigs {
     pub(super) lab_ca: LabCa,
     pub(super) ztp_dir: String,
-    pub(super) tftp_dir: String,
     pub(super) ztp_records: Vec<data::ZtpRecord>,
     /// The volumes each container is created with.
     pub(super) container_volumes: HashMap<String, Vec<String>>,
@@ -67,7 +62,6 @@ struct Configuring<'a, 'b> {
     inputs: &'a ConfigInputs<'a>,
     lab_ca: LabCa,
     certs_dir: String,
-    tftp_dir: String,
     ztp_records: Vec<data::ZtpRecord>,
     clone_disks: Vec<data::CloneDisk>,
 }
@@ -102,7 +96,6 @@ pub(super) async fn configure_nodes(
         inputs,
         lab_ca,
         certs_dir,
-        tftp_dir,
         ztp_records: Vec::new(),
         clone_disks: Vec::new(),
     };
@@ -128,7 +121,6 @@ pub(super) async fn configure_nodes(
 
     let Configuring {
         lab_ca,
-        tftp_dir,
         ztp_records,
         clone_disks,
         ..
@@ -136,7 +128,6 @@ pub(super) async fn configure_nodes(
     Ok(NodeConfigs {
         lab_ca,
         ztp_dir,
-        tftp_dir,
         ztp_records,
         container_volumes,
         clone_disks,
@@ -532,12 +523,11 @@ fn domain_interfaces(
 }
 
 /// Write the dnsmasq config, DHCP host entries included, and start the lab's boot container
-/// (phase 9): DHCP, DNS and TFTP for the management network, and the node configs over HTTP.
+/// (phase 9): DHCP, DNS and TFTP for the management network, and the HTTP boot files.
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
 pub(super) async fn start_boot_container(
     build: &LabBuild<'_>,
     ztp_dir: &str,
-    tftp_dir: &str,
     mgmt_net: &data::SherpaNetwork,
     ztp_records: &[data::ZtpRecord],
 ) -> Result<()> {
@@ -549,7 +539,7 @@ pub(super) async fn start_boot_container(
 
     tracing::info!(lab_id = %lab_id, "Creating ZTP boot infrastructure");
 
-    // `ztp_dir` and `tftp_dir` were made in phase 8.
+    // `ztp_dir` and its TFTP folder were made in phase 8.
     let ztp_configs_dir = format!("{ztp_dir}/{NODE_CONFIGS_DIR}");
     let dnsmasq_dir = format!("{ztp_dir}/{DNSMASQ_DIR}");
     util::create_dir_with_permissions(Path::new(&ztp_configs_dir), NODE_CONFIG_DIR_MODE)?;
@@ -558,77 +548,12 @@ pub(super) async fn start_boot_container(
     tracing::debug!(
         lab_id = %lab_id,
         ztp_dir = %ztp_dir,
-        tftp_dir = %tftp_dir,
         dnsmasq_dir = %dnsmasq_dir,
         "Created ZTP directories"
     );
 
     write_dnsmasq_config(&dnsmasq_dir, mgmt_net, ztp_records)?;
-
-    // Create boot container (tftp_dir already created in Phase 8)
-    let configs_dir = format!("{ztp_dir}/{NODE_CONFIGS_DIR}");
-
-    let dnsmasq_env_dns1 = format!("DNS1={}", mgmt_net.v4.first);
-    let dnsmasq_env_dns2 = "DNS2=".to_string();
-    let boot_server_ipv4 = mgmt_net.v4.boot_server.to_string();
-
-    let webdir_config_volume = format!("{configs_dir}:/opt/{ZTP_DIR}/{NODE_CONFIGS_DIR}");
-    let dnsmasq_env_vars = vec![dnsmasq_env_dns1, dnsmasq_env_dns2];
-    let dnsmasq_config_volume =
-        format!("{dnsmasq_dir}/{DNSMASQ_CONFIG_FILE}:/etc/{DNSMASQ_CONFIG_FILE}");
-    let dnsmasq_tftp_volume = format!("{tftp_dir}:/opt/{ZTP_DIR}/{TFTP_DIR}");
-    let dnsmasq_volumes = vec![
-        dnsmasq_config_volume,
-        dnsmasq_tftp_volume,
-        webdir_config_volume,
-    ];
-    let dnsmasq_capabilities: Vec<String> = CONTAINER_DNSMASQ_CAPABILITIES
-        .iter()
-        .map(std::string::ToString::to_string)
-        .collect();
-
-    let management_network_attachment = data::ContainerNetworkAttachment {
-        name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
-        ipv4_address: Some(boot_server_ipv4.clone()),
-        ipv6_address: None,
-        linux_interface_name: None,
-        admin_down: false,
-    };
-
-    tracing::info!(
-        lab_id = %lab_id,
-        container = %format!("{CONTAINER_DNSMASQ_NAME}-{lab_id}"),
-        boot_server_ip = %boot_server_ipv4,
-        "Starting dnsmasq boot container"
-    );
-
-    let is_running = container::run_container(
-        docker_conn,
-        container::ContainerSpec {
-            name: format!("{CONTAINER_DNSMASQ_NAME}-{lab_id}"),
-            image: CONTAINER_DNSMASQ_REPO.to_string(),
-            env_vars: dnsmasq_env_vars,
-            volumes: dnsmasq_volumes,
-            capabilities: dnsmasq_capabilities,
-            management_network: management_network_attachment,
-            additional_networks: vec![],
-            commands: vec![],
-            privileged: false,
-            shm_size: None,
-            user: None,
-            memory_mib: None,
-            cpu_count: None,
-        },
-    )
-    .await?;
-
-    if !is_running {
-        anyhow::bail!(
-            "dnsmasq boot container {CONTAINER_DNSMASQ_NAME}-{lab_id} is not in running state after start"
-        );
-    }
-
-    Ok(())
+    boot_server::run_boot_container(docker_conn, lab_id, ztp_dir, mgmt_net).await
 }
 
 /// Write the dnsmasq config, with a DHCP host entry for each node. Only the config is mounted

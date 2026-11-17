@@ -4,15 +4,16 @@ domain-name {{ dns.domain }}
 {%- for server in dns.name_servers %}
 ip dns server-address {{ server.ipv4_address }}
 {%- endfor %}
-user admin group administrators password plaintext {{ owner.password }}
-user {{ owner.username }} group administrators password plaintext {{ owner.password }}
-{%- for key in owner.ssh_keys %}
-user {{ owner.username }} authorized-key {{ key.kind }} {{ key.value }}
+user admin group administrators password ciphertext {{ LOCKED_PASSWORD }}
+user {{ username }} group administrators password ciphertext {{ LOCKED_PASSWORD }}
+{%- for key in ssh_keys %}
+user {{ username }} authorized-key {{ key.kind }} {{ key.value }}
 {%- endfor %}
 !
 ntp server pool.ntp.org minpoll 4 maxpoll 4 iburst
 ntp enable
 !
+no ssh password-authentication
 ssh server vrf mgmt
 ssh sftp-server
 vlan 1

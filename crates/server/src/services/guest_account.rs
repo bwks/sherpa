@@ -2,7 +2,9 @@
 //!
 //! Every node with a generated login gets one account, the owner's: their name, the keys the
 //! model takes, and their device password, as plain text or a salted crypt hash, whichever the
-//! device takes. Cisco `FTDv` has only `admin`, which takes the device password.
+//! device takes. Cisco `FTDv` has only `admin`, which takes the device password. Aruba AOS-CX
+//! takes the keys only: it has no hashed form, and its config is served over TFTP, so its
+//! template locks the owner and `admin` instead.
 use std::collections::HashSet;
 
 use anyhow::{Context, Result, bail, ensure};
