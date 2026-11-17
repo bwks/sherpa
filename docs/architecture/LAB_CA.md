@@ -125,12 +125,24 @@ client's `download --force` writes the new credentials.
 `keycloak_server` nodes run `quay.io/keycloak/keycloak` with `start` (production mode) and the
 built-in file database, HTTPS only on 8443 with the node's certificate, `KC_HOSTNAME`
 `https://<management address>:8443`, health endpoints on the management port 9000, and the
-Sherpa user as the `master` realm's bootstrap admin (`node_ops::keycloak_env_vars`). Its data is
-in the container, so a redeployed Keycloak starts empty.
+node's own admin, `admin` with a generated password, as the `master` realm's bootstrap admin
+(`node_ops::keycloak_env_vars`). Its data is in the container, so a redeployed Keycloak starts
+empty.
+
+The admin and the realm's users are made when the node's container settings are generated
+(`keycloak::lab::ensure_keycloak_credentials`, called by `node_ops::keycloak_container` for `up`
+and `redeploy` alike), before the container starts: the admin and the lab owner as the realm's
+user, each with a random 20-character password (`admin_credentials::random_password`), saved in
+`<lab>/keycloak/<node>.toml` (0600, readable only by the server). A node that has the file keeps
+what is in it, so a redeployed Keycloak, which starts empty, gets the same admin and the same
+users, and the owner's downloaded file stays right. A file from before 0.7.0 has no admin and a
+`sherpa` realm user with the password every node had then: the node's next `redeploy` adds an
+admin of its own and drops that user. Until then the node keeps the old admin. There is no
+`sherpa` user on new nodes; `sherpa` is a reserved user name, so it is never the owner.
 
 After `up` (and a Keycloak `redeploy`), `keycloak::ensure_keycloak_realm` waits for the master
-realm's OpenID configuration, logs in as the bootstrap admin (`admin-cli`), and makes, through
-the admin API (no realm import file, which would be JSON):
+realm's OpenID configuration, reads the node's saved admin, logs in as it (`admin-cli`), and
+makes, through the admin API (no realm import file, which would be JSON):
 
 - realm `sherpa`;
 - client `kubernetes`: public, browser login with PKCE and direct grants, redirect addresses of
@@ -138,11 +150,29 @@ the admin API (no realm import file, which would be JSON):
   audience in tokens;
 - groups `cluster-admins` and `cluster-viewers`, which Talos clusters bind to `cluster-admin`
   and `view` (see `TALOS.md`);
-- users `sherpa` with the lab password and the lab owner with a generated password, both in
-  `cluster-admins`.
+- the saved users, the lab owner, in `cluster-admins`.
 
-A create that conflicts (HTTP 409) is left as it is. The users and passwords are saved before
-they are created, in `<lab>/keycloak/<node>.toml` (0600), and reused, so a redeployed Keycloak
-gets the same passwords. `UpResponse.keycloaks` and `DownloadLabResponse.keycloaks` carry
-them (`KeycloakInfo`); the client writes `.sherpa/keycloak/keycloak-<node>.toml` (0600) with the address,
-realm, issuer, account console and users (`client::keycloak_credentials`).
+A create that conflicts (HTTP 409) is left as it is. `UpResponse.keycloaks` and
+`DownloadLabResponse.keycloaks` carry the admin and the users (`KeycloakInfo`, its `admin`
+`None` for a node from before 0.7.0); the client writes `.sherpa/keycloak/keycloak-<node>.toml`
+(0600) with the address, realm, issuer, account and admin consoles, the admin and the users
+(`client::keycloak_credentials`). `download` returns them to the lab's owner only.
+
+The admin's password is in the container's environment, so `docker inspect` shows it to anyone
+in the host's `docker` group. That is accepted: membership of `docker` is root on the host.
+
+## SurrealDB
+
+`surreal_db` nodes run `surrealdb/surrealdb` with `start --log trace memory`, and their own root
+user, `root` with a generated password, in `SURREAL_USER` and `SURREAL_PASS`
+(`node_ops::surreal_db_env_vars`), not on the command line, which every host user can read in
+`ps`. It is made, like Keycloak's admin, when the container settings are generated
+(`surreal_db::ensure_surreal_db_credentials`), saved with the node's address,
+`http://<management address>:8000`, in `<lab>/surrealdb/<node>.toml` (0600), and kept across
+`redeploy`; the database is in memory, so a redeployed node starts empty with the same root
+user. A node from before 0.7.0 has no file and the published password until it is redeployed,
+when it gets one. `UpResponse.surreal_dbs` and `DownloadLabResponse.surreal_dbs` carry it
+(`SurrealDbInfo`), to the owner only, and the client writes
+`.sherpa/surrealdb/surrealdb-<node>.toml` (0600) with the address, user name and password
+(`client::surreal_db_credentials`). As with Keycloak, `docker inspect` shows the password to the
+`docker` group.

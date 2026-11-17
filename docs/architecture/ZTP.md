@@ -195,9 +195,10 @@ error saying the setting was not validated. It is reached only if a write or a p
 | `cisco_iol`, `cisco_ioll2` | image repo, not privileged, `NET_ADMIN`, the `IOL_ID`, `IOL_MEMORY_MB` and `IOL_ETH_PORTS` environment its entrypoint writes the launcher config from, and IOL's NVRAM directory `run/` mounted at `/tmp/run` | `ios_config.txt` in `config/` and its read-only mount at `/config` |
 | `frr_linux` | image repo, privileged, environment | the `daemons` file, `frr.conf`, `sherpa-init.sh`, their mounts, and the command that runs the script |
 | `hashicorp_vault` | image, `config.hcl` (generated, or the node's `ztp.config`), its mount, environment, command, capabilities | nothing; its only setting is `disabled` |
-| `keycloak_server` | image, user, environment, command; needs the lab certificate | nothing |
+| `keycloak_server` | image, user, environment with the node's own admin, command; needs the lab certificate | nothing |
 | `gitlab_ce` | image, command, `container.shm_size` | nothing |
-| `forgejo_forge`, `surreal_db`, `mongo_db`, `nats_bus` | image, command | nothing |
+| `surreal_db` | image, environment with the node's own root user, command | nothing |
+| `forgejo_forge`, `mongo_db`, `nats_bus` | image, command | nothing |
 | `mysql_db`, `postgresql_db`, the `generic` container | the manifest's settings | nothing |
 
 With ZTP off, a node of the first five has no generated config, no Sherpa config mount and no

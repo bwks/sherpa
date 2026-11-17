@@ -154,8 +154,8 @@ map by its first column, its id.
   Impairment percentages are `f64` in `LinkImpairment`, the width of a `REAL`, so they read back
   exactly as written. `Cells::percent` refuses a value outside 0 to 100, which includes `NaN` and
   infinity, naming the field: netem would otherwise clamp it silently. A node's readiness check
-  (`DbNode::ready_check`, a `ReadyCheck`) is the `node.ready_port` and `node.skip_ready_check`
-  columns, the last two of the table.
+  (`DbNode::ready_check`, a `ReadyCheck`) is the `node.ready_port`, `node.skip_ready_check` and
+  `node.ready_sshd_marker` columns.
 - **Record keys.** A column holds only a record's key; the table is implied by the column, and
   `Cells::record(table, field)` rebuilds the `RecordId`. `key_of` refuses an id from another table.
   New keys are 20 random characters from `SHERPA_DB_KEY_CHARSET`, the length and alphabet of the
@@ -229,6 +229,7 @@ table, copy the rows, drop the old one, rename.
 | 29 | `0029_legacy_node_ssh_username.sql`: `UPDATE node SET ssh_username = 'sherpa' WHERE ssh_username IS NULL`. A node built before 0.7.0 has the shared `sherpa` account and no recorded login; this records it, so its SSH config stays `User sherpa`. See [Node SSH accounts](#node-ssh-accounts) |
 | 30 | `0030_fix_sonic_data_interface_count.sql`: `sonic_linux` images stored with 52 data interfaces (the old default) are set to 32, one per front-panel port of the SONiC virtual switch. A count an administrator set is kept |
 | 31 | `0031_rename_node_models.sql`: `node_image.model` takes the 0.7.0 names (`arista_veos` and `arista_ceos` to `arista_eos`, `generic_*` to `generic`, and the others in `shared::data::REMOVED_MODELS`). It is the only column that names a model: a node refers to its image, and a lab's stored definition takes each node's model and kind from it, so running labs and definitions follow. Each row keeps its kind, so the rows of a merged model cannot collide on `(model, kind, version)` and each kind keeps its default. A container image keeps the repo it was pulled or imported as, so no Docker image is retagged |
+| 32 | `0032_node_ready_sshd_marker.sql`: `node.ready_sshd_marker` (`0` or `1`, default `0`), whether the node's SSH server must show Sherpa's ready marker before the node is ready: a Windows node with cloud-init ZTP. Nodes already built keep `0`: a Windows node from before Sherpa's sshd config never shows the marker. See [Node readiness checks](#node-readiness-checks) |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
@@ -256,12 +257,15 @@ version 16 while one exists:
 
 ### Node readiness checks
 
-`node.ready_port` and `node.skip_ready_check` hold how a node shows it is ready. `up` writes them
-after it creates the node's record, and `redeploy` replaces them from the new manifest node before
-the node starts, both with `db::update_node_ready_check` and the values
-`node_ops::stored_ready_check` takes from the manifest node: its `ready_check.port`, else a
-virtual machine's model port, and its `ready_check.skip`. A container or unikernel without a port
-stores `NULL`, and is ready once it runs. `create_node` stores `NULL` and `0`. What reads them is
+`node.ready_port`, `node.skip_ready_check` and `node.ready_sshd_marker` hold how a node shows it
+is ready. `up` writes them after it creates the node's record, and `redeploy` replaces them from
+the new manifest node before the node starts, both with `db::update_node_ready_check` and the
+values `node_ops::stored_ready_check` takes from the manifest node and its ZTP setting: its
+`ready_check.port`, else a virtual machine's model port; its `ready_check.skip`; and, when the
+port is SSH, whether its SSH server must show Sherpa's ready marker
+(`ModelKind::waits_for_sshd_ready_marker`, a Windows node with cloud-init ZTP). A container or
+unikernel without a port stores `NULL`, and is ready once it runs. `create_node` stores `NULL`,
+`0` and `0`. What reads them is
 in [`STATE_MACHINES.md`](STATE_MACHINES.md#5-node-readiness-and-host-keys).
 
 ### CPU pins
@@ -510,7 +514,10 @@ definition (`has_definition` `0`); see
 
 No secret is stored in the database as plain text: secret values are sealed, so a database file
 or backup that leaves the server without its key holds only ciphertext. The sealed columns are
-`lab.ztp_server_password` and `user.device_password`. `crates/db/src/secret.rs` has the cipher:
+`lab.ztp_server_password` and `user.device_password`. The credentials of the lab's services, the
+Vault tokens, Keycloak admins and realm users and SurrealDB root users, are not in the database
+at all: they are files only the server can read (0600) in the lab's folder on the server (see
+[`LAB_CA.md`](LAB_CA.md#keycloak)). `crates/db/src/secret.rs` has the cipher:
 
 - **Cipher.** AES-256-GCM, from `aes-gcm` 0.11 (no `getrandom` feature: `rand` makes the
   nonces). Sherpa's code adds no `unsafe`.

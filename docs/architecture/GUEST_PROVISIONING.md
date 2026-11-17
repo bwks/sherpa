@@ -31,7 +31,10 @@ set in its image, `configuration.nix` in [bwks/nixos-image](https://github.com/b
 
 A node with a generated login has one: the lab owner's, named after their Sherpa username, with
 their registered SSH keys the model accepts and their [device password](SERVER.md#device-passwords). There
-is no shared `sherpa` account and no published password on the nodes Sherpa builds.
+is no shared `sherpa` account and no published password on the nodes Sherpa builds. The
+application nodes that have an administrator of their own, Keycloak and SurrealDB, get one per
+node with a generated password, kept on the server and handed to the owner (see
+[`LAB_CA.md`](LAB_CA.md#keycloak)).
 `guest_account::from_user` makes the owner's `GuestAccount` from the user record and the opened
 device password. It refuses an owner whose name cannot be a login (a legacy account named `root`,
 `sherpa` or `admin`, say) with `User '<name>' cannot start labs`; before 0.7.0 such an owner fell

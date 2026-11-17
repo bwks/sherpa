@@ -1472,13 +1472,13 @@ the rollback removes the lab.
 ```mermaid
 flowchart TB
     check["check_vm_ready(ip, port, sshd_marker)"] --> port{"port"}
-    port -->|22| ssh["check_node_ssh_ready"]
+    port -->|"22, or the stored check's sshd_marker"| ssh["check_node_ssh_ready"]
     ssh --> tcp["TCP connect (100 ms)"]
     tcp -->|"refused/timeout"| notready["not ready"]
     tcp -->|connected| hostkey["Jato Session::host_key<br/>(5 s, no login)"]
     hostkey -->|"non-SSH reply or timeout"| notready
     hostkey -->|"SSH handshake through key exchange, then disconnect"| marker{"sshd_marker?"}
-    marker -->|none| ready["ready, with host key"]
+    marker -->|false| ready["ready, with host key"]
     marker -->|"Windows, cloud-init"| ident["ssh_identification:<br/>read the SSH-2.0 line (5 s)"]
     ident -->|"shows the marker"| ready
     ident -->|"no marker yet"| notready
@@ -1490,14 +1490,21 @@ account, written their keys file and Sherpa's `sshd_config`, and restarted it, s
 alone reported Windows nodes ready minutes before the owner could log in. Sherpa's Windows
 `sshd_config` sets `VersionAddendum sherpa-ready` (`SHERPA_SSHD_READY_MARKER`), which the server
 adds to the identification line it sends on every connection, before key exchange.
-`ModelKind::sshd_ready_marker` gives the marker for `windows_server` and `devbox_windows` with
-cloud-init ZTP (with ZTP off Sherpa writes no `sshd_config`), and `up` (from the node's
-`ZtpRecord`) and `redeploy` pass it; the probe then also reads that line over a plain TCP
-connection (`ssh_identification`) and is ready only once it shows the marker. cloudbase-init
-handles `write_files` and `users` before `runcmd`, and the `sshd` restart is in `runcmd` after the
-key file's ACLs, so the marker appears only once the owner can log in by key. No credentials are
-sent. The scanner, `resume` and `node.host_keys` pass no marker: a resumed node already runs with
-the config, and a node `up` left `Starting` is recorded running on the handshake, as before.
+Whether a node waits for it is decided in one place, `ModelKind::waits_for_sshd_ready_marker`:
+`windows_server` and `devbox_windows` with cloud-init ZTP (with ZTP off Sherpa writes no
+`sshd_config`). `node_ops::stored_ready_check` stores the answer with the node's readiness check
+(`ReadyCheck::sshd_marker`, `node.ready_sshd_marker`) when the check is on SSH, and every probe
+passes the stored flag to `check_vm_ready`: `up` (the same `stored_ready_check` it stores),
+`redeploy`, `resume`, the scanner and `node.host_keys`. With it the probe also reads the
+identification line over a plain TCP connection (`ssh_identification`) and is ready only once it
+shows the marker. cloudbase-init handles `write_files` and `users` before `runcmd`, and the `sshd`
+restart is in `runcmd` after the key file's ACLs, so the marker appears only once the owner can
+log in by key. No credentials are sent. So a Windows node whose `up` stopped waiting early, or
+timed out, stays `Starting` until the scanner sees the marker. `node.host_keys` on a Windows node
+that does not show it yet keeps the recorded key and reports no change: until then the SSH server
+runs the image's config, not the one the owner logs in with, and the readiness probe records the
+key once the node is ready. Nodes built before 0.7.0 stored no flag
+(`0032_node_ready_sshd_marker.sql` leaves them `0`): their `sshd` never shows the marker.
 
 An open port is not enough on SSH: network devices and some guests accept TCP connections
 before their SSH server can answer. The probe uses the Jato library (`bwks/jato-lib`, a

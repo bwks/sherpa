@@ -277,8 +277,9 @@ It runs in `sherpa validate`, in the server's `up` before images are leased, and
   on port 22, a TCP connection on any other). `node_ops::container_ready_port` gives the port,
   and none when `ready_check.skip` is set: a skipped check wins over a port.
 - `ready_check` is stored on the node's record when `up` creates it and when `redeploy`
-  rebuilds it (`node.ready_port` and `node.skip_ready_check`, from
-  `node_ops::stored_ready_check`): the port, else a VM's model port, and the skip. `resume`,
+  rebuilds it (`node.ready_port`, `node.skip_ready_check` and `node.ready_sshd_marker`, from
+  `node_ops::stored_ready_check`): the port, else a VM's model port, the skip, and whether a
+  Windows node's SSH server must show Sherpa's ready marker. `resume`, `node.host_keys`,
   `redeploy`'s wait, `inspect` and the scanner read that record, not the lab's definition, so a
   container whose port does not answer stays `Starting` scan after scan, and a VM with a port
   that is not SSH is probed on it. See

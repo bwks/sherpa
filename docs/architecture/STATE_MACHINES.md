@@ -423,18 +423,23 @@ container is ready.
 readiness check passed or for a node that has none. The host key is
 `node.ssh_host_key: Option<String>`; `Some` means the key was captured from a running node.
 
-**The stored check.** Each node's readiness check is stored with it, in `node.ready_port` and
-`node.skip_ready_check` (`DbNode::ready_check`, a `ReadyCheck`). `up` writes it when it
-creates the node's record, and `redeploy` replaces it from the new manifest node before the
-node starts, both with `node_ops::stored_ready_check`: the manifest's `ready_check.port`, else
-the node's model and kind's port (`ModelKind::ready_port`: SSH, or the Talos API for Talos
-Linux, for a virtual machine); a container or unikernel without a port has none. `skip` is the manifest's `ready_check.skip`.
-The scanner, `resume`, `redeploy` and `inspect` read it, not the lab's definition, so every
-readiness path agrees; `up` waits on the same values, from the manifest it is building.
+**The stored check.** Each node's readiness check is stored with it, in `node.ready_port`,
+`node.skip_ready_check` and `node.ready_sshd_marker` (`DbNode::ready_check`, a `ReadyCheck`).
+`up` writes it when it creates the node's record, and `redeploy` replaces it from the new
+manifest node before the node starts, both with `node_ops::stored_ready_check`: the manifest's
+`ready_check.port`, else the node's model and kind's port (`ModelKind::ready_port`: SSH, or the
+Talos API for Talos Linux, for a virtual machine); a container or unikernel without a port has
+none. `skip` is the manifest's `ready_check.skip`. `sshd_marker`, on an SSH check only, is
+whether the SSH server must also show Sherpa's ready marker
+(`ModelKind::waits_for_sshd_ready_marker`: Windows with cloud-init ZTP; see "Readiness" in
+[`SERVER.md`](SERVER.md)). The scanner, `resume`, `redeploy`, `node.host_keys` and `inspect` read
+it, not the lab's definition, so every readiness path agrees; `up` waits on the same values,
+from the manifest it is building.
 `node_ops::probed_ready_port` is the port a check is probed on: none when it is skipped or has
 no port, and the node is ready once it runs. Nodes stored before the columns existed have
 their model's port if a virtual machine, none otherwise, and no skip, which is what the
-scanner did with them before (migration `0019_node_ready_check.sql`).
+scanner did with them before (migration `0019_node_ready_check.sql`), and nodes stored before
+`0032_node_ready_sshd_marker.sql` no marker.
 
 **Readiness waits.** The readiness wait is written four times, each with its own timeout and
 error policy:
@@ -485,7 +490,7 @@ the runtime shows it running when its stored check has no port or is skipped.
 | Transition | Function | file:line | Checked? |
 |---|---|---|---|
 | None → Some | `Readiness::record` (up) | `up/readiness.rs` | only when a key was read |
-| None → Some or changed | `record_node_host_key`, from the scanner (`probe_node`), resume and `refresh_node_host_key` (`crates/server/src/services/host_keys.rs:63`) | `crates/server/src/services/ssh_config.rs:28-45` | a changed key is replaced with a warning |
+| None → Some or changed | `record_node_host_key`, from the scanner (`probe_node`), resume and `refresh_node_host_key` (`crates/server/src/services/host_keys.rs`), each on the stored check | `crates/server/src/services/ssh_config.rs:28-45` | a changed key is replaced with a warning |
 | None → Some | redeploy VM, or container with a `ready_check.port` of 22 | `redeploy/ready.rs` `poll_until_ready` | only when a key was read |
 | any → None | `redeploy_node`, after `RebuildStarted` is recorded | `redeploy/node.rs` | the node's state allowed the rebuild |
 
