@@ -1,9 +1,10 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use opentelemetry::KeyValue;
 use std::time::Instant;
 
 use shared::data::{
-    ContainerPullRequest, ContainerPullResponse, ModelKind, NodeConfig, NodeKind, StatusKind,
+    ContainerPullRequest, ContainerPullResponse, ContainerSettings, KindSettings, ModelKind,
+    NodeConfig, NodeKind, StatusKind, ZtpSettings,
 };
 
 use tracing::instrument;
@@ -61,7 +62,7 @@ pub async fn pull_container_image(
     };
     let recorded = db::upsert_node_image(
         &state.db,
-        pulled_node_image(model_kind, &request),
+        pulled_node_image(model_kind, &request)?,
         request_default,
     )
     .await
@@ -73,9 +74,14 @@ pub async fn pull_container_image(
         )
     })?;
     // A version pulled before from another repo runs from the repo pulled now.
-    if recorded.repo.as_deref() != Some(request.repo.as_str()) {
+    if recorded.container_repo(None).as_deref() != Some(request.repo.as_str()) {
         let repulled = NodeConfig {
-            repo: Some(request.repo.clone()),
+            settings: KindSettings::Container(ContainerSettings {
+                repo: Some(request.repo.clone()),
+                ztp: recorded
+                    .container()
+                    .map_or_else(ZtpSettings::default, |container| container.ztp.clone()),
+            }),
             ..recorded
         };
         db::update_node_image(&state.db, repulled, DefaultRequest::Keep)
@@ -114,12 +120,24 @@ pub async fn pull_container_image(
 /// The node image record for a pulled container image: the model's defaults, with the version
 /// and repo it was pulled from. A container node runs the repo recorded here unless its manifest
 /// names an `image`.
-fn pulled_node_image(model_kind: ModelKind, request: &ContainerPullRequest) -> NodeConfig {
-    let mut config = model_kind.node_config();
-    config.version.clone_from(&request.tag);
-    config.repo = Some(request.repo.clone());
-    config.id = None;
-    config
+///
+/// # Errors
+///
+/// Fails when `model_kind` is not a container's.
+fn pulled_node_image(model_kind: ModelKind, request: &ContainerPullRequest) -> Result<NodeConfig> {
+    let config = model_kind.node_config();
+    let KindSettings::Container(container) = config.settings else {
+        bail!("{model_kind} is not a container: only a container image is pulled");
+    };
+    Ok(NodeConfig {
+        id: None,
+        version: request.tag.clone(),
+        settings: KindSettings::Container(ContainerSettings {
+            repo: Some(request.repo.clone()),
+            ..container
+        }),
+        ..config
+    })
 }
 
 #[cfg(test)]
@@ -137,10 +155,10 @@ mod tests {
             default: false,
         };
 
-        let config = pulled_node_image(ModelKind::default_for(NodeModel::PostgresqlDb), &request);
+        let config =
+            pulled_node_image(ModelKind::default_for(NodeModel::PostgresqlDb), &request).unwrap();
 
         assert_eq!(config.model, NodeModel::PostgresqlDb);
-        assert_eq!(config.repo.as_deref(), Some("postgres"));
         assert_eq!(config.version, "17");
         assert_eq!(config.container_repo(None).as_deref(), Some("postgres"));
     }

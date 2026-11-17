@@ -13,9 +13,11 @@ use serde::de::DeserializeOwned;
 use turso::{Row, Value};
 
 use shared::data::{
-    BootDiskSettings, BridgeMember, CdromSettings, CpuSettings, DbBridge, DbLab, DbLink, DbNode,
-    DbSession, DbSessionUser, DbUser, InterfaceSettings, LinkImpairment, MachineSettings,
-    NodeConfig, ReadyCheck, RecordId, UnikernelSettings, ZtpSettings,
+    BootDiskSettings, BridgeMember, CdromSettings, ContainerSettings, CpuSettings, DbBridge, DbLab,
+    DbLink, DbNode, DbSession, DbSessionUser, DbUser, InterfaceDeviceSettings, InterfaceSettings,
+    KindSettings, LinkImpairment, MachineSettings, NodeConfig, NodeKind, ReadyCheck, RecordId,
+    UnikernelCpuSettings, UnikernelMachineSettings, UnikernelSettings, VmCpuSettings, VmSettings,
+    ZtpSettings,
 };
 use shared::konst::{SHERPA_DB_KEY_CHARSET, SHERPA_DB_KEY_LENGTH};
 
@@ -498,103 +500,165 @@ pub(crate) fn bridge_member_values(
     ])
 }
 
-/// A node image from its `node_image` row. `Cells` reads the columns in the table's order,
-/// which is not the order of the groups, so each column is read into a local first.
+/// A node image from its `node_image` row. `Cells` reads the columns in the table's order:
+/// the settings every kind takes, then the kind-only ones, each NULL for the kinds that do not
+/// take it. The image's kind decides which of those are read into its group.
 pub(crate) fn node_image_from_row(row: &Row) -> Result<NodeConfig> {
     let mut cells = Cells::new(row);
     let id = cells.record(NODE_IMAGE_TABLE, "id")?;
     let model = cells.enumeration("model")?;
     let version = cells.text("version")?;
-    let repo = cells.optional_text("repo")?;
-    let os_variant = cells.enumeration("os_variant")?;
-    let kind = cells.enumeration("kind")?;
-    let bios = cells.enumeration("bios")?;
-    let cpu_count = cells.integer("cpu_count")?;
-    let cpu_architecture = cells.enumeration("cpu_architecture")?;
-    let cpu_model = cells.enumeration("cpu_model")?;
-    let machine_type = cells.enumeration("machine_type")?;
-    let vmx_enabled = cells.boolean("vmx_enabled")?;
+    let kind: NodeKind = cells.enumeration("kind")?;
+    let cpu = CpuSettings {
+        count: cells.integer("cpu_count")?,
+    };
     let memory = cells.integer("memory")?;
-    let hdd_bus = cells.enumeration("hdd_bus")?;
-    let cdrom = cells.optional_text("cdrom")?;
-    let cdrom_bus = cells.enumeration("cdrom_bus")?;
     let interfaces = InterfaceSettings {
         data_count: cells.integer("data_interface_count")?,
-        prefix: cells.text("interface_prefix")?,
-        kind: cells.enumeration("interface_type")?,
-        mtu: cells.integer("interface_mtu")?,
-        first_index: cells.integer("first_interface_index")?,
         management: cells.enumeration("management_interface")?,
         reserved_count: cells.integer("reserved_interface_count")?,
     };
     let default = cells.boolean("default")?;
+    let os_variant = cells.optional_enumeration("os_variant")?;
+    let cpu_architecture = cells.optional_enumeration("cpu_architecture")?;
+    let cpu_model = cells.optional_enumeration("cpu_model")?;
+    let vmx = cells.optional_boolean("vmx_enabled")?;
+    let machine_type = cells.optional_enumeration("machine_type")?;
+    let bios = cells.optional_enumeration("bios")?;
+    let hdd_bus = cells.optional_enumeration("hdd_bus")?;
+    let cdrom = cells.optional_text("cdrom")?;
+    let cdrom_bus = cells.optional_enumeration("cdrom_bus")?;
+    let interface_type = cells.optional_enumeration("interface_type")?;
+    let interface_mtu = cells.optional_integer("interface_mtu")?;
+    let ztp = cells.optional_enumeration("ztp")?;
+    let repo = cells.optional_text("repo")?;
     let boot_mode = cells.optional_enumeration("boot_mode")?;
-    let ztp_method = cells.enumeration("ztp")?;
+    let settings = match kind {
+        NodeKind::VirtualMachine => KindSettings::VirtualMachine(VmSettings {
+            os_variant: kind_column(os_variant, "os_variant", kind)?,
+            cpu: VmCpuSettings {
+                architecture: kind_column(cpu_architecture, "cpu_architecture", kind)?,
+                model: kind_column(cpu_model, "cpu_model", kind)?,
+                vmx: kind_column(vmx, "vmx_enabled", kind)?,
+            },
+            machine: MachineSettings {
+                kind: kind_column(machine_type, "machine_type", kind)?,
+                bios: kind_column(bios, "bios", kind)?,
+            },
+            boot_disk: BootDiskSettings {
+                bus: kind_column(hdd_bus, "hdd_bus", kind)?,
+            },
+            cdrom: CdromSettings {
+                image: cdrom,
+                bus: kind_column(cdrom_bus, "cdrom_bus", kind)?,
+            },
+            interfaces: InterfaceDeviceSettings {
+                kind: kind_column(interface_type, "interface_type", kind)?,
+                mtu: kind_column(interface_mtu, "interface_mtu", kind)?,
+            },
+            ztp: ZtpSettings {
+                method: kind_column(ztp, "ztp", kind)?,
+            },
+        }),
+        NodeKind::Container => KindSettings::Container(ContainerSettings {
+            repo,
+            ztp: ZtpSettings {
+                method: kind_column(ztp, "ztp", kind)?,
+            },
+        }),
+        NodeKind::Unikernel => KindSettings::Unikernel(UnikernelSettings {
+            boot_mode: kind_column(boot_mode, "boot_mode", kind)?,
+            cpu: UnikernelCpuSettings {
+                architecture: kind_column(cpu_architecture, "cpu_architecture", kind)?,
+                model: kind_column(cpu_model, "cpu_model", kind)?,
+            },
+            machine: UnikernelMachineSettings {
+                kind: kind_column(machine_type, "machine_type", kind)?,
+            },
+            interfaces: InterfaceDeviceSettings {
+                kind: kind_column(interface_type, "interface_type", kind)?,
+                mtu: kind_column(interface_mtu, "interface_mtu", kind)?,
+            },
+        }),
+    };
     Ok(NodeConfig {
         id: Some(id),
         model,
         version,
-        repo,
-        os_variant,
-        kind,
         default,
         memory,
-        cpu: CpuSettings {
-            count: cpu_count,
-            architecture: cpu_architecture,
-            model: cpu_model,
-            vmx: vmx_enabled,
-        },
-        machine: MachineSettings {
-            kind: machine_type,
-            bios,
-        },
-        boot_disk: BootDiskSettings { bus: hdd_bus },
-        cdrom: CdromSettings {
-            image: cdrom,
-            bus: cdrom_bus,
-        },
+        cpu,
         interfaces,
-        ztp: ZtpSettings { method: ztp_method },
-        unikernel: boot_mode.map(|boot_mode| UnikernelSettings { boot_mode }),
+        settings,
     })
 }
 
-/// A node image's column values in the `node_image` table's column order, under `key`.
-pub(crate) fn node_image_values(image: &NodeConfig, key: &str) -> Result<[Value; 26]> {
+/// A kind-only `node_image` column a `kind` image must have; the table's CHECKs keep it set.
+fn kind_column<T>(value: Option<T>, field: &str, kind: NodeKind) -> Result<T> {
+    value.with_context(|| format!("Node image column '{field}' is empty on a {kind} image"))
+}
+
+/// A node image's column values in the `node_image` table's column order, under `key`. The
+/// columns of other kinds are NULL.
+pub(crate) fn node_image_values(image: &NodeConfig, key: &str) -> Result<[Value; 24]> {
+    let vm = image.vm();
+    let unikernel = image.unikernel();
+    let device = image.interface_device();
+    let (cpu_architecture, cpu_model, machine_type) = match &image.settings {
+        KindSettings::VirtualMachine(vm) => (
+            Some(&vm.cpu.architecture),
+            Some(&vm.cpu.model),
+            Some(&vm.machine.kind),
+        ),
+        KindSettings::Unikernel(unikernel) => (
+            Some(&unikernel.cpu.architecture),
+            Some(&unikernel.cpu.model),
+            Some(&unikernel.machine.kind),
+        ),
+        KindSettings::Container(_) => (None, None, None),
+    };
+    let ztp = match &image.settings {
+        KindSettings::VirtualMachine(vm) => Some(&vm.ztp.method),
+        KindSettings::Container(container) => Some(&container.ztp.method),
+        KindSettings::Unikernel(_) => None,
+    };
     Ok([
         key.into(),
         enum_text(&image.model, "model")?.into(),
         image.version.as_str().into(),
-        image.repo.as_deref().into(),
-        enum_text(&image.os_variant, "os_variant")?.into(),
-        enum_text(&image.kind, "kind")?.into(),
-        enum_text(&image.machine.bios, "bios")?.into(),
+        enum_text(&image.kind(), "kind")?.into(),
         image.cpu.count.into(),
-        enum_text(&image.cpu.architecture, "cpu_architecture")?.into(),
-        enum_text(&image.cpu.model, "cpu_model")?.into(),
-        enum_text(&image.machine.kind, "machine_type")?.into(),
-        image.cpu.vmx.into(),
         image.memory.into(),
-        enum_text(&image.boot_disk.bus, "hdd_bus")?.into(),
-        image.cdrom.image.as_deref().into(),
-        enum_text(&image.cdrom.bus, "cdrom_bus")?.into(),
         image.interfaces.data_count.into(),
-        image.interfaces.prefix.as_str().into(),
-        enum_text(&image.interfaces.kind, "interface_type")?.into(),
-        image.interfaces.mtu.into(),
-        image.interfaces.first_index.into(),
         enum_text(&image.interfaces.management, "management_interface")?.into(),
         image.interfaces.reserved_count.into(),
         image.default.into(),
+        optional_enum_text(vm.map(|vm| &vm.os_variant), "os_variant")?,
+        optional_enum_text(cpu_architecture, "cpu_architecture")?,
+        optional_enum_text(cpu_model, "cpu_model")?,
+        vm.map(|vm| i64::from(vm.cpu.vmx)).into(),
+        optional_enum_text(machine_type, "machine_type")?,
+        optional_enum_text(vm.map(|vm| &vm.machine.bios), "bios")?,
+        optional_enum_text(vm.map(|vm| &vm.boot_disk.bus), "hdd_bus")?,
+        vm.and_then(|vm| vm.cdrom.image.as_deref()).into(),
+        optional_enum_text(vm.map(|vm| &vm.cdrom.bus), "cdrom_bus")?,
+        optional_enum_text(device.map(|device| &device.kind), "interface_type")?,
+        device.map(|device| i64::from(device.mtu)).into(),
+        optional_enum_text(ztp, "ztp")?,
         image
-            .unikernel
-            .as_ref()
-            .map(|unikernel| enum_text(&unikernel.boot_mode, "boot_mode"))
-            .transpose()?
+            .container()
+            .and_then(|container| container.repo.as_deref())
             .into(),
-        enum_text(&image.ztp.method, "ztp")?.into(),
+        optional_enum_text(unikernel.map(|unikernel| &unikernel.boot_mode), "boot_mode")?,
     ])
+}
+
+/// An optional enum stored by its serde name, or NULL.
+fn optional_enum_text<T: Serialize>(value: Option<&T>, field: &str) -> Result<Value> {
+    Ok(value
+        .map(|value| enum_text(value, field))
+        .transpose()?
+        .into())
 }
 
 #[cfg(test)]

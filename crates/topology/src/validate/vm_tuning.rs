@@ -1,9 +1,7 @@
 use anyhow::{Result, bail};
 
 use crate::NodeExpanded;
-use shared::data::{
-    DiskBuses, DiskCache, DiskIo, InterfaceType, NodeConfig, NodeCpuPins, NodeKind,
-};
+use shared::data::{DiskBuses, DiskCache, DiskIo, InterfaceType, NodeConfig, NodeCpuPins};
 
 /// Check a VM's CPU, NUMA, boot disk and interface tuning against its own settings and its
 /// image. Other kinds do not take these settings, which `check_node_kind_settings` refuses.
@@ -12,9 +10,9 @@ use shared::data::{
 ///
 /// Fails when a setting does not fit the node's CPU count, disks or interfaces.
 pub fn check_vm_tuning(node: &NodeExpanded, image: &NodeConfig) -> Result<()> {
-    if image.kind != NodeKind::VirtualMachine {
+    let Some(vm) = image.vm() else {
         return Ok(());
-    }
+    };
     let name = &node.name;
     let cpu = &node.cpu;
     let disk = &node.boot_disk;
@@ -86,12 +84,12 @@ pub fn check_vm_tuning(node: &NodeExpanded, image: &NodeConfig) -> Result<()> {
         );
     }
 
-    if disk.io_thread_cpus.is_some() && image.boot_disk.bus != DiskBuses::Virtio {
+    if disk.io_thread_cpus.is_some() && vm.boot_disk.bus != DiskBuses::Virtio {
         bail!(
             "Manifest - node: '{name}' sets `boot_disk.io_thread_cpus`, which needs virtio \
              disks; '{}' uses {}",
             image.model,
-            image.boot_disk.bus
+            vm.boot_disk.bus
         );
     }
 
@@ -102,12 +100,12 @@ pub fn check_vm_tuning(node: &NodeExpanded, image: &NodeConfig) -> Result<()> {
                  {cpu_count}, its `cpu.count`"
             );
         }
-        if image.interfaces.kind != InterfaceType::Virtio {
+        if vm.interfaces.kind != InterfaceType::Virtio {
             bail!(
                 "Manifest - node: '{name}' sets `interfaces.queues`, which needs virtio \
                  interfaces; '{}' uses {:?}",
                 image.model,
-                image.interfaces.kind
+                vm.interfaces.kind
             );
         }
     }
@@ -165,7 +163,7 @@ fn first_repeat(cpus: &[u16]) -> Option<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::{CpuTopology, ModelKind, NodeCpu, NodeModel, NumaMemoryMode};
+    use shared::data::{CpuTopology, KindSettings, ModelKind, NodeCpu, NodeModel, NumaMemoryMode};
 
     fn node(cpu_count: Option<u8>) -> NodeExpanded {
         NodeExpanded {
@@ -305,7 +303,10 @@ mod tests {
     #[test]
     fn test_io_thread_needs_virtio_disks() {
         let mut image = ubuntu();
-        image.boot_disk.bus = DiskBuses::Sata;
+        let KindSettings::VirtualMachine(settings) = &mut image.settings else {
+            panic!("ubuntu_linux is a VM");
+        };
+        settings.boot_disk.bus = DiskBuses::Sata;
         let mut vm = node(None);
         vm.boot_disk.io_thread_cpus = Some(vec![8]);
         let message = error(&vm, &image);
@@ -319,7 +320,10 @@ mod tests {
         let message = error(&vm, &ubuntu());
         assert!(message.contains("between 1 and 4"), "{message}");
         let mut image = ubuntu();
-        image.interfaces.kind = InterfaceType::E1000;
+        let KindSettings::VirtualMachine(settings) = &mut image.settings else {
+            panic!("ubuntu_linux is a VM");
+        };
+        settings.interfaces.kind = InterfaceType::E1000;
         let mut vm = node(Some(8));
         vm.interfaces.queues = Some(8);
         let message = error(&vm, &image);

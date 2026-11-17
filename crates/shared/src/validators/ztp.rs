@@ -8,7 +8,7 @@ use crate::data::{ModelKind, NodeConfig, Ztp};
 /// image's. Every reader of the setting goes through this.
 #[must_use]
 pub fn effective_ztp(manifest_ztp: Option<Ztp>, node_image: &NodeConfig) -> Ztp {
-    manifest_ztp.unwrap_or(node_image.ztp.method)
+    manifest_ztp.unwrap_or(node_image.ztp())
 }
 
 /// Check a ZTP setting against the methods its model and kind take. Used for an image's

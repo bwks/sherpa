@@ -1,34 +1,28 @@
 use anyhow::{Result, bail};
 
 use crate::services::error::ServiceError;
-use shared::data::{ModelKind, Ztp};
+use shared::data::{ModelKind, NodeConfig};
 use shared::validators::check_ztp;
 
 /// The longest image version.
 const IMAGE_VERSION_MAX_LEN: usize = 64;
 
-/// Validate node image form data before database update. The ZTP setting must be one the
-/// image's model and kind take.
-pub fn validate_node_image_update(
-    model_kind: ModelKind,
-    ztp: Ztp,
-    cpu_count: u8,
-    memory: u16,
-    interface_mtu: u16,
-    version: &str,
-    interface_prefix: &str,
-) -> Result<()> {
-    check_ztp(model_kind, ztp)?;
-
-    // Validate numeric ranges
-    validate_cpu_count(cpu_count)?;
-    validate_memory(memory)?;
-    validate_interface_mtu(interface_mtu)?;
-
-    // Validate string fields
-    validate_image_version(version)?;
-    validate_interface_prefix(interface_prefix)?;
-
+/// Validate an image edited in the web form before it is saved. The ZTP setting must be one
+/// the image's model and kind take; the CPU count, memory and, for a virtual machine or
+/// unikernel, the interface MTU must be in range. The settings of other kinds the type keeps
+/// out.
+///
+/// # Errors
+///
+/// Fails on the first setting out of range, naming it.
+pub fn validate_node_image_update(model_kind: ModelKind, image: &NodeConfig) -> Result<()> {
+    check_ztp(model_kind, image.ztp())?;
+    validate_cpu_count(image.cpu.count)?;
+    validate_memory(image.memory)?;
+    if let Some(device) = image.interface_device() {
+        validate_interface_mtu(device.mtu)?;
+    }
+    validate_image_version(&image.version)?;
     Ok(())
 }
 
@@ -79,17 +73,10 @@ pub fn validate_image_version(version: &str) -> Result<()> {
     .into())
 }
 
-fn validate_interface_prefix(prefix: &str) -> Result<()> {
-    if prefix.trim().is_empty() {
-        bail!("Interface prefix cannot be empty");
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::NodeModel;
+    use shared::data::{KindSettings, NodeModel, Ztp};
 
     #[test]
     fn test_validate_cpu_count() {
@@ -153,143 +140,89 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_validate_interface_prefix() {
-        assert!(validate_interface_prefix("eth").is_ok());
-        assert!(validate_interface_prefix("ge-0/0/").is_ok());
-        assert!(validate_interface_prefix("").is_err());
-        assert!(validate_interface_prefix("   ").is_err());
+    /// An image of `model`'s default kind with these settings.
+    fn image(model: NodeModel, ztp: Ztp, cpu_count: u8, memory: u16, mtu: u16) -> NodeConfig {
+        let mut image = ModelKind::default_for(model).node_config();
+        image.cpu.count = cpu_count;
+        image.memory = memory;
+        "1.0.0".clone_into(&mut image.version);
+        match &mut image.settings {
+            KindSettings::VirtualMachine(vm) => {
+                vm.ztp.method = ztp;
+                vm.interfaces.mtu = mtu;
+            }
+            KindSettings::Container(container) => container.ztp.method = ztp,
+            KindSettings::Unikernel(unikernel) => unikernel.interfaces.mtu = mtu,
+        }
+        image
+    }
+
+    fn validate(model: NodeModel, image: &NodeConfig) -> Result<()> {
+        validate_node_image_update(ModelKind::default_for(model), image)
     }
 
     #[test]
     fn test_validate_node_image_update_all_valid() {
-        let result = validate_node_image_update(
-            ModelKind::default_for(NodeModel::UbuntuLinux),
-            Ztp::CloudInit,
-            2,
-            1024,
-            1500,
-            "1.0.0",
-            "eth",
-        );
-        assert!(result.is_ok());
+        let ubuntu = NodeModel::UbuntuLinux;
+        assert!(validate(ubuntu, &image(ubuntu, Ztp::CloudInit, 2, 1024, 1500)).is_ok());
     }
 
     #[test]
     fn test_validate_node_image_update_cpu_zero() {
-        let result = validate_node_image_update(
-            ModelKind::default_for(NodeModel::UbuntuLinux),
-            Ztp::CloudInit,
-            0,
-            1024,
-            1500,
-            "1.0.0",
-            "eth",
-        );
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("CPU count"));
+        let ubuntu = NodeModel::UbuntuLinux;
+        let error = validate(ubuntu, &image(ubuntu, Ztp::CloudInit, 0, 1024, 1500)).unwrap_err();
+        assert!(error.to_string().contains("CPU count"));
     }
 
     #[test]
     fn test_validate_node_image_update_memory_too_low() {
-        let result = validate_node_image_update(
-            ModelKind::default_for(NodeModel::UbuntuLinux),
-            Ztp::CloudInit,
-            1,
-            32,
-            1500,
-            "1.0.0",
-            "eth",
-        );
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Memory"));
+        let ubuntu = NodeModel::UbuntuLinux;
+        let error = validate(ubuntu, &image(ubuntu, Ztp::CloudInit, 1, 32, 1500)).unwrap_err();
+        assert!(error.to_string().contains("Memory"));
     }
 
     #[test]
     fn test_validate_node_image_update_mtu_out_of_range() {
-        let result = validate_node_image_update(
-            ModelKind::default_for(NodeModel::UbuntuLinux),
-            Ztp::CloudInit,
-            1,
-            1024,
-            100,
-            "1.0.0",
-            "eth",
-        );
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("MTU"));
+        for model in [NodeModel::UbuntuLinux, NodeModel::NanosUnikernel] {
+            let error = validate(model, &image(model, Ztp::Disabled, 1, 1024, 100)).unwrap_err();
+            assert!(error.to_string().contains("MTU"), "{model}");
+        }
+    }
+
+    #[test]
+    fn a_container_image_has_no_mtu_to_check() {
+        let mongo = NodeModel::MongoDb;
+        assert!(validate(mongo, &image(mongo, Ztp::Disabled, 1, 1024, 100)).is_ok());
     }
 
     #[test]
     fn test_validate_node_image_update_empty_version() {
-        let result = validate_node_image_update(
-            ModelKind::default_for(NodeModel::UbuntuLinux),
-            Ztp::CloudInit,
-            1,
-            1024,
-            1500,
-            "",
-            "eth",
-        );
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Image version"));
-    }
-
-    #[test]
-    fn test_validate_node_image_update_empty_prefix() {
-        let result = validate_node_image_update(
-            ModelKind::default_for(NodeModel::UbuntuLinux),
-            Ztp::CloudInit,
-            1,
-            1024,
-            1500,
-            "1.0.0",
-            "",
-        );
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Interface prefix"));
+        let ubuntu = NodeModel::UbuntuLinux;
+        let mut image = image(ubuntu, Ztp::CloudInit, 1, 1024, 1500);
+        image.version.clear();
+        let error = validate(ubuntu, &image).unwrap_err();
+        assert!(error.to_string().contains("Image version"));
     }
 
     #[test]
     fn test_validate_node_image_update_boundary_values() {
-        // All fields at minimum valid values
-        let result = validate_node_image_update(
-            ModelKind::default_for(NodeModel::UbuntuLinux),
-            Ztp::CloudInit,
-            1,
-            64,
-            576,
-            "abcde",
-            "e",
-        );
-        assert!(result.is_ok());
+        let ubuntu = NodeModel::UbuntuLinux;
+        assert!(validate(ubuntu, &image(ubuntu, Ztp::CloudInit, 1, 64, 576)).is_ok());
     }
 
     #[test]
     fn test_validate_node_image_update_refuses_a_ztp_method_the_model_does_not_take() {
-        let error = validate_node_image_update(
-            ModelKind::default_for(NodeModel::UbuntuLinux),
-            Ztp::Tftp,
-            1,
-            1024,
-            1500,
-            "1",
-            "e",
-        )
-        .unwrap_err()
-        .to_string();
+        let ubuntu = NodeModel::UbuntuLinux;
+        let error = validate(ubuntu, &image(ubuntu, Ztp::Tftp, 1, 1024, 1500))
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("allows: disabled, cloud-init"), "{error}");
+        let evolved = NodeModel::JuniperEvolved;
         for ztp in [Ztp::Disabled, Ztp::Tftp, Ztp::Usb] {
-            let result = validate_node_image_update(
-                ModelKind::default_for(NodeModel::JuniperEvolved),
-                ztp,
-                1,
-                1024,
-                1500,
-                "1",
-                "e",
+            assert!(
+                validate(evolved, &image(evolved, ztp, 1, 1024, 1500)).is_ok(),
+                "{ztp}"
             );
-            assert!(result.is_ok(), "{ztp}");
         }
     }
 }

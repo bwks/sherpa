@@ -6,8 +6,8 @@ use jato::{Auth, ConnectOptions, Exit, Hop, HostKeyPolicy, Node, Session};
 use reqwest::{Client, StatusCode};
 use serde_json::json;
 use shared::data::{
-    DbUser, LabNodeActionResponse, LabPhase, LabState, ModelKind, NodeConfig, NodeKind, NodeModel,
-    NodeState,
+    ContainerSettings, DbUser, KindSettings, LabNodeActionResponse, LabPhase, LabState, ModelKind,
+    NodeConfig, NodeKind, NodeModel, NodeState, ZtpSettings,
 };
 use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
@@ -283,7 +283,10 @@ async fn a_container_that_exits_at_once_fails_its_node_not_the_lab() -> Result<(
     let mut alpine = ModelKind::new(NodeModel::Generic, Some(NodeKind::Container))
         .unwrap()
         .node_config();
-    alpine.repo = Some("alpine".to_owned());
+    alpine.settings = KindSettings::Container(ContainerSettings {
+        repo: Some("alpine".to_owned()),
+        ztp: ZtpSettings::default(),
+    });
     alpine.version = "latest".to_owned();
     alpine.default = true;
     db::upsert_node_image(&server.db, alpine, DefaultRequest::Keep).await?;
@@ -348,7 +351,10 @@ async fn a_container_that_exits_at_once_fails_its_node_not_the_lab() -> Result<(
 /// Register alpine as the default `generic` container image, which keeps the manifest's commands.
 async fn register_alpine(server: &TestServer) -> Result<()> {
     let alpine = NodeConfig {
-        repo: Some("alpine".to_owned()),
+        settings: KindSettings::Container(ContainerSettings {
+            repo: Some("alpine".to_owned()),
+            ztp: ZtpSettings::default(),
+        }),
         version: "latest".to_owned(),
         default: true,
         ..ModelKind::new(NodeModel::Generic, Some(NodeKind::Container))
@@ -486,7 +492,10 @@ async fn admin_clean_removes_a_running_lab() -> Result<()> {
     let mut alpine = ModelKind::new(NodeModel::Generic, Some(NodeKind::Container))
         .unwrap()
         .node_config();
-    alpine.repo = Some("alpine".to_owned());
+    alpine.settings = KindSettings::Container(ContainerSettings {
+        repo: Some("alpine".to_owned()),
+        ztp: ZtpSettings::default(),
+    });
     alpine.version = "latest".to_owned();
     alpine.default = true;
     db::upsert_node_image(&server.db, alpine, DefaultRequest::Keep).await?;
@@ -658,7 +667,10 @@ async fn a_redeploy_that_fails_after_teardown_fails_its_node() -> Result<()> {
     let mut alpine = ModelKind::new(NodeModel::Generic, Some(NodeKind::Container))
         .unwrap()
         .node_config();
-    alpine.repo = Some("alpine".to_owned());
+    alpine.settings = KindSettings::Container(ContainerSettings {
+        repo: Some("alpine".to_owned()),
+        ztp: ZtpSettings::default(),
+    });
     alpine.version = "latest".to_owned();
     alpine.default = true;
     db::upsert_node_image(&server.db, alpine, DefaultRequest::Keep).await?;
@@ -920,7 +932,10 @@ async fn the_scanner_records_what_docker_reports_but_not_over_up() -> Result<()>
     let mut alpine = ModelKind::new(NodeModel::Generic, Some(NodeKind::Container))
         .unwrap()
         .node_config();
-    alpine.repo = Some("alpine".to_owned());
+    alpine.settings = KindSettings::Container(ContainerSettings {
+        repo: Some("alpine".to_owned()),
+        ztp: ZtpSettings::default(),
+    });
     alpine.version = "latest".to_owned();
     alpine.default = true;
     db::upsert_node_image(&server.db, alpine, DefaultRequest::Keep).await?;
@@ -1186,7 +1201,10 @@ async fn sleeping_container_lab(server: &TestServer, lab_name: &str) -> Result<s
     let mut alpine = ModelKind::new(NodeModel::Generic, Some(NodeKind::Container))
         .unwrap()
         .node_config();
-    alpine.repo = Some("alpine".to_owned());
+    alpine.settings = KindSettings::Container(ContainerSettings {
+        repo: Some("alpine".to_owned()),
+        ztp: ZtpSettings::default(),
+    });
     "latest".clone_into(&mut alpine.version);
     alpine.default = true;
     db::upsert_node_image(&server.db, alpine, DefaultRequest::Keep).await?;

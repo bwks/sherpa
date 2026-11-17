@@ -24,7 +24,7 @@ use shared::data::REMOVED_MODELS;
 
 /// Move the image folder of each model renamed in 0.7.0 to its new name, and keep or remove
 /// the link at the old path as the disks need it. `backing_files` is the base each disk in the
-/// storage pool records (`libvirt::pool_backing_files`); `None` when they cannot be read, and
+/// storage pool records (`libvirt::pool_backed_volumes`); `None` when they cannot be read, and
 /// then every link is kept and every moved folder gets one, so no disk loses its base. Safe to
 /// run on every startup: a folder already moved is not moved again.
 ///

@@ -454,16 +454,36 @@ pub struct AdminImageEditTemplate {
     pub nav: Nav,
     pub config: NodeConfig,
     pub kind_label: &'static str,
+    /// A container image's repo, blank when it has none; `None` for other kinds.
+    pub repo: Option<String>,
+    /// The `vm` group's fields, for a virtual machine image.
+    pub vm: Option<VmEditChoices>,
+    /// The CPU, machine and interface device fields of a virtual machine or unikernel image.
+    pub device: Option<DeviceEditChoices>,
+    /// The ZTP settings the image's model takes, the image's own selected; none for a
+    /// unikernel, which has no ZTP setting.
+    pub ztp_choices: Vec<FormChoice>,
+}
+
+/// The edit form's fields only a virtual machine image has.
+pub struct VmEditChoices {
     pub os_variant_choices: Vec<FormChoice>,
     pub bios_choices: Vec<FormChoice>,
+    pub hdd_bus_choices: Vec<FormChoice>,
+    pub cdrom_bus_choices: Vec<FormChoice>,
+    /// The CD-ROM image's file name, blank when it has none.
+    pub cdrom: String,
+    pub vmx: bool,
+}
+
+/// The edit form's CPU, machine and interface device fields, which virtual machine and
+/// unikernel images have.
+pub struct DeviceEditChoices {
     pub cpu_architecture_choices: Vec<FormChoice>,
     pub cpu_model_choices: Vec<FormChoice>,
     pub machine_type_choices: Vec<FormChoice>,
-    pub hdd_bus_choices: Vec<FormChoice>,
-    pub cdrom_bus_choices: Vec<FormChoice>,
-    /// The ZTP settings the image's model takes, the image's own selected.
-    pub ztp_choices: Vec<FormChoice>,
     pub interface_type_choices: Vec<FormChoice>,
+    pub interface_mtu: u16,
 }
 
 /// Admin image versions list page template
@@ -854,7 +874,7 @@ mod tests {
             actions: NodeActions::for_state(device.state),
             device,
             node_config: ModelKind::default_for(model).node_config(),
-            ztp: ModelKind::default_for(model).node_config().ztp.method,
+            ztp: ModelKind::default_for(model).node_config().ztp(),
             mgmt_mac: None,
         }
         .render()
@@ -1480,7 +1500,7 @@ mod tests {
             username: "admin".to_string(),
             is_admin: true,
             nav: NavPage::AdminImages.into(),
-            kind_badge: KindBadge::full(config.kind),
+            kind_badge: KindBadge::full(config.kind()),
             config,
         }
         .render()
@@ -1512,7 +1532,7 @@ mod tests {
             ">CDROM</span>",
             ">CDROM Bus</span>",
         ];
-        for (model, kind, machine_type, uses_firmware_and_disks) in [
+        for (model, kind, machine_type, has_firmware_and_disks) in [
             (NodeModel::UbuntuLinux, NodeKind::VirtualMachine, true, true),
             (NodeModel::NanosUnikernel, NodeKind::Unikernel, true, false),
             (NodeModel::NokiaSrlinux, NodeKind::Container, false, false),
@@ -1531,7 +1551,7 @@ mod tests {
             for label in firmware_and_disks {
                 assert_eq!(
                     html.contains(label),
-                    uses_firmware_and_disks,
+                    has_firmware_and_disks,
                     "{model} {label}"
                 );
             }
@@ -1548,7 +1568,7 @@ mod tests {
             (NodeModel::NanosUnikernel, "Unikernel"),
         ]) {
             let config = ModelKind::default_for(model).node_config();
-            assert_eq!(config.kind, kind);
+            assert_eq!(config.kind(), kind);
             let detail = AdminImageDetailTemplate {
                 username: "admin".to_string(),
                 is_admin: true,

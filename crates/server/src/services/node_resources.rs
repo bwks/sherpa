@@ -62,7 +62,7 @@ struct PinOverlap {
 /// throttle the EVO VM. IOL takes the manifest or image memory as its own, so its container's
 /// limit is that and the launcher's overhead. The VNC port is reserved separately.
 pub fn planned_resources(node: &topology::NodeExpanded, image: &NodeConfig) -> NodeResources {
-    match image.kind {
+    match image.kind() {
         NodeKind::VirtualMachine | NodeKind::Unikernel => NodeResources {
             cpu_count: Some(node.cpu.count.unwrap_or(image.cpu.count)),
             memory: Some(node.memory.unwrap_or(image.memory)),

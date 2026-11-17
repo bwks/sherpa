@@ -41,7 +41,7 @@ pub(crate) fn plan_container_scan(target: Option<ScanTarget>) -> ContainerScanPl
     for model_kind in ModelKind::all().filter(|model_kind| model_kind.kind() == NodeKind::Container)
     {
         let model = model_kind.model();
-        match model_kind.node_config().repo {
+        match model_kind.node_config().container_repo(None) {
             Some(repo) => plan.targets.push(ScanTarget { model, repo }),
             None => plan.skipped.push(SkippedModel {
                 model,

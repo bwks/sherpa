@@ -4,7 +4,7 @@ use tracing::instrument;
 use turso::Value;
 
 use crate::Database;
-use crate::persistence::{NODE_TABLE, enum_text, key_of, node_from_row};
+use crate::persistence::{NODE_IMAGE_TABLE, NODE_TABLE, enum_text, key_of, node_from_row};
 use crate::queries;
 use crate::sql::{Bound, query_count, query_optional};
 
@@ -194,6 +194,30 @@ pub async fn update_node_resources(
             resources.vnc_port.into(),
         ]),
         "resources",
+    )
+    .await
+}
+
+/// Point a node at the image it is built from, as a redeploy does when the manifest names
+/// another version. The image must exist: `node.image` references `node_image`.
+///
+/// # Errors
+/// - If the node doesn't exist
+/// - If the image doesn't exist, or the database update fails
+#[instrument(skip(db), level = "debug")]
+pub async fn update_node_image_ref(
+    db: &Database,
+    node_id: RecordId,
+    image_id: &RecordId,
+) -> Result<DbNode> {
+    update_columns(
+        db,
+        &node_id,
+        queries::node::UPDATE_IMAGE.bind([
+            key_of(&node_id, NODE_TABLE)?.into(),
+            key_of(image_id, NODE_IMAGE_TABLE)?.into(),
+        ]),
+        "image",
     )
     .await
 }

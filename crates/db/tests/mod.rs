@@ -34,5 +34,6 @@ mod schema;
 mod relationships;
 
 use helper::{
-    create_test_config, create_test_node_with_model, ipv4_lab_networks, setup_db, test_link,
+    create_test_config, create_test_node_with_model, ipv4_lab_networks, set_ztp, setup_db,
+    test_link,
 };

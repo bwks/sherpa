@@ -176,7 +176,7 @@ async fn devices(
 ) -> Result<Vec<DeviceInfo>> {
     let has_containers = node_images
         .iter()
-        .any(|image| image.kind == NodeKind::Container);
+        .any(|image| image.kind() == NodeKind::Container);
     let containers = if has_containers {
         node_lifecycle::container_states(&state.docker)
             .await
@@ -194,7 +194,7 @@ async fn devices(
             .ok_or_else(|| anyhow!("Node image not found for node '{}'", node.name))?;
 
         let mut device = device_info(node, node_image, volumes, lab_info);
-        device.state = reported_state(node, node_image.kind, &lab_info.id, containers.as_ref());
+        device.state = reported_state(node, node_image.kind(), &lab_info.id, containers.as_ref());
         if device.state != node.state {
             tracing::debug!(node = %node.name, recorded = %node.state, reported = %device.state, "Reporting the container's state from Docker");
         }
@@ -247,7 +247,7 @@ fn device_info(
     DeviceInfo {
         name: node.name.clone(),
         model: image.model,
-        kind: image.kind,
+        kind: image.kind(),
         state: node.state,
         mgmt_ipv4: node.mgmt_ipv4.clone().unwrap_or_default(),
         mgmt_ipv6: node.mgmt_ipv6.clone(),
@@ -255,7 +255,7 @@ fn device_info(
         disks,
         cpu_count: node.cpu_count,
         memory: node.memory,
-        console_address: console_address(node, image.kind, lab_info),
+        console_address: console_address(node, image.kind(), lab_info),
     }
 }
 
@@ -556,7 +556,7 @@ mod tests {
     #[test]
     fn a_container_has_no_console_address() {
         let image = ModelKind::default_for(NodeModel::NokiaSrlinux).node_config();
-        assert_eq!(image.kind, NodeKind::Container);
+        assert_eq!(image.kind(), NodeKind::Container);
         let device = device_info(&db_node("srl01"), &image, &[], &lab_info());
         assert_eq!(device.console_address, None);
     }

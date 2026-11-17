@@ -59,7 +59,7 @@ fn check_ztp_config_is_used(node_name: &str, model: NodeModel, ztp: Ztp) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::ModelKind;
+    use shared::data::{KindSettings, ModelKind};
     use topology::NodeZtp;
 
     fn node(model: NodeModel, ztp: Option<Ztp>, ztp_config: Option<&str>) -> NodeExpanded {
@@ -120,7 +120,10 @@ mod tests {
 
         // An image whose stored setting its model does not take, however it got there.
         let mut image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
-        image.ztp.method = Ztp::Volume;
+        let KindSettings::VirtualMachine(vm) = &mut image.settings else {
+            panic!("ubuntu_linux is a VM");
+        };
+        vm.ztp.method = Ztp::Volume;
         let error =
             validate_node_ztp(&node(NodeModel::UbuntuLinux, None, None), &image, &[]).unwrap_err();
         assert!(format!("{error:#}").contains("allows: disabled, cloud-init"));

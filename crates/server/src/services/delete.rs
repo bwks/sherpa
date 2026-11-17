@@ -1,17 +1,24 @@
 use anyhow::{Context, Result};
 use tracing::instrument;
 
-use crate::services::image_lifecycle::{image_model_kind, lock_image};
+use crate::services::image_lifecycle::{
+    ensure_image_has_no_overlays, image_model_kind, lock_image,
+};
 use shared::data::{DeleteImageRequest, DeleteImageResponse, NodeKind};
-use shared::konst::{SHERPA_IMAGES_PATH, SHERPA_STORAGE_POOL_PATH};
+use shared::konst::SHERPA_IMAGES_PATH;
 use shared::util::delete_dirs;
 use std::future::Future;
 use std::path::Path;
 
 use crate::daemon::state::AppState;
+use crate::services::error::ServiceError;
 use crate::validate::validate_image_version;
 
-/// Delete an imported image from both disk and database
+/// Delete an imported image: its record, then its files, or for a container its Docker image.
+///
+/// A VM or unikernel image is refused while a disk of the storage pool, running or stopped, is
+/// built on it; a container image while a running container runs it. Any image a node records
+/// is refused by the database.
 #[instrument(skip(state), fields(model = %request.model, version = %request.version))]
 pub async fn delete_image(
     request: DeleteImageRequest,
@@ -45,11 +52,25 @@ pub async fn delete_image(
         SHERPA_IMAGES_PATH, request.model, request.version
     );
     if kind != NodeKind::Container {
-        libvirt::ensure_no_overlay_dependencies(
-            Path::new(SHERPA_STORAGE_POOL_PATH),
-            Path::new(&version_dir),
-        )
-        .context("Cannot safely delete image")?;
+        ensure_image_has_no_overlays(state.qemu.as_ref(), Path::new(&version_dir))
+            .context("Cannot safely delete image")?;
+    }
+    // The Docker image Sherpa recorded for a container image: its repo at its version.
+    let docker_reference = node_image
+        .container_repo(None)
+        .map(|repo| container::image_reference(&repo, &request.version));
+    if let Some(reference) = &docker_reference {
+        let running = container::running_containers_of_image(&state.docker, reference)
+            .await
+            .context("Cannot safely delete image")?;
+        if !running.is_empty() {
+            return Err(ServiceError::Conflict(format!(
+                "Container image {reference} is in use by running container(s): {}; stop or \
+                 destroy them first",
+                running.join(", ")
+            ))
+            .into());
+        }
     }
 
     let image_id = node_image
@@ -63,13 +84,23 @@ pub async fn delete_image(
     if let Some(promoted) = &promoted {
         tracing::info!(model = %request.model, version = %promoted.version, "Made the newest remaining version the default");
     }
+    let image_deleted = match &docker_reference {
+        Some(reference) => match container::remove_image(&state.docker, reference).await {
+            Ok(removed) => removed,
+            Err(error) => {
+                tracing::error!(%reference, error = %format!("{error:#}"), "Failed to remove the Docker image");
+                false
+            }
+        },
+        None => disk_deleted,
+    };
 
     Ok(DeleteImageResponse {
         success: true,
         model: request.model,
         kind,
         version: request.version,
-        disk_deleted,
+        image_deleted,
         db_deleted: true,
         new_default: promoted.map(|image| image.version),
     })

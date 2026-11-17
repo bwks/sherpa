@@ -14,6 +14,7 @@ mod impairment;
 mod import;
 mod inspect;
 mod interface;
+pub mod kind_settings;
 mod lab;
 mod lab_lifecycle;
 mod link_report;
@@ -90,9 +91,11 @@ pub use mapping::{CloneDisk, NodeDisk, QemuCommand};
 pub use model_kind::{ModelKind, model_kinds_list};
 pub use network::{BridgeKind, LabSubnets, NetworkV4, NetworkV6, SherpaNetwork};
 pub use node::{
-    BiosTypes, BootDiskSettings, CdromSettings, CpuArchitecture, CpuSettings, InterfaceSettings,
-    InterfaceType, MachineSettings, MachineType, NodeConfig, NodeKind, NodeModel, NodeState,
-    OsVariant, REMOVED_MODELS, UnikernelBootMode, UnikernelSettings, Ztp, ZtpSettings,
+    BiosTypes, BootDiskSettings, CdromSettings, ContainerSettings, CpuArchitecture, CpuSettings,
+    InterfaceDeviceSettings, InterfaceSettings, InterfaceType, KindSettings, MachineSettings,
+    MachineType, NodeConfig, NodeKind, NodeModel, NodeState, OsVariant, REMOVED_MODELS,
+    UnikernelBootMode, UnikernelCpuSettings, UnikernelMachineSettings, UnikernelSettings,
+    VmCpuSettings, VmSettings, Ztp, ZtpSettings,
 };
 pub use node_lifecycle::{Halt, Observation, OperationEvent, Probe, Refused, Runtime};
 pub use performance::{

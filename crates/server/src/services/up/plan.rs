@@ -106,7 +106,7 @@ pub(super) async fn plan_lab(
             &image,
             manifest.talos_clusters.as_deref().unwrap_or_default(),
         )?;
-        if image.kind == NodeKind::Container {
+        if image.kind() == NodeKind::Container {
             let repo = node.image.as_deref().with_context(|| {
                 format!(
                     "Container node '{}' has no image after validation",
@@ -232,17 +232,17 @@ async fn lease_images(
     selected_images.sort_by_key(|image| {
         (
             image.model.to_string(),
-            image.kind.to_string(),
+            image.kind().to_string(),
             image.version.clone(),
         )
     });
     selected_images
-        .dedup_by(|a, b| a.model == b.model && a.kind == b.kind && a.version == b.version);
+        .dedup_by(|a, b| a.model == b.model && a.kind() == b.kind() && a.version == b.version);
     let mut image_guards = Vec::new();
     let mut container_image_guards = Vec::new();
     for image in &selected_images {
         let lease = lease_image(image.model_kind()?, &image.version).await;
-        if image.kind == data::NodeKind::Container {
+        if image.kind() == data::NodeKind::Container {
             container_image_guards.push(lease);
         } else {
             image_guards.push(lease);
@@ -250,7 +250,7 @@ async fn lease_images(
         let current = db::find_node_image_by_model_kind_version(
             db,
             &image.model,
-            &image.kind,
+            &image.kind(),
             &image.version,
         )
         .await?

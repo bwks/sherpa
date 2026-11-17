@@ -12,10 +12,10 @@
             <p class="mt-1 text-sm text-muted">Device template configuration details</p>
         </div>
         <div class="flex items-center space-x-3">
-            <a href="/admin/images/{{ config.model }}/{{ config.kind }}/{{ config.version }}/edit" class="btn-edit">
+            <a href="/admin/images/{{ config.model }}/{{ config.kind() }}/{{ config.version }}/edit" class="btn-edit">
                 Edit Configuration
             </a>
-            <a href="/admin/images/{{ config.model }}/{{ config.kind }}/versions" class="btn-outline">
+            <a href="/admin/images/{{ config.model }}/{{ config.kind() }}/versions" class="btn-outline">
                 View All Versions
             </a>
             <a href="/admin/images" class="btn-ghost">
@@ -56,14 +56,16 @@
                     {% endif %}
                 </span>
             </div>
+            {% if let Some(vm) = config.vm() %}
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">OS Variant:</span>
-                <span class="text-sm text-body font-medium">{{ config.os_variant }}</span>
+                <span class="text-sm text-body font-medium">{{ vm.os_variant }}</span>
             </div>
-            {% if let Some(repo_value) = config.repo %}
+            {% endif %}
+            {% if let Some(container) = config.container() %}
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Repository:</span>
-                <span class="text-sm text-body font-medium">{{ repo_value }}</span>
+                <span class="text-sm text-body font-medium">{% if let Some(repo) = container.repo %}{{ repo }}{% else %}none{% endif %}</span>
             </div>
             {% endif %}
         </div>
@@ -78,50 +80,66 @@
                 <span class="text-sm text-body font-medium">{{ config.cpu.count }}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-muted uppercase tracking-wide">CPU Architecture:</span>
-                <span class="text-sm text-body font-medium">{{ config.cpu.architecture }}</span>
-            </div>
-            <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-muted uppercase tracking-wide">CPU Model:</span>
-                <span class="text-sm text-body font-medium">{{ config.cpu.model }}</span>
-            </div>
-            <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Memory:</span>
                 <span class="text-sm text-body font-medium">{{ config.memory }} MB</span>
             </div>
-            {% if config.kind.uses_machine_type() %}
+            {% if let Some(vm) = config.vm() %}
+            <div class="flex flex-col gap-1">
+                <span class="text-xs font-semibold text-muted uppercase tracking-wide">CPU Architecture:</span>
+                <span class="text-sm text-body font-medium">{{ vm.cpu.architecture }}</span>
+            </div>
+            <div class="flex flex-col gap-1">
+                <span class="text-xs font-semibold text-muted uppercase tracking-wide">CPU Model:</span>
+                <span class="text-sm text-body font-medium">{{ vm.cpu.model }}</span>
+            </div>
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Machine Type:</span>
-                <span class="text-sm text-body font-medium">{{ config.machine.kind }}</span>
+                <span class="text-sm text-body font-medium">{{ vm.machine.kind }}</span>
             </div>
-            {% endif %}
-            {% if config.kind.uses_firmware_and_disks() %}
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">BIOS:</span>
-                <span class="text-sm text-body font-medium">{{ config.machine.bios }}</span>
+                <span class="text-sm text-body font-medium">{{ vm.machine.bios }}</span>
             </div>
-            {% endif %}
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">VMX Enabled:</span>
-                <span class="text-sm text-body font-medium">{% if config.cpu.vmx %}Yes{% else %}No{% endif %}</span>
+                <span class="text-sm text-body font-medium">{% if vm.cpu.vmx %}Yes{% else %}No{% endif %}</span>
             </div>
+            {% endif %}
+            {% if let Some(unikernel) = config.unikernel() %}
+            <div class="flex flex-col gap-1">
+                <span class="text-xs font-semibold text-muted uppercase tracking-wide">CPU Architecture:</span>
+                <span class="text-sm text-body font-medium">{{ unikernel.cpu.architecture }}</span>
+            </div>
+            <div class="flex flex-col gap-1">
+                <span class="text-xs font-semibold text-muted uppercase tracking-wide">CPU Model:</span>
+                <span class="text-sm text-body font-medium">{{ unikernel.cpu.model }}</span>
+            </div>
+            <div class="flex flex-col gap-1">
+                <span class="text-xs font-semibold text-muted uppercase tracking-wide">Machine Type:</span>
+                <span class="text-sm text-body font-medium">{{ unikernel.machine.kind }}</span>
+            </div>
+            <div class="flex flex-col gap-1">
+                <span class="text-xs font-semibold text-muted uppercase tracking-wide">Boot Mode:</span>
+                <span class="text-sm text-body font-medium">{{ unikernel.boot_mode }}</span>
+            </div>
+            {% endif %}
         </div>
     </div>
 
-    {% if config.kind.uses_firmware_and_disks() %}
+    {% if let Some(vm) = config.vm() %}
     <!-- Storage Card -->
     <div class="bg-card rounded-lg shadow-sm border border-border p-6">
         <h3 class="text-lg font-semibold text-heading mb-4">Storage Configuration</h3>
         <div class="grid grid-cols-2 gap-4">
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">HDD Bus:</span>
-                <span class="text-sm text-body font-medium">{{ config.boot_disk.bus }}</span>
+                <span class="text-sm text-body font-medium">{{ vm.boot_disk.bus }}</span>
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">CD-ROM Bus:</span>
-                <span class="text-sm text-body font-medium">{{ config.cdrom.bus }}</span>
+                <span class="text-sm text-body font-medium">{{ vm.cdrom.bus }}</span>
             </div>
-            {% if let Some(cdrom_value) = config.cdrom.image %}
+            {% if let Some(cdrom_value) = vm.cdrom.image %}
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">CD-ROM:</span>
                 <span class="text-sm text-body font-medium">{{ cdrom_value }}</span>
@@ -131,16 +149,18 @@
     </div>
     {% endif %}
 
+    {% if config.unikernel().is_none() %}
     <!-- ZTP Configuration Card -->
     <div class="bg-card rounded-lg shadow-sm border border-border p-6">
         <h3 class="text-lg font-semibold text-heading mb-4">ZTP Configuration</h3>
         <div class="grid grid-cols-2 gap-4">
             <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">ZTP:</span>
-                <span class="text-sm text-body font-medium">{{ config.ztp.method }}</span>
+                <span class="text-sm text-body font-medium">{{ config.ztp() }}</span>
             </div>
         </div>
     </div>
+    {% endif %}
 
     <!-- Network Configuration Card -->
     <div class="bg-card rounded-lg shadow-sm border border-border p-6">
@@ -151,22 +171,6 @@
                 <span class="text-sm text-body font-medium">{{ config.interfaces.data_count }}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-muted uppercase tracking-wide">Interface Prefix:</span>
-                <span class="text-sm text-body font-medium font-mono">{{ config.interfaces.prefix }}</span>
-            </div>
-            <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-muted uppercase tracking-wide">Interface Type:</span>
-                <span class="text-sm text-body font-medium">{{ config.interfaces.kind }}</span>
-            </div>
-            <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-muted uppercase tracking-wide">Interface MTU:</span>
-                <span class="text-sm text-body font-medium">{{ config.interfaces.mtu }}</span>
-            </div>
-            <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-muted uppercase tracking-wide">First Interface Index:</span>
-                <span class="text-sm text-body font-medium">{{ config.interfaces.first_index }}</span>
-            </div>
-            <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Management Interface:</span>
                 <span class="text-sm text-body font-medium font-mono">{{ config.interfaces.management }}</span>
             </div>
@@ -174,6 +178,16 @@
                 <span class="text-xs font-semibold text-muted uppercase tracking-wide">Reserved Interfaces:</span>
                 <span class="text-sm text-body font-medium">{{ config.interfaces.reserved_count }}</span>
             </div>
+            {% if let Some(device) = config.interface_device() %}
+            <div class="flex flex-col gap-1">
+                <span class="text-xs font-semibold text-muted uppercase tracking-wide">Interface Type:</span>
+                <span class="text-sm text-body font-medium">{{ device.kind }}</span>
+            </div>
+            <div class="flex flex-col gap-1">
+                <span class="text-xs font-semibold text-muted uppercase tracking-wide">Interface MTU:</span>
+                <span class="text-sm text-body font-medium">{{ device.mtu }}</span>
+            </div>
+            {% endif %}
         </div>
     </div>
 </div>

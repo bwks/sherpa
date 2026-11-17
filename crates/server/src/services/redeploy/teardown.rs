@@ -22,7 +22,7 @@ pub(super) async fn destroy_node(redeploy: &Redeploy<'_>) -> Result<()> {
         StatusKind::Progress,
     );
 
-    match redeploy.node_image.kind {
+    match redeploy.node_image.kind() {
         data::NodeKind::VirtualMachine => {
             node_ops::destroy_vm_node(
                 redeploy.qemu_conn.clone(),
@@ -44,7 +44,7 @@ pub(super) async fn destroy_node(redeploy: &Redeploy<'_>) -> Result<()> {
     remove_node_folders(
         Path::new(&redeploy.lab_dir),
         node_name,
-        redeploy.node_image.kind,
+        redeploy.node_image.kind(),
     )?;
 
     let _ = redeploy.progress.send_status(

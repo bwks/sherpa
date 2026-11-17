@@ -1,18 +1,11 @@
 use anyhow::{Result, bail};
 
 use crate::{Node, NodeExpanded};
-use shared::data::{NodeKind, model_kinds_list};
-
-const ALL: &[NodeKind] = &[
-    NodeKind::VirtualMachine,
-    NodeKind::Container,
-    NodeKind::Unikernel,
-];
-const VM: &[NodeKind] = &[NodeKind::VirtualMachine];
-const CONTAINER: &[NodeKind] = &[NodeKind::Container];
-const UNIKERNEL: &[NodeKind] = &[NodeKind::Unikernel];
-const VM_AND_CONTAINER: &[NodeKind] = &[NodeKind::VirtualMachine, NodeKind::Container];
-const VM_AND_UNIKERNEL: &[NodeKind] = &[NodeKind::VirtualMachine, NodeKind::Unikernel];
+use shared::data::kind_settings::{
+    self, ALL, CONTAINER, CONTAINER_GROUP, KindSetting, UNIKERNEL, UNIKERNEL_GROUP, VM,
+    VM_AND_CONTAINER, VM_AND_UNIKERNEL, VM_GROUP,
+};
+use shared::data::model_kinds_list;
 
 /// Check that a node's `kind`, when it sets one, is a kind its model takes. A node that sets
 /// none takes its model's default kind; `generic` has none, so its nodes must set one.
@@ -55,7 +48,7 @@ pub fn check_node_kind_settings(node: &NodeExpanded) -> Result<()> {
     let cpu = &node.cpu;
     let disk = &node.boot_disk;
     // Each key the node sets, and the kinds of node that take it.
-    let settings: [(&str, bool, &[NodeKind]); 30] = [
+    let settings: [KindSetting; 30] = [
         ("memory", node.memory.is_some(), ALL),
         ("cpu.count", cpu.count.is_some(), ALL),
         ("cpu.mode", cpu.mode.is_some(), VM),
@@ -93,9 +86,9 @@ pub fn check_node_kind_settings(node: &NodeExpanded) -> Result<()> {
         ),
         ("ready_check.port", node.ready_check.port.is_some(), ALL),
         ("ready_check.skip", node.ready_check.skip.is_some(), ALL),
-        ("vm", node.vm.is_some(), VM),
-        ("container", node.container.is_some(), CONTAINER),
-        ("unikernel", node.unikernel.is_some(), UNIKERNEL),
+        (VM_GROUP, node.vm.is_some(), VM),
+        (CONTAINER_GROUP, node.container.is_some(), CONTAINER),
+        (UNIKERNEL_GROUP, node.unikernel.is_some(), UNIKERNEL),
         (
             "environment_variables",
             node.environment_variables.is_some(),
@@ -123,10 +116,7 @@ pub fn check_node_kind_settings(node: &NodeExpanded) -> Result<()> {
             VM_AND_CONTAINER,
         ),
     ];
-    if let Some((key, _, kinds)) = settings
-        .iter()
-        .find(|(_, set, kinds)| *set && !kinds.contains(&kind))
-    {
+    if let Some((key, _, kinds)) = kind_settings::first_not_taken(kind, &settings) {
         let model = node.model_kind.model();
         // A kind of the same model that takes the setting, which the node could set instead.
         match kinds.iter().find(|other| model.kinds().contains(other)) {
@@ -148,7 +138,7 @@ mod tests {
     use super::*;
     use crate::{Manifest, NodeContainer, NodeUnikernel, NodeVm, StartupScript};
     use shared::data::{
-        DiskCache, ModelKind, NodeBootDisk, NodeCpu, NodeInterfaces, NodeModel, NodeNuma,
+        DiskCache, ModelKind, NodeBootDisk, NodeCpu, NodeInterfaces, NodeKind, NodeModel, NodeNuma,
         WatchdogAction, Ztp,
     };
 

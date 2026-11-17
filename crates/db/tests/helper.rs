@@ -4,7 +4,8 @@ use db::{
     open_in_memory,
 };
 use shared::data::{
-    BridgeKind, DbLab, DbLink, DbNode, LinkImpairment, ModelKind, NodeConfig, NodeModel,
+    BridgeKind, DbLab, DbLink, DbNode, KindSettings, LinkImpairment, ModelKind, NodeConfig,
+    NodeModel, Ztp,
 };
 
 /// Open a fresh in-memory database with the schema applied.
@@ -24,6 +25,19 @@ pub async fn setup_db() -> Result<Database> {
 #[must_use]
 pub fn create_test_config(model: NodeModel) -> NodeConfig {
     ModelKind::default_for(model).node_config()
+}
+
+/// Set the ZTP setting of a virtual machine or container image.
+///
+/// # Panics
+///
+/// Panics on a unikernel image, which has no ZTP setting.
+pub fn set_ztp(config: &mut NodeConfig, ztp: Ztp) {
+    match &mut config.settings {
+        KindSettings::VirtualMachine(vm) => vm.ztp.method = ztp,
+        KindSettings::Container(container) => container.ztp.method = ztp,
+        KindSettings::Unikernel(_) => panic!("a unikernel image has no ZTP setting"),
+    }
 }
 
 /// Test helper to create a node with a specific model
@@ -47,7 +61,7 @@ pub async fn create_test_node_with_model(
 ) -> Result<DbNode> {
     // Get the model kind from the NodeModel
     let config_template = ModelKind::default_for(model).node_config();
-    let kind = config_template.kind;
+    let kind = config_template.kind();
     let version = config_template.version;
 
     let config = find_node_image_by_model_kind_version(db, &model, &kind, &version)

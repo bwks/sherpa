@@ -91,7 +91,7 @@ pub(super) async fn create_node_records(
         tracing::info!(
             lab_id = %lab_id,
             node_name = %node.name,
-            node_kind = ?node_image.kind,
+            node_kind = ?node_image.kind(),
             node_model = ?node_image.model,
             "Creating node database record"
         );
@@ -111,7 +111,7 @@ pub(super) async fn create_node_records(
         let lab_node = node_resources::reserve_node_resources(
             db,
             &lab_node,
-            &node_image.kind,
+            &node_image.kind(),
             node_resources::planned_resources(node, &node_image),
         )
         .await?;
@@ -134,7 +134,7 @@ pub(super) async fn create_node_records(
             record: lab_node,
         });
 
-        match node_image.kind {
+        match node_image.kind() {
             data::NodeKind::Container => {
                 container_nodes.push(node.clone());
             }
@@ -256,7 +256,7 @@ async fn node_setup(
         .any(|i| matches!(i.data, data::NodeInterface::Disabled));
 
     let node_isolated_network = if matches!(
-        node_image.kind,
+        node_image.kind(),
         data::NodeKind::VirtualMachine | data::NodeKind::Container
     ) && has_disabled_interfaces
     {
@@ -267,7 +267,7 @@ async fn node_setup(
         None
     };
 
-    let node_reserved_network = if matches!(node_image.kind, data::NodeKind::VirtualMachine)
+    let node_reserved_network = if matches!(node_image.kind(), data::NodeKind::VirtualMachine)
         && node_image.interfaces.reserved_count > 0
     {
         Some(node_ops::node_reserved_network_data(
@@ -288,7 +288,7 @@ async fn node_setup(
             network_type = "isolated",
             "Creating node isolated network"
         );
-        match node_image.kind {
+        match node_image.kind() {
             data::NodeKind::VirtualMachine => {
                 let node_isolated_network = libvirt::IsolatedNetwork {
                     network_name: network.network_name,

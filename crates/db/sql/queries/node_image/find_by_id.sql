@@ -1,6 +1,6 @@
-SELECT id, model, version, repo, os_variant, kind, bios, cpu_count, cpu_architecture, cpu_model,
-    machine_type, vmx_enabled, memory, hdd_bus, cdrom, cdrom_bus,
-    data_interface_count, interface_prefix, interface_type, interface_mtu, first_interface_index,
-    management_interface, reserved_interface_count, "default", boot_mode, ztp
+SELECT id, model, version, kind, cpu_count, memory, data_interface_count, management_interface,
+    reserved_interface_count, "default", os_variant, cpu_architecture, cpu_model, vmx_enabled,
+    machine_type, bios, hdd_bus, cdrom, cdrom_bus, interface_type, interface_mtu, ztp, repo,
+    boot_mode
 FROM node_image
 WHERE id = ?1

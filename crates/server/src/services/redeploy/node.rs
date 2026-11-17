@@ -195,7 +195,22 @@ async fn keep_old_pins(redeploy: &mut Redeploy<'_>) {
 /// Tear the node down and build it again (stages 2 to 6), and report its links.
 async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
     destroy_node(redeploy).await?;
-    if matches!(redeploy.node_image.kind, data::NodeKind::VirtualMachine) {
+    // The node is rebuilt from the manifest's version of its image, which may be another.
+    let image_id = redeploy
+        .node_image
+        .id
+        .clone()
+        .context("The node's image has no ID")?;
+    if redeploy.db_node.image != image_id {
+        redeploy.db_node = db::update_node_image_ref(
+            &redeploy.state.db,
+            redeploy.node_record_id.clone(),
+            &image_id,
+        )
+        .await
+        .context("Failed to record the node's new image")?;
+    }
+    if matches!(redeploy.node_image.kind(), data::NodeKind::VirtualMachine) {
         recreate_vm_networks(redeploy)?;
     }
 
@@ -208,7 +223,7 @@ async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
     redeploy.db_node = node_resources::reserve_node_resources(
         &redeploy.state.db,
         &redeploy.db_node,
-        &redeploy.node_image.kind,
+        &redeploy.node_image.kind(),
         node_resources::planned_resources(&redeploy.target_node, &redeploy.node_image),
     )
     .await?;
@@ -274,7 +289,7 @@ async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
         },
     )?;
 
-    match redeploy.node_image.kind {
+    match redeploy.node_image.kind() {
         data::NodeKind::Container => redeploy_container(redeploy, &cert_paths).await,
         data::NodeKind::VirtualMachine => redeploy_vm(redeploy, &cert_paths).await,
         data::NodeKind::Unikernel => bail!("Redeploy not supported for unikernel nodes"),

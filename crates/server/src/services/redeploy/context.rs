@@ -264,10 +264,12 @@ fn check_manifest(
     })
 }
 
-/// The node's record and image, leased, with the node's ZTP setting and disk method checked
-/// against it, and a container's image resolved and checked as `up` does: the target node's
-/// `image` is set to the repo it is created from. The model cannot change, and unikernels cannot
-/// be redeployed.
+/// The node's record and the image it is rebuilt from, leased, with the node's ZTP setting and
+/// disk method checked against it, and a container's image resolved and checked as `up` does:
+/// the target node's `image` is set to the repo it is created from. The image is found as `up`
+/// finds it, by the node's model, kind and manifest `version`, or else their default, so a
+/// node whose manifest names another version is rebuilt from that version. The model and kind
+/// cannot change, and unikernels cannot be redeployed.
 #[instrument(skip_all, fields(%lab_id, node_name = %target_node.name), level = "debug")]
 async fn load_node(
     state: &AppState,
@@ -285,22 +287,23 @@ async fn load_node(
         ))?;
     let node_record_id = db::get_node_id(&db_node).context("Failed to get node record ID")?;
 
-    let node_images = db::list_node_images_by_ids(db, vec![db_node.image.clone()])
+    let current_images = db::list_node_images_by_ids(db, vec![db_node.image.clone()])
         .await
         .context("Failed to get node image config")?;
-    let node_image = node_images
+    let current_image = current_images
         .first()
-        .ok_or_else(|| anyhow!("Node image config not found for node '{node_name}'"))?
-        .clone();
+        .ok_or_else(|| anyhow!("Node image config not found for node '{node_name}'"))?;
     ensure!(
-        target_node.model_kind.model() == node_image.model
-            && target_node.model_kind.kind() == node_image.kind,
+        target_node.model_kind.model() == current_image.model
+            && target_node.model_kind.kind() == current_image.kind(),
         "Redeploy cannot change node model or kind; expected {} ({})",
-        node_image.model,
-        node_image.kind
+        current_image.model,
+        current_image.kind()
     );
+    let node_image =
+        redeploy_image(db, target_node.model_kind, target_node.version.as_deref()).await?;
     ensure!(
-        !matches!(node_image.kind, data::NodeKind::Unikernel),
+        !matches!(node_image.kind(), data::NodeKind::Unikernel),
         "Redeploy not supported for unikernel nodes"
     );
     validate_node_ztp(target_node, &node_image, talos_clusters)?;
@@ -311,7 +314,7 @@ async fn load_node(
         ))?;
 
     let image_guard = lease_image(node_image.model_kind()?, &node_image.version).await;
-    if node_image.kind == data::NodeKind::Container {
+    if node_image.kind() == data::NodeKind::Container {
         let repo = validate_container_repo(
             node_name,
             node_image.model,
@@ -341,6 +344,34 @@ async fn load_node(
         data_interface_count,
         image_guard,
     })
+}
+
+/// The image a redeployed node of `model_kind` is rebuilt from: its `version`, or else the
+/// default of its model and kind.
+///
+/// # Errors
+///
+/// Fails when there is no such image, naming the model, kind and version, or the database
+/// cannot be read.
+#[instrument(skip(db), level = "debug")]
+async fn redeploy_image(
+    db: &db::Database,
+    model_kind: data::ModelKind,
+    version: Option<&str>,
+) -> Result<data::NodeConfig> {
+    let (model, kind) = (model_kind.model(), model_kind.kind());
+    match version {
+        Some(version) => db::find_node_image_by_model_kind_version(db, &model, &kind, version)
+            .await
+            .context("Failed to look up the node's image")?
+            .ok_or_else(|| {
+                anyhow!("Node image not found for model: {model} kind: {kind} version: {version}")
+            }),
+        None => db::find_default_node_image(db, &model, &kind)
+            .await
+            .context("Failed to look up the node's image")?
+            .ok_or_else(|| anyhow!("Default node image not found for model: {model} kind: {kind}")),
+    }
 }
 
 /// The lab's details from the database, its management network and DNS from them, and its
@@ -704,5 +735,55 @@ mod tests {
         assert_eq!(network.v4.first, expected.v4.first);
         assert_eq!(network.v4.boot_server, expected.v4.boot_server);
         assert!(network.v6.is_none());
+    }
+
+    /// A database with two `arista_eos` container images, 4.33 the default, and a VM image
+    /// 4.35 of the same model.
+    async fn database_with_ceos_versions() -> db::Database {
+        let database = db::open_in_memory().await.unwrap();
+        db::apply_schema(&database).await.unwrap();
+        let ceos = ModelKind::new(NodeModel::AristaEos, Some(data::NodeKind::Container)).unwrap();
+        for (model_kind, version, default) in [
+            (ceos, "4.33", true),
+            (ceos, "4.34", false),
+            (ModelKind::default_for(NodeModel::AristaEos), "4.35", true),
+        ] {
+            let image = data::NodeConfig {
+                version: version.to_owned(),
+                default,
+                ..model_kind.node_config()
+            };
+            let request = if default {
+                db::DefaultRequest::Make
+            } else {
+                db::DefaultRequest::Keep
+            };
+            db::upsert_node_image(&database, image, request)
+                .await
+                .unwrap();
+        }
+        database
+    }
+
+    #[tokio::test]
+    async fn a_redeploy_is_rebuilt_from_the_manifests_version_of_its_model_and_kind() {
+        let database = database_with_ceos_versions().await;
+        let ceos = ModelKind::new(NodeModel::AristaEos, Some(data::NodeKind::Container)).unwrap();
+
+        let image = redeploy_image(&database, ceos, Some("4.34")).await.unwrap();
+        assert_eq!(image.version, "4.34");
+        assert_eq!(image.kind(), data::NodeKind::Container);
+        // Without a version, the default of the model and kind, as `up` takes.
+        let image = redeploy_image(&database, ceos, None).await.unwrap();
+        assert_eq!(image.version, "4.33");
+        // Another kind's version is never the node's.
+        let error = redeploy_image(&database, ceos, Some("4.35"))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("model: arista_eos kind: container version: 4.35"),
+            "{error}"
+        );
     }
 }

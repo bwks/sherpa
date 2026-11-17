@@ -17,7 +17,7 @@ use anyhow::{Context, Result};
 #[cfg(unix)]
 use tracing::instrument;
 
-use crate::data::{NodeKind, UnikernelBootMode, UnikernelSettings};
+use crate::data::{KindSettings, UnikernelBootMode};
 use crate::konst::{UNIKERNEL_DISK_FILENAME, UNIKERNEL_KERNEL_FILENAME, VM_DISK_FILENAME};
 
 /// Convert a `Path` to an owned `String`, using lossy UTF-8 conversion.
@@ -324,21 +324,21 @@ pub fn create_config_archive(src_path: &str, dst_path: &str) -> Result<()> {
     Ok(())
 }
 
-/// Return the expected image filename for a given node kind and its unikernel settings.
+/// The file a disk-based image keeps in its version folder, by its kind's settings; `None` for
+/// a container image, which Docker keeps.
 ///
 /// - VMs: `virtioa.qcow2`
 /// - Unikernel `DirectKernel`: `kernel.elf`
 /// - Unikernel `DiskBoot`: `disk.qcow2`
 #[must_use]
-pub fn image_filename(kind: &NodeKind, unikernel: Option<&UnikernelSettings>) -> &'static str {
-    match kind {
-        NodeKind::Unikernel => match unikernel {
-            Some(UnikernelSettings {
-                boot_mode: UnikernelBootMode::DiskBoot,
-            }) => UNIKERNEL_DISK_FILENAME,
-            _ => UNIKERNEL_KERNEL_FILENAME,
-        },
-        _ => VM_DISK_FILENAME,
+pub fn image_filename(settings: &KindSettings) -> Option<&'static str> {
+    match settings {
+        KindSettings::VirtualMachine(_) => Some(VM_DISK_FILENAME),
+        KindSettings::Unikernel(unikernel) => Some(match unikernel.boot_mode {
+            UnikernelBootMode::DirectKernel => UNIKERNEL_KERNEL_FILENAME,
+            UnikernelBootMode::DiskBoot => UNIKERNEL_DISK_FILENAME,
+        }),
+        KindSettings::Container(_) => None,
     }
 }
 

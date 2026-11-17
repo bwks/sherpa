@@ -44,7 +44,7 @@ async fn test_get_node_config_by_model_kind() -> Result<()> {
     let retrieved: Option<_> = find_node_image_by_model_kind_version(
         &db,
         &NodeModel::CiscoAsa,
-        &test_config.kind,
+        &test_config.kind(),
         &test_config.version,
     )
     .await?;
@@ -118,7 +118,6 @@ async fn test_list_configs_returns_all_fields() -> Result<()> {
     assert!(ubuntu_config.cpu.count > 0);
     assert!(ubuntu_config.memory > 0);
     assert!(ubuntu_config.interfaces.data_count > 0);
-    assert_ne!(ubuntu_config.interfaces.prefix, "");
 
     Ok(())
 }
@@ -135,7 +134,7 @@ async fn image_versions_are_in_order_and_one_is_the_default() -> Result<()> {
         image.version = version.to_owned();
         upsert_node_image(&db, image, request).await?;
     }
-    let kind = create_test_config(NodeModel::UbuntuLinux).kind;
+    let kind = create_test_config(NodeModel::UbuntuLinux).kind();
 
     let versions = get_node_image_versions(&db, &NodeModel::UbuntuLinux, &kind).await?;
     let names: Vec<&str> = versions

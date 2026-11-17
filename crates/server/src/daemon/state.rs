@@ -19,6 +19,7 @@ use crate::daemon::link_states::LinkStates;
 use crate::daemon::metrics::Metrics;
 use crate::daemon::storage::secure_storage;
 use crate::konst::SHERPA_ADMIN_PASSWORD_ENV;
+use crate::services::image_lifecycle::BackedVolumes;
 use crate::validate::{check_host_memory_settings, validate_tailscale_gateway_settings};
 
 /// The key that seals the database's secret values: 32 bytes, mode 0600, beside the JWT secret
@@ -145,8 +146,13 @@ impl AppState {
         // Initialize libvirt client
         let qemu = Qemu::default();
         let backing_files = qemu
-            .connect()
-            .and_then(|qemu_conn| libvirt::pool_backing_files(&qemu_conn))
+            .backed_volumes()
+            .map(|volumes| {
+                volumes
+                    .into_iter()
+                    .map(|volume| volume.backing_file)
+                    .collect::<Vec<_>>()
+            })
             .inspect_err(|error| {
                 tracing::warn!(
                     error = %format!("{error:#}"),

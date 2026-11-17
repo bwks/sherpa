@@ -443,7 +443,7 @@ impl Configuring<'_, '_> {
                     .map_or_default(|net| net.network_name.clone()),
             },
             setup_result.kernel_path,
-        );
+        )?;
         let _ = self.build.progress.send_status(
             format!("Unikernel node {} configured", node.name),
             StatusKind::Done,
@@ -471,24 +471,28 @@ fn domain_interfaces(
     mac_address: &str,
     lab_id: &str,
 ) -> Result<Vec<data::Interface>> {
+    let image_mtu = node_image
+        .interface_device()
+        .with_context(|| format!("Node image {} is a container's", node_image.model))?
+        .mtu;
     let mut interfaces = Vec::with_capacity(node_data.interfaces.len());
     for interface in &node_data.interfaces {
         let (name, mtu, mac, connection_type) = match &interface.data {
             data::NodeInterface::Management => (
                 util::dasher(&node_image.interfaces.management.to_string()),
-                node_image.interfaces.mtu,
+                image_mtu,
                 mac_address.to_owned(),
                 data::ConnectionTypes::Management,
             ),
             data::NodeInterface::Reserved => (
                 format!("int{}", interface.index),
-                node_image.interfaces.mtu,
+                image_mtu,
                 util::random_mac(KVM_OUI),
                 data::ConnectionTypes::Reserved,
             ),
             data::NodeInterface::Bridge(bridge) => (
                 bridge.name.clone(),
-                node_image.interfaces.mtu,
+                image_mtu,
                 util::random_mac(KVM_OUI),
                 data::ConnectionTypes::PrivateBridge,
             ),
@@ -506,7 +510,7 @@ fn domain_interfaces(
             }
             data::NodeInterface::Disabled => (
                 util::dasher(&util::interface_from_idx(node.model_kind, interface.index)?),
-                node_image.interfaces.mtu,
+                image_mtu,
                 util::random_mac(KVM_OUI),
                 data::ConnectionTypes::Disabled,
             ),

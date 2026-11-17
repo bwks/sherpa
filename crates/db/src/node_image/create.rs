@@ -32,9 +32,11 @@ pub async fn upsert_node_image(
     mut config: NodeConfig,
     request: DefaultRequest,
 ) -> Result<NodeConfig> {
-    check_ztp(config.model_kind()?, config.ztp.method).context(format!(
+    check_ztp(config.model_kind()?, config.ztp()).context(format!(
         "Refusing to store node_image: model={}, kind={}, version={}",
-        config.model, config.kind, config.version
+        config.model,
+        config.kind(),
+        config.version
     ))?;
     let mut writer = db.writer().await?;
     let tx = writer
@@ -44,7 +46,7 @@ pub async fn upsert_node_image(
         .context("Failed to start the node_image upsert transaction")?;
 
     let model = enum_text(&config.model, "model")?;
-    let kind = enum_text(&config.kind, "kind")?;
+    let kind = enum_text(&config.kind(), "kind")?;
     let existing = query_optional(
         &tx,
         queries::node_image::FIND_BY_MODEL_KIND_VERSION.bind([
@@ -57,10 +59,12 @@ pub async fn upsert_node_image(
     .await
     .context(format!(
         "Failed to query existing node_image: model={}, kind={}, version={}",
-        config.model, config.kind, config.version
+        config.model,
+        config.kind(),
+        config.version
     ))?;
     let is_default =
-        claim_default(&tx, config.model, &config.kind, &config.version, request).await?;
+        claim_default(&tx, config.model, &config.kind(), &config.version, request).await?;
 
     let result = match existing {
         Some(existing) if existing.default == is_default => existing,
@@ -77,7 +81,7 @@ pub async fn upsert_node_image(
                     anyhow!(
                         "Database returned no record after updating node_image: model={}, kind={}, version={}",
                         existing.model,
-                        existing.kind,
+                        existing.kind(),
                         existing.version
                     )
                 })?
@@ -106,14 +110,16 @@ async fn insert_node_image(conn: &Connection, config: &NodeConfig) -> Result<Nod
     .await
     .context(format!(
         "Failed to create node_image: model={}, kind={}, version={}",
-        config.model, config.kind, config.version
+        config.model,
+        config.kind(),
+        config.version
     ))?;
 
     created.ok_or_else(|| {
         anyhow!(
             "Database returned no record after creating node_image: model={}, kind={}, version={}",
             config.model,
-            config.kind,
+            config.kind(),
             config.version
         )
     })
@@ -133,6 +139,8 @@ pub(crate) async fn replace_node_image(
     .await
     .context(format!(
         "Failed to update node_image: model={}, kind={}, version={}",
-        config.model, config.kind, config.version
+        config.model,
+        config.kind(),
+        config.version
     ))
 }
