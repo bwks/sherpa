@@ -1,6 +1,6 @@
 use std::net::Ipv4Addr;
 
-use template::{CiscoFtdvZtpTemplate, CiscoFxosIpMode, YesNo};
+use template::{CiscoFtdZtpTemplate, CiscoFxosIpMode, YesNo};
 
 use crate::helpers;
 
@@ -8,7 +8,7 @@ use crate::helpers;
 // Expected configs
 // ============================================================================
 
-// CiscoFtdvZtpTemplate serializes to JSON via serde.
+// CiscoFtdZtpTemplate serializes to JSON via serde.
 // Field names are PascalCase via #[serde(rename)].
 // CiscoFxosIpMode serializes lowercase. CiscoFxosFirewallMode serializes lowercase.
 // manage_locally serializes as Yes or No.
@@ -41,7 +41,7 @@ const EXPECTED_MANAGE_LOCALLY_NO: &str = r#"{
 
 #[test]
 fn test_manual_ipv4() {
-    let t = CiscoFtdvZtpTemplate {
+    let t = CiscoFtdZtpTemplate {
         eula: "accept".to_string(),
         hostname: "ftdv01".to_string(),
         admin_password: "Admin123!".to_string(),
@@ -59,7 +59,7 @@ fn test_manual_ipv4() {
 
 #[test]
 fn test_manage_locally_false() {
-    let t = CiscoFtdvZtpTemplate {
+    let t = CiscoFtdZtpTemplate {
         hostname: "ftdv01".to_string(),
         manage_locally: YesNo(false),
         ..Default::default()
@@ -71,7 +71,7 @@ fn test_manage_locally_false() {
 #[test]
 fn test_admin_password_is_intact() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
-        let t = CiscoFtdvZtpTemplate {
+        let t = CiscoFtdZtpTemplate {
             hostname: "ftdv01".to_string(),
             admin_password: (*password).to_string(),
             ..Default::default()

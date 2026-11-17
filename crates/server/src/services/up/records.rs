@@ -344,7 +344,7 @@ mod tests {
     async fn each_nodes_ssh_account_is_stored_with_its_record() {
         let (db, lab) = lab_with(&[
             ("vm1", NodeModel::AlpineLinux),
-            ("web", NodeModel::GenericContainer),
+            ("web", NodeModel::PostgresqlDb),
         ])
         .await;
         let lab_node_data: Vec<data::LabNodeData> =

@@ -124,7 +124,7 @@ mod tests {
     #[test]
     fn an_import_with_its_token_is_read_without_it() {
         let request = import_request(json!({
-            "model": "generic_unikernel",
+            "model": "generic",
             "kind": "unikernel",
             "version": "1",
             "src": "/var/tmp/kernel.elf",

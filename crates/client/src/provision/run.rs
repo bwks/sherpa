@@ -411,7 +411,7 @@ mod tests {
 
             [[nodes]]
             name = "r1"
-            model = "cisco_iosv"
+            model = "cisco_ios"
             "#,
         )
         .unwrap();

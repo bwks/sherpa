@@ -2,7 +2,7 @@ use std::net::Ipv4Addr;
 
 use askama::Template;
 
-use template::{AristaCeosZtpTemplate, AristaVeosZtpTemplate};
+use template::{AristaEosContainerZtpTemplate, AristaEosVmZtpTemplate};
 
 use crate::helpers;
 
@@ -107,8 +107,8 @@ end
 
 const PASSWORD: &str = "abcdefghijklm!@_-+.";
 
-fn veos(hash: &str, ipv6: bool) -> AristaVeosZtpTemplate {
-    AristaVeosZtpTemplate {
+fn veos(hash: &str, ipv6: bool) -> AristaEosVmZtpTemplate {
+    AristaEosVmZtpTemplate {
         hostname: "veos01".to_string(),
         owner: helpers::test_owner(hash),
         dns: helpers::test_dns(),
@@ -119,8 +119,8 @@ fn veos(hash: &str, ipv6: bool) -> AristaVeosZtpTemplate {
     }
 }
 
-fn ceos(hash: &str) -> AristaCeosZtpTemplate {
-    AristaCeosZtpTemplate {
+fn ceos(hash: &str) -> AristaEosContainerZtpTemplate {
+    AristaEosContainerZtpTemplate {
         hostname: "ceos01".to_string(),
         owner: helpers::test_owner(hash),
         dns: helpers::test_dns(),

@@ -44,17 +44,17 @@ today, so the table is per model. `Disabled` is allowed for every pair and is ne
 
 | Methods | Models |
 |---|---|
-| `cloud-init` | the Linux, BSD and Windows VMs, the application VMs, `generic_vm` |
-| `tftp` | `arista_veos`, `aruba_aoscx` |
-| `tftp`, `cdrom` | `juniper_vsrxv3` |
-| `tftp`, `usb` | `juniper_vevolved` |
-| `cdrom` | the Cisco IOS XE, ASA, NX-OS, IOS XR and FTD VMs, `juniper_vrouter`, `juniper_vswitch`, `paloalto_panos` |
-| `disk` | `cisco_iosv`, `cisco_iosvl2`, `cisco_ise`, `mikrotik_chr` |
+| `cloud-init` | the Linux, BSD and Windows VMs, the application VMs, the `generic` VM |
+| `tftp` | the `arista_eos` VM, `aruba_aoscx` |
+| `tftp`, `cdrom` | `juniper_srxv3` |
+| `tftp`, `usb` | the `juniper_evolved` VM |
+| `cdrom` | the Cisco IOS XE, ASA, NX-OS, IOS XR and FTD VMs, `juniper_router`, `juniper_switch`, `paloalto_panos` |
+| `disk` | `cisco_ios`, `cisco_iosl2`, `cisco_ise`, `mikrotik_chr` |
 | `usb` | `cumulus_linux` |
 | `http` | `sonic_linux` |
 | `ignition` | `flatcar_linux` |
 | `nocloud` | `talos_linux` |
-| `volume` | `arista_ceos`, `nokia_srlinux`, `juniper_cevolved`, `cisco_iol`, `cisco_ioll2`, `frr_linux` |
+| `volume` | the `arista_eos` and `juniper_evolved` containers, `nokia_srlinux`, `cisco_iol`, `cisco_ioll2`, `frr_linux` |
 | none | every other container, and the unikernels |
 
 Each pair's default from `ModelKind::node_config` is `Disabled` or a listed method; unit tests in
@@ -101,7 +101,7 @@ Each reader is one `match` on `Ztp` with `Disabled` as a case in it.
 | VM media, `node_ops::generate_vm_ztp_media` | no media; one "ZTP is off for node" message | each VM method's generator |
 | Container setup, `node_ops::container_model_setup` | start settings only | `volume`: start settings, then config files, mounts and logins |
 | DHCP boot options, `DnsmasqTemplate::boot_options` | none | `tftp`: option 67. `http`: options 67 and 239. The others: none |
-| Owner account, `guest_account::supports_guest_account` | none | every method, except on `cisco_ftdv` and `talos_linux` |
+| Owner account, `guest_account::supports_guest_account` | none | every method, except on `cisco_ftd` and `talos_linux` |
 | Custom config, `validate::ztp` | refused, Vault excepted | as above |
 
 The dnsmasq template only loops over the option lines `boot_options` returns.
@@ -125,10 +125,11 @@ set by Sherpa. So `boot_server::boot_container_spec` mounts under `/opt/ztp` onl
 `ztp/configs/` holds only the files of the nodes that boot by HTTP, which today is `sonic_linux`
 alone: its ZTP file map `<node>.conf`, named in DHCP options 67 and 239, and the two files the
 map fetches, `<node>_config_db.json` and `<node>_ztp_user.sh`, the owner's account script. The
-TFTP configs (vEOS, AOS-CX, vEvolved, vSRX when set to `tftp`), the dnsmasq config and the leases
-are not under the HTTP root, so a node on the management network can fetch them only as TFTP
-allows: by name, the TFTP configs only. Up to 0.6.5 the whole `/opt/ztp` was the lab's ZTP
-folder, so HTTP also listed and served `tftp/` and `dnsmasq/dnsmasq.leases`.
+TFTP configs (the `arista_eos` and `juniper_evolved` VMs, `aruba_aoscx`, `juniper_srxv3` when
+set to `tftp`), the dnsmasq config and the leases are not under the HTTP root, so a node on the
+management network can fetch them only as TFTP allows: by name, the TFTP configs only. Up to
+0.6.5 the whole `/opt/ztp` was the lab's ZTP folder, so HTTP also listed and served `tftp/` and
+`dnsmasq/dnsmasq.leases`.
 
 The modes each process needs are in [`LAB_FOLDER.md`](LAB_FOLDER.md#node-config-modes):
 `webdir` and dnsmasq run as root in the container; dnsmasq serves only files others can read.
@@ -170,16 +171,16 @@ error saying the setting was not validated. It is reached only if a write or a p
 
 | Model | Start settings (`disabled` and `volume`) | Added by `volume` |
 |---|---|---|
-| `arista_ceos` | image repo, privileged, environment, the init command | the startup config, its read-only mount, and the "copy into flash unless one is saved" prefix on the command |
+| `arista_eos` container | image repo, privileged, environment, the init command | the startup config, its read-only mount, and the "copy into flash unless one is saved" prefix on the command |
 | `nokia_srlinux` | image repo, privileged, user `0:0`, environment, command | `config.json` and its mount |
-| `juniper_cevolved` | image repo, privileged, the `CPTX_*` environment its entrypoint reads | `juniper.conf` in `configdisk` and its mount |
+| `juniper_evolved` container | image repo, privileged, the `CPTX_*` environment its entrypoint reads | `juniper.conf` in `configdisk` and its mount |
 | `cisco_iol`, `cisco_ioll2` | image repo, not privileged, `NET_ADMIN`, the `IOL_ID`, `IOL_MEMORY_MB` and `IOL_ETH_PORTS` environment its entrypoint writes the launcher config from, and IOL's NVRAM directory `run/` mounted at `/tmp/run` | `ios_config.txt` in `config/` and its read-only mount at `/config` |
 | `frr_linux` | image repo, privileged, environment | the `daemons` file, `frr.conf`, `sherpa-init.sh`, their mounts, and the command that runs the script |
 | `hashicorp_vault` | image, `config.hcl` (generated, or the node's `ztp.config`), its mount, environment, command, capabilities | nothing; its only setting is `disabled` |
 | `keycloak_server` | image, user, environment, command; needs the lab certificate | nothing |
 | `gitlab_ce` | image, command, `container.shm_size` | nothing |
 | `forgejo_forge`, `surreal_db`, `mongo_db`, `nats_bus` | image, command | nothing |
-| `mysql_db`, `postgresql_db`, `generic_container` | the manifest's settings | nothing |
+| `mysql_db`, `postgresql_db`, the `generic` container | the manifest's settings | nothing |
 
 With ZTP off, a node of the first five has no generated config, no Sherpa config mount and no
 logins (IOL keeps its NVRAM mount):
@@ -196,8 +197,8 @@ FRR 10.5.2):
 | Model | Management address | SSH | Reached with |
 |---|---|---|---|
 | `nokia_srlinux` | none: SR Linux takes the interface into its own network instance without it | not reachable | `docker exec` |
-| `arista_ceos` | none: EOS takes `eth0` as `Management0` and leaves it unassigned; its own ZTP is off | enabled, not reachable | `docker exec ... Cli` |
-| `juniper_cevolved` | the node's: the image's entrypoint puts it on `re0:mgmt-0` from the image's own `juniper.conf` | answers, refuses the owner: the image's config has only its own `admin` user | `docker exec` (SSH as `admin` was not tried) |
+| `arista_eos` container | none: EOS takes `eth0` as `Management0` and leaves it unassigned; its own ZTP is off | enabled, not reachable | `docker exec ... Cli` |
+| `juniper_evolved` container | the node's: the image's entrypoint puts it on `re0:mgmt-0` from the image's own `juniper.conf` | answers, refuses the owner: the image's config has only its own `admin` user | `docker exec` (SSH as `admin` was not tried) |
 | `frr_linux` | the node's: a plain Linux container | none | `docker exec` |
 | `cisco_iol`, `cisco_ioll2` | none: the entrypoint removes Docker's address from `eth0`, and IOL boots to its factory state and runs its own autoinstall | none | `docker attach`, the IOL console |
 
@@ -243,8 +244,8 @@ the template itself is never changed. A missing template fails the node's ZTP wi
 | File | Size | File system | Label | Used by |
 |---|---|---|---|---|
 | `fat32.img` | 64 MiB | FAT32 | none | `cumulus_linux` USB, `mikrotik_chr` config disk |
-| `junos.img` | 64 MiB | FAT16 | `vmm-data` | `juniper_vevolved` USB |
-| `iosv.img` | 131040 sectors | FAT16 | none | `cisco_iosv`, `cisco_iosvl2` config disk |
+| `junos.img` | 64 MiB | FAT16 | `vmm-data` | `juniper_evolved` VM USB |
+| `iosv.img` | 131040 sectors | FAT16 | none | `cisco_ios`, `cisco_iosl2` config disk |
 | `ise.img` | 10 MiB | ext4 | `ISE-ZTP` | `cisco_ise` config disk |
 | `ext4-500mb.img` | 500 MiB | ext4 | `data-disk` | `flatcar_linux` data disk; Ignition mounts it by label |
 

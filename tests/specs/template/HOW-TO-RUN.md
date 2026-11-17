@@ -21,7 +21,7 @@ cargo test -p template nokia_srlinux::
 ## Run a Single Test
 
 ```bash
-cargo test -p template test_arista_veos_renders
+cargo test -p template test_veos_static_ipv4
 ```
 
 ## Run with Output

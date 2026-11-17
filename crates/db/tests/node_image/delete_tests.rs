@@ -13,7 +13,7 @@ async fn test_delete_node_image_success() -> Result<()> {
     let db = setup_db().await?;
 
     // Create a config
-    let test_config = create_test_config(NodeModel::AristaVeos);
+    let test_config = create_test_config(NodeModel::AristaEos);
     let created = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
     let created_id = created.id.clone().expect("Created config should have ID");
 
@@ -53,7 +53,7 @@ async fn test_delete_and_verify_count_decreases() -> Result<()> {
     let initial_count = count_node_images(&db).await?;
 
     // Create a config
-    let test_config = create_test_config(NodeModel::CiscoAsav);
+    let test_config = create_test_config(NodeModel::CiscoAsa);
     let created = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
     let created_id = created.id.clone().expect("Created config should have ID");
 

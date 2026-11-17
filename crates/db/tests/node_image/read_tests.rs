@@ -14,7 +14,7 @@ async fn test_get_node_image_by_id() -> Result<()> {
     let db = setup_db().await?;
 
     // Create a test config
-    let test_config = create_test_config(NodeModel::AristaCeos);
+    let test_config = create_test_config(NodeModel::AristaEos);
     let created = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
 
     let created_id = created
@@ -27,7 +27,7 @@ async fn test_get_node_image_by_id() -> Result<()> {
 
     assert!(retrieved.is_some(), "Should find config by ID");
     let retrieved = retrieved.unwrap();
-    assert_eq!(retrieved.model, NodeModel::AristaCeos);
+    assert_eq!(retrieved.model, NodeModel::AristaEos);
 
     Ok(())
 }
@@ -37,13 +37,13 @@ async fn test_get_node_config_by_model_kind() -> Result<()> {
     let db = setup_db().await?;
 
     // Create a test config
-    let test_config = create_test_config(NodeModel::CiscoAsav);
+    let test_config = create_test_config(NodeModel::CiscoAsa);
     let _created = upsert_node_image(&db, test_config.clone(), DefaultRequest::Keep).await?;
 
     // Get by model and kind
     let retrieved: Option<_> = find_node_image_by_model_kind_version(
         &db,
-        &NodeModel::CiscoAsav,
+        &NodeModel::CiscoAsa,
         &test_config.kind,
         &test_config.version,
     )
@@ -51,7 +51,7 @@ async fn test_get_node_config_by_model_kind() -> Result<()> {
 
     assert!(retrieved.is_some(), "Should find config by model and kind");
     let retrieved = retrieved.unwrap();
-    assert_eq!(retrieved.model, NodeModel::CiscoAsav);
+    assert_eq!(retrieved.model, NodeModel::CiscoAsa);
 
     Ok(())
 }
@@ -63,7 +63,7 @@ async fn test_count_node_images() -> Result<()> {
     let initial_count = count_node_images(&db).await?;
 
     // Create a test config
-    let test_config = create_test_config(NodeModel::JuniperVrouter);
+    let test_config = create_test_config(NodeModel::JuniperRouter);
     let _created = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
 
     let new_count = count_node_images(&db).await?;

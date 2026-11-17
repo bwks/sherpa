@@ -1,194 +1,243 @@
 # VM images seed-images.sh copies from the host's /opt/sherpa/images into a dev server and
 # imports with the guest's `sherpa server image import`. Each entry is a model and a version, as
-# in `sherpa server image list`; the disk is <model>/<version>/virtioa.qcow2 on the host.
+# in `sherpa server image list` in the guest, and `source`, the disk's path under
+# /opt/sherpa/images on the host. The source is its own key, not derived from the model, because
+# the host runs a released Sherpa whose model and folder names can differ from the guest's: a
+# host before 0.7.0 keeps vEOS under arista_veos/, which the guest imports as arista_eos.
 # The first version imported for a model becomes its default, so list the default first.
 # Container images are not here: the host keeps them in Docker, not in /opt/sherpa/images
 # (see README.md).
 #
 # Each [[extra_files]] entry is a file the images need that `sherpa server image import` does
-# not bring, as a path under /opt/sherpa/images. It is copied to the same path in the guest
-# unless the guest's copy has the same SHA-256.
+# not bring: `path` under /opt/sherpa/images in the guest, and `source` under /opt/sherpa/images
+# on the host. It is copied unless the guest's copy has the same SHA-256.
 
 [[images]]
 model = "alma_linux"
 version = "10-20241125"
+source = "alma_linux/10-20241125/virtioa.qcow2"
 
 [[images]]
 model = "alpine_linux"
 version = "3.23.0"
+source = "alpine_linux/3.23.0/virtioa.qcow2"
 
 [[images]]
-model = "arista_veos"
+model = "arista_eos"
 version = "4.35.3F"
+source = "arista_veos/4.35.3F/virtioa.qcow2"
 
 [[images]]
 model = "aruba_aoscx"
 version = "10.16"
+source = "aruba_aoscx/10.16/virtioa.qcow2"
 
 [[images]]
 model = "centos_linux"
 version = "10-20261021.0"
+source = "centos_linux/10-20261021.0/virtioa.qcow2"
 
 [[images]]
-model = "cisco_asav"
+model = "cisco_asa"
 version = "9-23-1"
+source = "cisco_asav/9-23-1/virtioa.qcow2"
 
 [[images]]
-model = "cisco_cat8000v"
+model = "cisco_cat8000"
 version = "17.16.01a"
+source = "cisco_cat8000v/17.16.01a/virtioa.qcow2"
 
 [[images]]
-model = "cisco_cat9000v"
+model = "cisco_cat9000"
 version = "17.15.03"
+source = "cisco_cat9000v/17.15.03/virtioa.qcow2"
 
 [[images]]
-model = "cisco_csr1000v"
+model = "cisco_csr1000"
 version = "17.03.08a"
+source = "cisco_csr1000v/17.03.08a/virtioa.qcow2"
 
 [[images]]
-model = "cisco_ftdv"
+model = "cisco_ftd"
 version = "7.7.0-89"
+source = "cisco_ftdv/7.7.0-89/virtioa.qcow2"
 
 [[images]]
-model = "cisco_iosv"
+model = "cisco_ios"
 version = "159-3.m10"
+source = "cisco_iosv/159-3.m10/virtioa.qcow2"
 
 [[images]]
-model = "cisco_iosvl2"
+model = "cisco_iosl2"
 version = "20200929"
+source = "cisco_iosvl2/20200929/virtioa.qcow2"
 
 [[images]]
-model = "cisco_iosxrv9000"
+model = "cisco_iosxr9000"
 version = "25.1.1"
+source = "cisco_iosxrv9000/25.1.1/virtioa.qcow2"
 
 [[images]]
 model = "cisco_ise"
 version = "3.5.0"
+source = "cisco_ise/3.5.0/virtioa.qcow2"
 
 [[images]]
-model = "cisco_nexus9300v"
+model = "cisco_nexus9300"
 version = "10.5.3.F"
+source = "cisco_nexus9300v/10.5.3.F/virtioa.qcow2"
 
 [[images]]
 model = "cumulus_linux"
 version = "5.9.1"
+source = "cumulus_linux/5.9.1/virtioa.qcow2"
 
 [[images]]
 model = "devbox_linux"
 version = "ubuntu-26.04.05"
+source = "devbox_linux/ubuntu-26.04.05/virtioa.qcow2"
 
 [[images]]
 model = "devbox_windows"
 version = "windows11-20261030"
+source = "devbox_windows/windows11-20261030/virtioa.qcow2"
 
 [[images]]
 model = "fedora_linux"
 version = "43-1.6"
+source = "fedora_linux/43-1.6/virtioa.qcow2"
 
 [[images]]
 model = "flatcar_linux"
 version = "20251215"
+source = "flatcar_linux/20251215/virtioa.qcow2"
 
 [[images]]
 model = "free_bsd"
 version = "14.2"
+source = "free_bsd/14.2/virtioa.qcow2"
 
 [[images]]
 model = "infrahub_server"
 version = "1.10.6"
+source = "infrahub_server/1.10.6/virtioa.qcow2"
 
 [[images]]
 model = "jenkins_server"
 version = "2.541.3"
+source = "jenkins_server/2.541.3/virtioa.qcow2"
 
 [[images]]
-model = "juniper_vevolved"
+model = "juniper_evolved"
 version = "25.2R1.8"
+source = "juniper_vevolved/25.2R1.8/virtioa.qcow2"
 
 [[images]]
-model = "juniper_vrouter"
+model = "juniper_router"
 version = "25.2R1.9"
+source = "juniper_vrouter/25.2R1.9/virtioa.qcow2"
 
 [[images]]
-model = "juniper_vsrxv3"
+model = "juniper_srxv3"
 version = "23.2R2.21"
+source = "juniper_vsrxv3/23.2R2.21/virtioa.qcow2"
 
 [[images]]
-model = "juniper_vswitch"
+model = "juniper_switch"
 version = "25.2R1.9"
+source = "juniper_vswitch/25.2R1.9/virtioa.qcow2"
 
 [[images]]
 model = "kali_linux"
 version = "2026.1"
+source = "kali_linux/2026.1/virtioa.qcow2"
 
 [[images]]
 model = "mikrotik_chr"
 version = "7.20.8"
+source = "mikrotik_chr/7.20.8/virtioa.qcow2"
 
 [[images]]
 model = "nautobot_server"
 version = "3.0.9"
+source = "nautobot_server/3.0.9/virtioa.qcow2"
 
 [[images]]
 model = "netbox_server"
 version = "4.5.5"
+source = "netbox_server/4.5.5/virtioa.qcow2"
 
 [[images]]
 model = "omarchy_linux"
 version = "4.5.0"
+source = "omarchy_linux/4.5.0/virtioa.qcow2"
 
 [[images]]
 model = "open_bsd"
 version = "7.8"
+source = "open_bsd/7.8/virtioa.qcow2"
 
 [[images]]
 model = "opensuse_linux"
 version = "15.6"
+source = "opensuse_linux/15.6/virtioa.qcow2"
 
 [[images]]
 model = "paloalto_panos"
 version = "11.1.6-h7"
+source = "paloalto_panos/11.1.6-h7/virtioa.qcow2"
 
 [[images]]
 model = "redhat_linux"
 version = "10.2"
+source = "redhat_linux/10.2/virtioa.qcow2"
 
 [[images]]
 model = "rocky_linux"
 version = "10-20260212"
+source = "rocky_linux/10-20260212/virtioa.qcow2"
 
 [[images]]
 model = "signoz_server"
 version = "0.1.0"
+source = "signoz_server/0.1.0/virtioa.qcow2"
 
 [[images]]
 model = "sonic_linux"
 version = "20251215"
+source = "sonic_linux/20251215/virtioa.qcow2"
 
 [[images]]
 model = "suse_linux"
 version = "15.SP7"
+source = "suse_linux/15.SP7/virtioa.qcow2"
 
 [[images]]
 model = "talos_linux"
 version = "1.14.4"
+source = "talos_linux/1.14.4/virtioa.qcow2"
 
 [[images]]
 model = "ubuntu_linux"
 version = "24.04"
+source = "ubuntu_linux/24.04/virtioa.qcow2"
 
 [[images]]
 model = "ubuntu_linux"
 version = "26.04"
+source = "ubuntu_linux/26.04/virtioa.qcow2"
 
 [[images]]
 model = "virt_server"
 version = "24.04.01"
+source = "virt_server/24.04.01/virtioa.qcow2"
 
 [[images]]
 model = "windows_server"
 version = "2022-20261026"
+source = "windows_server/2022-20261026/virtioa.qcow2"
 
-# vEOS boots from the Aboot ISO; without it `sherpa up` fails for an arista_veos node.
+# vEOS boots from the Aboot ISO; without it `sherpa up` fails for an arista_eos virtual machine.
 [[extra_files]]
-path = "arista_veos/aboot_iso/aboot.iso"
+path = "arista_eos/aboot_iso/aboot.iso"
+source = "arista_veos/aboot_iso/aboot.iso"

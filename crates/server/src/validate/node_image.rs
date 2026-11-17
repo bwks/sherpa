@@ -281,7 +281,7 @@ mod tests {
         assert!(error.contains("allows: disabled, cloud-init"), "{error}");
         for ztp in [Ztp::Disabled, Ztp::Tftp, Ztp::Cdrom] {
             let result = validate_node_image_update(
-                ModelKind::default_for(NodeModel::JuniperVsrxv3),
+                ModelKind::default_for(NodeModel::JuniperSrxv3),
                 ztp,
                 1,
                 1024,

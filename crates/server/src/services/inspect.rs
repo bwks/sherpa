@@ -537,7 +537,7 @@ mod tests {
 
     #[test]
     fn a_vm_and_a_unikernel_have_their_console_on_their_loopback_address() {
-        for model in [NodeModel::UbuntuLinux, NodeModel::GenericUnikernel] {
+        for model in [NodeModel::UbuntuLinux, NodeModel::UnikraftUnikernel] {
             let image = ModelKind::default_for(model).node_config();
             let node = DbNode {
                 index: 4,

@@ -369,8 +369,8 @@ mod tests {
     fn lab() -> Vec<BootNode> {
         vec![
             node("uk1", 1, NodeModel::NanosUnikernel, None),
-            node("srx", 2, NodeModel::JuniperVsrxv3, Some(Ztp::Cdrom)),
-            node("ct1", 3, NodeModel::GenericContainer, None),
+            node("srx", 2, NodeModel::JuniperSrxv3, Some(Ztp::Cdrom)),
+            node("ct1", 3, NodeModel::PostgresqlDb, None),
             node("sonic", 4, NodeModel::SonicLinux, Some(Ztp::Http)),
         ]
     }

@@ -46,10 +46,10 @@
                     <td class="p-4 text-sm text-body text-center">{{ config.data_interface_count }}</td>
                     <td class="p-4 text-sm text-body text-right">
                         <div class="flex items-center justify-end space-x-3">
-                            <a href="/admin/images/{{ config.model }}" class="text-muted hover:text-heading transition-colors" title="View">
+                            <a href="/admin/images/{{ config.model }}/{{ config.kind_badge.kind }}" class="text-muted hover:text-heading transition-colors" title="View">
                                 {% call icons::eye() %}
                             </a>
-                            <a href="/admin/images/{{ config.model }}/edit" class="text-edit hover:text-edit-hover transition-colors" title="Edit">
+                            <a href="/admin/images/{{ config.model }}/{{ config.kind_badge.kind }}/edit" class="text-edit hover:text-edit-hover transition-colors" title="Edit">
                                 {% call icons::pencil() %}
                             </a>
                         </div>

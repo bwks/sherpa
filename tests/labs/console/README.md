@@ -7,7 +7,7 @@ and every command runs with the directories holding a system `telnet` left off `
 | Node | Model | Role |
 |---|---|---|
 | `alp01` | `alpine_linux` (the default version) | VM whose serial console is opened |
-| `ctr01` | `generic_container` (`alpine` 3.22) | Container, which has no serial console |
+| `ctr01` | `generic`, kind `container` (`alpine` 3.22) | Container, which has no serial console |
 
 The runner writes the manifest for each run itself; there is no manifest file here.
 
@@ -28,7 +28,7 @@ The runner writes the manifest for each run itself; there is no manifest file he
 
 It runs wherever the CLI is logged in, with a device password set
 (`sherpa server user device-password`; the run stops early without one), to a server with the `alpine_linux` image and the
-`generic_container` `alpine` 3.22 image; it needs no Docker access. `sherpa` must not be in the
+`generic` container `alpine` 3.22 image; it needs no Docker access. `sherpa` must not be in the
 same directory as `telnet`.
 
 ```

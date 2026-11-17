@@ -208,18 +208,40 @@ fn be64(bytes: &[u8]) -> Result<u64> {
 pub fn ensure_no_overlay_dependencies(storage_path: &Path, image_dir: &Path) -> Result<()> {
     let image_dir = fs::canonicalize(image_dir)
         .context("Cannot resolve image directory for dependency check")?;
-    scan_dependencies(storage_path, &image_dir)
+    for (overlay, backing) in overlay_backing_files(storage_path)? {
+        let backing = fs::canonicalize(&backing)
+            .with_context(|| format!("Cannot resolve backing image of {}", overlay.display()))?;
+        ensure!(
+            !backing.starts_with(&image_dir),
+            "Image deletion blocked: managed overlay {} references {}",
+            overlay.display(),
+            backing.display()
+        );
+    }
+    Ok(())
 }
 
-/// Recursively inspect storage files for backing references into `image_dir`.
+/// Every QCOW2 disk under `storage_path` that has a backing file, with the backing file's path
+/// as the disk records it: a relative path is joined to the disk's directory, and nothing is
+/// resolved, so a path through a link or to a file that no longer exists is kept as written.
 ///
-/// Treat either a QCOW2 filename extension or magic signature as a reason to
-/// parse metadata. Resolve relative backing paths against the overlay directory
-/// and canonicalize them before comparison. Propagate inspection failures so
-/// deletion cannot proceed when a dependency cannot be determined safely.
-fn scan_dependencies(storage_path: &Path, image_dir: &Path) -> Result<()> {
-    for entry in fs::read_dir(storage_path)
-        .context("Cannot enumerate managed storage for dependency check")?
+/// A file with a QCOW2 filename extension or the QCOW2 magic is read as one.
+///
+/// # Errors
+///
+/// Fails when storage cannot be listed, or a disk's metadata cannot be read: a dependency that
+/// cannot be determined is an error, not a disk without one.
+#[instrument(level = "debug")]
+fn overlay_backing_files(storage_path: &Path) -> Result<Vec<(PathBuf, PathBuf)>> {
+    let mut found = Vec::new();
+    collect_backing_files(storage_path, &mut found)?;
+    Ok(found)
+}
+
+/// Add each disk under `dir` with a backing file, and its backing path, to `found`.
+fn collect_backing_files(dir: &Path, found: &mut Vec<(PathBuf, PathBuf)>) -> Result<()> {
+    for entry in
+        fs::read_dir(dir).context("Cannot enumerate managed storage for dependency check")?
     {
         let path = entry
             .context("Cannot read managed storage for dependency check")?
@@ -227,7 +249,7 @@ fn scan_dependencies(storage_path: &Path, image_dir: &Path) -> Result<()> {
         let metadata = fs::symlink_metadata(&path)
             .with_context(|| format!("Cannot inspect {}", path.display()))?;
         if metadata.is_dir() {
-            scan_dependencies(&path, image_dir)?;
+            collect_backing_files(&path, found)?;
             continue;
         }
         let mut file = File::open(&path)
@@ -254,14 +276,7 @@ fn scan_dependencies(storage_path: &Path, image_dir: &Path) -> Result<()> {
                     .context("Missing disk parent directory")?
                     .join(backing)
             };
-            let backing = fs::canonicalize(&backing)
-                .with_context(|| format!("Cannot resolve backing image of {}", path.display()))?;
-            ensure!(
-                !backing.starts_with(image_dir),
-                "Image deletion blocked: managed overlay {} references {}",
-                path.display(),
-                backing.display()
-            );
+            found.push((path, backing));
         }
     }
     Ok(())

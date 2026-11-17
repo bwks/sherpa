@@ -506,7 +506,7 @@ mod tests {
     fn only_vault_nodes_with_the_generated_config_are_initialised() {
         assert!(sherpa_initialises_vault(NodeModel::HashicorpVault, false));
         assert!(!sherpa_initialises_vault(NodeModel::HashicorpVault, true));
-        assert!(!sherpa_initialises_vault(NodeModel::AristaCeos, false));
+        assert!(!sherpa_initialises_vault(NodeModel::AristaEos, false));
     }
 
     #[test]

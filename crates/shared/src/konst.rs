@@ -275,15 +275,15 @@ pub const CONTAINER_DNSMASQ_VERSION: &str = "latest";
 
 pub const CONTAINER_NOKIA_SRLINUX_REPO: &str = "ghcr.io/nokia/srlinux";
 
-pub const CONTAINER_ARISTA_CEOS_REPO: &str = "localrepo/arista_ceos";
+pub const CONTAINER_ARISTA_EOS_REPO: &str = "localrepo/arista_eos";
 
 pub const CONTAINER_CISCO_IOL_REPO: &str = "localrepo/cisco_iol";
 pub const CONTAINER_CISCO_IOLL2_REPO: &str = "localrepo/cisco_ioll2";
 
-pub const CONTAINER_JUNIPER_CEVOLVED_REPO: &str = "localrepo/juniper_cevolved";
+pub const CONTAINER_JUNIPER_EVOLVED_REPO: &str = "localrepo/juniper_evolved";
 /// The memory, in MiB, a cJunosEvolved container needs beyond its EVO VM's: its Docker memory
 /// limit is the EVO VM's memory plus this.
-pub const JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB: u16 = 2048;
+pub const JUNIPER_EVOLVED_CONTAINER_OVERHEAD_MIB: u16 = 2048;
 
 pub const CONTAINER_FRR_REPO: &str = "quay.io/frrouting/frr";
 

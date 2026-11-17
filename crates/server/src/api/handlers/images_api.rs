@@ -17,8 +17,18 @@ use crate::api::extractors::AuthenticatedUser;
 
 use shared::data::{
     ContainerPullRequest, DeleteImageRequest, DownloadImageRequest, ImportRequest,
-    ListImagesRequest, NodeModel, ScanImagesRequest, SetDefaultImageRequest, ShowImageRequest,
+    ListImagesRequest, ModelKind, NodeKind, NodeModel, ScanImagesRequest, SetDefaultImageRequest,
+    ShowImageRequest,
 };
+
+/// The model and kind an image path names, refused as a bad request when the model is unknown
+/// (an old model name gets the message naming its replacement), the kind is unknown, or the
+/// model does not take the kind.
+pub(super) fn path_model_kind(model: &str, kind: &str) -> Result<ModelKind, ApiError> {
+    let model: NodeModel = model.parse().map_err(ApiError::bad_request)?;
+    let kind: NodeKind = kind.parse().map_err(ApiError::bad_request)?;
+    ModelKind::new(model, Some(kind)).map_err(|e| ApiError::bad_request(e.to_string()))
+}
 
 /// List images
 ///
@@ -39,20 +49,19 @@ pub async fn list_images_json(
 
 /// Show image details
 ///
-/// GET `/api/v1/images/{model}`
+/// GET `/api/v1/images/{model}/{kind}`, with an optional `?version=`; without one, the
+/// default version of the model and kind.
 pub async fn show_image_json(
     _auth: AuthenticatedUser,
     State(state): State<AppState>,
-    Path(model): Path<String>,
+    Path((model, kind)): Path<(String, String)>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let model: NodeModel = model
-        .parse()
-        .map_err(|_| ApiError::bad_request(format!("Invalid model: {model}")))?;
+    let model_kind = path_model_kind(&model, &kind)?;
 
     let request = ShowImageRequest {
-        model,
-        kind: None,
+        model: model_kind.model(),
+        kind: Some(model_kind.kind()),
         version: params.get("version").cloned(),
     };
 
@@ -87,7 +96,8 @@ pub async fn import_image_json(
     Ok(sse::Sse::new(json_progress_stream(progress_rx, result_rx)))
 }
 
-/// Upload an image via multipart form data
+/// Upload an image via multipart form data: `model`, `version`, `file`, and the optional
+/// `kind` (absent or empty, the model's default kind) and `default` (`on`).
 ///
 /// POST `/api/v1/images/upload`
 pub async fn upload_image_multipart(
@@ -104,8 +114,9 @@ pub async fn upload_image_multipart(
     // Write file data to a temp file
     let temp_dir = std::env::temp_dir();
     let temp_file = temp_dir.join(format!(
-        "sherpa_upload_{}_{}_{}",
-        fields.model,
+        "sherpa_upload_{}_{}_{}_{}",
+        fields.model_kind.model(),
+        fields.model_kind.kind(),
         fields.version,
         uuid::Uuid::new_v4()
     ));
@@ -116,8 +127,8 @@ pub async fn upload_image_multipart(
         .map_err(|e| ApiError::internal(format!("Failed to write temp file: {e}")))?;
 
     let request = ImportRequest {
-        model: fields.model,
-        kind: None,
+        model: fields.model_kind.model(),
+        kind: Some(fields.model_kind.kind()),
         version: fields.version,
         src: temp_path.clone(),
         default: fields.default,
@@ -142,21 +153,19 @@ pub async fn upload_image_multipart(
 
 /// Delete an image
 ///
-/// DELETE `/api/v1/images/{model}/{version}`
+/// DELETE `/api/v1/images/{model}/{kind}/{version}`
 pub async fn delete_image_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    Path((model, version)): Path<(String, String)>,
+    Path((model, kind, version)): Path<(String, String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_admin_auth(&auth)?;
 
-    let model: NodeModel = model
-        .parse()
-        .map_err(|_| ApiError::bad_request(format!("Invalid model: {model}")))?;
+    let model_kind = path_model_kind(&model, &kind)?;
 
     let request = DeleteImageRequest {
-        model,
-        kind: None,
+        model: model_kind.model(),
+        kind: Some(model_kind.kind()),
         version,
     };
 
@@ -171,21 +180,19 @@ pub async fn delete_image_json(
 
 /// Set default image version
 ///
-/// POST `/api/v1/images/{model}/{version}/default`
+/// POST `/api/v1/images/{model}/{kind}/{version}/default`
 pub async fn set_default_image_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    Path((model, version)): Path<(String, String)>,
+    Path((model, kind, version)): Path<(String, String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_admin_auth(&auth)?;
 
-    let model: NodeModel = model
-        .parse()
-        .map_err(|_| ApiError::bad_request(format!("Invalid model: {model}")))?;
+    let model_kind = path_model_kind(&model, &kind)?;
 
     let request = SetDefaultImageRequest {
-        model,
-        kind: None,
+        model: model_kind.model(),
+        kind: Some(model_kind.kind()),
         version,
     };
 
@@ -264,3 +271,63 @@ pub async fn download_image_json(
 // =============================================================================
 // REST API — User Management
 // =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The message of a bad request; panics on any other result.
+    fn refusal(result: Result<ModelKind, ApiError>) -> String {
+        match result {
+            Err(ApiError::BadRequest { message }) => message,
+            other => panic!("expected a bad request, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_image_path_names_each_kind_of_its_model() {
+        for (kind, expected) in [
+            ("virtual_machine", NodeKind::VirtualMachine),
+            ("container", NodeKind::Container),
+        ] {
+            let model_kind = path_model_kind("arista_eos", kind).unwrap();
+            assert_eq!(model_kind.model(), NodeModel::AristaEos);
+            assert_eq!(model_kind.kind(), expected);
+        }
+        for model_kind in ModelKind::all() {
+            assert_eq!(
+                path_model_kind(
+                    &model_kind.model().to_string(),
+                    &model_kind.kind().to_string()
+                )
+                .unwrap(),
+                model_kind
+            );
+        }
+    }
+
+    #[test]
+    fn an_image_path_with_a_kind_the_model_does_not_take_is_a_bad_request() {
+        assert_eq!(
+            refusal(path_model_kind("arista_eos", "unikernel")),
+            "Model 'arista_eos' is not a unikernel; it comes only as: virtual_machine, container"
+        );
+        assert_eq!(
+            refusal(path_model_kind("arista_eos", "vm")),
+            "Unknown node kind: vm"
+        );
+    }
+
+    #[test]
+    fn an_image_path_with_an_old_model_name_is_refused_naming_its_replacement() {
+        assert_eq!(
+            refusal(path_model_kind("arista_ceos", "container")),
+            "Unknown node model 'arista_ceos': it was renamed in 0.7.0. \
+             Use model = \"arista_eos\" with kind = \"container\"."
+        );
+        assert_eq!(
+            refusal(path_model_kind("nosuch_model", "container")),
+            "Unknown node model: nosuch_model"
+        );
+    }
+}

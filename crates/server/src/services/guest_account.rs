@@ -119,7 +119,7 @@ pub(crate) fn supports_guest_account(model: NodeModel, ztp: Ztp) -> bool {
         | Ztp::NoCloud
         | Ztp::Tftp
         | Ztp::Usb
-        | Ztp::Volume => !matches!(model, NodeModel::CiscoFtdv | NodeModel::TalosLinux),
+        | Ztp::Volume => !matches!(model, NodeModel::CiscoFtd | NodeModel::TalosLinux),
     }
 }
 
@@ -137,30 +137,29 @@ pub(crate) fn provisions_owner(node: &topology::NodeExpanded, image: &NodeConfig
 fn key_rules(model: NodeModel) -> KeyRules {
     let (accepted, max_keys) = match model {
         // IOS `key-hash` and IOS XE take RSA only, two keys per user.
-        NodeModel::CiscoIosv
-        | NodeModel::CiscoIosvl2
+        NodeModel::CiscoIos
+        | NodeModel::CiscoIosl2
         | NodeModel::CiscoIol
         | NodeModel::CiscoIoll2
-        | NodeModel::CiscoCsr1000v
-        | NodeModel::CiscoCat8000v
-        | NodeModel::CiscoCat9000v => (AcceptedKeys::Only(RSA_KEY), 2),
+        | NodeModel::CiscoCsr1000
+        | NodeModel::CiscoCat8000
+        | NodeModel::CiscoCat9000 => (AcceptedKeys::Only(RSA_KEY), 2),
         // IOS XR takes four RSA keys: the first, then `second`, `third` and `fourth`.
-        NodeModel::CiscoIosxrv9000 => (AcceptedKeys::Only(RSA_KEY), 4),
-        NodeModel::CiscoAsav => (AcceptedKeys::Only(ANY_DEVICE_KEY), 1),
+        NodeModel::CiscoIosxr9000 => (AcceptedKeys::Only(RSA_KEY), 4),
+        NodeModel::CiscoAsa => (AcceptedKeys::Only(ANY_DEVICE_KEY), 1),
         // NX-OS lists Ed25519 as unsupported.
-        NodeModel::CiscoNexus9300v => (AcceptedKeys::Only(ECDSA_OR_RSA_KEY), 1),
+        NodeModel::CiscoNexus9300 => (AcceptedKeys::Only(ECDSA_OR_RSA_KEY), 1),
         NodeModel::CiscoIse => (AcceptedKeys::Only(RSA_KEY), 1),
         NodeModel::PaloaltoPanos => (AcceptedKeys::Only(ED25519_OR_RSA_KEY), 1),
         NodeModel::MikrotikChr => (AcceptedKeys::Only(ED25519_OR_RSA_KEY), usize::MAX),
         // A key and a `secondary` key.
-        NodeModel::AristaVeos | NodeModel::AristaCeos => (AcceptedKeys::Only(ANY_DEVICE_KEY), 2),
+        NodeModel::AristaEos => (AcceptedKeys::Only(ANY_DEVICE_KEY), 2),
         NodeModel::ArubaAoscx | NodeModel::NokiaSrlinux => (AcceptedKeys::Only(ANY_DEVICE_KEY), 32),
         NodeModel::CumulusLinux
-        | NodeModel::JuniperVrouter
-        | NodeModel::JuniperVswitch
-        | NodeModel::JuniperVevolved
-        | NodeModel::JuniperCevolved
-        | NodeModel::JuniperVsrxv3 => (AcceptedKeys::Only(ANY_DEVICE_KEY), usize::MAX),
+        | NodeModel::JuniperRouter
+        | NodeModel::JuniperSwitch
+        | NodeModel::JuniperEvolved
+        | NodeModel::JuniperSrxv3 => (AcceptedKeys::Only(ANY_DEVICE_KEY), usize::MAX),
         // Linux, BSD and Windows guests run OpenSSH, which takes every registered key.
         _ => (AcceptedKeys::All, usize::MAX),
     };
@@ -213,8 +212,9 @@ pub(crate) fn node_account(
     node_name: &str,
     image: &NodeConfig,
 ) -> Result<NodeAccount> {
-    validate_login_name(image.model, node_name, &account.username)?;
-    let KeyRules { accepted, max_keys } = key_rules(image.model);
+    let model_kind = image.model_kind()?;
+    validate_login_name(model_kind, node_name, &account.username)?;
+    let KeyRules { accepted, max_keys } = key_rules(model_kind.model());
     let mut ssh_keys = Vec::new();
     let mut skipped_keys = Vec::new();
     for key in &account.ssh_keys {
@@ -241,10 +241,9 @@ pub(crate) fn node_account(
             bail!("Model '{}' accepts no SSH key types", image.model);
         };
         bail!(
-            "Node '{node_name}' ({}) takes {} SSH keys only, and none of the keys registered \
-             for '{}' is one. Make one with '{}', then add the public key on the web UI Profile \
-             page or with 'sherpa server user ssh-key add'. See {SSH_KEYS_DOCS_URL}",
-            image.model,
+            "Node '{node_name}' ({model_kind}) takes {} SSH keys only, and none of the keys \
+             registered for '{}' is one. Make one with '{}', then add the public key on the web UI \
+             Profile page or with 'sherpa server user ssh-key add'. See {SSH_KEYS_DOCS_URL}",
             names.join(" or "),
             account.username,
             keygen_command(*preferred)
@@ -283,7 +282,7 @@ pub(crate) fn node_owner(
 /// The login a `model` node's SSH config names when it is not the owner's name: `admin` on
 /// Cisco `FTDv`, its only account, whatever its config. Every other node logs in as the owner.
 pub(crate) fn fixed_login(model: NodeModel) -> Option<&'static str> {
-    (model == NodeModel::CiscoFtdv).then_some(FTDV_LOGIN)
+    (model == NodeModel::CiscoFtd).then_some(FTDV_LOGIN)
 }
 
 /// The device password as a device's config writes it, in `form`.
@@ -828,9 +827,9 @@ pub(crate) mod tests {
 
     #[test]
     fn ftdv_logs_in_as_admin_and_every_other_model_as_the_owner() {
-        assert_eq!(fixed_login(NodeModel::CiscoFtdv), Some("admin"));
+        assert_eq!(fixed_login(NodeModel::CiscoFtd), Some("admin"));
         for model in NodeModel::to_vec() {
-            if model != NodeModel::CiscoFtdv {
+            if model != NodeModel::CiscoFtd {
                 assert_eq!(fixed_login(model), None, "{model}");
             }
         }
@@ -846,28 +845,26 @@ pub(crate) mod tests {
             NodeModel::FlatcarLinux,
             NodeModel::FreeBsd,
             NodeModel::OpenBsd,
-            NodeModel::GenericVm,
+            NodeModel::Generic,
             NodeModel::WindowsServer,
             NodeModel::DevboxWindows,
-            NodeModel::AristaVeos,
-            NodeModel::AristaCeos,
+            NodeModel::AristaEos,
             NodeModel::ArubaAoscx,
-            NodeModel::CiscoIosv,
-            NodeModel::CiscoIosvl2,
+            NodeModel::CiscoIos,
+            NodeModel::CiscoIosl2,
             NodeModel::CiscoIol,
             NodeModel::CiscoIoll2,
-            NodeModel::CiscoCsr1000v,
-            NodeModel::CiscoCat8000v,
-            NodeModel::CiscoCat9000v,
-            NodeModel::CiscoAsav,
-            NodeModel::CiscoNexus9300v,
-            NodeModel::CiscoIosxrv9000,
+            NodeModel::CiscoCsr1000,
+            NodeModel::CiscoCat8000,
+            NodeModel::CiscoCat9000,
+            NodeModel::CiscoAsa,
+            NodeModel::CiscoNexus9300,
+            NodeModel::CiscoIosxr9000,
             NodeModel::CiscoIse,
-            NodeModel::JuniperVrouter,
-            NodeModel::JuniperVswitch,
-            NodeModel::JuniperVevolved,
-            NodeModel::JuniperCevolved,
-            NodeModel::JuniperVsrxv3,
+            NodeModel::JuniperRouter,
+            NodeModel::JuniperSwitch,
+            NodeModel::JuniperEvolved,
+            NodeModel::JuniperSrxv3,
             NodeModel::NokiaSrlinux,
             NodeModel::PaloaltoPanos,
             NodeModel::MikrotikChr,
@@ -880,10 +877,9 @@ pub(crate) mod tests {
             assert!(!supports_guest_account(model, Ztp::Disabled), "{model}");
         }
         for model in [
-            NodeModel::CiscoFtdv,
+            NodeModel::CiscoFtd,
             NodeModel::TalosLinux,
             NodeModel::GitlabCe,
-            NodeModel::GenericContainer,
             NodeModel::NanosUnikernel,
         ] {
             assert!(
@@ -924,39 +920,39 @@ pub(crate) mod tests {
                         | NodeModel::AlpineLinux
                         | NodeModel::FreeBsd
                         | NodeModel::OpenBsd
-                        | NodeModel::GenericVm
+                        | NodeModel::Generic
                         | NodeModel::DevboxWindows
                         | NodeModel::WindowsServer
                 ),
                 Ztp::Ignition => model == NodeModel::FlatcarLinux,
                 Ztp::Tftp => matches!(
                     model,
-                    NodeModel::AristaVeos
+                    NodeModel::AristaEos
                         | NodeModel::ArubaAoscx
-                        | NodeModel::JuniperVevolved
-                        | NodeModel::JuniperVsrxv3
+                        | NodeModel::JuniperEvolved
+                        | NodeModel::JuniperSrxv3
                 ),
                 Ztp::Cdrom => matches!(
                     model,
-                    NodeModel::CiscoCsr1000v
-                        | NodeModel::CiscoCat8000v
-                        | NodeModel::CiscoCat9000v
-                        | NodeModel::CiscoAsav
-                        | NodeModel::CiscoNexus9300v
-                        | NodeModel::CiscoIosxrv9000
-                        | NodeModel::JuniperVsrxv3
-                        | NodeModel::JuniperVrouter
-                        | NodeModel::JuniperVswitch
+                    NodeModel::CiscoCsr1000
+                        | NodeModel::CiscoCat8000
+                        | NodeModel::CiscoCat9000
+                        | NodeModel::CiscoAsa
+                        | NodeModel::CiscoNexus9300
+                        | NodeModel::CiscoIosxr9000
+                        | NodeModel::JuniperSrxv3
+                        | NodeModel::JuniperRouter
+                        | NodeModel::JuniperSwitch
                         | NodeModel::PaloaltoPanos
                 ),
                 Ztp::Disk => matches!(
                     model,
-                    NodeModel::CiscoIosv
-                        | NodeModel::CiscoIosvl2
+                    NodeModel::CiscoIos
+                        | NodeModel::CiscoIosl2
                         | NodeModel::CiscoIse
                         | NodeModel::MikrotikChr
                 ),
-                Ztp::Usb => matches!(model, NodeModel::CumulusLinux | NodeModel::JuniperVevolved),
+                Ztp::Usb => matches!(model, NodeModel::CumulusLinux | NodeModel::JuniperEvolved),
                 Ztp::Http => model == NodeModel::SonicLinux,
                 Ztp::NoCloud | Ztp::Volume | Ztp::Disabled => false,
             },
@@ -964,10 +960,10 @@ pub(crate) mod tests {
                 ztp == Ztp::Volume
                     && matches!(
                         model,
-                        NodeModel::AristaCeos
+                        NodeModel::AristaEos
                             | NodeModel::NokiaSrlinux
                             | NodeModel::FrrLinux
-                            | NodeModel::JuniperCevolved
+                            | NodeModel::JuniperEvolved
                             | NodeModel::CiscoIol
                             | NodeModel::CiscoIoll2
                     )
@@ -978,9 +974,9 @@ pub(crate) mod tests {
 
     #[test]
     fn the_owner_account_follows_the_generators_for_every_model_and_setting() {
-        for model in NodeModel::to_vec() {
-            let kind = ModelKind::default_for(model).node_config().kind;
-            let settings = ModelKind::default_for(model)
+        for model_kind in ModelKind::all() {
+            let (model, kind) = (model_kind.model(), model_kind.kind());
+            let settings = model_kind
                 .ztp_methods()
                 .iter()
                 .copied()
@@ -1025,7 +1021,7 @@ pub(crate) mod tests {
     fn nodes_with_custom_ztp_get_no_owner_account() {
         let node = topology::Node {
             name: "r1".to_owned(),
-            model: NodeModel::CiscoIosv,
+            model: NodeModel::CiscoIos,
             ztp: topology::NodeZtp {
                 method: None,
                 config: Some("opaque".to_owned()),
@@ -1033,7 +1029,7 @@ pub(crate) mod tests {
             ..Default::default()
         };
         let nodes = crate::services::up::process_manifest_nodes(&[node]).unwrap();
-        let image = ModelKind::default_for(NodeModel::CiscoIosv).node_config();
+        let image = ModelKind::default_for(NodeModel::CiscoIos).node_config();
         assert!(!provisions_owner(&nodes[0], &image));
         let mut node = nodes[0].clone();
         node.ztp.config = None;
@@ -1052,7 +1048,7 @@ pub(crate) mod tests {
 
     #[test]
     fn devices_take_only_the_key_types_they_accept() {
-        let image = ModelKind::default_for(NodeModel::CiscoNexus9300v).node_config();
+        let image = ModelKind::default_for(NodeModel::CiscoNexus9300).node_config();
         let node_account = node_account(&account(&[KEY, ECDSA_KEY]), "nx1", &image).unwrap();
         assert_eq!(node_account.account.ssh_keys, vec![ECDSA_KEY]);
         assert_eq!(node_account.skipped_keys, vec!["ssh-ed25519"]);
@@ -1068,12 +1064,12 @@ pub(crate) mod tests {
 
     #[test]
     fn a_device_without_an_accepted_key_fails_with_how_to_make_one() {
-        let image = ModelKind::default_for(NodeModel::CiscoIosv).node_config();
+        let image = ModelKind::default_for(NodeModel::CiscoIos).node_config();
         let error = node_account(&account(&[KEY, ECDSA_KEY]), "r1", &image)
             .unwrap_err()
             .to_string();
         assert!(
-            error.contains("Node 'r1' (cisco_iosv) takes RSA SSH keys only"),
+            error.contains("Node 'r1' (cisco_ios) takes RSA SSH keys only"),
             "{error}"
         );
         assert!(error.contains("'ssh-keygen -t rsa -b 4096'"), "{error}");

@@ -10,13 +10,57 @@ manifest's TOML. No field repeats its group's name: `cpu.count`, not `cpu.cpu_co
 A node model takes one or more kinds, `virtual_machine`, `container` or `unikernel`
 (`NodeKind`). `NodeModel::kinds()` lists them in a fixed order, the first being the model's
 default: the kind a node gets when its manifest sets no `kind`. It is an exhaustive `match`, so
-a new model does not compile without an entry. Every model takes one kind today; #613 gives
-some models a second.
+a new model does not compile without an entry. `arista_eos` and `juniper_evolved` take
+`virtual_machine` (their default) and `container`; `generic` takes all three and has no default
+(`NodeModel::default_kind()` is `None`), so a `generic` node or image request must name its kind.
+Every other model takes one kind.
+
+### Names
+
+`NodeModel` is read only through its `FromStr`: its serde `Deserialize` (manifests, API JSON, the
+database's text) and its clap parser (`NodeModelParser`, its `ValueParserFactory`) both call it.
+So a name is accepted or refused the same way everywhere. The names removed in 0.7.0 are in
+`shared::data::REMOVED_MODELS`, each with the model and kind that replace it; `FromStr` knows them
+only to refuse them, as `Unknown node model 'arista_ceos': it was renamed in 0.7.0. Use model =
+"arista_eos" with kind = "container".` The table also drives the startup move of the old image
+folders (see [`SERVER.md`](SERVER.md#image-folders-of-renamed-models)) and is to be deleted in
+0.8.0.
+
+| Removed | Model | Kind |
+|---|---|---|
+| `arista_veos` | `arista_eos` | `virtual_machine` |
+| `arista_ceos` | `arista_eos` | `container` |
+| `cisco_asav` | `cisco_asa` | `virtual_machine` |
+| `cisco_ftdv` | `cisco_ftd` | `virtual_machine` |
+| `cisco_iosxrv9000` | `cisco_iosxr9000` | `virtual_machine` |
+| `cisco_iosv` | `cisco_ios` | `virtual_machine` |
+| `cisco_iosvl2` | `cisco_iosl2` | `virtual_machine` |
+| `cisco_csr1000v` | `cisco_csr1000` | `virtual_machine` |
+| `cisco_cat8000v` | `cisco_cat8000` | `virtual_machine` |
+| `cisco_cat9000v` | `cisco_cat9000` | `virtual_machine` |
+| `cisco_nexus9300v` | `cisco_nexus9300` | `virtual_machine` |
+| `juniper_vrouter` | `juniper_router` | `virtual_machine` |
+| `juniper_vswitch` | `juniper_switch` | `virtual_machine` |
+| `juniper_vevolved` | `juniper_evolved` | `virtual_machine` |
+| `juniper_cevolved` | `juniper_evolved` | `container` |
+| `juniper_vsrxv3` | `juniper_srxv3` | `virtual_machine` |
+| `generic_vm` | `generic` | `virtual_machine` |
+| `generic_container` | `generic` | `container` |
+| `generic_unikernel` | `generic` | `unikernel` |
+
+Every model name drops the "v" or "c" its kind used to carry, whether or not the name left is a
+product name: `cisco_csr1000` and `cisco_nexus9300` name the software, not that hardware. Two
+names keep a qualifier so they stay distinct: `cisco_iosxr9000` (the 9000 platform's IOS XR) and
+`juniper_srxv3` (vSRX 3.0). `cisco_ios` and `cisco_iosl2` sit beside `cisco_iol` and
+`cisco_ioll2`; no code matches model names by prefix or substring, and image folders are
+compared by whole path components.
 
 `shared::data::ModelKind` (`crates/shared/src/data/model_kind.rs`) is a model with one of its
 kinds. Its fields are private. `ModelKind::new(model, Option<NodeKind>)` refuses a kind the model
-does not take, naming the kinds it takes, and gives the default kind for `None`;
-`ModelKind::default_for(model)` takes the default kind; JSON goes through `ModelKind::new` too
+does not take, naming the kinds it takes, and gives the default kind for `None`, refusing `None`
+for `generic`; `ModelKind::default_for(model)` takes the first kind, which for `generic` is
+`virtual_machine`, so code reading a kind a user may have left out uses `new`. JSON goes through
+`ModelKind::new` too
 (`#[serde(try_from)]`). So a `ModelKind` in hand is a valid pair, and what depends on both hangs
 off it:
 
@@ -27,6 +71,7 @@ off it:
 | `ready_port()` | the pair's readiness port: SSH, or the Talos API for Talos Linux, for a virtual machine; `None` for a container or a unikernel |
 | `has_ssh()`, `default_boot_disk_size()`, `keeps_data_interfaces_up()`, `needs_host_checksums()` | per pair |
 | `all()` | every model with each of its kinds, for tests and for walks such as the container scan's |
+| `Display` | the model, and its kind when the model takes several (`arista_eos, container`), for messages such as the login-name and SSH-key refusals |
 
 The interface functions in `shared::util::interface` (`interface_to_idx`, `interface_from_idx`,
 `node_model_interfaces`, `container_interface_name`), `shared::validators::check_ztp`, and the
@@ -37,7 +82,15 @@ arm. `NodeConfig::model_kind()` gives an image's pair, failing for a stored row 
 not take its kind.
 
 What stays per model: the guest account rules (`guest_account::key_rules` and the login-name
-rule), which are about the OS and the same for each kind of a model.
+rule), which are about the OS and the same for each kind of a model. Their messages name the
+pair.
+
+The interface enums are per pair: `AristaEosVmInt` and `AristaEosContainerInt`,
+`JuniperEvolvedVmInt` and `JuniperEvolvedContainerInt`. So are the built-in image settings
+(`NodeConfig::arista_eos_vm()`, `arista_eos_container()`, `juniper_evolved_vm()`,
+`juniper_evolved_container()`, `generic_vm()`, `generic_container()`, `generic_unikernel()`) and
+the EOS templates (`arista_eos_vm.jinja`, `arista_eos_container.jinja`). The built-in container
+repos of the merged models are `localrepo/arista_eos` and `localrepo/juniper_evolved`.
 
 Which pair a node is: its manifest `kind`, or its model's default (see
 [Manifest node](#manifest-node)). Which pair an image request is: the request's `kind`, or the
@@ -81,7 +134,7 @@ differ, keeping the rest of it from the base (`cpu: CpuSettings { count: 2, ..ba
 
 | Base | Models | Shape |
 |---|---|---|
-| `cloud_init_vm(model)` | Linux, BSD and Windows VMs, app VMs, `generic_vm` | cloud-init, q35/SeaBIOS, virtio disk, 1 jumbo-MTU virtio data interface |
+| `cloud_init_vm(model)` | Linux, BSD and Windows VMs, app VMs, the `generic` VM | cloud-init, q35/SeaBIOS, virtio disk, 1 jumbo-MTU virtio data interface |
 | `network_os_vm(model, memory, os_variant, interfaces)` | network OS VMs | config CD-ROM ZTP, pc/SeaBIOS, virtio disk |
 | `app_container(model)` | application containers | no ZTP, 1 macvlan data interface |
 | `network_os_container(model, memory, os_variant, interfaces)` | network OS containers | config volume ZTP |
@@ -204,10 +257,10 @@ It runs in `sherpa validate`, in the server's `up` before images are leased, and
   hard limit, `HostConfig.memory` in bytes, with `memory_swap` equal to it so the container
   cannot swap, and `cpu.count` a CPU quota, `HostConfig.nano_cpus` (count × 10⁹). A container
   that sets neither is not limited: the image's values are not limits, as several are
-  placeholders (`generic_container` runs any image). The quota is not pinning: it holds no
+  placeholders (a `generic` container runs any image). The quota is not pinning: it holds no
   particular host CPUs, and must be no more than the server's CPUs
   (`validate::check_container_cpus`).
-- `juniper_cevolved` sizes its EVO VM from `cpu.count` and `memory`, else the image's
+- A `juniper_evolved` container sizes its EVO VM from `cpu.count` and `memory`, else the image's
   (`cevolved_env_vars`, checked against the image's minimums by `check_ptx_platform`). Its
   container gets a memory limit of that memory plus
   `konst::JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB` (2048 MiB), always, and no CPU quota, which
@@ -230,7 +283,7 @@ It runs in `sherpa validate`, in the server's `up` before images are leased, and
   container whose port does not answer stays `Starting` scan after scan, and a VM with a port
   that is not SSH is probed on it. See
   [`STATE_MACHINES.md`](STATE_MACHINES.md#5-node-readiness-and-host-keys).
-- `container.platform` is for `juniper_cevolved` only (`check_ptx_platform`).
+- `container.platform` is for a `juniper_evolved` container only (`check_ptx_platform`).
 
 The other checks on these settings:
 

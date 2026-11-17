@@ -26,7 +26,7 @@ pub struct ScanArgs {
     #[arg(long, action = clap::ArgAction::SetTrue)]
     dry_run: bool,
     /// Container model to record the local tags of --repo for (with --kind container)
-    #[arg(short, long, value_enum, requires_all = ["repo", "kind"])]
+    #[arg(short, long, requires_all = ["repo", "kind"])]
     model: Option<NodeModel>,
     /// Image repository without a tag (e.g., mysql, docker.io/library/mysql or
     /// ghcr.io/nokia/srlinux); each of its local tags is recorded as a version of --model
@@ -54,7 +54,7 @@ impl ScanArgs {
 #[derive(Debug, Args)]
 pub struct PullArgs {
     /// Model of the device image to pull
-    #[arg(short, long, value_enum)]
+    #[arg(short, long)]
     model: NodeModel,
     /// Kind of the image, which decides between a registry pull and a download. Without it,
     /// the model's default kind
@@ -79,7 +79,6 @@ pub enum ServerImageCommands {
     /// Show detailed information about an image
     Show {
         /// Model of the device image
-        #[arg(value_enum)]
         model: NodeModel,
         /// Kind of the image. Without it, the model's default kind
         #[arg(long, value_enum)]
@@ -92,7 +91,6 @@ pub enum ServerImageCommands {
     /// List all images
     List {
         /// Optional: List images for a specific model
-        #[arg(value_enum)]
         model: Option<NodeModel>,
         /// Only images of this kind; without it, every kind
         #[arg(long, value_enum)]
@@ -112,7 +110,7 @@ pub enum ServerImageCommands {
         #[arg(short, long)]
         version: String,
         /// Model of Device
-        #[arg(short, long, value_enum)]
+        #[arg(short, long)]
         model: NodeModel,
         /// Kind of the image. Without it, the model's default kind
         #[arg(long, value_enum)]
@@ -128,7 +126,7 @@ pub enum ServerImageCommands {
     /// Delete an imported image from disk and database
     Delete {
         /// Model of the device image to delete
-        #[arg(short, long, value_enum)]
+        #[arg(short, long)]
         model: NodeModel,
         /// Kind of the image. Without it, the model's default kind
         #[arg(long, value_enum)]
@@ -141,7 +139,7 @@ pub enum ServerImageCommands {
     /// Set the default version for an image
     SetDefault {
         /// Model of the device image
-        #[arg(short, long, value_enum)]
+        #[arg(short, long)]
         model: NodeModel,
         /// Kind of the image. Without it, the model's default kind
         #[arg(long, value_enum)]

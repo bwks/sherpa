@@ -1,6 +1,6 @@
 use shared::data::{
-    CpuMode, CpuTopology, DiskCache, DiskImageCloneMethod, DiskIo, NodeModel, NumaMemoryMode,
-    PtxPlatform, WatchdogAction, Ztp,
+    CpuMode, CpuTopology, DiskCache, DiskImageCloneMethod, DiskIo, NodeKind, NodeModel,
+    NumaMemoryMode, PtxPlatform, WatchdogAction, Ztp,
 };
 use topology::{Bridge, Link2, Manifest, Node};
 
@@ -67,7 +67,8 @@ watchdog = "reset"
 
 [[nodes]]
 name = "server1"
-model = "juniper_cevolved"
+model = "juniper_evolved"
+kind = "container"
 
 [nodes.container]
 user = "root"
@@ -148,7 +149,8 @@ name = "vol-lab"
 
 [[nodes]]
 name = "app1"
-model = "generic_container"
+model = "generic"
+kind = "container"
 
 [nodes.container]
 volumes = [
@@ -238,7 +240,8 @@ fn test_parse_full_manifest() {
     // Node 2 — a container with the container group
     let s1 = &manifest.nodes[1];
     assert_eq!(s1.name, "server1");
-    assert_eq!(s1.model, NodeModel::JuniperCevolved);
+    assert_eq!(s1.model, NodeModel::JuniperEvolved);
+    assert_eq!(s1.kind, Some(NodeKind::Container));
     let container = s1.container.as_ref().expect("has a container group");
     assert_eq!(container.privileged, Some(true));
     assert_eq!(container.shm_size, Some(67_108_864));
@@ -405,12 +408,12 @@ fn test_write_load_roundtrip() {
         nodes: vec![
             Node {
                 name: "r1".to_string(),
-                model: NodeModel::CiscoIosv,
+                model: NodeModel::CiscoIos,
                 ..Default::default()
             },
             Node {
                 name: "r2".to_string(),
-                model: NodeModel::AristaVeos,
+                model: NodeModel::AristaEos,
                 ..Default::default()
             },
         ],
@@ -432,9 +435,9 @@ fn test_write_load_roundtrip() {
     assert_eq!(loaded.description, manifest.description);
     assert_eq!(loaded.nodes.len(), 2);
     assert_eq!(loaded.nodes[0].name, "r1");
-    assert_eq!(loaded.nodes[0].model, NodeModel::CiscoIosv);
+    assert_eq!(loaded.nodes[0].model, NodeModel::CiscoIos);
     assert_eq!(loaded.nodes[1].name, "r2");
-    assert_eq!(loaded.nodes[1].model, NodeModel::AristaVeos);
+    assert_eq!(loaded.nodes[1].model, NodeModel::AristaEos);
 
     let links = loaded.links.as_ref().expect("has links");
     assert_eq!(links.len(), 1);

@@ -6,12 +6,14 @@ name = "container-ztp"
 
 [[nodes]]
 name = "ceos01"
-model = "arista_ceos"
+model = "arista_eos"
+kind = "container"
 version = "4.35.1F"
 
 [[nodes]]
 name = "ceos02"
-model = "arista_ceos"
+model = "arista_eos"
+kind = "container"
 version = "4.35.1F"
 
 [nodes.ztp]
@@ -32,12 +34,14 @@ method = "disabled"
 
 [[nodes]]
 name = "ptx01"
-model = "juniper_cevolved"
+model = "juniper_evolved"
+kind = "container"
 version = "26.2R1.7"
 
 [[nodes]]
 name = "ptx02"
-model = "juniper_cevolved"
+model = "juniper_evolved"
+kind = "container"
 version = "26.2R1.7"
 
 [nodes.ztp]

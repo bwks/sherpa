@@ -17,7 +17,7 @@ mod nav;
 
 pub use actions::{LabActions, NodeActions};
 pub use badge::{Badge, BadgeSize, BadgeTone};
-pub use kind::{KindBadge, kind_label};
+pub use kind::{KindBadge, ModelChoice, kind_choices, kind_label};
 pub use login::LoginError;
 pub use nav::{Nav, NavLink, NavPage};
 
@@ -486,7 +486,9 @@ pub struct AdminImageUploadTemplate {
     pub username: String,
     pub is_admin: bool,
     pub nav: Nav,
-    pub models: Vec<String>,
+    pub models: Vec<ModelChoice>,
+    /// Every kind; the page's script offers those of the chosen model.
+    pub kinds: Vec<FormChoice>,
 }
 
 /// Error notification returned by admin image form requests.
@@ -521,7 +523,9 @@ pub struct LabCreateTemplate {
     pub is_admin: bool,
     pub nav: Nav,
     pub generated_name: String,
-    pub models: Vec<String>,
+    pub models: Vec<ModelChoice>,
+    /// Every kind; the page's script offers those of each node's model.
+    pub kinds: Vec<FormChoice>,
 }
 
 /// Create success summary fragment
@@ -1004,12 +1008,86 @@ mod tests {
             is_admin: false,
             nav: NavPage::Labs.into(),
             generated_name: "happy-panda".to_string(),
-            models: vec!["cisco_iosv".to_string(), "ubuntu_linux".to_string()],
+            models: vec![NodeModel::CiscoIos.into(), NodeModel::UbuntuLinux.into()],
+            kinds: kind_choices(),
         };
         let html = tpl.render().expect("template should render");
         assert!(html.contains("happy-panda"));
-        assert!(html.contains("cisco_iosv"));
+        assert!(html.contains("cisco_ios"));
         assert!(html.contains("ubuntu_linux"));
+    }
+
+    #[test]
+    fn the_lab_create_page_gives_each_model_its_kinds_and_default_and_offers_every_kind() {
+        let html = LabCreateTemplate {
+            username: "testuser".to_string(),
+            is_admin: false,
+            nav: NavPage::Labs.into(),
+            generated_name: "happy-panda".to_string(),
+            models: vec![NodeModel::AristaEos.into(), NodeModel::Generic.into()],
+            kinds: kind_choices(),
+        }
+        .render()
+        .expect("template should render");
+        assert!(
+            html.contains(
+                r#"<option value="arista_eos" data-kinds="virtual_machine,container" data-default-kind="virtual_machine">"#
+            ),
+            "{html}"
+        );
+        assert!(
+            html.contains(
+                r#"<option value="generic" data-kinds="virtual_machine,container,unikernel" data-default-kind="">"#
+            ),
+            "{html}"
+        );
+        assert!(html.contains(r#"data-field="node-kind""#), "{html}");
+        for (value, label) in [
+            ("virtual_machine", "Virtual Machine"),
+            ("container", "Container"),
+            ("unikernel", "Unikernel"),
+        ] {
+            assert!(
+                html.contains(&format!(r#"<option value="{value}">{label}</option>"#)),
+                "{value}: {html}"
+            );
+        }
+        // The manifest writes a kind only when it is not the model's default.
+        let js = include_str!("../web/static/js/lab-create.js");
+        assert!(js.contains("kind !== defaultKind"), "{js}");
+    }
+
+    #[test]
+    fn the_upload_page_gives_each_model_its_kinds_and_default_and_asks_for_a_kind() {
+        let html = AdminImageUploadTemplate {
+            username: "admin".to_string(),
+            is_admin: true,
+            nav: NavPage::AdminImages.into(),
+            models: vec![NodeModel::AristaEos.into(), NodeModel::Generic.into()],
+            kinds: kind_choices(),
+        }
+        .render()
+        .expect("template should render");
+        assert!(
+            html.contains(
+                r#"<li data-value="arista_eos" data-kinds="virtual_machine,container" data-default-kind="virtual_machine""#
+            ),
+            "{html}"
+        );
+        assert!(
+            html.contains(
+                r#"<li data-value="generic" data-kinds="virtual_machine,container,unikernel" data-default-kind="""#
+            ),
+            "{html}"
+        );
+        assert!(
+            html.contains(r#"<select id="kind" name="kind" required"#),
+            "{html}"
+        );
+        assert!(
+            html.contains(r#"<option value="container">Container</option>"#),
+            "{html}"
+        );
     }
 
     #[test]
@@ -1019,7 +1097,8 @@ mod tests {
             is_admin: false,
             nav: NavPage::Labs.into(),
             generated_name: "happy-panda".to_string(),
-            models: vec!["cisco_iosv".to_string()],
+            models: vec![NodeModel::CiscoIos.into()],
+            kinds: kind_choices(),
         };
         let html = tpl.render().expect("template should render");
         let build = html.find("id=\"panel-build\"").expect("build panel");

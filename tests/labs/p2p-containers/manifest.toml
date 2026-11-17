@@ -7,7 +7,8 @@ name = "p2p-containers"
 
 [[nodes]]
 name = "sw01"
-model = "arista_ceos"
+model = "arista_eos"
+kind = "container"
 version = "4.35.1F"
 
 [[nodes]]
@@ -82,29 +83,34 @@ environment_variables = ["POSTGRES_PASSWORD=sherpa-lab-test"]
 # manifest's `image` and the repo recorded when the image was pulled are covered.
 [[nodes]]
 name = "alpine01"
-model = "generic_container"
+model = "generic"
+kind = "container"
 image = "alpine"
 version = "3.22"
 
 [[nodes]]
 name = "ubuntu01"
-model = "generic_container"
+model = "generic"
+kind = "container"
 image = "ubuntu"
 version = "24.04"
 
 [[nodes]]
 name = "debian01"
-model = "generic_container"
+model = "generic"
+kind = "container"
 version = "13"
 
 [[nodes]]
 name = "busybox01"
-model = "generic_container"
+model = "generic"
+kind = "container"
 version = "1.37"
 
 [[nodes]]
 name = "rocky01"
-model = "generic_container"
+model = "generic"
+kind = "container"
 image = "rockylinux/rockylinux"
 version = "9"
 

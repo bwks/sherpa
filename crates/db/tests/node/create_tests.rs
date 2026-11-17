@@ -74,7 +74,7 @@ async fn test_create_node_with_lab() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        ModelKind::default_for(NodeModel::CiscoIosv).node_config(),
+        ModelKind::default_for(NodeModel::CiscoIos).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -176,7 +176,7 @@ async fn test_create_node_duplicate_index_per_lab_fails() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        ModelKind::default_for(NodeModel::CiscoIosv).node_config(),
+        ModelKind::default_for(NodeModel::CiscoIos).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -303,7 +303,7 @@ async fn test_create_node_with_index_boundaries() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        ModelKind::default_for(NodeModel::CiscoIosv).node_config(),
+        ModelKind::default_for(NodeModel::CiscoIos).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -407,7 +407,7 @@ async fn test_create_node_can_retrieve_by_name_and_lab() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        ModelKind::default_for(NodeModel::CiscoIosv).node_config(),
+        ModelKind::default_for(NodeModel::CiscoIos).node_config(),
         DefaultRequest::Keep,
     )
     .await?;

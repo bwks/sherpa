@@ -11,7 +11,7 @@
             <h2 class="text-3xl font-bold text-heading">Edit {{ config.model }}</h2>
             <p class="mt-1 text-sm text-muted">Update device template configuration</p>
         </div>
-        <a href="/admin/images/{{ config.model }}/{{ config.version }}" class="btn-ghost">
+        <a href="/admin/images/{{ config.model }}/{{ config.kind }}/{{ config.version }}" class="btn-ghost">
             ← Cancel
         </a>
     </div>
@@ -20,7 +20,7 @@
     <div id="form-result"></div>
 
     <!-- Edit Form -->
-    <form id="edit-form" hx-post="/admin/images/{{ config.model }}/{{ config.version }}/edit" hx-target="#form-result" hx-swap="innerHTML" class="space-y-6">
+    <form id="edit-form" hx-post="/admin/images/{{ config.model }}/{{ config.kind }}/{{ config.version }}/edit" hx-target="#form-result" hx-swap="innerHTML" class="space-y-6">
 
         <!-- Basic Information Card -->
         <div class="bg-card rounded-lg shadow-sm border border-border p-6">
@@ -260,7 +260,7 @@
 
         <!-- Form Actions -->
         <div class="flex items-center justify-end space-x-4 bg-card rounded-lg shadow-sm border border-border p-6">
-            <a href="/admin/images/{{ config.model }}/{{ config.version }}" class="btn-cancel">
+            <a href="/admin/images/{{ config.model }}/{{ config.kind }}/{{ config.version }}" class="btn-cancel">
                 Cancel
             </a>
             <button type="submit" class="btn-primary">

@@ -69,7 +69,7 @@ const ZTP_ISO_VOLUME_ID: &str = "cidata";
 const PALOALTO_BOOTSTRAP_VOLUME_ID: &str = "bootstrap";
 const ZTP_JSON: &str = "ztp.json";
 const CISCO_IOSXE_ZTP_CONFIG: &str = "iosxe_config.txt";
-const CISCO_IOSV_ZTP_CONFIG: &str = "ios_config.txt";
+const CISCO_IOS_ZTP_CONFIG: &str = "ios_config.txt";
 const CISCO_ASAV_ZTP_CONFIG: &str = "day0-config";
 const CISCO_NXOS_ZTP_CONFIG: &str = "nxos_config.txt";
 const CISCO_IOSXR_ZTP_CONFIG: &str = "iosxr_config.txt";
@@ -480,16 +480,16 @@ fn disk_index(disks: &[data::NodeDisk]) -> Result<u8> {
 /// Map a node model to its ZTP config filename for CDROM-based ZTP.
 pub fn ztp_config_filename(model_kind: data::ModelKind) -> Result<String> {
     let name = match model_kind.model() {
-        data::NodeModel::CiscoCsr1000v
-        | data::NodeModel::CiscoCat8000v
-        | data::NodeModel::CiscoCat9000v => CISCO_IOSXE_ZTP_CONFIG.replace('-', "_"),
-        data::NodeModel::CiscoAsav => CISCO_ASAV_ZTP_CONFIG.to_string(),
-        data::NodeModel::CiscoNexus9300v => CISCO_NXOS_ZTP_CONFIG.to_string(),
-        data::NodeModel::CiscoIosxrv9000 => CISCO_IOSXR_ZTP_CONFIG.to_string(),
-        data::NodeModel::CiscoFtdv => CISCO_FTDV_ZTP_CONFIG.to_string(),
-        data::NodeModel::JuniperVsrxv3
-        | data::NodeModel::JuniperVrouter
-        | data::NodeModel::JuniperVswitch => JUNIPER_ZTP_CONFIG.to_string(),
+        data::NodeModel::CiscoCsr1000
+        | data::NodeModel::CiscoCat8000
+        | data::NodeModel::CiscoCat9000 => CISCO_IOSXE_ZTP_CONFIG.replace('-', "_"),
+        data::NodeModel::CiscoAsa => CISCO_ASAV_ZTP_CONFIG.to_string(),
+        data::NodeModel::CiscoNexus9300 => CISCO_NXOS_ZTP_CONFIG.to_string(),
+        data::NodeModel::CiscoIosxr9000 => CISCO_IOSXR_ZTP_CONFIG.to_string(),
+        data::NodeModel::CiscoFtd => CISCO_FTDV_ZTP_CONFIG.to_string(),
+        data::NodeModel::JuniperSrxv3
+        | data::NodeModel::JuniperRouter
+        | data::NodeModel::JuniperSwitch => JUNIPER_ZTP_CONFIG.to_string(),
         data::NodeModel::PaloaltoPanos => PALOALTO_ZTP_CONFIG.to_string(),
         model => bail!("No ZTP config filename mapping for model: {model}"),
     };
@@ -651,9 +651,9 @@ fn container_start_settings(
     setup: &mut ContainerSetup,
 ) -> Result<()> {
     match node.model_kind.model() {
-        data::NodeModel::AristaCeos => arista_ceos_start(node, setup),
+        data::NodeModel::AristaEos => arista_eos_container_start(node, setup),
         data::NodeModel::NokiaSrlinux => srlinux_start(node, setup),
-        data::NodeModel::JuniperCevolved => cevolved_start(node, node_image, setup)?,
+        data::NodeModel::JuniperEvolved => cevolved_start(node, node_image, setup)?,
         data::NodeModel::CiscoIol | data::NodeModel::CiscoIoll2 => {
             iol_start(node, node_image, ztp, setup)?;
         }
@@ -688,9 +688,9 @@ fn container_volume_ztp(
     setup: &mut ContainerSetup,
 ) -> Result<()> {
     match node.model_kind.model() {
-        data::NodeModel::AristaCeos => arista_ceos_volume_ztp(node, ztp, setup),
+        data::NodeModel::AristaEos => arista_eos_container_volume_ztp(node, ztp, setup),
         data::NodeModel::NokiaSrlinux => srlinux_volume_ztp(node, ztp, setup),
-        data::NodeModel::JuniperCevolved => cevolved_volume_ztp(node, node_image, ztp, setup),
+        data::NodeModel::JuniperEvolved => cevolved_volume_ztp(node, node_image, ztp, setup),
         data::NodeModel::CiscoIol | data::NodeModel::CiscoIoll2 => {
             iol_volume_ztp(node, node_image, ztp, setup)
         }
@@ -740,7 +740,7 @@ fn add_container_volumes(
 }
 
 /// cEOS start settings: privileged, its environment and the init command.
-fn arista_ceos_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup) {
+fn arista_eos_container_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup) {
     setup.privileged = true;
     setup.env_vars = CONTAINER_ARISTA_CEOS_ENV_VARS
         .iter()
@@ -758,7 +758,7 @@ fn arista_ceos_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSet
 }
 
 /// cEOS ZTP: its startup config, mounted read-only and copied into flash on first boot.
-fn arista_ceos_volume_ztp(
+fn arista_eos_container_volume_ztp(
     node: &mut topology::NodeExpanded,
     ztp: &ContainerZtp<'_>,
     setup: &mut ContainerSetup,
@@ -775,7 +775,7 @@ fn arista_ceos_volume_ztp(
     let rendered_template = if let Some(config) = custom_ztp {
         config.to_owned()
     } else {
-        template::AristaCeosZtpTemplate {
+        template::AristaEosContainerZtpTemplate {
             hostname: node.name.clone(),
             owner: guest_account::owner_user(
                 guest_account,
@@ -1559,10 +1559,10 @@ fn vm_disks(
 /// The extra QEMU arguments of a VM model.
 fn vm_qemu_commands(model_kind: data::ModelKind) -> Vec<data::QemuCommand> {
     match model_kind.model() {
-        data::NodeModel::JuniperVrouter => data::QemuCommand::juniper_vrouter(),
-        data::NodeModel::JuniperVswitch => data::QemuCommand::juniper_vswitch(),
-        data::NodeModel::JuniperVsrxv3 => data::QemuCommand::juniper_vsrxv3(),
-        data::NodeModel::JuniperVevolved => data::QemuCommand::juniper_vevolved(),
+        data::NodeModel::JuniperRouter => data::QemuCommand::juniper_router(),
+        data::NodeModel::JuniperSwitch => data::QemuCommand::juniper_switch(),
+        data::NodeModel::JuniperSrxv3 => data::QemuCommand::juniper_srxv3(),
+        data::NodeModel::JuniperEvolved => data::QemuCommand::juniper_evolved(),
         _ => vec![],
     }
 }
@@ -2162,7 +2162,7 @@ fn generate_cloud_init_ztp(
         | data::NodeModel::NetboxServer
         | data::NodeModel::SignozServer
         | data::NodeModel::VirtServer
-        | data::NodeModel::GenericVm
+        | data::NodeModel::Generic
         | data::NodeModel::FreeBsd
         | data::NodeModel::OpenBsd => linux_cloud_init(node, node_image, ztp, &dir),
         data::NodeModel::DevboxWindows | data::NodeModel::WindowsServer => {
@@ -2533,8 +2533,8 @@ fn generate_tftp_ztp(
         )?;
     } else {
         match node.model_kind.model() {
-            data::NodeModel::AristaVeos => {
-                let arista_template = template::AristaVeosZtpTemplate {
+            data::NodeModel::AristaEos => {
+                let arista_template = template::AristaEosVmZtpTemplate {
                     hostname: node.name.clone(),
                     owner: guest_account::owner_user(
                         guest_account,
@@ -2582,7 +2582,7 @@ fn generate_tftp_ztp(
                     TFTP_CONFIG_FILE_MODE,
                 )?;
             }
-            data::NodeModel::JuniperVevolved | data::NodeModel::JuniperVsrxv3 => {
+            data::NodeModel::JuniperEvolved | data::NodeModel::JuniperSrxv3 => {
                 let juniper_template = template::JunipervJunosZtpTemplate {
                     hostname: node.name.clone(),
                     owner: guest_account::owner_user(
@@ -2659,11 +2659,11 @@ fn cdrom_config(
         ..
     } = *ztp;
     match node.model_kind.model() {
-        data::NodeModel::CiscoCsr1000v
-        | data::NodeModel::CiscoCat8000v
-        | data::NodeModel::CiscoCat9000v => iosxe_config(node, node_image, ztp),
-        data::NodeModel::CiscoAsav => asav_config(node, ztp),
-        data::NodeModel::CiscoNexus9300v => Ok(template::CiscoNxosZtpTemplate {
+        data::NodeModel::CiscoCsr1000
+        | data::NodeModel::CiscoCat8000
+        | data::NodeModel::CiscoCat9000 => iosxe_config(node, node_image, ztp),
+        data::NodeModel::CiscoAsa => asav_config(node, ztp),
+        data::NodeModel::CiscoNexus9300 => Ok(template::CiscoNxosZtpTemplate {
             hostname: node.name.clone(),
             owner: guest_account::owner_user(
                 guest_account,
@@ -2677,7 +2677,7 @@ fn cdrom_config(
             mgmt_ipv6: mgmt_net.v6.clone(),
         }
         .render()?),
-        data::NodeModel::CiscoIosxrv9000 => Ok(template::CiscoIosxrZtpTemplate {
+        data::NodeModel::CiscoIosxr9000 => Ok(template::CiscoIosxrZtpTemplate {
             hostname: node.name.clone(),
             owner: guest_account::owner_user(
                 guest_account,
@@ -2691,10 +2691,10 @@ fn cdrom_config(
             mgmt_ipv6: mgmt_net.v6.clone(),
         }
         .render()?),
-        data::NodeModel::CiscoFtdv => ftdv_config(node, ztp),
-        data::NodeModel::JuniperVsrxv3
-        | data::NodeModel::JuniperVrouter
-        | data::NodeModel::JuniperVswitch => Ok(template::JunipervJunosZtpTemplate {
+        data::NodeModel::CiscoFtd => ftdv_config(node, ztp),
+        data::NodeModel::JuniperSrxv3
+        | data::NodeModel::JuniperRouter
+        | data::NodeModel::JuniperSwitch => Ok(template::JunipervJunosZtpTemplate {
             hostname: node.name.clone(),
             owner: guest_account::owner_user(
                 guest_account,
@@ -2728,10 +2728,10 @@ fn iosxe_config(
         ..
     } = *ztp;
     let license_boot_command = match node.model_kind.model() {
-        data::NodeModel::CiscoCat8000v => {
+        data::NodeModel::CiscoCat8000 => {
             Some("license boot level network-premier addon dna-premier".to_string())
         }
-        data::NodeModel::CiscoCat9000v => {
+        data::NodeModel::CiscoCat9000 => {
             Some("license boot level network-advantage addon dna-advantage".to_string())
         }
         _ => None,
@@ -2760,7 +2760,7 @@ fn asav_config(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>) -> Result<Strin
         guest_account,
         ..
     } = *ztp;
-    Ok(template::CiscoAsavZtpTemplate {
+    Ok(template::CiscoAsaZtpTemplate {
         hostname: node.name.clone(),
         owner: guest_account::owner_user(
             guest_account,
@@ -2785,7 +2785,7 @@ fn ftdv_config(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>) -> Result<Strin
         device_password,
         ..
     } = *ztp;
-    Ok(serde_json::to_string(&template::CiscoFtdvZtpTemplate {
+    Ok(serde_json::to_string(&template::CiscoFtdZtpTemplate {
         eula: "accept".to_string(),
         hostname: node.name.clone(),
         admin_password: guest_account::device_password(device_password, PasswordForm::Plain)?,
@@ -2886,12 +2886,12 @@ fn generate_disk_ztp(
 
     let dir = ztp.boot_dir.to_owned();
     match node.model_kind.model() {
-        data::NodeModel::CiscoIosv | data::NodeModel::CiscoIosvl2 => {
+        data::NodeModel::CiscoIos | data::NodeModel::CiscoIosl2 => {
             let rendered_template = match custom_ztp {
                 Some(config) => config.to_owned(),
-                None => iosv_config(node, node_image, ztp)?,
+                None => ios_config(node, node_image, ztp)?,
             };
-            let ztp_config = format!("{dir}/{CISCO_IOSV_ZTP_CONFIG}");
+            let ztp_config = format!("{dir}/{CISCO_IOS_ZTP_CONFIG}");
             util::create_dir_with_permissions(Path::new(&dir), NODE_CONFIG_DIR_MODE)?;
             util::write_file_with_permissions(
                 Path::new(&ztp_config),
@@ -2919,7 +2919,7 @@ fn generate_disk_ztp(
 }
 
 /// `IOSv` and `IOSvL2`: the owner's keys as their MD5 hashes.
-fn iosv_config(
+fn ios_config(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
     ztp: &NodeZtp<'_>,
@@ -2933,8 +2933,8 @@ fn iosv_config(
     } = *ztp;
     let owner = guest_account::owner_user(guest_account, KeyFormat::CiscoMd5, PasswordForm::Plain)?;
     let mgmt_interface = node_image.interfaces.management.to_string();
-    let rendered = if node.model_kind.model() == data::NodeModel::CiscoIosvl2 {
-        template::CiscoIosvl2ZtpTemplate {
+    let rendered = if node.model_kind.model() == data::NodeModel::CiscoIosl2 {
+        template::CiscoIosl2ZtpTemplate {
             hostname: node.name.clone(),
             owner,
             mgmt_interface,
@@ -2946,7 +2946,7 @@ fn iosv_config(
         }
         .render()?
     } else {
-        template::CiscoIosvZtpTemplate {
+        template::CiscoIosZtpTemplate {
             hostname: node.name.clone(),
             owner,
             mgmt_interface,
@@ -3153,7 +3153,7 @@ fn generate_usb_ztp(
             let dst_final = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img");
             Ok((dst_usb, dst_final))
         }
-        data::NodeModel::JuniperVevolved => {
+        data::NodeModel::JuniperEvolved => {
             let rendered_template = if let Some(config) = custom_ztp {
                 config.to_owned()
             } else {
@@ -3622,7 +3622,7 @@ fn management_interface_type_for_model(
     default: &data::InterfaceType,
 ) -> data::InterfaceType {
     match model_kind.model() {
-        data::NodeModel::CiscoIosxrv9000 => data::InterfaceType::E1000,
+        data::NodeModel::CiscoIosxr9000 => data::InterfaceType::E1000,
         _ => default.clone(),
     }
 }
@@ -3635,7 +3635,7 @@ fn reserved_interface_type_for_model(
     default: &data::InterfaceType,
 ) -> data::InterfaceType {
     match model_kind.model() {
-        data::NodeModel::CiscoIosxrv9000 => data::InterfaceType::E1000,
+        data::NodeModel::CiscoIosxr9000 => data::InterfaceType::E1000,
         _ => default.clone(),
     }
 }
@@ -3643,7 +3643,7 @@ fn reserved_interface_type_for_model(
 /// Return CPU feature overrides for specific node models.
 fn cpu_features_for_model(model_kind: data::ModelKind) -> Vec<data::CpuFeature> {
     match model_kind.model() {
-        data::NodeModel::JuniperVsrxv3 => {
+        data::NodeModel::JuniperSrxv3 => {
             // FreeBSD-based vSRX requires disabling several CPU features that
             // cause boot hangs on KVM. Matches vrnetlab's working configuration.
             let disabled = [
@@ -4538,20 +4538,32 @@ mod tests {
     fn disabled_veths_stay_down_unless_the_model_keeps_them_up() {
         assert_eq!(
             netns_veth_state(
-                ModelKind::default_for(data::NodeModel::JuniperCevolved),
+                ModelKind::new(
+                    data::NodeModel::JuniperEvolved,
+                    Some(data::NodeKind::Container)
+                )
+                .unwrap(),
                 false
             ),
             NetnsVethState::Enabled
         );
         assert_eq!(
             netns_veth_state(
-                ModelKind::default_for(data::NodeModel::JuniperCevolved),
+                ModelKind::new(
+                    data::NodeModel::JuniperEvolved,
+                    Some(data::NodeKind::Container)
+                )
+                .unwrap(),
                 true
             ),
             NetnsVethState::DisabledUp
         );
         assert_eq!(
-            netns_veth_state(ModelKind::default_for(data::NodeModel::AristaCeos), true),
+            netns_veth_state(
+                ModelKind::new(data::NodeModel::AristaEos, Some(data::NodeKind::Container))
+                    .unwrap(),
+                true
+            ),
             NetnsVethState::Disabled
         );
     }
@@ -5602,7 +5614,7 @@ mod tests {
             stored(Some(8443), true)
         );
         for model in [
-            data::NodeModel::GenericContainer,
+            data::NodeModel::PostgresqlDb,
             data::NodeModel::NanosUnikernel,
         ] {
             let model_kind = ModelKind::default_for(model);
@@ -5852,14 +5864,23 @@ mod tests {
         }
     }
 
+    /// A container node of `model`, which may also take another kind.
+    fn named_container(name: &str, model: data::NodeModel) -> topology::NodeExpanded {
+        topology::NodeExpanded {
+            name: name.to_owned(),
+            model_kind: ModelKind::new(model, Some(data::NodeKind::Container)).unwrap(),
+            ..Default::default()
+        }
+    }
+
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(ToString::to_string).collect()
     }
 
     const MOUNTED_CONFIG_MODELS: [data::NodeModel; 4] = [
-        data::NodeModel::AristaCeos,
+        data::NodeModel::AristaEos,
         data::NodeModel::NokiaSrlinux,
-        data::NodeModel::JuniperCevolved,
+        data::NodeModel::JuniperEvolved,
         data::NodeModel::FrrLinux,
     ];
 
@@ -5977,20 +5998,20 @@ mod tests {
     fn only_juniper_models_get_extra_qemu_arguments() {
         for (model, commands) in [
             (
-                data::NodeModel::JuniperVrouter,
-                data::QemuCommand::juniper_vrouter(),
+                data::NodeModel::JuniperRouter,
+                data::QemuCommand::juniper_router(),
             ),
             (
-                data::NodeModel::JuniperVswitch,
-                data::QemuCommand::juniper_vswitch(),
+                data::NodeModel::JuniperSwitch,
+                data::QemuCommand::juniper_switch(),
             ),
             (
-                data::NodeModel::JuniperVsrxv3,
-                data::QemuCommand::juniper_vsrxv3(),
+                data::NodeModel::JuniperSrxv3,
+                data::QemuCommand::juniper_srxv3(),
             ),
             (
-                data::NodeModel::JuniperVevolved,
-                data::QemuCommand::juniper_vevolved(),
+                data::NodeModel::JuniperEvolved,
+                data::QemuCommand::juniper_evolved(),
             ),
         ] {
             assert_eq!(
@@ -6064,7 +6085,7 @@ mod tests {
     #[test]
     fn ceos_with_volume_ztp_mounts_its_config_and_copies_it_into_flash() {
         let lab = ZtpLab::new();
-        let mut node = named_node("ceos01", data::NodeModel::AristaCeos);
+        let mut node = named_container("ceos01", data::NodeModel::AristaEos);
 
         let result = lab.container(&mut node, None).unwrap();
 
@@ -6084,10 +6105,10 @@ mod tests {
     #[test]
     fn ceos_with_ztp_off_starts_with_the_plain_init_command() {
         let lab = ZtpLab::new();
-        let mut on = named_node("ceos01", data::NodeModel::AristaCeos);
+        let mut on = named_container("ceos01", data::NodeModel::AristaEos);
         let with_ztp = lab.container(&mut on, None).unwrap();
         let lab = ZtpLab::new();
-        let mut node = named_node("ceos01", data::NodeModel::AristaCeos);
+        let mut node = named_container("ceos01", data::NodeModel::AristaEos);
 
         let result = lab.container(&mut node, Some(data::Ztp::Disabled)).unwrap();
 
@@ -6130,7 +6151,7 @@ mod tests {
     #[test]
     fn cevolved_mounts_its_config_directory_only_with_volume_ztp() {
         let lab = ZtpLab::new();
-        let mut node = named_node("ptx01", data::NodeModel::JuniperCevolved);
+        let mut node = named_container("ptx01", data::NodeModel::JuniperEvolved);
         let with_ztp = lab.container(&mut node, None).unwrap();
         assert_eq!(
             lab.files(),
@@ -6145,7 +6166,7 @@ mod tests {
         );
 
         let lab = ZtpLab::new();
-        let mut node = named_node("ptx01", data::NodeModel::JuniperCevolved);
+        let mut node = named_container("ptx01", data::NodeModel::JuniperEvolved);
         let off = lab.container(&mut node, Some(data::Ztp::Disabled)).unwrap();
         assert!(lab.files().is_empty(), "{:?}", lab.files());
         assert!(off.volumes.is_empty(), "{:?}", off.volumes);
@@ -6361,7 +6382,8 @@ mod tests {
         );
         for model in MOUNTED_CONFIG_MODELS {
             assert!(
-                model_capabilities(ModelKind::default_for(model)).is_empty(),
+                model_capabilities(ModelKind::new(model, Some(data::NodeKind::Container)).unwrap())
+                    .is_empty(),
                 "{model}"
             );
         }
@@ -6381,7 +6403,7 @@ mod tests {
                 data::Ztp::Usb,
             ] {
                 let lab = ZtpLab::new();
-                let mut node = named_node("node1", model);
+                let mut node = named_container("node1", model);
                 let error = lab
                     .container(&mut node, Some(ztp))
                     .err()
@@ -6443,24 +6465,28 @@ mod tests {
             node_cert: "/certs/node.crt".to_owned(),
             node_key: "/certs/node.key".to_owned(),
         };
-        let models: Vec<data::NodeModel> = data::NodeModel::to_vec()
-            .into_iter()
-            .filter(|model| {
-                let config = data::ModelKind::default_for(*model).node_config();
-                config.kind == data::NodeKind::Container && config.repo.is_some()
+        let pairs: Vec<ModelKind> = ModelKind::all()
+            .filter(|model_kind| {
+                model_kind.kind() == data::NodeKind::Container
+                    && model_kind.node_config().repo.is_some()
             })
             .collect();
-        assert_eq!(models.len(), 13, "{models:?}");
-        for model in models {
+        assert_eq!(pairs.len(), 13, "{pairs:?}");
+        for model_kind in pairs {
+            let model = model_kind.model();
             // IOL's logins take an RSA key, and its application ID is the node's place in the
             // lab, from 1.
             let lab = ZtpLab::new();
-            let mut node = iol_node("node1", model, 1);
+            let mut node = topology::NodeExpanded {
+                index: 1,
+                model_kind,
+                ..named_node("node1", model)
+            };
             node.image = Some("registry.example:5000/mirror/image".to_owned());
 
             let result = generate_container_ztp(
                 &mut node,
-                &data::ModelKind::default_for(model).node_config(),
+                &model_kind.node_config(),
                 &lab.lab(),
                 "192.0.2.10".parse().unwrap(),
                 Some(&certs),
@@ -6484,10 +6510,10 @@ mod tests {
         for model in [
             data::NodeModel::MysqlDb,
             data::NodeModel::PostgresqlDb,
-            data::NodeModel::GenericContainer,
+            data::NodeModel::Generic,
         ] {
             let lab = ZtpLab::new();
-            let mut node = named_node("app01", model);
+            let mut node = named_container("app01", model);
             node.image = Some("example/app".to_owned());
             node.container.get_or_insert_default().commands = Some(strings(&["serve"]));
             node.environment_variables = Some(strings(&["KEY=value"]));
@@ -6555,13 +6581,13 @@ mod tests {
     fn manifest_volumes_reach_a_mounted_config_model_only_with_ztp_off() {
         for model in MOUNTED_CONFIG_MODELS {
             let lab = ZtpLab::new();
-            let mut node = named_node("node1", model);
+            let mut node = named_container("node1", model);
             node.container.get_or_insert_default().volumes = Some(manifest_volume());
             let off = lab.container(&mut node, Some(data::Ztp::Disabled)).unwrap();
             assert_eq!(off.volumes, ["/srv/own.conf:/etc/own.conf"], "{model}");
 
             let lab = ZtpLab::new();
-            let mut node = named_node("node1", model);
+            let mut node = named_container("node1", model);
             node.container.get_or_insert_default().volumes = Some(manifest_volume());
             let with_ztp = lab.container(&mut node, None).unwrap();
             assert!(
@@ -6882,7 +6908,7 @@ mod tests {
         // cloud-init, CD-ROM, the PAN-OS bootstrap, NoCloud and Ignition.
         let nodes = [
             ("ubuntu01", data::NodeModel::UbuntuLinux),
-            ("cat01", data::NodeModel::CiscoCat8000v),
+            ("cat01", data::NodeModel::CiscoCat8000),
             ("panos01", data::NodeModel::PaloaltoPanos),
             ("talos01", data::NodeModel::TalosLinux),
             ("flatcar01", data::NodeModel::FlatcarLinux),
@@ -6924,7 +6950,7 @@ mod tests {
         // `up` and `redeploy` make the TFTP folder before any node's config.
         util::create_dir_with_permissions(&ztp_dir.join(TFTP_DIR), TFTP_DIR_MODE).unwrap();
         for (name, model) in [
-            ("veos01", data::NodeModel::AristaVeos),
+            ("veos01", data::NodeModel::AristaEos),
             ("sonic01", data::NodeModel::SonicLinux),
         ] {
             let mut node = named_node(name, model);
@@ -6962,9 +6988,9 @@ mod tests {
         }
         let lab = ZtpLab::new();
         let mut nodes = vec![
-            named_node("ceos01", data::NodeModel::AristaCeos),
+            named_container("ceos01", data::NodeModel::AristaEos),
             named_node("srl01", data::NodeModel::NokiaSrlinux),
-            named_node("cevo01", data::NodeModel::JuniperCevolved),
+            named_container("cevo01", data::NodeModel::JuniperEvolved),
             named_node("frr01", data::NodeModel::FrrLinux),
             iol_node("iol01", data::NodeModel::CiscoIol, 1),
         ];

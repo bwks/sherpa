@@ -1,10 +1,13 @@
 use std::fs;
 use std::io::ErrorKind;
+use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
 use anyhow::{Context, Result, ensure};
 use askama::Template;
+use quick_xml::de::from_str;
+use serde::Deserialize;
 use shared::konst::{
     SHERPA_STORAGE_POOL, STORAGE_POOL_REFRESH_ATTEMPTS, STORAGE_POOL_REFRESH_RETRY_MS,
 };
@@ -14,6 +17,19 @@ use virt::error::ErrorNumber;
 use virt::storage_pool::StoragePool;
 
 use crate::names::is_lab_volume;
+
+/// A storage volume's XML, as far as its backing file.
+#[derive(Debug, Deserialize)]
+struct VolumeXml {
+    #[serde(rename = "backingStore")]
+    backing_store: Option<BackingStoreXml>,
+}
+
+/// A volume's `<backingStore>`: the path of its base, as the volume records it.
+#[derive(Debug, Deserialize)]
+struct BackingStoreXml {
+    path: Option<String>,
+}
 
 /// A directory storage pool, defined from `templates/storage_pool.xml`.
 #[derive(Debug, Template)]
@@ -119,6 +135,44 @@ pub fn list_lab_volumes(qemu_conn: &Connect, lab_id: &str) -> Result<Vec<String>
         .collect())
 }
 
+/// The backing file of each volume in the Sherpa storage pool that has one, as libvirt reads
+/// it from the volume's header after refreshing the pool. libvirt reads every volume, while
+/// sherpad cannot read the disks libvirt has handed to QEMU.
+///
+/// # Errors
+///
+/// Fails when the pool cannot be found, refreshed or listed, or a volume's XML cannot be read
+/// or parsed: a dependency that cannot be determined is an error, not a volume without one.
+#[instrument(level = "debug", skip(qemu_conn))]
+pub fn pool_backing_files(qemu_conn: &Connect) -> Result<Vec<PathBuf>> {
+    let pool = StoragePool::lookup_by_name(qemu_conn, SHERPA_STORAGE_POOL).context(format!(
+        "Failed to find storage pool '{SHERPA_STORAGE_POOL}'"
+    ))?;
+    refresh_pool(&pool)?;
+    let volumes = pool.list_all_volumes(0).context(format!(
+        "Failed to list volumes in pool '{SHERPA_STORAGE_POOL}'"
+    ))?;
+    let mut backing_files = Vec::new();
+    for volume in volumes {
+        let xml = volume
+            .get_xml_desc(0)
+            .context("Failed to read a storage volume's XML")?;
+        if let Some(path) = volume_backing_file(&xml)? {
+            backing_files.push(path);
+        }
+    }
+    Ok(backing_files)
+}
+
+/// The backing file a storage volume's `xml` records, if any.
+fn volume_backing_file(xml: &str) -> Result<Option<PathBuf>> {
+    let volume: VolumeXml = from_str(xml).context("Failed to parse a storage volume's XML")?;
+    Ok(volume
+        .backing_store
+        .and_then(|backing| backing.path)
+        .map(PathBuf::from))
+}
+
 /// Fail unless nothing exists at `path`. Disks are created exclusively and never replace a file.
 pub(crate) fn ensure_destination_absent(path: &str) -> Result<()> {
     ensure!(
@@ -152,5 +206,25 @@ mod tests {
         assert!(ensure_destination_absent(directory.to_str().unwrap()).is_err());
         let missing = directory.join("sherpa-libvirt-test-missing-destination");
         assert!(ensure_destination_absent(missing.to_str().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn a_volumes_backing_file_is_read_from_its_xml() {
+        let overlay = "<volume type='file'><name>srx1-lab-hdd.qcow2</name>\
+            <target><path>/opt/sherpa/libvirt/images/srx1-lab-hdd.qcow2</path>\
+            <format type='qcow2'/></target>\
+            <backingStore><path>/opt/sherpa/images/juniper_vsrxv3/23.2/virtioa.qcow2</path>\
+            <format type='qcow2'/><permissions><mode>0644</mode></permissions></backingStore>\
+            </volume>";
+        assert_eq!(
+            volume_backing_file(overlay).unwrap(),
+            Some(PathBuf::from(
+                "/opt/sherpa/images/juniper_vsrxv3/23.2/virtioa.qcow2"
+            ))
+        );
+        let copy = "<volume type='file'><name>srx1-lab.iso</name>\
+            <target><path>/opt/sherpa/libvirt/images/srx1-lab.iso</path></target></volume>";
+        assert_eq!(volume_backing_file(copy).unwrap(), None);
+        assert!(volume_backing_file("<volume").is_err());
     }
 }

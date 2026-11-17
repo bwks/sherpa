@@ -644,4 +644,31 @@ mod tests {
             other => panic!("unexpected command: {other:?}"),
         }
     }
+
+    #[test]
+    fn a_removed_model_name_on_the_command_line_names_its_replacement() {
+        for argv in [
+            ["sherpa", "server", "image", "show", "arista_ceos"].as_slice(),
+            &[
+                "sherpa",
+                "server",
+                "image",
+                "pull",
+                "--model",
+                "arista_ceos",
+            ],
+            &["sherpa", "image", "show", "arista_ceos"],
+        ] {
+            let error = Cli::try_parse_from(argv).unwrap_err().to_string();
+            assert!(
+                error.contains(
+                    "Unknown node model 'arista_ceos': it was renamed in 0.7.0. \
+                     Use model = \"arista_eos\" with kind = \"container\"."
+                ),
+                "{argv:?}: {error}"
+            );
+        }
+        let cli = Cli::try_parse_from(["sherpa", "server", "image", "show", "arista_eos"]);
+        assert!(cli.is_ok());
+    }
 }

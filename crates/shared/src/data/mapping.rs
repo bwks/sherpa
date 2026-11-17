@@ -31,28 +31,28 @@ pub struct QemuCommand {
 }
 impl QemuCommand {
     #[must_use]
-    pub fn juniper_vrouter() -> Vec<Self> {
+    pub fn juniper_router() -> Vec<Self> {
         vec![Self {
             param: "-smbios".to_owned(),
             value: "type=1,product=VM-VMX,family=lab".to_owned(),
         }]
     }
     #[must_use]
-    pub fn juniper_vswitch() -> Vec<Self> {
+    pub fn juniper_switch() -> Vec<Self> {
         vec![Self {
             param: "-smbios".to_owned(),
             value: "type=1,product=VM-VEX".to_owned(),
         }]
     }
     #[must_use]
-    pub fn juniper_vsrxv3() -> Vec<Self> {
+    pub fn juniper_srxv3() -> Vec<Self> {
         vec![Self {
             param: "-machine".to_owned(),
             value: "smbios-entry-point-type=32".to_owned(),
         }]
     }
     #[must_use]
-    pub fn juniper_vevolved() -> Vec<Self> {
+    pub fn juniper_evolved() -> Vec<Self> {
         vec![
             Self {
             param: "-smbios".to_owned(),
@@ -75,32 +75,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_juniper_vrouter_smbios() {
-        let cmds = QemuCommand::juniper_vrouter();
+    fn test_juniper_router_smbios() {
+        let cmds = QemuCommand::juniper_router();
         assert_eq!(cmds.len(), 1);
         assert_eq!(cmds[0].param, "-smbios");
         assert_eq!(cmds[0].value, "type=1,product=VM-VMX,family=lab");
     }
 
     #[test]
-    fn test_juniper_vswitch_smbios() {
-        let cmds = QemuCommand::juniper_vswitch();
+    fn test_juniper_switch_smbios() {
+        let cmds = QemuCommand::juniper_switch();
         assert_eq!(cmds.len(), 1);
         assert_eq!(cmds[0].param, "-smbios");
         assert_eq!(cmds[0].value, "type=1,product=VM-VEX");
     }
 
     #[test]
-    fn test_juniper_vsrxv3_machine_type() {
-        let cmds = QemuCommand::juniper_vsrxv3();
+    fn test_juniper_srxv3_machine_type() {
+        let cmds = QemuCommand::juniper_srxv3();
         assert_eq!(cmds.len(), 1);
         assert_eq!(cmds[0].param, "-machine");
         assert_eq!(cmds[0].value, "smbios-entry-point-type=32");
     }
 
     #[test]
-    fn test_juniper_vevolved_three_smbios_entries() {
-        let cmds = QemuCommand::juniper_vevolved();
+    fn test_juniper_evolved_three_smbios_entries() {
+        let cmds = QemuCommand::juniper_evolved();
         assert_eq!(cmds.len(), 3);
         assert!(cmds.iter().all(|c| c.param == "-smbios"));
         // First entry sets vendor

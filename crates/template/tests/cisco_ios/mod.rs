@@ -2,7 +2,7 @@ use std::net::Ipv4Addr;
 
 use askama::Template;
 
-use template::{CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate};
+use template::{CiscoIosZtpTemplate, CiscoIosl2ZtpTemplate};
 
 use crate::helpers;
 
@@ -213,7 +213,7 @@ exit"#;
 
 #[test]
 fn test_static_ipv4() {
-    let t = CiscoIosvZtpTemplate {
+    let t = CiscoIosZtpTemplate {
         hostname: "iosv01".to_string(),
         owner: helpers::test_owner(PASSWORD),
         mgmt_interface: "GigabitEthernet0/0".to_string(),
@@ -229,7 +229,7 @@ fn test_static_ipv4() {
 
 #[test]
 fn test_dual_stack() {
-    let t = CiscoIosvZtpTemplate {
+    let t = CiscoIosZtpTemplate {
         hostname: "iosv01".to_string(),
         owner: helpers::test_owner(PASSWORD),
         mgmt_interface: "GigabitEthernet0/0".to_string(),
@@ -245,7 +245,7 @@ fn test_dual_stack() {
 
 #[test]
 fn test_dhcp_mode() {
-    let t = CiscoIosvZtpTemplate {
+    let t = CiscoIosZtpTemplate {
         hostname: "iosv01".to_string(),
         owner: helpers::test_owner(PASSWORD),
         mgmt_interface: "GigabitEthernet0/0".to_string(),
@@ -261,7 +261,7 @@ fn test_dhcp_mode() {
 
 #[test]
 fn only_the_owner_has_an_account() {
-    let t = CiscoIosvZtpTemplate {
+    let t = CiscoIosZtpTemplate {
         hostname: "iosv01".to_string(),
         owner: helpers::test_owner(PASSWORD),
         mgmt_interface: "GigabitEthernet0/0".to_string(),
@@ -287,9 +287,9 @@ fn only_the_owner_has_an_account() {
 }
 
 #[test]
-fn the_password_is_intact_on_iosv_and_iosvl2() {
+fn the_password_is_intact_on_ios_and_iosl2() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
-        let iosv = CiscoIosvZtpTemplate {
+        let ios = CiscoIosZtpTemplate {
             hostname: "iosv01".to_string(),
             owner: helpers::test_owner(password),
             mgmt_interface: "GigabitEthernet0/0".to_string(),
@@ -299,8 +299,8 @@ fn the_password_is_intact_on_iosv_and_iosvl2() {
             mgmt_ipv6_address: None,
             mgmt_ipv6: None,
         };
-        let iosvl2 = CiscoIosvl2ZtpTemplate {
-            hostname: "iosvl2".to_string(),
+        let iosl2 = CiscoIosl2ZtpTemplate {
+            hostname: "iosl2".to_string(),
             owner: helpers::test_owner(password),
             mgmt_interface: "GigabitEthernet0/0".to_string(),
             dns: helpers::test_dns(),
@@ -310,8 +310,8 @@ fn the_password_is_intact_on_iosv_and_iosvl2() {
             mgmt_ipv6: None,
         };
         for output in [
-            iosv.render().expect("template renders"),
-            iosvl2.render().expect("template renders"),
+            ios.render().expect("template renders"),
+            iosl2.render().expect("template renders"),
         ] {
             assert!(output.contains(&format!(
                 "\nusername alice privilege 15 secret {password}\n"

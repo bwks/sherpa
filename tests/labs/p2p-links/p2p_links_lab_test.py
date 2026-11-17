@@ -753,11 +753,13 @@ def preflight(run_root):
                             run_root)
         require(docker.code == 0, f"Docker has no {SIDECAR_IMAGE} image (docker pull {SIDECAR_IMAGE}), "
                 f"or this user cannot use Docker; this test runs on the Sherpa server")
-        images = sorted({(node["model"], node["version"]) for node in manifest["nodes"]})
-        for model, version in images:
-            image = run_logged(log, f"{model} {version} image present",
-                               ["sherpa", "image", "show", model, "--version", version], run_root)
-            require(image.code == 0, f"the server has no {model} {version} image")
+        images = sorted({(node["model"], node.get("kind", ""), node["version"]) for node in manifest["nodes"]})
+        for model, kind, version in images:
+            arguments = ["sherpa", "image", "show", model, "--version", version]
+            if kind:
+                arguments += ["--kind", kind]
+            image = run_logged(log, f"{model} {kind} {version} image present", arguments, run_root)
+            require(image.code == 0, f"the server has no {model} {kind} {version} image")
 
 
 def main():
@@ -861,7 +863,8 @@ class SelfTest(unittest.TestCase):
     def test_node_kinds_match_the_manifest(self):
         models = {node["name"]: node["model"] for node in self.manifest()["nodes"]}
         self.assertTrue(all(models[node] == "ubuntu_linux" for node in VMS))
-        self.assertTrue(all(models[node] == "generic_container" for node in CONTAINERS))
+        kinds = {node["name"]: node.get("kind") for node in self.manifest()["nodes"]}
+        self.assertTrue(all(models[node] == "generic" and kinds[node] == "container" for node in CONTAINERS))
         self.assertEqual(set(REDEPLOYED) | {REBOOTED}, set(VMS) | {"c1"})
 
     def test_arista_config_bundles_each_ports_pair(self):

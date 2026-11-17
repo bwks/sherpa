@@ -442,7 +442,7 @@ mod tests {
         let (db, lab) = lab_with(&[
             ("vm1", NodeModel::AlpineLinux),
             ("vm2", NodeModel::UbuntuLinux),
-            ("web", NodeModel::GenericContainer),
+            ("web", NodeModel::PostgresqlDb),
             ("talos", NodeModel::TalosLinux),
         ])
         .await;

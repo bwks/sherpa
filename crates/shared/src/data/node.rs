@@ -1,20 +1,25 @@
+use std::ffi::OsStr;
 use std::fmt;
+use std::str::FromStr;
 
 use anyhow::Result;
 use clap::ValueEnum;
+use clap::builder::{PossibleValue, TypedValueParser, ValueParserFactory};
+use clap::error::ErrorKind;
 use schemars::JsonSchema;
+use serde::de::{self, Deserializer};
 use serde_derive::{Deserialize, Serialize};
 
 use strum::IntoEnumIterator;
-use strum_macros::{Display, EnumIter};
+use strum_macros::{Display, EnumIter, IntoStaticStr};
 
 use super::cpu::CpuModels;
 use super::disk::DiskBuses;
 use super::interface::MgmtInterfaces;
 use crate::konst::{
-    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_CISCO_IOL_REPO, CONTAINER_CISCO_IOLL2_REPO,
+    CONTAINER_ARISTA_EOS_REPO, CONTAINER_CISCO_IOL_REPO, CONTAINER_CISCO_IOLL2_REPO,
     CONTAINER_FORGEJO_REPO, CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO,
-    CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_JUNIPER_CEVOLVED_REPO, CONTAINER_KEYCLOAK_REPO,
+    CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_JUNIPER_EVOLVED_REPO, CONTAINER_KEYCLOAK_REPO,
     CONTAINER_MONGO_DB_REPO, CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_REPO,
     CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD, SONIC_PORT_COUNT,
 };
@@ -23,51 +28,41 @@ use super::RecordId;
 use super::model_kind::ModelKind;
 use super::node_base;
 
+/// A node model, the name a manifest, a command and the API give it. It is read only through
+/// `FromStr`, from JSON and TOML, from a command line and from the database alike, so a name
+/// removed in 0.7.0 is refused everywhere with the same message naming its replacement.
 #[derive(
-    Default,
-    PartialEq,
-    Eq,
-    Hash,
-    Clone,
-    Copy,
-    Debug,
-    Deserialize,
-    Serialize,
-    ValueEnum,
-    EnumIter,
-    JsonSchema,
+    Default, PartialEq, Eq, Hash, Clone, Copy, Debug, Serialize, EnumIter, IntoStaticStr, JsonSchema,
 )]
-#[clap(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum NodeModel {
     #[default]
     // Arista
-    AristaVeos,
-    AristaCeos,
+    AristaEos,
 
     // Aruba
     ArubaAoscx,
 
     // Cisco
-    CiscoAsav,
-    CiscoCsr1000v,
-    CiscoCat8000v,
-    CiscoCat9000v,
-    CiscoIosxrv9000,
-    CiscoNexus9300v,
-    CiscoIosv,
-    CiscoIosvl2,
+    CiscoAsa,
+    CiscoCsr1000,
+    CiscoCat8000,
+    CiscoCat9000,
+    CiscoIosxr9000,
+    CiscoNexus9300,
+    CiscoIos,
+    CiscoIosl2,
     CiscoIol,
     CiscoIoll2,
     CiscoIse,
-    CiscoFtdv,
+    CiscoFtd,
 
     // Juniper
-    JuniperVrouter,
-    JuniperVswitch,
-    JuniperVevolved,
-    JuniperCevolved,
-    JuniperVsrxv3,
+    JuniperRouter,
+    JuniperSwitch,
+    JuniperEvolved,
+    JuniperSrxv3,
 
     // Nokia
     NokiaSrlinux,
@@ -134,9 +129,7 @@ pub enum NodeModel {
     KeycloakServer,
 
     // Generic
-    GenericContainer,
-    GenericUnikernel,
-    GenericVm,
+    Generic,
 
     // Unikernels
     UnikraftUnikernel,
@@ -146,32 +139,30 @@ impl fmt::Display for NodeModel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             // Arista
-            NodeModel::AristaVeos => write!(f, "arista_veos"),
-            NodeModel::AristaCeos => write!(f, "arista_ceos"),
+            NodeModel::AristaEos => write!(f, "arista_eos"),
 
             // Aruba
             NodeModel::ArubaAoscx => write!(f, "aruba_aoscx"),
 
             // Cisco
-            NodeModel::CiscoAsav => write!(f, "cisco_asav"),
-            NodeModel::CiscoCsr1000v => write!(f, "cisco_csr1000v"),
-            NodeModel::CiscoCat8000v => write!(f, "cisco_cat8000v"),
-            NodeModel::CiscoCat9000v => write!(f, "cisco_cat9000v"),
-            NodeModel::CiscoIosxrv9000 => write!(f, "cisco_iosxrv9000"),
-            NodeModel::CiscoNexus9300v => write!(f, "cisco_nexus9300v"),
-            NodeModel::CiscoIosv => write!(f, "cisco_iosv"),
-            NodeModel::CiscoIosvl2 => write!(f, "cisco_iosvl2"),
+            NodeModel::CiscoAsa => write!(f, "cisco_asa"),
+            NodeModel::CiscoCsr1000 => write!(f, "cisco_csr1000"),
+            NodeModel::CiscoCat8000 => write!(f, "cisco_cat8000"),
+            NodeModel::CiscoCat9000 => write!(f, "cisco_cat9000"),
+            NodeModel::CiscoIosxr9000 => write!(f, "cisco_iosxr9000"),
+            NodeModel::CiscoNexus9300 => write!(f, "cisco_nexus9300"),
+            NodeModel::CiscoIos => write!(f, "cisco_ios"),
+            NodeModel::CiscoIosl2 => write!(f, "cisco_iosl2"),
             NodeModel::CiscoIol => write!(f, "cisco_iol"),
             NodeModel::CiscoIoll2 => write!(f, "cisco_ioll2"),
             NodeModel::CiscoIse => write!(f, "cisco_ise"),
-            NodeModel::CiscoFtdv => write!(f, "cisco_ftdv"),
+            NodeModel::CiscoFtd => write!(f, "cisco_ftd"),
 
             // Juniper
-            NodeModel::JuniperVrouter => write!(f, "juniper_vrouter"),
-            NodeModel::JuniperVswitch => write!(f, "juniper_vswitch"),
-            NodeModel::JuniperVevolved => write!(f, "juniper_vevolved"),
-            NodeModel::JuniperCevolved => write!(f, "juniper_cevolved"),
-            NodeModel::JuniperVsrxv3 => write!(f, "juniper_vsrxv3"),
+            NodeModel::JuniperRouter => write!(f, "juniper_router"),
+            NodeModel::JuniperSwitch => write!(f, "juniper_switch"),
+            NodeModel::JuniperEvolved => write!(f, "juniper_evolved"),
+            NodeModel::JuniperSrxv3 => write!(f, "juniper_srxv3"),
 
             // Nokia
             NodeModel::NokiaSrlinux => write!(f, "nokia_srlinux"),
@@ -238,9 +229,7 @@ impl fmt::Display for NodeModel {
             NodeModel::OpenBsd => write!(f, "open_bsd"),
 
             // Generic
-            NodeModel::GenericContainer => write!(f, "generic_container"),
-            NodeModel::GenericUnikernel => write!(f, "generic_unikernel"),
-            NodeModel::GenericVm => write!(f, "generic_vm"),
+            NodeModel::Generic => write!(f, "generic"),
 
             // Unikernels
             NodeModel::UnikraftUnikernel => write!(f, "unikraft_unikernel"),
@@ -248,38 +237,36 @@ impl fmt::Display for NodeModel {
         }
     }
 }
-impl std::str::FromStr for NodeModel {
+impl FromStr for NodeModel {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             // Arista
-            "arista_veos" => Ok(NodeModel::AristaVeos),
-            "arista_ceos" => Ok(NodeModel::AristaCeos),
+            "arista_eos" => Ok(NodeModel::AristaEos),
 
             // Aruba
             "aruba_aoscx" => Ok(NodeModel::ArubaAoscx),
 
             // Cisco
-            "cisco_asav" => Ok(NodeModel::CiscoAsav),
-            "cisco_csr1000v" => Ok(NodeModel::CiscoCsr1000v),
-            "cisco_cat8000v" => Ok(NodeModel::CiscoCat8000v),
-            "cisco_cat9000v" => Ok(NodeModel::CiscoCat9000v),
-            "cisco_iosxrv9000" => Ok(NodeModel::CiscoIosxrv9000),
-            "cisco_nexus9300v" => Ok(NodeModel::CiscoNexus9300v),
-            "cisco_iosv" => Ok(NodeModel::CiscoIosv),
-            "cisco_iosvl2" => Ok(NodeModel::CiscoIosvl2),
+            "cisco_asa" => Ok(NodeModel::CiscoAsa),
+            "cisco_csr1000" => Ok(NodeModel::CiscoCsr1000),
+            "cisco_cat8000" => Ok(NodeModel::CiscoCat8000),
+            "cisco_cat9000" => Ok(NodeModel::CiscoCat9000),
+            "cisco_iosxr9000" => Ok(NodeModel::CiscoIosxr9000),
+            "cisco_nexus9300" => Ok(NodeModel::CiscoNexus9300),
+            "cisco_ios" => Ok(NodeModel::CiscoIos),
+            "cisco_iosl2" => Ok(NodeModel::CiscoIosl2),
             "cisco_iol" => Ok(NodeModel::CiscoIol),
             "cisco_ioll2" => Ok(NodeModel::CiscoIoll2),
             "cisco_ise" => Ok(NodeModel::CiscoIse),
-            "cisco_ftdv" => Ok(NodeModel::CiscoFtdv),
+            "cisco_ftd" => Ok(NodeModel::CiscoFtd),
 
             // Juniper
-            "juniper_vrouter" => Ok(NodeModel::JuniperVrouter),
-            "juniper_vswitch" => Ok(NodeModel::JuniperVswitch),
-            "juniper_vevolved" => Ok(NodeModel::JuniperVevolved),
-            "juniper_cevolved" => Ok(NodeModel::JuniperCevolved),
-            "juniper_vsrxv3" => Ok(NodeModel::JuniperVsrxv3),
+            "juniper_router" => Ok(NodeModel::JuniperRouter),
+            "juniper_switch" => Ok(NodeModel::JuniperSwitch),
+            "juniper_evolved" => Ok(NodeModel::JuniperEvolved),
+            "juniper_srxv3" => Ok(NodeModel::JuniperSrxv3),
 
             // Nokia
             "nokia_srlinux" => Ok(NodeModel::NokiaSrlinux),
@@ -348,18 +335,143 @@ impl std::str::FromStr for NodeModel {
             "open_bsd" => Ok(NodeModel::OpenBsd),
 
             // Generic
-            "generic_container" => Ok(NodeModel::GenericContainer),
-            "generic_unikernel" => Ok(NodeModel::GenericUnikernel),
-            "generic_vm" => Ok(NodeModel::GenericVm),
+            "generic" => Ok(NodeModel::Generic),
 
             // Unikernels
             "unikraft_unikernel" => Ok(NodeModel::UnikraftUnikernel),
             "nanos_unikernel" => Ok(NodeModel::NanosUnikernel),
 
-            _ => Err(format!("Unknown node model: {s}")),
+            _ => match REMOVED_MODELS.iter().find(|(name, _, _)| *name == s) {
+                Some((_, model, kind)) => Err(format!(
+                    "Unknown node model '{s}': it was renamed in 0.7.0. \
+                     Use model = \"{model}\" with kind = \"{kind}\"."
+                )),
+                None => Err(format!("Unknown node model: {s}")),
+            },
         }
     }
 }
+impl<'de> serde::Deserialize<'de> for NodeModel {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let name = <std::borrow::Cow<'de, str>>::deserialize(deserializer)?;
+        NodeModel::from_str(&name).map_err(de::Error::custom)
+    }
+}
+
+/// Reads a [`NodeModel`] from a command line through its `FromStr`, so an old name gets the
+/// message naming its replacement, and lists every model as the argument's possible values.
+#[derive(Clone, Copy, Debug)]
+pub struct NodeModelParser;
+
+impl TypedValueParser for NodeModelParser {
+    type Value = NodeModel;
+
+    fn parse_ref(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&clap::Arg>,
+        value: &OsStr,
+    ) -> Result<NodeModel, clap::Error> {
+        let name = value.to_string_lossy();
+        NodeModel::from_str(&name).map_err(|message| {
+            let argument = arg.map_or_else(String::new, |arg| format!(" for '{arg}'"));
+            clap::Error::raw(
+                ErrorKind::InvalidValue,
+                format!("invalid value '{name}'{argument}: {message}\n"),
+            )
+            .with_cmd(cmd)
+        })
+    }
+
+    fn possible_values(&self) -> Option<Box<dyn Iterator<Item = PossibleValue> + '_>> {
+        Some(Box::new(NodeModel::iter().map(|model| {
+            let name: &'static str = model.into();
+            PossibleValue::new(name)
+        })))
+    }
+}
+
+impl ValueParserFactory for NodeModel {
+    type Parser = NodeModelParser;
+
+    fn value_parser() -> NodeModelParser {
+        NodeModelParser
+    }
+}
+
+/// The model names removed in 0.7.0, each with the model and kind that replace it. They are
+/// known only to refuse an old name with a message naming its replacement, and to move the
+/// image folders named after them. To be deleted in 0.8.0.
+pub const REMOVED_MODELS: [(&str, NodeModel, NodeKind); 19] = [
+    (
+        "arista_veos",
+        NodeModel::AristaEos,
+        NodeKind::VirtualMachine,
+    ),
+    ("arista_ceos", NodeModel::AristaEos, NodeKind::Container),
+    ("cisco_asav", NodeModel::CiscoAsa, NodeKind::VirtualMachine),
+    ("cisco_ftdv", NodeModel::CiscoFtd, NodeKind::VirtualMachine),
+    (
+        "cisco_iosxrv9000",
+        NodeModel::CiscoIosxr9000,
+        NodeKind::VirtualMachine,
+    ),
+    ("cisco_iosv", NodeModel::CiscoIos, NodeKind::VirtualMachine),
+    (
+        "cisco_iosvl2",
+        NodeModel::CiscoIosl2,
+        NodeKind::VirtualMachine,
+    ),
+    (
+        "cisco_csr1000v",
+        NodeModel::CiscoCsr1000,
+        NodeKind::VirtualMachine,
+    ),
+    (
+        "cisco_cat8000v",
+        NodeModel::CiscoCat8000,
+        NodeKind::VirtualMachine,
+    ),
+    (
+        "cisco_cat9000v",
+        NodeModel::CiscoCat9000,
+        NodeKind::VirtualMachine,
+    ),
+    (
+        "cisco_nexus9300v",
+        NodeModel::CiscoNexus9300,
+        NodeKind::VirtualMachine,
+    ),
+    (
+        "juniper_vrouter",
+        NodeModel::JuniperRouter,
+        NodeKind::VirtualMachine,
+    ),
+    (
+        "juniper_vswitch",
+        NodeModel::JuniperSwitch,
+        NodeKind::VirtualMachine,
+    ),
+    (
+        "juniper_vevolved",
+        NodeModel::JuniperEvolved,
+        NodeKind::VirtualMachine,
+    ),
+    (
+        "juniper_cevolved",
+        NodeModel::JuniperEvolved,
+        NodeKind::Container,
+    ),
+    (
+        "juniper_vsrxv3",
+        NodeModel::JuniperSrxv3,
+        NodeKind::VirtualMachine,
+    ),
+    ("generic_vm", NodeModel::Generic, NodeKind::VirtualMachine),
+    ("generic_container", NodeModel::Generic, NodeKind::Container),
+    ("generic_unikernel", NodeModel::Generic, NodeKind::Unikernel),
+];
+
 impl NodeModel {
     #[must_use]
     pub fn to_vec() -> Vec<NodeModel> {
@@ -367,28 +479,34 @@ impl NodeModel {
     }
 
     /// The kinds this model takes, in a fixed order. The first is the model's default, the
-    /// kind a node gets when its manifest sets no `kind`, and it never changes. Every model is
-    /// named, so a new one does not compile until it has an entry, and every entry lists at
-    /// least one kind.
+    /// kind a node gets when its manifest sets no `kind`, and it never changes; `generic` has
+    /// no default (see [`NodeModel::default_kind`]). Every model is named, so a new one does not
+    /// compile until it has an entry, and every entry lists at least one kind.
     #[must_use]
     pub fn kinds(self) -> &'static [NodeKind] {
         match self {
-            NodeModel::AristaVeos
-            | NodeModel::ArubaAoscx
-            | NodeModel::CiscoAsav
-            | NodeModel::CiscoCsr1000v
-            | NodeModel::CiscoCat8000v
-            | NodeModel::CiscoCat9000v
-            | NodeModel::CiscoIosxrv9000
-            | NodeModel::CiscoNexus9300v
-            | NodeModel::CiscoIosv
-            | NodeModel::CiscoIosvl2
+            NodeModel::AristaEos | NodeModel::JuniperEvolved => {
+                &[NodeKind::VirtualMachine, NodeKind::Container]
+            }
+            NodeModel::Generic => &[
+                NodeKind::VirtualMachine,
+                NodeKind::Container,
+                NodeKind::Unikernel,
+            ],
+            NodeModel::ArubaAoscx
+            | NodeModel::CiscoAsa
+            | NodeModel::CiscoCsr1000
+            | NodeModel::CiscoCat8000
+            | NodeModel::CiscoCat9000
+            | NodeModel::CiscoIosxr9000
+            | NodeModel::CiscoNexus9300
+            | NodeModel::CiscoIos
+            | NodeModel::CiscoIosl2
             | NodeModel::CiscoIse
-            | NodeModel::CiscoFtdv
-            | NodeModel::JuniperVrouter
-            | NodeModel::JuniperVswitch
-            | NodeModel::JuniperVevolved
-            | NodeModel::JuniperVsrxv3
+            | NodeModel::CiscoFtd
+            | NodeModel::JuniperRouter
+            | NodeModel::JuniperSwitch
+            | NodeModel::JuniperSrxv3
             | NodeModel::PaloaltoPanos
             | NodeModel::MikrotikChr
             | NodeModel::AlmaLinux
@@ -417,12 +535,9 @@ impl NodeModel {
             | NodeModel::NautobotServer
             | NodeModel::NetboxServer
             | NodeModel::SignozServer
-            | NodeModel::VirtServer
-            | NodeModel::GenericVm => &[NodeKind::VirtualMachine],
-            NodeModel::AristaCeos
-            | NodeModel::CiscoIol
+            | NodeModel::VirtServer => &[NodeKind::VirtualMachine],
+            NodeModel::CiscoIol
             | NodeModel::CiscoIoll2
-            | NodeModel::JuniperCevolved
             | NodeModel::NokiaSrlinux
             | NodeModel::FrrLinux
             | NodeModel::ForgejoForge
@@ -433,11 +548,19 @@ impl NodeModel {
             | NodeModel::MongoDb
             | NodeModel::PostgresqlDb
             | NodeModel::HashicorpVault
-            | NodeModel::KeycloakServer
-            | NodeModel::GenericContainer => &[NodeKind::Container],
-            NodeModel::GenericUnikernel
-            | NodeModel::UnikraftUnikernel
-            | NodeModel::NanosUnikernel => &[NodeKind::Unikernel],
+            | NodeModel::KeycloakServer => &[NodeKind::Container],
+            NodeModel::UnikraftUnikernel | NodeModel::NanosUnikernel => &[NodeKind::Unikernel],
+        }
+    }
+
+    /// The kind a node of this model gets when its manifest or request sets none: the first of
+    /// [`NodeModel::kinds`]. `None` for `generic`, which runs as any kind and so must be told
+    /// which.
+    #[must_use]
+    pub fn default_kind(self) -> Option<NodeKind> {
+        match self {
+            NodeModel::Generic => None,
+            model => Some(model.kinds()[0]),
         }
     }
 }
@@ -1026,9 +1149,9 @@ impl NodeConfig {
             .or_else(|| self.repo.clone())
     }
     #[must_use]
-    pub fn arista_veos() -> NodeConfig {
+    pub fn arista_eos_vm() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::AristaVeos,
+            NodeModel::AristaEos,
             2048,
             OsVariant::Eos,
             InterfaceSettings {
@@ -1058,9 +1181,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn arista_ceos() -> NodeConfig {
+    pub fn arista_eos_container() -> NodeConfig {
         let base = node_base::network_os_container(
-            NodeModel::AristaCeos,
+            NodeModel::AristaEos,
             4096,
             OsVariant::Eos,
             InterfaceSettings {
@@ -1074,7 +1197,7 @@ impl NodeConfig {
             },
         );
         NodeConfig {
-            repo: Some(CONTAINER_ARISTA_CEOS_REPO.to_string()),
+            repo: Some(CONTAINER_ARISTA_EOS_REPO.to_string()),
             cpu: CpuSettings {
                 count: 2,
                 ..base.cpu
@@ -1112,9 +1235,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn cisco_asav() -> NodeConfig {
+    pub fn cisco_asa() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::CiscoAsav,
+            NodeModel::CiscoAsa,
             2048,
             OsVariant::Asa,
             InterfaceSettings {
@@ -1139,9 +1262,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn cisco_csr1000v() -> NodeConfig {
+    pub fn cisco_csr1000() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::CiscoCsr1000v,
+            NodeModel::CiscoCsr1000,
             3072,
             OsVariant::Iosxe,
             InterfaceSettings {
@@ -1163,9 +1286,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn cisco_cat8000v() -> NodeConfig {
+    pub fn cisco_cat8000() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::CiscoCat8000v,
+            NodeModel::CiscoCat8000,
             4096,
             OsVariant::Iosxe,
             InterfaceSettings {
@@ -1187,9 +1310,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn cisco_cat9000v() -> NodeConfig {
+    pub fn cisco_cat9000() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::CiscoCat9000v,
+            NodeModel::CiscoCat9000,
             18432,
             OsVariant::Iosxe,
             InterfaceSettings {
@@ -1218,9 +1341,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn cisco_iosxrv9000() -> NodeConfig {
+    pub fn cisco_iosxr9000() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::CiscoIosxrv9000,
+            NodeModel::CiscoIosxr9000,
             20480,
             OsVariant::Iosxr,
             InterfaceSettings {
@@ -1249,9 +1372,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn cisco_nexus9300v() -> NodeConfig {
+    pub fn cisco_nexus9300() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::CiscoNexus9300v,
+            NodeModel::CiscoNexus9300,
             12288,
             OsVariant::Nxos,
             InterfaceSettings {
@@ -1284,9 +1407,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn cisco_iosv() -> NodeConfig {
+    pub fn cisco_ios() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::CiscoIosv,
+            NodeModel::CiscoIos,
             768,
             OsVariant::Ios,
             InterfaceSettings {
@@ -1309,9 +1432,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn cisco_iosvl2() -> NodeConfig {
+    pub fn cisco_iosl2() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::CiscoIosvl2,
+            NodeModel::CiscoIosl2,
             1024,
             OsVariant::Ios,
             InterfaceSettings {
@@ -1387,9 +1510,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn cisco_ftdv() -> NodeConfig {
+    pub fn cisco_ftd() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::CiscoFtdv,
+            NodeModel::CiscoFtd,
             8192,
             OsVariant::Fxos,
             InterfaceSettings {
@@ -1411,9 +1534,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn juniper_vrouter() -> NodeConfig {
+    pub fn juniper_router() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::JuniperVrouter,
+            NodeModel::JuniperRouter,
             5120,
             OsVariant::Junos,
             InterfaceSettings {
@@ -1437,9 +1560,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn juniper_vswitch() -> NodeConfig {
+    pub fn juniper_switch() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::JuniperVswitch,
+            NodeModel::JuniperSwitch,
             5120,
             OsVariant::Junos,
             InterfaceSettings {
@@ -1463,9 +1586,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn juniper_vevolved() -> NodeConfig {
+    pub fn juniper_evolved_vm() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::JuniperVevolved,
+            NodeModel::JuniperEvolved,
             8192,
             OsVariant::Junos,
             InterfaceSettings {
@@ -1494,9 +1617,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn juniper_vsrxv3() -> NodeConfig {
+    pub fn juniper_srxv3() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::JuniperVsrxv3,
+            NodeModel::JuniperSrxv3,
             4096,
             OsVariant::Junos,
             InterfaceSettings {
@@ -1596,9 +1719,9 @@ impl NodeConfig {
     /// cJunosEvolved. The vCPUs and memory are its EVO VM's, given to the container as
     /// `CPTX_EVOVM_CPU` and `CPTX_EVOVM_MEM_MB`; they are cJunosEvolved's minimums.
     #[must_use]
-    pub fn juniper_cevolved() -> NodeConfig {
+    pub fn juniper_evolved_container() -> NodeConfig {
         let base = node_base::network_os_container(
-            NodeModel::JuniperCevolved,
+            NodeModel::JuniperEvolved,
             6292,
             OsVariant::Junos,
             InterfaceSettings {
@@ -1612,7 +1735,7 @@ impl NodeConfig {
             },
         );
         NodeConfig {
-            repo: Some(CONTAINER_JUNIPER_CEVOLVED_REPO.to_string()),
+            repo: Some(CONTAINER_JUNIPER_EVOLVED_REPO.to_string()),
             cpu: CpuSettings {
                 count: 4,
                 ..base.cpu
@@ -2095,11 +2218,11 @@ impl NodeConfig {
     }
     #[must_use]
     pub fn generic_container() -> NodeConfig {
-        node_base::app_container(NodeModel::GenericContainer)
+        node_base::app_container(NodeModel::Generic)
     }
     #[must_use]
     pub fn generic_unikernel() -> NodeConfig {
-        node_base::unikernel(NodeModel::GenericUnikernel)
+        node_base::unikernel(NodeModel::Generic)
     }
     #[must_use]
     pub fn unikraft_unikernel() -> NodeConfig {
@@ -2116,7 +2239,7 @@ impl NodeConfig {
     }
     #[must_use]
     pub fn generic_vm() -> NodeConfig {
-        let base = node_base::cloud_init_vm(NodeModel::GenericVm);
+        let base = node_base::cloud_init_vm(NodeModel::Generic);
         NodeConfig {
             os_variant: OsVariant::Unknown,
             machine: MachineSettings {
@@ -2151,7 +2274,9 @@ mod tests {
     use crate::konst::TALOS_API_PORT;
 
     fn pulled(model: NodeModel, repo: Option<&str>) -> NodeConfig {
-        let mut config = ModelKind::default_for(model).node_config();
+        let mut config = ModelKind::new(model, Some(NodeKind::Container))
+            .unwrap()
+            .node_config();
         config.repo = repo.map(str::to_string);
         config
     }
@@ -2182,7 +2307,7 @@ mod tests {
 
     #[test]
     fn test_container_repo_prefers_the_manifest_image() {
-        let config = pulled(NodeModel::GenericContainer, Some("alpine"));
+        let config = pulled(NodeModel::Generic, Some("alpine"));
         assert_eq!(
             config.container_repo(Some("ubuntu")),
             Some("ubuntu".to_string())
@@ -2272,7 +2397,6 @@ mod tests {
     #[test]
     fn test_unikernel_model_display_and_from_str() {
         let models = vec![
-            (NodeModel::GenericUnikernel, "generic_unikernel"),
             (NodeModel::UnikraftUnikernel, "unikraft_unikernel"),
             (NodeModel::NanosUnikernel, "nanos_unikernel"),
         ];
@@ -2284,11 +2408,7 @@ mod tests {
 
     #[test]
     fn test_unikernel_model_kind_mapping() {
-        let unikernel_models = vec![
-            NodeModel::GenericUnikernel,
-            NodeModel::UnikraftUnikernel,
-            NodeModel::NanosUnikernel,
-        ];
+        let unikernel_models = vec![NodeModel::UnikraftUnikernel, NodeModel::NanosUnikernel];
         for model in unikernel_models {
             let config = ModelKind::default_for(model).node_config();
             assert_eq!(
@@ -2302,8 +2422,10 @@ mod tests {
     #[test]
     fn test_unikernel_config_boot_modes() {
         // DirectKernel models
-        for model in [NodeModel::GenericUnikernel, NodeModel::UnikraftUnikernel] {
-            let config = ModelKind::default_for(model).node_config();
+        for model in [NodeModel::Generic, NodeModel::UnikraftUnikernel] {
+            let config = ModelKind::new(model, Some(NodeKind::Unikernel))
+                .unwrap()
+                .node_config();
             assert_eq!(
                 config.unikernel.map(|u| u.boot_mode),
                 Some(UnikernelBootMode::DirectKernel),
@@ -2323,12 +2445,14 @@ mod tests {
     #[test]
     fn test_unikernel_config_no_ztp() {
         let unikernel_models = vec![
-            NodeModel::GenericUnikernel,
+            NodeModel::Generic,
             NodeModel::UnikraftUnikernel,
             NodeModel::NanosUnikernel,
         ];
         for model in unikernel_models {
-            let config = ModelKind::default_for(model).node_config();
+            let config = ModelKind::new(model, Some(NodeKind::Unikernel))
+                .unwrap()
+                .node_config();
             assert_eq!(
                 config.ztp.method,
                 Ztp::Disabled,
@@ -2348,8 +2472,8 @@ mod tests {
     #[test]
     fn test_non_unikernel_models_have_no_boot_mode() {
         let vm_models = vec![
-            NodeModel::CiscoNexus9300v,
-            NodeModel::AristaVeos,
+            NodeModel::CiscoNexus9300,
+            NodeModel::AristaEos,
             NodeModel::UbuntuLinux,
         ];
         for model in vm_models {
@@ -2499,15 +2623,16 @@ mod tests {
     #[test]
     fn test_container_and_unikernel_default_ztp() {
         let mounted = [
-            NodeModel::AristaCeos,
+            NodeModel::AristaEos,
             NodeModel::NokiaSrlinux,
-            NodeModel::JuniperCevolved,
+            NodeModel::JuniperEvolved,
             NodeModel::CiscoIol,
             NodeModel::CiscoIoll2,
             NodeModel::FrrLinux,
         ];
-        for model in NodeModel::iter() {
-            let config = ModelKind::default_for(model).node_config();
+        for model_kind in ModelKind::all() {
+            let model = model_kind.model();
+            let config = model_kind.node_config();
             let expected = match config.kind {
                 NodeKind::Container if mounted.contains(&model) => Ztp::Volume,
                 NodeKind::Container | NodeKind::Unikernel => Ztp::Disabled,
@@ -2563,13 +2688,14 @@ mod tests {
         ];
         top.extend(groups.iter().map(|(group, _)| *group));
         top.sort_unstable();
-        for model in NodeModel::iter() {
-            let json = serde_json::to_value(ModelKind::default_for(model).node_config()).unwrap();
+        for model_kind in ModelKind::all() {
+            let model = format!("{} {}", model_kind.model(), model_kind.kind());
+            let json = serde_json::to_value(model_kind.node_config()).unwrap();
             assert_eq!(keys(&json), top, "{model}");
             for (group, fields) in &groups {
                 assert_eq!(keys(&json[group]), *fields, "{model} {group}");
             }
-            match ModelKind::default_for(model).kind() {
+            match model_kind.kind() {
                 NodeKind::Unikernel => {
                     assert_eq!(keys(&json["unikernel"]), ["boot_mode"], "{model}");
                 }
@@ -2636,5 +2762,136 @@ mod tests {
                 assert_eq!(config.cdrom, CdromSettings::default(), "{model}");
             }
         }
+    }
+
+    #[test]
+    fn every_model_name_round_trips_through_display_fromstr_serde_and_the_command_line() {
+        let command = clap::Command::new("test").arg(
+            clap::Arg::new("model")
+                .long("model")
+                .value_parser(NodeModel::value_parser()),
+        );
+        for model in NodeModel::iter() {
+            let name = model.to_string();
+            assert_eq!(name.parse::<NodeModel>().unwrap(), model);
+            assert_eq!(
+                serde_json::to_value(model).unwrap(),
+                serde_json::json!(name)
+            );
+            assert_eq!(
+                serde_json::from_value::<NodeModel>(serde_json::json!(name)).unwrap(),
+                model
+            );
+            let matches = command
+                .clone()
+                .try_get_matches_from(["test", "--model", &name])
+                .unwrap();
+            assert_eq!(matches.get_one::<NodeModel>("model"), Some(&model));
+        }
+    }
+
+    #[test]
+    fn every_removed_model_name_is_refused_naming_its_model_and_kind() {
+        let command = clap::Command::new("test").arg(
+            clap::Arg::new("model")
+                .long("model")
+                .value_parser(NodeModel::value_parser()),
+        );
+        for (name, model, kind) in REMOVED_MODELS {
+            assert!(model.kinds().contains(&kind), "{name}");
+            let expected = format!(
+                "Unknown node model '{name}': it was renamed in 0.7.0. \
+                 Use model = \"{model}\" with kind = \"{kind}\"."
+            );
+            assert_eq!(name.parse::<NodeModel>().unwrap_err(), expected);
+            let error = serde_json::from_value::<NodeModel>(serde_json::json!(name))
+                .unwrap_err()
+                .to_string();
+            assert_eq!(error, expected);
+            let error = command
+                .clone()
+                .try_get_matches_from(["test", "--model", name])
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(&expected), "{error}");
+        }
+        assert_eq!(
+            "arista_ceos".parse::<NodeModel>().unwrap_err(),
+            "Unknown node model 'arista_ceos': it was renamed in 0.7.0. \
+             Use model = \"arista_eos\" with kind = \"container\"."
+        );
+        assert_eq!(
+            "cisco_iosv".parse::<NodeModel>().unwrap_err(),
+            "Unknown node model 'cisco_iosv': it was renamed in 0.7.0. \
+             Use model = \"cisco_ios\" with kind = \"virtual_machine\"."
+        );
+        assert_eq!(
+            "nosuch_model".parse::<NodeModel>().unwrap_err(),
+            "Unknown node model: nosuch_model"
+        );
+    }
+
+    #[test]
+    fn names_never_released_are_unknown() {
+        for name in ["cisco_iosxr", "juniper_srx"] {
+            assert_eq!(
+                name.parse::<NodeModel>().unwrap_err(),
+                format!("Unknown node model: {name}")
+            );
+        }
+    }
+
+    #[test]
+    fn models_renamed_in_0_7_0_have_their_new_names() {
+        let renamed = [
+            ("cisco_asav", "cisco_asa"),
+            ("cisco_ftdv", "cisco_ftd"),
+            ("cisco_iosxrv9000", "cisco_iosxr9000"),
+            ("cisco_iosv", "cisco_ios"),
+            ("cisco_iosvl2", "cisco_iosl2"),
+            ("cisco_csr1000v", "cisco_csr1000"),
+            ("cisco_cat8000v", "cisco_cat8000"),
+            ("cisco_cat9000v", "cisco_cat9000"),
+            ("cisco_nexus9300v", "cisco_nexus9300"),
+            ("juniper_vsrxv3", "juniper_srxv3"),
+            ("juniper_vrouter", "juniper_router"),
+            ("juniper_vswitch", "juniper_switch"),
+            ("arista_veos", "arista_eos"),
+            ("arista_ceos", "arista_eos"),
+            ("juniper_vevolved", "juniper_evolved"),
+            ("juniper_cevolved", "juniper_evolved"),
+            ("generic_vm", "generic"),
+            ("generic_container", "generic"),
+            ("generic_unikernel", "generic"),
+        ];
+        assert_eq!(renamed.len(), REMOVED_MODELS.len());
+        for (old, new) in renamed {
+            let (_, model, _) = REMOVED_MODELS
+                .iter()
+                .find(|(name, _, _)| *name == old)
+                .unwrap();
+            assert_eq!(model.to_string(), new, "{old}");
+        }
+    }
+
+    #[test]
+    fn no_removed_model_name_is_a_model() {
+        for (name, _, _) in REMOVED_MODELS {
+            assert!(
+                NodeModel::iter().all(|model| model.to_string() != name),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_command_line_lists_every_model_as_a_possible_value() {
+        let values: Vec<String> = NodeModelParser
+            .possible_values()
+            .unwrap()
+            .map(|value| value.get_name().to_string())
+            .collect();
+        let names: Vec<String> = NodeModel::iter().map(|model| model.to_string()).collect();
+        assert_eq!(values, names);
     }
 }

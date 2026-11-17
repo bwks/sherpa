@@ -115,7 +115,7 @@ mod tests {
     use shared::data::{
         BiosTypes, BootDiskSettings, CdromSettings, DbCpuPins, DiskBuses, LabPhase,
         MachineSettings, MachineType, ModelKind, NodeConfig, NodeCpuPins, NodeKind, NodeModel,
-        NodeState, ReadyCheck, RecordId, Ztp,
+        NodeState, REMOVED_MODELS, ReadyCheck, RecordId, Ztp,
     };
     use shared::konst::{SSH_PORT, TALOS_API_PORT};
     use shared::validators::check_ztp;
@@ -156,6 +156,17 @@ mod tests {
          first_interface_index, management_interface, reserved_interface_count, \"default\", \
          boot_mode";
 
+    /// The name `image`'s model was stored under before migration 31 renamed the models.
+    fn name_before_the_renames(image: &NodeConfig) -> String {
+        REMOVED_MODELS
+            .iter()
+            .find(|(_, model, kind)| *model == image.model && *kind == image.kind)
+            .map_or_else(
+                || image.model.to_string(),
+                |(name, _, _)| (*name).to_owned(),
+            )
+    }
+
     /// Insert `image` into a database at a version before 16, whose `node_image` table has the
     /// `ztp_enable` and `ztp_method` columns, and before version 9 the
     /// `dedicated_management_interface` column too, none of which today's queries write. The
@@ -169,6 +180,7 @@ mod tests {
     ) -> String {
         let key = new_key();
         let mut values = Vec::from(node_image_values(image, &key).unwrap());
+        values[1] = Value::from(name_before_the_renames(image));
         // Today's last column is `ztp`, which the older table does not have.
         values.pop();
         // The ZTP login columns, which today's table does not have, unset.
@@ -213,7 +225,7 @@ mod tests {
     /// has the ZTP login columns `ztp_username`, `ztp_password` and `ztp_password_auth`, which
     /// today's queries do not write. They are stored as `login` gives them: the username, the
     /// stored password text and the password-auth flag. `image.default` is stored as it is.
-    /// Returns the image as read back, with its id.
+    /// Returns the image with its id.
     async fn insert_with_ztp_login(
         db: &Database,
         image: &NodeConfig,
@@ -221,6 +233,7 @@ mod tests {
     ) -> NodeConfig {
         let key = new_key();
         let mut values = Vec::from(node_image_values(image, &key).unwrap());
+        values[1] = Value::from(name_before_the_renames(image));
         let (username, password, password_auth) = login;
         values.extend([
             Value::from(username),
@@ -245,10 +258,12 @@ mod tests {
                 .await
                 .unwrap();
         }
-        find_node_image_by_id(db, RecordId::new("node_image", key))
-            .await
-            .unwrap()
-            .unwrap()
+        // Read back as it is stored, but under its model's name today: the row keeps the name
+        // it had before the renames until the migrations run.
+        NodeConfig {
+            id: Some(RecordId::new("node_image", key)),
+            ..image.clone()
+        }
     }
 
     /// The shipped image of `model`, as its default, stored with no ZTP login in a database from
@@ -477,8 +492,8 @@ mod tests {
             .unwrap();
         drop(writer);
         for model in [
-            NodeModel::CiscoCsr1000v,
-            NodeModel::CiscoIosvl2,
+            NodeModel::CiscoCsr1000,
+            NodeModel::CiscoIosl2,
             NodeModel::UbuntuLinux,
         ] {
             let mut image = ModelKind::default_for(model).node_config();
@@ -496,10 +511,10 @@ mod tests {
             .map(|image| (image.model, image.interfaces.data_count))
             .collect();
         assert!(
-            counts.contains(&(NodeModel::CiscoCsr1000v, 15)),
+            counts.contains(&(NodeModel::CiscoCsr1000, 15)),
             "{counts:?}"
         );
-        assert!(counts.contains(&(NodeModel::CiscoIosvl2, 15)), "{counts:?}");
+        assert!(counts.contains(&(NodeModel::CiscoIosl2, 15)), "{counts:?}");
         assert!(counts.contains(&(NodeModel::UbuntuLinux, 16)), "{counts:?}");
     }
 
@@ -517,7 +532,7 @@ mod tests {
             .await
             .unwrap();
         drop(writer);
-        for model in [NodeModel::CiscoIse, NodeModel::CiscoAsav] {
+        for model in [NodeModel::CiscoIse, NodeModel::CiscoAsa] {
             insert_into_older_schema(
                 &db,
                 &ModelKind::default_for(model).node_config(),
@@ -526,7 +541,7 @@ mod tests {
             )
             .await;
         }
-        for model in [NodeModel::GenericVm, NodeModel::CiscoIosv] {
+        for model in [NodeModel::Generic, NodeModel::CiscoIos] {
             let mut image = ModelKind::default_for(model).node_config();
             image.cdrom.bus = DiskBuses::Virtio;
             insert_into_older_schema(&db, &image, true, "cloud-init").await;
@@ -546,7 +561,7 @@ mod tests {
             "{methods:?}"
         );
         assert!(
-            methods.contains(&(NodeModel::CiscoAsav, Ztp::Cdrom)),
+            methods.contains(&(NodeModel::CiscoAsa, Ztp::Cdrom)),
             "{methods:?}"
         );
 
@@ -557,11 +572,11 @@ mod tests {
             .map(|image| (image.model, image.cdrom.bus))
             .collect();
         assert!(
-            buses.contains(&(NodeModel::GenericVm, DiskBuses::Sata)),
+            buses.contains(&(NodeModel::Generic, DiskBuses::Sata)),
             "{buses:?}"
         );
         assert!(
-            buses.contains(&(NodeModel::CiscoIosv, DiskBuses::Virtio)),
+            buses.contains(&(NodeModel::CiscoIos, DiskBuses::Virtio)),
             "{buses:?}"
         );
     }
@@ -580,7 +595,7 @@ mod tests {
             .await
             .unwrap();
         drop(writer);
-        for model in [NodeModel::JuniperVsrxv3, NodeModel::AristaVeos] {
+        for model in [NodeModel::JuniperSrxv3, NodeModel::AristaEos] {
             insert_into_older_schema(
                 &db,
                 &ModelKind::default_for(model).node_config(),
@@ -600,11 +615,11 @@ mod tests {
             .map(|image| (image.model, image.ztp.method))
             .collect();
         assert!(
-            methods.contains(&(NodeModel::JuniperVsrxv3, Ztp::Cdrom)),
+            methods.contains(&(NodeModel::JuniperSrxv3, Ztp::Cdrom)),
             "{methods:?}"
         );
         assert!(
-            methods.contains(&(NodeModel::AristaVeos, Ztp::Tftp)),
+            methods.contains(&(NodeModel::AristaEos, Ztp::Tftp)),
             "{methods:?}"
         );
     }
@@ -1088,8 +1103,8 @@ mod tests {
         // settings other than the defaults, as the web form or an older release could store.
         let db = database_at(16).await;
         let mut stored = Vec::new();
-        for model in NodeModel::to_vec() {
-            let shipped = ModelKind::default_for(model).node_config();
+        for model_kind in ModelKind::all() {
+            let shipped = model_kind.node_config();
             let edited = NodeConfig {
                 version: "edited".to_owned(),
                 machine: MachineSettings {
@@ -1156,8 +1171,8 @@ mod tests {
         for model in [
             NodeModel::UbuntuLinux,
             NodeModel::TalosLinux,
-            NodeModel::GenericContainer,
-            NodeModel::GenericUnikernel,
+            NodeModel::FrrLinux,
+            NodeModel::NanosUnikernel,
         ] {
             images.push((
                 model,
@@ -1221,8 +1236,8 @@ mod tests {
                 skip: false
             }
         );
-        assert_eq!(check_of(NodeModel::GenericContainer), ReadyCheck::default());
-        assert_eq!(check_of(NodeModel::GenericUnikernel), ReadyCheck::default());
+        assert_eq!(check_of(NodeModel::FrrLinux), ReadyCheck::default());
+        assert_eq!(check_of(NodeModel::NanosUnikernel), ReadyCheck::default());
     }
 
     fn migrations_before_lab_definitions() -> usize {
@@ -1368,7 +1383,7 @@ mod tests {
         let sealed = format!("sealed:{}", "a1".repeat(40));
         let with_login = NodeConfig {
             default: true,
-            ..ModelKind::default_for(NodeModel::CiscoCat8000v).node_config()
+            ..ModelKind::default_for(NodeModel::CiscoCat8000).node_config()
         };
         let with_login =
             insert_with_ztp_login(&db, &with_login, (Some("admin"), Some(&sealed), true)).await;
@@ -1741,5 +1756,138 @@ mod tests {
                 (NodeModel::SonicLinux, "old-default".to_owned(), 32),
             ]
         );
+    }
+
+    /// A version 30 database, from before the renames: an image of each removed model name, as
+    /// its default, stored under the old name, an image of a model that keeps its name, and a
+    /// lab whose stored definition has nodes on five of them. Returns the database and each old
+    /// name's image key.
+    async fn database_with_old_model_names() -> (Database, Vec<(&'static str, String)>) {
+        let before = migrations_before(migrations::RENAME_NODE_MODELS);
+        assert_eq!(before + 1, 30);
+        let db = database_at(before).await;
+        let mut keys = Vec::new();
+        for (old, model, kind) in REMOVED_MODELS {
+            let image = NodeConfig {
+                version: "1.0".to_owned(),
+                default: true,
+                ..ModelKind::new(model, Some(kind)).unwrap().node_config()
+            };
+            let image = upsert_node_image(&db, image, DefaultRequest::Keep)
+                .await
+                .unwrap();
+            let key = key_of(&image.id.unwrap(), "node_image").unwrap();
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute(
+                    "UPDATE node_image SET model = ?1 WHERE id = ?2",
+                    (old, key.as_str()),
+                )
+                .await
+                .unwrap();
+            keys.push((old, key));
+        }
+        upsert_node_image(
+            &db,
+            ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
+            DefaultRequest::Keep,
+        )
+        .await
+        .unwrap();
+        {
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute_batch(
+                    "INSERT INTO user (id, username, password_hash, is_admin, ssh_keys,
+                         created_at, updated_at)
+                     VALUES ('u1', 'alice', 'x', 0, '[]', '2026-01-01T00:00:00Z',
+                         '2026-01-01T00:00:00Z');
+                     INSERT INTO lab (id, lab_id, name, user, loopback_network,
+                         management_network, gateway_ipv4, router_ipv4, has_definition)
+                     VALUES ('l1', 'lab-0001', 'Old', 'u1', '127.127.1.0/24', '172.31.1.0/24',
+                         '172.31.1.1', '172.31.1.2', 1);",
+                )
+                .await
+                .unwrap();
+            for (index, (name, old)) in (0_i64..).zip([
+                ("veos1", "arista_veos"),
+                ("ceos1", "arista_ceos"),
+                ("srx1", "juniper_vsrxv3"),
+                ("iosv1", "cisco_iosv"),
+                ("vm1", "generic_vm"),
+            ]) {
+                writer
+                    .conn
+                    .execute(
+                        "INSERT INTO node (id, name, \"index\", image, lab, state) \
+                         VALUES (?1, ?1, ?2, ?3, 'l1', 'running')",
+                        (name, index, key_of_old(&keys, old)),
+                    )
+                    .await
+                    .unwrap();
+            }
+        }
+
+        (db, keys)
+    }
+
+    /// The key of the image stored under the old model name `old`.
+    fn key_of_old(keys: &[(&'static str, String)], old: &str) -> String {
+        keys.iter()
+            .find(|(name, _)| *name == old)
+            .map(|(_, key)| key.clone())
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn images_and_lab_definitions_under_the_removed_model_names_take_the_new_names() {
+        let (db, keys) = database_with_old_model_names().await;
+        let key = |old: &str| key_of_old(&keys, old);
+
+        apply_schema(&db).await.unwrap();
+
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
+        let images = list_node_images(&db).await.unwrap();
+        assert_eq!(images.len(), REMOVED_MODELS.len() + 1);
+        for (old, model, kind) in REMOVED_MODELS {
+            let image = find_node_image_by_id(&db, RecordId::new("node_image", key(old)))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!((image.model, image.kind), (model, kind), "{old}");
+            assert!(image.default, "{old} keeps its default");
+        }
+        let manifest = read_lab_definition(&db, &RecordId::new("lab", "l1"))
+            .await
+            .unwrap()
+            .unwrap();
+        let nodes: Vec<(String, NodeModel, Option<NodeKind>)> = manifest
+            .nodes
+            .into_iter()
+            .map(|node| (node.name, node.model, node.kind))
+            .collect();
+        assert_eq!(
+            nodes,
+            [
+                ("veos1".to_owned(), NodeModel::AristaEos, None),
+                (
+                    "ceos1".to_owned(),
+                    NodeModel::AristaEos,
+                    Some(NodeKind::Container)
+                ),
+                ("srx1".to_owned(), NodeModel::JuniperSrxv3, None),
+                ("iosv1".to_owned(), NodeModel::CiscoIos, None),
+                (
+                    "vm1".to_owned(),
+                    NodeModel::Generic,
+                    Some(NodeKind::VirtualMachine)
+                ),
+            ]
+        );
+        // Applying again changes nothing.
+        apply_schema(&db).await.unwrap();
+        assert_eq!(list_node_images(&db).await.unwrap().len(), images.len());
     }
 }

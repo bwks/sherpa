@@ -25,19 +25,19 @@ const ADMIN_PAGE_READS: &[&str] = &[
     "/admin/tools",
     "/admin/images",
     "/admin/images/upload",
-    "/admin/images/ubuntu_linux",
-    "/admin/images/ubuntu_linux/edit",
-    "/admin/images/ubuntu_linux/versions",
-    "/admin/images/ubuntu_linux/matrix-1",
-    "/admin/images/ubuntu_linux/matrix-1/edit",
+    "/admin/images/ubuntu_linux/virtual_machine",
+    "/admin/images/ubuntu_linux/virtual_machine/edit",
+    "/admin/images/ubuntu_linux/virtual_machine/versions",
+    "/admin/images/ubuntu_linux/virtual_machine/matrix-1",
+    "/admin/images/ubuntu_linux/virtual_machine/matrix-1/edit",
 ];
 /// Admin web actions. Only their refusals are checked: done by an admin, they act on the host.
 const ADMIN_PAGE_ACTIONS: &[&str] = &[
     "/admin/tools/clean/c0ffee99",
     "/admin/tools/scan",
     "/admin/images/upload",
-    "/admin/images/ubuntu_linux/edit",
-    "/admin/images/ubuntu_linux/matrix-1/edit",
+    "/admin/images/ubuntu_linux/virtual_machine/edit",
+    "/admin/images/ubuntu_linux/virtual_machine/matrix-1/edit",
 ];
 /// Admin-only REST operations, each with a body its handler parses, so that a refusal comes
 /// from the admin check rather than from the body. Only refusals are checked. The bodies name
@@ -63,18 +63,29 @@ const ADMIN_API_ACTIONS: &[ApiAction] = &[
     ApiAction::json(
         "POST",
         "/api/v1/images/pull",
-        r#"{"model":"generic_container","repo":"sherpa-test/does-not-exist","tag":"none"}"#,
+        r#"{"model":"generic","kind":"container","repo":"sherpa-test/does-not-exist","tag":"none"}"#,
     ),
     ApiAction::json(
         "POST",
         "/api/v1/images/download",
         r#"{"model":"ubuntu_linux","version":"none","url":"http://127.0.0.1:9/none"}"#,
     ),
-    ApiAction::json("DELETE", "/api/v1/images/ubuntu_linux/matrix-1", ""),
-    ApiAction::json("POST", "/api/v1/images/ubuntu_linux/matrix-1/default", ""),
+    ApiAction::json(
+        "DELETE",
+        "/api/v1/images/ubuntu_linux/virtual_machine/matrix-1",
+        "",
+    ),
+    ApiAction::json(
+        "POST",
+        "/api/v1/images/ubuntu_linux/virtual_machine/matrix-1/default",
+        "",
+    ),
 ];
 /// Image reads any logged-in user may make.
-const IMAGE_API_READS: &[&str] = &["/api/v1/images", "/api/v1/images/ubuntu_linux"];
+const IMAGE_API_READS: &[&str] = &[
+    "/api/v1/images",
+    "/api/v1/images/ubuntu_linux/virtual_machine",
+];
 
 /// One REST request of the access matrix.
 struct ApiAction {
@@ -183,7 +194,7 @@ fn error_code(response: &Value) -> &Value {
 
 /// Start `up` with a one-container manifest whose node carries `extra` fields.
 async fn up_container(ws: &mut TestWsClient, token: &str, extra: Value) -> Result<Value> {
-    let mut node = json!({ "name": "box1", "model": "generic_container" });
+    let mut node = json!({ "name": "box1", "model": "generic", "kind": "container" });
     for (key, value) in extra.as_object().context("extra must be an object")? {
         node[key] = value.clone();
     }

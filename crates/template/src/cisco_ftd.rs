@@ -42,7 +42,7 @@ pub enum CiscoFxosFirewallMode {
 }
 
 #[derive(Serialize, Default)]
-pub struct CiscoFtdvZtpTemplate {
+pub struct CiscoFtdZtpTemplate {
     #[serde(rename = "EULA")]
     pub eula: String,
     #[serde(rename = "Hostname")]

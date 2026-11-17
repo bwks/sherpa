@@ -5,7 +5,7 @@ use std::net::Ipv4Addr;
 
 use askama::Template;
 
-use template::CiscoAsavZtpTemplate;
+use template::CiscoAsaZtpTemplate;
 
 use crate::helpers;
 
@@ -55,8 +55,8 @@ dns name-server 172.20.0.1
 // Tests
 // ============================================================================
 
-fn asa(password: &str) -> CiscoAsavZtpTemplate {
-    CiscoAsavZtpTemplate {
+fn asa(password: &str) -> CiscoAsaZtpTemplate {
+    CiscoAsaZtpTemplate {
         hostname: "asa01".to_string(),
         owner: helpers::test_owner(password),
         dns: helpers::test_dns(),

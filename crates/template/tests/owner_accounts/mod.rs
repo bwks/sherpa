@@ -5,8 +5,8 @@ use std::net::Ipv4Addr;
 use askama::Template;
 
 use template::{
-    AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate, CiscoIosXeZtpTemplate,
-    CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate, CumulusLinuxZtpTemplate,
+    AristaEosVmZtpTemplate, ArubaAoscxTemplate, CiscoAsaZtpTemplate, CiscoIosXeZtpTemplate,
+    CiscoIosZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate, CumulusLinuxZtpTemplate,
     FrrStartupTemplate, JunipervJunosZtpTemplate, MikrotikRouterosZtpTemplate,
     PaloAltoPanosBootstrapTemplate, SonicLinuxUserTemplate, WindowsOwnerOnlyLoginTemplate,
     WindowsSshdConfigTemplate, build_srlinux_config,
@@ -23,7 +23,7 @@ fn mgmt_address() -> Ipv4Addr {
 #[test]
 fn arista_owner_has_a_key_and_a_secondary_key() {
     let hash = helpers::sha512_hash(PASSWORD);
-    let output = AristaVeosZtpTemplate {
+    let output = AristaEosVmZtpTemplate {
         hostname: "veos01".to_string(),
         owner: helpers::test_owner(&hash),
         dns: helpers::test_dns(),
@@ -69,7 +69,7 @@ fn aruba_owner_is_an_administrator_with_every_key_and_no_password() {
 
 #[test]
 fn asa_owner_has_a_password_and_hashed_keys() {
-    let output = CiscoAsavZtpTemplate {
+    let output = CiscoAsaZtpTemplate {
         hostname: "asa01".to_string(),
         owner: helpers::test_owner(PASSWORD),
         dns: helpers::test_dns(),
@@ -96,7 +96,7 @@ fn asa_owner_has_a_password_and_hashed_keys() {
 
 #[test]
 fn ios_owner_has_a_secret_and_key_hashes() {
-    let output = CiscoIosvZtpTemplate {
+    let output = CiscoIosZtpTemplate {
         hostname: "iosv01".to_string(),
         owner: helpers::test_owner(PASSWORD),
         mgmt_interface: "GigabitEthernet0/0".to_string(),

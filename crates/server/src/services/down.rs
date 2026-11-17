@@ -581,7 +581,7 @@ mod tests {
             Route::PowerOff(UNIKERNEL_POWER_OFF)
         );
         assert_eq!(
-            shutdown_route(NodeKind::Container, NodeModel::GenericContainer, None),
+            shutdown_route(NodeKind::Container, NodeModel::Generic, None),
             Route::Pause
         );
     }

@@ -40,16 +40,16 @@ DISABLED = "disabled"
 # Where Sherpa mounts the config it generates, by model. A node with ZTP on has every one of
 # its model's; a node with ZTP off has none.
 ZTP_MOUNTS = {
-    "arista_ceos": ("/mnt/sherpa-ztp/startup-config",),
+    "arista_eos": ("/mnt/sherpa-ztp/startup-config",),
     "nokia_srlinux": ("/etc/opt/srlinux/config.json",),
-    "juniper_cevolved": ("/home/evo/configdisk",),
+    "juniper_evolved": ("/home/evo/configdisk",),
     "frr_linux": ("/etc/frr/daemons", "/etc/frr/frr.conf", "/tmp/sherpa-init.sh"),
 }
 # A command that succeeds over SSH once the lab owner's login works, by model.
 LOGIN_COMMANDS = {
-    "arista_ceos": "show version",
+    "arista_eos": "show version",
     "nokia_srlinux": "show version",
-    "juniper_cevolved": "show version",
+    "juniper_evolved": "show version",
     "frr_linux": "true",
 }
 SSH_OPTIONS = ("-F", ".sherpa/ssh/config", "-o", "BatchMode=yes", "-o", "LogLevel=ERROR",
@@ -74,9 +74,9 @@ SSH_REFUSALS = (
 # SSH server and the image's `admin` user, so the address answers and Junos refuses `sherpa`.
 # FRR is a Linux container: its address answers, and nothing listens for SSH.
 ZTP_OFF_REFUSAL = {
-    "arista_ceos": NO_ADDRESS,
+    "arista_eos": NO_ADDRESS,
     "nokia_srlinux": NO_ADDRESS,
-    "juniper_cevolved": LOGIN_REFUSED,
+    "juniper_evolved": LOGIN_REFUSED,
     "frr_linux": NO_SSH_SERVER,
 }
 REFUSED_METHOD = "cdrom"
@@ -446,10 +446,13 @@ def preflight(run_root, models):
         owner = require_device_password(log, run_root)
         docker = run_logged(log, "docker usable", ["docker", "ps", "--quiet"], run_root)
         require(docker.code == 0, "this user cannot use Docker; this test runs on the Sherpa server")
-        for model, version in sorted({(node["model"], node["version"]) for node in nodes}):
-            image = run_logged(log, f"{model} {version} image present",
-                               ["sherpa", "image", "show", model, "--version", version], run_root)
-            require(image.code == 0, f"the server has no {model} {version} image")
+        images = {(node["model"], node.get("kind", ""), node["version"]) for node in nodes}
+        for model, kind, version in sorted(images):
+            arguments = ["sherpa", "image", "show", model, "--version", version]
+            if kind:
+                arguments += ["--kind", kind]
+            image = run_logged(log, f"{model} {kind} {version} image present", arguments, run_root)
+            require(image.code == 0, f"the server has no {model} {kind} {version} image")
     return owner
 
 
@@ -573,8 +576,8 @@ class SelfTest(unittest.TestCase):
         manifest, node = refused_manifest(self.manifest()["nodes"], "refused")
         parsed = tomllib.loads(manifest)
         self.assertEqual(node, "ceos01")
-        self.assertEqual(parsed["nodes"], [{"name": "ceos01", "model": "arista_ceos",
-                                            "version": "4.35.1F", "ztp": {"method": REFUSED_METHOD}}])
+        self.assertEqual(parsed["nodes"], [{"name": "ceos01", "model": "arista_eos",
+                                            "kind": "container", "version": "4.35.1F", "ztp": {"method": REFUSED_METHOD}}])
 
     def test_ssh_refusals_are_read_from_its_message(self):
         self.assertEqual(ssh_refusal("channel 0: open failed: connect failed: No route to host\n"),

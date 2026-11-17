@@ -7,9 +7,9 @@ that led to it are in `docs/investigations/p2p-ebpf-requirements.md`.
 | Node | Model | Role |
 |---|---|---|
 | `u1`, `u2` | `ubuntu_linux` 24.04 | Linux VM endpoints |
-| `c1`, `c2` | `generic_container` alpine 3.22 | Linux container endpoints |
-| `veos1`, `veos2` | `arista_veos` 4.35.3F | VM NOS: LLDP and LACP |
-| `ceos1`, `ceos2` | `arista_ceos` 4.35.1F | Container NOS: LLDP and LACP |
+| `c1`, `c2` | `generic`, kind `container`, alpine 3.22 | Linux container endpoints |
+| `veos1`, `veos2` | `arista_eos` 4.35.3F | VM NOS: LLDP and LACP |
+| `ceos1`, `ceos2` | `arista_eos`, kind `container`, 4.35.1F | Container NOS: LLDP and LACP |
 
 ```mermaid
 flowchart LR

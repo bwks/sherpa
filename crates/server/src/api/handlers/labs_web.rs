@@ -25,7 +25,8 @@ use crate::templates::{
     Badge, BadgeSize, DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template,
     ErrorTemplate, JobPageTemplate, LabActions, LabCreateTemplate, LabDestroyButtonFragment,
     LabDestroyConfirmFragment, LabDetailTemplate, LabRow, LabsGridTemplate, LabsListTemplate,
-    NavPage, NodeActions, NodeDetailTemplate, NodeRow, NodesTableFragment,
+    ModelChoice, NavPage, NodeActions, NodeDetailTemplate, NodeRow, NodesTableFragment,
+    kind_choices,
 };
 
 use crate::api::errors::ApiError;
@@ -883,7 +884,7 @@ fn failed_job_stream(error: anyhow::Error) -> Response {
 /// GET `/labs/create`
 pub async fn lab_create_page_handler(auth: AuthenticatedUserFromCookie) -> impl IntoResponse {
     let generated_name = generate_lab_name().unwrap_or_else(|_| "my-lab".to_string());
-    let models: Vec<String> = NodeModel::iter().map(|m| m.to_string()).collect();
+    let models: Vec<ModelChoice> = NodeModel::iter().map(ModelChoice::from).collect();
 
     LabCreateTemplate {
         username: auth.username,
@@ -891,6 +892,7 @@ pub async fn lab_create_page_handler(auth: AuthenticatedUserFromCookie) -> impl 
         nav: NavPage::Labs.into(),
         generated_name,
         models,
+        kinds: kind_choices(),
     }
 }
 

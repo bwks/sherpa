@@ -358,8 +358,8 @@ interface_enum!(
 );
 
 interface_enum!(
-    AristaVeosInt,
-    "AristaVeos",
+    AristaEosVmInt,
+    "AristaEosVm",
     [
         Management1 => 0, "Management1",
         Eth1 => 1, "eth1",
@@ -417,8 +417,8 @@ interface_enum!(
     ]
 );
 interface_enum!(
-    AristaCeosInt,
-    "AristaCeos",
+    AristaEosContainerInt,
+    "AristaEosContainer",
     [
         Management0 => 0, "Management0",
         Eth1 => 1, "eth1",
@@ -477,8 +477,8 @@ interface_enum!(
 );
 
 interface_enum!(
-    CiscoIosvInt,
-    "CiscoIosv",
+    CiscoIosInt,
+    "CiscoIos",
     [
         Gig0_0 => 0, "gig0/0",
         Gig0_1 => 1, "gig0/1",
@@ -500,8 +500,8 @@ interface_enum!(
 );
 
 interface_enum!(
-    CiscoIosvl2Int,
-    "CiscoIosvl2",
+    CiscoIosl2Int,
+    "CiscoIosl2",
     [
         Gig0_0 => 0, "gig0/0",
         Gig0_1 => 1, "gig0/1",
@@ -546,8 +546,8 @@ interface_enum!(
 );
 
 interface_enum!(
-    CiscoIosxrv9000Int,
-    "CiscoIosxrv9000Int",
+    CiscoIosxr9000Int,
+    "CiscoIosxr9000Int",
     [
         MgmtEth0Rp0Cpu0_0 => 0, "MgmtEth0/RP0/CPU0/0",
         Reserved1 => 1, "reserved1",
@@ -588,8 +588,8 @@ interface_enum!(
 );
 
 interface_enum!(
-    CiscoAsavInt,
-    "CiscoAsav",
+    CiscoAsaInt,
+    "CiscoAsa",
     [
         Mgmt0 => 0, "Management0/0",
         Gig0_0 => 1, "gig0/0",
@@ -604,8 +604,8 @@ interface_enum!(
 );
 
 interface_enum!(
-    CiscoFtdvInt,
-    "CiscoFtdv",
+    CiscoFtdInt,
+    "CiscoFtd",
     [
         Management0_0 => 0, "Management0/0",
         Reserved1 => 1, "reserved1",
@@ -621,8 +621,8 @@ interface_enum!(
 );
 
 interface_enum!(
-    CiscoCsr1000vInt,
-    "CiscoCsr1000v",
+    CiscoCsr1000Int,
+    "CiscoCsr1000",
     [
         Gig1 => 0, "gig1",
         Gig2 => 1, "gig2",
@@ -643,8 +643,8 @@ interface_enum!(
     ]
 );
 interface_enum!(
-    CiscoCat8000vInt,
-    "CiscoCat8000v",
+    CiscoCat8000Int,
+    "CiscoCat8000",
     [
         Gig1 => 0, "gig1",
         Gig2 => 1, "gig2",
@@ -666,8 +666,8 @@ interface_enum!(
 );
 
 interface_enum!(
-    CiscoCat9000vInt,
-    "CiscoCat9000v",
+    CiscoCat9000Int,
+    "CiscoCat9000",
     [
         Gig0_0_0 => 0, "gig0/0/0",
         Gig0_0_1 => 1, "gig0/0/1",
@@ -682,8 +682,8 @@ interface_enum!(
 );
 
 interface_enum!(
-    CiscoNexus9300vInt,
-    "CiscoNexus9300v",
+    CiscoNexus9300Int,
+    "CiscoNexus9300",
     [
         Mgmt0 => 0, "mgmt0",
         Eth1_1 => 1, "eth1/1",
@@ -753,8 +753,8 @@ interface_enum!(
     ]
 );
 interface_enum!(
-    JuniperVrouterInt,
-    "JuniperVrouter",
+    JuniperRouterInt,
+    "JuniperRouter",
     [
         Fxp0 => 0, "fxp0",
         Ge0_0_0 => 1, "ge-0/0/0",
@@ -771,8 +771,8 @@ interface_enum!(
 );
 
 interface_enum!(
-    JuniperVswitchInt,
-    "JuniperVswitch",
+    JuniperSwitchInt,
+    "JuniperSwitch",
     [
         Fxp0 => 0, "fxp0",
         Ge0_0_0 => 1, "ge-0/0/0",
@@ -789,8 +789,8 @@ interface_enum!(
 );
 
 interface_enum!(
-    JuniperVevolvedInt,
-    "JuniperVevolved",
+    JuniperEvolvedVmInt,
+    "JuniperEvolvedVm",
     [
         Re0Mgmt0 => 0, "re0:mgmt-0",
         Et0_0_0 => 1, "et-0/0/0",
@@ -809,8 +809,8 @@ interface_enum!(
 );
 
 interface_enum!(
-    JuniperCevolvedInt,
-    "JuniperCevolved",
+    JuniperEvolvedContainerInt,
+    "JuniperEvolvedContainer",
     [
         Re0Mgmt0 => 0, "re0:mgmt-0",
         Et0_0_0 => 1, "et-0/0/0",
@@ -943,8 +943,8 @@ interface_enum!(
 );
 
 interface_enum!(
-    JuniperVsrxv3Int,
-    "JuniperVsrxv3",
+    JuniperSrxv3Int,
+    "JuniperSrxv3",
     [
         Fxp0 => 0, "fxp0",
         Ge0_0_0 => 1, "ge-0/0/0",

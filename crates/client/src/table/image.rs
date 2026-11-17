@@ -167,7 +167,7 @@ mod tests {
     fn images_table_shows_each_image_and_whether_it_is_the_default() {
         let images = [
             ImageSummary {
-                model: NodeModel::CiscoCat8000v,
+                model: NodeModel::CiscoCat8000,
                 kind: NodeKind::VirtualMachine,
                 version: "17.13.01a".to_string(),
                 default: true,
@@ -180,15 +180,15 @@ mod tests {
             },
         ];
         let expected = "\
-┌────────────────────────────────────────────────────────┐
-│                         Images                         │
-├────────────────┬─────────────────┬───────────┬─────────┤
-│ Model          │ Kind            │ Version   │ Default │
-├────────────────┼─────────────────┼───────────┼─────────┤
-│ cisco_cat8000v │ virtual_machine │ 17.13.01a │ true    │
-├────────────────┼─────────────────┼───────────┼─────────┤
-│ nokia_srlinux  │ container       │ latest    │ false   │
-└────────────────┴─────────────────┴───────────┴─────────┘";
+┌───────────────────────────────────────────────────────┐
+│                        Images                         │
+├───────────────┬─────────────────┬───────────┬─────────┤
+│ Model         │ Kind            │ Version   │ Default │
+├───────────────┼─────────────────┼───────────┼─────────┤
+│ cisco_cat8000 │ virtual_machine │ 17.13.01a │ true    │
+├───────────────┼─────────────────┼───────────┼─────────┤
+│ nokia_srlinux │ container       │ latest    │ false   │
+└───────────────┴─────────────────┴───────────┴─────────┘";
         assert_eq!(render_images_table(&images), expected);
     }
 
@@ -207,28 +207,28 @@ mod tests {
     fn scanned_images_table_shows_each_image_with_its_status() {
         let scanned = [
             ScannedImage {
-                model: NodeModel::CiscoCat8000v,
+                model: NodeModel::CiscoCat8000,
                 version: "17.13.01a".to_string(),
                 kind: NodeKind::VirtualMachine,
                 status: "imported".to_string(),
             },
             ScannedImage {
-                model: NodeModel::AristaVeos,
+                model: NodeModel::AristaEos,
                 version: "4.33".to_string(),
                 kind: NodeKind::VirtualMachine,
                 status: "already present".to_string(),
             },
         ];
         let expected = "\
-┌────────────────────────────────────────────────────────────────┐
-│                         Scanned Images                         │
-├────────────────┬───────────┬─────────────────┬─────────────────┤
-│ Model          │ Version   │ Kind            │ Status          │
-├────────────────┼───────────┼─────────────────┼─────────────────┤
-│ cisco_cat8000v │ 17.13.01a │ virtual_machine │ imported        │
-├────────────────┼───────────┼─────────────────┼─────────────────┤
-│ arista_veos    │ 4.33      │ virtual_machine │ already present │
-└────────────────┴───────────┴─────────────────┴─────────────────┘";
+┌───────────────────────────────────────────────────────────────┐
+│                        Scanned Images                         │
+├───────────────┬───────────┬─────────────────┬─────────────────┤
+│ Model         │ Version   │ Kind            │ Status          │
+├───────────────┼───────────┼─────────────────┼─────────────────┤
+│ cisco_cat8000 │ 17.13.01a │ virtual_machine │ imported        │
+├───────────────┼───────────┼─────────────────┼─────────────────┤
+│ arista_eos    │ 4.33      │ virtual_machine │ already present │
+└───────────────┴───────────┴─────────────────┴─────────────────┘";
         assert_eq!(render_scanned_images_table(&scanned), expected);
     }
 
@@ -240,26 +240,26 @@ mod tests {
                 reason: "no built-in repo".to_string(),
             },
             SkippedModel {
-                model: NodeModel::GenericContainer,
+                model: NodeModel::Generic,
                 reason: "no built-in repo".to_string(),
             },
         ];
         let expected = "\
-┌──────────────────────────────────────┐
-│            Skipped Models            │
-├───────────────────┬──────────────────┤
-│ Model             │ Reason           │
-├───────────────────┼──────────────────┤
-│ mysql_db          │ no built-in repo │
-├───────────────────┼──────────────────┤
-│ generic_container │ no built-in repo │
-└───────────────────┴──────────────────┘";
+┌─────────────────────────────┐
+│       Skipped Models        │
+├──────────┬──────────────────┤
+│ Model    │ Reason           │
+├──────────┼──────────────────┤
+│ mysql_db │ no built-in repo │
+├──────────┼──────────────────┤
+│ generic  │ no built-in repo │
+└──────────┴──────────────────┘";
         assert_eq!(render_skipped_models_table(&skipped), expected);
     }
 
     #[test]
     fn test_render_image_detail_table() {
-        let image = ModelKind::default_for(NodeModel::CiscoCat8000v).node_config();
+        let image = ModelKind::default_for(NodeModel::CiscoCat8000).node_config();
 
         let table = render_image_detail_table(&image);
 
@@ -300,7 +300,7 @@ mod tests {
         assert!(table.contains("cdrom"));
 
         // Check that model-specific values are present
-        assert!(table.contains("cisco_cat8000v"));
+        assert!(table.contains("cisco_cat8000"));
         assert!(table.contains("virtual_machine"));
 
         // Check for header panel

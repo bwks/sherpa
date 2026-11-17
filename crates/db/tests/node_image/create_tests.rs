@@ -10,10 +10,10 @@ async fn test_create_and_list_node_images() -> Result<()> {
     let db = setup_db().await?;
 
     // Create a test config
-    let test_config = create_test_config(NodeModel::AristaVeos);
+    let test_config = create_test_config(NodeModel::AristaEos);
     let created = upsert_node_image(&db, test_config.clone(), DefaultRequest::Keep).await?;
 
-    assert_eq!(created.model, NodeModel::AristaVeos);
+    assert_eq!(created.model, NodeModel::AristaEos);
     assert!(created.id.is_some(), "Created config should have an ID");
 
     // List all configs
@@ -24,7 +24,7 @@ async fn test_create_and_list_node_images() -> Result<()> {
     );
 
     // Verify our config is in the list
-    let found = all_configs.iter().any(|c| c.model == NodeModel::AristaVeos);
+    let found = all_configs.iter().any(|c| c.model == NodeModel::AristaEos);
     assert!(found, "Created config should be in the list");
 
     // Cleanup
@@ -86,7 +86,7 @@ async fn test_upsert_stores_disabled_and_a_listed_method() -> Result<()> {
     let stored = upsert_node_image(&db, off, DefaultRequest::Keep).await?;
     assert_eq!(stored.ztp.method, Ztp::Disabled);
 
-    let mut tftp = create_test_config(NodeModel::JuniperVsrxv3);
+    let mut tftp = create_test_config(NodeModel::JuniperSrxv3);
     tftp.ztp.method = Ztp::Tftp;
     let stored = upsert_node_image(&db, tftp, DefaultRequest::Keep).await?;
     assert_eq!(stored.ztp.method, Ztp::Tftp);

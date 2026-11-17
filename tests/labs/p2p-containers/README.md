@@ -6,14 +6,14 @@ without anything running in the image.
 
 | Node | Model | Role |
 |---|---|---|
-| `sw01` | `arista_ceos` 4.35.1F | Router on the core triangle, and the access switch: VLAN 10 on eth3–eth15, gateway 10.46.10.1 |
+| `sw01` | `arista_eos`, kind `container`, 4.35.1F | Router on the core triangle, and the access switch: VLAN 10 on eth3–eth15, gateway 10.46.10.1 |
 | `srl01` | `nokia_srlinux` 26.7.2 | Router on the core triangle |
 | `frr01` | `frr_linux` 10.5.2 | Router on the core triangle |
 | `mongo01` | `mongo_db` 8.2.7-rc0 | Host; the image has no `ip` |
 | `surreal01` | `surreal_db` v3.0.0 | Host; the image has no shell |
 | `vault01`, `nats01`, `forgejo01`, `gitlab01` | `hashicorp_vault`, `nats_bus`, `forgejo_forge`, `gitlab_ce` | Hosts; nats01 sets `ready_check.skip`, which must still start it |
 | `mysql01`, `postgres01` | `mysql_db` 8.4, `postgresql_db` 17 | Hosts |
-| `alpine01`, `ubuntu01`, `debian01`, `busybox01`, `rocky01` | `generic_container` | Hosts; debian01 and busybox01 set no `image`, so they run the repo recorded when the image was pulled |
+| `alpine01`, `ubuntu01`, `debian01`, `busybox01`, `rocky01` | `generic`, kind `container` | Hosts; debian01 and busybox01 set no `image`, so they run the repo recorded when the image was pulled |
 
 The core links are routed /31s in 10.46.0.0/24, with static routes back to the host VLAN.
 
@@ -42,7 +42,7 @@ flowchart TB
         postgres01["postgres01 · .18"]
     end
 
-    subgraph os["OS hosts (generic_container): eth1 in VLAN 10"]
+    subgraph os["OS hosts (generic containers): eth1 in VLAN 10"]
         alpine01["alpine01 · .19"]
         ubuntu01["ubuntu01 · .20"]
         debian01["debian01 · .21<br/>pulled repo"]

@@ -90,7 +90,7 @@ async fn test_create_link_with_lab() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        ModelKind::default_for(NodeModel::CiscoIosv).node_config(),
+        ModelKind::default_for(NodeModel::CiscoIos).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -224,7 +224,7 @@ async fn test_create_link_different_interfaces_succeeds() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        ModelKind::default_for(NodeModel::CiscoIosv).node_config(),
+        ModelKind::default_for(NodeModel::CiscoIos).node_config(),
         DefaultRequest::Keep,
     )
     .await?;

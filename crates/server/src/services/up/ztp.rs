@@ -626,7 +626,7 @@ mod tests {
 
     /// The lab's nodes, by name and model.
     const MODELS: [(&str, NodeModel); 3] = [
-        ("ctr", NodeModel::GenericContainer),
+        ("ctr", NodeModel::PostgresqlDb),
         ("vm", NodeModel::AlpineLinux),
         ("uk", NodeModel::NanosUnikernel),
     ];

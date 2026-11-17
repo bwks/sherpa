@@ -228,6 +228,7 @@ table, copy the rows, drop the old one, rename.
 | 28 | `0028_drop_provision_current_user.sql`: drops `lab.provision_current_user`. The owner's login is the only one on lab nodes, so there is nothing to choose. Stored lab definitions lose the value |
 | 29 | `0029_legacy_node_ssh_username.sql`: `UPDATE node SET ssh_username = 'sherpa' WHERE ssh_username IS NULL`. A node built before 0.7.0 has the shared `sherpa` account and no recorded login; this records it, so its SSH config stays `User sherpa`. See [Node SSH accounts](#node-ssh-accounts) |
 | 30 | `0030_fix_sonic_data_interface_count.sql`: `sonic_linux` images stored with 52 data interfaces (the old default) are set to 32, one per front-panel port of the SONiC virtual switch. A count an administrator set is kept |
+| 31 | `0031_rename_node_models.sql`: `node_image.model` takes the 0.7.0 names (`arista_veos` and `arista_ceos` to `arista_eos`, `generic_*` to `generic`, and the others in `shared::data::REMOVED_MODELS`). It is the only column that names a model: a node refers to its image, and a lab's stored definition takes each node's model and kind from it, so running labs and definitions follow. Each row keeps its kind, so the rows of a merged model cannot collide on `(model, kind, version)` and each kind keeps its default. A container image keeps the repo it was pulled or imported as, so no Docker image is retagged |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
@@ -430,7 +431,8 @@ or refers to a record, the manifest's value is a `manifest_` column beside it: `
 `unikernel_cmdline`. `NULL` is "not set", as in the manifest. A node's `model` is its image's,
 and so is its `kind`, which has no column: the definition holds `kind` only when the image's
 kind is not the model's default, so a node is rebuilt as the kind it was deployed as, and a
-manifest that wrote the default kind reads back without it.
+manifest that wrote the default kind reads back without it. A `generic` node has no default
+kind, so its definition always holds it.
 Choices are `CHECK`ed against their serde names, and numbers against their type's range, or the
 manifest's where it validates one.
 
