@@ -113,16 +113,19 @@ fn refuse_newer_version(version: usize) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use shared::data::{
-        BiosTypes, BootDiskSettings, CdromSettings, DbCpuPins, DiskBuses, LabPhase,
+        BiosTypes, BootDiskSettings, CdromSettings, ContainerSettings, CpuArchitecture, CpuModels,
+        DbCpuPins, DiskBuses, InterfaceDeviceSettings, InterfaceType, KindSettings, LabPhase,
         MachineSettings, MachineType, ModelKind, NodeConfig, NodeCpuPins, NodeKind, NodeModel,
-        NodeState, REMOVED_MODELS, ReadyCheck, RecordId, Ztp,
+        NodeState, OsVariant, REMOVED_MODELS, ReadyCheck, RecordId, UnikernelBootMode,
+        UnikernelCpuSettings, UnikernelMachineSettings, UnikernelSettings, VmCpuSettings,
+        VmSettings, Ztp, ZtpSettings,
     };
     use shared::konst::{SSH_PORT, TALOS_API_PORT};
     use shared::validators::check_ztp;
     use turso::Value;
 
     use super::*;
-    use crate::persistence::{key_of, new_key, node_image_values};
+    use crate::persistence::{enum_text, key_of, new_key};
     use crate::{
         DefaultRequest, count_nodes_by_ssh_username, device_password_set, find_lab,
         find_node_image_by_id, get_user, list_cpu_pins, list_node_images, list_nodes_by_lab,
@@ -149,18 +152,133 @@ mod tests {
         query_count(&conn, USER_VERSION.bind([])).await.unwrap()
     }
 
-    /// Today's `node_image` columns, in order, but the last, `ztp`.
+    /// The `node_image` columns from migration 26 until migration 34 gave each kind only its
+    /// own, in order, but the last, `ztp`.
     const IMAGE_COLUMNS_BEFORE_ZTP: &str = "id, model, version, repo, os_variant, kind, bios, \
          cpu_count, cpu_architecture, cpu_model, machine_type, vmx_enabled, memory, hdd_bus, \
          cdrom, cdrom_bus, data_interface_count, interface_prefix, interface_type, interface_mtu, \
          first_interface_index, management_interface, reserved_interface_count, \"default\", \
          boot_mode";
 
+    /// The values an older release stored in the columns a kind does not use: the defaults new
+    /// container images carried, and a 1500 MTU.
+    fn unused_vm_columns() -> VmSettings {
+        VmSettings {
+            os_variant: OsVariant::Unknown,
+            cpu: VmCpuSettings::default(),
+            machine: MachineSettings::default(),
+            boot_disk: BootDiskSettings::default(),
+            cdrom: CdromSettings {
+                image: None,
+                bus: DiskBuses::Virtio,
+            },
+            interfaces: InterfaceDeviceSettings {
+                kind: InterfaceType::Virtio,
+                mtu: 1500,
+            },
+            ztp: ZtpSettings::default(),
+        }
+    }
+
+    /// An enum stored by its serde name.
+    fn text<T: serde::Serialize>(value: &T, field: &str) -> Value {
+        Value::from(enum_text(value, field).unwrap())
+    }
+
+    /// `image`'s row as the `node_image` table stored it before migration 34, in the order of
+    /// `IMAGE_COLUMNS_BEFORE_ZTP` and then `ztp`, with its model named `model`. A VM's columns
+    /// are its group's; another kind's own settings are its group's, and the columns it does
+    /// not use hold `unused`'s. The interface name columns hold `eth` and 0.
+    fn row_before_per_kind(
+        image: &NodeConfig,
+        key: &str,
+        model: &str,
+        unused: &VmSettings,
+    ) -> Vec<Value> {
+        let vm = image.vm().unwrap_or(unused);
+        let (architecture, cpu_model, machine_type, device) = match image.unikernel() {
+            Some(unikernel) => (
+                &unikernel.cpu.architecture,
+                &unikernel.cpu.model,
+                &unikernel.machine.kind,
+                &unikernel.interfaces,
+            ),
+            None => (
+                &vm.cpu.architecture,
+                &vm.cpu.model,
+                &vm.machine.kind,
+                &vm.interfaces,
+            ),
+        };
+        vec![
+            Value::from(key),
+            Value::from(model),
+            Value::from(image.version.as_str()),
+            Value::from(
+                image
+                    .container()
+                    .and_then(|container| container.repo.as_deref()),
+            ),
+            text(&vm.os_variant, "os_variant"),
+            text(&image.kind(), "kind"),
+            text(&vm.machine.bios, "bios"),
+            Value::from(image.cpu.count),
+            text(architecture, "cpu_architecture"),
+            text(cpu_model, "cpu_model"),
+            text(machine_type, "machine_type"),
+            Value::from(vm.cpu.vmx),
+            Value::from(image.memory),
+            text(&vm.boot_disk.bus, "hdd_bus"),
+            Value::from(vm.cdrom.image.as_deref()),
+            text(&vm.cdrom.bus, "cdrom_bus"),
+            Value::from(image.interfaces.data_count),
+            Value::from("eth"),
+            text(&device.kind, "interface_type"),
+            Value::from(device.mtu),
+            Value::from(0),
+            text(&image.interfaces.management, "management_interface"),
+            Value::from(image.interfaces.reserved_count),
+            Value::from(image.default),
+            image.unikernel().map_or(Value::Null, |unikernel| {
+                text(&unikernel.boot_mode, "boot_mode")
+            }),
+            text(&image.ztp(), "ztp"),
+        ]
+    }
+
+    /// Insert `image` into a database from migration 26 until migration 34, whose
+    /// `node_image` table still holds every kind's columns, with its model named `model`.
+    /// `image.default` is stored as it is. Returns the image with its id.
+    async fn insert_before_per_kind(db: &Database, image: &NodeConfig, model: &str) -> NodeConfig {
+        let key = new_key();
+        let values = row_before_per_kind(image, &key, model, &unused_vm_columns());
+        let placeholders = (1..=values.len())
+            .map(|index| format!("?{index}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let writer = db.writer().await.unwrap();
+        writer
+            .conn
+            .execute(
+                &format!(
+                    "INSERT INTO node_image ({IMAGE_COLUMNS_BEFORE_ZTP}, ztp) \
+                     VALUES ({placeholders})"
+                ),
+                values,
+            )
+            .await
+            .unwrap();
+        NodeConfig {
+            id: Some(RecordId::new("node_image", key)),
+            ..image.clone()
+        }
+    }
+
     /// The name `image`'s model was stored under before migration 31 renamed the models.
     fn name_before_the_renames(image: &NodeConfig) -> String {
         REMOVED_MODELS
             .iter()
-            .find(|(_, model, kind)| *model == image.model && *kind == image.kind)
+            .find(|(_, model, kind)| *model == image.model && *kind == image.kind())
             .map_or_else(
                 || image.model.to_string(),
                 |(name, _, _)| (*name).to_owned(),
@@ -179,9 +297,13 @@ mod tests {
         ztp_method: &str,
     ) -> String {
         let key = new_key();
-        let mut values = Vec::from(node_image_values(image, &key).unwrap());
-        values[1] = Value::from(name_before_the_renames(image));
-        // Today's last column is `ztp`, which the older table does not have.
+        let mut values = row_before_per_kind(
+            image,
+            &key,
+            &name_before_the_renames(image),
+            &unused_vm_columns(),
+        );
+        // The last column is `ztp`, which the older table does not have.
         values.pop();
         // The ZTP login columns, which today's table does not have, unset.
         values.extend([Value::Null, Value::Null, Value::from(false)]);
@@ -224,16 +346,17 @@ mod tests {
     /// Insert `image` into a database from before migration 26, whose `node_image` table still
     /// has the ZTP login columns `ztp_username`, `ztp_password` and `ztp_password_auth`, which
     /// today's queries do not write. They are stored as `login` gives them: the username, the
-    /// stored password text and the password-auth flag. `image.default` is stored as it is.
+    /// stored password text and the password-auth flag. The columns `image`'s kind does not use
+    /// hold `unused`'s. `image.default` is stored as it is.
     /// Returns the image with its id.
     async fn insert_with_ztp_login(
         db: &Database,
         image: &NodeConfig,
         login: (Option<&str>, Option<&str>, bool),
+        unused: &VmSettings,
     ) -> NodeConfig {
         let key = new_key();
-        let mut values = Vec::from(node_image_values(image, &key).unwrap());
-        values[1] = Value::from(name_before_the_renames(image));
+        let mut values = row_before_per_kind(image, &key, &name_before_the_renames(image), unused);
         let (username, password, password_auth) = login;
         values.extend([
             Value::from(username),
@@ -273,7 +396,8 @@ mod tests {
             default: true,
             ..ModelKind::default_for(model).node_config()
         };
-        let stored = insert_with_ztp_login(db, &image, (None, None, false)).await;
+        let stored =
+            insert_with_ztp_login(db, &image, (None, None, false), &unused_vm_columns()).await;
         key_of(&stored.id.unwrap(), "node_image").unwrap()
     }
 
@@ -309,9 +433,9 @@ mod tests {
         if !enable {
             return Ztp::Disabled;
         }
-        if image.kind != NodeKind::VirtualMachine {
+        if image.kind() != NodeKind::VirtualMachine {
             // The four models with mounted configs are the only ones whose default is not off.
-            return image.ztp.method;
+            return image.ztp();
         }
         let stored: Option<Ztp> =
             serde_json::from_value(serde_json::Value::String(method.to_owned())).ok();
@@ -319,7 +443,7 @@ mod tests {
             Some(ztp) if ModelKind::default_for(model).ztp_methods().contains(&ztp) => ztp,
             // `volume` on a VM, `none` and `ipxe`: their arms generated nothing.
             Some(Ztp::Volume) | None => Ztp::Disabled,
-            Some(_) => image.ztp.method,
+            Some(_) => image.ztp(),
         }
     }
 
@@ -543,7 +667,10 @@ mod tests {
         }
         for model in [NodeModel::Generic, NodeModel::CiscoIos] {
             let mut image = ModelKind::default_for(model).node_config();
-            image.cdrom.bus = DiskBuses::Virtio;
+            let KindSettings::VirtualMachine(vm) = &mut image.settings else {
+                panic!("{model} is a VM");
+            };
+            vm.cdrom.bus = DiskBuses::Virtio;
             insert_into_older_schema(&db, &image, true, "cloud-init").await;
         }
 
@@ -554,7 +681,7 @@ mod tests {
             .await
             .unwrap()
             .into_iter()
-            .map(|image| (image.model, image.ztp.method))
+            .map(|image| (image.model, image.ztp()))
             .collect();
         assert!(
             methods.contains(&(NodeModel::CiscoIse, Ztp::Disk)),
@@ -569,7 +696,7 @@ mod tests {
             .await
             .unwrap()
             .into_iter()
-            .map(|image| (image.model, image.cdrom.bus))
+            .map(|image| (image.model, image.vm().unwrap().cdrom.bus.clone()))
             .collect();
         assert!(
             buses.contains(&(NodeModel::Generic, DiskBuses::Sata)),
@@ -612,7 +739,7 @@ mod tests {
             .await
             .unwrap()
             .into_iter()
-            .map(|image| (image.model, image.ztp.method))
+            .map(|image| (image.model, image.ztp()))
             .collect();
         assert!(
             methods.contains(&(NodeModel::JuniperSrxv3, Ztp::Cdrom)),
@@ -1022,11 +1149,13 @@ mod tests {
             let (enable, method) = image.version.split_once('-').unwrap();
             let expected = migrated_ztp(image.model, enable == "true", method);
             assert_eq!(
-                image.ztp.method, expected,
+                image.ztp(),
+                expected,
                 "{} stored as {}",
-                image.model, image.version
+                image.model,
+                image.version
             );
-            check_ztp(image.model_kind().unwrap(), image.ztp.method).unwrap();
+            check_ztp(image.model_kind().unwrap(), image.ztp()).unwrap();
         }
     }
 
@@ -1038,8 +1167,8 @@ mod tests {
         for model in models_before_the_ztp_setting() {
             let mut image = ModelKind::default_for(model).node_config();
             image.default = false;
-            let (enable, method) = match image.kind {
-                NodeKind::VirtualMachine => (true, image.ztp.method.to_string()),
+            let (enable, method) = match image.kind() {
+                NodeKind::VirtualMachine => (true, image.ztp().to_string()),
                 NodeKind::Container => (true, "none".to_owned()),
                 NodeKind::Unikernel => (false, "none".to_owned()),
             };
@@ -1049,8 +1178,8 @@ mod tests {
         apply_schema(&db).await.unwrap();
 
         for image in list_node_images(&db).await.unwrap() {
-            let default = ModelKind::default_for(image.model).node_config().ztp.method;
-            assert_eq!(image.ztp.method, default, "{}", image.model);
+            let default = ModelKind::default_for(image.model).node_config().ztp();
+            assert_eq!(image.ztp(), default, "{}", image.model);
         }
     }
 
@@ -1098,31 +1227,47 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn apply_schema_resets_the_settings_a_kind_does_not_use_and_keeps_the_rest() {
+    async fn apply_schema_keeps_each_kinds_own_settings_and_drops_the_rest() {
         // A version 17 database. Every model is stored twice: as it ships, and edited to
         // settings other than the defaults, as the web form or an older release could store.
+        // The columns a kind does not use hold the edited values too.
         let db = database_at(16).await;
+        let shipped_vm = unused_vm_columns();
+        let edited_vm = VmSettings {
+            machine: MachineSettings {
+                kind: MachineType::Q35,
+                bios: BiosTypes::Uefi,
+            },
+            boot_disk: BootDiskSettings {
+                bus: DiskBuses::Sata,
+            },
+            cdrom: CdromSettings {
+                image: Some("extra.iso".to_owned()),
+                bus: DiskBuses::Sata,
+            },
+            ..shipped_vm.clone()
+        };
         let mut stored = Vec::new();
         for model_kind in ModelKind::all() {
             let shipped = model_kind.node_config();
-            let edited = NodeConfig {
+            let mut edited = NodeConfig {
                 version: "edited".to_owned(),
-                machine: MachineSettings {
-                    kind: MachineType::Q35,
-                    bios: BiosTypes::Uefi,
-                },
-                boot_disk: BootDiskSettings {
-                    bus: DiskBuses::Sata,
-                },
-                cdrom: CdromSettings {
-                    image: Some("extra.iso".to_owned()),
-                    bus: DiskBuses::Sata,
-                },
                 ..shipped.clone()
             };
+            match &mut edited.settings {
+                KindSettings::VirtualMachine(vm) => {
+                    vm.machine = edited_vm.machine.clone();
+                    vm.boot_disk = edited_vm.boot_disk.clone();
+                    vm.cdrom = edited_vm.cdrom.clone();
+                }
+                KindSettings::Unikernel(unikernel) => unikernel.machine.kind = MachineType::Q35,
+                KindSettings::Container(_) => {}
+            }
             for (image, default) in [(shipped, true), (edited, false)] {
                 let image = NodeConfig { default, ..image };
-                stored.push(insert_with_ztp_login(&db, &image, (None, None, false)).await);
+                stored.push(
+                    insert_with_ztp_login(&db, &image, (None, None, false), &edited_vm).await,
+                );
             }
         }
 
@@ -1131,22 +1276,13 @@ mod tests {
         let read = list_node_images(&db).await.unwrap();
         assert_eq!(read.len(), stored.len());
         for before in stored {
-            let mut expected = before.clone();
-            if !expected.kind.uses_machine_type() {
-                expected.machine.kind = MachineType::default();
-            }
-            if !expected.kind.uses_firmware_and_disks() {
-                expected.machine.bios = BiosTypes::default();
-                expected.boot_disk = BootDiskSettings::default();
-                expected.cdrom = CdromSettings::default();
-            }
             let after = read
                 .iter()
                 .find(|image| image.id == before.id)
                 .unwrap_or_else(|| panic!("{} {} is gone", before.model, before.version));
             assert_eq!(
                 serde_json::to_value(after).unwrap(),
-                serde_json::to_value(&expected).unwrap(),
+                serde_json::to_value(&before).unwrap(),
                 "{} {}",
                 before.model,
                 before.version
@@ -1388,8 +1524,13 @@ mod tests {
             default: true,
             ..ModelKind::default_for(NodeModel::CiscoCat8000).node_config()
         };
-        let with_login =
-            insert_with_ztp_login(&db, &with_login, (Some("admin"), Some(&sealed), true)).await;
+        let with_login = insert_with_ztp_login(
+            &db,
+            &with_login,
+            (Some("admin"), Some(&sealed), true),
+            &unused_vm_columns(),
+        )
+        .await;
         let without = insert_default_before_the_login_drop(&db, NodeModel::UbuntuLinux).await;
         let login_columns = ["ztp_username", "ztp_password", "ztp_password_auth"];
         assert_eq!(image_columns(&db, &login_columns).await, login_columns);
@@ -1439,7 +1580,7 @@ mod tests {
             serde_json::to_value(&kept).unwrap(),
             serde_json::to_value(&with_login).unwrap()
         );
-        assert_eq!(kept.ztp.method, Ztp::Cdrom);
+        assert_eq!(kept.ztp(), Ztp::Cdrom);
         assert!(kept.default);
         assert!(
             images
@@ -1605,17 +1746,16 @@ mod tests {
     }
 
     /// A database at `migrations` migrations with a user, a lab and, for each of `logins`, a
-    /// node `n<index>` recording that SSH login. The image is stored with today's queries, so
-    /// `migrations` is after the image ZTP login columns were dropped.
+    /// node `n<index>` recording that SSH login. `migrations` is after the image ZTP login
+    /// columns were dropped and before each kind got its own image columns.
     async fn database_with_nodes(migrations: usize, logins: &[Option<&str>]) -> Database {
         let db = database_at(migrations).await;
-        let image = upsert_node_image(
+        let image = insert_before_per_kind(
             &db,
-            ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
-            DefaultRequest::Keep,
+            &ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
+            "ubuntu_linux",
         )
-        .await
-        .unwrap();
+        .await;
         let image_key = key_of(&image.id.unwrap(), "node_image").unwrap();
         let writer = db.writer().await.unwrap();
         writer
@@ -1728,17 +1868,16 @@ mod tests {
         let before = migrations_before(migrations::FIX_SONIC_DATA_INTERFACE_COUNT);
         assert_eq!(before + 1, 29);
         let db = database_at(before).await;
-        for (model, version, count) in [
-            (NodeModel::SonicLinux, "old-default", 52),
-            (NodeModel::SonicLinux, "admin-set", 40),
-            (NodeModel::UbuntuLinux, "many-nics", 52),
+        for (model, version, count, default) in [
+            (NodeModel::SonicLinux, "old-default", 52, true),
+            (NodeModel::SonicLinux, "admin-set", 40, false),
+            (NodeModel::UbuntuLinux, "many-nics", 52, true),
         ] {
             let mut image = ModelKind::default_for(model).node_config();
             image.version = version.to_owned();
             image.interfaces.data_count = count;
-            upsert_node_image(&db, image, DefaultRequest::Keep)
-                .await
-                .unwrap();
+            image.default = default;
+            insert_before_per_kind(&db, &image, &model.to_string()).await;
         }
 
         apply_schema(&db).await.unwrap();
@@ -1776,10 +1915,9 @@ mod tests {
         ] {
             let mut image = ModelKind::default_for(model).node_config();
             image.version = version.to_owned();
-            let image = upsert_node_image(&db, image, DefaultRequest::Keep)
-                .await
-                .unwrap();
+            image.default = matches!(version, "on-tftp" | "evolved");
             // Stored as the release before this one could: today's writes refuse vSRX on TFTP.
+            let image = insert_before_per_kind(&db, &image, &model.to_string()).await;
             let key = key_of(&image.id.unwrap(), "node_image").unwrap();
             let writer = db.writer().await.unwrap();
             writer
@@ -1795,11 +1933,15 @@ mod tests {
         apply_schema(&db).await.unwrap();
 
         assert_eq!(version(&db).await, SCHEMA_VERSION);
+        // vSRX is a VM, so its method is in its VM group.
         let mut methods: Vec<(NodeModel, String, Ztp)> = list_node_images(&db)
             .await
             .unwrap()
             .into_iter()
-            .map(|image| (image.model, image.version, image.ztp.method))
+            .map(|image| {
+                let method = image.vm().unwrap().ztp.method;
+                (image.model, image.version, method)
+            })
             .collect();
         methods.sort_by(|a, b| a.1.cmp(&b.1));
         assert_eq!(
@@ -1828,28 +1970,15 @@ mod tests {
                 default: true,
                 ..ModelKind::new(model, Some(kind)).unwrap().node_config()
             };
-            let image = upsert_node_image(&db, image, DefaultRequest::Keep)
-                .await
-                .unwrap();
-            let key = key_of(&image.id.unwrap(), "node_image").unwrap();
-            let writer = db.writer().await.unwrap();
-            writer
-                .conn
-                .execute(
-                    "UPDATE node_image SET model = ?1 WHERE id = ?2",
-                    (old, key.as_str()),
-                )
-                .await
-                .unwrap();
-            keys.push((old, key));
+            let image = insert_before_per_kind(&db, &image, old).await;
+            keys.push((old, key_of(&image.id.unwrap(), "node_image").unwrap()));
         }
-        upsert_node_image(
+        insert_before_per_kind(
             &db,
-            ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
-            DefaultRequest::Keep,
+            &ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
+            "ubuntu_linux",
         )
-        .await
-        .unwrap();
+        .await;
         {
             let writer = db.writer().await.unwrap();
             writer
@@ -1911,7 +2040,7 @@ mod tests {
                 .await
                 .unwrap()
                 .unwrap();
-            assert_eq!((image.model, image.kind), (model, kind), "{old}");
+            assert_eq!((image.model, image.kind()), (model, kind), "{old}");
             assert!(image.default, "{old} keeps its default");
         }
         let manifest = read_lab_definition(&db, &RecordId::new("lab", "l1"))
@@ -1944,5 +2073,259 @@ mod tests {
         // Applying again changes nothing.
         apply_schema(&db).await.unwrap();
         assert_eq!(list_node_images(&db).await.unwrap().len(), images.len());
+    }
+
+    /// Insert a `node_image` row into a database from before migration 34: the columns `values`
+    /// names hold its values, and the rest those of a container row an older release stored.
+    async fn insert_old_row(db: &Database, values: &[(&str, Value)]) {
+        let mut row: Vec<(&str, Value)> = vec![
+            ("id", Value::from(new_key())),
+            ("repo", Value::Null),
+            ("os_variant", text(&OsVariant::Unknown, "os_variant")),
+            ("bios", text(&BiosTypes::SeaBios, "bios")),
+            ("cpu_count", Value::from(1)),
+            ("cpu_architecture", Value::from("x86_64")),
+            ("cpu_model", Value::from("host-model")),
+            ("machine_type", text(&MachineType::Pc, "machine_type")),
+            ("vmx_enabled", Value::from(0)),
+            ("memory", Value::from(1024)),
+            ("hdd_bus", text(&DiskBuses::Virtio, "hdd_bus")),
+            ("cdrom", Value::Null),
+            ("cdrom_bus", text(&DiskBuses::Virtio, "cdrom_bus")),
+            ("data_interface_count", Value::from(1)),
+            ("interface_prefix", Value::from("eth")),
+            (
+                "interface_type",
+                text(&InterfaceType::MacVlan, "interface_type"),
+            ),
+            ("interface_mtu", Value::from(1500)),
+            ("first_interface_index", Value::from(0)),
+            ("management_interface", Value::from("eth0")),
+            ("reserved_interface_count", Value::from(0)),
+            ("default", Value::from(1)),
+            ("boot_mode", Value::Null),
+            ("ztp", Value::from("disabled")),
+        ];
+        for (column, value) in values {
+            match row.iter_mut().find(|(name, _)| name == column) {
+                Some(cell) => cell.1 = value.clone(),
+                None => row.push((column, value.clone())),
+            }
+        }
+        let columns = row
+            .iter()
+            .map(|(name, _)| format!("\"{name}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let placeholders = (1..=row.len())
+            .map(|index| format!("?{index}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let writer = db.writer().await.unwrap();
+        writer
+            .conn
+            .execute(
+                &format!("INSERT INTO node_image ({columns}) VALUES ({placeholders})"),
+                row.into_iter().map(|(_, value)| value).collect::<Vec<_>>(),
+            )
+            .await
+            .unwrap();
+    }
+
+    /// A database from before migration 34 with a VM edited away from its model's defaults, a
+    /// container whose unused columns hold values no container read, and two unikernels, one
+    /// stored without its boot mode.
+    async fn database_with_one_image_of_each_kind() -> Database {
+        let before = migrations_before(migrations::PER_KIND_IMAGE_SETTINGS);
+        let db = database_at(before).await;
+        // A VM edited away from its model's defaults.
+        insert_old_row(
+            &db,
+            &[
+                ("model", Value::from("cisco_cat9000")),
+                ("version", Value::from("17.12")),
+                ("kind", Value::from("virtual_machine")),
+                ("os_variant", text(&OsVariant::Iosxe, "os_variant")),
+                ("bios", text(&BiosTypes::Uefi, "bios")),
+                ("cpu_count", Value::from(4)),
+                ("cpu_model", Value::from("host-passthrough")),
+                ("machine_type", text(&MachineType::Q35, "machine_type")),
+                ("vmx_enabled", Value::from(1)),
+                ("memory", Value::from(18432)),
+                ("hdd_bus", text(&DiskBuses::Sata, "hdd_bus")),
+                ("cdrom", Value::from("extra.iso")),
+                ("cdrom_bus", text(&DiskBuses::Ide, "cdrom_bus")),
+                ("data_interface_count", Value::from(8)),
+                ("interface_prefix", Value::from("Gig0/0/")),
+                (
+                    "interface_type",
+                    text(&InterfaceType::E1000, "interface_type"),
+                ),
+                ("interface_mtu", Value::from(9000)),
+                ("first_interface_index", Value::from(1)),
+                ("management_interface", Value::from("GigabitEthernet0/0")),
+                ("ztp", Value::from("cdrom")),
+            ],
+        )
+        .await;
+        // A container whose unused columns hold values no container read.
+        insert_old_row(
+            &db,
+            &[
+                ("model", Value::from("frr_linux")),
+                ("version", Value::from("10.2")),
+                ("kind", Value::from("container")),
+                ("repo", Value::from("quay.io/frrouting/frr")),
+                ("os_variant", text(&OsVariant::Linux, "os_variant")),
+                ("vmx_enabled", Value::from(1)),
+                (
+                    "interface_type",
+                    text(&InterfaceType::Virtio, "interface_type"),
+                ),
+                ("interface_mtu", Value::from(9000)),
+                ("memory", Value::from(512)),
+                ("data_interface_count", Value::from(8)),
+                ("ztp", Value::from("volume")),
+            ],
+        )
+        .await;
+        // Two unikernels: one with its boot mode, one stored without.
+        for (version, boot_mode) in [("1.0", Value::from("disk_boot")), ("0.9", Value::Null)] {
+            insert_old_row(
+                &db,
+                &[
+                    ("model", Value::from("nanos_unikernel")),
+                    ("version", Value::from(version)),
+                    ("kind", Value::from("unikernel")),
+                    ("default", Value::from(i64::from(version == "1.0"))),
+                    ("machine_type", text(&MachineType::Q35, "machine_type")),
+                    (
+                        "interface_type",
+                        text(&InterfaceType::Virtio, "interface_type"),
+                    ),
+                    ("bios", text(&BiosTypes::Uefi, "bios")),
+                    ("memory", Value::from(512)),
+                    ("data_interface_count", Value::from(0)),
+                    ("boot_mode", boot_mode),
+                ],
+            )
+            .await;
+        }
+        db
+    }
+
+    #[tokio::test]
+    async fn each_image_keeps_only_its_kinds_settings_after_the_per_kind_migration() {
+        let db = database_with_one_image_of_each_kind().await;
+        apply_schema(&db).await.unwrap();
+
+        let images = list_node_images(&db).await.unwrap();
+        assert_eq!(images.len(), 4);
+        let image = |model: NodeModel, version: &str| {
+            images
+                .iter()
+                .find(|image| image.model == model && image.version == version)
+                .unwrap()
+        };
+        let vm = image(NodeModel::CiscoCat9000, "17.12");
+        assert_eq!(vm.cpu.count, 4);
+        assert_eq!(vm.memory, 18432);
+        assert_eq!(vm.interfaces.data_count, 8);
+        assert_eq!(
+            vm.settings,
+            KindSettings::VirtualMachine(VmSettings {
+                os_variant: OsVariant::Iosxe,
+                cpu: VmCpuSettings {
+                    architecture: CpuArchitecture::X86_64,
+                    model: CpuModels::HostPassthrough,
+                    vmx: true,
+                },
+                machine: MachineSettings {
+                    kind: MachineType::Q35,
+                    bios: BiosTypes::Uefi,
+                },
+                boot_disk: BootDiskSettings {
+                    bus: DiskBuses::Sata,
+                },
+                cdrom: CdromSettings {
+                    image: Some("extra.iso".to_owned()),
+                    bus: DiskBuses::Ide,
+                },
+                interfaces: InterfaceDeviceSettings {
+                    kind: InterfaceType::E1000,
+                    mtu: 9000,
+                },
+                ztp: ZtpSettings { method: Ztp::Cdrom },
+            })
+        );
+        let container = image(NodeModel::FrrLinux, "10.2");
+        assert_eq!(container.memory, 512);
+        assert_eq!(
+            container.settings,
+            KindSettings::Container(ContainerSettings {
+                repo: Some("quay.io/frrouting/frr".to_owned()),
+                ztp: ZtpSettings {
+                    method: Ztp::Volume
+                },
+            })
+        );
+        for (version, boot_mode) in [
+            ("1.0", UnikernelBootMode::DiskBoot),
+            ("0.9", UnikernelBootMode::DirectKernel),
+        ] {
+            assert_eq!(
+                image(NodeModel::NanosUnikernel, version).settings,
+                KindSettings::Unikernel(UnikernelSettings {
+                    boot_mode,
+                    cpu: UnikernelCpuSettings {
+                        architecture: CpuArchitecture::X86_64,
+                        model: CpuModels::HostModel,
+                    },
+                    machine: UnikernelMachineSettings {
+                        kind: MachineType::Q35,
+                    },
+                    interfaces: InterfaceDeviceSettings {
+                        kind: InterfaceType::Virtio,
+                        mtu: 1500,
+                    },
+                }),
+                "{version}"
+            );
+        }
+
+        // Applying again changes nothing.
+        apply_schema(&db).await.unwrap();
+        assert_eq!(list_node_images(&db).await.unwrap(), images);
+    }
+
+    #[tokio::test]
+    async fn the_per_kind_columns_are_set_only_for_their_kinds_and_the_name_columns_are_gone() {
+        let db = database_with_one_image_of_each_kind().await;
+        apply_schema(&db).await.unwrap();
+
+        let writer = db.writer().await.unwrap();
+        for column in ["interface_prefix", "first_interface_index"] {
+            let count = query_count(
+                &writer.conn,
+                Query::new("SELECT count(*) FROM pragma_table_info('node_image') WHERE name = ?1")
+                    .bind([column.into()]),
+            )
+            .await
+            .unwrap();
+            assert_eq!(count, 0, "{column}");
+        }
+        for refused in [
+            "UPDATE node_image SET bios = 'uefi' WHERE kind = 'container'",
+            "UPDATE node_image SET bios = NULL WHERE kind = 'virtual_machine'",
+            "UPDATE node_image SET interface_mtu = 1500 WHERE kind = 'container'",
+            "UPDATE node_image SET interface_mtu = 100 WHERE kind = 'virtual_machine'",
+            "UPDATE node_image SET ztp = 'disabled' WHERE kind = 'unikernel'",
+            "UPDATE node_image SET ztp = NULL WHERE kind = 'container'",
+            "UPDATE node_image SET repo = 'x' WHERE kind = 'virtual_machine'",
+            "UPDATE node_image SET boot_mode = NULL WHERE kind = 'unikernel'",
+            "UPDATE node_image SET os_variant = 'linux' WHERE kind = 'unikernel'",
+        ] {
+            assert!(writer.conn.execute(refused, ()).await.is_err(), "{refused}");
+        }
     }
 }

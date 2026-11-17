@@ -1,6 +1,6 @@
 //! Image tables: the images list, a scan's results and one image's detail.
 
-use shared::data::{ImageSummary, NodeConfig, ScannedImage, SkippedModel};
+use shared::data::{ImageSummary, KindSettings, NodeConfig, ScannedImage, SkippedModel};
 use shared::util::{TableLayout, render_table};
 
 const IMAGE_HEADERS: [&str; 4] = ["Model", "Kind", "Version", "Default"];
@@ -74,61 +74,21 @@ fn skipped_model_cells(model: &SkippedModel) -> [String; 2] {
 }
 
 /// Renders a two-column key-value table with the `NodeConfig` fields of an image. Each row
-/// is named by its key in the image JSON, as `group.field` for the grouped settings. The
-/// machine, firmware and disk settings its kind does not use are left out.
+/// is named by its key in the image JSON, as `group.field` for the grouped settings: the groups
+/// every kind takes, then the image's own kind's group, `vm`, `container` or `unikernel`.
 #[must_use]
 pub fn render_image_detail_table(image: &NodeConfig) -> String {
     let optional = |value: Option<&str>| value.unwrap_or("none").to_owned();
     let mut rows = vec![
         ["model".to_owned(), image.model.to_string()],
-        ["kind".to_owned(), image.kind.to_string()],
+        ["kind".to_owned(), image.kind().to_string()],
         ["version".to_owned(), image.version.clone()],
         ["default".to_owned(), image.default.to_string()],
-        ["os_variant".to_owned(), image.os_variant.to_string()],
-        ["repo".to_owned(), optional(image.repo.as_deref())],
         ["memory".to_owned(), format!("{} MB", image.memory)],
         ["cpu.count".to_owned(), image.cpu.count.to_string()],
         [
-            "cpu.architecture".to_owned(),
-            image.cpu.architecture.to_string(),
-        ],
-        ["cpu.model".to_owned(), image.cpu.model.to_string()],
-        ["cpu.vmx".to_owned(), image.cpu.vmx.to_string()],
-    ];
-    if image.kind.uses_machine_type() {
-        rows.push(["machine.kind".to_owned(), image.machine.kind.to_string()]);
-    }
-    if image.kind.uses_firmware_and_disks() {
-        rows.extend([
-            ["machine.bios".to_owned(), image.machine.bios.to_string()],
-            ["boot_disk.bus".to_owned(), image.boot_disk.bus.to_string()],
-            [
-                "cdrom.image".to_owned(),
-                optional(image.cdrom.image.as_deref()),
-            ],
-            ["cdrom.bus".to_owned(), image.cdrom.bus.to_string()],
-        ]);
-    }
-    rows.extend([
-        [
             "interfaces.data_count".to_owned(),
             image.interfaces.data_count.to_string(),
-        ],
-        [
-            "interfaces.kind".to_owned(),
-            image.interfaces.kind.to_string(),
-        ],
-        [
-            "interfaces.mtu".to_owned(),
-            image.interfaces.mtu.to_string(),
-        ],
-        [
-            "interfaces.prefix".to_owned(),
-            image.interfaces.prefix.clone(),
-        ],
-        [
-            "interfaces.first_index".to_owned(),
-            image.interfaces.first_index.to_string(),
         ],
         [
             "interfaces.management".to_owned(),
@@ -138,15 +98,71 @@ pub fn render_image_detail_table(image: &NodeConfig) -> String {
             "interfaces.reserved_count".to_owned(),
             image.interfaces.reserved_count.to_string(),
         ],
-        ["ztp.method".to_owned(), image.ztp.method.to_string()],
-        [
-            "unikernel.boot_mode".to_owned(),
-            image.unikernel.as_ref().map_or_else(
-                || "none".to_owned(),
-                |unikernel| unikernel.boot_mode.to_string(),
-            ),
-        ],
-    ]);
+    ];
+    match &image.settings {
+        KindSettings::VirtualMachine(vm) => rows.extend([
+            ["vm.os_variant".to_owned(), vm.os_variant.to_string()],
+            [
+                "vm.cpu.architecture".to_owned(),
+                vm.cpu.architecture.to_string(),
+            ],
+            ["vm.cpu.model".to_owned(), vm.cpu.model.to_string()],
+            ["vm.cpu.vmx".to_owned(), vm.cpu.vmx.to_string()],
+            ["vm.machine.kind".to_owned(), vm.machine.kind.to_string()],
+            ["vm.machine.bios".to_owned(), vm.machine.bios.to_string()],
+            ["vm.boot_disk.bus".to_owned(), vm.boot_disk.bus.to_string()],
+            [
+                "vm.cdrom.image".to_owned(),
+                optional(vm.cdrom.image.as_deref()),
+            ],
+            ["vm.cdrom.bus".to_owned(), vm.cdrom.bus.to_string()],
+            [
+                "vm.interfaces.kind".to_owned(),
+                vm.interfaces.kind.to_string(),
+            ],
+            [
+                "vm.interfaces.mtu".to_owned(),
+                vm.interfaces.mtu.to_string(),
+            ],
+            ["vm.ztp.method".to_owned(), vm.ztp.method.to_string()],
+        ]),
+        KindSettings::Container(container) => rows.extend([
+            [
+                "container.repo".to_owned(),
+                optional(container.repo.as_deref()),
+            ],
+            [
+                "container.ztp.method".to_owned(),
+                container.ztp.method.to_string(),
+            ],
+        ]),
+        KindSettings::Unikernel(unikernel) => rows.extend([
+            [
+                "unikernel.boot_mode".to_owned(),
+                unikernel.boot_mode.to_string(),
+            ],
+            [
+                "unikernel.cpu.architecture".to_owned(),
+                unikernel.cpu.architecture.to_string(),
+            ],
+            [
+                "unikernel.cpu.model".to_owned(),
+                unikernel.cpu.model.to_string(),
+            ],
+            [
+                "unikernel.machine.kind".to_owned(),
+                unikernel.machine.kind.to_string(),
+            ],
+            [
+                "unikernel.interfaces.kind".to_owned(),
+                unikernel.interfaces.kind.to_string(),
+            ],
+            [
+                "unikernel.interfaces.mtu".to_owned(),
+                unikernel.interfaces.mtu.to_string(),
+            ],
+        ]),
+    }
     render_table(
         IMAGE_DETAIL_HEADERS,
         &rows,
@@ -257,122 +273,85 @@ mod tests {
         assert_eq!(render_skipped_models_table(&skipped), expected);
     }
 
-    #[test]
-    fn test_render_image_detail_table() {
-        let image = ModelKind::default_for(NodeModel::CiscoCat8000).node_config();
-
-        let table = render_image_detail_table(&image);
-
-        // Each row is named by its key in the image JSON, groups included.
-        for key in [
-            "model",
-            "kind",
-            "version",
-            "default",
-            "os_variant",
-            "repo",
-            "memory",
-            "cpu.count",
-            "cpu.architecture",
-            "cpu.model",
-            "cpu.vmx",
-            "machine.kind",
-            "machine.bios",
-            "boot_disk.bus",
-            "cdrom.image",
-            "cdrom.bus",
-            "interfaces.data_count",
-            "interfaces.kind",
-            "interfaces.mtu",
-            "interfaces.prefix",
-            "interfaces.first_index",
-            "interfaces.management",
-            "interfaces.reserved_count",
-            "ztp.method",
-            "unikernel.boot_mode",
-        ] {
-            assert!(table.contains(&format!("│ {key} ")), "{key}\n{table}");
-        }
-        // The image ZTP login settings are gone.
-        for key in ["ztp.username", "ztp.password", "ztp.password_auth"] {
-            assert!(!table.contains(&format!("│ {key} ")), "{key}\n{table}");
-        }
-        assert!(table.contains("cdrom"));
-
-        // Check that model-specific values are present
-        assert!(table.contains("cisco_cat8000"));
-        assert!(table.contains("virtual_machine"));
-
-        // Check for header panel
-        assert!(table.contains("Image Detail"));
-
-        // Check for modern style box-drawing characters
-        assert!(table.contains("┌") || table.contains("│"));
-
-        println!("\n{table}");
+    /// The rows of an image's detail table, by their names.
+    fn row_names(table: &str) -> Vec<String> {
+        table
+            .lines()
+            .filter_map(|line| line.strip_prefix("│ "))
+            .filter_map(|line| line.split(" │").next())
+            .map(|name| name.trim().to_owned())
+            .filter(|name| !name.is_empty() && name != "Image Detail")
+            .collect()
     }
 
-    /// The rows of the machine type, and of the firmware and disks.
-    const MACHINE_TYPE_ROW: &str = "│ machine.kind ";
-    const FIRMWARE_AND_DISK_ROWS: [&str; 4] = [
-        "│ machine.bios ",
-        "│ boot_disk.bus ",
-        "│ cdrom.image ",
-        "│ cdrom.bus ",
+    const SHARED_ROWS: [&str; 9] = [
+        "model",
+        "kind",
+        "version",
+        "default",
+        "memory",
+        "cpu.count",
+        "interfaces.data_count",
+        "interfaces.management",
+        "interfaces.reserved_count",
     ];
 
     #[test]
-    fn image_detail_table_leaves_out_the_settings_a_container_does_not_use() {
-        for model in [NodeModel::NokiaSrlinux, NodeModel::MongoDb] {
-            let table = render_image_detail_table(&ModelKind::default_for(model).node_config());
-            assert!(!table.contains(MACHINE_TYPE_ROW), "{model}\n{table}");
-            for row in FIRMWARE_AND_DISK_ROWS {
-                assert!(!table.contains(row), "{model} {row}\n{table}");
-            }
-            assert!(table.contains("│ cpu.count "), "{model}\n{table}");
-            assert!(
-                table.contains("│ interfaces.data_count "),
-                "{model}\n{table}"
-            );
-        }
+    fn a_vm_images_detail_table_shows_the_shared_rows_and_its_vm_group() {
+        let image = ModelKind::default_for(NodeModel::CiscoCat8000).node_config();
+        let table = render_image_detail_table(&image);
+        let mut expected: Vec<&str> = SHARED_ROWS.to_vec();
+        expected.extend([
+            "vm.os_variant",
+            "vm.cpu.architecture",
+            "vm.cpu.model",
+            "vm.cpu.vmx",
+            "vm.machine.kind",
+            "vm.machine.bios",
+            "vm.boot_disk.bus",
+            "vm.cdrom.image",
+            "vm.cdrom.bus",
+            "vm.interfaces.kind",
+            "vm.interfaces.mtu",
+            "vm.ztp.method",
+        ]);
+        assert_eq!(row_names(&table), expected, "{table}");
+        assert!(table.contains("cisco_cat8000"));
+        assert!(table.contains("virtual_machine"));
+        assert!(table.contains("Image Detail"));
     }
 
     #[test]
-    fn image_detail_table_shows_a_unikernel_its_machine_type_only() {
-        let table = render_image_detail_table(
-            &ModelKind::default_for(NodeModel::NanosUnikernel).node_config(),
-        );
-        assert!(table.contains(MACHINE_TYPE_ROW), "{table}");
-        for row in FIRMWARE_AND_DISK_ROWS {
-            assert!(!table.contains(row), "{row}\n{table}");
-        }
-    }
-
-    #[test]
-    fn test_render_image_detail_table_container_model() {
+    fn a_container_images_detail_table_shows_the_shared_rows_and_its_container_group() {
         let image = ModelKind::default_for(NodeModel::NokiaSrlinux).node_config();
-
         let table = render_image_detail_table(&image);
-
-        // Check container-specific values
-        assert!(table.contains("nokia_srlinux"));
-        assert!(table.contains("container"));
-
-        // Repo should be populated for container models
-        assert!(!table.contains("Repo") || !table.contains("none") || table.contains("ghcr.io"));
-
-        println!("\n{table}");
+        let mut expected: Vec<&str> = SHARED_ROWS.to_vec();
+        expected.extend(["container.repo", "container.ztp.method"]);
+        assert_eq!(row_names(&table), expected, "{table}");
+        assert!(table.contains("ghcr.io/nokia/srlinux"), "{table}");
     }
 
     #[test]
-    fn test_render_image_detail_table_optional_fields() {
-        let image = NodeConfig::default();
-
+    fn a_unikernel_images_detail_table_shows_the_shared_rows_and_its_unikernel_group() {
+        let image = ModelKind::default_for(NodeModel::NanosUnikernel).node_config();
         let table = render_image_detail_table(&image);
+        let mut expected: Vec<&str> = SHARED_ROWS.to_vec();
+        expected.extend([
+            "unikernel.boot_mode",
+            "unikernel.cpu.architecture",
+            "unikernel.cpu.model",
+            "unikernel.machine.kind",
+            "unikernel.interfaces.kind",
+            "unikernel.interfaces.mtu",
+        ]);
+        assert_eq!(row_names(&table), expected, "{table}");
+    }
 
-        // Optional fields should show "none" when not set
-        assert!(table.contains("none")); // repo and cdrom are None by default
-
-        println!("\n{table}");
+    #[test]
+    fn a_container_without_a_repo_shows_none() {
+        let image = ModelKind::default_for(NodeModel::MysqlDb).node_config();
+        let table = render_image_detail_table(&image);
+        assert!(table.contains("│ container.repo"), "{table}");
+        assert!(table.contains("none"), "{table}");
     }
 }

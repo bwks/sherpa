@@ -1,12 +1,17 @@
 use anyhow::{Context, Result, ensure};
-use bollard::query_parameters::{RemoveImageOptions, TagImageOptions};
+use bollard::models::ContainerCreateBody;
+use bollard::query_parameters::{
+    CreateContainerOptions, RemoveImageOptions, StartContainerOptions, TagImageOptions,
+};
 use db::DefaultRequest;
 use reqwest::{Client, Method, StatusCode, header};
 use serde_json::{Value, json};
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 use std::time::Duration;
 
-use shared::data::{ModelKind, NodeKind, NodeModel};
+use shared::data::{
+    ContainerSettings, KindSettings, ModelKind, NodeConfig, NodeKind, NodeModel, ZtpSettings,
+};
 
 use crate::helpers::test_server::TestServer;
 use crate::helpers::ws_client::TestWsClient;
@@ -98,7 +103,7 @@ async fn test_image_scan_records_a_local_image_for_a_model_and_repo() -> Result<
     )
     .await?
     .context("the scan should record busybox:1.36 for the generic container")?;
-    assert_eq!(record.repo.as_deref(), Some("busybox"));
+    assert_eq!(record.container_repo(None).as_deref(), Some("busybox"));
     assert!(record.default);
 
     let rescanned = ws.rpc_call("image.scan", scan(false)).await?;
@@ -137,7 +142,7 @@ async fn test_image_scan_matches_a_built_in_repo_and_skips_models_without_one() 
     )
     .await?
     .context("the scan should record nats:2.10-alpine for nats_bus")?;
-    assert_eq!(record.repo.as_deref(), Some("nats"));
+    assert_eq!(record.container_repo(None).as_deref(), Some("nats"));
     let skipped: Vec<&str> = response["result"]["skipped"]
         .as_array()
         .context("the scan should list skipped models")?
@@ -325,11 +330,131 @@ async fn test_image_show_returns_config() -> Result<()> {
             "image.show result should have 'image' field: {result:?}"
         );
         // The image's ZTP group has only its method: no login settings, and no password flag.
-        let ztp = result["image"]["ztp"].as_object().unwrap();
+        let ztp = result["image"]["vm"]["ztp"].as_object().unwrap();
         assert_eq!(ztp.keys().collect::<Vec<_>>(), ["method"], "{result:?}");
         assert!(result.get("ztp_password_set").is_none(), "{result:?}");
     }
 
+    Ok(())
+}
+
+// ── Image Delete ──
+
+/// Tag busybox as `repo:1` in Docker and record it as a `generic` container image, version 1.
+async fn recorded_test_image(server: &TestServer, repo: &str) -> Result<()> {
+    container::pull_image("busybox", "1.36", |_| {}).await?;
+    container::docker_connection()?
+        .tag_image(
+            "busybox:1.36",
+            Some(TagImageOptions {
+                repo: Some(repo.to_string()),
+                tag: Some("1".to_string()),
+            }),
+        )
+        .await?;
+    let image = NodeConfig {
+        version: "1".to_owned(),
+        default: true,
+        settings: KindSettings::Container(ContainerSettings {
+            repo: Some(repo.to_owned()),
+            ztp: ZtpSettings::default(),
+        }),
+        ..ModelKind::new(NodeModel::Generic, Some(NodeKind::Container))?.node_config()
+    };
+    db::upsert_node_image(&server.db, image, DefaultRequest::Keep).await?;
+    Ok(())
+}
+
+/// Delete the `generic` container image, version 1.
+async fn delete_test_image(ws: &mut TestWsClient, token: &str) -> Result<Value> {
+    ws.rpc_call(
+        "image.delete",
+        json!({
+            "token": token,
+            "model": "generic",
+            "kind": "container",
+            "version": "1",
+        }),
+    )
+    .await
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon and internet access to pull an image"]
+async fn deleting_a_container_image_removes_it_from_docker() -> Result<()> {
+    const REPO: &str = "sherpa-test-image-delete";
+    let server = TestServer::start().await?;
+    recorded_test_image(&server, REPO).await?;
+    let docker = container::docker_connection()?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+
+    let response = delete_test_image(&mut ws, &token).await?;
+
+    assert_eq!(response["result"]["image_deleted"], true, "{response:?}");
+    assert!(!container::image_exists(&docker, &format!("{REPO}:1")).await?);
+    // busybox itself, another tag of the same image, is left alone.
+    assert!(container::image_exists(&docker, "busybox:1.36").await?);
+    let record = db::find_node_image_by_model_kind_version(
+        &server.db,
+        &NodeModel::Generic,
+        &NodeKind::Container,
+        "1",
+    )
+    .await?;
+    assert!(record.is_none(), "the record is deleted");
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon and internet access to pull an image"]
+async fn a_container_image_a_running_container_runs_is_not_deleted() -> Result<()> {
+    const REPO: &str = "sherpa-test-image-in-use";
+    const CONTAINER: &str = "sherpa-test-image-in-use-runner";
+    let server = TestServer::start().await?;
+    recorded_test_image(&server, REPO).await?;
+    let docker = container::docker_connection()?;
+    docker
+        .create_container(
+            Some(CreateContainerOptions {
+                name: Some(CONTAINER.to_owned()),
+                ..Default::default()
+            }),
+            ContainerCreateBody {
+                image: Some(format!("{REPO}:1")),
+                cmd: Some(vec!["sleep".to_owned(), "300".to_owned()]),
+                ..Default::default()
+            },
+        )
+        .await?;
+    docker
+        .start_container(CONTAINER, None::<StartContainerOptions>)
+        .await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+
+    let refused = delete_test_image(&mut ws, &token).await;
+    container::remove_container(&docker, CONTAINER).await?;
+    let refused = refused?;
+
+    let message = refused["error"]["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains(&format!("in use by running container(s): {CONTAINER}")),
+        "{refused:?}"
+    );
+    assert!(container::image_exists(&docker, &format!("{REPO}:1")).await?);
+    let record = db::find_node_image_by_model_kind_version(
+        &server.db,
+        &NodeModel::Generic,
+        &NodeKind::Container,
+        "1",
+    )
+    .await?;
+    assert!(record.is_some(), "the record is kept");
+
+    // Once the container is gone, the image is deleted.
+    let response = delete_test_image(&mut ws, &token).await?;
+    assert_eq!(response["result"]["image_deleted"], true, "{response:?}");
     Ok(())
 }
 

@@ -873,7 +873,7 @@ pub(crate) mod tests {
             NodeModel::SonicLinux,
         ] {
             let image = ModelKind::default_for(model).node_config();
-            assert!(supports_guest_account(model, image.ztp.method), "{model}");
+            assert!(supports_guest_account(model, image.ztp()), "{model}");
             assert!(!supports_guest_account(model, Ztp::Disabled), "{model}");
         }
         for model in [
@@ -883,10 +883,7 @@ pub(crate) mod tests {
             NodeModel::NanosUnikernel,
         ] {
             assert!(
-                !supports_guest_account(
-                    model,
-                    ModelKind::default_for(model).node_config().ztp.method
-                ),
+                !supports_guest_account(model, ModelKind::default_for(model).node_config().ztp()),
                 "{model}"
             );
         }

@@ -448,9 +448,13 @@ async fn delete_image(
                     "   DB Deleted:  {}",
                     if response.db_deleted { "yes" } else { "no" }
                 );
+                let image_label = match response.kind {
+                    data::NodeKind::Container => "Docker Image Deleted",
+                    data::NodeKind::VirtualMachine | data::NodeKind::Unikernel => "Disk Deleted",
+                };
                 println!(
-                    "   Disk Deleted: {}",
-                    if response.disk_deleted { "yes" } else { "no" }
+                    "   {image_label}: {}",
+                    if response.image_deleted { "yes" } else { "no" }
                 );
                 if let Some(new_default) = &response.new_default {
                     println!("   New Default: {new_default}");

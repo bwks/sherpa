@@ -43,7 +43,8 @@ use shared::data::StatusKind;
 use shared::konst::{
     CONTAINER_DISK_NAME, KVM_OUI, NODE_CLOUD_INIT_SUDO_RULE, NODE_CONFIGS_DIR, NODE_USER_ENV_FILE,
     SHERPA_DOMAIN_NAME, SHERPA_SSHD_READY_MARKER, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
-    SHERPA_USERNAME, SSH_PORT, TALOS_API_PORT, TELNET_PORT, TFTP_DIR, ZTP_DIR,
+    SHERPA_USERNAME, SSH_PORT, TALOS_API_PORT, TELNET_PORT, TFTP_DIR, UNIKERNEL_DISK_FILENAME,
+    UNIKERNEL_KERNEL_FILENAME, VM_DISK_FILENAME, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::{
@@ -1389,7 +1390,8 @@ pub(crate) fn generate_vm_ztp(
     let setting = effective_ztp(node.ztp.method, node_image);
     let media = generate_vm_ztp_media(node, node_image, &ztp, setting)?;
     // The image's own CD-ROM, such as vEOS's Aboot, unless the ZTP method brings one.
-    let image_cdrom = node_image.cdrom.image.as_ref().map(|src_iso| {
+    let vm = vm_settings(node_image)?;
+    let image_cdrom = vm.cdrom.image.as_ref().map(|src_iso| {
         (
             format!(
                 "{}/{}/{}/{}",
@@ -1512,9 +1514,10 @@ fn vm_disks(
     node_name_with_lab: &str,
     media: &VmZtpMedia,
 ) -> Result<(Vec<data::CloneDisk>, Vec<data::NodeDisk>)> {
-    let hdd_bus = &node_image.boot_disk.bus;
-    let cdrom_bus = &node_image.cdrom.bus;
-    let filename = util::image_filename(&node_image.kind, node_image.unikernel.as_ref());
+    let vm = vm_settings(node_image)?;
+    let hdd_bus = &vm.boot_disk.bus;
+    let cdrom_bus = &vm.cdrom.bus;
+    let filename = VM_DISK_FILENAME;
     let dst_boot_disk = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-hdd.qcow2");
     let mut clone_disks = vec![data::CloneDisk {
         src: format!(
@@ -2315,7 +2318,10 @@ fn linux_cloud_init(
         write_files.push(doas_file);
     }
 
-    let mut user = match (node.model_kind.model(), &node_image.os_variant) {
+    let mut user = match (
+        node.model_kind.model(),
+        &vm_settings(node_image)?.os_variant,
+    ) {
         (data::NodeModel::NixosLinux, _) => guest_account::nixos_cloud_init_user(account)?,
         (_, data::OsVariant::Bsd) => {
             guest_account::bsd_cloud_init_user(account, node.model_kind.model())?
@@ -3602,26 +3608,27 @@ pub fn build_domain_template(
     let vnc_port = resources
         .vnc_port
         .with_context(|| format!("Node '{}' has no VNC port reserved", node.name))?;
+    let vm = vm_settings(node_image)?;
     let cpu_model = match node.cpu.mode {
         Some(mode) => data::CpuModels::from(mode),
-        None => node_image.cpu.model.clone(),
+        None => vm.cpu.model.clone(),
     };
     let management_interface_type =
-        management_interface_type_for_model(node.model_kind, &node_image.interfaces.kind);
+        management_interface_type_for_model(node.model_kind, &vm.interfaces.kind);
 
     Ok(template::DomainTemplate {
         qemu_bin: qemu_bin.to_string(),
         name: node_name_with_lab,
         memory,
-        cpu_architecture: node_image.cpu.architecture.clone(),
+        cpu_architecture: vm.cpu.architecture.clone(),
         cpu_model,
-        machine_type: node_image.machine.kind.clone(),
+        machine_type: vm.machine.kind.clone(),
         cpu_count,
-        vmx_enabled: node_image.cpu.vmx,
-        bios: node_image.machine.bios.clone(),
+        vmx_enabled: vm.cpu.vmx,
+        bios: vm.machine.bios.clone(),
         disks: parts.disks,
         interfaces: parts.interfaces,
-        interface_type: node_image.interfaces.kind.clone(),
+        interface_type: vm.interfaces.kind.clone(),
         tuning: template::DomainTuning::from_node_settings(
             &node.cpu,
             &node.numa,
@@ -3632,7 +3639,7 @@ pub fn build_domain_template(
         management_interface_type,
         reserved_interface_type: reserved_interface_type_for_model(
             node.model_kind,
-            &node_image.interfaces.kind,
+            &vm.interfaces.kind,
         ),
         loopback_ipv4: parts.loopback_ipv4,
         telnet_port: TELNET_PORT,
@@ -4217,11 +4224,15 @@ pub fn generate_unikernel_setup(
     lab_id: &str,
     images_dir: &str,
 ) -> Result<UnikernelSetupResult> {
-    let boot_mode = node_image.unikernel.clone().unwrap_or_default().boot_mode;
+    let unikernel = unikernel_settings(node_image)?;
+    let boot_mode = unikernel.boot_mode.clone();
 
     let mac_address = util::random_mac(KVM_OUI);
     let version = node.version.as_deref().unwrap_or(&node_image.version);
-    let filename = util::image_filename(&node_image.kind, node_image.unikernel.as_ref());
+    let filename = match boot_mode {
+        data::UnikernelBootMode::DiskBoot => UNIKERNEL_DISK_FILENAME,
+        data::UnikernelBootMode::DirectKernel => UNIKERNEL_KERNEL_FILENAME,
+    };
 
     match boot_mode {
         data::UnikernelBootMode::DiskBoot => {
@@ -4282,6 +4293,10 @@ pub fn generate_unikernel_setup(
 }
 
 /// Build a unikernel domain template with auto IP injection for `DirectKernel` models.
+///
+/// # Errors
+///
+/// Fails when `node_image` is not a unikernel image.
 #[instrument(skip(node_image, parts), fields(node_name = %node.name), level = "debug")]
 pub fn build_unikernel_domain_template(
     node: &topology::NodeExpanded,
@@ -4290,9 +4305,9 @@ pub fn build_unikernel_domain_template(
     qemu_bin: &str,
     parts: DomainParts,
     kernel_path: Option<String>,
-) -> template::UnikernelDomainTemplate {
+) -> Result<template::UnikernelDomainTemplate> {
     let node_name_with_lab = format!("{}-{}", node.name, lab_id);
-    let boot_mode = node_image.unikernel.clone().unwrap_or_default().boot_mode;
+    let unikernel = unikernel_settings(node_image)?;
 
     // Only the manifest sets a kernel cmdline: Unikraft's pre-built images take their address
     // by DHCP, from the static MAC-to-IP binding on the Sherpa router, and treat the cmdline as
@@ -4302,28 +4317,60 @@ pub fn build_unikernel_domain_template(
         .as_ref()
         .and_then(|unikernel| unikernel.cmdline.clone());
 
-    template::UnikernelDomainTemplate {
+    Ok(template::UnikernelDomainTemplate {
         qemu_bin: qemu_bin.to_string(),
         name: node_name_with_lab,
         memory: node.memory.unwrap_or(node_image.memory),
-        cpu_architecture: node_image.cpu.architecture.clone(),
-        cpu_model: node_image.cpu.model.clone(),
-        machine_type: node_image.machine.kind.clone(),
+        cpu_architecture: unikernel.cpu.architecture.clone(),
+        cpu_model: unikernel.cpu.model.clone(),
+        machine_type: unikernel.machine.kind.clone(),
         cpu_count: node.cpu.count.unwrap_or(node_image.cpu.count),
-        boot_mode,
+        boot_mode: unikernel.boot_mode.clone(),
         kernel_path,
         kernel_cmdline,
         disks: parts.disks,
         interfaces: parts.interfaces,
-        interface_type: node_image.interfaces.kind.clone(),
-        management_interface_type: node_image.interfaces.kind.clone(),
-        reserved_interface_type: node_image.interfaces.kind.clone(),
+        interface_type: unikernel.interfaces.kind.clone(),
+        management_interface_type: unikernel.interfaces.kind.clone(),
+        reserved_interface_type: unikernel.interfaces.kind.clone(),
         loopback_ipv4: parts.loopback_ipv4,
         telnet_port: TELNET_PORT,
         management_network: parts.management_network,
         isolated_network: parts.isolated_network,
         reserved_network: parts.reserved_network,
-    }
+    })
+}
+
+/// The `vm` group of a virtual machine's image.
+///
+/// # Errors
+///
+/// Fails when `node_image` is another kind's image.
+fn vm_settings(node_image: &data::NodeConfig) -> Result<&data::VmSettings> {
+    node_image.vm().with_context(|| {
+        format!(
+            "Node image {} {} is a {} image, not a virtual machine's",
+            node_image.model,
+            node_image.version,
+            node_image.kind()
+        )
+    })
+}
+
+/// The `unikernel` group of a unikernel's image.
+///
+/// # Errors
+///
+/// Fails when `node_image` is another kind's image.
+fn unikernel_settings(node_image: &data::NodeConfig) -> Result<&data::UnikernelSettings> {
+    node_image.unikernel().with_context(|| {
+        format!(
+            "Node image {} {} is a {} image, not a unikernel's",
+            node_image.model,
+            node_image.version,
+            node_image.kind()
+        )
+    })
 }
 
 /// Create a unikernel from a domain template using libvirt.
@@ -5304,8 +5351,8 @@ pub(crate) mod tests {
         assert!(xml.contains("<model type='virtio' heads='1'/>"));
         assert!(xml.contains("OVMF_CODE_4M.fd"));
         assert!(xml.find("<boot dev='cdrom'/>").unwrap() < xml.find("<boot dev='hd'/>").unwrap());
-        assert_eq!(config.ztp.method, data::Ztp::CloudInit);
-        assert!(config.cdrom.image.is_none());
+        assert_eq!(config.ztp(), data::Ztp::CloudInit);
+        assert!(config.vm().unwrap().cdrom.image.is_none());
     }
 
     /// The owner's Ed25519 key in every generator test.
@@ -6667,7 +6714,7 @@ pub(crate) mod tests {
         let pairs: Vec<ModelKind> = ModelKind::all()
             .filter(|model_kind| {
                 model_kind.kind() == data::NodeKind::Container
-                    && model_kind.node_config().repo.is_some()
+                    && model_kind.node_config().container_repo(None).is_some()
             })
             .collect();
         assert_eq!(pairs.len(), 13, "{pairs:?}");

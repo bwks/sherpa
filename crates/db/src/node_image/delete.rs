@@ -58,7 +58,7 @@ pub async fn delete_node_image(db: &Database, id: RecordId) -> Result<Option<Nod
             &tx,
             queries::node_image::PROMOTE_NEWEST.bind([
                 enum_text(&deleted.model, "model")?.into(),
-                enum_text(&deleted.kind, "kind")?.into(),
+                enum_text(&deleted.kind(), "kind")?.into(),
             ]),
             node_image_from_row,
         )
@@ -66,7 +66,8 @@ pub async fn delete_node_image(db: &Database, id: RecordId) -> Result<Option<Nod
         .with_context(|| {
             format!(
                 "Failed to make another version the default for {} ({})",
-                deleted.model, deleted.kind
+                deleted.model,
+                deleted.kind()
             )
         })?
     } else {

@@ -216,10 +216,14 @@ fn vm_interfaces(
     links: &[&DbLink],
     bridge_interfaces: &HashMap<String, String>,
 ) -> Result<Vec<data::Interface>> {
+    let image_mtu = node_image
+        .interface_device()
+        .with_context(|| format!("Node image {} is not a virtual machine's", node_image.model))?
+        .mtu;
     let mut interfaces = vec![data::Interface {
         name: util::dasher(&node_image.interfaces.management.to_string()),
         num: 0,
-        mtu: node_image.interfaces.mtu,
+        mtu: image_mtu,
         mac_address: mgmt_mac.to_owned(),
         connection_type: data::ConnectionTypes::Management,
     }];
@@ -228,7 +232,7 @@ fn vm_interfaces(
         interfaces.push(data::Interface {
             name: format!("int{idx}"),
             num: idx,
-            mtu: node_image.interfaces.mtu,
+            mtu: image_mtu,
             mac_address: util::random_mac(KVM_OUI),
             connection_type: data::ConnectionTypes::Reserved,
         });
@@ -249,13 +253,13 @@ fn vm_interfaces(
             (Some(tap), _) => (tap.clone(), MTU_JUMBO_NET, data::ConnectionTypes::P2p),
             (None, Some(bridge_name)) => (
                 bridge_name.clone(),
-                node_image.interfaces.mtu,
+                image_mtu,
                 data::ConnectionTypes::PrivateBridge,
             ),
             // Disabled: on the node's isolated network.
             (None, None) => (
                 util::dasher(&interface_name),
-                node_image.interfaces.mtu,
+                image_mtu,
                 data::ConnectionTypes::Disabled,
             ),
         };

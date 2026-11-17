@@ -2,7 +2,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use std::collections::HashMap;
 use std::path::Path;
 
-use shared::data::{ModelKind, NodeConfig, NodeKind, NodeModel, UnikernelSettings};
+use shared::data::{KindSettings, ModelKind, NodeConfig, NodeKind, NodeModel};
 use shared::util::image_filename;
 use topology::Node;
 
@@ -41,7 +41,7 @@ pub fn validate_and_resolve_node_versions(
     let mut config_map: HashMap<(NodeModel, NodeKind), &NodeConfig> = HashMap::new();
     for config in node_images {
         config_map
-            .entry((config.model, config.kind))
+            .entry((config.model, config.kind()))
             .and_modify(|existing| {
                 if config.default && !existing.default {
                     *existing = config;
@@ -85,12 +85,12 @@ pub fn validate_and_resolve_node_versions(
         ))?;
 
         // Step 4: Check image/disk existence based on node kind
-        match node_image.kind {
+        match node_image.kind() {
             NodeKind::Container => {
                 let repo = node_images
                     .iter()
                     .find(|c| {
-                        c.model == node.model && c.kind == kind && c.version == resolved_version
+                        c.model == node.model && c.kind() == kind && c.version == resolved_version
                     })
                     .and_then(|c| c.container_repo(node.image.as_deref()));
                 updated_node.image = Some(validate_container_repo(
@@ -106,8 +106,7 @@ pub fn validate_and_resolve_node_versions(
                     node.model,
                     &resolved_version,
                     images_dir,
-                    node_image.kind,
-                    node_image.unikernel.as_ref(),
+                    &node_image.settings,
                 )?;
             }
         }
@@ -128,7 +127,7 @@ fn validate_version_in_db(
 ) -> Result<()> {
     let model = model_kind.model();
     let kind = model_kind.kind();
-    let of_model_kind = |c: &&NodeConfig| c.model == model && c.kind == kind;
+    let of_model_kind = |c: &&NodeConfig| c.model == model && c.kind() == kind;
     let matching_config = node_images
         .iter()
         .filter(of_model_kind)
@@ -180,10 +179,11 @@ fn validate_disk_image(
     model: NodeModel,
     version: &str,
     images_dir: &str,
-    kind: NodeKind,
-    unikernel: Option<&UnikernelSettings>,
+    settings: &KindSettings,
 ) -> Result<()> {
-    let filename = image_filename(&kind, unikernel);
+    let filename = image_filename(settings).with_context(|| {
+        format!("Node '{node_name}' (model: {model}) is a container, which has no disk image")
+    })?;
     let disk_path = format!("{images_dir}/{model}/{version}/{filename}");
     let path = Path::new(&disk_path);
 
@@ -206,50 +206,27 @@ fn validate_disk_image(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::{
-        BiosTypes, BootDiskSettings, CdromSettings, CpuArchitecture, CpuModels, CpuSettings,
-        DiskBuses, InterfaceSettings, InterfaceType, MachineSettings, MachineType, MgmtInterfaces,
-        OsVariant, UnikernelBootMode, ZtpSettings,
-    };
+    use shared::data::ContainerSettings;
 
+    /// An image of `model` as `kind` at `version`, not the default; a container's repo is
+    /// `test-repo`.
     fn create_test_node_image(model: NodeModel, version: &str, kind: NodeKind) -> NodeConfig {
-        NodeConfig {
-            id: None,
-            model,
+        let mut config = NodeConfig {
             version: version.to_string(),
-            repo: Some("test-repo".to_string()),
-            os_variant: OsVariant::Linux,
-            kind,
             default: false,
-            memory: 1024,
-            cpu: CpuSettings {
-                count: 1,
-                architecture: CpuArchitecture::X86_64,
-                model: CpuModels::HostModel,
-                vmx: false,
-            },
-            machine: MachineSettings {
-                kind: MachineType::Q35,
-                bios: BiosTypes::SeaBios,
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::Virtio,
-            },
-            cdrom: CdromSettings {
-                image: None,
-                bus: DiskBuses::Sata,
-            },
-            ztp: ZtpSettings::default(),
-            interfaces: InterfaceSettings {
-                data_count: 4,
-                prefix: "eth".to_string(),
-                kind: InterfaceType::Virtio,
-                mtu: 1500,
-                first_index: 0,
-                management: MgmtInterfaces::Eth0,
-                reserved_count: 0,
-            },
-            unikernel: None,
+            ..ModelKind::new(model, Some(kind)).unwrap().node_config()
+        };
+        set_repo(&mut config, Some("test-repo"));
+        config
+    }
+
+    /// Set a container image's repo; other kinds have none.
+    fn set_repo(config: &mut NodeConfig, repo: Option<&str>) {
+        if let KindSettings::Container(container) = &mut config.settings {
+            *container = ContainerSettings {
+                repo: repo.map(str::to_string),
+                ..container.clone()
+            };
         }
     }
 
@@ -318,8 +295,9 @@ mod tests {
             NodeModel::AristaEos,
             "4.28.0F",
             "/tmp/nonexistent_sherpa_images",
-            NodeKind::VirtualMachine,
-            None,
+            &ModelKind::default_for(NodeModel::AristaEos)
+                .node_config()
+                .settings,
         );
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
@@ -335,8 +313,9 @@ mod tests {
             NodeModel::RockyLinux,
             "9.3",
             "/opt/images",
-            NodeKind::VirtualMachine,
-            None,
+            &ModelKind::default_for(NodeModel::RockyLinux)
+                .node_config()
+                .settings,
         );
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
@@ -350,10 +329,9 @@ mod tests {
             NodeModel::UnikraftUnikernel,
             "latest",
             "/opt/images",
-            NodeKind::Unikernel,
-            Some(&UnikernelSettings {
-                boot_mode: UnikernelBootMode::DirectKernel,
-            }),
+            &ModelKind::default_for(NodeModel::UnikraftUnikernel)
+                .node_config()
+                .settings,
         );
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
@@ -367,10 +345,9 @@ mod tests {
             NodeModel::NanosUnikernel,
             "latest",
             "/opt/images",
-            NodeKind::Unikernel,
-            Some(&UnikernelSettings {
-                boot_mode: UnikernelBootMode::DiskBoot,
-            }),
+            &ModelKind::default_for(NodeModel::NanosUnikernel)
+                .node_config()
+                .settings,
         );
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
@@ -504,7 +481,7 @@ mod tests {
 
     fn generic_image(version: &str, repo: Option<&str>, default: bool) -> NodeConfig {
         let mut config = create_test_node_image(NodeModel::Generic, version, NodeKind::Container);
-        config.repo = repo.map(str::to_string);
+        set_repo(&mut config, repo);
         config.default = default;
         config
     }
@@ -545,7 +522,7 @@ mod tests {
     fn test_resolve_container_without_image_or_repo_fails_naming_both_fixes() {
         let nodes = [create_test_node("db1", NodeModel::PostgresqlDb, Some("17"))];
         let mut config = create_test_node_image(NodeModel::PostgresqlDb, "17", NodeKind::Container);
-        config.repo = None;
+        set_repo(&mut config, None);
         config.default = true;
 
         let error =
@@ -579,7 +556,7 @@ mod tests {
         let mut node = create_test_node("node1", model, Some("2.11"));
         node.image = manifest_image.map(str::to_string);
         let mut config = create_test_node_image(model, "2.11", NodeKind::Container);
-        config.repo = Some(repo.to_string());
+        set_repo(&mut config, Some(repo));
         config.default = true;
 
         let resolved = validate_and_resolve_node_versions(&[node], &[config], "/tmp/images")

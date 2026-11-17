@@ -165,8 +165,9 @@ pub struct DeleteImageResponse {
     pub kind: NodeKind,
     /// The version that was deleted
     pub version: String,
-    /// Whether the disk files were deleted
-    pub disk_deleted: bool,
+    /// Whether the image itself was deleted: a VM's or unikernel's disk files, or a
+    /// container's Docker image, its repo at its version
+    pub image_deleted: bool,
     /// Whether the database record was deleted
     pub db_deleted: bool,
     /// The version that became the model's default because the deleted one was the default.

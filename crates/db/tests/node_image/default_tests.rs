@@ -17,7 +17,7 @@ fn version(name: &str) -> NodeConfig {
 }
 
 async fn default_version(db: &Database) -> Result<Option<String>> {
-    let kind = create_test_config(MODEL).kind;
+    let kind = create_test_config(MODEL).kind();
     Ok(find_default_node_image(db, &MODEL, &kind)
         .await?
         .map(|image| image.version))
@@ -130,11 +130,7 @@ async fn deleting_another_version_or_the_last_promotes_nothing() -> Result<()> {
     assert_eq!(default_version(&db).await?.as_deref(), Some("1"));
 
     assert!(delete_node_image(&db, one.id.unwrap()).await?.is_none());
-    let kind = create_test_config(MODEL).kind;
-    assert!(
-        get_node_image_versions(&db, &MODEL, &kind)
-            .await?
-            .is_empty()
-    );
+    let kind = create_test_config(MODEL).kind();
+    assert_eq!(get_node_image_versions(&db, &MODEL, &kind).await?.len(), 0);
     Ok(())
 }

@@ -238,7 +238,7 @@ rename folders. `daemon::image_folders::move_renamed_model_folders` runs on ever
   base by that path at the next start, so an overlay made before the move still names
   `arista_veos/4.33/virtioa.qcow2`. While a disk in the storage pool has a base under the old
   path, the old path is a relative symlink to the new folder (`arista_veos -> arista_eos`).
-  `libvirt::pool_backing_files` asks libvirt for each pool volume's `<backingStore>` path, as
+  `libvirt::pool_backed_volumes` asks libvirt for each pool volume's `<backingStore>` path, as
   the disk records it, without resolving it: libvirtd reads every volume, while sherpad cannot
   read the disks libvirt has handed to QEMU (`0600`, owned by `libvirt-qemu` or `root`). A later start removes the link once no disk names it, that is
   once the last node built on it is redeployed or destroyed. When the pool cannot be read, every
@@ -1066,6 +1066,14 @@ refused them here; 0.7.0 dropped the mark, so nothing tells them apart and the w
 one without those parts. The 0.7.0 upgrade notes say to redeploy them from the CLI, or destroy
 their lab, before upgrading.
 
+The node is rebuilt from the image `up` would give it: the manifest's `version` of its model and
+kind, or else their default (`redeploy/context.rs`, `redeploy_image`). So a node whose manifest
+names another version, such as a container node moved to a new tag, is rebuilt from that
+version, not from the image it was built from before. Its model and kind cannot change: the
+stored image's are checked against the manifest's. Once the old node is torn down, the node's
+record is pointed at the new image (`db::update_node_image_ref`), so the old image is free to
+delete and the new one is protected.
+
 A node that needs none of them is redeployed from the definition narrowed to it: the other
 nodes are left out, so their files do not refuse it, and the redeploy stores only that node's
 definition and the lab-level settings, as from the CLI. Its secret files and parts as written are
@@ -1202,6 +1210,39 @@ flowchart LR
     pull --> pulloci["pull OCI image through Docker/Bollard with streamed status"]
     delete --> remove["remove imported image records/artifacts"]
 ```
+
+#### Deleting an image
+
+`services::delete::delete_image` holds the image's lifecycle lock (`lock_image`) through its
+checks and the deletion, so no node is built on the image in between:
+
+- **A VM or unikernel image** is refused while a volume of the storage pool, running or stopped,
+  is built on a file in its version folder. `image_lifecycle::ensure_image_has_no_overlays` asks
+  libvirt (`libvirt::pool_backed_volumes`, through the `BackedVolumes` trait that `Qemu`
+  implements) for each volume's backing file, because sherpad cannot read the disks libvirt has
+  handed to QEMU: they are `0600` and owned by `libvirt-qemu`, or by `root` once the VM stops.
+  `libvirt::ensure_no_overlay_dependencies` resolves each backing file, links included, so a
+  base reached through a renamed model's link is protected. A disk built on the image refuses the
+  delete with a `ServiceError::Conflict` naming the disk; a pool libvirt cannot read, or a
+  backing file that cannot be resolved, fails it. Disks on other images do not.
+- **A container image** is refused while a running container runs it:
+  `container::running_containers_of_image` finds the running containers created from the
+  recorded reference, its repo at its version, and, when that reference is the image's last tag,
+  every running container of the image, since removing the tag then removes the image; it
+  refuses with a `ServiceError::Conflict` naming them. A container created from another tag of
+  the same image does not stop the delete, which only untags. Once the row is
+  deleted, `container::remove_image` removes the reference through Bollard, forced so a stopped
+  container does not keep it; another tag of the same image, such as the one it was pulled as,
+  is left. A container image without a repo has no Docker image to remove.
+- **Any image a node records** is refused by the database: `node.image` is `ON DELETE
+  RESTRICT`.
+
+The row is deleted first, then the image's file or the Docker image; a failure to remove them
+is logged and reported as `image_deleted: false`, the row being gone. A VM and a unikernel of one
+model can be imported at the same version and share its folder, `<images>/<model>/<version>/`, so
+the delete removes only the file of the image's kind (`shared::util::image_filename`:
+`virtioa.qcow2`, `kernel.elf` or `disk.qcow2`) and then the folder only if that leaves it empty,
+with `remove_dir`. A file already gone counts as removed.
 
 Admin-only image mutations are enforced at the transport boundary. Image list/show require authentication but not admin privileges. Long-running import/pull/download paths use `ProgressSender` so REST, WebSocket, and UI callers can receive progress without service-specific transport code.
 

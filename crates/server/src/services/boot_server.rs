@@ -102,7 +102,7 @@ pub(crate) fn lab_ztp_records(
     redeployed: &ZtpRecord,
 ) -> Result<Vec<ZtpRecord>> {
     let mut ordered: Vec<&BootNode> = nodes.iter().collect();
-    ordered.sort_by_key(|node| (kind_order(node.image.kind), node.record.index));
+    ordered.sort_by_key(|node| (kind_order(node.image.kind()), node.record.index));
     let mut records = Vec::with_capacity(ordered.len());
     for node in ordered {
         let name = &node.record.name;
@@ -118,7 +118,7 @@ pub(crate) fn lab_ztp_records(
             .parse()
             .with_context(|| format!("Node '{name}' has an invalid management address"))?;
         let mac_address = node.record.mgmt_mac.clone().unwrap_or_default();
-        records.push(match node.image.kind {
+        records.push(match node.image.kind() {
             NodeKind::Container => ZtpRecord {
                 node_name: name.clone(),
                 config_file: format!("{name}.conf"),

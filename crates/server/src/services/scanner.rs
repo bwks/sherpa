@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use shared::data::{
-    DbLab, DbNode, LabPhase, ModelKind, NodeKind, NodeModel, NodeState, Observation, Probe,
-    RecordId, Runtime,
+    DbLab, DbNode, LabPhase, ModelKind, NodeConfig, NodeKind, NodeModel, NodeState, Observation,
+    Probe, RecordId, Runtime,
 };
 use shared::konst::SSH_PORT;
 use tokio_util::sync::CancellationToken;
@@ -323,7 +323,7 @@ async fn scanned_nodes<'a>(
                 .find(|img| img.id.as_ref() == Some(&node.image));
             ScannedNode {
                 node,
-                kind: image.map_or(NodeKind::VirtualMachine, |img| img.kind),
+                kind: image.map_or(NodeKind::VirtualMachine, NodeConfig::kind),
                 model: image.map(|img| img.model),
                 runtime_name: format!("{}-{}", node.name, lab.lab_id),
             }

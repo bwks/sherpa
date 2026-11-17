@@ -291,7 +291,7 @@ fn check_container_quotas(
 ) -> Result<()> {
     let quotas: Vec<(&str, u8)> = nodes
         .iter()
-        .filter(|(_, image)| image.kind == NodeKind::Container)
+        .filter(|(_, image)| image.kind() == NodeKind::Container)
         .filter_map(|(node, image)| {
             planned_resources(node, image)
                 .cpu_count
@@ -345,7 +345,7 @@ fn lab_requests(lab_id: &str, nodes: &[(&topology::NodeExpanded, &NodeConfig)]) 
     nodes
         .iter()
         .map(|(node, image)| {
-            let numa_node = if image.kind == NodeKind::VirtualMachine {
+            let numa_node = if image.kind() == NodeKind::VirtualMachine {
                 node.numa.strict_node().map(u32::from)
             } else {
                 None

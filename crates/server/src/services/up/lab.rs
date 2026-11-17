@@ -378,7 +378,7 @@ fn ensure_no_earlier_attempt(
 ) -> Result<()> {
     if selected_images
         .iter()
-        .all(|image| image.kind == data::NodeKind::Container)
+        .all(|image| image.kind() == data::NodeKind::Container)
     {
         return Ok(());
     }

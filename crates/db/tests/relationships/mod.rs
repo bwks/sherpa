@@ -567,7 +567,7 @@ async fn test_node_image_in_use_cannot_be_deleted() -> Result<()> {
     let image = find_node_image_by_model_kind_version(
         &db,
         &template.model,
-        &template.kind,
+        &template.kind(),
         &template.version,
     )
     .await?
@@ -646,7 +646,7 @@ async fn test_concurrent_writes_through_one_database_all_succeed() -> Result<()>
     let image_id = find_node_image_by_model_kind_version(
         &db,
         &template.model,
-        &template.kind,
+        &template.kind(),
         &template.version,
     )
     .await?

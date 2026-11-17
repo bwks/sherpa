@@ -112,7 +112,6 @@
 - `load_file()` reads file content `[unit]` **P0**
 - `expand_path()` expands ~ to home directory `[unit]` **P0**
 - `file_exists()` / `dir_exists()` correct results `[unit]` **P0**
-- `delete_file()` / `delete_dirs()` removes files and directories `[unit]` **P0**
 - `copy_file()` copies with buffered I/O `[unit]` **P0**
 - `create_symlink()` creates Unix symlink `[unit]` **P1**
 - `fix_permissions_recursive()` sets dirs 0o775, files 0o660 `[unit]` **P1**

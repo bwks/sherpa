@@ -1,5 +1,6 @@
 //! The web UI's admin image pages and upload.
 
+use anyhow::{Context, anyhow, bail};
 use axum::Form;
 use axum::extract::rejection::FormRejection;
 use axum::extract::{Multipart, Path, State};
@@ -21,8 +22,9 @@ use crate::services::image_lifecycle::lock_image;
 use crate::services::import;
 use crate::services::progress::ProgressSender;
 use crate::templates::{
-    AdminImageEditTemplate, AdminImageUploadTemplate, AdminNotificationErrorTemplate, FormChoice,
-    KindBadge, ModelChoice, NavPage, kind_choices, kind_label,
+    AdminImageEditTemplate, AdminImageUploadTemplate, AdminNotificationErrorTemplate,
+    DeviceEditChoices, FormChoice, KindBadge, ModelChoice, NavPage, VmEditChoices, kind_choices,
+    kind_label,
 };
 
 use super::images_api::path_model_kind;
@@ -30,10 +32,13 @@ use crate::api::errors::ApiError;
 use crate::api::extractors::AdminUser;
 
 use crate::validate::validate_node_image_update;
+use shared::data::kind_settings::{self, KindSetting};
 use shared::data::{
-    BiosTypes, BootDiskSettings, CdromSettings, CpuArchitecture, CpuModels, CpuSettings, DiskBuses,
-    ImportRequest, InterfaceSettings, InterfaceType, MachineSettings, MachineType, ModelKind,
-    NodeConfig, NodeKind, NodeModel, OsVariant, Ztp, ZtpSettings,
+    BiosTypes, BootDiskSettings, CdromSettings, ContainerSettings, CpuArchitecture, CpuModels,
+    CpuSettings, DiskBuses, ImportRequest, InterfaceDeviceSettings, InterfaceSettings,
+    InterfaceType, KindSettings, MachineSettings, MachineType, ModelKind, NodeConfig, NodeKind,
+    NodeModel, OsVariant, UnikernelCpuSettings, UnikernelMachineSettings, UnikernelSettings,
+    VmCpuSettings, VmSettings, Ztp, ZtpSettings,
 };
 
 /// The image a page's path names: a model, one of its kinds and, optionally, a version.
@@ -85,12 +90,12 @@ pub async fn admin_images_list_handler(
             .model
             .kinds()
             .iter()
-            .position(|kind| *kind == config.kind)
+            .position(|kind| *kind == config.kind())
             .unwrap_or(usize::MAX);
         let key = (config.model.to_string(), kind_order);
         let summary = ImageSummary {
             model: key.0.clone(),
-            kind_badge: KindBadge::short(config.kind),
+            kind_badge: KindBadge::short(config.kind()),
             version: config.version,
             cpu_count: config.cpu.count,
             memory: config.memory,
@@ -184,33 +189,6 @@ async fn find_image_config(state: &AppState, params: &ImagePath) -> Result<NodeC
     Ok(config)
 }
 
-/// The image form's choices, parsed from their `snake_case` names.
-struct ImageFormChoices {
-    os_variant: OsVariant,
-    bios: BiosTypes,
-    cpu_architecture: CpuArchitecture,
-    cpu_model: CpuModels,
-    machine_type: MachineType,
-    hdd_bus: DiskBuses,
-    cdrom_bus: DiskBuses,
-    interface_type: InterfaceType,
-}
-
-impl ImageFormChoices {
-    fn parse(form: &ImageForm) -> Result<Self, ApiError> {
-        Ok(Self {
-            os_variant: parse_form_choice(&form.os_variant, "OS variant")?,
-            bios: parse_form_choice(&form.bios, "BIOS type")?,
-            cpu_architecture: parse_form_choice(&form.cpu_architecture, "CPU architecture")?,
-            cpu_model: parse_form_choice(&form.cpu_model, "CPU model")?,
-            machine_type: parse_form_choice(&form.machine_type, "machine type")?,
-            hdd_bus: parse_form_choice(&form.hdd_bus, "HDD bus")?,
-            cdrom_bus: parse_form_choice(&form.cdrom_bus, "CDROM bus")?,
-            interface_type: parse_form_choice(&form.interface_type, "interface type")?,
-        })
-    }
-}
-
 /// The ZTP settings the edit form offers for an image of `model_kind`: off, then the methods
 /// the model and kind take, with the image's `current` setting selected.
 fn ztp_choices(model_kind: ModelKind, current: Ztp) -> Vec<FormChoice> {
@@ -237,58 +215,111 @@ fn form_choices<T: IntoEnumIterator + Display + PartialEq>(current: &T) -> Vec<F
 }
 
 /// One of the form's choices, by the enum's serde name.
-fn parse_form_choice<T: DeserializeOwned>(value: &str, field_name: &str) -> Result<T, ApiError> {
+fn parse_form_choice<T: DeserializeOwned>(value: &str, field_name: &str) -> anyhow::Result<T> {
     let deserializer: StrDeserializer<'_, DeError> = value.into_deserializer();
-    T::deserialize(deserializer)
-        .map_err(|_| ApiError::bad_request(format!("Invalid {field_name}: {value}")))
+    T::deserialize(deserializer).map_err(|_| anyhow!("Invalid {field_name}: {value}"))
 }
 
-/// The image's new configuration from the form. Its id, model, kind, version, management
-/// interface and boot mode are kept; checkboxes are on when present, and blank optional fields
-/// are unset. The version names the image's files, so a form that sends another is ignored.
-fn updated_image_config(
-    config: NodeConfig,
-    form: ImageForm,
-    choices: ImageFormChoices,
-) -> NodeConfig {
-    NodeConfig {
+/// The image's new configuration from the form: the settings every kind takes, and the
+/// image's own kind's group. Its id, model, kind, version, management interface and, for a
+/// unikernel, boot mode are kept; checkboxes are on when present, and blank optional fields are
+/// unset. The version names the image's files, so the form does not send it.
+///
+/// # Errors
+///
+/// Fails when the form sets a field the image's kind does not take, as a page for another kind
+/// would post, lacks one its kind needs, or sends a choice that is not one of its options.
+fn updated_image_config(config: NodeConfig, form: ImageForm) -> anyhow::Result<NodeConfig> {
+    let kind = config.kind();
+    if let Some((key, ..)) = kind_settings::first_not_taken(kind, &form.kind_fields()) {
+        bail!("The form sets `{key}`, which a {kind} image does not take");
+    }
+    let settings = match &config.settings {
+        KindSettings::VirtualMachine(_) => KindSettings::VirtualMachine(VmSettings {
+            os_variant: form_choice(form.os_variant.as_deref(), "os_variant", kind)?,
+            cpu: VmCpuSettings {
+                architecture: form_choice(
+                    form.cpu_architecture.as_deref(),
+                    "cpu_architecture",
+                    kind,
+                )?,
+                model: form_choice(form.cpu_model.as_deref(), "cpu_model", kind)?,
+                vmx: form.vmx_enabled.is_some(),
+            },
+            machine: MachineSettings {
+                kind: form_choice(form.machine_type.as_deref(), "machine_type", kind)?,
+                bios: form_choice(form.bios.as_deref(), "bios", kind)?,
+            },
+            boot_disk: BootDiskSettings {
+                bus: form_choice(form.hdd_bus.as_deref(), "hdd_bus", kind)?,
+            },
+            cdrom: CdromSettings {
+                image: form.cdrom.filter(|s| !s.trim().is_empty()),
+                bus: form_choice(form.cdrom_bus.as_deref(), "cdrom_bus", kind)?,
+            },
+            interfaces: InterfaceDeviceSettings {
+                kind: form_choice(form.interface_type.as_deref(), "interface_type", kind)?,
+                mtu: form_field(form.interface_mtu, "interface_mtu", kind)?,
+            },
+            ztp: ZtpSettings {
+                method: form_field(form.ztp, "ztp", kind)?,
+            },
+        }),
+        KindSettings::Container(_) => KindSettings::Container(ContainerSettings {
+            repo: form.repo.filter(|s| !s.trim().is_empty()),
+            ztp: ZtpSettings {
+                method: form_field(form.ztp, "ztp", kind)?,
+            },
+        }),
+        KindSettings::Unikernel(unikernel) => KindSettings::Unikernel(UnikernelSettings {
+            boot_mode: unikernel.boot_mode.clone(), // Keep original (names the image's file)
+            cpu: UnikernelCpuSettings {
+                architecture: form_choice(
+                    form.cpu_architecture.as_deref(),
+                    "cpu_architecture",
+                    kind,
+                )?,
+                model: form_choice(form.cpu_model.as_deref(), "cpu_model", kind)?,
+            },
+            machine: UnikernelMachineSettings {
+                kind: form_choice(form.machine_type.as_deref(), "machine_type", kind)?,
+            },
+            interfaces: InterfaceDeviceSettings {
+                kind: form_choice(form.interface_type.as_deref(), "interface_type", kind)?,
+                mtu: form_field(form.interface_mtu, "interface_mtu", kind)?,
+            },
+        }),
+    };
+    Ok(NodeConfig {
         id: config.id,
         model: config.model,     // Keep original (read-only)
-        kind: config.kind,       // Keep original (read-only)
         version: config.version, // Keep original (names the image's files)
-        repo: form.repo.filter(|s| !s.trim().is_empty()),
-        os_variant: choices.os_variant,
         default: config.default, // Decided by the default rule in `db`
         memory: form.memory,
         cpu: CpuSettings {
             count: form.cpu_count,
-            architecture: choices.cpu_architecture,
-            model: choices.cpu_model,
-            vmx: form.vmx_enabled.is_some(),
         },
-        machine: MachineSettings {
-            kind: choices.machine_type,
-            bios: choices.bios,
-        },
-        boot_disk: BootDiskSettings {
-            bus: choices.hdd_bus,
-        },
-        cdrom: CdromSettings {
-            image: form.cdrom.filter(|s| !s.trim().is_empty()),
-            bus: choices.cdrom_bus,
-        },
-        ztp: ZtpSettings { method: form.ztp },
         interfaces: InterfaceSettings {
             data_count: form.data_interface_count,
-            prefix: form.interface_prefix,
-            kind: choices.interface_type,
-            mtu: form.interface_mtu,
-            first_index: form.first_interface_index,
             management: config.interfaces.management, // Keep original (read-only)
             reserved_count: form.reserved_interface_count,
         },
-        unikernel: config.unikernel, // Keep original
-    }
+        settings,
+    })
+}
+
+/// A form field an image of `kind` needs.
+fn form_field<T>(value: Option<T>, field: &str, kind: NodeKind) -> anyhow::Result<T> {
+    value.with_context(|| format!("The form has no `{field}`, which a {kind} image needs"))
+}
+
+/// A choice an image of `kind` needs, by the enum's serde name.
+fn form_choice<T: DeserializeOwned>(
+    value: Option<&str>,
+    field: &str,
+    kind: NodeKind,
+) -> anyhow::Result<T> {
+    parse_form_choice(form_field(value, field, kind)?, field)
 }
 
 /// Admin handler to view a single image configuration detail
@@ -309,7 +340,7 @@ pub async fn admin_image_detail_handler(
         username: admin.username.clone(),
         is_admin: true,
         nav: NavPage::AdminImages.into(),
-        kind_badge: KindBadge::full(config.kind),
+        kind_badge: KindBadge::full(config.kind()),
         config,
     };
 
@@ -333,7 +364,8 @@ pub async fn admin_image_edit_page_handler(
     image_edit_template(admin.username, config)
 }
 
-/// The edit page for `config`, with every dropdown's options and the image's own selected.
+/// The edit page for `config`: the settings every kind takes, and its own kind's, with every
+/// dropdown's options and the image's own selected.
 ///
 /// # Errors
 ///
@@ -342,54 +374,126 @@ fn image_edit_template(
     username: String,
     config: NodeConfig,
 ) -> Result<AdminImageEditTemplate, ApiError> {
+    let vm = config.vm().map(|vm| VmEditChoices {
+        os_variant_choices: form_choices::<OsVariant>(&vm.os_variant),
+        bios_choices: form_choices::<BiosTypes>(&vm.machine.bios),
+        hdd_bus_choices: form_choices::<DiskBuses>(&vm.boot_disk.bus),
+        cdrom_bus_choices: form_choices::<DiskBuses>(&vm.cdrom.bus),
+        cdrom: vm.cdrom.image.clone().unwrap_or_default(),
+        vmx: vm.cpu.vmx,
+    });
+    let device = match &config.settings {
+        KindSettings::VirtualMachine(vm) => Some(DeviceEditChoices {
+            cpu_architecture_choices: form_choices::<CpuArchitecture>(&vm.cpu.architecture),
+            cpu_model_choices: form_choices::<CpuModels>(&vm.cpu.model),
+            machine_type_choices: form_choices::<MachineType>(&vm.machine.kind),
+            interface_type_choices: form_choices::<InterfaceType>(&vm.interfaces.kind),
+            interface_mtu: vm.interfaces.mtu,
+        }),
+        KindSettings::Unikernel(unikernel) => Some(DeviceEditChoices {
+            cpu_architecture_choices: form_choices::<CpuArchitecture>(&unikernel.cpu.architecture),
+            cpu_model_choices: form_choices::<CpuModels>(&unikernel.cpu.model),
+            machine_type_choices: form_choices::<MachineType>(&unikernel.machine.kind),
+            interface_type_choices: form_choices::<InterfaceType>(&unikernel.interfaces.kind),
+            interface_mtu: unikernel.interfaces.mtu,
+        }),
+        KindSettings::Container(_) => None,
+    };
+    let ztp_choices = match &config.settings {
+        KindSettings::Unikernel(_) => Vec::new(),
+        KindSettings::VirtualMachine(_) | KindSettings::Container(_) => {
+            ztp_choices(config.model_kind()?, config.ztp())
+        }
+    };
     Ok(AdminImageEditTemplate {
         username,
         is_admin: true,
         nav: NavPage::AdminImages.into(),
-        kind_label: kind_label(config.kind),
-        os_variant_choices: form_choices::<OsVariant>(&config.os_variant),
-        bios_choices: form_choices::<BiosTypes>(&config.machine.bios),
-        cpu_architecture_choices: form_choices::<CpuArchitecture>(&config.cpu.architecture),
-        cpu_model_choices: form_choices::<CpuModels>(&config.cpu.model),
-        machine_type_choices: form_choices::<MachineType>(&config.machine.kind),
-        hdd_bus_choices: form_choices::<DiskBuses>(&config.boot_disk.bus),
-        cdrom_bus_choices: form_choices::<DiskBuses>(&config.cdrom.bus),
-        ztp_choices: ztp_choices(config.model_kind()?, config.ztp.method),
-        interface_type_choices: form_choices::<InterfaceType>(&config.interfaces.kind),
+        kind_label: kind_label(config.kind()),
+        repo: config
+            .container()
+            .map(|container| container.repo.clone().unwrap_or_default()),
+        vm,
+        device,
+        ztp_choices,
         config,
     })
 }
 
-/// Form data for updating an image configuration. It denies unknown fields, so a form that
-/// still sends `ztp_username`, `ztp_password`, `ztp_password_remove` or `ztp_password_auth`,
-/// removed in 0.7.0, as an editor page loaded from an older server does, is refused naming the
-/// field instead of saved without it.
+/// Form data for updating an image configuration: the settings every kind takes, and each
+/// kind's own, of which the page for an image posts its kind's alone. It denies unknown fields,
+/// so a form that still sends `interface_prefix` or `first_interface_index`, removed in 0.7.0,
+/// or `ztp_username`, `ztp_password`, `ztp_password_remove` or `ztp_password_auth`, as an
+/// editor page loaded from an older server does, is refused naming the field instead of saved
+/// without it.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ImageForm {
-    // Model, kind, and management_interface come from URL path/existing config, not form
-    pub version: String,
-    pub repo: Option<String>,
-    pub os_variant: String,
-    pub bios: String,
+    // Model, kind, version and management_interface come from URL path/existing config, not
+    // form
     pub cpu_count: u8,
-    pub cpu_architecture: String,
-    pub cpu_model: String,
-    pub machine_type: String,
-    pub vmx_enabled: Option<String>, // checkbox
     pub memory: u16,
-    pub hdd_bus: String,
-    pub cdrom: Option<String>,
-    pub cdrom_bus: String,
-    /// The ZTP setting, by the word the image stores.
-    pub ztp: Ztp,
     pub data_interface_count: u8,
-    pub interface_prefix: String,
-    pub interface_type: String,
-    pub interface_mtu: u16,
-    pub first_interface_index: u8,
     pub reserved_interface_count: u8,
     pub default: Option<String>, // checkbox
+    // The `vm` group's.
+    pub os_variant: Option<String>,
+    pub bios: Option<String>,
+    pub vmx_enabled: Option<String>, // checkbox
+    pub hdd_bus: Option<String>,
+    pub cdrom: Option<String>,
+    pub cdrom_bus: Option<String>,
+    // The `vm` and `unikernel` groups'.
+    pub cpu_architecture: Option<String>,
+    pub cpu_model: Option<String>,
+    pub machine_type: Option<String>,
+    pub interface_type: Option<String>,
+    pub interface_mtu: Option<u16>,
+    /// The ZTP setting, by the word the image stores: the `vm` and `container` groups'.
+    pub ztp: Option<Ztp>,
+    // The `container` group's.
+    pub repo: Option<String>,
+}
+
+impl ImageForm {
+    /// The kind-only fields the form sets, each with the kinds of image that take it.
+    fn kind_fields(&self) -> [KindSetting<'static>; 13] {
+        [
+            ("os_variant", self.os_variant.is_some(), kind_settings::VM),
+            ("bios", self.bios.is_some(), kind_settings::VM),
+            ("vmx_enabled", self.vmx_enabled.is_some(), kind_settings::VM),
+            ("hdd_bus", self.hdd_bus.is_some(), kind_settings::VM),
+            ("cdrom", self.cdrom.is_some(), kind_settings::VM),
+            ("cdrom_bus", self.cdrom_bus.is_some(), kind_settings::VM),
+            (
+                "cpu_architecture",
+                self.cpu_architecture.is_some(),
+                kind_settings::VM_AND_UNIKERNEL,
+            ),
+            (
+                "cpu_model",
+                self.cpu_model.is_some(),
+                kind_settings::VM_AND_UNIKERNEL,
+            ),
+            (
+                "machine_type",
+                self.machine_type.is_some(),
+                kind_settings::VM_AND_UNIKERNEL,
+            ),
+            (
+                "interface_type",
+                self.interface_type.is_some(),
+                kind_settings::VM_AND_UNIKERNEL,
+            ),
+            (
+                "interface_mtu",
+                self.interface_mtu.is_some(),
+                kind_settings::VM_AND_UNIKERNEL,
+            ),
+            ("ztp", self.ztp.is_some(), kind_settings::VM_AND_CONTAINER),
+            ("repo", self.repo.is_some(), kind_settings::CONTAINER),
+        ]
+    }
 }
 
 /// Admin handler to process image configuration update. A form the server cannot read, as one
@@ -419,33 +523,30 @@ pub async fn admin_image_update_handler(
     let config = find_image_config(&state, &params).await?;
     let model_kind = config.model_kind()?;
 
-    let choices = ImageFormChoices::parse(&form)?;
-
     let request_default = if form.default.is_some() {
         DefaultRequest::Make
     } else {
         DefaultRequest::Unset
     };
 
-    // Validate form data
-    if let Err(e) = validate_node_image_update(
-        model_kind,
-        form.ztp,
-        form.cpu_count,
-        form.memory,
-        form.interface_mtu,
-        &form.version,
-        &form.interface_prefix,
-    ) {
+    let _image_guard = lock_image(model_kind, &config.version).await;
+    let updated_config = match updated_image_config(config, form) {
+        Ok(updated) => updated,
+        Err(error) => {
+            tracing::warn!("Refused an image form: {error:?}");
+            return Ok(AdminNotificationErrorTemplate {
+                message: format!("The image was not saved: {error}"),
+            }
+            .into_response());
+        }
+    };
+    if let Err(e) = validate_node_image_update(model_kind, &updated_config) {
         tracing::warn!("Node config validation failed: {:?}", e);
         return Ok(AdminNotificationErrorTemplate {
             message: e.to_string(),
         }
         .into_response());
     }
-
-    let _image_guard = lock_image(model_kind, &config.version).await;
-    let updated_config = updated_image_config(config, form, choices);
 
     if let Err(error) = db::update_node_image(&state.db, updated_config, request_default).await {
         if let Some(last_default) = error.downcast_ref::<LastDefaultImage>() {
@@ -934,44 +1035,146 @@ mod tests {
             .to_owned()
     }
 
-    fn form_for(config: &NodeConfig, version: &str) -> ImageForm {
-        ImageForm {
-            version: version.to_owned(),
-            repo: None,
-            os_variant: choice(&config.os_variant),
-            bios: choice(&config.machine.bios),
+    /// The form the edit page for `config` posts, unchanged.
+    fn form_for(config: &NodeConfig) -> ImageForm {
+        let mut form = ImageForm {
             cpu_count: config.cpu.count,
-            cpu_architecture: choice(&config.cpu.architecture),
-            cpu_model: choice(&config.cpu.model),
-            machine_type: choice(&config.machine.kind),
-            vmx_enabled: None,
             memory: config.memory,
-            hdd_bus: choice(&config.boot_disk.bus),
-            cdrom: None,
-            cdrom_bus: choice(&config.cdrom.bus),
-            ztp: config.ztp.method,
             data_interface_count: config.interfaces.data_count,
-            interface_prefix: config.interfaces.prefix.clone(),
-            interface_type: choice(&config.interfaces.kind),
-            interface_mtu: config.interfaces.mtu,
-            first_interface_index: config.interfaces.first_index,
             reserved_interface_count: config.interfaces.reserved_count,
             default: None,
+            os_variant: None,
+            bios: None,
+            vmx_enabled: None,
+            hdd_bus: None,
+            cdrom: None,
+            cdrom_bus: None,
+            cpu_architecture: None,
+            cpu_model: None,
+            machine_type: None,
+            interface_type: None,
+            interface_mtu: None,
+            ztp: None,
+            repo: None,
+        };
+        match &config.settings {
+            KindSettings::VirtualMachine(vm) => {
+                form.os_variant = Some(choice(&vm.os_variant));
+                form.bios = Some(choice(&vm.machine.bios));
+                form.vmx_enabled = vm.cpu.vmx.then(|| "on".to_owned());
+                form.hdd_bus = Some(choice(&vm.boot_disk.bus));
+                form.cdrom = Some(vm.cdrom.image.clone().unwrap_or_default());
+                form.cdrom_bus = Some(choice(&vm.cdrom.bus));
+                form.cpu_architecture = Some(choice(&vm.cpu.architecture));
+                form.cpu_model = Some(choice(&vm.cpu.model));
+                form.machine_type = Some(choice(&vm.machine.kind));
+                form.interface_type = Some(choice(&vm.interfaces.kind));
+                form.interface_mtu = Some(vm.interfaces.mtu);
+                form.ztp = Some(vm.ztp.method);
+            }
+            KindSettings::Container(container) => {
+                form.repo = Some(container.repo.clone().unwrap_or_default());
+                form.ztp = Some(container.ztp.method);
+            }
+            KindSettings::Unikernel(unikernel) => {
+                form.cpu_architecture = Some(choice(&unikernel.cpu.architecture));
+                form.cpu_model = Some(choice(&unikernel.cpu.model));
+                form.machine_type = Some(choice(&unikernel.machine.kind));
+                form.interface_type = Some(choice(&unikernel.interfaces.kind));
+                form.interface_mtu = Some(unikernel.interfaces.mtu);
+            }
+        }
+        form
+    }
+
+    /// The three kinds' images: a VM, a container and a unikernel.
+    fn one_image_of_each_kind() -> [NodeConfig; 3] {
+        [
+            ModelKind::default_for(NodeModel::CiscoCat8000).node_config(),
+            ModelKind::default_for(NodeModel::NokiaSrlinux).node_config(),
+            ModelKind::default_for(NodeModel::NanosUnikernel).node_config(),
+        ]
+    }
+
+    #[test]
+    fn an_unchanged_form_saves_each_kinds_image_as_it_was() {
+        for mut config in one_image_of_each_kind() {
+            "24.04".clone_into(&mut config.version);
+            config.default = true;
+            let form = form_for(&config);
+
+            let updated = updated_image_config(config.clone(), form).unwrap();
+
+            assert_eq!(updated, config, "{}", config.model);
         }
     }
 
     #[test]
-    fn the_form_cannot_change_an_images_version_or_default_flag() {
-        let mut config = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
-        "24.04".clone_into(&mut config.version);
-        config.default = true;
-        let form = form_for(&config, "renamed");
-        let choices = ImageFormChoices::parse(&form).unwrap();
+    fn a_form_with_another_kinds_field_is_refused_naming_it() {
+        let [vm, container, unikernel] = one_image_of_each_kind();
+        for (config, field, setter) in [
+            (
+                &container,
+                "bios",
+                (|form: &mut ImageForm| form.bios = Some("uefi".to_owned())) as fn(&mut ImageForm),
+            ),
+            (&container, "interface_mtu", |form: &mut ImageForm| {
+                form.interface_mtu = Some(1500);
+            }),
+            (&container, "cpu_model", |form: &mut ImageForm| {
+                form.cpu_model = Some("host-model".to_owned());
+            }),
+            (&unikernel, "ztp", |form: &mut ImageForm| {
+                form.ztp = Some(Ztp::Disabled);
+            }),
+            (&unikernel, "hdd_bus", |form: &mut ImageForm| {
+                form.hdd_bus = Some("virtio".to_owned());
+            }),
+            (&vm, "repo", |form: &mut ImageForm| {
+                form.repo = Some("x".to_owned());
+            }),
+        ] {
+            let mut form = form_for(config);
+            setter(&mut form);
+            let error = updated_image_config(config.clone(), form)
+                .unwrap_err()
+                .to_string();
+            assert_eq!(
+                error,
+                format!(
+                    "The form sets `{field}`, which a {} image does not take",
+                    config.kind()
+                )
+            );
+        }
+    }
 
-        let updated = updated_image_config(config, form, choices);
+    #[test]
+    fn a_form_without_a_field_its_kind_needs_is_refused_naming_it() {
+        let [vm, container, _] = one_image_of_each_kind();
+        let mut form = form_for(&vm);
+        form.bios = None;
+        let error = updated_image_config(vm, form).unwrap_err().to_string();
+        assert!(error.contains("no `bios`"), "{error}");
+        let mut form = form_for(&container);
+        form.ztp = None;
+        let error = updated_image_config(container, form)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("no `ztp`"), "{error}");
+    }
 
-        assert_eq!(updated.version, "24.04");
-        assert!(updated.default);
+    #[test]
+    fn a_saved_form_keeps_a_unikernels_boot_mode() {
+        let [_, _, unikernel] = one_image_of_each_kind();
+        let mut form = form_for(&unikernel);
+        form.interface_mtu = Some(9000);
+        let updated = updated_image_config(unikernel.clone(), form).unwrap();
+        assert_eq!(
+            updated.unikernel().unwrap().boot_mode,
+            unikernel.unikernel().unwrap().boot_mode
+        );
+        assert_eq!(updated.interface_device().unwrap().mtu, 9000);
     }
 
     /// Each variant of `T` in turn as the image's value: the form offers every variant, and
@@ -1024,53 +1227,140 @@ mod tests {
 
     #[test]
     fn the_edit_page_selects_the_images_own_settings_and_names_its_kind() {
-        let ubuntu = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
-        let config = NodeConfig {
-            os_variant: OsVariant::iter().next_back().expect("an OS variant"),
-            cpu: CpuSettings {
-                architecture: CpuArchitecture::iter()
-                    .next_back()
-                    .expect("an architecture"),
-                model: CpuModels::iter().next_back().expect("a CPU model"),
-                ..ubuntu.cpu
-            },
-            machine: MachineSettings {
-                kind: MachineType::iter().next_back().expect("a machine type"),
-                bios: BiosTypes::iter().next_back().expect("a BIOS"),
-            },
-            boot_disk: BootDiskSettings {
-                bus: DiskBuses::iter().next_back().expect("a bus"),
-            },
-            cdrom: CdromSettings {
-                bus: DiskBuses::iter().next().expect("a bus"),
-                ..ubuntu.cdrom
-            },
-            interfaces: InterfaceSettings {
-                kind: InterfaceType::iter()
-                    .next_back()
-                    .expect("an interface type"),
-                ..ubuntu.interfaces
-            },
-            ..ubuntu
+        let mut config = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
+        let KindSettings::VirtualMachine(vm) = &mut config.settings else {
+            panic!("ubuntu_linux is a VM");
         };
+        vm.os_variant = OsVariant::iter().next_back().expect("an OS variant");
+        vm.cpu.architecture = CpuArchitecture::iter()
+            .next_back()
+            .expect("an architecture");
+        vm.cpu.model = CpuModels::iter().next_back().expect("a CPU model");
+        vm.machine = MachineSettings {
+            kind: MachineType::iter().next_back().expect("a machine type"),
+            bios: BiosTypes::iter().next_back().expect("a BIOS"),
+        };
+        vm.boot_disk.bus = DiskBuses::iter().next_back().expect("a bus");
+        vm.cdrom.bus = DiskBuses::iter().next().expect("a bus");
+        vm.interfaces.kind = InterfaceType::iter()
+            .next_back()
+            .expect("an interface type");
+        let vm = vm.clone();
         let html = image_edit_template("admin".to_owned(), config.clone())
             .unwrap()
             .render()
             .expect("template should render");
         for (name, value) in [
-            ("os_variant", config.os_variant.to_string()),
-            ("bios", config.machine.bios.to_string()),
-            ("cpu_architecture", config.cpu.architecture.to_string()),
-            ("cpu_model", config.cpu.model.to_string()),
-            ("machine_type", config.machine.kind.to_string()),
-            ("hdd_bus", config.boot_disk.bus.to_string()),
-            ("cdrom_bus", config.cdrom.bus.to_string()),
-            ("ztp", config.ztp.method.to_string()),
-            ("interface_type", config.interfaces.kind.to_string()),
+            ("os_variant", vm.os_variant.to_string()),
+            ("bios", vm.machine.bios.to_string()),
+            ("cpu_architecture", vm.cpu.architecture.to_string()),
+            ("cpu_model", vm.cpu.model.to_string()),
+            ("machine_type", vm.machine.kind.to_string()),
+            ("hdd_bus", vm.boot_disk.bus.to_string()),
+            ("cdrom_bus", vm.cdrom.bus.to_string()),
+            ("ztp", config.ztp().to_string()),
+            ("interface_type", vm.interfaces.kind.to_string()),
         ] {
             assert_eq!(selected_option(&html, name), value, "{name}");
         }
         assert!(html.contains(r#"<input type="text" value="Virtual Machine" disabled"#));
+        assert!(!html.contains(r#"name="repo""#), "{html}");
+    }
+
+    /// The form fields an edit page posts.
+    fn posted_fields(html: &str) -> Vec<String> {
+        let form = &html[html.find(r#"<form id="edit-form""#).expect("the form")..];
+        let form = &form[..form.find("</form>").expect("form end")];
+        let mut names: Vec<String> = form
+            .match_indices(r#" name=""#)
+            .map(|(at, found)| {
+                let rest = &form[at + found.len()..];
+                rest[..rest.find('"').expect("name end")].to_owned()
+            })
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        names
+    }
+
+    #[test]
+    fn each_kinds_edit_page_posts_the_shared_fields_and_its_own() {
+        let shared = [
+            "cpu_count",
+            "data_interface_count",
+            "default",
+            "memory",
+            "reserved_interface_count",
+        ];
+        let own: [&[&str]; 3] = [
+            &[
+                "bios",
+                "cdrom",
+                "cdrom_bus",
+                "cpu_architecture",
+                "cpu_model",
+                "hdd_bus",
+                "interface_mtu",
+                "interface_type",
+                "machine_type",
+                "os_variant",
+                "vmx_enabled",
+                "ztp",
+            ],
+            &["repo", "ztp"],
+            &[
+                "cpu_architecture",
+                "cpu_model",
+                "interface_mtu",
+                "interface_type",
+                "machine_type",
+            ],
+        ];
+        for (config, own) in one_image_of_each_kind().into_iter().zip(own) {
+            let model = config.model;
+            let html = image_edit_template("admin".to_owned(), config)
+                .unwrap()
+                .render()
+                .unwrap();
+            let mut expected: Vec<&str> = shared.iter().chain(own).copied().collect();
+            expected.sort_unstable();
+            assert_eq!(posted_fields(&html), expected, "{model}");
+        }
+    }
+
+    #[test]
+    fn each_kinds_detail_page_shows_only_its_own_settings() {
+        for config in one_image_of_each_kind() {
+            let kind = config.kind();
+            let html = crate::templates::AdminImageDetailTemplate {
+                username: "admin".to_owned(),
+                is_admin: true,
+                nav: NavPage::AdminImages.into(),
+                kind_badge: KindBadge::full(kind),
+                config,
+            }
+            .render()
+            .unwrap();
+            for (label, kinds) in [
+                ("OS Variant:", kind_settings::VM),
+                ("BIOS:", kind_settings::VM),
+                ("HDD Bus:", kind_settings::VM),
+                ("Repository:", kind_settings::CONTAINER),
+                ("Boot Mode:", kind_settings::UNIKERNEL),
+                ("Machine Type:", kind_settings::VM_AND_UNIKERNEL),
+                ("Interface MTU:", kind_settings::VM_AND_UNIKERNEL),
+                ("ZTP:", kind_settings::VM_AND_CONTAINER),
+                ("Data Interfaces:", kind_settings::ALL),
+                ("Interface Prefix:", &[]),
+                ("First Interface Index:", &[]),
+            ] {
+                assert_eq!(
+                    html.contains(label),
+                    kinds.contains(&kind),
+                    "{kind} {label}"
+                );
+            }
+        }
     }
 
     /// The offered values, and the one selected.
@@ -1113,11 +1403,10 @@ mod tests {
     /// The image form as a browser posts it, with `ztp` as its ZTP setting.
     async fn posted_form(ztp: &str) -> Result<Form<ImageForm>, FormRejection> {
         let body = format!(
-            "version=1&os_variant=linux&bios=seabios&cpu_count=1&cpu_architecture=x86_64\
+            "os_variant=linux&bios=seabios&cpu_count=1&cpu_architecture=x86_64\
              &cpu_model=host-model&machine_type=q35&memory=1024&hdd_bus=virtio\
-             &cdrom_bus=sata&ztp={ztp}&data_interface_count=1&interface_prefix=eth\
-             &interface_type=virtio&interface_mtu=1500&first_interface_index=0\
-             &reserved_interface_count=0"
+             &cdrom_bus=sata&ztp={ztp}&data_interface_count=1\
+             &interface_type=virtio&interface_mtu=1500&reserved_interface_count=0"
         );
         let request = Request::builder()
             .method(Method::POST)
@@ -1131,7 +1420,7 @@ mod tests {
     async fn the_form_reads_the_ztp_word_and_refuses_any_other() {
         for (word, ztp) in [("cloud-init", Ztp::CloudInit), ("disabled", Ztp::Disabled)] {
             let Form(form) = posted_form(word).await.unwrap();
-            assert_eq!(form.ztp, ztp);
+            assert_eq!(form.ztp, Some(ztp));
         }
         for word in ["none", "ipxe", "on", ""] {
             assert!(
@@ -1142,10 +1431,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_form_with_a_removed_ztp_login_field_is_refused_naming_it() {
+    async fn a_form_with_a_removed_field_is_refused_naming_it() {
         let Form(form) = posted_form("cloud-init").await.unwrap();
-        assert_eq!(form.ztp, Ztp::CloudInit);
+        assert_eq!(form.ztp, Some(Ztp::CloudInit));
         for field in [
+            "interface_prefix=eth",
+            "first_interface_index=0",
+            "version=1",
             "ztp_username=admin",
             "ztp_password=Secret-Pass1",
             "ztp_password_remove=on",
@@ -1175,7 +1467,7 @@ mod tests {
             username: "admin".to_owned(),
             is_admin: true,
             nav: NavPage::AdminImages.into(),
-            kind_badge: KindBadge::full(config.kind),
+            kind_badge: KindBadge::full(config.kind()),
             config,
         }
         .render()
@@ -1197,12 +1489,11 @@ mod tests {
     #[test]
     fn a_saved_form_carries_its_ztp_setting_to_the_image() {
         let config = ModelKind::default_for(NodeModel::JuniperEvolved).node_config();
-        let mut form = form_for(&config, "1");
-        form.ztp = Ztp::Usb;
-        let choices = ImageFormChoices::parse(&form).unwrap();
+        let mut form = form_for(&config);
+        form.ztp = Some(Ztp::Usb);
 
-        let updated = updated_image_config(config, form, choices);
+        let updated = updated_image_config(config, form).unwrap();
 
-        assert_eq!(updated.ztp.method, Ztp::Usb);
+        assert_eq!(updated.ztp(), Ztp::Usb);
     }
 }

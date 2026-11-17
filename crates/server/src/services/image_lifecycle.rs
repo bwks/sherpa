@@ -7,10 +7,56 @@ use dashmap::DashMap;
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tracing::instrument;
 
+use libvirt::{BackedVolume, Qemu};
 use shared::data::{DiskImageCloneMethod, ModelKind, NodeConfig, NodeKind, NodeModel};
-use shared::util::image_filename;
+use shared::konst::VM_DISK_FILENAME;
 
 use crate::services::error::ServiceError;
+
+/// The volumes of the storage pool built on a backing file, each an overlay disk and its base:
+/// what decides whether an image is in use by a lab disk, running or stopped.
+pub(crate) trait BackedVolumes {
+    /// The pool's backed volumes.
+    ///
+    /// # Errors
+    ///
+    /// Fails when they cannot be read: a dependency that cannot be determined is an error.
+    fn backed_volumes(&self) -> Result<Vec<BackedVolume>>;
+}
+
+/// libvirt reads each volume's backing file, which sherpad cannot: the disks are `0600` and
+/// owned by `libvirt-qemu` or `root`.
+impl BackedVolumes for Qemu {
+    fn backed_volumes(&self) -> Result<Vec<BackedVolume>> {
+        let qemu_conn = self.connect()?;
+        libvirt::pool_backed_volumes(&qemu_conn)
+    }
+}
+
+/// Refuse to delete or replace the image in `version_dir` while a disk of `pool`, running or
+/// stopped, is built on it. The caller holds the image's lifecycle lock through the check and
+/// the change.
+///
+/// # Errors
+///
+/// Fails with [`ServiceError::Conflict`] when a disk is built on the image, naming the disk, and
+/// otherwise when the pool's disks or their bases cannot be read.
+#[instrument(level = "debug", skip(pool))]
+pub(crate) fn ensure_image_has_no_overlays(
+    pool: &impl BackedVolumes,
+    version_dir: &Path,
+) -> Result<()> {
+    let volumes = pool.backed_volumes()?;
+    match libvirt::overlay_on_image(&volumes, version_dir)? {
+        Some(volume) => Err(ServiceError::Conflict(format!(
+            "Disk {} is built on the image at {}; destroy or redeploy its node first",
+            volume.name,
+            version_dir.display()
+        ))
+        .into()),
+        None => Ok(()),
+    }
+}
 
 /// The model and kind an image request names: its kind, or the model's default kind when it
 /// names none.
@@ -66,7 +112,7 @@ pub(crate) fn validate_disk_method(
     images_dir: &str,
     size_gb: Option<u16>,
 ) -> Result<()> {
-    if image.kind != NodeKind::VirtualMachine {
+    if image.kind() != NodeKind::VirtualMachine {
         ensure!(
             method != Some(DiskImageCloneMethod::Overlay),
             "Overlay provisioning is supported only for VM boot disks"
@@ -76,11 +122,10 @@ pub(crate) fn validate_disk_method(
     if method.unwrap_or_default() == DiskImageCloneMethod::Copy {
         return Ok(());
     }
-    let filename = image_filename(&image.kind, image.unikernel.as_ref());
     let path = Path::new(images_dir)
         .join(image.model.to_string())
         .join(&image.version)
-        .join(filename);
+        .join(VM_DISK_FILENAME);
     libvirt::read_qcow2_metadata(&path)?
         .overlay_capacity(size_gb)
         .context("VM boot image is ineligible for overlay provisioning")?;
@@ -116,6 +161,9 @@ pub(crate) async fn check_container_image(
 mod tests {
     use super::*;
     use std::fs;
+    use std::os::unix::fs::symlink;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -144,9 +192,8 @@ mod tests {
 
     #[test]
     fn unsupported_kinds_do_not_fall_back_to_copy() {
-        let mut image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
-        for kind in [NodeKind::Container, NodeKind::Unikernel] {
-            image.kind = kind;
+        for model in [NodeModel::MysqlDb, NodeModel::NanosUnikernel] {
+            let image = ModelKind::default_for(model).node_config();
             assert!(validate_disk_method(None, &image, "/missing", None).is_ok());
             assert!(
                 validate_disk_method(
@@ -172,7 +219,7 @@ mod tests {
             .join(image.model.to_string())
             .join(&image.version);
         fs::create_dir_all(&directory).unwrap();
-        let base = directory.join(image_filename(&image.kind, image.unikernel.as_ref()));
+        let base = directory.join(VM_DISK_FILENAME);
         fs::write(&base, "not a QCOW2 image").unwrap();
         let images_dir = root.path().to_str().unwrap();
         assert!(validate_disk_method(None, &image, images_dir, None).is_err());
@@ -200,58 +247,109 @@ mod tests {
         bytes
     }
 
-    #[test]
-    fn stopped_and_orphaned_overlays_protect_base_after_restart() {
-        let root = tempdir().unwrap();
-        let storage = root.path().join("pool");
-        let version = root.path().join("version");
-        fs::create_dir(&storage).unwrap();
-        fs::create_dir(&version).unwrap();
-        let base = version.join("disk.qcow2");
-        fs::write(&base, dependency_header(None)).unwrap();
-        fs::write(storage.join("orphan.qcow2"), dependency_header(Some(&base))).unwrap();
-        // No database record, running domain or in-memory dependency registry.
-        // Repeated fresh scans model restart and must reach the same decision.
-        for _ in 0..2 {
-            assert!(libvirt::ensure_no_overlay_dependencies(&storage, &version).is_err());
+    /// A storage pool of these volumes, which a test may add to, for tests.
+    #[derive(Default)]
+    struct TestPool(Mutex<Vec<BackedVolume>>);
+
+    impl BackedVolumes for TestPool {
+        fn backed_volumes(&self) -> Result<Vec<BackedVolume>> {
+            Ok(self.0.lock().unwrap().clone())
         }
-        fs::remove_file(storage.join("orphan.qcow2")).unwrap();
-        assert!(libvirt::ensure_no_overlay_dependencies(&storage, &version).is_ok());
-        assert!(base.exists());
+    }
+
+    fn backed(name: &str, backing_file: &Path) -> BackedVolume {
+        BackedVolume {
+            name: name.to_owned(),
+            backing_file: backing_file.to_path_buf(),
+        }
+    }
+
+    /// Two versions of a model, each with its base disk.
+    fn two_versions(root: &Path) -> (PathBuf, PathBuf) {
+        let version = root.join("ubuntu_linux").join("24.04");
+        let other = root.join("ubuntu_linux").join("22.04");
+        for dir in [&version, &other] {
+            fs::create_dir_all(dir).unwrap();
+            fs::write(dir.join(VM_DISK_FILENAME), "base").unwrap();
+        }
+        (version, other)
     }
 
     #[test]
-    fn unreadable_or_missing_dependency_metadata_blocks_deletion() {
+    fn a_disk_built_on_the_image_blocks_it_and_names_the_disk() {
         let root = tempdir().unwrap();
-        let storage = root.path().join("pool");
-        let version = root.path().join("version");
-        fs::create_dir(&storage).unwrap();
-        fs::create_dir(&version).unwrap();
-        fs::write(storage.join("broken.qcow2"), "truncated").unwrap();
-        assert!(libvirt::ensure_no_overlay_dependencies(&storage, &version).is_err());
-        fs::write(
-            storage.join("broken.qcow2"),
-            dependency_header(Some(&version.join("missing.qcow2"))),
-        )
-        .unwrap();
-        assert!(libvirt::ensure_no_overlay_dependencies(&storage, &version).is_err());
+        let (version, other) = two_versions(root.path());
+        let pool = TestPool(Mutex::new(vec![
+            backed("vm2-lab-hdd.qcow2", &other.join(VM_DISK_FILENAME)),
+            backed("vm1-lab-hdd.qcow2", &version.join(VM_DISK_FILENAME)),
+        ]));
+        let error = ensure_image_has_no_overlays(&pool, &version).unwrap_err();
+        assert!(
+            matches!(ServiceError::find(&error), Some(ServiceError::Conflict(_))),
+            "{error:#}"
+        );
+        let message = error.to_string();
+        assert!(
+            message.contains("Disk vm1-lab-hdd.qcow2 is built on the image"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn a_disk_on_another_image_running_or_stopped_does_not_block_it() {
+        let root = tempdir().unwrap();
+        let (version, other) = two_versions(root.path());
+        let pool = TestPool(Mutex::new(vec![backed(
+            "vm2-lab-hdd.qcow2",
+            &other.join(VM_DISK_FILENAME),
+        )]));
+        assert!(ensure_image_has_no_overlays(&pool, &version).is_ok());
+        assert!(ensure_image_has_no_overlays(&TestPool::default(), &version).is_ok());
+    }
+
+    #[test]
+    fn a_base_reached_through_a_renamed_models_link_is_protected() {
+        let root = tempdir().unwrap();
+        let new = root.path().join("arista_eos");
+        let version = new.join("4.33");
+        fs::create_dir_all(&version).unwrap();
+        fs::write(version.join(VM_DISK_FILENAME), "base").unwrap();
+        symlink(&new, root.path().join("arista_veos")).unwrap();
+        let old_path = root.path().join("arista_veos/4.33").join(VM_DISK_FILENAME);
+        let pool = TestPool(Mutex::new(vec![backed("veos1-lab-hdd.qcow2", &old_path)]));
+        assert!(ensure_image_has_no_overlays(&pool, &version).is_err());
+    }
+
+    #[test]
+    fn a_pool_that_cannot_be_read_or_a_base_that_cannot_be_resolved_blocks_deletion() {
+        struct Unreadable;
+        impl BackedVolumes for Unreadable {
+            fn backed_volumes(&self) -> Result<Vec<BackedVolume>> {
+                anyhow::bail!("libvirt is down")
+            }
+        }
+        let root = tempdir().unwrap();
+        let (version, _) = two_versions(root.path());
+        assert!(ensure_image_has_no_overlays(&Unreadable, &version).is_err());
+        let orphan = TestPool(Mutex::new(vec![backed(
+            "orphan-hdd.qcow2",
+            &root.path().join("gone").join(VM_DISK_FILENAME),
+        )]));
+        assert!(ensure_image_has_no_overlays(&orphan, &version).is_err());
     }
 
     #[tokio::test]
     async fn deletion_waits_for_provisioning_then_observes_overlay() {
         let root = tempdir().unwrap();
-        let storage = root.path().join("pool");
-        let version = root.path().join("version");
-        fs::create_dir(&storage).unwrap();
-        fs::create_dir(&version).unwrap();
-        let base = version.join("disk.qcow2");
-        fs::write(&base, dependency_header(None)).unwrap();
+        let (version, _) = two_versions(root.path());
+        let base = version.join(VM_DISK_FILENAME);
+        let pool = Arc::new(TestPool::default());
         let provisioning = lock_image(
             ModelKind::default_for(NodeModel::UbuntuLinux),
             "concurrent-overlay-test",
         )
         .await;
-        let scan_storage = storage.clone();
+        let scan_pool = Arc::clone(&pool);
         let scan_version = version.clone();
         let deletion = tokio::spawn(async move {
             let _guard = lock_image(
@@ -259,18 +357,16 @@ mod tests {
                 "concurrent-overlay-test",
             )
             .await;
-            libvirt::ensure_no_overlay_dependencies(&scan_storage, &scan_version)
+            ensure_image_has_no_overlays(scan_pool.as_ref(), &scan_version)
         });
         tokio::task::yield_now().await;
         assert!(!deletion.is_finished());
-        fs::write(
-            storage.join("new-overlay.qcow2"),
-            dependency_header(Some(&base)),
-        )
-        .unwrap();
+        pool.0
+            .lock()
+            .unwrap()
+            .push(backed("new-overlay.qcow2", &base));
         drop(provisioning);
         assert!(deletion.await.unwrap().is_err());
-        assert!(base.exists());
     }
     #[test]
     fn manifest_file_writer_retains_node_disk_methods() {

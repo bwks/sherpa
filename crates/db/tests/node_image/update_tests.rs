@@ -3,7 +3,7 @@ use anyhow::Result;
 use db::{DefaultRequest, find_node_image_by_id, update_node_image, upsert_node_image};
 use shared::data::{NodeModel, RecordId, Ztp};
 
-use crate::{create_test_config, setup_db};
+use crate::{create_test_config, set_ztp, setup_db};
 
 #[tokio::test]
 async fn test_update_node_image_success() -> Result<()> {
@@ -135,7 +135,7 @@ async fn test_update_refuses_a_ztp_method_the_model_does_not_take() -> Result<()
     let id = created.id.clone().expect("the image has an ID");
 
     let mut edited = created.clone();
-    edited.ztp.method = Ztp::Volume;
+    set_ztp(&mut edited, Ztp::Volume);
     edited.memory = 8192;
     let error = update_node_image(&db, edited, DefaultRequest::Keep)
         .await
@@ -148,7 +148,7 @@ async fn test_update_refuses_a_ztp_method_the_model_does_not_take() -> Result<()
     let stored = find_node_image_by_id(&db, id)
         .await?
         .expect("the image is stored");
-    assert_eq!(stored.ztp.method, Ztp::Tftp, "the setting is unchanged");
+    assert_eq!(stored.ztp(), Ztp::Tftp, "the setting is unchanged");
     assert_eq!(stored.memory, created.memory, "nothing else is written");
     Ok(())
 }
@@ -164,9 +164,9 @@ async fn test_update_stores_a_ztp_setting_the_model_takes() -> Result<()> {
     .await?;
 
     let mut edited = created;
-    edited.ztp.method = Ztp::Disabled;
+    set_ztp(&mut edited, Ztp::Disabled);
     let stored = update_node_image(&db, edited, DefaultRequest::Keep).await?;
 
-    assert_eq!(stored.ztp.method, Ztp::Disabled);
+    assert_eq!(stored.ztp(), Ztp::Disabled);
     Ok(())
 }

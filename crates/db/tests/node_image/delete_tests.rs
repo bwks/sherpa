@@ -2,9 +2,9 @@
 use anyhow::Result;
 use db::{
     DefaultRequest, LabDetails, count_node_images, create_lab, create_user, delete_node_image,
-    find_node_image_by_id, upsert_node_image,
+    find_node_image_by_id, find_node_image_by_model_kind_version, upsert_node_image,
 };
-use shared::data::{NodeModel, RecordId};
+use shared::data::{ModelKind, NodeKind, NodeModel, RecordId};
 
 use crate::{create_test_config, create_test_node_with_model, ipv4_lab_networks, setup_db};
 
@@ -24,6 +24,31 @@ async fn test_delete_node_image_success() -> Result<()> {
     let result = find_node_image_by_id(&db, created_id).await?;
     assert!(result.is_none(), "Config should be deleted");
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn deleting_one_kind_of_a_model_at_a_version_keeps_the_other_kind() -> Result<()> {
+    let db = setup_db().await?;
+    let mut ids = Vec::new();
+    for kind in [NodeKind::VirtualMachine, NodeKind::Unikernel] {
+        let mut image = ModelKind::new(NodeModel::Generic, Some(kind))?.node_config();
+        image.version = "1.0".to_owned();
+        let created = upsert_node_image(&db, image, DefaultRequest::Keep).await?;
+        ids.push(created.id.expect("created image has an id"));
+    }
+
+    delete_node_image(&db, ids[0].clone()).await?;
+
+    let unikernel = find_node_image_by_model_kind_version(
+        &db,
+        &NodeModel::Generic,
+        &NodeKind::Unikernel,
+        "1.0",
+    )
+    .await?;
+    assert_eq!(unikernel.and_then(|image| image.id), Some(ids[1].clone()));
+    assert!(find_node_image_by_id(&db, ids[0].clone()).await?.is_none());
     Ok(())
 }
 

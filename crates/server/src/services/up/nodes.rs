@@ -37,7 +37,7 @@ pub(super) fn get_node_image(
 ) -> Result<data::NodeConfig> {
     let model = model_kind.model();
     let kind = model_kind.kind();
-    let mut of_model_kind = data.iter().filter(|x| x.model == model && x.kind == kind);
+    let mut of_model_kind = data.iter().filter(|x| x.model == model && x.kind() == kind);
     if let Some(v) = version {
         of_model_kind
             .find(|x| x.version == v)
@@ -168,13 +168,14 @@ mod tests {
         );
     }
 
+    /// An `arista_eos` image of `kind`, which the model takes both of.
     fn image(kind: data::NodeKind, version: &str, default: bool) -> data::NodeConfig {
         data::NodeConfig {
-            model: data::NodeModel::FrrLinux,
-            kind,
             version: version.to_owned(),
             default,
-            ..Default::default()
+            ..data::ModelKind::new(data::NodeModel::AristaEos, Some(kind))
+                .unwrap()
+                .node_config()
         }
     }
 
@@ -186,13 +187,15 @@ mod tests {
             image(data::NodeKind::Container, "10.5", true),
             image(data::NodeKind::Container, "10.4", false),
         ];
-        let frr = data::ModelKind::default_for(data::NodeModel::FrrLinux);
-        assert_eq!(get_node_image(frr, None, &images).unwrap().version, "10.5");
+        let ceos =
+            data::ModelKind::new(data::NodeModel::AristaEos, Some(data::NodeKind::Container))
+                .unwrap();
+        assert_eq!(get_node_image(ceos, None, &images).unwrap().version, "10.5");
         assert_eq!(
-            get_node_image(frr, Some("10.4"), &images).unwrap().version,
+            get_node_image(ceos, Some("10.4"), &images).unwrap().version,
             "10.4"
         );
-        let error = get_node_image(frr, Some("9.9"), &images)
+        let error = get_node_image(ceos, Some("9.9"), &images)
             .unwrap_err()
             .to_string();
         assert!(error.contains("kind: container"), "{error}");

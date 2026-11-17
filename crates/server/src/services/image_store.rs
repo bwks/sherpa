@@ -19,19 +19,18 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use shared::data::NodeModel;
-use shared::konst::{SHERPA_IMAGES_PATH, SHERPA_STORAGE_POOL_PATH};
+use shared::konst::SHERPA_IMAGES_PATH;
 use tracing::instrument;
 
 /// Suffix of the file an image is written to before it is renamed into place.
 const PARTIAL_SUFFIX: &str = ".partial";
 
-/// Where images and the lab disks built on them live.
+/// Where images live. The lab disks built on them are found through libvirt
+/// ([`BackedVolumes`](crate::services::image_lifecycle::BackedVolumes)).
 #[derive(Debug, Clone)]
 pub(crate) struct ImagePaths {
     /// The images directory: `<images>/<model>/<version>/<file>`.
     pub images: PathBuf,
-    /// The storage pool, holding lab disks that may be overlays on an image.
-    pub storage_pool: PathBuf,
 }
 
 impl ImagePaths {
@@ -39,7 +38,6 @@ impl ImagePaths {
     pub(crate) fn installed() -> Self {
         Self {
             images: PathBuf::from(SHERPA_IMAGES_PATH),
-            storage_pool: PathBuf::from(SHERPA_STORAGE_POOL_PATH),
         }
     }
 

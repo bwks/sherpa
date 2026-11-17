@@ -141,16 +141,24 @@ map by its first column, its id.
   `ssh_keys` are JSON text. Timestamps are RFC 3339 text from `jiff`, which keeps
   nanoseconds. Booleans are `0` and `1`. A link's impairments are flattened into `a_to_b_*` and
   `b_to_a_*` columns, and a bridge's members are rows of `bridge_member`, ordered by `position`.
-  A node image's settings groups (`NodeConfig.cpu`, `.machine`, `.boot_disk`, `.cdrom`,
-  `.interfaces`, `.ztp` and `.unikernel`) are flat `node_image` columns, mapped by hand in
-  `db::persistence`: `cpu.count` is `cpu_count`, `machine.kind` is `machine_type`,
-  `boot_disk.bus` is `hdd_bus`, `cdrom.image` and `cdrom.bus` are `cdrom` and `cdrom_bus`,
-  `interfaces.mtu` is `interface_mtu`, `ztp.method` is `ztp` and `unikernel.boot_mode` is
-  `boot_mode` (`NULL` for a node that is not a unikernel). The image JSON nests by group; the
-  columns kept their flat names, so grouping needed no migration. `node_image_from_row` reads
-  every column into a local in column order and then builds the groups, because `Cells` reads
-  positionally and the groups are not in column order. `test_every_model_image_reads_back_as_written`
-  writes every model's built-in image and checks it reads back as the same JSON.
+  A node image's settings (`NodeConfig`'s shared groups and its kind's group, see
+  [`NODE_SETTINGS.md`](NODE_SETTINGS.md#image-definition)) are flat `node_image` columns, mapped
+  by hand in `db::persistence`: `cpu.count` is `cpu_count`, `interfaces.data_count`,
+  `.management` and `.reserved_count` are `data_interface_count`, `management_interface` and
+  `reserved_interface_count`; the `vm` group's `cpu.*`, `machine.kind`, `machine.bios`,
+  `boot_disk.bus`, `cdrom.image`, `cdrom.bus`, `interfaces.kind`, `interfaces.mtu` and
+  `ztp.method` are `cpu_architecture`, `cpu_model`, `vmx_enabled`, `machine_type`, `bios`,
+  `hdd_bus`, `cdrom`, `cdrom_bus`, `interface_type`, `interface_mtu` and `ztp`, with
+  `os_variant`; a container's `repo` and `ztp`; a unikernel's `boot_mode` and its CPU, machine
+  and interface columns. The `kind` column says which group a row holds. Each kind-only column
+  is `NULL` for the kinds that do not take it and set for those that do, `cdrom` and `repo`
+  excepted, which are optional for their kind; a `CHECK` on each column holds this (migration
+  33). `node_image_from_row` reads every column into a local in column order and then builds the
+  shared groups and the kind's group, failing on a kind-only column the kind needs but the row
+  lacks, because `Cells` reads positionally and the groups are not in column order.
+  `node_image_values` writes `NULL` to the columns of other kinds.
+  `test_every_model_image_reads_back_as_written` writes every model's built-in image and checks
+  it reads back as the same JSON.
   Impairment percentages are `f64` in `LinkImpairment`, the width of a `REAL`, so they read back
   exactly as written. `Cells::percent` refuses a value outside 0 to 100, which includes `NaN` and
   infinity, naming the field: netem would otherwise clamp it silently. A node's readiness check
@@ -231,6 +239,7 @@ table, copy the rows, drop the old one, rename.
 | 31 | `0031_rename_node_models.sql`: `node_image.model` takes the 0.7.0 names (`arista_veos` and `arista_ceos` to `arista_eos`, `generic_*` to `generic`, and the others in `shared::data::REMOVED_MODELS`). It is the only column that names a model: a node refers to its image, and a lab's stored definition takes each node's model and kind from it, so running labs and definitions follow. Each row keeps its kind, so the rows of a merged model cannot collide on `(model, kind, version)` and each kind keeps its default. A container image keeps the repo it was pulled or imported as, so no Docker image is retagged |
 | 32 | `0032_node_ready_sshd_marker.sql`: `node.ready_sshd_marker` (`0` or `1`, default `0`), whether the node's SSH server must show Sherpa's ready marker before the node is ready: a Windows node with cloud-init ZTP. Nodes already built keep `0`: a Windows node from before Sherpa's sshd config never shows the marker. See [Node readiness checks](#node-readiness-checks) |
 | 33 | `0033_srx_ztp_cdrom_only.sql`: `juniper_srxv3` images stored with the TFTP ZTP method are set to `cdrom`, the one method the model takes from 0.7.0 (#676). `cdrom` and `disabled` are kept; no other value can have been written for the model |
+| 34 | `0034_per_kind_image_settings.sql`: a node image holds only its own kind's settings (#613, #614). The kind-only columns become nullable, each with a `CHECK` that it is set exactly for the kinds that take it: `os_variant`, `vmx_enabled`, `bios`, `hdd_bus`, `cdrom_bus` for a VM (`cdrom` only for a VM); `cpu_architecture`, `cpu_model`, `machine_type`, `interface_type`, `interface_mtu` for a VM or a unikernel; `ztp` for a VM or a container; `repo` only for a container; `boot_mode` for a unikernel. Each row's values are kept for its kind and dropped for the others, and a unikernel stored without a boot mode gets `direct_kernel`, as the code read it. `interface_prefix` and `first_interface_index`, which nothing read, are dropped. `node.image` references `node_image`, and Turso refuses dropping a referenced table even with deferred foreign keys, so the table is not rebuilt: each column is added again under a temporary name, filled in one `UPDATE` (every `CHECK` is tested on each row an `UPDATE` writes), and the old one dropped and replaced. The `CHECK`s are written with `AND` and `OR`, not as a comparison of two conditions, which Turso cannot read back when it re-reads a `STRICT` table's schema, as `VACUUM INTO` (the backup) does |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.

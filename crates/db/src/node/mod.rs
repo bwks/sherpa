@@ -12,7 +12,7 @@ pub use read::{
     list_node_states_by_user, list_nodes_by_lab, list_vnc_ports,
 };
 pub use update::{
-    update_node_host_key, update_node_mgmt_ipv4, update_node_mgmt_ipv6, update_node_mgmt_mac,
-    update_node_ready_check, update_node_resources, update_node_ssh_username,
+    update_node_host_key, update_node_image_ref, update_node_mgmt_ipv4, update_node_mgmt_ipv6,
+    update_node_mgmt_mac, update_node_ready_check, update_node_resources, update_node_ssh_username,
     update_node_state_from,
 };

@@ -16,13 +16,13 @@ pub fn check_ptx_platform(node: &NodeExpanded, image: &NodeConfig) -> Result<()>
         .container
         .as_ref()
         .and_then(|container| container.platform);
-    if image.model != NodeModel::JuniperEvolved || image.kind != NodeKind::Container {
+    if image.model != NodeModel::JuniperEvolved || image.kind() != NodeKind::Container {
         if platform.is_some() {
             bail!(
                 "Manifest - node: '{}' sets `container.platform`, which is only for a juniper_evolved container, not {} ({})",
                 node.name,
                 image.model,
-                image.kind
+                image.kind()
             );
         }
         return Ok(());

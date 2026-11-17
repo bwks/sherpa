@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use db::{Database, DefaultRequest};
 use futures_util::{Stream, StreamExt};
 use opentelemetry::KeyValue;
@@ -8,10 +8,10 @@ use std::time::Instant;
 use tokio::io::AsyncWriteExt;
 
 use shared::data::{
-    DownloadImageRequest, ImageSummary, ImportRequest, ImportResponse, ListImagesRequest,
-    ListImagesResponse, ModelKind, NodeConfig, NodeKind, NodeModel, ScanImagesRequest,
-    ScanImagesResponse, ScannedImage, SetDefaultImageRequest, SetDefaultImageResponse,
-    ShowImageRequest, ShowImageResponse, SkippedModel, StatusKind,
+    DownloadImageRequest, ImageSummary, ImportRequest, ImportResponse, KindSettings,
+    ListImagesRequest, ListImagesResponse, ModelKind, NodeConfig, NodeKind, NodeModel,
+    ScanImagesRequest, ScanImagesResponse, ScannedImage, SetDefaultImageRequest,
+    SetDefaultImageResponse, ShowImageRequest, ShowImageResponse, SkippedModel, StatusKind,
 };
 use shared::konst::SHERPA_IMAGES_PATH;
 use shared::util::{file_exists, image_filename};
@@ -20,7 +20,9 @@ use tracing::instrument;
 
 use crate::daemon::state::AppState;
 use crate::services::container_scan::{ScanTarget, plan_container_scan, tagged_versions};
-use crate::services::image_lifecycle::{image_model_kind, lock_image};
+use crate::services::image_lifecycle::{
+    BackedVolumes, ensure_image_has_no_overlays, image_model_kind, lock_image,
+};
 use crate::services::image_store::{ExistingDisk, ImagePaths, PlacedDisk, StagedDisk};
 use crate::services::progress::ProgressSender;
 use crate::validate::{validate_image_scan, validate_image_version};
@@ -82,6 +84,7 @@ pub async fn import_image(
                 request_default,
                 &state.db,
                 &ImagePaths::installed(),
+                state.qemu.as_ref(),
                 &progress,
             )
             .await
@@ -140,7 +143,7 @@ async fn import_container_image(
     // Record in database
     let _ = progress.send_status("Updating database...".to_string(), StatusKind::Progress);
 
-    let kind = db_config.kind;
+    let kind = db_config.kind();
     let recorded = db::upsert_node_image(&state.db, db_config, request_default)
         .await
         .context(format!(
@@ -180,10 +183,12 @@ async fn import_disk_image(
     request_default: DefaultRequest,
     database: &Database,
     paths: &ImagePaths,
+    pool: &impl BackedVolumes,
     progress: &ProgressSender,
 ) -> Result<ImportResponse> {
-    let kind = db_config.kind;
-    let filename = image_filename(&kind, db_config.unikernel.as_ref());
+    let kind = db_config.kind();
+    let filename = image_filename(&db_config.settings)
+        .with_context(|| format!("{} is a container image, which has no disk", request.model))?;
     let version_dir = paths.version_dir(request.model, &request.version);
     let version_disk = version_dir.join(filename);
 
@@ -210,8 +215,7 @@ async fn import_disk_image(
         }
         existing => {
             if existing == ExistingDisk::Different {
-                libvirt::ensure_no_overlay_dependencies(&paths.storage_pool, &version_dir)
-                .with_context(|| {
+                ensure_image_has_no_overlays(pool, &version_dir).with_context(|| {
                     format!(
                         "{} differs from the source and lab disks are built on it; destroy those \
                          labs or import the image as a new version",
@@ -321,7 +325,7 @@ pub async fn list_images(
         .into_iter()
         .map(|c| ImageSummary {
             model: c.model,
-            kind: c.kind,
+            kind: c.kind(),
             version: c.version,
             default: c.default,
         })
@@ -526,7 +530,12 @@ async fn scan_version_dirs(
         }
 
         let version = version_entry.file_name().to_string_lossy().to_string();
-        let filename = image_filename(&scan.model_kind.kind(), scan.config.unikernel.as_ref());
+        let filename = image_filename(&scan.config.settings).with_context(|| {
+            format!(
+                "{} is a container image, which has no disk",
+                scan.model_kind
+            )
+        })?;
         let disk_path = format!("{model_dir}/{version}/{filename}");
 
         // Check if image file exists in this version directory
@@ -578,7 +587,10 @@ async fn scan_container_images(
         }
         let model_kind = ModelKind::new(target.model, Some(NodeKind::Container))?;
         let mut scan = ModelScan::new(&state.db, model_kind, "container node_image").await?;
-        scan.config.repo = Some(target.repo);
+        let KindSettings::Container(container) = &mut scan.config.settings else {
+            bail!("{model_kind} has no container image settings");
+        };
+        container.repo = Some(target.repo);
         for version in versions {
             scan_version(
                 &state.db,
@@ -883,7 +895,8 @@ pub async fn download_image(
     let download_url =
         resolve_download_url(&request.model, &request.version, request.url.as_deref()).await?;
 
-    let filename = image_filename(&kind, config.unikernel.as_ref());
+    let filename = image_filename(&config.settings)
+        .with_context(|| format!("{} is a container image, which has no disk", request.model))?;
     let version_dir = ImagePaths::installed().version_dir(request.model, &request.version);
     let version_disk = version_dir.join(filename);
     tokio::fs::create_dir_all(&version_dir)
@@ -969,6 +982,7 @@ pub async fn download_image(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use libvirt::BackedVolume;
 
     #[test]
     fn a_shown_image_has_only_its_ztp_method_and_no_password_flag() {
@@ -978,7 +992,11 @@ mod tests {
         let json = serde_json::to_value(&response).unwrap();
         let top: Vec<&String> = json.as_object().unwrap().keys().collect();
         assert_eq!(top, ["image"], "{json}");
-        let ztp: Vec<&String> = json["image"]["ztp"].as_object().unwrap().keys().collect();
+        let ztp: Vec<&String> = json["image"]["vm"]["ztp"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect();
         assert_eq!(ztp, ["method"], "{json}");
     }
     use futures_util::stream;
@@ -1156,19 +1174,25 @@ mod tests {
     }
 
     fn test_paths(root: &Path) -> ImagePaths {
-        let paths = ImagePaths {
+        ImagePaths {
             images: root.join("images"),
-            storage_pool: root.join("pool"),
-        };
-        std::fs::create_dir_all(&paths.storage_pool).unwrap();
-        paths
+        }
+    }
+
+    /// A storage pool of these volumes, for tests.
+    struct TestPool(Vec<BackedVolume>);
+
+    impl BackedVolumes for TestPool {
+        fn backed_volumes(&self) -> Result<Vec<BackedVolume>> {
+            Ok(self.0.clone())
+        }
     }
 
     fn disk_path(paths: &ImagePaths, version: &str) -> PathBuf {
         let config = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         paths
             .version_dir(config.model, version)
-            .join(image_filename(&config.kind, config.unikernel.as_ref()))
+            .join(image_filename(&config.settings).unwrap())
     }
 
     async fn schema_db() -> Database {
@@ -1183,6 +1207,16 @@ mod tests {
         source: &Path,
         version: &str,
     ) -> Result<ImportResponse> {
+        import_disk_on(database, paths, &TestPool(Vec::new()), source, version).await
+    }
+
+    async fn import_disk_on(
+        database: &Database,
+        paths: &ImagePaths,
+        pool: &TestPool,
+        source: &Path,
+        version: &str,
+    ) -> Result<ImportResponse> {
         let (request, config) = disk_import(source, version);
         import_disk_image(
             &request,
@@ -1190,6 +1224,7 @@ mod tests {
             DefaultRequest::Keep,
             database,
             paths,
+            pool,
             &quiet_progress(),
         )
         .await
@@ -1197,7 +1232,7 @@ mod tests {
 
     async fn recorded(database: &Database, version: &str) -> Option<NodeConfig> {
         let config = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
-        db::find_node_image_by_model_kind_version(database, &config.model, &config.kind, version)
+        db::find_node_image_by_model_kind_version(database, &config.model, &config.kind(), version)
             .await
             .unwrap()
     }
@@ -1283,23 +1318,6 @@ mod tests {
         assert!(recorded(&database, "1").await.is_some());
     }
 
-    /// A QCOW2 header, backed by `backing` when given.
-    fn qcow2_header(backing: Option<&Path>) -> Vec<u8> {
-        let mut bytes = vec![0; 65536];
-        bytes[..4].copy_from_slice(b"QFI\xfb");
-        bytes[4..8].copy_from_slice(&3_u32.to_be_bytes());
-        bytes[20..24].copy_from_slice(&16_u32.to_be_bytes());
-        bytes[24..32].copy_from_slice(&(2_u64 << 30).to_be_bytes());
-        bytes[100..104].copy_from_slice(&104_u32.to_be_bytes());
-        if let Some(backing) = backing {
-            let name = backing.to_str().unwrap().as_bytes();
-            bytes[8..16].copy_from_slice(&128_u64.to_be_bytes());
-            bytes[16..20].copy_from_slice(&u32::try_from(name.len()).unwrap().to_be_bytes());
-            bytes[128..128 + name.len()].copy_from_slice(name);
-        }
-        bytes
-    }
-
     #[tokio::test]
     async fn a_differing_disk_that_lab_disks_are_built_on_is_not_replaced() {
         let root = tempfile::tempdir().unwrap();
@@ -1308,16 +1326,15 @@ mod tests {
         std::fs::write(&source, b"another image").unwrap();
         let disk = disk_path(&paths, "1");
         std::fs::create_dir_all(disk.parent().unwrap()).unwrap();
-        let base = qcow2_header(None);
+        let base = b"base".to_vec();
         std::fs::write(&disk, &base).unwrap();
-        std::fs::write(
-            paths.storage_pool.join("node.qcow2"),
-            qcow2_header(Some(&disk)),
-        )
-        .unwrap();
+        let pool = TestPool(vec![BackedVolume {
+            name: "node-lab-hdd.qcow2".to_owned(),
+            backing_file: disk.clone(),
+        }]);
         let database = schema_db().await;
 
-        let error = import_disk(&database, &paths, &source, "1")
+        let error = import_disk_on(&database, &paths, &pool, &source, "1")
             .await
             .unwrap_err();
 

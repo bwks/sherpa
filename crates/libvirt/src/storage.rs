@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 
@@ -18,11 +18,21 @@ use virt::storage_pool::StoragePool;
 
 use crate::names::is_lab_volume;
 
-/// A storage volume's XML, as far as its backing file.
+/// A storage volume's XML, as far as its name and backing file.
 #[derive(Debug, Deserialize)]
 struct VolumeXml {
+    name: String,
     #[serde(rename = "backingStore")]
     backing_store: Option<BackingStoreXml>,
+}
+
+/// A volume in the Sherpa storage pool built on a backing file: an overlay disk and its base.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BackedVolume {
+    /// The volume's name in the pool.
+    pub name: String,
+    /// The base the volume records, as written: nothing is resolved.
+    pub backing_file: PathBuf,
 }
 
 /// A volume's `<backingStore>`: the path of its base, as the volume records it.
@@ -135,16 +145,17 @@ pub fn list_lab_volumes(qemu_conn: &Connect, lab_id: &str) -> Result<Vec<String>
         .collect())
 }
 
-/// The backing file of each volume in the Sherpa storage pool that has one, as libvirt reads
-/// it from the volume's header after refreshing the pool. libvirt reads every volume, while
-/// sherpad cannot read the disks libvirt has handed to QEMU.
+/// Each volume in the Sherpa storage pool that has a backing file, with the file as libvirt
+/// reads it from the volume's header after refreshing the pool. libvirt reads every volume,
+/// while sherpad cannot read the disks libvirt has handed to QEMU, which are `0600` and owned by
+/// `libvirt-qemu` or `root`, running or stopped.
 ///
 /// # Errors
 ///
 /// Fails when the pool cannot be found, refreshed or listed, or a volume's XML cannot be read
 /// or parsed: a dependency that cannot be determined is an error, not a volume without one.
 #[instrument(level = "debug", skip(qemu_conn))]
-pub fn pool_backing_files(qemu_conn: &Connect) -> Result<Vec<PathBuf>> {
+pub fn pool_backed_volumes(qemu_conn: &Connect) -> Result<Vec<BackedVolume>> {
     let pool = StoragePool::lookup_by_name(qemu_conn, SHERPA_STORAGE_POOL).context(format!(
         "Failed to find storage pool '{SHERPA_STORAGE_POOL}'"
     ))?;
@@ -152,25 +163,62 @@ pub fn pool_backing_files(qemu_conn: &Connect) -> Result<Vec<PathBuf>> {
     let volumes = pool.list_all_volumes(0).context(format!(
         "Failed to list volumes in pool '{SHERPA_STORAGE_POOL}'"
     ))?;
-    let mut backing_files = Vec::new();
+    let mut backed = Vec::new();
     for volume in volumes {
         let xml = volume
             .get_xml_desc(0)
             .context("Failed to read a storage volume's XML")?;
-        if let Some(path) = volume_backing_file(&xml)? {
-            backing_files.push(path);
+        if let Some(volume) = backed_volume(&xml)? {
+            backed.push(volume);
         }
     }
-    Ok(backing_files)
+    Ok(backed)
 }
 
-/// The backing file a storage volume's `xml` records, if any.
-fn volume_backing_file(xml: &str) -> Result<Option<PathBuf>> {
+/// The volume a storage volume's `xml` describes, if it has a backing file.
+fn backed_volume(xml: &str) -> Result<Option<BackedVolume>> {
     let volume: VolumeXml = from_str(xml).context("Failed to parse a storage volume's XML")?;
     Ok(volume
         .backing_store
         .and_then(|backing| backing.path)
-        .map(PathBuf::from))
+        .map(|path| BackedVolume {
+            name: volume.name,
+            backing_file: PathBuf::from(path),
+        }))
+}
+
+/// The first of `volumes`, a storage pool's backed volumes from [`pool_backed_volumes`], built
+/// on a file in `image_dir`, running or stopped; `None` when none is. Each backing file is
+/// resolved, links included, so a base reached through a renamed model's link at its old path
+/// is found too.
+///
+/// The caller must hold the image lifecycle lock through this check and the deletion, so that
+/// no new overlay is built on the image in between.
+///
+/// # Errors
+///
+/// Fails when `image_dir` or a backing file cannot be resolved: a dependency that cannot be
+/// determined is an error, not a volume without one.
+#[instrument(level = "debug", skip(volumes))]
+pub fn overlay_on_image<'a>(
+    volumes: &'a [BackedVolume],
+    image_dir: &Path,
+) -> Result<Option<&'a BackedVolume>> {
+    let image_dir = fs::canonicalize(image_dir)
+        .context("Cannot resolve image directory for dependency check")?;
+    for volume in volumes {
+        let backing = fs::canonicalize(&volume.backing_file).with_context(|| {
+            format!(
+                "Cannot resolve the backing file {} of disk {}",
+                volume.backing_file.display(),
+                volume.name
+            )
+        })?;
+        if backing.starts_with(&image_dir) {
+            return Ok(Some(volume));
+        }
+    }
+    Ok(None)
 }
 
 /// Fail unless nothing exists at `path`. Disks are created exclusively and never replace a file.
@@ -217,14 +265,15 @@ mod tests {
             <format type='qcow2'/><permissions><mode>0644</mode></permissions></backingStore>\
             </volume>";
         assert_eq!(
-            volume_backing_file(overlay).unwrap(),
-            Some(PathBuf::from(
-                "/opt/sherpa/images/juniper_vsrxv3/23.2/virtioa.qcow2"
-            ))
+            backed_volume(overlay).unwrap(),
+            Some(BackedVolume {
+                name: "srx1-lab-hdd.qcow2".to_owned(),
+                backing_file: PathBuf::from("/opt/sherpa/images/juniper_vsrxv3/23.2/virtioa.qcow2"),
+            })
         );
         let copy = "<volume type='file'><name>srx1-lab.iso</name>\
             <target><path>/opt/sherpa/libvirt/images/srx1-lab.iso</path></target></volume>";
-        assert_eq!(volume_backing_file(copy).unwrap(), None);
-        assert!(volume_backing_file("<volume").is_err());
+        assert_eq!(backed_volume(copy).unwrap(), None);
+        assert!(backed_volume("<volume").is_err());
     }
 }

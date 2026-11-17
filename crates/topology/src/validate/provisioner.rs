@@ -36,8 +36,10 @@ pub fn validate_provisioners(manifest: &Manifest) -> Result<()> {
             match provisioner {
                 Provisioner::Ssh(ssh) => {
                     ensure!(
-                        config.kind == NodeKind::VirtualMachine
-                            && matches!(config.os_variant, OsVariant::Linux | OsVariant::Bsd),
+                        config.vm().is_some_and(|vm| matches!(
+                            vm.os_variant,
+                            OsVariant::Linux | OsVariant::Bsd
+                        )),
                         "Node '{}' has an ssh provisioner, which runs only on Linux and BSD VMs",
                         node.name
                     );
@@ -45,7 +47,7 @@ pub fn validate_provisioners(manifest: &Manifest) -> Result<()> {
                 }
                 Provisioner::Container(container) => {
                     ensure!(
-                        config.kind == NodeKind::Container,
+                        config.kind() == NodeKind::Container,
                         "Node '{}' has a container provisioner, which runs only on containers",
                         node.name
                     );

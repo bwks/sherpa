@@ -1,4 +1,4 @@
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
@@ -191,95 +191,6 @@ fn be32(bytes: &[u8]) -> Result<u32> {
 /// Decode an exactly eight-byte, big-endian QCOW2 field; reject other lengths.
 fn be64(bytes: &[u8]) -> Result<u64> {
     Ok(u64::from_be_bytes(bytes.try_into()?))
-}
-
-/// Protect bases using actual managed disks, including stopped and orphaned volumes.
-/// Missing, malformed or unreadable dependency metadata fails closed.
-///
-/// Canonicalize the image version directory before checking backing references.
-/// The caller must hold the image lifecycle lock through this check and deletion
-/// to prevent concurrent provisioning from introducing a new dependency.
-///
-/// # Errors
-///
-/// Fails when a managed disk references the image directory, or when storage or a disk's
-/// metadata cannot be read or resolved.
-#[instrument(level = "debug", skip(storage_path, image_dir))]
-pub fn ensure_no_overlay_dependencies(storage_path: &Path, image_dir: &Path) -> Result<()> {
-    let image_dir = fs::canonicalize(image_dir)
-        .context("Cannot resolve image directory for dependency check")?;
-    for (overlay, backing) in overlay_backing_files(storage_path)? {
-        let backing = fs::canonicalize(&backing)
-            .with_context(|| format!("Cannot resolve backing image of {}", overlay.display()))?;
-        ensure!(
-            !backing.starts_with(&image_dir),
-            "Image deletion blocked: managed overlay {} references {}",
-            overlay.display(),
-            backing.display()
-        );
-    }
-    Ok(())
-}
-
-/// Every QCOW2 disk under `storage_path` that has a backing file, with the backing file's path
-/// as the disk records it: a relative path is joined to the disk's directory, and nothing is
-/// resolved, so a path through a link or to a file that no longer exists is kept as written.
-///
-/// A file with a QCOW2 filename extension or the QCOW2 magic is read as one.
-///
-/// # Errors
-///
-/// Fails when storage cannot be listed, or a disk's metadata cannot be read: a dependency that
-/// cannot be determined is an error, not a disk without one.
-#[instrument(level = "debug")]
-fn overlay_backing_files(storage_path: &Path) -> Result<Vec<(PathBuf, PathBuf)>> {
-    let mut found = Vec::new();
-    collect_backing_files(storage_path, &mut found)?;
-    Ok(found)
-}
-
-/// Add each disk under `dir` with a backing file, and its backing path, to `found`.
-fn collect_backing_files(dir: &Path, found: &mut Vec<(PathBuf, PathBuf)>) -> Result<()> {
-    for entry in
-        fs::read_dir(dir).context("Cannot enumerate managed storage for dependency check")?
-    {
-        let path = entry
-            .context("Cannot read managed storage for dependency check")?
-            .path();
-        let metadata = fs::symlink_metadata(&path)
-            .with_context(|| format!("Cannot inspect {}", path.display()))?;
-        if metadata.is_dir() {
-            collect_backing_files(&path, found)?;
-            continue;
-        }
-        let mut file = File::open(&path)
-            .with_context(|| format!("Cannot inspect dependency metadata: {}", path.display()))?;
-        let mut magic = [0_u8; 4];
-        let count = file
-            .read(&mut magic)
-            .with_context(|| format!("Cannot inspect dependency metadata: {}", path.display()))?;
-        let qcow_extension = path
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("qcow2"));
-        if !qcow_extension && (count != 4 || &magic != QCOW2_MAGIC) {
-            continue;
-        }
-        file.seek(SeekFrom::Start(0))
-            .with_context(|| format!("Cannot inspect dependency metadata: {}", path.display()))?;
-        let metadata = read_metadata(&mut file)
-            .with_context(|| format!("Cannot inspect dependency metadata: {}", path.display()))?;
-        if let Some(backing) = metadata.backing_file {
-            let backing = if backing.is_absolute() {
-                backing
-            } else {
-                path.parent()
-                    .context("Missing disk parent directory")?
-                    .join(backing)
-            };
-            found.push((path, backing));
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]

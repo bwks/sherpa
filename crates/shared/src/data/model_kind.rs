@@ -468,7 +468,7 @@ mod tests {
     fn srx_takes_its_config_from_cdrom_only_and_by_default() {
         let srx = ModelKind::default_for(NodeModel::JuniperSrxv3);
         assert_eq!(srx.ztp_methods(), [Ztp::Cdrom]);
-        assert_eq!(srx.node_config().ztp.method, Ztp::Cdrom);
+        assert_eq!(srx.node_config().ztp(), Ztp::Cdrom);
     }
 
     #[test]
@@ -478,10 +478,10 @@ mod tests {
         assert_eq!(veos.ztp_methods(), [Ztp::Tftp]);
         assert_eq!(ceos.ztp_methods(), [Ztp::Volume]);
         assert_eq!(
-            ceos.node_config().repo.as_deref(),
+            ceos.node_config().container_repo(None).as_deref(),
             Some("localrepo/arista_eos")
         );
-        assert_eq!(veos.node_config().repo, None);
+        assert_eq!(veos.node_config().container_repo(None), None);
 
         let vevolved = ModelKind::default_for(NodeModel::JuniperEvolved);
         let cevolved =
@@ -489,7 +489,7 @@ mod tests {
         assert_eq!(vevolved.ztp_methods(), [Ztp::Tftp, Ztp::Usb]);
         assert_eq!(cevolved.ztp_methods(), [Ztp::Volume]);
         assert_eq!(
-            cevolved.node_config().repo.as_deref(),
+            cevolved.node_config().container_repo(None).as_deref(),
             Some("localrepo/juniper_evolved")
         );
         assert!(cevolved.keeps_data_interfaces_up());
@@ -552,7 +552,7 @@ mod tests {
         for model_kind in ModelKind::all() {
             let config = model_kind.node_config();
             assert_eq!(config.model, model_kind.model(), "{model_kind:?}");
-            assert_eq!(config.kind, model_kind.kind(), "{model_kind:?}");
+            assert_eq!(config.kind(), model_kind.kind(), "{model_kind:?}");
             assert_eq!(config.model_kind().unwrap(), model_kind);
         }
     }
@@ -560,7 +560,9 @@ mod tests {
     #[test]
     fn an_image_whose_model_does_not_take_its_kind_has_no_model_kind() {
         let mut config = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
-        config.kind = NodeKind::Container;
+        config.settings = ModelKind::default_for(NodeModel::MysqlDb)
+            .node_config()
+            .settings;
         assert!(config.model_kind().is_err());
     }
 
@@ -635,7 +637,7 @@ mod tests {
     #[test]
     fn test_every_models_default_ztp_is_disabled_or_a_listed_method() {
         for model_kind in ModelKind::all() {
-            let ztp = model_kind.node_config().ztp.method;
+            let ztp = model_kind.node_config().ztp();
             assert!(
                 ztp == Ztp::Disabled || model_kind.ztp_methods().contains(&ztp),
                 "{model_kind:?} defaults to {ztp}, which it does not list"

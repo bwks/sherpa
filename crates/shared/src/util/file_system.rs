@@ -17,7 +17,7 @@ use anyhow::{Context, Result};
 #[cfg(unix)]
 use tracing::instrument;
 
-use crate::data::{NodeKind, UnikernelBootMode, UnikernelSettings};
+use crate::data::{KindSettings, UnikernelBootMode};
 use crate::konst::{UNIKERNEL_DISK_FILENAME, UNIKERNEL_KERNEL_FILENAME, VM_DISK_FILENAME};
 
 /// Convert a `Path` to an owned `String`, using lossy UTF-8 conversion.
@@ -163,19 +163,6 @@ pub fn expand_path(path: &str) -> String {
     let expanded_path = shellexpand::tilde(path);
     let full_path = Path::new(expanded_path.as_ref());
     full_path.display().to_string()
-}
-
-/// Recursively delete a directory
-///
-/// # Errors
-///
-/// Fails when the directory exists but cannot be removed.
-pub fn delete_dirs(dir_path: &str) -> Result<()> {
-    if dir_exists(dir_path) {
-        fs::remove_dir_all(dir_path)?;
-        tracing::debug!(path = %dir_path, "Directory deleted");
-    }
-    Ok(())
 }
 
 /// Copy a file from a source to a destination.
@@ -324,21 +311,21 @@ pub fn create_config_archive(src_path: &str, dst_path: &str) -> Result<()> {
     Ok(())
 }
 
-/// Return the expected image filename for a given node kind and its unikernel settings.
+/// The file a disk-based image keeps in its version folder, by its kind's settings; `None` for
+/// a container image, which Docker keeps.
 ///
 /// - VMs: `virtioa.qcow2`
 /// - Unikernel `DirectKernel`: `kernel.elf`
 /// - Unikernel `DiskBoot`: `disk.qcow2`
 #[must_use]
-pub fn image_filename(kind: &NodeKind, unikernel: Option<&UnikernelSettings>) -> &'static str {
-    match kind {
-        NodeKind::Unikernel => match unikernel {
-            Some(UnikernelSettings {
-                boot_mode: UnikernelBootMode::DiskBoot,
-            }) => UNIKERNEL_DISK_FILENAME,
-            _ => UNIKERNEL_KERNEL_FILENAME,
-        },
-        _ => VM_DISK_FILENAME,
+pub fn image_filename(settings: &KindSettings) -> Option<&'static str> {
+    match settings {
+        KindSettings::VirtualMachine(_) => Some(VM_DISK_FILENAME),
+        KindSettings::Unikernel(unikernel) => Some(match unikernel.boot_mode {
+            UnikernelBootMode::DirectKernel => UNIKERNEL_KERNEL_FILENAME,
+            UnikernelBootMode::DiskBoot => UNIKERNEL_DISK_FILENAME,
+        }),
+        KindSettings::Container(_) => None,
     }
 }
 
@@ -518,23 +505,6 @@ mod tests {
     #[test]
     fn test_load_file_nonexistent_returns_err() {
         assert!(load_file("/tmp/sherpa_nonexistent_99999.txt").is_err());
-    }
-
-    #[test]
-    fn test_delete_dirs_removes_directory() -> Result<()> {
-        let dir = TempDir::new()?;
-        let sub = dir.path().join("subdir");
-        fs::create_dir(&sub)?;
-        fs::write(sub.join("file.txt"), "data")?;
-        assert!(sub.is_dir());
-        delete_dirs(sub.to_str().unwrap())?;
-        assert!(!sub.exists());
-        Ok(())
-    }
-
-    #[test]
-    fn test_delete_dirs_nonexistent_is_ok() {
-        assert!(delete_dirs("/tmp/sherpa_nonexistent_dir_delete").is_ok());
     }
 
     #[test]

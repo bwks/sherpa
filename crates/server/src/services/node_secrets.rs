@@ -185,7 +185,7 @@ pub async fn update_node_secrets(
     let node_image = node_images
         .first()
         .with_context(|| format!("Node image config not found for node '{node_name}'"))?;
-    if node_image.kind != NodeKind::Container {
+    if node_image.kind() != NodeKind::Container {
         return Err(ServiceError::Conflict(format!(
             "Node '{node_name}' is not a container, so it takes no secret files"
         ))
