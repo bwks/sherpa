@@ -14,7 +14,9 @@
 - Duplicate username rejected, including case variants `[e2e]` **P0**
 - Usernames are lowercased on create; login and self-service lookups ignore case `[e2e]` **P0**
 - Invalid and reserved usernames rejected on RPC; REST returns `400 Bad Request` `[e2e]` **P0**
-- Users add and remove their own SSH keys on RPC and REST; duplicates (ignoring comments) and invalid keys are rejected; another user is refused; an admin may manage any user's keys; removal works by fingerprint `[e2e]` **P0** (`users_manage_their_own_ssh_keys_on_rpc_and_rest`)
+- Users add and remove their own SSH keys on RPC and REST; duplicates (ignoring comments) and invalid keys are rejected; another user is refused; an admin may remove any user's keys; removal works by fingerprint `[e2e]` **P0** (`users_manage_their_own_ssh_keys_on_rpc_and_rest`)
+- Adding a key is self only, admins included: an admin and another user are refused on RPC and REST, the admin web page has no add form or route, and the account's keys are unchanged `[e2e]` **P0** (`only_the_user_adds_a_key_to_their_account_admins_included`)
+- `user.create` takes no SSH keys: a request with `ssh_keys` is refused on RPC and REST and creates no user; a created user has none `[e2e]` **P0** (`a_user_is_created_without_keys_and_a_request_with_keys_is_refused`)
 - `up` is refused for a user with no SSH key, with a link to the SSH keys docs, and creates no lab `[e2e]` **P0** (`starting_a_lab_requires_a_registered_ssh_key`)
 - Non-admin cannot create users `[e2e]` **P0**
 - Password stored as Argon2id hash (not plaintext) `[e2e]` **P0**
