@@ -163,11 +163,13 @@ in the host's `docker` group. That is accepted: membership of `docker` is root o
 
 ## SurrealDB
 
-`surreal_db` nodes run `surrealdb/surrealdb` with `start --log trace memory`, and their own root
+`surreal_db` nodes run `surrealdb/surrealdb` with `start --log info memory`, and their own root
 user, `root` with a generated password, in `SURREAL_USER` and `SURREAL_PASS`
 (`node_ops::surreal_db_env_vars`), not on the command line, which every host user can read in
-`ps`. It is made, like Keycloak's admin, when the container settings are generated
-(`surreal_db::ensure_surreal_db_credentials`), saved with the node's address,
+`ps`. It logs at `info`: at `trace` SurrealDB logs request bodies, so the password a client
+sends to `/signin` would be in `docker logs`. The root user is made, like Keycloak's admin, when
+the container settings are generated (`surreal_db::ensure_surreal_db_credentials`), saved with
+the node's address,
 `http://<management address>:8000`, in `<lab>/surrealdb/<node>.toml` (0600), and kept across
 `redeploy`; the database is in memory, so a redeployed node starts empty with the same root
 user. A node from before 0.7.0 has no file and the published password until it is redeployed,

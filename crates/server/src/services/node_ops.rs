@@ -161,8 +161,9 @@ const FRR_ZTP_STARTUP_MOUNT: &str = "/tmp/sherpa-init.sh";
 const CONTAINER_GITLAB_CE_COMMANDS: &[&str] = &[];
 const CONTAINER_GITLAB_CE_SHM_SIZE: i64 = 256;
 /// `SurrealDB` starts in memory; its root user comes from the environment
-/// (`surreal_db_env_vars`), so it is not in the command line every host user can read.
-const CONTAINER_SURREAL_DB_COMMANDS: &[&str] = &["start", "--log", "trace", "memory"];
+/// (`surreal_db_env_vars`), so it is not in the command line every host user can read. It logs
+/// at `info`: at `trace` it logs request bodies, so a `/signin` password reached `docker logs`.
+const CONTAINER_SURREAL_DB_COMMANDS: &[&str] = &["start", "--log", "info", "memory"];
 const CONTAINER_MONGO_DB_COMMANDS: &[&str] = &[];
 const CONTAINER_NATS_COMMANDS: &[&str] = &[];
 const CONTAINER_FORGEJO_COMMANDS: &[&str] = &[];
@@ -6865,6 +6866,22 @@ pub(crate) mod tests {
         assert_eq!(
             env_value(&redeployed.env_vars, "SURREAL_PASS"),
             Some(password.as_str())
+        );
+    }
+
+    #[test]
+    fn a_surreal_db_node_logs_at_info_so_no_request_body_reaches_its_logs() {
+        // At `trace` SurrealDB logs request bodies, a `/signin` password among them.
+        let lab = ZtpLab::new();
+        let mut node = named_node("db01", data::NodeModel::SurrealDb);
+        let commands = lab.container(&mut node, None).unwrap().commands;
+        assert!(
+            commands.windows(2).any(|pair| pair == ["--log", "info"]),
+            "{commands:?}"
+        );
+        assert!(
+            commands.iter().all(|arg| !arg.contains("trace")),
+            "{commands:?}"
         );
     }
 
