@@ -138,6 +138,21 @@
 
 ---
 
+## Blank Disks (`ensure_blank_disks`, in both `sherpa_install.sh` and `sherpa_update.sh`)
+
+**What to test:**
+- The blank disk section is identical in the install and update scripts `[unit]` **P0**
+- Creates every disk with its size, file system and label, 0644, `chown sherpa:sherpa`, and the folders 0775 `[unit]` **P0**
+- Never changes an existing disk or folder, and leaves a symlink of a disk's name alone `[unit]` **P0**
+- A second run changes nothing `[unit]` **P1**
+- Refuses, naming the missing tools and their packages, before creating anything `[unit]` **P1**
+- A disk that fails to build leaves no file, not even its temporary one `[unit]` **P1**
+- The installer runs it after `setup_directories` and installs `qemu-utils`, `dosfstools` and `e2fsprogs` `[unit]` **P0**
+- The update script runs it before `sherpad` stops and when there is nothing to update, and installs the packages only when a tool is missing `[unit]` **P0**
+- After an install every disk is under `/opt/sherpa/images/blank_disk`, 0644 sherpa:sherpa, with its size, file system and label `[integration]` **P0**
+
+---
+
 ## Container Images
 
 ### Pull Images (`pull_sherpa_router_image`)

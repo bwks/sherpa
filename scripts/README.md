@@ -1,6 +1,6 @@
 # Sherpa Scripts
 
-This directory contains utility scripts for Sherpa installation, maintenance, and development.
+This directory contains scripts for Sherpa installation, maintenance, and development.
 
 ## Installation Scripts
 
@@ -19,6 +19,8 @@ sudo ./scripts/sherpa_install.sh
 **What it does:**
 - Creates sherpa user and groups
 - Sets up directory structure at `/opt/sherpa/`
+- Creates the blank disk templates in `/opt/sherpa/images/blank_disk/` that node ZTP disks are
+  copied from, each only if it is missing (see "Blank disks" in `docs/architecture/ZTP.md`)
 - Pulls the Sherpa router container image
 - Installs the binaries, the sherpad systemd service and its environment file
 - Refuses a server older than 0.5.0 (a `sherpa-db` SurrealDB container exists)
@@ -31,6 +33,10 @@ sudo ./scripts/sherpa_install.sh
 Replaces the Sherpa binaries with the latest, or a given, release and restarts sherpad. It
 refuses, before changing anything, a server older than 0.5.0 whose data is still in SurrealDB:
 such a server updates to 0.5.12 first with that release's update script, which moves the data.
+
+On every run, including one with nothing to install, it creates the blank disk templates that
+are missing, installing `qemu-utils`, `dosfstools` and `e2fsprogs` first if a tool is missing.
+Existing disks are never changed. Running it again is how a server gets a disk that was removed.
 
 ### `sherpa_client_install.ps1`
 Installs or updates the Sherpa CLI client on Windows. No administrator privileges required.
@@ -95,16 +101,6 @@ The VM test harness (`test_env.py`, `test_install.sh` and the release-test runne
 
 ---
 
-## Utility Scripts
-
-### `create_blank_disks.sh`
-Creates blank disk images for various network operating systems.
-
-### `create_iosv_disk.sh`
-Creates blank disk images specifically for Cisco IOSv devices.
-
----
-
 ## Development
 
 ### Running Scripts from Repository Root
@@ -113,6 +109,11 @@ All scripts can be run from the repository root:
 ```bash
 sudo -E ./scripts/sherpa_install.sh --version v0.3.79
 ```
+
+### Blank disks
+`sherpa_install.sh` and `sherpa_update.sh` carry the same blank disk section, between
+`# BEGIN blank disks` and `# END blank disks`, because each is fetched alone. Change both;
+`tests/bats/install_tests.bats` fails when they differ.
 
 ### Testing Changes
 After modifying installation scripts, run the automated test suite:

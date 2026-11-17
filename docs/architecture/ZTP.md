@@ -1,7 +1,8 @@
 # Zero touch provisioning (ZTP)
 
 How a node gets its first configuration: the one setting that decides it, which methods each
-model takes, where that is checked, who reads it, and what a container gets with ZTP off. How
+model takes, where that is checked, who reads it, the blank disk templates the disk and USB media
+start from, and what a container gets with ZTP off. How
 the config reaches a VM guest is in [`GUEST_PROVISIONING.md`](GUEST_PROVISIONING.md); the media
 it is written to is in [`ZTP_ISO.md`](ZTP_ISO.md). The modes of the rendered config files, and which process reads each,
 are in [`LAB_FOLDER.md`](LAB_FOLDER.md#node-config-modes).
@@ -199,6 +200,52 @@ NVRAM once a config has been saved there with `write memory`. `/tmp/run` is `<la
 so a saved config survives `down` and `resume`; a redeploy makes the node's folder again, which
 clears it. The owner's login uses an MD5 `key-hash` RSA key, as on IOSv.
 
+## Blank disks
+
+The `disk` and `usb` methods, and Flatcar's data disk, start from a blank disk template in
+`/opt/sherpa/images/blank_disk/` (`konst::SHERPA_BLANK_DISK_DIR`). `node_ops` copies the template
+into the node's folder and writes the config onto the copy with `mcopy` (FAT) or `e2cp` (ext4);
+the template itself is never changed. A missing template fails the node's ZTP with
+`Error loading src file`.
+
+| File | Size | File system | Label | Used by |
+|---|---|---|---|---|
+| `fat32.img` | 64 MiB | FAT32 | none | `cumulus_linux` USB, `mikrotik_chr` config disk |
+| `junos.img` | 64 MiB | FAT16 | `vmm-data` | `juniper_vevolved` USB |
+| `iosv.img` | 131040 sectors | FAT16 | none | `cisco_iosv`, `cisco_iosvl2` config disk |
+| `ise.img` | 10 MiB | ext4 | `ISE-ZTP` | `cisco_ise` config disk |
+| `ext4-500mb.img` | 500 MiB | ext4 | `data-disk` | `flatcar_linux` data disk; Ignition mounts it by label |
+
+The same folder also gets `base.img` (64 MiB, no file system), `fat16.img` (64 MiB) and ext4
+`data-disk` disks of 100 MiB, 200 MiB and 1 to 5 GiB, which no model uses today.
+
+`sherpad init` creates the folder but no disk. The disks are made by `ensure_blank_disks` in
+`scripts/sherpa_install.sh`, after the directories are set up, and in `scripts/sherpa_update.sh`,
+before `sherpad` stops, on every update including one with nothing to install, so a server
+installed before the installer made them gets the missing ones. The function:
+
+- creates `images` and `blank_disk` `0775 sherpa:sherpa` when they are missing, and leaves
+  existing ones as they are;
+- creates each missing disk `0644 sherpa:sherpa`, with `qemu-img create -f raw` and then
+  `mkfs.fat`, `mkfs.vfat` or `mkfs.ext4`;
+- never changes a file that exists, whatever its contents, since node disks may have been copied
+  from it, and leaves a symlink of a disk's name alone;
+- builds each disk under a temporary name in the same folder and links it to its own name with
+  `ln`, which fails rather than replace a file made meanwhile. A disk that fails to build leaves
+  no file; the script stops with the disk's name.
+
+The disk table and the functions are one section, between `# BEGIN blank disks` and
+`# END blank disks`, copied in both scripts, because each script is fetched alone with `curl`
+and has nothing next to it to run. `tests/bats/install_tests.bats` fails when the two copies
+differ. The tools are in `qemu-utils`, `dosfstools` and `e2fsprogs`: the installer installs them
+with its other packages, and the update script installs them when one is missing.
+
+`iosv.img` was made by `create_iosv_disk.sh`, which wrote a hand-made boot sector and then ran
+`mkfs.vfat -I` over it; mkfs replaces the whole boot sector, so the result is the same as
+`mkfs.vfat -I` on a zeroed file of that size, apart from the random serial number.
+`create_blank_disks.sh` stopped at its second `ext4-500mb.img` line, whose `500MB` size
+`qemu-img` refuses, so the 1 to 5 GiB disks were never made by it. Both scripts are gone.
+
 ## Storage and migration
 
 `node_image.ztp` is the table's last column, written with `enum_text` and read with
@@ -226,3 +273,6 @@ and check each migrated row against this table and `check_ztp`.
 - Integration: `lab_lifecycle::frr_gets_its_config_mounts_and_command_only_with_ztp_on` and
   `up_refuses_an_unsupported_ztp_setting_before_creating_anything`, against real Docker.
 - Lab: `tests/labs/container-ztp`.
+- Blank disks: `tests/bats/install_tests.bats` makes every disk in a temporary folder and checks
+  its size, file system and label with `blkid` and `file`, that existing files and folders are
+  left alone, and, after a real install, the disks under `/opt/sherpa`.

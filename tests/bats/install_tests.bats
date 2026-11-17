@@ -300,6 +300,8 @@ _source() {
 _stub_docker_with_containers() {
     {
         echo '#!/bin/bash'
+        # The stub's own variables: they expand when the stub runs, not here.
+        # shellcheck disable=SC2016
         echo 'if [ "$1" = "ps" ]; then'
         for name in "$@"; do
             echo "    echo '${name}'"
@@ -484,6 +486,166 @@ _stub_docker_with_containers() {
 }
 
 # ============================================================
+# Blank Disks
+# ============================================================
+
+# Each blank disk as "name bytes type label FAT-bits": what the ZTP code in crates/server
+# expects. "-" is none.
+_EXPECTED_BLANK_DISKS="base.img 67108864 - - -
+fat16.img 67108864 vfat - 16
+fat32.img 67108864 vfat - 32
+junos.img 67108864 vfat vmm-data 16
+iosv.img 67092480 vfat - 16
+ise.img 10485760 ext4 ISE-ZTP -
+ext4-100mb.img 104857600 ext4 data-disk -
+ext4-200mb.img 209715200 ext4 data-disk -
+ext4-500mb.img 524288000 ext4 data-disk -
+ext4-1g.img 1073741824 ext4 data-disk -
+ext4-2g.img 2147483648 ext4 data-disk -
+ext4-3g.img 3221225472 ext4 data-disk -
+ext4-4g.img 4294967296 ext4 data-disk -
+ext4-5g.img 5368709120 ext4 data-disk -"
+
+# Check every blank disk in the given folder has its size, file system and label, and print the
+# first that does not.
+_check_blank_disks() {
+    local dir="$1" name bytes type label bits disk
+    while read -r name bytes type label bits; do
+        disk="${dir}/${name}"
+        [ -f "${disk}" ] || { echo "${name}: missing"; return 1; }
+        [ "$(stat -c '%s' "${disk}")" = "${bytes}" ] || { echo "${name}: size"; return 1; }
+        if [ "${type}" = "-" ]; then
+            [ -z "$(blkid -p -o value -s TYPE "${disk}")" ] || { echo "${name}: has a file system"; return 1; }
+            continue
+        fi
+        [ "$(blkid -p -o value -s TYPE "${disk}")" = "${type}" ] || { echo "${name}: type"; return 1; }
+        if [ "${label}" = "-" ]; then
+            [ -z "$(blkid -p -o value -s LABEL "${disk}")" ] || { echo "${name}: has a label"; return 1; }
+        else
+            [ "$(blkid -p -o value -s LABEL "${disk}")" = "${label}" ] || { echo "${name}: label"; return 1; }
+        fi
+        if [ "${bits}" != "-" ]; then
+            [[ "$(file -b "${disk}")" == *"FAT (${bits} bit)"* ]] || { echo "${name}: FAT bits"; return 1; }
+        fi
+    done <<< "${_EXPECTED_BLANK_DISKS}"
+}
+
+_require_blank_disk_tools() {
+    local tool
+    for tool in qemu-img mkfs.fat mkfs.vfat mkfs.ext4 blkid file; do
+        command -v "${tool}" >/dev/null 2>&1 || skip "${tool} is not installed"
+    done
+}
+
+# Run ensure_blank_disks on an images folder under WORK_DIR, with chown stubbed.
+_run_ensure_blank_disks() {
+    printf '#!/bin/bash\necho "$@" >> "%s/chown.args"\nexit 0\n' "${WORK_DIR}" > "${MOCK_BIN}/chown"
+    chmod +x "${MOCK_BIN}/chown"
+    run bash -c "
+        set +e
+        PATH='${MOCK_BIN}:${PATH}'
+        source '${STRIPPED_SCRIPT}'
+        SHERPA_IMAGES_DIR='${WORK_DIR}/images'
+        SHERPA_BLANK_DISK_DIR='${WORK_DIR}/images/blank_disk'
+        $1
+        ensure_blank_disks
+    "
+}
+
+@test "blank disks: the install and update scripts carry the same section" {
+    local update="${BATS_TEST_DIRNAME}/../../scripts/sherpa_update.sh"
+    local section='/^# BEGIN blank disks$/,/^# END blank disks$/p'
+    [ -n "$(sed -n "${section}" "${SCRIPT}")" ]
+    [ "$(sed -n "${section}" "${SCRIPT}")" = "$(sed -n "${section}" "${update}")" ]
+}
+
+@test "blank disks: the install makes them after its folders, with the packages of their tools" {
+    grep -A1 '^    setup_directories$' "${SCRIPT}" | grep -qx '    ensure_blank_disks'
+    for package in qemu-utils dosfstools e2fsprogs; do
+        sed -n '/^install_system_packages()/,/^}/p' "${SCRIPT}" | grep -qx "        ${package}"
+    done
+}
+
+@test "ensure_blank_disks: creates every disk with its size, file system and label" {
+    _require_blank_disk_tools
+    WORK_DIR="$(mktemp -d)"
+    _run_ensure_blank_disks
+    [ "$status" -eq 0 ]
+    run _check_blank_disks "${WORK_DIR}/images/blank_disk"
+    echo "${output}"
+    [ "$status" -eq 0 ]
+    [ "$(stat -c '%a' "${WORK_DIR}/images/blank_disk")" = "775" ]
+    [ "$(stat -c '%a' "${WORK_DIR}/images/blank_disk/fat32.img")" = "644" ]
+    grep -qx "sherpa:sherpa ${WORK_DIR}/images/blank_disk" "${WORK_DIR}/chown.args"
+    # No temporary file is left behind.
+    [ "$(find "${WORK_DIR}/images/blank_disk" -name '.*' -type f | wc -l)" -eq 0 ]
+    rm -rf "${WORK_DIR}"
+}
+
+@test "ensure_blank_disks: leaves existing disks and folders as they are" {
+    _require_blank_disk_tools
+    WORK_DIR="$(mktemp -d)"
+    mkdir -p "${WORK_DIR}/images/blank_disk"
+    chmod 750 "${WORK_DIR}/images/blank_disk"
+    printf 'a node disk was copied from this\n' > "${WORK_DIR}/images/blank_disk/fat32.img"
+    chmod 600 "${WORK_DIR}/images/blank_disk/fat32.img"
+    ln -s "${WORK_DIR}/nowhere" "${WORK_DIR}/images/blank_disk/junos.img"
+    local before
+    before="$(sha256sum "${WORK_DIR}/images/blank_disk/fat32.img")"
+    _run_ensure_blank_disks
+    [ "$status" -eq 0 ]
+    [ "$(sha256sum "${WORK_DIR}/images/blank_disk/fat32.img")" = "${before}" ]
+    [ "$(stat -c '%a' "${WORK_DIR}/images/blank_disk/fat32.img")" = "600" ]
+    [ "$(stat -c '%a' "${WORK_DIR}/images/blank_disk")" = "750" ]
+    [ -L "${WORK_DIR}/images/blank_disk/junos.img" ]
+    [ ! -e "${WORK_DIR}/nowhere" ]
+    run grep -q "blank_disk$" "${WORK_DIR}/chown.args"
+    [ "$status" -ne 0 ]
+    [ -f "${WORK_DIR}/images/blank_disk/ise.img" ]
+    [ "$(blkid -p -o value -s LABEL "${WORK_DIR}/images/blank_disk/ise.img")" = "ISE-ZTP" ]
+    rm -rf "${WORK_DIR}"
+}
+
+@test "ensure_blank_disks: a second run changes nothing" {
+    _require_blank_disk_tools
+    WORK_DIR="$(mktemp -d)"
+    _run_ensure_blank_disks
+    [ "$status" -eq 0 ]
+    # Inode, size and modification time: hashing 16 GB of sparse disks takes minutes.
+    local before
+    before="$(stat -c '%n %i %s %Y' "${WORK_DIR}"/images/blank_disk/*.img)"
+    _run_ensure_blank_disks
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"Created blank disk"* ]]
+    [ "$(stat -c '%n %i %s %Y' "${WORK_DIR}"/images/blank_disk/*.img)" = "${before}" ]
+    rm -rf "${WORK_DIR}"
+}
+
+@test "ensure_blank_disks: refuses, naming the tools and packages, when a tool is missing" {
+    WORK_DIR="$(mktemp -d)"
+    _run_ensure_blank_disks "BLANK_DISK_TOOLS=(qemu-img no-such-mkfs)"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"no-such-mkfs"* ]]
+    [[ "$output" == *"qemu-utils dosfstools e2fsprogs"* ]]
+    [ ! -e "${WORK_DIR}/images" ]
+    rm -rf "${WORK_DIR}"
+}
+
+@test "ensure_blank_disks: a disk that fails to build leaves no file behind" {
+    _require_blank_disk_tools
+    WORK_DIR="$(mktemp -d)"
+    printf '#!/bin/bash\nexit 1\n' > "${MOCK_BIN}/mkfs.ext4"
+    chmod +x "${MOCK_BIN}/mkfs.ext4"
+    _run_ensure_blank_disks
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Could not create blank disk ise.img"* ]]
+    [ ! -e "${WORK_DIR}/images/blank_disk/ise.img" ]
+    [ "$(find "${WORK_DIR}/images/blank_disk" -name '.*' -type f | wc -l)" -eq 0 ]
+    [ -f "${WORK_DIR}/images/blank_disk/iosv.img" ]
+    rm -rf "${WORK_DIR}"
+}
+
+# ============================================================
 # Post-install Integration Tests
 # (skipped unless /opt/sherpa exists — requires completed install as root)
 # ============================================================
@@ -585,6 +747,16 @@ _require_install() {
     run bash -c "stat -c '%U:%G' /opt/sherpa"
     [ "$status" -eq 0 ]
     [[ "$output" == "sherpa:sherpa" ]]
+}
+
+@test "integration: every blank disk exists with its size, file system and label" {
+    _require_install
+    run _check_blank_disks /opt/sherpa/images/blank_disk
+    echo "${output}"
+    [ "$status" -eq 0 ]
+    run bash -c "stat -c '%a %U:%G' /opt/sherpa/images/blank_disk/*.img | sort -u"
+    [ "$status" -eq 0 ]
+    [[ "$output" == "644 sherpa:sherpa" ]]
 }
 
 @test "integration: sherpad binary installed with correct permissions" {
