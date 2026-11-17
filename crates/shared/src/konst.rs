@@ -112,7 +112,6 @@ pub const RESERVED_USERNAMES: &[&str] = &[
 ];
 /// Prefixes of reserved system account names.
 pub const RESERVED_USERNAME_PREFIXES: &[&str] = &["systemd-"];
-pub const SHERPA_PASSWORD: &str = "Everest1953!";
 pub const SHERPA_SSH_CONFIG_FILE: &str = "sherpa_ssh_config";
 pub const SHERPA_KNOWN_HOSTS_FILE: &str = "sherpa_known_hosts";
 /// The lab CA certificate, saved in the lab folder for clients to trust lab nodes.

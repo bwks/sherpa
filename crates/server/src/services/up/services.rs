@@ -22,8 +22,6 @@ pub(super) struct ServiceInputs<'a> {
     pub(super) container_nodes: &'a [topology::NodeExpanded],
     pub(super) lab_clusters: &'a [LabCluster],
     pub(super) lab_ca: &'a LabCa,
-    /// The lab owner, given an account in each Keycloak realm.
-    pub(super) owner: &'a str,
     pub(super) timeout: Duration,
 }
 
@@ -93,7 +91,6 @@ pub(super) async fn start_lab_services(
                 &node.name,
                 node_address,
                 &inputs.lab_ca.pair.cert,
-                inputs.owner,
                 inputs.timeout,
                 progress,
             )

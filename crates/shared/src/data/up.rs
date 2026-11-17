@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -62,9 +63,31 @@ pub struct UpResponse {
     /// Vault nodes Sherpa initialised, with their credentials.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub vaults: Vec<VaultInfo>,
-    /// Keycloak nodes Sherpa set up a realm on, with the realm's users.
+    /// Keycloak nodes Sherpa set up a realm on, with their admin and the realm's users.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keycloaks: Vec<KeycloakInfo>,
+    /// `SurrealDB` nodes, with their root user.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub surreal_dbs: Vec<SurrealDbInfo>,
+}
+
+/// A login Sherpa generated for an application node's own administrator: a Keycloak node's
+/// `master` realm admin or a `SurrealDB` node's root user. Each node has its own, kept with the
+/// lab's files on the server and handed to the lab owner only. Its `Debug` form hides the
+/// password.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdminCredential {
+    pub username: String,
+    pub password: String,
+}
+
+impl fmt::Debug for AdminCredential {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AdminCredential")
+            .field("username", &self.username)
+            .field("password", &"<hidden>")
+            .finish()
+    }
 }
 
 /// A Keycloak node and the realm Sherpa made on it.
@@ -76,8 +99,24 @@ pub struct KeycloakInfo {
     pub address: String,
     /// The realm Sherpa made.
     pub realm: String,
+    /// The `master` realm's admin, which Keycloak creates at its first start. `None` for a node
+    /// created before Sherpa 0.7.0 and not redeployed since, which still has the admin every
+    /// node had then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admin: Option<AdminCredential>,
     /// The realm's users and their passwords.
     pub users: Vec<KeycloakUser>,
+}
+
+/// A `SurrealDB` node and its root user.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SurrealDbInfo {
+    /// Node name.
+    pub name: String,
+    /// Base address, `http://<management address>:8000`.
+    pub address: String,
+    /// The root user `SurrealDB` starts with.
+    pub admin: AdminCredential,
 }
 
 /// A user in a Keycloak realm Sherpa made.

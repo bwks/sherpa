@@ -19,6 +19,7 @@ The folder name is `konst::LAB_STATE_DIR`; `shared` uses `LabFolder` too, to fin
 | `.sherpa/ca/lab-ca.crt` | `lab_files::write_lab_ca` | default |
 | `.sherpa/vault/vault-<node>.toml` | `vault_credentials` | 0600 |
 | `.sherpa/keycloak/keycloak-<node>.toml` | `keycloak_credentials` | 0600 |
+| `.sherpa/surrealdb/surrealdb-<node>.toml` | `surreal_db_credentials` | 0600 |
 | `.sherpa/talos/talosconfig-<cluster>` | `cluster_credentials` | 0600 |
 | `.sherpa/k8s/kubeconfig-<cluster>` | `cluster_credentials` | 0600 |
 
@@ -46,7 +47,8 @@ client reads them as before. Each Talos cluster's plan is in the database too. T
 saved there were imported and deleted at startup by 0.6.4 and 0.6.5; 0.7.0 ignores any left
 behind (see [`SERVER.md`](SERVER.md#files-older-releases-left-in-lab-folders)). What the server's
 folder keeps is the lab's CA and the container and VM certificates, Talos,
-Vault and Keycloak credentials, and the files read while a node exists: the dnsmasq config
+Vault, Keycloak and SurrealDB credentials (each 0600 in `vault/`, `keycloak/` and `surrealdb/`,
+the application nodes' admins among them, see [`LAB_CA.md`](LAB_CA.md#keycloak)), and the files read while a node exists: the dnsmasq config
 (`ztp/dnsmasq/dnsmasq.conf`, mounted in the boot container), the TFTP and HTTP files of the nodes
 that boot by them (`ztp/tftp/`, `ztp/configs/`) and each container's config mounts (`<node>/`).
 A lab from before 0.7.0 also still has its old SSH key pair, `sherpa_ssh_key` and `.pub`, until it

@@ -198,7 +198,8 @@ pub async fn update_node_resources(
     .await
 }
 
-/// Record how a node shows it is ready: its ready port and whether its check is skipped.
+/// Record how a node shows it is ready: its ready port, whether its check is skipped and
+/// whether its SSH server must show Sherpa's ready marker.
 ///
 /// # Errors
 /// - If the node doesn't exist
@@ -216,6 +217,7 @@ pub async fn update_node_ready_check(
             key_of(&node_id, NODE_TABLE)?.into(),
             ready_check.port.into(),
             ready_check.skip.into(),
+            ready_check.sshd_marker.into(),
         ]),
         "ready check",
     )

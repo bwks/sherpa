@@ -13,7 +13,7 @@
 **What to test:**
 - Renders valid YAML #cloud-config document `[unit]` **P0**
 - Hostname and FQDN set correctly `[unit]` **P0**
-- The lab owner's `CloudInitUser` has their SSH keys, a hashed device password (SHA-512 crypt, or plain text on OpenBSD) and passwordless sudo, doas or wheel; there is no `sherpa` user and no `Everest1953!` password `[unit]` **P0**
+- The lab owner's `CloudInitUser` has their SSH keys, a hashed device password (SHA-512 crypt, or plain text on OpenBSD) and passwordless sudo, doas or wheel; there is no `sherpa` user and no shared password `[unit]` **P0**
 - SSH password auth setting applied `[unit]` **P1**
 - Packages list included when provided `[unit]` **P1**
 - Write-files section renders with correct encoding and permissions `[unit]` **P1**

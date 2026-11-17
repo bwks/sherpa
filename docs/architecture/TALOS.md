@@ -252,7 +252,7 @@ still probe workers' API port, which works because the VIP is up in an existing 
 | `resume` | Unchanged; Talos keeps its state on disk. |
 | `redeploy` worker | Config regenerated from the saved secrets and the stored plan; the node rejoins. |
 | `redeploy` Vault | A new, empty Vault: initialised and unsealed again, then `grant_vault_access` sets up every saved cluster that uses it. Secrets written to the old Vault are gone. |
-| `redeploy` Keycloak | A new, empty Keycloak: the realm is made again with the saved users and passwords. |
+| `redeploy` Keycloak | A new, empty Keycloak, started with its saved admin: the realm is made again with the saved users and passwords (see [`LAB_CA.md`](LAB_CA.md#keycloak)). |
 | `redeploy` controller | Refused (`talos::ensure_redeployable`): its etcd member would have to be removed first. |
 | `download` | Returns each cluster's talosconfig and kubeconfig, with its endpoint and load balancer addresses from the stored plan (`DownloadLabResponse::clusters`). |
 | `destroy` | Stops an `up` still bootstrapping or waiting for the cluster first (`lab_operations`), so credentials are never written after the cluster directory is removed with the lab directory. |

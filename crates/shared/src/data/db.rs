@@ -118,6 +118,11 @@ pub struct ReadyCheck {
     pub port: Option<u16>,
     /// The manifest's `ready_check.skip`: the node is ready once it runs.
     pub skip: bool,
+    /// Whether the node's SSH server, on the SSH port, must show
+    /// [`SHERPA_SSHD_READY_MARKER`](crate::konst::SHERPA_SSHD_READY_MARKER) in its identification
+    /// line as well (`ModelKind::sshd_ready_marker`): a Windows node with cloud-init ZTP, whose
+    /// SSH server answers before its owner can log in.
+    pub sshd_marker: bool,
 }
 
 /// What a node was given when it was created or redeployed.

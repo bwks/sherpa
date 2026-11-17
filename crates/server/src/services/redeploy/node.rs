@@ -32,6 +32,7 @@ use shared::data;
 use shared::data::{
     LinkReport, NodeCpuPins, OperationEvent, RedeployRequest, RedeployResponse, StatusKind,
 };
+use shared::validators::effective_ztp;
 
 // Redeploy updates the lab's shared definition and folder. Serialize redeploys within each lab
 // so one node's update cannot interleave with another node's concurrent one.
@@ -232,6 +233,7 @@ async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
         &node_ops::stored_ready_check(
             redeploy.target_node.model_kind,
             &redeploy.target_node.ready_check,
+            effective_ztp(redeploy.target_node.ztp.method, &redeploy.node_image),
         ),
     )
     .await?;

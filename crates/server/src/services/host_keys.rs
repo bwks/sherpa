@@ -16,7 +16,11 @@ use crate::services::node_ops::{self, VmReadiness};
 use crate::services::ssh_config;
 
 /// Read the node's host key, record it if it changed, and return the lab's `known_hosts`
-/// file, built from the database. A node whose SSH server does not answer keeps its recorded key.
+/// file, built from the database. A node that is not ready on SSH keeps its recorded key: one
+/// whose SSH server does not answer, and a Windows node whose SSH server answers but does not
+/// yet show Sherpa's ready marker (`ReadyCheck::sshd_marker`). Until then that server runs the
+/// image's config, not the one the owner logs in with; the readiness probe records the key once
+/// the node is ready.
 ///
 /// Only the lab's owner may ask, admins included: the file only serves the owner's SSH
 /// connections to the lab's nodes.
@@ -59,12 +63,14 @@ pub async fn refresh_node_host_key(
         .as_deref()
         .with_context(|| format!("Node '{node_name}' has no management address"))?;
 
-    let changed = match node_ops::check_vm_ready(ip, SSH_PORT, None).await? {
+    let changed = match node_ops::check_vm_ready(ip, SSH_PORT, db_node.ready_check.sshd_marker)
+        .await?
+    {
         VmReadiness::Ready {
             host_key: Some(host_key),
         } => ssh_config::record_node_host_key(&state.db, &db_node, &host_key).await?,
         VmReadiness::Ready { host_key: None } | VmReadiness::NotReady => {
-            tracing::info!("Node SSH server not answering; keeping the recorded key");
+            tracing::info!("Node SSH server not answering or not ready; keeping the recorded key");
             false
         }
     };

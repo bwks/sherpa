@@ -33,7 +33,9 @@ use crate::api::errors::ApiError;
 use crate::api::extractors::AuthenticatedUserFromCookie;
 
 use shared::data::{LabNodeActionResponse, LabState, NodeModel, RedeployRequest, UpRequest, Ztp};
-use shared::konst::{LAB_FILE_NAME, SHERPA_KNOWN_HOSTS_FILE, SHERPA_SSH_CONFIG_FILE};
+use shared::konst::{
+    LAB_FILE_NAME, SHERPA_KNOWN_HOSTS_FILE, SHERPA_LABS_PATH, SHERPA_SSH_CONFIG_FILE,
+};
 use shared::util::{generate_lab_name, get_id_for_user};
 use shared::validators::effective_ztp;
 use topology::Manifest;
@@ -626,9 +628,15 @@ pub async fn lab_download_handler(
 ) -> Result<Response, ApiError> {
     let auth = auth.into_context();
     let db_lab = require_lab_owner(&auth, &state.db, &lab_id).await?;
-    let files = download::download_lab_files(&auth, &lab_id, &state)
-        .await
-        .map_err(ApiError::from)?;
+    let files = download::download_lab_files(
+        &auth,
+        &lab_id,
+        &state.db,
+        state.config.server_ipv4,
+        SHERPA_LABS_PATH.as_ref(),
+    )
+    .await
+    .map_err(ApiError::from)?;
 
     let mut entries = vec![
         (LAB_FILE_NAME, files.lab_info.to_string()),

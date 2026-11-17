@@ -33,9 +33,13 @@ use crate::konst::READINESS_SLEEP;
 /// How a node started by resume shows that it is ready, as `up` checks it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ReadinessCheck {
-    /// A virtual machine or container accepting connections on this port, checked as `up`
-    /// checks VMs (`node_ops::check_vm_ready`).
-    Port(u16),
+    /// A virtual machine or container accepting connections on `port`, checked as `up` checks
+    /// VMs (`node_ops::check_vm_ready`), its SSH server showing Sherpa's ready marker when
+    /// `sshd_marker` is set.
+    Port {
+        port: u16,
+        sshd_marker: bool,
+    },
     Unikernel {
         ready_port: Option<u16>,
     },
@@ -352,7 +356,10 @@ fn readiness_check(
             ready_port: ready_check.port,
         }),
         NodeKind::VirtualMachine | NodeKind::Container => {
-            ready_check.port.map(ReadinessCheck::Port)
+            ready_check.port.map(|port| ReadinessCheck::Port {
+                port,
+                sshd_marker: ready_check.sshd_marker,
+            })
         }
     }
 }
@@ -404,8 +411,10 @@ fn report(progress: Option<&ProgressSender>, message: String, kind: StatusKind) 
 /// Probe one node once. Probe errors count as not ready yet.
 async fn probe(target: &ReadinessTarget, state: &AppState) -> VmReadiness {
     let outcome = match (&target.check, target.mgmt_ipv4.as_deref()) {
-        (ReadinessCheck::Port(port), Some(ip)) => node_ops::check_vm_ready(ip, *port, None).await,
-        (ReadinessCheck::Port(_), None) => Ok(VmReadiness::NotReady),
+        (ReadinessCheck::Port { port, sshd_marker }, Some(ip)) => {
+            node_ops::check_vm_ready(ip, *port, *sshd_marker).await
+        }
+        (ReadinessCheck::Port { .. }, None) => Ok(VmReadiness::NotReady),
         (ReadinessCheck::Unikernel { ready_port }, ip) => match state.qemu.connect() {
             Ok(conn) => {
                 match node_ops::check_unikernel_ready(&conn, &target.device_name, *ready_port, ip) {
@@ -869,13 +878,25 @@ mod tests {
             memory: None,
             vnc_port: None,
             ssh_host_key: None,
-            ready_check: ReadyCheck { port, skip },
+            ready_check: stored(port, skip),
             ssh_username: None,
         }
     }
 
     fn stored(port: Option<u16>, skip: bool) -> ReadyCheck {
-        ReadyCheck { port, skip }
+        ReadyCheck {
+            port,
+            skip,
+            sshd_marker: false,
+        }
+    }
+
+    /// A check on `port` without Sherpa's SSH ready marker.
+    fn on_port(port: u16) -> ReadinessCheck {
+        ReadinessCheck::Port {
+            port,
+            sshd_marker: false,
+        }
     }
 
     #[test]
@@ -883,7 +904,7 @@ mod tests {
         let ssh = stored(Some(SSH_PORT), false);
         assert_eq!(
             readiness_check(NodeKind::VirtualMachine, true, &ssh),
-            Some(ReadinessCheck::Port(SSH_PORT))
+            Some(on_port(SSH_PORT))
         );
         assert_eq!(readiness_check(NodeKind::VirtualMachine, false, &ssh), None);
         let none = stored(None, false);
@@ -940,7 +961,7 @@ mod tests {
         let nodes = vec![db_node("vm", "10.0.0.11", Some(SSH_PORT), false)];
         let started = vec![("vm".to_string(), NodeKind::VirtualMachine)];
         let targets = readiness_targets("abcd1234", &nodes, &started);
-        assert_eq!(targets[0].check, ReadinessCheck::Port(SSH_PORT));
+        assert_eq!(targets[0].check, on_port(SSH_PORT));
     }
 
     #[test]
@@ -948,10 +969,25 @@ mod tests {
         for port in [TALOS_API_PORT, 6443, SSH_PORT] {
             assert_eq!(
                 readiness_check(NodeKind::VirtualMachine, true, &stored(Some(port), false)),
-                Some(ReadinessCheck::Port(port)),
+                Some(on_port(port)),
                 "{port}"
             );
         }
+    }
+
+    #[test]
+    fn a_windows_node_waits_for_sherpa_s_ready_marker_as_up_does() {
+        let windows = ReadyCheck {
+            sshd_marker: true,
+            ..stored(Some(SSH_PORT), false)
+        };
+        assert_eq!(
+            readiness_check(NodeKind::VirtualMachine, true, &windows),
+            Some(ReadinessCheck::Port {
+                port: SSH_PORT,
+                sshd_marker: true
+            })
+        );
     }
 
     #[test]
@@ -959,7 +995,7 @@ mod tests {
         let web = stored(Some(80), false);
         assert_eq!(
             readiness_check(NodeKind::Container, true, &web),
-            Some(ReadinessCheck::Port(80))
+            Some(on_port(80))
         );
         // An unpaused container resumes a process that already answered.
         assert_eq!(readiness_check(NodeKind::Container, false, &web), None);
@@ -993,9 +1029,9 @@ mod tests {
         assert_eq!(targets[0].name, "vm");
         assert_eq!(targets[0].device_name, "vm-abcd1234");
         assert_eq!(targets[0].mgmt_ipv4.as_deref(), Some("10.0.0.11"));
-        assert_eq!(targets[0].check, ReadinessCheck::Port(8443));
+        assert_eq!(targets[0].check, on_port(8443));
         assert_eq!(targets[1].name, "web");
-        assert_eq!(targets[1].check, ReadinessCheck::Port(80));
+        assert_eq!(targets[1].check, on_port(80));
     }
 
     #[test]

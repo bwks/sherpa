@@ -116,7 +116,7 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
         let Some(port) = probe_port(node, running) else {
             continue;
         };
-        let probe = probe_node(state, node.node, port).await;
+        let probe = probe_node(&state.db, node.node, port).await;
         probes.insert(node.node.name.clone(), probe);
     }
 
@@ -354,17 +354,19 @@ fn probe_for(node: &ScannedNode<'_>, probed: Option<Probe>) -> Probe {
 }
 
 /// Probe a running node on `port`, and record the host key it offers, which it does only on
-/// SSH. Returns the probe's result.
+/// SSH. The node's stored check decides what counts as ready, as in `up`: a Windows node's SSH
+/// server must show Sherpa's ready marker (`ReadyCheck::sshd_marker`). Returns the probe's
+/// result.
 #[instrument(skip_all, fields(node = %node.name, port), level = "debug")]
-async fn probe_node(state: &AppState, node: &DbNode, port: u16) -> Probe {
+async fn probe_node(db: &db::Database, node: &DbNode, port: u16) -> Probe {
     let Some(ip) = &node.mgmt_ipv4 else {
         tracing::debug!("Node has no management address");
         return Probe::NotReady;
     };
-    match node_ops::check_vm_ready(ip, port, None).await {
+    match node_ops::check_vm_ready(ip, port, node.ready_check.sshd_marker).await {
         Ok(VmReadiness::Ready {
             host_key: Some(host_key),
-        }) => match ssh_config::record_node_host_key(&state.db, node, &host_key).await {
+        }) => match ssh_config::record_node_host_key(db, node, &host_key).await {
             Ok(_) => Probe::Ready,
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to record node host key");
@@ -389,12 +391,14 @@ mod tests {
     use bollard::secret::ContainerStateStatusEnum;
     use shared::data::{NodeModel, ReadyCheck};
 
+    use crate::services::node_ops::tests::TestSshd;
     use crate::services::p2p_links::fake::FakeHost;
 
     /// A virtual machine's stored check on SSH, as `up` stores it for most models.
     const SSH_CHECK: ReadyCheck = ReadyCheck {
         port: Some(SSH_PORT),
         skip: false,
+        sshd_marker: false,
     };
 
     fn db_node(state: NodeState, has_key: bool) -> DbNode {
@@ -509,6 +513,7 @@ mod tests {
         let check = ReadyCheck {
             port: Some(8443),
             skip: false,
+            sshd_marker: false,
         };
         let starting = checked(NodeState::Starting, false, check.clone());
         let vm = scanned(&starting, NodeKind::VirtualMachine);
@@ -531,6 +536,7 @@ mod tests {
             ReadyCheck {
                 port: Some(80),
                 skip: false,
+                sshd_marker: false,
             },
         );
         let web = scanned(&node, NodeKind::Container);
@@ -548,6 +554,7 @@ mod tests {
             ReadyCheck {
                 port: Some(80),
                 skip: false,
+                sshd_marker: false,
             },
         );
         assert_eq!(
@@ -575,6 +582,7 @@ mod tests {
         let skipped = ReadyCheck {
             port: Some(SSH_PORT),
             skip: true,
+            sshd_marker: false,
         };
         let keyed = checked(NodeState::Starting, true, skipped.clone());
         let vm = scanned(&keyed, NodeKind::VirtualMachine);
@@ -592,6 +600,7 @@ mod tests {
             ReadyCheck {
                 port: Some(80),
                 skip: true,
+                sshd_marker: false,
             },
         );
         let web = scanned(&container, NodeKind::Container);
@@ -672,5 +681,35 @@ mod tests {
         repair_management_checksums(&host, &nodes, &runtimes).await;
 
         assert!(!host.offload_on.borrow().contains(&11));
+    }
+
+    #[tokio::test]
+    #[ignore = "runs /usr/sbin/sshd"]
+    async fn the_scanner_waits_for_a_windows_node_s_ready_marker() {
+        let db = db::open_in_memory().await.unwrap();
+        let windows_check = ReadyCheck {
+            sshd_marker: true,
+            ..SSH_CHECK
+        };
+        let mut node = checked(NodeState::Starting, false, windows_check);
+        node.mgmt_ipv4 = Some("127.0.0.1".to_string());
+
+        // The image's SSH server, before cloudbase-init gives it Sherpa's config.
+        let image_config = TestSshd::start(false);
+        assert_eq!(
+            probe_node(&db, &node, image_config.port).await,
+            Probe::NotReady
+        );
+        let sherpa_config = TestSshd::start(true);
+        assert_eq!(
+            probe_node(&db, &node, sherpa_config.port).await,
+            Probe::Ready
+        );
+        // A node that does not wait for the marker is ready on the image's SSH server.
+        node.ready_check.sshd_marker = false;
+        assert_eq!(
+            probe_node(&db, &node, image_config.port).await,
+            Probe::Ready
+        );
     }
 }

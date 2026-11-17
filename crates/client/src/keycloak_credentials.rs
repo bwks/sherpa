@@ -3,13 +3,13 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde_derive::Serialize;
 
-use shared::data::{KeycloakInfo, KeycloakUser};
+use shared::data::{AdminCredential, KeycloakInfo, KeycloakUser};
 use shared::util::{Emoji, LabFolder};
 
 use crate::lab_files::ensure_lab_subdir;
 use crate::secret_file::write_secret_file;
 
-/// A Keycloak node's realm users file, `keycloak-<node>.toml`.
+/// A Keycloak node's credentials file, `keycloak-<node>.toml`: its admin and its realm users.
 #[derive(Debug, Serialize)]
 struct KeycloakCredentialsFile<'a> {
     address: &'a str,
@@ -18,6 +18,12 @@ struct KeycloakCredentialsFile<'a> {
     issuer: String,
     /// Where the realm's users manage their account.
     account_console: String,
+    /// Where the admin logs in to the `master` realm.
+    admin_console: String,
+    /// The node's own admin, in the `master` realm. A node created before Sherpa 0.7.0 has none
+    /// until it is redeployed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    admin: Option<&'a AdminCredential>,
     users: &'a [KeycloakUser],
 }
 
@@ -29,7 +35,7 @@ pub(crate) struct KeycloakFile {
     pub path: PathBuf,
 }
 
-/// Write each Keycloak node's realm, issuer and users into `folder` as
+/// Write each Keycloak node's admin, realm, issuer and users into `folder` as
 /// `.sherpa/keycloak/keycloak-<node>.toml`, readable only by the current user.
 #[tracing::instrument(level = "debug", skip_all, fields(folder = %folder.root().display(), keycloaks = keycloaks.len()))]
 pub(crate) fn write_keycloak_credentials(
@@ -48,10 +54,12 @@ pub(crate) fn write_keycloak_credentials(
             realm: &keycloak.realm,
             account_console: format!("{issuer}/account"),
             issuer: issuer.clone(),
+            admin_console: format!("{}/admin/master/console/", keycloak.address),
+            admin: keycloak.admin.as_ref(),
             users: &keycloak.users,
         })
-        .context("Failed to serialize Keycloak users")?;
-        write_secret_file(&path, &content, "Keycloak users")?;
+        .context("Failed to serialize Keycloak credentials")?;
+        write_secret_file(&path, &content, "Keycloak credentials")?;
         written.push(KeycloakFile {
             name: keycloak.name.clone(),
             issuer,
@@ -61,11 +69,11 @@ pub(crate) fn write_keycloak_credentials(
     Ok(written)
 }
 
-/// Print where each Keycloak node's realm users were written, and the realm's issuer.
+/// Print where each Keycloak node's admin and realm users were written, and the realm's issuer.
 pub(crate) fn print_keycloak_files(files: &[KeycloakFile]) {
     for keycloak in files {
         println!(
-            "{} Keycloak {} users: {}",
+            "{} Keycloak {} admin and users: {}",
             Emoji::Success,
             keycloak.name,
             keycloak.path.display()
@@ -82,12 +90,16 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
-    fn each_keycloak_gets_an_owner_only_users_file() {
+    fn each_keycloak_gets_an_owner_only_credentials_file_with_its_admin() {
         let dir = tempfile::tempdir().unwrap();
         let keycloaks = [KeycloakInfo {
             name: "kc01".to_owned(),
             address: "https://172.31.1.23:8443".to_owned(),
             realm: "sherpa".to_owned(),
+            admin: Some(AdminCredential {
+                username: "admin".to_owned(),
+                password: "kc-admin-pw".to_owned(),
+            }),
             users: vec![KeycloakUser {
                 username: "alice".to_owned(),
                 password: "s3cret".to_owned(),
@@ -113,6 +125,12 @@ mod tests {
             content["account_console"].as_str(),
             Some("https://172.31.1.23:8443/realms/sherpa/account")
         );
+        assert_eq!(
+            content["admin_console"].as_str(),
+            Some("https://172.31.1.23:8443/admin/master/console/")
+        );
+        assert_eq!(content["admin"]["username"].as_str(), Some("admin"));
+        assert_eq!(content["admin"]["password"].as_str(), Some("kc-admin-pw"));
         assert_eq!(content["users"][0]["username"].as_str(), Some("alice"));
         assert_eq!(content["users"][0]["password"].as_str(), Some("s3cret"));
         #[cfg(unix)]

@@ -1,3 +1,4 @@
+pub(crate) mod admin_credentials;
 pub mod admission;
 pub mod backup;
 pub(crate) mod boot_server;
@@ -31,6 +32,7 @@ pub mod redeploy;
 pub mod resume;
 pub mod scanner;
 pub(crate) mod ssh_config;
+pub mod surreal_db;
 pub mod talos;
 pub mod up;
 pub mod user_delete;
