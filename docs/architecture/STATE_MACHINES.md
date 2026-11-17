@@ -1573,8 +1573,8 @@ When an import finds a file already at the destination (`ExistingDisk`):
 
 - same size as the source: kept, and the copy is skipped;
 - different size: replaced through staging;
-- different size with lab overlays built on it (`libvirt::ensure_no_overlay_dependencies`):
-  the import is refused.
+- different size with lab overlays built on it (`image_lifecycle::ensure_image_has_no_overlays`,
+  which asks libvirt for each pool volume's backing file): the import is refused.
 
 Download skips the download when the file exists, since only a rename puts it there.
 

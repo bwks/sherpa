@@ -101,80 +101,104 @@ pair.
 
 ## Image definition
 
-`NodeConfig` (`crates/shared/src/data/node.rs`) holds the image fields and one field per group.
-Every field is required, because an image says how its nodes are built.
+`NodeConfig` (`crates/shared/src/data/node.rs`) holds the settings every kind of image takes,
+and exactly one kind's group: `settings` is a `KindSettings`, an enum with one variant per kind,
+so an image cannot hold another kind's settings and its kind is which variant it holds
+(`NodeConfig::kind()`). Every field is required, because an image says how its nodes are built.
 
 | Field | Type | Fields |
 |---|---|---|
-| top level | | `id`, `model`, `version`, `repo`, `os_variant`, `kind`, `default`, `memory` |
-| `cpu` | `CpuSettings` | `count`, `architecture`, `model`, `vmx` |
-| `machine` | `MachineSettings` | `kind` (the QEMU machine type), `bios` |
-| `boot_disk` | `BootDiskSettings` | `bus` |
-| `cdrom` | `CdromSettings` | `image`, `bus` |
-| `interfaces` | `InterfaceSettings` | `data_count`, `kind`, `mtu`, `prefix`, `first_index`, `management`, `reserved_count` |
-| `ztp` | `ZtpSettings` | `method` (the `Ztp` enum; `disabled` is off) |
-| `unikernel` | `Option<UnikernelSettings>` | `boot_mode`; `None` for every other kind |
+| top level | | `id`, `model`, `version`, `default`, `memory` |
+| `cpu` | `CpuSettings` | `count` |
+| `interfaces` | `InterfaceSettings` | `data_count`, `management`, `reserved_count` |
+| `settings` | `KindSettings` | one of the three groups below |
 
-`NodeConfig` and every group carry `#[serde(deny_unknown_fields)]` (in
-`crates/shared/src/data/node.rs`), so JSON with the flat names of releases before the grouping
-(`cpu_count`, `hdd_bus`, `ztp_username`) is refused, not read as defaults, and so is a `ztp`
-group that still carries `username`, `password` or `password_auth`, which 0.7.0 removed
-(schema version 26). serde's error names the field. No API takes a `NodeConfig` from a client:
-the web image editor posts an `ImageForm` and `image.import` an `ImportRequest`, and both deny
-unknown fields too, so a form or an import that sends a removed field is refused naming it, not
-saved without it. The editor shows the refusal as its notification. There is no `#[serde(flatten)]` and no rename. The groups' doc comments are the
-schema's descriptions.
+| Group | Type | Fields |
+|---|---|---|
+| `vm` | `VmSettings` | `os_variant`, `cpu` (`architecture`, `model`, `vmx`), `machine` (`kind`, the QEMU machine type, and `bios`), `boot_disk` (`bus`), `cdrom` (`image`, `bus`), `interfaces` (`kind`, the device, and `mtu`), `ztp` (`method`) |
+| `container` | `ContainerSettings` | `repo`, `ztp` (`method`) |
+| `unikernel` | `UnikernelSettings` | `boot_mode`, `cpu` (`architecture`, `model`), `machine` (`kind`), `interfaces` (`kind`, `mtu`) |
+
+Each setting is in the group of the kinds whose code reads it, checked against its readers when
+#613 split them (#614):
+
+| Setting | VM | Container | Unikernel | Read by |
+|---|---|---|---|---|
+| `memory`, `cpu.count`, `interfaces.data_count`, `interfaces.management`, `interfaces.reserved_count` | yes | yes | yes | every kind |
+| `os_variant` | yes | | | the cloud-init account (`node_ops`), the SSH provisioner check |
+| `cpu.architecture`, `cpu.model`, `machine.kind` | yes | | yes | the libvirt domain templates |
+| `cpu.vmx`, `machine.bios`, `boot_disk.bus`, `cdrom.*` | yes | | | the VM domain template, `vm_disks` |
+| `interfaces.kind`, `interfaces.mtu` | yes | | yes | the domain templates; `up::ztp::domain_interfaces` and `redeploy::vm` for the MTU |
+| `ztp.method` | yes | yes | | `effective_ztp`; a unikernel has none, and `NodeConfig::ztp()` gives it `disabled` |
+| `repo` | | yes | | `NodeConfig::container_repo` |
+| `boot_mode` | | | yes | `node_ops::generate_unikernel_setup`, `image_filename` |
+
+No container code reads a CPU, machine, disk, CD-ROM or interface device setting: Docker makes a
+container's interfaces (`up::networks`, the `container` crate), and the image's `interfaces.kind`
+was never passed to it. `interfaces.prefix` and `interfaces.first_index`, which nothing read for
+any kind, are gone; interface names come from the interface enums in `shared::util::interface`.
+
+`NodeConfig::vm()`, `container()` and `unikernel()` give the image's group when it is that kind's,
+and `interface_device()` the `interfaces` of a VM or unikernel. Code that builds a VM or a
+unikernel takes its group with an error naming the image when it is another kind's
+(`node_ops::vm_settings`, `node_ops::unikernel_settings`).
+
+On the wire the kind is the `kind` field, and the group sits beside it, named as the manifest
+names the kind groups: `vm`, `container` or `unikernel`. JSON goes through `NodeConfigFields`
+(`#[serde(try_from, into)]`), which holds one optional group per kind, so the OpenAPI schema
+lists all three. Reading it refuses a group that is not its kind's (`Node image 'ubuntu_linux'
+is a virtual_machine image, which does not take the `container` group`) with the per-kind model
+in `shared::data::kind_settings` (see [Which kinds take what](#which-kinds-take-what)), and an
+image without its kind's group.
+
+`NodeConfig`, the wire struct and every group carry `#[serde(deny_unknown_fields)]`, so JSON with
+the flat names of releases before the grouping (`cpu_count`, `hdd_bus`, `ztp_username`), or with
+a setting in the shared groups that 0.7.0 moved into a kind's group (`cpu.model`,
+`interfaces.mtu`, a top-level `os_variant`, `repo` or `machine`) or removed
+(`interfaces.prefix`), is refused, not read as defaults. serde's error names the field. No API
+takes a `NodeConfig` from a client: the web image editor posts an `ImageForm` and `image.import`
+an `ImportRequest`, and both deny unknown fields too, so a form or an import that sends a removed
+field is refused naming it, not saved without it. The groups' doc comments are the schema's
+descriptions.
 
 ### Base shapes
 
-The 63 constructors (`NodeConfig::ubuntu_linux()` and the rest) each start from one of five
-bases in `crates/shared/src/data/node_base.rs` and state only what differs, with struct update
-syntax: a whole group (`boot_disk: BootDiskSettings { .. }`), or the fields of a group that
-differ, keeping the rest of it from the base (`cpu: CpuSettings { count: 2, ..base.cpu }`).
+The 63 constructors (`NodeConfig::ubuntu_linux()` and the rest) each start from a base in
+`crates/shared/src/data/node_base.rs` and state only what differs, with struct update syntax: a
+whole group, or the fields of a group that differ, keeping the rest of it from the base
+(`machine: MachineSettings { kind: MachineType::Q35, ..vm.machine }`).
 
 | Base | Models | Shape |
 |---|---|---|
-| `cloud_init_vm(model)` | Linux, BSD and Windows VMs, app VMs, the `generic` VM | cloud-init, q35/SeaBIOS, virtio disk, 1 jumbo-MTU virtio data interface |
-| `network_os_vm(model, memory, os_variant, interfaces)` | network OS VMs | config CD-ROM ZTP, pc/SeaBIOS, virtio disk |
-| `app_container(model)` | application containers | no ZTP, 1 macvlan data interface |
-| `network_os_container(model, memory, os_variant, interfaces)` | network OS containers | config volume ZTP |
-| `unikernel(model)` | unikernels | direct-kernel boot, no data interfaces |
+| `image(model, memory, interfaces, settings)` | every model, through the others or directly | one vCPU, the kind's group as given |
+| `cloud_init_vm(model)` and its `vm` group `cloud_init_vm_settings()` | Linux, BSD and Windows VMs, app VMs, the `generic` VM | cloud-init, q35/SeaBIOS, virtio disk, 1 jumbo-MTU virtio data interface |
+| `network_os_vm_settings(os_variant, interfaces)` | network OS VMs, passed to `image` | config CD-ROM ZTP, pc/SeaBIOS, virtio disk |
+| `app_container(model, repo)` | application containers | no ZTP, 1 data interface |
+| `network_os_container(model, memory, repo, interfaces)` | network OS containers | config volume ZTP |
+| `unikernel(model, boot_mode)` | unikernels | pc machine, virtio interfaces, no data interfaces |
 
-The bases are `pub(super)`, used only by the constructors. They are one level deep: no base is
-built from another, and no model is built from another model, so changing a base changes only
-the models built from it. The network OS bases take memory, OS variant and interfaces as
-arguments because every model on them sets its own, so none can inherit a placeholder.
+The bases are `pub(super)`, used only by the constructors. A VM's base comes in two parts, the
+image and its `vm` group, because Rust cannot update one variant of an enum in place: a
+constructor that changes the group builds it from the group base and passes it to `image`. No
+model is built from another model, so changing a base changes only the models built from it.
 
-### Settings a kind does not use
+### The image views and the editor
 
-Every image carries every group, so the image API and the `node_image` table have one shape for
-all kinds. Not every kind reads them all:
+The client's `image show` table (`table::image::render_image_detail_table`) shows the shared rows
+and then the image's own group's, each named by its JSON key (`vm.machine.bios`,
+`container.repo`). The web UI's image page, node page and image editor show and take only the
+image's own groups: the templates ask `config.vm()`, `container()`, `unikernel()` and
+`interface_device()`. The editor's form (`images_web::ImageForm`) has the shared fields and every
+kind's fields as options; `updated_image_config` refuses a field the image's kind does not take,
+with the same per-kind model, and one its kind needs that is missing. It keeps the image's model,
+kind, version, management interface and a unikernel's boot mode.
 
-| Setting | VM | Container | Unikernel |
-|---|---|---|---|
-| `machine.kind` | yes | | yes |
-| `machine.bios`, `boot_disk.bus`, `cdrom.image`, `cdrom.bus` | yes | | |
+The `node_image` table keeps one column per field, the kind-only ones nullable and each tied to
+its kinds by a `CHECK`; `db::persistence` maps the groups to the columns by hand (see
+[`DATABASE.md`](DATABASE.md)).
 
-`NodeKind::uses_machine_type` and `NodeKind::uses_firmware_and_disks` say which. An image of a
-kind that does not use a setting carries its default (`pc`, `sea_bios`, `virtio`, no CD-ROM
-image, `virtio`): the container and unikernel bases set the defaults, a unit test holds every
-model to them, and migration 18 resets images stored with other values (see
-[`DATABASE.md`](DATABASE.md#versions)). The image edit form still writes what it is given, and
-nothing reads it.
-
-The read-only views leave out the settings the image's kind does not use: the client's
-`image show` table (`table::image::render_image_detail_table`), and the web UI's image page and
-node page, whose templates ask the image's `NodeKind`. The image API's JSON keeps every group.
-
-Containers do not read `cpu.architecture`, `cpu.model`, `cpu.vmx`, `interfaces.kind` or
-`interfaces.mtu` either, and `interfaces.kind` differs between the two container bases; see
-#614, and #613 for images that carry only their kind's groups.
-
-The `node_image` table keeps one flat column per field; `db::persistence` maps the groups to
-the columns by hand (see [`DATABASE.md`](DATABASE.md)).
-
-`shared::util::image_filename` takes the image's `unikernel` group: a `disk_boot` unikernel
-boots `disk.qcow2`, any other unikernel `kernel.elf`, and every other kind `virtioa.qcow2`.
+`shared::util::image_filename` takes the image's `KindSettings`: a `disk_boot` unikernel boots
+`disk.qcow2`, any other unikernel `kernel.elf`, a VM `virtioa.qcow2`, and a container has none.
 
 ## Manifest node
 
@@ -227,6 +251,12 @@ read rather than the file names. The server's `process_manifest_nodes` fills in
 none.
 
 ## Which kinds take what
+
+`shared::data::kind_settings` is the one per-kind model: each setting with the kinds that take
+it (`kind_settings::VM`, `CONTAINER`, `VM_AND_UNIKERNEL` and the rest), the kind groups' names
+(`vm`, `container`, `unikernel`), and `first_not_taken`, the first set setting a kind does not
+take. The manifest's node check, the image JSON's group check and the image editor's form check
+all use it.
 
 `topology::validate::check_node_kind_settings` refuses a key the node's kind (its
 `model_kind.kind()`) does not take,

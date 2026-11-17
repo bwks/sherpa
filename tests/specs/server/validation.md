@@ -28,22 +28,23 @@ Validators that only the server enforces.
 
 ## Node Image Field Validation — `validate/node_image.rs`
 
-**Function:** `validate_node_image_update(cpu_count, memory, data_interface_count, interface_mtu, version, interface_prefix) -> Result<()>`
+**Function:** `validate_node_image_update(model_kind, image) -> Result<()>`
+
+The image's type holds only its kind's settings, so the web form's fields of other kinds are
+refused before this runs (`images_web::updated_image_config`, with the per-kind model in
+`shared::data::kind_settings`).
 
 **What to test:**
 - All fields valid passes `[unit]` **P0**
+- A ZTP setting the model and kind do not take fails `[unit]` **P0**
 - CPU count of 0 fails (minimum is 1) `[unit]` **P0**
 - Memory below 64 MB fails `[unit]` **P0**
-- Data interface count of 0 fails (minimum is 1) `[unit]` **P0**
-- MTU below 576 fails `[unit]` **P0**
-- MTU above 9600 fails `[unit]` **P0**
+- MTU below 576 or above 9600 fails for a VM or unikernel image `[unit]` **P0**
+- A container image has no MTU to check `[unit]` **P1**
 - MTU at boundaries (576 and 9600) passes `[unit]` **P1**
-- Empty version (including whitespace-only) fails `[unit]` **P0**
-- Version 4 characters or fewer fails `[unit]` **P0**
-- Empty interface prefix fails `[unit]` **P0**
-- First failing field produces the error (validation order matters) `[unit]` **P2**
+- Empty version fails `[unit]` **P0**
 
-**Existing coverage:** 14 tests — private validators (cpu, memory, interface count, mtu, version, prefix) plus 8 public entry point tests covering all failure modes and boundary values.
+**Existing coverage:** private validators (cpu, memory, mtu, version) plus public entry point tests covering each failure mode and the boundary values.
 
 ---
 
