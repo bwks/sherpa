@@ -1237,8 +1237,12 @@ checks and the deletion, so no node is built on the image in between:
 - **Any image a node records** is refused by the database: `node.image` is `ON DELETE
   RESTRICT`.
 
-The row is deleted first, then the version folder or the Docker image; a failure to remove them
-is logged and reported as `image_deleted: false`, the row being gone.
+The row is deleted first, then the image's file or the Docker image; a failure to remove them
+is logged and reported as `image_deleted: false`, the row being gone. A VM and a unikernel of one
+model can be imported at the same version and share its folder, `<images>/<model>/<version>/`, so
+the delete removes only the file of the image's kind (`shared::util::image_filename`:
+`virtioa.qcow2`, `kernel.elf` or `disk.qcow2`) and then the folder only if that leaves it empty,
+with `remove_dir`. A file already gone counts as removed.
 
 Admin-only image mutations are enforced at the transport boundary. Image list/show require authentication but not admin privileges. Long-running import/pull/download paths use `ProgressSender` so REST, WebSocket, and UI callers can receive progress without service-specific transport code.
 

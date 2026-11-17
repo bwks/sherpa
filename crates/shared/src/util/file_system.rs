@@ -165,19 +165,6 @@ pub fn expand_path(path: &str) -> String {
     full_path.display().to_string()
 }
 
-/// Recursively delete a directory
-///
-/// # Errors
-///
-/// Fails when the directory exists but cannot be removed.
-pub fn delete_dirs(dir_path: &str) -> Result<()> {
-    if dir_exists(dir_path) {
-        fs::remove_dir_all(dir_path)?;
-        tracing::debug!(path = %dir_path, "Directory deleted");
-    }
-    Ok(())
-}
-
 /// Copy a file from a source to a destination.
 /// This will overwrite the destination file if it exists.
 ///
@@ -518,23 +505,6 @@ mod tests {
     #[test]
     fn test_load_file_nonexistent_returns_err() {
         assert!(load_file("/tmp/sherpa_nonexistent_99999.txt").is_err());
-    }
-
-    #[test]
-    fn test_delete_dirs_removes_directory() -> Result<()> {
-        let dir = TempDir::new()?;
-        let sub = dir.path().join("subdir");
-        fs::create_dir(&sub)?;
-        fs::write(sub.join("file.txt"), "data")?;
-        assert!(sub.is_dir());
-        delete_dirs(sub.to_str().unwrap())?;
-        assert!(!sub.exists());
-        Ok(())
-    }
-
-    #[test]
-    fn test_delete_dirs_nonexistent_is_ok() {
-        assert!(delete_dirs("/tmp/sherpa_nonexistent_dir_delete").is_ok());
     }
 
     #[test]

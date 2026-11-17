@@ -28,7 +28,7 @@ pub use emoji::{Emoji, emoji_success, emoji_warning};
 pub use encode::{base64_decode, base64_decode_bytes, base64_encode, base64_encode_bytes};
 pub use env::get_server_url;
 pub use file_system::{
-    copy_file, create_dir, create_file, delete_dirs, dir_exists, expand_path, file_exists, get_cwd,
+    copy_file, create_dir, create_file, dir_exists, expand_path, file_exists, get_cwd,
     image_filename, load_file, path_to_string,
 };
 #[cfg(unix)]
