@@ -283,7 +283,8 @@ mod tests {
         let folder = LabFolder::new(dir.path());
         for path in [
             folder.ssh_config(),
-            folder.ssh_key(),
+            // The lab key a client before 0.7.0 saved.
+            folder.ssh_dir().join("key"),
             folder.lab_info(),
             folder.lab_ca(),
             folder.vault("vault01"),
@@ -313,7 +314,6 @@ mod tests {
     fn conflicting_old_layout(lab: &Path, ssh_dir: &Path) {
         for (name, content) in [
             ("sherpa_ssh_config", "Host dev\n"),
-            ("sherpa_ssh_key", "k"),
             ("sherpa_known_hosts", "h"),
             ("lab-info.toml", "x"),
             ("manifest.toml", "mine"),
@@ -387,7 +387,7 @@ mod tests {
         let elsewhere = tempfile::tempdir().unwrap();
         fs::write(elsewhere.path().join("precious"), "x").unwrap();
         let ssh_dir = home.path().join(".ssh");
-        fs::write(lab.path().join("sherpa_ssh_key"), "k").unwrap();
+        fs::write(lab.path().join("sherpa_known_hosts"), "h").unwrap();
         std::os::unix::fs::symlink(elsewhere.path(), lab.path().join(".sherpa")).unwrap();
         assert!(migrate_lab_folder(lab.path(), &ssh_dir).is_err());
 

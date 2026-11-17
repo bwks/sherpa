@@ -7,8 +7,6 @@ pub(crate) const SHERPA_CONFIG_FILE_PATH: &str = "/opt/sherpa/config/sherpa.toml
 pub(crate) const SHERPA_SERVER_CERT_PATH: &str = "/opt/sherpa/.certs/server.crt";
 pub(crate) const SHERPA_MANAGEMENT_NETWORK_NAME: &str = "sherpa-management";
 pub(crate) const SHERPA_ADMIN_PASSWORD_ENV: &str = "SHERPA_ADMIN_PASSWORD";
-/// The public half of `SHERPA_SSH_PRIVATE_KEY_FILE`, in a lab folder.
-pub(crate) const SHERPA_SSH_PUBLIC_KEY_FILE: &str = "sherpa_ssh_key.pub";
 pub(crate) const TAP_PREFIX: &str = "tp";
 /// Host side of a P2p container's private bridge member veth; it joins the bridge.
 pub(crate) const BRIDGE_MEMBER_HOST_VETH_PREFIX: &str = "cb";

@@ -30,9 +30,7 @@ use crate::api::errors::ApiError;
 use crate::api::extractors::AuthenticatedUserFromCookie;
 
 use shared::data::{LabNodeActionResponse, LabState, NodeModel, RedeployRequest, UpRequest, Ztp};
-use shared::konst::{
-    LAB_FILE_NAME, SHERPA_KNOWN_HOSTS_FILE, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
-};
+use shared::konst::{LAB_FILE_NAME, SHERPA_KNOWN_HOSTS_FILE, SHERPA_SSH_CONFIG_FILE};
 use shared::util::{generate_lab_name, get_id_for_user};
 use shared::validators::effective_ztp;
 use topology::Manifest;
@@ -607,9 +605,8 @@ pub async fn lab_nodes_handler(
 /// GET `/labs/{lab_id}/download`
 ///
 /// Returns a zip containing lab-info.toml and `sherpa_ssh_config`, built from the database, plus
-/// `sherpa_known_hosts` when node host keys were recorded and `sherpa_ssh_key`, the lab's own key,
-/// when the lab's SSH config uses it. These files allow CLI tools (sherpa ssh, sherpa console) to work with the lab. Uses
-/// the same download service as the RPC API.
+/// `sherpa_known_hosts` when node host keys were recorded. These files allow CLI tools (sherpa
+/// ssh, sherpa console) to work with the lab. Uses the same download service as the RPC API.
 #[tracing::instrument(skip(state), fields(%lab_id))]
 pub async fn lab_download_handler(
     Path(lab_id): Path<String>,
@@ -628,9 +625,6 @@ pub async fn lab_download_handler(
     ];
     if !files.known_hosts.is_empty() {
         entries.push((SHERPA_KNOWN_HOSTS_FILE, files.known_hosts));
-    }
-    if !files.ssh_private_key.is_empty() {
-        entries.push((SHERPA_SSH_PRIVATE_KEY_FILE, files.ssh_private_key));
     }
 
     let mut buf = std::io::Cursor::new(Vec::new());

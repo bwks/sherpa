@@ -1,0 +1,12 @@
+# Written by Sherpa. {{ owner }}, the lab owner, is this node's only login. Every other
+# enabled local account is disabled: the image's built-in Administrator, the account
+# cloudbase-init's CreateUserPlugin makes (its `username` setting, Admin), and any other.
+# Nothing is disabled unless the owner's account exists and is enabled.
+$ErrorActionPreference = 'Stop'
+$owner = Get-LocalUser -Name '{{ owner }}'
+if (-not $owner.Enabled) {
+    throw "The lab owner's account '{{ owner }}' is disabled, so no other account was disabled"
+}
+Get-LocalUser |
+    Where-Object { $_.Enabled -and $_.SID -ne $owner.SID } |
+    Disable-LocalUser

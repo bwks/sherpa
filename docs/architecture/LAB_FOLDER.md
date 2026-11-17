@@ -15,7 +15,6 @@ The folder name is `konst::LAB_STATE_DIR`; `shared` uses `LabFolder` too, to fin
 | `.sherpa/` and every folder in it | `lab_files::ensure_lab_subdir` | 0700 |
 | `.sherpa/lab-info.toml` | `lab_files::save_lab_files` | default |
 | `.sherpa/ssh/config` | `lab_files::save_lab_files` | default |
-| `.sherpa/ssh/key` | `lab_files::save_lab_files` (only when the server sends a key; it no longer does, so only an older client's file is there) | 0600 |
 | `.sherpa/ssh/known_hosts` | `lab_files::write_known_hosts`, also on a host key refresh | 0600 |
 | `.sherpa/ca/lab-ca.crt` | `lab_files::write_lab_ca` | default |
 | `.sherpa/vault/vault-<node>.toml` | `vault_credentials` | 0600 |
@@ -23,17 +22,16 @@ The folder name is `konst::LAB_STATE_DIR`; `shared` uses `LabFolder` too, to fin
 | `.sherpa/talos/talosconfig-<cluster>` | `cluster_credentials` | 0600 |
 | `.sherpa/k8s/kubeconfig-<cluster>` | `cluster_credentials` | 0600 |
 
-Secret files are written by `private_key::write_secret_file` (a new owner-only file renamed over
+Secret files are written by `secret_file::write_secret_file` (a new owner-only file renamed over
 the old one; a current-user-only DACL on Windows). Folders are made by
-`private_key::ensure_private_dir`, which refuses a symlink or a file in the folder's place, so
+`secret_file::ensure_private_dir`, which refuses a symlink or a file in the folder's place, so
 nothing is ever written through a link. Folder modes are set on Unix only.
 
 The server still sends the files' contents with its own names. Its SSH config names the known
 hosts relatively (`UserKnownHostsFile sherpa_known_hosts`) and names no identity file, so a node
 logs in with the client's own keys;
 `lab_files::rewrite_ssh_config_for_client` replaces the known hosts path with the absolute path
-of `.sherpa/ssh/known_hosts`. The client still rewrites an `IdentityFile sherpa_ssh_key` line to
-`.sherpa/ssh/key` if a config has one, which the server no longer writes. The config therefore works from anywhere:
+of `.sherpa/ssh/known_hosts`. The config therefore works from anywhere:
 through the `Include` in `~/.ssh/sherpa_lab_hosts`, with `ssh -F .sherpa/ssh/config <node>` from
 the lab folder, for `sherpa ssh` and for the provisioners. The server's own lab folder
 (`/opt/sherpa/labs/<lab-id>`) keeps the `sherpa_*` names.
@@ -47,11 +45,12 @@ client reads them as before. Each Talos cluster's plan is in the database too. T
 `manifest.toml`, `lab-info.toml`, SSH files and `clusters/<cluster>/cluster.toml` older releases
 saved there were imported and deleted at startup by 0.6.4 and 0.6.5; 0.7.0 ignores any left
 behind (see [`SERVER.md`](SERVER.md#files-older-releases-left-in-lab-folders)). What the server's
-folder keeps is the lab's SSH key pair, its CA and the container and VM certificates, Talos,
+folder keeps is the lab's CA and the container and VM certificates, Talos,
 Vault and Keycloak credentials, and the files read while a node exists: the dnsmasq config
 (`ztp/dnsmasq/dnsmasq.conf`, mounted in the boot container), the TFTP and HTTP files of the nodes
 that boot by them (`ztp/tftp/`, `ztp/configs/`) and each container's config mounts (`<node>/`).
-It does not keep:
+A lab from before 0.7.0 also still has its old SSH key pair, `sherpa_ssh_key` and `.pub`, until it
+is destroyed (see [`SERVER.md`](SERVER.md#no-lab-ssh-key)). It does not keep:
 
 - **A VM's boot files** (`vm-boot.d/<node>/`: its seed, config files, `ztp.iso`, config disks,
   Ignition file): they are read once, to copy the VM's media into the storage pool, and removed
@@ -192,9 +191,11 @@ that, every reader knows only `.sherpa`.
    client generated move: `vault-*.toml` and `keycloak-*.toml` whose top-level keys are exactly
    the client's, and the kubeconfig and talosconfig of clusters in the manifest or with both
    files present. A loose file replaces its copy in `.sherpa`, as an older client wrote it later.
-4. Writes `sherpa_ssh_config` as `.sherpa/ssh/config` with its `IdentityFile` and
-   `UserKnownHostsFile` lines for the old key and known hosts pointed at `.sherpa/ssh/`, then
-   removes the old file.
+4. Writes `sherpa_ssh_config` as `.sherpa/ssh/config` with its `UserKnownHostsFile` lines for
+   the old known hosts pointed at `.sherpa/ssh/known_hosts`, then removes the old file. The old
+   lab key, `sherpa_ssh_key`, and the `IdentityFile` lines naming it are left as they are:
+   Sherpa has no lab key from 0.7.0, and the labs of clients that saved it loose had to be
+   destroyed before the update to 0.6.0.
 5. Moves `lab-info.toml` last, so a cut-short migration is still seen as a lab's.
 6. Replaces the `Include` of the old config in `~/.ssh/sherpa_lab_hosts` with one of
    `.sherpa/ssh/config`, in place (`shared::util::replace_lab_ssh_include`). Nothing changes when

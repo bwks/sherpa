@@ -21,7 +21,6 @@ use crate::services::image_lifecycle::{
 use crate::services::lab_definition;
 use crate::services::lab_info;
 use crate::services::lab_operations::LabOperation;
-use crate::services::lab_ssh_key::LabSshKeyPaths;
 use crate::services::progress::ProgressSender;
 use crate::services::talos;
 use crate::services::up::process_manifest_nodes;
@@ -57,8 +56,6 @@ pub(super) struct Redeploy<'a> {
     pub(super) dns: data::Dns,
     pub(super) certs_dir: String,
     pub(super) lab_ca: LabCa,
-    /// The lab key's public half, which `MikroTik`'s config disk still carries.
-    pub(super) lab_public_key: data::SshPublicKey,
     pub(super) qemu_conn: Arc<QemuConnection>,
     /// The node's record; its resources are reserved again when it is rebuilt.
     pub(super) db_node: DbNode,
@@ -185,9 +182,6 @@ pub(super) async fn load_redeploy<'a>(
             worker_rejoin_config(state, db_lab, &target_node, &node_image, &mgmt_net, &lab_ca);
         target_node.ztp.config = Some(config.await?);
     }
-    let ssh_key = LabSshKeyPaths::in_lab(&lab_dir);
-    let lab_public_key = util::get_ssh_public_key(&ssh_key.public)
-        .context("Failed to read the lab's SSH public key")?;
     let (ipv4, ipv6) = node_management_addresses(&db_node, &mgmt_net)?;
     target_node.ipv6_address = ipv6;
 
@@ -213,7 +207,6 @@ pub(super) async fn load_redeploy<'a>(
         dns,
         certs_dir,
         lab_ca,
-        lab_public_key,
         qemu_conn,
         db_node,
         node_record_id,

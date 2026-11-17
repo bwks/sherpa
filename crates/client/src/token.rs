@@ -10,7 +10,7 @@ use base64::{Engine as _, engine::general_purpose};
 
 use shared::auth::jwt::Claims;
 
-use crate::private_key::write_secret_file;
+use crate::secret_file::write_secret_file;
 
 /// The file that holds the login token.
 struct TokenFile {

@@ -185,8 +185,8 @@ paths from the directory `sherpa up` runs in, so the links are what every layout
 
 `sherpa up` prints nothing until it finishes when run through a `mise` task, because the task's
 output is buffered. Do not stop it: an interrupted `up` leaves a half-created lab that must be
-destroyed first. It writes `.sherpa/lab-info.toml`, `.sherpa/ssh/config` and `.sherpa/ssh/key`
-into the lab directory.
+destroyed first. It writes `.sherpa/lab-info.toml`, `.sherpa/ssh/config` and
+`.sherpa/ssh/known_hosts` into the lab directory, and no key: the node takes your own.
 
 ## Connecting
 

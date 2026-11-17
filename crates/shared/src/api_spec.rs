@@ -863,6 +863,7 @@ pub fn build_openapi() -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data::DownloadLabResponse;
 
     #[test]
     fn test_build_spec_has_28_operations() {
@@ -883,6 +884,21 @@ mod tests {
         assert!(spec.schemas.contains_key("InspectResponse"));
         assert!(spec.schemas.contains_key("ListImagesResponse"));
         assert!(spec.schemas.contains_key("CreateUserRequest"));
+    }
+
+    #[test]
+    fn up_and_download_send_no_lab_ssh_key() {
+        for (name, schema) in [
+            ("UpResponse", schema_for!(UpResponse).to_value()),
+            (
+                "DownloadLabResponse",
+                schema_for!(DownloadLabResponse).to_value(),
+            ),
+        ] {
+            let properties = schema["properties"].as_object().unwrap();
+            assert!(properties.contains_key("ssh_config"), "{name}");
+            assert!(!properties.contains_key("ssh_private_key"), "{name}");
+        }
     }
 
     #[test]

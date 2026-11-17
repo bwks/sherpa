@@ -68,7 +68,7 @@
 - **Palo Alto PAN-OS** — init template and bootstrap template produce different outputs `[unit]` **P0**
 - **Aruba AOS-CX** — correct AOS-CX syntax `[unit]` **P0**
 - **Cumulus Linux** — correct Cumulus ZTP script syntax `[unit]` **P0**
-- **Mikrotik RouterOS** — correct RouterOS syntax, management interface configurable `[unit]` **P0**
+- **Mikrotik RouterOS** — correct RouterOS syntax, management interface configurable; the config disk carries the owner's key files only, no lab key `[unit]` **P0**
 - **SONiC** — ZTP file map JSON structure, config_db.json with hostname and AAA `[unit]` **P0**
 - **SONiC** — user setup script template rendering `[unit]` **P1**
 - **FRR** — config, daemons, and startup templates all render `[unit]` **P0**
@@ -82,4 +82,5 @@
 - YAML #cloud-config output for Windows `[unit]` **P0**
 - Network config with static/DHCPv4 and optional DHCPv6 `[unit]` **P0**
 - The lab owner's login created with their SSH keys, the Administrators group and their device password; no `sherpa` account and no published password `[unit]` **P0**
+- The owner-only login script disables every other enabled local account (the built-in `Administrator`, cloudbase-init's `Admin`) and nothing unless the owner's account is enabled; it runs before the node's startup scripts, on `windows_server` and `devbox_windows` `[unit]` **P0**
 - Write-files section rendered correctly `[unit]` **P1**

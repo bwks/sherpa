@@ -7,7 +7,7 @@ use shared::data::{KeycloakInfo, KeycloakUser};
 use shared::util::{Emoji, LabFolder};
 
 use crate::lab_files::ensure_lab_subdir;
-use crate::private_key::write_secret_file;
+use crate::secret_file::write_secret_file;
 
 /// A Keycloak node's realm users file, `keycloak-<node>.toml`.
 #[derive(Debug, Serialize)]

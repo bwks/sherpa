@@ -43,7 +43,7 @@ pub use cloud_init::{
 };
 pub use cloudbase_init::{
     CloudbaseInitConfig, CloudbaseInitNetwork, CloudbaseInitUser, CloudbaseWriteFile,
-    WindowsSshdConfigTemplate,
+    WindowsOwnerOnlyLoginTemplate, WindowsSshdConfigTemplate,
 };
 pub use crypt::{CryptHash, crypt_hash};
 pub use cumulus_linux::CumulusLinuxZtpTemplate;

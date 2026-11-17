@@ -25,6 +25,16 @@ pub struct WindowsSshdConfigTemplate {
     pub authorized_keys_dir: String,
 }
 
+/// The `PowerShell` script that leaves the lab owner as a Windows node's only enabled login: it
+/// disables every other enabled local account, such as the image's built-in `Administrator` and
+/// the `Admin` account cloudbase-init's `CreateUserPlugin` makes, once the owner's exists.
+#[derive(Template)]
+#[template(path = "windows/owner_only_login.jinja", ext = "txt")]
+pub struct WindowsOwnerOnlyLoginTemplate {
+    /// The owner's account name.
+    pub owner: String,
+}
+
 #[derive(Serialize, Debug)]
 pub struct CloudbaseWriteFile {
     pub path: String,

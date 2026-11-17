@@ -3,7 +3,7 @@
 /user set 0 password={{ owner.password }}
 :do { /user add name={{ owner.username }} password={{ owner.password }} group=full } on-error={}
 {%- for key_file in owner_key_files %}
-/user ssh-keys import public-key-file={{ key_file }} user={{ owner.username }}
+:if ([/file find name={{ key_file }}] != "") do={ /user ssh-keys import public-key-file={{ key_file }} user={{ owner.username }} }
 {%- endfor %}
 {%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
 /ip address add address={{ mgmt_ipv4_address }}/{{ mgmt_ipv4.prefix_length }} interface={{ mgmt_interface }}

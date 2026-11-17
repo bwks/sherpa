@@ -8,8 +8,8 @@ use template::{
     AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate, CiscoIosXeZtpTemplate,
     CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate, CumulusLinuxZtpTemplate,
     FrrStartupTemplate, JunipervJunosZtpTemplate, MikrotikRouterosZtpTemplate,
-    PaloAltoPanosBootstrapTemplate, SonicLinuxUserTemplate, WindowsSshdConfigTemplate,
-    build_srlinux_config,
+    PaloAltoPanosBootstrapTemplate, SonicLinuxUserTemplate, WindowsOwnerOnlyLoginTemplate,
+    WindowsSshdConfigTemplate, build_srlinux_config,
 };
 
 use crate::helpers;
@@ -279,8 +279,8 @@ fn mikrotik_owner_imports_each_key_file() {
     .unwrap();
     assert!(output.contains(&format!(
         ":do {{ /user add name=alice password={PASSWORD} group=full }} on-error={{}}\n\
-         /user ssh-keys import public-key-file=sata1/alice-1.pub user=alice\n\
-         /user ssh-keys import public-key-file=sata1/alice-2.pub user=alice\n"
+         :if ([/file find name=sata1/alice-1.pub] != \"\") do={{ /user ssh-keys import public-key-file=sata1/alice-1.pub user=alice }}\n\
+         :if ([/file find name=sata1/alice-2.pub] != \"\") do={{ /user ssh-keys import public-key-file=sata1/alice-2.pub user=alice }}\n"
     )));
     helpers::assert_no_sherpa_login(&output);
 }
@@ -394,4 +394,38 @@ fn windows_sshd_config_reads_each_accounts_own_keys_file() {
     assert!(output.contains("AuthorizedKeysFile __PROGRAMDATA__/ssh/authorized_keys/%u\n"));
     assert!(output.contains("Subsystem sftp sftp-server.exe"));
     assert!(!output.contains("Match Group administrators"));
+}
+
+#[test]
+fn windows_leaves_the_owner_as_the_only_enabled_account() {
+    let output = WindowsOwnerOnlyLoginTemplate {
+        owner: "alice".to_string(),
+    }
+    .render()
+    .unwrap();
+    let commands: Vec<&str> = output
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect();
+    assert_eq!(
+        commands,
+        [
+            "$ErrorActionPreference = 'Stop'",
+            "$owner = Get-LocalUser -Name 'alice'",
+            "if (-not $owner.Enabled) {",
+            "    throw \"The lab owner's account 'alice' is disabled, so no other account was disabled\"",
+            "}",
+            "Get-LocalUser |",
+            "    Where-Object { $_.Enabled -and $_.SID -ne $owner.SID } |",
+            "    Disable-LocalUser",
+        ]
+    );
+    // Administrator and Admin are among the accounts disabled, never enabled or given a
+    // password.
+    for account in ["Administrator", "Admin"] {
+        assert!(!output.contains(&format!("-Name '{account}'")), "{output}");
+    }
+    assert!(!output.contains("Enable-LocalUser"));
+    assert!(!output.contains("Set-LocalUser"));
+    helpers::assert_no_sherpa_login(&output);
 }

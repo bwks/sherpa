@@ -174,9 +174,21 @@ Accounts have full administrator rights and log in by key or by the device passw
 | SONiC | `useradd`, `authorized_keys`, `/etc/sudoers.d` | `sudo`, `admin`, `docker` groups, passwordless sudo | `$6$` through `chpasswd -e` |
 | FRR | `adduser`, `authorized_keys`, `/etc/sudoers.d` | `frr`, `frrvty` groups, passwordless sudo | `$6$` through `chpasswd -e` |
 
-The lab key is still created in the lab folder, and its public half is still written to the
-MikroTik config disk as `sherpa_ssh_key.pub`, which the image's scheduler imports. The SSH
-config no longer names it, and Sherpa builds no `sherpa` account for it to log in to.
+The MikroTik config disk carries the rendered `config.rsc` and the owner's key files only. Up to
+0.6.5 it also carried the lab key's public half, `sherpa_ssh_key.pub`; Sherpa has no lab key
+from 0.7.0 (see [`SERVER.md`](SERVER.md#no-lab-ssh-key)).
+
+The seeded CHR image (7.20.8) has two schedulers, each run every minute:
+
+- `sherpa-ztp` imports `sata1/config.rsc` if it exists, and removes itself once an import gets to
+  the end. An import stops at its first error, so a run that comes too early, such as one that
+  finds no `ether1` yet, is retried a minute later. RouterOS deletes a key file once it imports
+  it, so each key import in the template is guarded on its file still being there
+  (`:if ([/file find name=…] != "")`): a retry skips the keys the first run imported instead of
+  stopping on them and never reaching the addresses.
+- `sherpa-ssh-key` imports `sata1/sherpa_ssh_key.pub` for `sherpa` if the file exists, and then
+  removes itself. With no such file it does nothing, every minute, and logs nothing: it fails
+  harmlessly. It is dead in the image and can be dropped from the image build.
 
 ### Cisco ISE
 
@@ -271,6 +283,22 @@ private to Administrators and SYSTEM (mode `0600`, below). The file is outside t
 profile, which Windows only creates at first logon. The owner is a local administrator
 (`guest_account::cloudbase_user`); cloudbase-init needs a password, so it gets the device
 password as plain text.
+
+The owner is the node's only enabled login. The images come with two more administrators:
+
+- the built-in `Administrator` (the `-500` SID), which the Windows Server image's build unattend
+  gives a build password and auto-logon, and which the Windows 11 devbox image disables at build;
+- `Admin`, made by cloudbase-init's `CreateUserPlugin` from the image's `cloudbase-init.conf`
+  (`username=Admin`) with a random password, before the user data runs. Its name comes from
+  `service.get_admin_username() or CONF.username`, and the `NoCloud` metadata service has no
+  admin username, so the user data cannot rename it or stop it being made.
+
+So the user data writes `node_ops::WINDOWS_OWNER_ONLY_LOGIN_SCRIPT`
+(`template::WindowsOwnerOnlyLoginTemplate`) and runs it from `runcmd`, after `sshd` restarts and
+before the node's startup scripts: it disables every enabled local account but the owner's,
+and nothing at all unless the owner's account exists and is enabled. cloudbase-init runs as
+`LocalSystem`, so no service depends on the disabled accounts. Accounts a startup script makes
+are left alone. A recovery login is the owner's, with the device password, on the console.
 
 cloudbase-init's `write_files` ignores `permissions`: a file inherits its folder's ACL, and
 under `C:\` that lets `BUILTIN\Users` read it. `build_windows_private_file_acls` turns each

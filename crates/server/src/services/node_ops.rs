@@ -16,8 +16,7 @@ use tracing::instrument;
 
 use crate::konst::{
     KEYCLOAK_HTTPS_PORT, LAB_CERTS_DIR, NODE_CONFIG_DIR_MODE, NODE_CONFIG_FILE_MODE,
-    SHERPA_BLANK_DISK_DIR, SHERPA_SSH_PUBLIC_KEY_FILE, TFTP_CONFIG_FILE_MODE, VAULT_API_PORT,
-    ZTP_ISO,
+    SHERPA_BLANK_DISK_DIR, TFTP_CONFIG_FILE_MODE, VAULT_API_PORT, ZTP_ISO,
 };
 use crate::services::container_networks::is_node_network;
 use crate::services::guest_account::{self, GuestAccount, KeyFormat, PasswordForm};
@@ -96,6 +95,8 @@ const WINDOWS_SYSTEM_SID: &str = "*S-1-5-18";
 const WINDOWS_SSHD_CONFIG: &str = r"C:\ProgramData\ssh\sshd_config";
 /// Each account's SSH public keys, in a file named after the account.
 const WINDOWS_AUTHORIZED_KEYS_DIR: &str = r"C:\ProgramData\ssh\authorized_keys";
+/// The script that disables every enabled local account but the owner's, run once at first boot.
+const WINDOWS_OWNER_ONLY_LOGIN_SCRIPT: &str = r"C:\sherpa\owner_only_login.ps1";
 /// [`WINDOWS_AUTHORIZED_KEYS_DIR`] as `sshd_config` names it.
 const WINDOWS_SSHD_AUTHORIZED_KEYS_DIR: &str = "__PROGRAMDATA__/ssh/authorized_keys";
 const NODE_USER_SCRIPTS_DIR: &str = "/opt/sherpa/user_scripts";
@@ -205,8 +206,6 @@ pub(crate) struct LabZtp<'a> {
     pub(crate) lab_id: &'a str,
     pub(crate) lab_dir: &'a str,
     pub(crate) images_dir: &'a str,
-    /// The public half of the lab's SSH key, which `MikroTik`'s config disk still carries.
-    pub(crate) lab_public_key: &'a data::SshPublicKey,
     pub(crate) dns: &'a data::Dns,
     pub(crate) mgmt_net: &'a data::SherpaNetwork,
     pub(crate) progress: &'a ProgressSender,
@@ -224,7 +223,6 @@ struct NodeZtp<'a> {
     boot_dir: &'a str,
     tftp_dir: &'a str,
     images_dir: &'a str,
-    lab_public_key: &'a data::SshPublicKey,
     /// The lab owner's device password, for nodes whose only account is a fixed one.
     device_password: &'a DevicePassword,
     dns: &'a data::Dns,
@@ -1319,7 +1317,6 @@ pub(crate) fn generate_vm_ztp(
         lab_id,
         lab_dir,
         images_dir,
-        lab_public_key,
         dns,
         mgmt_net,
         progress,
@@ -1342,7 +1339,6 @@ pub(crate) fn generate_vm_ztp(
         boot_dir: &boot_dir,
         tftp_dir: &tftp_dir,
         images_dir,
-        lab_public_key,
         device_password: &owner_account.device_password,
         dns,
         mgmt_net,
@@ -2342,6 +2338,11 @@ fn windows_startup_scripts(
 
 /// Cloudbase-init for the Windows VMs: the owner's login, a local administrator with its own
 /// SSH keys file, and the node's files, startup scripts and machine environment.
+///
+/// The owner is the node's only enabled login. The image's built-in `Administrator` and the
+/// `Admin` account cloudbase-init's `CreateUserPlugin` makes before the user data runs (its
+/// `username` setting, which `NoCloud` metadata cannot change) are disabled by
+/// [`WINDOWS_OWNER_ONLY_LOGIN_SCRIPT`], before the node's own startup scripts run.
 fn windows_cloudbase_init(
     node: &topology::NodeExpanded,
     ztp: &NodeZtp<'_>,
@@ -2367,10 +2368,18 @@ fn windows_cloudbase_init(
     let sshd_config = template::WindowsSshdConfigTemplate {
         authorized_keys_dir: WINDOWS_SSHD_AUTHORIZED_KEYS_DIR.to_owned(),
     };
+    let owner_only_login = template::WindowsOwnerOnlyLoginTemplate {
+        owner: account.username.clone(),
+    };
     let mut write_files = vec![
         template::CloudbaseWriteFile {
             path: WINDOWS_SSHD_CONFIG.to_owned(),
             content: sshd_config.render()?,
+            permissions: "0644".to_string(),
+        },
+        template::CloudbaseWriteFile {
+            path: WINDOWS_OWNER_ONLY_LOGIN_SCRIPT.to_owned(),
+            content: owner_only_login.render()?,
             permissions: "0644".to_string(),
         },
         template::CloudbaseWriteFile {
@@ -2387,6 +2396,9 @@ fn windows_cloudbase_init(
     let mut runcmd = build_windows_private_file_acls(&write_files)
         .with_context(|| format!("Failed to write files for node '{}'", node.name))?;
     runcmd.push(r#"powershell -Command "Restart-Service sshd""#.to_string());
+    runcmd.push(format!(
+        r#"powershell -ExecutionPolicy Bypass -File "{WINDOWS_OWNER_ONLY_LOGIN_SCRIPT}""#
+    ));
     let (script_files, script_runcmd) = windows_startup_scripts(node)?;
     write_files.extend(script_files);
     runcmd.extend(script_runcmd);
@@ -2987,8 +2999,7 @@ fn ise_config_disk(
 }
 
 /// `RouterOS`: its config and the SSH keys on a FAT32 disk. `RouterOS` imports one key per file,
-/// so each owner key gets its own file on the disk. The lab key's public half is on it too, as
-/// before; it goes with the lab key.
+/// so each owner key gets its own file on the disk.
 fn mikrotik_config_disk(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
@@ -2998,7 +3009,6 @@ fn mikrotik_config_disk(
 ) -> Result<(String, String)> {
     let NodeZtp {
         images_dir,
-        lab_public_key,
         dns,
         mgmt_net,
         node_ipv4_address,
@@ -3053,13 +3063,6 @@ fn mikrotik_config_disk(
 
     util::copy_file(&src_disk, &dst_disk)?;
     util::copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
-    let sherpa_key_file = format!("{dir}/{SHERPA_SSH_PUBLIC_KEY_FILE}");
-    util::write_file_with_permissions(
-        Path::new(&sherpa_key_file),
-        format!("{} {}\n", lab_public_key.algorithm, lab_public_key.key).as_bytes(),
-        NODE_CONFIG_FILE_MODE,
-    )?;
-    util::copy_to_dos_image(&sherpa_key_file, &dst_disk, "/")?;
     for (path, content) in owner_key_files {
         util::write_file_with_permissions(
             Path::new(&path),
@@ -5141,15 +5144,6 @@ mod tests {
         assert!(config.cdrom.image.is_none());
     }
 
-    /// The public half of a lab key, which only `MikroTik`'s config disk carries.
-    fn lab_test_key() -> data::SshPublicKey {
-        data::SshPublicKey {
-            algorithm: data::SshKeyAlgorithms::SshRsa,
-            key: "lab-key-fixture".to_owned(),
-            comment: None,
-        }
-    }
-
     /// The owner's Ed25519 key in every generator test.
     const OWNER_KEY: &str =
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh";
@@ -5199,7 +5193,6 @@ mod tests {
         node.ssh.authorized_keys = Some(vec!["ssh-ed25519 manifest-key-fixture".to_owned()]);
         let image = data::NodeConfig::get_model(data::NodeModel::FlatcarLinux);
         let account = test_account("alice", &[OWNER_KEY]);
-        let lab_key = lab_test_key();
         let network = nocloud_test_network();
         let (tx, _rx) = mpsc::unbounded_channel();
         let progress = ProgressSender::new(tx);
@@ -5209,7 +5202,6 @@ mod tests {
             boot_dir: root,
             tftp_dir: root,
             images_dir: root,
-            lab_public_key: &lab_key,
             device_password: &account.device_password,
             dns: &dns,
             mgmt_net: &network,
@@ -5254,7 +5246,6 @@ mod tests {
             "alice ALL=(ALL) NOPASSWD: ALL\n"
         );
         assert!(!config.contains("sherpa ALL"), "{config}");
-        assert!(!config.contains("lab-key-fixture"), "{config}");
         assert!(
             !config.contains(test_account("alice", &[]).device_password.expose()),
             "{config}"
@@ -5267,7 +5258,6 @@ mod tests {
         let root = dir.path().to_str().unwrap();
         let account = test_account("alice", &[OWNER_KEY]);
         let password = account.device_password.expose().to_owned();
-        let lab_key = lab_test_key();
         let network = nocloud_test_network();
         let (tx, _rx) = mpsc::unbounded_channel();
         let progress = ProgressSender::new(tx);
@@ -5277,7 +5267,6 @@ mod tests {
             boot_dir: root,
             tftp_dir: root,
             images_dir: root,
-            lab_public_key: &lab_key,
             device_password: &account.device_password,
             dns: &dns,
             mgmt_net: &network,
@@ -5316,10 +5305,6 @@ mod tests {
             assert_eq!(users.len(), 1, "{model}: {user_data}");
             assert_eq!(users[0]["name"], "alice", "{model}");
             assert!(user_data.contains(OWNER_KEY), "{model}: {user_data}");
-            assert!(
-                !user_data.contains("lab-key-fixture"),
-                "{model}: {user_data}"
-            );
             assert!(!user_data.contains(SHERPA_PASSWORD), "{model}: {user_data}");
             assert!(!user_data.contains("name: sherpa"), "{model}: {user_data}");
             if model == data::NodeModel::WindowsServer {
@@ -5334,6 +5319,77 @@ mod tests {
                     "{model}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn windows_disables_every_account_but_the_owner_before_its_startup_scripts() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().to_str().unwrap();
+        let account = test_account("alice", &[OWNER_KEY]);
+        let network = nocloud_test_network();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let progress = ProgressSender::new(tx);
+        let dns = util::default_dns(&network.v4.prefix).unwrap();
+        let ztp = NodeZtp {
+            lab_dir: root,
+            boot_dir: root,
+            tftp_dir: root,
+            images_dir: root,
+            device_password: &account.device_password,
+            dns: &dns,
+            mgmt_net: &network,
+            progress: &progress,
+            node_ipv4_address: "192.0.2.10".parse().unwrap(),
+            mac_address: "52:54:00:00:00:01",
+            node_name_with_lab: "vm-test",
+            cert_paths: None,
+            guest_account: Some(&account),
+        };
+        for model in [
+            data::NodeModel::WindowsServer,
+            data::NodeModel::DevboxWindows,
+        ] {
+            let node = topology::NodeExpanded {
+                name: model.to_string(),
+                model,
+                startup_scripts: Some(vec![script("setup.ps1")]),
+                ..Default::default()
+            };
+            let node_dir = format!("{root}/{model}");
+            windows_cloudbase_init(&node, &ztp, &node_dir).unwrap();
+
+            let user_data =
+                fs::read_to_string(format!("{node_dir}/{CLOUD_INIT_USER_DATA}")).unwrap();
+            let parsed: serde_json::Value =
+                serde_json::from_str(user_data.strip_prefix("#cloud-config\n").unwrap()).unwrap();
+            let users = parsed["users"].as_array().unwrap();
+            assert_eq!(users.len(), 1, "{model}");
+            assert_eq!(users[0]["name"], "alice", "{model}");
+            let script_file = parsed["write_files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|file| file["path"] == WINDOWS_OWNER_ONLY_LOGIN_SCRIPT)
+                .unwrap_or_else(|| panic!("{model}: no owner-only login script"));
+            let content = script_file["content"].as_str().unwrap();
+            assert!(content.contains("Get-LocalUser -Name 'alice'"), "{content}");
+            assert!(content.contains("Disable-LocalUser"), "{content}");
+            let runcmd: Vec<&str> = parsed["runcmd"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|command| command.as_str().unwrap())
+                .collect();
+            let lockdown = runcmd
+                .iter()
+                .position(|command| command.contains(WINDOWS_OWNER_ONLY_LOGIN_SCRIPT))
+                .unwrap_or_else(|| panic!("{model}: {runcmd:?}"));
+            let startup = runcmd
+                .iter()
+                .position(|command| command.contains(r"startup_scripts\setup.ps1"))
+                .unwrap_or_else(|| panic!("{model}: {runcmd:?}"));
+            assert!(lockdown < startup, "{model}: {runcmd:?}");
         }
     }
 
@@ -5561,7 +5617,6 @@ mod tests {
     /// A lab folder and the accounts and network its nodes are configured with.
     struct ZtpLab {
         dir: tempfile::TempDir,
-        lab_key: data::SshPublicKey,
         account: GuestAccount,
         network: data::SherpaNetwork,
         dns: data::Dns,
@@ -5575,7 +5630,6 @@ mod tests {
             let (tx, messages) = mpsc::unbounded_channel();
             Self {
                 dir: tempdir().unwrap(),
-                lab_key: lab_test_key(),
                 account: test_account(
                     "alice",
                     &[OWNER_KEY, &format!("ssh-rsa {IOL_TEST_RSA_KEY}")],
@@ -5596,7 +5650,6 @@ mod tests {
                 lab_id: "a1b2c3d4",
                 lab_dir: self.root(),
                 images_dir: "/images",
-                lab_public_key: &self.lab_key,
                 dns: &self.dns,
                 mgmt_net: &self.network,
                 progress: &self.progress,

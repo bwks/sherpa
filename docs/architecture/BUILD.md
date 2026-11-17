@@ -31,7 +31,7 @@ no debug info unless the `"*"` override is changed locally.
 ### Optimised dependencies
 
 Argon2 password hashing and RSA key generation are very slow at `opt-level = 0`, and the
-tests that seed users or generate lab SSH keys spend most of their time there. These crates
+tests that seed users or generate SSH keys spend most of their time there. These crates
 are built at `opt-level = 3` in `dev`: `argon2`, `blake2`, `password-hash`, `rsa`,
 `num-bigint`, `num-bigint-dig`, `num-integer`, `num-traits`, `crypto-bigint`, `sha2`,
 `digest`, `block-buffer`, `rand`, `rand_core`, `rand_chacha`, `ppv-lite86`, `subtle` and

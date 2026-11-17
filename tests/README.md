@@ -96,7 +96,7 @@ through `cargo llvm-cov nextest`. Use it locally the same way as `cargo test`:
 
 ```sh
 cargo nextest run --workspace
-cargo nextest run -p sherpad lab_ssh_key
+cargo nextest run -p sherpad guest_account
 ```
 
 nextest does not run doctests; the workspace has none (doc comments carry no code blocks).
