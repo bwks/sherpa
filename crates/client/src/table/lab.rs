@@ -7,7 +7,7 @@ use shared::data::{
 use shared::util::{TableLayout, render_table};
 use tracing::instrument;
 
-const NODE_HEADERS: [&str; 4] = ["Node", "Mgmt IP", "Connection", "Node Model"];
+const NODE_HEADERS: [&str; 5] = ["Node", "Mgmt IP", "Connection", "Node Model", "Kind"];
 const DEVICE_HEADERS: [&str; 10] = [
     "Device",
     "Model",
@@ -36,11 +36,11 @@ const LAB_INFO_HEADERS: [&str; 2] = ["Property", "Value"];
 /// The widest the Tailscale table may be, borders and padding included.
 const TAILNET_WIDTH: usize = 80;
 
-/// Renders a table of nodes with their management IP, connection info, and model. Each node is
-/// named `<name>.<lab_id>`.
+/// Renders a table of nodes with their management IP, connection info, model and kind. Each
+/// node is named `<name>.<lab_id>`.
 #[must_use]
 pub fn render_nodes_table(nodes: &[NodeInfo], lab_id: &str) -> String {
-    let rows: Vec<[String; 4]> = nodes.iter().map(|node| node_cells(node, lab_id)).collect();
+    let rows: Vec<[String; 5]> = nodes.iter().map(|node| node_cells(node, lab_id)).collect();
     render_table(
         NODE_HEADERS,
         &rows,
@@ -51,7 +51,7 @@ pub fn render_nodes_table(nodes: &[NodeInfo], lab_id: &str) -> String {
     )
 }
 
-fn node_cells(node: &NodeInfo, lab_id: &str) -> [String; 4] {
+fn node_cells(node: &NodeInfo, lab_id: &str) -> [String; 5] {
     let connection = match (&node.ip_address, node.ssh_port) {
         (Some(ip), Some(port)) => format!("{ip}:{port}"),
         _ => "-".to_string(),
@@ -61,6 +61,7 @@ fn node_cells(node: &NodeInfo, lab_id: &str) -> [String; 4] {
         node.ip_address.as_deref().unwrap_or("-").to_string(),
         connection,
         node.model.to_string(),
+        node.kind.to_string(),
     ]
 }
 
@@ -503,6 +504,40 @@ mod tests {
         assert!(table.contains("Mgmt IP"));
         assert!(table.contains("Connection"));
         assert!(table.contains("Node Model"));
+        assert!(table.contains("Kind"));
+    }
+
+    #[test]
+    fn the_nodes_table_names_each_nodes_kind() {
+        let nodes = [
+            NodeInfo {
+                name: "veos1".to_string(),
+                kind: NodeKind::VirtualMachine,
+                model: NodeModel::AristaEos,
+                status: NodeState::Running,
+                ip_address: Some("172.31.0.11".to_string()),
+                ssh_port: Some(22),
+            },
+            NodeInfo {
+                name: "ceos1".to_string(),
+                kind: NodeKind::Container,
+                model: NodeModel::AristaEos,
+                status: NodeState::Running,
+                ip_address: None,
+                ssh_port: None,
+            },
+        ];
+        let expected = "\
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                                    Nodes                                     │
+├────────────────┬─────────────┬────────────────┬────────────┬─────────────────┤
+│ Node           │ Mgmt IP     │ Connection     │ Node Model │ Kind            │
+├────────────────┼─────────────┼────────────────┼────────────┼─────────────────┤
+│ veos1.a1b2c3d4 │ 172.31.0.11 │ 172.31.0.11:22 │ arista_eos │ virtual_machine │
+├────────────────┼─────────────┼────────────────┼────────────┼─────────────────┤
+│ ceos1.a1b2c3d4 │ -           │ -              │ arista_eos │ container       │
+└────────────────┴─────────────┴────────────────┴────────────┴─────────────────┘";
+        assert_eq!(render_nodes_table(&nodes, "a1b2c3d4"), expected);
     }
 
     #[test]
