@@ -46,7 +46,7 @@ pub(super) async fn create(
         request.username,
         &request.password,
         request.is_admin,
-        request.ssh_keys,
+        vec![],
     )
     .await
     .map(|user| {

@@ -505,13 +505,44 @@ Every lab service takes the caller's `&AuthContext` and checks it with the helpe
 
 | Rule | Helper | Operations |
 |---|---|---|
-| Lab owner or admin | `require_lab_access` | inspect, destroy, down, resume, download, link impairment |
-| Lab owner only, no admin bypass | `require_lab_owner` | redeploy (it rebuilds the node with the owner's SSH keys and account) |
+| Lab owner or admin | `require_lab_access` | inspect, destroy, down, resume, cancel, link impairment |
+| Lab owner only, no admin bypass | `require_lab_owner` | redeploy and `node.secrets` (they rebuild or write into the owner's nodes); `download` and `node.host_keys` (they serve connecting to the nodes) |
 | Admin only | `require_admin` | clean |
-| Self or admin | `require_self_or_admin` | listing another user's labs |
+| Self only, admins included | `require_self` | adding an SSH key, setting a device password |
+| Self or admin | `require_self_or_admin` | listing another user's labs, removing an SSH key |
 | Any authenticated user | none | up (creates the caller's own lab), listing your own labs |
 
 `require_lab_access` and `require_lab_owner` return the lab record, so services do not look it up twice. When an admin acts on another user's lab, the helper logs a `warn` line with `event = "auth.admin_lab_access"`, naming the admin, the lab and the owner. Refusals log `event = "auth.access_denied"`.
+
+#### The admin boundary
+
+Admins see and manage every lab, but only a lab's owner connects to its nodes (#649). The owner
+is the nodes' only login, with the owner's keys and device password, so nothing an admin can get
+through Sherpa lets them log in:
+
+- **Files.** `download` (RPC, and the web lab zip; REST has none) and `node.host_keys` are
+  `require_lab_owner`. The lab page offers the download link only to the owner
+  (`labs_web::lab_offers_download`).
+- **Consoles.** `inspect` stays owner or admin, but `inspect::shown_to` blanks each node's
+  `console_address` and `vnc_port` for anyone but the owner, using `check_lab_rule` with
+  `LabRule::OwnerOnly`, and logs `event = "auth.owner_only_hidden"`. RPC, REST, the CLI and the
+  web lab and node pages all read the same response.
+- **Keys.** `user.ssh_key.add` is `require_self`, so an admin cannot put a key on another
+  account for its owner's next `up` or `redeploy` to install; the admin user page has no add
+  form. `user.create` takes no `ssh_keys`, and `CreateUserRequest` refuses unknown fields so an
+  old request with keys fails instead of creating a keyless user. Removing a key stays self or
+  admin. `sherpad init`, run as root on the host, still takes the first user's key.
+- **Client.** `sherpa ssh`, `sherpa console` and `sherpa provision` call
+  `lab_identity::require_lab_owner` before anything connects: when the folder's
+  `lab-info.toml` names an owner other than the logged-in user they stop with `Only the owner of
+  lab '<id>' can connect to its nodes`. This is a courtesy; the server rules above are the
+  boundary.
+
+What remains: an admin who resets a user's Sherpa password can sign in as them (logged, and it
+ends the user's sessions). An admin may start privileged containers and host mounts, which is
+root on the host, and root reaches the database key, disks, serial consoles (`127.127.x.y:23`)
+and VNC (`localhost:59xx`); host-level isolation is #674 and #683. The boundary is for the admin
+role through Sherpa's interfaces, with an audit trail, not a defence against root.
 
 Refusals are returned as a typed `services::error::ServiceError` inside `anyhow::Error`: `Denied` (not allowed), `NotFound`, or `Conflict` (allowed, but the current state forbids it, such as deleting a user who owns labs). Transports find it with `ServiceError::find`, which works through added context:
 
@@ -554,6 +585,7 @@ A few transports must answer before the service runs, and call the same policy h
 
 - REST destroy and REST redeploy return SSE streams, so a refusal inside the service would arrive as a 200 with an error event. They call `require_lab_access` or `require_lab_owner` first, so a refused caller gets 403.
 - Web redeploy checks ownership before reading the lab's stored definition, so a non-owner gets 403 rather than a refusal.
+- The web lab download checks ownership first, since it needs the lab's name for the zip.
 - Web destroy checks access before queuing the job.
 
 The service always checks again, so the rule is still enforced if a transport forgets.
@@ -1382,15 +1414,33 @@ the rollback removes the lab.
 
 ```mermaid
 flowchart TB
-    check["check_vm_ready(ip, port)"] --> port{"port"}
+    check["check_vm_ready(ip, port, sshd_marker)"] --> port{"port"}
     port -->|22| ssh["check_node_ssh_ready"]
     ssh --> tcp["TCP connect (100 ms)"]
     tcp -->|"refused/timeout"| notready["not ready"]
     tcp -->|connected| hostkey["Jato Session::host_key<br/>(5 s, no login)"]
-    hostkey -->|"SSH handshake through key exchange, then disconnect"| ready["ready, with host key"]
     hostkey -->|"non-SSH reply or timeout"| notready
+    hostkey -->|"SSH handshake through key exchange, then disconnect"| marker{"sshd_marker?"}
+    marker -->|none| ready["ready, with host key"]
+    marker -->|"Windows, cloud-init"| ident["ssh_identification:<br/>read the SSH-2.0 line (5 s)"]
+    ident -->|"shows the marker"| ready
+    ident -->|"no marker yet"| notready
     port -->|other port| portready["check_node_port_ready:<br/>TCP connect (100 ms)"]
 ```
+
+A Windows node's OpenSSH server starts at boot, before cloudbase-init has created the owner's
+account, written their keys file and Sherpa's `sshd_config`, and restarted it, so a handshake
+alone reported Windows nodes ready minutes before the owner could log in. Sherpa's Windows
+`sshd_config` sets `VersionAddendum sherpa-ready` (`SHERPA_SSHD_READY_MARKER`), which the server
+adds to the identification line it sends on every connection, before key exchange.
+`ModelKind::sshd_ready_marker` gives the marker for `windows_server` and `devbox_windows` with
+cloud-init ZTP (with ZTP off Sherpa writes no `sshd_config`), and `up` (from the node's
+`ZtpRecord`) and `redeploy` pass it; the probe then also reads that line over a plain TCP
+connection (`ssh_identification`) and is ready only once it shows the marker. cloudbase-init
+handles `write_files` and `users` before `runcmd`, and the `sshd` restart is in `runcmd` after the
+key file's ACLs, so the marker appears only once the owner can log in by key. No credentials are
+sent. The scanner, `resume` and `node.host_keys` pass no marker: a resumed node already runs with
+the config, and a node `up` left `Starting` is recorded running on the handshake, as before.
 
 An open port is not enough on SSH: network devices and some guests accept TCP connections
 before their SSH server can answer. The probe uses the Jato library (`bwks/jato-lib`, a

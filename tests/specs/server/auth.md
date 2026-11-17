@@ -89,7 +89,10 @@ Tests: `demoted_admin_token_loses_admin_rights_on_all_transports` and
 
 ## Lab operation authorization
 
-- Owner-or-admin operations (inspect, destroy, down, resume, download, link impairment) allow the owner and admins and refuse other users, on RPC, REST and every web route `[integration]` **P0**
+- Owner-or-admin operations (inspect, destroy, down, resume, link impairment) allow the owner and admins and refuse other users, on RPC, REST and every web route `[integration]` **P0**
+- `download` (RPC and the web zip) and `node.host_keys` are for the lab's owner only: an admin gets the owner-only refusal, another user is refused, and the owner is allowed `[integration]` **P0** (`lab_files_and_host_keys_are_for_the_lab_owner_only`)
+- `inspect` shows the serial console address and VNC port to the owner only; for an admin or anyone else they are empty, and the rest of the node is unchanged `[unit]` **P0** (`inspect::tests::anyone_but_the_owner_sees_no_console_address_or_vnc_port`)
+- The lab page offers the download to the owner only `[unit]` **P1** (`the_lab_detail_offers_the_download_only_to_the_owner_of_a_lab_with_known_nodes`)
 - Refused streaming requests send no progress, and a refused destroy leaves the lab `[integration]` **P0**
 - Authorization failures are typed (`ServiceError`) and map to 403/404/409 and RPC `AccessDenied`/`NotFound`, never by matching error text `[unit]` **P0**
 - `GET /api/v1/labs` requires login; regular users list only their own labs; admins may pass `?username=` `[integration]` **P0**

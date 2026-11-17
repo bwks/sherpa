@@ -145,6 +145,11 @@ pub const SHERPA_SERVER_HTTP_PORT: u16 = 3031;
 pub const QEMU_BIN: &str = "/usr/bin/qemu-system-x86_64";
 pub const QEMU_URI: &str = "qemu:///system";
 pub const SSH_PORT: u16 = 22;
+/// What Sherpa's Windows `sshd_config` adds to the SSH server's identification line with
+/// `VersionAddendum`. A Windows node's SSH server starts before cloudbase-init has created the
+/// owner's account and written their keys, and only shows this once cloudbase-init has written
+/// the config and restarted it, so readiness waits for it.
+pub const SHERPA_SSHD_READY_MARKER: &str = "sherpa-ready";
 /// Talos Linux API (apid) port, used for readiness and bootstrap.
 pub const TALOS_API_PORT: u16 = 50000;
 /// Kubernetes version of the generated Talos cluster configs (Talos 1.14 default).

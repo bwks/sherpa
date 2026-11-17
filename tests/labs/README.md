@@ -13,6 +13,7 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 | [p2p-links](p2p-links/README.md) | P2p (eBPF) link requirements on VM ⟷ VM, VM ⟷ container and container ⟷ container: L2 protocols, LACP, capture, per-direction impairment, jumbo frames, lifecycle | about 15–20 min |
 | [nixos-linux](nixos-linux/README.md) | `nixos_linux` VMs built from [bwks/nixos-image](https://github.com/bwks/nixos-image): lab owner login, sudo, text files, cloud-init, a P2p link | about 5 min |
 | [console](console/README.md) | `sherpa console` in a pseudo-terminal through the server, with no system `telnet`: login prompt, `Ctrl+]` and `~.`, a console in use, a container refused | about 3–5 min |
+| [owner-login](owner-login/README.md) | The lab owner's login on a Linux VM and a network OS container, by key and by device password, with admin rights and no old `sherpa` login; what a second, admin account may not do: connect, download, add the owner a key. Needs an admin account | about 5–10 min |
 | [talos-linux](talos-linux/README.md) | Sherpa-built Talos Kubernetes clusters | about 25–35 min |
 
 ## Rules
@@ -32,6 +33,8 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 - Every runner's preflight stops unless the CLI is logged in and the user has a device password
   (`sherpa server user info` shows `Device password: set`): `sherpa up` is refused without one.
   Set it once with `sherpa server user device-password`.
+  A lab with two accounts (owner-login) checks both have a device password, and takes the second
+  account's login and passwords from options and environment variables, never printing them.
 - Each runner has a `--self-test` mode for its pure logic, which runs in seconds.
 
 Lab tests are started by hand. How and when end-to-end tests run is being planned in

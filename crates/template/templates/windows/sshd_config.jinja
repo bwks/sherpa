@@ -2,3 +2,6 @@
 # administrators_authorized_keys.
 AuthorizedKeysFile {{ authorized_keys_dir }}/%u
 Subsystem sftp sftp-server.exe
+# Shown in the server's identification line: Sherpa takes the node as ready, and its owner able
+# to log in, only once the server runs with this config.
+VersionAddendum {{ ready_marker }}

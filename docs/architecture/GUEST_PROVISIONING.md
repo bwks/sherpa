@@ -296,7 +296,10 @@ Administrators, so any administrator key logs in as any administrator. Sherpa wr
 `AuthorizedKeysFile __PROGRAMDATA__/ssh/authorized_keys/%u`: each account has its own
 keys file under `node_ops::WINDOWS_AUTHORIZED_KEYS_DIR`, named after it and
 private to Administrators and SYSTEM (mode `0600`, below). The file is outside the user's
-profile, which Windows only creates at first logon. The owner is a local administrator
+profile, which Windows only creates at first logon. The config also sets `VersionAddendum
+sherpa-ready`, which readiness waits for: the image's `sshd` answers long before cloudbase-init
+has made the owner's account and keys file and restarted it with this config (see "Readiness" in
+[`SERVER.md`](SERVER.md)). The owner is a local administrator
 (`guest_account::cloudbase_user`); cloudbase-init needs a password, so it gets the device
 password as plain text.
 

@@ -105,3 +105,11 @@ Validators that only the server enforces.
 - Connection respects the 100ms timeout `[integration]` **P2**
 
 **Existing coverage:** 2 tests (closed port returns false, invalid address returns error)
+
+**Function:** `check_vm_ready(ip, port, sshd_marker)`, `ssh_identification(ip, port)`
+
+**What to test:**
+- A port other than SSH needs only a TCP connection `[integration]` **P1**
+- The SSH identification line is read past lines before it; a server sending none, or a closed port, has none `[integration]` **P0**
+- The ready marker counts only among the identification line's comments `[unit]` **P0**
+- Only Windows models with cloud-init ZTP have a marker (`ModelKind::sshd_ready_marker`), and their generated `sshd_config` sets it with `VersionAddendum` `[unit]` **P0**

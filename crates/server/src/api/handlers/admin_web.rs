@@ -21,7 +21,6 @@ use crate::api::extractors::AdminUser;
 
 use shared::data::ScanImagesRequest;
 use shared::util::normalize_username;
-use shared::validators::validate_ssh_key;
 
 /// Element on the admin users page that shows a refused user delete (`hx-retarget` value).
 const ADMIN_USER_DELETE_ERROR_TARGET: &str = "#user-delete-error";
@@ -325,93 +324,6 @@ pub async fn admin_update_user_password_handler(
     }
 
     Ok(AdminPasswordSuccessTemplate { target_username }.into_response())
-}
-
-/// Form for adding SSH key (admin action)
-#[derive(Deserialize)]
-pub struct AdminAddSshKeyForm {
-    pub ssh_key: String,
-}
-
-/// Admin add SSH key handler
-pub async fn admin_add_ssh_key_handler(
-    State(state): State<AppState>,
-    Path(target_username): Path<String>,
-    admin: AdminUser,
-    Form(form): Form<AdminAddSshKeyForm>,
-) -> Result<Response, ApiError> {
-    tracing::info!(
-        "Admin '{}' attempting to add SSH key for user '{}'",
-        admin.username,
-        target_username
-    );
-
-    let ssh_key = form.ssh_key.trim();
-
-    // Validate SSH key format
-    if let Err(e) = validate_ssh_key(ssh_key) {
-        tracing::debug!("Invalid SSH key format: {:?}", e);
-        return Ok(AdminSshKeysListTemplate {
-            target_username: target_username.clone(),
-            ssh_keys: vec![],
-            success_message: format!("Error: {e}"),
-            is_error: true,
-        }
-        .into_response());
-    }
-
-    // Get user from database
-    let mut user = db::get_user(&state.db, &target_username)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get user '{}': {:?}", target_username, e);
-            ApiError::internal("Failed to add SSH key")
-        })?;
-
-    // Check for duplicate key
-    if user.ssh_keys.contains(&ssh_key.to_string()) {
-        tracing::debug!("SSH key already exists for user '{}'", target_username);
-        return Ok(AdminSshKeysListTemplate {
-            target_username: target_username.clone(),
-            ssh_keys: user.ssh_keys,
-            success_message: "Error: This SSH key already exists".to_string(),
-            is_error: true,
-        }
-        .into_response());
-    }
-
-    // Add SSH key
-    user.ssh_keys.push(ssh_key.to_string());
-
-    // Save to database
-    db::update_user(&state.db, user.clone())
-        .await
-        .map_err(ServiceError::from_user_write)
-        .map_err(|e| {
-            if ServiceError::find(&e).is_some() {
-                return ApiError::from(e);
-            }
-            tracing::error!(
-                "Failed to update user '{}' in database: {:?}",
-                target_username,
-                e
-            );
-            ApiError::internal("Failed to add SSH key")
-        })?;
-
-    tracing::info!(
-        "Admin '{}' successfully added SSH key for user '{}'",
-        admin.username,
-        target_username
-    );
-
-    Ok(AdminSshKeysListTemplate {
-        target_username,
-        ssh_keys: user.ssh_keys,
-        success_message: "SSH key added successfully".to_string(),
-        is_error: false,
-    }
-    .into_response())
 }
 
 /// Admin delete SSH key handler

@@ -199,8 +199,8 @@ pub struct LabDetailTemplate {
     /// The lab's phase until it is ready, then its state.
     pub state_badge: Badge,
     pub actions: LabActions,
-    /// Set by the handler from the lab state: a lab with no nodes, or an unknown state, has
-    /// no files to download.
+    /// Set by the handler: only the lab's owner is offered the files, and a lab with no nodes,
+    /// or an unknown state, has none to download.
     pub offers_download: bool,
     pub nodes: Vec<NodeRow>,
     pub device_count: usize,
@@ -1165,7 +1165,7 @@ mod tests {
             lab_info,
             state_badge: Badge::for_lab(lab_phase, lab_state, BadgeSize::Large),
             actions: LabActions::for_lab(lab_phase, lab_state),
-            offers_download: lab_offers_download(lab_state),
+            offers_download: lab_offers_download(true, lab_state),
             nodes: vec![],
             device_count: 0,
             inactive_devices: vec![],

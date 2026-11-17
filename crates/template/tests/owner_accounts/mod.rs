@@ -390,10 +390,15 @@ fn panos_owner_is_a_superuser_with_its_own_hash_and_key() {
 fn windows_sshd_config_reads_each_accounts_own_keys_file() {
     let output = WindowsSshdConfigTemplate {
         authorized_keys_dir: "__PROGRAMDATA__/ssh/authorized_keys".to_string(),
+        ready_marker: "sherpa-ready".to_string(),
     }
     .render()
     .unwrap();
     assert!(output.contains("AuthorizedKeysFile __PROGRAMDATA__/ssh/authorized_keys/%u\n"));
+    assert!(
+        output.contains("\nVersionAddendum sherpa-ready"),
+        "{output}"
+    );
     assert!(output.contains("Subsystem sftp sftp-server.exe"));
     assert!(!output.contains("Match Group administrators"));
 }

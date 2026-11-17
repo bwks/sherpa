@@ -1,0 +1,16 @@
+name = "owner-login"
+
+# A Linux VM and a network OS container, each with the lab owner's account: their name, SSH keys
+# and device password. The checks cover how the owner and an admin who does not own the lab reach
+# the nodes. SR Linux runs as a container and needs no internet. The runner adds a unique suffix
+# to the lab name for each run.
+
+[[nodes]]
+name = "ubu01"
+model = "ubuntu_linux"
+version = "24.04"
+
+[[nodes]]
+name = "srl01"
+model = "nokia_srlinux"
+version = "26.7.2"

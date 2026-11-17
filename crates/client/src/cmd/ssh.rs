@@ -12,6 +12,7 @@ use shared::data::{ClientConfig, LabInfo};
 use shared::konst::{SHERPA_DOMAIN_NAME, SHERPA_MANIFEST_FILE, SSH_PROMPT_AUTH_TIMEOUT};
 use shared::util::{LabFolder, term_msg_surround};
 
+use super::lab_identity::require_lab_owner;
 use crate::ssh_client::{self, HostKeyRefresh, PromptScope};
 
 /// Qualify a device name with the lab ID suffix if not already present.
@@ -63,7 +64,8 @@ impl fmt::Display for ShellExit {
 impl std::error::Error for ShellExit {}
 
 /// Open an interactive shell on a lab node, through the Sherpa server as the lab's SSH
-/// configuration says. A non-zero exit code from the node's shell is returned as a `ShellExit` error.
+/// configuration says. Only the lab's owner may: anyone else is stopped before anything
+/// connects. A non-zero exit code from the node's shell is returned as a `ShellExit` error.
 #[tracing::instrument(skip(client_config), fields(%name, %lab_id))]
 pub async fn ssh(
     name: &str,
@@ -72,6 +74,7 @@ pub async fn ssh(
     client_config: &ClientConfig,
 ) -> Result<()> {
     let lab_dir = Path::new("");
+    require_lab_owner(lab_dir)?;
     let qualified_name = load_ssh_connection(name, lab_id, lab_dir)?;
     let config = SshConfig::load_file(LabFolder::new(lab_dir).ssh_config())
         .context("Failed to read the lab SSH config")?;

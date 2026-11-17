@@ -174,6 +174,7 @@ in `tests/labs/console/`.
 - Missing lab metadata or SSH configuration gives actionable `sherpa up` and `sherpa download <lab-id> --force` guidance without inferring remote lab status `[unit]` **P0**
 - Other connection-file read errors preserve the underlying cause `[unit]` **P1**
 - Existing `sherpa ssh <node>` command shape remains unchanged `[unit]` **P0**
+- A folder whose `lab-info.toml` names another owner is refused with `Only the owner of lab '<id>' can connect to its nodes` before anything connects, as are `sherpa console` and `sherpa provision`; a folder with only a manifest is the logged-in user's own lab `[unit]` **P0** (`lab_identity::tests::only_the_owner_of_a_folder_lab_may_connect_to_its_nodes`)
 
 **Existing coverage:** Node name qualification unit tests in `cmd/ssh.rs`; CLI parse test for `sherpa ssh <node>`
 
@@ -222,9 +223,9 @@ in `tests/labs/console/`.
 - `server status` shows daemon state `[integration]` **P1**
 - `server clean` sends admin cleanup request `[integration]` **P1**
 - `server user` subcommands (create, list, delete) `[integration]` **P1**
-- `server user create` rejects an invalid username before prompting for a password `[unit]` **P1**
+- `server user create` rejects an invalid username before prompting for a password, and takes no `--ssh-key` `[unit]` **P1**
 - `server user device-password` takes no arguments or flags and prompts for the login password, then the device password twice, which must match `[unit]` **P1**
-- `server user ssh-key list|add|remove` parse, default to the logged-in user, accept `--user`, and read a key from a `.pub` file path `[unit]` **P1**
+- `server user ssh-key list|add|remove` parse, default to the logged-in user, and read a key from a `.pub` file path; `list` and `remove` accept `--user`, `add` does not `[unit]` **P1**
 - `server image` subcommands (show, import, scan, delete) `[integration]` **P1**
 - Admin-only commands fail for non-admin users `[integration]` **P0**
 

@@ -1552,3 +1552,171 @@ async fn the_profile_device_password_form_sets_it_and_shows_it_as_set() -> Resul
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn only_the_user_adds_a_key_to_their_account_admins_included() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    for (username, is_admin) in [("alice", false), ("bob", false), ("dana", true)] {
+        db::create_user(
+            &server.db,
+            username.to_owned(),
+            TEST_ADMIN_PASSWORD,
+            is_admin,
+            vec![],
+        )
+        .await?;
+    }
+    let alice = ws.login("alice", TEST_ADMIN_PASSWORD).await?;
+    let bob = ws.login("bob", TEST_ADMIN_PASSWORD).await?;
+    let dana = ws.login("dana", TEST_ADMIN_PASSWORD).await?;
+
+    // An admin and another user are refused, over RPC and REST, and alice's keys stay as they
+    // were.
+    for (caller, token) in [("dana", &dana), ("bob", &bob)] {
+        let response = ws
+            .rpc_call(
+                "user.ssh_key.add",
+                json!({ "token": token, "username": "alice", "ssh_key": SECOND_SSH_PUBLIC_KEY }),
+            )
+            .await?;
+        ensure!(
+            response["error"]["code"] == json!(RpcErrorCode::AccessDenied)
+                && response["error"]["message"]
+                    .as_str()
+                    .is_some_and(|message| message
+                        .contains("only user 'alice' can do this for their own account")),
+            "RPC add by {caller} to alice's account: {response}"
+        );
+        let response = Client::new()
+            .post(format!(
+                "http://{}/api/v1/admin/users/alice/ssh-keys",
+                server.addr
+            ))
+            .bearer_auth(token)
+            .json(&json!({ "username": "alice", "ssh_key": SECOND_SSH_PUBLIC_KEY, "token": token }))
+            .send()
+            .await?;
+        ensure!(
+            response.status() == StatusCode::FORBIDDEN,
+            "REST add by {caller} to alice's account returned {}",
+            response.status()
+        );
+    }
+    // The admin page for a user has no form to add a key, and no route takes one.
+    let response = web_request(
+        &server,
+        &dana,
+        Method::POST,
+        "/admin/users/alice/ssh-keys",
+        &[("ssh_key", SECOND_SSH_PUBLIC_KEY)],
+    )
+    .await?;
+    ensure!(
+        !response.status().is_success(),
+        "web add by an admin to alice's account returned {}",
+        response.status()
+    );
+    let page = web_request(&server, &dana, Method::GET, "/admin/users/alice", &[])
+        .await?
+        .text()
+        .await?;
+    ensure!(
+        !page.contains(r#"hx-post="/admin/users/alice/ssh-keys""#),
+        "the admin page still offers to add a key: {page}"
+    );
+    ensure!(
+        stored_keys(&server, "alice").await?.is_empty(),
+        "a refused add changed alice's keys"
+    );
+
+    // Alice adds her own, and an admin adds to their own account.
+    for (username, token) in [("alice", &alice), ("dana", &dana)] {
+        let response = ws
+            .rpc_call(
+                "user.ssh_key.add",
+                json!({ "token": token, "username": username, "ssh_key": SECOND_SSH_PUBLIC_KEY }),
+            )
+            .await?;
+        ensure!(
+            response["result"]["ssh_keys"] == json!([SECOND_SSH_PUBLIC_KEY]),
+            "{username} adding their own key: {response}"
+        );
+    }
+
+    // Removing stays self or admin.
+    let response = ws
+        .rpc_call(
+            "user.ssh_key.remove",
+            json!({ "token": dana, "username": "alice", "ssh_key": SECOND_SSH_PUBLIC_KEY }),
+        )
+        .await?;
+    ensure!(
+        response["result"]["ssh_keys"] == json!([]),
+        "an admin removing alice's key: {response}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_user_is_created_without_keys_and_a_request_with_keys_is_refused() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+
+    let response = ws
+        .rpc_call(
+            "user.create",
+            json!({
+                "token": token,
+                "username": "keyed",
+                "password": "TestUser123!",
+                "is_admin": false,
+                "ssh_keys": [TEST_SSH_PUBLIC_KEY],
+            }),
+        )
+        .await?;
+    ensure!(
+        response.get("error").is_some(),
+        "RPC user.create with keys was accepted: {response}"
+    );
+    let response = Client::new()
+        .post(format!("http://{}/api/v1/admin/users", server.addr))
+        .bearer_auth(&token)
+        .json(&json!({
+            "username": "keyed",
+            "password": "TestUser123!",
+            "is_admin": false,
+            "ssh_keys": [TEST_SSH_PUBLIC_KEY],
+            "token": token,
+        }))
+        .send()
+        .await?;
+    ensure!(
+        response.status().is_client_error(),
+        "REST user.create with keys returned {}",
+        response.status()
+    );
+    ensure!(
+        db::find_user(&server.db, "keyed").await?.is_none(),
+        "a refused create made the user"
+    );
+
+    let response = ws
+        .rpc_call(
+            "user.create",
+            json!({
+                "token": token,
+                "username": "keyless",
+                "password": "TestUser123!",
+                "is_admin": false,
+            }),
+        )
+        .await?;
+    ensure!(response.get("result").is_some(), "user.create: {response}");
+    ensure!(
+        stored_keys(&server, "keyless").await?.is_empty(),
+        "a new user has keys"
+    );
+    Ok(())
+}

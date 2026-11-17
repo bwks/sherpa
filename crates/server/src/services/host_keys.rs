@@ -8,7 +8,7 @@ use shared::data::{NodeHostKeysRequest, NodeHostKeysResponse, NodeKind};
 use shared::konst::SSH_PORT;
 
 use crate::auth::context::AuthContext;
-use crate::auth::policy::require_lab_access;
+use crate::auth::policy::require_lab_owner;
 use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
 use crate::services::lab_info;
@@ -18,7 +18,8 @@ use crate::services::ssh_config;
 /// Read the node's host key, record it if it changed, and return the lab's `known_hosts`
 /// file, built from the database. A node whose SSH server does not answer keeps its recorded key.
 ///
-/// The caller must own the lab or be an admin.
+/// Only the lab's owner may ask, admins included: the file only serves the owner's SSH
+/// connections to the lab's nodes.
 #[instrument(skip(ctx, request, state), fields(username = %ctx.username, lab_id = %request.lab_id, node_name = %request.node_name))]
 pub async fn refresh_node_host_key(
     ctx: &AuthContext,
@@ -27,7 +28,7 @@ pub async fn refresh_node_host_key(
 ) -> Result<NodeHostKeysResponse> {
     let lab_id = &request.lab_id;
     let node_name = &request.node_name;
-    let db_lab = require_lab_access(ctx, &state.db, lab_id).await?;
+    let db_lab = require_lab_owner(ctx, &state.db, lab_id).await?;
     let lab_record_id = db::get_lab_id(&db_lab).context("Failed to get lab record ID")?;
     let db_node =
         match db::get_node_by_name_and_lab(&state.db, node_name, lab_record_id.clone()).await {
@@ -58,7 +59,7 @@ pub async fn refresh_node_host_key(
         .as_deref()
         .with_context(|| format!("Node '{node_name}' has no management address"))?;
 
-    let changed = match node_ops::check_vm_ready(ip, SSH_PORT).await? {
+    let changed = match node_ops::check_vm_ready(ip, SSH_PORT, None).await? {
         VmReadiness::Ready {
             host_key: Some(host_key),
         } => ssh_config::record_node_host_key(&state.db, &db_node, &host_key).await?,
