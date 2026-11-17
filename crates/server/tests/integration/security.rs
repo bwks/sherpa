@@ -5,7 +5,7 @@ use anyhow::{Context, Result, ensure};
 use db::DefaultRequest;
 use reqwest::{Client, Method, Response, StatusCode, header};
 use serde_json::{Value, json};
-use shared::data::{NodeConfig, NodeModel};
+use shared::data::{ModelKind, NodeModel};
 use shared::error::RpcErrorCode;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 use std::time::Duration;
@@ -133,7 +133,7 @@ async fn can_log_in(ws: &mut TestWsClient, username: &str, password: &str) -> Re
 
 /// Seed a default Ubuntu image record, for the image pages of the access matrix.
 async fn seed_matrix_image(server: &TestServer) -> Result<()> {
-    let mut image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+    let mut image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
     MATRIX_IMAGE_VERSION.clone_into(&mut image.version);
     image.default = true;
     db::upsert_node_image(&server.db, image, DefaultRequest::Keep).await?;

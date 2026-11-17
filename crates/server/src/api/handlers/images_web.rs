@@ -30,8 +30,8 @@ use crate::api::extractors::AdminUser;
 use crate::validate::validate_node_image_update;
 use shared::data::{
     BiosTypes, BootDiskSettings, CdromSettings, CpuArchitecture, CpuModels, CpuSettings, DiskBuses,
-    ImportRequest, InterfaceSettings, InterfaceType, MachineSettings, MachineType, NodeConfig,
-    NodeModel, OsVariant, Ztp, ZtpSettings,
+    ImportRequest, InterfaceSettings, InterfaceType, MachineSettings, MachineType, ModelKind,
+    NodeConfig, NodeModel, OsVariant, Ztp, ZtpSettings,
 };
 
 /// Helper struct for extracting image path parameters with optional version
@@ -113,8 +113,8 @@ async fn find_image_config(state: &AppState, params: &ImagePath) -> Result<NodeC
         ApiError::not_found("Image", format!("Invalid model: {}", params.model))
     })?;
 
-    // Derive kind from model
-    let node_kind = node_model.kind();
+    // The page's URL names no kind: the model's default kind.
+    let node_kind = ModelKind::default_for(node_model).kind();
 
     // Fetch the specific config from database
     // If version is specified, fetch that specific version; otherwise fetch default
@@ -194,11 +194,11 @@ impl ImageFormChoices {
     }
 }
 
-/// The ZTP settings the edit form offers for an image of `model`: off, then the methods the
-/// model takes, with the image's `current` setting selected.
-fn ztp_choices(model: NodeModel, current: Ztp) -> Vec<FormChoice> {
+/// The ZTP settings the edit form offers for an image of `model_kind`: off, then the methods
+/// the model and kind take, with the image's `current` setting selected.
+fn ztp_choices(model_kind: ModelKind, current: Ztp) -> Vec<FormChoice> {
     iter::once(Ztp::Disabled)
-        .chain(model.ztp_methods().iter().copied())
+        .chain(model_kind.ztp_methods().iter().copied())
         .map(|ztp| FormChoice {
             value: ztp.to_string(),
             label: ztp.to_string(),
@@ -292,7 +292,7 @@ pub async fn admin_image_detail_handler(
         username: admin.username.clone(),
         is_admin: true,
         nav: NavPage::AdminImages.into(),
-        kind_badge: KindBadge::full(config.kind.clone()),
+        kind_badge: KindBadge::full(config.kind),
         config,
     };
 
@@ -313,16 +313,23 @@ pub async fn admin_image_edit_page_handler(
 
     let config = find_image_config(&state, &params).await?;
 
-    Ok(image_edit_template(admin.username, config))
+    image_edit_template(admin.username, config)
 }
 
 /// The edit page for `config`, with every dropdown's options and the image's own selected.
-fn image_edit_template(username: String, config: NodeConfig) -> AdminImageEditTemplate {
-    AdminImageEditTemplate {
+///
+/// # Errors
+///
+/// Fails when the image's model does not take its kind.
+fn image_edit_template(
+    username: String,
+    config: NodeConfig,
+) -> Result<AdminImageEditTemplate, ApiError> {
+    Ok(AdminImageEditTemplate {
         username,
         is_admin: true,
         nav: NavPage::AdminImages.into(),
-        kind_label: kind_label(&config.kind),
+        kind_label: kind_label(config.kind),
         os_variant_choices: form_choices::<OsVariant>(&config.os_variant),
         bios_choices: form_choices::<BiosTypes>(&config.machine.bios),
         cpu_architecture_choices: form_choices::<CpuArchitecture>(&config.cpu.architecture),
@@ -330,10 +337,10 @@ fn image_edit_template(username: String, config: NodeConfig) -> AdminImageEditTe
         machine_type_choices: form_choices::<MachineType>(&config.machine.kind),
         hdd_bus_choices: form_choices::<DiskBuses>(&config.boot_disk.bus),
         cdrom_bus_choices: form_choices::<DiskBuses>(&config.cdrom.bus),
-        ztp_choices: ztp_choices(config.model, config.ztp.method),
+        ztp_choices: ztp_choices(config.model_kind()?, config.ztp.method),
         interface_type_choices: form_choices::<InterfaceType>(&config.interfaces.kind),
         config,
-    }
+    })
 }
 
 /// Form data for updating an image configuration. It denies unknown fields, so a form that
@@ -393,6 +400,7 @@ pub async fn admin_image_update_handler(
     );
 
     let config = find_image_config(&state, &params).await?;
+    let model_kind = config.model_kind()?;
 
     let choices = ImageFormChoices::parse(&form)?;
 
@@ -404,7 +412,7 @@ pub async fn admin_image_update_handler(
 
     // Validate form data
     if let Err(e) = validate_node_image_update(
-        config.model,
+        model_kind,
         form.ztp,
         form.cpu_count,
         form.memory,
@@ -419,7 +427,7 @@ pub async fn admin_image_update_handler(
         .into_response());
     }
 
-    let _image_guard = lock_image(config.model, &config.version).await;
+    let _image_guard = lock_image(model_kind, &config.version).await;
     let updated_config = updated_image_config(config, form, choices);
 
     if let Err(error) = db::update_node_image(&state.db, updated_config, request_default).await {
@@ -473,8 +481,8 @@ pub async fn admin_image_versions_handler(
     let model_enum = NodeModel::from_str(&model)
         .map_err(|_| ApiError::bad_request(format!("Invalid model: {model}")))?;
 
-    // Derive kind from model
-    let kind_enum = model_enum.kind();
+    // The page's URL names no kind: the model's default kind.
+    let kind_enum = ModelKind::default_for(model_enum).kind();
 
     // Fetch all versions for this model/kind
     let versions = db::get_node_image_versions(&state.db, &model_enum, &kind_enum)
@@ -492,7 +500,7 @@ pub async fn admin_image_versions_handler(
         is_admin: true,
         nav: NavPage::AdminImages.into(),
         model,
-        kind_label: kind_label(&kind_enum),
+        kind_label: kind_label(kind_enum),
         kind: kind_enum,
         versions,
     };
@@ -665,6 +673,7 @@ pub async fn admin_image_upload_handler(
     // Construct import request and call the import service
     let request = ImportRequest {
         model: fields.model,
+        kind: None,
         version: fields.version,
         src: temp_path.clone(),
         default: fields.default,
@@ -872,7 +881,7 @@ mod tests {
 
     #[test]
     fn the_form_cannot_change_an_images_version_or_default_flag() {
-        let mut config = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let mut config = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         "24.04".clone_into(&mut config.version);
         config.default = true;
         let form = form_for(&config, "renamed");
@@ -934,7 +943,7 @@ mod tests {
 
     #[test]
     fn the_edit_page_selects_the_images_own_settings_and_names_its_kind() {
-        let ubuntu = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let ubuntu = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         let config = NodeConfig {
             os_variant: OsVariant::iter().next_back().expect("an OS variant"),
             cpu: CpuSettings {
@@ -964,6 +973,7 @@ mod tests {
             ..ubuntu
         };
         let html = image_edit_template("admin".to_owned(), config.clone())
+            .unwrap()
             .render()
             .expect("template should render");
         for (name, value) in [
@@ -984,7 +994,7 @@ mod tests {
 
     /// The offered values, and the one selected.
     fn offered(model: NodeModel, current: Ztp) -> (Vec<String>, Vec<String>) {
-        let choices = ztp_choices(model, current);
+        let choices = ztp_choices(ModelKind::default_for(model), current);
         let selected = choices
             .iter()
             .filter(|choice| choice.selected)
@@ -1075,15 +1085,16 @@ mod tests {
 
     #[test]
     fn the_image_pages_have_no_ztp_login_fields() {
-        let config = NodeConfig::get_model(NodeModel::CiscoCat8000v);
+        let config = ModelKind::default_for(NodeModel::CiscoCat8000v).node_config();
         let edit = image_edit_template("admin".to_owned(), config.clone())
+            .unwrap()
             .render()
             .unwrap();
         let detail = crate::templates::AdminImageDetailTemplate {
             username: "admin".to_owned(),
             is_admin: true,
             nav: NavPage::AdminImages.into(),
-            kind_badge: KindBadge::full(config.kind.clone()),
+            kind_badge: KindBadge::full(config.kind),
             config,
         }
         .render()
@@ -1104,7 +1115,7 @@ mod tests {
 
     #[test]
     fn a_saved_form_carries_its_ztp_setting_to_the_image() {
-        let config = NodeConfig::get_model(NodeModel::JuniperVsrxv3);
+        let config = ModelKind::default_for(NodeModel::JuniperVsrxv3).node_config();
         let mut form = form_for(&config, "1");
         form.ztp = Ztp::Tftp;
         let choices = ImageFormChoices::parse(&form).unwrap();

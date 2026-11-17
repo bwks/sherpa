@@ -3,7 +3,7 @@ use db::{
     DefaultRequest, LabDetails, create_lab, create_link, create_node, create_user,
     list_links_by_lab, update_link_impairments, upsert_node_image,
 };
-use shared::data::{BridgeKind, DbLink, LinkImpairment, NodeConfig, NodeModel, RecordId};
+use shared::data::{BridgeKind, DbLink, LinkImpairment, ModelKind, NodeModel, RecordId};
 
 use crate::helper::{ipv4_lab_networks, setup_db};
 
@@ -27,7 +27,7 @@ async fn impairments_are_set_and_the_rest_of_the_link_is_kept() -> Result<()> {
     .await?;
     let image = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;

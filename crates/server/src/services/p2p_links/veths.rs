@@ -18,7 +18,7 @@ pub(crate) struct ContainerVeth {
     pub(crate) host_veth: String,
     pub(crate) host_alias: String,
     pub(crate) interface_idx: u8,
-    pub(crate) node_model: data::NodeModel,
+    pub(crate) model_kind: data::ModelKind,
     pub(crate) admin_down: bool,
     /// The private bridge the host end joins, for a bridge member.
     pub(crate) bridge: Option<String>,
@@ -29,7 +29,7 @@ pub(crate) struct ContainerNode<'a> {
     pub(crate) lab_id: &'a str,
     pub(crate) name: &'a str,
     pub(crate) index: u16,
-    pub(crate) model: data::NodeModel,
+    pub(crate) model_kind: data::ModelKind,
     pub(crate) record: &'a RecordId,
 }
 
@@ -90,7 +90,7 @@ pub(crate) fn container_veths(
         lab_id,
         name: node_name,
         index: node_idx,
-        model,
+        model_kind,
         record,
     } = *node;
     let mut veths = vec![];
@@ -107,8 +107,8 @@ pub(crate) fn container_veths(
             veths.push(ContainerVeth {
                 host_veth: tap.clone(),
                 host_alias: format!("{lab_id}-p2p-host-{node_name}::{interface}"),
-                interface_idx: util::interface_to_idx(&model, interface)?,
-                node_model: model,
+                interface_idx: util::interface_to_idx(model_kind, interface)?,
+                model_kind,
                 admin_down: false,
                 bridge: None,
             });
@@ -118,12 +118,12 @@ pub(crate) fn container_veths(
     let mut bridged: Vec<(&String, &String)> = bridge_interfaces.iter().collect();
     bridged.sort();
     for (iface_name, bridge_name) in bridged {
-        let iface_idx = util::interface_to_idx(&model, iface_name)?;
+        let iface_idx = util::interface_to_idx(model_kind, iface_name)?;
         veths.push(ContainerVeth {
             host_veth: format!("{BRIDGE_MEMBER_HOST_VETH_PREFIX}{node_idx}i{iface_idx}-{lab_id}"),
             host_alias: format!("{lab_id}-bridge-host-{node_name}::{iface_name}"),
             interface_idx: iface_idx,
-            node_model: model,
+            model_kind,
             admin_down: false,
             bridge: Some(bridge_name.clone()),
         });
@@ -138,7 +138,7 @@ pub(crate) fn container_veths(
             host_veth: format!("{CONTAINER_HOST_VETH_PREFIX}{node_idx}i{idx}-{lab_id}"),
             host_alias: format!("{lab_id}-p2p-disabled-host-{node_name}::{idx}"),
             interface_idx: idx,
-            node_model: model,
+            model_kind,
             admin_down: true,
             bridge: None,
         });
@@ -150,7 +150,7 @@ pub(crate) fn container_veths(
 mod tests {
     use super::*;
 
-    use shared::data::{BridgeKind, BridgeMember, LinkImpairment, NodeModel};
+    use shared::data::{BridgeKind, BridgeMember, LinkImpairment, ModelKind, NodeModel};
 
     fn bridge(index: u16, members: &[(&str, &str)]) -> DbBridge {
         DbBridge {
@@ -252,7 +252,7 @@ mod tests {
             lab_id: "lab1",
             name: "ctr1",
             index: 3,
-            model: NodeModel::FrrLinux,
+            model_kind: ModelKind::default_for(NodeModel::FrrLinux),
             record: &record,
         };
         let links = [link(0, "vm1", "ctr1")];

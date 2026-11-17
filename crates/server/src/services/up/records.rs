@@ -86,7 +86,7 @@ pub(super) async fn create_node_records(
     let mut node_setup_data = vec![];
 
     for node in nodes_expanded {
-        let node_image = get_node_image(node.model, node.version.as_deref(), node_images)?;
+        let node_image = get_node_image(node.model_kind, node.version.as_deref(), node_images)?;
 
         tracing::info!(
             lab_id = %lab_id,
@@ -119,14 +119,13 @@ pub(super) async fn create_node_records(
         let lab_node = db::update_node_ready_check(
             db,
             db::get_node_id(&lab_node)?,
-            &node_ops::stored_ready_check(&node_image.kind, node_image.model, &node.ready_check),
+            &node_ops::stored_ready_check(node.model_kind, &node.ready_check),
         )
         .await?;
 
         lab_node_data.push(data::LabNodeData {
             name: node.name.clone(),
-            model: node_image.model,
-            kind: node_image.kind.clone(),
+            model_kind: node.model_kind,
             index: node.index,
             record: lab_node,
         });
@@ -202,7 +201,7 @@ fn plan_interfaces(
         .ok_or_else(|| anyhow!("Data interface count overflow for node {}", node.name))?;
 
     for idx in 0..=max_interface_idx {
-        let interface_name = util::interface_from_idx(&node.model, idx)?;
+        let interface_name = util::interface_from_idx(node.model_kind, idx)?;
         let interface_idx = idx;
         let mut interface_state = data::InterfaceState::Enabled;
         let mut interface_data = data::NodeInterface::Disabled;
@@ -335,7 +334,7 @@ async fn node_setup(
 
 #[cfg(test)]
 mod tests {
-    use shared::data::NodeModel;
+    use shared::data::{ModelKind, NodeModel};
 
     use crate::services::lab_definition::tests::lab_with;
 
@@ -355,8 +354,7 @@ mod tests {
                 .into_iter()
                 .map(|record| data::LabNodeData {
                     name: record.name.clone(),
-                    model: NodeModel::AlpineLinux,
-                    kind: data::NodeKind::VirtualMachine,
+                    model_kind: ModelKind::default_for(NodeModel::AlpineLinux),
                     index: record.index,
                     record,
                 })

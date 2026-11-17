@@ -120,7 +120,7 @@ async fn poll_until_ready(redeploy: &Redeploy<'_>, ready_port: u16) -> Result<bo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::{NodeKind, NodeModel};
+    use shared::data::{ModelKind, NodeModel};
     use shared::konst::SSH_PORT;
     use topology::{NodeExpanded, NodeReadyCheck};
 
@@ -169,18 +169,14 @@ mod tests {
             ),
         ] {
             let target = NodeExpanded {
-                model: NodeModel::GenericContainer,
+                model_kind: ModelKind::default_for(NodeModel::GenericContainer),
                 ready_check: manifest,
                 ..NodeExpanded::default()
             };
             let record = db::update_node_ready_check(
                 &db,
                 nodes[0].clone(),
-                &node_ops::stored_ready_check(
-                    &NodeKind::Container,
-                    target.model,
-                    &target.ready_check,
-                ),
+                &node_ops::stored_ready_check(target.model_kind, &target.ready_check),
             )
             .await
             .unwrap();

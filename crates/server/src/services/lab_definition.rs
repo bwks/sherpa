@@ -135,7 +135,7 @@ pub(crate) mod tests {
         DefaultRequest, LabDetails, LabNetworks, SecretKey, apply_schema, create_lab, create_node,
         create_user, open_in_memory, upsert_node_image,
     };
-    use shared::data::{DbLab, NodeConfig, NodeModel};
+    use shared::data::{DbLab, ModelKind, NodeModel};
 
     use crate::services::error::ServiceError;
 
@@ -217,9 +217,13 @@ dst = "dev01::eth2"
         .await
         .unwrap();
         for (index, (name, model)) in (1..).zip(nodes) {
-            let image = upsert_node_image(&db, NodeConfig::get_model(*model), DefaultRequest::Keep)
-                .await
-                .unwrap();
+            let image = upsert_node_image(
+                &db,
+                ModelKind::default_for(*model).node_config(),
+                DefaultRequest::Keep,
+            )
+            .await
+            .unwrap();
             create_node(&db, name, index, image.id.unwrap(), lab.id.clone().unwrap())
                 .await
                 .unwrap();

@@ -183,7 +183,7 @@ pub(super) async fn create_links(
                 &link.node_a,
                 &link.int_a,
                 link.int_a_idx,
-                link.node_a_model,
+                link.node_a_model_kind,
                 &link_data.tap_a,
             ),
             (
@@ -191,12 +191,12 @@ pub(super) async fn create_links(
                 &link.node_b,
                 &link.int_b,
                 link.int_b_idx,
-                link.node_b_model,
+                link.node_b_model_kind,
                 &link_data.tap_b,
             ),
         ];
-        for (node, node_name, interface, interface_idx, node_model, tap) in ends {
-            if node.kind != data::NodeKind::Container {
+        for (node, node_name, interface, interface_idx, model_kind, tap) in ends {
+            if node.model_kind.kind() != data::NodeKind::Container {
                 continue;
             }
             p2p_container_veths.push(P2pContainerVeth {
@@ -205,7 +205,7 @@ pub(super) async fn create_links(
                     host_veth: tap.clone(),
                     host_alias: format!("{lab_id}-p2p-host-{node_name}::{interface}"),
                     interface_idx,
-                    node_model,
+                    model_kind,
                     admin_down: false,
                     bridge: None,
                 },
@@ -365,7 +365,7 @@ fn disabled_container_veths(
                         lab_id, nsd.name, iface.name
                     ),
                     interface_idx: iface.index,
-                    node_model: node_data.model,
+                    model_kind: node_data.model_kind,
                     admin_down: true,
                     bridge: None,
                 },

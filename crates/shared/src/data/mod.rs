@@ -18,6 +18,7 @@ mod lab;
 mod lab_lifecycle;
 mod link_report;
 mod mapping;
+mod model_kind;
 mod network;
 mod node;
 mod node_base;
@@ -85,6 +86,7 @@ pub use lab::{
 pub use lab_lifecycle::{LabEvent, LabNotReady, LabPhase, LabRefused, LabTransition};
 pub use link_report::{LinkReport, LinkState};
 pub use mapping::{CloneDisk, NodeDisk, QemuCommand};
+pub use model_kind::{ModelKind, model_kinds_list};
 pub use network::{BridgeKind, LabSubnets, NetworkV4, NetworkV6, SherpaNetwork};
 pub use node::{
     BiosTypes, BootDiskSettings, CdromSettings, CpuArchitecture, CpuSettings, InterfaceSettings,

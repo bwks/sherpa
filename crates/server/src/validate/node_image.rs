@@ -1,16 +1,16 @@
 use anyhow::{Result, bail};
 
 use crate::services::error::ServiceError;
-use shared::data::{NodeModel, Ztp};
+use shared::data::{ModelKind, Ztp};
 use shared::validators::check_ztp;
 
 /// The longest image version.
 const IMAGE_VERSION_MAX_LEN: usize = 64;
 
 /// Validate node image form data before database update. The ZTP setting must be one the
-/// image's model takes.
+/// image's model and kind take.
 pub fn validate_node_image_update(
-    model: NodeModel,
+    model_kind: ModelKind,
     ztp: Ztp,
     cpu_count: u8,
     memory: u16,
@@ -18,7 +18,7 @@ pub fn validate_node_image_update(
     version: &str,
     interface_prefix: &str,
 ) -> Result<()> {
-    check_ztp(model, ztp)?;
+    check_ztp(model_kind, ztp)?;
 
     // Validate numeric ranges
     validate_cpu_count(cpu_count)?;
@@ -89,6 +89,7 @@ fn validate_interface_prefix(prefix: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::data::NodeModel;
 
     #[test]
     fn test_validate_cpu_count() {
@@ -163,7 +164,7 @@ mod tests {
     #[test]
     fn test_validate_node_image_update_all_valid() {
         let result = validate_node_image_update(
-            NodeModel::UbuntuLinux,
+            ModelKind::default_for(NodeModel::UbuntuLinux),
             Ztp::CloudInit,
             2,
             1024,
@@ -177,7 +178,7 @@ mod tests {
     #[test]
     fn test_validate_node_image_update_cpu_zero() {
         let result = validate_node_image_update(
-            NodeModel::UbuntuLinux,
+            ModelKind::default_for(NodeModel::UbuntuLinux),
             Ztp::CloudInit,
             0,
             1024,
@@ -192,7 +193,7 @@ mod tests {
     #[test]
     fn test_validate_node_image_update_memory_too_low() {
         let result = validate_node_image_update(
-            NodeModel::UbuntuLinux,
+            ModelKind::default_for(NodeModel::UbuntuLinux),
             Ztp::CloudInit,
             1,
             32,
@@ -207,7 +208,7 @@ mod tests {
     #[test]
     fn test_validate_node_image_update_mtu_out_of_range() {
         let result = validate_node_image_update(
-            NodeModel::UbuntuLinux,
+            ModelKind::default_for(NodeModel::UbuntuLinux),
             Ztp::CloudInit,
             1,
             1024,
@@ -222,7 +223,7 @@ mod tests {
     #[test]
     fn test_validate_node_image_update_empty_version() {
         let result = validate_node_image_update(
-            NodeModel::UbuntuLinux,
+            ModelKind::default_for(NodeModel::UbuntuLinux),
             Ztp::CloudInit,
             1,
             1024,
@@ -237,7 +238,7 @@ mod tests {
     #[test]
     fn test_validate_node_image_update_empty_prefix() {
         let result = validate_node_image_update(
-            NodeModel::UbuntuLinux,
+            ModelKind::default_for(NodeModel::UbuntuLinux),
             Ztp::CloudInit,
             1,
             1024,
@@ -253,7 +254,7 @@ mod tests {
     fn test_validate_node_image_update_boundary_values() {
         // All fields at minimum valid values
         let result = validate_node_image_update(
-            NodeModel::UbuntuLinux,
+            ModelKind::default_for(NodeModel::UbuntuLinux),
             Ztp::CloudInit,
             1,
             64,
@@ -266,14 +267,28 @@ mod tests {
 
     #[test]
     fn test_validate_node_image_update_refuses_a_ztp_method_the_model_does_not_take() {
-        let error =
-            validate_node_image_update(NodeModel::UbuntuLinux, Ztp::Tftp, 1, 1024, 1500, "1", "e")
-                .unwrap_err()
-                .to_string();
+        let error = validate_node_image_update(
+            ModelKind::default_for(NodeModel::UbuntuLinux),
+            Ztp::Tftp,
+            1,
+            1024,
+            1500,
+            "1",
+            "e",
+        )
+        .unwrap_err()
+        .to_string();
         assert!(error.contains("allows: disabled, cloud-init"), "{error}");
         for ztp in [Ztp::Disabled, Ztp::Tftp, Ztp::Cdrom] {
-            let result =
-                validate_node_image_update(NodeModel::JuniperVsrxv3, ztp, 1, 1024, 1500, "1", "e");
+            let result = validate_node_image_update(
+                ModelKind::default_for(NodeModel::JuniperVsrxv3),
+                ztp,
+                1,
+                1024,
+                1500,
+                "1",
+                "e",
+            );
             assert!(result.is_ok(), "{ztp}");
         }
     }

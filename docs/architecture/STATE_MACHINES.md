@@ -427,8 +427,8 @@ readiness check passed or for a node that has none. The host key is
 `node.skip_ready_check` (`DbNode::ready_check`, a `ReadyCheck`). `up` writes it when it
 creates the node's record, and `redeploy` replaces it from the new manifest node before the
 node starts, both with `node_ops::stored_ready_check`: the manifest's `ready_check.port`, else
-a virtual machine's model port (`vm_ready_port`: SSH, or the Talos API for Talos Linux); a
-container or unikernel without a port has none. `skip` is the manifest's `ready_check.skip`.
+the node's model and kind's port (`ModelKind::ready_port`: SSH, or the Talos API for Talos
+Linux, for a virtual machine); a container or unikernel without a port has none. `skip` is the manifest's `ready_check.skip`.
 The scanner, `resume`, `redeploy` and `inspect` read it, not the lab's definition, so every
 readiness path agrees; `up` waits on the same values, from the manifest it is building.
 `node_ops::probed_ready_port` is the port a check is probed on: none when it is skipped or has
@@ -1628,12 +1628,13 @@ as `topology::Node.ztp.method`. The full description, with the per-model table, 
 
 **States.** Ten values: `disabled` and nine methods. There is no flag beside the method, so the
 22 combinations the `ztp_enable` and `ztp_method` pair had are gone, and with them "off with a
-method" and "on with no method". Which methods a model takes is `NodeModel::ztp_methods`.
+method" and "on with no method". Which methods a model and kind take is
+`ModelKind::ztp_methods`.
 
 **Writers.** Every one is checked by `shared::validators::check_ztp`.
 
-- The code defaults, `NodeConfig::get_model`: a unit test holds each to `disabled` or a method
-  its model lists.
+- The code defaults, `ModelKind::node_config`: a unit test holds each to `disabled` or a method
+  its pair lists.
 - Import, scan, download, pull and set-default write through `db::upsert_node_image`, and the
   admin web form through `db::update_node_image`; both refuse a setting the model does not take.
   An existing row keeps its settings on a re-import (see [Node images](#28-node-images)).
@@ -1654,7 +1655,7 @@ image's), and each is one `match` with `Disabled` as a case.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> ModelDefault : get_model(model)
+    [*] --> ModelDefault : node_config(model_kind)
     ModelDefault --> Stored : upsert_node_image (check_ztp)
     Stored --> Stored : web form, update_node_image (check_ztp)
     state Stored {

@@ -2,7 +2,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use std::collections::HashMap;
 use std::path::Path;
 
-use shared::data::{NodeConfig, NodeKind, NodeModel, UnikernelSettings};
+use shared::data::{ModelKind, NodeConfig, NodeKind, NodeModel, UnikernelSettings};
 use shared::util::image_filename;
 use topology::Node;
 
@@ -10,7 +10,7 @@ use topology::Node;
 ///
 /// This function performs three key validations:
 /// 1. Resolves version from `node_image` if not set in manifest
-/// 2. Validates version exists in database for the model
+/// 2. Validates version exists in database for the model and kind
 /// 3. Resolves a container node's image repo, or verifies a VM's or unikernel's disk exists
 ///
 /// Whether Docker has a container node's image is asked of Docker by the caller, with the
@@ -26,7 +26,8 @@ use topology::Node;
 ///
 /// # Errors
 /// Returns error if:
-/// - Version not found in `node_image` for model
+/// - The node sets a kind its model does not take
+/// - Version not found in `node_image` for model and kind
 /// - Container node has no image repo
 /// - VM disk file not found on filesystem
 pub fn validate_and_resolve_node_versions(
@@ -36,11 +37,11 @@ pub fn validate_and_resolve_node_versions(
 ) -> Result<Vec<Node>> {
     let mut validated_nodes = Vec::new();
 
-    // Build lookup map for faster access, preferring default images per model
-    let mut config_map: HashMap<NodeModel, &NodeConfig> = HashMap::new();
+    // Build lookup map for faster access, preferring default images per model and kind
+    let mut config_map: HashMap<(NodeModel, NodeKind), &NodeConfig> = HashMap::new();
     for config in node_images {
         config_map
-            .entry(config.model)
+            .entry((config.model, config.kind))
             .and_modify(|existing| {
                 if config.default && !existing.default {
                     *existing = config;
@@ -52,10 +53,13 @@ pub fn validate_and_resolve_node_versions(
     for node in nodes {
         let mut updated_node = node.clone();
 
-        // Step 1: Get node_image for this model
-        let node_image = config_map.get(&node.model).ok_or_else(|| {
+        // Step 1: Get node_image for this model and kind
+        let model_kind = ModelKind::new(node.model, node.kind)
+            .with_context(|| format!("Manifest - node: '{}'", node.name))?;
+        let kind = model_kind.kind();
+        let node_image = config_map.get(&(node.model, kind)).ok_or_else(|| {
             anyhow!(
-                "Node config not found for model: {} (node: {})",
+                "Node config not found for model: {} kind: {kind} (node: {})",
                 node.model,
                 node.name
             )
@@ -75,7 +79,7 @@ pub fn validate_and_resolve_node_versions(
         };
 
         // Step 3: Validate resolved version exists in database for this model
-        validate_version_in_db(node.model, &resolved_version, node_images).context(format!(
+        validate_version_in_db(model_kind, &resolved_version, node_images).context(format!(
             "Version validation failed for node: {} (model: {})",
             node.name, node.model
         ))?;
@@ -85,7 +89,9 @@ pub fn validate_and_resolve_node_versions(
             NodeKind::Container => {
                 let repo = node_images
                     .iter()
-                    .find(|c| c.model == node.model && c.version == resolved_version)
+                    .find(|c| {
+                        c.model == node.model && c.kind == kind && c.version == resolved_version
+                    })
                     .and_then(|c| c.container_repo(node.image.as_deref()));
                 updated_node.image = Some(validate_container_repo(
                     &node.name,
@@ -100,7 +106,7 @@ pub fn validate_and_resolve_node_versions(
                     node.model,
                     &resolved_version,
                     images_dir,
-                    &node_image.kind,
+                    node_image.kind,
                     node_image.unikernel.as_ref(),
                 )?;
             }
@@ -114,15 +120,19 @@ pub fn validate_and_resolve_node_versions(
     Ok(validated_nodes)
 }
 
-/// Validate that a version exists in `node_image` for the given model
+/// Validate that a version exists in `node_image` for the given model and kind
 fn validate_version_in_db(
-    model: NodeModel,
+    model_kind: ModelKind,
     version: &str,
     node_images: &[NodeConfig],
 ) -> Result<()> {
+    let model = model_kind.model();
+    let kind = model_kind.kind();
+    let of_model_kind = |c: &&NodeConfig| c.model == model && c.kind == kind;
     let matching_config = node_images
         .iter()
-        .find(|c| c.model == model && c.version == version);
+        .filter(of_model_kind)
+        .find(|c| c.version == version);
 
     if matching_config.is_some() {
         Ok(())
@@ -130,17 +140,18 @@ fn validate_version_in_db(
         // Build helpful error with available versions
         let available_versions: Vec<&str> = node_images
             .iter()
-            .filter(|c| c.model == model)
+            .filter(of_model_kind)
             .map(|c| c.version.as_str())
             .collect();
 
         if available_versions.is_empty() {
-            bail!("No configurations found in database for model: {model}");
+            bail!("No configurations found in database for model: {model} kind: {kind}");
         }
         bail!(
-            "Version '{}' not found in database for model: {}. Available versions: {}",
+            "Version '{}' not found in database for model: {} kind: {}. Available versions: {}",
             version,
             model,
+            kind,
             available_versions.join(", ")
         );
     }
@@ -169,10 +180,10 @@ fn validate_disk_image(
     model: NodeModel,
     version: &str,
     images_dir: &str,
-    kind: &NodeKind,
+    kind: NodeKind,
     unikernel: Option<&UnikernelSettings>,
 ) -> Result<()> {
-    let filename = image_filename(kind, unikernel);
+    let filename = image_filename(&kind, unikernel);
     let disk_path = format!("{images_dir}/{model}/{version}/{filename}");
     let path = Path::new(&disk_path);
 
@@ -250,7 +261,7 @@ mod tests {
             create_test_node_image(model, "4.29.2F", NodeKind::VirtualMachine),
         ];
 
-        let result = validate_version_in_db(model, "4.28.0F", &configs);
+        let result = validate_version_in_db(ModelKind::default_for(model), "4.28.0F", &configs);
         assert!(result.is_ok());
     }
 
@@ -262,7 +273,7 @@ mod tests {
             create_test_node_image(model, "4.29.2F", NodeKind::VirtualMachine),
         ];
 
-        let result = validate_version_in_db(model, "4.30.0F", &configs);
+        let result = validate_version_in_db(ModelKind::default_for(model), "4.30.0F", &configs);
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("4.30.0F"));
@@ -276,7 +287,7 @@ mod tests {
         let model = NodeModel::AristaVeos;
         let configs = vec![];
 
-        let result = validate_version_in_db(model, "4.28.0F", &configs);
+        let result = validate_version_in_db(ModelKind::default_for(model), "4.28.0F", &configs);
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("No configurations found"));
@@ -304,7 +315,7 @@ mod tests {
             NodeModel::AristaVeos,
             "4.28.0F",
             "/tmp/nonexistent_sherpa_images",
-            &NodeKind::VirtualMachine,
+            NodeKind::VirtualMachine,
             None,
         );
         assert!(result.is_err());
@@ -321,7 +332,7 @@ mod tests {
             NodeModel::RockyLinux,
             "9.3",
             "/opt/images",
-            &NodeKind::VirtualMachine,
+            NodeKind::VirtualMachine,
             None,
         );
         assert!(result.is_err());
@@ -336,7 +347,7 @@ mod tests {
             NodeModel::UnikraftUnikernel,
             "latest",
             "/opt/images",
-            &NodeKind::Unikernel,
+            NodeKind::Unikernel,
             Some(&UnikernelSettings {
                 boot_mode: UnikernelBootMode::DirectKernel,
             }),
@@ -353,7 +364,7 @@ mod tests {
             NodeModel::NanosUnikernel,
             "latest",
             "/opt/images",
-            &NodeKind::Unikernel,
+            NodeKind::Unikernel,
             Some(&UnikernelSettings {
                 boot_mode: UnikernelBootMode::DiskBoot,
             }),
@@ -599,6 +610,46 @@ mod tests {
         assert_eq!(
             resolved_image(NodeModel::NatsBus, "nats", Some("mirror.example/nats")),
             "mirror.example/nats"
+        );
+    }
+
+    #[test]
+    fn test_resolve_takes_the_image_of_the_nodes_kind_only() {
+        // A model has one kind today; an image row of another kind is not the node's.
+        let nodes = vec![create_test_node("ceos1", NodeModel::AristaCeos, None)];
+        let mut other_kind =
+            create_test_node_image(NodeModel::AristaCeos, "9.9.9", NodeKind::VirtualMachine);
+        other_kind.default = true;
+        let mut own_kind =
+            create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+        own_kind.default = true;
+        let resolved =
+            validate_and_resolve_node_versions(&nodes, &[other_kind.clone(), own_kind], "/tmp")
+                .unwrap();
+        assert_eq!(resolved[0].version.as_deref(), Some("4.32.0F"));
+
+        let nodes = vec![create_test_node(
+            "ceos1",
+            NodeModel::AristaCeos,
+            Some("9.9.9"),
+        )];
+        let error = validate_and_resolve_node_versions(&nodes, &[other_kind], "/tmp")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("kind: container"), "{error}");
+    }
+
+    #[test]
+    fn test_resolve_refuses_a_kind_the_model_does_not_take() {
+        let mut node = create_test_node("ceos1", NodeModel::AristaCeos, None);
+        node.kind = Some(NodeKind::VirtualMachine);
+        let mut config =
+            create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+        config.default = true;
+        let error = validate_and_resolve_node_versions(&[node], &[config], "/tmp").unwrap_err();
+        assert!(
+            format!("{error:#}").contains("comes only as: container"),
+            "{error:#}"
         );
     }
 }

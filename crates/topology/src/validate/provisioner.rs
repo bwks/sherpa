@@ -4,7 +4,7 @@ use std::path::Path;
 use anyhow::{Context, Result, ensure};
 use tracing::instrument;
 
-use shared::data::{NodeConfig, NodeKind, OsVariant};
+use shared::data::{ModelKind, NodeKind, OsVariant};
 use shared::konst::{CONTAINER_SECRETS_DIR, NODE_USER_ENV_DIR};
 use shared::validators::{mode_from_octal_digits, validate_secret_file};
 
@@ -28,7 +28,7 @@ pub fn validate_provisioners(manifest: &Manifest) -> Result<()> {
         if provisioners.is_empty() {
             continue;
         }
-        let config = NodeConfig::get_model(node.model);
+        let config = ModelKind::new(node.model, node.kind)?.node_config();
         // Env files and secret files from every provisioner on a node share one directory.
         let mut env_names = HashSet::new();
         let mut secret_names = HashSet::new();

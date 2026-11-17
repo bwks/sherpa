@@ -1,11 +1,15 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use tracing::instrument;
 
-use shared::data;
-
-/// Process manifest nodes into expanded format with indices assigned
+/// Process manifest nodes into expanded format with indices assigned, each with its kind.
+///
+/// # Errors
+///
+/// Fails when a node sets a `kind` its model does not take.
 #[instrument(level = "debug", skip(manifest_nodes))]
-pub fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology::NodeExpanded> {
+pub fn process_manifest_nodes(
+    manifest_nodes: &[topology::Node],
+) -> Result<Vec<topology::NodeExpanded>> {
     // Node indexes start from 1, which aligns with IP address assignment.
     // check_device_count caps a lab far below u16::MAX nodes.
     (1..=u16::MAX)
@@ -14,22 +18,10 @@ pub fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology
         .collect()
 }
 
-/// Get node image from a list of node images
-pub fn get_node_image(
-    node_model: data::NodeModel,
-    data: &[data::NodeConfig],
-) -> Result<data::NodeConfig> {
-    Ok(data
-        .iter()
-        .find(|x| x.model == node_model && x.default)
-        .ok_or_else(|| anyhow!("Default node image not found for model: {node_model}"))?
-        .clone())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::NodeModel;
+    use shared::data::{self, ModelKind, NodeModel};
 
     // ============================================================================
 
@@ -79,7 +71,7 @@ mod tests {
                 ..Default::default()
             },
         ];
-        let expanded = process_manifest_nodes(&nodes);
+        let expanded = process_manifest_nodes(&nodes).unwrap();
         assert_eq!(expanded[0].boot_disk.clone_method, None);
         assert_eq!(
             expanded[1].boot_disk.clone_method,
@@ -120,7 +112,7 @@ mod tests {
             },
         ];
 
-        let expanded = process_manifest_nodes(&nodes);
+        let expanded = process_manifest_nodes(&nodes).unwrap();
 
         assert_eq!(expanded.len(), 3);
         assert_eq!(expanded[0].index, 1);
@@ -154,9 +146,12 @@ mod tests {
             ..Default::default()
         }];
 
-        let expanded = process_manifest_nodes(&nodes);
+        let expanded = process_manifest_nodes(&nodes).unwrap();
 
-        assert_eq!(expanded[0].model, NodeModel::AristaVeos);
+        assert_eq!(
+            expanded[0].model_kind,
+            ModelKind::default_for(NodeModel::AristaVeos)
+        );
         assert_eq!(expanded[0].version, Some("4.28.0".to_string()));
         assert_eq!(expanded[0].memory, Some(4096));
         assert_eq!(expanded[0].cpu.count, Some(2));
@@ -168,68 +163,7 @@ mod tests {
     #[test]
     fn test_process_manifest_nodes_empty_input() {
         let nodes: Vec<topology::Node> = vec![];
-        let expanded = process_manifest_nodes(&nodes);
+        let expanded = process_manifest_nodes(&nodes).unwrap();
         assert_eq!(expanded, [] as [topology::NodeExpanded; 0]);
-    }
-
-    // ============================================================================
-    // get_node_image
-    // ============================================================================
-
-    #[test]
-    fn test_get_node_image_finds_default() {
-        let configs = vec![
-            data::NodeConfig {
-                model: NodeModel::UbuntuLinux,
-                version: "22.04".to_string(),
-                default: false,
-                ..Default::default()
-            },
-            data::NodeConfig {
-                model: NodeModel::UbuntuLinux,
-                version: "24.04".to_string(),
-                default: true,
-                ..Default::default()
-            },
-        ];
-
-        let result = get_node_image(NodeModel::UbuntuLinux, &configs).unwrap();
-        assert_eq!(result.version, "24.04");
-        assert!(result.default);
-    }
-
-    #[test]
-    fn test_get_node_image_no_default_returns_error() {
-        let configs = vec![data::NodeConfig {
-            model: NodeModel::UbuntuLinux,
-            version: "22.04".to_string(),
-            default: false,
-            ..Default::default()
-        }];
-
-        let result = get_node_image(NodeModel::UbuntuLinux, &configs);
-        assert!(result.is_err());
-        let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("Default node image not found"));
-    }
-
-    #[test]
-    fn test_get_node_image_wrong_model_returns_error() {
-        let configs = vec![data::NodeConfig {
-            model: NodeModel::AristaVeos,
-            version: "4.28.0".to_string(),
-            default: true,
-            ..Default::default()
-        }];
-
-        let result = get_node_image(NodeModel::UbuntuLinux, &configs);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_get_node_image_empty_configs_returns_error() {
-        let configs: Vec<data::NodeConfig> = vec![];
-        let result = get_node_image(NodeModel::UbuntuLinux, &configs);
-        assert!(result.is_err());
     }
 }

@@ -9,9 +9,9 @@ use tokio::io::AsyncWriteExt;
 
 use shared::data::{
     DownloadImageRequest, ImageSummary, ImportRequest, ImportResponse, ListImagesRequest,
-    ListImagesResponse, NodeConfig, NodeKind, NodeModel, ScanImagesRequest, ScanImagesResponse,
-    ScannedImage, SetDefaultImageRequest, SetDefaultImageResponse, ShowImageRequest,
-    ShowImageResponse, SkippedModel, StatusKind,
+    ListImagesResponse, ModelKind, NodeConfig, NodeKind, NodeModel, ScanImagesRequest,
+    ScanImagesResponse, ScannedImage, SetDefaultImageRequest, SetDefaultImageResponse,
+    ShowImageRequest, ShowImageResponse, SkippedModel, StatusKind,
 };
 use shared::konst::SHERPA_IMAGES_PATH;
 use shared::util::{file_exists, image_filename};
@@ -20,7 +20,7 @@ use tracing::instrument;
 
 use crate::daemon::state::AppState;
 use crate::services::container_scan::{ScanTarget, plan_container_scan, tagged_versions};
-use crate::services::image_lifecycle::lock_image;
+use crate::services::image_lifecycle::{image_model_kind, lock_image};
 use crate::services::image_store::{ExistingDisk, ImagePaths, PlacedDisk, StagedDisk};
 use crate::services::progress::ProgressSender;
 use crate::validate::{validate_image_scan, validate_image_version};
@@ -47,9 +47,10 @@ pub async fn import_image(
     let start = Instant::now();
 
     validate_image_version(&request.version)?;
-    let _image_guard = lock_image(request.model, &request.version).await;
-    let config = NodeConfig::get_model(request.model);
-    let kind = config.kind.clone();
+    let model_kind = image_model_kind(request.model, request.kind)?;
+    let _image_guard = lock_image(model_kind, &request.version).await;
+    let config = model_kind.node_config();
+    let kind = model_kind.kind();
 
     let _ = progress.send_status(
         format!("Validating source file: {}", request.src),
@@ -139,7 +140,7 @@ async fn import_container_image(
     // Record in database
     let _ = progress.send_status("Updating database...".to_string(), StatusKind::Progress);
 
-    let kind = db_config.kind.clone();
+    let kind = db_config.kind;
     let recorded = db::upsert_node_image(&state.db, db_config, request_default)
         .await
         .context(format!(
@@ -181,7 +182,7 @@ async fn import_disk_image(
     paths: &ImagePaths,
     progress: &ProgressSender,
 ) -> Result<ImportResponse> {
-    let kind = db_config.kind.clone();
+    let kind = db_config.kind;
     let filename = image_filename(&kind, db_config.unikernel.as_ref());
     let version_dir = paths.version_dir(request.model, &request.version);
     let version_disk = version_dir.join(filename);
@@ -301,10 +302,15 @@ pub async fn list_images(
             .await
             .context("Failed to query node images by kind")?,
         (Some(model), None) => {
-            let config = NodeConfig::get_model(*model);
-            db::get_node_image_versions(&state.db, model, &config.kind)
-                .await
-                .context("Failed to query node images by model")?
+            let mut configs = Vec::new();
+            for kind in model.kinds() {
+                configs.extend(
+                    db::get_node_image_versions(&state.db, model, kind)
+                        .await
+                        .context("Failed to query node images by model")?,
+                );
+            }
+            configs
         }
         (None, None) => db::list_node_images(&state.db)
             .await
@@ -328,8 +334,7 @@ pub async fn list_images(
 /// Show detailed information about a specific node image
 #[instrument(skip(state), level = "debug")]
 pub async fn show_image(request: ShowImageRequest, state: &AppState) -> Result<ShowImageResponse> {
-    let config = NodeConfig::get_model(request.model);
-    let kind = config.kind.clone();
+    let kind = image_model_kind(request.model, request.kind)?.kind();
 
     let image = match request.version {
         Some(version) => {
@@ -394,10 +399,9 @@ struct ScanTally {
     total_imported: usize,
 }
 
-/// One model during a scan: its config, and whether it has a default image yet.
+/// One model and kind during a scan: its config, and whether it has a default image yet.
 struct ModelScan {
-    model: NodeModel,
-    kind: NodeKind,
+    model_kind: ModelKind,
     config: NodeConfig,
     /// Whether the model has a default, or a version this scan imported or would import became it.
     has_default: bool,
@@ -406,17 +410,15 @@ struct ModelScan {
 }
 
 impl ModelScan {
-    /// Start scanning `model`, from its current default.
-    async fn new(database: &Database, model: NodeModel, label: &'static str) -> Result<Self> {
-        let config = NodeConfig::get_model(model);
-        let kind = config.kind.clone();
-        let default = db::find_default_node_image(database, &model, &kind)
-            .await
-            .context("Failed to query the model's default image")?;
+    /// Start scanning `model_kind`, from its current default.
+    async fn new(database: &Database, model_kind: ModelKind, label: &'static str) -> Result<Self> {
+        let default =
+            db::find_default_node_image(database, &model_kind.model(), &model_kind.kind())
+                .await
+                .context("Failed to query the model's default image")?;
         Ok(Self {
-            model,
-            kind,
-            config,
+            model_kind,
+            config: model_kind.node_config(),
             has_default: default.is_some(),
             label,
         })
@@ -424,9 +426,9 @@ impl ModelScan {
 
     fn scanned(&self, version: String, status: String) -> ScannedImage {
         ScannedImage {
-            model: self.model,
+            model: self.model_kind.model(),
             version,
-            kind: self.kind.clone(),
+            kind: self.model_kind.kind(),
             status,
         }
     }
@@ -469,8 +471,10 @@ async fn scan_disk_images(
             continue;
         };
 
-        // Skip container kinds in filesystem scan (containers live in Docker, not on disk)
-        let kind = NodeConfig::get_model(model).kind;
+        // Skip container kinds in filesystem scan (containers live in Docker, not on disk).
+        // Every model with a disk has one kind, a virtual machine or a unikernel, its default.
+        let model_kind = ModelKind::default_for(model);
+        let kind = model_kind.kind();
         if kind == NodeKind::Container {
             tracing::debug!("Skipping container model in disk scan: {}", model);
             continue;
@@ -483,7 +487,7 @@ async fn scan_disk_images(
             continue;
         }
 
-        let mut scan = ModelScan::new(&state.db, model, "node_image").await?;
+        let mut scan = ModelScan::new(&state.db, model_kind, "node_image").await?;
         let model_dir = format!("{images_dir}/{dir_name}");
         scan_version_dirs(state, &mut scan, &model_dir, request.dry_run, tally).await?;
     }
@@ -530,7 +534,7 @@ async fn scan_version_dirs(
         }
 
         let version = version_entry.file_name().to_string_lossy().to_string();
-        let filename = image_filename(&scan.kind, scan.config.unikernel.as_ref());
+        let filename = image_filename(&scan.model_kind.kind(), scan.config.unikernel.as_ref());
         let disk_path = format!("{model_dir}/{version}/{filename}");
 
         // Check if image file exists in this version directory
@@ -538,7 +542,7 @@ async fn scan_version_dirs(
             tracing::debug!(
                 "No {} found for model={} version={}",
                 filename,
-                scan.model,
+                scan.model_kind.model(),
                 version
             );
             continue;
@@ -580,7 +584,8 @@ async fn scan_container_images(
         if versions.is_empty() {
             continue;
         }
-        let mut scan = ModelScan::new(&state.db, target.model, "container node_image").await?;
+        let model_kind = ModelKind::new(target.model, Some(NodeKind::Container))?;
+        let mut scan = ModelScan::new(&state.db, model_kind, "container node_image").await?;
         scan.config.repo = Some(target.repo);
         for version in versions {
             scan_version(
@@ -611,17 +616,21 @@ async fn scan_version(
     dry_run: bool,
     tally: &mut ScanTally,
 ) -> Result<()> {
-    let _image_guard = lock_image(scan.model, &version).await;
+    let _image_guard = lock_image(scan.model_kind, &version).await;
     if let Some(disk) = &disk
         && !tokio::fs::try_exists(disk).await.unwrap_or(false)
     {
-        tracing::debug!(model = %scan.model, %version, "Image removed while the scan waited");
+        tracing::debug!(model = %scan.model_kind.model(), %version, "Image removed while the scan waited");
         return Ok(());
     }
-    let existing =
-        db::find_node_image_by_model_kind_version(database, &scan.model, &scan.kind, &version)
-            .await
-            .context("Failed to check existing node_image")?;
+    let existing = db::find_node_image_by_model_kind_version(
+        database,
+        &scan.model_kind.model(),
+        &scan.model_kind.kind(),
+        &version,
+    )
+    .await
+    .context("Failed to check existing node_image")?;
     if existing.is_some() {
         tally
             .scanned
@@ -652,7 +661,7 @@ async fn scan_version(
             tracing::info!(
                 "Scanned and imported {} for model={} version={} default={}",
                 scan.label,
-                scan.model,
+                scan.model_kind.model(),
                 version,
                 recorded.default
             );
@@ -667,7 +676,7 @@ async fn scan_version(
         Err(e) => {
             tracing::error!(
                 "Failed to upsert node_image for model={} version={}: {:?}",
-                scan.model,
+                scan.model_kind.model(),
                 version,
                 e
             );
@@ -685,9 +694,9 @@ pub async fn set_default_image(
     request: SetDefaultImageRequest,
     state: &AppState,
 ) -> Result<SetDefaultImageResponse> {
-    let _image_guard = lock_image(request.model, &request.version).await;
-    let config = NodeConfig::get_model(request.model);
-    let kind = config.kind.clone();
+    let model_kind = image_model_kind(request.model, request.kind)?;
+    let _image_guard = lock_image(model_kind, &request.version).await;
+    let kind = model_kind.kind();
 
     // Look up the image in the database
     let node_image = db::find_node_image_by_model_kind_version(
@@ -868,9 +877,10 @@ pub async fn download_image(
     progress: ProgressSender,
 ) -> Result<ImportResponse> {
     validate_image_version(&request.version)?;
-    let _image_guard = lock_image(request.model, &request.version).await;
-    let config = NodeConfig::get_model(request.model);
-    let kind = config.kind.clone();
+    let model_kind = image_model_kind(request.model, request.kind)?;
+    let _image_guard = lock_image(model_kind, &request.version).await;
+    let config = model_kind.node_config();
+    let kind = model_kind.kind();
 
     if kind != NodeKind::VirtualMachine {
         anyhow::bail!("Image download is only supported for virtual machine models, got '{kind}'");
@@ -971,7 +981,7 @@ mod tests {
     #[test]
     fn a_shown_image_has_only_its_ztp_method_and_no_password_flag() {
         let response = ShowImageResponse {
-            image: NodeConfig::get_model(NodeModel::CiscoCat8000v),
+            image: ModelKind::default_for(NodeModel::CiscoCat8000v).node_config(),
         };
         let json = serde_json::to_value(&response).unwrap();
         let top: Vec<&String> = json.as_object().unwrap().keys().collect();
@@ -1143,11 +1153,12 @@ mod tests {
     fn disk_import(source: &Path, version: &str) -> (ImportRequest, NodeConfig) {
         let request = ImportRequest {
             model: NodeModel::UbuntuLinux,
+            kind: None,
             version: version.to_owned(),
             src: source.to_string_lossy().into_owned(),
             default: false,
         };
-        let mut config = NodeConfig::get_model(request.model);
+        let mut config = ModelKind::default_for(request.model).node_config();
         config.version = request.version.clone();
         (request, config)
     }
@@ -1162,7 +1173,7 @@ mod tests {
     }
 
     fn disk_path(paths: &ImagePaths, version: &str) -> PathBuf {
-        let config = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let config = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         paths
             .version_dir(config.model, version)
             .join(image_filename(&config.kind, config.unikernel.as_ref()))
@@ -1193,7 +1204,7 @@ mod tests {
     }
 
     async fn recorded(database: &Database, version: &str) -> Option<NodeConfig> {
-        let config = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let config = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         db::find_node_image_by_model_kind_version(database, &config.model, &config.kind, version)
             .await
             .unwrap()
@@ -1331,13 +1342,17 @@ mod tests {
         std::fs::create_dir_all(disk.parent().unwrap()).unwrap();
         std::fs::write(&disk, b"image").unwrap();
         let database = schema_db().await;
-        let mut scan = ModelScan::new(&database, NodeModel::UbuntuLinux, "node_image")
-            .await
-            .unwrap();
+        let mut scan = ModelScan::new(
+            &database,
+            ModelKind::default_for(NodeModel::UbuntuLinux),
+            "node_image",
+        )
+        .await
+        .unwrap();
         let mut tally = ScanTally::default();
 
         // A delete holds the image's lock; it removes the files while the scan waits.
-        let delete = lock_image(NodeModel::UbuntuLinux, "scan-race").await;
+        let delete = lock_image(ModelKind::default_for(NodeModel::UbuntuLinux), "scan-race").await;
         let scanning = scan_version(
             &database,
             &mut scan,

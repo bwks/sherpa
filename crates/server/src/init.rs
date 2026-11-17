@@ -11,7 +11,7 @@ use tracing::instrument;
 
 use db::{Database, apply_schema, create_admin_user, create_user, find_user, list_users, open};
 use libvirt::{BridgeNetwork, Qemu, SherpaStoragePool};
-use shared::data::{Config, NodeConfig, NodeModel};
+use shared::data::{Config, NodeModel};
 use shared::konst::{
     ADMIN_USERNAME, SHERPA_BINS_PATH, SHERPA_CONTAINERS_PATH, SHERPA_DB_FILE_PATH,
     SHERPA_IMAGES_PATH, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, SHERPA_USER_NAME_ENV,
@@ -84,13 +84,8 @@ pub async fn init(
 
     // Create image subdirectories for each node model
     term_msg_underline("Creating Node Image Directories");
-    let mut created_models = std::collections::HashSet::new();
     for model in NodeModel::to_vec() {
-        let node_image = NodeConfig::get_model(model);
-        if created_models.insert(node_image.model) {
-            let model_dir = format!("{SHERPA_IMAGES_PATH}/{}", node_image.model);
-            create_dir(&model_dir)?;
-        }
+        create_dir(&format!("{SHERPA_IMAGES_PATH}/{model}"))?;
     }
 
     // Create container image directories from default config

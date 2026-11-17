@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use tracing::instrument;
 
-use crate::services::image_lifecycle::lock_image;
-use shared::data::{DeleteImageRequest, DeleteImageResponse, NodeConfig, NodeKind};
+use crate::services::image_lifecycle::{image_model_kind, lock_image};
+use shared::data::{DeleteImageRequest, DeleteImageResponse, NodeKind};
 use shared::konst::{SHERPA_IMAGES_PATH, SHERPA_STORAGE_POOL_PATH};
 use shared::util::delete_dirs;
 use std::future::Future;
@@ -18,9 +18,9 @@ pub async fn delete_image(
     state: &AppState,
 ) -> Result<DeleteImageResponse> {
     validate_image_version(&request.version)?;
-    let _image_guard = lock_image(request.model, &request.version).await;
-    let config = NodeConfig::get_model(request.model);
-    let kind = config.kind.clone();
+    let model_kind = image_model_kind(request.model, request.kind)?;
+    let _image_guard = lock_image(model_kind, &request.version).await;
+    let kind = model_kind.kind();
 
     // Look up the image in the database
     let node_image = db::find_node_image_by_model_kind_version(

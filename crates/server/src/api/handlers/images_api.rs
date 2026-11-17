@@ -52,6 +52,7 @@ pub async fn show_image_json(
 
     let request = ShowImageRequest {
         model,
+        kind: None,
         version: params.get("version").cloned(),
     };
 
@@ -116,6 +117,7 @@ pub async fn upload_image_multipart(
 
     let request = ImportRequest {
         model: fields.model,
+        kind: None,
         version: fields.version,
         src: temp_path.clone(),
         default: fields.default,
@@ -152,7 +154,11 @@ pub async fn delete_image_json(
         .parse()
         .map_err(|_| ApiError::bad_request(format!("Invalid model: {model}")))?;
 
-    let request = DeleteImageRequest { model, version };
+    let request = DeleteImageRequest {
+        model,
+        kind: None,
+        version,
+    };
 
     let response = delete::delete_image(request, &state)
         .await
@@ -177,7 +183,11 @@ pub async fn set_default_image_json(
         .parse()
         .map_err(|_| ApiError::bad_request(format!("Invalid model: {model}")))?;
 
-    let request = SetDefaultImageRequest { model, version };
+    let request = SetDefaultImageRequest {
+        model,
+        kind: None,
+        version,
+    };
 
     let response = import::set_default_image(request, &state)
         .await

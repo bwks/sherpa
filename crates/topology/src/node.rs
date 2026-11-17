@@ -1,9 +1,11 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 
+use anyhow::{Context, Result};
 use serde_derive::{Deserialize, Serialize};
 
 use shared::data::{
-    NodeBootDisk, NodeCpu, NodeInterfaces, NodeModel, NodeNuma, PtxPlatform, WatchdogAction, Ztp,
+    ModelKind, NodeBootDisk, NodeCpu, NodeInterfaces, NodeKind, NodeModel, NodeNuma, PtxPlatform,
+    WatchdogAction, Ztp,
 };
 
 use crate::provisioner::Provisioner;
@@ -18,6 +20,9 @@ use crate::provisioner::Provisioner;
 pub struct Node {
     pub name: String,
     pub model: NodeModel,
+    /// `virtual_machine`, `container` or `unikernel`: a kind the model takes. Absent, the node
+    /// takes its model's default kind, the first of `NodeModel::kinds`.
+    pub kind: Option<NodeKind>,
     pub image: Option<String>,
     pub version: Option<String>,
     /// The guest's memory in MiB, overriding the image's.
@@ -147,7 +152,8 @@ pub struct ExpandedSsh {
 pub struct NodeExpanded {
     pub index: u16,
     pub name: String,
-    pub model: NodeModel,
+    /// The node's model, and its kind: the manifest's `kind`, or else the model's default.
+    pub model_kind: ModelKind,
     pub image: Option<String>,
     pub version: Option<String>,
     pub memory: Option<u16>,
@@ -172,14 +178,21 @@ pub struct NodeExpanded {
 }
 
 impl NodeExpanded {
-    /// The manifest `node` as the `index`th node of its lab, counting from 1. Its addresses are
-    /// assigned later, and its scripts and files are the contents the client read.
-    #[must_use]
-    pub fn new(index: u16, node: &Node) -> Self {
-        Self {
+    /// The manifest `node` as the `index`th node of its lab, counting from 1. Its kind is the
+    /// manifest's, or else its model's default. Its addresses are assigned later, and its
+    /// scripts and files are the contents the client read.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the node sets a `kind` its model does not take, which
+    /// `validate::check_node_model_kind` reports first.
+    pub fn new(index: u16, node: &Node) -> Result<Self> {
+        let model_kind = ModelKind::new(node.model, node.kind)
+            .with_context(|| format!("Manifest - node: '{}'", node.name))?;
+        Ok(Self {
             index,
             name: node.name.clone(),
-            model: node.model,
+            model_kind,
             image: node.image.clone(),
             version: node.version.clone(),
             memory: node.memory,
@@ -204,7 +217,7 @@ impl NodeExpanded {
             systemd_units: node.systemd_units_data.clone(),
             startup_scripts: node.startup_scripts_data.clone(),
             user_scripts: node.user_scripts_data.clone(),
-        }
+        })
     }
 }
 
@@ -300,7 +313,7 @@ mod tests {
             }]),
             ..Node::default()
         };
-        let expanded = NodeExpanded::new(3, &node);
+        let expanded = NodeExpanded::new(3, &node).unwrap();
         assert_eq!(expanded.index, 3);
         assert_eq!(expanded.name, "dev01");
         assert_eq!(expanded.cpu.count, Some(4));

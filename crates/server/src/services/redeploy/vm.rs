@@ -235,7 +235,7 @@ fn vm_interfaces(
     }
 
     for idx in data_indices {
-        let interface_name = util::interface_from_idx(&node_image.model, idx)?;
+        let interface_name = util::interface_from_idx(node_image.model_kind()?, idx)?;
         let tap = links.iter().find_map(|link| {
             if link.node_a == *node && link.int_a == interface_name {
                 Some(&link.tap_a)
@@ -274,7 +274,7 @@ fn vm_interfaces(
 mod tests {
     use super::*;
 
-    use shared::data::{BridgeKind, ConnectionTypes, LinkImpairment};
+    use shared::data::{BridgeKind, ConnectionTypes, LinkImpairment, ModelKind};
 
     fn link(node_a: &str, int_a: &str, node_b: &str, int_b: &str) -> DbLink {
         DbLink {
@@ -297,9 +297,9 @@ mod tests {
     fn each_data_interface_takes_its_link_or_bridge_or_is_disabled() {
         let mut image = data::NodeConfig::ubuntu_linux();
         image.interfaces.reserved_count = 1;
-        let first = util::interface_from_idx(&image.model, 2).unwrap();
-        let second = util::interface_from_idx(&image.model, 3).unwrap();
-        let third = util::interface_from_idx(&image.model, 4).unwrap();
+        let first = util::interface_from_idx(ModelKind::default_for(image.model), 2).unwrap();
+        let second = util::interface_from_idx(ModelKind::default_for(image.model), 3).unwrap();
+        let third = util::interface_from_idx(ModelKind::default_for(image.model), 4).unwrap();
         // The node is on the B end of its link.
         let peer_link = link("peer", "eth1", "vm", &first);
         let other_link = link("peer", &second, "other", &second);

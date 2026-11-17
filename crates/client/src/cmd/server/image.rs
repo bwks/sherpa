@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail, ensure};
 use clap::{Args, Subcommand};
 
-use shared::data::{self, NodeConfig, NodeKind, NodeModel, ServerConnection, StatusMessage};
+use shared::data::{self, ModelKind, NodeKind, NodeModel, ServerConnection, StatusMessage};
 use shared::konst::{
     CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO, CONTAINER_HASHICORP_VAULT_REPO,
     CONTAINER_KEYCLOAK_REPO, CONTAINER_MONGO_DB_REPO, CONTAINER_NOKIA_SRLINUX_REPO,
@@ -16,53 +16,17 @@ use crate::table::{
     render_skipped_models_table,
 };
 
-/// Which kind of image an image command works on: at most one may be given, and none means
-/// every kind.
-#[derive(Debug, Args)]
-#[group(multiple = false)]
-pub struct ImageKindFlags {
-    /// Only container images
-    #[arg(long)]
-    container: bool,
-    /// Only unikernel images
-    #[arg(long)]
-    unikernel: bool,
-    /// Only virtual machine images
-    #[arg(long)]
-    virtual_machine: bool,
-}
-
-impl ImageKindFlags {
-    /// The kind of image given, if any.
-    pub fn kind(&self) -> Option<NodeKind> {
-        if self.container {
-            Some(NodeKind::Container)
-        } else if self.unikernel {
-            Some(NodeKind::Unikernel)
-        } else if self.virtual_machine {
-            Some(NodeKind::VirtualMachine)
-        } else {
-            None
-        }
-    }
-}
-
 /// What `image scan` scans for.
 #[derive(Debug, Args)]
 pub struct ScanArgs {
-    #[command(flatten)]
-    kind: ImageKindFlags,
+    /// Only images of this kind; without it, every kind
+    #[arg(long, value_enum)]
+    kind: Option<NodeKind>,
     /// Show what would be imported without making changes
     #[arg(long, action = clap::ArgAction::SetTrue)]
     dry_run: bool,
-    /// Container model to record the local tags of --repo for (with --container)
-    #[arg(
-        short,
-        long,
-        value_enum,
-        requires_all = ["repo", "container"],
-        conflicts_with_all = ["unikernel", "virtual_machine"]
-    )]
+    /// Container model to record the local tags of --repo for (with --kind container)
+    #[arg(short, long, value_enum, requires_all = ["repo", "kind"])]
     model: Option<NodeModel>,
     /// Image repository without a tag (e.g., mysql, docker.io/library/mysql or
     /// ghcr.io/nokia/srlinux); each of its local tags is recorded as a version of --model
@@ -72,14 +36,42 @@ pub struct ScanArgs {
 
 impl ScanArgs {
     /// The scan request these arguments ask for.
-    fn request(&self) -> data::ScanImagesRequest {
-        data::ScanImagesRequest {
-            kind: self.kind.kind(),
+    fn request(&self) -> Result<data::ScanImagesRequest> {
+        ensure!(
+            self.model.is_none() || self.kind == Some(NodeKind::Container),
+            "--model and --repo record container images: give them with --kind container"
+        );
+        Ok(data::ScanImagesRequest {
+            kind: self.kind,
             dry_run: self.dry_run,
             model: self.model,
             repo: self.repo.clone(),
-        }
+        })
     }
+}
+
+/// What `image pull` pulls.
+#[derive(Debug, Args)]
+pub struct PullArgs {
+    /// Model of the device image to pull
+    #[arg(short, long, value_enum)]
+    model: NodeModel,
+    /// Kind of the image, which decides between a registry pull and a download. Without it,
+    /// the model's default kind
+    #[arg(long, value_enum)]
+    kind: Option<NodeKind>,
+    /// Version of the image (required for known-repo containers and VMs)
+    #[arg(short, long)]
+    version: Option<String>,
+    /// Container image reference with its tag (e.g., nats:2.11 or registry.io/account/image:version)
+    #[arg(short, long)]
+    repo: Option<String>,
+    /// VM image download URL
+    #[arg(short, long)]
+    url: Option<String>,
+    /// Set this image as the default version
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    default: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -89,6 +81,9 @@ pub enum ServerImageCommands {
         /// Model of the device image
         #[arg(value_enum)]
         model: NodeModel,
+        /// Kind of the image. Without it, the model's default kind
+        #[arg(long, value_enum)]
+        kind: Option<NodeKind>,
         /// Optional: show a specific version (defaults to the default version)
         #[arg(long)]
         version: Option<String>,
@@ -99,8 +94,9 @@ pub enum ServerImageCommands {
         /// Optional: List images for a specific model
         #[arg(value_enum)]
         model: Option<NodeModel>,
-        #[command(flatten)]
-        kind: ImageKindFlags,
+        /// Only images of this kind; without it, every kind
+        #[arg(long, value_enum)]
+        kind: Option<NodeKind>,
     },
 
     /// Record images that are present but not recorded: disk images in the images directory
@@ -118,35 +114,25 @@ pub enum ServerImageCommands {
         /// Model of Device
         #[arg(short, long, value_enum)]
         model: NodeModel,
+        /// Kind of the image. Without it, the model's default kind
+        #[arg(long, value_enum)]
+        kind: Option<NodeKind>,
         /// Set this image as the default version
         #[arg(long, action = clap::ArgAction::SetTrue)]
         default: bool,
     },
 
     /// Pull a container or VM image
-    Pull {
-        /// Model of the device image to pull
-        #[arg(short, long, value_enum)]
-        model: NodeModel,
-        /// Version of the image (required for known-repo containers and VMs)
-        #[arg(short, long)]
-        version: Option<String>,
-        /// Container image reference with its tag (e.g., nats:2.11 or registry.io/account/image:version)
-        #[arg(short, long)]
-        repo: Option<String>,
-        /// VM image download URL
-        #[arg(short, long)]
-        url: Option<String>,
-        /// Set this image as the default version
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        default: bool,
-    },
+    Pull(PullArgs),
 
     /// Delete an imported image from disk and database
     Delete {
         /// Model of the device image to delete
         #[arg(short, long, value_enum)]
         model: NodeModel,
+        /// Kind of the image. Without it, the model's default kind
+        #[arg(long, value_enum)]
+        kind: Option<NodeKind>,
         /// Version of the device image to delete
         #[arg(short, long)]
         version: String,
@@ -157,6 +143,9 @@ pub enum ServerImageCommands {
         /// Model of the device image
         #[arg(short, long, value_enum)]
         model: NodeModel,
+        /// Kind of the image. Without it, the model's default kind
+        #[arg(long, value_enum)]
+        kind: Option<NodeKind>,
         /// Version to set as default
         #[arg(short, long)]
         version: String,
@@ -170,93 +159,114 @@ pub async fn image_commands(
     output_format: &OutputFormat,
 ) -> Result<()> {
     match command {
-        ServerImageCommands::Show { model, version } => {
-            show_image(
-                *model,
-                version.clone(),
-                server_url,
-                server_connection,
-                output_format,
-            )
-            .await
+        ServerImageCommands::Show {
+            model,
+            kind,
+            version,
+        } => {
+            let request = data::ShowImageRequest {
+                model: *model,
+                kind: *kind,
+                version: version.clone(),
+            };
+            show_image(request, server_url, server_connection, output_format).await
         }
         ServerImageCommands::List { model, kind } => {
-            list_images(
-                *model,
-                kind.kind(),
+            list_images(*model, *kind, server_url, server_connection, output_format).await
+        }
+        ServerImageCommands::Scan(args) => {
+            scan_images(
+                args.request()?,
                 server_url,
                 server_connection,
                 output_format,
             )
             .await
-        }
-        ServerImageCommands::Scan(args) => {
-            scan_images(args.request(), server_url, server_connection, output_format).await
         }
         ServerImageCommands::Import {
             src,
             version,
             model,
+            kind,
             default,
         } => {
-            import_image(
-                src,
-                version,
-                model,
-                *default,
+            let request = data::ImportRequest {
+                model: *model,
+                kind: *kind,
+                version: version.clone(),
+                src: src.clone(),
+                default: *default,
+            };
+            import_image(request, server_url, server_connection, output_format).await
+        }
+        ServerImageCommands::Pull(args) => {
+            pull_image(args, server_url, server_connection, output_format).await
+        }
+        ServerImageCommands::Delete {
+            model,
+            kind,
+            version,
+        } => {
+            let request = data::DeleteImageRequest {
+                model: *model,
+                kind: *kind,
+                version: version.clone(),
+            };
+            delete_image(request, server_url, server_connection, output_format).await
+        }
+        ServerImageCommands::SetDefault {
+            model,
+            kind,
+            version,
+        } => {
+            let request = data::SetDefaultImageRequest {
+                model: *model,
+                kind: *kind,
+                version: version.clone(),
+            };
+            set_default_image(request, server_url, server_connection, output_format).await
+        }
+    }
+}
+
+/// Pull a container image from a registry, or download a VM image, as the image's kind says.
+async fn pull_image(
+    args: &PullArgs,
+    server_url: &str,
+    server_connection: &ServerConnection,
+    output_format: &OutputFormat,
+) -> Result<()> {
+    let model_kind = ModelKind::new(args.model, args.kind)?;
+    match model_kind.kind() {
+        NodeKind::Container => {
+            pull_container_image(
+                model_kind,
+                args.version.as_deref(),
+                args.repo.as_deref(),
+                args.default,
                 server_url,
                 server_connection,
                 output_format,
             )
             .await
         }
-        ServerImageCommands::Pull {
-            model,
-            version,
-            repo,
-            url,
-            default,
-        } => {
-            let config = NodeConfig::get_model(*model);
-            match config.kind {
-                NodeKind::Container => {
-                    pull_container_image(
-                        model,
-                        version.as_deref(),
-                        repo.as_deref(),
-                        *default,
-                        server_url,
-                        server_connection,
-                        output_format,
-                    )
-                    .await
-                }
-                NodeKind::VirtualMachine => {
-                    let version = version.as_deref().ok_or_else(|| {
-                        anyhow::anyhow!("--version is required for VM image downloads")
-                    })?;
-                    download_vm_image(
-                        model,
-                        version,
-                        url.as_deref(),
-                        *default,
-                        server_url,
-                        server_connection,
-                        output_format,
-                    )
-                    .await
-                }
-                NodeKind::Unikernel => {
-                    bail!("Image pull is not supported for unikernel models")
-                }
-            }
+        NodeKind::VirtualMachine => {
+            let version = args
+                .version
+                .as_deref()
+                .context("--version is required for VM image downloads")?;
+            download_vm_image(
+                model_kind,
+                version,
+                args.url.as_deref(),
+                args.default,
+                server_url,
+                server_connection,
+                output_format,
+            )
+            .await
         }
-        ServerImageCommands::Delete { model, version } => {
-            delete_image(model, version, server_url, server_connection, output_format).await
-        }
-        ServerImageCommands::SetDefault { model, version } => {
-            set_default_image(model, version, server_url, server_connection, output_format).await
-        }
+        NodeKind::Unikernel => bail!("Image pull is not supported for unikernel models"),
     }
 }
 
@@ -291,14 +301,11 @@ pub async fn list_images(
 }
 
 pub async fn show_image(
-    model: NodeModel,
-    version: Option<String>,
+    request: data::ShowImageRequest,
     server_url: &str,
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
-    let request = data::ShowImageRequest { model, version };
-
     let response: data::ShowImageResponse =
         rpc_call("image.show", request, server_url, server_connection)
             .await
@@ -339,7 +346,7 @@ async fn scan_images(
                 println!(
                     "Local Docker images are not matched to models with no built-in repo. \
                      Record a repo's images for one with:\n  sherpa server image scan \
-                     --container --model <model> --repo <repo>"
+                     --kind container --model <model> --repo <repo>"
                 );
             }
             if response.scanned.is_empty() {
@@ -373,21 +380,11 @@ async fn scan_images(
 }
 
 async fn import_image(
-    src: &str,
-    version: &str,
-    model: &NodeModel,
-    default: bool,
+    request: data::ImportRequest,
     server_url: &str,
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
-    let request = data::ImportRequest {
-        model: *model,
-        version: version.to_string(),
-        src: src.to_string(),
-        default,
-    };
-
     let response: data::ImportResponse = rpc_call_streaming(
         "image.import",
         request,
@@ -429,17 +426,11 @@ async fn import_image(
 }
 
 async fn delete_image(
-    model: &NodeModel,
-    version: &str,
+    request: data::DeleteImageRequest,
     server_url: &str,
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
-    let request = data::DeleteImageRequest {
-        model: *model,
-        version: version.to_string(),
-    };
-
     let response: data::DeleteImageResponse =
         rpc_call("image.delete", request, server_url, server_connection)
             .await
@@ -478,17 +469,11 @@ async fn delete_image(
 }
 
 async fn set_default_image(
-    model: &NodeModel,
-    version: &str,
+    request: data::SetDefaultImageRequest,
     server_url: &str,
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
-    let request = data::SetDefaultImageRequest {
-        model: *model,
-        version: version.to_string(),
-    };
-
     let response: data::SetDefaultImageResponse =
         rpc_call("image.set_default", request, server_url, server_connection)
             .await
@@ -516,7 +501,7 @@ async fn set_default_image(
 }
 
 async fn pull_container_image(
-    model: &NodeModel,
+    model_kind: ModelKind,
     version: Option<&str>,
     repo: Option<&str>,
     default: bool,
@@ -529,6 +514,7 @@ async fn pull_container_image(
         (repo.to_string(), tag.to_string())
     } else {
         // Known public repos — resolve from constants, version is the tag
+        let model = model_kind.model();
         let known_repo = match model {
             NodeModel::NokiaSrlinux => Some(CONTAINER_NOKIA_SRLINUX_REPO),
             NodeModel::FrrLinux => Some(CONTAINER_FRR_REPO),
@@ -551,7 +537,8 @@ async fn pull_container_image(
     };
 
     let request = data::ContainerPullRequest {
-        model: *model,
+        model: model_kind.model(),
+        kind: Some(model_kind.kind()),
         repo: pull_repo.clone(),
         tag: pull_tag.clone(),
         default,
@@ -596,7 +583,7 @@ async fn pull_container_image(
 }
 
 async fn download_vm_image(
-    model: &NodeModel,
+    model_kind: ModelKind,
     version: &str,
     url: Option<&str>,
     default: bool,
@@ -605,7 +592,8 @@ async fn download_vm_image(
     output_format: &OutputFormat,
 ) -> Result<()> {
     let request = data::DownloadImageRequest {
-        model: *model,
+        model: model_kind.model(),
+        kind: Some(model_kind.kind()),
         version: version.to_string(),
         url: url.map(std::string::ToString::to_string),
         default,
@@ -723,6 +711,43 @@ mod tests {
     fn an_image_reference_without_a_tag_is_refused() {
         for reference in ["localhost:5000/img", "img", "img:", ":1", "img@sha256:abc"] {
             assert!(split_image_reference(reference).is_err(), "{reference}");
+        }
+    }
+
+    fn scan(kind: Option<NodeKind>, model: Option<NodeModel>) -> ScanArgs {
+        ScanArgs {
+            kind,
+            dry_run: false,
+            model,
+            repo: model.map(|_| "mysql".to_string()),
+        }
+    }
+
+    #[test]
+    fn a_scan_records_a_repo_only_for_container_images() {
+        let request = scan(Some(NodeKind::Container), Some(NodeModel::MysqlDb))
+            .request()
+            .unwrap();
+        assert_eq!(request.kind, Some(NodeKind::Container));
+        assert_eq!(request.model, Some(NodeModel::MysqlDb));
+        for kind in [NodeKind::VirtualMachine, NodeKind::Unikernel] {
+            let error = scan(Some(kind), Some(NodeModel::MysqlDb))
+                .request()
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("--kind container"), "{error}");
+        }
+    }
+
+    #[test]
+    fn a_scan_without_a_model_takes_any_kind_or_none() {
+        for kind in [
+            None,
+            Some(NodeKind::VirtualMachine),
+            Some(NodeKind::Container),
+            Some(NodeKind::Unikernel),
+        ] {
+            assert_eq!(scan(kind, None).request().unwrap().kind, kind);
         }
     }
 }

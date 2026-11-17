@@ -3,7 +3,7 @@ use db::{
     Database, DefaultRequest, LabDetails, create_lab, create_user, delete_lab_from, find_lab,
     list_node_states_by_user, update_lab_phase_from, update_node_state_from, upsert_node_image,
 };
-use shared::data::{DbLab, DbUser, LabPhase, NodeConfig, NodeModel, NodeState};
+use shared::data::{DbLab, DbUser, LabPhase, ModelKind, NodeModel, NodeState};
 
 use crate::helper::{create_test_node_with_model, ipv4_lab_networks, setup_db};
 
@@ -94,7 +94,7 @@ async fn the_node_states_of_a_users_labs_are_read_in_one_query() -> Result<()> {
     let others = lab_for(&db, &bob, "lab-0003", 3).await?;
     upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;

@@ -237,16 +237,16 @@ pub struct NodeDetailTemplate {
 impl NodeDetailTemplate {
     /// The node's vCPUs, or a container's CPU quota; "Not limited" for a container without one.
     pub fn cpu_display(&self) -> String {
-        resource_display(self.device.cpu_count.map(u16::from), &self.device.kind)
+        resource_display(self.device.cpu_count.map(u16::from), self.device.kind)
     }
 
     /// The node's memory in MB.
     pub fn memory_display(&self) -> String {
-        resource_display(self.device.memory, &self.device.kind)
+        resource_display(self.device.memory, self.device.kind)
     }
 }
 
-fn resource_display(value: Option<u16>, kind: &NodeKind) -> String {
+fn resource_display(value: Option<u16>, kind: NodeKind) -> String {
     match (value, kind) {
         (Some(value), _) => value.to_string(),
         (None, NodeKind::Container) => "Not limited".to_string(),
@@ -641,7 +641,7 @@ mod tests {
 
     use askama::Template;
     use axum::http::header::CONTENT_TYPE;
-    use shared::data::{LabState, NodeKind, NodeModel, NodeState};
+    use shared::data::{LabState, ModelKind, NodeKind, NodeModel, NodeState};
 
     use super::*;
     use crate::api::handlers::lab_offers_download;
@@ -849,8 +849,8 @@ mod tests {
             state_badge: Badge::for_node_state(device.state, BadgeSize::Large),
             actions: NodeActions::for_state(device.state),
             device,
-            node_config: NodeConfig::get_model(model),
-            ztp: NodeConfig::get_model(model).ztp.method,
+            node_config: ModelKind::default_for(model).node_config(),
+            ztp: ModelKind::default_for(model).node_config().ztp.method,
             mgmt_mac: None,
         }
         .render()
@@ -1370,7 +1370,7 @@ mod tests {
                 nav: NavPage::AdminImages.into(),
                 configs: vec![ImageSummary {
                     model: "some_model".to_string(),
-                    kind_badge: KindBadge::short(kind.clone()),
+                    kind_badge: KindBadge::short(kind),
                     version: "1.0".to_string(),
                     cpu_count: 1,
                     memory: 1024,
@@ -1401,7 +1401,7 @@ mod tests {
             username: "admin".to_string(),
             is_admin: true,
             nav: NavPage::AdminImages.into(),
-            kind_badge: KindBadge::full(config.kind.clone()),
+            kind_badge: KindBadge::full(config.kind),
             config,
         }
         .render()
@@ -1417,7 +1417,7 @@ mod tests {
             (NodeModel::NokiaSrlinux, false, false),
             (NodeModel::MongoDb, false, false),
         ] {
-            let html = image_detail(NodeConfig::get_model(model));
+            let html = image_detail(ModelKind::default_for(model).node_config());
             assert_eq!(html.contains(IMAGE_MACHINE_TYPE), machine_type, "{model}");
             for label in IMAGE_FIRMWARE_AND_DISKS {
                 assert_eq!(html.contains(label), firmware_and_disks, "{model} {label}");
@@ -1468,13 +1468,13 @@ mod tests {
             (NodeModel::MongoDb, "Container"),
             (NodeModel::NanosUnikernel, "Unikernel"),
         ]) {
-            let config = NodeConfig::get_model(model);
+            let config = ModelKind::default_for(model).node_config();
             assert_eq!(config.kind, kind);
             let detail = AdminImageDetailTemplate {
                 username: "admin".to_string(),
                 is_admin: true,
                 nav: NavPage::AdminImages.into(),
-                kind_badge: KindBadge::full(kind.clone()),
+                kind_badge: KindBadge::full(kind),
                 config: config.clone(),
             }
             .render()
@@ -1489,8 +1489,8 @@ mod tests {
                 is_admin: true,
                 nav: NavPage::AdminImages.into(),
                 model: model.to_string(),
-                kind_label: kind_label(&kind),
-                kind: kind.clone(),
+                kind_label: kind_label(kind),
+                kind,
                 versions: vec![config],
             }
             .render()

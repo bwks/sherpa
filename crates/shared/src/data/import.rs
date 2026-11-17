@@ -35,6 +35,10 @@ pub struct ListImagesResponse {
 pub struct ShowImageRequest {
     /// The node model to show details for
     pub model: NodeModel,
+    /// The image's kind: `virtual_machine`, `container` or `unikernel`. Absent, the model's
+    /// default kind.
+    #[serde(default)]
+    pub kind: Option<NodeKind>,
     /// Optional version filter (if omitted, shows the default version)
     pub version: Option<String>,
 }
@@ -54,6 +58,10 @@ pub struct ShowImageResponse {
 pub struct ImportRequest {
     /// The node model to import the image for
     pub model: NodeModel,
+    /// The image's kind: `virtual_machine`, `container` or `unikernel`. Absent, the model's
+    /// default kind.
+    #[serde(default)]
+    pub kind: Option<NodeKind>,
     /// Version string for the image
     pub version: String,
     /// Source file path on the server filesystem
@@ -138,6 +146,10 @@ pub struct ScanImagesResponse {
 pub struct DeleteImageRequest {
     /// The node model of the image to delete
     pub model: NodeModel,
+    /// The image's kind: `virtual_machine`, `container` or `unikernel`. Absent, the model's
+    /// default kind.
+    #[serde(default)]
+    pub kind: Option<NodeKind>,
     /// Version string for the image to delete
     pub version: String,
 }
@@ -168,6 +180,10 @@ pub struct DeleteImageResponse {
 pub struct SetDefaultImageRequest {
     /// The node model to set the default for
     pub model: NodeModel,
+    /// The image's kind: `virtual_machine`, `container` or `unikernel`. Absent, the model's
+    /// default kind.
+    #[serde(default)]
+    pub kind: Option<NodeKind>,
     /// Version string to make the default
     pub version: String,
 }
@@ -190,6 +206,10 @@ pub struct SetDefaultImageResponse {
 pub struct ContainerPullRequest {
     /// Node model this image belongs to
     pub model: super::NodeModel,
+    /// The image's kind: `virtual_machine`, `container` or `unikernel`. Absent, the model's
+    /// default kind.
+    #[serde(default)]
+    pub kind: Option<NodeKind>,
     /// Container image repository (e.g., ghcr.io/nokia/srlinux)
     pub repo: String,
     /// Container image tag (e.g., 1.2.3)
@@ -221,6 +241,10 @@ pub struct ContainerPullResponse {
 pub struct DownloadImageRequest {
     /// The node model to download the image for
     pub model: NodeModel,
+    /// The image's kind: `virtual_machine`, `container` or `unikernel`. Absent, the model's
+    /// default kind.
+    #[serde(default)]
+    pub kind: Option<NodeKind>,
     /// Version string for the image
     pub version: String,
     /// Optional download URL (auto-resolved for some models)

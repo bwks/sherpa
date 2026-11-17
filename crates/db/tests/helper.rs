@@ -3,7 +3,9 @@ use db::{
     Database, LabNetworks, apply_schema, create_node, find_node_image_by_model_kind_version,
     open_in_memory,
 };
-use shared::data::{BridgeKind, DbLab, DbLink, DbNode, LinkImpairment, NodeConfig, NodeModel};
+use shared::data::{
+    BridgeKind, DbLab, DbLink, DbNode, LinkImpairment, ModelKind, NodeConfig, NodeModel,
+};
 
 /// Open a fresh in-memory database with the schema applied.
 ///
@@ -21,7 +23,7 @@ pub async fn setup_db() -> Result<Database> {
 /// Helper to create a test config
 #[must_use]
 pub fn create_test_config(model: NodeModel) -> NodeConfig {
-    NodeConfig::get_model(model)
+    ModelKind::default_for(model).node_config()
 }
 
 /// Test helper to create a node with a specific model
@@ -44,7 +46,7 @@ pub async fn create_test_node_with_model(
     lab: &DbLab,
 ) -> Result<DbNode> {
     // Get the model kind from the NodeModel
-    let config_template = NodeConfig::get_model(model);
+    let config_template = ModelKind::default_for(model).node_config();
     let kind = config_template.kind;
     let version = config_template.version;
 

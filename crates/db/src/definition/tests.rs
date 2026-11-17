@@ -1,6 +1,6 @@
 use shared::data::{
     ClusterCni, CpuMode, CpuTopology, DbLab, DiskCache, DiskImageCloneMethod, DiskIo, LabPhase,
-    NodeBootDisk, NodeConfig, NodeCpu, NodeInterfaces, NodeModel, NodeNuma, NumaMemoryMode,
+    ModelKind, NodeBootDisk, NodeCpu, NodeInterfaces, NodeModel, NodeNuma, NumaMemoryMode,
     PtxPlatform, RecordId, WatchdogAction, Ztp, ZtpServer,
 };
 use topology::{
@@ -266,6 +266,8 @@ fn assert_every_node_field_set(node: &Node) {
     let Node {
         name: _,
         model: _,
+        // The image's kind, held only when it is not the model's default: every model has one.
+        kind: _,
         image,
         version,
         memory,
@@ -408,9 +410,13 @@ async fn lab_in(db: &Database) -> DbLab {
     .into_iter()
     .enumerate()
     {
-        let image = upsert_node_image(&db, NodeConfig::get_model(model), DefaultRequest::Keep)
-            .await
-            .unwrap();
+        let image = upsert_node_image(
+            &db,
+            ModelKind::default_for(model).node_config(),
+            DefaultRequest::Keep,
+        )
+        .await
+        .unwrap();
         create_node(
             &db,
             name,

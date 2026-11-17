@@ -3,7 +3,7 @@ use db::{
     DefaultRequest, LabDetails, create_lab, create_link, create_node, create_user,
     list_links_by_lab, upsert_node_image,
 };
-use shared::data::{BridgeKind, NodeConfig, NodeModel};
+use shared::data::{BridgeKind, ModelKind, NodeModel};
 
 use crate::helper::{ipv4_lab_networks, setup_db, test_link};
 
@@ -29,7 +29,7 @@ async fn test_create_link_success() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -90,7 +90,7 @@ async fn test_create_link_with_lab() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::CiscoIosv),
+        ModelKind::default_for(NodeModel::CiscoIosv).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -153,7 +153,7 @@ async fn test_create_link_duplicate_peers_fails() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -224,7 +224,7 @@ async fn test_create_link_different_interfaces_succeeds() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::CiscoIosv),
+        ModelKind::default_for(NodeModel::CiscoIosv).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -305,7 +305,7 @@ async fn test_create_link_with_bridge_kinds() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -384,7 +384,7 @@ async fn test_create_link_increments_count() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;

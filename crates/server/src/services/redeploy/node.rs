@@ -230,8 +230,7 @@ async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
         &redeploy.state.db,
         redeploy.node_record_id.clone(),
         &node_ops::stored_ready_check(
-            &redeploy.node_image.kind,
-            redeploy.node_image.model,
+            redeploy.target_node.model_kind,
             &redeploy.target_node.ready_check,
         ),
     )

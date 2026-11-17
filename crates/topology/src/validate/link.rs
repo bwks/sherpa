@@ -222,18 +222,19 @@ mod tests {
     use super::*;
     use crate::BridgeLinkDetailed;
     use anyhow::Result;
+    use shared::data::ModelKind;
 
     /// Helper to create a test link
     fn create_link(node_a: &str, int_a: u8, node_b: &str, int_b: u8) -> LinkDetailed {
         LinkDetailed {
             node_a: node_a.to_string(),
             node_a_idx: 0,
-            node_a_model: NodeModel::RockyLinux,
+            node_a_model_kind: ModelKind::default_for(NodeModel::RockyLinux),
             int_a: "test".to_string(),
             int_a_idx: int_a,
             node_b: node_b.to_string(),
             node_b_idx: 1,
-            node_b_model: NodeModel::RockyLinux,
+            node_b_model_kind: ModelKind::default_for(NodeModel::RockyLinux),
             int_b: "test".to_string(),
             int_b_idx: int_b,
             link_idx: 0,
@@ -437,7 +438,7 @@ mod tests {
                 .into_iter()
                 .map(|(node_name, interface_index)| BridgeLinkDetailed {
                     node_name: node_name.to_string(),
-                    node_model: NodeModel::RockyLinux,
+                    node_model_kind: ModelKind::default_for(NodeModel::RockyLinux),
                     interface_name: format!("eth{interface_index}"),
                     interface_index,
                 })

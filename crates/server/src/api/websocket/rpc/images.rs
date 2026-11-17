@@ -76,7 +76,7 @@ pub(super) async fn import(
     state: &AppState,
     progress: ProgressSender,
 ) -> Result<Value, RpcError> {
-    let request: data::ImportRequest = parse(params, RPC_MSG_INVALID_PARAMS_IMPORT)?;
+    let request = import_request(params)?;
     respond(
         import::import_image(request, state, progress).await,
         RPC_MSG_IMAGE_IMPORT_FAILED,
@@ -105,4 +105,49 @@ pub(super) async fn download(
         import::download_image(request, state, progress).await,
         RPC_MSG_IMAGE_DOWNLOAD_FAILED,
     )
+}
+
+/// The import request in `params`, without the `token` the dispatcher authenticated the call
+/// with: `ImportRequest` denies unknown fields, so a removed image setting is refused naming it.
+fn import_request(mut params: Value) -> Result<data::ImportRequest, RpcError> {
+    if let Some(fields) = params.as_object_mut() {
+        fields.remove("token");
+    }
+    parse(params, RPC_MSG_INVALID_PARAMS_IMPORT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn an_import_with_its_token_is_read_without_it() {
+        let request = import_request(json!({
+            "model": "generic_unikernel",
+            "kind": "unikernel",
+            "version": "1",
+            "src": "/var/tmp/kernel.elf",
+            "token": "jwt",
+        }))
+        .unwrap();
+        assert_eq!(request.kind, Some(data::NodeKind::Unikernel));
+    }
+
+    #[test]
+    fn an_import_with_another_unknown_field_is_still_refused() {
+        let error = import_request(json!({
+            "model": "ubuntu_linux",
+            "version": "1",
+            "src": "/var/tmp/a.qcow2",
+            "token": "jwt",
+            "ztp_password": "x",
+        }))
+        .unwrap_err();
+        assert!(
+            error
+                .context
+                .is_some_and(|context| context.contains("unknown field `ztp_password`")),
+        );
+    }
 }

@@ -3,7 +3,7 @@
 use anyhow::Result;
 
 use crate::services::error::ServiceError;
-use shared::data::{NodeConfig, NodeKind, ScanImagesRequest};
+use shared::data::{NodeKind, ScanImagesRequest};
 
 /// The longest image repo Docker takes.
 const IMAGE_REPO_MAX_LEN: usize = 255;
@@ -33,11 +33,11 @@ pub fn validate_image_scan(request: &ScanImagesRequest) -> Result<()> {
         .is_some_and(|kind| *kind != NodeKind::Container)
     {
         return Err(ServiceError::Invalid(
-            "--model and --repo only scan containers: give them with --container".to_string(),
+            "--model and --repo only scan containers: give them with --kind container".to_string(),
         )
         .into());
     }
-    if NodeConfig::get_model(model).kind != NodeKind::Container {
+    if !model.kinds().contains(&NodeKind::Container) {
         return Err(ServiceError::Invalid(format!(
             "'{model}' is not a container model: --model and --repo record local Docker images"
         ))

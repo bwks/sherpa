@@ -4,7 +4,7 @@
 //! this module decides which repos to ask for, for which models, and reads the versions off
 //! what Docker returns. It is pure, so it is tested without a daemon.
 
-use shared::data::{NodeConfig, NodeKind, NodeModel, SkippedModel};
+use shared::data::{ModelKind, NodeKind, NodeModel, SkippedModel};
 
 use crate::validate::validate_image_version;
 
@@ -38,12 +38,10 @@ pub(crate) fn plan_container_scan(target: Option<ScanTarget>) -> ContainerScanPl
     }
 
     let mut plan = ContainerScanPlan::default();
-    for model in NodeModel::to_vec() {
-        let config = NodeConfig::get_model(model);
-        if config.kind != NodeKind::Container {
-            continue;
-        }
-        match config.repo {
+    for model_kind in ModelKind::all().filter(|model_kind| model_kind.kind() == NodeKind::Container)
+    {
+        let model = model_kind.model();
+        match model_kind.node_config().repo {
             Some(repo) => plan.targets.push(ScanTarget { model, repo }),
             None => plan.skipped.push(SkippedModel {
                 model,
@@ -106,7 +104,7 @@ mod tests {
         assert!(
             plan.targets
                 .iter()
-                .all(|t| NodeConfig::get_model(t.model).kind == NodeKind::Container),
+                .all(|t| t.model.kinds().contains(&NodeKind::Container)),
             "{plan:?}"
         );
     }

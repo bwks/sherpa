@@ -2,8 +2,8 @@ use anyhow::{Context, Result, anyhow};
 use futures::future::join_all;
 use opentelemetry::KeyValue;
 use shared::data::{
-    self, DbLab, Halt, LabNodeActionResponse, NodeActionResult, NodeKind, OperationEvent, RecordId,
-    Runtime, StatusKind, TailnetAuthKey, TailnetStatus,
+    self, DbLab, Halt, LabNodeActionResponse, ModelKind, NodeActionResult, NodeKind,
+    OperationEvent, RecordId, Runtime, StatusKind, TailnetAuthKey, TailnetStatus,
 };
 use shared::konst::READINESS_TIMEOUT;
 use std::collections::{HashMap, HashSet};
@@ -139,7 +139,7 @@ pub async fn start_lab_nodes(
     for node in &target_nodes {
         let device_name = format!("{}-{}", node.name, lab_id);
         let (kind, model) = match startable_image(node, &node_images) {
-            Ok(image) => (image.kind.clone(), image.model),
+            Ok(image) => (image.kind, image.model),
             Err(refused) => {
                 immediate_results.push(refused);
                 continue;
@@ -340,7 +340,7 @@ fn ready_timeout(definition: Option<&Manifest>) -> Duration {
 /// skipped: VMs and containers on their stored port, as without one they are ready once
 /// running, and unikernels by their domain, and their stored port when they have one.
 fn readiness_check(
-    kind: &NodeKind,
+    kind: NodeKind,
     cold_booted: bool,
     ready_check: &data::ReadyCheck,
 ) -> Option<ReadinessCheck> {
@@ -368,7 +368,7 @@ fn readiness_targets(
             tracing::debug!(lab_id = %lab_id, node_name = %name, "No record for cold-booted node");
             continue;
         };
-        let Some(check) = readiness_check(kind, true, &node.ready_check) else {
+        let Some(check) = readiness_check(*kind, true, &node.ready_check) else {
             tracing::debug!(lab_id = %lab_id, node_name = %name, "No readiness check for node");
             continue;
         };
@@ -672,13 +672,17 @@ async fn start_container_node(
             }
         }
         Ok(StartStep::Boot) => {
+            let model_kind = match ModelKind::new(model, Some(NodeKind::Container)) {
+                Ok(model_kind) => model_kind,
+                Err(e) => return StartOutcome::Failed(format!("{e:#}")),
+            };
             if let Err(e) = container::start_container(&state.docker, device_name).await {
                 return StartOutcome::Failed(format!("Failed to start: {e:#}"));
             }
             match node_ops::finish_management_checksums(
                 &KernelHost::new(&state.docker, &state.qemu),
                 device_name,
-                model,
+                model_kind,
             )
             .await
             {
@@ -878,18 +882,15 @@ mod tests {
     fn only_cold_booted_guests_are_checked() {
         let ssh = stored(Some(SSH_PORT), false);
         assert_eq!(
-            readiness_check(&NodeKind::VirtualMachine, true, &ssh),
+            readiness_check(NodeKind::VirtualMachine, true, &ssh),
             Some(ReadinessCheck::Port(SSH_PORT))
         );
-        assert_eq!(
-            readiness_check(&NodeKind::VirtualMachine, false, &ssh),
-            None
-        );
+        assert_eq!(readiness_check(NodeKind::VirtualMachine, false, &ssh), None);
         let none = stored(None, false);
-        assert_eq!(readiness_check(&NodeKind::Container, true, &none), None);
-        assert_eq!(readiness_check(&NodeKind::Container, false, &none), None);
+        assert_eq!(readiness_check(NodeKind::Container, true, &none), None);
+        assert_eq!(readiness_check(NodeKind::Container, false, &none), None);
         assert_eq!(
-            readiness_check(&NodeKind::Unikernel, true, &none),
+            readiness_check(NodeKind::Unikernel, true, &none),
             Some(ReadinessCheck::Unikernel { ready_port: None })
         );
     }
@@ -898,20 +899,20 @@ mod tests {
     fn the_stored_readiness_check_is_honoured() {
         assert_eq!(
             readiness_check(
-                &NodeKind::VirtualMachine,
+                NodeKind::VirtualMachine,
                 true,
                 &stored(Some(SSH_PORT), true)
             ),
             None
         );
         assert_eq!(
-            readiness_check(&NodeKind::Unikernel, true, &stored(Some(8080), false)),
+            readiness_check(NodeKind::Unikernel, true, &stored(Some(8080), false)),
             Some(ReadinessCheck::Unikernel {
                 ready_port: Some(8080)
             })
         );
         assert_eq!(
-            readiness_check(&NodeKind::Unikernel, true, &stored(Some(8080), true)),
+            readiness_check(NodeKind::Unikernel, true, &stored(Some(8080), true)),
             None
         );
     }
@@ -946,7 +947,7 @@ mod tests {
     fn virtual_machines_are_checked_on_their_stored_port() {
         for port in [TALOS_API_PORT, 6443, SSH_PORT] {
             assert_eq!(
-                readiness_check(&NodeKind::VirtualMachine, true, &stored(Some(port), false)),
+                readiness_check(NodeKind::VirtualMachine, true, &stored(Some(port), false)),
                 Some(ReadinessCheck::Port(port)),
                 "{port}"
             );
@@ -957,17 +958,17 @@ mod tests {
     fn a_cold_booted_container_is_checked_on_its_stored_port() {
         let web = stored(Some(80), false);
         assert_eq!(
-            readiness_check(&NodeKind::Container, true, &web),
+            readiness_check(NodeKind::Container, true, &web),
             Some(ReadinessCheck::Port(80))
         );
         // An unpaused container resumes a process that already answered.
-        assert_eq!(readiness_check(&NodeKind::Container, false, &web), None);
+        assert_eq!(readiness_check(NodeKind::Container, false, &web), None);
         assert_eq!(
-            readiness_check(&NodeKind::Container, true, &stored(Some(80), true)),
+            readiness_check(NodeKind::Container, true, &stored(Some(80), true)),
             None
         );
         assert_eq!(
-            readiness_check(&NodeKind::Container, true, &stored(None, false)),
+            readiness_check(NodeKind::Container, true, &stored(None, false)),
             None
         );
     }

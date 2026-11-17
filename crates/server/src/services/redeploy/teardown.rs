@@ -44,7 +44,7 @@ pub(super) async fn destroy_node(redeploy: &Redeploy<'_>) -> Result<()> {
     remove_node_folders(
         Path::new(&redeploy.lab_dir),
         node_name,
-        &redeploy.node_image.kind,
+        redeploy.node_image.kind,
     )?;
 
     let _ = redeploy.progress.send_status(
@@ -63,7 +63,7 @@ pub(super) async fn destroy_node(redeploy: &Redeploy<'_>) -> Result<()> {
 /// # Errors
 ///
 /// Fails when a folder is there but cannot be removed.
-fn remove_node_folders(lab_dir: &Path, node_name: &str, kind: &data::NodeKind) -> Result<()> {
+fn remove_node_folders(lab_dir: &Path, node_name: &str, kind: data::NodeKind) -> Result<()> {
     if matches!(kind, data::NodeKind::VirtualMachine) {
         let lab_dir = lab_dir.to_str().context("Lab folder path is not UTF-8")?;
         node_ops::remove_vm_boot_dir(Path::new(&node_ops::vm_boot_dir(lab_dir, node_name)))?;
@@ -156,7 +156,7 @@ mod tests {
             ] {
                 let lab = lab_folder();
 
-                remove_node_folders(lab.path(), name, &kind).unwrap();
+                remove_node_folders(lab.path(), name, kind).unwrap();
 
                 assert!(
                     lab.path().join(name).join(LAB_CA_KEY_FILE).exists(),
@@ -180,7 +180,7 @@ mod tests {
             fs::create_dir_all(&boot_dir).unwrap();
             fs::write(Path::new(&boot_dir).join("user-data"), "#cloud-config\n").unwrap();
 
-            remove_node_folders(lab.path(), name, &NodeKind::VirtualMachine).unwrap();
+            remove_node_folders(lab.path(), name, NodeKind::VirtualMachine).unwrap();
 
             assert!(!Path::new(&boot_dir).exists(), "{name}");
             assert!(
@@ -198,7 +198,7 @@ mod tests {
             fs::write(lab.path().join(dir).join("startup.conf"), "config").unwrap();
         }
 
-        remove_node_folders(lab.path(), "ct1", &NodeKind::Container).unwrap();
+        remove_node_folders(lab.path(), "ct1", NodeKind::Container).unwrap();
 
         assert!(!lab.path().join("ct1").exists());
         assert!(lab.path().join("ct10").join("startup.conf").exists());

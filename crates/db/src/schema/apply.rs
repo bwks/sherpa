@@ -114,8 +114,8 @@ fn refuse_newer_version(version: usize) -> Result<()> {
 mod tests {
     use shared::data::{
         BiosTypes, BootDiskSettings, CdromSettings, DbCpuPins, DiskBuses, LabPhase,
-        MachineSettings, MachineType, NodeConfig, NodeCpuPins, NodeKind, NodeModel, NodeState,
-        ReadyCheck, RecordId, Ztp,
+        MachineSettings, MachineType, ModelKind, NodeConfig, NodeCpuPins, NodeKind, NodeModel,
+        NodeState, ReadyCheck, RecordId, Ztp,
     };
     use shared::konst::{SSH_PORT, TALOS_API_PORT};
     use shared::validators::check_ztp;
@@ -256,7 +256,7 @@ mod tests {
     async fn insert_default_before_the_login_drop(db: &Database, model: NodeModel) -> String {
         let image = NodeConfig {
             default: true,
-            ..NodeConfig::get_model(model)
+            ..ModelKind::default_for(model).node_config()
         };
         let stored = insert_with_ztp_login(db, &image, (None, None, false)).await;
         key_of(&stored.id.unwrap(), "node_image").unwrap()
@@ -290,7 +290,7 @@ mod tests {
     }
 
     fn migrated_ztp(model: NodeModel, enable: bool, method: &str) -> Ztp {
-        let image = NodeConfig::get_model(model);
+        let image = ModelKind::default_for(model).node_config();
         if !enable {
             return Ztp::Disabled;
         }
@@ -301,7 +301,7 @@ mod tests {
         let stored: Option<Ztp> =
             serde_json::from_value(serde_json::Value::String(method.to_owned())).ok();
         match stored {
-            Some(ztp) if model.ztp_methods().contains(&ztp) => ztp,
+            Some(ztp) if ModelKind::default_for(model).ztp_methods().contains(&ztp) => ztp,
             // `volume` on a VM, `none` and `ipxe`: their arms generated nothing.
             Some(Ztp::Volume) | None => Ztp::Disabled,
             Some(_) => image.ztp.method,
@@ -327,7 +327,7 @@ mod tests {
         apply_schema(&db).await.unwrap();
         upsert_node_image(
             &db,
-            NodeConfig::get_model(NodeModel::UbuntuLinux),
+            ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
             DefaultRequest::Keep,
         )
         .await
@@ -425,11 +425,11 @@ mod tests {
     async fn a_model_has_one_default_image_per_kind() {
         let db = open_in_memory().await.unwrap();
         apply_schema(&db).await.unwrap();
-        let first = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let first = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         upsert_node_image(&db, first, DefaultRequest::Make)
             .await
             .unwrap();
-        let mut second = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let mut second = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         second.version = "second".to_owned();
         upsert_node_image(&db, second, DefaultRequest::Keep)
             .await
@@ -481,7 +481,7 @@ mod tests {
             NodeModel::CiscoIosvl2,
             NodeModel::UbuntuLinux,
         ] {
-            let mut image = NodeConfig::get_model(model);
+            let mut image = ModelKind::default_for(model).node_config();
             image.interfaces.data_count = 16;
             insert_into_older_schema(&db, &image, true, "cloud-init").await;
         }
@@ -518,10 +518,16 @@ mod tests {
             .unwrap();
         drop(writer);
         for model in [NodeModel::CiscoIse, NodeModel::CiscoAsav] {
-            insert_into_older_schema(&db, &NodeConfig::get_model(model), true, "cdrom").await;
+            insert_into_older_schema(
+                &db,
+                &ModelKind::default_for(model).node_config(),
+                true,
+                "cdrom",
+            )
+            .await;
         }
         for model in [NodeModel::GenericVm, NodeModel::CiscoIosv] {
-            let mut image = NodeConfig::get_model(model);
+            let mut image = ModelKind::default_for(model).node_config();
             image.cdrom.bus = DiskBuses::Virtio;
             insert_into_older_schema(&db, &image, true, "cloud-init").await;
         }
@@ -575,7 +581,13 @@ mod tests {
             .unwrap();
         drop(writer);
         for model in [NodeModel::JuniperVsrxv3, NodeModel::AristaVeos] {
-            insert_into_older_schema(&db, &NodeConfig::get_model(model), true, "tftp").await;
+            insert_into_older_schema(
+                &db,
+                &ModelKind::default_for(model).node_config(),
+                true,
+                "tftp",
+            )
+            .await;
         }
 
         apply_schema(&db).await.unwrap();
@@ -613,7 +625,7 @@ mod tests {
         }
         insert_into_older_schema(
             &db,
-            &NodeConfig::get_model(NodeModel::UbuntuLinux),
+            &ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
             true,
             "cloud-init",
         )
@@ -810,7 +822,7 @@ mod tests {
         }
         let image_key = insert_into_older_schema(
             &db,
-            &NodeConfig::get_model(NodeModel::UbuntuLinux),
+            &ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
             true,
             "cloud-init",
         )
@@ -885,7 +897,7 @@ mod tests {
             (NodeModel::FedoraLinux, "kept", true),
             (NodeModel::FedoraLinux, "other", false),
         ] {
-            let mut image = NodeConfig::get_model(model);
+            let mut image = ModelKind::default_for(model).node_config();
             version.clone_into(&mut image.version);
             image.default = default;
             insert_into_older_schema(&db, &image, true, "cloud-init").await;
@@ -978,7 +990,7 @@ mod tests {
         for model in models_before_the_ztp_setting() {
             for enable in [false, true] {
                 for method in OLD_ZTP_METHODS {
-                    let mut image = NodeConfig::get_model(model);
+                    let mut image = ModelKind::default_for(model).node_config();
                     image.version = format!("{enable}-{method}");
                     image.default = false;
                     insert_into_older_schema(&db, &image, enable, method).await;
@@ -999,7 +1011,7 @@ mod tests {
                 "{} stored as {}",
                 image.model, image.version
             );
-            check_ztp(image.model, image.ztp.method).unwrap();
+            check_ztp(image.model_kind().unwrap(), image.ztp.method).unwrap();
         }
     }
 
@@ -1009,7 +1021,7 @@ mod tests {
         // method, `none` for every container, and off for unikernels.
         let db = database_at(14).await;
         for model in models_before_the_ztp_setting() {
-            let mut image = NodeConfig::get_model(model);
+            let mut image = ModelKind::default_for(model).node_config();
             image.default = false;
             let (enable, method) = match image.kind {
                 NodeKind::VirtualMachine => (true, image.ztp.method.to_string()),
@@ -1022,7 +1034,7 @@ mod tests {
         apply_schema(&db).await.unwrap();
 
         for image in list_node_images(&db).await.unwrap() {
-            let default = NodeConfig::get_model(image.model).ztp.method;
+            let default = ModelKind::default_for(image.model).node_config().ztp.method;
             assert_eq!(image.ztp.method, default, "{}", image.model);
         }
     }
@@ -1032,7 +1044,7 @@ mod tests {
         let db = database_at(14).await;
         let key = insert_into_older_schema(
             &db,
-            &NodeConfig::get_model(NodeModel::UbuntuLinux),
+            &ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
             true,
             "cloud-init",
         )
@@ -1077,7 +1089,7 @@ mod tests {
         let db = database_at(16).await;
         let mut stored = Vec::new();
         for model in NodeModel::to_vec() {
-            let shipped = NodeConfig::get_model(model);
+            let shipped = ModelKind::default_for(model).node_config();
             let edited = NodeConfig {
                 version: "edited".to_owned(),
                 machine: MachineSettings {
@@ -1356,7 +1368,7 @@ mod tests {
         let sealed = format!("sealed:{}", "a1".repeat(40));
         let with_login = NodeConfig {
             default: true,
-            ..NodeConfig::get_model(NodeModel::CiscoCat8000v)
+            ..ModelKind::default_for(NodeModel::CiscoCat8000v).node_config()
         };
         let with_login =
             insert_with_ztp_login(&db, &with_login, (Some("admin"), Some(&sealed), true)).await;
@@ -1581,7 +1593,7 @@ mod tests {
         let db = database_at(migrations).await;
         let image = upsert_node_image(
             &db,
-            NodeConfig::get_model(NodeModel::UbuntuLinux),
+            ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
             DefaultRequest::Keep,
         )
         .await
@@ -1703,7 +1715,7 @@ mod tests {
             (NodeModel::SonicLinux, "admin-set", 40),
             (NodeModel::UbuntuLinux, "many-nics", 52),
         ] {
-            let mut image = NodeConfig::get_model(model);
+            let mut image = ModelKind::default_for(model).node_config();
             image.version = version.to_owned();
             image.interfaces.data_count = count;
             upsert_node_image(&db, image, DefaultRequest::Keep)

@@ -193,7 +193,7 @@ fn node_address(name: &str, ipv4: Option<Ipv4Addr>) -> Result<Ipv4Addr> {
 mod tests {
     use std::net::Ipv4Addr;
 
-    use shared::data::{AddressRange, ClusterCni, ClusterMember, DbLab, NodeConfig, NodeModel};
+    use shared::data::{AddressRange, ClusterCni, ClusterMember, DbLab, ModelKind, NodeModel};
     use topology::{Manifest, Node, TalosCluster};
     use turso::Value;
 
@@ -319,9 +319,13 @@ mod tests {
         .await
         .unwrap();
         for (index, (name, model, host)) in (1..).zip(NODES) {
-            let image = upsert_node_image(&db, NodeConfig::get_model(model), DefaultRequest::Keep)
-                .await
-                .unwrap();
+            let image = upsert_node_image(
+                &db,
+                ModelKind::default_for(model).node_config(),
+                DefaultRequest::Keep,
+            )
+            .await
+            .unwrap();
             let node = create_node(&db, name, index, image.id.unwrap(), lab.id.clone().unwrap())
                 .await
                 .unwrap();

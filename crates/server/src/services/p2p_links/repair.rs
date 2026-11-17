@@ -247,7 +247,7 @@ async fn missing_veths(host: &impl LinkHost, veths: Vec<ContainerVeth>) -> Vec<C
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::ReadyCheck;
+    use shared::data::{ModelKind, ReadyCheck};
 
     use std::env;
     use std::fs;
@@ -347,7 +347,7 @@ mod tests {
             host_veth: host_veth.to_string(),
             host_alias: format!("alias-{host_veth}"),
             interface_idx: idx,
-            node_model: NodeModel::FrrLinux,
+            model_kind: ModelKind::default_for(NodeModel::FrrLinux),
             admin_down,
             bridge: None,
         };
@@ -666,7 +666,7 @@ mod tests {
             host_veth: host_veth.to_string(),
             host_alias: format!("it-{host_veth}"),
             interface_idx: 1,
-            node_model: NodeModel::AlpineLinux,
+            model_kind: ModelKind::default_for(NodeModel::AlpineLinux),
             admin_down: false,
             bridge: None,
         }

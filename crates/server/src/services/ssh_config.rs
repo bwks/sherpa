@@ -5,7 +5,7 @@ use askama::Template;
 use tracing::instrument;
 
 use shared::data::{
-    DbNode, LabInfo, NodeConfig, NodeHostKey, NodeSshUsername, RecordId, Ztp, ZtpRecord,
+    DbNode, LabInfo, ModelKind, NodeConfig, NodeHostKey, NodeSshUsername, RecordId, Ztp, ZtpRecord,
 };
 use shared::konst::{SHERPA_DOMAIN_NAME, SHERPA_KNOWN_HOSTS_FILE, SSH_PORT};
 use template::{KnownHostsEntry, KnownHostsTemplate, SshConfigTemplate, SshHostConfig};
@@ -78,7 +78,7 @@ pub(crate) fn saved_node_ssh_records(
             .iter()
             .find(|image| image.id.as_ref() == Some(&node.image))
         {
-            image.model.has_ssh()
+            image.model_kind().is_ok_and(ModelKind::has_ssh)
         } else {
             tracing::debug!(node_name = %node.name, "Node image not found; keeping SSH");
             true
@@ -382,9 +382,9 @@ mod tests {
 
     #[test]
     fn saved_nodes_have_ssh_unless_their_image_has_none() {
-        let mut ubuntu = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let mut ubuntu = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         ubuntu.id = Some(RecordId::new("node_image", "ubuntu"));
-        let mut talos = NodeConfig::get_model(NodeModel::TalosLinux);
+        let mut talos = ModelKind::default_for(NodeModel::TalosLinux).node_config();
         talos.id = Some(RecordId::new("node_image", "talos"));
         let mut talos_node = db_node("talos", Some("192.0.2.11"));
         talos_node.image = RecordId::new("node_image", "talos");

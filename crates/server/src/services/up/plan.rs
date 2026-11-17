@@ -23,8 +23,8 @@ use shared::validators::{effective_data_interface_count, effective_ztp};
 use topology::validate::{
     check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
-    check_no_p2p_field, check_node_kind_settings, check_node_names, check_ptx_platform,
-    check_text_file_modes, check_vm_tuning, validate_talos_clusters,
+    check_no_p2p_field, check_node_kind_settings, check_node_model_kind, check_node_names,
+    check_ptx_platform, check_text_file_modes, check_vm_tuning, validate_talos_clusters,
 };
 use topology::{process_manifest_bridges, process_manifest_links};
 
@@ -83,7 +83,7 @@ pub(super) async fn plan_lab(
         validate_and_resolve_node_versions(&manifest.nodes, &node_images, &config.images_dir)
             .context("Manifest validation failed: version/image validation")?;
 
-    let nodes_expanded = process_manifest_nodes(&validated_nodes);
+    let nodes_expanded = process_manifest_nodes(&validated_nodes)?;
     for node in &nodes_expanded {
         check_node_kind_settings(node).context("Manifest validation failed: node settings")?;
     }
@@ -93,7 +93,7 @@ pub(super) async fn plan_lab(
         container_image_guards,
     } = lease_images(db, &nodes_expanded, &node_images).await?;
     for node in &nodes_expanded {
-        let image = get_node_image(node.model, node.version.as_deref(), &node_images)?;
+        let image = get_node_image(node.model_kind, node.version.as_deref(), &node_images)?;
         validate_disk_method(
             node.boot_disk.clone_method,
             &image,
@@ -113,7 +113,7 @@ pub(super) async fn plan_lab(
                     node.name
                 )
             })?;
-            check_container_image(docker_conn, &node.name, node.model, repo, &image.version)
+            check_container_image(docker_conn, &node.name, image.model, repo, &image.version)
                 .await?;
         }
     }
@@ -168,7 +168,7 @@ async fn admit_nodes(
     check_cpu_pin_overlap(&manifest_pins).context("CPU pinning validation failed")?;
     let images = nodes_expanded
         .iter()
-        .map(|node| get_node_image(node.model, node.version.as_deref(), node_images))
+        .map(|node| get_node_image(node.model_kind, node.version.as_deref(), node_images))
         .collect::<Result<Vec<_>>>()?;
     let admitted: Vec<(&topology::NodeExpanded, &data::NodeConfig)> =
         nodes_expanded.iter().zip(&images).collect();
@@ -194,6 +194,9 @@ async fn admit_nodes(
 /// Talos clusters and environment variables (CRITICAL ERROR - fail fast on validation failure).
 fn check_manifest_nodes(manifest: &topology::Manifest) -> Result<()> {
     check_node_names(&manifest.nodes).context("Manifest validation failed: node names")?;
+    for node in &manifest.nodes {
+        check_node_model_kind(node).context("Manifest validation failed: node kind")?;
+    }
     check_duplicate_device(&manifest.nodes)
         .context("Manifest validation failed: duplicate devices")?;
     check_device_count(&manifest.nodes).context("Manifest validation failed: node count")?;
@@ -224,14 +227,21 @@ async fn lease_images(
 ) -> Result<ImageLeases> {
     let mut selected_images = nodes_expanded
         .iter()
-        .map(|node| get_node_image(node.model, node.version.as_deref(), node_images))
+        .map(|node| get_node_image(node.model_kind, node.version.as_deref(), node_images))
         .collect::<Result<Vec<_>>>()?;
-    selected_images.sort_by_key(|image| (image.model.to_string(), image.version.clone()));
-    selected_images.dedup_by(|a, b| a.model == b.model && a.version == b.version);
+    selected_images.sort_by_key(|image| {
+        (
+            image.model.to_string(),
+            image.kind.to_string(),
+            image.version.clone(),
+        )
+    });
+    selected_images
+        .dedup_by(|a, b| a.model == b.model && a.kind == b.kind && a.version == b.version);
     let mut image_guards = Vec::new();
     let mut container_image_guards = Vec::new();
     for image in &selected_images {
-        let lease = lease_image(image.model, &image.version).await;
+        let lease = lease_image(image.model_kind()?, &image.version).await;
         if image.kind == data::NodeKind::Container {
             container_image_guards.push(lease);
         } else {
@@ -268,7 +278,7 @@ fn node_logins(
 ) -> Result<Vec<NodeSshUsername>> {
     let mut ssh_usernames = Vec::new();
     for node in nodes_expanded {
-        let image = get_node_image(node.model, node.version.as_deref(), node_images)?;
+        let image = get_node_image(node.model_kind, node.version.as_deref(), node_images)?;
         let username = if guest_account::provisions_owner(node, &image) {
             let node_account = guest_account::node_account(account, &node.name, &image)?;
             if !node_account.skipped_keys.is_empty() {
@@ -316,8 +326,11 @@ fn check_node_limits(
     bridges_detailed: &[topology::BridgeDetailed],
 ) -> Result<()> {
     for node in nodes_expanded {
-        let node_image = get_node_image(node.model, node.version.as_deref(), node_images)
-            .context(format!("Node config not found for model: {}", node.model))?;
+        let node_image = get_node_image(node.model_kind, node.version.as_deref(), node_images)
+            .context(format!(
+                "Node config not found for model: {}",
+                node.model_kind.model()
+            ))?;
 
         let data_interface_count =
             effective_data_interface_count(&node.name, node.interfaces.data_count, &node_image)
@@ -388,7 +401,7 @@ fn process_links(
 mod tests {
     use super::*;
     use crate::services::guest_account::tests::test_account;
-    use shared::data::NodeModel;
+    use shared::data::{ModelKind, NodeModel};
     use tokio::sync::mpsc;
 
     const OWNER_KEY: &str =
@@ -400,7 +413,7 @@ mod tests {
             .iter()
             .map(|node| data::NodeConfig {
                 default: true,
-                ..data::NodeConfig::get_model(node.model)
+                ..node.model_kind.node_config()
             })
             .collect();
         let (tx, _rx) = mpsc::unbounded_channel();
@@ -415,7 +428,7 @@ mod tests {
     fn node(name: &str, model: NodeModel) -> topology::NodeExpanded {
         topology::NodeExpanded {
             name: name.to_owned(),
-            model,
+            model_kind: ModelKind::default_for(model),
             ..Default::default()
         }
     }

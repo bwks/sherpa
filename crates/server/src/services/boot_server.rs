@@ -88,7 +88,7 @@ pub(crate) fn lab_ztp_records(
     redeployed: &ZtpRecord,
 ) -> Result<Vec<ZtpRecord>> {
     let mut ordered: Vec<&BootNode> = nodes.iter().collect();
-    ordered.sort_by_key(|node| (kind_order(&node.image.kind), node.record.index));
+    ordered.sort_by_key(|node| (kind_order(node.image.kind), node.record.index));
     let mut records = Vec::with_capacity(ordered.len());
     for node in ordered {
         let name = &node.record.name;
@@ -121,7 +121,7 @@ pub(crate) fn lab_ztp_records(
                 ipv6_address: None,
                 mac_address,
                 ztp: effective_ztp(node.method, &node.image),
-                ssh_port: node.image.model.has_ssh().then_some(SSH_PORT),
+                ssh_port: node.image.model_kind()?.has_ssh().then_some(SSH_PORT),
             },
             NodeKind::Unikernel => ZtpRecord {
                 node_name: name.clone(),
@@ -144,7 +144,7 @@ pub(crate) fn lab_ztp_records(
 }
 
 /// Where `up` puts each kind of node among the boot server's records.
-fn kind_order(kind: &NodeKind) -> u8 {
+fn kind_order(kind: NodeKind) -> u8 {
     match kind {
         NodeKind::Container => 0,
         NodeKind::VirtualMachine => 1,
@@ -239,7 +239,7 @@ pub(crate) async fn refresh_boot_server(
 
 #[cfg(test)]
 mod tests {
-    use shared::data::NodeModel;
+    use shared::data::{ModelKind, NodeModel};
 
     use super::*;
 
@@ -278,7 +278,7 @@ mod tests {
                 ready_check: data::ReadyCheck::default(),
                 ssh_username: None,
             },
-            image: NodeConfig::get_model(model),
+            image: ModelKind::default_for(model).node_config(),
             method,
         }
     }

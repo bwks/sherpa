@@ -76,12 +76,12 @@ pub fn check_ptx_platform(node: &NodeExpanded, image: &NodeConfig) -> Result<()>
 mod tests {
     use super::*;
     use crate::NodeContainer;
-    use shared::data::PtxPlatform;
+    use shared::data::{ModelKind, PtxPlatform};
 
     fn node(model: NodeModel, platform: Option<PtxPlatform>) -> NodeExpanded {
         NodeExpanded {
             name: "node1".to_string(),
-            model,
+            model_kind: ModelKind::default_for(model),
             container: Some(NodeContainer {
                 platform,
                 ..NodeContainer::default()
@@ -92,7 +92,7 @@ mod tests {
 
     #[test]
     fn a_platform_on_cevolved_is_accepted() {
-        let image = NodeConfig::get_model(NodeModel::JuniperCevolved);
+        let image = ModelKind::default_for(NodeModel::JuniperCevolved).node_config();
         check_ptx_platform(&node(NodeModel::JuniperCevolved, None), &image).unwrap();
         check_ptx_platform(
             &node(NodeModel::JuniperCevolved, Some(PtxPlatform::Bx)),
@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn a_platform_on_another_model_is_refused() {
-        let image = NodeConfig::get_model(NodeModel::NokiaSrlinux);
+        let image = ModelKind::default_for(NodeModel::NokiaSrlinux).node_config();
         let error = check_ptx_platform(
             &node(NodeModel::NokiaSrlinux, Some(PtxPlatform::Bt)),
             &image,
@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn bt_takes_12_data_interfaces_and_bx_36() {
-        let image = NodeConfig::get_model(NodeModel::JuniperCevolved);
+        let image = ModelKind::default_for(NodeModel::JuniperCevolved).node_config();
         let mut bt = node(NodeModel::JuniperCevolved, None);
         bt.interfaces.data_count = Some(13);
         let error = check_ptx_platform(&bt, &image).unwrap_err();
@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn fewer_vcpus_or_less_memory_than_cevolved_needs_is_refused() {
-        let image = NodeConfig::get_model(NodeModel::JuniperCevolved);
+        let image = ModelKind::default_for(NodeModel::JuniperCevolved).node_config();
         let mut small_cpu = node(NodeModel::JuniperCevolved, None);
         small_cpu.cpu.count = Some(2);
         assert!(check_ptx_platform(&small_cpu, &image).is_err());
@@ -151,7 +151,7 @@ mod tests {
 
     #[test]
     fn cevolved_memory_must_leave_room_for_the_container_overhead() {
-        let image = NodeConfig::get_model(NodeModel::JuniperCevolved);
+        let image = ModelKind::default_for(NodeModel::JuniperCevolved).node_config();
         let mut largest = node(NodeModel::JuniperCevolved, None);
         largest.memory = Some(u16::MAX - JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB);
         check_ptx_platform(&largest, &image).unwrap();

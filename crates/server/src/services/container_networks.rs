@@ -57,7 +57,7 @@ pub(crate) fn is_node_network(network: &str, node_name: &str, lab_id: &str) -> b
 /// The Docker attachment for one container data interface.
 pub(crate) fn data_attachment(
     node_name: &str,
-    model: data::NodeModel,
+    model_kind: data::ModelKind,
     interface_name: &str,
     interface_idx: u8,
     connection: ContainerDataInterface,
@@ -66,12 +66,12 @@ pub(crate) fn data_attachment(
     // SR Linux and cJunosEvolved need their own interface names, and IOL's bridge relays
     // `eth<N>` to port N. Other models are named by attach order, except disabled interfaces,
     // which are named so they stay down.
-    let fixed_name = match model {
+    let fixed_name = match model_kind.model() {
         data::NodeModel::NokiaSrlinux
         | data::NodeModel::JuniperCevolved
         | data::NodeModel::CiscoIol
         | data::NodeModel::CiscoIoll2 => {
-            Some(util::container_interface_name(&model, interface_idx)?)
+            Some(util::container_interface_name(model_kind, interface_idx)?)
         }
         _ => None,
     };
@@ -84,7 +84,7 @@ pub(crate) fn data_attachment(
         ContainerDataInterface::Disabled => (
             isolated_network_name(node_name, interface_idx, lab_id),
             Some(fixed_name.unwrap_or_else(|| interface_name.to_string())),
-            !model.keeps_data_interfaces_up(),
+            !model_kind.keeps_data_interfaces_up(),
         ),
     };
     Ok(data::ContainerNetworkAttachment {
@@ -101,7 +101,7 @@ pub(crate) fn data_attachment(
 /// one takes all its data interfaces as veths instead.
 pub(crate) fn data_attachments(
     node_name: &str,
-    model: data::NodeModel,
+    model_kind: data::ModelKind,
     interfaces: &[data::InterfaceData],
     lab_id: &str,
 ) -> Result<Vec<data::ContainerNetworkAttachment>> {
@@ -129,7 +129,7 @@ pub(crate) fn data_attachments(
         };
         attachments.push(data_attachment(
             node_name,
-            model,
+            model_kind,
             &iface.name,
             iface.index,
             connection,
@@ -142,6 +142,7 @@ pub(crate) fn data_attachments(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::data::ModelKind;
 
     const LAB_ID: &str = "fe4edfdc";
 
@@ -216,7 +217,7 @@ mod tests {
     fn test_bridge_member_gets_an_active_attachment() {
         let attachment = data_attachment(
             "fr01",
-            data::NodeModel::FrrLinux,
+            ModelKind::default_for(data::NodeModel::FrrLinux),
             "eth1",
             1,
             ContainerDataInterface::Bridged,
@@ -232,7 +233,7 @@ mod tests {
     fn test_srlinux_bridge_member_is_named() {
         let attachment = data_attachment(
             "srl01",
-            data::NodeModel::NokiaSrlinux,
+            ModelKind::default_for(data::NodeModel::NokiaSrlinux),
             "eth-1/1",
             1,
             ContainerDataInterface::Bridged,
@@ -247,7 +248,7 @@ mod tests {
         for model in [data::NodeModel::CiscoIol, data::NodeModel::CiscoIoll2] {
             let bridged = data_attachment(
                 "r1",
-                model,
+                ModelKind::default_for(model),
                 "Ethernet1/2",
                 6,
                 ContainerDataInterface::Bridged,
@@ -257,7 +258,7 @@ mod tests {
             assert_eq!(bridged.linux_interface_name.as_deref(), Some("eth6"));
             let disabled = data_attachment(
                 "r1",
-                model,
+                ModelKind::default_for(model),
                 "Ethernet0/3",
                 3,
                 ContainerDataInterface::Disabled,
@@ -273,7 +274,7 @@ mod tests {
     fn cevolved_interfaces_start_at_eth4() {
         let attachment = data_attachment(
             "cevo01",
-            data::NodeModel::JuniperCevolved,
+            ModelKind::default_for(data::NodeModel::JuniperCevolved),
             "et-0/0/0",
             1,
             ContainerDataInterface::Bridged,
@@ -289,7 +290,7 @@ mod tests {
         // cJunosEvolved waits at boot until every data interface is up.
         let attachment = data_attachment(
             "cevo01",
-            data::NodeModel::JuniperCevolved,
+            ModelKind::default_for(data::NodeModel::JuniperCevolved),
             "et-0/0/2",
             3,
             ContainerDataInterface::Disabled,
@@ -305,7 +306,7 @@ mod tests {
     fn test_disabled_interface_is_named_and_admin_down() {
         let attachment = data_attachment(
             "fr01",
-            data::NodeModel::FrrLinux,
+            ModelKind::default_for(data::NodeModel::FrrLinux),
             "eth3",
             3,
             ContainerDataInterface::Disabled,
@@ -326,8 +327,13 @@ mod tests {
             interface("eth2", 2, data::NodeInterface::Disabled),
             bridged("eth3", 3),
         ];
-        let attachments =
-            data_attachments("fr01", data::NodeModel::FrrLinux, &interfaces, LAB_ID).unwrap();
+        let attachments = data_attachments(
+            "fr01",
+            ModelKind::default_for(data::NodeModel::FrrLinux),
+            &interfaces,
+            LAB_ID,
+        )
+        .unwrap();
         let names: Vec<&str> = attachments.iter().map(|a| a.name.as_str()).collect();
         assert_eq!(
             names,
@@ -342,9 +348,14 @@ mod tests {
     #[test]
     fn test_link_interface_is_an_error() {
         let interfaces = vec![peer("eth2", 2)];
-        let error = data_attachments("fr01", data::NodeModel::FrrLinux, &interfaces, LAB_ID)
-            .unwrap_err()
-            .to_string();
+        let error = data_attachments(
+            "fr01",
+            ModelKind::default_for(data::NodeModel::FrrLinux),
+            &interfaces,
+            LAB_ID,
+        )
+        .unwrap_err()
+        .to_string();
         assert!(
             error.contains("takes its data interfaces as veths"),
             "{error}"

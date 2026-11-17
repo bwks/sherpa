@@ -37,9 +37,10 @@ password auth, which nothing provisioned with, were removed in 0.7.0 (schema ver
 
 ## Methods per model
 
-`NodeModel::ztp_methods` lists the methods each model takes. It is a `match` over every model
-with no wildcard arm, so a new model does not compile until it has an entry. `Disabled` is
-allowed for every model and is never listed.
+`ModelKind::ztp_methods` lists the methods each model and kind take (see
+[Model and kind](NODE_SETTINGS.md#model-and-kind)). It is a `match` over every model with no
+wildcard arm, so a new model does not compile until it has an entry; every model takes one kind
+today, so the table is per model. `Disabled` is allowed for every pair and is never listed.
 
 | Methods | Models |
 |---|---|
@@ -56,8 +57,8 @@ allowed for every model and is never listed.
 | `volume` | `arista_ceos`, `nokia_srlinux`, `juniper_cevolved`, `cisco_iol`, `cisco_ioll2`, `frr_linux` |
 | none | every other container, and the unikernels |
 
-Each model's default from `NodeConfig::get_model` is `Disabled` or a listed method; unit tests in
-`node.rs` hold the table and the defaults to that.
+Each pair's default from `ModelKind::node_config` is `Disabled` or a listed method; unit tests in
+`model_kind.rs` hold the table and the defaults to that.
 
 ## Validation
 
