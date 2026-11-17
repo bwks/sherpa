@@ -334,7 +334,7 @@ mod tests {
 
         let result = check_interface_bounds(
             "xr1",
-            &NodeModel::CiscoIosxr,
+            &NodeModel::CiscoIosxr9000,
             31,
             2, // reserved_interface_count = 2 (indices 1 and 2)
             &links,
@@ -354,7 +354,7 @@ mod tests {
 
         check_interface_bounds(
             "xr1",
-            &NodeModel::CiscoIosxr,
+            &NodeModel::CiscoIosxr9000,
             31,
             2, // reserved_interface_count = 2
             &links,
@@ -368,7 +368,7 @@ mod tests {
         let links = vec![create_link("xr1", 33, "xr2", 3)];
         let bridges = vec![];
 
-        check_interface_bounds("xr1", &NodeModel::CiscoIosxr, 31, 2, &links, &bridges)
+        check_interface_bounds("xr1", &NodeModel::CiscoIosxr9000, 31, 2, &links, &bridges)
     }
 
     #[test]

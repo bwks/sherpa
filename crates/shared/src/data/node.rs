@@ -46,13 +46,13 @@ pub enum NodeModel {
 
     // Cisco
     CiscoAsa,
-    CiscoCsr1000v,
-    CiscoCat8000v,
-    CiscoCat9000v,
-    CiscoIosxr,
-    CiscoNexus9300v,
-    CiscoIosv,
-    CiscoIosvl2,
+    CiscoCsr1000,
+    CiscoCat8000,
+    CiscoCat9000,
+    CiscoIosxr9000,
+    CiscoNexus9300,
+    CiscoIos,
+    CiscoIosl2,
     CiscoIol,
     CiscoIoll2,
     CiscoIse,
@@ -62,7 +62,7 @@ pub enum NodeModel {
     JuniperRouter,
     JuniperSwitch,
     JuniperEvolved,
-    JuniperSrx,
+    JuniperSrxv3,
 
     // Nokia
     NokiaSrlinux,
@@ -146,13 +146,13 @@ impl fmt::Display for NodeModel {
 
             // Cisco
             NodeModel::CiscoAsa => write!(f, "cisco_asa"),
-            NodeModel::CiscoCsr1000v => write!(f, "cisco_csr1000v"),
-            NodeModel::CiscoCat8000v => write!(f, "cisco_cat8000v"),
-            NodeModel::CiscoCat9000v => write!(f, "cisco_cat9000v"),
-            NodeModel::CiscoIosxr => write!(f, "cisco_iosxr"),
-            NodeModel::CiscoNexus9300v => write!(f, "cisco_nexus9300v"),
-            NodeModel::CiscoIosv => write!(f, "cisco_iosv"),
-            NodeModel::CiscoIosvl2 => write!(f, "cisco_iosvl2"),
+            NodeModel::CiscoCsr1000 => write!(f, "cisco_csr1000"),
+            NodeModel::CiscoCat8000 => write!(f, "cisco_cat8000"),
+            NodeModel::CiscoCat9000 => write!(f, "cisco_cat9000"),
+            NodeModel::CiscoIosxr9000 => write!(f, "cisco_iosxr9000"),
+            NodeModel::CiscoNexus9300 => write!(f, "cisco_nexus9300"),
+            NodeModel::CiscoIos => write!(f, "cisco_ios"),
+            NodeModel::CiscoIosl2 => write!(f, "cisco_iosl2"),
             NodeModel::CiscoIol => write!(f, "cisco_iol"),
             NodeModel::CiscoIoll2 => write!(f, "cisco_ioll2"),
             NodeModel::CiscoIse => write!(f, "cisco_ise"),
@@ -162,7 +162,7 @@ impl fmt::Display for NodeModel {
             NodeModel::JuniperRouter => write!(f, "juniper_router"),
             NodeModel::JuniperSwitch => write!(f, "juniper_switch"),
             NodeModel::JuniperEvolved => write!(f, "juniper_evolved"),
-            NodeModel::JuniperSrx => write!(f, "juniper_srx"),
+            NodeModel::JuniperSrxv3 => write!(f, "juniper_srxv3"),
 
             // Nokia
             NodeModel::NokiaSrlinux => write!(f, "nokia_srlinux"),
@@ -250,13 +250,13 @@ impl FromStr for NodeModel {
 
             // Cisco
             "cisco_asa" => Ok(NodeModel::CiscoAsa),
-            "cisco_csr1000v" => Ok(NodeModel::CiscoCsr1000v),
-            "cisco_cat8000v" => Ok(NodeModel::CiscoCat8000v),
-            "cisco_cat9000v" => Ok(NodeModel::CiscoCat9000v),
-            "cisco_iosxr" => Ok(NodeModel::CiscoIosxr),
-            "cisco_nexus9300v" => Ok(NodeModel::CiscoNexus9300v),
-            "cisco_iosv" => Ok(NodeModel::CiscoIosv),
-            "cisco_iosvl2" => Ok(NodeModel::CiscoIosvl2),
+            "cisco_csr1000" => Ok(NodeModel::CiscoCsr1000),
+            "cisco_cat8000" => Ok(NodeModel::CiscoCat8000),
+            "cisco_cat9000" => Ok(NodeModel::CiscoCat9000),
+            "cisco_iosxr9000" => Ok(NodeModel::CiscoIosxr9000),
+            "cisco_nexus9300" => Ok(NodeModel::CiscoNexus9300),
+            "cisco_ios" => Ok(NodeModel::CiscoIos),
+            "cisco_iosl2" => Ok(NodeModel::CiscoIosl2),
             "cisco_iol" => Ok(NodeModel::CiscoIol),
             "cisco_ioll2" => Ok(NodeModel::CiscoIoll2),
             "cisco_ise" => Ok(NodeModel::CiscoIse),
@@ -266,7 +266,7 @@ impl FromStr for NodeModel {
             "juniper_router" => Ok(NodeModel::JuniperRouter),
             "juniper_switch" => Ok(NodeModel::JuniperSwitch),
             "juniper_evolved" => Ok(NodeModel::JuniperEvolved),
-            "juniper_srx" => Ok(NodeModel::JuniperSrx),
+            "juniper_srxv3" => Ok(NodeModel::JuniperSrxv3),
 
             // Nokia
             "nokia_srlinux" => Ok(NodeModel::NokiaSrlinux),
@@ -402,7 +402,7 @@ impl ValueParserFactory for NodeModel {
 /// The model names removed in 0.7.0, each with the model and kind that replace it. They are
 /// known only to refuse an old name with a message naming its replacement, and to move the
 /// image folders named after them. To be deleted in 0.8.0.
-pub const REMOVED_MODELS: [(&str, NodeModel, NodeKind); 13] = [
+pub const REMOVED_MODELS: [(&str, NodeModel, NodeKind); 19] = [
     (
         "arista_veos",
         NodeModel::AristaEos,
@@ -413,7 +413,33 @@ pub const REMOVED_MODELS: [(&str, NodeModel, NodeKind); 13] = [
     ("cisco_ftdv", NodeModel::CiscoFtd, NodeKind::VirtualMachine),
     (
         "cisco_iosxrv9000",
-        NodeModel::CiscoIosxr,
+        NodeModel::CiscoIosxr9000,
+        NodeKind::VirtualMachine,
+    ),
+    ("cisco_iosv", NodeModel::CiscoIos, NodeKind::VirtualMachine),
+    (
+        "cisco_iosvl2",
+        NodeModel::CiscoIosl2,
+        NodeKind::VirtualMachine,
+    ),
+    (
+        "cisco_csr1000v",
+        NodeModel::CiscoCsr1000,
+        NodeKind::VirtualMachine,
+    ),
+    (
+        "cisco_cat8000v",
+        NodeModel::CiscoCat8000,
+        NodeKind::VirtualMachine,
+    ),
+    (
+        "cisco_cat9000v",
+        NodeModel::CiscoCat9000,
+        NodeKind::VirtualMachine,
+    ),
+    (
+        "cisco_nexus9300v",
+        NodeModel::CiscoNexus9300,
         NodeKind::VirtualMachine,
     ),
     (
@@ -438,7 +464,7 @@ pub const REMOVED_MODELS: [(&str, NodeModel, NodeKind); 13] = [
     ),
     (
         "juniper_vsrxv3",
-        NodeModel::JuniperSrx,
+        NodeModel::JuniperSrxv3,
         NodeKind::VirtualMachine,
     ),
     ("generic_vm", NodeModel::Generic, NodeKind::VirtualMachine),
@@ -469,18 +495,18 @@ impl NodeModel {
             ],
             NodeModel::ArubaAoscx
             | NodeModel::CiscoAsa
-            | NodeModel::CiscoCsr1000v
-            | NodeModel::CiscoCat8000v
-            | NodeModel::CiscoCat9000v
-            | NodeModel::CiscoIosxr
-            | NodeModel::CiscoNexus9300v
-            | NodeModel::CiscoIosv
-            | NodeModel::CiscoIosvl2
+            | NodeModel::CiscoCsr1000
+            | NodeModel::CiscoCat8000
+            | NodeModel::CiscoCat9000
+            | NodeModel::CiscoIosxr9000
+            | NodeModel::CiscoNexus9300
+            | NodeModel::CiscoIos
+            | NodeModel::CiscoIosl2
             | NodeModel::CiscoIse
             | NodeModel::CiscoFtd
             | NodeModel::JuniperRouter
             | NodeModel::JuniperSwitch
-            | NodeModel::JuniperSrx
+            | NodeModel::JuniperSrxv3
             | NodeModel::PaloaltoPanos
             | NodeModel::MikrotikChr
             | NodeModel::AlmaLinux
@@ -1236,9 +1262,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn cisco_csr1000v() -> NodeConfig {
+    pub fn cisco_csr1000() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::CiscoCsr1000v,
+            NodeModel::CiscoCsr1000,
             3072,
             OsVariant::Iosxe,
             InterfaceSettings {
@@ -1260,9 +1286,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn cisco_cat8000v() -> NodeConfig {
+    pub fn cisco_cat8000() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::CiscoCat8000v,
+            NodeModel::CiscoCat8000,
             4096,
             OsVariant::Iosxe,
             InterfaceSettings {
@@ -1284,9 +1310,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn cisco_cat9000v() -> NodeConfig {
+    pub fn cisco_cat9000() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::CiscoCat9000v,
+            NodeModel::CiscoCat9000,
             18432,
             OsVariant::Iosxe,
             InterfaceSettings {
@@ -1315,9 +1341,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn cisco_iosxr() -> NodeConfig {
+    pub fn cisco_iosxr9000() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::CiscoIosxr,
+            NodeModel::CiscoIosxr9000,
             20480,
             OsVariant::Iosxr,
             InterfaceSettings {
@@ -1346,9 +1372,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn cisco_nexus9300v() -> NodeConfig {
+    pub fn cisco_nexus9300() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::CiscoNexus9300v,
+            NodeModel::CiscoNexus9300,
             12288,
             OsVariant::Nxos,
             InterfaceSettings {
@@ -1381,9 +1407,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn cisco_iosv() -> NodeConfig {
+    pub fn cisco_ios() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::CiscoIosv,
+            NodeModel::CiscoIos,
             768,
             OsVariant::Ios,
             InterfaceSettings {
@@ -1406,9 +1432,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn cisco_iosvl2() -> NodeConfig {
+    pub fn cisco_iosl2() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::CiscoIosvl2,
+            NodeModel::CiscoIosl2,
             1024,
             OsVariant::Ios,
             InterfaceSettings {
@@ -1591,9 +1617,9 @@ impl NodeConfig {
         }
     }
     #[must_use]
-    pub fn juniper_srx() -> NodeConfig {
+    pub fn juniper_srxv3() -> NodeConfig {
         let base = node_base::network_os_vm(
-            NodeModel::JuniperSrx,
+            NodeModel::JuniperSrxv3,
             4096,
             OsVariant::Junos,
             InterfaceSettings {
@@ -2446,7 +2472,7 @@ mod tests {
     #[test]
     fn test_non_unikernel_models_have_no_boot_mode() {
         let vm_models = vec![
-            NodeModel::CiscoNexus9300v,
+            NodeModel::CiscoNexus9300,
             NodeModel::AristaEos,
             NodeModel::UbuntuLinux,
         ];
@@ -2795,9 +2821,57 @@ mod tests {
              Use model = \"arista_eos\" with kind = \"container\"."
         );
         assert_eq!(
+            "cisco_iosv".parse::<NodeModel>().unwrap_err(),
+            "Unknown node model 'cisco_iosv': it was renamed in 0.7.0. \
+             Use model = \"cisco_ios\" with kind = \"virtual_machine\"."
+        );
+        assert_eq!(
             "nosuch_model".parse::<NodeModel>().unwrap_err(),
             "Unknown node model: nosuch_model"
         );
+    }
+
+    #[test]
+    fn names_never_released_are_unknown() {
+        for name in ["cisco_iosxr", "juniper_srx"] {
+            assert_eq!(
+                name.parse::<NodeModel>().unwrap_err(),
+                format!("Unknown node model: {name}")
+            );
+        }
+    }
+
+    #[test]
+    fn models_renamed_in_0_7_0_have_their_new_names() {
+        let renamed = [
+            ("cisco_asav", "cisco_asa"),
+            ("cisco_ftdv", "cisco_ftd"),
+            ("cisco_iosxrv9000", "cisco_iosxr9000"),
+            ("cisco_iosv", "cisco_ios"),
+            ("cisco_iosvl2", "cisco_iosl2"),
+            ("cisco_csr1000v", "cisco_csr1000"),
+            ("cisco_cat8000v", "cisco_cat8000"),
+            ("cisco_cat9000v", "cisco_cat9000"),
+            ("cisco_nexus9300v", "cisco_nexus9300"),
+            ("juniper_vsrxv3", "juniper_srxv3"),
+            ("juniper_vrouter", "juniper_router"),
+            ("juniper_vswitch", "juniper_switch"),
+            ("arista_veos", "arista_eos"),
+            ("arista_ceos", "arista_eos"),
+            ("juniper_vevolved", "juniper_evolved"),
+            ("juniper_cevolved", "juniper_evolved"),
+            ("generic_vm", "generic"),
+            ("generic_container", "generic"),
+            ("generic_unikernel", "generic"),
+        ];
+        assert_eq!(renamed.len(), REMOVED_MODELS.len());
+        for (old, new) in renamed {
+            let (_, model, _) = REMOVED_MODELS
+                .iter()
+                .find(|(name, _, _)| *name == old)
+                .unwrap();
+            assert_eq!(model.to_string(), new, "{old}");
+        }
     }
 
     #[test]

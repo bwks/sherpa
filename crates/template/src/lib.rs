@@ -32,7 +32,7 @@ pub use arista_eos::{AristaEosContainerZtpTemplate, AristaEosVmZtpTemplate};
 pub use aruba_aos::ArubaAoscxTemplate;
 pub use cisco_asa::CiscoAsaZtpTemplate;
 pub use cisco_ftd::{CiscoFtdZtpTemplate, CiscoFxosIpMode, YesNo};
-pub use cisco_ios::{CiscoIolZtpTemplate, CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate};
+pub use cisco_ios::{CiscoIolZtpTemplate, CiscoIosZtpTemplate, CiscoIosl2ZtpTemplate};
 pub use cisco_iosxe::CiscoIosXeZtpTemplate;
 pub use cisco_iosxr::CiscoIosxrZtpTemplate;
 pub use cisco_ise::CiscoIseZtpTemplate;

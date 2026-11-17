@@ -93,7 +93,7 @@ mod tests {
             Ztp::Disabled
         );
         assert_eq!(
-            validate(NodeModel::JuniperSrx, Some(Ztp::Tftp), None).unwrap(),
+            validate(NodeModel::JuniperSrxv3, Some(Ztp::Tftp), None).unwrap(),
             Ztp::Tftp
         );
     }

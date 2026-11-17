@@ -294,7 +294,7 @@ name = "my-lab"
 ready_timeout = 300
 
 nodes = [
-  { name = "dev01", model = "cisco_iosv" },
+  { name = "dev01", model = "cisco_ios" },
 ]
 "#;
         let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
@@ -310,8 +310,8 @@ nodes = [
 name = "my-lab"
 
 nodes = [
-  { name = "dev01", model = "cisco_iosv" },
-  { name = "dev02", model = "cisco_cat8000v", ready_check = { skip = true } },
+  { name = "dev01", model = "cisco_ios" },
+  { name = "dev02", model = "cisco_cat8000", ready_check = { skip = true } },
 ]
 "#;
         let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
@@ -327,8 +327,8 @@ nodes = [
 name = "my-lab"
 
 nodes = [
-  { name = "dev01", model = "cisco_cat8000v", ztp = { config = "configs/dev01.txt" } },
-  { name = "dev02", model = "cisco_iosv" },
+  { name = "dev01", model = "cisco_cat8000", ztp = { config = "configs/dev01.txt" } },
+  { name = "dev02", model = "cisco_ios" },
 ]
 "#;
         let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
@@ -348,7 +348,7 @@ name = "my-lab"
 nodes = [
   { name = "frr01", model = "frr_linux" },
   { name = "frr02", model = "frr_linux", ztp = { method = "disabled" } },
-  { name = "srx01", model = "juniper_srx", ztp = { method = "cdrom" } },
+  { name = "srx01", model = "juniper_srxv3", ztp = { method = "cdrom" } },
 ]
 "#;
         let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
@@ -387,8 +387,8 @@ name = "my-lab"
 ready_timeout = 120
 
 nodes = [
-  { name = "dev01", model = "cisco_iosv" },
-  { name = "dev02", model = "cisco_cat8000v", ready_check = { skip = true } },
+  { name = "dev01", model = "cisco_ios" },
+  { name = "dev02", model = "cisco_cat8000", ready_check = { skip = true } },
   { name = "dev03", model = "ubuntu_linux", ready_check = { skip = false, port = 2222 } },
 ]
 "#;
@@ -415,7 +415,7 @@ nodes = [
     }
     #[test]
     fn resolved_manifest_serializes_to_toml_with_tailnet_reference() {
-        let manifest: Manifest = toml::from_str("name='test'\nnodes=[{name='r1',model='cisco_iosv'}]\n[tailscale]\nenabled=true\nauth_key_env='KEY'").unwrap();
+        let manifest: Manifest = toml::from_str("name='test'\nnodes=[{name='r1',model='cisco_ios'}]\n[tailscale]\nenabled=true\nauth_key_env='KEY'").unwrap();
         let saved = toml::to_string_pretty(&manifest).unwrap();
         let restored: Manifest = toml::from_str(&saved).unwrap();
         assert_eq!(restored.nodes.len(), 1);

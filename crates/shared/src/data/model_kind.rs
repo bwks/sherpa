@@ -131,13 +131,13 @@ impl ModelKind {
 
             // Cisco
             NodeModel::CiscoAsa => NodeConfig::cisco_asa(),
-            NodeModel::CiscoCsr1000v => NodeConfig::cisco_csr1000v(),
-            NodeModel::CiscoCat8000v => NodeConfig::cisco_cat8000v(),
-            NodeModel::CiscoCat9000v => NodeConfig::cisco_cat9000v(),
-            NodeModel::CiscoIosxr => NodeConfig::cisco_iosxr(),
-            NodeModel::CiscoNexus9300v => NodeConfig::cisco_nexus9300v(),
-            NodeModel::CiscoIosv => NodeConfig::cisco_iosv(),
-            NodeModel::CiscoIosvl2 => NodeConfig::cisco_iosvl2(),
+            NodeModel::CiscoCsr1000 => NodeConfig::cisco_csr1000(),
+            NodeModel::CiscoCat8000 => NodeConfig::cisco_cat8000(),
+            NodeModel::CiscoCat9000 => NodeConfig::cisco_cat9000(),
+            NodeModel::CiscoIosxr9000 => NodeConfig::cisco_iosxr9000(),
+            NodeModel::CiscoNexus9300 => NodeConfig::cisco_nexus9300(),
+            NodeModel::CiscoIos => NodeConfig::cisco_ios(),
+            NodeModel::CiscoIosl2 => NodeConfig::cisco_iosl2(),
             NodeModel::CiscoIol => NodeConfig::cisco_iol(),
             NodeModel::CiscoIoll2 => NodeConfig::cisco_ioll2(),
             NodeModel::CiscoIse => NodeConfig::cisco_ise(),
@@ -150,7 +150,7 @@ impl ModelKind {
                 NodeKind::Container => NodeConfig::juniper_evolved_container(),
                 NodeKind::VirtualMachine | NodeKind::Unikernel => NodeConfig::juniper_evolved_vm(),
             },
-            NodeModel::JuniperSrx => NodeConfig::juniper_srx(),
+            NodeModel::JuniperSrxv3 => NodeConfig::juniper_srxv3(),
 
             // Nokia
             NodeModel::NokiaSrlinux => NodeConfig::nokia_srlinux(),
@@ -271,19 +271,19 @@ impl ModelKind {
                 NodeKind::VirtualMachine => &[Ztp::CloudInit],
                 NodeKind::Container | NodeKind::Unikernel => &[],
             },
-            NodeModel::JuniperSrx => &[Ztp::Tftp, Ztp::Cdrom],
-            NodeModel::CiscoCsr1000v
-            | NodeModel::CiscoCat8000v
-            | NodeModel::CiscoCat9000v
+            NodeModel::JuniperSrxv3 => &[Ztp::Tftp, Ztp::Cdrom],
+            NodeModel::CiscoCsr1000
+            | NodeModel::CiscoCat8000
+            | NodeModel::CiscoCat9000
             | NodeModel::CiscoAsa
-            | NodeModel::CiscoNexus9300v
-            | NodeModel::CiscoIosxr
+            | NodeModel::CiscoNexus9300
+            | NodeModel::CiscoIosxr9000
             | NodeModel::CiscoFtd
             | NodeModel::JuniperRouter
             | NodeModel::JuniperSwitch
             | NodeModel::PaloaltoPanos => &[Ztp::Cdrom],
-            NodeModel::CiscoIosv
-            | NodeModel::CiscoIosvl2
+            NodeModel::CiscoIos
+            | NodeModel::CiscoIosl2
             | NodeModel::CiscoIse
             | NodeModel::MikrotikChr => &[Ztp::Disk],
             NodeModel::CumulusLinux => &[Ztp::Usb],
@@ -653,19 +653,19 @@ mod tests {
                 NodeKind::VirtualMachine => vec![Ztp::CloudInit],
                 NodeKind::Container | NodeKind::Unikernel => Vec::new(),
             },
-            NodeModel::JuniperSrx => vec![Ztp::Tftp, Ztp::Cdrom],
-            NodeModel::CiscoCsr1000v
-            | NodeModel::CiscoCat8000v
-            | NodeModel::CiscoCat9000v
+            NodeModel::JuniperSrxv3 => vec![Ztp::Tftp, Ztp::Cdrom],
+            NodeModel::CiscoCsr1000
+            | NodeModel::CiscoCat8000
+            | NodeModel::CiscoCat9000
             | NodeModel::CiscoAsa
-            | NodeModel::CiscoNexus9300v
-            | NodeModel::CiscoIosxr
+            | NodeModel::CiscoNexus9300
+            | NodeModel::CiscoIosxr9000
             | NodeModel::CiscoFtd
             | NodeModel::JuniperRouter
             | NodeModel::JuniperSwitch
             | NodeModel::PaloaltoPanos => vec![Ztp::Cdrom],
-            NodeModel::CiscoIosv
-            | NodeModel::CiscoIosvl2
+            NodeModel::CiscoIos
+            | NodeModel::CiscoIosl2
             | NodeModel::CiscoIse
             | NodeModel::MikrotikChr => vec![Ztp::Disk],
             NodeModel::CumulusLinux => vec![Ztp::Usb],

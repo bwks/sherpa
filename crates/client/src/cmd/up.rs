@@ -635,7 +635,7 @@ mod tests {
         let mut manifest = test_manifest(vec![
             topology::Node {
                 name: "dev01".to_string(),
-                model: NodeModel::CiscoCat8000v,
+                model: NodeModel::CiscoCat8000,
                 ztp: NodeZtp {
                     method: None,
                     config: Some(config_path),
@@ -644,7 +644,7 @@ mod tests {
             },
             topology::Node {
                 name: "dev02".to_string(),
-                model: NodeModel::CiscoIosv,
+                model: NodeModel::CiscoIos,
                 ..Default::default()
             },
         ]);
@@ -701,7 +701,7 @@ mod tests {
 
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
-            model: NodeModel::CiscoCat8000v,
+            model: NodeModel::CiscoCat8000,
             ztp: NodeZtp {
                 method: None,
                 config: Some(config_path),
@@ -719,7 +719,7 @@ mod tests {
     fn test_resolve_ztp_configs_missing_file_error() {
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
-            model: NodeModel::CiscoCat8000v,
+            model: NodeModel::CiscoCat8000,
             ztp: NodeZtp {
                 method: None,
                 config: Some("/nonexistent/path/config.txt".to_string()),

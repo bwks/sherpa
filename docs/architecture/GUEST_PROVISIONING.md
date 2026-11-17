@@ -126,7 +126,7 @@ A model may not take every Sherpa username. `server::validate::validate_login_na
 | Models | Limit |
 |---|---|
 | Windows Server, `devbox_windows` | at most 20 characters |
-| Cisco NX-OS (`cisco_nexus9300v`) | at most 28 characters, starting with a letter or digit |
+| Cisco NX-OS (`cisco_nexus9300`) | at most 28 characters, starting with a letter or digit |
 | Arista vEOS and cEOS | starting with a letter or digit |
 | PAN-OS, OpenBSD | at most 31 characters |
 | every other model | any Sherpa username |

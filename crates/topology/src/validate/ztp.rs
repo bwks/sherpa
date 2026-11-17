@@ -43,8 +43,8 @@ mod tests {
     #[test]
     fn disabled_and_a_method_the_model_lists_are_accepted() {
         check_node_ztp(&node(NodeModel::FrrLinux, Some(Ztp::Disabled))).unwrap();
-        check_node_ztp(&node(NodeModel::JuniperSrx, Some(Ztp::Tftp))).unwrap();
-        check_node_ztp(&node(NodeModel::JuniperSrx, Some(Ztp::Cdrom))).unwrap();
+        check_node_ztp(&node(NodeModel::JuniperSrxv3, Some(Ztp::Tftp))).unwrap();
+        check_node_ztp(&node(NodeModel::JuniperSrxv3, Some(Ztp::Cdrom))).unwrap();
     }
 
     #[test]

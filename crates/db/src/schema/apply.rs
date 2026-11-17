@@ -492,8 +492,8 @@ mod tests {
             .unwrap();
         drop(writer);
         for model in [
-            NodeModel::CiscoCsr1000v,
-            NodeModel::CiscoIosvl2,
+            NodeModel::CiscoCsr1000,
+            NodeModel::CiscoIosl2,
             NodeModel::UbuntuLinux,
         ] {
             let mut image = ModelKind::default_for(model).node_config();
@@ -511,10 +511,10 @@ mod tests {
             .map(|image| (image.model, image.interfaces.data_count))
             .collect();
         assert!(
-            counts.contains(&(NodeModel::CiscoCsr1000v, 15)),
+            counts.contains(&(NodeModel::CiscoCsr1000, 15)),
             "{counts:?}"
         );
-        assert!(counts.contains(&(NodeModel::CiscoIosvl2, 15)), "{counts:?}");
+        assert!(counts.contains(&(NodeModel::CiscoIosl2, 15)), "{counts:?}");
         assert!(counts.contains(&(NodeModel::UbuntuLinux, 16)), "{counts:?}");
     }
 
@@ -541,7 +541,7 @@ mod tests {
             )
             .await;
         }
-        for model in [NodeModel::Generic, NodeModel::CiscoIosv] {
+        for model in [NodeModel::Generic, NodeModel::CiscoIos] {
             let mut image = ModelKind::default_for(model).node_config();
             image.cdrom.bus = DiskBuses::Virtio;
             insert_into_older_schema(&db, &image, true, "cloud-init").await;
@@ -576,7 +576,7 @@ mod tests {
             "{buses:?}"
         );
         assert!(
-            buses.contains(&(NodeModel::CiscoIosv, DiskBuses::Virtio)),
+            buses.contains(&(NodeModel::CiscoIos, DiskBuses::Virtio)),
             "{buses:?}"
         );
     }
@@ -595,7 +595,7 @@ mod tests {
             .await
             .unwrap();
         drop(writer);
-        for model in [NodeModel::JuniperSrx, NodeModel::AristaEos] {
+        for model in [NodeModel::JuniperSrxv3, NodeModel::AristaEos] {
             insert_into_older_schema(
                 &db,
                 &ModelKind::default_for(model).node_config(),
@@ -615,7 +615,7 @@ mod tests {
             .map(|image| (image.model, image.ztp.method))
             .collect();
         assert!(
-            methods.contains(&(NodeModel::JuniperSrx, Ztp::Cdrom)),
+            methods.contains(&(NodeModel::JuniperSrxv3, Ztp::Cdrom)),
             "{methods:?}"
         );
         assert!(
@@ -1383,7 +1383,7 @@ mod tests {
         let sealed = format!("sealed:{}", "a1".repeat(40));
         let with_login = NodeConfig {
             default: true,
-            ..ModelKind::default_for(NodeModel::CiscoCat8000v).node_config()
+            ..ModelKind::default_for(NodeModel::CiscoCat8000).node_config()
         };
         let with_login =
             insert_with_ztp_login(&db, &with_login, (Some("admin"), Some(&sealed), true)).await;
@@ -1760,7 +1760,7 @@ mod tests {
 
     /// A version 30 database, from before the renames: an image of each removed model name, as
     /// its default, stored under the old name, an image of a model that keeps its name, and a
-    /// lab whose stored definition has nodes on four of them. Returns the database and each old
+    /// lab whose stored definition has nodes on five of them. Returns the database and each old
     /// name's image key.
     async fn database_with_old_model_names() -> (Database, Vec<(&'static str, String)>) {
         let before = migrations_before(migrations::RENAME_NODE_MODELS);
@@ -1815,6 +1815,7 @@ mod tests {
                 ("veos1", "arista_veos"),
                 ("ceos1", "arista_ceos"),
                 ("srx1", "juniper_vsrxv3"),
+                ("iosv1", "cisco_iosv"),
                 ("vm1", "generic_vm"),
             ]) {
                 writer
@@ -1876,7 +1877,8 @@ mod tests {
                     NodeModel::AristaEos,
                     Some(NodeKind::Container)
                 ),
-                ("srx1".to_owned(), NodeModel::JuniperSrx, None),
+                ("srx1".to_owned(), NodeModel::JuniperSrxv3, None),
+                ("iosv1".to_owned(), NodeModel::CiscoIos, None),
                 (
                     "vm1".to_owned(),
                     NodeModel::Generic,

@@ -46,10 +46,10 @@ today, so the table is per model. `Disabled` is allowed for every pair and is ne
 |---|---|
 | `cloud-init` | the Linux, BSD and Windows VMs, the application VMs, the `generic` VM |
 | `tftp` | the `arista_eos` VM, `aruba_aoscx` |
-| `tftp`, `cdrom` | `juniper_srx` |
+| `tftp`, `cdrom` | `juniper_srxv3` |
 | `tftp`, `usb` | the `juniper_evolved` VM |
 | `cdrom` | the Cisco IOS XE, ASA, NX-OS, IOS XR and FTD VMs, `juniper_router`, `juniper_switch`, `paloalto_panos` |
-| `disk` | `cisco_iosv`, `cisco_iosvl2`, `cisco_ise`, `mikrotik_chr` |
+| `disk` | `cisco_ios`, `cisco_iosl2`, `cisco_ise`, `mikrotik_chr` |
 | `usb` | `cumulus_linux` |
 | `http` | `sonic_linux` |
 | `ignition` | `flatcar_linux` |
@@ -125,10 +125,11 @@ set by Sherpa. So `boot_server::boot_container_spec` mounts under `/opt/ztp` onl
 `ztp/configs/` holds only the files of the nodes that boot by HTTP, which today is `sonic_linux`
 alone: its ZTP file map `<node>.conf`, named in DHCP options 67 and 239, and the two files the
 map fetches, `<node>_config_db.json` and `<node>_ztp_user.sh`, the owner's account script. The
-TFTP configs (vEOS, AOS-CX, vEvolved, vSRX when set to `tftp`), the dnsmasq config and the leases
-are not under the HTTP root, so a node on the management network can fetch them only as TFTP
-allows: by name, the TFTP configs only. Up to 0.6.5 the whole `/opt/ztp` was the lab's ZTP
-folder, so HTTP also listed and served `tftp/` and `dnsmasq/dnsmasq.leases`.
+TFTP configs (the `arista_eos` and `juniper_evolved` VMs, `aruba_aoscx`, `juniper_srxv3` when
+set to `tftp`), the dnsmasq config and the leases are not under the HTTP root, so a node on the
+management network can fetch them only as TFTP allows: by name, the TFTP configs only. Up to
+0.6.5 the whole `/opt/ztp` was the lab's ZTP folder, so HTTP also listed and served `tftp/` and
+`dnsmasq/dnsmasq.leases`.
 
 The modes each process needs are in [`LAB_FOLDER.md`](LAB_FOLDER.md#node-config-modes):
 `webdir` and dnsmasq run as root in the container; dnsmasq serves only files others can read.
@@ -244,7 +245,7 @@ the template itself is never changed. A missing template fails the node's ZTP wi
 |---|---|---|---|---|
 | `fat32.img` | 64 MiB | FAT32 | none | `cumulus_linux` USB, `mikrotik_chr` config disk |
 | `junos.img` | 64 MiB | FAT16 | `vmm-data` | `juniper_evolved` VM USB |
-| `iosv.img` | 131040 sectors | FAT16 | none | `cisco_iosv`, `cisco_iosvl2` config disk |
+| `iosv.img` | 131040 sectors | FAT16 | none | `cisco_ios`, `cisco_iosl2` config disk |
 | `ise.img` | 10 MiB | ext4 | `ISE-ZTP` | `cisco_ise` config disk |
 | `ext4-500mb.img` | 500 MiB | ext4 | `data-disk` | `flatcar_linux` data disk; Ignition mounts it by label |
 

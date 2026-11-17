@@ -69,7 +69,7 @@ const ZTP_ISO_VOLUME_ID: &str = "cidata";
 const PALOALTO_BOOTSTRAP_VOLUME_ID: &str = "bootstrap";
 const ZTP_JSON: &str = "ztp.json";
 const CISCO_IOSXE_ZTP_CONFIG: &str = "iosxe_config.txt";
-const CISCO_IOSV_ZTP_CONFIG: &str = "ios_config.txt";
+const CISCO_IOS_ZTP_CONFIG: &str = "ios_config.txt";
 const CISCO_ASAV_ZTP_CONFIG: &str = "day0-config";
 const CISCO_NXOS_ZTP_CONFIG: &str = "nxos_config.txt";
 const CISCO_IOSXR_ZTP_CONFIG: &str = "iosxr_config.txt";
@@ -480,14 +480,14 @@ fn disk_index(disks: &[data::NodeDisk]) -> Result<u8> {
 /// Map a node model to its ZTP config filename for CDROM-based ZTP.
 pub fn ztp_config_filename(model_kind: data::ModelKind) -> Result<String> {
     let name = match model_kind.model() {
-        data::NodeModel::CiscoCsr1000v
-        | data::NodeModel::CiscoCat8000v
-        | data::NodeModel::CiscoCat9000v => CISCO_IOSXE_ZTP_CONFIG.replace('-', "_"),
+        data::NodeModel::CiscoCsr1000
+        | data::NodeModel::CiscoCat8000
+        | data::NodeModel::CiscoCat9000 => CISCO_IOSXE_ZTP_CONFIG.replace('-', "_"),
         data::NodeModel::CiscoAsa => CISCO_ASAV_ZTP_CONFIG.to_string(),
-        data::NodeModel::CiscoNexus9300v => CISCO_NXOS_ZTP_CONFIG.to_string(),
-        data::NodeModel::CiscoIosxr => CISCO_IOSXR_ZTP_CONFIG.to_string(),
+        data::NodeModel::CiscoNexus9300 => CISCO_NXOS_ZTP_CONFIG.to_string(),
+        data::NodeModel::CiscoIosxr9000 => CISCO_IOSXR_ZTP_CONFIG.to_string(),
         data::NodeModel::CiscoFtd => CISCO_FTDV_ZTP_CONFIG.to_string(),
-        data::NodeModel::JuniperSrx
+        data::NodeModel::JuniperSrxv3
         | data::NodeModel::JuniperRouter
         | data::NodeModel::JuniperSwitch => JUNIPER_ZTP_CONFIG.to_string(),
         data::NodeModel::PaloaltoPanos => PALOALTO_ZTP_CONFIG.to_string(),
@@ -1561,7 +1561,7 @@ fn vm_qemu_commands(model_kind: data::ModelKind) -> Vec<data::QemuCommand> {
     match model_kind.model() {
         data::NodeModel::JuniperRouter => data::QemuCommand::juniper_router(),
         data::NodeModel::JuniperSwitch => data::QemuCommand::juniper_switch(),
-        data::NodeModel::JuniperSrx => data::QemuCommand::juniper_srx(),
+        data::NodeModel::JuniperSrxv3 => data::QemuCommand::juniper_srxv3(),
         data::NodeModel::JuniperEvolved => data::QemuCommand::juniper_evolved(),
         _ => vec![],
     }
@@ -2582,7 +2582,7 @@ fn generate_tftp_ztp(
                     TFTP_CONFIG_FILE_MODE,
                 )?;
             }
-            data::NodeModel::JuniperEvolved | data::NodeModel::JuniperSrx => {
+            data::NodeModel::JuniperEvolved | data::NodeModel::JuniperSrxv3 => {
                 let juniper_template = template::JunipervJunosZtpTemplate {
                     hostname: node.name.clone(),
                     owner: guest_account::owner_user(
@@ -2659,11 +2659,11 @@ fn cdrom_config(
         ..
     } = *ztp;
     match node.model_kind.model() {
-        data::NodeModel::CiscoCsr1000v
-        | data::NodeModel::CiscoCat8000v
-        | data::NodeModel::CiscoCat9000v => iosxe_config(node, node_image, ztp),
+        data::NodeModel::CiscoCsr1000
+        | data::NodeModel::CiscoCat8000
+        | data::NodeModel::CiscoCat9000 => iosxe_config(node, node_image, ztp),
         data::NodeModel::CiscoAsa => asav_config(node, ztp),
-        data::NodeModel::CiscoNexus9300v => Ok(template::CiscoNxosZtpTemplate {
+        data::NodeModel::CiscoNexus9300 => Ok(template::CiscoNxosZtpTemplate {
             hostname: node.name.clone(),
             owner: guest_account::owner_user(
                 guest_account,
@@ -2677,7 +2677,7 @@ fn cdrom_config(
             mgmt_ipv6: mgmt_net.v6.clone(),
         }
         .render()?),
-        data::NodeModel::CiscoIosxr => Ok(template::CiscoIosxrZtpTemplate {
+        data::NodeModel::CiscoIosxr9000 => Ok(template::CiscoIosxrZtpTemplate {
             hostname: node.name.clone(),
             owner: guest_account::owner_user(
                 guest_account,
@@ -2692,7 +2692,7 @@ fn cdrom_config(
         }
         .render()?),
         data::NodeModel::CiscoFtd => ftdv_config(node, ztp),
-        data::NodeModel::JuniperSrx
+        data::NodeModel::JuniperSrxv3
         | data::NodeModel::JuniperRouter
         | data::NodeModel::JuniperSwitch => Ok(template::JunipervJunosZtpTemplate {
             hostname: node.name.clone(),
@@ -2728,10 +2728,10 @@ fn iosxe_config(
         ..
     } = *ztp;
     let license_boot_command = match node.model_kind.model() {
-        data::NodeModel::CiscoCat8000v => {
+        data::NodeModel::CiscoCat8000 => {
             Some("license boot level network-premier addon dna-premier".to_string())
         }
-        data::NodeModel::CiscoCat9000v => {
+        data::NodeModel::CiscoCat9000 => {
             Some("license boot level network-advantage addon dna-advantage".to_string())
         }
         _ => None,
@@ -2886,12 +2886,12 @@ fn generate_disk_ztp(
 
     let dir = ztp.boot_dir.to_owned();
     match node.model_kind.model() {
-        data::NodeModel::CiscoIosv | data::NodeModel::CiscoIosvl2 => {
+        data::NodeModel::CiscoIos | data::NodeModel::CiscoIosl2 => {
             let rendered_template = match custom_ztp {
                 Some(config) => config.to_owned(),
-                None => iosv_config(node, node_image, ztp)?,
+                None => ios_config(node, node_image, ztp)?,
             };
-            let ztp_config = format!("{dir}/{CISCO_IOSV_ZTP_CONFIG}");
+            let ztp_config = format!("{dir}/{CISCO_IOS_ZTP_CONFIG}");
             util::create_dir_with_permissions(Path::new(&dir), NODE_CONFIG_DIR_MODE)?;
             util::write_file_with_permissions(
                 Path::new(&ztp_config),
@@ -2919,7 +2919,7 @@ fn generate_disk_ztp(
 }
 
 /// `IOSv` and `IOSvL2`: the owner's keys as their MD5 hashes.
-fn iosv_config(
+fn ios_config(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
     ztp: &NodeZtp<'_>,
@@ -2933,8 +2933,8 @@ fn iosv_config(
     } = *ztp;
     let owner = guest_account::owner_user(guest_account, KeyFormat::CiscoMd5, PasswordForm::Plain)?;
     let mgmt_interface = node_image.interfaces.management.to_string();
-    let rendered = if node.model_kind.model() == data::NodeModel::CiscoIosvl2 {
-        template::CiscoIosvl2ZtpTemplate {
+    let rendered = if node.model_kind.model() == data::NodeModel::CiscoIosl2 {
+        template::CiscoIosl2ZtpTemplate {
             hostname: node.name.clone(),
             owner,
             mgmt_interface,
@@ -2946,7 +2946,7 @@ fn iosv_config(
         }
         .render()?
     } else {
-        template::CiscoIosvZtpTemplate {
+        template::CiscoIosZtpTemplate {
             hostname: node.name.clone(),
             owner,
             mgmt_interface,
@@ -3622,7 +3622,7 @@ fn management_interface_type_for_model(
     default: &data::InterfaceType,
 ) -> data::InterfaceType {
     match model_kind.model() {
-        data::NodeModel::CiscoIosxr => data::InterfaceType::E1000,
+        data::NodeModel::CiscoIosxr9000 => data::InterfaceType::E1000,
         _ => default.clone(),
     }
 }
@@ -3635,7 +3635,7 @@ fn reserved_interface_type_for_model(
     default: &data::InterfaceType,
 ) -> data::InterfaceType {
     match model_kind.model() {
-        data::NodeModel::CiscoIosxr => data::InterfaceType::E1000,
+        data::NodeModel::CiscoIosxr9000 => data::InterfaceType::E1000,
         _ => default.clone(),
     }
 }
@@ -3643,7 +3643,7 @@ fn reserved_interface_type_for_model(
 /// Return CPU feature overrides for specific node models.
 fn cpu_features_for_model(model_kind: data::ModelKind) -> Vec<data::CpuFeature> {
     match model_kind.model() {
-        data::NodeModel::JuniperSrx => {
+        data::NodeModel::JuniperSrxv3 => {
             // FreeBSD-based vSRX requires disabling several CPU features that
             // cause boot hangs on KVM. Matches vrnetlab's working configuration.
             let disabled = [
@@ -6006,8 +6006,8 @@ mod tests {
                 data::QemuCommand::juniper_switch(),
             ),
             (
-                data::NodeModel::JuniperSrx,
-                data::QemuCommand::juniper_srx(),
+                data::NodeModel::JuniperSrxv3,
+                data::QemuCommand::juniper_srxv3(),
             ),
             (
                 data::NodeModel::JuniperEvolved,
@@ -6908,7 +6908,7 @@ mod tests {
         // cloud-init, CD-ROM, the PAN-OS bootstrap, NoCloud and Ignition.
         let nodes = [
             ("ubuntu01", data::NodeModel::UbuntuLinux),
-            ("cat01", data::NodeModel::CiscoCat8000v),
+            ("cat01", data::NodeModel::CiscoCat8000),
             ("panos01", data::NodeModel::PaloaltoPanos),
             ("talos01", data::NodeModel::TalosLinux),
             ("flatcar01", data::NodeModel::FlatcarLinux),

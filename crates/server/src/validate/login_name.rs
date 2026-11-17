@@ -33,7 +33,7 @@ const SHERPA_MAX_LENGTH: usize = 32;
 fn login_name_rule(model: NodeModel) -> LoginNameRule {
     let (max_length, alphanumeric_first) = match model {
         NodeModel::WindowsServer | NodeModel::DevboxWindows => (20, false),
-        NodeModel::CiscoNexus9300v => (28, true),
+        NodeModel::CiscoNexus9300 => (28, true),
         NodeModel::AristaEos => (SHERPA_MAX_LENGTH, true),
         NodeModel::PaloaltoPanos | NodeModel::OpenBsd => (31, false),
         _ => (SHERPA_MAX_LENGTH, false),
@@ -91,7 +91,7 @@ mod tests {
     fn each_model_takes_names_up_to_its_limit_and_refuses_longer_ones() {
         for (model, limit) in [
             (NodeModel::WindowsServer, 20),
-            (NodeModel::CiscoNexus9300v, 28),
+            (NodeModel::CiscoNexus9300, 28),
             (NodeModel::PaloaltoPanos, 31),
             (NodeModel::OpenBsd, 31),
             (NodeModel::DevboxWindows, 20),
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn nx_os_and_eos_refuse_a_leading_underscore() {
-        for model in [NodeModel::CiscoNexus9300v, NodeModel::AristaEos] {
+        for model in [NodeModel::CiscoNexus9300, NodeModel::AristaEos] {
             let error = validate_login_name(ModelKind::default_for(model), "sw1", "_svc")
                 .unwrap_err()
                 .to_string();
@@ -146,15 +146,15 @@ mod tests {
         for model in [
             NodeModel::UbuntuLinux,
             NodeModel::FreeBsd,
-            NodeModel::JuniperSrx,
-            NodeModel::CiscoIosv,
+            NodeModel::JuniperSrxv3,
+            NodeModel::CiscoIos,
             NodeModel::NokiaSrlinux,
             NodeModel::PaloaltoPanos,
             NodeModel::WindowsServer,
         ] {
             assert!(validate_login_name(ModelKind::default_for(model), "n1", "_svc").is_ok());
         }
-        for model in [NodeModel::UbuntuLinux, NodeModel::JuniperSrx] {
+        for model in [NodeModel::UbuntuLinux, NodeModel::JuniperSrxv3] {
             assert!(
                 validate_login_name(ModelKind::default_for(model), "n1", &name('a', 32)).is_ok()
             );

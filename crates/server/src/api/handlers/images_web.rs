@@ -1091,7 +1091,7 @@ mod tests {
     fn the_ztp_choices_are_disabled_and_the_models_methods() {
         // Two methods, one method, and a container with none.
         assert_eq!(
-            offered(NodeModel::JuniperSrx, Ztp::Cdrom),
+            offered(NodeModel::JuniperSrxv3, Ztp::Cdrom),
             (
                 vec!["disabled".to_owned(), "tftp".to_owned(), "cdrom".to_owned()],
                 vec!["cdrom".to_owned()]
@@ -1166,7 +1166,7 @@ mod tests {
 
     #[test]
     fn the_image_pages_have_no_ztp_login_fields() {
-        let config = ModelKind::default_for(NodeModel::CiscoCat8000v).node_config();
+        let config = ModelKind::default_for(NodeModel::CiscoCat8000).node_config();
         let edit = image_edit_template("admin".to_owned(), config.clone())
             .unwrap()
             .render()
@@ -1196,7 +1196,7 @@ mod tests {
 
     #[test]
     fn a_saved_form_carries_its_ztp_setting_to_the_image() {
-        let config = ModelKind::default_for(NodeModel::JuniperSrx).node_config();
+        let config = ModelKind::default_for(NodeModel::JuniperSrxv3).node_config();
         let mut form = form_for(&config, "1");
         form.ztp = Ztp::Tftp;
         let choices = ImageFormChoices::parse(&form).unwrap();

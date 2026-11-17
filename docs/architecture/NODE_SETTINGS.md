@@ -32,18 +32,28 @@ folders (see [`SERVER.md`](SERVER.md#image-folders-of-renamed-models)) and is to
 | `arista_ceos` | `arista_eos` | `container` |
 | `cisco_asav` | `cisco_asa` | `virtual_machine` |
 | `cisco_ftdv` | `cisco_ftd` | `virtual_machine` |
-| `cisco_iosxrv9000` | `cisco_iosxr` | `virtual_machine` |
+| `cisco_iosxrv9000` | `cisco_iosxr9000` | `virtual_machine` |
+| `cisco_iosv` | `cisco_ios` | `virtual_machine` |
+| `cisco_iosvl2` | `cisco_iosl2` | `virtual_machine` |
+| `cisco_csr1000v` | `cisco_csr1000` | `virtual_machine` |
+| `cisco_cat8000v` | `cisco_cat8000` | `virtual_machine` |
+| `cisco_cat9000v` | `cisco_cat9000` | `virtual_machine` |
+| `cisco_nexus9300v` | `cisco_nexus9300` | `virtual_machine` |
 | `juniper_vrouter` | `juniper_router` | `virtual_machine` |
 | `juniper_vswitch` | `juniper_switch` | `virtual_machine` |
 | `juniper_vevolved` | `juniper_evolved` | `virtual_machine` |
 | `juniper_cevolved` | `juniper_evolved` | `container` |
-| `juniper_vsrxv3` | `juniper_srx` | `virtual_machine` |
+| `juniper_vsrxv3` | `juniper_srxv3` | `virtual_machine` |
 | `generic_vm` | `generic` | `virtual_machine` |
 | `generic_container` | `generic` | `container` |
 | `generic_unikernel` | `generic` | `unikernel` |
 
-A model keeps the vendor's "v" where dropping it would leave a hardware name (`cisco_iosv`,
-`cisco_iosvl2`, `cisco_csr1000v`, `cisco_cat8000v`, `cisco_cat9000v`, `cisco_nexus9300v`).
+Every model name drops the "v" or "c" its kind used to carry, whether or not the name left is a
+product name: `cisco_csr1000` and `cisco_nexus9300` name the software, not that hardware. Two
+names keep a qualifier so they stay distinct: `cisco_iosxr9000` (the 9000 platform's IOS XR) and
+`juniper_srxv3` (vSRX 3.0). `cisco_ios` and `cisco_iosl2` sit beside `cisco_iol` and
+`cisco_ioll2`; no code matches model names by prefix or substring, and image folders are
+compared by whole path components.
 
 `shared::data::ModelKind` (`crates/shared/src/data/model_kind.rs`) is a model with one of its
 kinds. Its fields are private. `ModelKind::new(model, Option<NodeKind>)` refuses a kind the model

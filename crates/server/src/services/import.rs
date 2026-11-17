@@ -973,7 +973,7 @@ mod tests {
     #[test]
     fn a_shown_image_has_only_its_ztp_method_and_no_password_flag() {
         let response = ShowImageResponse {
-            image: ModelKind::default_for(NodeModel::CiscoCat8000v).node_config(),
+            image: ModelKind::default_for(NodeModel::CiscoCat8000).node_config(),
         };
         let json = serde_json::to_value(&response).unwrap();
         let top: Vec<&String> = json.as_object().unwrap().keys().collect();

@@ -3,10 +3,10 @@ use std::str::FromStr;
 use anyhow::{Result, bail};
 
 use crate::data::{
-    AristaEosContainerInt, AristaEosVmInt, ArubaAoscxInt, CiscoAsaInt, CiscoCat8000vInt,
-    CiscoCat9000vInt, CiscoCsr1000vInt, CiscoFtdInt, CiscoIolInt, CiscoIosvInt, CiscoIosvl2Int,
-    CiscoIosxrInt, CiscoNexus9300vInt, CumulusLinuxInt, EthernetInt, InterfaceTrait,
-    JuniperEvolvedContainerInt, JuniperEvolvedVmInt, JuniperRouterInt, JuniperSrxInt,
+    AristaEosContainerInt, AristaEosVmInt, ArubaAoscxInt, CiscoAsaInt, CiscoCat8000Int,
+    CiscoCat9000Int, CiscoCsr1000Int, CiscoFtdInt, CiscoIolInt, CiscoIosInt, CiscoIosl2Int,
+    CiscoIosxr9000Int, CiscoNexus9300Int, CumulusLinuxInt, EthernetInt, InterfaceTrait,
+    JuniperEvolvedContainerInt, JuniperEvolvedVmInt, JuniperRouterInt, JuniperSrxv3Int,
     JuniperSwitchInt, MikrotikChrInt, ModelKind, NodeKind, NodeModel, NokiaSrlinuxInt,
     PaloaltoPanosInt,
 };
@@ -29,13 +29,13 @@ pub fn interface_to_idx(model_kind: ModelKind, interface: &str) -> Result<u8> {
         }
         (NodeModel::ArubaAoscx, _) => ArubaAoscxInt::from_str(interface)?.to_idx(),
         (NodeModel::CiscoAsa, _) => CiscoAsaInt::from_str(interface)?.to_idx(),
-        (NodeModel::CiscoCsr1000v, _) => CiscoCsr1000vInt::from_str(interface)?.to_idx(),
-        (NodeModel::CiscoCat8000v, _) => CiscoCat8000vInt::from_str(interface)?.to_idx(),
-        (NodeModel::CiscoCat9000v, _) => CiscoCat9000vInt::from_str(interface)?.to_idx(),
-        (NodeModel::CiscoIosxr, _) => CiscoIosxrInt::from_str(interface)?.to_idx(),
-        (NodeModel::CiscoNexus9300v, _) => CiscoNexus9300vInt::from_str(interface)?.to_idx(),
-        (NodeModel::CiscoIosv, _) => CiscoIosvInt::from_str(interface)?.to_idx(),
-        (NodeModel::CiscoIosvl2, _) => CiscoIosvl2Int::from_str(interface)?.to_idx(),
+        (NodeModel::CiscoCsr1000, _) => CiscoCsr1000Int::from_str(interface)?.to_idx(),
+        (NodeModel::CiscoCat8000, _) => CiscoCat8000Int::from_str(interface)?.to_idx(),
+        (NodeModel::CiscoCat9000, _) => CiscoCat9000Int::from_str(interface)?.to_idx(),
+        (NodeModel::CiscoIosxr9000, _) => CiscoIosxr9000Int::from_str(interface)?.to_idx(),
+        (NodeModel::CiscoNexus9300, _) => CiscoNexus9300Int::from_str(interface)?.to_idx(),
+        (NodeModel::CiscoIos, _) => CiscoIosInt::from_str(interface)?.to_idx(),
+        (NodeModel::CiscoIosl2, _) => CiscoIosl2Int::from_str(interface)?.to_idx(),
         (NodeModel::CiscoIol | NodeModel::CiscoIoll2, _) => {
             CiscoIolInt::from_str(interface)?.to_idx()
         }
@@ -48,7 +48,7 @@ pub fn interface_to_idx(model_kind: ModelKind, interface: &str) -> Result<u8> {
         (NodeModel::JuniperEvolved, NodeKind::Container) => {
             JuniperEvolvedContainerInt::from_str(interface)?.to_idx()
         }
-        (NodeModel::JuniperSrx, _) => JuniperSrxInt::from_str(interface)?.to_idx(),
+        (NodeModel::JuniperSrxv3, _) => JuniperSrxv3Int::from_str(interface)?.to_idx(),
         (NodeModel::CumulusLinux, _) => CumulusLinuxInt::from_str(interface)?.to_idx(),
         (NodeModel::NokiaSrlinux, _) => NokiaSrlinuxInt::from_str(interface)?.to_idx(),
         (NodeModel::MikrotikChr, _) => MikrotikChrInt::from_str(interface)?.to_idx(),
@@ -69,13 +69,13 @@ pub fn interface_from_idx(model_kind: ModelKind, idx: u8) -> Result<String> {
         (NodeModel::AristaEos, NodeKind::Container) => AristaEosContainerInt::from_idx(idx)?,
         (NodeModel::ArubaAoscx, _) => ArubaAoscxInt::from_idx(idx)?,
         (NodeModel::CiscoAsa, _) => CiscoAsaInt::from_idx(idx)?,
-        (NodeModel::CiscoCsr1000v, _) => CiscoCsr1000vInt::from_idx(idx)?,
-        (NodeModel::CiscoCat8000v, _) => CiscoCat8000vInt::from_idx(idx)?,
-        (NodeModel::CiscoCat9000v, _) => CiscoCat9000vInt::from_idx(idx)?,
-        (NodeModel::CiscoIosxr, _) => CiscoIosxrInt::from_idx(idx)?,
-        (NodeModel::CiscoNexus9300v, _) => CiscoNexus9300vInt::from_idx(idx)?,
-        (NodeModel::CiscoIosv, _) => CiscoIosvInt::from_idx(idx)?,
-        (NodeModel::CiscoIosvl2, _) => CiscoIosvl2Int::from_idx(idx)?,
+        (NodeModel::CiscoCsr1000, _) => CiscoCsr1000Int::from_idx(idx)?,
+        (NodeModel::CiscoCat8000, _) => CiscoCat8000Int::from_idx(idx)?,
+        (NodeModel::CiscoCat9000, _) => CiscoCat9000Int::from_idx(idx)?,
+        (NodeModel::CiscoIosxr9000, _) => CiscoIosxr9000Int::from_idx(idx)?,
+        (NodeModel::CiscoNexus9300, _) => CiscoNexus9300Int::from_idx(idx)?,
+        (NodeModel::CiscoIos, _) => CiscoIosInt::from_idx(idx)?,
+        (NodeModel::CiscoIosl2, _) => CiscoIosl2Int::from_idx(idx)?,
         (NodeModel::CiscoIol | NodeModel::CiscoIoll2, _) => CiscoIolInt::from_idx(idx)?,
         (NodeModel::CiscoFtd, _) => CiscoFtdInt::from_idx(idx)?,
         (NodeModel::JuniperRouter, _) => JuniperRouterInt::from_idx(idx)?,
@@ -86,7 +86,7 @@ pub fn interface_from_idx(model_kind: ModelKind, idx: u8) -> Result<String> {
         (NodeModel::JuniperEvolved, NodeKind::Container) => {
             JuniperEvolvedContainerInt::from_idx(idx)?
         }
-        (NodeModel::JuniperSrx, _) => JuniperSrxInt::from_idx(idx)?,
+        (NodeModel::JuniperSrxv3, _) => JuniperSrxv3Int::from_idx(idx)?,
         (NodeModel::CumulusLinux, _) => CumulusLinuxInt::from_idx(idx)?,
         (NodeModel::NokiaSrlinux, _) => NokiaSrlinuxInt::from_idx(idx)?,
         (NodeModel::MikrotikChr, _) => MikrotikChrInt::from_idx(idx)?,
@@ -104,13 +104,13 @@ pub fn node_model_interfaces(model_kind: ModelKind) -> Vec<String> {
         (NodeModel::AristaEos, NodeKind::Container) => AristaEosContainerInt::all_interfaces(),
         (NodeModel::ArubaAoscx, _) => ArubaAoscxInt::all_interfaces(),
         (NodeModel::CiscoAsa, _) => CiscoAsaInt::all_interfaces(),
-        (NodeModel::CiscoCsr1000v, _) => CiscoCsr1000vInt::all_interfaces(),
-        (NodeModel::CiscoCat8000v, _) => CiscoCat8000vInt::all_interfaces(),
-        (NodeModel::CiscoCat9000v, _) => CiscoCat9000vInt::all_interfaces(),
-        (NodeModel::CiscoIosxr, _) => CiscoIosxrInt::all_interfaces(),
-        (NodeModel::CiscoNexus9300v, _) => CiscoNexus9300vInt::all_interfaces(),
-        (NodeModel::CiscoIosv, _) => CiscoIosvInt::all_interfaces(),
-        (NodeModel::CiscoIosvl2, _) => CiscoIosvl2Int::all_interfaces(),
+        (NodeModel::CiscoCsr1000, _) => CiscoCsr1000Int::all_interfaces(),
+        (NodeModel::CiscoCat8000, _) => CiscoCat8000Int::all_interfaces(),
+        (NodeModel::CiscoCat9000, _) => CiscoCat9000Int::all_interfaces(),
+        (NodeModel::CiscoIosxr9000, _) => CiscoIosxr9000Int::all_interfaces(),
+        (NodeModel::CiscoNexus9300, _) => CiscoNexus9300Int::all_interfaces(),
+        (NodeModel::CiscoIos, _) => CiscoIosInt::all_interfaces(),
+        (NodeModel::CiscoIosl2, _) => CiscoIosl2Int::all_interfaces(),
         (NodeModel::CiscoIol | NodeModel::CiscoIoll2, _) => CiscoIolInt::all_interfaces(),
         (NodeModel::CiscoFtd, _) => CiscoFtdInt::all_interfaces(),
         (NodeModel::JuniperRouter, _) => JuniperRouterInt::all_interfaces(),
@@ -121,7 +121,7 @@ pub fn node_model_interfaces(model_kind: ModelKind) -> Vec<String> {
         (NodeModel::JuniperEvolved, NodeKind::Container) => {
             JuniperEvolvedContainerInt::all_interfaces()
         }
-        (NodeModel::JuniperSrx, _) => JuniperSrxInt::all_interfaces(),
+        (NodeModel::JuniperSrxv3, _) => JuniperSrxv3Int::all_interfaces(),
         (NodeModel::CumulusLinux, _) => CumulusLinuxInt::all_interfaces(),
         (NodeModel::NokiaSrlinux, _) => NokiaSrlinuxInt::all_interfaces(),
         (NodeModel::MikrotikChr, _) => MikrotikChrInt::all_interfaces(),
@@ -261,8 +261,8 @@ mod tests {
     }
 
     #[test]
-    fn test_interface_roundtrip_cisco_iosv() {
-        let model = NodeModel::CiscoIosv;
+    fn test_interface_roundtrip_cisco_ios() {
+        let model = NodeModel::CiscoIos;
         let name = interface_from_idx(ModelKind::default_for(model), 0).unwrap();
         let idx = interface_to_idx(ModelKind::default_for(model), &name).unwrap();
         assert_eq!(idx, 0);
@@ -300,7 +300,7 @@ mod tests {
     #[test]
     fn test_node_model_interfaces_returns_nonempty() {
         assert_ne!(
-            node_model_interfaces(ModelKind::default_for(NodeModel::CiscoIosv)),
+            node_model_interfaces(ModelKind::default_for(NodeModel::CiscoIos)),
             Vec::<String>::new()
         );
         assert_ne!(
@@ -359,20 +359,20 @@ mod tests {
             NodeModel::AristaEos,
             NodeModel::ArubaAoscx,
             NodeModel::CiscoAsa,
-            NodeModel::CiscoCsr1000v,
-            NodeModel::CiscoCat8000v,
-            NodeModel::CiscoCat9000v,
-            NodeModel::CiscoIosxr,
-            NodeModel::CiscoNexus9300v,
-            NodeModel::CiscoIosv,
-            NodeModel::CiscoIosvl2,
+            NodeModel::CiscoCsr1000,
+            NodeModel::CiscoCat8000,
+            NodeModel::CiscoCat9000,
+            NodeModel::CiscoIosxr9000,
+            NodeModel::CiscoNexus9300,
+            NodeModel::CiscoIos,
+            NodeModel::CiscoIosl2,
             NodeModel::CiscoIol,
             NodeModel::CiscoIoll2,
             NodeModel::CiscoFtd,
             NodeModel::JuniperRouter,
             NodeModel::JuniperSwitch,
             NodeModel::JuniperEvolved,
-            NodeModel::JuniperSrx,
+            NodeModel::JuniperSrxv3,
             NodeModel::CumulusLinux,
             NodeModel::NokiaSrlinux,
             NodeModel::MikrotikChr,

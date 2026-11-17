@@ -45,7 +45,7 @@ async fn test_get_node_by_name_and_lab_success() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        ModelKind::default_for(NodeModel::CiscoIosv).node_config(),
+        ModelKind::default_for(NodeModel::CiscoIos).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -162,7 +162,7 @@ async fn test_list_nodes_by_lab_filters_correctly() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        ModelKind::default_for(NodeModel::CiscoIosv).node_config(),
+        ModelKind::default_for(NodeModel::CiscoIos).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -266,7 +266,7 @@ async fn test_count_nodes_by_lab_accurate() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        ModelKind::default_for(NodeModel::CiscoIosv).node_config(),
+        ModelKind::default_for(NodeModel::CiscoIos).node_config(),
         DefaultRequest::Keep,
     )
     .await?;

@@ -72,11 +72,11 @@ pub use import::{
 };
 pub use inspect::{BridgeInfo, DeviceInfo, InspectRequest, InspectResponse, LinkInfo};
 pub use interface::{
-    AristaEosContainerInt, AristaEosVmInt, ArubaAoscxInt, CiscoAsaInt, CiscoCat8000vInt,
-    CiscoCat9000vInt, CiscoCsr1000vInt, CiscoFtdInt, CiscoIolInt, CiscoIosvInt, CiscoIosvl2Int,
-    CiscoIosxrInt, CiscoNexus9300vInt, ConnectionTypes, CumulusLinuxInt, EthernetInt, Interface,
+    AristaEosContainerInt, AristaEosVmInt, ArubaAoscxInt, CiscoAsaInt, CiscoCat8000Int,
+    CiscoCat9000Int, CiscoCsr1000Int, CiscoFtdInt, CiscoIolInt, CiscoIosInt, CiscoIosl2Int,
+    CiscoIosxr9000Int, CiscoNexus9300Int, ConnectionTypes, CumulusLinuxInt, EthernetInt, Interface,
     InterfaceTrait, JuniperEvolvedContainerInt, JuniperEvolvedVmInt, JuniperRouterInt,
-    JuniperSrxInt, JuniperSwitchInt, MgmtInterfaces, MikrotikChrInt, NokiaSrlinuxInt,
+    JuniperSrxv3Int, JuniperSwitchInt, MgmtInterfaces, MikrotikChrInt, NokiaSrlinuxInt,
     PaloaltoPanosInt,
 };
 pub use lab::{

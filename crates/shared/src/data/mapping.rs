@@ -45,7 +45,7 @@ impl QemuCommand {
         }]
     }
     #[must_use]
-    pub fn juniper_srx() -> Vec<Self> {
+    pub fn juniper_srxv3() -> Vec<Self> {
         vec![Self {
             param: "-machine".to_owned(),
             value: "smbios-entry-point-type=32".to_owned(),
@@ -91,8 +91,8 @@ mod tests {
     }
 
     #[test]
-    fn test_juniper_srx_machine_type() {
-        let cmds = QemuCommand::juniper_srx();
+    fn test_juniper_srxv3_machine_type() {
+        let cmds = QemuCommand::juniper_srxv3();
         assert_eq!(cmds.len(), 1);
         assert_eq!(cmds[0].param, "-machine");
         assert_eq!(cmds[0].value, "smbios-entry-point-type=32");

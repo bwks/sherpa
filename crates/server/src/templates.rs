@@ -1008,12 +1008,12 @@ mod tests {
             is_admin: false,
             nav: NavPage::Labs.into(),
             generated_name: "happy-panda".to_string(),
-            models: vec![NodeModel::CiscoIosv.into(), NodeModel::UbuntuLinux.into()],
+            models: vec![NodeModel::CiscoIos.into(), NodeModel::UbuntuLinux.into()],
             kinds: kind_choices(),
         };
         let html = tpl.render().expect("template should render");
         assert!(html.contains("happy-panda"));
-        assert!(html.contains("cisco_iosv"));
+        assert!(html.contains("cisco_ios"));
         assert!(html.contains("ubuntu_linux"));
     }
 
@@ -1097,7 +1097,7 @@ mod tests {
             is_admin: false,
             nav: NavPage::Labs.into(),
             generated_name: "happy-panda".to_string(),
-            models: vec![NodeModel::CiscoIosv.into()],
+            models: vec![NodeModel::CiscoIos.into()],
             kinds: kind_choices(),
         };
         let html = tpl.render().expect("template should render");

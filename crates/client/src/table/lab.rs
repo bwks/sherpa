@@ -454,7 +454,7 @@ mod tests {
             NodeInfo {
                 name: "router01".to_string(),
                 kind: NodeKind::VirtualMachine,
-                model: NodeModel::CiscoCat8000v,
+                model: NodeModel::CiscoCat8000,
                 status: NodeState::Running,
                 ip_address: Some("172.31.0.12".to_string()),
                 ssh_port: Some(22),
@@ -470,7 +470,7 @@ mod tests {
         assert!(table.contains("172.31.0.11"));
         assert!(table.contains("172.31.0.12"));
         assert!(table.contains("aruba_aoscx"));
-        assert!(table.contains("cisco_cat8000v"));
+        assert!(table.contains("cisco_cat8000"));
     }
 
     #[test]
@@ -509,7 +509,7 @@ mod tests {
     fn test_render_single_device() {
         let devices = vec![DeviceInfo {
             name: "router01".to_string(),
-            model: NodeModel::CiscoCat8000v,
+            model: NodeModel::CiscoCat8000,
             kind: NodeKind::VirtualMachine,
             state: NodeState::Running,
             mgmt_ipv4: "172.31.0.11".to_string(),
@@ -526,7 +526,7 @@ mod tests {
         // Check that table contains expected data
         assert!(table.contains("router01.a1b2c3d4"));
         assert!(table.contains("172.31.0.11"));
-        assert!(table.contains("cisco_cat8000v"));
+        assert!(table.contains("cisco_cat8000"));
         assert!(table.contains("virtual_machine"));
         assert!(table.contains("running"));
         assert!(table.contains("router01.qcow2"));
@@ -540,7 +540,7 @@ mod tests {
         let devices = vec![
             DeviceInfo {
                 name: "router01".to_string(),
-                model: NodeModel::CiscoCat8000v,
+                model: NodeModel::CiscoCat8000,
                 kind: NodeKind::VirtualMachine,
                 state: NodeState::Running,
                 mgmt_ipv4: "172.31.0.11".to_string(),
@@ -577,7 +577,7 @@ mod tests {
         assert!(table.contains("switch01"));
         assert!(table.contains("172.31.0.11"));
         assert!(table.contains("172.31.0.12"));
-        assert!(table.contains("cisco_cat8000v"));
+        assert!(table.contains("cisco_cat8000"));
         assert!(table.contains("aruba_aoscx"));
         assert!(table.contains("router01.qcow2"));
         assert!(table.contains("switch01.qcow2"));

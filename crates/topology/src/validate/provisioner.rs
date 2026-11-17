@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn container_provisioners_are_rejected_on_other_nodes() {
-        for model in ["ubuntu_linux", "free_bsd", "cisco_iosv"] {
+        for model in ["ubuntu_linux", "free_bsd", "cisco_ios"] {
             let error = format!(
                 "{:#}",
                 validate_provisioners(&container(model, &secret("token", 444))).unwrap_err()
@@ -320,7 +320,7 @@ mod tests {
 
             [[nodes]]
             name = "r1"
-            model = "cisco_iosv"
+            model = "cisco_ios"
             "#,
         )
         .unwrap();
@@ -330,7 +330,7 @@ mod tests {
     #[test]
     fn other_nodes_are_rejected() {
         for model in [
-            "cisco_iosv",
+            "cisco_ios",
             "cisco_iol",
             "windows_server",
             "nanos_unikernel",

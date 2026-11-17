@@ -408,7 +408,7 @@ fn test_write_load_roundtrip() {
         nodes: vec![
             Node {
                 name: "r1".to_string(),
-                model: NodeModel::CiscoIosv,
+                model: NodeModel::CiscoIos,
                 ..Default::default()
             },
             Node {
@@ -435,7 +435,7 @@ fn test_write_load_roundtrip() {
     assert_eq!(loaded.description, manifest.description);
     assert_eq!(loaded.nodes.len(), 2);
     assert_eq!(loaded.nodes[0].name, "r1");
-    assert_eq!(loaded.nodes[0].model, NodeModel::CiscoIosv);
+    assert_eq!(loaded.nodes[0].model, NodeModel::CiscoIos);
     assert_eq!(loaded.nodes[1].name, "r2");
     assert_eq!(loaded.nodes[1].model, NodeModel::AristaEos);
 

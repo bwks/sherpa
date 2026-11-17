@@ -288,8 +288,40 @@ mod tests {
         assert!(
             server
                 .images
-                .join("juniper_srx/23.4/virtioa.qcow2")
+                .join("juniper_srxv3/23.4/virtioa.qcow2")
                 .exists()
+        );
+    }
+
+    #[test]
+    fn ios_folders_move_beside_the_iol_folders_and_only_the_used_one_is_linked() {
+        let mut server = Server::new();
+        server.image("cisco_iosv/159-3.m10/virtioa.qcow2");
+        server.image("cisco_iosvl2/20200929/virtioa.qcow2");
+        server.image("cisco_iol/17.16/iol.bin");
+        server.image("cisco_ioll2/17.16/iol.bin");
+        server.overlay("cisco_iosv/159-3.m10/virtioa.qcow2");
+
+        server.start();
+
+        assert_eq!(
+            server.read("cisco_ios/159-3.m10/virtioa.qcow2"),
+            "cisco_iosv/159-3.m10/virtioa.qcow2"
+        );
+        assert_eq!(
+            server.read("cisco_iosl2/20200929/virtioa.qcow2"),
+            "cisco_iosvl2/20200929/virtioa.qcow2"
+        );
+        assert!(server.is_link("cisco_iosv"));
+        assert!(!server.images.join("cisco_iosvl2").exists());
+        assert!(!server.is_link("cisco_iosvl2"));
+        assert_eq!(
+            server.read("cisco_iol/17.16/iol.bin"),
+            "cisco_iol/17.16/iol.bin"
+        );
+        assert_eq!(
+            server.read("cisco_ioll2/17.16/iol.bin"),
+            "cisco_ioll2/17.16/iol.bin"
         );
     }
 

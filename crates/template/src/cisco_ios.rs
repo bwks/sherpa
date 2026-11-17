@@ -5,8 +5,8 @@ use askama::Template;
 use shared::data::{Dns, NetworkV4, NetworkV6, OwnerUser};
 
 #[derive(Template)]
-#[template(path = "cisco/cisco_iosv.jinja", ext = "txt")]
-pub struct CiscoIosvZtpTemplate {
+#[template(path = "cisco/cisco_ios.jinja", ext = "txt")]
+pub struct CiscoIosZtpTemplate {
     pub hostname: String,
     pub owner: OwnerUser,
     pub mgmt_interface: String,
@@ -18,8 +18,8 @@ pub struct CiscoIosvZtpTemplate {
 }
 
 #[derive(Template)]
-#[template(path = "cisco/cisco_iosvl2.jinja", ext = "txt")]
-pub struct CiscoIosvl2ZtpTemplate {
+#[template(path = "cisco/cisco_iosl2.jinja", ext = "txt")]
+pub struct CiscoIosl2ZtpTemplate {
     pub hostname: String,
     pub owner: OwnerUser,
     pub mgmt_interface: String,

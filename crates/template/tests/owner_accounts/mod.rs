@@ -6,7 +6,7 @@ use askama::Template;
 
 use template::{
     AristaEosVmZtpTemplate, ArubaAoscxTemplate, CiscoAsaZtpTemplate, CiscoIosXeZtpTemplate,
-    CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate, CumulusLinuxZtpTemplate,
+    CiscoIosZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate, CumulusLinuxZtpTemplate,
     FrrStartupTemplate, JunipervJunosZtpTemplate, MikrotikRouterosZtpTemplate,
     PaloAltoPanosBootstrapTemplate, SonicLinuxUserTemplate, WindowsOwnerOnlyLoginTemplate,
     WindowsSshdConfigTemplate, build_srlinux_config,
@@ -96,7 +96,7 @@ fn asa_owner_has_a_password_and_hashed_keys() {
 
 #[test]
 fn ios_owner_has_a_secret_and_key_hashes() {
-    let output = CiscoIosvZtpTemplate {
+    let output = CiscoIosZtpTemplate {
         hostname: "iosv01".to_string(),
         owner: helpers::test_owner(PASSWORD),
         mgmt_interface: "GigabitEthernet0/0".to_string(),
