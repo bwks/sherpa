@@ -29,6 +29,8 @@ teardown() {
 _stub_docker_with_containers() {
     {
         echo '#!/bin/bash'
+        # The stub's own variables: they expand when the stub runs, not here.
+        # shellcheck disable=SC2016
         echo 'if [ "$1" = "ps" ]; then'
         for name in "$@"; do
             echo "    echo '${name}'"
@@ -131,6 +133,8 @@ _run_function() {
 @test "update: refuses a pre-0.5.0 server before changing anything" {
     _stub_docker_with_containers sherpa-db
     printf '#!/bin/bash\nexit 0\n' > "${MOCK_BIN}/curl"
+    # The stub's own variables: they expand when the stub runs, not here.
+    # shellcheck disable=SC2016
     printf '#!/bin/bash\necho "$0 $*" >> "%s/changed"\nexit 0\n' "${WORK_DIR}" > "${MOCK_BIN}/systemctl"
     cp "${MOCK_BIN}/systemctl" "${MOCK_BIN}/pkill"
     mkdir -p "${WORK_DIR}/bin"
@@ -346,6 +350,36 @@ _run_secure_config_files() {
 }
 
 @test "update: restricts the config and env files when there is nothing to update, too" {
-    grep -A6 '"\$needs_update" = false' "${SCRIPT}" | grep -qx '        secure_config_files'
+    grep -A6 'needs_update" = false' "${SCRIPT}" | grep -qx '        secure_config_files'
     grep -B2 -A2 '^    secure_database_storage$' "${SCRIPT}" | grep -qx '    secure_config_files'
+}
+
+# ============================================================
+# Blank Disks
+# ============================================================
+
+# An apt-get stub that records its arguments.
+_stub_apt_get() {
+    printf '#!/bin/bash\necho "$@" >> "%s/apt-get.args"\nexit 0\n' "${WORK_DIR}" > "${MOCK_BIN}/apt-get"
+    chmod +x "${MOCK_BIN}/apt-get"
+}
+
+@test "update: fills in missing blank disks before sherpad stops, and when there is nothing to update" {
+    grep -A3 'needs_update" = false' "${SCRIPT}" | grep -qx '        ensure_blank_disks'
+    grep -A3 'needs_update" = false' "${SCRIPT}" | grep -qx '        install_blank_disk_tools'
+    sed -n '/^main()/,/^}/p' "${SCRIPT}" | grep -B4 '^    stop_sherpad$' | grep -qx '    ensure_blank_disks'
+}
+
+@test "install_blank_disk_tools: installs nothing when every tool is there" {
+    _stub_apt_get
+    _run_function "BLANK_DISK_TOOLS=(bash); install_blank_disk_tools"
+    [ "$status" -eq 0 ]
+    [ ! -e "${WORK_DIR}/apt-get.args" ]
+}
+
+@test "install_blank_disk_tools: installs the packages when a tool is missing" {
+    _stub_apt_get
+    _run_function "BLANK_DISK_TOOLS=(bash no-such-mkfs); install_blank_disk_tools"
+    [ "$status" -eq 0 ]
+    grep -qx "install -y -qq qemu-utils dosfstools e2fsprogs" "${WORK_DIR}/apt-get.args"
 }

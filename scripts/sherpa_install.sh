@@ -39,6 +39,9 @@ SHERPA_ENV_DIR="${SHERPA_BASE_DIR}/env"
 SHERPA_LOG_DIR="${SHERPA_BASE_DIR}/logs"
 SHERPA_LABS_DIR="${SHERPA_BASE_DIR}/labs"
 SHERPA_POOL_DIR="${SHERPA_BASE_DIR}/libvirt/images"
+SHERPA_IMAGES_DIR="${SHERPA_BASE_DIR}/images"
+# The blank disk templates sherpad copies for node ZTP disks, see ensure_blank_disks.
+SHERPA_BLANK_DISK_DIR="${SHERPA_IMAGES_DIR}/blank_disk"
 THP_ENABLED_FILE="/sys/kernel/mm/transparent_hugepage/enabled"
 THP_TMPFILES_CONF="/etc/tmpfiles.d/sherpa-thp.conf"
 
@@ -143,6 +146,7 @@ check_ubuntu_version() {
         exit 1
     fi
 
+    # shellcheck source=/dev/null
     . /etc/os-release
 
     if [ "$ID" != "ubuntu" ]; then
@@ -225,6 +229,10 @@ install_system_packages() {
         ssh
         mtools
         e2tools
+        # Blank disks: qemu-img, mkfs.fat and mkfs.vfat, mkfs.ext4
+        qemu-utils
+        dosfstools
+        e2fsprogs
         gzip
         unzip
         # QEMU/KVM/libvirt
@@ -503,6 +511,140 @@ setup_directories() {
 
     print_success "Directory permissions configured"
 }
+
+################################################################################
+# Blank Disks
+################################################################################
+# This section is the same in sherpa_install.sh and sherpa_update.sh, between the BEGIN and END
+# lines; tests/bats/install_tests.bats checks that it is.
+# BEGIN blank disks
+
+# The blank disk templates that sherpad copies for node ZTP disks, one per line:
+# file name, size, file system and label ("-" for none). The ZTP code depends on the names, file
+# systems and labels: fat32.img (Cumulus Linux USB and config disks), junos.img (Junos, label
+# vmm-data), iosv.img (IOSv and IOSvL2), ise.img (ISE, label ISE-ZTP) and ext4-500mb.img
+# (Flatcar, label data-disk). iosv.img is 131040 sectors of 512 bytes.
+blank_disk_specs() {
+    cat << 'SPECS'
+base.img 64M raw -
+fat16.img 64M fat16 -
+fat32.img 64M fat32 -
+junos.img 64M vfat vmm-data
+iosv.img 67092480 vfat -
+ise.img 10M ext4 ISE-ZTP
+ext4-100mb.img 100M ext4 data-disk
+ext4-200mb.img 200M ext4 data-disk
+ext4-500mb.img 500M ext4 data-disk
+ext4-1g.img 1G ext4 data-disk
+ext4-2g.img 2G ext4 data-disk
+ext4-3g.img 3G ext4 data-disk
+ext4-4g.img 4G ext4 data-disk
+ext4-5g.img 5G ext4 data-disk
+SPECS
+}
+
+# The tools that make the blank disks, and the Ubuntu packages that hold them.
+BLANK_DISK_TOOLS=(qemu-img mkfs.fat mkfs.vfat mkfs.ext4)
+BLANK_DISK_PACKAGES=(qemu-utils dosfstools e2fsprogs)
+
+# Print the blank disk tools that are not installed, one per line.
+missing_blank_disk_tools() {
+    local tool
+    for tool in "${BLANK_DISK_TOOLS[@]}"; do
+        if ! command -v "${tool}" >/dev/null 2>&1; then
+            echo "${tool}"
+        fi
+    done
+}
+
+# Write a blank disk of the given size, file system and label to an existing file.
+build_blank_disk() {
+    local file="$1"
+    local size="$2"
+    local fs="$3"
+    local label="$4"
+
+    qemu-img create -q -f raw "${file}" "${size}" || return 1
+    case "${fs}" in
+        raw) ;;
+        fat16) mkfs.fat -F 16 "${file}" >/dev/null || return 1 ;;
+        fat32) mkfs.fat -F 32 "${file}" >/dev/null || return 1 ;;
+        vfat)
+            if [ "${label}" = "-" ]; then
+                mkfs.vfat -I "${file}" >/dev/null || return 1
+            else
+                mkfs.vfat -n "${label}" "${file}" >/dev/null || return 1
+            fi
+            ;;
+        ext4) mkfs.ext4 -q -L "${label}" "${file}" || return 1 ;;
+        *)
+            print_error "Unknown blank disk file system: ${fs}"
+            return 1
+            ;;
+    esac
+}
+
+# Create one blank disk, 0644 sherpa, when no file of its name exists. An existing file is never
+# changed: nodes' disks may have been copied from it. The disk is built under a temporary name
+# and then linked to its own name, which fails rather than replace a file made meanwhile.
+make_blank_disk() {
+    local name="$1"
+    local size="$2"
+    local fs="$3"
+    local label="$4"
+    local disk="${SHERPA_BLANK_DISK_DIR}/${name}"
+    local tmp
+
+    if [ -e "${disk}" ] || [ -L "${disk}" ]; then
+        print_info "Blank disk ${name} exists; left as it is"
+        return 0
+    fi
+
+    tmp="$(mktemp "${SHERPA_BLANK_DISK_DIR}/.${name}.XXXXXX")" || return 1
+    if ! build_blank_disk "${tmp}" "${size}" "${fs}" "${label}" \
+        || ! chown sherpa:sherpa "${tmp}" || ! chmod 644 "${tmp}"; then
+        rm -f "${tmp}"
+        print_error "Could not create blank disk ${name}"
+        return 1
+    fi
+    if ln "${tmp}" "${disk}" 2>/dev/null; then
+        print_success "Created blank disk ${name}"
+    else
+        print_info "Blank disk ${name} exists; left as it is"
+    fi
+    rm -f "${tmp}"
+}
+
+# Create the blank disk folder and every blank disk that is missing. Existing folders and disks
+# keep their owner, mode and contents.
+ensure_blank_disks() {
+    print_info "Creating missing blank disks in ${SHERPA_BLANK_DISK_DIR}..."
+
+    local missing
+    missing="$(missing_blank_disk_tools)"
+    if [ -n "${missing}" ]; then
+        print_error "Blank disks need these tools, which are not installed: $(echo "${missing}" | tr '\n' ' ')"
+        echo "  Install them with: sudo apt-get install ${BLANK_DISK_PACKAGES[*]}"
+        return 1
+    fi
+
+    local dir
+    for dir in "${SHERPA_IMAGES_DIR}" "${SHERPA_BLANK_DISK_DIR}"; do
+        if [ ! -d "${dir}" ]; then
+            mkdir "${dir}" && chown sherpa:sherpa "${dir}" && chmod 775 "${dir}" || return 1
+            print_success "Created ${dir}"
+        fi
+    done
+
+    local name size fs label
+    while read -r name size fs label; do
+        make_blank_disk "${name}" "${size}" "${fs}" "${label}" || return 1
+    done < <(blank_disk_specs)
+
+    print_success "Blank disks ready"
+}
+
+# END blank disks
 
 ################################################################################
 # Container Images
@@ -980,6 +1122,7 @@ main() {
     install_docker
     setup_sherpa_user
     setup_directories
+    ensure_blank_disks
     pull_sherpa_router_image
     
     # Install binaries and systemd service
