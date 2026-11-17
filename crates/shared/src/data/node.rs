@@ -15,8 +15,8 @@ use crate::konst::{
     CONTAINER_FORGEJO_REPO, CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO,
     CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_JUNIPER_CEVOLVED_REPO, CONTAINER_KEYCLOAK_REPO,
     CONTAINER_MONGO_DB_REPO, CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_REPO,
-    CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD, SSH_PORT, TALOS_API_PORT,
-    TALOS_DEFAULT_BOOT_DISK_SIZE,
+    CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD, SONIC_PORT_COUNT, SSH_PORT,
+    TALOS_API_PORT, TALOS_DEFAULT_BOOT_DISK_SIZE,
 };
 
 use super::RecordId;
@@ -1900,7 +1900,7 @@ impl NodeConfig {
             4096,
             OsVariant::Linux,
             InterfaceSettings {
-                data_count: 52,
+                data_count: SONIC_PORT_COUNT,
                 kind: InterfaceType::Virtio,
                 mtu: MTU_JUMBO_INT,
                 prefix: "eth".to_owned(),
@@ -2509,6 +2509,15 @@ mod tests {
             serde_json::from_str::<super::NodeModel>(&encoded).unwrap(),
             model
         );
+    }
+
+    #[test]
+    fn sonic_linux_has_one_data_interface_per_front_panel_port() {
+        let config = NodeConfig::get_model(NodeModel::SonicLinux);
+        assert_eq!(config.interfaces.data_count, 32);
+        assert_eq!(config.interfaces.prefix, "eth");
+        assert_eq!(config.interfaces.first_index, 1);
+        assert_eq!(config.interfaces.management, MgmtInterfaces::Eth0);
     }
 
     #[test]

@@ -1669,7 +1669,7 @@ mod tests {
 
         apply_schema(&db).await.unwrap();
 
-        assert_eq!(version(&db).await, 29);
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
         let lab = find_lab(&db, "lab-0001").await.unwrap().unwrap();
         let mut logins: Vec<(String, Option<String>)> = list_nodes_by_lab(&db, lab.id.unwrap())
             .await
@@ -1689,5 +1689,45 @@ mod tests {
         // Applying again changes nothing.
         apply_schema(&db).await.unwrap();
         assert_eq!(count_nodes_by_ssh_username(&db, "sherpa").await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn sonic_images_at_the_old_default_get_one_data_interface_per_port() {
+        // A version 29 database: sonic_linux images at the old default of 52 data interfaces
+        // and at a count an administrator set, and another model at 52.
+        let before = migrations_before(migrations::FIX_SONIC_DATA_INTERFACE_COUNT);
+        assert_eq!(before + 1, 29);
+        let db = database_at(before).await;
+        for (model, version, count) in [
+            (NodeModel::SonicLinux, "old-default", 52),
+            (NodeModel::SonicLinux, "admin-set", 40),
+            (NodeModel::UbuntuLinux, "many-nics", 52),
+        ] {
+            let mut image = NodeConfig::get_model(model);
+            image.version = version.to_owned();
+            image.interfaces.data_count = count;
+            upsert_node_image(&db, image, DefaultRequest::Keep)
+                .await
+                .unwrap();
+        }
+
+        apply_schema(&db).await.unwrap();
+
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
+        let mut counts: Vec<(NodeModel, String, u8)> = list_node_images(&db)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|image| (image.model, image.version, image.interfaces.data_count))
+            .collect();
+        counts.sort_by(|a, b| a.1.cmp(&b.1));
+        assert_eq!(
+            counts,
+            [
+                (NodeModel::SonicLinux, "admin-set".to_owned(), 40),
+                (NodeModel::UbuntuLinux, "many-nics".to_owned(), 52),
+                (NodeModel::SonicLinux, "old-default".to_owned(), 32),
+            ]
+        );
     }
 }

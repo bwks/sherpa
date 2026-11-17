@@ -227,6 +227,7 @@ table, copy the rows, drop the old one, rename.
 | 27 | `0027_user_device_password.sql`: `user.device_password`, the user's [device password](#device-passwords) as sealed text, `NULL` (none) for every user; and two triggers that refuse a value that is not sealed text, on insert and on update |
 | 28 | `0028_drop_provision_current_user.sql`: drops `lab.provision_current_user`. The owner's login is the only one on lab nodes, so there is nothing to choose. Stored lab definitions lose the value |
 | 29 | `0029_legacy_node_ssh_username.sql`: `UPDATE node SET ssh_username = 'sherpa' WHERE ssh_username IS NULL`. A node built before 0.7.0 has the shared `sherpa` account and no recorded login; this records it, so its SSH config stays `User sherpa`. See [Node SSH accounts](#node-ssh-accounts) |
+| 30 | `0030_fix_sonic_data_interface_count.sql`: `sonic_linux` images stored with 52 data interfaces (the old default) are set to 32, one per front-panel port of the SONiC virtual switch. A count an administrator set is kept |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
