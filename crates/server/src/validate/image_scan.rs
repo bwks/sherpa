@@ -156,7 +156,7 @@ mod tests {
             "quay.io/frrouting/frr",
             "my_org/app-name.v2",
         ] {
-            let request = request(Some(NodeModel::GenericContainer), Some(repo));
+            let request = request(Some(NodeModel::Generic), Some(repo));
             assert!(validate_image_scan(&request).is_ok(), "{repo}");
         }
     }
@@ -231,7 +231,7 @@ mod tests {
             "my$ql",
             too_long.as_str(),
         ] {
-            let message = refusal(&request(Some(NodeModel::GenericContainer), Some(repo)));
+            let message = refusal(&request(Some(NodeModel::Generic), Some(repo)));
 
             assert!(
                 message.contains("is not a valid repo"),

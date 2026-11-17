@@ -13,7 +13,7 @@ use shared::data::{
     RecordId,
 };
 use shared::error::{CpuPinConflict, CpuPinRole};
-use shared::konst::JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB;
+use shared::konst::JUNIPER_EVOLVED_CONTAINER_OVERHEAD_MIB;
 use virt::connect::Connect;
 
 use crate::auth::context::AuthContext;
@@ -57,7 +57,7 @@ struct PinOverlap {
 
 /// The vCPUs and memory a node gets. A VM or unikernel gets the manifest's values, else the image's. A container gets the
 /// manifest's as Docker limits, and is not limited in what the manifest leaves out; the image's
-/// values are not limits. `juniper_cevolved` sizes its EVO VM from the manifest or image values,
+/// values are not limits. a `juniper_evolved` container sizes its EVO VM from the manifest or image values,
 /// so its container's memory limit is that and its overhead, with no CPU quota, which would
 /// throttle the EVO VM. IOL takes the manifest or image memory as its own, so its container's
 /// limit is that and the launcher's overhead. The VNC port is reserved separately.
@@ -68,12 +68,12 @@ pub fn planned_resources(node: &topology::NodeExpanded, image: &NodeConfig) -> N
             memory: Some(node.memory.unwrap_or(image.memory)),
             vnc_port: None,
         },
-        NodeKind::Container if image.model == NodeModel::JuniperCevolved => NodeResources {
+        NodeKind::Container if image.model == NodeModel::JuniperEvolved => NodeResources {
             // `check_ptx_platform` leaves room for the overhead.
             memory: Some(
                 node.memory
                     .unwrap_or(image.memory)
-                    .saturating_add(JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB),
+                    .saturating_add(JUNIPER_EVOLVED_CONTAINER_OVERHEAD_MIB),
             ),
             ..NodeResources::default()
         },
@@ -554,11 +554,13 @@ mod tests {
 
     #[test]
     fn cevolved_gets_its_evo_vm_memory_and_overhead_and_no_cpu_quota() {
-        let image = ModelKind::default_for(NodeModel::JuniperCevolved).node_config();
+        let image = ModelKind::new(NodeModel::JuniperEvolved, Some(NodeKind::Container))
+            .unwrap()
+            .node_config();
         let defaults = planned_resources(&node(None, None), &image);
         assert_eq!(
             defaults.memory,
-            Some(image.memory + JUNIPER_CEVOLVED_CONTAINER_OVERHEAD_MIB)
+            Some(image.memory + JUNIPER_EVOLVED_CONTAINER_OVERHEAD_MIB)
         );
         assert_eq!(defaults.cpu_count, None);
         let sized = planned_resources(&node(Some(8), Some(16384)), &image);

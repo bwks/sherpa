@@ -6,6 +6,8 @@
 //! function matches on the model; a model with more than one kind matches on the kind inside its
 //! arm.
 
+use std::fmt;
+
 use anyhow::{Result, bail};
 use serde_derive::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
@@ -17,7 +19,7 @@ use crate::konst::{
 
 /// A node model and one of the kinds it takes. Its fields are private: build one with
 /// [`ModelKind::new`], which refuses a kind the model does not take, or with
-/// [`ModelKind::default_for`], which takes the model's default kind. Read from JSON, it goes
+/// [`ModelKind::default_for`], which takes the model's first kind. Read from JSON, it goes
 /// through [`ModelKind::new`] too.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "ModelKindFields")]
@@ -41,6 +43,18 @@ impl TryFrom<ModelKindFields> for ModelKind {
     }
 }
 
+/// The model, and its kind when the model takes more than one: `cisco_asa`, but
+/// `arista_eos, container`. Messages name a node's model with it.
+impl fmt::Display for ModelKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.model.kinds().len() > 1 {
+            write!(f, "{}, {}", self.model, self.kind)
+        } else {
+            write!(f, "{}", self.model)
+        }
+    }
+}
+
 impl Default for ModelKind {
     fn default() -> Self {
         Self::default_for(NodeModel::default())
@@ -52,10 +66,14 @@ impl ModelKind {
     ///
     /// # Errors
     ///
-    /// Fails when the model does not take `kind`, naming the kinds it takes.
+    /// Fails when the model does not take `kind`, naming the kinds it takes, and when `kind`
+    /// is `None` for a model with no default kind (`generic`).
     pub fn new(model: NodeModel, kind: Option<NodeKind>) -> Result<Self> {
-        let Some(kind) = kind else {
-            return Ok(Self::default_for(model));
+        let Some(kind) = kind.or(model.default_kind()) else {
+            bail!(
+                "Model '{model}' has no default kind; set its kind to one of: {}",
+                model_kinds_list(model)
+            );
         };
         if !model.kinds().contains(&kind) {
             bail!(
@@ -76,7 +94,9 @@ impl ModelKind {
         })
     }
 
-    /// The model with its default kind, the first of [`NodeModel::kinds`].
+    /// The model with the first of [`NodeModel::kinds`], its default kind. `generic` has no
+    /// default kind, so this gives its first, `virtual_machine`: code that reads a kind a user
+    /// may have left out uses [`ModelKind::new`], which refuses `generic` without one.
     #[must_use]
     pub fn default_for(model: NodeModel) -> Self {
         Self {
@@ -101,32 +121,36 @@ impl ModelKind {
     pub fn node_config(self) -> NodeConfig {
         match self.model {
             // Arista
-            NodeModel::AristaVeos => NodeConfig::arista_veos(),
-            NodeModel::AristaCeos => NodeConfig::arista_ceos(),
+            NodeModel::AristaEos => match self.kind {
+                NodeKind::Container => NodeConfig::arista_eos_container(),
+                NodeKind::VirtualMachine | NodeKind::Unikernel => NodeConfig::arista_eos_vm(),
+            },
 
             // Aruba
             NodeModel::ArubaAoscx => NodeConfig::aruba_aoscx(),
 
             // Cisco
-            NodeModel::CiscoAsav => NodeConfig::cisco_asav(),
+            NodeModel::CiscoAsa => NodeConfig::cisco_asa(),
             NodeModel::CiscoCsr1000v => NodeConfig::cisco_csr1000v(),
             NodeModel::CiscoCat8000v => NodeConfig::cisco_cat8000v(),
             NodeModel::CiscoCat9000v => NodeConfig::cisco_cat9000v(),
-            NodeModel::CiscoIosxrv9000 => NodeConfig::cisco_iosxrv9000(),
+            NodeModel::CiscoIosxr => NodeConfig::cisco_iosxr(),
             NodeModel::CiscoNexus9300v => NodeConfig::cisco_nexus9300v(),
             NodeModel::CiscoIosv => NodeConfig::cisco_iosv(),
             NodeModel::CiscoIosvl2 => NodeConfig::cisco_iosvl2(),
             NodeModel::CiscoIol => NodeConfig::cisco_iol(),
             NodeModel::CiscoIoll2 => NodeConfig::cisco_ioll2(),
             NodeModel::CiscoIse => NodeConfig::cisco_ise(),
-            NodeModel::CiscoFtdv => NodeConfig::cisco_ftdv(),
+            NodeModel::CiscoFtd => NodeConfig::cisco_ftd(),
 
             // Juniper
-            NodeModel::JuniperVrouter => NodeConfig::juniper_vrouter(),
-            NodeModel::JuniperVswitch => NodeConfig::juniper_vswitch(),
-            NodeModel::JuniperVevolved => NodeConfig::juniper_vevolved(),
-            NodeModel::JuniperCevolved => NodeConfig::juniper_cevolved(),
-            NodeModel::JuniperVsrxv3 => NodeConfig::juniper_vsrxv3(),
+            NodeModel::JuniperRouter => NodeConfig::juniper_router(),
+            NodeModel::JuniperSwitch => NodeConfig::juniper_switch(),
+            NodeModel::JuniperEvolved => match self.kind {
+                NodeKind::Container => NodeConfig::juniper_evolved_container(),
+                NodeKind::VirtualMachine | NodeKind::Unikernel => NodeConfig::juniper_evolved_vm(),
+            },
+            NodeModel::JuniperSrx => NodeConfig::juniper_srx(),
 
             // Nokia
             NodeModel::NokiaSrlinux => NodeConfig::nokia_srlinux(),
@@ -193,9 +217,11 @@ impl ModelKind {
             NodeModel::KeycloakServer => NodeConfig::keycloak_server(),
 
             // Generic
-            NodeModel::GenericContainer => NodeConfig::generic_container(),
-            NodeModel::GenericUnikernel => NodeConfig::generic_unikernel(),
-            NodeModel::GenericVm => NodeConfig::generic_vm(),
+            NodeModel::Generic => match self.kind {
+                NodeKind::VirtualMachine => NodeConfig::generic_vm(),
+                NodeKind::Container => NodeConfig::generic_container(),
+                NodeKind::Unikernel => NodeConfig::generic_unikernel(),
+            },
 
             // Unikernels
             NodeModel::UnikraftUnikernel => NodeConfig::unikraft_unikernel(),
@@ -227,24 +253,34 @@ impl ModelKind {
             | NodeModel::NetboxServer
             | NodeModel::SignozServer
             | NodeModel::VirtServer
-            | NodeModel::GenericVm
             | NodeModel::FreeBsd
             | NodeModel::OpenBsd
             | NodeModel::DevboxWindows
             | NodeModel::WindowsServer
             | NodeModel::AlpineLinux => &[Ztp::CloudInit],
-            NodeModel::AristaVeos | NodeModel::ArubaAoscx => &[Ztp::Tftp],
-            NodeModel::JuniperVsrxv3 => &[Ztp::Tftp, Ztp::Cdrom],
-            NodeModel::JuniperVevolved => &[Ztp::Tftp, Ztp::Usb],
+            NodeModel::ArubaAoscx => &[Ztp::Tftp],
+            NodeModel::AristaEos => match self.kind {
+                NodeKind::Container => &[Ztp::Volume],
+                NodeKind::VirtualMachine | NodeKind::Unikernel => &[Ztp::Tftp],
+            },
+            NodeModel::JuniperEvolved => match self.kind {
+                NodeKind::Container => &[Ztp::Volume],
+                NodeKind::VirtualMachine | NodeKind::Unikernel => &[Ztp::Tftp, Ztp::Usb],
+            },
+            NodeModel::Generic => match self.kind {
+                NodeKind::VirtualMachine => &[Ztp::CloudInit],
+                NodeKind::Container | NodeKind::Unikernel => &[],
+            },
+            NodeModel::JuniperSrx => &[Ztp::Tftp, Ztp::Cdrom],
             NodeModel::CiscoCsr1000v
             | NodeModel::CiscoCat8000v
             | NodeModel::CiscoCat9000v
-            | NodeModel::CiscoAsav
+            | NodeModel::CiscoAsa
             | NodeModel::CiscoNexus9300v
-            | NodeModel::CiscoIosxrv9000
-            | NodeModel::CiscoFtdv
-            | NodeModel::JuniperVrouter
-            | NodeModel::JuniperVswitch
+            | NodeModel::CiscoIosxr
+            | NodeModel::CiscoFtd
+            | NodeModel::JuniperRouter
+            | NodeModel::JuniperSwitch
             | NodeModel::PaloaltoPanos => &[Ztp::Cdrom],
             NodeModel::CiscoIosv
             | NodeModel::CiscoIosvl2
@@ -254,9 +290,7 @@ impl ModelKind {
             NodeModel::SonicLinux => &[Ztp::Http],
             NodeModel::FlatcarLinux => &[Ztp::Ignition],
             NodeModel::TalosLinux => &[Ztp::NoCloud],
-            NodeModel::AristaCeos
-            | NodeModel::NokiaSrlinux
-            | NodeModel::JuniperCevolved
+            NodeModel::NokiaSrlinux
             | NodeModel::CiscoIol
             | NodeModel::CiscoIoll2
             | NodeModel::FrrLinux => &[Ztp::Volume],
@@ -269,8 +303,6 @@ impl ModelKind {
             | NodeModel::NatsBus
             | NodeModel::HashicorpVault
             | NodeModel::KeycloakServer
-            | NodeModel::GenericContainer
-            | NodeModel::GenericUnikernel
             | NodeModel::UnikraftUnikernel
             | NodeModel::NanosUnikernel => &[],
         }
@@ -284,10 +316,11 @@ impl ModelKind {
     }
 
     /// Whether every data interface of a container of this model stays up, disabled ones too.
-    /// cJunosEvolved waits at boot until all the data interfaces it is told about are up.
+    /// cJunosEvolved, the container of `juniper_evolved`, waits at boot until all the data
+    /// interfaces it is told about are up.
     #[must_use]
     pub fn keeps_data_interfaces_up(self) -> bool {
-        matches!(self.model, NodeModel::JuniperCevolved)
+        self.model == NodeModel::JuniperEvolved && self.kind == NodeKind::Container
     }
 
     /// Whether the host must finish the checksums of packets it sends to a container of this
@@ -385,13 +418,74 @@ mod tests {
 
     #[test]
     fn no_kind_gives_the_models_default_kind() {
-        for model in NodeModel::iter() {
+        for model in NodeModel::iter().filter(|model| *model != NodeModel::Generic) {
             assert_eq!(
                 ModelKind::new(model, None).unwrap(),
                 ModelKind::default_for(model),
                 "{model}"
             );
         }
+    }
+
+    #[test]
+    fn generic_has_no_default_kind_and_is_refused_without_one() {
+        assert_eq!(NodeModel::Generic.default_kind(), None);
+        let error = ModelKind::new(NodeModel::Generic, None)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            "Model 'generic' has no default kind; set its kind to one of: \
+             virtual_machine, container, unikernel"
+        );
+        for &kind in NodeModel::Generic.kinds() {
+            assert_eq!(
+                ModelKind::new(NodeModel::Generic, Some(kind))
+                    .unwrap()
+                    .kind(),
+                kind
+            );
+        }
+    }
+
+    #[test]
+    fn the_merged_models_default_to_their_virtual_machine() {
+        for model in [NodeModel::AristaEos, NodeModel::JuniperEvolved] {
+            assert_eq!(
+                model.kinds(),
+                [NodeKind::VirtualMachine, NodeKind::Container],
+                "{model}"
+            );
+            assert_eq!(
+                ModelKind::new(model, None).unwrap().kind(),
+                NodeKind::VirtualMachine
+            );
+        }
+    }
+
+    #[test]
+    fn each_kind_of_a_merged_model_has_its_own_settings_and_ztp() {
+        let veos = ModelKind::default_for(NodeModel::AristaEos);
+        let ceos = ModelKind::new(NodeModel::AristaEos, Some(NodeKind::Container)).unwrap();
+        assert_eq!(veos.ztp_methods(), [Ztp::Tftp]);
+        assert_eq!(ceos.ztp_methods(), [Ztp::Volume]);
+        assert_eq!(
+            ceos.node_config().repo.as_deref(),
+            Some("localrepo/arista_eos")
+        );
+        assert_eq!(veos.node_config().repo, None);
+
+        let vevolved = ModelKind::default_for(NodeModel::JuniperEvolved);
+        let cevolved =
+            ModelKind::new(NodeModel::JuniperEvolved, Some(NodeKind::Container)).unwrap();
+        assert_eq!(vevolved.ztp_methods(), [Ztp::Tftp, Ztp::Usb]);
+        assert_eq!(cevolved.ztp_methods(), [Ztp::Volume]);
+        assert_eq!(
+            cevolved.node_config().repo.as_deref(),
+            Some("localrepo/juniper_evolved")
+        );
+        assert!(cevolved.keeps_data_interfaces_up());
+        assert!(!vevolved.keeps_data_interfaces_up());
     }
 
     #[test]
@@ -418,12 +512,12 @@ mod tests {
                 );
             }
         }
-        let error = ModelKind::new(NodeModel::CiscoAsav, Some(NodeKind::Container))
+        let error = ModelKind::new(NodeModel::CiscoAsa, Some(NodeKind::Container))
             .unwrap_err()
             .to_string();
         assert_eq!(
             error,
-            "Model 'cisco_asav' is not a container; it comes only as: virtual_machine"
+            "Model 'cisco_asa' is not a container; it comes only as: virtual_machine"
         );
     }
 
@@ -438,7 +532,7 @@ mod tests {
                 model_kind
             );
         }
-        let json = serde_json::json!({"model": "cisco_asav", "kind": "container"});
+        let json = serde_json::json!({"model": "cisco_asa", "kind": "container"});
         let error = serde_json::from_value::<ModelKind>(json)
             .unwrap_err()
             .to_string();
@@ -541,24 +635,34 @@ mod tests {
             | NodeModel::NetboxServer
             | NodeModel::SignozServer
             | NodeModel::VirtServer
-            | NodeModel::GenericVm
             | NodeModel::FreeBsd
             | NodeModel::OpenBsd
             | NodeModel::DevboxWindows
             | NodeModel::WindowsServer
             | NodeModel::AlpineLinux => vec![Ztp::CloudInit],
-            NodeModel::AristaVeos | NodeModel::ArubaAoscx => vec![Ztp::Tftp],
-            NodeModel::JuniperVsrxv3 => vec![Ztp::Tftp, Ztp::Cdrom],
-            NodeModel::JuniperVevolved => vec![Ztp::Tftp, Ztp::Usb],
+            NodeModel::ArubaAoscx => vec![Ztp::Tftp],
+            NodeModel::AristaEos => match model_kind.kind {
+                NodeKind::Container => vec![Ztp::Volume],
+                NodeKind::VirtualMachine | NodeKind::Unikernel => vec![Ztp::Tftp],
+            },
+            NodeModel::JuniperEvolved => match model_kind.kind {
+                NodeKind::Container => vec![Ztp::Volume],
+                NodeKind::VirtualMachine | NodeKind::Unikernel => vec![Ztp::Tftp, Ztp::Usb],
+            },
+            NodeModel::Generic => match model_kind.kind {
+                NodeKind::VirtualMachine => vec![Ztp::CloudInit],
+                NodeKind::Container | NodeKind::Unikernel => Vec::new(),
+            },
+            NodeModel::JuniperSrx => vec![Ztp::Tftp, Ztp::Cdrom],
             NodeModel::CiscoCsr1000v
             | NodeModel::CiscoCat8000v
             | NodeModel::CiscoCat9000v
-            | NodeModel::CiscoAsav
+            | NodeModel::CiscoAsa
             | NodeModel::CiscoNexus9300v
-            | NodeModel::CiscoIosxrv9000
-            | NodeModel::CiscoFtdv
-            | NodeModel::JuniperVrouter
-            | NodeModel::JuniperVswitch
+            | NodeModel::CiscoIosxr
+            | NodeModel::CiscoFtd
+            | NodeModel::JuniperRouter
+            | NodeModel::JuniperSwitch
             | NodeModel::PaloaltoPanos => vec![Ztp::Cdrom],
             NodeModel::CiscoIosv
             | NodeModel::CiscoIosvl2
@@ -568,9 +672,7 @@ mod tests {
             NodeModel::SonicLinux => vec![Ztp::Http],
             NodeModel::FlatcarLinux => vec![Ztp::Ignition],
             NodeModel::TalosLinux => vec![Ztp::NoCloud],
-            NodeModel::AristaCeos
-            | NodeModel::NokiaSrlinux
-            | NodeModel::JuniperCevolved
+            NodeModel::NokiaSrlinux
             | NodeModel::CiscoIol
             | NodeModel::CiscoIoll2
             | NodeModel::FrrLinux => vec![Ztp::Volume],
@@ -583,8 +685,6 @@ mod tests {
             | NodeModel::NatsBus
             | NodeModel::HashicorpVault
             | NodeModel::KeycloakServer
-            | NodeModel::GenericContainer
-            | NodeModel::GenericUnikernel
             | NodeModel::UnikraftUnikernel
             | NodeModel::NanosUnikernel => Vec::new(),
         }
@@ -620,5 +720,23 @@ mod tests {
                 "{model_kind:?} defaults to {ztp}, which it does not list"
             );
         }
+    }
+
+    #[test]
+    fn a_model_kind_shows_its_kind_only_for_a_model_with_several() {
+        assert_eq!(
+            ModelKind::default_for(NodeModel::CiscoAsa).to_string(),
+            "cisco_asa"
+        );
+        assert_eq!(
+            ModelKind::new(NodeModel::AristaEos, Some(NodeKind::Container))
+                .unwrap()
+                .to_string(),
+            "arista_eos, container"
+        );
+        assert_eq!(
+            ModelKind::default_for(NodeModel::JuniperEvolved).to_string(),
+            "juniper_evolved, virtual_machine"
+        );
     }
 }

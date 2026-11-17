@@ -184,7 +184,7 @@ name = "ztp-lab"
 nodes = [
   { name = "frr01", model = "frr_linux" },
   { name = "frr02", model = "frr_linux", ztp = { method = "disabled" } },
-  { name = "srx01", model = "juniper_vsrxv3", ztp = { method = "tftp" } },
+  { name = "srx01", model = "juniper_srx", ztp = { method = "tftp" } },
 ]
 "#;
         let path = write_temp_manifest("ztp-pass", manifest);

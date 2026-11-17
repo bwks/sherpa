@@ -128,7 +128,7 @@ async fn poll_until_ready(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::{ModelKind, NodeModel};
+    use shared::data::{ModelKind, NodeKind, NodeModel};
     use shared::konst::SSH_PORT;
     use topology::{NodeExpanded, NodeReadyCheck};
 
@@ -177,7 +177,7 @@ mod tests {
             ),
         ] {
             let target = NodeExpanded {
-                model_kind: ModelKind::default_for(NodeModel::GenericContainer),
+                model_kind: ModelKind::new(NodeModel::Generic, Some(NodeKind::Container)).unwrap(),
                 ready_check: manifest,
                 ..NodeExpanded::default()
             };

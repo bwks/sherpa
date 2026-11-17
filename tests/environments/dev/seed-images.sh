@@ -5,16 +5,20 @@
 #   tests/environments/dev/seed-images.sh <lab dir> <node>
 #
 # For each model and version in images.toml next to this script it asks the guest's Sherpa server
-# whether the image is there, and skips it if so. Otherwise it copies
-# /opt/sherpa/images/<model>/<version>/virtioa.qcow2 from the host into a staging directory in
-# the guest with rsync, imports it with the guest's `sherpa server image import`, and deletes the
+# whether the image is there, and skips it if so. Otherwise it copies the entry's `source`, a disk
+# under /opt/sherpa/images on the host, into a staging directory in the guest with rsync, imports it with the guest's `sherpa server image import`, and deletes the
 # staged copy. An interrupted copy resumes on the next run. The guest's CLI is already logged in
 # by provisioning, so no password or token is needed or passed.
 #
-# Then, for each of images.toml's extra files, a path under /opt/sherpa/images such as the vEOS
-# Aboot ISO, it compares the host's and the guest's SHA-256 and skips the file if they match.
-# Otherwise it copies the file through the same staging directory, checks its SHA-256 there, and
-# installs it at the same path in the guest, owned by the guest's `sherpa` account.
+# Then, for each of images.toml's extra files, such as the vEOS Aboot ISO, it compares the SHA-256
+# of its `source` on the host and its `path` in the guest, both under /opt/sherpa/images, and skips
+# the file if they match. Otherwise it copies the file through the same staging directory, checks
+# its SHA-256 there, and installs it at its path in the guest, owned by the guest's `sherpa`
+# account.
+#
+# The host path is each entry's own, not derived from the model or the guest path, so a host on a
+# release with other model names (before 0.7.0, `arista_veos` for `arista_eos`) seeds a newer
+# guest unchanged.
 #
 # Everything goes over the lab's own .sherpa/ssh/config, alias `<node>` or `<node>.<lab id>`,
 # through one shared SSH connection. An image or file that is missing on the host or fails to
@@ -25,7 +29,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGES_FILE="${SCRIPT_DIR}/images.toml"
 HOST_IMAGES="/opt/sherpa/images"
 GUEST_IMAGES="/opt/sherpa/images"
-DISK_FILE="virtioa.qcow2"
 GUEST_SHERPA="/opt/sherpa/bin/sherpa"
 # Readable by the Sherpa server whichever user it runs as; it copies the disk from here.
 GUEST_STAGING="/var/tmp/sherpa-seed"
@@ -55,61 +58,74 @@ toml_string() {
     sed -n "s/^$1[[:space:]]*=[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$2" | head -n 1
 }
 
-# images.toml as `image <model> <version>` and `file <path>` lines. Only the layout images.toml
-# uses is accepted: comments, blank lines, `[[images]]` with `model`/`version` strings and
-# `[[extra_files]]` with a `path` string; anything else is an error.
+# images.toml as `image <model> <version> <source>` and `file <path> <source>` lines. Only the
+# layout images.toml uses is accepted: comments, blank lines, `[[images]]` with `model`, `version`
+# and `source` strings and `[[extra_files]]` with `path` and `source` strings; anything else is an
+# error.
 read_entries() {
     awk '
         function flush() {
             if (section == "images") {
-                if (model == "" || version == "") {
-                    printf "images.toml line %d: an [[images]] entry needs model and version\n", start > "/dev/stderr"
+                if (model == "" || version == "" || source == "") {
+                    printf "images.toml line %d: an [[images]] entry needs model, version and source\n", start > "/dev/stderr"
                     bad = 1
                 } else {
-                    print "image", model, version
+                    print "image", model, version, source
                 }
             } else if (section == "extra_files") {
-                if (path == "") {
-                    printf "images.toml line %d: an [[extra_files]] entry needs path\n", start > "/dev/stderr"
+                if (path == "" || source == "") {
+                    printf "images.toml line %d: an [[extra_files]] entry needs path and source\n", start > "/dev/stderr"
                     bad = 1
                 } else {
-                    print "file", path
+                    print "file", path, source
                 }
             }
         }
         function value() { split($0, part, "\""); return part[2] }
         /^[[:space:]]*(#.*)?$/ { next }
-        /^\[\[images\]\][[:space:]]*$/ { flush(); section = "images"; start = NR; model = ""; version = ""; next }
-        /^\[\[extra_files\]\][[:space:]]*$/ { flush(); section = "extra_files"; start = NR; path = ""; next }
+        /^\[\[images\]\][[:space:]]*$/ { flush(); section = "images"; start = NR; model = ""; version = ""; source = ""; next }
+        /^\[\[extra_files\]\][[:space:]]*$/ { flush(); section = "extra_files"; start = NR; path = ""; source = ""; next }
         section == "images" && /^model[[:space:]]*=[[:space:]]*"[^"]*"[[:space:]]*$/ { model = value(); next }
         section == "images" && /^version[[:space:]]*=[[:space:]]*"[^"]*"[[:space:]]*$/ { version = value(); next }
         section == "extra_files" && /^path[[:space:]]*=[[:space:]]*"[^"]*"[[:space:]]*$/ { path = value(); next }
+        section != "" && /^source[[:space:]]*=[[:space:]]*"[^"]*"[[:space:]]*$/ { source = value(); next }
         { printf "images.toml line %d: not understood: %s\n", NR, $0 > "/dev/stderr"; bad = 1 }
         END { flush(); exit bad }
     ' "${IMAGES_FILE}"
 }
 
 ENTRIES="$(read_entries)"
+# Whether $1 is a plain relative path under the images folder, with no `.` or `..`.
+relative_path() {
+    [[ "$1" =~ ^[A-Za-z0-9._+-]+(/[A-Za-z0-9._+-]+)*$ ]] && ! [[ "/$1/" =~ /\.\.?/ ]]
+}
+
 # Models, versions and paths go into commands run in the guest: hold models and versions to the
-# server's rules, and paths to plain relative names under the images folder, with no `.` or `..`.
-while read -r kind first second; do
+# server's rules, and paths to plain relative names under the images folder.
+while read -r kind first second third rest; do
     case "${kind}" in
         image)
             if ! [[ "${first}" =~ ^[a-z0-9_]+$ ]] || ! [[ "${second}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$ ]]; then
                 echo "images.toml: '${first}' '${second}' is not a valid model and version" >&2
                 exit 1
             fi
-            ;;
-        file)
-            if [ -n "${second}" ] || ! [[ "${first}" =~ ^[A-Za-z0-9._+-]+(/[A-Za-z0-9._+-]+)*$ ]] || [[ "/${first}/" =~ /\.\.?/ ]]; then
-                echo "images.toml: '${first}${second:+ ${second}}' is not a relative path under ${HOST_IMAGES}" >&2
+            if [ -n "${rest}" ] || ! relative_path "${third}"; then
+                echo "images.toml: source '${third}${rest:+ ${rest}}' of ${first} ${second} is not a relative path under ${HOST_IMAGES}" >&2
                 exit 1
             fi
             ;;
+        file)
+            for path in "${first}" "${second}"; do
+                if [ -n "${third}" ] || ! relative_path "${path}"; then
+                    echo "images.toml: '${first} ${second}${third:+ ${third}}' is not a path and a source under ${HOST_IMAGES}" >&2
+                    exit 1
+                fi
+            done
+            ;;
     esac
 done <<< "${ENTRIES}"
-IMAGES="$(awk '$1 == "image" { print $2, $3 }' <<< "${ENTRIES}")"
-EXTRA_FILES="$(awk '$1 == "file" { print $2 }' <<< "${ENTRIES}")"
+IMAGES="$(awk '$1 == "image" { print $2, $3, $4 }' <<< "${ENTRIES}")"
+EXTRA_FILES="$(awk '$1 == "file" { print $2, $3 }' <<< "${ENTRIES}")"
 
 LAB_ID="$(toml_string id "${LAB_INFO}")"
 ALIAS=""
@@ -151,7 +167,7 @@ imported=0
 copied=0
 skipped=0
 failed=()
-while read -r model version; do
+while read -r model version source; do
     [ -n "${model}" ] || continue
     name="${model} ${version}"
     if guest "${GUEST_SHERPA} server image show ${model} --version ${version}" > /dev/null 2>&1; then
@@ -159,7 +175,7 @@ while read -r model version; do
         skipped=$((skipped + 1))
         continue
     fi
-    src="${HOST_IMAGES}/${model}/${version}/${DISK_FILE}"
+    src="${HOST_IMAGES}/${source}"
     if [ ! -r "${src}" ]; then
         echo "==> ${name}: ${src} not found or not readable on the host" >&2
         failed+=("${name}")
@@ -188,9 +204,9 @@ guest_sha256() {
     guest "sudo sh -c 'test -f $1 && sha256sum $1'" | cut -d ' ' -f 1
 }
 
-while read -r path; do
+while read -r path source; do
     [ -n "${path}" ] || continue
-    src="${HOST_IMAGES}/${path}"
+    src="${HOST_IMAGES}/${source}"
     dest="${GUEST_IMAGES}/${path}"
     if [ ! -r "${src}" ]; then
         echo "==> ${path}: ${src} not found or not readable on the host" >&2

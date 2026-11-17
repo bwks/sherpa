@@ -128,17 +128,20 @@ mod tests {
             },
             topology::Node {
                 name: "container".into(),
-                model: data::NodeModel::GenericContainer,
+                model: data::NodeModel::Generic,
+                kind: Some(data::NodeKind::Container),
                 ..Default::default()
             },
             topology::Node {
                 name: "unikernel".into(),
-                model: data::NodeModel::GenericUnikernel,
+                model: data::NodeModel::Generic,
+                kind: Some(data::NodeKind::Unikernel),
                 ..Default::default()
             },
             topology::Node {
                 name: "unsupported-overlay".into(),
-                model: data::NodeModel::GenericContainer,
+                model: data::NodeModel::Generic,
+                kind: Some(data::NodeKind::Container),
                 boot_disk: data::NodeBootDisk {
                     clone_method: Some(data::DiskImageCloneMethod::Overlay),
                     ..Default::default()

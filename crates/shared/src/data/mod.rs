@@ -72,11 +72,12 @@ pub use import::{
 };
 pub use inspect::{BridgeInfo, DeviceInfo, InspectRequest, InspectResponse, LinkInfo};
 pub use interface::{
-    AristaCeosInt, AristaVeosInt, ArubaAoscxInt, CiscoAsavInt, CiscoCat8000vInt, CiscoCat9000vInt,
-    CiscoCsr1000vInt, CiscoFtdvInt, CiscoIolInt, CiscoIosvInt, CiscoIosvl2Int, CiscoIosxrv9000Int,
-    CiscoNexus9300vInt, ConnectionTypes, CumulusLinuxInt, EthernetInt, Interface, InterfaceTrait,
-    JuniperCevolvedInt, JuniperVevolvedInt, JuniperVrouterInt, JuniperVsrxv3Int, JuniperVswitchInt,
-    MgmtInterfaces, MikrotikChrInt, NokiaSrlinuxInt, PaloaltoPanosInt,
+    AristaEosContainerInt, AristaEosVmInt, ArubaAoscxInt, CiscoAsaInt, CiscoCat8000vInt,
+    CiscoCat9000vInt, CiscoCsr1000vInt, CiscoFtdInt, CiscoIolInt, CiscoIosvInt, CiscoIosvl2Int,
+    CiscoIosxrInt, CiscoNexus9300vInt, ConnectionTypes, CumulusLinuxInt, EthernetInt, Interface,
+    InterfaceTrait, JuniperEvolvedContainerInt, JuniperEvolvedVmInt, JuniperRouterInt,
+    JuniperSrxInt, JuniperSwitchInt, MgmtInterfaces, MikrotikChrInt, NokiaSrlinuxInt,
+    PaloaltoPanosInt,
 };
 pub use lab::{
     BridgeInterface, InterfaceData, InterfaceState, LabIdentity, LabInfo, LabIsolatedNetwork,
@@ -91,7 +92,7 @@ pub use network::{BridgeKind, LabSubnets, NetworkV4, NetworkV6, SherpaNetwork};
 pub use node::{
     BiosTypes, BootDiskSettings, CdromSettings, CpuArchitecture, CpuSettings, InterfaceSettings,
     InterfaceType, MachineSettings, MachineType, NodeConfig, NodeKind, NodeModel, NodeState,
-    OsVariant, UnikernelBootMode, UnikernelSettings, Ztp, ZtpSettings,
+    OsVariant, REMOVED_MODELS, UnikernelBootMode, UnikernelSettings, Ztp, ZtpSettings,
 };
 pub use node_lifecycle::{Halt, Observation, OperationEvent, Probe, Refused, Runtime};
 pub use performance::{

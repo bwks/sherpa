@@ -226,7 +226,7 @@ mod tests {
             secret("mongo_password", 444),
             secret("tls.key", 400)
         );
-        for model in ["mongo_db", "nats_bus", "arista_ceos"] {
+        for model in ["mongo_db", "nats_bus", "cisco_iol"] {
             validate_provisioners(&container(model, &files)).unwrap();
         }
     }
@@ -331,7 +331,7 @@ mod tests {
     fn other_nodes_are_rejected() {
         for model in [
             "cisco_iosv",
-            "arista_ceos",
+            "cisco_iol",
             "windows_server",
             "nanos_unikernel",
         ] {

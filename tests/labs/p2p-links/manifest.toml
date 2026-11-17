@@ -22,7 +22,8 @@ data_count = 1
 
 [[nodes]]
 name = "c1"
-model = "generic_container"
+model = "generic"
+kind = "container"
 image = "alpine"
 version = "3.22"
 
@@ -31,28 +32,31 @@ data_count = 2
 
 [[nodes]]
 name = "c2"
-model = "generic_container"
+model = "generic"
+kind = "container"
 image = "alpine"
 version = "3.22"
 
 [[nodes]]
 name = "veos1"
-model = "arista_veos"
+model = "arista_eos"
 version = "4.35.3F"
 
 [[nodes]]
 name = "veos2"
-model = "arista_veos"
+model = "arista_eos"
 version = "4.35.3F"
 
 [[nodes]]
 name = "ceos1"
-model = "arista_ceos"
+model = "arista_eos"
+kind = "container"
 version = "4.35.1F"
 
 [[nodes]]
 name = "ceos2"
-model = "arista_ceos"
+model = "arista_eos"
+kind = "container"
 version = "4.35.1F"
 
 # Linux endpoints, one link per pair. The manifest impairment is applied at `up` and must

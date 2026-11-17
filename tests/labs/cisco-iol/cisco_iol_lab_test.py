@@ -416,12 +416,13 @@ def preflight(run_root):
                             run_root)
         require(docker.code == 0, f"Docker has no {SIDECAR_IMAGE} image, or this user cannot use Docker; "
                 f"this test runs on the Sherpa server")
-        images = sorted({(node["model"], node["version"]) for node in manifest["nodes"]})
-        for model, version in images:
-            image = run_logged(log, f"{model} {version} image present",
-                               ["sherpa", "server", "image", "show", model, "--version", version],
-                               run_root)
-            require(image.code == 0, f"the server has no {model} {version} image; build the IOL "
+        images = sorted({(node["model"], node.get("kind", ""), node["version"]) for node in manifest["nodes"]})
+        for model, kind, version in images:
+            arguments = ["sherpa", "server", "image", "show", model, "--version", version]
+            if kind:
+                arguments += ["--kind", kind]
+            image = run_logged(log, f"{model} {kind} {version} image present", arguments, run_root)
+            require(image.code == 0, f"the server has no {model} {kind} {version} image; build the IOL "
                     f"images with docker-cisco-iol (see README.md)")
     return owner
 

@@ -40,9 +40,9 @@ CONTAINER = "ctr01"
 # The lab, as `render_manifest` writes it for each run under a unique name.
 NODES = (
     {"name": VM, "model": "alpine_linux"},
-    {"name": CONTAINER, "model": "generic_container", "image": "alpine", "version": "3.22"},
+    {"name": CONTAINER, "model": "generic", "kind": "container", "image": "alpine", "version": "3.22"},
 )
-IMAGES = (("alpine_linux", None), ("generic_container", "3.22"))
+IMAGES = (("alpine_linux", None, None), ("generic", "container", "3.22"))
 
 COMMAND_TIMEOUT = 180
 UP_TIMEOUT = 1200
@@ -341,8 +341,10 @@ def preflight(run_root):
         whoami = run_logged(log, "sherpa whoami", ["sherpa", "whoami"], run_root)
         require(whoami.code == 0, "the sherpa CLI is not logged in (run `sherpa login`)")
         require_device_password(log, run_root)
-        for model, version in IMAGES:
+        for model, kind, version in IMAGES:
             arguments = ["sherpa", "server", "image", "show", model]
+            if kind:
+                arguments += ["--kind", kind]
             if version:
                 arguments += ["--version", version]
             image = run_logged(log, f"{model} image present", arguments, run_root)

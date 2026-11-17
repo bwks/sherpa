@@ -10,7 +10,6 @@ pub enum ImageCommands {
     /// Show detailed information about an image
     Show {
         /// Model of the device image
-        #[arg(value_enum)]
         model: NodeModel,
         /// Kind of the image. Without it, the model's default kind
         #[arg(long, value_enum)]
@@ -23,7 +22,6 @@ pub enum ImageCommands {
     /// List all images
     List {
         /// Optional: List all images for a model
-        #[arg(value_enum)]
         model: Option<NodeModel>,
         /// Only images of this kind; without it, every kind
         #[arg(long, value_enum)]

@@ -6,7 +6,7 @@ use shared::data::{Dns, NetworkV4, NetworkV6, OwnerUser};
 
 #[derive(Template)]
 #[template(path = "cisco/cisco_asa.jinja", ext = "txt")]
-pub struct CiscoAsavZtpTemplate {
+pub struct CiscoAsaZtpTemplate {
     pub hostname: String,
     pub owner: OwnerUser,
     pub dns: Dns,

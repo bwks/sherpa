@@ -161,7 +161,7 @@ mod tests {
         let (db, lab) = lab_with(&[
             ("vm1", NodeModel::AlpineLinux),
             ("vm2", NodeModel::UbuntuLinux),
-            ("web", NodeModel::GenericContainer),
+            ("web", NodeModel::PostgresqlDb),
         ])
         .await;
         let nodes = db::list_nodes_by_lab(&db, lab.id.clone().unwrap())

@@ -6,9 +6,9 @@ config Sherpa mounts runs twice: with its image's setting (`volume`), and with
 
 | Node | Model | ZTP |
 |---|---|---|
-| `ceos01`, `ceos02` | `arista_ceos` 4.35.1F | image's, `disabled` |
+| `ceos01`, `ceos02` | `arista_eos` container 4.35.1F | image's, `disabled` |
 | `srl01`, `srl02` | `nokia_srlinux` 26.7.2 | image's, `disabled` |
-| `ptx01`, `ptx02` | `juniper_cevolved` 26.2R1.7 | image's, `disabled` |
+| `ptx01`, `ptx02` | `juniper_evolved` container 26.2R1.7 | image's, `disabled` |
 | `frr01`, `frr02` | `frr_linux` 10.5.2 | image's, `disabled` |
 | `nats01` | `nats_bus` 2.11 | none to set: an application container |
 
@@ -20,8 +20,8 @@ The lab has no links.
   for the lab owner, and FRR with ZTP off has no SSH server, so the runner reads each node's container state
   and mounts with `docker inspect`.
 - The node images above, pulled or imported with `sherpa server image pull` or
-  `sherpa server image import`. The run fails early if one is missing. `arista_ceos` and
-  `juniper_cevolved` are not in a public registry; on a server without them, run the other
+  `sherpa server image import`. The run fails early if one is missing. `arista_eos` and
+  `juniper_evolved` (both with `--kind container`) are not in a public registry; on a server without them, run the other
   models with `--models`.
 - The `sherpa` CLI logged in, with a device password set (`sherpa server user device-password`)
   and an SSH key registered, `ssh` and `ping`. The run stops early when the password is not set.

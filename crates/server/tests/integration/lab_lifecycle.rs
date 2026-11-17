@@ -6,7 +6,8 @@ use jato::{Auth, ConnectOptions, Exit, Hop, HostKeyPolicy, Node, Session};
 use reqwest::{Client, StatusCode};
 use serde_json::json;
 use shared::data::{
-    DbUser, LabNodeActionResponse, LabPhase, LabState, ModelKind, NodeConfig, NodeModel, NodeState,
+    DbUser, LabNodeActionResponse, LabPhase, LabState, ModelKind, NodeConfig, NodeKind, NodeModel,
+    NodeState,
 };
 use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
@@ -278,8 +279,10 @@ async fn a_container_that_exits_at_once_fails_its_node_not_the_lab() -> Result<(
     let token = ws.login_lab_admin(&server).await?;
     bootstrap_images(&mut ws, &token).await?;
 
-    // generic_container keeps the manifest's commands; alpine is in the dev server's Docker.
-    let mut alpine = ModelKind::default_for(NodeModel::GenericContainer).node_config();
+    // A generic container keeps the manifest's commands; alpine is in the dev server's Docker.
+    let mut alpine = ModelKind::new(NodeModel::Generic, Some(NodeKind::Container))
+        .unwrap()
+        .node_config();
     alpine.repo = Some("alpine".to_owned());
     alpine.version = "latest".to_owned();
     alpine.default = true;
@@ -289,8 +292,8 @@ async fn a_container_that_exits_at_once_fails_its_node_not_the_lab() -> Result<(
     let manifest = json!({
         "name": lab_name,
         "nodes": [
-            { "name": "dead1", "model": "generic_container", "commands": ["/bin/false"], "data_interface_count": 0 },
-            { "name": "live1", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+            { "name": "dead1", "model": "generic", "kind": "container", "commands": ["/bin/false"], "data_interface_count": 0 },
+            { "name": "live1", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0 },
         ]
     });
 
@@ -342,13 +345,15 @@ async fn a_container_that_exits_at_once_fails_its_node_not_the_lab() -> Result<(
     with_cleanup(checks, cleanup)
 }
 
-/// Register alpine as the default `generic_container` image, which keeps the manifest's commands.
+/// Register alpine as the default `generic` container image, which keeps the manifest's commands.
 async fn register_alpine(server: &TestServer) -> Result<()> {
     let alpine = NodeConfig {
         repo: Some("alpine".to_owned()),
         version: "latest".to_owned(),
         default: true,
-        ..ModelKind::default_for(NodeModel::GenericContainer).node_config()
+        ..ModelKind::new(NodeModel::Generic, Some(NodeKind::Container))
+            .unwrap()
+            .node_config()
     };
     db::upsert_node_image(&server.db, alpine, DefaultRequest::Keep).await?;
     Ok(())
@@ -370,8 +375,8 @@ async fn a_container_that_exits_a_moment_after_it_starts_fails_with_its_exit_cod
     let manifest = json!({
         "name": lab_name,
         "nodes": [
-            { "name": "late1", "model": "generic_container", "commands": ["sh", "-c", "echo password option is not specified; sleep 1; exit 3"], "data_interface_count": 0 },
-            { "name": "live1", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+            { "name": "late1", "model": "generic", "kind": "container", "commands": ["sh", "-c", "echo password option is not specified; sleep 1; exit 3"], "data_interface_count": 0 },
+            { "name": "live1", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0 },
         ]
     });
 
@@ -427,7 +432,7 @@ async fn inspect_reports_a_container_that_exited_after_up_as_docker_has_it() -> 
     let manifest = json!({
         "name": lab_name,
         "nodes": [
-            { "name": "live1", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+            { "name": "live1", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0 },
         ]
     });
     let docker = Docker::connect_with_local_defaults()?;
@@ -477,8 +482,10 @@ async fn admin_clean_removes_a_running_lab() -> Result<()> {
     let admin_token = ws.login_admin().await?;
     bootstrap_images(&mut ws, &token).await?;
 
-    // generic_container keeps the manifest's commands; alpine is in the dev server's Docker.
-    let mut alpine = ModelKind::default_for(NodeModel::GenericContainer).node_config();
+    // A generic container keeps the manifest's commands; alpine is in the dev server's Docker.
+    let mut alpine = ModelKind::new(NodeModel::Generic, Some(NodeKind::Container))
+        .unwrap()
+        .node_config();
     alpine.repo = Some("alpine".to_owned());
     alpine.version = "latest".to_owned();
     alpine.default = true;
@@ -488,7 +495,7 @@ async fn admin_clean_removes_a_running_lab() -> Result<()> {
     let manifest = json!({
         "name": lab_name,
         "nodes": [
-            { "name": "box1", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+            { "name": "box1", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0 },
         ]
     });
 
@@ -557,7 +564,7 @@ async fn an_official_docker_hub_image_pulled_by_its_full_name_brings_a_container
             "image.pull",
             json!({
                 "token": admin_token,
-                "model": "generic_container",
+                "model": "generic", "kind": "container",
                 "repo": repo,
                 "tag": "1.36",
                 "default": true,
@@ -574,7 +581,7 @@ async fn an_official_docker_hub_image_pulled_by_its_full_name_brings_a_container
     let manifest = json!({
         "name": lab_name,
         "nodes": [
-            { "name": "box1", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+            { "name": "box1", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0 },
         ]
     });
 
@@ -647,8 +654,10 @@ async fn a_redeploy_that_fails_after_teardown_fails_its_node() -> Result<()> {
     let token = ws.login_lab_admin(&server).await?;
     bootstrap_images(&mut ws, &token).await?;
 
-    // generic_container keeps the manifest's commands; alpine is in the dev server's Docker.
-    let mut alpine = ModelKind::default_for(NodeModel::GenericContainer).node_config();
+    // A generic container keeps the manifest's commands; alpine is in the dev server's Docker.
+    let mut alpine = ModelKind::new(NodeModel::Generic, Some(NodeKind::Container))
+        .unwrap()
+        .node_config();
     alpine.repo = Some("alpine".to_owned());
     alpine.version = "latest".to_owned();
     alpine.default = true;
@@ -658,14 +667,14 @@ async fn a_redeploy_that_fails_after_teardown_fails_its_node() -> Result<()> {
     let manifest = json!({
         "name": lab_name,
         "nodes": [
-            { "name": "box1", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+            { "name": "box1", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0 },
         ]
     });
     // Docker creates the container, then cannot start it: the node is already torn down.
     let broken = json!({
         "name": lab_name,
         "nodes": [
-            { "name": "box1", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0, "user": "nosuchuser" },
+            { "name": "box1", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0, "user": "nosuchuser" },
         ]
     });
 
@@ -907,8 +916,10 @@ async fn the_scanner_records_what_docker_reports_but_not_over_up() -> Result<()>
     let token = ws.login_lab_admin(&server).await?;
     bootstrap_images(&mut ws, &token).await?;
 
-    // generic_container keeps the manifest's commands; alpine is in the dev server's Docker.
-    let mut alpine = ModelKind::default_for(NodeModel::GenericContainer).node_config();
+    // A generic container keeps the manifest's commands; alpine is in the dev server's Docker.
+    let mut alpine = ModelKind::new(NodeModel::Generic, Some(NodeKind::Container))
+        .unwrap()
+        .node_config();
     alpine.repo = Some("alpine".to_owned());
     alpine.version = "latest".to_owned();
     alpine.default = true;
@@ -918,8 +929,8 @@ async fn the_scanner_records_what_docker_reports_but_not_over_up() -> Result<()>
     let manifest = json!({
         "name": lab_name,
         "nodes": [
-            { "name": "live1", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0 },
-            { "name": "live2", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+            { "name": "live1", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+            { "name": "live2", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0 },
         ]
     });
     let docker = Docker::connect_with_local_defaults()?;
@@ -1169,10 +1180,12 @@ async fn test_container_lab_destroy() -> Result<()> {
     with_cleanup(checks, cleanup)
 }
 
-/// Add the alpine `generic_container` image, which keeps the manifest's commands, and return a
+/// Add the alpine `generic` container image, which keeps the manifest's commands, and return a
 /// one-node manifest for lab `lab_name` that sleeps.
 async fn sleeping_container_lab(server: &TestServer, lab_name: &str) -> Result<serde_json::Value> {
-    let mut alpine = ModelKind::default_for(NodeModel::GenericContainer).node_config();
+    let mut alpine = ModelKind::new(NodeModel::Generic, Some(NodeKind::Container))
+        .unwrap()
+        .node_config();
     alpine.repo = Some("alpine".to_owned());
     "latest".clone_into(&mut alpine.version);
     alpine.default = true;
@@ -1180,7 +1193,7 @@ async fn sleeping_container_lab(server: &TestServer, lab_name: &str) -> Result<s
     Ok(json!({
         "name": lab_name,
         "nodes": [
-            { "name": "box1", "model": "generic_container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+            { "name": "box1", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0 },
         ]
     }))
 }

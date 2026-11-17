@@ -15,7 +15,8 @@ version = "17.18.02"
 
 [[nodes]]
 name = "linux01"
-model = "generic_container"
+model = "generic"
+kind = "container"
 image = "alpine"
 version = "3.22"
 

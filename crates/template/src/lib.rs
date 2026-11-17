@@ -4,7 +4,7 @@
 mod arista_eos;
 mod aruba_aos;
 mod cisco_asa;
-mod cisco_ftdv;
+mod cisco_ftd;
 mod cisco_ios;
 mod cisco_iosxe;
 mod cisco_iosxr;
@@ -28,10 +28,10 @@ mod ssh;
 mod talos;
 mod vault;
 
-pub use arista_eos::{AristaCeosZtpTemplate, AristaVeosZtpTemplate};
+pub use arista_eos::{AristaEosContainerZtpTemplate, AristaEosVmZtpTemplate};
 pub use aruba_aos::ArubaAoscxTemplate;
-pub use cisco_asa::CiscoAsavZtpTemplate;
-pub use cisco_ftdv::{CiscoFtdvZtpTemplate, CiscoFxosIpMode, YesNo};
+pub use cisco_asa::CiscoAsaZtpTemplate;
+pub use cisco_ftd::{CiscoFtdZtpTemplate, CiscoFxosIpMode, YesNo};
 pub use cisco_ios::{CiscoIolZtpTemplate, CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate};
 pub use cisco_iosxe::CiscoIosXeZtpTemplate;
 pub use cisco_iosxr::CiscoIosxrZtpTemplate;

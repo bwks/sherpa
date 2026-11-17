@@ -221,6 +221,35 @@ every start and calls `restrict_dir` on:
 - A failure is logged, not fatal. `sherpad init` does not create these directories, and only the
   install and update scripts, as root, set their owner and modes besides `sherpad`.
 
+### Image folders of renamed models
+
+A VM or unikernel image is `<images_dir>/<model>/<version>/<file>`, so the model renames of 0.7.0
+rename folders. `daemon::image_folders::move_renamed_model_folders` runs on every start, after
+`secure_storage` and before the server takes requests, for each old name in
+`shared::data::REMOVED_MODELS`:
+
+- **A folder at the old name** is renamed to the new one. When the new folder exists, because two
+  old models became one (`generic_vm` and `generic_unikernel` into `generic`, or the empty
+  `arista_ceos` folder into `arista_eos`), its entries are moved in one by one, version folders
+  merged the same way. An entry the new folder already has is left in the old folder and logged,
+  never replaced; the old folder is removed only once it is empty. Only `std::fs` renames, and
+  `remove_dir` of an empty folder: no image file is deleted.
+- **A link at the old name.** A VM overlay records its base by path, and libvirt and QEMU open the
+  base by that path at the next start, so an overlay made before the move still names
+  `arista_veos/4.33/virtioa.qcow2`. While a disk in the storage pool has a base under the old
+  path, the old path is a relative symlink to the new folder (`arista_veos -> arista_eos`).
+  `libvirt::overlay_backing_files` reads every QCOW2 disk in the pool for its backing path, as
+  written, without resolving it. A later start removes the link once no disk names it, that is
+  once the last node built on it is redeployed or destroyed. When the pool cannot be read, every
+  link is kept and every moved folder gets one.
+- Unikernel kernels and disks, the Aboot ISO and other CD-ROMs are copied into the storage pool
+  when a node is built, so only overlays keep an old path.
+- A failure to read, move or link a folder stops the start, naming the folder.
+
+The link is state on disk for old labs, not a name anything takes: an old name is refused in a
+manifest, the CLI and the API, and the image scan skips the folder because its name is not a
+model.
+
 ### Config, env and log file permissions
 
 `sherpa.toml` and the env files can hold secrets: the removed `[ztp_server]` password a file
@@ -1175,6 +1204,33 @@ flowchart LR
 
 Admin-only image mutations are enforced at the transport boundary. Image list/show require authentication but not admin privileges. Long-running import/pull/download paths use `ProgressSender` so REST, WebSocket, and UI callers can receive progress without service-specific transport code.
 
+#### Image routes name the model and its kind
+
+Images are keyed by model, kind and version, so every route that names one image names all
+three; there is no path without the kind and no alias for the paths of 0.6.
+
+| Route | Handler |
+|---|---|
+| `GET /api/v1/images/{model}/{kind}` (`?version=`, else the default version) | `images_api::show_image_json` |
+| `DELETE /api/v1/images/{model}/{kind}/{version}` | `images_api::delete_image_json` |
+| `POST /api/v1/images/{model}/{kind}/{version}/default` | `images_api::set_default_image_json` |
+| `GET /admin/images/{model}/{kind}[/{version}]` | `images_web::admin_image_detail_handler` |
+| `GET/POST /admin/images/{model}/{kind}[/{version}]/edit` | `images_web::admin_image_edit_page_handler`, `admin_image_update_handler` |
+| `GET /admin/images/{model}/{kind}/versions` | `images_web::admin_image_versions_handler` |
+
+`images_api::path_model_kind` reads the two segments for all of them: an unknown model (an old
+0.6 name gets `NodeModel::from_str`'s message naming its replacement), an unknown kind, or a
+kind the model does not take (`ModelKind::new`) is a 400. The bodies of `import`, `pull` and
+`download` and the `upload` multipart form carry an optional `kind`; absent, or empty in the
+form, it is the model's default kind, and `generic`, which has none, is refused without one.
+
+`/admin/images` lists one row per model and kind that has an image, showing its default
+version. The upload page and the lab create page get each model as a `templates::ModelChoice`
+(its kinds and its default kind as data attributes) and every kind from `kind_choices`; their
+scripts (`model-filter.js`, `lab-create.js`) offer only the chosen model's kinds, set to its
+default. The lab create page shows the kind only for a model with more than one, and writes
+`kind` into the manifest only when it is not the model's default, so always for `generic`.
+
 #### Container image reference
 
 A container node runs one image reference from pull to create, `container::image_reference(repo,
@@ -1202,7 +1258,7 @@ tag)`, which is `{repo}:{tag}` with the repo kept as written:
 `container_scan::plan_container_scan`, which is pure, decides which repos to ask Docker for:
 
 - With no target, each container model with a built-in repo, and the models with none
-  (`generic_container`, `mysql_db`, `postgresql_db`) come back as `SkippedModel`s, which the
+  (`generic`, `mysql_db`, `postgresql_db`) come back as `SkippedModel`s, which the
   response lists so the CLI can say why they were not matched.
 - With a target, the request's `model` and `repo`, only that repo, as versions of that model,
   and the disk scan is not run. `validate::validate_image_scan` checks the pair first: both or
@@ -1530,7 +1586,7 @@ hypervisor, by `services::node_resources`:
 
 - `planned_resources`: VMs and unikernels get the manifest's `cpu.count` and `memory`, else the
   image's. Containers get the manifest's, which become their Docker limits, and nothing for
-  what it leaves out; `juniper_cevolved` gets its EVO VM's memory plus its container overhead,
+  what it leaves out; a `juniper_evolved` container gets its EVO VM's memory plus its container overhead,
   and no CPU count, and `cisco_iol` and `cisco_ioll2` get IOL's memory plus the launcher's
   overhead (see `NODE_SETTINGS.md`). `up` (`readiness.rs`) and redeploy
   (`redeploy/container.rs`) create the container with the stored values, so Docker and the

@@ -674,7 +674,7 @@ mod tests {
 
         let mut manifest = test_manifest(vec![topology::Node {
             name: "r01".to_string(),
-            model: NodeModel::AristaVeos,
+            model: NodeModel::AristaEos,
             ztp: NodeZtp {
                 method: None,
                 config: Some("my_config.txt".to_string()),

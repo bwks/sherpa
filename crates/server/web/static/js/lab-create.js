@@ -89,11 +89,22 @@
     for (var i = 0; i < nodeRows.length; i++) {
       var row = nodeRows[i];
       var nodeName = row.querySelector('[data-field="node-name"]').value.trim();
-      var nodeModel = row.querySelector('[data-field="node-model"]').value;
+      var modelSelect = row.querySelector('[data-field="node-model"]');
+      var nodeModel = modelSelect.value;
       if (!nodeName || !nodeModel) return null;
+      // The kind is written only when it is not the model's default; a model with no
+      // default kind (generic) always writes it.
+      var defaultKind = modelSelect.selectedOptions[0].getAttribute(
+        "data-default-kind",
+      );
+      var kind = row.querySelector('[data-field="node-kind"]').value;
+      if (!kind) return null;
       lines.push("[[nodes]]");
       lines.push('name = "' + escapeTomlString(nodeName) + '"');
       lines.push('model = "' + escapeTomlString(nodeModel) + '"');
+      if (kind !== defaultKind) {
+        lines.push('kind = "' + escapeTomlString(kind) + '"');
+      }
       lines.push("");
     }
 
@@ -135,6 +146,31 @@
     }
 
     return lines.join("\n");
+  }
+
+  // ── node kind ───────────────────────────────────────────────────────────
+  // Offer the kinds the row's model takes, set to its default kind; a model with no default
+  // kind (generic) leaves the choice empty. The choice shows only for a model with more than
+  // one kind.
+  function offerKinds(row) {
+    var modelSelect = row.querySelector('[data-field="node-model"]');
+    var kindSelect = row.querySelector('[data-field="node-kind"]');
+    var kindField = row.querySelector("[data-kind-field]");
+    var option = modelSelect.selectedOptions[0];
+    var kinds = modelSelect.value
+      ? option.getAttribute("data-kinds").split(",")
+      : [];
+    for (var i = 0; i < kindSelect.options.length; i++) {
+      var kindOption = kindSelect.options[i];
+      if (kindOption.value === "") continue;
+      var taken = kinds.indexOf(kindOption.value) !== -1;
+      kindOption.hidden = !taken;
+      kindOption.disabled = !taken;
+    }
+    kindSelect.value = modelSelect.value
+      ? option.getAttribute("data-default-kind")
+      : "";
+    kindField.classList.toggle("hidden", kinds.length < 2);
   }
 
   // ── file upload handling ────────────────────────────────────────────────
@@ -194,6 +230,13 @@
       }
     });
 
+    // Model choice (delegated): offer the row's kinds
+    document.addEventListener("change", function (e) {
+      if (e.target.matches('[data-field="node-model"]')) {
+        offerKinds(e.target.closest("#nodes-list > div"));
+      }
+    });
+
     var fileInput = document.getElementById("toml-file");
     if (fileInput) {
       fileInput.addEventListener("change", function () {
@@ -213,7 +256,7 @@
           if (!toml) {
             e.preventDefault();
             alert(
-              "Please fill in all required fields: lab name, at least one node with name and model.",
+              "Please fill in all required fields: lab name, at least one node with name and model, and the kind of each generic node.",
             );
             return;
           }

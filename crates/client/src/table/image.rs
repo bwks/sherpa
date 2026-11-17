@@ -213,7 +213,7 @@ mod tests {
                 status: "imported".to_string(),
             },
             ScannedImage {
-                model: NodeModel::AristaVeos,
+                model: NodeModel::AristaEos,
                 version: "4.33".to_string(),
                 kind: NodeKind::VirtualMachine,
                 status: "already present".to_string(),
@@ -227,7 +227,7 @@ mod tests {
 ├────────────────┼───────────┼─────────────────┼─────────────────┤
 │ cisco_cat8000v │ 17.13.01a │ virtual_machine │ imported        │
 ├────────────────┼───────────┼─────────────────┼─────────────────┤
-│ arista_veos    │ 4.33      │ virtual_machine │ already present │
+│ arista_eos     │ 4.33      │ virtual_machine │ already present │
 └────────────────┴───────────┴─────────────────┴─────────────────┘";
         assert_eq!(render_scanned_images_table(&scanned), expected);
     }
@@ -240,20 +240,20 @@ mod tests {
                 reason: "no built-in repo".to_string(),
             },
             SkippedModel {
-                model: NodeModel::GenericContainer,
+                model: NodeModel::Generic,
                 reason: "no built-in repo".to_string(),
             },
         ];
         let expected = "\
-┌──────────────────────────────────────┐
-│            Skipped Models            │
-├───────────────────┬──────────────────┤
-│ Model             │ Reason           │
-├───────────────────┼──────────────────┤
-│ mysql_db          │ no built-in repo │
-├───────────────────┼──────────────────┤
-│ generic_container │ no built-in repo │
-└───────────────────┴──────────────────┘";
+┌─────────────────────────────┐
+│       Skipped Models        │
+├──────────┬──────────────────┤
+│ Model    │ Reason           │
+├──────────┼──────────────────┤
+│ mysql_db │ no built-in repo │
+├──────────┼──────────────────┤
+│ generic  │ no built-in repo │
+└──────────┴──────────────────┘";
         assert_eq!(render_skipped_models_table(&skipped), expected);
     }
 

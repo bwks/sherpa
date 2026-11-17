@@ -10,7 +10,7 @@ async fn test_update_node_image_success() -> Result<()> {
     let db = setup_db().await?;
 
     // Create a config
-    let test_config = create_test_config(NodeModel::AristaVeos);
+    let test_config = create_test_config(NodeModel::AristaEos);
     let created = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
     let original_id = created.id.clone();
 
@@ -31,7 +31,7 @@ async fn test_update_node_image_success() -> Result<()> {
         "Interface count should be updated"
     );
     assert_eq!(result.id, original_id, "ID should remain unchanged");
-    assert_eq!(result.model, NodeModel::AristaVeos, "Model unchanged");
+    assert_eq!(result.model, NodeModel::AristaEos, "Model unchanged");
 
     Ok(())
 }
@@ -41,7 +41,7 @@ async fn test_update_node_image_without_id_fails() -> Result<()> {
     let db = setup_db().await?;
 
     // Create a config without an ID
-    let mut test_config = create_test_config(NodeModel::CiscoAsav);
+    let mut test_config = create_test_config(NodeModel::CiscoAsa);
     test_config.id = None; // Explicitly remove ID
 
     // Attempt to update should fail
@@ -62,7 +62,7 @@ async fn test_update_nonexistent_config_fails() -> Result<()> {
     let db = setup_db().await?;
 
     // Create a config with a fake/nonexistent ID
-    let mut test_config = create_test_config(NodeModel::JuniperVrouter);
+    let mut test_config = create_test_config(NodeModel::JuniperRouter);
     test_config.id = Some(RecordId::new("node_image", "nonexistent_id_12345"));
 
     // Attempt to update should fail
@@ -128,7 +128,7 @@ async fn test_update_refuses_a_ztp_method_the_model_does_not_take() -> Result<()
     let db = setup_db().await?;
     let created = upsert_node_image(
         &db,
-        create_test_config(NodeModel::AristaVeos),
+        create_test_config(NodeModel::AristaEos),
         DefaultRequest::Keep,
     )
     .await?;
@@ -158,7 +158,7 @@ async fn test_update_stores_a_ztp_setting_the_model_takes() -> Result<()> {
     let db = setup_db().await?;
     let created = upsert_node_image(
         &db,
-        create_test_config(NodeModel::AristaVeos),
+        create_test_config(NodeModel::AristaEos),
         DefaultRequest::Keep,
     )
     .await?;

@@ -169,7 +169,7 @@ pub fn validate_container_repo(
         format!(
             "Container node '{node_name}' (model: {model}) has no image repo configured: set \
              `image` on the node in the manifest, or pull the image with `sherpa server image \
-             pull --model {model} --repo <image>:{version}`"
+             pull --model {model} --kind container --repo <image>:{version}`"
         )
     })
 }
@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_validate_version_in_db_found() {
-        let model = NodeModel::AristaVeos;
+        let model = NodeModel::AristaEos;
         let configs = vec![
             create_test_node_image(model, "4.28.0F", NodeKind::VirtualMachine),
             create_test_node_image(model, "4.29.2F", NodeKind::VirtualMachine),
@@ -267,7 +267,7 @@ mod tests {
 
     #[test]
     fn test_validate_version_in_db_not_found() {
-        let model = NodeModel::AristaVeos;
+        let model = NodeModel::AristaEos;
         let configs = vec![
             create_test_node_image(model, "4.28.0F", NodeKind::VirtualMachine),
             create_test_node_image(model, "4.29.2F", NodeKind::VirtualMachine),
@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn test_validate_version_in_db_no_configs() {
-        let model = NodeModel::AristaVeos;
+        let model = NodeModel::AristaEos;
         let configs = vec![];
 
         let result = validate_version_in_db(ModelKind::default_for(model), "4.28.0F", &configs);
@@ -296,12 +296,15 @@ mod tests {
     #[test]
     fn test_validate_container_repo_without_a_repo_names_both_fixes() {
         let error =
-            validate_container_repo("test-node", NodeModel::AristaCeos, "1.0.0", None).unwrap_err();
+            validate_container_repo("test-node", NodeModel::AristaEos, "1.0.0", None).unwrap_err();
 
         let message = error.to_string();
         assert!(message.contains("no image repo configured"), "{message}");
         assert!(message.contains("`image`"), "{message}");
-        assert!(message.contains("--repo <image>:1.0.0"), "{message}");
+        assert!(
+            message.contains("--model arista_eos --kind container --repo <image>:1.0.0"),
+            "{message}"
+        );
     }
 
     // ============================================================================
@@ -312,7 +315,7 @@ mod tests {
     fn test_validate_disk_image_vm_not_found() {
         let result = validate_disk_image(
             "vm1",
-            NodeModel::AristaVeos,
+            NodeModel::AristaEos,
             "4.28.0F",
             "/tmp/nonexistent_sherpa_images",
             NodeKind::VirtualMachine,
@@ -387,11 +390,19 @@ mod tests {
         }
     }
 
+    /// A container node of `model`, which may also take another kind.
+    fn create_test_container(name: &str, model: NodeModel, version: Option<&str>) -> Node {
+        Node {
+            kind: Some(NodeKind::Container),
+            ..create_test_node(name, model, version)
+        }
+    }
+
     #[test]
     fn test_resolve_version_from_node_image_when_not_set() {
-        let nodes = vec![create_test_node("ceos1", NodeModel::AristaCeos, None)];
+        let nodes = vec![create_test_container("ceos1", NodeModel::AristaEos, None)];
         let mut config =
-            create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+            create_test_node_image(NodeModel::AristaEos, "4.32.0F", NodeKind::Container);
         config.default = true;
 
         let result = validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images");
@@ -403,16 +414,16 @@ mod tests {
 
     #[test]
     fn test_resolve_explicit_version_takes_precedence() {
-        let nodes = vec![create_test_node(
+        let nodes = vec![create_test_container(
             "ceos1",
-            NodeModel::AristaCeos,
+            NodeModel::AristaEos,
             Some("4.31.0F"),
         )];
         let mut default_config =
-            create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+            create_test_node_image(NodeModel::AristaEos, "4.32.0F", NodeKind::Container);
         default_config.default = true;
         let explicit_config =
-            create_test_node_image(NodeModel::AristaCeos, "4.31.0F", NodeKind::Container);
+            create_test_node_image(NodeModel::AristaEos, "4.31.0F", NodeKind::Container);
 
         let result = validate_and_resolve_node_versions(
             &nodes,
@@ -427,11 +438,11 @@ mod tests {
 
     #[test]
     fn test_resolve_prefers_default_node_image() {
-        let nodes = vec![create_test_node("ceos1", NodeModel::AristaCeos, None)];
+        let nodes = vec![create_test_container("ceos1", NodeModel::AristaEos, None)];
         let non_default =
-            create_test_node_image(NodeModel::AristaCeos, "4.30.0F", NodeKind::Container);
+            create_test_node_image(NodeModel::AristaEos, "4.30.0F", NodeKind::Container);
         let mut default =
-            create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+            create_test_node_image(NodeModel::AristaEos, "4.32.0F", NodeKind::Container);
         default.default = true;
 
         let result =
@@ -444,9 +455,9 @@ mod tests {
 
     #[test]
     fn test_resolve_no_config_for_model_fails() {
-        let nodes = vec![create_test_node("vm1", NodeModel::AristaVeos, None)];
-        // Provide configs for a different model
-        let config = create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+        let nodes = vec![create_test_node("vm1", NodeModel::AristaEos, None)];
+        // Provide only an image of the model's other kind
+        let config = create_test_node_image(NodeModel::AristaEos, "4.32.0F", NodeKind::Container);
 
         let result = validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images");
 
@@ -458,12 +469,12 @@ mod tests {
 
     #[test]
     fn test_resolve_version_not_in_db_fails() {
-        let nodes = vec![create_test_node(
+        let nodes = vec![create_test_container(
             "ceos1",
-            NodeModel::AristaCeos,
+            NodeModel::AristaEos,
             Some("9.99.0F"),
         )];
-        let config = create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+        let config = create_test_node_image(NodeModel::AristaEos, "4.32.0F", NodeKind::Container);
 
         let result = validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images");
 
@@ -475,13 +486,13 @@ mod tests {
     #[test]
     fn test_resolve_multiple_nodes_mixed_types() {
         let nodes = vec![
-            create_test_node("ceos1", NodeModel::AristaCeos, None),
-            create_test_node("ceos2", NodeModel::AristaCeos, Some("4.31.0F")),
+            create_test_container("ceos1", NodeModel::AristaEos, None),
+            create_test_container("ceos2", NodeModel::AristaEos, Some("4.31.0F")),
         ];
         let mut default =
-            create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+            create_test_node_image(NodeModel::AristaEos, "4.32.0F", NodeKind::Container);
         default.default = true;
-        let other = create_test_node_image(NodeModel::AristaCeos, "4.31.0F", NodeKind::Container);
+        let other = create_test_node_image(NodeModel::AristaEos, "4.31.0F", NodeKind::Container);
 
         let result = validate_and_resolve_node_versions(&nodes, &[default, other], "/tmp/images");
 
@@ -492,8 +503,7 @@ mod tests {
     }
 
     fn generic_image(version: &str, repo: Option<&str>, default: bool) -> NodeConfig {
-        let mut config =
-            create_test_node_image(NodeModel::GenericContainer, version, NodeKind::Container);
+        let mut config = create_test_node_image(NodeModel::Generic, version, NodeKind::Container);
         config.repo = repo.map(str::to_string);
         config.default = default;
         config
@@ -501,7 +511,7 @@ mod tests {
 
     #[test]
     fn test_resolve_container_without_built_in_repo_uses_manifest_image() {
-        let mut node = create_test_node("host1", NodeModel::GenericContainer, Some("24.04"));
+        let mut node = create_test_container("host1", NodeModel::Generic, Some("24.04"));
         node.image = Some("ubuntu".to_string());
         let images = [
             generic_image("3.22", None, true),
@@ -516,9 +526,9 @@ mod tests {
     #[test]
     fn test_resolve_container_without_built_in_repo_uses_repo_pulled_for_its_version() {
         // The model's default image is another repo; the node's version decides.
-        let nodes = [create_test_node(
+        let nodes = [create_test_container(
             "host1",
-            NodeModel::GenericContainer,
+            NodeModel::Generic,
             Some("24.04"),
         )];
         let images = [
@@ -548,13 +558,13 @@ mod tests {
 
     #[test]
     fn test_resolve_container_sets_the_image_it_validated() {
-        let nodes = [create_test_node(
+        let nodes = [create_test_container(
             "ceos1",
-            NodeModel::AristaCeos,
+            NodeModel::AristaEos,
             Some("4.32.0F"),
         )];
         let mut config =
-            create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+            create_test_node_image(NodeModel::AristaEos, "4.32.0F", NodeKind::Container);
         config.default = true;
 
         let resolved =
@@ -615,22 +625,22 @@ mod tests {
 
     #[test]
     fn test_resolve_takes_the_image_of_the_nodes_kind_only() {
-        // A model has one kind today; an image row of another kind is not the node's.
-        let nodes = vec![create_test_node("ceos1", NodeModel::AristaCeos, None)];
+        // arista_eos takes two kinds; an image row of the other kind is not the node's.
+        let nodes = vec![create_test_container("ceos1", NodeModel::AristaEos, None)];
         let mut other_kind =
-            create_test_node_image(NodeModel::AristaCeos, "9.9.9", NodeKind::VirtualMachine);
+            create_test_node_image(NodeModel::AristaEos, "9.9.9", NodeKind::VirtualMachine);
         other_kind.default = true;
         let mut own_kind =
-            create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+            create_test_node_image(NodeModel::AristaEos, "4.32.0F", NodeKind::Container);
         own_kind.default = true;
         let resolved =
             validate_and_resolve_node_versions(&nodes, &[other_kind.clone(), own_kind], "/tmp")
                 .unwrap();
         assert_eq!(resolved[0].version.as_deref(), Some("4.32.0F"));
 
-        let nodes = vec![create_test_node(
+        let nodes = vec![create_test_container(
             "ceos1",
-            NodeModel::AristaCeos,
+            NodeModel::AristaEos,
             Some("9.9.9"),
         )];
         let error = validate_and_resolve_node_versions(&nodes, &[other_kind], "/tmp")
@@ -641,10 +651,9 @@ mod tests {
 
     #[test]
     fn test_resolve_refuses_a_kind_the_model_does_not_take() {
-        let mut node = create_test_node("ceos1", NodeModel::AristaCeos, None);
+        let mut node = create_test_node("iol1", NodeModel::CiscoIol, None);
         node.kind = Some(NodeKind::VirtualMachine);
-        let mut config =
-            create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+        let mut config = create_test_node_image(NodeModel::CiscoIol, "17.12", NodeKind::Container);
         config.default = true;
         let error = validate_and_resolve_node_versions(&[node], &[config], "/tmp").unwrap_err();
         assert!(

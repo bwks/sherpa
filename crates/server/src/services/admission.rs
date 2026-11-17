@@ -1029,7 +1029,9 @@ mod tests {
         let conn = Qemu::default().connect().unwrap();
         let docker = docker_connection().unwrap();
         let settings = HostMemorySettings::default();
-        let image = ModelKind::default_for(NodeModel::GenericContainer).node_config();
+        let image = ModelKind::new(NodeModel::Generic, Some(NodeKind::Container))
+            .unwrap()
+            .node_config();
         let left = guest_memory_left(&conn, &docker, settings).await;
         let count = left / u64::from(u16::MAX) + 1;
         let nodes: Vec<topology::NodeExpanded> = (0..count)

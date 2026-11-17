@@ -1,7 +1,7 @@
 use shared::data::{
     ClusterCni, CpuMode, CpuTopology, DbLab, DiskCache, DiskImageCloneMethod, DiskIo, LabPhase,
-    ModelKind, NodeBootDisk, NodeCpu, NodeInterfaces, NodeModel, NodeNuma, NumaMemoryMode,
-    PtxPlatform, RecordId, WatchdogAction, Ztp, ZtpServer,
+    ModelKind, NodeBootDisk, NodeCpu, NodeInterfaces, NodeKind, NodeModel, NodeNuma,
+    NumaMemoryMode, PtxPlatform, RecordId, WatchdogAction, Ztp, ZtpServer,
 };
 use topology::{
     AuthorizedKeyFile, BinaryFile, Bridge, ContainerProvisioner, ContainerSecretFile, Link2,
@@ -186,7 +186,8 @@ fn full_manifest() -> Manifest {
             full_node(),
             Node {
                 name: "web".to_owned(),
-                model: NodeModel::GenericContainer,
+                model: NodeModel::Generic,
+                kind: Some(NodeKind::Container),
                 ..Node::default()
             },
         ],
@@ -266,7 +267,7 @@ fn assert_every_node_field_set(node: &Node) {
     let Node {
         name: _,
         model: _,
-        // The image's kind, held only when it is not the model's default: every model has one.
+        // The image's kind, held only when it is not the model's default, which `generic` lacks.
         kind: _,
         image,
         version,
@@ -403,20 +404,19 @@ async fn lab_in(db: &Database) -> DbLab {
     .await
     .unwrap();
     let lab_id = lab.id.clone().unwrap();
-    for (index, (name, model)) in [
-        ("dev01", NodeModel::UbuntuLinux),
-        ("web", NodeModel::GenericContainer),
+    for (index, (name, model_kind)) in [
+        ("dev01", ModelKind::default_for(NodeModel::UbuntuLinux)),
+        (
+            "web",
+            ModelKind::new(NodeModel::Generic, Some(NodeKind::Container)).unwrap(),
+        ),
     ]
     .into_iter()
     .enumerate()
     {
-        let image = upsert_node_image(
-            &db,
-            ModelKind::default_for(model).node_config(),
-            DefaultRequest::Keep,
-        )
-        .await
-        .unwrap();
+        let image = upsert_node_image(&db, model_kind.node_config(), DefaultRequest::Keep)
+            .await
+            .unwrap();
         create_node(
             &db,
             name,
@@ -490,7 +490,8 @@ async fn a_minimal_manifest_reads_back_with_nothing_added() {
             },
             Node {
                 name: "web".to_owned(),
-                model: NodeModel::GenericContainer,
+                model: NodeModel::Generic,
+                kind: Some(NodeKind::Container),
                 ..Node::default()
             },
         ],

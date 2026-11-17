@@ -53,17 +53,20 @@ mod tests {
             },
             topology::Node {
                 name: "container".into(),
-                model: data::NodeModel::GenericContainer,
+                model: data::NodeModel::Generic,
+                kind: Some(data::NodeKind::Container),
                 ..Default::default()
             },
             topology::Node {
                 name: "unikernel".into(),
-                model: data::NodeModel::GenericUnikernel,
+                model: data::NodeModel::Generic,
+                kind: Some(data::NodeKind::Unikernel),
                 ..Default::default()
             },
             topology::Node {
                 name: "unsupported-overlay".into(),
-                model: data::NodeModel::GenericContainer,
+                model: data::NodeModel::Generic,
+                kind: Some(data::NodeKind::Container),
                 boot_disk: data::NodeBootDisk {
                     clone_method: Some(data::DiskImageCloneMethod::Overlay),
                     ..Default::default()
@@ -127,7 +130,7 @@ mod tests {
     fn test_process_manifest_nodes_preserves_fields() {
         let nodes = vec![topology::Node {
             name: "router01".to_string(),
-            model: NodeModel::AristaVeos,
+            model: NodeModel::AristaEos,
             version: Some("4.28.0".to_string()),
             memory: Some(4096),
             cpu: data::NodeCpu {
@@ -150,7 +153,7 @@ mod tests {
 
         assert_eq!(
             expanded[0].model_kind,
-            ModelKind::default_for(NodeModel::AristaVeos)
+            ModelKind::default_for(NodeModel::AristaEos)
         );
         assert_eq!(expanded[0].version, Some("4.28.0".to_string()));
         assert_eq!(expanded[0].memory, Some(4096));

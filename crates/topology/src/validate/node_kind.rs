@@ -15,12 +15,21 @@ const VM_AND_CONTAINER: &[NodeKind] = &[NodeKind::VirtualMachine, NodeKind::Cont
 const VM_AND_UNIKERNEL: &[NodeKind] = &[NodeKind::VirtualMachine, NodeKind::Unikernel];
 
 /// Check that a node's `kind`, when it sets one, is a kind its model takes. A node that sets
-/// none takes its model's default kind.
+/// none takes its model's default kind; `generic` has none, so its nodes must set one.
 ///
 /// # Errors
 ///
-/// Fails when the node sets a kind its model does not take, naming the kinds the model takes.
+/// Fails when the node sets a kind its model does not take, or sets none for a model without a
+/// default kind, naming the kinds the model takes.
 pub fn check_node_model_kind(node: &Node) -> Result<()> {
+    if node.kind.is_none() && node.model.default_kind().is_none() {
+        bail!(
+            "Manifest - node: '{}' sets no `kind`, which '{}' needs; set it to one of: {}",
+            node.name,
+            node.model,
+            model_kinds_list(node.model)
+        );
+    }
     if let Some(kind) = node.kind
         && !node.model.kinds().contains(&kind)
     {
@@ -114,15 +123,22 @@ pub fn check_node_kind_settings(node: &NodeExpanded) -> Result<()> {
             VM_AND_CONTAINER,
         ),
     ];
-    if let Some((key, _, _)) = settings
+    if let Some((key, _, kinds)) = settings
         .iter()
         .find(|(_, set, kinds)| *set && !kinds.contains(&kind))
     {
-        bail!(
-            "Manifest - node: '{}' sets `{key}`, which does not apply to {kind} nodes; '{}' is a {kind}",
-            node.name,
-            node.model_kind.model(),
-        );
+        let model = node.model_kind.model();
+        // A kind of the same model that takes the setting, which the node could set instead.
+        match kinds.iter().find(|other| model.kinds().contains(other)) {
+            Some(other) => bail!(
+                "Manifest - node: '{}' sets `{key}`, which does not apply to {kind} nodes; '{model}' is a {kind} unless the node sets `kind = \"{other}\"`",
+                node.name,
+            ),
+            None => bail!(
+                "Manifest - node: '{}' sets `{key}`, which does not apply to {kind} nodes; '{model}' is a {kind}",
+                node.name,
+            ),
+        }
     }
     Ok(())
 }
@@ -147,6 +163,14 @@ mod tests {
         NodeExpanded {
             name: "node1".to_string(),
             model_kind: ModelKind::default_for(model),
+            ..NodeExpanded::default()
+        }
+    }
+
+    fn generic_container() -> NodeExpanded {
+        NodeExpanded {
+            name: "node1".to_string(),
+            model_kind: ModelKind::new(NodeModel::Generic, Some(NodeKind::Container)).unwrap(),
             ..NodeExpanded::default()
         }
     }
@@ -196,7 +220,7 @@ mod tests {
 
     #[test]
     fn a_vm_group_on_a_container_is_refused() {
-        let mut container = node(NodeModel::GenericContainer);
+        let mut container = generic_container();
         container.vm = Some(NodeVm {
             watchdog: Some(WatchdogAction::Reset),
         });
@@ -214,7 +238,7 @@ mod tests {
 
     #[test]
     fn cpu_count_and_memory_on_a_container_are_accepted() {
-        let mut container = node(NodeModel::GenericContainer);
+        let mut container = generic_container();
         container.cpu.count = Some(2);
         container.memory = Some(512);
         check_node_kind_settings(&container).unwrap();
@@ -222,7 +246,7 @@ mod tests {
 
     #[test]
     fn a_container_takes_its_settings() {
-        let mut container = node(NodeModel::GenericContainer);
+        let mut container = generic_container();
         container.interfaces.data_count = Some(2);
         container.ready_check.skip = Some(true);
         container.container = Some(NodeContainer {
@@ -235,7 +259,7 @@ mod tests {
 
     #[test]
     fn a_ready_port_on_a_container_is_accepted() {
-        let mut container = node(NodeModel::GenericContainer);
+        let mut container = generic_container();
         container.ready_check.port = Some(80);
         check_node_kind_settings(&container).unwrap();
     }
@@ -313,10 +337,10 @@ mod tests {
 
     #[test]
     fn a_kind_the_model_does_not_take_is_refused_naming_the_kinds_it_takes() {
-        let node = manifest_node("name = \"fw1\"\nmodel = \"cisco_asav\"\nkind = \"container\"");
+        let node = manifest_node("name = \"fw1\"\nmodel = \"cisco_asa\"\nkind = \"container\"");
         assert_eq!(
             check_node_model_kind(&node).unwrap_err().to_string(),
-            "Manifest - node: 'fw1' sets `kind = \"container\"`, but 'cisco_asav' comes only as: \
+            "Manifest - node: 'fw1' sets `kind = \"container\"`, but 'cisco_asa' comes only as: \
              virtual_machine"
         );
         let error = NodeExpanded::new(1, &node).unwrap_err();
@@ -344,6 +368,71 @@ mod tests {
             error(&expanded),
             "Manifest - node: 'n1' sets `container`, which does not apply to virtual_machine \
              nodes; 'ubuntu_linux' is a virtual_machine"
+        );
+    }
+
+    #[test]
+    fn a_merged_model_takes_each_of_its_kinds_and_defaults_to_the_virtual_machine() {
+        for model in ["arista_eos", "juniper_evolved"] {
+            let node = manifest_node(&format!("name = \"r1\"\nmodel = \"{model}\""));
+            check_node_model_kind(&node).unwrap();
+            let expanded = NodeExpanded::new(1, &node).unwrap();
+            assert_eq!(
+                expanded.model_kind.kind(),
+                NodeKind::VirtualMachine,
+                "{model}"
+            );
+            let node = manifest_node(&format!(
+                "name = \"r1\"\nmodel = \"{model}\"\nkind = \"container\""
+            ));
+            check_node_model_kind(&node).unwrap();
+            let expanded = NodeExpanded::new(1, &node).unwrap();
+            assert_eq!(expanded.model_kind.kind(), NodeKind::Container, "{model}");
+        }
+    }
+
+    #[test]
+    fn another_kinds_group_on_a_merged_model_says_which_kind_takes_it() {
+        let node = manifest_node(
+            "name = \"r1\"\nmodel = \"arista_eos\"\n[nodes.container]\nprivileged = true",
+        );
+        let expanded = NodeExpanded::new(1, &node).unwrap();
+        assert_eq!(
+            error(&expanded),
+            "Manifest - node: 'r1' sets `container`, which does not apply to virtual_machine \
+             nodes; 'arista_eos' is a virtual_machine unless the node sets `kind = \"container\"`"
+        );
+    }
+
+    #[test]
+    fn generic_without_a_kind_is_refused() {
+        let node = manifest_node("name = \"g1\"\nmodel = \"generic\"");
+        assert_eq!(
+            check_node_model_kind(&node).unwrap_err().to_string(),
+            "Manifest - node: 'g1' sets no `kind`, which 'generic' needs; set it to one of: \
+             virtual_machine, container, unikernel"
+        );
+        assert!(NodeExpanded::new(1, &node).is_err());
+        for kind in NodeKind::to_vec() {
+            let node = manifest_node(&format!(
+                "name = \"g1\"\nmodel = \"generic\"\nkind = \"{kind}\""
+            ));
+            check_node_model_kind(&node).unwrap();
+            assert_eq!(NodeExpanded::new(1, &node).unwrap().model_kind.kind(), kind);
+        }
+    }
+
+    #[test]
+    fn a_removed_model_name_is_refused_when_read_naming_its_model_and_kind() {
+        let manifest: Result<Manifest, _> =
+            toml::from_str("name = \"lab\"\n\n[[nodes]]\nname = \"r1\"\nmodel = \"arista_ceos\"");
+        let error = manifest.unwrap_err().to_string();
+        assert!(
+            error.contains(
+                "Unknown node model 'arista_ceos': it was renamed in 0.7.0. \
+                 Use model = \"arista_eos\" with kind = \"container\"."
+            ),
+            "{error}"
         );
     }
 }

@@ -348,7 +348,7 @@ name = "my-lab"
 nodes = [
   { name = "frr01", model = "frr_linux" },
   { name = "frr02", model = "frr_linux", ztp = { method = "disabled" } },
-  { name = "srx01", model = "juniper_vsrxv3", ztp = { method = "cdrom" } },
+  { name = "srx01", model = "juniper_srx", ztp = { method = "cdrom" } },
 ]
 "#;
         let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");

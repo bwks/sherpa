@@ -585,12 +585,12 @@ mod tests {
             Some("alice".to_owned())
         );
         assert_eq!(
-            login_after_redeploy("alice", NodeModel::CiscoFtdv, false).unwrap(),
+            login_after_redeploy("alice", NodeModel::CiscoFtd, false).unwrap(),
             Some("admin".to_owned())
         );
         // A custom config writes no account; the SSH config names the owner.
         assert_eq!(
-            login_after_redeploy("alice", NodeModel::AristaVeos, true).unwrap(),
+            login_after_redeploy("alice", NodeModel::AristaEos, true).unwrap(),
             None
         );
     }

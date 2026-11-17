@@ -95,7 +95,7 @@ mod tests {
         let plan = plan_container_scan(None);
 
         for expected in [
-            target(NodeModel::AristaCeos, "localrepo/arista_ceos"),
+            target(NodeModel::AristaEos, "localrepo/arista_eos"),
             target(NodeModel::NokiaSrlinux, "ghcr.io/nokia/srlinux"),
             target(NodeModel::NatsBus, "nats"),
         ] {
@@ -119,7 +119,7 @@ mod tests {
             [
                 NodeModel::MysqlDb,
                 NodeModel::PostgresqlDb,
-                NodeModel::GenericContainer
+                NodeModel::Generic
             ]
         );
         assert!(

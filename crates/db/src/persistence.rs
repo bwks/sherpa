@@ -665,10 +665,10 @@ mod tests {
                 .as_str()
                 .unwrap()
         );
-        let model = enum_text(&NodeModel::AristaCeos, "model").unwrap();
+        let model = enum_text(&NodeModel::AristaEos, "model").unwrap();
         assert_eq!(
             decode_enum::<NodeModel>(model, "model").unwrap(),
-            NodeModel::AristaCeos
+            NodeModel::AristaEos
         );
         assert!(enum_text(&LabPhase::default(), "phase").is_ok());
     }

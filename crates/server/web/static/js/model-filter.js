@@ -8,6 +8,7 @@
   }
 
   var items = list.querySelectorAll("li");
+  var kindSelect = document.getElementById("kind");
   var activeIndex = -1;
 
   function open() {
@@ -28,7 +29,29 @@
   function select(item) {
     hidden.value = item.getAttribute("data-value");
     input.value = item.textContent;
+    offerKinds(item);
     close();
+  }
+
+  // Offer only the kinds the chosen model takes, set to its default kind. A model with no
+  // default kind (generic) leaves the choice empty, so the form asks for one.
+  function offerKinds(item) {
+    if (!kindSelect) {
+      return;
+    }
+    var kinds = item.getAttribute("data-kinds").split(",");
+    var defaultKind = item.getAttribute("data-default-kind");
+    for (var i = 0; i < kindSelect.options.length; i++) {
+      var option = kindSelect.options[i];
+      if (option.value === "") {
+        option.textContent = "Choose a kind";
+        continue;
+      }
+      var taken = kinds.indexOf(option.value) !== -1;
+      option.hidden = !taken;
+      option.disabled = !taken;
+    }
+    kindSelect.value = defaultKind;
   }
 
   function filter(query) {

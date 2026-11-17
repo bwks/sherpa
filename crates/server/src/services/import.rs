@@ -471,25 +471,17 @@ async fn scan_disk_images(
             continue;
         };
 
-        // Skip container kinds in filesystem scan (containers live in Docker, not on disk).
-        // Every model with a disk has one kind, a virtual machine or a unikernel, its default.
-        let model_kind = ModelKind::default_for(model);
-        let kind = model_kind.kind();
-        if kind == NodeKind::Container {
-            tracing::debug!("Skipping container model in disk scan: {}", model);
-            continue;
-        }
-
-        // If a kind filter was provided, check it
-        if let Some(ref filter_kind) = request.kind
-            && *filter_kind != kind
-        {
-            continue;
-        }
-
-        let mut scan = ModelScan::new(&state.db, model_kind, "node_image").await?;
+        // A model's folder holds the disks of its virtual machine and unikernel kinds, each
+        // kind under its own file name in a version folder. Containers live in Docker.
         let model_dir = format!("{images_dir}/{dir_name}");
-        scan_version_dirs(state, &mut scan, &model_dir, request.dry_run, tally).await?;
+        for &kind in model.kinds() {
+            if kind == NodeKind::Container || request.kind.is_some_and(|filter| filter != kind) {
+                continue;
+            }
+            let model_kind = ModelKind::new(model, Some(kind))?;
+            let mut scan = ModelScan::new(&state.db, model_kind, "node_image").await?;
+            scan_version_dirs(state, &mut scan, &model_dir, request.dry_run, tally).await?;
+        }
     }
     Ok(())
 }

@@ -142,7 +142,7 @@ fn test_domain_without_an_ignition_config_has_no_firmware_config_entry() {
 #[test]
 fn test_domain_keeps_the_qemu_arguments_of_other_models() {
     let mut template = base_domain_template();
-    template.qemu_commands = QemuCommand::juniper_vrouter();
+    template.qemu_commands = QemuCommand::juniper_router();
     let xml = template.render().unwrap();
     assert!(
         xml.contains(

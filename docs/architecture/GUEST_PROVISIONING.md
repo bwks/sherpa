@@ -39,7 +39,7 @@ back to `sherpa`.
 
 The login that owns guest-side work (`user_scripts`, the environment file) is that account.
 `guest_account::supports_guest_account` lists the models that get it: the Linux cloud-init models,
-`generic_vm`, Alpine, Flatcar, FreeBSD, OpenBSD, Windows, and the network devices in
+the `generic` VM, Alpine, Flatcar, FreeBSD, OpenBSD, Windows, and the network devices in
 [Network devices](#network-devices). Talos, application containers and unikernels have no way to
 add an account at boot and have no generated login. Cisco FTDv takes no account either, but its
 day-0 config sets the password of its own `admin` (`guest_account::fixed_login`), so `admin` is
@@ -47,7 +47,7 @@ its login and no key is installed. A node with a custom ZTP config, or ZTP off, 
 (`guest_account::provisions_owner`), because the generated config it would be written into is
 replaced or not made.
 
-`generic_vm` is treated as a Linux cloud-init guest, like the main cloud-init branch.
+A `generic` VM is treated as a Linux cloud-init guest, like the main cloud-init branch.
 
 Each account keeps its OS's native tools:
 
@@ -150,7 +150,7 @@ Many devices take only some key types, or a limited number of keys per user.
 
 | Models | Key types | Keys |
 |---|---|---|
-| Linux, BSD, Flatcar, Windows, `generic_vm`, FRR, SONiC | every registered key | all |
+| Linux, BSD, Flatcar, Windows, the `generic` VM, FRR, SONiC | every registered key | all |
 | Cisco IOSv, IOSvL2, CSR1000v, Catalyst 8000v and 9000v | RSA | 2 |
 | Cisco IOS XR | RSA | 4 (`keystring`, then `second`, `third`, `fourth`) |
 | Cisco ASAv | Ed25519, ECDSA, RSA | 1 |

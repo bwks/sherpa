@@ -68,7 +68,7 @@ pub(crate) fn data_attachment(
     // which are named so they stay down.
     let fixed_name = match model_kind.model() {
         data::NodeModel::NokiaSrlinux
-        | data::NodeModel::JuniperCevolved
+        | data::NodeModel::JuniperEvolved
         | data::NodeModel::CiscoIol
         | data::NodeModel::CiscoIoll2 => {
             Some(util::container_interface_name(model_kind, interface_idx)?)
@@ -274,7 +274,11 @@ mod tests {
     fn cevolved_interfaces_start_at_eth4() {
         let attachment = data_attachment(
             "cevo01",
-            ModelKind::default_for(data::NodeModel::JuniperCevolved),
+            ModelKind::new(
+                data::NodeModel::JuniperEvolved,
+                Some(data::NodeKind::Container),
+            )
+            .unwrap(),
             "et-0/0/0",
             1,
             ContainerDataInterface::Bridged,
@@ -290,7 +294,11 @@ mod tests {
         // cJunosEvolved waits at boot until every data interface is up.
         let attachment = data_attachment(
             "cevo01",
-            ModelKind::default_for(data::NodeModel::JuniperCevolved),
+            ModelKind::new(
+                data::NodeModel::JuniperEvolved,
+                Some(data::NodeKind::Container),
+            )
+            .unwrap(),
             "et-0/0/2",
             3,
             ContainerDataInterface::Disabled,

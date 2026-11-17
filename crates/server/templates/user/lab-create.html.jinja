@@ -126,7 +126,7 @@
     <!-- Row templates cloned by JS — not rendered in the page -->
     <template id="tpl-node-row">
         <div class="flex items-start gap-3 p-3 bg-surface border border-border rounded-lg">
-            <div class="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                     <label class="block text-xs font-medium text-muted mb-1">Name *</label>
                     <input type="text" data-field="node-name" required placeholder="e.g. dev01"
@@ -137,8 +137,19 @@
                     <select data-field="node-model" required
                         class="w-full px-3 py-2 text-sm border border-border-strong rounded-md bg-card text-body focus:ring-accent focus:border-accent">
                         <option value="">Select model...</option>
-                        {% for model in models %}
-                        <option value="{{ model }}">{{ model }}</option>
+                        {% for choice in models %}
+                        <option value="{{ choice.model }}" data-kinds="{{ choice.kinds }}" data-default-kind="{{ choice.default_kind }}">{{ choice.model }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <!-- Kind: shown by the script for a model with more than one kind -->
+                <div data-kind-field class="hidden">
+                    <label class="block text-xs font-medium text-muted mb-1">Kind *</label>
+                    <select data-field="node-kind"
+                        class="w-full px-3 py-2 text-sm border border-border-strong rounded-md bg-card text-body focus:ring-accent focus:border-accent">
+                        <option value="">Select kind...</option>
+                        {% for kind in kinds %}
+                        <option value="{{ kind.value }}">{{ kind.label }}</option>
                         {% endfor %}
                     </select>
                 </div>

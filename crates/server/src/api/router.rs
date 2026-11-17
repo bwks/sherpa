@@ -169,24 +169,27 @@ fn admin_page_routes() -> Router<AppState> {
             "/admin/images/upload",
             get(admin_image_upload_page_handler).post(admin_image_upload_handler),
         )
-        // Versions list route (most specific, must come first)
+        // Each image page names a model and one of its kinds. `versions` and `edit` are
+        // matched before a `{version}` of the same place.
         .route(
-            "/admin/images/{model}/versions",
+            "/admin/images/{model}/{kind}/versions",
             get(admin_image_versions_handler),
         )
-        // Version-specific routes (must come before non-version routes for proper matching)
         .route(
-            "/admin/images/{model}/{version}",
+            "/admin/images/{model}/{kind}/{version}",
             get(admin_image_detail_handler),
         )
         .route(
-            "/admin/images/{model}/{version}/edit",
+            "/admin/images/{model}/{kind}/{version}/edit",
             get(admin_image_edit_page_handler).post(admin_image_update_handler),
         )
-        // Non-version routes (fallback to default version)
-        .route("/admin/images/{model}", get(admin_image_detail_handler))
+        // Without a version, the model and kind's default version.
         .route(
-            "/admin/images/{model}/edit",
+            "/admin/images/{model}/{kind}",
+            get(admin_image_detail_handler),
+        )
+        .route(
+            "/admin/images/{model}/{kind}/edit",
             get(admin_image_edit_page_handler).post(admin_image_update_handler),
         )
 }
@@ -228,13 +231,13 @@ fn api_routes() -> Router<AppState> {
         .route("/api/v1/images/upload", post(upload_image_multipart))
         .route("/api/v1/images/pull", post(pull_image_json))
         .route("/api/v1/images/download", post(download_image_json))
-        .route("/api/v1/images/{model}", get(show_image_json))
+        .route("/api/v1/images/{model}/{kind}", get(show_image_json))
         .route(
-            "/api/v1/images/{model}/{version}",
+            "/api/v1/images/{model}/{kind}/{version}",
             delete(delete_image_json),
         )
         .route(
-            "/api/v1/images/{model}/{version}/default",
+            "/api/v1/images/{model}/{kind}/{version}/default",
             post(set_default_image_json),
         )
         // Admin API — Tools

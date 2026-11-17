@@ -8,7 +8,7 @@ saved with `write memory` surviving a cold boot.
 |---|---|---|
 | `r1` | `cisco_iol` 17.18.02 | Router: Ethernet0/1 10.47.0.1/30 to r2, Ethernet0/2 10.47.1.1/24 to the host |
 | `r2` | `cisco_iol` 17.18.02 | Router: Ethernet0/1 10.47.0.2/30 to r1, a static route to 10.47.1.0/24 through r1 |
-| `linux01` | `generic_container` (`alpine` 3.22) | Host: eth1 10.47.1.10/24 at MTU 1500, a route to 10.47.0.0/30 through r1 |
+| `linux01` | `generic`, kind `container` (`alpine` 3.22) | Host: eth1 10.47.1.10/24 at MTU 1500, a route to 10.47.0.0/30 through r1 |
 
 ```mermaid
 flowchart LR
@@ -41,7 +41,7 @@ namespace, through Docker. The IOL image is built from your own CML image, so th
 1. Build `localrepo/cisco_iol:17.18.02` with
    [docker-cisco-iol](https://github.com/bwks/docker-cisco-iol) and record it with
    `sherpa server image scan --container`.
-2. Pull the host image: `sherpa server image pull --model generic_container --repo alpine:3.22`,
+2. Pull the host image: `sherpa server image pull --model generic --kind container --repo alpine:3.22`,
    or `docker pull alpine:3.22` and a scan.
 
 ```

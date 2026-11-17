@@ -126,7 +126,7 @@ pub struct NodeContainer {
     pub shm_size: Option<i64>,
     pub commands: Option<Vec<String>>,
     pub volumes: Option<Vec<VolumeMount>>,
-    /// The PTX platform a `juniper_cevolved` node emulates. Absent, it is BT.
+    /// The PTX platform a `juniper_evolved` container emulates. Absent, it is BT.
     pub platform: Option<PtxPlatform>,
 }
 

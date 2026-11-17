@@ -4,8 +4,8 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use shared::data::{Dns, NetworkV4, NetworkV6, OwnerUser};
 
 #[derive(Template)]
-#[template(path = "arista/arista_veos.jinja", ext = "txt")]
-pub struct AristaVeosZtpTemplate {
+#[template(path = "arista/arista_eos_vm.jinja", ext = "txt")]
+pub struct AristaEosVmZtpTemplate {
     pub hostname: String,
     pub owner: OwnerUser,
     pub dns: Dns,
@@ -16,8 +16,8 @@ pub struct AristaVeosZtpTemplate {
 }
 
 #[derive(Template)]
-#[template(path = "arista/arista_ceos.jinja", ext = "txt")]
-pub struct AristaCeosZtpTemplate {
+#[template(path = "arista/arista_eos_container.jinja", ext = "txt")]
+pub struct AristaEosContainerZtpTemplate {
     pub hostname: String,
     pub owner: OwnerUser,
     pub dns: Dns,

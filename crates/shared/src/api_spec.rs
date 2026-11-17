@@ -333,13 +333,13 @@ const OPERATIONS: &[Operation] = &[
     },
     Operation {
         name: "image.show",
-        description: "Show detailed information about an image",
+        description: "Show an image of a model and kind: the version the `version` query names, or the default version",
         category: Category::Image,
         auth: AuthRequirement::Authenticated,
         request_schema: Some("ShowImageRequest"),
         response_schema: Some("ShowImageResponse"),
         method: HttpMethod::Get,
-        path: "/api/v1/images/{model}",
+        path: "/api/v1/images/{model}/{kind}",
         stream_type: None,
         rpc_method: "image.show",
         rpc_streaming: false,
@@ -367,7 +367,7 @@ const OPERATIONS: &[Operation] = &[
         request_schema: Some("DeleteImageRequest"),
         response_schema: Some("DeleteImageResponse"),
         method: HttpMethod::Delete,
-        path: "/api/v1/images/{model}/{version}",
+        path: "/api/v1/images/{model}/{kind}/{version}",
         stream_type: None,
         rpc_method: "image.delete",
         rpc_streaming: false,
@@ -381,7 +381,7 @@ const OPERATIONS: &[Operation] = &[
         request_schema: Some("SetDefaultImageRequest"),
         response_schema: Some("SetDefaultImageResponse"),
         method: HttpMethod::Post,
-        path: "/api/v1/images/{model}/{version}/default",
+        path: "/api/v1/images/{model}/{kind}/{version}/default",
         stream_type: None,
         rpc_method: "image.set_default",
         rpc_streaming: false,
@@ -431,7 +431,7 @@ const OPERATIONS: &[Operation] = &[
     },
     Operation {
         name: "image.upload",
-        description: "Upload an image file via multipart form data",
+        description: "Upload an image file via multipart form data: model, kind (absent, the model's default kind), version, file and default",
         category: Category::Image,
         auth: AuthRequirement::Admin,
         request_schema: None,
@@ -1104,5 +1104,47 @@ mod tests {
             import_op["x-admin-required"], true,
             "Admin operation should have x-admin-required: true"
         );
+    }
+
+    #[test]
+    fn the_image_paths_name_the_model_and_its_kind() {
+        let spec = build_spec();
+        let doc = build_openapi();
+        for (name, path, params) in [
+            (
+                "image.show",
+                "/api/v1/images/{model}/{kind}",
+                vec!["model", "kind"],
+            ),
+            (
+                "image.delete",
+                "/api/v1/images/{model}/{kind}/{version}",
+                vec!["model", "kind", "version"],
+            ),
+            (
+                "image.set_default",
+                "/api/v1/images/{model}/{kind}/{version}/default",
+                vec!["model", "kind", "version"],
+            ),
+        ] {
+            let op = spec.operations.iter().find(|op| op.name == name).unwrap();
+            assert_eq!(op.transports.rest.path, path, "{name}");
+            assert_eq!(op.transports.rest.path_params, params, "{name}");
+            let names: Vec<&str> = doc["paths"][path]["parameters"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|param| param["name"].as_str().unwrap())
+                .collect();
+            assert_eq!(names, params, "{name}");
+        }
+        let paths = doc["paths"].as_object().unwrap();
+        for old in [
+            "/api/v1/images/{model}",
+            "/api/v1/images/{model}/{version}",
+            "/api/v1/images/{model}/{version}/default",
+        ] {
+            assert!(!paths.contains_key(old), "{old}");
+        }
     }
 }

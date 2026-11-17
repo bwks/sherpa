@@ -8,6 +8,7 @@ use axum::response::{Html, IntoResponse, Response};
 use serde::Deserialize;
 use serde::de::value::{Error as DeError, StrDeserializer};
 use serde::de::{DeserializeOwned, IntoDeserializer};
+use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::iter;
 use std::str::FromStr;
@@ -21,9 +22,10 @@ use crate::services::import;
 use crate::services::progress::ProgressSender;
 use crate::templates::{
     AdminImageEditTemplate, AdminImageUploadTemplate, AdminNotificationErrorTemplate, FormChoice,
-    KindBadge, NavPage, kind_label,
+    KindBadge, ModelChoice, NavPage, kind_choices, kind_label,
 };
 
+use super::images_api::path_model_kind;
 use crate::api::errors::ApiError;
 use crate::api::extractors::AdminUser;
 
@@ -31,14 +33,22 @@ use crate::validate::validate_node_image_update;
 use shared::data::{
     BiosTypes, BootDiskSettings, CdromSettings, CpuArchitecture, CpuModels, CpuSettings, DiskBuses,
     ImportRequest, InterfaceSettings, InterfaceType, MachineSettings, MachineType, ModelKind,
-    NodeConfig, NodeModel, OsVariant, Ztp, ZtpSettings,
+    NodeConfig, NodeKind, NodeModel, OsVariant, Ztp, ZtpSettings,
 };
 
-/// Helper struct for extracting image path parameters with optional version
+/// The image a page's path names: a model, one of its kinds and, optionally, a version.
 #[derive(Debug, Deserialize)]
 pub struct ImagePath {
     pub model: String,
+    pub kind: String,
     pub version: Option<String>,
+}
+
+/// The model and kind of an image versions page's path.
+#[derive(Debug, Deserialize)]
+pub struct ImageVersionsPath {
+    pub model: String,
+    pub kind: String,
 }
 
 /// Helper struct to summarize image data for list view
@@ -66,15 +76,20 @@ pub async fn admin_images_list_handler(
         ApiError::internal("Failed to load image configurations")
     })?;
 
-    // Group configs by model and pick the best representative:
-    // - Prefer default=true, otherwise pick the first entry
-    let mut best_by_model: std::collections::HashMap<String, ImageSummary> =
-        std::collections::HashMap::new();
+    // One row per model and kind, ordered by model and then by the model's order of kinds,
+    // showing the default version, or else the first one found.
+    let mut best_by_model_kind: BTreeMap<(String, usize), ImageSummary> = BTreeMap::new();
 
     for config in configs {
-        let model_key = config.model.to_string();
+        let kind_order = config
+            .model
+            .kinds()
+            .iter()
+            .position(|kind| *kind == config.kind)
+            .unwrap_or(usize::MAX);
+        let key = (config.model.to_string(), kind_order);
         let summary = ImageSummary {
-            model: model_key.clone(),
+            model: key.0.clone(),
             kind_badge: KindBadge::short(config.kind),
             version: config.version,
             cpu_count: config.cpu.count,
@@ -83,18 +98,17 @@ pub async fn admin_images_list_handler(
             default: config.default,
         };
 
-        let dominated = match best_by_model.get(&model_key) {
+        let dominated = match best_by_model_kind.get(&key) {
             None => true,
             Some(existing) => summary.default && !existing.default,
         };
 
         if dominated {
-            best_by_model.insert(model_key, summary);
+            best_by_model_kind.insert(key, summary);
         }
     }
 
-    let mut summaries: Vec<ImageSummary> = best_by_model.into_values().collect();
-    summaries.sort_by(|a, b| a.model.cmp(&b.model));
+    let summaries: Vec<ImageSummary> = best_by_model_kind.into_values().collect();
 
     let template = crate::templates::AdminImagesListTemplate {
         username: admin.username.clone(),
@@ -106,15 +120,18 @@ pub async fn admin_images_list_handler(
     Ok(template)
 }
 
-/// The image a page or update names: the URL's version of the model, or its default version.
+/// The image a page or update names: the URL's version of the model and kind, or their
+/// default version.
 async fn find_image_config(state: &AppState, params: &ImagePath) -> Result<NodeConfig, ApiError> {
-    let node_model = NodeModel::from_str(&params.model).map_err(|e| {
-        tracing::warn!("Invalid node model in URL: {} - {}", params.model, e);
-        ApiError::not_found("Image", format!("Invalid model: {}", params.model))
+    let model_kind = path_model_kind(&params.model, &params.kind).inspect_err(|e| {
+        tracing::warn!(
+            "Invalid model or kind in URL: {}/{} - {e:?}",
+            params.model,
+            params.kind
+        );
     })?;
-
-    // The page's URL names no kind: the model's default kind.
-    let node_kind = ModelKind::default_for(node_model).kind();
+    let node_model = model_kind.model();
+    let node_kind = model_kind.kind();
 
     // Fetch the specific config from database
     // If version is specified, fetch that specific version; otherwise fetch default
@@ -453,9 +470,9 @@ pub async fn admin_image_update_handler(
     // Redirect to detail page using HX-Redirect header
     // Include version in URL if it was specified
     let redirect_url = if let Some(version) = &params.version {
-        format!("/admin/images/{}/{}", params.model, version)
+        format!("/admin/images/{}/{}/{}", params.model, params.kind, version)
     } else {
-        format!("/admin/images/{}", params.model)
+        format!("/admin/images/{}/{}", params.model, params.kind)
     };
 
     let mut response = Html("").into_response();
@@ -469,20 +486,21 @@ pub async fn admin_image_update_handler(
     Ok(response)
 }
 
-/// Handler for listing all versions of an image (GET /admin/images/{model}/versions)
+/// Handler for listing all versions of an image (GET /admin/images/{model}/{kind}/versions)
 pub async fn admin_image_versions_handler(
     State(state): State<AppState>,
     AdminUser { username, .. }: AdminUser,
-    Path(model): Path<String>,
+    Path(ImageVersionsPath { model, kind }): Path<ImageVersionsPath>,
 ) -> Result<Response, ApiError> {
-    tracing::debug!("Node config versions list request: model={}", model);
+    tracing::debug!(
+        "Node config versions list request: model={}, kind={}",
+        model,
+        kind
+    );
 
-    // Parse model enum
-    let model_enum = NodeModel::from_str(&model)
-        .map_err(|_| ApiError::bad_request(format!("Invalid model: {model}")))?;
-
-    // The page's URL names no kind: the model's default kind.
-    let kind_enum = ModelKind::default_for(model_enum).kind();
+    let model_kind = path_model_kind(&model, &kind)?;
+    let model_enum = model_kind.model();
+    let kind_enum = model_kind.kind();
 
     // Fetch all versions for this model/kind
     let versions = db::get_node_image_versions(&state.db, &model_enum, &kind_enum)
@@ -515,7 +533,7 @@ pub async fn admin_image_versions_handler(
 /// Parsed fields from a multipart upload form.
 #[derive(Debug)]
 pub struct UploadFields {
-    pub model: NodeModel,
+    pub model_kind: ModelKind,
     pub version: String,
     pub file_data: Vec<u8>,
     pub default: bool,
@@ -524,6 +542,8 @@ pub struct UploadFields {
 /// Raw string fields extracted from multipart before validation.
 pub struct RawUploadFields {
     pub model: Option<String>,
+    /// The image's kind; absent or empty, the model's default kind.
+    pub kind: Option<String>,
     pub version: Option<String>,
     pub file_data: Option<Vec<u8>>,
     pub default: Option<String>,
@@ -531,11 +551,17 @@ pub struct RawUploadFields {
 
 /// Validate raw upload fields and convert to typed `UploadFields`.
 ///
-/// Checks that all required fields are present and valid.
+/// Checks that all required fields are present and valid, and that the model takes the kind:
+/// a model with no default kind (`generic`) needs one.
 pub fn validate_upload_fields(raw: RawUploadFields) -> Result<UploadFields, String> {
     let model_str = raw.model.ok_or("Missing required field: model")?;
-    let parsed_model =
-        NodeModel::from_str(&model_str).map_err(|_| format!("Invalid model: {model_str}"))?;
+    let parsed_model = NodeModel::from_str(&model_str)?;
+    let parsed_kind = raw
+        .kind
+        .filter(|kind| !kind.is_empty())
+        .map(|kind| NodeKind::from_str(&kind))
+        .transpose()?;
+    let model_kind = ModelKind::new(parsed_model, parsed_kind).map_err(|e| e.to_string())?;
 
     let version_str = raw.version.ok_or("Missing required field: version")?;
     if version_str.is_empty() {
@@ -547,7 +573,7 @@ pub fn validate_upload_fields(raw: RawUploadFields) -> Result<UploadFields, Stri
     let default = raw.default.as_deref() == Some("on");
 
     Ok(UploadFields {
-        model: parsed_model,
+        model_kind,
         version: version_str,
         file_data: data,
         default,
@@ -556,10 +582,11 @@ pub fn validate_upload_fields(raw: RawUploadFields) -> Result<UploadFields, Stri
 
 /// Parse multipart form fields for image upload.
 ///
-/// Extracts model, version, file, and default fields from the multipart stream.
+/// Extracts model, kind, version, file, and default fields from the multipart stream.
 /// Returns an error if any required field is missing or invalid.
 pub async fn parse_upload_fields(mut multipart: Multipart) -> Result<UploadFields, String> {
     let mut model: Option<String> = None;
+    let mut kind: Option<String> = None;
     let mut version: Option<String> = None;
     let mut file_data: Option<Vec<u8>> = None;
     let mut default: Option<String> = None;
@@ -577,6 +604,13 @@ pub async fn parse_upload_fields(mut multipart: Multipart) -> Result<UploadField
                     .await
                     .map_err(|e| format!("Failed to read model field: {e}"))?;
                 model = Some(text);
+            }
+            "kind" => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| format!("Failed to read kind field: {e}"))?;
+                kind = Some(text);
             }
             "version" => {
                 let text = field
@@ -609,6 +643,7 @@ pub async fn parse_upload_fields(mut multipart: Multipart) -> Result<UploadField
 
     validate_upload_fields(RawUploadFields {
         model,
+        kind,
         version,
         file_data,
         default,
@@ -619,17 +654,15 @@ pub async fn parse_upload_fields(mut multipart: Multipart) -> Result<UploadField
 pub async fn admin_image_upload_page_handler(
     admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let mut models: Vec<String> = NodeModel::to_vec()
-        .iter()
-        .map(std::string::ToString::to_string)
-        .collect();
-    models.sort();
+    let mut models: Vec<ModelChoice> = NodeModel::iter().map(ModelChoice::from).collect();
+    models.sort_by(|a, b| a.model.cmp(&b.model));
 
     let template = AdminImageUploadTemplate {
         username: admin.username,
         is_admin: true,
         nav: NavPage::AdminImages.into(),
         models,
+        kinds: kind_choices(),
     };
 
     Ok(template)
@@ -655,8 +688,9 @@ pub async fn admin_image_upload_handler(
     // Write file data to a temp file
     let temp_dir = std::env::temp_dir();
     let temp_file = temp_dir.join(format!(
-        "sherpa_upload_{}_{}_{}",
-        fields.model,
+        "sherpa_upload_{}_{}_{}_{}",
+        fields.model_kind.model(),
+        fields.model_kind.kind(),
         fields.version,
         uuid::Uuid::new_v4()
     ));
@@ -672,8 +706,8 @@ pub async fn admin_image_upload_handler(
 
     // Construct import request and call the import service
     let request = ImportRequest {
-        model: fields.model,
-        kind: None,
+        model: fields.model_kind.model(),
+        kind: Some(fields.model_kind.kind()),
         version: fields.version,
         src: temp_path.clone(),
         default: fields.default,
@@ -738,6 +772,7 @@ mod tests {
     ) -> RawUploadFields {
         RawUploadFields {
             model: model.map(std::string::ToString::to_string),
+            kind: None,
             version: version.map(std::string::ToString::to_string),
             file_data,
             default: default.map(std::string::ToString::to_string),
@@ -753,7 +788,10 @@ mod tests {
             Some("on"),
         ));
         let fields = result.expect("should succeed");
-        assert_eq!(fields.model, NodeModel::UbuntuLinux);
+        assert_eq!(
+            fields.model_kind,
+            ModelKind::default_for(NodeModel::UbuntuLinux)
+        );
         assert_eq!(fields.version, "24.04");
         assert_eq!(fields.file_data, vec![0x00, 0x01, 0x02]);
         assert!(fields.default);
@@ -800,9 +838,52 @@ mod tests {
         ));
         let err = result.unwrap_err();
         assert!(
-            err.contains("Invalid model"),
+            err.contains("Unknown node model"),
             "expected invalid model error, got: {err}"
         );
+    }
+
+    /// An upload of `model` with `kind`, otherwise valid.
+    fn upload_of(model: &str, kind: Option<&str>) -> Result<UploadFields, String> {
+        validate_upload_fields(RawUploadFields {
+            kind: kind.map(str::to_owned),
+            ..raw_fields(Some(model), Some("4.32.0F"), Some(vec![0x01]), None)
+        })
+    }
+
+    #[test]
+    fn an_upload_takes_each_kind_of_its_model_and_defaults_to_the_models_default() {
+        for (kind, expected) in [
+            (Some("virtual_machine"), NodeKind::VirtualMachine),
+            (Some("container"), NodeKind::Container),
+            (None, NodeKind::VirtualMachine),
+            (Some(""), NodeKind::VirtualMachine),
+        ] {
+            let fields = upload_of("arista_eos", kind).unwrap();
+            assert_eq!(fields.model_kind.model(), NodeModel::AristaEos, "{kind:?}");
+            assert_eq!(fields.model_kind.kind(), expected, "{kind:?}");
+        }
+        let fields = upload_of("generic", Some("unikernel")).unwrap();
+        assert_eq!(fields.model_kind.kind(), NodeKind::Unikernel);
+    }
+
+    #[test]
+    fn an_upload_with_a_kind_its_model_does_not_take_or_none_for_generic_is_refused() {
+        let err = upload_of("arista_eos", Some("unikernel")).unwrap_err();
+        assert!(err.contains("is not a unikernel"), "{err}");
+        let err = upload_of("arista_eos", Some("vm")).unwrap_err();
+        assert!(err.contains("Unknown node kind: vm"), "{err}");
+        for kind in [None, Some("")] {
+            let err = upload_of("generic", kind).unwrap_err();
+            assert!(err.contains("has no default kind"), "{kind:?}: {err}");
+        }
+    }
+
+    #[test]
+    fn an_upload_of_an_old_model_name_is_refused_naming_its_replacement() {
+        let err = upload_of("arista_ceos", None).unwrap_err();
+        assert!(err.contains("renamed in 0.7.0"), "{err}");
+        assert!(err.contains(r#"kind = "container""#), "{err}");
     }
 
     #[test]
@@ -1010,7 +1091,7 @@ mod tests {
     fn the_ztp_choices_are_disabled_and_the_models_methods() {
         // Two methods, one method, and a container with none.
         assert_eq!(
-            offered(NodeModel::JuniperVsrxv3, Ztp::Cdrom),
+            offered(NodeModel::JuniperSrx, Ztp::Cdrom),
             (
                 vec!["disabled".to_owned(), "tftp".to_owned(), "cdrom".to_owned()],
                 vec!["cdrom".to_owned()]
@@ -1115,7 +1196,7 @@ mod tests {
 
     #[test]
     fn a_saved_form_carries_its_ztp_setting_to_the_image() {
-        let config = ModelKind::default_for(NodeModel::JuniperVsrxv3).node_config();
+        let config = ModelKind::default_for(NodeModel::JuniperSrx).node_config();
         let mut form = form_for(&config, "1");
         form.ztp = Ztp::Tftp;
         let choices = ImageFormChoices::parse(&form).unwrap();
