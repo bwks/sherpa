@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use shared::data::{
-    ClusterInfo, DownloadLabResponse, KeycloakInfo, LabInfo, UpResponse, VaultInfo,
+    ClusterInfo, DownloadLabResponse, KeycloakInfo, LabInfo, SurrealDbInfo, UpResponse, VaultInfo,
 };
 use shared::konst::SHERPA_KNOWN_HOSTS_FILE;
 use shared::util::{Emoji, LabFolder, add_lab_ssh_include};
@@ -15,6 +15,7 @@ use shared::util::{Emoji, LabFolder, add_lab_ssh_include};
 use crate::cluster_credentials::{print_cluster_files, write_cluster_credentials};
 use crate::keycloak_credentials::{print_keycloak_files, write_keycloak_credentials};
 use crate::secret_file::{ensure_private_dir, write_secret_file};
+use crate::surreal_db_credentials::{print_surreal_db_files, write_surreal_db_credentials};
 use crate::vault_credentials::{print_vault_files, write_vault_credentials};
 
 /// The lab files the server sends with `sherpa up` and `sherpa download`.
@@ -25,6 +26,7 @@ pub(crate) struct LabFiles<'a> {
     pub lab_ca: &'a str,
     pub vaults: &'a [VaultInfo],
     pub keycloaks: &'a [KeycloakInfo],
+    pub surreal_dbs: &'a [SurrealDbInfo],
     pub clusters: &'a [ClusterInfo],
 }
 
@@ -37,6 +39,7 @@ impl<'a> From<&'a UpResponse> for LabFiles<'a> {
             lab_ca: &response.lab_ca,
             vaults: &response.vaults,
             keycloaks: &response.keycloaks,
+            surreal_dbs: &response.surreal_dbs,
             clusters: &response.clusters,
         }
     }
@@ -51,6 +54,7 @@ impl<'a> From<&'a DownloadLabResponse> for LabFiles<'a> {
             lab_ca: &response.lab_ca,
             vaults: &response.vaults,
             keycloaks: &response.keycloaks,
+            surreal_dbs: &response.surreal_dbs,
             clusters: &response.clusters,
         }
     }
@@ -101,7 +105,11 @@ pub(crate) fn save_lab_files(folder: &LabFolder, files: &LabFiles) -> Result<Pat
     );
     print_keycloak_files(
         &write_keycloak_credentials(folder, files.keycloaks)
-            .context("Failed to write Keycloak users")?,
+            .context("Failed to write Keycloak credentials")?,
+    );
+    print_surreal_db_files(
+        &write_surreal_db_credentials(folder, files.surreal_dbs)
+            .context("Failed to write SurrealDB credentials")?,
     );
     print_cluster_files(
         &write_cluster_credentials(folder, files.clusters)
@@ -204,6 +212,7 @@ loopback_network = "127.127.3.0/24"
             lab_ca: "-----BEGIN CERTIFICATE-----\n",
             vaults: &[],
             keycloaks: &[],
+            surreal_dbs: &[],
             clusters: &[],
         }
     }

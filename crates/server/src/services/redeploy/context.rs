@@ -71,7 +71,6 @@ pub(super) struct Redeploy<'a> {
     pub(super) ipv6: Option<Ipv6Addr>,
     /// The lab owner's account, with their device password.
     pub(super) owner_account: GuestAccount,
-    pub(super) owner_username: String,
     /// Secret files for a container node; `None` keeps its current ones.
     pub(super) secrets: Option<Vec<data::SecretFile>>,
     /// Keeps the node's image until its disks are cloned.
@@ -216,7 +215,6 @@ pub(super) async fn load_redeploy<'a>(
         ipv4,
         ipv6,
         owner_account,
-        owner_username: ctx.username.clone(),
         secrets,
         definition,
         image_guard,

@@ -15,6 +15,7 @@ const TALOS_DIR: &str = "talos";
 const K8S_DIR: &str = "k8s";
 const VAULT_DIR: &str = "vault";
 const KEYCLOAK_DIR: &str = "keycloak";
+const SURREAL_DB_DIR: &str = "surrealdb";
 
 /// The paths of the files the Sherpa CLI generates in the lab folder `root`. Building one
 /// touches no files.
@@ -140,6 +141,18 @@ impl LabFolder {
     pub fn keycloak(&self, node: &str) -> PathBuf {
         self.keycloak_dir().join(keycloak_file_name(node))
     }
+
+    /// `.sherpa/surrealdb`.
+    #[must_use]
+    pub fn surreal_db_dir(&self) -> PathBuf {
+        self.state_dir().join(SURREAL_DB_DIR)
+    }
+
+    /// `.sherpa/surrealdb/surrealdb-<node>.toml`.
+    #[must_use]
+    pub fn surreal_db(&self, node: &str) -> PathBuf {
+        self.surreal_db_dir().join(format!("surrealdb-{node}.toml"))
+    }
 }
 
 /// The name of a cluster's talosconfig: `talosconfig-<cluster>`.
@@ -188,6 +201,10 @@ mod tests {
         assert_eq!(
             folder.keycloak("kc"),
             state.join("keycloak/keycloak-kc.toml")
+        );
+        assert_eq!(
+            folder.surreal_db("db"),
+            state.join("surrealdb/surrealdb-db.toml")
         );
     }
 

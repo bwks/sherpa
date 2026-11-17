@@ -60,6 +60,7 @@ async fn a_nodes_ready_check_is_stored_and_read_back() -> Result<()> {
     let check = ReadyCheck {
         port: Some(8080),
         skip: false,
+        sshd_marker: false,
     };
     let updated = update_node_ready_check(&db, id.clone(), &check).await?;
     assert_eq!(updated.ready_check, check);
@@ -69,13 +70,23 @@ async fn a_nodes_ready_check_is_stored_and_read_back() -> Result<()> {
     let listed = list_nodes_by_lab(&db, node.lab.clone()).await?;
     assert_eq!(listed[0].ready_check, check);
 
-    // A redeploy replaces both values.
+    // A redeploy replaces every value.
     let skipped = ReadyCheck {
         port: None,
         skip: true,
+        sshd_marker: false,
     };
     update_node_ready_check(&db, id.clone(), &skipped).await?;
-    assert_eq!(get_node(&db, id).await?.ready_check, skipped);
+    assert_eq!(get_node(&db, id.clone()).await?.ready_check, skipped);
+
+    // A Windows node's check waits for Sherpa's SSH ready marker.
+    let windows = ReadyCheck {
+        port: Some(22),
+        skip: false,
+        sshd_marker: true,
+    };
+    update_node_ready_check(&db, id.clone(), &windows).await?;
+    assert_eq!(get_node(&db, id).await?.ready_check, windows);
     Ok(())
 }
 

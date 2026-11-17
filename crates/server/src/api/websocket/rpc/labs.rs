@@ -1,9 +1,12 @@
 //! Lab and node RPC methods.
 
+use std::path::Path;
+
 use serde::Deserialize;
 use serde_json::Value;
 
 use shared::data::{self, TailnetAuthKey};
+use shared::konst::SHERPA_LABS_PATH;
 
 use super::dispatch::{parse, parse_quietly, respond};
 use crate::api::websocket::messages::RpcError;
@@ -86,7 +89,14 @@ pub(super) async fn download(
 ) -> Result<Value, RpcError> {
     let lab = lab_params(params)?;
     respond(
-        download::download_lab_files(ctx, &lab.lab_id, state).await,
+        download::download_lab_files(
+            ctx,
+            &lab.lab_id,
+            &state.db,
+            state.config.server_ipv4,
+            Path::new(SHERPA_LABS_PATH),
+        )
+        .await,
         RPC_MSG_DOWNLOAD_FAILED,
     )
 }

@@ -22,9 +22,13 @@ use crate::konst::{
 use crate::services::container_networks::is_node_network;
 use crate::services::guest_account::{self, GuestAccount, KeyFormat, PasswordForm};
 use crate::services::image_lifecycle::ImageLease;
-use crate::services::keycloak::lab::KEYCLOAK_DIR;
+use crate::services::keycloak::api::keycloak_address;
+use crate::services::keycloak::lab::{KEYCLOAK_DIR, ensure_keycloak_credentials};
 use crate::services::p2p_links::{KernelHost, LinkHost};
 use crate::services::progress::ProgressSender;
+use crate::services::surreal_db::{
+    SURREAL_DB_DIR, ensure_surreal_db_credentials, surreal_db_address,
+};
 use crate::services::talos::secrets::CLUSTERS_DIR;
 use crate::services::vault::lab::VAULT_DIR;
 use crate::tls::lab_ca::NodeCertPaths;
@@ -38,9 +42,8 @@ use shared::data;
 use shared::data::StatusKind;
 use shared::konst::{
     CONTAINER_DISK_NAME, KVM_OUI, NODE_CLOUD_INIT_SUDO_RULE, NODE_CONFIGS_DIR, NODE_USER_ENV_FILE,
-    SHERPA_DOMAIN_NAME, SHERPA_PASSWORD, SHERPA_SSHD_READY_MARKER, SHERPA_STORAGE_POOL,
-    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TALOS_API_PORT, TELNET_PORT, TFTP_DIR,
-    ZTP_DIR,
+    SHERPA_DOMAIN_NAME, SHERPA_SSHD_READY_MARKER, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
+    SHERPA_USERNAME, SSH_PORT, TALOS_API_PORT, TELNET_PORT, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::{
@@ -157,16 +160,9 @@ const FRR_ZTP_CONFIG_MOUNT: &str = "/etc/frr/frr.conf";
 const FRR_ZTP_STARTUP_MOUNT: &str = "/tmp/sherpa-init.sh";
 const CONTAINER_GITLAB_CE_COMMANDS: &[&str] = &[];
 const CONTAINER_GITLAB_CE_SHM_SIZE: i64 = 256;
-const CONTAINER_SURREAL_DB_COMMANDS: &[&str] = &[
-    "start",
-    "--log",
-    "trace",
-    "--user",
-    SHERPA_USERNAME,
-    "--pass",
-    SHERPA_PASSWORD,
-    "memory",
-];
+/// `SurrealDB` starts in memory; its root user comes from the environment
+/// (`surreal_db_env_vars`), so it is not in the command line every host user can read.
+const CONTAINER_SURREAL_DB_COMMANDS: &[&str] = &["start", "--log", "trace", "memory"];
 const CONTAINER_MONGO_DB_COMMANDS: &[&str] = &[];
 const CONTAINER_NATS_COMMANDS: &[&str] = &[];
 const CONTAINER_FORGEJO_COMMANDS: &[&str] = &[];
@@ -190,12 +186,13 @@ const BINARY_FILES_DIR: &str = "binary_files";
 
 /// The folders in a lab folder that hold the lab's own files. A container named like one of them
 /// writes its config files there too, so that folder is never removed as the node's.
-pub(crate) const LAB_OWN_DIRS: [&str; 5] = [
+pub(crate) const LAB_OWN_DIRS: [&str; 6] = [
     LAB_CERTS_DIR,
     ZTP_DIR,
     CLUSTERS_DIR,
     VAULT_DIR,
     KEYCLOAK_DIR,
+    SURREAL_DB_DIR,
 ];
 
 /// The folder in a lab folder holding each VM's boot files, `<node>/`, until its media are in the
@@ -240,11 +237,15 @@ struct NodeZtp<'a> {
     guest_account: Option<&'a GuestAccount>,
 }
 
-/// What a container model's setup needs: the node's folder and custom config, the lab's
-/// accounts and management network, and the node's address and certificate.
+/// What a container model's setup needs: the lab's and the node's folders, the node's custom
+/// config, the lab's accounts and management network, and the node's address and certificate.
 #[derive(Clone, Copy)]
 struct ContainerZtp<'a> {
+    /// The lab folder, where the lab's application nodes' admin credentials are kept.
+    lab_dir: &'a str,
     dir: &'a str,
+    /// The lab owner's login, given a user on a Keycloak node.
+    owner: &'a str,
     custom_ztp: Option<&'a str>,
     guest_account: Option<&'a GuestAccount>,
     dns: &'a data::Dns,
@@ -562,7 +563,9 @@ pub(crate) fn generate_container_ztp(
     let dir = format!("{}/{}", lab_dir, node.name);
     let custom_ztp = take_custom_ztp_config(node, progress);
     let ztp = ContainerZtp {
+        lab_dir,
         dir: &dir,
+        owner: &owner_account.username,
         custom_ztp: custom_ztp.as_deref(),
         guest_account: node_account.as_ref(),
         dns,
@@ -666,7 +669,7 @@ fn container_start_settings(
             }
             node.container.get_or_insert_default().shm_size = setup.shm_size;
         }
-        data::NodeModel::SurrealDb => app_container(node, setup, CONTAINER_SURREAL_DB_COMMANDS),
+        data::NodeModel::SurrealDb => surreal_db_container(node, ztp, setup)?,
         data::NodeModel::MongoDb => app_container(node, setup, CONTAINER_MONGO_DB_COMMANDS),
         data::NodeModel::NatsBus => {
             app_container(node, setup, CONTAINER_NATS_COMMANDS);
@@ -1230,7 +1233,8 @@ fn vault_container(
     Ok(())
 }
 
-/// Keycloak: HTTPS only, with the lab certificate, run as its own user.
+/// Keycloak: HTTPS only, with the lab certificate, run as root, and with the node's own admin,
+/// saved in the lab folder with the realm's users before the node starts.
 fn keycloak_container(
     node: &mut topology::NodeExpanded,
     ztp: &ContainerZtp<'_>,
@@ -1242,9 +1246,15 @@ fn keycloak_container(
             node.name
         );
     }
+    let admin = ensure_keycloak_credentials(
+        &Path::new(ztp.lab_dir).join(KEYCLOAK_DIR),
+        &node.name,
+        &keycloak_address(ztp.node_ipv4_address),
+        ztp.owner,
+    )?;
     setup.user = Some(CONTAINER_KEYCLOAK_USER.to_string());
     setup.env_vars = merge_env_vars(
-        keycloak_env_vars(ztp.node_ipv4_address),
+        keycloak_env_vars(ztp.node_ipv4_address, &admin),
         node.environment_variables.as_deref().unwrap_or_default(),
     );
     setup.commands = CONTAINER_KEYCLOAK_COMMANDS
@@ -1258,6 +1268,27 @@ fn keycloak_container(
         .get_or_insert_default()
         .user
         .clone_from(&setup.user);
+    Ok(())
+}
+
+/// `SurrealDB`: in memory, with the node's own root user, saved in the lab folder before the
+/// node starts.
+fn surreal_db_container(
+    node: &mut topology::NodeExpanded,
+    ztp: &ContainerZtp<'_>,
+    setup: &mut ContainerSetup,
+) -> Result<()> {
+    let admin = ensure_surreal_db_credentials(
+        &Path::new(ztp.lab_dir).join(SURREAL_DB_DIR),
+        &node.name,
+        &surreal_db_address(ztp.node_ipv4_address),
+    )?;
+    setup.env_vars = merge_env_vars(
+        surreal_db_env_vars(&admin),
+        node.environment_variables.as_deref().unwrap_or_default(),
+    );
+    node.environment_variables = Some(setup.env_vars.clone());
+    app_container(node, setup, CONTAINER_SURREAL_DB_COMMANDS);
     Ok(())
 }
 
@@ -1589,9 +1620,9 @@ fn merge_env_vars(defaults: Vec<String>, user: &[String]) -> Vec<String> {
 }
 
 /// The environment of a Keycloak node: production mode with its built-in file database, HTTPS
-/// only on the node's address with the lab certificate, and the Sherpa user as the bootstrap
-/// admin of the `master` realm.
-fn keycloak_env_vars(node_address: Ipv4Addr) -> Vec<String> {
+/// only on the node's address with the lab certificate, and `admin`, the node's own, as the
+/// bootstrap admin of the `master` realm.
+fn keycloak_env_vars(node_address: Ipv4Addr, admin: &data::AdminCredential) -> Vec<String> {
     vec![
         "KC_DB=dev-file".to_owned(),
         "KC_HTTP_ENABLED=false".to_owned(),
@@ -1599,8 +1630,16 @@ fn keycloak_env_vars(node_address: Ipv4Addr) -> Vec<String> {
         format!("KC_HTTPS_CERTIFICATE_FILE={NODE_CERTS_DIR}/node.crt"),
         format!("KC_HTTPS_CERTIFICATE_KEY_FILE={NODE_CERTS_DIR}/node.key"),
         "KC_HEALTH_ENABLED=true".to_owned(),
-        format!("KC_BOOTSTRAP_ADMIN_USERNAME={SHERPA_USERNAME}"),
-        format!("KC_BOOTSTRAP_ADMIN_PASSWORD={SHERPA_PASSWORD}"),
+        format!("KC_BOOTSTRAP_ADMIN_USERNAME={}", admin.username),
+        format!("KC_BOOTSTRAP_ADMIN_PASSWORD={}", admin.password),
+    ]
+}
+
+/// The environment of a `SurrealDB` node: `admin`, the node's own, as its root user.
+fn surreal_db_env_vars(admin: &data::AdminCredential) -> Vec<String> {
+    vec![
+        format!("SURREAL_USER={}", admin.username),
+        format!("SURREAL_PASS={}", admin.password),
     ]
 }
 
@@ -3997,12 +4036,12 @@ pub fn check_node_port_ready(ip: &str, port: u16) -> Result<bool> {
 }
 
 /// Check if a virtual machine is ready on its readiness port. On the SSH port an SSH server
-/// must answer (`check_node_ssh_ready`), and its host key is returned; with an `sshd_marker`
-/// (`ModelKind::sshd_ready_marker`), its identification line must show the marker too, which
-/// it does only once it runs with the config Sherpa gave it. Any other port, such as the Talos
-/// API, needs a TCP connection.
-pub async fn check_vm_ready(ip: &str, port: u16, sshd_marker: Option<&str>) -> Result<VmReadiness> {
-    if port != SSH_PORT {
+/// must answer (`check_node_ssh_ready`), and its host key is returned; with `sshd_marker`, the
+/// node's stored `ReadyCheck::sshd_marker`, set only on an SSH check, its identification line
+/// must show [`SHERPA_SSHD_READY_MARKER`] too, which it does only once it runs with the config
+/// Sherpa gave it. Any other port, such as the Talos API, needs a TCP connection.
+pub async fn check_vm_ready(ip: &str, port: u16, sshd_marker: bool) -> Result<VmReadiness> {
+    if port != SSH_PORT && !sshd_marker {
         return Ok(if check_node_port_ready(ip, port)? {
             VmReadiness::Ready { host_key: None }
         } else {
@@ -4012,15 +4051,14 @@ pub async fn check_vm_ready(ip: &str, port: u16, sshd_marker: Option<&str>) -> R
     let Some(host_key) = check_node_ssh_ready(ip, port).await? else {
         return Ok(VmReadiness::NotReady);
     };
-    if let Some(marker) = sshd_marker {
+    if sshd_marker {
         let identification = ssh_identification(ip, port).await?;
         if !identification
             .as_deref()
-            .is_some_and(|line| identification_shows(line, marker))
+            .is_some_and(|line| identification_shows(line, SHERPA_SSHD_READY_MARKER))
         {
             tracing::debug!(
                 ?identification,
-                marker,
                 "SSH server answers, but not yet with the config Sherpa gave it"
             );
             return Ok(VmReadiness::NotReady);
@@ -4117,16 +4155,23 @@ pub fn container_ready_port(ready_check: &NodeReadyCheck) -> Option<u16> {
     }
 }
 
-/// The readiness check stored with a node, from its manifest `ready_check`: the manifest's
-/// port, else its model and kind's port. Only a virtual machine has one; a container or
-/// unikernel without a manifest port has none and is ready once it runs.
+/// The readiness check stored with a node, from its manifest `ready_check` and its effective
+/// `ztp`: the manifest's port, else its model and kind's port, and, when that is SSH, whether
+/// its SSH server must show Sherpa's ready marker (`ModelKind::waits_for_sshd_ready_marker`);
+/// a Windows node checked on another port is checked as that port. Only a virtual
+/// machine has a model port; a container or unikernel without a manifest port has none and is
+/// ready once it runs. Every readiness probe, in `up`, `redeploy`, `resume`, the scanner and
+/// `node.host_keys`, reads this check.
 pub fn stored_ready_check(
     model_kind: data::ModelKind,
     ready_check: &NodeReadyCheck,
+    ztp: data::Ztp,
 ) -> data::ReadyCheck {
+    let port = ready_check.port.or(model_kind.ready_port());
     data::ReadyCheck {
-        port: ready_check.port.or(model_kind.ready_port()),
+        port,
         skip: ready_check.skip.unwrap_or(false),
+        sshd_marker: port == Some(SSH_PORT) && model_kind.waits_for_sshd_ready_marker(ztp),
     }
 }
 
@@ -4484,13 +4529,13 @@ pub async fn destroy_container_node(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::konst::TFTP_DIR_MODE;
     use crate::services::guest_account::tests::test_account;
     use nix::sys::stat::{Mode, umask};
     use sha_crypt::{PasswordVerifier, ShaCrypt};
-    use shared::data::ModelKind;
+    use shared::data::{ModelKind, Ztp};
     use std::env;
     use std::os::unix::fs::PermissionsExt;
     use std::process::Command;
@@ -4588,15 +4633,20 @@ mod tests {
     }
 
     #[test]
-    fn keycloak_serves_https_only_with_the_lab_certificate() {
-        let env = keycloak_env_vars(Ipv4Addr::new(172, 31, 1, 22));
+    fn keycloak_serves_https_only_with_the_lab_certificate_and_its_own_admin() {
+        let admin = data::AdminCredential {
+            username: "admin".to_owned(),
+            password: "kc01-admin-pw".to_owned(),
+        };
+        let env = keycloak_env_vars(Ipv4Addr::new(172, 31, 1, 22), &admin);
         for expected in [
             "KC_DB=dev-file",
             "KC_HTTP_ENABLED=false",
             "KC_HOSTNAME=https://172.31.1.22:8443",
             "KC_HTTPS_CERTIFICATE_FILE=/etc/sherpa/certs/node.crt",
             "KC_HTTPS_CERTIFICATE_KEY_FILE=/etc/sherpa/certs/node.key",
-            "KC_BOOTSTRAP_ADMIN_USERNAME=sherpa",
+            "KC_BOOTSTRAP_ADMIN_USERNAME=admin",
+            "KC_BOOTSTRAP_ADMIN_PASSWORD=kc01-admin-pw",
         ] {
             assert!(env.iter().any(|var| var == expected), "missing {expected}");
         }
@@ -5418,7 +5468,6 @@ mod tests {
             assert_eq!(users.len(), 1, "{model}: {user_data}");
             assert_eq!(users[0]["name"], "alice", "{model}");
             assert!(user_data.contains(OWNER_KEY), "{model}: {user_data}");
-            assert!(!user_data.contains(SHERPA_PASSWORD), "{model}: {user_data}");
             assert!(!user_data.contains("name: sherpa"), "{model}: {user_data}");
             if model == data::NodeModel::WindowsServer {
                 // cloudbase-init takes the password itself.
@@ -5598,19 +5647,23 @@ mod tests {
     #[test]
     fn the_stored_check_has_the_pairs_port_unless_the_manifest_sets_one() {
         let check = |port, skip| NodeReadyCheck { port, skip };
-        let stored = |port, skip| data::ReadyCheck { port, skip };
+        let stored = |port, skip| data::ReadyCheck {
+            port,
+            skip,
+            sshd_marker: false,
+        };
         let ubuntu = ModelKind::default_for(data::NodeModel::UbuntuLinux);
         let talos = ModelKind::default_for(data::NodeModel::TalosLinux);
         assert_eq!(
-            stored_ready_check(ubuntu, &check(None, None)),
+            stored_ready_check(ubuntu, &check(None, None), Ztp::CloudInit),
             stored(Some(SSH_PORT), false)
         );
         assert_eq!(
-            stored_ready_check(talos, &check(None, None)),
+            stored_ready_check(talos, &check(None, None), Ztp::CloudInit),
             stored(Some(TALOS_API_PORT), false)
         );
         assert_eq!(
-            stored_ready_check(ubuntu, &check(Some(8443), Some(true))),
+            stored_ready_check(ubuntu, &check(Some(8443), Some(true)), Ztp::CloudInit),
             stored(Some(8443), true)
         );
         for model in [
@@ -5619,19 +5672,40 @@ mod tests {
         ] {
             let model_kind = ModelKind::default_for(model);
             assert_eq!(
-                stored_ready_check(model_kind, &check(None, None)),
+                stored_ready_check(model_kind, &check(None, None), Ztp::CloudInit),
                 stored(None, false)
             );
             assert_eq!(
-                stored_ready_check(model_kind, &check(Some(80), Some(false))),
+                stored_ready_check(model_kind, &check(Some(80), Some(false)), Ztp::CloudInit),
                 stored(Some(80), false)
             );
         }
     }
 
     #[test]
+    fn a_windows_node_with_cloud_init_stores_the_ssh_ready_marker_on_ssh_only() {
+        let check = |port| NodeReadyCheck { port, skip: None };
+        for model in [
+            data::NodeModel::WindowsServer,
+            data::NodeModel::DevboxWindows,
+        ] {
+            let windows = ModelKind::default_for(model);
+            assert!(stored_ready_check(windows, &check(None), Ztp::CloudInit).sshd_marker);
+            assert!(!stored_ready_check(windows, &check(None), Ztp::Disabled).sshd_marker);
+            // Checked on another port, it is checked as that port.
+            assert!(!stored_ready_check(windows, &check(Some(3389)), Ztp::CloudInit).sshd_marker);
+        }
+        let ubuntu = ModelKind::default_for(data::NodeModel::UbuntuLinux);
+        assert!(!stored_ready_check(ubuntu, &check(None), Ztp::CloudInit).sshd_marker);
+    }
+
+    #[test]
     fn a_stored_check_is_probed_on_its_port_unless_it_is_skipped() {
-        let stored = |port, skip| data::ReadyCheck { port, skip };
+        let stored = |port, skip| data::ReadyCheck {
+            port,
+            skip,
+            sshd_marker: false,
+        };
         assert_eq!(probed_ready_port(&stored(Some(8443), false)), Some(8443));
         assert_eq!(probed_ready_port(&stored(Some(SSH_PORT), true)), None);
         assert_eq!(probed_ready_port(&stored(None, false)), None);
@@ -5665,6 +5739,88 @@ mod tests {
         (port, task)
     }
 
+    /// An OpenSSH server run as the test's user on a free port of the loopback address, showing
+    /// Sherpa's ready marker in its identification line or not, as a Windows node's does once it
+    /// runs with Sherpa's config and before. Needs `/usr/sbin/sshd` and `ssh-keygen`.
+    pub(crate) struct TestSshd {
+        pub(crate) port: u16,
+        child: std::process::Child,
+        _dir: tempfile::TempDir,
+    }
+
+    impl TestSshd {
+        pub(crate) fn start(shows_marker: bool) -> Self {
+            let dir = tempdir().unwrap();
+            let host_key = dir.path().join("host_key");
+            let status = Command::new("ssh-keygen")
+                .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+                .arg(&host_key)
+                .status()
+                .unwrap();
+            assert!(status.success());
+            let port = std::net::TcpListener::bind("127.0.0.1:0")
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port();
+            let addendum = if shows_marker {
+                SHERPA_SSHD_READY_MARKER
+            } else {
+                "none"
+            };
+            let config = format!(
+                "Port {port}\nListenAddress 127.0.0.1\nHostKey {}\nPidFile none\nUsePAM no\n\
+                 VersionAddendum {addendum}\n",
+                host_key.display()
+            );
+            let config_path = dir.path().join("sshd_config");
+            fs::write(&config_path, config).unwrap();
+            let child = Command::new("/usr/sbin/sshd")
+                .args(["-D", "-f"])
+                .arg(&config_path)
+                .spawn()
+                .unwrap();
+            let address = SocketAddr::from(([127, 0, 0, 1], port));
+            for _ in 0..50 {
+                if TcpStream::connect_timeout(&address, Duration::from_millis(100)).is_ok() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Self {
+                port,
+                child,
+                _dir: dir,
+            }
+        }
+    }
+
+    impl Drop for TestSshd {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "runs /usr/sbin/sshd"]
+    async fn an_ssh_server_without_the_ready_marker_is_not_ready_when_the_check_wants_it() {
+        let image_config = TestSshd::start(false);
+        assert_eq!(
+            check_vm_ready("127.0.0.1", image_config.port, true)
+                .await
+                .unwrap(),
+            VmReadiness::NotReady
+        );
+        let sherpa_config = TestSshd::start(true);
+        assert!(matches!(
+            check_vm_ready("127.0.0.1", sherpa_config.port, true)
+                .await
+                .unwrap(),
+            VmReadiness::Ready { host_key: Some(_) }
+        ));
+    }
+
     #[tokio::test]
     async fn test_check_node_ssh_ready_false_when_the_port_is_not_ssh() {
         let (port, task) = listener_replying(b"HTTP/1.0 400 Bad Request\r\n\r\n").await;
@@ -5692,7 +5848,7 @@ mod tests {
     async fn test_check_vm_ready_uses_tcp_for_other_ports() {
         let (port, task) = listener_replying(b"not ssh\r\n").await;
         assert_eq!(
-            check_vm_ready("127.0.0.1", port, None).await.unwrap(),
+            check_vm_ready("127.0.0.1", port, false).await.unwrap(),
             VmReadiness::Ready { host_key: None }
         );
         task.abort();
@@ -5751,10 +5907,8 @@ mod tests {
         }
         .render()
         .unwrap();
-        let model_kind = data::ModelKind::default_for(data::NodeModel::WindowsServer);
-        let marker = model_kind.sshd_ready_marker(data::Ztp::CloudInit).unwrap();
         assert!(
-            config.contains(&format!("\nVersionAddendum {marker}")),
+            config.contains(&format!("\nVersionAddendum {SHERPA_SSHD_READY_MARKER}")),
             "{config}"
         );
     }
@@ -6447,7 +6601,13 @@ mod tests {
             assert_eq!(result.commands, strings(commands), "{model}");
             assert!(result.volumes.is_empty(), "{model}");
             assert!(!result.privileged, "{model}");
-            assert!(lab.files().is_empty(), "{model}");
+            // A SurrealDB node's root user is saved with the lab's files.
+            let files: &[&str] = if model == data::NodeModel::SurrealDb {
+                &["surrealdb/app01.toml"]
+            } else {
+                &[]
+            };
+            assert_eq!(lab.files(), files, "{model}");
         }
         let lab = ZtpLab::new();
         let mut node = named_node("git01", data::NodeModel::GitlabCe);
@@ -6567,7 +6727,145 @@ mod tests {
         assert_eq!(result.commands, strings(CONTAINER_KEYCLOAK_COMMANDS));
         assert_eq!(result.user, Some(CONTAINER_KEYCLOAK_USER.to_owned()));
         assert_eq!(result.volumes.len(), 3, "the certificate mounts");
-        assert!(lab.files().is_empty(), "{:?}", lab.files());
+        assert_eq!(lab.files(), ["keycloak/kc01.toml"]);
+    }
+
+    /// The value of `key` in a container's `KEY=value` environment.
+    fn env_value<'a>(env_vars: &'a [String], key: &str) -> Option<&'a str> {
+        env_vars
+            .iter()
+            .find_map(|var| var.strip_prefix(key)?.strip_prefix('='))
+    }
+
+    /// A Keycloak node's container settings, generated in `lab` as `up` and `redeploy` do.
+    fn keycloak_settings(lab: &ZtpLab, name: &str) -> ContainerZtpResult {
+        let mut node = named_node(name, data::NodeModel::KeycloakServer);
+        let certs = NodeCertPaths {
+            ca_cert: "/certs/ca.crt".to_owned(),
+            node_cert: "/certs/node.crt".to_owned(),
+            node_key: "/certs/node.key".to_owned(),
+        };
+        generate_container_ztp(
+            &mut node,
+            &data::ModelKind::default_for(data::NodeModel::KeycloakServer).node_config(),
+            &lab.lab(),
+            "192.0.2.10".parse().unwrap(),
+            Some(&certs),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn each_keycloak_node_starts_with_its_own_saved_admin_kept_across_redeploy() {
+        let lab = ZtpLab::new();
+        let kc01 = keycloak_settings(&lab, "kc01");
+        assert_eq!(
+            env_value(&kc01.env_vars, "KC_BOOTSTRAP_ADMIN_USERNAME"),
+            Some("admin")
+        );
+        let password = env_value(&kc01.env_vars, "KC_BOOTSTRAP_ADMIN_PASSWORD")
+            .unwrap()
+            .to_owned();
+        assert_eq!(password.len(), 20);
+
+        // Saved for the server's realm setup and for `download`, readable only by the server.
+        let saved = format!("{}/{KEYCLOAK_DIR}/kc01.toml", lab.root());
+        assert!(fs::read_to_string(&saved).unwrap().contains(&password));
+        let mode = fs::metadata(&saved).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+
+        // A second node gets its own; a redeploy keeps the node's.
+        let kc02 = keycloak_settings(&lab, "kc02");
+        assert_ne!(
+            env_value(&kc02.env_vars, "KC_BOOTSTRAP_ADMIN_PASSWORD"),
+            Some(password.as_str())
+        );
+        let redeployed = keycloak_settings(&lab, "kc01");
+        assert_eq!(
+            env_value(&redeployed.env_vars, "KC_BOOTSTRAP_ADMIN_PASSWORD"),
+            Some(password.as_str())
+        );
+    }
+
+    /// Log lines written by a test's subscriber.
+    #[derive(Clone, Default)]
+    struct CapturedLog(Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl io::Write for CapturedLog {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn admin_passwords_are_in_no_log_line() {
+        let log = CapturedLog::default();
+        let writer = log.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .without_time()
+            .with_max_level(tracing::Level::TRACE)
+            .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
+            .with_writer(move || writer.clone())
+            .finish();
+        let lab = ZtpLab::new();
+        let (keycloak, surreal_db) = tracing::subscriber::with_default(subscriber, || {
+            let mut db01 = named_node("db01", data::NodeModel::SurrealDb);
+            // Created, then redeployed.
+            keycloak_settings(&lab, "kc01");
+            lab.container(&mut db01, None).unwrap();
+            let mut db01 = named_node("db01", data::NodeModel::SurrealDb);
+            (
+                keycloak_settings(&lab, "kc01"),
+                lab.container(&mut db01, None).unwrap(),
+            )
+        });
+
+        let output = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
+        assert!(output.contains("db01"), "the setup was logged: {output}");
+        for password in [
+            env_value(&keycloak.env_vars, "KC_BOOTSTRAP_ADMIN_PASSWORD").unwrap(),
+            env_value(&surreal_db.env_vars, "SURREAL_PASS").unwrap(),
+        ] {
+            assert!(!output.contains(password), "{output}");
+        }
+    }
+
+    #[test]
+    fn each_surreal_db_node_starts_with_its_own_saved_root_user_kept_across_redeploy() {
+        let lab = ZtpLab::new();
+        let mut db01 = named_node("db01", data::NodeModel::SurrealDb);
+        let created = lab.container(&mut db01, None).unwrap();
+        assert_eq!(env_value(&created.env_vars, "SURREAL_USER"), Some("root"));
+        let password = env_value(&created.env_vars, "SURREAL_PASS")
+            .unwrap()
+            .to_owned();
+        assert_eq!(password.len(), 20);
+        // Not on the command line, which every user of the host can read.
+        assert!(created.commands.iter().all(|arg| !arg.contains(&password)));
+
+        let saved = format!("{}/{SURREAL_DB_DIR}/db01.toml", lab.root());
+        assert!(fs::read_to_string(&saved).unwrap().contains(&password));
+        let mode = fs::metadata(&saved).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+
+        let mut db02 = named_node("db02", data::NodeModel::SurrealDb);
+        let other = lab.container(&mut db02, None).unwrap();
+        assert_ne!(
+            env_value(&other.env_vars, "SURREAL_PASS"),
+            Some(password.as_str())
+        );
+        let mut db01 = named_node("db01", data::NodeModel::SurrealDb);
+        let redeployed = lab.container(&mut db01, None).unwrap();
+        assert_eq!(
+            env_value(&redeployed.env_vars, "SURREAL_PASS"),
+            Some(password.as_str())
+        );
     }
 
     fn manifest_volume() -> Vec<topology::VolumeMount> {
@@ -6725,6 +7023,7 @@ mod tests {
             CLUSTERS_DIR,
             VAULT_DIR,
             KEYCLOAK_DIR,
+            SURREAL_DB_DIR,
         ] {
             assert_eq!(
                 vm_boot_dir("/labs/lab-0001", name),

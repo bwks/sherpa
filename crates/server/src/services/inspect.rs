@@ -449,6 +449,7 @@ mod tests {
             ready_check: ReadyCheck {
                 port: Some(80),
                 skip: false,
+                sshd_marker: false,
             },
             ..container_in(state)
         };

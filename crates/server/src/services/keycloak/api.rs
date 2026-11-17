@@ -59,10 +59,6 @@ impl KeycloakClient {
         })
     }
 
-    pub fn address(&self) -> &str {
-        &self.address
-    }
-
     /// Succeeds once the master realm's `OpenID` configuration is served.
     pub async fn ready(&self) -> Result<()> {
         let url = format!(

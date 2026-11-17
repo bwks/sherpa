@@ -9,6 +9,7 @@ mod lab_folder_migration;
 mod provision;
 mod secret_file;
 mod ssh_client;
+mod surreal_db_credentials;
 mod table;
 mod token;
 mod vault_credentials;

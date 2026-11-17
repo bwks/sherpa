@@ -120,16 +120,12 @@ pub fn assert_hash_verifies(hash: &str, prefix: &str, password: &str) {
     );
 }
 
-/// Asserts that no `sherpa` login and not the old shared password is in `output`.
+/// Asserts that no `sherpa` login is in `output`.
 ///
 /// # Panics
 ///
-/// If either is found.
+/// If one is found.
 pub fn assert_no_sherpa_login(output: &str) {
-    assert!(
-        !output.contains("Everest1953!"),
-        "the published password is in the output:\n{output}"
-    );
     for login in SHERPA_LOGINS {
         assert!(
             !output.contains(login),

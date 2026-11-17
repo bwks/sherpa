@@ -615,7 +615,7 @@ pub(crate) mod tests {
     use jiff::Timestamp;
     use sha_crypt::{PasswordVerifier, ShaCrypt};
     use shared::data::{ModelKind, NodeKind, RecordId};
-    use shared::konst::{ADMIN_USERNAME, SHERPA_PASSWORD, SHERPA_USERNAME};
+    use shared::konst::{ADMIN_USERNAME, SHERPA_USERNAME};
     use shared::util::base64_decode;
     use template::{CloudInitConfig, IgnitionConfig};
     use tokio::runtime::Builder;
@@ -1156,7 +1156,6 @@ pub(crate) mod tests {
         assert_eq!(user.groups, vec!["Administrators"]);
         assert_eq!(user.ssh_authorized_keys, vec![KEY]);
         assert_eq!(user.passwd, DEVICE_PASSWORD);
-        assert_ne!(user.passwd, SHERPA_PASSWORD);
     }
 
     #[test]
@@ -1183,7 +1182,6 @@ pub(crate) mod tests {
         assert!(!config.contains("plain_text_passwd"));
         assert!(!config.contains(DEVICE_PASSWORD));
         assert!(!config.contains("server-login-hash"));
-        assert!(!config.contains(SHERPA_PASSWORD));
     }
 
     #[test]

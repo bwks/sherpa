@@ -441,7 +441,7 @@ impl Readiness<'_, '_> {
         };
         let mgmt_ipv4 = container.ipv4_address.map(|ip| ip.to_string());
         let port_check = match (ready_port, mgmt_ipv4.as_deref()) {
-            (Some(port), Some(ip)) => Some(node_ops::check_vm_ready(ip, port, None).await?),
+            (Some(port), Some(ip)) => Some(node_ops::check_vm_ready(ip, port, false).await?),
             (Some(_), None) => Some(VmReadiness::NotReady),
             (None, _) => None,
         };
@@ -596,18 +596,20 @@ impl Readiness<'_, '_> {
         else {
             return Ok(());
         };
-        // The manifest's port, else the model's own: SSH, or the Talos API for Talos Linux.
-        let ready_port = vm
-            .ready_check
+        // The check stored for the node: the manifest's port, else the model's own, SSH or the
+        // Talos API for Talos Linux; and, for a Windows node, whose SSH server answers before its
+        // owner can log in, Sherpa's ready marker.
+        let ready_check = node_ops::stored_ready_check(vm.model_kind, &vm.ready_check, record.ztp);
+        let ready_port = ready_check
             .port
-            .or(vm.model_kind.ready_port())
             .with_context(|| format!("VM '{}' has no readiness port", vm.name))?;
         let ready_label = node_ops::ready_port_label(ready_port);
-        // A Windows node's SSH server answers before its owner can log in; it is ready once it
-        // runs with the config Sherpa gave it.
-        let sshd_marker = vm.model_kind.sshd_ready_marker(record.ztp);
-        match node_ops::check_vm_ready(&record.ipv4_address.to_string(), ready_port, sshd_marker)
-            .await?
+        match node_ops::check_vm_ready(
+            &record.ipv4_address.to_string(),
+            ready_port,
+            ready_check.sshd_marker,
+        )
+        .await?
         {
             VmReadiness::Ready { host_key } => {
                 tracing::info!(node_name = %vm.name, ipv4 = %record.ipv4_address, ready_port, "VM ready");

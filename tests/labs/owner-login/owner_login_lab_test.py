@@ -60,9 +60,8 @@ SERVER_URL_ENV = "SHERPA_SERVER_URL"
 
 VM = "ubu01"
 CONTAINER = "srl01"
-# The shared account earlier releases gave every node, and its published password. Neither is made now.
+# The shared account earlier releases gave every node. It is not made now.
 OLD_SHARED_USER = "sherpa"
-OLD_SHARED_PASSWORD = "Everest1953!"
 BUILT_IN_ADMIN = "admin"
 
 # What Sherpa says when it refuses, matched as text contained in the output. `{lab}` is the lab's ID
@@ -739,15 +738,15 @@ class LabRun:
         require(not problems, f"{label}: the session lacks {', '.join(problems)}; see {self.log.name}")
 
     def check_old_shared_login_refused(self, node, config):
-        """The shared `sherpa` account is not on the node: neither the owner's key nor its old
-        published password logs in as it."""
+        """The shared `sherpa` account is not on the node: neither the owner's key nor the
+        owner's device password, the one password the node has, logs in as it."""
         by_key = self.ssh(f"ssh {OLD_SHARED_USER}@{node} (key)", node, "true", login=OLD_SHARED_USER)
         require(by_key.code != 0, f"{node} took an SSH login as {OLD_SHARED_USER} with the owner's key")
         require(PERMISSION_DENIED in by_key.output,
                 f"the key login as {OLD_SHARED_USER} to {node} was not refused: {by_key.output.strip()}")
-        label = f"ssh {OLD_SHARED_USER}@{node} (old password)"
-        code, _, text = self.password_login(label, node, config, OLD_SHARED_USER, OLD_SHARED_PASSWORD)
-        require(code != 0, f"{node} took an SSH login as {OLD_SHARED_USER} with its old password")
+        label = f"ssh {OLD_SHARED_USER}@{node} (device password)"
+        code, _, text = self.password_login(label, node, config, OLD_SHARED_USER, self.accounts.device_password)
+        require(code != 0, f"{node} took an SSH login as {OLD_SHARED_USER} with the device password")
         require(PERMISSION_DENIED in text, f"{label} was not refused: {text.strip()}")
 
     # -- admin -------------------------------------------------------------------------------
@@ -924,7 +923,7 @@ def preflight(run_root, admin_user, admin_password, device_password):
     for tool in ("sherpa", "ssh", "ssh-keygen"):
         require(shutil.which(tool), f"{tool} is not on PATH")
     manifest = tomllib.loads((LAB / "manifest.toml").read_text())
-    for secret in (admin_password, device_password, OLD_SHARED_PASSWORD):
+    for secret in (admin_password, device_password):
         add_secret(secret)
     with (run_root / "preflight.log").open("w") as log:
         whoami = run_logged(log, "sherpa whoami", ["sherpa", "whoami"], run_root)

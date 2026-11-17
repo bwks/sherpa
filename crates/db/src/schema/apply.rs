@@ -1221,19 +1221,22 @@ mod tests {
                 .clone()
         };
         // Virtual machines keep their model's port; containers and unikernels have none, so
-        // running counts as ready. No check is skipped.
+        // running counts as ready. No check is skipped, and none waits for Sherpa's SSH ready
+        // marker, which nodes built before Sherpa's Windows sshd config never show.
         assert_eq!(
             check_of(NodeModel::UbuntuLinux),
             ReadyCheck {
                 port: Some(SSH_PORT),
-                skip: false
+                skip: false,
+                sshd_marker: false,
             }
         );
         assert_eq!(
             check_of(NodeModel::TalosLinux),
             ReadyCheck {
                 port: Some(TALOS_API_PORT),
-                skip: false
+                skip: false,
+                sshd_marker: false,
             }
         );
         assert_eq!(check_of(NodeModel::FrrLinux), ReadyCheck::default());

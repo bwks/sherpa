@@ -125,6 +125,7 @@ mod tests {
     use shared::konst::ZTP_DIR;
 
     use crate::services::keycloak::lab::KEYCLOAK_DIR;
+    use crate::services::surreal_db::SURREAL_DB_DIR;
     use crate::services::talos::secrets::CLUSTERS_DIR;
     use crate::services::vault::lab::VAULT_DIR;
 
@@ -137,6 +138,7 @@ mod tests {
             CLUSTERS_DIR,
             VAULT_DIR,
             KEYCLOAK_DIR,
+            SURREAL_DB_DIR,
         ] {
             fs::create_dir(lab.path().join(dir)).unwrap();
             fs::write(lab.path().join(dir).join(LAB_CA_KEY_FILE), "lab secret").unwrap();
@@ -153,6 +155,7 @@ mod tests {
                 CLUSTERS_DIR,
                 VAULT_DIR,
                 KEYCLOAK_DIR,
+                SURREAL_DB_DIR,
             ] {
                 let lab = lab_folder();
 
@@ -174,6 +177,7 @@ mod tests {
             CLUSTERS_DIR,
             VAULT_DIR,
             KEYCLOAK_DIR,
+            SURREAL_DB_DIR,
         ] {
             let lab = lab_folder();
             let boot_dir = node_ops::vm_boot_dir(lab.path().to_str().unwrap(), name);

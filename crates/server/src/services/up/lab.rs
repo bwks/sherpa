@@ -35,6 +35,7 @@ use crate::services::lab_operations::{self, LabHold, LabOperation, StopReason};
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
 use crate::services::ssh_config::{self, LabSshFiles};
+use crate::services::surreal_db;
 use crate::services::tailscale;
 use crate::services::talos::LabCluster;
 use crate::tls::lab_ca::LabCa;
@@ -103,6 +104,7 @@ struct StartedNodes {
     ssh_files: LabSshFiles,
     clusters: Vec<data::ClusterInfo>,
     keycloaks: Vec<data::KeycloakInfo>,
+    surreal_dbs: Vec<data::SurrealDbInfo>,
     vaults: Vec<data::VaultInfo>,
 }
 
@@ -772,12 +774,15 @@ impl LabUp<'_> {
                 container_nodes: &records.container_nodes,
                 lab_clusters: &built.lab_clusters,
                 lab_ca: &built.lab_ca,
-                owner: self.username,
                 timeout: Duration::from_secs(ready_timeout_secs),
             },
         )
         .await?;
         self.errors.extend(service_errors);
+        // The root users the lab's SurrealDB nodes were created with.
+        let surreal_dbs = surreal_db::read_surreal_db_credentials(&surreal_db::surreal_db_dir(
+            self.build.lab_id,
+        ))?;
         self.phase_done("NodeReadiness");
 
         Ok(StartedNodes {
@@ -785,6 +790,7 @@ impl LabUp<'_> {
             ssh_files,
             clusters,
             keycloaks,
+            surreal_dbs,
             vaults,
         })
     }
@@ -844,6 +850,7 @@ impl LabUp<'_> {
             lab_ca: built.lab_ca.pair.cert.clone(),
             vaults: started.vaults,
             keycloaks: started.keycloaks,
+            surreal_dbs: started.surreal_dbs,
         }
     }
 }

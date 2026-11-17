@@ -1,7 +1,8 @@
-//! Keycloak nodes in the lab lifecycle. Sherpa makes the `sherpa` realm on each Keycloak node,
-//! with a `kubernetes` client, groups bound to cluster roles, and two users: `sherpa`, with
-//! the lab password, and the lab owner, with a generated password. The users and passwords are
-//! kept in the lab directory, readable only by the server.
+//! Keycloak nodes in the lab lifecycle. Each Keycloak node starts with its own `master` realm
+//! admin, `admin` with a generated password, and Sherpa makes the `sherpa` realm on it, with a
+//! `kubernetes` client, groups bound to cluster roles, and the lab owner as its user, with a
+//! generated password. The admin and the users are generated when the node is created, kept
+//! across `redeploy`, and saved in the lab directory, readable only by the server.
 
 use std::ffi::OsStr;
 use std::fs;
@@ -10,35 +11,41 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use rand::Rng;
-use rand::distributions::{Alphanumeric, DistString};
-use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tracing::instrument;
 
-use shared::data::{KeycloakInfo, KeycloakUser, StatusKind};
+use shared::data::{AdminCredential, KeycloakInfo, KeycloakUser, StatusKind};
 use shared::konst::{
     KEYCLOAK_CLUSTER_ADMINS_GROUP, KEYCLOAK_CLUSTER_VIEWERS_GROUP, KEYCLOAK_KUBERNETES_CLIENT_ID,
-    SHERPA_LABS_PATH, SHERPA_PASSWORD, SHERPA_USERNAME,
+    SHERPA_LABS_PATH,
 };
 use shared::util::write_file_with_permissions;
 
 use super::api::KeycloakClient;
 use crate::konst::{KEYCLOAK_REALM, READINESS_SLEEP};
+use crate::services::admin_credentials::random_password;
 use crate::services::progress::ProgressSender;
 
-/// Directory in the lab directory holding each Keycloak node's realm users.
+/// Directory in the lab directory holding each Keycloak node's admin and realm users.
 pub(crate) const KEYCLOAK_DIR: &str = "keycloak";
 /// Redirect addresses of the `kubectl oidc-login` plugin's browser login.
 const KUBELOGIN_REDIRECT_URIS: [&str; 2] = ["http://localhost:8000", "http://localhost:18000"];
-/// Length of the random password of the lab owner's Keycloak user.
-const OWNER_PASSWORD_LENGTH: usize = 20;
+/// The `master` realm admin Keycloak creates at its first start, Keycloak's own default name.
+const KEYCLOAK_ADMIN_USERNAME: &str = "admin";
+/// The realm user every Keycloak node had before 0.7.0, with the password Sherpa published. A
+/// node's saved users lose it when the node gets its own admin. No Sherpa user can have the
+/// name, so it is never the lab owner.
+const LEGACY_SHARED_REALM_USER: &str = "sherpa";
 
-/// A Keycloak node's realm users, saved as `<lab>/keycloak/<node>.toml`.
+/// A Keycloak node's admin and realm users, saved as `<lab>/keycloak/<node>.toml`. A file saved
+/// before 0.7.0 has no admin: its node runs with the admin every node had then until it is
+/// redeployed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct RealmCredentials {
     address: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    admin: Option<AdminCredential>,
     users: Vec<KeycloakUser>,
 }
 
@@ -48,12 +55,13 @@ impl RealmCredentials {
             name: name.to_owned(),
             address: self.address,
             realm: KEYCLOAK_REALM.to_owned(),
+            admin: self.admin,
             users: self.users,
         }
     }
 }
 
-/// The lab directory where Sherpa keeps its Keycloak nodes' realm users.
+/// The lab directory where Sherpa keeps its Keycloak nodes' admins and realm users.
 pub fn keycloak_dir(lab_id: &str) -> PathBuf {
     Path::new(SHERPA_LABS_PATH).join(lab_id).join(KEYCLOAK_DIR)
 }
@@ -74,35 +82,55 @@ fn load_credentials(dir: &Path, node_name: &str) -> Result<Option<RealmCredentia
     Ok(Some(credentials))
 }
 
-/// The realm's users: those saved for the node, or `sherpa` and the lab owner with a new
-/// password, saved before Keycloak hears of them.
-fn realm_credentials(
+/// The admin a Keycloak node is created with, saved in `dir` with the realm's users before the
+/// node starts. A node keeps what was saved for it, across `redeploy`: Keycloak's database is
+/// in the container, so a redeployed node starts afresh with the same admin and users, and the
+/// owner's downloaded file stays right. A new node gets an admin and the lab owner as its realm
+/// user, each with a new password. A node saved before 0.7.0 has no admin of its own: it gets
+/// one, and loses the realm user with the published password.
+#[instrument(skip_all, fields(dir = %dir.display(), %node_name), level = "debug")]
+pub(crate) fn ensure_keycloak_credentials(
     dir: &Path,
     node_name: &str,
     address: &str,
     owner: &str,
-) -> Result<RealmCredentials> {
-    if let Some(credentials) = load_credentials(dir, node_name)? {
-        return Ok(credentials);
-    }
-    let mut users = vec![KeycloakUser {
-        username: SHERPA_USERNAME.to_owned(),
-        password: SHERPA_PASSWORD.to_owned(),
-    }];
-    if owner != SHERPA_USERNAME {
-        users.push(KeycloakUser {
-            username: owner.to_owned(),
-            password: random_password(),
-        });
-    }
-    let credentials = RealmCredentials {
-        address: address.to_owned(),
-        users,
+) -> Result<AdminCredential> {
+    let credentials = match load_credentials(dir, node_name)? {
+        Some(RealmCredentials {
+            admin: Some(admin), ..
+        }) => return Ok(admin),
+        Some(mut saved) => {
+            saved
+                .users
+                .retain(|user| user.username != LEGACY_SHARED_REALM_USER);
+            RealmCredentials {
+                admin: Some(new_admin()),
+                ..saved
+            }
+        }
+        None => RealmCredentials {
+            address: address.to_owned(),
+            admin: Some(new_admin()),
+            users: vec![KeycloakUser {
+                username: owner.to_owned(),
+                password: random_password(),
+            }],
+        },
     };
     let content = toml::to_string(&credentials).context("Failed to serialize Keycloak users")?;
     write_file_with_permissions(&credentials_path(dir, node_name), content.as_bytes(), 0o600)
         .with_context(|| format!("Failed to save the users of Keycloak node '{node_name}'"))?;
-    Ok(credentials)
+    credentials
+        .admin
+        .with_context(|| format!("Keycloak node '{node_name}' has no admin"))
+}
+
+/// A new `master` realm admin with a random password.
+fn new_admin() -> AdminCredential {
+    AdminCredential {
+        username: KEYCLOAK_ADMIN_USERNAME.to_owned(),
+        password: random_password(),
+    }
 }
 
 /// The `kubernetes` client: public, for `kubectl oidc-login`, with the realm's groups and the
@@ -156,24 +184,29 @@ fn realm_user(user: &KeycloakUser) -> Value {
     })
 }
 
-/// Wait for a Keycloak node, then make the `sherpa` realm with its client, groups and users.
-/// Anything already there is left as it is.
+/// Wait for a Keycloak node, then log in as its admin and make the `sherpa` realm with its
+/// client, groups and users, all as saved when the node was created
+/// ([`ensure_keycloak_credentials`]). Anything already there is left as it is.
 #[instrument(skip(lab_ca_pem, progress), fields(%lab_id, %node_name, %node_address))]
 pub async fn ensure_keycloak_realm(
     lab_id: &str,
     node_name: &str,
     node_address: Ipv4Addr,
     lab_ca_pem: &str,
-    owner: &str,
     timeout: Duration,
     progress: &ProgressSender,
 ) -> Result<KeycloakInfo> {
     let client = KeycloakClient::new(node_address, lab_ca_pem)?;
     wait_until_ready(&client, node_name, timeout).await?;
-    let credentials = realm_credentials(&keycloak_dir(lab_id), node_name, client.address(), owner)?;
+    let credentials = load_credentials(&keycloak_dir(lab_id), node_name)?.with_context(|| {
+        format!("Keycloak node '{node_name}' has no saved admin; redeploy it to give it one")
+    })?;
+    let admin = credentials.admin.as_ref().with_context(|| {
+        format!("Keycloak node '{node_name}' has no saved admin; redeploy it to give it one")
+    })?;
 
     let token = client
-        .admin_token(SHERPA_USERNAME, SHERPA_PASSWORD)
+        .admin_token(&admin.username, &admin.password)
         .await
         .with_context(|| format!("Failed to log in to Keycloak node '{node_name}'"))?;
     client
@@ -259,21 +292,6 @@ pub fn read_keycloak_credentials(dir: &Path) -> Result<Vec<KeycloakInfo>> {
     Ok(keycloaks)
 }
 
-/// A random password with lowercase and uppercase letters and digits, for the lab owner's
-/// Keycloak user.
-fn random_password() -> String {
-    let mut rng = rand::thread_rng();
-    let mut chars: Vec<char> = Alphanumeric
-        .sample_string(&mut rng, OWNER_PASSWORD_LENGTH - 3)
-        .chars()
-        .collect();
-    chars.push(rng.gen_range('a'..='z'));
-    chars.push(rng.gen_range('A'..='Z'));
-    chars.push(rng.gen_range('0'..='9'));
-    chars.shuffle(&mut rng);
-    chars.into_iter().collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,36 +300,76 @@ mod tests {
 
     use tempfile::TempDir;
 
+    const ADDRESS: &str = "https://172.31.1.23:8443";
+
     #[test]
-    fn the_realm_has_sherpa_and_the_owner_with_a_saved_password() {
+    fn a_new_keycloak_node_gets_its_own_admin_and_the_owner_saved_owner_only() {
         let dir = TempDir::new().unwrap();
-        let created =
-            realm_credentials(dir.path(), "kc01", "https://172.31.1.23:8443", "alice").unwrap();
-        let usernames: Vec<&str> = created
+        let admin = ensure_keycloak_credentials(dir.path(), "kc01", ADDRESS, "alice").unwrap();
+        assert_eq!(admin.username, "admin");
+        assert_eq!(admin.password.len(), 20);
+
+        let saved = load_credentials(dir.path(), "kc01").unwrap().unwrap();
+        assert_eq!(saved.admin.as_ref(), Some(&admin));
+        assert_eq!(saved.address, ADDRESS);
+        let usernames: Vec<&str> = saved
             .users
             .iter()
             .map(|user| user.username.as_str())
             .collect();
-        assert_eq!(usernames, ["sherpa", "alice"]);
-        assert_eq!(created.users[0].password, SHERPA_PASSWORD);
-        assert_ne!(created.users[1].password, SHERPA_PASSWORD);
+        assert_eq!(usernames, ["alice"]);
+        assert_ne!(saved.users[0].password, admin.password);
 
         let mode = fs::metadata(credentials_path(dir.path(), "kc01"))
             .unwrap()
             .permissions()
             .mode();
         assert_eq!(mode & 0o777, 0o600);
-        let again =
-            realm_credentials(dir.path(), "kc01", "https://172.31.1.23:8443", "alice").unwrap();
-        assert_eq!(again, created);
     }
 
     #[test]
-    fn an_owner_named_sherpa_is_one_user() {
+    fn each_keycloak_node_gets_a_different_admin_password() {
         let dir = TempDir::new().unwrap();
-        let created =
-            realm_credentials(dir.path(), "kc01", "https://172.31.1.23:8443", "sherpa").unwrap();
-        assert_eq!(created.users.len(), 1);
+        let kc01 = ensure_keycloak_credentials(dir.path(), "kc01", ADDRESS, "alice").unwrap();
+        let kc02 = ensure_keycloak_credentials(dir.path(), "kc02", ADDRESS, "alice").unwrap();
+        assert_ne!(kc01.password, kc02.password);
+    }
+
+    #[test]
+    fn a_redeployed_keycloak_node_keeps_its_admin_and_users() {
+        let dir = TempDir::new().unwrap();
+        let created = ensure_keycloak_credentials(dir.path(), "kc01", ADDRESS, "alice").unwrap();
+        let saved = load_credentials(dir.path(), "kc01").unwrap();
+        let again = ensure_keycloak_credentials(dir.path(), "kc01", ADDRESS, "alice").unwrap();
+        assert_eq!(again, created);
+        assert_eq!(load_credentials(dir.path(), "kc01").unwrap(), saved);
+    }
+
+    #[test]
+    fn a_keycloak_node_from_before_its_own_admin_gets_one_and_loses_the_shared_user() {
+        let dir = TempDir::new().unwrap();
+        // A 0.6 file: the shared realm user with the password every node had, and the owner.
+        let published = "old-shared-password";
+        let old = format!(
+            "address = \"{ADDRESS}\"\n\n[[users]]\nusername = \"sherpa\"\npassword = \"{published}\"\n\n\
+             [[users]]\nusername = \"alice\"\npassword = \"owner-pw\"\n"
+        );
+        fs::write(credentials_path(dir.path(), "kc01"), old).unwrap();
+
+        let admin = ensure_keycloak_credentials(dir.path(), "kc01", ADDRESS, "alice").unwrap();
+        assert_eq!(admin.username, "admin");
+        assert_ne!(admin.password, published);
+        let saved = load_credentials(dir.path(), "kc01").unwrap().unwrap();
+        assert_eq!(saved.admin, Some(admin));
+        assert_eq!(
+            saved.users,
+            [KeycloakUser {
+                username: "alice".to_owned(),
+                password: "owner-pw".to_owned(),
+            }]
+        );
+        let content = fs::read_to_string(credentials_path(dir.path(), "kc01")).unwrap();
+        assert!(!content.contains(published), "{content}");
     }
 
     #[test]
@@ -345,13 +403,15 @@ mod tests {
     #[test]
     fn download_lists_each_keycloak_by_name() {
         let dir = TempDir::new().unwrap();
-        realm_credentials(dir.path(), "kc02", "https://172.31.1.24:8443", "alice").unwrap();
-        realm_credentials(dir.path(), "kc01", "https://172.31.1.23:8443", "alice").unwrap();
+        ensure_keycloak_credentials(dir.path(), "kc02", "https://172.31.1.24:8443", "alice")
+            .unwrap();
+        ensure_keycloak_credentials(dir.path(), "kc01", ADDRESS, "alice").unwrap();
         fs::write(dir.path().join("notes.txt"), "ignored").unwrap();
         let keycloaks = read_keycloak_credentials(dir.path()).unwrap();
         let names: Vec<&str> = keycloaks.iter().map(|kc| kc.name.as_str()).collect();
         assert_eq!(names, ["kc01", "kc02"]);
         assert_eq!(keycloaks[0].realm, "sherpa");
+        assert_eq!(keycloaks[0].admin.as_ref().unwrap().username, "admin");
         assert_eq!(keycloaks[1].address, "https://172.31.1.24:8443");
         assert_eq!(
             read_keycloak_credentials(&dir.path().join("missing")).unwrap(),

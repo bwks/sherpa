@@ -17,7 +17,7 @@ use db::Database;
 use shared::data;
 use shared::data::{LabSubnets, NodeSshUsername, RecordId, StatusKind};
 use shared::util;
-use shared::validators::effective_data_interface_count;
+use shared::validators::{effective_data_interface_count, effective_ztp};
 
 /// The lab's record and subnets, and its nodes: their records, kinds and interface plans.
 pub(super) struct NodeRecords {
@@ -119,7 +119,11 @@ pub(super) async fn create_node_records(
         let lab_node = db::update_node_ready_check(
             db,
             db::get_node_id(&lab_node)?,
-            &node_ops::stored_ready_check(node.model_kind, &node.ready_check),
+            &node_ops::stored_ready_check(
+                node.model_kind,
+                &node.ready_check,
+                effective_ztp(node.ztp.method, &node_image),
+            ),
         )
         .await?;
 

@@ -7,4 +7,4 @@
 pub mod api;
 pub mod lab;
 
-pub use lab::{ensure_keycloak_realm, keycloak_dir, read_keycloak_credentials};
+pub use lab::{ensure_keycloak_realm, read_keycloak_credentials};

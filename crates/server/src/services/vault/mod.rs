@@ -10,4 +10,4 @@ pub mod cluster;
 pub mod lab;
 
 pub use cluster::{ClusterAccess, cluster_auth_mount, configure_cluster_access};
-pub use lab::{ensure_vault_unsealed, read_vault_credentials, sherpa_initialises_vault, vault_dir};
+pub use lab::{ensure_vault_unsealed, read_vault_credentials, sherpa_initialises_vault};

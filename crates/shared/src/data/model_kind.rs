@@ -13,9 +13,7 @@ use serde_derive::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 
 use super::node::{NodeConfig, NodeKind, NodeModel, Ztp};
-use crate::konst::{
-    SHERPA_SSHD_READY_MARKER, SSH_PORT, TALOS_API_PORT, TALOS_DEFAULT_BOOT_DISK_SIZE,
-};
+use crate::konst::{SSH_PORT, TALOS_API_PORT, TALOS_DEFAULT_BOOT_DISK_SIZE};
 
 /// A node model and one of the kinds it takes. Its fields are private: build one with
 /// [`ModelKind::new`], which refuses a kind the model does not take, or with
@@ -346,21 +344,24 @@ impl ModelKind {
         }
     }
 
-    /// What a node of this model and kind, configured with `ztp`, must show in its SSH server's
-    /// identification line before it counts as ready, on top of the SSH handshake: the owner
-    /// can log in only from then. `None` when the handshake is enough.
+    /// Whether a node of this model and kind, configured with `ztp`, must show
+    /// [`SHERPA_SSHD_READY_MARKER`](crate::konst::SHERPA_SSHD_READY_MARKER) in its SSH server's
+    /// identification line before it counts as ready, on top of the SSH handshake: the owner can
+    /// log in only from then. `false` when the handshake is enough. `up` and `redeploy` store it with the node's readiness check, which
+    /// every readiness probe reads.
     ///
     /// A Windows node's OpenSSH server starts at boot, before cloudbase-init has created the
     /// owner's account, written their keys file and Sherpa's `sshd_config`, and restarted it.
-    /// That config adds [`SHERPA_SSHD_READY_MARKER`]; Sherpa writes it only with cloud-init ZTP.
+    /// That config adds the marker; Sherpa writes it only with cloud-init ZTP.
     #[must_use]
-    pub fn sshd_ready_marker(self, ztp: Ztp) -> Option<&'static str> {
-        match (self.model, ztp) {
-            (NodeModel::DevboxWindows | NodeModel::WindowsServer, Ztp::CloudInit) => {
-                Some(SHERPA_SSHD_READY_MARKER)
-            }
-            _ => None,
-        }
+    pub fn waits_for_sshd_ready_marker(self, ztp: Ztp) -> bool {
+        matches!(
+            (self.model, ztp),
+            (
+                NodeModel::DevboxWindows | NodeModel::WindowsServer,
+                Ztp::CloudInit
+            )
+        )
     }
 
     /// Boot disk size in GB used when the manifest does not set `boot_disk.size`.
@@ -580,8 +581,8 @@ mod tests {
             );
             for ztp in [Ztp::CloudInit, Ztp::Disabled, Ztp::Tftp] {
                 assert_eq!(
-                    model_kind.sshd_ready_marker(ztp),
-                    (windows && ztp == Ztp::CloudInit).then_some(SHERPA_SSHD_READY_MARKER),
+                    model_kind.waits_for_sshd_ready_marker(ztp),
+                    windows && ztp == Ztp::CloudInit,
                     "{model_kind:?} {ztp:?}"
                 );
             }
