@@ -19,9 +19,7 @@ pub use interface::{interface_link_up, set_interface_link};
 pub use names::{is_device_volume, is_lab_volume};
 pub use network::{BridgeNetwork, IsolatedNetwork, NatNetwork, ReservedNetwork};
 pub use overlay::create_overlay;
-pub use qcow2::{
-    Qcow2Metadata, ensure_no_overlay_dependencies, overlay_backing_files, read_qcow2_metadata,
-};
+pub use qcow2::{Qcow2Metadata, ensure_no_overlay_dependencies, read_qcow2_metadata};
 pub use qemu::{Qemu, QemuConnection};
-pub use storage::{SherpaStoragePool, list_lab_volumes, refresh_pool};
+pub use storage::{SherpaStoragePool, list_lab_volumes, pool_backing_files, refresh_pool};
 pub use vm::{clone_disk, create_vm, delete_disk, get_mgmt_ip, resize_disk};

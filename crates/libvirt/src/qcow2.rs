@@ -232,7 +232,7 @@ pub fn ensure_no_overlay_dependencies(storage_path: &Path, image_dir: &Path) -> 
 /// Fails when storage cannot be listed, or a disk's metadata cannot be read: a dependency that
 /// cannot be determined is an error, not a disk without one.
 #[instrument(level = "debug")]
-pub fn overlay_backing_files(storage_path: &Path) -> Result<Vec<(PathBuf, PathBuf)>> {
+fn overlay_backing_files(storage_path: &Path) -> Result<Vec<(PathBuf, PathBuf)>> {
     let mut found = Vec::new();
     collect_backing_files(storage_path, &mut found)?;
     Ok(found)

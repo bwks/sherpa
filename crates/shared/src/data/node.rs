@@ -11,7 +11,7 @@ use serde::de::{self, Deserializer};
 use serde_derive::{Deserialize, Serialize};
 
 use strum::IntoEnumIterator;
-use strum_macros::{Display, EnumIter};
+use strum_macros::{Display, EnumIter, IntoStaticStr};
 
 use super::cpu::CpuModels;
 use super::disk::DiskBuses;
@@ -32,10 +32,10 @@ use super::node_base;
 /// `FromStr`, from JSON and TOML, from a command line and from the database alike, so a name
 /// removed in 0.7.0 is refused everywhere with the same message naming its replacement.
 #[derive(
-    Default, PartialEq, Eq, Hash, Clone, Copy, Debug, Serialize, ValueEnum, EnumIter, JsonSchema,
+    Default, PartialEq, Eq, Hash, Clone, Copy, Debug, Serialize, EnumIter, IntoStaticStr, JsonSchema,
 )]
-#[clap(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum NodeModel {
     #[default]
     // Arista
@@ -354,7 +354,7 @@ impl FromStr for NodeModel {
 impl<'de> serde::Deserialize<'de> for NodeModel {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let name = <std::borrow::Cow<'de, str>>::deserialize(deserializer)?;
-        <NodeModel as FromStr>::from_str(&name).map_err(de::Error::custom)
+        NodeModel::from_str(&name).map_err(de::Error::custom)
     }
 }
 
@@ -373,7 +373,7 @@ impl TypedValueParser for NodeModelParser {
         value: &OsStr,
     ) -> Result<NodeModel, clap::Error> {
         let name = value.to_string_lossy();
-        <NodeModel as FromStr>::from_str(&name).map_err(|message| {
+        NodeModel::from_str(&name).map_err(|message| {
             let argument = arg.map_or_else(String::new, |arg| format!(" for '{arg}'"));
             clap::Error::raw(
                 ErrorKind::InvalidValue,
@@ -384,11 +384,10 @@ impl TypedValueParser for NodeModelParser {
     }
 
     fn possible_values(&self) -> Option<Box<dyn Iterator<Item = PossibleValue> + '_>> {
-        Some(Box::new(
-            NodeModel::value_variants()
-                .iter()
-                .filter_map(ValueEnum::to_possible_value),
-        ))
+        Some(Box::new(NodeModel::iter().map(|model| {
+            let name: &'static str = model.into();
+            PossibleValue::new(name)
+        })))
     }
 }
 

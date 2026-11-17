@@ -3,9 +3,7 @@ use bollard::Docker;
 use dashmap::DashMap;
 use libvirt::Qemu;
 use shared::data::{Config, UpRequest};
-use shared::konst::{
-    ADMIN_USERNAME, SHERPA_DB_FILE_PATH, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME,
-};
+use shared::konst::{ADMIN_USERNAME, SHERPA_DB_FILE_PATH, SHERPA_USERNAME};
 use std::env;
 use std::path::Path;
 use std::sync::Arc;
@@ -143,14 +141,21 @@ impl AppState {
         warn_on_sherpa_logins(&db).await?;
 
         secure_storage();
-        move_renamed_model_folders(
-            Path::new(&config.images_dir),
-            Path::new(SHERPA_STORAGE_POOL_PATH),
-        )
-        .context("Failed to move the image folders of renamed node models")?;
 
         // Initialize libvirt client
         let qemu = Qemu::default();
+        let backing_files = qemu
+            .connect()
+            .and_then(|qemu_conn| libvirt::pool_backing_files(&qemu_conn))
+            .inspect_err(|error| {
+                tracing::warn!(
+                    error = %format!("{error:#}"),
+                    "Cannot read the storage pool's disks"
+                );
+            })
+            .ok();
+        move_renamed_model_folders(Path::new(&config.images_dir), backing_files.as_deref())
+            .context("Failed to move the image folders of renamed node models")?;
         tracing::info!("Initialized libvirt/QEMU client");
 
         // Initialize Docker client

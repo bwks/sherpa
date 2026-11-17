@@ -238,8 +238,9 @@ rename folders. `daemon::image_folders::move_renamed_model_folders` runs on ever
   base by that path at the next start, so an overlay made before the move still names
   `arista_veos/4.33/virtioa.qcow2`. While a disk in the storage pool has a base under the old
   path, the old path is a relative symlink to the new folder (`arista_veos -> arista_eos`).
-  `libvirt::overlay_backing_files` reads every QCOW2 disk in the pool for its backing path, as
-  written, without resolving it. A later start removes the link once no disk names it, that is
+  `libvirt::pool_backing_files` asks libvirt for each pool volume's `<backingStore>` path, as
+  the disk records it, without resolving it: libvirtd reads every volume, while sherpad cannot
+  read the disks libvirt has handed to QEMU (`0600`, owned by `libvirt-qemu` or `root`). A later start removes the link once no disk names it, that is
   once the last node built on it is redeployed or destroyed. When the pool cannot be read, every
   link is kept and every moved folder gets one.
 - Unikernel kernels and disks, the Aboot ISO and other CD-ROMs are copied into the storage pool

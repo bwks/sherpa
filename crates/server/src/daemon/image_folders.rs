@@ -8,7 +8,8 @@
 //! A VM overlay disk records its base by path, so an overlay made before the move still names
 //! the old folder. While any disk in the storage pool does, the old path is left as a link to
 //! the new folder, and a later startup removes the link once none does. A link is state on disk
-//! for old labs, not a model name anything accepts. Only folders and links are moved, created
+//! for old labs, not a model name anything accepts. libvirt reports each disk's base: sherpad
+//! cannot read the disks libvirt has handed to QEMU. Only folders and links are moved, created
 //! or removed: no image file is deleted.
 
 use std::fs;
@@ -22,32 +23,29 @@ use tracing::instrument;
 use shared::data::REMOVED_MODELS;
 
 /// Move the image folder of each model renamed in 0.7.0 to its new name, and keep or remove
-/// the link at the old path as the overlays in `storage_path` need it. Safe to run on every
-/// startup: a folder already moved is not moved again.
-///
-/// When the overlays cannot be read, every link is kept and every moved folder gets one, so no
-/// disk loses its base.
+/// the link at the old path as the disks need it. `backing_files` is the base each disk in the
+/// storage pool records (`libvirt::pool_backing_files`); `None` when they cannot be read, and
+/// then every link is kept and every moved folder gets one, so no disk loses its base. Safe to
+/// run on every startup: a folder already moved is not moved again.
 ///
 /// # Errors
 ///
 /// Fails when a folder cannot be read, moved, removed when empty, or linked.
-#[instrument]
-pub fn move_renamed_model_folders(images_dir: &Path, storage_path: &Path) -> Result<()> {
-    let backing_files: Option<Vec<PathBuf>> = match libvirt::overlay_backing_files(storage_path) {
-        Ok(found) => Some(found.into_iter().map(|(_, backing)| backing).collect()),
-        Err(error) => {
-            tracing::warn!(
-                error = %format!("{error:#}"),
-                "Cannot read the overlay disks; keeping a link at every renamed image folder"
-            );
-            None
-        }
-    };
+#[instrument(skip(backing_files))]
+pub fn move_renamed_model_folders(
+    images_dir: &Path,
+    backing_files: Option<&[PathBuf]>,
+) -> Result<()> {
+    if backing_files.is_none() {
+        tracing::warn!(
+            "The storage pool's disks are not known; keeping a link at every renamed image folder"
+        );
+    }
     for (old_name, model, _) in REMOVED_MODELS {
         move_model_folder(
             &images_dir.join(old_name),
             &images_dir.join(model.to_string()),
-            backing_files.as_deref(),
+            backing_files,
         )?;
     }
     Ok(())
@@ -175,39 +173,23 @@ mod tests {
 
     use super::*;
 
-    /// A QCOW2 header whose backing file is `backing`, as an overlay records its base.
-    fn overlay_header(backing: &Path) -> Vec<u8> {
-        let name = backing.to_str().unwrap().as_bytes();
-        let mut bytes = vec![0; 65536];
-        bytes[..4].copy_from_slice(b"QFI\xfb");
-        bytes[4..8].copy_from_slice(&3_u32.to_be_bytes());
-        bytes[8..16].copy_from_slice(&128_u64.to_be_bytes());
-        bytes[16..20].copy_from_slice(&u32::try_from(name.len()).unwrap().to_be_bytes());
-        bytes[20..24].copy_from_slice(&16_u32.to_be_bytes());
-        bytes[24..32].copy_from_slice(&(2_u64 << 30).to_be_bytes());
-        bytes[100..104].copy_from_slice(&104_u32.to_be_bytes());
-        bytes[128..128 + name.len()].copy_from_slice(name);
-        bytes
-    }
-
-    /// An images folder and a storage pool in a temporary directory.
+    /// An images folder in a temporary directory, and the bases the storage pool's disks
+    /// record.
     struct Server {
         _root: tempfile::TempDir,
         images: PathBuf,
-        pool: PathBuf,
+        backing_files: Option<Vec<PathBuf>>,
     }
 
     impl Server {
         fn new() -> Self {
             let root = tempdir().unwrap();
             let images = root.path().join("images");
-            let pool = root.path().join("pool");
             fs::create_dir(&images).unwrap();
-            fs::create_dir(&pool).unwrap();
             Self {
                 _root: root,
                 images,
-                pool,
+                backing_files: Some(Vec::new()),
             }
         }
 
@@ -219,17 +201,14 @@ mod tests {
             path
         }
 
-        /// An overlay in the pool on the base `file` under the images folder.
-        fn overlay(&self, name: &str, file: &str) {
-            fs::write(
-                self.pool.join(name),
-                overlay_header(&self.images.join(file)),
-            )
-            .unwrap();
+        /// A disk in the pool on the base `file` under the images folder.
+        fn overlay(&mut self, file: &str) {
+            let base = self.images.join(file);
+            self.backing_files.get_or_insert_default().push(base);
         }
 
         fn start(&self) {
-            move_renamed_model_folders(&self.images, &self.pool).unwrap();
+            move_renamed_model_folders(&self.images, self.backing_files.as_deref()).unwrap();
         }
 
         fn is_link(&self, name: &str) -> bool {
@@ -259,10 +238,10 @@ mod tests {
 
     #[test]
     fn a_folder_an_overlay_uses_is_moved_and_linked_until_no_disk_uses_it() {
-        let server = Server::new();
+        let mut server = Server::new();
         server.image("arista_veos/4.33/virtioa.qcow2");
         server.image("arista_veos/aboot_iso/aboot.iso");
-        server.overlay("leaf1-lab.qcow2", "arista_veos/4.33/virtioa.qcow2");
+        server.overlay("arista_veos/4.33/virtioa.qcow2");
 
         server.start();
 
@@ -286,7 +265,7 @@ mod tests {
         assert!(server.is_link("arista_veos"));
 
         // Once the node is redeployed or destroyed, the next start removes the link only.
-        fs::remove_file(server.pool.join("leaf1-lab.qcow2")).unwrap();
+        server.backing_files = Some(Vec::new());
         server.start();
         assert!(!server.images.join("arista_veos").exists());
         assert!(!server.is_link("arista_veos"));
@@ -298,10 +277,10 @@ mod tests {
 
     #[test]
     fn an_overlay_on_another_model_does_not_keep_a_link() {
-        let server = Server::new();
+        let mut server = Server::new();
         server.image("juniper_vsrxv3/23.4/virtioa.qcow2");
         server.image("ubuntu_linux/24.04/virtioa.qcow2");
-        server.overlay("dev1-lab.qcow2", "ubuntu_linux/24.04/virtioa.qcow2");
+        server.overlay("ubuntu_linux/24.04/virtioa.qcow2");
 
         server.start();
 
@@ -369,11 +348,11 @@ mod tests {
     }
 
     #[test]
-    fn unreadable_disks_keep_a_link_at_every_moved_folder() {
-        let server = Server::new();
+    fn unknown_disks_keep_a_link_at_every_moved_folder() {
+        let mut server = Server::new();
         server.image("juniper_vrouter/23.2/virtioa.qcow2");
-        // A damaged QCOW2 disk: its dependencies cannot be known.
-        fs::write(server.pool.join("broken.qcow2"), b"QFI\xfb").unwrap();
+        // The pool's disks cannot be listed.
+        server.backing_files = None;
 
         server.start();
 
