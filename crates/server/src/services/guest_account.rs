@@ -927,10 +927,7 @@ pub(crate) mod tests {
                 Ztp::Ignition => model == NodeModel::FlatcarLinux,
                 Ztp::Tftp => matches!(
                     model,
-                    NodeModel::AristaEos
-                        | NodeModel::ArubaAoscx
-                        | NodeModel::JuniperEvolved
-                        | NodeModel::JuniperSrxv3
+                    NodeModel::AristaEos | NodeModel::ArubaAoscx | NodeModel::JuniperEvolved
                 ),
                 Ztp::Cdrom => matches!(
                     model,

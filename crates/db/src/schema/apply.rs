@@ -1761,6 +1761,58 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn srx_images_on_tftp_move_to_cdrom_and_other_settings_are_kept() {
+        // A version 32 database: vSRX images on each setting it could hold, and a Junos
+        // Evolved image on TFTP, which that model still takes.
+        let before = migrations_before(migrations::SRX_ZTP_CDROM_ONLY);
+        assert_eq!(before + 1, 32);
+        let db = database_at(before).await;
+        for (model, version, ztp) in [
+            (NodeModel::JuniperSrxv3, "on-tftp", "tftp"),
+            (NodeModel::JuniperSrxv3, "on-cdrom", "cdrom"),
+            (NodeModel::JuniperSrxv3, "off", "disabled"),
+            (NodeModel::JuniperEvolved, "evolved", "tftp"),
+        ] {
+            let mut image = ModelKind::default_for(model).node_config();
+            image.version = version.to_owned();
+            let image = upsert_node_image(&db, image, DefaultRequest::Keep)
+                .await
+                .unwrap();
+            // Stored as the release before this one could: today's writes refuse vSRX on TFTP.
+            let key = key_of(&image.id.unwrap(), "node_image").unwrap();
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute(
+                    "UPDATE node_image SET ztp = ?1 WHERE id = ?2",
+                    (ztp, key.as_str()),
+                )
+                .await
+                .unwrap();
+        }
+
+        apply_schema(&db).await.unwrap();
+
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
+        let mut methods: Vec<(NodeModel, String, Ztp)> = list_node_images(&db)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|image| (image.model, image.version, image.ztp.method))
+            .collect();
+        methods.sort_by(|a, b| a.1.cmp(&b.1));
+        assert_eq!(
+            methods,
+            [
+                (NodeModel::JuniperEvolved, "evolved".to_owned(), Ztp::Tftp),
+                (NodeModel::JuniperSrxv3, "off".to_owned(), Ztp::Disabled),
+                (NodeModel::JuniperSrxv3, "on-cdrom".to_owned(), Ztp::Cdrom),
+                (NodeModel::JuniperSrxv3, "on-tftp".to_owned(), Ztp::Cdrom),
+            ]
+        );
+    }
+
     /// A version 30 database, from before the renames: an image of each removed model name, as
     /// its default, stored under the old name, an image of a model that keeps its name, and a
     /// lab whose stored definition has nodes on five of them. Returns the database and each old

@@ -86,9 +86,9 @@ async fn test_upsert_stores_disabled_and_a_listed_method() -> Result<()> {
     let stored = upsert_node_image(&db, off, DefaultRequest::Keep).await?;
     assert_eq!(stored.ztp.method, Ztp::Disabled);
 
-    let mut tftp = create_test_config(NodeModel::JuniperSrxv3);
-    tftp.ztp.method = Ztp::Tftp;
-    let stored = upsert_node_image(&db, tftp, DefaultRequest::Keep).await?;
-    assert_eq!(stored.ztp.method, Ztp::Tftp);
+    let mut usb = create_test_config(NodeModel::JuniperEvolved);
+    usb.ztp.method = Ztp::Usb;
+    let stored = upsert_node_image(&db, usb, DefaultRequest::Keep).await?;
+    assert_eq!(stored.ztp.method, Ztp::Usb);
     Ok(())
 }

@@ -365,11 +365,11 @@ mod tests {
         }
     }
 
-    /// A lab of a vSRX `srx`, a `SONiC` switch `sonic`, a container and a unikernel.
+    /// A lab of a Junos Evolved VM `evo`, a `SONiC` switch `sonic`, a container and a unikernel.
     fn lab() -> Vec<BootNode> {
         vec![
             node("uk1", 1, NodeModel::NanosUnikernel, None),
-            node("srx", 2, NodeModel::JuniperSrxv3, Some(Ztp::Cdrom)),
+            node("evo", 2, NodeModel::JuniperEvolved, Some(Ztp::Usb)),
             node("ct1", 3, NodeModel::PostgresqlDb, None),
             node("sonic", 4, NodeModel::SonicLinux, Some(Ztp::Http)),
         ]
@@ -392,26 +392,26 @@ mod tests {
         render_dnsmasq_config(&mgmt_net(), &lab_ztp_records(&lab(), redeployed).unwrap()).unwrap()
     }
 
-    const SRX_TFTP: &str = "dhcp-option=tag:srx-tag,67,srx.conf";
+    const EVO_TFTP: &str = "dhcp-option=tag:evo-tag,67,evo.conf";
     const SONIC_HTTP: &str = r#"dhcp-option=tag:sonic-tag,67,"http://172.31.1.2:8080/sonic.conf""#;
 
     #[test]
     fn a_redeploy_onto_tftp_gives_the_node_its_boot_option() {
-        let before = config(&redeployed("srx", 2, Ztp::Cdrom));
-        let after = config(&redeployed("srx", 2, Ztp::Tftp));
+        let before = config(&redeployed("evo", 2, Ztp::Usb));
+        let after = config(&redeployed("evo", 2, Ztp::Tftp));
 
-        assert!(!before.contains(SRX_TFTP), "{before}");
-        assert!(after.contains(SRX_TFTP), "{after}");
+        assert!(!before.contains(EVO_TFTP), "{before}");
+        assert!(after.contains(EVO_TFTP), "{after}");
         // The other nodes' entries are as they were.
         assert!(before.contains(SONIC_HTTP) && after.contains(SONIC_HTTP));
     }
 
     #[test]
     fn a_redeploy_off_tftp_removes_the_nodes_boot_option() {
-        let after = config(&redeployed("srx", 2, Ztp::Cdrom));
+        let after = config(&redeployed("evo", 2, Ztp::Usb));
 
-        assert!(!after.contains("srx-tag,67"), "{after}");
-        assert!(after.contains("dhcp-host=52:54:00:00:00:02,172.31.1.22,srx,,set:srx-tag"));
+        assert!(!after.contains("evo-tag,67"), "{after}");
+        assert!(after.contains("dhcp-host=52:54:00:00:00:02,172.31.1.22,evo,,set:evo-tag"));
     }
 
     #[test]
@@ -432,10 +432,10 @@ mod tests {
 
     #[test]
     fn the_records_are_in_the_order_up_makes_them() {
-        let records = lab_ztp_records(&lab(), &redeployed("srx", 2, Ztp::Cdrom)).unwrap();
+        let records = lab_ztp_records(&lab(), &redeployed("evo", 2, Ztp::Usb)).unwrap();
 
         let names: Vec<&str> = records.iter().map(|r| r.node_name.as_str()).collect();
-        assert_eq!(names, ["ct1", "srx", "sonic", "uk1"]);
+        assert_eq!(names, ["ct1", "evo", "sonic", "uk1"]);
         // As `up` makes them: no MAC for a container, the IPv6 address for a unikernel only.
         assert_eq!(records[0].mac_address, "");
         assert_eq!(records[2].ipv6_address, None);
@@ -451,7 +451,7 @@ mod tests {
         let mut nodes = lab();
         nodes[2].record.mgmt_ipv4 = None;
 
-        let records = lab_ztp_records(&nodes, &redeployed("srx", 2, Ztp::Tftp)).unwrap();
+        let records = lab_ztp_records(&nodes, &redeployed("evo", 2, Ztp::Tftp)).unwrap();
 
         assert!(records.iter().all(|record| record.node_name != "ct1"));
     }
