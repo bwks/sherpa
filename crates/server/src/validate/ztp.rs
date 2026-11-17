@@ -93,9 +93,22 @@ mod tests {
             Ztp::Disabled
         );
         assert_eq!(
-            validate(NodeModel::JuniperSrxv3, Some(Ztp::Tftp), None).unwrap(),
-            Ztp::Tftp
+            validate(NodeModel::JuniperEvolved, Some(Ztp::Usb), None).unwrap(),
+            Ztp::Usb
         );
+    }
+
+    #[test]
+    fn srx_runs_with_cdrom_and_refuses_tftp_before_anything_is_built() {
+        assert_eq!(
+            validate(NodeModel::JuniperSrxv3, None, None).unwrap(),
+            Ztp::Cdrom
+        );
+        // A manifest written when vSRX still took TFTP, as `up` and `redeploy` check it.
+        let error = validate(NodeModel::JuniperSrxv3, Some(Ztp::Tftp), None).unwrap_err();
+        let error = format!("{error:#}");
+        assert!(error.contains("node1"), "{error}");
+        assert!(error.ends_with("allows: disabled, cdrom"), "{error}");
     }
 
     #[test]

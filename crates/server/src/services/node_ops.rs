@@ -2622,7 +2622,7 @@ fn generate_tftp_ztp(
                     TFTP_CONFIG_FILE_MODE,
                 )?;
             }
-            data::NodeModel::JuniperEvolved | data::NodeModel::JuniperSrxv3 => {
+            data::NodeModel::JuniperEvolved => {
                 let juniper_template = template::JunipervJunosZtpTemplate {
                     hostname: node.name.clone(),
                     owner: guest_account::owner_user(
@@ -6211,6 +6211,44 @@ pub(crate) mod tests {
             lab.files()
                 .contains(&format!("{VM_BOOT_DIR}/talos01/{ZTP_ISO}"))
         );
+    }
+
+    #[test]
+    fn srx_takes_its_config_with_the_owners_hashed_password_from_cdrom() {
+        let lab = ZtpLab::new();
+        let mut node = named_node("srx01", data::NodeModel::JuniperSrxv3);
+        let image = data::ModelKind::default_for(data::NodeModel::JuniperSrxv3).node_config();
+
+        let result = generate_vm_ztp(
+            &mut node,
+            &image,
+            &lab.lab(),
+            "192.0.2.10".parse().unwrap(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(result.ztp_record.ztp, data::Ztp::Cdrom);
+        assert_eq!(
+            lab.files(),
+            [
+                format!("{VM_BOOT_DIR}/srx01/{JUNIPER_ZTP_CONFIG}"),
+                format!("{VM_BOOT_DIR}/srx01/{ZTP_ISO}"),
+            ]
+        );
+        let config = fs::read_to_string(format!(
+            "{}/{VM_BOOT_DIR}/srx01/{JUNIPER_ZTP_CONFIG}",
+            lab.root()
+        ))
+        .unwrap();
+        assert!(config.contains("user alice {"), "{config}");
+        assert_eq!(
+            config.matches("encrypted-password \"$6$").count(),
+            2,
+            "the owner and root: {config}"
+        );
+        assert!(config.contains("ssh-ed25519 \""), "{config}");
     }
 
     #[test]

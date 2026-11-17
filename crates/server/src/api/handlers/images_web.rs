@@ -1091,10 +1091,10 @@ mod tests {
     fn the_ztp_choices_are_disabled_and_the_models_methods() {
         // Two methods, one method, and a container with none.
         assert_eq!(
-            offered(NodeModel::JuniperSrxv3, Ztp::Cdrom),
+            offered(NodeModel::JuniperEvolved, Ztp::Usb),
             (
-                vec!["disabled".to_owned(), "tftp".to_owned(), "cdrom".to_owned()],
-                vec!["cdrom".to_owned()]
+                vec!["disabled".to_owned(), "tftp".to_owned(), "usb".to_owned()],
+                vec!["usb".to_owned()]
             )
         );
         assert_eq!(
@@ -1196,13 +1196,13 @@ mod tests {
 
     #[test]
     fn a_saved_form_carries_its_ztp_setting_to_the_image() {
-        let config = ModelKind::default_for(NodeModel::JuniperSrxv3).node_config();
+        let config = ModelKind::default_for(NodeModel::JuniperEvolved).node_config();
         let mut form = form_for(&config, "1");
-        form.ztp = Ztp::Tftp;
+        form.ztp = Ztp::Usb;
         let choices = ImageFormChoices::parse(&form).unwrap();
 
         let updated = updated_image_config(config, form, choices);
 
-        assert_eq!(updated.ztp.method, Ztp::Tftp);
+        assert_eq!(updated.ztp.method, Ztp::Usb);
     }
 }

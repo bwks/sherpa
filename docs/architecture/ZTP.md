@@ -46,9 +46,8 @@ today, so the table is per model. `Disabled` is allowed for every pair and is ne
 |---|---|
 | `cloud-init` | the Linux, BSD and Windows VMs, the application VMs, the `generic` VM |
 | `tftp` | the `arista_eos` VM, `aruba_aoscx` |
-| `tftp`, `cdrom` | `juniper_srxv3` |
 | `tftp`, `usb` | the `juniper_evolved` VM |
-| `cdrom` | the Cisco IOS XE, ASA, NX-OS, IOS XR and FTD VMs, `juniper_router`, `juniper_switch`, `paloalto_panos` |
+| `cdrom` | the Cisco IOS XE, ASA, NX-OS, IOS XR and FTD VMs, `juniper_srxv3`, `juniper_router`, `juniper_switch`, `paloalto_panos` |
 | `disk` | `cisco_ios`, `cisco_iosl2`, `cisco_ise`, `mikrotik_chr` |
 | `usb` | `cumulus_linux` |
 | `http` | `sonic_linux` |
@@ -58,7 +57,14 @@ today, so the table is per model. `Disabled` is allowed for every pair and is ne
 | none | every other container, and the unikernels |
 
 Each pair's default from `ModelKind::node_config` is `Disabled` or a listed method; unit tests in
-`model_kind.rs` hold the table and the defaults to that.
+`model_kind.rs` hold the defaults to that.
+
+`juniper_srxv3` takes `cdrom` only, its default. It also took `tftp` up to 0.6.5, where a vSRX
+on TFTP stalled at boot without its config (#676). Migration `0033_srx_ztp_cdrom_only.sql` moves a vSRX image stored on `tftp` to `cdrom`
+and keeps `cdrom` and `disabled`. A manifest node that sets `tftp` is refused by
+`check_node_ztp` and `validate_node_ztp` with the allowed values, `disabled, cdrom`; on
+`redeploy` that is before the node is torn down. `resume` boots the node's existing domain and
+generates no config, so a vSRX deployed on TFTP resumes as it was.
 
 ## Validation
 
@@ -143,8 +149,7 @@ set by Sherpa. So `boot_server::boot_container_spec` mounts under `/opt/ztp` onl
 `ztp/configs/` holds only the files of the nodes that boot by HTTP, which today is `sonic_linux`
 alone: its ZTP file map `<node>.conf`, named in DHCP options 67 and 239, and the two files the
 map fetches, `<node>_config_db.json` and `<node>_ztp_user.sh`, the owner's account script. The
-TFTP configs (the `arista_eos` and `juniper_evolved` VMs, `aruba_aoscx`, `juniper_srxv3` when
-set to `tftp`), the dnsmasq config and the leases are not under the HTTP root, so a node on the
+TFTP configs (the `arista_eos` and `juniper_evolved` VMs, `aruba_aoscx`), the dnsmasq config and the leases are not under the HTTP root, so a node on the
 management network can fetch them only as TFTP allows: by name, the TFTP configs only. Up to
 0.6.5 the whole `/opt/ztp` was the lab's ZTP folder, so HTTP also listed and served `tftp/` and
 `dnsmasq/dnsmasq.leases`.

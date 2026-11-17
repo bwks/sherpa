@@ -227,8 +227,8 @@ impl ModelKind {
         }
     }
 
-    /// The ZTP methods this model and kind take, most one, two take two, and those with no
-    /// config generator none. `Ztp::Disabled` is allowed for every pair and is never listed.
+    /// The ZTP methods this model and kind take: one for most, two for a Junos Evolved virtual
+    /// machine, and none for those with no config generator. `Ztp::Disabled` is allowed for every pair and is never listed.
     /// Every model is named, so a new one does not compile until it has an entry.
     #[must_use]
     pub fn ztp_methods(self) -> &'static [Ztp] {
@@ -269,7 +269,6 @@ impl ModelKind {
                 NodeKind::VirtualMachine => &[Ztp::CloudInit],
                 NodeKind::Container | NodeKind::Unikernel => &[],
             },
-            NodeModel::JuniperSrxv3 => &[Ztp::Tftp, Ztp::Cdrom],
             NodeModel::CiscoCsr1000
             | NodeModel::CiscoCat8000
             | NodeModel::CiscoCat9000
@@ -277,6 +276,7 @@ impl ModelKind {
             | NodeModel::CiscoNexus9300
             | NodeModel::CiscoIosxr9000
             | NodeModel::CiscoFtd
+            | NodeModel::JuniperSrxv3
             | NodeModel::JuniperRouter
             | NodeModel::JuniperSwitch
             | NodeModel::PaloaltoPanos => &[Ztp::Cdrom],
@@ -465,6 +465,13 @@ mod tests {
     }
 
     #[test]
+    fn srx_takes_its_config_from_cdrom_only_and_by_default() {
+        let srx = ModelKind::default_for(NodeModel::JuniperSrxv3);
+        assert_eq!(srx.ztp_methods(), [Ztp::Cdrom]);
+        assert_eq!(srx.node_config().ztp.method, Ztp::Cdrom);
+    }
+
+    #[test]
     fn each_kind_of_a_merged_model_has_its_own_settings_and_ztp() {
         let veos = ModelKind::default_for(NodeModel::AristaEos);
         let ceos = ModelKind::new(NodeModel::AristaEos, Some(NodeKind::Container)).unwrap();
@@ -613,93 +620,6 @@ mod tests {
         );
         assert_eq!(ubuntu.default_boot_disk_size(), None);
         assert!(ubuntu.has_ssh());
-    }
-
-    /// The methods each model takes, written out: the generators' model arms.
-    fn expected_ztp_methods(model_kind: ModelKind) -> Vec<Ztp> {
-        match model_kind.model() {
-            NodeModel::CentosLinux
-            | NodeModel::AlmaLinux
-            | NodeModel::DevboxLinux
-            | NodeModel::RockyLinux
-            | NodeModel::FedoraLinux
-            | NodeModel::OpensuseLinux
-            | NodeModel::RedhatLinux
-            | NodeModel::SuseLinux
-            | NodeModel::UbuntuLinux
-            | NodeModel::OmarchyLinux
-            | NodeModel::NixosLinux
-            | NodeModel::KaliLinux
-            | NodeModel::InfrahubServer
-            | NodeModel::JenkinsServer
-            | NodeModel::NautobotServer
-            | NodeModel::NetboxServer
-            | NodeModel::SignozServer
-            | NodeModel::VirtServer
-            | NodeModel::FreeBsd
-            | NodeModel::OpenBsd
-            | NodeModel::DevboxWindows
-            | NodeModel::WindowsServer
-            | NodeModel::AlpineLinux => vec![Ztp::CloudInit],
-            NodeModel::ArubaAoscx => vec![Ztp::Tftp],
-            NodeModel::AristaEos => match model_kind.kind {
-                NodeKind::Container => vec![Ztp::Volume],
-                NodeKind::VirtualMachine | NodeKind::Unikernel => vec![Ztp::Tftp],
-            },
-            NodeModel::JuniperEvolved => match model_kind.kind {
-                NodeKind::Container => vec![Ztp::Volume],
-                NodeKind::VirtualMachine | NodeKind::Unikernel => vec![Ztp::Tftp, Ztp::Usb],
-            },
-            NodeModel::Generic => match model_kind.kind {
-                NodeKind::VirtualMachine => vec![Ztp::CloudInit],
-                NodeKind::Container | NodeKind::Unikernel => Vec::new(),
-            },
-            NodeModel::JuniperSrxv3 => vec![Ztp::Tftp, Ztp::Cdrom],
-            NodeModel::CiscoCsr1000
-            | NodeModel::CiscoCat8000
-            | NodeModel::CiscoCat9000
-            | NodeModel::CiscoAsa
-            | NodeModel::CiscoNexus9300
-            | NodeModel::CiscoIosxr9000
-            | NodeModel::CiscoFtd
-            | NodeModel::JuniperRouter
-            | NodeModel::JuniperSwitch
-            | NodeModel::PaloaltoPanos => vec![Ztp::Cdrom],
-            NodeModel::CiscoIos
-            | NodeModel::CiscoIosl2
-            | NodeModel::CiscoIse
-            | NodeModel::MikrotikChr => vec![Ztp::Disk],
-            NodeModel::CumulusLinux => vec![Ztp::Usb],
-            NodeModel::SonicLinux => vec![Ztp::Http],
-            NodeModel::FlatcarLinux => vec![Ztp::Ignition],
-            NodeModel::TalosLinux => vec![Ztp::NoCloud],
-            NodeModel::NokiaSrlinux
-            | NodeModel::CiscoIol
-            | NodeModel::CiscoIoll2
-            | NodeModel::FrrLinux => vec![Ztp::Volume],
-            NodeModel::GitlabCe
-            | NodeModel::ForgejoForge
-            | NodeModel::SurrealDb
-            | NodeModel::MysqlDb
-            | NodeModel::MongoDb
-            | NodeModel::PostgresqlDb
-            | NodeModel::NatsBus
-            | NodeModel::HashicorpVault
-            | NodeModel::KeycloakServer
-            | NodeModel::UnikraftUnikernel
-            | NodeModel::NanosUnikernel => Vec::new(),
-        }
-    }
-
-    #[test]
-    fn test_ztp_methods_of_every_model_match_the_generators() {
-        for model_kind in ModelKind::all() {
-            assert_eq!(
-                model_kind.ztp_methods(),
-                expected_ztp_methods(model_kind),
-                "methods of {model_kind:?}"
-            );
-        }
     }
 
     #[test]

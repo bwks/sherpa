@@ -63,12 +63,24 @@ mod tests {
 
     #[test]
     fn test_the_error_names_the_model_the_value_and_the_allowed_methods() {
-        let error = check_ztp(ModelKind::default_for(NodeModel::JuniperSrxv3), Ztp::Usb)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("juniper_srxv3"), "{error}");
-        assert!(error.contains("'usb'"), "{error}");
-        assert!(error.contains("disabled, tftp, cdrom"), "{error}");
+        let error = check_ztp(
+            ModelKind::default_for(NodeModel::JuniperEvolved),
+            Ztp::Cdrom,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("juniper_evolved"), "{error}");
+        assert!(error.contains("'cdrom'"), "{error}");
+        assert!(error.ends_with("allows: disabled, tftp, usb"), "{error}");
+    }
+
+    #[test]
+    fn test_srx_refuses_tftp_and_names_cdrom() {
+        let srx = ModelKind::default_for(NodeModel::JuniperSrxv3);
+        check_ztp(srx, Ztp::Cdrom).unwrap();
+        let error = check_ztp(srx, Ztp::Tftp).unwrap_err().to_string();
+        assert!(error.contains("'tftp'"), "{error}");
+        assert!(error.ends_with("allows: disabled, cdrom"), "{error}");
     }
 
     #[test]
@@ -90,7 +102,7 @@ mod tests {
     fn test_effective_ztp_prefers_the_manifests() {
         let image = ModelKind::default_for(NodeModel::FrrLinux).node_config();
         assert_eq!(effective_ztp(Some(Ztp::Disabled), &image), Ztp::Disabled);
-        let image = ModelKind::default_for(NodeModel::JuniperSrxv3).node_config();
-        assert_eq!(effective_ztp(Some(Ztp::Tftp), &image), Ztp::Tftp);
+        let image = ModelKind::default_for(NodeModel::JuniperEvolved).node_config();
+        assert_eq!(effective_ztp(Some(Ztp::Usb), &image), Ztp::Usb);
     }
 }
