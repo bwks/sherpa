@@ -24,7 +24,7 @@ Do not document user-facing behaviour here; document it there.
 | [`NODE_SETTINGS.md`](NODE_SETTINGS.md) | A node's settings groups in the image definition (`NodeConfig`) and the manifest node (`topology::Node`): the groups, where their types live, unknown keys refused, which kinds take which settings and the validators. |
 | [`OTEL.md`](OTEL.md) | OpenTelemetry tracing and metrics instrumentation and exported metric names. |
 | [`TALOS.md`](TALOS.md) | Talos Linux nodes and Kubernetes clusters: NoCloud delivery, cluster plan, secrets, machine configs, Cilium, Keycloak login and Vault secrets, bootstrap, lifecycle. |
-| [`ZTP.md`](ZTP.md) | Zero touch provisioning: the one `Ztp` setting, the methods each model takes, the validator and its callers, the manifest override, the readers, container start settings against ZTP, and migration 0016. |
+| [`ZTP.md`](ZTP.md) | Zero touch provisioning: the one `Ztp` setting, the methods each model takes, the validator and its callers, the manifest override, the readers, the blank disk templates and the scripts that make them, container start settings against ZTP, and migration 0016. |
 | [`ZTP_ISO.md`](ZTP_ISO.md) | The ISO 9660 writer for node config media: callers and labels, the primary, Rock Ridge and Joliet trees, sector layout, limits. |
 | [`BUILD.md`](BUILD.md) | Cargo profiles (`dev`, `test`, `release`, `dist`): debug info, the optimised crypto dependencies, the linker, the build scripts and nextest. |
 | [`RELEASE.md`](RELEASE.md) | The one workspace version, the bump pull request (`mise run release:bump`), the manual Release workflow, the `Version` check, and why `ebpf-redirect` is not versioned with Sherpa. |
