@@ -5,6 +5,47 @@ the overrides its manifest node sets (`topology::Node`). Both group the settings
 and both nest by group on the wire: in the image API's JSON and the OpenAPI schema, and in the
 manifest's TOML. No field repeats its group's name: `cpu.count`, not `cpu.cpu_count`.
 
+## Model and kind
+
+A node model takes one or more kinds, `virtual_machine`, `container` or `unikernel`
+(`NodeKind`). `NodeModel::kinds()` lists them in a fixed order, the first being the model's
+default: the kind a node gets when its manifest sets no `kind`. It is an exhaustive `match`, so
+a new model does not compile without an entry. Every model takes one kind today; #613 gives
+some models a second.
+
+`shared::data::ModelKind` (`crates/shared/src/data/model_kind.rs`) is a model with one of its
+kinds. Its fields are private. `ModelKind::new(model, Option<NodeKind>)` refuses a kind the model
+does not take, naming the kinds it takes, and gives the default kind for `None`;
+`ModelKind::default_for(model)` takes the default kind; JSON goes through `ModelKind::new` too
+(`#[serde(try_from)]`). So a `ModelKind` in hand is a valid pair, and what depends on both hangs
+off it:
+
+| On `ModelKind` | What |
+|---|---|
+| `node_config()` | the built-in image settings an import, pull or scan starts from |
+| `ztp_methods()` | the ZTP methods the pair takes (see [`ZTP.md`](ZTP.md)) |
+| `ready_port()` | the pair's readiness port: SSH, or the Talos API for Talos Linux, for a virtual machine; `None` for a container or a unikernel |
+| `has_ssh()`, `default_boot_disk_size()`, `keeps_data_interfaces_up()`, `needs_host_checksums()` | per pair |
+| `all()` | every model with each of its kinds, for tests and for walks such as the container scan's |
+
+The interface functions in `shared::util::interface` (`interface_to_idx`, `interface_from_idx`,
+`node_model_interfaces`, `container_interface_name`), `shared::validators::check_ztp`, and the
+per-model helpers in `server::services::node_ops` (capabilities, QEMU arguments, cloud-init
+quirks, interface types, CPU features, checksum offload, `stored_ready_check`) take a
+`ModelKind`. Each matches on the model; a model with two kinds matches on the kind inside its
+arm. `NodeConfig::model_kind()` gives an image's pair, failing for a stored row whose model does
+not take its kind.
+
+What stays per model: the guest account rules (`guest_account::key_rules` and the login-name
+rule), which are about the OS and the same for each kind of a model.
+
+Which pair a node is: its manifest `kind`, or its model's default (see
+[Manifest node](#manifest-node)). Which pair an image request is: the request's `kind`, or the
+model's default (`services::image_lifecycle::image_model_kind`). Images are keyed by model,
+kind and version (`node_image`'s unique key, see [`DATABASE.md`](DATABASE.md)); `up`'s
+`get_node_image`, `validate::version`, and the image locks (`model/kind/version`) all go by the
+pair.
+
 ## Image definition
 
 `NodeConfig` (`crates/shared/src/data/node.rs`) holds the image fields and one field per group.
@@ -87,6 +128,11 @@ boots `disk.qcow2`, any other unikernel `kernel.elf`, and every other kind `virt
 `topology::Node` (`crates/topology/src/node.rs`) is one struct for every kind of node. Every
 setting is optional: one left out keeps the image's value, or leaves the domain untuned.
 
+`kind` sits beside `model`: an optional `NodeKind`. `topology::validate::check_node_model_kind`
+refuses a kind the model does not take, naming the kinds it takes; it runs in `sherpa validate`
+and in the server's `up` before anything else reads the node's kind. The kind is never inferred
+from a settings group or an `image`.
+
 | Group | Type | Fields |
 |---|---|---|
 | top level | | `name`, `model`, `image`, `version`, `memory`, `environment_variables`, `text_files`, `binary_files`, `systemd_units`, `startup_scripts`, `user_scripts`, `provisioners` |
@@ -120,14 +166,17 @@ no mapping of old keys to new ones.
 The `*_data` fields (`text_files_data`, `ssh_authorized_key_files_data` and the rest) are the
 contents the client read, sent to the server; they stay flat.
 
-`NodeExpanded` carries the same groups. Its `ssh` group is `ExpandedSsh`, whose
-`authorized_key_files` holds the keys the client read rather than the file names. The server's
-`process_manifest_nodes` fills in `boot_disk.size` from `NodeModel::default_boot_disk_size()`
-(Talos) when the manifest sets none.
+`NodeExpanded` carries the same groups, and `model_kind`, the node's resolved `ModelKind`, in
+place of the model: `NodeExpanded::new` resolves it once, so nothing downstream resolves it
+again. Its `ssh` group is `ExpandedSsh`, whose `authorized_key_files` holds the keys the client
+read rather than the file names. The server's `process_manifest_nodes` fills in
+`boot_disk.size` from `ModelKind::default_boot_disk_size()` (Talos) when the manifest sets
+none.
 
 ## Which kinds take what
 
-`topology::validate::check_node_kind_settings` refuses a key the node's kind does not take,
+`topology::validate::check_node_kind_settings` refuses a key the node's kind (its
+`model_kind.kind()`) does not take,
 with a message naming the node, the key and the kind, for example:
 `Manifest - node: 'web01' sets `container`, which does not apply to virtual_machine nodes; 'ubuntu_linux' is a virtual_machine`.
 It runs in `sherpa validate`, in the server's `up` before images are leased, and in `redeploy`.

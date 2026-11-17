@@ -427,7 +427,10 @@ or refers to a record, the manifest's value is a `manifest_` column beside it: `
 `boot_disk_size`, `boot_disk_clone_method`, `boot_disk_cache`, `boot_disk_io`,
 `interfaces_data_count`, `interfaces_queues`, `ztp_method`, `ztp_config`, `vm_watchdog`,
 `container_user`, `container_privileged`, `container_shm_size`, `container_platform` and
-`unikernel_cmdline`. `NULL` is "not set", as in the manifest. A node's `model` is its image's.
+`unikernel_cmdline`. `NULL` is "not set", as in the manifest. A node's `model` is its image's,
+and so is its `kind`, which has no column: the definition holds `kind` only when the image's
+kind is not the model's default, so a node is rebuilt as the kind it was deployed as, and a
+manifest that wrote the default kind reads back without it.
 Choices are `CHECK`ed against their serde names, and numbers against their type's range, or the
 manifest's where it validates one.
 

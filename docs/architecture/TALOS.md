@@ -9,14 +9,14 @@ The research behind these choices is in `docs/investigations/talos-linux.md`.
 `NodeModel::TalosLinux` (`crates/shared/src/data/node.rs`) is a Q35 virtio VM: 2 vCPU, 4 GiB,
 SATA CD-ROM, `host-model` CPU (Talos needs x86-64-v2).
 
-- **Disk.** `NodeModel::default_boot_disk_size()` returns 20 GB for Talos; the NoCloud image is
+- **Disk.** `ModelKind::default_boot_disk_size()` returns 20 GB for Talos; the NoCloud image is
   about 4 GB virtual and Talos needs at least 10. `process_manifest_nodes` (`up/nodes.rs`) applies it
   when the manifest sets no `boot_disk.size`.
-- **Readiness.** `NodeModel::ready_port()` returns the Talos API port (50000); every other VM
-  model returns SSH (22). `node_ops::vm_ready_port` prefers a manifest `ready_check.port`. `up`,
+- **Readiness.** `ModelKind::ready_port()` returns the Talos API port (50000); every other VM
+  model returns SSH (22). `node_ops::stored_ready_check` prefers a manifest `ready_check.port`. `up`,
   `resume` and `redeploy` all probe this port with `node_ops::check_vm_ready`: a TCP connection
   for the Talos API, an SSH handshake for SSH.
-- **No SSH.** `NodeModel::has_ssh()` is false. `ZtpRecord::ssh_port` is `None` for such nodes,
+- **No SSH.** `ModelKind::has_ssh()` is false. `ZtpRecord::ssh_port` is `None` for such nodes,
   so `build_ssh_config` leaves them out, and `NodeInfo::ssh_port` is `None`.
 - **Image.** `resolve_download_url` posts the vanilla schematic (`customization: {}`) to the
   Image Factory's `/schematics` endpoint, reads the returned ID, and downloads

@@ -1149,7 +1149,7 @@ A container node runs one image reference from pull to create, `container::image
 tag)`, which is `{repo}:{tag}` with the repo kept as written:
 
 - **Pull** (`container_pull.rs`) pulls `repo:tag` and records `repo` on the version's
-  `node_image` row. A tar import records the model's built-in repo (`NodeConfig::get_model`).
+  `node_image` row. A tar import records the model's built-in repo (`ModelKind::node_config`).
   An image scan records the repo it matched the tag by: the model's built-in repo, or the
   request's `repo`.
 - **Resolve** (`validate::validate_and_resolve_node_versions`) sets the node's `image` to
@@ -1358,9 +1358,9 @@ what each phase does.
 Each node's readiness check is stored on its record (`node.ready_port` and
 `node.skip_ready_check`, read as `DbNode::ready_check`). `up` writes it when it creates the
 node's record, and `redeploy` replaces it from the new manifest node before the node starts,
-both with `node_ops::stored_ready_check`: the manifest's `ready_check.port`, else a VM's model
-port (`node_ops::vm_ready_port`: SSH, or the Talos API for Talos Linux); a container or
-unikernel without a `ready_check.port` has none. `resume`, `redeploy`'s wait, `inspect` and
+both with `node_ops::stored_ready_check`: the manifest's `ready_check.port`, else the node's
+model and kind's port (`ModelKind::ready_port`: SSH, or the Talos API for Talos Linux, for a
+VM); a container or unikernel without a `ready_check.port` has none. `resume`, `redeploy`'s wait, `inspect` and
 the scanner read the stored check, not the manifest, so every readiness path agrees;
 `node_ops::probed_ready_port` gives the port it is probed on, none when it is skipped.
 
