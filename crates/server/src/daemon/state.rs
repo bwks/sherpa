@@ -3,7 +3,9 @@ use bollard::Docker;
 use dashmap::DashMap;
 use libvirt::Qemu;
 use shared::data::{Config, UpRequest};
-use shared::konst::{ADMIN_USERNAME, SHERPA_DB_FILE_PATH, SHERPA_USERNAME};
+use shared::konst::{
+    ADMIN_USERNAME, SHERPA_DB_FILE_PATH, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME,
+};
 use std::env;
 use std::path::Path;
 use std::sync::Arc;
@@ -14,6 +16,7 @@ use crate::auth::context::AuthContext;
 use crate::auth::jwt;
 use crate::auth::session::{self, SessionLookup};
 use crate::daemon::db_key::load_or_create_db_key;
+use crate::daemon::image_folders::move_renamed_model_folders;
 use crate::daemon::link_states::LinkStates;
 use crate::daemon::metrics::Metrics;
 use crate::daemon::storage::secure_storage;
@@ -140,6 +143,11 @@ impl AppState {
         warn_on_sherpa_logins(&db).await?;
 
         secure_storage();
+        move_renamed_model_folders(
+            Path::new(&config.images_dir),
+            Path::new(SHERPA_STORAGE_POOL_PATH),
+        )
+        .context("Failed to move the image folders of renamed node models")?;
 
         // Initialize libvirt client
         let qemu = Qemu::default();
