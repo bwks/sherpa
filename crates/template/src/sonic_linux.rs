@@ -4,7 +4,7 @@ use askama::Template;
 use serde_json::{Map, Value, json};
 
 use shared::data::{NetworkV4, NetworkV6, OwnerUser};
-use shared::konst::{HTTP_PORT, NODE_CONFIGS_DIR, SONIC_PORT_COUNT, SONIC_PORT_NAME_STEP};
+use shared::konst::{HTTP_PORT, SONIC_PORT_COUNT, SONIC_PORT_NAME_STEP};
 
 #[derive(Template)]
 #[template(path = "sonic/ztp_user.jinja", ext = "txt")]
@@ -49,9 +49,7 @@ impl SonicLinuxZtp {
     #[must_use]
     pub fn file_map(device_name: &str, ztp_server: &Ipv4Addr) -> String {
         let user_script = Self::user_script_filename(device_name);
-        let config_url = format!(
-            "http://{ztp_server}:{HTTP_PORT}/{NODE_CONFIGS_DIR}/{device_name}_config_db.json"
-        );
+        let config_url = format!("http://{ztp_server}:{HTTP_PORT}/{device_name}_config_db.json");
         let sonic_ztp_template = json!(
             {
                 "ztp": {
@@ -66,7 +64,7 @@ impl SonicLinuxZtp {
                   },
                   "002-set-password": {
                       "plugin": {
-                        "url": format!("http://{ztp_server}:{HTTP_PORT}/{NODE_CONFIGS_DIR}/{user_script}"),
+                        "url": format!("http://{ztp_server}:{HTTP_PORT}/{user_script}"),
                         "shell": "true"
                        },
                        "reboot-on-success": false

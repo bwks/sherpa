@@ -15,8 +15,7 @@ pub use container::{
     ContainerMemory, ContainerSpec, container_log_tail, container_state, container_status,
     exec_container, exec_container_detached, exec_container_with_retry, get_container_mount_source,
     get_container_pid, kill_container, list_container_memory, list_containers, pause_container,
-    remove_container, restart_container, run_container, start_container, stop_container,
-    unpause_container,
+    remove_container, run_container, start_container, stop_container, unpause_container,
 };
 
 // Re-export network operations

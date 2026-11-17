@@ -1,29 +1,43 @@
-//! The lab's boot server: the dnsmasq config its container is started with, and, when a
-//! redeploy changes a node's boot options, the config written again and the container restarted.
+//! The lab's boot server: its container and the dnsmasq config it is started with, and, when a
+//! redeploy changes the config, the config written again and the container created again.
+//!
+//! The container runs dnsmasq for DHCP, DNS and TFTP, and an HTTP server for the nodes that boot
+//! by HTTP. The image's HTTP server serves everything under its root, so only the lab's HTTP
+//! configs folder is mounted there: the TFTP folder is mounted outside it, and the leases are
+//! kept inside the container, outside it too.
 //!
 //! dnsmasq reads its main config only when it starts; `SIGHUP` rereads its host files, not
-//! `dnsmasq.conf`. So a changed config takes a restart of the lab's dnsmasq container. The
-//! leases stay: they are kept inside the container.
+//! `dnsmasq.conf`. So a changed config takes a new container. It is created again rather than
+//! restarted, so a lab made by an older release, whose container still has the TFTP folder in
+//! its HTTP root, gets the current mounts with the config that expects them. The leases start
+//! again empty; every node's address is reserved by its MAC, so none changes.
 
 use std::collections::HashMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use askama::Template;
 use bollard::Docker;
 use tracing::instrument;
 
+use container::ContainerSpec;
 use db::Database;
-use shared::data::{self, DbNode, NodeConfig, NodeKind, RecordId, Ztp, ZtpRecord};
+use shared::data::{
+    self, ContainerNetworkAttachment, DbNode, NodeConfig, NodeKind, RecordId, Ztp, ZtpRecord,
+};
 use shared::konst::{
-    CONTAINER_DNSMASQ_NAME, DNSMASQ_DIR, MANAGEMENT_NODE_HOST_OFFSETS, SSH_PORT, ZTP_DIR,
+    BOOT_SERVER_HTTP_ROOT, BOOT_SERVER_TFTP_ROOT, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
+    DNSMASQ_DIR, MANAGEMENT_NODE_HOST_OFFSETS, NODE_CONFIGS_DIR, SSH_PORT, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::effective_ztp;
 
-use crate::konst::DNSMASQ_CONFIG_FILE;
+use crate::konst::{DNSMASQ_CONFIG_FILE, SHERPA_MANAGEMENT_NETWORK_NAME};
+
+/// The capabilities the boot container needs: dnsmasq's DHCP, and the image's NAT rules.
+const BOOT_CONTAINER_CAPABILITIES: &[&str] = &["NET_ADMIN"];
 
 /// A node of a lab as its boot server sees it: its record, its image, and the ZTP method its
 /// definition sets, if any.
@@ -172,8 +186,8 @@ pub(crate) fn rewrite_dnsmasq_config(path: &str, config: &str) -> Result<bool> {
 /// Bring the boot server of lab `lab_id` up to date after its node `redeployed.node_name` was
 /// configured again: render the dnsmasq config from the lab's nodes, with the redeployed node's
 /// new record, and when it differs from the one in the lab folder `lab_dir` (the node's boot
-/// options changed with its ZTP method) write it and restart the lab's dnsmasq container.
-/// Returns whether it restarted.
+/// options changed with its ZTP method, or the lab was made by an older release) write it and
+/// create the lab's boot container again. Returns whether it was recreated.
 ///
 /// A node's method is its definition's, else its image's. A lab with no stored definition
 /// gives every other node its image's.
@@ -181,7 +195,7 @@ pub(crate) fn rewrite_dnsmasq_config(path: &str, config: &str) -> Result<bool> {
 /// # Errors
 ///
 /// Fails when the nodes cannot be read, the config cannot be written, or the container cannot
-/// be restarted.
+/// be removed or started again.
 #[instrument(skip(db, docker, mgmt_net, redeployed), fields(%lab_id, node_name = %redeployed.node_name))]
 pub(crate) async fn refresh_boot_server(
     db: &Database,
@@ -230,11 +244,79 @@ pub(crate) async fn refresh_boot_server(
     if !rewrite_dnsmasq_config(&path, &config)? {
         return Ok(false);
     }
-    let container_name = format!("{CONTAINER_DNSMASQ_NAME}-{lab_id}");
-    container::restart_container(docker, &container_name)
+    container::remove_container(docker, &format!("{CONTAINER_DNSMASQ_NAME}-{lab_id}"))
         .await
-        .context("Failed to restart the lab's boot server with its new config")?;
+        .context("Failed to remove the lab's boot server to start it with its new config")?;
+    run_boot_container(docker, lab_id, &format!("{lab_dir}/{ZTP_DIR}"), mgmt_net)
+        .await
+        .context("Failed to start the lab's boot server with its new config")?;
     Ok(true)
+}
+
+/// The boot container of lab `lab_id`, on its management network `mgmt_net`, serving the lab's
+/// ZTP folder `ztp_dir`: the HTTP configs folder as the HTTP root and nothing else under it, the
+/// TFTP folder as the TFTP root, and the dnsmasq config.
+fn boot_container_spec(
+    lab_id: &str,
+    ztp_dir: &str,
+    mgmt_net: &data::SherpaNetwork,
+) -> ContainerSpec {
+    ContainerSpec {
+        name: format!("{CONTAINER_DNSMASQ_NAME}-{lab_id}"),
+        image: CONTAINER_DNSMASQ_REPO.to_owned(),
+        env_vars: vec![format!("DNS1={}", mgmt_net.v4.first), "DNS2=".to_owned()],
+        volumes: vec![
+            format!("{ztp_dir}/{DNSMASQ_DIR}/{DNSMASQ_CONFIG_FILE}:/etc/{DNSMASQ_CONFIG_FILE}"),
+            format!("{ztp_dir}/{TFTP_DIR}:{BOOT_SERVER_TFTP_ROOT}"),
+            format!("{ztp_dir}/{NODE_CONFIGS_DIR}:{BOOT_SERVER_HTTP_ROOT}"),
+        ],
+        capabilities: BOOT_CONTAINER_CAPABILITIES
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+        management_network: ContainerNetworkAttachment {
+            name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
+            ipv4_address: Some(mgmt_net.v4.boot_server.to_string()),
+            ipv6_address: None,
+            linux_interface_name: None,
+            admin_down: false,
+        },
+        additional_networks: vec![],
+        commands: vec![],
+        privileged: false,
+        shm_size: None,
+        user: None,
+        memory_mib: None,
+        cpu_count: None,
+    }
+}
+
+/// Create and start the boot container of lab `lab_id` (see [`boot_container_spec`]). The
+/// lab's ZTP folder `ztp_dir` must hold its TFTP and HTTP configs folders and its dnsmasq
+/// config.
+///
+/// # Errors
+///
+/// Fails when Docker cannot create or start the container, or it is not running afterwards.
+#[instrument(skip(docker, mgmt_net), fields(%lab_id))]
+pub(crate) async fn run_boot_container(
+    docker: &Docker,
+    lab_id: &str,
+    ztp_dir: &str,
+    mgmt_net: &data::SherpaNetwork,
+) -> Result<()> {
+    tracing::info!(
+        lab_id = %lab_id,
+        boot_server_ip = %mgmt_net.v4.boot_server,
+        "Starting the lab's boot container"
+    );
+    let is_running =
+        container::run_container(docker, boot_container_spec(lab_id, ztp_dir, mgmt_net)).await?;
+    ensure!(
+        is_running,
+        "Boot container {CONTAINER_DNSMASQ_NAME}-{lab_id} is not running after start"
+    );
+    Ok(())
 }
 
 #[cfg(test)]
@@ -311,8 +393,7 @@ mod tests {
     }
 
     const SRX_TFTP: &str = "dhcp-option=tag:srx-tag,67,srx.conf";
-    const SONIC_HTTP: &str =
-        r#"dhcp-option=tag:sonic-tag,67,"http://172.31.1.2:8080/configs/sonic.conf""#;
+    const SONIC_HTTP: &str = r#"dhcp-option=tag:sonic-tag,67,"http://172.31.1.2:8080/sonic.conf""#;
 
     #[test]
     fn a_redeploy_onto_tftp_gives_the_node_its_boot_option() {
@@ -340,9 +421,7 @@ mod tests {
 
         assert!(on.contains(SONIC_HTTP), "{on}");
         assert!(
-            on.contains(
-                r#"dhcp-option=tag:sonic-tag,239,"http://172.31.1.2:8080/configs/sonic.conf""#
-            ),
+            on.contains(r#"dhcp-option=tag:sonic-tag,239,"http://172.31.1.2:8080/sonic.conf""#),
             "{on}"
         );
         assert!(
@@ -387,5 +466,71 @@ mod tests {
         assert!(!rewrite_dnsmasq_config(path, "port=53\n").unwrap());
         assert!(rewrite_dnsmasq_config(path, "port=54\n").unwrap());
         assert_eq!(fs::read_to_string(path).unwrap(), "port=54\n");
+    }
+
+    /// Whether the container path `path` is the boot container's HTTP root or under it.
+    fn served_over_http(path: &str) -> bool {
+        path == BOOT_SERVER_HTTP_ROOT || path.starts_with(&format!("{BOOT_SERVER_HTTP_ROOT}/"))
+    }
+
+    #[test]
+    fn only_the_http_configs_folder_is_served_over_http() {
+        let spec = boot_container_spec("abcd1234", "/labs/abcd1234/ztp", &mgmt_net());
+
+        let served: Vec<&str> = spec
+            .volumes
+            .iter()
+            .filter(|volume| served_over_http(volume.split(':').nth(1).unwrap()))
+            .map(String::as_str)
+            .collect();
+
+        assert_eq!(served, ["/labs/abcd1234/ztp/configs:/opt/ztp"]);
+    }
+
+    #[test]
+    fn the_tftp_folder_is_mounted_as_the_tftp_root() {
+        let spec = boot_container_spec("abcd1234", "/labs/abcd1234/ztp", &mgmt_net());
+
+        assert!(
+            spec.volumes
+                .contains(&"/labs/abcd1234/ztp/tftp:/srv/tftp".to_owned())
+        );
+        assert!(
+            spec.volumes
+                .contains(&"/labs/abcd1234/ztp/dnsmasq/dnsmasq.conf:/etc/dnsmasq.conf".to_owned())
+        );
+        assert_eq!(spec.volumes.len(), 3);
+    }
+
+    #[test]
+    fn dnsmasq_keeps_its_tftp_root_and_leases_outside_the_http_root() {
+        let config = render_dnsmasq_config(&mgmt_net(), &[]).unwrap();
+        let value = |key: &str| {
+            config
+                .lines()
+                .find_map(|line| line.strip_prefix(key))
+                .unwrap()
+                .to_owned()
+        };
+
+        let tftp_root = value("tftp-root=");
+        let leases = value("dhcp-leasefile=");
+
+        assert_eq!(tftp_root, BOOT_SERVER_TFTP_ROOT);
+        assert!(!served_over_http(&tftp_root));
+        assert!(!served_over_http(&leases));
+    }
+
+    #[test]
+    fn the_boot_container_is_the_labs_router_on_its_boot_server_address() {
+        let spec = boot_container_spec("abcd1234", "/labs/abcd1234/ztp", &mgmt_net());
+
+        assert_eq!(spec.name, "sherpa-router-abcd1234");
+        assert_eq!(spec.management_network.name, "sherpa-management-abcd1234");
+        assert_eq!(
+            spec.management_network.ipv4_address.as_deref(),
+            Some("172.31.1.2")
+        );
+        assert_eq!(spec.capabilities, ["NET_ADMIN"]);
     }
 }

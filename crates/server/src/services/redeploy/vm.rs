@@ -136,8 +136,8 @@ pub(super) async fn redeploy_vm(
 }
 
 /// Generate the VM's configuration again and clone its disks (stage 4): the network boot files
-/// of a ZTP method it no longer has are removed, the lab's boot server is restarted when the
-/// node's boot options changed, and its boot files are removed once its disks are cloned.
+/// of a ZTP method it no longer has are removed, the lab's boot server is recreated when its
+/// config changed, and its boot files are removed once its disks are cloned.
 /// The returned result's disks to clone are taken: they are cloned.
 async fn configure_vm(
     redeploy: &mut Redeploy<'_>,
@@ -180,7 +180,7 @@ async fn configure_vm(
     .await?
     {
         let _ = progress.send_status(
-            format!("Boot server restarted with the new boot options of node: {node_name}"),
+            format!("Boot server recreated with the new boot options of node: {node_name}"),
             StatusKind::Done,
         );
     }

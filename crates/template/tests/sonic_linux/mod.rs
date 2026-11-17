@@ -30,8 +30,8 @@ SHERPA_KEYS
 exit 0";
 
 // file_map() uses json!().to_string() which produces compact JSON.
-// HTTP_PORT=8080, NODE_CONFIGS_DIR="configs"
-const EXPECTED_FILE_MAP: &str = r#"{"ztp":{"001-configdb-json":{"clear-config":false,"save-config":true,"url":{"destination":"/etc/sonic/config_db.json","secure":false,"source":"http://172.20.0.1:8080/configs/sonic01_config_db.json"}},"002-set-password":{"plugin":{"shell":"true","url":"http://172.20.0.1:8080/configs/sonic01_ztp_user.sh"},"reboot-on-success":false},"003-configdb-json":{"clear-config":false,"save-config":false,"url":{"secure":false,"source":"http://172.20.0.1:8080/configs/sonic01_config_db.json"}}}}"#;
+// HTTP_PORT=8080
+const EXPECTED_FILE_MAP: &str = r#"{"ztp":{"001-configdb-json":{"clear-config":false,"save-config":true,"url":{"destination":"/etc/sonic/config_db.json","secure":false,"source":"http://172.20.0.1:8080/sonic01_config_db.json"}},"002-set-password":{"plugin":{"shell":"true","url":"http://172.20.0.1:8080/sonic01_ztp_user.sh"},"reboot-on-success":false},"003-configdb-json":{"clear-config":false,"save-config":false,"url":{"secure":false,"source":"http://172.20.0.1:8080/sonic01_config_db.json"}}}}"#;
 
 /// The front-panel ports of the `Force10-S6000` SKU the image uses.
 const EXPECTED_PORTS: [&str; 32] = [
@@ -178,7 +178,7 @@ fn test_sonic_file_map_still_runs_the_owner_account_script() {
     assert_eq!(
         step["plugin"]["url"],
         json!(format!(
-            "http://172.20.0.1:8080/configs/{}",
+            "http://172.20.0.1:8080/{}",
             SonicLinuxZtp::user_script_filename("sonic01")
         ))
     );

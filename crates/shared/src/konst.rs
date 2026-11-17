@@ -201,7 +201,13 @@ pub const ZTP_DIR: &str = "ztp";
 pub const TFTP_DIR: &str = "tftp";
 pub const NODE_CONFIGS_DIR: &str = "configs";
 pub const DNSMASQ_DIR: &str = "dnsmasq";
-pub const DNSMASQ_LEASES_FILE: &str = "dnsmasq.leases";
+/// The boot container's HTTP root. The image's HTTP server serves everything under it, so only
+/// the lab's HTTP configs folder is mounted there.
+pub const BOOT_SERVER_HTTP_ROOT: &str = "/opt/ztp";
+/// The boot container's TFTP root, the lab's TFTP folder, outside the HTTP root.
+pub const BOOT_SERVER_TFTP_ROOT: &str = "/srv/tftp";
+/// The boot container's DHCP lease file, inside the container and outside the HTTP root.
+pub const BOOT_SERVER_LEASES_FILE: &str = "/var/lib/misc/dnsmasq.leases";
 /// The config disk as `RouterOS` names it; the image imports `config.rsc` and the `sherpa` key
 /// from it.
 pub const MIKROTIK_CONFIG_DISK: &str = "sata1";
