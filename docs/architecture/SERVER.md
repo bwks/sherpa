@@ -1226,9 +1226,11 @@ checks and the deletion, so no node is built on the image in between:
   delete with a `ServiceError::Conflict` naming the disk; a pool libvirt cannot read, or a
   backing file that cannot be resolved, fails it. Disks on other images do not.
 - **A container image** is refused while a running container runs it:
-  `container::running_containers_of_image` resolves the recorded reference, its repo at its
-  version, to Docker's image ID and lists the running containers with that ID, and refuses with a
-  `ServiceError::Conflict` naming them. Once the row is
+  `container::running_containers_of_image` finds the running containers created from the
+  recorded reference, its repo at its version, and, when that reference is the image's last tag,
+  every running container of the image, since removing the tag then removes the image; it
+  refuses with a `ServiceError::Conflict` naming them. A container created from another tag of
+  the same image does not stop the delete, which only untags. Once the row is
   deleted, `container::remove_image` removes the reference through Bollard, forced so a stopped
   container does not keep it; another tag of the same image, such as the one it was pulled as,
   is left. A container image without a repo has no Docker image to remove.
