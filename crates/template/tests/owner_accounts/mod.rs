@@ -44,10 +44,12 @@ fn arista_owner_has_a_key_and_a_secondary_key() {
 }
 
 #[test]
-fn aruba_owner_is_an_administrator_with_every_key() {
+fn aruba_owner_is_an_administrator_with_every_key_and_no_password() {
+    let owner = helpers::test_owner(PASSWORD);
     let output = ArubaAoscxTemplate {
         hostname: "aoscx01".to_string(),
-        owner: helpers::test_owner(PASSWORD),
+        username: owner.username,
+        ssh_keys: owner.ssh_keys,
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
         mgmt_ipv4_address: Some(mgmt_address()),
@@ -56,12 +58,12 @@ fn aruba_owner_is_an_administrator_with_every_key() {
     }
     .render()
     .unwrap();
-    assert!(output.contains(&format!(
-        "user admin group administrators password plaintext {PASSWORD}\n\
-         user alice group administrators password plaintext {PASSWORD}\n\
-         user alice authorized-key ssh-rsa OWNERKEY1\n\
+    assert!(output.contains(
+        "user alice authorized-key ssh-rsa OWNERKEY1\n\
          user alice authorized-key ssh-ed25519 OWNERKEY2\n!\n"
-    )));
+    ));
+    assert!(output.contains("user alice group administrators password ciphertext "));
+    assert!(!output.contains(PASSWORD));
     helpers::assert_no_sherpa_login(&output);
 }
 

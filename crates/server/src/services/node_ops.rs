@@ -2550,13 +2550,18 @@ fn generate_tftp_ztp(
                 )?;
             }
             data::NodeModel::ArubaAoscx => {
+                // AOS-CX takes the owner's keys only: its config carries no device password.
+                let data::OwnerUser {
+                    username, ssh_keys, ..
+                } = guest_account::owner_user(
+                    guest_account,
+                    KeyFormat::OpenSsh,
+                    PasswordForm::Plain,
+                )?;
                 let aruba_template = template::ArubaAoscxTemplate {
                     hostname: node.name.clone(),
-                    owner: guest_account::owner_user(
-                        guest_account,
-                        KeyFormat::OpenSsh,
-                        PasswordForm::Plain,
-                    )?,
+                    username,
+                    ssh_keys,
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
