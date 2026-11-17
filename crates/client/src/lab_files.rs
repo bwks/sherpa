@@ -9,18 +9,17 @@ use anyhow::{Context, Result};
 use shared::data::{
     ClusterInfo, DownloadLabResponse, KeycloakInfo, LabInfo, UpResponse, VaultInfo,
 };
-use shared::konst::{SHERPA_KNOWN_HOSTS_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
+use shared::konst::SHERPA_KNOWN_HOSTS_FILE;
 use shared::util::{Emoji, LabFolder, add_lab_ssh_include};
 
 use crate::cluster_credentials::{print_cluster_files, write_cluster_credentials};
 use crate::keycloak_credentials::{print_keycloak_files, write_keycloak_credentials};
-use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, ensure_private_dir, write_secret_file};
+use crate::secret_file::{ensure_private_dir, write_secret_file};
 use crate::vault_credentials::{print_vault_files, write_vault_credentials};
 
 /// The lab files the server sends with `sherpa up` and `sherpa download`.
 pub(crate) struct LabFiles<'a> {
     pub ssh_config: &'a str,
-    pub ssh_private_key: &'a str,
     pub known_hosts: &'a str,
     pub lab_info: &'a LabInfo,
     pub lab_ca: &'a str,
@@ -33,7 +32,6 @@ impl<'a> From<&'a UpResponse> for LabFiles<'a> {
     fn from(response: &'a UpResponse) -> Self {
         Self {
             ssh_config: &response.ssh_config,
-            ssh_private_key: &response.ssh_private_key,
             known_hosts: &response.known_hosts,
             lab_info: &response.lab_info,
             lab_ca: &response.lab_ca,
@@ -48,7 +46,6 @@ impl<'a> From<&'a DownloadLabResponse> for LabFiles<'a> {
     fn from(response: &'a DownloadLabResponse) -> Self {
         Self {
             ssh_config: &response.ssh_config,
-            ssh_private_key: &response.ssh_private_key,
             known_hosts: &response.known_hosts,
             lab_info: &response.lab_info,
             lab_ca: &response.lab_ca,
@@ -81,15 +78,6 @@ pub(crate) fn save_lab_files(folder: &LabFolder, files: &LabFiles) -> Result<Pat
             "{} Node host keys saved: {}",
             Emoji::Success,
             path.display()
-        );
-    }
-    if !files.ssh_private_key.is_empty() {
-        let key = folder.ssh_key();
-        write_secret_file(&key, files.ssh_private_key, SSH_PRIVATE_KEY_ERROR_LABEL)?;
-        println!(
-            "{} SSH private key created: {}",
-            Emoji::Success,
-            key.display()
         );
     }
 
@@ -147,21 +135,16 @@ pub(crate) fn register_ssh_config(ssh_config: &Path) {
 
 /// Rewrite server-generated SSH config for client-side use.
 ///
-/// - Replaces the server's relative `IdentityFile sherpa_ssh_key` and
-///   `UserKnownHostsFile sherpa_known_hosts` with the absolute paths of `folder`'s
-///   `.sherpa/ssh/key` and `.sherpa/ssh/known_hosts`, so the config works from anywhere, as
-///   through the `~/.ssh/config` include or `ssh -F .sherpa/ssh/config`
+/// - Replaces the server's relative `UserKnownHostsFile sherpa_known_hosts` with the absolute
+///   path of `folder`'s `.sherpa/ssh/known_hosts`, so the config works from anywhere, as
+///   through the `~/.ssh/config` include or `ssh -F .sherpa/ssh/config`. The config names no
+///   key file: nodes take the user's own keys.
 /// - On Windows, replaces `UserKnownHostsFile /dev/null` with `UserKnownHostsFile NUL`
 pub(crate) fn rewrite_ssh_config_for_client(ssh_config: &str, folder: &LabFolder) -> String {
-    let result = ssh_config
-        .replace(
-            &format!("IdentityFile {SHERPA_SSH_PRIVATE_KEY_FILE}"),
-            &format!("IdentityFile {}", folder.ssh_key().display()),
-        )
-        .replace(
-            &format!("UserKnownHostsFile {SHERPA_KNOWN_HOSTS_FILE}"),
-            &format!("UserKnownHostsFile {}", folder.known_hosts().display()),
-        );
+    let result = ssh_config.replace(
+        &format!("UserKnownHostsFile {SHERPA_KNOWN_HOSTS_FILE}"),
+        &format!("UserKnownHostsFile {}", folder.known_hosts().display()),
+    );
 
     #[cfg(windows)]
     let result = result.replace("UserKnownHostsFile /dev/null", "UserKnownHostsFile NUL");
@@ -213,10 +196,9 @@ loopback_network = "127.127.3.0/24"
 
     fn lab_files(lab_info: &LabInfo) -> LabFiles<'_> {
         LabFiles {
-            ssh_config: "Host dev dev.fecb1a12\n    HostName 172.31.3.21\n    User sherpa\n    \
-                         IdentityFile sherpa_ssh_key\n    StrictHostKeyChecking yes\n    \
+            ssh_config: "Host dev dev.fecb1a12\n    HostName 172.31.3.21\n    User dev\n    \
+                         StrictHostKeyChecking yes\n    \
                          UserKnownHostsFile sherpa_known_hosts\n",
-            ssh_private_key: "private key",
             known_hosts: "172.31.3.21 ssh-ed25519 AAAA\n",
             lab_info,
             lab_ca: "-----BEGIN CERTIFICATE-----\n",
@@ -235,12 +217,7 @@ loopback_network = "127.127.3.0/24"
         let ssh_config = save_lab_files(&folder, &lab_files(&lab_info)).unwrap();
 
         assert_eq!(ssh_config, dir.path().join(".sherpa/ssh/config"));
-        for path in [
-            folder.ssh_key(),
-            folder.known_hosts(),
-            folder.lab_ca(),
-            folder.lab_info(),
-        ] {
+        for path in [folder.known_hosts(), folder.lab_ca(), folder.lab_info()] {
             assert!(path.is_file(), "{}", path.display());
         }
         let saved: LabInfo = fs::read_to_string(folder.lab_info())
@@ -273,9 +250,7 @@ loopback_network = "127.127.3.0/24"
         for path in [folder.state_dir(), folder.ssh_dir(), folder.ca_dir()] {
             assert_eq!(mode(&path), 0o700, "{}", path.display());
         }
-        for path in [folder.ssh_key(), folder.known_hosts()] {
-            assert_eq!(mode(&path), 0o600, "{}", path.display());
-        }
+        assert_eq!(mode(&folder.known_hosts()), 0o600);
     }
 
     #[cfg(unix)]
@@ -302,8 +277,28 @@ loopback_network = "127.127.3.0/24"
 
         let config = jato::SshConfig::load_file(&ssh_config).unwrap();
         let target = config.route("dev.fecb1a12").unwrap().target;
-        assert_eq!(target.identity_files, [folder.ssh_key()]);
         assert_eq!(target.known_hosts, [folder.known_hosts()]);
+    }
+
+    #[test]
+    fn no_ssh_key_is_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = LabFolder::new(dir.path());
+        let lab_info: LabInfo = LAB_INFO.parse().unwrap();
+
+        let ssh_config = save_lab_files(&folder, &lab_files(&lab_info)).unwrap();
+
+        let mut names: Vec<_> = fs::read_dir(folder.ssh_dir())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["config", "known_hosts"]);
+        assert!(
+            !fs::read_to_string(ssh_config)
+                .unwrap()
+                .contains("IdentityFile")
+        );
     }
 
     #[test]
@@ -319,65 +314,20 @@ loopback_network = "127.127.3.0/24"
     }
 
     #[test]
-    fn test_rewrite_ssh_config_absolute_identity_file() {
-        let server_config = "\
-Host 172.31.1.11 dev01.abc123 dev01.abc123.sherpa.lab.local
-    HostName 172.31.1.11
-    Port 22
-    User sherpa
-    IdentityFile sherpa_ssh_key
-    UserKnownHostsFile /dev/null";
-        let folder = LabFolder::new(Path::new("/home/user/lab"));
-
-        let result = rewrite_ssh_config_for_client(server_config, &folder);
-
-        let expected_path = Path::new("/home/user/lab")
-            .join(".sherpa")
-            .join("ssh")
-            .join("key");
-        assert!(
-            result.contains(&format!("IdentityFile {}", expected_path.display())),
-            "Expected absolute path, got: {result}"
-        );
-        assert!(!result.contains("IdentityFile sherpa_ssh_key\n"));
-    }
-
-    #[test]
     fn test_rewrite_ssh_config_preserves_other_content() {
         let server_config = "\
 Host 172.31.1.11 dev01.abc123
     HostName 172.31.1.11
     Port 22
-    User sherpa
-    IdentityFile sherpa_ssh_key
+    User alice
     StrictHostKeyChecking no";
 
         let result =
             rewrite_ssh_config_for_client(server_config, &LabFolder::new(Path::new("/tmp/lab")));
         assert!(result.contains("HostName 172.31.1.11"));
         assert!(result.contains("Port 22"));
-        assert!(result.contains("User sherpa"));
+        assert!(result.contains("User alice"));
         assert!(result.contains("StrictHostKeyChecking no"));
-    }
-
-    #[test]
-    fn test_rewrite_ssh_config_multiple_hosts() {
-        let server_config = "\
-Host 172.31.1.11 dev01.abc123
-    IdentityFile sherpa_ssh_key
-Host 172.31.1.12 dev02.abc123
-    IdentityFile sherpa_ssh_key";
-        let folder = LabFolder::new(Path::new("/home/user/lab"));
-
-        let result = rewrite_ssh_config_for_client(server_config, &folder);
-
-        let count = result
-            .matches(&format!("IdentityFile {}", folder.ssh_key().display()))
-            .count();
-        assert_eq!(
-            count, 2,
-            "Both hosts should have absolute IdentityFile paths"
-        );
     }
 
     #[test]

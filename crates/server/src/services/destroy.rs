@@ -874,15 +874,15 @@ mod tests {
     use super::*;
     use crate::konst::LAB_CERTS_DIR;
     use shared::data::{SecretContent, SecretFile};
-    use shared::konst::SHERPA_SSH_PRIVATE_KEY_FILE;
 
-    use crate::services::lab_ssh_key::create_lab_ssh_key;
     use crate::services::node_secrets::write_node_secrets;
 
     /// A libvirt URI whose socket does not exist, so connecting always fails.
     const UNREACHABLE_QEMU_URI: &str = "qemu+unix:///system?socket=/nonexistent/sherpa-test.sock";
 
     const LAB_ID: &str = "fecb1a12";
+    /// The lab key a lab from before 0.7.0 still has in its folder, as a file to delete.
+    const OLD_LAB_KEY: &str = "sherpa_ssh_key";
 
     #[test]
     fn containers_are_the_labs_only_by_whole_name() {
@@ -1101,7 +1101,7 @@ mod tests {
         let root = tempdir().unwrap();
         let lab_dir = root.path().join("test1234");
         fs::create_dir(&lab_dir).unwrap();
-        let lab_file = lab_dir.join(SHERPA_SSH_PRIVATE_KEY_FILE);
+        let lab_file = lab_dir.join(OLD_LAB_KEY);
         fs::write(&lab_file, "lab key").unwrap();
         let database_deleted = AtomicBool::new(false);
         let mock = DockerMock::new(json!([]), gateway_failure, volume_failure).await;
@@ -1199,7 +1199,7 @@ mod tests {
             let root = tempdir().unwrap();
             let lab_dir = root.path().join("lab");
             fs::create_dir(&lab_dir).unwrap();
-            fs::write(lab_dir.join(SHERPA_SSH_PRIVATE_KEY_FILE), "lab key").unwrap();
+            fs::write(lab_dir.join(OLD_LAB_KEY), "lab key").unwrap();
             let database_deleted = AtomicBool::new(false);
             let mut summary = DestroySummary::default();
             let mut errors = vec![DestroyError::new(
@@ -1220,7 +1220,7 @@ mod tests {
             )
             .await;
             assert!(!database_deleted.load(Ordering::SeqCst));
-            assert!(lab_dir.join(SHERPA_SSH_PRIVATE_KEY_FILE).exists());
+            assert!(lab_dir.join(OLD_LAB_KEY).exists());
             errors.clear();
             cleanup_lab_metadata(
                 "lab",
@@ -1284,11 +1284,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_labs_ssh_key_is_deleted_with_the_lab_folder() {
+    async fn an_old_labs_ssh_key_is_deleted_with_the_lab_folder() {
         let root = tempdir().unwrap();
         let lab_dir = root.path().join("test1234");
         fs::create_dir(&lab_dir).unwrap();
-        let key = create_lab_ssh_key(lab_dir.to_str().unwrap()).unwrap();
+        let private = lab_dir.join(OLD_LAB_KEY);
+        let public = lab_dir.join(format!("{OLD_LAB_KEY}.pub"));
+        fs::write(&private, "lab key").unwrap();
+        fs::write(&public, "ssh-rsa AAAA").unwrap();
         let mut summary = DestroySummary::default();
         let mut errors = Vec::new();
 
@@ -1304,8 +1307,8 @@ mod tests {
 
         assert!(errors.is_empty(), "{errors:?}");
         assert!(summary.lab_directory_deleted);
-        assert!(!Path::new(&key.private).exists());
-        assert!(!Path::new(&key.public).exists());
+        assert!(!private.exists());
+        assert!(!public.exists());
     }
 
     #[tokio::test]
@@ -1315,7 +1318,7 @@ mod tests {
         let root = tempdir().unwrap();
         let lab_dir = root.path().join("lab");
         fs::create_dir(&lab_dir).unwrap();
-        fs::write(lab_dir.join(SHERPA_SSH_PRIVATE_KEY_FILE), "lab key").unwrap();
+        fs::write(lab_dir.join(OLD_LAB_KEY), "lab key").unwrap();
         let folder_gone_first = AtomicBool::new(false);
         let mut summary = DestroySummary::default();
         let mut errors = Vec::new();
@@ -1341,11 +1344,11 @@ mod tests {
     #[tokio::test]
     async fn a_lab_folder_without_lab_info_or_ssh_files_is_removed() {
         // The server keeps no lab-info.toml, SSH config or known_hosts: the folder holds the
-        // lab's key and certificates only.
+        // lab's certificates, and the lab key of a lab from before 0.7.0.
         let root = tempdir().unwrap();
         let lab_dir = root.path().join("lab");
         fs::create_dir_all(lab_dir.join(LAB_CERTS_DIR)).unwrap();
-        fs::write(lab_dir.join(SHERPA_SSH_PRIVATE_KEY_FILE), "lab key").unwrap();
+        fs::write(lab_dir.join(OLD_LAB_KEY), "lab key").unwrap();
         fs::write(lab_dir.join(LAB_CERTS_DIR).join("ca.crt"), "lab CA").unwrap();
         let mut summary = DestroySummary::default();
         let mut errors = Vec::new();
@@ -1371,7 +1374,7 @@ mod tests {
         let root = tempdir().unwrap();
         let lab_dir = root.path().join("lab");
         fs::create_dir(&lab_dir).unwrap();
-        fs::write(lab_dir.join(SHERPA_SSH_PRIVATE_KEY_FILE), "lab key").unwrap();
+        fs::write(lab_dir.join(OLD_LAB_KEY), "lab key").unwrap();
         fs::set_permissions(&lab_dir, fs::Permissions::from_mode(0o555)).unwrap();
         if fs::write(lab_dir.join("probe"), "").is_ok() {
             // Running as root: permissions do not stop the removal, so there is nothing to test.

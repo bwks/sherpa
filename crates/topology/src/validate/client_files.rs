@@ -139,7 +139,7 @@ mod tests {
             ssh: NodeSsh {
                 authorized_keys: None,
                 authorized_key_files: Some(vec![AuthorizedKeyFile {
-                    source: "/etc/sherpa/ssh/sherpa_ssh_key.pub".to_owned(),
+                    source: "keys/alice.pub".to_owned(),
                 }]),
             },
             ..node()

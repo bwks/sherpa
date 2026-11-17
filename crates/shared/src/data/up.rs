@@ -53,7 +53,6 @@ pub struct UpResponse {
     /// were, or from an older server.
     #[serde(default)]
     pub known_hosts: String,
-    pub ssh_private_key: String,
     /// Kubernetes clusters built in the lab, with their credentials.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub clusters: Vec<ClusterInfo>,

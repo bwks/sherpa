@@ -1,22 +1,19 @@
 use anyhow::{Context, Result, anyhow, bail};
 use base64::{Engine, engine::general_purpose};
-use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
-use ssh_key::{Algorithm, HashAlg, LineEnding, PrivateKey, PublicKey};
+use ssh_key::{HashAlg, PublicKey};
 use tempfile::NamedTempFile;
 use tracing::instrument;
 
 use std::collections::{BTreeSet, HashSet};
-#[cfg(unix)]
-use std::fs::Permissions;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, ErrorKind, Write};
 #[cfg(unix)]
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use super::file_system::{create_file, expand_path};
+use super::file_system::expand_path;
 use super::lab_folder::LabFolder;
 use crate::data::{LabInfo, SshKeyAlgorithms, SshPublicKey};
 use crate::konst::{SHERPA_SSH_INDEX_FILE, SHERPA_SSH_INDEX_HEADER};
@@ -154,72 +151,6 @@ pub fn pub_ssh_key_to_sha256_hash(pub_key_str: &str) -> Result<String> {
 pub fn ssh_key_fingerprint(public_key: &str) -> Result<String> {
     let key = PublicKey::from_openssh(public_key.trim()).context("Invalid SSH public key")?;
     Ok(key.fingerprint(HashAlg::Sha256).to_string())
-}
-
-/// Generate an SSH key pair: `keyname` in `directory`, with `mode` (ignored off Unix), and
-/// `keyname.pub` beside it.
-///
-/// # Errors
-///
-/// Fails when the algorithm is not RSA, Ed25519 or ECDSA, or the key files cannot be written.
-#[instrument(level = "debug", fields(mode = format_args!("{mode:o}")))]
-pub fn generate_ssh_keypair(
-    directory: &str,
-    keyname: &str,
-    algorithm: &Algorithm,
-    mode: u32,
-) -> Result<()> {
-    let mut rng = OsRng;
-
-    // Generate a new private key based on the algorithm
-    let private_key = match algorithm {
-        Algorithm::Rsa { hash } => PrivateKey::random(
-            &mut rng,
-            Algorithm::Rsa {
-                hash: Some(hash.unwrap_or(HashAlg::Sha256)),
-            },
-        )?,
-        Algorithm::Ed25519 => PrivateKey::random(&mut rng, Algorithm::Ed25519)?,
-        Algorithm::Ecdsa { curve } => {
-            PrivateKey::random(&mut rng, Algorithm::Ecdsa { curve: *curve })?
-        }
-        _ => {
-            return Err(anyhow!("Unsupported SSH key algorithm: {algorithm:?}"));
-        }
-    };
-
-    // Serialize the private key to the OpenSSH format
-    let private_key_pem = private_key.to_openssh(LineEnding::LF)?;
-
-    // Extract the public key from the private key
-    let public_key = private_key.public_key();
-    let public_key_ssh = public_key.to_openssh()?;
-
-    let private_key_path = &format!("{directory}/{keyname}");
-    let public_key_path = &format!("{directory}/{keyname}.pub");
-
-    create_file(public_key_path, public_key_ssh.clone())?;
-    write_private_key(Path::new(private_key_path), &private_key_pem, mode)
-}
-
-/// Write a private key with `mode`. The mode is set on the open file before the key goes in,
-/// so the key is never readable by others, even for a moment and even when the file already
-/// existed with a wider mode.
-#[instrument(level = "debug", skip(key), fields(mode = format_args!("{mode:o}")))]
-fn write_private_key(path: &Path, key: &str, mode: u32) -> Result<()> {
-    let mut options = OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    options.mode(mode);
-    let mut file = options
-        .open(path)
-        .with_context(|| format!("Error creating file: {}", path.display()))?;
-    #[cfg(unix)]
-    file.set_permissions(Permissions::from_mode(mode))
-        .with_context(|| format!("Error setting the mode of {}", path.display()))?;
-    file.write_all(key.as_bytes())
-        .with_context(|| format!("Error writing {}", path.display()))?;
-    Ok(())
 }
 
 /// The user's `~/.ssh` folder.
@@ -727,40 +658,13 @@ pub fn clean_stale_lab_ssh_includes(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use std::fs::Permissions;
     use std::path::Path;
 
     use tempfile::TempDir;
 
     use super::*;
-    use crate::konst::LAB_SSH_PRIVATE_KEY_MODE;
-
-    #[cfg(unix)]
-    #[test]
-    fn a_lab_private_key_is_readable_by_its_owner_only() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let key = dir.path().join("lab_key");
-        std::fs::write(&key, "old").unwrap();
-        std::fs::set_permissions(&key, Permissions::from_mode(0o644)).unwrap();
-
-        generate_ssh_keypair(
-            dir.path().to_str().unwrap(),
-            "lab_key",
-            &Algorithm::Rsa { hash: None },
-            LAB_SSH_PRIVATE_KEY_MODE,
-        )
-        .unwrap();
-
-        let mode = std::fs::metadata(&key).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600);
-        let private_key = PrivateKey::from_openssh(std::fs::read_to_string(&key).unwrap()).unwrap();
-        let public_key = std::fs::read_to_string(dir.path().join("lab_key.pub")).unwrap();
-        assert_eq!(
-            PublicKey::from_openssh(public_key.trim())
-                .unwrap()
-                .key_data(),
-            private_key.public_key().key_data()
-        );
-    }
 
     // ========================================================================
     // SSH Include management tests

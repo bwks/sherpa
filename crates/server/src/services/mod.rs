@@ -45,4 +45,3 @@ pub(crate) mod image_lifecycle;
 pub(crate) mod image_store;
 pub(crate) mod lab_nodes;
 pub mod lab_operations;
-pub(crate) mod lab_ssh_key;

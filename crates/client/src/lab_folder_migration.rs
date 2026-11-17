@@ -6,6 +6,9 @@
 //! of the client knows only the `.sherpa` layout (`shared::util::LabFolder`). The step is
 //! idempotent: a migrated folder, or one that is not a lab's, is left as it is.
 //!
+//! The lab key, `sherpa_ssh_key`, is not moved: Sherpa has no lab key from 0.7.0, and the labs
+//! those clients started had to be destroyed before the update to 0.6.0.
+//!
 //! This module is temporary: remove it, and its calls, in a later release, once labs set up
 //! before `.sherpa` are gone.
 
@@ -18,7 +21,7 @@ use topology::Manifest;
 
 use shared::konst::{
     LAB_FILE_NAME, SHERPA_KNOWN_HOSTS_FILE, SHERPA_LAB_CA_FILE, SHERPA_MANIFEST_FILE,
-    SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
+    SHERPA_SSH_CONFIG_FILE,
 };
 use shared::util::{
     Emoji, LabFolder, get_cwd, get_user_ssh_dir, keycloak_file_name, kubeconfig_file_name,
@@ -26,7 +29,7 @@ use shared::util::{
 };
 
 use crate::lab_files::ensure_lab_subdir;
-use crate::private_key::restrict_secret_permissions;
+use crate::secret_file::restrict_secret_permissions;
 
 /// What a failed migration of a lab folder is reported as.
 pub(crate) const MIGRATION_FAILED: &str = "Failed to move the lab files into .sherpa";
@@ -200,11 +203,6 @@ fn legacy_lab_folders(include_paths: &[String]) -> Vec<PathBuf> {
 fn planned_moves(lab_dir: &Path, folder: &LabFolder) -> Vec<Move> {
     let mut moves = vec![
         Move {
-            from: lab_dir.join(SHERPA_SSH_PRIVATE_KEY_FILE),
-            to: folder.ssh_key(),
-            secret: true,
-        },
-        Move {
             from: lab_dir.join(SHERPA_KNOWN_HOSTS_FILE),
             to: folder.known_hosts(),
             secret: true,
@@ -322,9 +320,9 @@ fn is_file(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file())
 }
 
-/// Point an old SSH config's `IdentityFile` and `UserKnownHostsFile` lines, which named the
-/// loose `sherpa_ssh_key` and `sherpa_known_hosts` (by absolute path, or relative in the oldest
-/// clients), at `folder`'s `.sherpa/ssh/key` and `.sherpa/ssh/known_hosts`.
+/// Point an old SSH config's `UserKnownHostsFile` lines, which named the loose
+/// `sherpa_known_hosts` (by absolute path, or relative in the oldest clients), at `folder`'s
+/// `.sherpa/ssh/known_hosts`. Other lines are left as they are.
 fn rewrite_legacy_ssh_config(config: &str, folder: &LabFolder) -> String {
     let mut rewritten: String = config
         .lines()
@@ -338,10 +336,7 @@ fn rewrite_legacy_ssh_config(config: &str, folder: &LabFolder) -> String {
                     .file_name()
                     .is_some_and(|name| name == file)
             };
-            if directive.eq_ignore_ascii_case("IdentityFile") && names(SHERPA_SSH_PRIVATE_KEY_FILE)
-            {
-                format!("{indent}IdentityFile {}", folder.ssh_key().display())
-            } else if directive.eq_ignore_ascii_case("UserKnownHostsFile")
+            if directive.eq_ignore_ascii_case("UserKnownHostsFile")
                 && names(SHERPA_KNOWN_HOSTS_FILE)
             {
                 format!(
@@ -455,9 +450,8 @@ loopback_network = "127.127.3.0/24"
 
         let migration = migrate_lab_folder(lab.path(), &ssh_dir).unwrap();
 
-        assert_eq!(migration.moved.len(), 9, "{:?}", migration.moved);
+        assert_eq!(migration.moved.len(), 8, "{:?}", migration.moved);
         assert!(migration.include_replaced);
-        assert_eq!(fs::read_to_string(folder.ssh_key()).unwrap(), "private key");
         assert_eq!(fs::read_to_string(folder.lab_info()).unwrap(), LAB_INFO);
         for path in [
             folder.known_hosts(),
@@ -475,16 +469,17 @@ loopback_network = "127.127.3.0/24"
                 "kubeconfig-prod",
                 "manifest.toml",
                 "notes.txt",
+                "sherpa_ssh_key",
                 "vault-notes.toml"
             ],
-            "only the user's files stay loose"
+            "only the user's files and the old lab key stay loose"
         );
         let target = jato::SshConfig::load_file(folder.ssh_config())
             .unwrap()
             .route("dev.fecb1a12")
             .unwrap()
             .target;
-        assert_eq!(target.identity_files, [folder.ssh_key()]);
+        assert_eq!(target.identity_files, [lab.path().join("sherpa_ssh_key")]);
         assert_eq!(target.known_hosts, [folder.known_hosts()]);
         let index = fs::read_to_string(ssh_dir.join("sherpa_lab_hosts")).unwrap();
         assert_eq!(
@@ -520,7 +515,6 @@ loopback_network = "127.127.3.0/24"
             assert_eq!(mode(&dir), 0o700, "{}", dir.display());
         }
         for secret in [
-            folder.ssh_key(),
             folder.known_hosts(),
             folder.vault("vault01"),
             folder.keycloak("kc01"),
@@ -552,7 +546,6 @@ loopback_network = "127.127.3.0/24"
                 "lab-info.toml",
                 "sherpa_known_hosts",
                 "sherpa_ssh_config",
-                "sherpa_ssh_key",
                 "talosconfig-k8s",
                 "vault-vault01.toml",
             ]
@@ -587,17 +580,20 @@ loopback_network = "127.127.3.0/24"
         let ssh_dir = home.path().join(".ssh");
         old_layout(lab.path(), &ssh_dir);
         let folder = LabFolder::new(lab.path());
-        // Cut short after lab-info.toml and the key moved; the loose key is newer.
+        // Cut short after lab-info.toml and known_hosts moved; the loose known_hosts is newer.
         fs::create_dir_all(folder.ssh_dir()).unwrap();
         fs::rename(lab.path().join("lab-info.toml"), folder.lab_info()).unwrap();
-        fs::write(folder.ssh_key(), "older key").unwrap();
+        fs::write(folder.known_hosts(), "older host keys").unwrap();
 
         let migration = migrate_lab_folder(lab.path(), &ssh_dir).unwrap();
 
-        assert_eq!(migration.moved.len(), 8, "{:?}", migration.moved);
+        assert_eq!(migration.moved.len(), 7, "{:?}", migration.moved);
         assert!(migration.include_replaced);
         assert_eq!(fs::read_to_string(folder.lab_info()).unwrap(), LAB_INFO);
-        assert_eq!(fs::read_to_string(folder.ssh_key()).unwrap(), "private key");
+        assert_eq!(
+            fs::read_to_string(folder.known_hosts()).unwrap(),
+            "172.31.3.21 ssh-ed25519 AAAA\n"
+        );
         assert!(folder.ssh_config().is_file());
         assert!(!lab.path().join("sherpa_ssh_config").exists());
     }
@@ -649,7 +645,7 @@ loopback_network = "127.127.3.0/24"
 
         assert!(error.to_string().contains("symlink"), "{error}");
         assert_eq!(fs::read_dir(elsewhere.path()).unwrap().count(), 0);
-        assert!(lab.path().join("sherpa_ssh_key").is_file());
+        assert!(lab.path().join("sherpa_known_hosts").is_file());
         assert!(lab.path().join("lab-info.toml").is_file());
     }
 
@@ -666,15 +662,16 @@ loopback_network = "127.127.3.0/24"
     #[test]
     fn an_old_relative_ssh_config_is_pointed_at_the_sherpa_folder() {
         let folder = LabFolder::new(Path::new("/labs/a"));
-        let config = "Host x\n  IdentityFile sherpa_ssh_key\n  UserKnownHostsFile /dev/null\n";
+        let config =
+            "Host x\n  IdentityFile sherpa_ssh_key\n  UserKnownHostsFile sherpa_known_hosts\n";
 
         let rewritten = rewrite_legacy_ssh_config(config, &folder);
 
         assert_eq!(
             rewritten,
             format!(
-                "Host x\n  IdentityFile {}\n  UserKnownHostsFile /dev/null\n",
-                folder.ssh_key().display()
+                "Host x\n  IdentityFile sherpa_ssh_key\n  UserKnownHostsFile {}\n",
+                folder.known_hosts().display()
             )
         );
     }

@@ -103,7 +103,7 @@ pub struct DbNode {
     #[serde(default)]
     pub ready_check: ReadyCheck,
     /// The account the lab's SSH config logs in to the node with: the lab owner's login when
-    /// the node provisions it, else `None`, for the shared `sherpa` account and the lab's key.
+    /// the node provisions it, else `None`.
     #[serde(default)]
     pub ssh_username: Option<String>,
 }

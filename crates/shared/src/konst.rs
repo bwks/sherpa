@@ -113,9 +113,6 @@ pub const RESERVED_USERNAMES: &[&str] = &[
 /// Prefixes of reserved system account names.
 pub const RESERVED_USERNAME_PREFIXES: &[&str] = &["systemd-"];
 pub const SHERPA_PASSWORD: &str = "Everest1953!";
-pub const SHERPA_SSH_PRIVATE_KEY_FILE: &str = "sherpa_ssh_key";
-/// Mode of a lab's private key: only sherpad reads it.
-pub const LAB_SSH_PRIVATE_KEY_MODE: u32 = 0o600;
 pub const SHERPA_SSH_CONFIG_FILE: &str = "sherpa_ssh_config";
 pub const SHERPA_KNOWN_HOSTS_FILE: &str = "sherpa_known_hosts";
 /// The lab CA certificate, saved in the lab folder for clients to trust lab nodes.

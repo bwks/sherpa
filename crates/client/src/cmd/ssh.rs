@@ -12,7 +12,6 @@ use shared::data::{ClientConfig, LabInfo};
 use shared::konst::{SHERPA_DOMAIN_NAME, SHERPA_MANIFEST_FILE, SSH_PROMPT_AUTH_TIMEOUT};
 use shared::util::{LabFolder, term_msg_surround};
 
-use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, restrict_secret_permissions};
 use crate::ssh_client::{self, HostKeyRefresh, PromptScope};
 
 /// Qualify a device name with the lab ID suffix if not already present.
@@ -131,7 +130,7 @@ fn load_ssh_connection(name: &str, lab_id: &str, lab_dir: &Path) -> Result<Strin
     let folder = LabFolder::new(lab_dir);
     let lab_info: LabInfo = read_lab_connection_file(&folder.lab_info(), lab_id)?.parse()?;
     let ssh_config = read_lab_connection_file(&folder.ssh_config(), lab_id)?;
-    prepare_ssh_connection(name, lab_id, &lab_info, &ssh_config, &folder.ssh_key())
+    prepare_ssh_connection(name, lab_id, &lab_info, &ssh_config)
 }
 
 pub(super) fn read_lab_connection_file(path: &Path, lab_id: &str) -> Result<String> {
@@ -152,11 +151,9 @@ fn prepare_ssh_connection(
     lab_id: &str,
     lab_info: &LabInfo,
     ssh_config: &str,
-    key_path: &Path,
 ) -> Result<String> {
     let qualified_name = qualify_device_name(name, lab_id);
-    // Sherpa emits explicit Host aliases for every configured node. Validate
-    // against those aliases before treating a missing personal identity as legacy.
+    // Sherpa emits explicit Host aliases for every configured node.
     let configured = ssh_config.lines().any(|line| {
         let mut fields = line.split_ascii_whitespace();
         fields
@@ -167,29 +164,17 @@ fn prepare_ssh_connection(
                 .any(|alias| alias == qualified_name)
     });
     ensure!(configured, "Node '{name}' not found in lab '{lab_id}'");
-    secure_legacy_key(name, lab_id, lab_info, key_path)?;
-    Ok(qualified_name)
-}
-
-fn secure_legacy_key(name: &str, lab_id: &str, lab_info: &LabInfo, key_path: &Path) -> Result<()> {
     ensure!(
         lab_info.id == lab_id,
         "Saved SSH metadata belongs to a different lab"
     );
-    let node_name = node_name(name, lab_id);
-    if lab_info.ssh_username(node_name).is_none() {
-        restrict_secret_permissions(key_path, SSH_PRIVATE_KEY_ERROR_LABEL)
-            .context("Failed to secure SSH private key before connecting")?;
-    }
-    Ok(())
+    Ok(qualified_name)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Error as IoError;
-    #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
 
     /// Write `content` to `path`, making its folders.
@@ -329,24 +314,12 @@ mod tests {
     }
 
     #[test]
-    fn personal_nodes_do_not_require_sherpa_private_key() {
-        let dir = tempdir().unwrap();
-        let absent_key = dir.path().join("missing");
-        for name in ["vm", "vm.abcd1234", "vm.abcd1234.sherpa.lab.local"] {
-            secure_legacy_key(name, "abcd1234", &lab_info(), &absent_key).unwrap();
-        }
-        assert!(secure_legacy_key("router", "abcd1234", &lab_info(), &absent_key).is_err());
-    }
-
-    #[test]
-    fn unknown_node_is_reported_before_missing_legacy_key() {
-        let dir = tempdir().unwrap();
+    fn an_unknown_node_is_reported() {
         let error = prepare_ssh_connection(
             "oma1",
             "abcd1234",
             &lab_info(),
             "Host 192.0.2.10 oma01.abcd1234 oma01.abcd1234.sherpa.lab.local\n    User alice\n",
-            &dir.path().join("missing-key"),
         )
         .unwrap_err();
         assert!(
@@ -356,78 +329,56 @@ mod tests {
     }
 
     #[test]
-    fn configured_personal_host_aliases_do_not_require_a_legacy_key() {
-        let dir = tempdir().unwrap();
+    fn configured_host_aliases_connect() {
         let config = "Host 192.0.2.10 vm.abcd1234 vm.abcd1234.sherpa.lab.local\n    User alice\n";
         for name in ["vm", "vm.abcd1234", "vm.abcd1234.sherpa.lab.local"] {
             assert_eq!(
-                prepare_ssh_connection(
-                    name,
-                    "abcd1234",
-                    &lab_info(),
-                    config,
-                    &dir.path().join("missing-key")
-                )
-                .unwrap(),
+                prepare_ssh_connection(name, "abcd1234", &lab_info(), config).unwrap(),
                 qualify_device_name(name, "abcd1234")
             );
         }
     }
 
     #[test]
-    fn configured_legacy_host_still_requires_its_key() {
-        let dir = tempdir().unwrap();
-        let error = prepare_ssh_connection(
-            "router",
-            "abcd1234",
-            &lab_info(),
-            "Host router.abcd1234\n",
-            &dir.path().join("missing-key"),
-        )
-        .unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("Failed to secure SSH private key")
+    fn a_node_from_before_0_7_0_needs_no_lab_key() {
+        assert_eq!(
+            prepare_ssh_connection(
+                "router",
+                "abcd1234",
+                &lab_info(),
+                "Host router.abcd1234\n    User sherpa\n"
+            )
+            .unwrap(),
+            "router.abcd1234"
         );
     }
 
     #[test]
+    fn ssh_files_of_another_lab_are_refused() {
+        let error = prepare_ssh_connection(
+            "vm",
+            "ffff0000",
+            &lab_info(),
+            "Host vm.ffff0000\n    User alice\n",
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("different lab"), "{error:#}");
+    }
+
+    #[test]
     fn comments_hostnames_and_partial_aliases_do_not_count_as_nodes() {
-        let dir = tempdir().unwrap();
         for config in [
             "# Host vm.abcd1234\n",
             "Host router.abcd1234 # vm.abcd1234\n",
             "HostName vm.abcd1234\n",
             "Host vm01.abcd1234\n",
         ] {
-            let error = prepare_ssh_connection(
-                "vm",
-                "abcd1234",
-                &lab_info(),
-                config,
-                &dir.path().join("missing-key"),
-            )
-            .unwrap_err();
+            let error = prepare_ssh_connection("vm", "abcd1234", &lab_info(), config).unwrap_err();
             assert!(
                 error.to_string().contains("Node 'vm' not found"),
                 "{error:#}"
             );
         }
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn legacy_nodes_still_enforce_private_key_permissions() {
-        let dir = tempdir().unwrap();
-        let key = dir.path().join("key");
-        fs::write(&key, "test-key").unwrap();
-        fs::set_permissions(&key, fs::Permissions::from_mode(0o644)).unwrap();
-        secure_legacy_key("router", "abcd1234", &lab_info(), &key).unwrap();
-        assert_eq!(
-            fs::metadata(key).unwrap().permissions().mode() & 0o777,
-            0o600
-        );
     }
 
     #[test]

@@ -8,10 +8,7 @@ use anyhow::{Context, Result, anyhow, bail};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
-/// Name of an SSH private key in error messages, e.g. "Failed to write SSH private key: <path>".
-pub(crate) const SSH_PRIVATE_KEY_ERROR_LABEL: &str = "SSH private key";
-
-/// Write a file holding a secret, such as an SSH private key or a kubeconfig, readable only by
+/// Write a file holding a secret, such as an auth token or a kubeconfig, readable only by
 /// the current user. The contents go to a new private file beside `path` that then replaces
 /// it, so they are never readable by others, and a symlink at `path` is replaced rather than
 /// written through. The new file is removed if anything fails.
@@ -135,22 +132,21 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
-    use super::{
-        SSH_PRIVATE_KEY_ERROR_LABEL, ensure_private_dir, restrict_secret_permissions,
-        write_secret_file,
-    };
+    use super::{ensure_private_dir, restrict_secret_permissions, write_secret_file};
+
+    /// What the secret files in these tests are called in error messages.
+    const LABEL: &str = "kubeconfig";
 
     #[cfg(unix)]
     #[test]
-    fn ssh_keys_are_written_owner_only() {
+    fn secret_files_are_written_owner_only() {
         let temp_dir = tempfile::tempdir().expect("create temp directory");
-        let key_path = temp_dir.path().join("sherpa_ssh_key");
+        let path = temp_dir.path().join("kubeconfig-k8s");
 
-        write_secret_file(&key_path, "private key", SSH_PRIVATE_KEY_ERROR_LABEL)
-            .expect("write private key");
+        write_secret_file(&path, "config", LABEL).expect("write secret file");
 
-        let mode = fs::metadata(&key_path)
-            .expect("read private key metadata")
+        let mode = fs::metadata(&path)
+            .expect("read secret file metadata")
             .permissions()
             .mode()
             & 0o777;
@@ -161,16 +157,14 @@ mod tests {
     #[test]
     fn restrict_secret_permissions_repairs_existing_file() {
         let temp_dir = tempfile::tempdir().expect("create temp directory");
-        let key_path = temp_dir.path().join("sherpa_ssh_key");
-        fs::write(&key_path, "private key").expect("write private key");
-        fs::set_permissions(&key_path, fs::Permissions::from_mode(0o644))
-            .expect("set permissive mode");
+        let path = temp_dir.path().join("kubeconfig-k8s");
+        fs::write(&path, "config").expect("write secret file");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("set permissive mode");
 
-        restrict_secret_permissions(&key_path, SSH_PRIVATE_KEY_ERROR_LABEL)
-            .expect("restrict private key");
+        restrict_secret_permissions(&path, LABEL).expect("restrict secret file");
 
-        let mode = fs::metadata(&key_path)
-            .expect("read private key metadata")
+        let mode = fs::metadata(&path)
+            .expect("read secret file metadata")
             .permissions()
             .mode()
             & 0o777;
@@ -180,26 +174,25 @@ mod tests {
     #[test]
     fn restrict_secret_permissions_rejects_missing_file() {
         let temp_dir = tempfile::tempdir().expect("create temp directory");
-        let key_path = temp_dir.path().join("missing_key");
+        let path = temp_dir.path().join("missing-kubeconfig");
 
-        let error = restrict_secret_permissions(&key_path, SSH_PRIVATE_KEY_ERROR_LABEL)
-            .expect_err("missing private key should fail");
+        let error =
+            restrict_secret_permissions(&path, LABEL).expect_err("missing secret file should fail");
 
-        assert!(error.to_string().contains("SSH private key"));
+        assert!(error.to_string().contains(LABEL));
     }
 
     #[cfg(windows)]
     #[test]
-    fn ssh_keys_are_restricted_to_the_current_user_acl() {
+    fn secret_files_are_restricted_to_the_current_user_acl() {
         let temp_dir = tempfile::tempdir().expect("create temp directory");
-        let key_path = temp_dir.path().join("sherpa_ssh_key");
+        let path = temp_dir.path().join("kubeconfig-k8s");
 
-        write_secret_file(&key_path, "private key", SSH_PRIVATE_KEY_ERROR_LABEL)
-            .expect("write private key");
+        write_secret_file(&path, "config", LABEL).expect("write secret file");
 
         assert!(
-            crate::windows_acl::acl_inspection::is_restricted_to_current_user(&key_path)
-                .expect("inspect private key ACL")
+            crate::windows_acl::acl_inspection::is_restricted_to_current_user(&path)
+                .expect("inspect secret file ACL")
         );
     }
 

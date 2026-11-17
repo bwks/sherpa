@@ -20,8 +20,7 @@ use crate::services::vault;
 /// Download lab files (lab-info, SSH config, `known_hosts`) for CLI use.
 ///
 /// The lab info, SSH config and `known_hosts` are built from the database; the server keeps
-/// no copy of them. The caller must own the lab or be an admin. No node logs in with the lab's
-/// SSH key any more, so its private key is not sent: `ssh_private_key` is empty.
+/// no copy of them. The caller must own the lab or be an admin.
 #[instrument(skip(ctx, state), fields(username = %ctx.username, %lab_id))]
 pub async fn download_lab_files(
     ctx: &AuthContext,
@@ -71,7 +70,6 @@ pub async fn download_lab_files(
         lab_info,
         ssh_config,
         known_hosts,
-        ssh_private_key: String::new(),
         clusters,
         lab_ca,
         vaults,

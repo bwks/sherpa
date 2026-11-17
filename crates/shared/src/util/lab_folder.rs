@@ -9,7 +9,6 @@ use crate::konst::{LAB_FILE_NAME, LAB_STATE_DIR, SHERPA_LAB_CA_FILE};
 
 const SSH_DIR: &str = "ssh";
 const SSH_CONFIG_FILE: &str = "config";
-const SSH_KEY_FILE: &str = "key";
 const KNOWN_HOSTS_FILE: &str = "known_hosts";
 const CA_DIR: &str = "ca";
 const TALOS_DIR: &str = "talos";
@@ -74,12 +73,6 @@ impl LabFolder {
     #[must_use]
     pub fn ssh_config(&self) -> PathBuf {
         self.ssh_dir().join(SSH_CONFIG_FILE)
-    }
-
-    /// `.sherpa/ssh/key`, the private key the SSH config names.
-    #[must_use]
-    pub fn ssh_key(&self) -> PathBuf {
-        self.ssh_dir().join(SSH_KEY_FILE)
     }
 
     /// `.sherpa/ssh/known_hosts`, the node host keys the server recorded.
@@ -184,7 +177,6 @@ mod tests {
         assert_eq!(folder.state_dir(), state);
         assert_eq!(folder.lab_info(), state.join("lab-info.toml"));
         assert_eq!(folder.ssh_config(), state.join("ssh/config"));
-        assert_eq!(folder.ssh_key(), state.join("ssh/key"));
         assert_eq!(folder.known_hosts(), state.join("ssh/known_hosts"));
         assert_eq!(folder.lab_ca(), state.join("ca/lab-ca.crt"));
         assert_eq!(

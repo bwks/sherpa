@@ -261,7 +261,6 @@ fn configure_container(
             lab_id: &redeploy.lab_id,
             lab_dir: &redeploy.lab_dir,
             images_dir: &redeploy.state.config.images_dir,
-            lab_public_key: &redeploy.lab_public_key,
             dns: &redeploy.dns,
             mgmt_net: &redeploy.mgmt_net,
             progress: redeploy.progress,

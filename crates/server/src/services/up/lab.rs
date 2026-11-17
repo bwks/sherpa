@@ -32,7 +32,6 @@ use crate::services::guest_account::{self, GuestAccount};
 use crate::services::lab_definition;
 use crate::services::lab_lifecycle;
 use crate::services::lab_operations::{self, LabHold, LabOperation, StopReason};
-use crate::services::lab_ssh_key::create_lab_ssh_key;
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
 use crate::services::ssh_config::{self, LabSshFiles};
@@ -81,11 +80,9 @@ struct LabUp<'a> {
     errors: Vec<data::UpError>,
 }
 
-/// The lab's management network and what was made on it, and the lab's SSH key (phase 4).
+/// The lab's management network and what was made on it (phase 4).
 struct LabNetwork {
     lab_info: data::LabInfo,
-    /// The lab key's public half, which `MikroTik`'s config disk still carries.
-    lab_public_key: data::SshPublicKey,
     mgmt_net: data::SherpaNetwork,
     dns: data::Dns,
     tailnet_status: Option<TailnetStatus>,
@@ -502,13 +499,6 @@ impl LabUp<'_> {
             &self.plan.ssh_usernames,
         )
         .await?;
-        let ssh_key = create_lab_ssh_key(self.build.lab_dir)?;
-        let lab_public_key = util::get_ssh_public_key(&ssh_key.public)
-            .context("Failed to read the lab's SSH public key")?;
-        let _ = self
-            .build
-            .progress
-            .send_status("Lab SSH key created".to_string(), StatusKind::Done);
         let mgmt_net = management_network(&records.subnets)?;
         let dns = util::default_dns_dual_stack(&lab_net, &ipv6_management_subnet)?;
         create_management_networks(&self.build, &records.subnets).await?;
@@ -542,7 +532,6 @@ impl LabUp<'_> {
         self.phase_done("LabNetworkSetup");
         Ok(LabNetwork {
             lab_info,
-            lab_public_key,
             mgmt_net,
             dns,
             tailnet_status,
@@ -636,7 +625,6 @@ impl LabUp<'_> {
                 mgmt_net: &network.mgmt_net,
                 dns: &network.dns,
                 subnets: &records.subnets,
-                lab_public_key: &network.lab_public_key,
                 owner_account: &self.plan.owner_account,
                 talos_clusters: self.manifest.talos_clusters.as_deref().unwrap_or_default(),
             },
@@ -860,8 +848,6 @@ impl LabUp<'_> {
             errors: self.errors.clone(),
             ssh_config: started.ssh_files.ssh_config,
             known_hosts: started.ssh_files.known_hosts,
-            // No node logs in with the lab's key any more, so it is not sent.
-            ssh_private_key: String::new(),
             clusters: started.clusters,
             lab_ca: built.lab_ca.pair.cert.clone(),
             vaults: started.vaults,
