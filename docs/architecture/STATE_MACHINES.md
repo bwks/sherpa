@@ -535,7 +535,7 @@ The stage is the program counter; the lab phase (machine 2) says who owns the re
 | 5 to 7 | `link_nodes`, `create_isolated_container_networks`, `create_shared_bridges` | link rows, Docker macvlan networks, host bridges, bridge rows |
 | 8 | `configure_nodes` (`up/ztp.rs`) | ZTP files, lab CA, node certificates, management addresses |
 | 9 | `start_boot_container` | dnsmasq files and container |
-| 10 to 12 | disk clone, `create_vms`/`create_unikernels`, `attach_vm_links`, the lab key for the client | volumes, domains, eBPF redirects, netem |
+| 10 to 12 | disk clone, `create_vms`/`create_unikernels`, `attach_vm_links`, container network attachments | volumes, domains, eBPF redirects, netem |
 | 13 | `wait_for_nodes`, `start_lab_services`, then `Built` | containers, veths, node state and host keys, Talos, Vault, Keycloak; the lab `Ready` |
 
 **Transitions out of the sequence.**

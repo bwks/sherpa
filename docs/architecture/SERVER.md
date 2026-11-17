@@ -674,7 +674,7 @@ flowchart TB
     end
     createnode --> labfiles
     subgraph phase4["4. LabNetworkSetup"]
-        labfiles["create /opt/sherpa/labs/{lab_id}<br/>store_ssh_usernames: each node's SSH account on its record<br/>(no lab info, SSH config or manifest file: the database holds them)<br/>lab_ssh_key::create_lab_ssh_key: the lab's SSH key pair, 0600"] --> mgmtnets["libvirt NAT management network<br/>Docker bridge management network"] --> tailscale["tailscale::provision when the lab joins a tailnet"]
+        labfiles["create /opt/sherpa/labs/{lab_id}<br/>store_ssh_usernames: each node's SSH account on its record<br/>(no lab info, SSH config or manifest file: the database holds them)"] --> mgmtnets["libvirt NAT management network<br/>Docker bridge management network"] --> tailscale["tailscale::provision when the lab joins a tailnet"]
     end
     tailscale --> links
     subgraph phase5["5. LinkCreation"]
@@ -706,7 +706,7 @@ flowchart TB
     end
     isodown --> ssh
     subgraph phase12["12. SshConfig"]
-        ssh["ssh_config::render_lab_ssh_files in memory, to tell whether the lab key is used<br/>read the lab's SSH private key for the client<br/>build container network attachments"]
+        ssh["build container network attachments<br/>(the SSH config is rendered once the nodes are ready)"]
     end
     ssh --> secrets
     subgraph phase13["13. NodeReadiness"]
@@ -1429,28 +1429,21 @@ download service and `node.host_keys` carry the known_hosts file, and the client
 one (`client::lab_files`, see [`LAB_FOLDER.md`](LAB_FOLDER.md)). Each node's `User` is its recorded login, else the lab owner's name, and the config names no `IdentityFile`: the client's own keys and agent are used. When a node's key is unknown or changed, the client fetches the lab's
 keys with `node.host_keys`, warns about a changed key, and connects again (`SSH_CLIENT.md`).
 
-### Lab SSH keys
+### No lab SSH key
 
-Each lab still has its own key pair, made by `up`, but no node's SSH config uses it and no
-`sherpa` account is built from it any more: every node logs in as the owner (see
-[`GUEST_PROVISIONING.md`](GUEST_PROVISIONING.md#guest-login)). Its removal is a later change. The
-pair is still made and its public half is still written to the MikroTik config disk.
-`services::lab_ssh_key` holds the rules:
+Sherpa keeps no SSH key of its own for nodes: every node with a generated login has the lab
+owner's account with the owner's registered keys (see
+[`GUEST_PROVISIONING.md`](GUEST_PROVISIONING.md#guest-login)), and Sherpa itself never logs in to
+a node. 0.7.0 removed the per-lab key pair:
 
-- **In the lab folder.** `LabSshKeyPaths::in_lab(lab_dir)` is `{lab_dir}/sherpa_ssh_key` and
-  `.pub`. Nothing records which key a lab uses: there is no other.
-- **`up`** makes the pair in phase 4 (`create_lab_ssh_key`), once the lab folder exists, and
-  keeps it for the MikroTik config disk. It is RSA, as some network operating systems take no other kind, and the
-  private key is `0600` (`konst::LAB_SSH_PRIVATE_KEY_MODE`). A failed `up` rolls the folder back
-  with the key.
-- **Node configuration** uses the public key only for the MikroTik config disk, which gets
-  `sherpa_ssh_key.pub` written from it.
-- **`redeploy`** reads the lab's public key for that disk, as `up` did. `resume` changes no node
-  configuration.
-- **`up`'s response and `download`** return an empty `ssh_private_key`, so the client no longer
-  writes `.sherpa/ssh/key` (see [`LAB_FOLDER.md`](LAB_FOLDER.md)). A lab from before 0.7.0 keeps
-  the key file it already has.
-- **`destroy` and `clean`** delete the key with the lab folder (`cleanup_lab_metadata`).
+- `up` makes no key, and `up`'s response and `download` carry no `ssh_private_key`; the client
+  writes no `.sherpa/ssh/key` (see [`LAB_FOLDER.md`](LAB_FOLDER.md)).
+- The MikroTik config disk carries only the owner's key files, no `sherpa_ssh_key.pub`.
+- Nothing about a key is in the database: `lab.ssh_key` went in migration 17.
+- **Labs from before 0.7.0** keep `{lab_dir}/sherpa_ssh_key` and `.pub` in their folder, and
+  their nodes keep trusting it for `sherpa`, until each node is redeployed or the lab destroyed.
+  `redeploy` no longer reads it, and `destroy` and `clean` delete it with the lab folder
+  (`cleanup_lab_metadata`).
 - **No server key.** Releases before 0.6.0 had a shared key pair in `/opt/sherpa/ssh/`, made by
   `sherpad init`, which labs created before lab keys kept (`lab.ssh_key = 'server'`). 0.6.0
   removed it: `sherpad` and the update script refuse to take over a database that still has
@@ -1722,7 +1715,6 @@ Open implementation seams (handler-driven auth, inconsistent service authorizati
 | Node/lab stop/start | `crates/server/src/services/down.rs`, `resume.rs` |
 | Redeploy | `crates/server/src/services/redeploy/` |
 | Inspect/list/download | `crates/server/src/services/inspect.rs`, `list_labs.rs`, `download.rs` |
-| Lab SSH keys | `crates/server/src/services/lab_ssh_key.rs` |
 | Image management | `crates/server/src/services/import.rs`, `container_pull.rs`, `delete.rs` |
 | Link impairment | `crates/server/src/services/impairment.rs` |
 | Scanner | `crates/server/src/services/scanner.rs` |

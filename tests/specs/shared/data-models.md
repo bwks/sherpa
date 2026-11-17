@@ -66,6 +66,7 @@
 
 **What to test:**
 - UpRequest/UpResponse round-trip `[unit]` **P0**
+- `UpResponse` and `DownloadLabResponse` carry no `ssh_private_key` `[unit]` **P0**
 - DestroyRequest/DestroyResponse round-trip `[unit]` **P0**
 - InspectRequest/InspectResponse round-trip `[unit]` **P0**
 - StatusMessage with StatusKind enum `[unit]` **P1**

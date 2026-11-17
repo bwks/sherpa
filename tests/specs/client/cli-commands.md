@@ -20,9 +20,8 @@
 - Authentication token loaded before RPC call `[integration]` **P0**
 - Missing token directs user to `sherpa login` `[integration]` **P0**
 - Streaming progress messages displayed during lab creation `[integration]` **P1**
-- SSH config and private key written locally on success `[integration]` **P1**
-- SSH private key is restricted to mode 0600 on Unix and a protected current-user-only DACL on Windows `[unit]` **P0**
-- Failed private key permission hardening removes the insecure local key `[unit]` **P0**
+- SSH config and `known_hosts` written locally on success, and no SSH key: the response carries none `[unit]` **P0**
+- Secret files (`known_hosts`, credentials) are restricted to mode 0600 on Unix and a protected current-user-only DACL on Windows `[unit]` **P0**
 - `.sherpa/lab-info.toml` written on success `[integration]` **P1**
 - Results displayed in table format `[integration]` **P2**
 - 15-minute extended timeout used for long operations `[unit]` **P1**
@@ -167,11 +166,11 @@ in `tests/labs/console/`.
 
 **What to test:**
 - SSH invoked with correct node name and sherpa-ssh-config `[integration]` **P0**
-- Unknown node names fail with a node-not-found error before private-key checks or SSH invocation `[unit]` **P0**
-- When a local manifest exists, unknown nodes are rejected before loading SSH configuration, lab metadata or private keys `[unit]` **P0**
+- Unknown node names fail with a node-not-found error before SSH invocation `[unit]` **P0**
+- When a local manifest exists, unknown nodes are rejected before loading SSH configuration or lab metadata `[unit]` **P0**
 - Downloaded lab files support SSH without a local manifest; generated Host aliases identify configured nodes `[unit]` **P0**
-- Existing private key permissions are repaired before SSH is invoked `[unit]` **P0**
-- SSH is not invoked when private key permissions cannot be secured `[unit]` **P0**
+- No key file is read or required, including for a node from before 0.7.0 that logs in as `sherpa` `[unit]` **P0**
+- Lab files saved for another lab are refused `[unit]` **P1**
 - Missing lab metadata or SSH configuration gives actionable `sherpa up` and `sherpa download <lab-id> --force` guidance without inferring remote lab status `[unit]` **P0**
 - Other connection-file read errors preserve the underlying cause `[unit]` **P1**
 - Existing `sherpa ssh <node>` command shape remains unchanged `[unit]` **P0**
@@ -183,9 +182,7 @@ in `tests/labs/console/`.
 ## `download` — Download Lab Files
 
 **What to test:**
-- Downloaded SSH private key uses mode 0600 on Unix `[unit]` **P0**
-- Downloaded SSH private key uses a protected current-user-only DACL on Windows `[unit]` **P0**
-- Permission hardening failure removes the downloaded private key and returns an error `[unit]` **P0**
+- No `.sherpa/ssh/key` is written; a stale one from before 0.7.0 is left until `destroy` deletes `.sherpa` `[unit]` **P0**
 - Every file is saved under `.sherpa/` (0700 folders, secrets 0600); nothing is left loose in the lab folder `[unit]` **P0**
 - The saved `.sherpa/ssh/config` names the node's recorded login (else the lab owner) as `User`, has no `IdentityFile` or `IdentitiesOnly` line, and resolves `UserKnownHostsFile` to `.sherpa/ssh/` `[unit]` **P0**
 - A symlinked `.sherpa` is refused `[unit]` **P0**
