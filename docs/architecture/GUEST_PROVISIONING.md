@@ -86,7 +86,7 @@ do not need it. A new device password applies to nodes created or redeployed aft
 - `Plain`: the password itself. For devices that take nothing else, or whose hashed form is not
   verified on them, and for configs that are not served over TFTP or HTTP: Cisco IOS family,
   IOS XR, NX-OS, ASAv, ISE, FTDv, SR Linux (hashes it on commit), MikroTik, Cumulus,
-  AOS-CX, Windows (cloudbase-init needs it) and OpenBSD.
+  Windows (cloudbase-init needs it) and OpenBSD.
 - `Hashed`: a salted SHA-crypt hash from `template::crypt_hash` (`crates/template/src/crypt.rs`,
   the `sha-crypt` crate). `$6$` (SHA-512) for cloud-init `hashed_passwd` on Linux, NixOS, Alpine
   and FreeBSD, Flatcar's Ignition `passwordHash`, Arista EOS `secret sha512`, Junos
@@ -98,10 +98,25 @@ OpenBSD's crypt(3) takes only bcrypt, so cloud-init gets the plain password ther
 (`plain_text_passwd`) and hashes it on the node.
 
 Configs served over TFTP or HTTP (vEOS, Junos, SONiC) carry only a hash, since anything on the
-management network can fetch them. Aruba AOS-CX is the one TFTP model that still carries plain
-text, until #676 chooses its method. Fixed vendor accounts take the device password too:
-`admin` on NX-OS, IOS XR, AOS-CX, PAN-OS, SR Linux (`admin-user`) and RouterOS, `root` on Junos
+management network can fetch them. Fixed vendor accounts take the device password too:
+`admin` on NX-OS, IOS XR, PAN-OS, SR Linux (`admin-user`) and RouterOS, `root` on Junos
 (`root-authentication`), and the ASA `enable password`.
+
+Aruba AOS-CX takes no device password. It has no hashed form, only `plaintext` and a
+`ciphertext` encrypted under a key every switch shares, which Sherpa cannot make, and its config
+is served over TFTP. So the owner logs in by key only (#676):
+
+- the owner and `admin` get `password ciphertext` of one random password nobody keeps,
+  `LOCKED_PASSWORD` in `crates/template/src/aruba_aos.rs`, made once on a 10.16 switch; how, and
+  what it reveals, is in its doc comment. It loads on a fresh 10.16 switch;
+- `no ssh password-authentication`, so SSH offers only `publickey`.
+
+An AOS-CX account with no password at all takes an empty one on the serial console and on the
+HTTPS REST API, which `ssh password-authentication` does not cover, so the owner is locked like
+`admin` rather than left without one. `admin` cannot be deleted (`User admin could not be
+deleted`). Neither account has a password login, the console included. AOS-CX nodes still need
+the owner's keys; `up` and `redeploy` still require a device password for every lab, as for any
+other model.
 
 ## Login names
 
@@ -155,7 +170,8 @@ each key the way the device's config takes it (`guest_account::KeyFormat`): the 
 base64 data, a Cisco MD5 or SHA-256 hash, a Junos statement with the whole key line, or the
 PAN-OS base64 of the key line.
 
-Accounts have full administrator rights and log in by key or by the device password. Never use a
+Accounts have full administrator rights and log in by key or by the device password, except on
+AOS-CX, by key only. Never use a
 `nopassword` form: on IOS and ASA it accepts any password.
 
 | Model | Account | Admin rights | Password |
@@ -165,7 +181,7 @@ Accounts have full administrator rights and log in by key or by the device passw
 | ASAv | `username` and `attributes` with `hashed` keys; `enable password` | privilege 15, `service-type admin` | `password`, plain |
 | NX-OS | `username`, `sshkey`; `admin` | `network-admin` | `password 0`, plain |
 | Arista EOS | `username`, `ssh-key`, `ssh-key secondary` | privilege 15 | `secret sha512`, `$6$` |
-| Aruba AOS-CX | `user`, `authorized-key`; `admin` | `administrators` | `password plaintext` (hashing pending #676) |
+| Aruba AOS-CX | `user`, `authorized-key`; `admin` | `administrators` | none: both locked with `password ciphertext` of a random password, SSH password login off |
 | Junos | `system login user`; `root-authentication` | `super-user` | `$6$` `encrypted-password` |
 | Cumulus | NVUE `system aaa user`, one named `authorized-key` per key | `system-admin` | plain |
 | SR Linux | AAA `user` with an `ssh-key` list; `admin-user` | `srl-admin` (superuser) | plain; SR Linux hashes it on commit |

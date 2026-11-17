@@ -58,7 +58,8 @@ is destroyed (see [`SERVER.md`](SERVER.md#no-lab-ssh-key)). It does not keep:
   keeps them until `destroy` or the node's next `redeploy`. Node names allow only letters,
   digits, `-` and `_`, so `vm-boot.d` is never a node's folder, and `vm-boot.d/<node>` never one
   of the lab's own folders, whatever the VM is called.
-- **A dnsmasq leases file**: dnsmasq keeps its leases inside the boot container.
+- **A dnsmasq leases file**: dnsmasq keeps its leases inside the boot container, outside its HTTP
+  root (see [`ZTP.md`](ZTP.md#the-boot-server)).
 - **Unikernel certificates**: none are issued (see [`LAB_CA.md`](LAB_CA.md#node-certificates)).
 - **Another ZTP method's network boot files**: a `redeploy` that moves a VM off TFTP or HTTP
   removes that node's TFTP config or HTTP files (`node_ops::remove_stale_network_boot_files`),
@@ -84,8 +85,8 @@ through `shared::util::create_dir_with_permissions`. The modes are constants in 
 | Files | Folder | File mode | Folder mode | Read by |
 |---|---|---|---|---|
 | A VM's boot files: cloud-init, cloudbase-init and NoCloud seeds, CD-ROM, disk, USB and Ignition sources, the PAN-OS bootstrap | `vm-boot.d/<node>/` and its subfolders | `0600` | `0700` | `sherpad`, building and uploading the media |
-| SONiC's HTTP files | `ztp/configs/` | `0600` | `0700` | the boot container's HTTP server, as root |
-| TFTP configs (vEOS, AOS-CX, vEvolved; vSRX only when a manifest sets `tftp`, as it defaults to CD-ROM) | `ztp/tftp/` | `0604` | `0705` | dnsmasq in the boot container, as root |
+| SONiC's HTTP files | `ztp/configs/`, the boot container's HTTP root | `0600` | `0700` | the boot container's HTTP server, as root |
+| TFTP configs (vEOS, AOS-CX, vEvolved; vSRX only when a manifest sets `tftp`, as it defaults to CD-ROM) | `ztp/tftp/`, the TFTP root, not served over HTTP | `0604` | `0705` | dnsmasq in the boot container, as root |
 | Container config mounts (cEOS, SR Linux, cJunosEvolved, IOL, FRR, Vault) | `<node>/` and its subfolders | `0600` | `0700` | the container's own processes, as root |
 
 `ztp/` itself is `0700`. A container reads its mounts through Docker, which resolves the bind
